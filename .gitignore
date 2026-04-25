@@ -51,3 +51,8 @@ linear_dedup.json
 
 # Claude Code local settings
 .claude/
+
+# AI assistant context files
+Claude.md
+CLAUDE.md
+.github/copilot-instructions.md
