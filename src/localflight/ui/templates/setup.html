@@ -282,7 +282,7 @@
     <p class="sub">
       ADS-B Exchange enriches your flights with live positions, aircraft type, and registration.
       Free tier via RapidAPI gives 1,000 calls/day — no rate concerns.<br><br>
-      <a href="https://rapidapi.com/adsbexchange/api/adsbexchange-com1" target="_blank" style="color:#00e84a;">
+      <a href="https://rapidapi.com/adsbx/api/adsbexchange-com1" target="_blank" style="color:#00e84a;">
         → Subscribe free at RapidAPI
       </a>
     </p>
@@ -295,6 +295,11 @@
       </div>
       <div class="hint">Long alphanumeric string from your RapidAPI dashboard.</div>
     </div>
+
+    <button class="btn btn-secondary" onclick="testRapidapi()" style="width:100%; margin-top:0;">
+      Test connection
+    </button>
+    <div class="test-result" id="rapidapiTest"></div>
 
     <div class="btn-row">
       <button class="btn btn-secondary" onclick="prevStep()">← Back</button>
@@ -311,7 +316,7 @@
     <p class="sub">
       OpenSky is a fallback position source if ADS-B Exchange is unavailable.
       Free, but registered accounts get 10x more requests.<br><br>
-      <a href="https://opensky-network.org/index.php?option=com_users&view=registration" target="_blank" style="color:#00e84a;">
+      <a href="https://opensky-network.org/login?view=registration" target="_blank" style="color:#00e84a;">
         → Register free at opensky-network.org
       </a>
     </p>
@@ -512,6 +517,32 @@
       if (d.ok) {
         result.className = "test-result ok";
         result.textContent = `✓ Connected — key is valid`;
+      } else {
+        result.className = "test-result err";
+        result.textContent = `✗ ${d.error || "Connection failed"}`;
+      }
+    } catch (e) {
+      result.className = "test-result err";
+      result.textContent = `✗ ${e.message}`;
+    }
+  };
+
+  // ── RapidAPI (ADS-B Exchange) test ───────────────────────────────────────────
+  window.testRapidapi = async function () {
+    const key    = document.getElementById("rapidapiKey").value.trim();
+    const result = document.getElementById("rapidapiTest");
+    if (!key) {
+      result.className = "test-result err"; result.style.display = "block";
+      result.textContent = "Please enter a key first."; return;
+    }
+    result.className = "test-result"; result.style.display = "block";
+    result.textContent = "Testing…";
+    try {
+      const r = await fetch(`/api/setup/test-rapidapi?key=${encodeURIComponent(key)}`);
+      const d = await r.json();
+      if (d.ok) {
+        result.className = "test-result ok";
+        result.textContent = "✓ Connected — key is valid";
       } else {
         result.className = "test-result err";
         result.textContent = `✗ ${d.error || "Connection failed"}`;

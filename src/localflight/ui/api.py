@@ -836,32 +836,22 @@ def api_admin_updates() -> Dict[str, Any]:
     return result
 
 
-# ── Linear issue tracker ──────────────────────────────────────────────────────
 
-class LinearIssueIn(BaseModel):
-    title: str = Field(..., min_length=1, max_length=200)
+# ── User feedback / bug report ────────────────────────────────────────────────
+
+class FeedbackIn(BaseModel):
+    title:       str = Field(..., min_length=1, max_length=200)
     description: str = Field("", max_length=4000)
 
 
-@router.get("/api/admin/linear/status")
-def api_linear_status() -> Dict[str, Any]:
-    """Returns whether Linear is configured."""
-    from localflight.sources.web.linear_client import is_available
-    return {"available": is_available()}
-
-
-@router.post("/api/admin/linear/issue")
-def api_linear_create_issue(body: LinearIssueIn) -> Dict[str, Any]:
-    """File a new Linear issue. Returns the issue URL."""
-    from localflight.sources.web.linear_client import _post_issue, is_available
-    if not is_available():
-        raise HTTPException(status_code=503, detail="Linear not configured — set LINEAR_API_KEY and LINEAR_TEAM_ID in .env")
-    try:
-        url = _post_issue(body.title, body.description)
-        log.info("Linear issue created via UI: %s", url)
-        return {"ok": True, "url": url}
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail=str(exc))
+@router.post("/api/feedback")
+def api_submit_feedback(body: FeedbackIn) -> Dict[str, Any]:
+    """Submit a bug report / feedback to the Local Flight developer's Linear board."""
+    from localflight.sources.web.bug_reporter import submit_report
+    result = submit_report(body.title, body.description)
+    if not result["ok"]:
+        raise HTTPException(status_code=502, detail=result.get("error", "Submission failed"))
+    return {"ok": True, "url": result.get("url")}
 
 
 # ── Standalone app ─────────────────────────────────────────────────────────────

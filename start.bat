@@ -30,7 +30,7 @@ if "%PYTHON%"=="" (
 )
 echo  Python found (%PYTHON%)
 
-:: ── Create venv if missing ────────────────────────────────────────────────────
+:: -- Create venv if missing ----------------------------------------------------------
 if not exist "%~dp0.venv\Scripts\activate.bat" (
     echo  Creating virtual environment...
     %PYTHON% -m venv "%~dp0.venv"
@@ -42,11 +42,11 @@ if not exist "%~dp0.venv\Scripts\activate.bat" (
     echo  Virtual environment created
 )
 
-:: ── Activate venv ─────────────────────────────────────────────────────────────
+:: -- Activate venv -------------------------------------------------------------------
 call "%~dp0.venv\Scripts\activate.bat"
 echo  Venv activated
 
-:: ── Install / update dependencies ────────────────────────────────────────────
+:: -- Install / update dependencies --------------------------------------------------
 echo  Checking dependencies...
 cd /d "%~dp0"
 python -m pip install -e . -q
@@ -57,7 +57,7 @@ if errorlevel 1 (
 )
 echo  Dependencies OK
 
-:: ── Load .env ─────────────────────────────────────────────────────────────────
+:: -- Load .env -----------------------------------------------------------------------
 if exist "%~dp0.env" (
     for /f "usebackq tokens=1,* delims==" %%A in ("%~dp0.env") do (
         set "lf_key=%%A"
@@ -76,16 +76,21 @@ if exist "%~dp0.env" (
     echo.
 )
 
-:: ── Move to src ───────────────────────────────────────────────────────────────
+:: -- Move to src ---------------------------------------------------------------------
 cd /d "%~dp0src"
 
-:: ── Launch Local Flight ───────────────────────────────────────────────────────
+:: -- Launch Local Flight -------------------------------------------------------------
 echo  Launching Local Flight...
 echo  Tray icon will appear in system tray.
 echo  Right-click tray icon to open UI or quit.
 echo.
 python -m localflight
 
-:: ── If we get here, app exited cleanly ───────────────────────────────────────
+:: -- If we get here, app exited cleanly ---------------------------------------------
 echo.
 echo  Local Flight stopped.
+if errorlevel 1 (
+    echo.
+    echo  NOTE: Local Flight exited with an error.
+    pause
+)

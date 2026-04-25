@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "localflight"
-version = "0.2.0"
+version = "0.2.1b1"
 description = "Local-first Flight Information Display System (FIDS) with web UI and LED matrix support"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -35,7 +35,7 @@ dev = [
 
 [project.urls]
 Repository = "https://github.com/tr3y4rch/local-flight"
-Issues    = "https://linear.app/local-flight"
+Issues    = "https://github.com/tr3y4rch/local-flight/issues"
 
 [project.scripts]
 localflight-ui        = "localflight.ui.server:app"

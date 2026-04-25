@@ -98,10 +98,6 @@ OPENSKY_CLIENT_ID=
 OPENSKY_CLIENT_SECRET=
 
 RAPIDAPI_KEY=
-
-# Linear issue tracker (optional)
-LINEAR_API_KEY=
-LINEAR_TEAM_ID=
 EOF
     fi
     echo " Done — edit $ROOT/.env to add your API keys"

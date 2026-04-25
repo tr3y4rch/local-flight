@@ -1,0 +1,164 @@
+{% extends "base.html" %}
+{% from "_nav.html" import topnav %}
+
+{% block title %}Local Flight — Report an Issue{% endblock %}
+
+{% block extra_style %}
+  body { display: block; min-height: 100vh; padding: 0; }
+  .page-body { padding: 20px 16px; }
+  .card {
+    width: min(600px, calc(100vw - 32px));
+    margin: 0 auto;
+  }
+  .fb-header { margin-bottom: 24px; }
+  .fb-header h1 { margin: 0 0 6px 0; font-size: 1.2rem; }
+  .fb-header .sub { opacity: 0.5; font-size: 0.82rem; }
+  .fb-form { display: flex; flex-direction: column; gap: 14px; }
+  .fb-field label {
+    display: block; font-size: 0.78rem; font-weight: 600;
+    opacity: 0.6; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.05em;
+  }
+  .fb-field input, .fb-field textarea, .fb-field select {
+    width: 100%; box-sizing: border-box;
+    background: var(--panel-bg);
+    border: 1px solid var(--panel-border);
+    border-radius: 8px; color: inherit;
+    font-family: inherit; font-size: 0.9rem;
+    padding: 10px 12px; outline: none;
+    transition: border-color 0.15s;
+  }
+  .fb-field input:focus, .fb-field textarea:focus {
+    border-color: rgba(255,255,255,0.35);
+  }
+  [data-theme="light"] .fb-field input:focus,
+  [data-theme="light"] .fb-field textarea:focus {
+    border-color: rgba(0,0,0,0.3);
+  }
+  .fb-field textarea { resize: vertical; min-height: 120px; }
+  .fb-hint { font-size: 0.75rem; opacity: 0.45; margin-top: 5px; }
+  .fb-submit {
+    padding: 10px 24px; border-radius: 8px; border: none;
+    background: #5e6ad2; color: #fff;
+    font-size: 0.9rem; font-weight: 700; cursor: pointer;
+    transition: opacity 0.15s; align-self: flex-start;
+  }
+  .fb-submit:hover    { opacity: 0.85; }
+  .fb-submit:disabled { opacity: 0.4; cursor: default; }
+  .fb-result {
+    padding: 12px 16px; border-radius: 8px;
+    font-size: 0.85rem; display: none;
+  }
+  .fb-result.ok  { background: rgba(0,192,64,0.1); border: 1px solid rgba(0,192,64,0.2); color: #00c040; }
+  .fb-result.err { background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.2); color: #ef4444; }
+  .fb-sysinfo {
+    background: var(--code-bg);
+    border: 1px solid var(--panel-border);
+    border-radius: 8px; padding: 10px 14px;
+    font-size: 0.75rem; font-family: ui-monospace, monospace;
+    line-height: 1.7; opacity: 0.6;
+  }
+{% endblock %}
+
+{% block body %}
+{{ topnav(active="", cfg=cfg) }}
+
+<div class="page-body">
+<main class="card">
+
+  <div class="fb-header">
+    <h1>Report an Issue</h1>
+    <div class="sub">Your report goes directly to the Local Flight developer. No account needed.</div>
+  </div>
+
+  <div class="fb-form">
+
+    <div class="fb-field">
+      <label>What went wrong?</label>
+      <input id="fbTitle" type="text" placeholder="Short summary, e.g. Radar not loading" maxlength="200" autofocus>
+    </div>
+
+    <div class="fb-field">
+      <label>Details <span style="opacity:0.5;font-weight:400;text-transform:none;">(optional)</span></label>
+      <textarea id="fbDesc" placeholder="Steps to reproduce, what you expected, what happened instead…" maxlength="4000"></textarea>
+    </div>
+
+    <div class="fb-field">
+      <label>Attached automatically</label>
+      <div class="fb-sysinfo" id="fbSysInfo">Loading…</div>
+      <div class="fb-hint">This info helps diagnose the problem. It contains no personal data.</div>
+    </div>
+
+    <button class="fb-submit" id="fbSubmit" onclick="submitFeedback()">Send Report</button>
+
+    <div class="fb-result" id="fbResult"></div>
+
+  </div>
+
+</main>
+</div>
+{% endblock %}
+
+{% block extra_script %}
+<script>
+(function () {
+  async function loadSysInfo() {
+    const box = document.getElementById("fbSysInfo");
+    try {
+      const [sys, cfg] = await Promise.all([
+        fetch("/api/admin/system").then(r => r.json()),
+        fetch("/api/config").then(r => r.json()),
+      ]);
+      box.textContent =
+        `Version:  v${sys.version || "?"}\n` +
+        `Platform: ${sys.platform || "?"}\n` +
+        `Python:   ${sys.python || "?"}\n` +
+        `Airport:  ${cfg.airport_iata || "?"}\n` +
+        `Source:   ${cfg.source || "?"}`;
+    } catch {
+      box.textContent = "Could not load system info.";
+    }
+  }
+  loadSysInfo();
+})();
+
+async function submitFeedback() {
+  const title = document.getElementById("fbTitle").value.trim();
+  const desc  = document.getElementById("fbDesc").value.trim();
+  const btn   = document.getElementById("fbSubmit");
+  const res   = document.getElementById("fbResult");
+
+  if (!title) { document.getElementById("fbTitle").focus(); return; }
+
+  btn.disabled    = true;
+  btn.textContent = "Sending…";
+  res.style.display = "none";
+
+  try {
+    const r = await fetch("/api/feedback", {
+      method:  "POST",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify({ title, description: desc }),
+    });
+    const d = await r.json();
+    if (r.ok && d.ok) {
+      res.className   = "fb-result ok";
+      res.textContent = "Report sent — thank you! The developer will look into it.";
+      res.style.display = "";
+      document.getElementById("fbTitle").value = "";
+      document.getElementById("fbDesc").value  = "";
+    } else {
+      res.className   = "fb-result err";
+      res.textContent = d.detail || "Failed to send report. Please try again.";
+      res.style.display = "";
+    }
+  } catch {
+    res.className   = "fb-result err";
+    res.textContent = "Network error — could not reach server.";
+    res.style.display = "";
+  }
+
+  btn.disabled    = false;
+  btn.textContent = "Send Report";
+}
+</script>
+{% endblock %}

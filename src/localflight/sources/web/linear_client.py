@@ -40,6 +40,37 @@ def is_available() -> bool:
     return bool(_api_key() and _team_id())
 
 
+def test_connection() -> dict:
+    """
+    Returns {"ok": True} or {"ok": False, "error": "..."}.
+    Makes a lightweight GraphQL viewer query to verify the key is valid.
+    """
+    import requests
+    api_key = _api_key()
+    team_id = _team_id()
+    if not api_key or not team_id:
+        return {"ok": False, "error": "LINEAR_API_KEY or LINEAR_TEAM_ID not set"}
+    try:
+        r = requests.post(
+            _GRAPHQL_URL,
+            json={"query": "{ viewer { id name } }"},
+            headers={"Authorization": api_key, "Content-Type": "application/json"},
+            timeout=8,
+        )
+        if r.status_code == 401:
+            return {"ok": False, "error": "API key rejected (401) — generate a new key in Linear Settings → API"}
+        if r.status_code != 200:
+            return {"ok": False, "error": f"Linear returned HTTP {r.status_code}"}
+        data = r.json()
+        if data.get("errors"):
+            msg = data["errors"][0].get("message", "Unknown error")
+            return {"ok": False, "error": msg}
+        viewer = (data.get("data") or {}).get("viewer") or {}
+        return {"ok": True, "name": viewer.get("name", "")}
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}
+
+
 # ── Deduplication state ────────────────────────────────────────────────────────
 
 def _dedup_path() -> Path:

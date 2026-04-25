@@ -44,6 +44,7 @@ _SETUP_FREE_PATHS = {
     "/api/setup/complete",
     "/api/setup/reset",
     "/api/setup/test-aviationstack",
+    "/api/setup/test-rapidapi",
     "/api/airports/search",
     "/static",
     "/health",
@@ -101,7 +102,7 @@ try:
     from importlib.metadata import version as _pkg_version
     _APP_VERSION = _pkg_version("localflight")
 except Exception:
-    _APP_VERSION = "0.2.0"
+    _APP_VERSION = "0.2.1b1"
 
 templates.env.globals["app_version"] = _APP_VERSION
 
@@ -243,6 +244,30 @@ async def setup_test_aviationstack(key: str = Query(...)) -> Dict[str, Any]:
                 return {"ok": False, "error": err.get("info", "Invalid key")}
             return {"ok": True}
         return {"ok": False, "error": f"HTTP {r.status_code}"}
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}
+
+
+@app.get("/api/setup/test-rapidapi")
+async def setup_test_rapidapi(key: str = Query(...)) -> Dict[str, Any]:
+    """Test a RapidAPI key for ADS-B Exchange without saving it."""
+    import requests as _req
+    try:
+        r = _req.get(
+            "https://adsbexchange-com1.p.rapidapi.com/v2/lat/47.45/lon/8.55/dist/5/",
+            headers={
+                "X-RapidAPI-Key":  key,
+                "X-RapidAPI-Host": "adsbexchange-com1.p.rapidapi.com",
+            },
+            timeout=10,
+        )
+        if r.status_code == 403:
+            return {"ok": False, "error": "API key invalid or not subscribed to ADS-B Exchange on RapidAPI"}
+        if r.status_code == 429:
+            return {"ok": False, "error": "Rate limit hit — try again shortly"}
+        if r.status_code >= 400:
+            return {"ok": False, "error": f"HTTP {r.status_code}"}
+        return {"ok": True}
     except Exception as exc:
         return {"ok": False, "error": str(exc)}
 
@@ -663,6 +688,18 @@ def admin_hub(request: Request) -> HTMLResponse:
             "cfg": cfg,
             "state": load_state(),
         },
+    )
+
+
+# ── Feedback / bug report ──────────────────────────────────────────────────────
+
+@app.get("/feedback", response_class=HTMLResponse)
+def feedback_page(request: Request) -> HTMLResponse:
+    cfg = load_config()
+    return templates.TemplateResponse(
+        request=request,
+        name="feedback.html",
+        context={"cfg": cfg, "state": load_state()},
     )
 
 

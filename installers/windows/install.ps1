@@ -86,10 +86,6 @@ OPENSKY_CLIENT_ID=
 OPENSKY_CLIENT_SECRET=
 
 RAPIDAPI_KEY=
-
-# Linear issue tracker (optional)
-LINEAR_API_KEY=
-LINEAR_TEAM_ID=
 "@ | Set-Content $envFile -Encoding UTF8
     }
     Write-Host " Done" -ForegroundColor Green
