@@ -1,0 +1,31 @@
+[Unit]
+Description=Local Flight — Chromium Kiosk
+After=localflight.service graphical.target
+Wants=localflight.service
+
+[Service]
+Type=simple
+User=pi
+Environment=DISPLAY=:0
+Environment=XAUTHORITY=/home/pi/.Xauthority
+ExecStartPre=/bin/sleep 5
+ExecStart=/usr/bin/chromium-browser \
+    --kiosk \
+    --no-sandbox \
+    --disable-infobars \
+    --disable-session-crashed-bubble \
+    --disable-restore-session-state \
+    --noerrdialogs \
+    --disable-translate \
+    --no-first-run \
+    --fast \
+    --fast-start \
+    --disable-features=TranslateUI \
+    --disk-cache-dir=/tmp/chromium-cache \
+    --user-data-dir=/home/pi/.localflight/browser-profile \
+    http://localhost:8000/display
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=graphical.target

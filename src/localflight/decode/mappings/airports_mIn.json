@@ -1,0 +1,10 @@
+{
+  "iata": {
+    "ZRH": { "city": "Zurich", "name": "Zurich Airport", "icao": "LSZH", "country": "CH" },
+    "GVA": { "city": "Geneva", "name": "Geneva Airport", "icao": "LSGG", "country": "CH" }
+  },
+  "icao": {
+    "LSZH": { "city": "Zurich", "name": "Zurich Airport", "iata": "ZRH", "country": "CH" },
+    "LSGG": { "city": "Geneva", "name": "Geneva Airport", "iata": "GVA", "country": "CH" }
+  }
+}

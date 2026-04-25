@@ -1,0 +1,541 @@
+{% extends "base.html" %}
+{% from "_nav.html" import topnav %}
+
+{% block title %}Local Flight — Admin{% endblock %}
+
+{% block extra_style %}
+  body { display: block; min-height: 100vh; padding: 0; }
+  .page-body { padding: 20px 16px; }
+  .card {
+    width: min(1100px, calc(100vw - 32px));
+    max-width: none;
+    margin: 0 auto;
+  }
+  .admin-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-bottom: 20px;
+    padding-bottom: 14px;
+    border-bottom: 1px solid var(--panel-border);
+  }
+  .admin-header h1 { margin: 0; font-size: 1.2rem; }
+  .admin-header .sub { opacity: 0.5; font-size: 0.8rem; margin-top: 3px; }
+  .hub-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 14px;
+    margin-bottom: 14px;
+  }
+  .hub-card {
+    background: var(--panel-bg);
+    border: 1px solid var(--panel-border);
+    border-radius: 12px;
+    padding: 14px 16px;
+  }
+  .hub-card h2 {
+    margin: 0 0 12px 0;
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    opacity: 0.6;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .hub-card h2 .icon { font-size: 1rem; opacity: 1; }
+  .stat-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    padding: 5px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+    font-size: 0.85rem;
+    gap: 8px;
+  }
+  [data-theme="light"] .stat-row { border-bottom-color: rgba(0,0,0,0.05); }
+  .stat-row:last-child { border-bottom: none; }
+  .stat-label { opacity: 0.6; white-space: nowrap; }
+  .stat-val { font-weight: 600; text-align: right; font-variant-numeric: tabular-nums; }
+  .stat-val.ok   { color: #00c040; }
+  .stat-val.warn { color: #ffaa00; }
+  .stat-val.bad  { color: #ff4040; }
+  .stat-val.mono { font-family: ui-monospace, monospace; font-size: 0.8rem; }
+  .budget-bar-wrap {
+    margin-top: 10px;
+    background: rgba(255,255,255,0.06);
+    border-radius: 4px;
+    height: 6px;
+    overflow: hidden;
+  }
+  [data-theme="light"] .budget-bar-wrap { background: rgba(0,0,0,0.08); }
+  .budget-bar { height: 100%; border-radius: 4px; background: #00c040; transition: width 0.4s ease; }
+  .budget-bar.warn { background: #ffaa00; }
+  .budget-bar.bad  { background: #ff4040; }
+  .ws-count { font-size: 2rem; font-weight: 800; line-height: 1; margin: 8px 0 4px 0; }
+  .ws-sub   { opacity: 0.5; font-size: 0.78rem; }
+  .device-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.04); font-size: 0.85rem;
+  }
+  [data-theme="light"] .device-row { border-bottom-color: rgba(0,0,0,0.05); }
+  .device-row:last-child { border-bottom: none; }
+  .device-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .device-dot.online  { background: #00c040; }
+  .device-dot.offline { background: #888; }
+  .device-dot.unknown { background: #ffaa00; }
+  .device-name { font-weight: 600; flex: 1; }
+  .device-meta { opacity: 0.5; font-size: 0.78rem; font-family: ui-monospace, monospace; }
+  .mini-log {
+    background: var(--code-bg);
+    border: 1px solid var(--code-border);
+    border-radius: 8px;
+    padding: 10px 12px;
+    font-size: 0.7rem;
+    font-family: ui-monospace, monospace;
+    line-height: 1.5;
+    overflow-y: auto;
+    max-height: 180px;
+    white-space: pre-wrap;
+    word-break: break-all;
+    margin-top: 10px;
+  }
+  .log-ERROR, .log-CRITICAL { color: #ff6060; }
+  .log-WARNING { color: #ffaa40; }
+  .log-INFO    { opacity: 0.8; }
+  .log-DEBUG   { opacity: 0.4; }
+  .refresh-chip {
+    font-size: 0.7rem; opacity: 0.4;
+    font-family: ui-monospace, monospace;
+    margin-top: 14px; text-align: center;
+  }
+  .linear-form { margin-top: 12px; display: flex; flex-direction: column; gap: 8px; }
+  .linear-form input, .linear-form textarea {
+    width: 100%; box-sizing: border-box;
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 7px; color: inherit;
+    font-family: inherit; font-size: 0.82rem;
+    padding: 7px 10px; outline: none;
+    transition: border-color 0.15s;
+  }
+  [data-theme="light"] .linear-form input,
+  [data-theme="light"] .linear-form textarea {
+    background: rgba(0,0,0,0.04);
+    border-color: rgba(0,0,0,0.12);
+  }
+  .linear-form input:focus, .linear-form textarea:focus {
+    border-color: rgba(255,255,255,0.3);
+  }
+  .linear-form textarea { resize: vertical; min-height: 64px; }
+  .linear-btn {
+    padding: 7px 16px; border-radius: 7px; border: none;
+    background: #5e6ad2; color: #fff;
+    font-size: 0.82rem; font-weight: 700; cursor: pointer;
+    transition: opacity 0.15s; align-self: flex-end;
+  }
+  .linear-btn:hover   { opacity: 0.85; }
+  .linear-btn:disabled { opacity: 0.4; cursor: default; }
+  .linear-result {
+    font-size: 0.75rem; margin-top: 6px;
+    padding: 6px 10px; border-radius: 6px; display: none;
+  }
+  .linear-result.ok  { background: rgba(0,192,64,0.1); color: #00c040; }
+  .linear-result.err { background: rgba(239,68,68,0.1); color: #ef4444; }
+  .linear-prefill {
+    font-size: 0.72rem; opacity: 0.5; cursor: pointer;
+    text-decoration: underline; text-underline-offset: 2px;
+    background: none; border: none; color: inherit; padding: 0;
+  }
+  .linear-prefill:hover { opacity: 0.8; }
+{% endblock %}
+
+{% block body %}
+{{ topnav(active="admin", cfg=cfg) }}
+
+<div class="page-body">
+<main class="card">
+
+  <div class="admin-header">
+    <div>
+      <h1>🛠 Admin Hub</h1>
+      <div class="sub">{{ cfg.display_name }} · {{ cfg.airport_iata }}/{{ cfg.airport_icao }}</div>
+    </div>
+    <div class="clock-bar">
+      <span class="clock-utc">UTC: <span class="clock-utc-val">--:--:--</span></span>
+      <span class="clock-sep">|</span>
+      <span>LT: <span class="clock-local-val">--:--:--</span></span>
+    </div>
+  </div>
+
+  <div class="hub-grid" id="hubGrid">
+
+    <div class="hub-card">
+      <h2><span class="icon">⏱</span> Scheduler</h2>
+      <div class="stat-row"><span class="stat-label">Status</span><span class="stat-val" id="schStatus">—</span></div>
+      <div class="stat-row"><span class="stat-label">Airport</span><span class="stat-val mono" id="schAirport">—</span></div>
+      <div class="stat-row"><span class="stat-label">Source</span><span class="stat-val mono" id="schSource">—</span></div>
+      <div class="stat-row"><span class="stat-label">Last fetch</span><span class="stat-val mono" id="schLast">—</span></div>
+      <div class="stat-row"><span class="stat-label">Latency</span><span class="stat-val mono" id="schLatency">—</span></div>
+      <div class="stat-row"><span class="stat-label">Next fetch</span><span class="stat-val mono" id="schNext">—</span></div>
+      <div class="stat-row"><span class="stat-label">Last error</span><span class="stat-val bad" id="schError" style="font-size:0.72rem;max-width:200px;text-align:right;word-break:break-word;">—</span></div>
+    </div>
+
+    <div class="hub-card">
+      <h2><span class="icon">📊</span> API Budget</h2>
+      <div class="stat-row"><span class="stat-label">AviationStack</span><span class="stat-val mono" id="budgetUsed">—</span></div>
+      <div class="stat-row"><span class="stat-label">Remaining</span><span class="stat-val" id="budgetRemain">—</span></div>
+      <div class="stat-row"><span class="stat-label">Month</span><span class="stat-val mono" id="budgetMonth">—</span></div>
+      <div class="stat-row"><span class="stat-label">ADS-B Exchange</span><span class="stat-val" id="adsbStatus">—</span></div>
+      <div class="stat-row"><span class="stat-label">OpenSky</span><span class="stat-val" id="openskyStatus">—</span></div>
+      <div class="budget-bar-wrap"><div class="budget-bar" id="budgetBar" style="width:0%"></div></div>
+    </div>
+
+    <div class="hub-card">
+      <h2><span class="icon">🔗</span> Connected Clients</h2>
+      <div class="ws-count" id="wsCount">—</div>
+      <div class="ws-sub">WebSocket connections</div>
+      <div style="margin-top:14px;">
+        <div class="device-row">
+          <div class="device-dot unknown" id="matrixDot"></div>
+          <span class="device-name">💡 Interstate 75 W</span>
+          <span class="device-meta" id="matrixSeen">never seen</span>
+        </div>
+        <div class="device-row">
+          <div class="device-dot unknown" id="piDot"></div>
+          <span class="device-name">🥧 Raspberry Pi 5</span>
+          <span class="device-meta" id="piSeen">not configured</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="hub-card">
+      <h2><span class="icon">🗄</span> History Database</h2>
+      <div class="stat-row"><span class="stat-label">Total rows</span><span class="stat-val mono" id="histRows">—</span></div>
+      <div class="stat-row"><span class="stat-label">DB size</span><span class="stat-val mono" id="histSize">—</span></div>
+      <div class="stat-row"><span class="stat-label">Airports tracked</span><span class="stat-val mono" id="histAirports">—</span></div>
+      <div class="stat-row"><span class="stat-label">Oldest record</span><span class="stat-val mono" id="histOldest">—</span></div>
+      <div class="stat-row"><span class="stat-label">Newest record</span><span class="stat-val mono" id="histNewest">—</span></div>
+      <div class="stat-row">
+        <span class="stat-label">Browse history</span>
+        <span class="stat-val"><a href="/history" style="color:inherit;opacity:0.7;">📅 View →</a></span>
+      </div>
+    </div>
+
+    <div class="hub-card">
+      <h2><span class="icon">💻</span> System</h2>
+      <div class="stat-row"><span class="stat-label">Version</span><span class="stat-val mono" id="sysVersion">—</span></div>
+      <div class="stat-row"><span class="stat-label">Updates</span><span class="stat-val" id="sysUpdate">—</span></div>
+      <div class="stat-row"><span class="stat-label">Uptime</span><span class="stat-val mono" id="sysUptime">—</span></div>
+      <div class="stat-row"><span class="stat-label">Python</span><span class="stat-val mono" id="sysPython">—</span></div>
+      <div class="stat-row"><span class="stat-label">Platform</span><span class="stat-val mono" id="sysPlatform">—</span></div>
+      <div class="stat-row"><span class="stat-label">Memory used</span><span class="stat-val mono" id="sysMemory">—</span></div>
+      <div class="stat-row"><span class="stat-label">CPU</span><span class="stat-val mono" id="sysCPU">—</span></div>
+      <div class="stat-row"><span class="stat-label">Snapshot dir</span><span class="stat-val mono" id="sysSnap" style="font-size:0.7rem;">—</span></div>
+    </div>
+
+    <div class="hub-card">
+      <h2><span class="icon">📐</span> Linear Issues
+        <span style="opacity:0.4;font-weight:400;text-transform:none;letter-spacing:0;font-size:0.72rem;margin-left:6px;" id="linearStatusLabel">checking…</span>
+      </h2>
+      <div class="stat-row">
+        <span class="stat-label">Integration</span>
+        <span class="stat-val" id="linearStatus">—</span>
+      </div>
+      <button class="linear-prefill" id="linearPrefillBtn" style="display:none;margin:8px 0 2px;" onclick="linearPrefillError()">
+        ↑ Pre-fill with current scheduler error
+      </button>
+      <div class="linear-form">
+        <input id="linearTitle" type="text" placeholder="Issue title" maxlength="200">
+        <textarea id="linearDesc" placeholder="Description (optional)" maxlength="4000"></textarea>
+        <button class="linear-btn" id="linearSubmitBtn" onclick="linearSubmit()">Create Issue</button>
+      </div>
+      <div class="linear-result" id="linearResult"></div>
+    </div>
+
+    <div class="hub-card">
+      <h2><span class="icon">🌤</span> Current METAR</h2>
+      <div class="stat-row"><span class="stat-label">Category</span><span class="stat-val" id="metarCat">—</span></div>
+      <div class="stat-row"><span class="stat-label">Wind</span><span class="stat-val mono" id="metarWind">—</span></div>
+      <div class="stat-row"><span class="stat-label">Visibility</span><span class="stat-val mono" id="metarVis">—</span></div>
+      <div class="stat-row"><span class="stat-label">Ceiling</span><span class="stat-val mono" id="metarCeil">—</span></div>
+      <div class="stat-row"><span class="stat-label">Temp / Dew</span><span class="stat-val mono" id="metarTemp">—</span></div>
+      <div class="stat-row"><span class="stat-label">QNH</span><span class="stat-val mono" id="metarQnh">—</span></div>
+      <div class="stat-row"><span class="stat-label">Raw</span><span class="stat-val mono" id="metarRaw" style="font-size:0.68rem;max-width:200px;text-align:right;word-break:break-all;">—</span></div>
+    </div>
+
+  </div>
+
+  <div class="hub-card">
+    <h2><span class="icon">📋</span> Live Log
+      <span style="opacity:0.4;font-weight:400;text-transform:none;letter-spacing:0;font-size:0.75rem;margin-left:8px;">last 30 lines · auto-refresh 5s</span>
+    </h2>
+    <div class="mini-log" id="miniLog">Loading...</div>
+  </div>
+
+  <div class="refresh-chip" id="refreshChip">Refreshing every 10s</div>
+
+</main>
+</div>
+{% endblock %}
+
+{% block extra_script %}
+<script>
+(function () {
+  function el(id) { return document.getElementById(id); }
+
+  function fmtRel(isoStr) {
+    if (!isoStr) return "—";
+    const d = new Date(isoStr);
+    if (isNaN(d)) return isoStr;
+    const s = Math.max(0, Math.floor((Date.now() - d) / 1000));
+    if (s < 60)   return `${s}s ago`;
+    if (s < 3600) return `${Math.floor(s/60)}m ago`;
+    return `${Math.floor(s/3600)}h ${Math.floor((s%3600)/60)}m ago`;
+  }
+
+  async function loadHealth() {
+    try {
+      const r = await fetch("/api/health"); if (!r.ok) return;
+      const s = await r.json();
+      el("schStatus").textContent = s.ok ? "OK" : "ERROR";
+      el("schStatus").className   = `stat-val ${s.ok ? "ok" : "bad"}`;
+      el("schSource").textContent  = s.source_name || "—";
+      el("schLatency").textContent = s.last_latency_ms != null ? `${s.last_latency_ms}ms` : "—";
+      el("schLast").textContent    = fmtRel(s.last_success_utc);
+      el("schError").textContent   = s.last_error || "none";
+      el("schError").className     = `stat-val ${s.last_error ? "bad" : ""}`;
+      const cfg = await fetch("/api/config").then(r=>r.json());
+      el("schAirport").textContent = `${cfg.airport_iata} / ${cfg.airport_icao}`;
+      if (s.last_attempt_utc && cfg.refresh_seconds) {
+        const next = new Date(new Date(s.last_attempt_utc).getTime() + cfg.refresh_seconds * 1000);
+        const diff = Math.max(0, Math.floor((next - Date.now()) / 1000));
+        el("schNext").textContent = diff > 0 ? `in ${Math.floor(diff/60)}m ${diff%60}s` : "due now";
+      }
+    } catch(e) {}
+  }
+
+  async function loadBudget() {
+    try {
+      const r = await fetch("/api/admin/budget"); if (!r.ok) return;
+      const b = await r.json();
+      const used   = b.aviationstack?.calls_this_month ?? 0;
+      const limit  = b.aviationstack?.monthly_limit    ?? 90;
+      const remain = b.aviationstack?.remaining        ?? limit;
+      const pct    = Math.min(100, Math.round(used / limit * 100));
+      el("budgetUsed").textContent   = `${used} / ${limit} calls`;
+      el("budgetRemain").textContent = `${remain} remaining`;
+      el("budgetRemain").className   = `stat-val ${remain < 10 ? "bad" : remain < 20 ? "warn" : "ok"}`;
+      el("budgetMonth").textContent  = b.aviationstack?.month || "—";
+      const bar = el("budgetBar");
+      bar.style.width = pct + "%";
+      bar.className   = `budget-bar ${pct > 90 ? "bad" : pct > 70 ? "warn" : ""}`;
+      el("adsbStatus").textContent = b.adsbexchange_available ? "✓ Key set" : "✗ No key";
+      el("adsbStatus").className   = `stat-val ${b.adsbexchange_available ? "ok" : "warn"}`;
+      el("openskyStatus").textContent = b.opensky_available ? "✓ Credentials set" : "Anonymous";
+      el("openskyStatus").className   = `stat-val ${b.opensky_available ? "ok" : ""}`;
+    } catch(e) {}
+  }
+
+  async function loadWSCount() {
+    try {
+      const r = await fetch("/api/admin/connections"); if (!r.ok) return;
+      const d = await r.json();
+      el("wsCount").textContent = d.count ?? "—";
+      if (d.matrix_last_seen) {
+        const age = Math.floor((Date.now() - new Date(d.matrix_last_seen)) / 1000);
+        el("matrixSeen").textContent = fmtRel(d.matrix_last_seen);
+        el("matrixDot").className    = `device-dot ${age < 300 ? "online" : "offline"}`;
+      }
+    } catch(e) {}
+  }
+
+  async function loadHistoryStats() {
+    try {
+      const r = await fetch("/api/history/stats"); if (!r.ok) return;
+      const s = await r.json();
+      if (s.error) { el("histRows").textContent = "DB unavailable"; return; }
+      el("histRows").textContent     = (s.total_rows || 0).toLocaleString();
+      el("histSize").textContent     = s.size_mb != null ? `${s.size_mb} MB` : "—";
+      el("histAirports").textContent = (s.airports || []).join(", ") || "—";
+      el("histOldest").textContent   = s.oldest ? s.oldest.slice(0,16).replace("T"," ") : "—";
+      el("histNewest").textContent   = s.newest ? s.newest.slice(0,16).replace("T"," ") : "—";
+    } catch(e) {}
+  }
+
+  async function loadSystem() {
+    try {
+      const r = await fetch("/api/admin/system"); if (!r.ok) return;
+      const s = await r.json();
+      el("sysVersion").textContent  = s.version   ? `v${s.version}` : "—";
+      el("sysUptime").textContent   = s.uptime    || "—";
+      loadUpdates(s.version);
+      el("sysPython").textContent   = s.python    || "—";
+      el("sysPlatform").textContent = s.platform  || "—";
+      el("sysMemory").textContent   = s.memory_mb != null ? `${s.memory_mb} MB` : "—";
+      el("sysCPU").textContent      = s.cpu_pct   != null ? `${s.cpu_pct}%` : "—";
+      el("sysSnap").textContent     = s.snapshot_dir || "—";
+    } catch(e) {}
+  }
+
+  async function loadMETAR() {
+    try {
+      const r = await fetch("/api/metar"); if (!r.ok) return;
+      const m = await r.json();
+      const catColor = m.flight_cat_color || "#888";
+      el("metarCat").innerHTML = `<span style="background:${catColor};color:#000;padding:2px 8px;border-radius:4px;font-weight:800;font-size:0.72rem">${m.flight_cat||'?'}</span>`;
+      el("metarWind").textContent = m.wind_dir_deg != null ? `${m.wind_dir_deg}° @ ${m.wind_speed_kt}kt${m.wind_gust_kt?` G${m.wind_gust_kt}kt`:""}` : "CALM";
+      el("metarVis").textContent  = m.visibility_m != null ? (m.visibility_m >= 9999 ? "10km+" : `${Math.round(m.visibility_m/100)*100}m`) : "—";
+      el("metarCeil").textContent = m.ceiling_ft != null ? `${m.ceiling_ft}ft` : "CLR";
+      el("metarTemp").textContent = m.temp_c != null ? `${m.temp_c}°C / ${m.dewpoint_c}°C` : "—";
+      el("metarQnh").textContent  = m.altimeter_hpa != null ? `${Math.round(m.altimeter_hpa)} hPa` : "—";
+      el("metarRaw").textContent  = m.raw_text || "—";
+    } catch(e) {}
+  }
+
+  let logLineCount = 0;
+  async function loadMiniLog() {
+    try {
+      const r = await fetch(`/logs/tail?after=${Math.max(0, logLineCount - 30)}`);
+      if (!r.ok) return;
+      const d = await r.json();
+      if (!d.lines?.length) return;
+      const lines = d.lines.slice(-30);
+      logLineCount = d.total;
+      el("miniLog").innerHTML = lines.map(line => {
+        let cls = "log-INFO";
+        if (line.includes("| ERROR |")||line.includes("| CRITICAL |")) cls = "log-ERROR";
+        else if (line.includes("| WARNING |")) cls = "log-WARNING";
+        else if (line.includes("| DEBUG |"))   cls = "log-DEBUG";
+        return `<span class="${cls}">${line.replace(/</g,"&lt;")}</span>`;
+      }).join("\n");
+      el("miniLog").scrollTop = el("miniLog").scrollHeight;
+    } catch(e) {}
+  }
+
+  async function loadUpdates(currentVersion) {
+    const upd = el("sysUpdate");
+    if (!upd) return;
+    try {
+      const r = await fetch("/api/admin/updates"); if (!r.ok) return;
+      const d = await r.json();
+      if (d.error && !d.latest) {
+        upd.textContent = "Check failed";
+        upd.className   = "stat-val";
+        return;
+      }
+      if (!d.latest) {
+        upd.textContent = "No releases yet";
+        upd.className   = "stat-val";
+        return;
+      }
+      if (d.update_available) {
+        upd.innerHTML   = `<a href="${d.url}" target="_blank" style="color:#f59e0b;font-weight:700;">v${d.latest} available ↗</a>`;
+        upd.className   = "stat-val warn";
+      } else {
+        upd.textContent = "Up to date";
+        upd.className   = "stat-val ok";
+      }
+    } catch {}
+  }
+
+  async function loadLinearStatus() {
+    try {
+      const r = await fetch("/api/admin/linear/status"); if (!r.ok) return;
+      const d = await r.json();
+      const lbl = el("linearStatusLabel");
+      const val = el("linearStatus");
+      if (d.available) {
+        val.textContent = "✓ Connected";
+        val.className   = "stat-val ok";
+        if (lbl) lbl.textContent = "";
+        el("linearSubmitBtn").disabled = false;
+      } else {
+        val.textContent = "Not configured";
+        val.className   = "stat-val warn";
+        if (lbl) lbl.textContent = "set LINEAR_API_KEY + LINEAR_TEAM_ID in .env";
+        el("linearSubmitBtn").disabled = true;
+      }
+    } catch {}
+  }
+
+  function refreshAll() {
+    loadHealth(); loadBudget(); loadWSCount();
+    loadHistoryStats(); loadSystem(); loadMETAR(); loadMiniLog();
+    loadLinearStatus();
+    el("refreshChip").textContent = `Last refreshed ${new Date().toUTCString().slice(17,25)} UTC · auto every 10s`;
+  }
+
+  refreshAll();
+  setInterval(refreshAll, 10000);
+  setInterval(loadMiniLog, 5000);
+})();
+
+/* ── Linear issue creation ─────────────────────────────────────────────────── */
+let _lastError = null;
+
+async function _fetchLastError() {
+  try {
+    const r = await fetch("/api/health"); if (!r.ok) return null;
+    const s = await r.json();
+    if (!s.ok && s.last_error) {
+      document.getElementById("linearPrefillBtn").style.display = "";
+      return s.last_error;
+    }
+  } catch {}
+  return null;
+}
+
+_fetchLastError().then(e => { _lastError = e; });
+
+function linearPrefillError() {
+  if (!_lastError) return;
+  document.getElementById("linearTitle").value = `Scheduler error — ${_lastError.slice(0, 80)}`;
+  document.getElementById("linearDesc").value  =
+    `**Scheduler error detected by Local Flight admin**\n\n\`\`\`\n${_lastError}\n\`\`\``;
+}
+
+async function linearSubmit() {
+  const title = document.getElementById("linearTitle").value.trim();
+  const desc  = document.getElementById("linearDesc").value.trim();
+  const btn   = document.getElementById("linearSubmitBtn");
+  const res   = document.getElementById("linearResult");
+  if (!title) { document.getElementById("linearTitle").focus(); return; }
+
+  btn.disabled = true;
+  btn.textContent = "Creating…";
+  res.style.display = "none";
+
+  try {
+    const r = await fetch("/api/admin/linear/issue", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title, description: desc }),
+    });
+    const d = await r.json();
+    if (r.ok && d.ok) {
+      res.className = "linear-result ok";
+      res.innerHTML = d.url
+        ? `Issue created: <a href="${d.url}" target="_blank" style="color:inherit">${d.url}</a>`
+        : "Issue created.";
+      res.style.display = "";
+      document.getElementById("linearTitle").value = "";
+      document.getElementById("linearDesc").value  = "";
+    } else {
+      res.className = "linear-result err";
+      res.textContent = d.detail || "Failed to create issue.";
+      res.style.display = "";
+    }
+  } catch (e) {
+    res.className = "linear-result err";
+    res.textContent = "Network error — could not reach server.";
+    res.style.display = "";
+  }
+
+  btn.disabled = false;
+  btn.textContent = "Create Issue";
+}
+</script>
+{% endblock %}

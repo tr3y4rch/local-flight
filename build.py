@@ -1,0 +1,196 @@
+#!/usr/bin/env python3
+"""
+Build Local Flight for the current platform.
+
+Produces:
+  Windows  → dist/LocalFlight/  +  dist/LocalFlight-windows.zip
+  macOS    → dist/LocalFlight.app
+
+Usage:
+    python build.py           # build
+    python build.py --clean   # wipe dist/ and build/ first
+"""
+from __future__ import annotations
+
+import subprocess
+import sys
+import shutil
+from pathlib import Path
+
+ROOT   = Path(__file__).parent
+ASSETS = ROOT / "assets"
+
+
+# ── Icon generation ────────────────────────────────────────────────────────────
+
+def make_icons() -> None:
+    from PIL import Image, ImageDraw  # pillow is a runtime dep, always available
+
+    ASSETS.mkdir(exist_ok=True)
+
+    size = 256
+    img  = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    d    = ImageDraw.Draw(img)
+
+    # Filled circle background
+    d.ellipse([4, 4, size - 4, size - 4], fill="#1D9E75")
+
+    # Simple airplane silhouette (white)
+    cx, cy = size // 2, size // 2
+    d.polygon([                                       # fuselage
+        (cx, cy - 80), (cx + 18, cy + 10),
+        (cx, cy - 10), (cx - 18, cy + 10),
+    ], fill="white")
+    d.polygon([(cx - 70, cy + 20), (cx + 70, cy + 20), (cx, cy - 10)], fill="white")  # wings
+    d.polygon([(cx - 28, cy + 50), (cx + 28, cy + 50), (cx, cy + 10)], fill="white")  # tail
+
+    img.save(ASSETS / "icon.png")
+
+    if sys.platform == "win32":
+        sizes = [(16, 16), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)]
+        frames = [img.resize(s, Image.LANCZOS) for s in sizes]
+        frames[0].save(
+            ASSETS / "icon.ico", format="ICO",
+            sizes=sizes, append_images=frames[1:],
+        )
+        print("Generated assets/icon.ico")
+
+    elif sys.platform == "darwin":
+        iconset = ASSETS / "icon.iconset"
+        iconset.mkdir(exist_ok=True)
+        for s in [16, 32, 64, 128, 256, 512]:
+            img.resize((s,    s),    Image.LANCZOS).save(iconset / f"icon_{s}x{s}.png")
+            img.resize((s*2,  s*2),  Image.LANCZOS).save(iconset / f"icon_{s}x{s}@2x.png")
+        subprocess.run(
+            ["iconutil", "-c", "icns", str(iconset), "-o", str(ASSETS / "icon.icns")],
+            check=True,
+        )
+        shutil.rmtree(iconset)
+        print("Generated assets/icon.icns")
+
+    else:
+        print("Generated assets/icon.png  (Linux — no .ico/.icns needed)")
+
+
+# ── Code signing ──────────────────────────────────────────────────────────────
+
+def _sign_windows(exe: Path) -> None:
+    """
+    Optionally sign the Windows EXE with signtool.
+    Requires:
+      SIGNTOOL_CERT  — path to .pfx certificate file
+      SIGNTOOL_PASS  — certificate password
+    Without these, build succeeds but SmartScreen will show an "Unknown publisher"
+    warning on first run. Users can bypass it via More info → Run anyway.
+    """
+    import os
+    cert = os.getenv("SIGNTOOL_CERT", "").strip()
+    if not cert:
+        print("  Signing skipped (set SIGNTOOL_CERT + SIGNTOOL_PASS to enable)")
+        return
+    pw = os.getenv("SIGNTOOL_PASS", "")
+    signtool = shutil.which("signtool") or r"C:\Program Files (x86)\Windows Kits\10\bin\x64\signtool.exe"
+    try:
+        subprocess.run([
+            signtool, "sign",
+            "/f", cert,
+            "/p", pw,
+            "/tr", "http://timestamp.digicert.com",
+            "/td", "sha256",
+            "/fd", "sha256",
+            str(exe),
+        ], check=True)
+        print(f"  Signed: {exe.name}")
+    except Exception as e:
+        print(f"  Signing failed (non-fatal): {e}")
+
+
+def _sign_macos(app: Path) -> None:
+    """
+    Optionally sign and notarize the macOS .app bundle.
+    Requires:
+      CODESIGN_IDENTITY  — Developer ID Application: Your Name (TEAMID)
+      NOTARIZE_PROFILE   — notarytool keychain profile name (see README)
+    Without these, Gatekeeper will block the app. Users can bypass via
+    System Settings → Privacy & Security → Open Anyway.
+    """
+    import os
+    identity = os.getenv("CODESIGN_IDENTITY", "").strip()
+    if not identity:
+        print("  Signing skipped (set CODESIGN_IDENTITY to enable)")
+        print("  Gatekeeper note: users must right-click → Open on first launch")
+        return
+    try:
+        subprocess.run([
+            "codesign", "--deep", "--force", "--options", "runtime",
+            "--sign", identity,
+            "--entitlements", str(ROOT / "assets" / "entitlements.plist"),
+            str(app),
+        ], check=True)
+        print(f"  Signed: {app.name}")
+    except Exception as e:
+        print(f"  codesign failed (non-fatal): {e}")
+        return
+
+    profile = os.getenv("NOTARIZE_PROFILE", "").strip()
+    if not profile:
+        print("  Notarization skipped (set NOTARIZE_PROFILE to enable)")
+        return
+    try:
+        zip_path = app.parent / "LocalFlight-notarize.zip"
+        subprocess.run(["ditto", "-c", "-k", "--keepParent", str(app), str(zip_path)], check=True)
+        subprocess.run([
+            "xcrun", "notarytool", "submit", str(zip_path),
+            "--keychain-profile", profile,
+            "--wait",
+        ], check=True)
+        subprocess.run(["xcrun", "stapler", "staple", str(app)], check=True)
+        zip_path.unlink(missing_ok=True)
+        print(f"  Notarized and stapled: {app.name}")
+    except Exception as e:
+        print(f"  Notarization failed (non-fatal): {e}")
+
+
+# ── Main ───────────────────────────────────────────────────────────────────────
+
+def main() -> None:
+    if "--clean" in sys.argv:
+        for name in ("dist", "build"):
+            shutil.rmtree(ROOT / name, ignore_errors=True)
+        print("Cleaned dist/ and build/")
+
+    # Ensure PyInstaller is installed
+    try:
+        import PyInstaller  # noqa: F401
+    except ImportError:
+        print("Installing PyInstaller…")
+        subprocess.run(
+            [sys.executable, "-m", "pip", "install", "pyinstaller>=6.0"],
+            check=True,
+        )
+
+    make_icons()
+
+    subprocess.run(
+        [sys.executable, "-m", "PyInstaller", "LocalFlight.spec", "--noconfirm"],
+        check=True,
+        cwd=ROOT,
+    )
+
+    dist = ROOT / "dist"
+    if sys.platform == "win32":
+        _sign_windows(dist / "LocalFlight" / "LocalFlight.exe")
+        out = dist / "LocalFlight-windows"
+        shutil.make_archive(str(out), "zip", dist, "LocalFlight")
+        print(f"\nDone: dist/LocalFlight-windows.zip")
+        print("Distribute: unzip, then double-click LocalFlight.exe")
+    elif sys.platform == "darwin":
+        _sign_macos(dist / "LocalFlight.app")
+        print(f"\nDone: dist/LocalFlight.app")
+        print("Distribute: drag LocalFlight.app to /Applications")
+    else:
+        print(f"\nDone: dist/LocalFlight/")
+
+
+if __name__ == "__main__":
+    main()

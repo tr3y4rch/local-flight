@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="en"
+  data-theme="{{ cfg.theme if cfg is defined else 'dark' }}"
+  data-skin="{{ cfg.skin if cfg is defined and cfg.skin is defined else 'standard' }}"
+>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{% block title %}Local Flight{% endblock %}</title>
+    {% if refresh_seconds is defined and refresh_seconds %}
+      <meta http-equiv="refresh" content="{{ refresh_seconds }}" />
+    {% endif %}
+    <link rel="stylesheet" href="/static/app.css" />
+    <link rel="stylesheet" href="/static/skins.css" />
+    <style>
+      /* ── Clock bar (used outside nav too) ── */
+      .clock-bar {
+        display: flex;
+        gap: 24px;
+        align-items: center;
+        font-variant-numeric: tabular-nums;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+        font-size: 0.9rem;
+        opacity: 0.9;
+      }
+      .clock-bar .clock-utc { font-weight: 700; }
+      .clock-bar .clock-sep { opacity: 0.35; }
+
+      /* ── Flight animations ── */
+      @keyframes lf-climb   { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-4px)} }
+      @keyframes lf-descend { 0%,100%{transform:translateY(0)} 50%{transform:translateY(4px)} }
+      @keyframes lf-pulse   { 0%,100%{opacity:1} 50%{opacity:0.45} }
+
+      /* ── Micro-interactions ── */
+      @keyframes lf-page-in {
+        from { opacity: 0; transform: translateY(7px); }
+        to   { opacity: 1; transform: translateY(0); }
+      }
+      .card { animation: lf-page-in 0.22s ease-out both; }
+
+      button:active { transform: scale(0.97); transition: transform 0.07s; }
+
+      @keyframes lf-shimmer {
+        from { background-position: -200% 0; }
+        to   { background-position:  200% 0; }
+      }
+      .lf-shimmer {
+        background: linear-gradient(90deg,
+          transparent 25%, rgba(255,255,255,0.07) 50%, transparent 75%);
+        background-size: 200% 100%;
+        animation: lf-shimmer 1.5s ease-in-out infinite;
+        border-radius: 4px;
+      }
+      [data-theme="light"] .lf-shimmer {
+        background: linear-gradient(90deg,
+          transparent 25%, rgba(0,0,0,0.06) 50%, transparent 75%);
+        background-size: 200% 100%;
+      }
+
+      /* ══ Local Flight nav bar ════════════════════════════════════════════ */
+      .lf-nav {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        padding: 0 14px;
+        height: 42px;
+        flex-shrink: 0;
+        border-bottom: 1px solid rgba(255,255,255,0.07);
+        background: rgba(0,0,0,0.25);
+        backdrop-filter: blur(8px);
+        -webkit-backdrop-filter: blur(8px);
+        position: sticky;
+        top: 0;
+        z-index: 50;
+        box-sizing: border-box;
+        width: 100%;
+      }
+      [data-theme="light"] .lf-nav {
+        border-bottom-color: rgba(0,0,0,0.08);
+        background: rgba(255,255,255,0.85);
+      }
+      .lf-nav-brand {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 0.88rem;
+        font-weight: 700;
+        text-decoration: none;
+        color: inherit;
+        opacity: 0.9;
+        white-space: nowrap;
+        margin-right: 6px;
+        letter-spacing: -0.01em;
+      }
+      .lf-nav-brand:hover { opacity: 1; }
+      .lf-nav-brand-name  { opacity: 0.7; font-weight: 600; }
+      .lf-nav-ver         { opacity: 0.3; font-size: 0.62rem; font-weight: 500; margin-left: 4px; font-family: ui-monospace, monospace; }
+      .lf-nav-group {
+        display: flex;
+        align-items: center;
+        gap: 1px;
+        background: rgba(255,255,255,0.04);
+        border-radius: 8px;
+        padding: 3px;
+      }
+      [data-theme="light"] .lf-nav-group { background: rgba(0,0,0,0.04); }
+      .lf-nav-item {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        padding: 4px 10px;
+        border-radius: 5px;
+        text-decoration: none;
+        color: inherit;
+        font-size: 0.78rem;
+        font-weight: 600;
+        opacity: 0.5;
+        white-space: nowrap;
+        transition: opacity 0.12s, background 0.12s;
+        letter-spacing: 0.01em;
+      }
+      .lf-nav-item:hover { opacity: 0.85; background: rgba(255,255,255,0.07); }
+      [data-theme="light"] .lf-nav-item:hover { background: rgba(0,0,0,0.06); }
+      .lf-nav-active {
+        opacity: 1 !important;
+        background: rgba(74,158,218,0.18) !important;
+        color: #7cc4f0 !important;
+      }
+      [data-theme="light"] .lf-nav-active {
+        background: rgba(30,100,180,0.1) !important;
+        color: #1e6cb4 !important;
+      }
+      .lf-nav-icon  { font-size: 0.88rem; line-height: 1; flex-shrink: 0; }
+      .lf-nav-label { line-height: 1; }
+      .lf-nav-sep   { width: 1px; height: 18px; background: rgba(255,255,255,0.1); margin: 0 4px; flex-shrink: 0; }
+      [data-theme="light"] .lf-nav-sep { background: rgba(0,0,0,0.1); }
+      .lf-nav-clock {
+        margin-left: auto;
+        display: flex;
+        align-items: baseline;
+        gap: 4px;
+        font-family: ui-monospace, monospace;
+        font-size: 0.78rem;
+        font-variant-numeric: tabular-nums;
+        opacity: 0.6;
+        white-space: nowrap;
+      }
+      .lf-nav-clock-utc { font-weight: 700; }
+      .lf-nav-clock-sep { opacity: 0.5; font-size: 0.68rem; }
+      /* Quit button */
+      .lf-nav-quit {
+        margin-left: 8px; padding: 4px 8px; border-radius: 5px;
+        border: 1px solid rgba(255,255,255,0.1);
+        background: none; color: inherit;
+        font-size: 0.9rem; opacity: 0.3; cursor: pointer;
+        transition: opacity 0.12s, background 0.12s, border-color 0.12s;
+        line-height: 1; flex-shrink: 0;
+      }
+      .lf-nav-quit:hover {
+        opacity: 0.9; background: rgba(255,60,60,0.12);
+        border-color: rgba(255,60,60,0.35); color: #ff6060;
+      }
+      [data-theme="light"] .lf-nav-quit { border-color: rgba(0,0,0,0.1); }
+      [data-theme="light"] .lf-nav-quit:hover {
+        background: rgba(200,0,0,0.08); border-color: rgba(200,0,0,0.25); color: #cc0000;
+      }
+
+      @media (max-width: 600px) {
+        .lf-nav-label { display: none; }
+        .lf-nav-brand-name { display: none; }
+        .lf-nav-item { padding: 4px 7px; }
+      }
+      /* ══════════════════════════════════════════════════════════════════ */
+
+      {% block extra_style %}{% endblock %}
+    </style>
+  </head>
+  <body>
+    {% block body %}{% endblock %}
+
+    <script>
+    (function () {
+      const airportTz = "{{ cfg.timezone if cfg is defined and cfg.timezone is defined else '' }}" || null;
+
+      function fmtTime(date, tz) {
+        try {
+          return date.toLocaleTimeString("en-GB", {
+            timeZone: tz,
+            hour: "2-digit", minute: "2-digit", second: "2-digit",
+            hour12: false,
+          });
+        } catch (e) {
+          return fmtTime(date, "UTC");
+        }
+      }
+
+      function tickAll() {
+        const now      = new Date();
+        const utcStr   = fmtTime(now, "UTC");
+        const localStr = airportTz
+          ? fmtTime(now, airportTz)
+          : fmtTime(now, Intl.DateTimeFormat().resolvedOptions().timeZone);
+
+        document.querySelectorAll(".clock-utc-val").forEach(el => el.textContent = utcStr);
+        document.querySelectorAll(".clock-local-val").forEach(el => el.textContent = localStr);
+        // Also update nav clock (UTC only)
+        document.querySelectorAll(".lf-nav-clock-utc").forEach(el => el.textContent = utcStr);
+      }
+
+      tickAll();
+      setInterval(tickAll, 1000);
+    })();
+    </script>
+    {% block extra_script %}{% endblock %}
+  </body>
+</html>

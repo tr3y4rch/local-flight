@@ -1,0 +1,11 @@
+# Normalize line endings
+* text=auto
+
+# Force Unix LF for shell scripts (required for execution on macOS/Pi)
+*.sh        text eol=lf
+*.command   text eol=lf
+lf.sh       text eol=lf
+
+# Force CRLF for Windows scripts
+*.bat       text eol=crlf
+*.ps1       text eol=crlf

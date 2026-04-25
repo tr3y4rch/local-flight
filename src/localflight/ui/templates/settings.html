@@ -1,0 +1,428 @@
+{% extends "base.html" %}
+{% from "_nav.html" import topnav %}
+
+{% block title %}Local Flight — Settings{% endblock %}
+
+{% block extra_style %}
+  body { display: block; min-height: 100vh; padding: 0; }
+  .page-body { padding: 24px 16px; }
+  .card {
+    width: min(860px, calc(100vw - 32px));
+    max-width: none;
+    margin: 0 auto;
+  }
+  .airport-picker { position: relative; }
+  .airport-picker input { width: 100%; box-sizing: border-box; }
+  .airport-dropdown {
+    display: none; position: absolute; z-index: 100; width: 100%;
+    border: 1px solid rgba(255,255,255,0.15); border-radius: 6px;
+    margin-top: 4px; max-height: 280px; overflow-y: auto;
+    background: var(--bg, #1a1a1a);
+  }
+  [data-theme="light"] .airport-dropdown { background: #fff; border-color: rgba(0,0,0,0.15); }
+  .airport-dropdown.open { display: block; }
+  .airport-option {
+    padding: 10px 14px; cursor: pointer;
+    border-bottom: 1px solid rgba(255,255,255,0.06); font-size: 0.9rem;
+  }
+  [data-theme="light"] .airport-option { border-bottom-color: rgba(0,0,0,0.06); }
+  .airport-option:last-child { border-bottom: none; }
+  .airport-option:hover, .airport-option:focus { background: rgba(255,255,255,0.08); outline: none; }
+  [data-theme="light"] .airport-option:hover { background: rgba(0,0,0,0.05); }
+  .airport-option .codes { font-weight: 700; font-size: 1rem; }
+  .airport-option .detail { opacity: 0.65; font-size: 0.8rem; margin-top: 2px; }
+  .airport-selected {
+    margin-top: 6px; padding: 8px 12px; border-radius: 6px;
+    background: rgba(255,255,255,0.05); font-size: 0.85rem; display: none;
+  }
+  .airport-selected.visible { display: block; }
+  [data-theme="light"] .airport-selected { background: rgba(0,0,0,0.04); }
+  .skin-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+    gap: 8px; margin-top: 6px;
+  }
+  .sk-opt {
+    padding: 10px 6px; border-radius: 6px; cursor: pointer;
+    text-align: center; font-size: 0.78rem; font-weight: 700;
+    border: 2px solid transparent; transition: border-color 0.15s;
+  }
+{% endblock %}
+
+{% block body %}
+{{ topnav(active="settings", cfg=cfg) }}
+
+<div class="page-body">
+<main class="card">
+  <header>
+    <h1>{{ cfg.display_name or "Local Flight" }}</h1>
+    <p class="sub">{{ cfg.airport_iata }} / {{ cfg.airport_icao }} · {{ cfg.source or "real" }} · {{ cfg.skin or "standard" }}</p>
+  </header>
+
+  {% if profile_msg %}
+    <div class="toast">{{ profile_msg }}</div>
+  {% endif %}
+  {% if saved %}
+    <div class="toast">Saved.</div>
+  {% endif %}
+
+  <!-- STATUS -->
+  <section class="panel">
+    <h2>Current</h2>
+    <div class="grid" id="statusGrid"
+      data-last-attempt="{{ state.last_attempt_utc or '' }}"
+      data-last-success="{{ state.last_success_utc or '' }}"
+      data-refresh-seconds="{{ cfg.refresh_seconds }}"
+    >
+      <div><b>Airport</b><br />{{ cfg.airport_iata }} / {{ cfg.airport_icao }}</div>
+      <div><b>Refresh</b><br />{{ cfg.refresh_seconds }}s</div>
+      <div>
+        <b>Source</b><br />
+        <span class="dim">Configured:</span> {{ cfg.source or "real" }}<br />
+        <span class="dim">Runtime:</span> {{ state.source_name }}
+      </div>
+      <div>
+        <b>Connection</b><br />
+        {% if state.ok %}<span class="ok">OK</span>{% else %}<span class="bad">ERROR</span>{% endif %}
+      </div>
+      <div><b>Last attempt</b><br />{{ state.last_attempt_utc or "-" }}</div>
+      <div><b>Latency</b><br />{{ state.last_latency_ms or "-" }} ms</div>
+      <div>
+        <b>Last refresh</b><br />
+        <span id="lastAbs">{{ state.last_success_utc or "-" }}</span><br />
+        <small id="lastRel">-</small>
+      </div>
+      <div>
+        <b>Next refresh</b><br />
+        <span id="nextAbs">-</span><br />
+        <small id="nextRel">-</small>
+      </div>
+    </div>
+    {% if state.last_error %}
+      <p class="err"><b>Last error:</b> {{ state.last_error }}</p>
+    {% endif %}
+  </section>
+
+  <!-- PROFILES -->
+  <section class="panel">
+    <h2>Profiles</h2>
+    <form action="/profiles/load" method="post" class="row">
+      <select name="profile_name">
+        {% for p in profiles %}<option value="{{ p }}">{{ p }}</option>{% endfor %}
+      </select>
+      <button type="submit">Load</button>
+    </form>
+    <form action="/profiles/save" method="post" class="row">
+      <input name="profile_name" placeholder="New profile name (e.g. LSZH_day)" />
+      <button type="submit">Save current</button>
+    </form>
+    <form action="/profiles/delete" method="post" class="row">
+      <select name="profile_name">
+        {% for p in profiles %}<option value="{{ p }}">{{ p }}</option>{% endfor %}
+      </select>
+      <button type="submit">Delete</button>
+    </form>
+  </section>
+
+  <!-- SETTINGS -->
+  <section class="panel">
+    <h2>Settings</h2>
+    <form action="/save" method="post" id="settingsForm">
+
+      <label>
+        <span>Airport</span>
+        <div class="airport-picker">
+          <input type="text" id="airportSearch"
+            placeholder="Search by name, city, IATA or ICAO…"
+            autocomplete="off"
+            value="{{ cfg.airport_iata }} / {{ cfg.airport_icao }}" />
+          <div class="airport-dropdown" id="airportDropdown"></div>
+        </div>
+        <div class="airport-selected" id="airportSelected"></div>
+        <small>Type IATA (ZRH), ICAO (LSZH), city (Zurich) or name (Heathrow)</small>
+        <input type="hidden" name="airport_iata" id="airportIata" value="{{ cfg.airport_iata }}" />
+        <input type="hidden" name="airport_icao" id="airportIcao" value="{{ cfg.airport_icao }}" />
+      </label>
+
+      <label>
+        <span>Source</span>
+        <select name="source">
+          <option value="real"    {% if (cfg.source or "real") == "real"    %}selected{% endif %}>Real (AviationStack)</option>
+          <option value="virtual" {% if (cfg.source or "real") == "virtual" %}selected{% endif %}>Virtual (VATSIM live)</option>
+        </select>
+        <small>Real = live scheduled flights. Virtual = VATSIM sim traffic.</small>
+      </label>
+
+      <label>
+        <span>Update frequency</span>
+        <select name="refresh_seconds">
+          {% set choices = [
+            (900,  "Every 15 minutes"),
+            (1800, "Every 30 minutes"),
+            (2700, "Every 45 minutes"),
+            (3600, "Every 60 minutes"),
+            (7200, "Every 2 hours"),
+            (14400,"Every 4 hours"),
+            (28800,"Every 8 hours"),
+            (43200,"Every 12 hours"),
+            (86400,"Every 24 hours"),
+          ] %}
+          {% for val, label in choices %}
+            <option value="{{ val }}" {% if cfg.refresh_seconds == val %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+
+      <label>
+        <span>Timezone</span>
+        <input name="timezone_str" value="{{ cfg.timezone }}" />
+        <small>IANA timezone (e.g. Europe/Zurich). Auto-set when you pick an airport.</small>
+        <input type="hidden" name="timezone" value="{{ cfg.timezone }}" />
+      </label>
+
+      <label>
+        <span>Skin</span>
+        <input type="hidden" name="skin" id="skinInput" value="{{ cfg.skin or 'standard' }}" />
+        <div class="skin-grid">
+          {% set skins = [
+            ("standard",  "Standard",  "#e7edf3", "#1a1d22"),
+            ("technical", "Technical", "#4a9eda", "#0a0e14"),
+            ("neon",      "Neon",      "#00ff50", "#000d00"),
+            ("cyan",      "Cyan",      "#00ccff", "#00080f"),
+            ("crt",       "CRT",       "#ffaa00", "#0a0600"),
+          ] %}
+          {% for sk_id, sk_label, sk_fg, sk_bg in skins %}
+          <div class="sk-opt" data-sk="{{ sk_id }}"
+            style="background:{{ sk_bg }}; color:{{ sk_fg }};"
+            onclick="selectSkin('{{ sk_id }}', '{{ sk_fg }}')">
+            {{ sk_label }}
+          </div>
+          {% endfor %}
+        </div>
+      </label>
+
+      <label>
+        <span>Display outputs</span>
+        {% set outputs = [
+          ("web",    "Web",    "Edge app window on this machine"),
+          ("matrix", "Matrix", "Interstate 75 W LED panel over WiFi"),
+          ("hdmi",   "HDMI",   "Chromium kiosk on connected screen"),
+        ] %}
+        <div style="display:flex; flex-direction:column; gap:8px; margin-top:6px;">
+          {% for out_id, out_label, out_desc in outputs %}
+          <label style="display:flex; gap:10px; align-items:flex-start; cursor:pointer;
+                        background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08);
+                        border-radius:8px; padding:10px; margin:0;">
+            <input type="checkbox" name="display_outputs" value="{{ out_id }}"
+              {% if out_id in (cfg.display_outputs or ['web']) %}checked{% endif %}
+              style="width:auto; margin-top:2px; accent-color:#00ff50;" />
+            <div>
+              <div style="font-weight:700; font-size:0.85rem;">{{ out_label }}</div>
+              <div style="opacity:0.55; font-size:0.75rem;">{{ out_desc }}</div>
+            </div>
+          </label>
+          {% endfor %}
+        </div>
+        <small>
+          Matrix = Interstate 75 W polls /api/fids over WiFi.
+          <a href="/matrix-preview" style="color:inherit; opacity:0.7;">Preview matrix →</a>
+        </small>
+      </label>
+
+      <label>
+        <span>Theme</span>
+        <select name="theme">
+          <option value="dark"  {% if cfg.theme == "dark"  %}selected{% endif %}>Dark</option>
+          <option value="light" {% if cfg.theme == "light" %}selected{% endif %}>Light</option>
+        </select>
+      </label>
+
+      <label>
+        <span>Display name</span>
+        <input name="display_name" value="{{ cfg.display_name }}" maxlength="40" />
+      </label>
+
+      <button type="submit">Save settings</button>
+    </form>
+  </section>
+
+  <footer>
+    <p class="hint">Config: <code>~/.localflight/config.json</code></p>
+    <p class="hint" style="margin-top:16px;padding-top:16px;border-top:1px solid rgba(255,255,255,0.07);">
+      <button onclick="resetSetup()"
+        style="background:none;border:1px solid rgba(255,255,255,0.12);border-radius:6px;
+               color:inherit;opacity:0.45;font-size:0.75rem;padding:5px 12px;cursor:pointer;
+               transition:opacity 0.15s,border-color 0.15s;"
+        onmouseover="this.style.opacity='0.8';this.style.borderColor='rgba(239,68,68,0.4)'"
+        onmouseout="this.style.opacity='0.45';this.style.borderColor='rgba(255,255,255,0.12)'">
+        Re-run setup wizard
+      </button>
+      <span style="opacity:0.3;font-size:0.72rem;margin-left:10px;">Clears the setup marker and restarts the wizard</span>
+    </p>
+  </footer>
+
+  {# ── Reset confirmation modal ── #}
+  <div id="resetModal" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.55);backdrop-filter:blur(4px);align-items:center;justify-content:center;">
+    <div style="background:var(--panel-bg,#1a1a1a);border:1px solid var(--panel-border,rgba(255,255,255,0.12));border-radius:14px;padding:28px 32px;min-width:280px;max-width:360px;text-align:center;box-shadow:0 24px 64px rgba(0,0,0,0.5);">
+      <div style="font-size:2rem;margin-bottom:12px;">⚙️</div>
+      <div style="font-weight:700;font-size:1rem;margin-bottom:6px;">Re-run setup wizard?</div>
+      <div style="opacity:0.5;font-size:0.82rem;margin-bottom:24px;">Your current config will be preserved but the wizard will open on next page load.</div>
+      <div style="display:flex;gap:10px;justify-content:center;">
+        <button onclick="document.getElementById('resetModal').style.display='none'" style="padding:8px 20px;border-radius:8px;border:1px solid rgba(255,255,255,0.12);background:none;color:inherit;font-size:0.88rem;cursor:pointer;opacity:0.7;">Cancel</button>
+        <button onclick="confirmReset()" style="padding:8px 20px;border-radius:8px;border:none;background:#ef4444;color:#fff;font-size:0.88rem;font-weight:700;cursor:pointer;">Reset</button>
+      </div>
+    </div>
+  </div>
+</main>
+</div>
+{% endblock %}
+
+{% block extra_script %}
+<script>
+function selectSkin(sk, fg) {
+  document.getElementById("skinInput").value = sk;
+  document.querySelectorAll(".sk-opt").forEach(el => {
+    el.style.borderColor = el.dataset.sk === sk ? fg : "transparent";
+  });
+}
+
+// highlight the saved skin on load
+(function () {
+  const active = document.getElementById("skinInput").value;
+  const el = document.querySelector(`.sk-opt[data-sk="${active}"]`);
+  if (el) el.style.borderColor = el.style.color;
+})();
+
+(function () {
+  const el = document.getElementById("statusGrid");
+  if (!el) return;
+  const refreshSeconds = parseInt(el.dataset.refreshSeconds || "0", 10);
+  const lastAttempt = el.dataset.lastAttempt || "";
+  const lastSuccess = el.dataset.lastSuccess || "";
+  const lastRel = document.getElementById("lastRel");
+  const nextAbs = document.getElementById("nextAbs");
+  const nextRel = document.getElementById("nextRel");
+
+  function parseIso(s) { const d = new Date(s); return isNaN(d.getTime()) ? null : d; }
+  function fmtRel(ms) {
+    const sec = Math.max(0, Math.floor(ms / 1000));
+    const m = Math.floor(sec / 60), s = sec % 60;
+    if (m >= 60) { const h = Math.floor(m / 60); return `${h}h ${m % 60}m`; }
+    return `${m}m ${s}s`;
+  }
+
+  function tick() {
+    const now = new Date();
+    const lastS = parseIso(lastSuccess);
+    if (lastRel) lastRel.textContent = lastS ? `(${fmtRel(now - lastS)} ago)` : "-";
+    const lastA = parseIso(lastAttempt);
+    if (!lastA || !refreshSeconds) { if (nextAbs) nextAbs.textContent = "-"; return; }
+    const next = new Date(lastA.getTime() + refreshSeconds * 1000);
+    if (nextAbs) nextAbs.textContent = next.toISOString().replace(".000Z", "Z");
+    if (nextRel) nextRel.textContent = next > now ? `(in ${fmtRel(next - now)})` : "(due now)";
+  }
+  tick(); setInterval(tick, 1000);
+})();
+
+(function () {
+  const searchInput = document.getElementById("airportSearch");
+  const dropdown    = document.getElementById("airportDropdown");
+  const selectedBox = document.getElementById("airportSelected");
+  const iataInput   = document.getElementById("airportIata");
+  const icaoInput   = document.getElementById("airportIcao");
+  const tzInput     = document.querySelector("input[name='timezone_str']");
+
+  let debounceTimer = null;
+  let currentResults = [];
+
+  const COUNTRY_TZ = {
+    "CH":"Europe/Zurich","DE":"Europe/Berlin","GB":"Europe/London",
+    "FR":"Europe/Paris","AT":"Europe/Vienna","IT":"Europe/Rome",
+    "ES":"Europe/Madrid","NL":"Europe/Amsterdam","BE":"Europe/Brussels",
+    "PT":"Europe/Lisbon","PL":"Europe/Warsaw","CZ":"Europe/Prague",
+    "HU":"Europe/Budapest","RO":"Europe/Bucharest","SE":"Europe/Stockholm",
+    "NO":"Europe/Oslo","DK":"Europe/Copenhagen","FI":"Europe/Helsinki",
+    "GR":"Europe/Athens","TR":"Europe/Istanbul","RU":"Europe/Moscow",
+    "US":"America/New_York","CA":"America/Toronto","AU":"Australia/Sydney",
+    "JP":"Asia/Tokyo","CN":"Asia/Shanghai","IN":"Asia/Kolkata",
+    "SG":"Asia/Singapore","AE":"Asia/Dubai","ZA":"Africa/Johannesburg",
+    "BR":"America/Sao_Paulo","MX":"America/Mexico_City",
+  };
+
+  function showDropdown(results) {
+    currentResults = results;
+    dropdown.innerHTML = "";
+    if (!results.length) { dropdown.classList.remove("open"); return; }
+    results.forEach(r => {
+      const div = document.createElement("div");
+      div.className = "airport-option"; div.tabIndex = 0;
+      div.innerHTML = `<div class="codes">${r.iata||"---"} / ${r.icao||"----"}</div>
+        <div class="detail">${r.name} · ${r.city}, ${r.country}</div>`;
+      div.addEventListener("mousedown", e => { e.preventDefault(); selectAirport(r); });
+      div.addEventListener("keydown", e => { if (e.key === "Enter") selectAirport(r); });
+      dropdown.appendChild(div);
+    });
+    dropdown.classList.add("open");
+  }
+
+  function selectAirport(r) {
+    iataInput.value = r.iata || "";
+    icaoInput.value = r.icao || "";
+    searchInput.value = `${r.iata||"---"} / ${r.icao||"----"}`;
+    if (tzInput && r.country && COUNTRY_TZ[r.country]) tzInput.value = COUNTRY_TZ[r.country];
+    selectedBox.innerHTML = `<b>${r.iata||"---"} / ${r.icao||"----"}</b> — ${r.name}<br>
+      <span style="opacity:0.65">${r.city}, ${r.country}</span>`;
+    selectedBox.classList.add("visible");
+    dropdown.classList.remove("open");
+  }
+
+  function search(q) {
+    if (q.length < 2) { dropdown.classList.remove("open"); return; }
+    fetch(`/api/airports/search?q=${encodeURIComponent(q)}&limit=8`)
+      .then(r => r.json()).then(data => showDropdown(data))
+      .catch(() => dropdown.classList.remove("open"));
+  }
+
+  searchInput.addEventListener("input", () => {
+    clearTimeout(debounceTimer);
+    iataInput.value = ""; icaoInput.value = "";
+    selectedBox.classList.remove("visible");
+    debounceTimer = setTimeout(() => search(searchInput.value.trim()), 220);
+  });
+  searchInput.addEventListener("focus", () => { if (currentResults.length) dropdown.classList.add("open"); });
+  searchInput.addEventListener("blur",  () => { setTimeout(() => dropdown.classList.remove("open"), 200); });
+  searchInput.addEventListener("keydown", e => {
+    const opts = dropdown.querySelectorAll(".airport-option");
+    if (!opts.length) return;
+    if (e.key === "ArrowDown") { e.preventDefault(); opts[0].focus(); }
+    if (e.key === "Escape") dropdown.classList.remove("open");
+  });
+  dropdown.addEventListener("keydown", e => {
+    const opts = [...dropdown.querySelectorAll(".airport-option")];
+    const idx = opts.indexOf(document.activeElement);
+    if (e.key === "ArrowDown" && idx < opts.length - 1) { e.preventDefault(); opts[idx+1].focus(); }
+    if (e.key === "ArrowUp") { e.preventDefault(); idx > 0 ? opts[idx-1].focus() : searchInput.focus(); }
+    if (e.key === "Escape") { dropdown.classList.remove("open"); searchInput.focus(); }
+  });
+  document.getElementById("settingsForm").addEventListener("submit", e => {
+    if (!iataInput.value || !icaoInput.value) {
+      e.preventDefault();
+      searchInput.style.outline = "2px solid red";
+      searchInput.placeholder = "Please select an airport from the dropdown";
+      setTimeout(() => searchInput.style.outline = "", 2000);
+    }
+  });
+})();
+
+function resetSetup() {
+  document.getElementById("resetModal").style.display = "flex";
+}
+async function confirmReset() {
+  try {
+    const r = await fetch("/api/setup/reset", { method: "POST" });
+    if (r.ok) { window.location.href = "/setup"; }
+    else { alert("Reset failed — check logs."); }
+  } catch { alert("Network error."); }
+}
+</script>
+{% endblock %}

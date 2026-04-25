@@ -1,0 +1,243 @@
+{% extends "base.html" %}
+{% from "_nav.html" import topnav %}
+
+{% set _embedded = embedded is defined and embedded %}
+
+{% block title %}{{ cfg.display_name }} – Radar{% endblock %}
+
+{% block extra_style %}
+  body { margin: 0; overflow: hidden; }
+  :root { --lf-chrome: {{ '0px' if _embedded else '42px' }}; }
+  .radar-wrap {
+    display: flex; flex-direction: column;
+    height: calc(100vh - var(--lf-chrome));
+    padding: 10px 12px 12px; box-sizing: border-box; gap: 8px;
+  }
+  .radar-subheader {
+    display: flex; justify-content: space-between; align-items: center;
+    flex-shrink: 0; flex-wrap: wrap; gap: 8px;
+    font-size: 0.88rem; font-weight: 700;
+  }
+  .radar-subheader .radar-lt {
+    font-family: ui-monospace, monospace; font-size: 0.78rem;
+    opacity: 0.6; font-variant-numeric: tabular-nums;
+  }
+
+  /* ── METAR bar ── */
+  .metar-bar {
+    display: flex; align-items: center; gap: 8px; flex-shrink: 0;
+    padding: 5px 12px; border-radius: 6px;
+    background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08);
+    font-size: 0.8rem; font-family: ui-monospace, monospace; min-height: 28px;
+  }
+  [data-theme="light"] .metar-bar { background: rgba(0,0,0,0.04); border-color: rgba(0,0,0,0.08); }
+  .metar-cat { font-weight: 800; font-size: 0.72rem; padding: 2px 8px; border-radius: 4px; color: #000; flex-shrink: 0; letter-spacing: 0.04em; }
+  .metar-summary { opacity: 0.85; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .metar-raw { opacity: 0.4; font-size: 0.72rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 340px; flex-shrink: 1; }
+  .metar-sep { opacity: 0.2; flex-shrink: 0; }
+  .metar-loading { opacity: 0.4; font-style: italic; }
+
+  .live-dot { width: 6px; height: 6px; border-radius: 50%; background: #00e84a; display: inline-block; animation: lf-pulse 1.4s ease-in-out infinite; }
+  .live-dot.offline { background: #888; animation: none; }
+  .radar-canvas-wrap { flex: 1; display: flex; align-items: center; justify-content: center; min-height: 0; }
+  #radarCanvas { display: block; max-width: 100%; max-height: 100%; border-radius: 50%; }
+  .radar-status { font-size: 0.72rem; opacity: 0.45; text-align: center; flex-shrink: 0; font-family: ui-monospace, monospace; }
+{% endblock %}
+
+{% block body %}
+{% if not _embedded %}{{ topnav(active="radar", cfg=cfg) }}{% endif %}
+<div class="radar-wrap">
+
+  {% if not _embedded %}
+  <div class="radar-subheader">
+    <span>📡 {{ airport_label }} <span style="opacity:0.45; font-weight:500;">({{ cfg.airport_iata }}/{{ cfg.airport_icao }})</span></span>
+    <span class="radar-lt">LT <span class="clock-local-val">--:--:--</span></span>
+  </div>
+  {% endif %}
+
+  <div class="metar-bar" id="metarBar">
+    <span class="metar-loading">Loading weather...</span>
+  </div>
+
+  <div class="radar-canvas-wrap">
+    <canvas id="radarCanvas"></canvas>
+  </div>
+
+  <div class="radar-status" id="radarStatus">
+    <span class="live-dot" id="liveDot"></span>
+    Initialising...
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_script %}
+<script>
+(function () {
+  const canvas = document.getElementById("radarCanvas");
+  const ctx    = canvas.getContext("2d");
+  const status = document.getElementById("radarStatus");
+
+  const CENTER_LAT = {{ center_lat }};
+  const CENTER_LON = {{ center_lon }};
+  const RADIUS_NM  = {{ radius_nm }};
+  const POLL_MS    = 15000;
+  const METAR_POLL_MS = 30 * 60 * 1000;
+
+  const skin  = document.documentElement.dataset.skin  || "standard";
+  const theme = document.documentElement.dataset.theme || "dark";
+
+  const SKIN_COLORS = {
+    standard:  { bg: theme==="light"?"#f0f0f0":"#0a0a0f", ring:"rgba(255,255,255,0.12)", text:theme==="light"?"#333":"#ccc", blip:"#ffffff", center:"rgba(255,255,255,0.5)", sweepLine:"rgba(255,255,255,0.5)" },
+    technical: { bg:"#0a0e14", ring:"rgba(74,158,218,0.2)",  text:"#4a9eda", blip:"#4a9eda", center:"#4a9eda", sweepLine:"rgba(74,158,218,0.7)"  },
+    neon:      { bg:"#000d00", ring:"rgba(0,255,80,0.18)",   text:"#00ff50", blip:"#00ff50", center:"#00ff50", sweepLine:"rgba(0,255,80,0.8)"    },
+    cyan:      { bg:"#00080f", ring:"rgba(0,204,255,0.18)",  text:"#00ccff", blip:"#00ccff", center:"#00ccff", sweepLine:"rgba(0,204,255,0.8)"   },
+    crt:       { bg:"#0a0600", ring:"rgba(255,170,0,0.18)",  text:"#ffaa00", blip:"#ffaa00", center:"#ffaa00", sweepLine:"rgba(255,170,0,0.8)"   },
+  };
+  const C = SKIN_COLORS[skin] || SKIN_COLORS.standard;
+
+  const NM_PER_DEG_LAT = 60.0;
+  function latLonToNm(lat, lon) {
+    return { x:(lon-CENTER_LON)*NM_PER_DEG_LAT*Math.cos(CENTER_LAT*Math.PI/180), y:-(lat-CENTER_LAT)*NM_PER_DEG_LAT };
+  }
+  function nmToCanvas(nx,ny,R){ return {x:canvas.width/2+(nx/RADIUS_NM)*R, y:canvas.height/2+(ny/RADIUS_NM)*R}; }
+  function blipAngle(nx,ny){ return (Math.atan2(nx,-ny)*180/Math.PI+360)%360; }
+  function angleSinceSweep(b,s){ return (s-b+360)%360; }
+  function blipAlpha(b,s,g){
+    if(g) return 0.35;
+    const age=angleSinceSweep(b,s);
+    if(age>350||age<30) return 1.0;
+    return Math.max(0.1,1.0-(age-30)/310*0.9);
+  }
+
+  function resize(){ const w=canvas.parentElement, s=Math.min(w.clientWidth,w.clientHeight)-4; canvas.width=s; canvas.height=s; }
+
+  let sweepAngle=0, lastSweepTime=performance.now();
+  function updateSweep(now){ const e=(now-lastSweepTime)/1000; lastSweepTime=now; sweepAngle=(sweepAngle+e*30)%360; }
+
+  let blips=[], hoveredBlip=null;
+
+  async function fetchBlips() {
+    try {
+      const r=await fetch(`/api/radar?radius_nm=${RADIUS_NM}`); if(!r.ok) throw new Error(`HTTP ${r.status}`);
+      const data=await r.json(); blips=data.blips||[];
+      const upd=new Date().toUTCString().slice(17,25);
+      status.innerHTML=`<span class="live-dot${ws&&ws.readyState===1?'':' offline'}" id="liveDot"></span> ${blips.length} aircraft · ${data.source||""} · ${upd} UTC`;
+    } catch(e){ status.innerHTML=`<span class="live-dot offline" id="liveDot"></span> Radar fetch failed: ${e.message}`; }
+  }
+
+  async function fetchMETAR() {
+    const bar=document.getElementById("metarBar");
+    try {
+      const r=await fetch("/api/metar"); if(!r.ok) throw new Error();
+      const m=await r.json();
+      bar.innerHTML=`<span class="metar-cat" style="background:${m.flight_cat_color||'#888'}">${m.flight_cat||'?'}</span>
+        <span class="metar-summary">${m.decoded_summary||''}</span>
+        <span class="metar-sep">|</span>
+        <span class="metar-raw" title="${m.raw_text||''}">${m.raw_text||''}</span>`;
+    } catch { bar.innerHTML='<span class="metar-loading">Weather unavailable</span>'; }
+  }
+
+  function draw() {
+    const W=canvas.width,H=canvas.height,cx=W/2,cy=H/2,R=W/2-2;
+    ctx.clearRect(0,0,W,H);
+    ctx.beginPath(); ctx.arc(cx,cy,R,0,Math.PI*2); ctx.fillStyle=C.bg; ctx.fill();
+    ctx.save(); ctx.beginPath(); ctx.arc(cx,cy,R,0,Math.PI*2); ctx.clip();
+
+    [0.2,0.4,0.6,0.8,1.0].forEach(f=>{
+      const rr=R*f; ctx.beginPath(); ctx.arc(cx,cy,rr,0,Math.PI*2); ctx.strokeStyle=C.ring; ctx.lineWidth=0.5; ctx.stroke();
+      ctx.fillStyle=C.text; ctx.font=`${Math.max(9,W*0.018)}px ui-monospace,monospace`;
+      ctx.globalAlpha=0.35; ctx.fillText(`${Math.round(RADIUS_NM*f)}nm`,cx+rr+3,cy-3); ctx.globalAlpha=1;
+    });
+
+    ctx.strokeStyle=C.ring; ctx.lineWidth=0.5; ctx.setLineDash([4,6]);
+    [[cx,cy-R,cx,cy+R],[cx-R,cy,cx+R,cy]].forEach(([x1,y1,x2,y2])=>{ctx.beginPath();ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);ctx.stroke();});
+    ctx.setLineDash([]);
+
+    ctx.fillStyle=C.text; ctx.globalAlpha=0.55; ctx.font=`${Math.max(10,W*0.022)}px ui-monospace,monospace`;
+    ctx.textAlign="center"; ctx.fillText("N",cx,cy-R+14); ctx.fillText("S",cx,cy+R-6);
+    ctx.textAlign="left"; ctx.fillText("E",cx+R-18,cy+4);
+    ctx.textAlign="right"; ctx.fillText("W",cx-R+18,cy+4);
+    ctx.textAlign="left"; ctx.globalAlpha=1;
+
+    const sweepRad=(sweepAngle-90)*Math.PI/180;
+    ctx.save(); ctx.translate(cx,cy); ctx.rotate(sweepRad);
+    for(let i=0;i<20;i++){
+      ctx.beginPath(); ctx.moveTo(0,0); ctx.arc(0,0,R,-(i+1)*(Math.PI*0.5/20),-i*(Math.PI*0.5/20)); ctx.closePath();
+      ctx.fillStyle=C.blip; ctx.globalAlpha=(1-i/20)*0.12; ctx.fill();
+    }
+    ctx.globalAlpha=1; ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(0,-R);
+    ctx.strokeStyle=C.sweepLine; ctx.lineWidth=1.5; ctx.globalAlpha=0.8; ctx.stroke(); ctx.globalAlpha=1;
+    ctx.restore();
+
+    ctx.beginPath(); ctx.arc(cx,cy,4,0,Math.PI*2); ctx.fillStyle=C.center; ctx.fill();
+    ctx.beginPath(); ctx.arc(cx,cy,8,0,Math.PI*2); ctx.strokeStyle=C.center; ctx.globalAlpha=0.4; ctx.lineWidth=1; ctx.stroke(); ctx.globalAlpha=1;
+
+    const blipR=Math.max(3,W*0.006), fs=Math.max(9,W*0.02);
+    blips.forEach(b=>{
+      const nm=latLonToNm(b.lat,b.lon);
+      if(Math.hypot(nm.x,nm.y)>RADIUS_NM) return;
+      const pos=nmToCanvas(nm.x,nm.y,R);
+      if(pos.x<0||pos.x>W||pos.y<0||pos.y>H) return;
+      const bDeg=blipAngle(nm.x,nm.y), alpha=blipAlpha(bDeg,sweepAngle,b.on_ground);
+      const age=angleSinceSweep(bDeg,sweepAngle), flash=age<15||age>350, dotR=flash?blipR*1.6:blipR;
+      if(b.heading!=null&&b.speed_ms>5){
+        const hr=(b.heading-90)*Math.PI/180;
+        ctx.beginPath(); ctx.moveTo(pos.x,pos.y); ctx.lineTo(pos.x+Math.cos(hr)*blipR*5,pos.y+Math.sin(hr)*blipR*5);
+        ctx.strokeStyle=C.blip; ctx.globalAlpha=alpha*0.5; ctx.lineWidth=1; ctx.stroke();
+      }
+      ctx.beginPath(); ctx.arc(pos.x,pos.y,dotR,0,Math.PI*2); ctx.fillStyle=C.blip; ctx.globalAlpha=alpha; ctx.fill();
+      if(flash&&!b.on_ground){ ctx.beginPath(); ctx.arc(pos.x,pos.y,dotR*2.5,0,Math.PI*2); ctx.fillStyle=C.blip; ctx.globalAlpha=0.15; ctx.fill(); }
+      ctx.globalAlpha=1;
+      ctx.fillStyle=C.text; ctx.font=`${fs}px ui-monospace,monospace`;
+      ctx.globalAlpha=alpha*0.9; ctx.fillText(b.callsign,pos.x+blipR+3,pos.y-2); ctx.globalAlpha=1;
+    });
+
+    if(hoveredBlip){
+      const nm=latLonToNm(hoveredBlip.lat,hoveredBlip.lon), pos=nmToCanvas(nm.x,nm.y,R);
+      const alt=hoveredBlip.altitude_m?`${Math.round(hoveredBlip.altitude_m*3.28084/100)*100}ft`:"—";
+      const spd=hoveredBlip.speed_ms?`${Math.round(hoveredBlip.speed_ms*1.94384)}kt`:"—";
+      const lines=[hoveredBlip.callsign,hoveredBlip.aircraft_type?`Type: ${hoveredBlip.aircraft_type}`:null,`Alt:  ${alt}`,`Spd:  ${spd}`].filter(Boolean);
+      const pad=8,lh=fs+4,bw=120,bh=lines.length*lh+pad*2;
+      let tx=pos.x+14,ty=pos.y-bh/2;
+      if(tx+bw>W) tx=pos.x-bw-6; if(ty<0) ty=4; if(ty+bh>H) ty=H-bh-4;
+      ctx.fillStyle=C.bg; ctx.strokeStyle=C.blip; ctx.lineWidth=1; ctx.globalAlpha=0.93;
+      ctx.beginPath(); ctx.roundRect(tx,ty,bw,bh,4); ctx.fill(); ctx.stroke(); ctx.globalAlpha=1;
+      ctx.fillStyle=C.text; ctx.font=`${fs}px ui-monospace,monospace`;
+      lines.forEach((l,i)=>ctx.fillText(l,tx+pad,ty+pad+fs+i*lh));
+    }
+    ctx.restore();
+  }
+
+  canvas.addEventListener("mousemove", e=>{
+    const rect=canvas.getBoundingClientRect();
+    const mx=(e.clientX-rect.left)*(canvas.width/rect.width);
+    const my=(e.clientY-rect.top)*(canvas.height/rect.height);
+    const R=canvas.width/2-2, hitR=Math.max(3,canvas.width*0.006)+8;
+    hoveredBlip=null;
+    for(const b of blips){ const nm=latLonToNm(b.lat,b.lon),pos=nmToCanvas(nm.x,nm.y,R); if(Math.hypot(mx-pos.x,my-pos.y)<hitR){hoveredBlip=b;break;} }
+    canvas.style.cursor=hoveredBlip?"pointer":"default";
+  });
+  canvas.addEventListener("mouseleave",()=>{hoveredBlip=null;});
+
+  function loop(now){ updateSweep(now); draw(); requestAnimationFrame(loop); }
+
+  let ws=null, retryMs=1000;
+  function connectWS(){
+    const proto=location.protocol==="https:"?"wss":"ws";
+    ws=new WebSocket(`${proto}://${location.host}/ws`);
+    ws.onopen=()=>{ retryMs=1000; };
+    ws.onmessage=(e)=>{ try{ const msg=JSON.parse(e.data); if(msg.type==="snapshot_updated") fetchBlips(); }catch{} };
+    ws.onclose=ws.onerror=()=>{ setTimeout(connectWS,Math.min(retryMs,30000)); retryMs=Math.min(retryMs*2,30000); };
+  }
+  connectWS();
+  window.addEventListener("message",(e)=>{ try{ const msg=JSON.parse(e.data); if(msg.type==="snapshot_updated") fetchBlips(); }catch{} });
+
+  resize();
+  window.addEventListener("resize", resize);
+  fetchBlips(); fetchMETAR();
+  setInterval(fetchBlips, POLL_MS);
+  setInterval(fetchMETAR, METAR_POLL_MS);
+  requestAnimationFrame(loop);
+})();
+</script>
+{% endblock %}

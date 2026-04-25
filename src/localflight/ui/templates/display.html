@@ -1,0 +1,282 @@
+<!doctype html>
+<html lang="en"
+  data-theme="{{ cfg.theme if cfg is defined else 'dark' }}"
+  data-skin="{{ cfg.skin if cfg is defined and cfg.skin is defined else 'standard' }}"
+>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{{ cfg.display_name if cfg is defined else 'Local Flight' }} – Display</title>
+  <link rel="stylesheet" href="/static/app.css" />
+  <link rel="stylesheet" href="/static/skins.css" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { height: 100%; overflow: hidden; }
+    body {
+      display: flex; flex-direction: column;
+      height: 100vh; width: 100vw; overflow: hidden;
+      background: var(--bg, #0b0d10);
+      place-items: unset; min-height: unset;
+    }
+
+    /* ── Topbar ── */
+    .topbar {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 6px 14px; flex-shrink: 0;
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+      gap: 12px; flex-wrap: nowrap; height: 44px; min-height: 44px; max-height: 44px;
+    }
+    [data-theme="light"] .topbar { border-bottom-color: rgba(0,0,0,0.08); }
+    .topbar-left  { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+    .topbar-right { display: flex; align-items: center; gap: 16px; flex-shrink: 0; }
+    .site-name { font-size: 0.85rem; font-weight: 600; opacity: 0.8; white-space: nowrap; }
+
+    .mode-switcher {
+      display: flex; gap: 2px;
+      background: rgba(255,255,255,0.06); border-radius: 6px; padding: 3px;
+    }
+    [data-theme="light"] .mode-switcher { background: rgba(0,0,0,0.06); }
+    .mode-btn {
+      padding: 4px 12px; border-radius: 4px; border: none;
+      background: transparent; color: inherit; font-size: 0.8rem;
+      font-weight: 600; cursor: pointer; opacity: 0.5;
+      letter-spacing: 0.04em; transition: opacity 0.15s, background 0.15s;
+    }
+    .mode-btn:hover { opacity: 0.8; }
+    .mode-btn.active { background: rgba(255,255,255,0.12); opacity: 1; }
+    [data-theme="light"] .mode-btn.active { background: rgba(0,0,0,0.1); }
+
+    .clock-bar {
+      display: flex; gap: 12px; align-items: center;
+      font-variant-numeric: tabular-nums; font-family: ui-monospace, monospace;
+      font-size: 0.8rem; opacity: 0.85; white-space: nowrap;
+    }
+    .clock-bar .clock-utc { font-weight: 700; }
+    .clock-sep { opacity: 0.35; }
+
+    .settings-link { font-size: 0.8rem; opacity: 0.5; text-decoration: none; white-space: nowrap; }
+    .settings-link:hover { opacity: 1; }
+
+    .fs-btn {
+      background: none; border: none; cursor: pointer;
+      opacity: 0.5; color: inherit; font-size: 1rem; padding: 2px 6px; border-radius: 4px;
+    }
+    .fs-btn:hover { opacity: 1; background: rgba(255,255,255,0.08); }
+
+    /* ── Live indicator ── */
+    .live-dot {
+      width: 6px; height: 6px; border-radius: 50%;
+      background: #00e84a; display: inline-block;
+      animation: lf-pulse 1.4s ease-in-out infinite;
+    }
+    .live-dot.offline { background: #888; animation: none; }
+    @keyframes lf-pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+    /* ── Display area ── */
+    .display-area {
+      flex: 1; height: calc(100vh - 44px);
+      display: flex; flex-direction: row; overflow: hidden;
+    }
+
+    /* ── Panes ── */
+    .pane {
+      overflow: hidden; position: relative;
+      flex-shrink: 0; min-width: 0; height: 100%;
+      background: var(--bg, #0b0d10);
+    }
+    .pane iframe { width: 100%; height: 100%; border: none; display: block; }
+
+    /* ── Divider ── */
+    .divider {
+      flex-shrink: 0; width: 6px; height: 100%;
+      background: rgba(255,255,255,0.08); cursor: col-resize;
+      position: relative; z-index: 10;
+      display: flex; align-items: center; justify-content: center;
+      transition: background 0.15s;
+    }
+    [data-theme="light"] .divider { background: rgba(0,0,0,0.08); }
+    .divider:hover, .divider.dragging { background: rgba(255,255,255,0.25); }
+    .divider-handle { width: 3px; height: 48px; border-radius: 2px; background: rgba(255,255,255,0.3); pointer-events: none; }
+
+    /* ── Mode overrides ── */
+    .display-area.mode-fids .pane-radar,
+    .display-area.mode-fids .divider   { display: none; }
+    .display-area.mode-fids .pane-fids { width: 100% !important; }
+    .display-area.mode-radar .pane-fids,
+    .display-area.mode-radar .divider   { display: none; }
+    .display-area.mode-radar .pane-radar { width: 100% !important; }
+  </style>
+</head>
+<body>
+
+  <div class="topbar">
+    <div class="topbar-left">
+      <span class="site-name">{{ cfg.display_name if cfg is defined else 'Local Flight' }}</span>
+      <div class="mode-switcher">
+        <button class="mode-btn" data-mode="fids"  onclick="setMode('fids')">🛫 FIDS</button>
+        <button class="mode-btn" data-mode="split" onclick="setMode('split')">⛶ Split</button>
+        <button class="mode-btn" data-mode="radar" onclick="setMode('radar')">📡 Radar</button>
+      </div>
+    </div>
+    <div class="topbar-right">
+      <div class="clock-bar">
+        <span class="clock-utc">UTC: <span class="clock-utc-val">--:--:--</span></span>
+        <span class="clock-sep">|</span>
+        <span>LT: <span class="clock-local-val">--:--:--</span></span>
+      </div>
+      <span class="live-dot" id="liveDot" title="Live push connection"></span>
+      <button class="fs-btn" onclick="toggleFullscreen()" title="Fullscreen">⛶</button>
+      <a href="/"        class="settings-link" title="Settings">⚙️</a>
+      <a href="/admin"   class="settings-link" title="Admin hub">🛠</a>
+      <a href="/history" class="settings-link" title="History">📅</a>
+      <a href="/logs"    class="settings-link" title="Logs">📋</a>
+    </div>
+  </div>
+
+  <div class="display-area" id="displayArea">
+    <div class="pane pane-fids" id="paneFids">
+      <iframe id="iframeFids" src="/fids?view=departures&embedded=1" title="FIDS" scrolling="no"></iframe>
+    </div>
+    <div class="divider" id="divider">
+      <div class="divider-handle"></div>
+    </div>
+    <div class="pane pane-radar" id="paneRadar">
+      <iframe id="iframeRadar" src="/radar?embedded=1" title="Radar" scrolling="no"></iframe>
+    </div>
+  </div>
+
+<script>
+(function () {
+  const area     = document.getElementById("displayArea");
+  const paneFids = document.getElementById("paneFids");
+  const paneRdr  = document.getElementById("paneRadar");
+  const divider  = document.getElementById("divider");
+  const dot      = document.getElementById("liveDot");
+
+  const DIVIDER_W     = 6;
+  const STORAGE_MODE  = "lf_display_mode";
+  const STORAGE_RATIO = "lf_split_ratio";
+  const DEFAULT_RATIO = 0.5;
+  const MIN_RATIO     = 0.15;
+  const MAX_RATIO     = 0.85;
+
+  let currentMode = localStorage.getItem(STORAGE_MODE) || "split";
+  let dragging    = false;
+
+  function getSavedRatio() {
+    const v = parseFloat(localStorage.getItem(STORAGE_RATIO));
+    return isNaN(v) ? DEFAULT_RATIO : Math.min(MAX_RATIO, Math.max(MIN_RATIO, v));
+  }
+
+  function applyRatio(ratio) {
+    const totalW = area.getBoundingClientRect().width;
+    if (!totalW) return;
+    const fidsW  = Math.floor((totalW - DIVIDER_W) * ratio);
+    const radarW = Math.floor(totalW - DIVIDER_W - fidsW);
+    paneFids.style.width = fidsW  + "px";
+    paneRdr.style.width  = radarW + "px";
+  }
+
+  function setMode(mode) {
+    currentMode = mode;
+    localStorage.setItem(STORAGE_MODE, mode);
+    paneFids.style.width = "";
+    paneRdr.style.width  = "";
+    area.className = "display-area mode-" + mode;
+    document.querySelectorAll(".mode-btn").forEach(btn => {
+      btn.classList.toggle("active", btn.dataset.mode === mode);
+    });
+    if (mode === "split") requestAnimationFrame(() => applyRatio(getSavedRatio()));
+  }
+
+  // ── Drag ──────────────────────────────────────────────────────────────────
+  divider.addEventListener("mousedown", e => {
+    if (currentMode !== "split") return;
+    e.preventDefault(); dragging = true; divider.classList.add("dragging");
+    document.body.style.cursor = "col-resize"; document.body.style.userSelect = "none";
+    paneFids.style.pointerEvents = "none"; paneRdr.style.pointerEvents = "none";
+  });
+  document.addEventListener("mousemove", e => {
+    if (!dragging) return;
+    const rect  = area.getBoundingClientRect();
+    const ratio = Math.min(MAX_RATIO, Math.max(MIN_RATIO, (e.clientX - rect.left) / rect.width));
+    applyRatio(ratio); localStorage.setItem(STORAGE_RATIO, ratio.toString());
+  });
+  document.addEventListener("mouseup", () => {
+    if (!dragging) return;
+    dragging = false; divider.classList.remove("dragging");
+    document.body.style.cursor = ""; document.body.style.userSelect = "";
+    paneFids.style.pointerEvents = ""; paneRdr.style.pointerEvents = "";
+  });
+
+  // ── Touch ─────────────────────────────────────────────────────────────────
+  divider.addEventListener("touchstart", e => {
+    if (currentMode !== "split") return;
+    e.preventDefault(); dragging = true; divider.classList.add("dragging");
+  }, { passive: false });
+  document.addEventListener("touchmove", e => {
+    if (!dragging) return;
+    const touch = e.touches[0], rect = area.getBoundingClientRect();
+    const ratio = Math.min(MAX_RATIO, Math.max(MIN_RATIO, (touch.clientX - rect.left) / rect.width));
+    applyRatio(ratio); localStorage.setItem(STORAGE_RATIO, ratio.toString());
+  }, { passive: true });
+  document.addEventListener("touchend", () => { if (!dragging) return; dragging = false; divider.classList.remove("dragging"); });
+
+  // ── Fullscreen ─────────────────────────────────────────────────────────────
+  window.toggleFullscreen = function () {
+    if (!document.fullscreenElement) document.documentElement.requestFullscreen().catch(()=>{});
+    else document.exitFullscreen().catch(()=>{});
+  };
+
+  // ── Clock ──────────────────────────────────────────────────────────────────
+  const airportTz = "{{ cfg.timezone if cfg is defined and cfg.timezone is defined else '' }}" || null;
+  function fmtTime(date, tz) {
+    try { return date.toLocaleTimeString("en-GB", { timeZone: tz, hour:"2-digit", minute:"2-digit", second:"2-digit", hour12:false }); }
+    catch { return fmtTime(date, "UTC"); }
+  }
+  function tickClock() {
+    const now = new Date();
+    const utc = fmtTime(now, "UTC");
+    const lt  = airportTz ? fmtTime(now, airportTz) : fmtTime(now, Intl.DateTimeFormat().resolvedOptions().timeZone);
+    document.querySelectorAll(".clock-utc-val").forEach(el => el.textContent = utc);
+    document.querySelectorAll(".clock-local-val").forEach(el => el.textContent = lt);
+  }
+  tickClock(); setInterval(tickClock, 1000);
+
+  // ── WebSocket — forward push to iframes ────────────────────────────────────
+  let ws = null, retryMs = 1000;
+
+  function connectWS() {
+    const proto = location.protocol === "https:" ? "wss" : "ws";
+    ws = new WebSocket(`${proto}://${location.host}/ws`);
+
+    ws.onopen = () => {
+      retryMs = 1000;
+      if (dot) dot.classList.remove("offline");
+    };
+
+    ws.onmessage = (e) => {
+      // Forward the raw message to both iframes so they refresh themselves
+      const fidsWin  = document.getElementById("iframeFids")?.contentWindow;
+      const radarWin = document.getElementById("iframeRadar")?.contentWindow;
+      if (fidsWin)  fidsWin.postMessage(e.data,  "*");
+      if (radarWin) radarWin.postMessage(e.data, "*");
+    };
+
+    ws.onclose = ws.onerror = () => {
+      if (dot) dot.classList.add("offline");
+      setTimeout(connectWS, Math.min(retryMs, 30000));
+      retryMs = Math.min(retryMs * 2, 30000);
+    };
+  }
+
+  connectWS();
+
+  // ── Resize + init ──────────────────────────────────────────────────────────
+  window.addEventListener("resize", () => { if (currentMode === "split") applyRatio(getSavedRatio()); });
+  window.setMode = setMode;
+  setMode(currentMode);
+})();
+</script>
+</body>
+</html>

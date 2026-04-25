@@ -1,0 +1,439 @@
+{% extends "base.html" %}
+{% from "_nav.html" import topnav %}
+
+{% block title %}Local Flight — History{% endblock %}
+
+{% block extra_style %}
+  body { display: block; min-height: 100vh; padding: 0; }
+  .page-body { padding: 20px 16px; }
+  .card { width: min(1100px, calc(100vw - 32px)); max-width: none; margin: 0 auto; }
+  .history-header {
+    display: flex; justify-content: space-between; align-items: flex-start;
+    flex-wrap: wrap; gap: 10px; margin-bottom: 16px;
+    padding-bottom: 14px; border-bottom: 1px solid var(--panel-border);
+  }
+  .history-header h1 { margin: 0; font-size: 1.1rem; }
+  .filters {
+    display: flex; gap: 10px; flex-wrap: wrap; align-items: center;
+    margin-bottom: 14px; padding: 10px 14px;
+    background: var(--panel-bg); border: 1px solid var(--panel-border); border-radius: 10px;
+  }
+  .filters label { font-size: 0.8rem; opacity: 0.7; white-space: nowrap; }
+  .filters select, .filters input {
+    padding: 5px 8px; font-size: 0.82rem; border-radius: 6px;
+    border: 1px solid var(--input-border); background: var(--input-bg); color: var(--text);
+  }
+  .filters button {
+    padding: 5px 14px; font-size: 0.82rem; border-radius: 6px;
+    border: 1px solid var(--btn-border); background: var(--btn-bg); color: var(--text);
+    cursor: pointer; font-weight: 600; margin-top: 0; width: auto;
+  }
+  .filters button:hover { filter: brightness(1.1); }
+  .history-stats { display: flex; gap: 16px; font-size: 0.8rem; opacity: 0.6; margin-bottom: 10px; font-family: ui-monospace, monospace; }
+  .callsign-search { display: flex; gap: 8px; margin-bottom: 14px; }
+  .callsign-search input {
+    flex: 1; padding: 6px 10px; border-radius: 6px;
+    border: 1px solid var(--input-border); background: var(--input-bg); color: var(--text);
+    font-size: 0.85rem; font-family: ui-monospace, monospace; text-transform: uppercase;
+  }
+  .callsign-search button {
+    padding: 6px 14px; border-radius: 6px;
+    border: 1px solid var(--btn-border); background: var(--btn-bg); color: var(--text);
+    cursor: pointer; font-weight: 600; font-size: 0.82rem; margin-top: 0; width: auto;
+  }
+  .table-wrap { overflow-x: auto; border-radius: 10px; border: 1px solid var(--panel-border); }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { padding: 8px 12px; text-align: left; border-bottom: 1px solid rgba(255,255,255,0.05); font-size: 0.83rem; white-space: nowrap; }
+  [data-theme="light"] th, [data-theme="light"] td { border-bottom-color: rgba(0,0,0,0.05); }
+  th { background: var(--panel-bg); font-weight: 600; opacity: 0.8; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.04em; cursor: pointer; user-select: none; }
+  th:hover { opacity: 1; }
+  tbody tr { transition: background 0.1s; }
+  tbody tr:hover { background: rgba(255,255,255,0.03); }
+  [data-theme="light"] tbody tr:hover { background: rgba(0,0,0,0.03); }
+  .mono { font-family: ui-monospace, monospace; }
+  .status-Scheduled { opacity: 0.8; }
+  .status-Departed  { color: #4a9eda; }
+  .status-Arrived   { color: #00c040; opacity: 0.8; }
+  .status-Delayed   { color: #ffaa00; }
+  .status-Cancelled { color: #ff4040; text-decoration: line-through; opacity: 0.7; }
+  .dir-DEP { color: #4a9eda; font-weight: 700; }
+  .dir-ARR { color: #00c040; font-weight: 700; }
+  .empty-row td { text-align: center; padding: 30px; opacity: 0.5; }
+  .detail-panel {
+    position: fixed; top: 0; right: 0; width: 340px; height: 100vh;
+    background: var(--card-bg); border-left: 1px solid var(--card-border);
+    padding: 20px; box-shadow: -4px 0 20px rgba(0,0,0,0.3);
+    overflow-y: auto; z-index: 100;
+    transform: translateX(100%); transition: transform 0.25s ease;
+  }
+  .detail-panel.open { transform: translateX(0); }
+  .detail-panel h3 { margin: 0 0 16px 0; font-size: 1rem; }
+  .detail-close { position: absolute; top: 16px; right: 16px; background: none; border: none; cursor: pointer; font-size: 1.2rem; opacity: 0.5; color: inherit; }
+  .detail-close:hover { opacity: 1; }
+  .detail-row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid rgba(255,255,255,0.05); font-size: 0.82rem; }
+  .detail-label { opacity: 0.6; }
+  .detail-val { font-weight: 600; font-family: ui-monospace, monospace; font-size: 0.78rem; }
+
+  /* ── Tabs ── */
+  .tab-bar {
+    display: flex; gap: 4px; margin-bottom: 16px;
+    border-bottom: 1px solid var(--panel-border); padding-bottom: 0;
+  }
+  .tab-btn {
+    padding: 7px 18px; border-radius: 8px 8px 0 0; border: none;
+    background: none; color: inherit; cursor: pointer; font-size: 0.85rem;
+    font-weight: 600; opacity: 0.45; margin-bottom: -1px;
+    border-bottom: 2px solid transparent; transition: opacity 0.12s;
+    width: auto; margin-top: 0;
+  }
+  .tab-btn.active { opacity: 1; border-bottom-color: var(--accent, #4a9eda); }
+  .tab-btn:hover:not(.active) { opacity: 0.75; }
+  .tab-pane { display: none; }
+  .tab-pane.active { display: block; animation: lf-page-in 0.18s ease-out both; }
+
+  /* ── Stats grid ── */
+  .stats-kpi-row {
+    display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 20px;
+  }
+  .stats-kpi {
+    flex: 1; min-width: 120px; padding: 14px 18px;
+    background: var(--panel-bg); border: 1px solid var(--panel-border);
+    border-radius: 10px; text-align: center;
+  }
+  .stats-kpi-val { font-size: 2rem; font-weight: 800; line-height: 1.1; font-family: ui-monospace, monospace; }
+  .stats-kpi-label { font-size: 0.72rem; opacity: 0.55; text-transform: uppercase; letter-spacing: 0.05em; margin-top: 4px; }
+  .kpi-green { color: #22c55e; }
+  .kpi-amber { color: #f59e0b; }
+  .kpi-red   { color: #ef4444; }
+  .kpi-blue  { color: #4a9eda; }
+
+  .stats-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 14px; margin-bottom: 20px;
+  }
+  .stats-panel {
+    padding: 14px 16px; background: var(--panel-bg);
+    border: 1px solid var(--panel-border); border-radius: 10px;
+  }
+  .stats-panel h3 { margin: 0 0 12px 0; font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.05em; opacity: 0.65; }
+  .bar-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+  .bar-label { font-family: ui-monospace, monospace; font-size: 0.78rem; min-width: 52px; font-weight: 700; }
+  .bar-track { flex: 1; background: rgba(255,255,255,0.06); border-radius: 3px; height: 10px; overflow: hidden; }
+  [data-theme="light"] .bar-track { background: rgba(0,0,0,0.06); }
+  .bar-fill { height: 100%; border-radius: 3px; background: var(--accent, #4a9eda); transition: width 0.4s ease; }
+  .bar-count { font-size: 0.72rem; opacity: 0.5; min-width: 28px; text-align: right; font-family: ui-monospace, monospace; }
+  .stats-empty { opacity: 0.4; font-size: 0.82rem; font-style: italic; padding: 8px 0; }
+  .stats-period { font-size: 0.72rem; opacity: 0.45; margin-bottom: 16px; }
+  .stats-period select {
+    margin-left: 6px; padding: 2px 6px; font-size: 0.72rem;
+    border-radius: 4px; border: 1px solid var(--input-border);
+    background: var(--input-bg); color: var(--text);
+  }
+{% endblock %}
+
+{% block body %}
+{{ topnav(active="history", cfg=cfg) }}
+
+<div class="page-body">
+<main class="card">
+
+  <div class="history-header">
+    <div>
+      <h1>📅 Flight History — {{ cfg.airport_iata }}</h1>
+      <div style="opacity:0.5; font-size:0.78rem; margin-top:3px;">
+        90-day local database · click any row for details
+      </div>
+    </div>
+    <div class="clock-bar">
+      <span class="clock-utc">UTC: <span class="clock-utc-val">--:--:--</span></span>
+      <span class="clock-sep">|</span>
+      <span>LT: <span class="clock-local-val">--:--:--</span></span>
+    </div>
+  </div>
+
+  <!-- Tab bar -->
+  <div class="tab-bar">
+    <button class="tab-btn active" onclick="switchTab('browse')">📋 Browse</button>
+    <button class="tab-btn"        onclick="switchTab('stats')">📊 Stats</button>
+  </div>
+
+  <!-- ── Browse tab ── -->
+  <div class="tab-pane active" id="tab-browse">
+    <div class="callsign-search">
+      <input id="callsignInput" placeholder="Search callsign e.g. SWR184"
+        maxlength="10" oninput="this.value=this.value.toUpperCase()"
+        onkeydown="if(event.key==='Enter') searchCallsign()" />
+      <button onclick="searchCallsign()">Search</button>
+      <button onclick="clearCallsign()" style="opacity:0.6;">Clear</button>
+    </div>
+
+    <div class="filters">
+      <label>Period</label>
+      <select id="hoursFilter">
+        <option value="6">Last 6h</option>
+        <option value="24" selected>Last 24h</option>
+        <option value="48">Last 48h</option>
+        <option value="168">Last 7 days</option>
+        <option value="720">Last 30 days</option>
+      </select>
+      <label>Direction</label>
+      <select id="dirFilter">
+        <option value="both">Both</option>
+        <option value="dep">Departures</option>
+        <option value="arr">Arrivals</option>
+      </select>
+      <label>Status</label>
+      <select id="statusFilter">
+        <option value="">All</option>
+        <option value="Scheduled">Scheduled</option>
+        <option value="Departed">Departed</option>
+        <option value="Arrived">Arrived</option>
+        <option value="Delayed">Delayed</option>
+        <option value="Cancelled">Cancelled</option>
+      </select>
+      <button onclick="loadHistory()">Apply</button>
+    </div>
+
+    <div class="history-stats" id="historyStats">Loading...</div>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th onclick="sortBy('snapshot_ts')">Time ↕</th>
+            <th onclick="sortBy('direction')">Dir</th>
+            <th onclick="sortBy('flight_number')">Flight</th>
+            <th onclick="sortBy('callsign')">Callsign</th>
+            <th onclick="sortBy('origin_iata')">From</th>
+            <th onclick="sortBy('dest_iata')">To</th>
+            <th onclick="sortBy('status')">Status</th>
+            <th onclick="sortBy('gate')">Gate</th>
+            <th onclick="sortBy('aircraft_type')">A/C</th>
+            <th onclick="sortBy('source')">Source</th>
+          </tr>
+        </thead>
+        <tbody id="historyBody">
+          <tr class="empty-row"><td colspan="10">Loading history...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ── Stats tab ── -->
+  <div class="tab-pane" id="tab-stats">
+    <div class="stats-period">
+      Showing data for
+      <select id="statsPeriod" onchange="loadStats()">
+        <option value="168">last 7 days</option>
+        <option value="720" selected>last 30 days</option>
+        <option value="2160">last 90 days</option>
+      </select>
+    </div>
+
+    <div class="stats-kpi-row" id="statsKpi">
+      <div class="stats-kpi"><div class="stats-kpi-val" id="kpiTotal">—</div><div class="stats-kpi-label">Flights tracked</div></div>
+      <div class="stats-kpi"><div class="stats-kpi-val kpi-blue"  id="kpiDep">—</div><div class="stats-kpi-label">🛫 Departures</div></div>
+      <div class="stats-kpi"><div class="stats-kpi-val kpi-green" id="kpiArr">—</div><div class="stats-kpi-label">🛬 Arrivals</div></div>
+      <div class="stats-kpi"><div class="stats-kpi-val" id="kpiOnTime">—</div><div class="stats-kpi-label">On time</div></div>
+      <div class="stats-kpi"><div class="stats-kpi-val kpi-amber" id="kpiDelay">—</div><div class="stats-kpi-label">Avg delay (when late)</div></div>
+    </div>
+
+    <div class="stats-grid">
+      <div class="stats-panel">
+        <h3>✈️ Top airlines</h3>
+        <div id="barAirlines"><span class="stats-empty">Loading…</span></div>
+      </div>
+      <div class="stats-panel">
+        <h3>🛫 Top destinations</h3>
+        <div id="barDestinations"><span class="stats-empty">Loading…</span></div>
+      </div>
+      <div class="stats-panel">
+        <h3>🛬 Top origins</h3>
+        <div id="barOrigins"><span class="stats-empty">Loading…</span></div>
+      </div>
+      <div class="stats-panel">
+        <h3>🛩️ Top aircraft types</h3>
+        <div id="barAircraft"><span class="stats-empty">Loading…</span></div>
+      </div>
+    </div>
+  </div>
+
+</main>
+</div>
+
+<div class="detail-panel" id="detailPanel">
+  <button class="detail-close" onclick="closeDetail()">✕</button>
+  <h3 id="detailTitle">Flight details</h3>
+  <div id="detailBody"></div>
+</div>
+{% endblock %}
+
+{% block extra_script %}
+<script>
+// ── Tab switching ─────────────────────────────────────────────────────────────
+window.switchTab = function (name) {
+  document.querySelectorAll(".tab-btn").forEach((b, i) => {
+    b.classList.toggle("active", b.getAttribute("onclick").includes(`'${name}'`));
+  });
+  document.querySelectorAll(".tab-pane").forEach(p => {
+    p.classList.toggle("active", p.id === `tab-${name}`);
+  });
+  if (name === "stats") loadStats();
+};
+
+// ── Stats tab ─────────────────────────────────────────────────────────────────
+window.loadStats = async function () {
+  const hours = document.getElementById("statsPeriod").value;
+  try {
+    const r = await fetch(`/api/history/summary?hours=${hours}`);
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const d = await r.json();
+    if (d.error) throw new Error(d.error);
+
+    document.getElementById("kpiTotal").textContent  = d.total ?? "—";
+    document.getElementById("kpiDep").textContent    = d.departures ?? "—";
+    document.getElementById("kpiArr").textContent    = d.arrivals ?? "—";
+    document.getElementById("kpiOnTime").textContent = d.on_time_pct != null ? `${d.on_time_pct}%` : "—";
+    const kpiOnTime = document.getElementById("kpiOnTime");
+    kpiOnTime.className = "stats-kpi-val " + (
+      d.on_time_pct >= 80 ? "kpi-green" : d.on_time_pct >= 60 ? "kpi-amber" : "kpi-red"
+    );
+    document.getElementById("kpiDelay").textContent = d.avg_delay_minutes != null ? `+${d.avg_delay_minutes}m` : "—";
+
+    renderBars("barAirlines",     d.top_airlines,      "code");
+    renderBars("barDestinations", d.top_destinations,  "code");
+    renderBars("barOrigins",      d.top_origins,       "code");
+    renderBars("barAircraft",     d.top_aircraft,      "aircraft_type");
+  } catch (e) {
+    ["barAirlines","barDestinations","barOrigins","barAircraft"].forEach(id => {
+      document.getElementById(id).innerHTML = `<span class="stats-empty">Error: ${e.message}</span>`;
+    });
+  }
+};
+
+function renderBars(containerId, items, labelKey) {
+  const el = document.getElementById(containerId);
+  if (!items || !items.length) { el.innerHTML = '<span class="stats-empty">No data yet</span>'; return; }
+  const max = items[0].count || 1;
+  el.innerHTML = items.map(item => {
+    const label = item[labelKey] || item.code || item.aircraft_type || "?";
+    const pct   = Math.round((item.count / max) * 100);
+    return `<div class="bar-row">
+      <span class="bar-label">${label}</span>
+      <div class="bar-track"><div class="bar-fill" style="width:${pct}%"></div></div>
+      <span class="bar-count">${item.count}</span>
+    </div>`;
+  }).join("");
+}
+
+// ── Browse tab ────────────────────────────────────────────────────────────────
+(function () {
+  let allRows = [], sortKey = "snapshot_ts", sortAsc = false;
+
+  async function loadHistory() {
+    const hours = document.getElementById("hoursFilter").value;
+    const dir   = document.getElementById("dirFilter").value;
+    const tbody = document.getElementById("historyBody");
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="10"><span class="lf-shimmer" style="width:120px;height:0.9em;">&nbsp;</span></td></tr>';
+    try {
+      const r = await fetch(`/api/history?hours=${hours}&direction=${dir}&limit=500`);
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const d = await r.json();
+      allRows = d.flights || [];
+      renderTable();
+      document.getElementById("historyStats").textContent = `${d.count} records · ${d.airport_iata} · last ${hours}h`;
+    } catch (e) {
+      tbody.innerHTML = `<tr class="empty-row"><td colspan="10">Error: ${e.message}</td></tr>`;
+    }
+  }
+
+  window.searchCallsign = async function () {
+    const cs = document.getElementById("callsignInput").value.trim().toUpperCase();
+    if (!cs) return;
+    const tbody = document.getElementById("historyBody");
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="10"><span class="lf-shimmer" style="width:140px;height:0.9em;">&nbsp;</span></td></tr>';
+    try {
+      const r = await fetch(`/api/history/flight?callsign=${encodeURIComponent(cs)}&days=30`);
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const d = await r.json();
+      allRows = d.flights || [];
+      renderTable();
+      document.getElementById("historyStats").textContent = `${d.count} records for ${d.callsign} · last 30 days`;
+    } catch (e) {
+      document.getElementById("historyBody").innerHTML = `<tr class="empty-row"><td colspan="10">Error: ${e.message}</td></tr>`;
+    }
+  };
+
+  window.clearCallsign = function () {
+    document.getElementById("callsignInput").value = "";
+    loadHistory();
+  };
+
+  window.sortBy = function (key) {
+    if (sortKey === key) sortAsc = !sortAsc;
+    else { sortKey = key; sortAsc = true; }
+    renderTable();
+  };
+
+  function renderTable() {
+    const statusF = document.getElementById("statusFilter").value;
+    let rows = allRows.filter(r => !statusF || r.status === statusF);
+    rows.sort((a, b) => {
+      const av = a[sortKey]||"", bv = b[sortKey]||"";
+      return sortAsc ? av.localeCompare(bv) : bv.localeCompare(av);
+    });
+    const tbody = document.getElementById("historyBody");
+    if (!rows.length) { tbody.innerHTML = '<tr class="empty-row"><td colspan="10">No records found.</td></tr>'; return; }
+    tbody.innerHTML = rows.slice(0, 200).map((r, i) => {
+      const ts  = (r.snapshot_ts||"").slice(0,16).replace("T"," ");
+      const fn  = r.flight_number || r.callsign || "—";
+      const sc  = (r.status||"").replace(" ","");
+      return `<tr style="cursor:pointer" onclick="showDetail(${i})">
+        <td class="mono">${ts}</td>
+        <td class="mono dir-${r.direction||''}">${r.direction||'—'}</td>
+        <td class="mono">${fn}</td>
+        <td class="mono">${r.callsign||'—'}</td>
+        <td class="mono">${r.origin_iata||'—'}</td>
+        <td class="mono">${r.dest_iata||'—'}</td>
+        <td class="status-${sc}">${r.status||'—'}</td>
+        <td class="mono">${r.gate||'—'}</td>
+        <td class="mono">${r.aircraft_type||'—'}</td>
+        <td class="mono" style="opacity:0.5;font-size:0.72rem">${r.source||'—'}</td>
+      </tr>`;
+    }).join("");
+    window._histRows = rows;
+  }
+
+  window.showDetail = function (idx) {
+    const r = window._histRows?.[idx]; if (!r) return;
+    document.getElementById("detailTitle").textContent = `${r.flight_number||r.callsign||"Flight"} · ${r.direction}`;
+    const fields = [
+      ["Callsign",r.callsign],["Flight No",r.flight_number],["Direction",r.direction],
+      ["Status",r.status],["From",r.origin_iata],["To",r.dest_iata],
+      ["Gate",r.gate],["Terminal",r.terminal],["Aircraft",r.aircraft_type],
+      ["Sched time",r.sched_time?.slice(0,16).replace("T"," ")],
+      ["Actual time",r.actual_time?.slice(0,16).replace("T"," ")],
+      ["Source",r.source],["Enriched by",r.enriched_by],
+      ["Snapshot",r.snapshot_ts?.slice(0,16).replace("T"," ")],
+      ["Lat / Lon",r.lat!=null?`${r.lat?.toFixed(4)}, ${r.lon?.toFixed(4)}`:null],
+      ["Altitude",r.altitude_m!=null?`${Math.round(r.altitude_m*3.28084)}ft`:null],
+    ];
+    document.getElementById("detailBody").innerHTML = fields
+      .filter(([,v])=>v)
+      .map(([k,v])=>`<div class="detail-row"><span class="detail-label">${k}</span><span class="detail-val">${v}</span></div>`)
+      .join("");
+    document.getElementById("detailPanel").classList.add("open");
+  };
+
+  window.closeDetail = function () { document.getElementById("detailPanel").classList.remove("open"); };
+
+  document.addEventListener("click", e => {
+    const panel = document.getElementById("detailPanel");
+    if (panel.classList.contains("open") && !panel.contains(e.target)) closeDetail();
+  });
+
+  window.loadHistory = loadHistory;
+  loadHistory();
+})();
+</script>
+{% endblock %}

@@ -1,0 +1,82 @@
+{#
+  localflight/ui/templates/icons_technical.html
+  Vector/radar style icons for technical, neon, cyan, crt skins.
+  Usage: {% from "icons_technical.html" import status_icon, header_icon %}
+         {{ status_icon(r.status_display) }}
+         {{ header_icon(view) }}
+#}
+
+{% macro status_icon(status, size=20) %}
+{%- set s = status | lower | replace(" ", "_") -%}
+<svg width="{{ size }}" height="{{ size }}" viewBox="0 0 20 20" fill="none" aria-hidden="true" style="vertical-align:middle; flex-shrink:0;">
+  {%- if s == "scheduled" -%}
+  <g style="animation: lf-pulse 1.4s ease-in-out infinite;">
+    <path d="M3 13 L10 7 L17 13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" fill="none" opacity="0.4"/>
+    <path d="M6 13 L10 9 L14 13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+    <rect x="5" y="14" width="10" height="1.5" rx="0.75" fill="currentColor" opacity="0.4"/>
+  </g>
+  {%- elif s == "boarding" -%}
+  <g style="animation: lf-pulse 1.0s ease-in-out infinite;">
+    <path d="M3 13 L10 7 L17 13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" fill="none" opacity="0.4"/>
+    <path d="M6 13 L10 9 L14 13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+    <rect x="5" y="14" width="10" height="1.5" rx="0.75" fill="currentColor" opacity="0.4"/>
+    <path d="M2 16 L5 16 M15 16 L18 16" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" opacity="0.8"/>
+    <rect x="8" y="15" width="4" height="2" rx="0.5" fill="currentColor" opacity="0.9"/>
+  </g>
+  {%- elif s == "departed" -%}
+  <g style="animation: lf-climb 2.2s ease-in-out infinite; transform-box: fill-box; transform-origin: center;">
+    <path d="M2 15 L10 5 L18 15" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+    <path d="M6 12 L10 8 L14 12" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" fill="none" opacity="0.5"/>
+  </g>
+  {%- elif s in ["arrived", "landed"] -%}
+  <g style="animation: lf-descend 2.2s ease-in-out infinite; transform-box: fill-box; transform-origin: center;">
+    <path d="M2 5 L10 15 L18 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+    <path d="M6 8 L10 12 L14 8" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" fill="none" opacity="0.5"/>
+    <rect x="3" y="16" width="14" height="1.2" rx="0.6" fill="currentColor" opacity="0.3"/>
+  </g>
+  {%- elif s == "delayed" -%}
+  <g style="animation: lf-pulse 1.4s ease-in-out infinite;">
+    <path d="M3 13 L10 7 L17 13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" fill="none" opacity="0.5"/>
+    <path d="M6 13 L10 9 L14 13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" fill="none" opacity="0.5"/>
+    <circle cx="15" cy="6" r="3" stroke="currentColor" stroke-width="1.2" fill="none"/>
+    <path d="M14 5.5 L14 7 L15.2 7" stroke="currentColor" stroke-width="1" stroke-linecap="round"/>
+  </g>
+  {%- elif s in ["cancelled", "canceled"] -%}
+  <g>
+    <path d="M3 13 L10 7 L17 13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" fill="none" opacity="0.2"/>
+    <path d="M6 13 L10 9 L14 13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" fill="none" opacity="0.2"/>
+    <line x1="13" y1="4" x2="17" y2="8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+    <line x1="17" y1="4" x2="13" y2="8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+  </g>
+  {%- elif s == "diverted" -%}
+  <g>
+    <path d="M3 13 L10 7 L17 13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" fill="none" opacity="0.4"/>
+    <path d="M6 13 L10 9 L14 13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+    <path d="M14 10 Q17 8 17 12" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" fill="none" opacity="0.8"/>
+  </g>
+  {%- else -%}
+  <g style="animation: lf-pulse 1.4s ease-in-out infinite;">
+    <path d="M3 13 L10 7 L17 13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" fill="none" opacity="0.4"/>
+    <path d="M6 13 L10 9 L14 13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" fill="none" opacity="0.4"/>
+  </g>
+  {%- endif %}
+</svg>
+{% endmacro %}
+
+{% macro header_icon(view, size=32) %}
+<svg width="{{ size }}" height="{{ size }}" viewBox="0 0 32 32" fill="none" aria-hidden="true">
+  {%- if view == "arrivals" -%}
+  <g style="animation: lf-descend 2.2s ease-in-out infinite; transform-box: fill-box; transform-origin: center;">
+    <path d="M4 8 L16 22 L28 8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+    <path d="M9 13 L16 20 L23 13" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" fill="none" opacity="0.45"/>
+    <rect x="8" y="24" width="16" height="2" rx="1" fill="currentColor" opacity="0.25"/>
+  </g>
+  {%- else -%}
+  <g style="animation: lf-climb 2.2s ease-in-out infinite; transform-box: fill-box; transform-origin: center;">
+    <path d="M4 24 L16 10 L28 24" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+    <path d="M9 19 L16 12 L23 19" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" fill="none" opacity="0.45"/>
+    <rect x="8" y="25" width="16" height="2" rx="1" fill="currentColor" opacity="0.25"/>
+  </g>
+  {%- endif %}
+</svg>
+{% endmacro %}

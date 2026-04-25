@@ -1,0 +1,53 @@
+# ── Python ─────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# ── Virtual env ────────────────────────────────────────
+.venv/
+venv/
+
+# ── Secrets ────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+
+# ── Local config / runtime ─────────────────────────────
+config/
+data/
+
+# Setup marker
+setup_complete
+
+# ── Storage runtime data ───────────────────────────────
+src/localflight/storage/data/
+src/localflight/storage/samples/*_real.json
+
+# Optional: ignore ALL samples if you want clean repo
+# src/localflight/storage/samples/*.json
+
+# ── Logs ───────────────────────────────────────────────
+*.log
+
+# ── IDE / OS junk ──────────────────────────────────────
+.vs/
+.vscode/
+.idea/
+*.sqlite
+*.db
+.DS_Store
+Thumbs.db
+
+# ── Build artifacts ────────────────────────────────────
+*.egg-info/
+build/
+dist/
+
+# ── Optional: private dev stuff ────────────────────────
+dev/private/
+assets/
+linear_dedup.json
+
+# Claude Code local settings
+.claude/

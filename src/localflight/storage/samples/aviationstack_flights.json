@@ -1,0 +1,52 @@
+{
+  "data": [
+    {
+      "flight_status": "scheduled",
+      "departure": {
+        "iata": "ZRH",
+        "icao": "LSZH",
+        "scheduled": "2026-01-02T08:15:00+01:00",
+        "estimated": "2026-01-02T08:20:00+01:00",
+        "actual": null,
+        "gate": "A12",
+        "terminal": "1"
+      },
+      "arrival": {
+        "iata": "LHR",
+        "icao": "EGLL",
+        "scheduled": "2026-01-02T09:10:00+00:00",
+        "estimated": null,
+        "actual": null,
+        "gate": "B24",
+        "terminal": "3"
+      },
+      "airline": { "name": "SWISS", "iata": "LX", "icao": "SWR" },
+      "flight": { "number": "318", "iata": "LX318", "icao": "SWR318" },
+      "aircraft": { "icao": "A320", "iata": "320" }
+    },
+    {
+      "flight_status": "landed",
+      "departure": {
+        "iata": "AMS",
+        "icao": "EHAM",
+        "scheduled": "2026-01-02T06:30:00+01:00",
+        "estimated": null,
+        "actual": "2026-01-02T06:35:00+01:00",
+        "gate": null,
+        "terminal": "1"
+      },
+      "arrival": {
+        "iata": "ZRH",
+        "icao": "LSZH",
+        "scheduled": "2026-01-02T07:55:00+01:00",
+        "estimated": "2026-01-02T07:50:00+01:00",
+        "actual": "2026-01-02T07:48:00+01:00",
+        "gate": "E18",
+        "terminal": "2"
+      },
+      "airline": { "name": "KLM", "iata": "KL", "icao": "KLM" },
+      "flight": { "number": "1965", "iata": "KL1965", "icao": "KLM1965" },
+      "aircraft": { "icao": "B738", "iata": "738" }
+    }
+  ]
+}

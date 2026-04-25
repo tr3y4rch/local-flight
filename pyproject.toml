@@ -1,0 +1,57 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "localflight"
+version = "0.2.0"
+description = "Local-first Flight Information Display System (FIDS) with web UI and LED matrix support"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+
+authors = [
+  { name = "Philipp" }
+]
+
+dependencies = [
+  "fastapi",
+  "uvicorn[standard]",
+  "jinja2",
+  "requests",
+  "tzdata",
+  "pydantic>=2.0",
+  "pystray",
+  "pillow",
+  "python-multipart",
+]
+
+[project.optional-dependencies]
+dev = [
+  "httpx",
+  "pytest",
+  "pyinstaller>=6.0",
+]
+
+[project.urls]
+Repository = "https://github.com/tr3y4rch/local-flight"
+Issues    = "https://linear.app/local-flight"
+
+[project.scripts]
+localflight-ui        = "localflight.ui.server:app"
+localflight-scheduler = "localflight.scheduler.run_scheduler:main"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+localflight = [
+  "ui/templates/*.html",
+  "ui/static/*",
+  "decode/mappings/*.json",
+  "decode/mappings/*.gz",
+  "storage/samples/*.json",
+]

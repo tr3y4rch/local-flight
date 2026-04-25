@@ -1,0 +1,196 @@
+{% extends "base.html" %}
+{% from "_nav.html" import topnav %}
+
+{% block title %}Local Flight — Logs{% endblock %}
+
+{% block extra_style %}
+  body { display: block; min-height: 100vh; padding: 0; }
+  .page-body { padding: 20px 16px; }
+  .card { width: min(1000px, calc(100vw - 32px)); max-width: none; margin: 0 auto; }
+  .log-header {
+    display: flex; justify-content: space-between; align-items: flex-start;
+    flex-wrap: wrap; gap: 10px; margin-bottom: 14px;
+  }
+  .log-header h1 { margin: 0; font-size: 1rem; }
+  .log-controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+  .file-select { flex: 1; min-width: 200px; }
+  .ctrl-btn {
+    padding: 6px 12px; border-radius: 6px;
+    border: 1px solid rgba(255,255,255,0.15);
+    background: rgba(255,255,255,0.06); color: inherit;
+    font-size: 0.8rem; font-weight: 600; cursor: pointer;
+    white-space: nowrap; transition: background 0.15s;
+  }
+  .ctrl-btn:hover { background: rgba(255,255,255,0.12); }
+  .ctrl-btn.active { background: rgba(0,255,80,0.1); border-color: rgba(0,255,80,0.4); color: #00e84a; }
+  [data-theme="light"] .ctrl-btn { border-color: rgba(0,0,0,0.15); background: rgba(0,0,0,0.04); }
+  .log-meta {
+    font-size: 0.72rem; opacity: 0.5; font-family: ui-monospace, monospace;
+    margin-bottom: 8px; display: flex; gap: 16px; flex-wrap: wrap; align-items: center;
+  }
+  .live-badge { display: inline-flex; align-items: center; gap: 5px; font-size: 0.7rem; color: #00e84a; font-weight: 600; }
+  .live-dot { width: 7px; height: 7px; border-radius: 50%; background: #00e84a; animation: blink 1.2s ease-in-out infinite; }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.2} }
+  .logbox {
+    margin: 0; padding: 12px; border-radius: 10px;
+    border: 1px solid var(--panel-border); background: var(--panel-bg);
+    overflow: auto; height: 60vh; font-size: 0.72rem; line-height: 1.5;
+    white-space: pre-wrap; word-break: break-all;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    scroll-behavior: smooth;
+  }
+  .log-line { display: block; padding: 1px 0; }
+  .log-line.ERROR, .log-line.CRITICAL { color: #ff6060; }
+  .log-line.WARNING { color: #ffaa40; }
+  .log-line.INFO    { opacity: 0.85; }
+  .log-line.DEBUG   { opacity: 0.45; }
+{% endblock %}
+
+{% block body %}
+{{ topnav(active="logs", cfg=cfg) }}
+
+<div class="page-body">
+<main class="card">
+  <div class="log-header">
+    <div>
+      <h1>📋 Logs</h1>
+      <div style="opacity:0.5; font-size:0.78rem; margin-top:2px;">
+        Max {{ max_files }} files · {{ max_days }} day retention · {{ max_mb }}MB per file
+      </div>
+    </div>
+    <div class="clock-bar">
+      <span class="clock-utc">UTC: <span class="clock-utc-val">--:--:--</span></span>
+      <span class="clock-sep">|</span>
+      <span>LT: <span class="clock-local-val">--:--:--</span></span>
+    </div>
+  </div>
+
+  <div class="log-controls">
+    <select class="file-select" id="fileSelect" onchange="switchFile(this.value)">
+      {% for f in files %}
+      <option value="{{ f }}" {% if f == selected %}selected{% endif %}>{{ f }}</option>
+      {% endfor %}
+    </select>
+    <button class="ctrl-btn {{ 'active' if auto_scroll else '' }}" id="autoScrollBtn" onclick="toggleAutoScroll()">↓ Auto-scroll</button>
+    <button class="ctrl-btn {{ 'active' if live_mode else '' }}" id="liveModeBtn" onclick="toggleLive()">
+      <span class="live-badge">
+        <span class="live-dot" id="liveDot" style="{{ '' if live_mode else 'animation:none;opacity:0.3' }}"></span>
+        Live
+      </span>
+    </button>
+    <button class="ctrl-btn" onclick="copyLogs()">Copy</button>
+  </div>
+
+  <div class="log-meta">
+    <span id="lineCount">{{ lines|length }} lines</span>
+    <span id="lastUpdate">—</span>
+    <span id="liveStatus"></span>
+  </div>
+
+  <div class="logbox" id="logbox">
+    {% for line in lines %}
+    {% set level = "INFO" %}
+    {% if " | ERROR | "    in line %}{% set level = "ERROR"   %}{% endif %}
+    {% if " | WARNING | "  in line %}{% set level = "WARNING" %}{% endif %}
+    {% if " | DEBUG | "    in line %}{% set level = "DEBUG"   %}{% endif %}
+    {% if " | CRITICAL | " in line %}{% set level = "CRITICAL"%}{% endif %}
+    <span class="log-line {{ level }}">{{ line }}</span>
+    {% endfor %}
+  </div>
+
+</main>
+</div>
+{% endblock %}
+
+{% block extra_script %}
+<script>
+(function () {
+  const logbox       = document.getElementById("logbox");
+  const lineCountEl  = document.getElementById("lineCount");
+  const lastUpdEl    = document.getElementById("lastUpdate");
+  const liveStatusEl = document.getElementById("liveStatus");
+  const liveDot      = document.getElementById("liveDot");
+  const liveModeBtn  = document.getElementById("liveModeBtn");
+  const autoScrollBtn = document.getElementById("autoScrollBtn");
+
+  let autoScroll  = true;
+  let liveMode    = true;
+  let liveTimer   = null;
+  let lineCount   = {{ lines|length }};
+  let currentFile = "{{ selected }}";
+
+  logbox.scrollTop = logbox.scrollHeight;
+
+  function levelClass(line) {
+    if (line.includes(" | ERROR | ")||line.includes(" | CRITICAL | ")) return "ERROR";
+    if (line.includes(" | WARNING | ")) return "WARNING";
+    if (line.includes(" | DEBUG | "))   return "DEBUG";
+    return "INFO";
+  }
+
+  function appendLines(newLines) {
+    if (!newLines.length) return;
+    newLines.forEach(line => {
+      const span = document.createElement("span");
+      span.className = `log-line ${levelClass(line)}`;
+      span.textContent = line;
+      logbox.appendChild(span);
+      logbox.appendChild(document.createTextNode("\n"));
+    });
+    lineCount += newLines.length;
+    lineCountEl.textContent = `${lineCount} lines`;
+    if (autoScroll) logbox.scrollTop = logbox.scrollHeight;
+  }
+
+  async function pollLogs() {
+    try {
+      const r    = await fetch(`/logs/tail?file=${encodeURIComponent(currentFile)}&after=${lineCount}`);
+      if (!r.ok) return;
+      const data = await r.json();
+      if (data.lines?.length) {
+        appendLines(data.lines);
+        lastUpdEl.textContent = `Updated ${new Date().toUTCString().slice(17,25)} UTC`;
+      }
+      liveStatusEl.textContent = "";
+    } catch (e) { liveStatusEl.textContent = `Poll error: ${e.message}`; }
+  }
+
+  function startLive() {
+    if (liveTimer) clearInterval(liveTimer);
+    liveTimer = setInterval(pollLogs, 5000);
+    liveDot.style.animation = ""; liveDot.style.opacity = "";
+    liveStatusEl.textContent = "Polling every 5s";
+  }
+
+  function stopLive() {
+    if (liveTimer) { clearInterval(liveTimer); liveTimer = null; }
+    liveDot.style.animation = "none"; liveDot.style.opacity = "0.3";
+    liveStatusEl.textContent = "Live paused";
+  }
+
+  window.toggleLive = function () {
+    liveMode = !liveMode;
+    liveModeBtn.classList.toggle("active", liveMode);
+    liveMode ? startLive() : stopLive();
+  };
+
+  window.toggleAutoScroll = function () {
+    autoScroll = !autoScroll;
+    autoScrollBtn.classList.toggle("active", autoScroll);
+    if (autoScroll) logbox.scrollTop = logbox.scrollHeight;
+  };
+
+  window.switchFile = function (f) {
+    currentFile = f;
+    window.location.href = `/logs?file=${encodeURIComponent(f)}`;
+  };
+
+  window.copyLogs = function () {
+    const text = [...logbox.querySelectorAll(".log-line")].map(el => el.textContent).join("\n");
+    navigator.clipboard.writeText(text).catch(() => {});
+  };
+
+  if (liveMode) startLive();
+})();
+</script>
+{% endblock %}

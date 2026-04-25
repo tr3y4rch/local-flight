@@ -1,0 +1,677 @@
+{% extends "base.html" %}
+{% from "_nav.html" import topnav %}
+
+{% block title %}{{ cfg.display_name }} – Matrix Preview{% endblock %}
+
+{% block extra_style %}
+  body {
+    display: block;
+    min-height: 100vh;
+    padding: 0;
+    background: #1a1c20;
+  }
+
+  .page-body { padding: 20px 16px; }
+
+  .card {
+    width: min(1100px, calc(100vw - 32px));
+    max-width: none;
+    margin: 0 auto;
+    background: #22262e;
+    border-color: #333;
+    color: #e0e4ec;
+  }
+
+  .preview-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-bottom: 18px;
+    padding-bottom: 14px;
+    border-bottom: 1px solid #333;
+  }
+
+  .preview-header h1 { margin: 0; font-size: 1rem; color: #e0e4ec; }
+  .preview-header .sub { opacity: 0.55; font-size: 0.78rem; margin-top: 3px; }
+
+  /* ── Controls ── */
+  .controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    margin-bottom: 16px;
+  }
+
+  .ctrl-group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: #2c3040;
+    border: 1px solid #3a4050;
+    border-radius: 8px;
+    padding: 6px 12px;
+    color: #ccd0d8;
+  }
+
+  .ctrl-group label {
+    font-size: 0.78rem;
+    opacity: 0.75;
+    white-space: nowrap;
+    color: #aab0bc;
+  }
+
+  .ctrl-group input[type=range] {
+    width: 100px;
+    accent-color: #00e84a;
+    cursor: pointer;
+  }
+
+  .ctrl-group select {
+    background: #2c3040;
+    border: none;
+    color: #e0e4ec;
+    font-size: 0.8rem;
+    padding: 0;
+    outline: none;
+    cursor: pointer;
+  }
+
+  .ctrl-val {
+    min-width: 32px;
+    font-variant-numeric: tabular-nums;
+    font-weight: 700;
+    color: #00e84a;
+    font-size: 0.82rem;
+  }
+
+  .toggle-btn {
+    padding: 6px 14px;
+    border-radius: 8px;
+    border: 1px solid #3a4050;
+    background: #2c3040;
+    color: #ccd0d8;
+    font-size: 0.8rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.15s;
+    letter-spacing: 0.04em;
+  }
+  .toggle-btn:hover  { background: #363c50; color: #fff; }
+  .toggle-btn.active {
+    background: rgba(0,232,74,0.12);
+    border-color: #00e84a;
+    color: #00e84a;
+  }
+
+  /* ── Panel container ── */
+  .panel-wrap {
+    background: #000;
+    border-radius: 10px;
+    padding: 14px;
+    display: inline-block;
+    border: 2px solid #1a1a1a;
+    box-shadow: 0 0 40px rgba(0,0,0,0.9), inset 0 0 20px rgba(0,0,0,0.5);
+    overflow-x: auto;
+    max-width: 100%;
+  }
+
+  .panel-bezel {
+    background: #111;
+    border-radius: 6px;
+    padding: 8px;
+    border: 1px solid #1a1a1a;
+  }
+
+  canvas#matrixCanvas {
+    display: block;
+    image-rendering: pixelated;
+  }
+
+  /* ── Status bar ── */
+  .matrix-status {
+    margin-top: 10px;
+    font-size: 0.72rem;
+    color: #667080;
+    font-family: ui-monospace, monospace;
+    padding: 4px 0;
+  }
+
+  /* ── Info card ── */
+  .info-card {
+    margin-top: 20px;
+    padding: 16px 18px;
+    border-radius: 10px;
+    border: 1px solid rgba(0,232,74,0.2);
+    background: rgba(0,232,74,0.05);
+    color: #d0d8e0;
+  }
+
+  .info-card h3 {
+    margin: 0 0 10px 0;
+    font-size: 0.9rem;
+    color: #00e84a;
+  }
+
+  .info-card p {
+    margin: 8px 0;
+    font-size: 0.82rem;
+    opacity: 0.8;
+    line-height: 1.5;
+  }
+
+  .info-card code {
+    background: rgba(0,0,0,0.4);
+    border: 1px solid rgba(255,255,255,0.1);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 0.78rem;
+    color: #a0e8b0;
+  }
+
+  .cfg-block {
+    background: #0d0f12;
+    border: 1px solid #2a3040;
+    border-radius: 8px;
+    padding: 12px 14px;
+    margin-top: 10px;
+    font-family: ui-monospace, monospace;
+    font-size: 0.78rem;
+    white-space: pre;
+    overflow-x: auto;
+    color: #8fc0a0;
+    line-height: 1.6;
+  }
+
+  .dim { color: #667080; }
+{% endblock %}
+
+{% block body %}
+{{ topnav(active="matrix", cfg=cfg) }}
+<div class="page-body">
+<main class="card">
+  <div class="preview-header">
+    <div>
+      <h1>💡 Matrix Preview — {{ cfg.airport_iata }} {{ view | upper }}</h1>
+      <div class="sub" id="panelSubtitle">Simulating {{ panel_w }}×{{ panel_h }} LED matrix · Interstate 75 W (RP2350)</div>
+    </div>
+  </div>
+
+  <!-- ── Controls ── -->
+  <div class="controls">
+    <div class="ctrl-group">
+      <label>Pixel size</label>
+      <input type="range" id="pixelSizeSlider" min="3" max="16" value="{{ pixel_size }}"
+        oninput="setPixelSize(this.value)" />
+      <span class="ctrl-val" id="pixelSizeVal">{{ pixel_size }}</span>
+      <span class="dim">px</span>
+    </div>
+
+    <div class="ctrl-group">
+      <label>Panel</label>
+      <select id="panelPreset" onchange="applyPreset(this.value)">
+        <optgroup label="── 32px tall strips ──">
+          <option value="64x32"  {% if panel_w==64  and panel_h==32 %}selected{% endif %}>64×32 · 1 module</option>
+          <option value="128x32" {% if panel_w==128 and panel_h==32 %}selected{% endif %}>128×32 · 2 modules</option>
+          <option value="192x32" {% if panel_w==192 and panel_h==32 %}selected{% endif %}>192×32 · 3 modules</option>
+          <option value="256x32" {% if panel_w==256 and panel_h==32 %}selected{% endif %}>256×32 · 4 modules</option>
+          <option value="384x32" {% if panel_w==384 and panel_h==32 %}selected{% endif %}>384×32 · 6 modules wide</option>
+        </optgroup>
+        <optgroup label="── 64px tall panels ──">
+          <option value="64x64"  {% if panel_w==64  and panel_h==64 %}selected{% endif %}>64×64 · single square</option>
+          <option value="128x64" {% if panel_w==128 and panel_h==64 %}selected{% endif %}>128×64 · 2-panel</option>
+          <option value="192x64" {% if panel_w==192 and panel_h==64 %}selected{% endif %}>192×64 · 3-panel</option>
+          <option value="256x64" {% if panel_w==256 and panel_h==64 %}selected{% endif %}>256×64 · 4-panel (Starter kit)</option>
+          <option value="320x64" {% if panel_w==320 and panel_h==64 %}selected{% endif %}>320×64 · 5-panel</option>
+          <option value="384x64" {% if panel_w==384 and panel_h==64 %}selected{% endif %}>384×64 · 6-panel wide</option>
+        </optgroup>
+      </select>
+    </div>
+
+    <div class="ctrl-group">
+      <label>Rows</label>
+      <input type="range" id="rowsSlider" min="1" max="8" value="{{ rows }}"
+        oninput="setRows(this.value)" />
+      <span class="ctrl-val" id="rowsVal">{{ rows }}</span>
+    </div>
+
+    <div class="ctrl-group">
+      <label>Brightness</label>
+      <input type="range" id="brightnessSlider" min="20" max="100" value="80"
+        oninput="setBrightness(this.value)" />
+      <span class="ctrl-val" id="brightnessVal">80</span>
+      <span class="dim">%</span>
+    </div>
+
+    <button class="toggle-btn {% if view=='departures' %}active{% endif %}"
+      id="btnDep" onclick="setView('departures')">DEP</button>
+    <button class="toggle-btn {% if view=='arrivals' %}active{% endif %}"
+      id="btnArr" onclick="setView('arrivals')">ARR</button>
+
+    <button class="toggle-btn" onclick="triggerDemo()">Demo</button>
+  </div>
+
+  <!-- ── Canvas ── -->
+  <div class="panel-wrap">
+    <div class="panel-bezel">
+      <canvas id="matrixCanvas"></canvas>
+    </div>
+  </div>
+
+  <div class="matrix-status" id="matrixStatus">Initialising...</div>
+
+  <!-- ── MicroPython config ── -->
+  <div class="info-card">
+    <h3>Interstate 75 W — MicroPython client config</h3>
+    <p>
+      Flash <code>client.py</code> to your Interstate 75 W and paste this config at the top of the file.
+      Make sure you're running the Pimoroni MicroPython firmware.
+    </p>
+    <div class="cfg-block" id="cfgBlock">Loading...</div>
+    <p>
+      <strong>Button A</strong> = Departures &nbsp;·&nbsp;
+      <strong>Button B</strong> = Arrivals &nbsp;·&nbsp;
+      <strong>A + B</strong> = Force refresh &nbsp;·&nbsp;
+      LED: green = ok, blue = fetching, amber = no data, red = no WiFi
+    </p>
+  </div>
+</main>
+</div>{# /page-body #}
+{% endblock %}
+
+{% block extra_script %}
+<script>
+(function () {
+  // ── Server config ──────────────────────────────────────────────────────────
+  const CFG = {
+    airport_iata: "{{ cfg.airport_iata }}",
+    timezone:     "{{ cfg.timezone }}",
+  };
+
+  // ── State ──────────────────────────────────────────────────────────────────
+  let PANEL_W    = {{ panel_w }};
+  let PANEL_H    = {{ panel_h }};
+  let PIXEL_SIZE = {{ pixel_size }};
+  let VIEW       = "{{ view }}";
+  let MAX_ROWS   = {{ rows }};
+  let BRIGHTNESS = 0.8;
+  const POLL_MS  = 15000;
+
+  const canvas = document.getElementById("matrixCanvas");
+  const ctx    = canvas.getContext("2d");
+  const status = document.getElementById("matrixStatus");
+
+  // ── LED colors ─────────────────────────────────────────────────────────────
+  const C = {
+    off:   "#060806",
+    green: "#00ff50",
+    amber: "#ffaa00",
+    red:   "#ff2828",
+    white: "#d8ffe0",
+    dim:   "#005018",
+    cyan:  "#00ccff",
+  };
+
+  // ── Bitmap 5x7 font ────────────────────────────────────────────────────────
+  const FONT = {
+    " ":[0,0,0,0,0],
+    "A":[0x7e,0x11,0x11,0x11,0x7e],"B":[0x7f,0x49,0x49,0x49,0x36],
+    "C":[0x3e,0x41,0x41,0x41,0x22],"D":[0x7f,0x41,0x41,0x22,0x1c],
+    "E":[0x7f,0x49,0x49,0x49,0x41],"F":[0x7f,0x09,0x09,0x09,0x01],
+    "G":[0x3e,0x41,0x49,0x49,0x7a],"H":[0x7f,0x08,0x08,0x08,0x7f],
+    "I":[0x00,0x41,0x7f,0x41,0x00],"J":[0x20,0x40,0x41,0x3f,0x01],
+    "K":[0x7f,0x08,0x14,0x22,0x41],"L":[0x7f,0x40,0x40,0x40,0x40],
+    "M":[0x7f,0x02,0x0c,0x02,0x7f],"N":[0x7f,0x04,0x08,0x10,0x7f],
+    "O":[0x3e,0x41,0x41,0x41,0x3e],"P":[0x7f,0x09,0x09,0x09,0x06],
+    "Q":[0x3e,0x41,0x51,0x21,0x5e],"R":[0x7f,0x09,0x19,0x29,0x46],
+    "S":[0x46,0x49,0x49,0x49,0x31],"T":[0x01,0x01,0x7f,0x01,0x01],
+    "U":[0x3f,0x40,0x40,0x40,0x3f],"V":[0x1f,0x20,0x40,0x20,0x1f],
+    "W":[0x3f,0x40,0x38,0x40,0x3f],"X":[0x63,0x14,0x08,0x14,0x63],
+    "Y":[0x07,0x08,0x70,0x08,0x07],"Z":[0x61,0x51,0x49,0x45,0x43],
+    "0":[0x3e,0x51,0x49,0x45,0x3e],"1":[0x00,0x42,0x7f,0x40,0x00],
+    "2":[0x62,0x51,0x49,0x49,0x46],"3":[0x21,0x41,0x49,0x4d,0x33],
+    "4":[0x18,0x14,0x12,0x7f,0x10],"5":[0x27,0x45,0x45,0x45,0x39],
+    "6":[0x3c,0x4a,0x49,0x49,0x31],"7":[0x01,0x71,0x09,0x05,0x03],
+    "8":[0x36,0x49,0x49,0x49,0x36],"9":[0x06,0x49,0x49,0x29,0x1e],
+    ":":[0x00,0x36,0x36,0x00,0x00],".":[0x00,0x60,0x60,0x00,0x00],
+    "-":[0x08,0x08,0x08,0x08,0x08],"/":[0x20,0x10,0x08,0x04,0x02],
+    "(":[0x00,0x3e,0x41,0x00,0x00],")":[0x00,0x41,0x3e,0x00,0x00],
+    "+":[0x08,0x08,0x3e,0x08,0x08],">":[0x41,0x22,0x14,0x08,0x00],
+  };
+
+  // ── Draw primitives ────────────────────────────────────────────────────────
+  function drawPixel(x, y, color) {
+    if (x < 0 || x >= PANEL_W || y < 0 || y >= PANEL_H) return;
+    const px = x * PIXEL_SIZE;
+    const py = y * PIXEL_SIZE;
+    const r  = PIXEL_SIZE * 0.42;
+
+    ctx.beginPath();
+    ctx.arc(px + PIXEL_SIZE/2, py + PIXEL_SIZE/2, r, 0, Math.PI*2);
+    ctx.fillStyle = color;
+    ctx.fill();
+
+    if (color !== C.off) {
+      ctx.shadowBlur  = PIXEL_SIZE * 1.8;
+      ctx.shadowColor = color;
+      ctx.fill();
+      ctx.shadowBlur  = 0;
+    }
+  }
+
+  function drawChar(ch, ox, oy, color) {
+    const cols = FONT[(ch||" ").toUpperCase()] || FONT[" "];
+    for (let col = 0; col < 5; col++) {
+      for (let row = 0; row < 7; row++) {
+        const lit = (cols[col] >> row) & 1;
+        drawPixel(ox+col, oy+row, lit ? color : C.off);
+      }
+    }
+  }
+
+  function drawString(str, x, y, color, maxW) {
+    str = (str||"").toUpperCase();
+    let cx = x;
+    for (let i = 0; i < str.length; i++) {
+      if (maxW && cx + 6 > x + maxW) break;
+      drawChar(str[i], cx, y, color);
+      cx += 6;
+    }
+    return cx;
+  }
+
+  // ── Split-flap animation ───────────────────────────────────────────────────
+  const FLAP = " ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.:/-+()>";
+
+  class FlapCell {
+    constructor() {
+      this.current = " ";
+      this.target  = " ";
+      this.frame   = 99; // settled
+      this.frames  = 0;
+    }
+
+    setTarget(ch) {
+      ch = (ch||" ").toUpperCase();
+      if (!FLAP.includes(ch)) ch = " ";
+      if (ch === this.target && this.frame >= this.frames) return;
+      this.target = ch;
+      this.frame  = 0;
+      this.frames = Math.floor(Math.random()*6) + 8;
+    }
+
+    step() {
+      if (this.frame >= this.frames) {
+        this.current = this.target;
+        return;
+      }
+      const progress = this.frame / this.frames;
+      const speed    = Math.max(1, Math.floor((1-progress)*3));
+      if (this.frame % speed === 0) {
+        const idx  = FLAP.indexOf(this.current);
+        const tidx = FLAP.indexOf(this.target);
+        const next = (idx+1) % FLAP.length;
+        this.current = (next === tidx) ? this.target : FLAP[next];
+      }
+      this.frame++;
+    }
+  }
+
+  // Per-row flap cells — 44 chars wide
+  const ROW_LEN = 44;
+  let flapRows  = Array.from({length:8}, () =>
+    Array.from({length: ROW_LEN}, () => new FlapCell())
+  );
+
+  function setRowText(rowIdx, text) {
+    text = (text||"").toUpperCase().padEnd(ROW_LEN," ").slice(0,ROW_LEN);
+    for (let i=0; i<ROW_LEN; i++) {
+      flapRows[rowIdx][i].setTarget(text[i]);
+    }
+  }
+
+  function getRowText(rowIdx) {
+    return flapRows[rowIdx].map(c => c.current).join("");
+  }
+
+  function stepAllFlap() {
+    for (let r=0; r<MAX_ROWS; r++) {
+      for (let c=0; c<ROW_LEN; c++) {
+        flapRows[r][c].step();
+      }
+    }
+  }
+
+  // ── Row text builder ───────────────────────────────────────────────────────
+  function buildRowText(row) {
+    const t  = ((row.display_time   ||"--:--")+"     ").slice(0,5);
+    const fn = ((row.flight_display ||"")+"        ").slice(0,8);
+    const rt = ((row.route_display  ||"")+"            ").slice(0,14);
+    const st = ((row.status_display ||"")+"          ").slice(0,10);
+    const gt = ((row.gate           ||"-")+"    ").slice(0,4);
+    return `${t} ${fn} ${rt} ${st} ${gt}`;
+  }
+
+  function statusColor(s) {
+    s = (s||"").toLowerCase();
+    if (s.includes("delay"))                    return C.amber;
+    if (s.includes("cancel"))                   return C.red;
+    if (s.includes("depart")||s.includes("land")) return C.dim;
+    return C.green;
+  }
+
+  // ── Draw the full frame ────────────────────────────────────────────────────
+  function drawFrame() {
+    // Background
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // Off-pixel grid
+    for (let y=0; y<PANEL_H; y++) {
+      for (let x=0; x<PANEL_W; x++) {
+        drawPixel(x, y, C.off);
+      }
+    }
+
+    // ── Header ──────────────────────────────────────────────────────────────
+    const headerLabel = `${CFG.airport_iata} ${VIEW==="departures"?"DEP":"ARR"}`;
+    drawString(headerLabel, 0, 0, C.green);
+
+   // UTC + LT clocks top right
+    const now    = new Date();
+    const utcStr = now.toUTCString().slice(17,22);
+    const ltStr  = (() => {
+      try {
+        return now.toLocaleTimeString("en-GB", {
+          timeZone: CFG.timezone, hour:"2-digit", minute:"2-digit", hour12:false
+        });
+      } catch { return utcStr; }
+    })();
+    const clockLine = `UTC${utcStr} LT${ltStr}`;
+    const clockX    = PANEL_W - clockLine.length*6 - 1;
+    if (clockX > headerLabel.length*6 + 6) {
+      drawString(`UTC`, clockX, 0, C.dim);
+      drawString(utcStr, clockX+18, 0, C.green);
+      drawString(`LT`, clockX+48, 0, C.dim);
+      drawString(ltStr, clockX+60, 0, C.cyan);
+    }
+
+    // Separator line
+    for (let x=0; x<PANEL_W; x++) drawPixel(x, 9, C.dim);
+
+    // ── Flight rows ─────────────────────────────────────────────────────────
+    const dataY  = 11;
+    const dataH  = PANEL_H - dataY;
+    const rowH   = Math.max(9, Math.floor(dataH / MAX_ROWS));
+
+    for (let ri=0; ri<MAX_ROWS; ri++) {
+      const y   = dataY + ri*rowH;
+      if (y+7 > PANEL_H) break;
+      const txt = getRowText(ri);
+
+      // Time (0-4) green
+      drawString(txt.slice(0,5), 0, y, C.green);
+
+      // Flight number (6-13) white
+      drawString(txt.slice(6,14), 36, y, C.white);
+
+      // Destination (15-28) white — only if wide enough
+      if (PANEL_W >= 150) drawString(txt.slice(15,29), 102, y, C.white);
+
+      // Status (30-39) — color; position scales with panel width
+      const sc = flightColors[ri] || C.green;
+      const sx = PANEL_W >= 300 ? 230 : PANEL_W >= 150 ? 186 : 96;
+      drawString(txt.slice(30,40), sx, y, sc);
+
+      // Gate dim right (only if enough room)
+      if (PANEL_W >= 220) drawString(txt.slice(41,45), PANEL_W - 25, y, C.dim);
+
+      // Row separator
+      if (ri < MAX_ROWS-1 && rowH > 9) {
+        for (let x=0; x<PANEL_W; x++) drawPixel(x, y+rowH-1, C.off);
+      }
+    }
+
+    // No data
+    if (flightData.length === 0) {
+      drawString("NO DATA - WAITING", 4, PANEL_H/2-4|0, C.amber);
+    }
+  }
+
+  // ── Flight data ────────────────────────────────────────────────────────────
+  let flightData   = [];
+  let flightColors = [];
+
+  function applyFlightData(data) {
+    flightData   = data;
+    flightColors = data.map(r => statusColor(r.status_display));
+
+    for (let i=0; i<MAX_ROWS; i++) {
+      if (i < data.length) {
+        setRowText(i, buildRowText(data[i]));
+      } else {
+        setRowText(i, "");
+      }
+    }
+  }
+
+  // ── Demo mode ─────────────────────────────────────────────────────────────
+  window.triggerDemo = function () {
+    const demo = [
+      { display_time:"10:35", flight_display:"LX 184",  route_display:"SINGAPORE (WSSS)", status_display:"SCHEDULED", gate:"A32" },
+      { display_time:"11:15", flight_display:"LH 456",  route_display:"FRANKFURT (EDDF)", status_display:"BOARDING",  gate:"B12" },
+      { display_time:"11:40", flight_display:"SWR 92",  route_display:"SAO PAULO (SBGR)", status_display:"DELAYED",   gate:"-"   },
+      { display_time:"12:05", flight_display:"BCC 981", route_display:"EL MATORRAL(GCFV)",status_display:"SCHEDULED", gate:"C4"  },
+    ];
+    applyFlightData(demo);
+    status.textContent = "Demo mode active — showing sample data";
+  };
+
+  // ── Fetch ──────────────────────────────────────────────────────────────────
+  async function fetchRows() {
+    try {
+      const r    = await fetch(`/api/fids?view=${VIEW}&limit=${MAX_ROWS}`);
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const data = await r.json();
+      if (data.length === 0) {
+        status.textContent = "No flight data available — click Demo to preview animation";
+        return;
+      }
+      applyFlightData(data);
+      status.textContent = `${data.length} flights · ${VIEW} · ${PANEL_W}×${PANEL_H}px · updated ${new Date().toUTCString().slice(17,25)} UTC`;
+    } catch (e) {
+      status.textContent = `Fetch failed: ${e.message} — click Demo to preview animation`;
+    }
+    updateCfgBlock();
+  }
+
+  // ── Animation loop ─────────────────────────────────────────────────────────
+  let lastStep = 0;
+  const STEP_MS = 55; // ~18fps, visible flap speed
+
+  function loop(ts) {
+    if (ts - lastStep >= STEP_MS) {
+      lastStep = ts;
+      stepAllFlap();
+      drawFrame();
+    }
+    requestAnimationFrame(loop);
+  }
+
+  // ── Canvas resize ──────────────────────────────────────────────────────────
+  function resizeCanvas() {
+    canvas.width  = PANEL_W * PIXEL_SIZE;
+    canvas.height = PANEL_H * PIXEL_SIZE;
+  }
+
+  // ── Controls ───────────────────────────────────────────────────────────────
+  window.setPixelSize = function(v) {
+    PIXEL_SIZE = parseInt(v);
+    document.getElementById("pixelSizeVal").textContent = v;
+    resizeCanvas();
+  };
+
+  window.setRows = function(v) {
+    MAX_ROWS = parseInt(v);
+    document.getElementById("rowsVal").textContent = v;
+    fetchRows();
+  };
+
+  window.setView = function(v) {
+    VIEW = v;
+    document.getElementById("btnDep").classList.toggle("active", v==="departures");
+    document.getElementById("btnArr").classList.toggle("active", v==="arrivals");
+    fetchRows();
+  };
+
+  window.setBrightness = function(v) {
+    BRIGHTNESS = parseInt(v)/100;
+    document.getElementById("brightnessVal").textContent = v;
+  };
+
+  window.applyPreset = function(v) {
+    const [w,h] = v.split("x").map(Number);
+    PANEL_W = w; PANEL_H = h;
+    resizeCanvas();
+    fetchRows();
+    const sub = document.getElementById("panelSubtitle");
+    if (sub) sub.textContent = `Simulating ${w}×${h} LED matrix · Interstate 75 W (RP2350)`;
+  };
+
+  // ── Config block ───────────────────────────────────────────────────────────
+  function updateCfgBlock() {
+    const host = window.location.hostname;
+    const port = window.location.port || "8000";
+    document.getElementById("cfgBlock").textContent =
+`# ── Paste at top of client.py ──────────────────────────
+WIFI_SSID     = "your_wifi_name"
+WIFI_PASSWORD = "your_wifi_password"
+
+API_HOST      = "${host}"
+API_PORT      = ${port}
+AIRPORT_IATA  = "${CFG.airport_iata}"
+
+PANEL_W       = ${PANEL_W}
+PANEL_H       = ${PANEL_H}
+MAX_ROWS      = ${MAX_ROWS}
+REFRESH_S     = 60
+BRIGHTNESS    = ${BRIGHTNESS.toFixed(1)}`;
+  }
+
+  // ── Init ───────────────────────────────────────────────────────────────────
+  resizeCanvas();
+  updateCfgBlock();
+
+  // Start demo animation immediately so there's something to see
+  triggerDemo();
+
+  // Then try to fetch real data
+  setTimeout(fetchRows, 500);
+  setInterval(fetchRows, POLL_MS);
+
+  requestAnimationFrame(loop);
+})();
+</script>
+{% endblock %}

@@ -1,0 +1,790 @@
+{% extends "base.html" %}
+{% from "_nav.html" import topnav %}
+
+{% if cfg.skin in ["technical", "neon", "cyan", "crt"] %}
+  {% from "icons_technical.html" import status_icon, header_icon %}
+{% else %}
+  {% from "icons_pictogram.html" import status_icon, header_icon %}
+{% endif %}
+
+{% set _embedded = embedded is defined and embedded %}
+
+{% block title %}{{ cfg.display_name }} – FIDS{% endblock %}
+
+{% block extra_style %}
+  html, body { height: 100%; overflow: hidden; }
+  body { display: block; min-height: 100%; padding: 0; margin: 0; }
+
+  /* nav=42px, subheader=40px; nav hidden when embedded, subheader always shown */
+  :root { --lf-chrome: {{ '40px' if _embedded else '82px' }}; }
+
+  .card {
+    width: 100%; max-width: none;
+    height: calc(100vh - var(--lf-chrome));
+    border-radius: 0; border: none; box-shadow: none;
+    padding: 10px 18px 14px; box-sizing: border-box;
+    display: flex; flex-direction: column; overflow: hidden;
+    animation: none;  /* suppress page-in on kiosk display */
+  }
+
+  /* ── FIDS subheader ── */
+  .fids-sub {
+    display: flex; align-items: center; justify-content: space-between;
+    flex-shrink: 0; gap: 10px; margin-bottom: 8px; flex-wrap: wrap;
+  }
+  .fids-title {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 1rem; font-weight: 700; white-space: nowrap;
+  }
+  .fids-codes { opacity: 0.45; font-weight: 500; font-size: 0.85rem; }
+
+  /* ── View toggle ── */
+  .view-toggle {
+    display: inline-flex; gap: 2px;
+    background: rgba(255,255,255,0.06);
+    border-radius: 7px; padding: 3px; margin-left: 6px;
+  }
+  [data-theme="light"] .view-toggle { background: rgba(0,0,0,0.05); }
+  .view-toggle a {
+    display: flex; align-items: center; gap: 5px;
+    padding: 4px 11px; border-radius: 5px;
+    text-decoration: none; color: inherit;
+    font-size: 0.8rem; font-weight: 600; opacity: 0.5;
+    transition: opacity 0.12s, background 0.12s;
+  }
+  .view-toggle a:hover { opacity: 0.85; background: rgba(255,255,255,0.07); }
+  .view-toggle a.active { opacity: 1; background: rgba(255,255,255,0.1); }
+  [data-theme="light"] .view-toggle a.active { background: rgba(0,0,0,0.08); }
+
+  /* ── Live pill ── */
+  .fids-sub-right { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
+  .fids-lt { font-family: ui-monospace, monospace; font-size: 0.78rem; opacity: 0.6; font-variant-numeric: tabular-nums; }
+  .fids-live-pill { font-size: 0.75rem; opacity: 0.65; font-family: ui-monospace, monospace; display: flex; align-items: center; gap: 4px; }
+  .live-dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: #00e84a; display: inline-block;
+    animation: lf-pulse 1.4s ease-in-out infinite;
+    flex-shrink: 0;
+  }
+  .live-dot.offline { background: #888; animation: none; }
+
+  /* ── METAR bar ── */
+  .metar-bar {
+    display: flex; align-items: center; gap: 10px; flex-shrink: 0;
+    padding: 6px 12px; border-radius: 8px;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.07);
+    margin-bottom: 10px; font-size: 0.78rem;
+    font-family: ui-monospace, monospace; min-height: 30px;
+    transition: background 0.2s;
+  }
+  [data-theme="light"] .metar-bar { background: rgba(0,0,0,0.03); border-color: rgba(0,0,0,0.07); }
+  .metar-cat {
+    font-weight: 900; font-size: 0.68rem; padding: 3px 8px;
+    border-radius: 5px; color: #000; flex-shrink: 0;
+    letter-spacing: 0.06em; text-transform: uppercase;
+  }
+  .metar-decoded { opacity: 0.8; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .metar-loading { opacity: 0.35; font-style: italic; }
+
+  /* ── Table ── */
+  .table-wrap {
+    flex: 1; overflow-y: auto; min-height: 0;
+    scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.1) transparent;
+  }
+  table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+
+  /* Column widths */
+  col.col-time  { width: 110px; }
+  col.col-flt   { width: 100px; }
+  col.col-route { width: auto; }
+  col.col-stat  { width: 170px; }
+  col.col-gate  { width: 68px; }
+  col.col-ac    { width: 58px; }
+
+  /* Header */
+  thead tr { border-bottom: 1px solid rgba(255,255,255,0.12); }
+  [data-theme="light"] thead tr { border-bottom-color: rgba(0,0,0,0.1); }
+  th {
+    text-align: left; padding: 0 12px 10px;
+    font-size: 0.6rem; font-weight: 700;
+    letter-spacing: 0.12em; text-transform: uppercase;
+    opacity: 0.3; white-space: nowrap;
+  }
+
+  /* Rows */
+  @keyframes fids-row-in {
+    from { opacity: 0; transform: translateY(6px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .fids-row { animation: fids-row-in 0.28s ease-out both; transition: background 0.15s; }
+  .fids-row td {
+    padding: 0 12px; height: 52px;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+    vertical-align: middle; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  [data-theme="light"] .fids-row td { border-bottom-color: rgba(0,0,0,0.05); }
+  .fids-row:hover { background: rgba(255,255,255,0.03); }
+  [data-theme="light"] .fids-row:hover { background: rgba(0,0,0,0.025); }
+
+  /* Row accent strip (left border via first-cell shadow) */
+  .fids-row-boarding   td:first-child { box-shadow: inset 3px 0 0 #22c55e; }
+  .fids-row-approaching td:first-child { box-shadow: inset 3px 0 0 #f59e0b; }
+  .fids-row-delayed    td:first-child { box-shadow: inset 3px 0 0 #ef4444; }
+  .fids-row-diverted   td:first-child { box-shadow: inset 3px 0 0 #f97316; }
+
+  /* Dim completed / cancelled rows */
+  .fids-row-departed td, .fids-row-landed td { opacity: 0.38; }
+  .fids-row-cancelled td { opacity: 0.28; }
+  .fids-row-cancelled .fids-flight { text-decoration: line-through; }
+
+  /* Time cell */
+  .fids-hhmm {
+    font-size: 1.18rem; font-weight: 700; letter-spacing: -0.02em;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-variant-numeric: tabular-nums;
+  }
+  .fids-delay-tag {
+    display: inline-block; margin-left: 5px;
+    font-size: 0.68rem; font-weight: 800;
+    color: #ef4444; background: rgba(239,68,68,0.12);
+    padding: 1px 5px; border-radius: 4px;
+    font-family: ui-monospace, monospace;
+    vertical-align: middle;
+  }
+
+  /* Flight cell */
+  .fids-flight {
+    font-size: 0.92rem; font-weight: 700; letter-spacing: 0.02em;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  }
+
+  /* Route cell */
+  .fids-route { font-size: 0.88rem; overflow: hidden; text-overflow: ellipsis; }
+
+  /* Status badge */
+  .fids-badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 4px 10px; border-radius: 99px;
+    font-size: 0.72rem; font-weight: 800; letter-spacing: 0.04em;
+    white-space: nowrap; border: 1px solid transparent;
+  }
+  .fids-bdot {
+    width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0;
+  }
+  /* Per-status badge styles */
+  .badge-boarding {
+    background: rgba(34,197,94,0.1); color: #22c55e;
+    border-color: rgba(34,197,94,0.22);
+  }
+  .badge-boarding .fids-bdot {
+    background: #22c55e; box-shadow: 0 0 5px #22c55e;
+    animation: lf-pulse 1s ease-in-out infinite;
+  }
+  .badge-approaching {
+    background: rgba(245,158,11,0.1); color: #f59e0b;
+    border-color: rgba(245,158,11,0.22);
+    animation: appr-pulse 2s ease-in-out infinite;
+  }
+  .badge-approaching .fids-bdot {
+    background: #f59e0b;
+    animation: lf-pulse 1.2s ease-in-out infinite;
+  }
+  .badge-delayed {
+    background: rgba(239,68,68,0.1); color: #ef4444;
+    border-color: rgba(239,68,68,0.22);
+  }
+  .badge-delayed .fids-bdot { background: #ef4444; }
+  .badge-diverted {
+    background: rgba(249,115,22,0.1); color: #f97316;
+    border-color: rgba(249,115,22,0.22);
+  }
+  .badge-diverted .fids-bdot { background: #f97316; }
+  .badge-cancelled {
+    background: rgba(239,68,68,0.06); color: #f87171;
+    border-color: rgba(239,68,68,0.15);
+  }
+  .badge-cancelled .fids-bdot { background: #f87171; }
+  /* Low-key statuses: no pill chrome */
+  .badge-scheduled, .badge-on-ground, .badge-departed, .badge-landed {
+    background: transparent; border-color: transparent;
+    opacity: 0.5; padding-left: 2px; padding-right: 2px;
+  }
+  .badge-scheduled .fids-bdot  { background: rgba(255,255,255,0.35); }
+  .badge-on-ground .fids-bdot  { background: rgba(255,255,255,0.3); }
+  .badge-departed .fids-bdot,
+  .badge-landed .fids-bdot     { background: rgba(255,255,255,0.2); }
+  [data-theme="light"] .badge-scheduled .fids-bdot,
+  [data-theme="light"] .badge-on-ground .fids-bdot,
+  [data-theme="light"] .badge-departed .fids-bdot,
+  [data-theme="light"] .badge-landed .fids-bdot { background: rgba(0,0,0,0.25); }
+
+  @keyframes appr-pulse { 0%,100%{opacity:1} 50%{opacity:0.55} }
+
+  /* Gate cell */
+  .fids-gate-val {
+    font-family: ui-monospace, monospace; font-size: 0.82rem; font-weight: 700;
+    background: rgba(255,255,255,0.09); padding: 2px 8px; border-radius: 5px;
+  }
+  [data-theme="light"] .fids-gate-val { background: rgba(0,0,0,0.07); }
+  .fids-gate-empty { opacity: 0.2; font-family: ui-monospace, monospace; }
+
+  /* A/C cell */
+  .fids-ac { font-family: ui-monospace, monospace; font-size: 0.8rem; opacity: 0.45; }
+
+  /* Empty state */
+  .fids-empty-row td { border: none; padding: 70px 10px; }
+  .fids-empty-cell {
+    display: flex; align-items: center; justify-content: center;
+    gap: 20px; opacity: 0.28;
+  }
+  .fids-empty-icon { font-size: 2.4rem; }
+  .fids-empty-title { font-size: 0.95rem; font-weight: 700; }
+  .fids-empty-sub { font-size: 0.72rem; opacity: 0.7; margin-top: 5px; font-family: ui-monospace, monospace; }
+
+  /* ── Flight detail drawer ── */
+  @keyframes fd-slide-in { from { transform: translateX(100%); } to { transform: translateX(0); } }
+  @keyframes fd-fade-in  { from { opacity: 0; } to { opacity: 1; } }
+
+  .fd-backdrop {
+    position: fixed; inset: 0; z-index: 100;
+    background: rgba(0,0,0,0.45);
+    animation: fd-fade-in 0.18s ease-out both;
+  }
+  .fd-panel {
+    position: fixed; top: 0; right: 0; bottom: 0;
+    width: 340px; max-width: 100vw; z-index: 101;
+    background: var(--card-bg, #13161c);
+    border-left: 1px solid rgba(255,255,255,0.08);
+    display: flex; flex-direction: column;
+    animation: fd-slide-in 0.22s cubic-bezier(0.25,0.46,0.45,0.94) both;
+    overflow: hidden;
+  }
+  [data-theme="light"] .fd-panel {
+    background: #f5f6f8;
+    border-left-color: rgba(0,0,0,0.08);
+  }
+  .fd-panel-head {
+    display: flex; align-items: flex-start; justify-content: space-between;
+    padding: 18px 18px 14px; flex-shrink: 0;
+    border-bottom: 1px solid rgba(255,255,255,0.07);
+  }
+  [data-theme="light"] .fd-panel-head { border-bottom-color: rgba(0,0,0,0.07); }
+  .fd-flight-num {
+    font-size: 1.35rem; font-weight: 800; letter-spacing: -0.02em;
+    font-family: ui-monospace, monospace;
+  }
+  .fd-route-line { font-size: 0.82rem; opacity: 0.7; margin-top: 3px; }
+  .fd-airline    { font-size: 0.75rem; opacity: 0.45; margin-top: 2px; }
+  .fd-close {
+    background: none; border: none; cursor: pointer; color: inherit;
+    font-size: 1.2rem; opacity: 0.35; padding: 2px 4px; line-height: 1;
+    flex-shrink: 0; margin-left: 8px; margin-top: -2px;
+    border-radius: 4px; transition: opacity 0.12s, background 0.12s;
+  }
+  .fd-close:hover { opacity: 0.9; background: rgba(255,255,255,0.08); }
+  [data-theme="light"] .fd-close:hover { background: rgba(0,0,0,0.07); }
+
+  .fd-body { flex: 1; overflow-y: auto; padding: 0 18px 18px;
+    scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.1) transparent; }
+
+  .fd-section { margin-top: 18px; }
+  .fd-section-label {
+    font-size: 0.6rem; font-weight: 700; letter-spacing: 0.12em;
+    text-transform: uppercase; opacity: 0.35; margin-bottom: 8px;
+  }
+  .fd-row {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 0.82rem; padding: 5px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+  }
+  [data-theme="light"] .fd-row { border-bottom-color: rgba(0,0,0,0.04); }
+  .fd-row:last-child { border-bottom: none; }
+  .fd-lbl { opacity: 0.4; min-width: 72px; font-size: 0.72rem; flex-shrink: 0; }
+  .fd-val { font-weight: 600; font-family: ui-monospace, monospace; }
+  .fd-val-text { font-weight: 500; }
+
+  .fd-times-grid {
+    display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px;
+  }
+  .fd-time-cell { text-align: center; }
+  .fd-time-lbl { font-size: 0.6rem; opacity: 0.35; letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 4px; }
+  .fd-time-val {
+    font-size: 1.05rem; font-weight: 700; letter-spacing: -0.01em;
+    font-family: ui-monospace, monospace; font-variant-numeric: tabular-nums;
+  }
+  .fd-time-val.fd-dim { opacity: 0.25; }
+
+  .fd-hist-row {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 0.78rem; padding: 5px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+  }
+  [data-theme="light"] .fd-hist-row { border-bottom-color: rgba(0,0,0,0.04); }
+  .fd-hist-row:last-child { border-bottom: none; }
+  .fd-hist-date  { opacity: 0.4; font-family: ui-monospace, monospace; min-width: 56px; }
+  .fd-hist-status { opacity: 0.6; flex: 1; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; }
+  .fd-hist-delay { font-weight: 700; font-family: ui-monospace, monospace; font-size: 0.78rem; }
+  .fd-delay-ok   { color: #22c55e; }
+  .fd-delay-warn { color: #f59e0b; }
+  .fd-delay-bad  { color: #ef4444; }
+
+  .fd-shimmer-line {
+    height: 0.9em; border-radius: 4px; margin: 6px 0;
+  }
+  .fids-row { cursor: pointer; }
+
+  /* ── Scheduler error banner ── */
+  .fids-err-banner {
+    display: none; align-items: center; gap: 10px; flex-shrink: 0;
+    padding: 7px 12px; border-radius: 8px; margin-bottom: 8px;
+    background: rgba(239,68,68,0.10); border: 1px solid rgba(239,68,68,0.28);
+    font-size: 0.78rem; color: #ef4444;
+  }
+  .fids-err-banner.visible { display: flex; }
+  .fids-err-banner a { color: inherit; opacity: 0.8; text-decoration: underline; margin-left: auto; white-space: nowrap; }
+  .fids-err-icon { flex-shrink: 0; }
+  .fids-err-msg  { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+{% endblock %}
+
+{% block body %}
+{% if not _embedded %}{{ topnav(active="fids", cfg=cfg) }}{% endif %}
+<main class="card">
+
+  <div class="fids-sub">
+    <div style="display:flex; align-items:center; flex-wrap:wrap; gap:6px;">
+      {% if not _embedded %}
+      <span class="fids-title">
+        {{ header_icon(view) }}
+        {{ airport_label }}
+        <span class="fids-codes">({{ cfg.airport_iata }}/{{ cfg.airport_icao }})</span>
+      </span>
+      {% endif %}
+      <div class="view-toggle">
+        <a href="/fids?view=arrivals{% if _embedded %}&embedded=1{% endif %}"   class="{{ 'active' if view == 'arrivals'   else '' }}">🛬 ARR</a>
+        <a href="/fids?view=departures{% if _embedded %}&embedded=1{% endif %}" class="{{ 'active' if view == 'departures' else '' }}">🛫 DEP</a>
+      </div>
+    </div>
+    {% if not _embedded %}
+    <div class="fids-sub-right">
+      <span class="fids-lt">LT <span class="clock-local-val">--:--:--</span></span>
+      <span class="fids-live-pill">
+        <span class="live-dot" id="liveDot"></span>
+        <span id="lastUpdated">{{ last_refreshed }}</span>
+      </span>
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- METAR bar -->
+  <div class="metar-bar" id="metarBar">
+    <span class="lf-shimmer" style="width:180px;height:0.8em;">&nbsp;</span>
+  </div>
+
+  <!-- Scheduler error banner -->
+  <div class="fids-err-banner" id="fidsErrBanner">
+    <span class="fids-err-icon">⚠</span>
+    <span class="fids-err-msg" id="fidsErrMsg">Data fetch error</span>
+    <a href="/admin">Admin →</a>
+  </div>
+
+  <!-- Flight table -->
+  <div class="table-wrap">
+    <table id="fidsTable">
+      <colgroup>
+        <col class="col-time"><col class="col-flt"><col class="col-route">
+        <col class="col-stat"><col class="col-gate"><col class="col-ac">
+      </colgroup>
+      <thead>
+        <tr>
+          <th>Time</th>
+          <th>Flight</th>
+          <th>{{ "From" if view == "arrivals" else "To" }}</th>
+          <th>Status</th>
+          <th>Gate</th>
+          <th>A/C</th>
+        </tr>
+      </thead>
+      <tbody id="fidsBody">
+        {% for r in rows %}
+        {% set tparts = r.display_time.split(' (') %}
+        <tr class="fids-row fids-row-{{ r.status_class }}" data-callsign="{{ r.callsign }}" style="animation-delay:{{ loop.index0 * 40 }}ms">
+          <td>
+            <span class="fids-hhmm">{{ tparts[0] }}</span>
+            {% if tparts|length > 1 %}<span class="fids-delay-tag">{{ tparts[1][:-1] }}</span>{% endif %}
+          </td>
+          <td><span class="fids-flight">{{ r.flight_display }}</span></td>
+          <td class="fids-route">{{ r.route_display }}</td>
+          <td>
+            <span class="fids-badge badge-{{ r.status_class }}">
+              <span class="fids-bdot"></span>{{ r.status_display }}
+            </span>
+          </td>
+          <td>
+            {% if r.gate and r.gate != '-' %}<span class="fids-gate-val">{{ r.gate }}</span>
+            {% else %}<span class="fids-gate-empty">—</span>{% endif %}
+          </td>
+          <td><span class="fids-ac">{{ r.aircraft_type }}</span></td>
+        </tr>
+        {% endfor %}
+        {% if rows|length == 0 %}
+        <tr class="fids-empty-row">
+          <td colspan="6">
+            <div class="fids-empty-cell">
+              <span class="fids-empty-icon">✈</span>
+              <div>
+                <div class="fids-empty-title">No flights in window</div>
+                <div class="fids-empty-sub">±30 min grace · 12 h horizon</div>
+              </div>
+            </div>
+          </td>
+        </tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Flight detail drawer -->
+  <div class="fd-backdrop" id="fdBackdrop" style="display:none" onclick="closeDetail()"></div>
+  <div class="fd-panel"    id="fdPanel"    style="display:none">
+    <div class="fd-panel-head">
+      <div>
+        <div class="fd-flight-num" id="fdFlightNum">—</div>
+        <div class="fd-route-line" id="fdRouteLine"></div>
+        <div class="fd-airline"    id="fdAirline"></div>
+      </div>
+      <button class="fd-close" onclick="closeDetail()" title="Close">✕</button>
+    </div>
+    <div class="fd-body" id="fdBody">
+      <div class="fd-section">
+        <div class="fd-section-label">Status</div>
+        <div id="fdStatus"></div>
+      </div>
+      <div class="fd-section">
+        <div class="fd-section-label">Times (UTC)</div>
+        <div class="fd-times-grid" id="fdTimes"></div>
+      </div>
+      <div class="fd-section">
+        <div class="fd-section-label">Operations</div>
+        <div id="fdOps"></div>
+      </div>
+      <div class="fd-section" id="fdPosSection" style="display:none">
+        <div class="fd-section-label">Position</div>
+        <div id="fdPos"></div>
+      </div>
+      <div class="fd-section">
+        <div class="fd-section-label">Recent History (7 days)</div>
+        <div id="fdHistory"></div>
+      </div>
+    </div>
+  </div>
+
+</main>
+{% endblock %}
+
+{% block extra_script %}
+<script>
+const FIDS_VIEW = "{{ view }}";
+
+/* ── Render helpers ──────────────────────────────────────────────────────── */
+function renderTime(s) {
+  const m = s.match(/^(\d{2}:\d{2})(?:\s+\(([+-]?\d+)\))?$/);
+  if (!m) return `<span class="fids-hhmm">${s}</span>`;
+  const delay = m[2] ? `<span class="fids-delay-tag">${m[2]}</span>` : "";
+  return `<span class="fids-hhmm">${m[1]}</span>${delay}`;
+}
+
+function renderBadge(cls, text) {
+  return `<span class="fids-badge badge-${cls||'scheduled'}"><span class="fids-bdot"></span>${text}</span>`;
+}
+
+function renderGate(g) {
+  return (g && g !== "-")
+    ? `<span class="fids-gate-val">${g}</span>`
+    : `<span class="fids-gate-empty">—</span>`;
+}
+
+function renderRows(rows) {
+  if (!rows.length) {
+    return `<tr class="fids-empty-row"><td colspan="6">
+      <div class="fids-empty-cell">
+        <span class="fids-empty-icon">✈</span>
+        <div>
+          <div class="fids-empty-title">No flights in window</div>
+          <div class="fids-empty-sub">±30 min grace · 12 h horizon</div>
+        </div>
+      </div></td></tr>`;
+  }
+  return rows.map((r, i) => `
+    <tr class="fids-row fids-row-${r.status_class||'scheduled'}" data-callsign="${r.callsign||''}" style="animation-delay:${i*40}ms">
+      <td>${renderTime(r.display_time)}</td>
+      <td><span class="fids-flight">${r.flight_display}</span></td>
+      <td class="fids-route">${r.route_display}</td>
+      <td>${renderBadge(r.status_class, r.status_display)}</td>
+      <td>${renderGate(r.gate)}</td>
+      <td><span class="fids-ac">${r.aircraft_type}</span></td>
+    </tr>`).join("");
+}
+
+/* ── METAR ───────────────────────────────────────────────────────────────── */
+(function () {
+  const bar = document.getElementById("metarBar");
+  async function load() {
+    try {
+      const r = await fetch("/api/metar"); if (!r.ok) throw new Error();
+      const m = await r.json();
+      bar.innerHTML =
+        `<span class="metar-cat" style="background:${m.flight_cat_color||'#888'}">${m.flight_cat||'?'}</span>` +
+        `<span class="metar-decoded">${m.decoded_summary||''}</span>`;
+    } catch {
+      bar.innerHTML = '<span class="metar-loading">Weather unavailable</span>';
+    }
+  }
+  load(); setInterval(load, 30 * 60 * 1000);
+})();
+
+/* ── Scheduler error banner ──────────────────────────────────────────────── */
+async function checkSchedulerHealth() {
+  const banner = document.getElementById("fidsErrBanner");
+  const msg    = document.getElementById("fidsErrMsg");
+  if (!banner) return;
+  try {
+    const r = await fetch("/api/health");
+    if (!r.ok) return;
+    const s = await r.json();
+    if (!s.ok && s.last_error) {
+      const err = s.last_error;
+      const isKeyErr = /401|invalid_access_key|access_key/i.test(err);
+      msg.textContent = isKeyErr
+        ? "AviationStack API key is invalid — update it in Settings"
+        : `Fetch error: ${err}`;
+      banner.classList.add("visible");
+    } else {
+      banner.classList.remove("visible");
+    }
+  } catch {}
+}
+
+/* ── FIDS refresh ────────────────────────────────────────────────────────── */
+async function refreshFIDS() {
+  try {
+    const r = await fetch(`/api/fids?view=${FIDS_VIEW}&limit=20`);
+    if (!r.ok) return;
+    const rows = await r.json();
+    const tbody = document.getElementById("fidsBody");
+    if (!tbody) return;
+    tbody.innerHTML = renderRows(rows);
+    const upd = document.getElementById("lastUpdated");
+    if (upd) upd.textContent = new Date().toUTCString().slice(17,25) + " UTC";
+    checkSchedulerHealth();
+  } catch (e) { console.warn("FIDS refresh failed:", e); }
+}
+
+/* ── Flight detail drawer ────────────────────────────────────────────────── */
+(function () {
+  const backdrop = document.getElementById("fdBackdrop");
+  const panel    = document.getElementById("fdPanel");
+
+  function show() {
+    backdrop.style.display = "";
+    panel.style.display    = "";
+    // re-trigger animation
+    panel.style.animation    = "none";
+    backdrop.style.animation = "none";
+    panel.offsetHeight; // reflow
+    panel.style.animation    = "";
+    backdrop.style.animation = "";
+  }
+
+  function fmtUTC(iso) {
+    if (!iso) return "—";
+    try { return new Date(iso).toISOString().slice(11, 16); } catch { return "—"; }
+  }
+
+  function shimmer(w) {
+    return `<span class="lf-shimmer fd-shimmer-line" style="display:block;width:${w}">&nbsp;</span>`;
+  }
+
+  function renderDetail({ detail, history }) {
+    const d = detail || {};
+
+    // Header
+    document.getElementById("fdFlightNum").textContent =
+      d.flight_number ? d.flight_number.replace(/^([A-Z]{2,3})(\d)/, "$1 $2") : (d.callsign || "—");
+
+    const origin = d.origin_name ? `${d.origin_name} (${d.origin_iata})` : (d.origin_iata || "?");
+    const dest   = d.dest_name   ? `${d.dest_name} (${d.dest_iata})`     : (d.dest_iata   || "?");
+    document.getElementById("fdRouteLine").textContent =
+      d.direction === "DEP" ? `${origin} → ${dest}` : `${origin} → ${dest}`;
+    document.getElementById("fdAirline").textContent = d.airline || "";
+
+    // Status badge — reuse existing badge CSS
+    const sc = (d.status || "").toLowerCase().replace(/[^a-z]/g, "-") || "scheduled";
+    const statusMap = {
+      "boarding": "BOARDING", "departed": "DEPARTED", "arrived": "LANDED",
+      "cancelled": "CANCELLED", "diverted": "DIVERTED", "delayed": "DELAYED",
+      "scheduled": "SCHEDULED", "unknown": "SCHEDULED",
+    };
+    const statusLabel = statusMap[d.status?.toLowerCase()] || (d.status || "SCHEDULED");
+    document.getElementById("fdStatus").innerHTML =
+      `<span class="fids-badge badge-${sc}"><span class="fids-bdot"></span>${statusLabel}</span>`;
+
+    // Times
+    const timesEl = document.getElementById("fdTimes");
+    const actVal  = fmtUTC(d.actual_time);
+    const estVal  = fmtUTC(d.est_time);
+    const schVal  = fmtUTC(d.sched_time);
+    timesEl.innerHTML = `
+      <div class="fd-time-cell">
+        <div class="fd-time-lbl">SCH</div>
+        <div class="fd-time-val ${schVal === '—' ? 'fd-dim' : ''}">${schVal}</div>
+      </div>
+      <div class="fd-time-cell">
+        <div class="fd-time-lbl">EST</div>
+        <div class="fd-time-val ${estVal === '—' ? 'fd-dim' : ''}">${estVal}</div>
+      </div>
+      <div class="fd-time-cell">
+        <div class="fd-time-lbl">ACT</div>
+        <div class="fd-time-val ${actVal === '—' ? 'fd-dim' : ''}">${actVal}</div>
+      </div>`;
+
+    // Delay callout under times
+    if (typeof d.delay_minutes === "number" && Math.abs(d.delay_minutes) >= 5) {
+      const sign = d.delay_minutes > 0 ? "+" : "";
+      const cls  = d.delay_minutes >= 15 ? "fd-delay-bad" : "fd-delay-warn";
+      timesEl.insertAdjacentHTML("afterend",
+        `<div class="fd-row" style="margin-top:6px"><span class="fd-lbl">Delay</span>` +
+        `<span class="fd-val ${cls}">${sign}${d.delay_minutes} min</span></div>`);
+    }
+
+    // Operations
+    const opsEl = document.getElementById("fdOps");
+    const rows = [
+      ["Gate",     d.gate     || "—"],
+      ["Terminal", d.terminal || "—"],
+      ["Aircraft", d.aircraft_type || "—"],
+      ["Source",   d.source   || "—"],
+    ];
+    opsEl.innerHTML = rows.map(([lbl, val]) =>
+      `<div class="fd-row"><span class="fd-lbl">${lbl}</span><span class="fd-val">${val}</span></div>`
+    ).join("");
+
+    // Position
+    const posSection = document.getElementById("fdPosSection");
+    const posEl      = document.getElementById("fdPos");
+    const pos = d.position;
+    if (pos && pos.lat != null) {
+      posSection.style.display = "";
+      const altFt  = pos.altitude_m  != null ? Math.round(pos.altitude_m * 3.28084).toLocaleString() + " ft" : "—";
+      const spdKt  = pos.speed_ms    != null ? Math.round(pos.speed_ms * 1.944) + " kt" : "—";
+      const hdg    = pos.heading     != null ? Math.round(pos.heading) + "°" : "—";
+      const vr     = pos.vertical_rate != null ? (pos.vertical_rate >= 0 ? "+" : "") + Math.round(pos.vertical_rate * 196.85) + " fpm" : null;
+      const ground = pos.on_ground ? "On ground" : null;
+      const posRows = [
+        ["Altitude", altFt],
+        ["Speed",    spdKt],
+        ["Heading",  hdg],
+      ];
+      if (vr)     posRows.push(["Vert rate", vr]);
+      if (ground) posRows.push(["Surface",   ground]);
+      posEl.innerHTML = posRows.map(([lbl, val]) =>
+        `<div class="fd-row"><span class="fd-lbl">${lbl}</span><span class="fd-val">${val}</span></div>`
+      ).join("");
+    } else {
+      posSection.style.display = "none";
+    }
+
+    // History
+    const histEl = document.getElementById("fdHistory");
+    if (!history || !history.length) {
+      histEl.innerHTML = `<div style="opacity:0.3;font-size:0.78rem;padding:8px 0">No history yet</div>`;
+    } else {
+      histEl.innerHTML = history.map(h => {
+        const dly = h.delay_minutes;
+        let delayCls = "", delayTxt = "On time";
+        if (typeof dly === "number") {
+          if      (dly >= 15) { delayCls = "fd-delay-bad";  delayTxt = `+${dly}m`; }
+          else if (dly >= 5)  { delayCls = "fd-delay-warn"; delayTxt = `+${dly}m`; }
+          else if (dly <= -5) { delayCls = "fd-delay-ok";   delayTxt = `${dly}m`;  }
+          else                { delayCls = "fd-delay-ok";   delayTxt = "On time";  }
+        }
+        const gate = h.gate && h.gate !== "-" ? ` · G${h.gate}` : "";
+        return `<div class="fd-hist-row">
+          <span class="fd-hist-date">${h.date.slice(5)}</span>
+          <span class="fd-hist-status">${h.status || ""}${gate}</span>
+          <span class="fd-hist-delay ${delayCls}">${delayTxt}</span>
+        </div>`;
+      }).join("");
+    }
+  }
+
+  window.openDetail = async function (callsign) {
+    if (!callsign) return;
+
+    // Show panel with loading shimmer immediately
+    document.getElementById("fdFlightNum").textContent = callsign;
+    document.getElementById("fdRouteLine").textContent = "";
+    document.getElementById("fdAirline").textContent   = "";
+    document.getElementById("fdStatus").innerHTML  = shimmer("80px");
+    document.getElementById("fdTimes").innerHTML   = shimmer("100%");
+    document.getElementById("fdOps").innerHTML     = shimmer("100%");
+    document.getElementById("fdHistory").innerHTML = shimmer("100%");
+    document.getElementById("fdPosSection").style.display = "none";
+    show();
+
+    try {
+      const res  = await fetch(`/api/fids/detail?callsign=${encodeURIComponent(callsign)}`);
+      if (!res.ok) throw new Error(res.status);
+      const data = await res.json();
+      renderDetail(data);
+    } catch (e) {
+      document.getElementById("fdStatus").innerHTML =
+        `<span style="opacity:0.4;font-size:0.8rem">Could not load flight detail</span>`;
+    }
+  };
+
+  window.closeDetail = function () {
+    backdrop.style.display = "none";
+    panel.style.display    = "none";
+  };
+
+  // Click delegation on table
+  document.getElementById("fidsTable").addEventListener("click", e => {
+    const row = e.target.closest("tr.fids-row");
+    if (!row) return;
+    const cs = row.dataset.callsign;
+    if (cs) openDetail(cs);
+  });
+
+  // Escape key
+  document.addEventListener("keydown", e => {
+    if (e.key === "Escape") closeDetail();
+  });
+})();
+
+/* ── WebSocket live push ─────────────────────────────────────────────────── */
+(function () {
+  const dot = document.getElementById("liveDot");
+  let ws = null, retryMs = 1000;
+  function connect() {
+    const proto = location.protocol === "https:" ? "wss" : "ws";
+    ws = new WebSocket(`${proto}://${location.host}/ws`);
+    ws.onopen  = () => { retryMs = 1000; dot?.classList.remove("offline"); };
+    ws.onmessage = (e) => {
+      try { const msg = JSON.parse(e.data); if (msg.type === "snapshot_updated") refreshFIDS(); } catch {}
+    };
+    ws.onclose = ws.onerror = () => {
+      dot?.classList.add("offline");
+      setTimeout(connect, Math.min(retryMs, 30000));
+      retryMs = Math.min(retryMs * 2, 30000);
+    };
+  }
+  connect();
+  window.addEventListener("message", (e) => {
+    try { const msg = JSON.parse(e.data); if (msg.type === "snapshot_updated") refreshFIDS(); } catch {}
+  });
+  setInterval(refreshFIDS, 60000);
+  checkSchedulerHealth();
+})();
+</script>
+{% endblock %}

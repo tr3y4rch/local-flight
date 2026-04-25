@@ -1,0 +1,19 @@
+[Unit]
+Description=Local Flight — Airport FIDS Display
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/local-flight/src
+EnvironmentFile=/home/pi/local-flight/.env
+ExecStart=/home/pi/local-flight/.venv/bin/python -m localflight
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=localflight
+
+[Install]
+WantedBy=multi-user.target

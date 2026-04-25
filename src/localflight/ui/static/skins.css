@@ -1,0 +1,156 @@
+/*
+  localflight/ui/static/skins.css
+  Skin variable overrides — loaded after app.css.
+  Each skin overrides a minimal set of CSS custom properties.
+  base.html sets data-skin on <html> based on cfg.skin.
+*/
+
+/* ── Standard (default) — inherits app.css fully, no overrides needed ── */
+[data-skin="standard"] {}
+
+/* ── Technical — slightly cooler, desaturated, grid feel ── */
+[data-skin="technical"] {
+  --skin-bg:        #0a0e14;
+  --skin-surface:   #111820;
+  --skin-border:    rgba(80, 140, 200, 0.18);
+  --skin-text:      #c8d8e8;
+  --skin-text-dim:  #5a7a9a;
+  --skin-accent:    #4a9eda;
+  --skin-ok:        #3a9a6a;
+  --skin-warn:      #d4a020;
+  --skin-bad:       #c04040;
+  --skin-mono:      "JetBrains Mono", "Fira Code", ui-monospace, monospace;
+}
+
+[data-skin="technical"] body {
+  background: var(--skin-bg);
+  color: var(--skin-text);
+  font-family: var(--skin-mono);
+}
+
+[data-skin="technical"] table th,
+[data-skin="technical"] table td {
+  border-bottom-color: var(--skin-border);
+}
+
+[data-skin="technical"] .dim { color: var(--skin-text-dim); opacity: 1; }
+[data-skin="technical"] .ok  { color: var(--skin-ok); }
+[data-skin="technical"] .bad { color: var(--skin-bad); }
+
+/* ── Neon — green phosphor CRT ── */
+[data-skin="neon"] {
+  --skin-bg:        #000d00;
+  --skin-surface:   #001800;
+  --skin-border:    rgba(0, 255, 80, 0.15);
+  --skin-text:      #00ff50;
+  --skin-text-dim:  #007a28;
+  --skin-accent:    #00ff50;
+  --skin-ok:        #00ff50;
+  --skin-warn:      #aaff00;
+  --skin-bad:       #ff4040;
+  --skin-glow:      0 0 8px rgba(0, 255, 80, 0.4);
+}
+
+[data-skin="neon"] body {
+  background: var(--skin-bg);
+  color: var(--skin-text);
+  font-family: "Courier New", Courier, monospace;
+}
+
+[data-skin="neon"] h1,
+[data-skin="neon"] h2 {
+  text-shadow: var(--skin-glow);
+}
+
+[data-skin="neon"] table th { color: var(--skin-accent); }
+[data-skin="neon"] table th,
+[data-skin="neon"] table td { border-bottom-color: var(--skin-border); }
+[data-skin="neon"] .status  { text-shadow: var(--skin-glow); }
+[data-skin="neon"] .dim     { color: var(--skin-text-dim); opacity: 1; }
+[data-skin="neon"] .ok      { color: var(--skin-ok); }
+[data-skin="neon"] .bad     { color: var(--skin-bad); }
+[data-skin="neon"] .clock-bar { text-shadow: var(--skin-glow); }
+
+/* ── Cyan — ops center, cool blue ── */
+[data-skin="cyan"] {
+  --skin-bg:        #00080f;
+  --skin-surface:   #001220;
+  --skin-border:    rgba(0, 200, 255, 0.15);
+  --skin-text:      #00ccff;
+  --skin-text-dim:  #006688;
+  --skin-accent:    #00ccff;
+  --skin-ok:        #00ffcc;
+  --skin-warn:      #ffcc00;
+  --skin-bad:       #ff4060;
+  --skin-glow:      0 0 8px rgba(0, 200, 255, 0.4);
+}
+
+[data-skin="cyan"] body {
+  background: var(--skin-bg);
+  color: var(--skin-text);
+  font-family: "Courier New", Courier, monospace;
+}
+
+[data-skin="cyan"] h1,
+[data-skin="cyan"] h2 { text-shadow: var(--skin-glow); }
+[data-skin="cyan"] table th { color: var(--skin-accent); }
+[data-skin="cyan"] table th,
+[data-skin="cyan"] table td { border-bottom-color: var(--skin-border); }
+[data-skin="cyan"] .status  { text-shadow: var(--skin-glow); }
+[data-skin="cyan"] .dim     { color: var(--skin-text-dim); opacity: 1; }
+[data-skin="cyan"] .ok      { color: var(--skin-ok); }
+[data-skin="cyan"] .bad     { color: var(--skin-bad); }
+[data-skin="cyan"] .clock-bar { text-shadow: var(--skin-glow); }
+
+/* ── CRT — amber split-flap board ── */
+[data-skin="crt"] {
+  --skin-bg:        #0a0600;
+  --skin-surface:   #150c00;
+  --skin-border:    rgba(255, 160, 0, 0.15);
+  --skin-text:      #ffaa00;
+  --skin-text-dim:  #7a5000;
+  --skin-accent:    #ffcc44;
+  --skin-ok:        #ffaa00;
+  --skin-warn:      #ffdd00;
+  --skin-bad:       #ff4020;
+  --skin-glow:      0 0 8px rgba(255, 160, 0, 0.4);
+}
+
+[data-skin="crt"] body {
+  background: var(--skin-bg);
+  color: var(--skin-text);
+  font-family: "Courier New", Courier, monospace;
+  letter-spacing: 0.04em;
+}
+
+[data-skin="crt"] h1,
+[data-skin="crt"] h2 { text-shadow: var(--skin-glow); }
+[data-skin="crt"] table th { color: var(--skin-accent); }
+[data-skin="crt"] table th,
+[data-skin="crt"] table td { border-bottom-color: var(--skin-border); }
+[data-skin="crt"] .status  { text-shadow: var(--skin-glow); }
+[data-skin="crt"] .dim     { color: var(--skin-text-dim); opacity: 1; }
+[data-skin="crt"] .ok      { color: var(--skin-ok); }
+[data-skin="crt"] .bad     { color: var(--skin-bad); }
+[data-skin="crt"] .clock-bar { text-shadow: var(--skin-glow); }
+
+/* ── Shared status color overrides for all non-standard skins ── */
+[data-skin="neon"] .status-delayed,
+[data-skin="cyan"] .status-delayed,
+[data-skin="crt"]  .status-delayed,
+[data-skin="technical"] .status-delayed { color: var(--skin-warn); }
+
+[data-skin="neon"] .status-cancelled,
+[data-skin="cyan"] .status-cancelled,
+[data-skin="crt"]  .status-cancelled,
+[data-skin="technical"] .status-cancelled { color: var(--skin-bad); opacity: 0.7; }
+
+[data-skin="neon"] .status-departed,
+[data-skin="cyan"] .status-departed,
+[data-skin="crt"]  .status-departed,
+[data-skin="technical"] .status-departed { opacity: 0.6; }
+
+[data-skin="neon"] .status-arrived,
+[data-skin="cyan"] .status-arrived,
+[data-skin="crt"]  .status-arrived,
+[data-skin="technical"] .status-arrived { opacity: 0.6; }
