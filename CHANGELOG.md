@@ -41,6 +41,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Fixed
 - `start.bat` — UTF-8 box-drawing chars in `::` comments caused cmd.exe byte-eating bug on `chcp 65001`; replaced with ASCII dashes
 - Setup wizard — RapidAPI signup URL corrected (`adsbexchange` → `adsbx` provider slug); OpenSky registration URL updated from stale Joomla path to `/login?view=registration`
+- Tray icon quit — `sys.exit(0)` inside pystray callback raised `SystemExit` and logged a spurious crash; changed to `os._exit(0)`
 - VATSIM aircraft type extraction now handles `H/B748/L` heavy-prefix format
 - Jinja2 `TemplateSyntaxError` in `_nav.html` (unclosed block comment)
 - `UnicodeEncodeError` on Windows console (cp1252) in build script output
