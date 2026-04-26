@@ -256,7 +256,7 @@ def _run_desktop() -> None:
         if proc:
             try: proc.terminate()
             except Exception: pass
-        sys.exit(0)
+        os._exit(0)
 
     def on_restart():
         _load_dotenv()
