@@ -86,7 +86,7 @@ def run_loop(
             ))
             logger.exception("Cycle error | source=%s", source_name)
 
-            # File a Linear issue (non-fatal, deduped per 6h)
+            # File to operator's Linear (optional, needs env vars, deduped per 6h)
             try:
                 from localflight.sources.web.linear_client import file_error
                 cfg_for_linear = load_config()
@@ -94,6 +94,18 @@ def run_loop(
                     error_msg,
                     source_name=source_name,
                     airport_iata=getattr(cfg_for_linear, "airport_iata", ""),
+                )
+            except Exception:
+                pass
+
+            # Auto crash report to developer's Linear (always-on, deduped per 6h)
+            try:
+                import traceback as _tb
+                from localflight.sources.web.bug_reporter import submit_crash
+                submit_crash(
+                    error_msg,
+                    traceback_str=_tb.format_exc(),
+                    context=f"scheduler/{source_name}",
                 )
             except Exception:
                 pass

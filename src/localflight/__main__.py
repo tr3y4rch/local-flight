@@ -272,8 +272,47 @@ def _run_desktop() -> None:
 
 # ── Entry point ────────────────────────────────────────────────────────────────
 
+def _install_crash_hooks() -> None:
+    """
+    Wire sys.excepthook + threading.excepthook so unhandled exceptions
+    anywhere in the process auto-file a crash report to developer's Linear.
+    KeyboardInterrupt and SystemExit are intentionally excluded.
+    """
+    import traceback as _tb
+
+    def _report(error_msg: str, tb_str: str, context: str) -> None:
+        try:
+            from localflight.sources.web.bug_reporter import submit_crash
+            submit_crash(error_msg, traceback_str=tb_str, context=context)
+        except Exception:
+            pass
+
+    _orig_excepthook = sys.excepthook
+
+    def _excepthook(exc_type, exc_value, exc_tb):
+        if not issubclass(exc_type, (KeyboardInterrupt, SystemExit)):
+            tb_str = "".join(_tb.format_exception(exc_type, exc_value, exc_tb))
+            _report(f"{exc_type.__name__}: {exc_value}", tb_str, "main-thread")
+        _orig_excepthook(exc_type, exc_value, exc_tb)
+
+    sys.excepthook = _excepthook
+
+    import threading
+    _orig_threading_hook = threading.excepthook
+
+    def _threading_excepthook(args):
+        if args.exc_type and not issubclass(args.exc_type, (KeyboardInterrupt, SystemExit)):
+            tb_str = "".join(_tb.format_exception(args.exc_type, args.exc_value, args.exc_tb))
+            name = getattr(args.thread, "name", "unknown") if args.thread else "unknown"
+            _report(f"{args.exc_type.__name__}: {args.exc_value}", tb_str, f"thread/{name}")
+        _orig_threading_hook(args)
+
+    threading.excepthook = _threading_excepthook
+
+
 def main() -> None:
     _load_dotenv()
+    _install_crash_hooks()
 
     if is_headless():
         _run_headless()
