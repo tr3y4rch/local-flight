@@ -1,0 +1,646 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Local Flight — iOS Mockup</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:wght@300;400;500;600&display=swap');
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: #080c12;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    font-family: 'DM Sans', sans-serif;
+    padding: 40px 20px;
+  }
+
+  .scene {
+    display: flex;
+    gap: 48px;
+    align-items: flex-start;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  /* ── Phone shell ── */
+  .phone {
+    width: 375px;
+    height: 812px;
+    background: #0d1520;
+    border-radius: 54px;
+    border: 2px solid #1e3a5a;
+    position: relative;
+    overflow: hidden;
+    box-shadow:
+      0 0 0 1px #0a1828,
+      0 40px 120px rgba(0,0,0,0.8),
+      inset 0 1px 0 rgba(255,255,255,0.06);
+    flex-shrink: 0;
+  }
+
+  /* Dynamic island */
+  .dynamic-island {
+    position: absolute;
+    top: 14px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 120px;
+    height: 34px;
+    background: #000;
+    border-radius: 20px;
+    z-index: 100;
+  }
+
+  /* Status bar */
+  .status-bar {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 60px;
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    padding: 0 28px 8px;
+    z-index: 50;
+  }
+  .status-time {
+    font-family: 'Space Mono', monospace;
+    font-size: 13px;
+    color: #fff;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+  }
+  .status-icons {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+  }
+  .status-icons span {
+    font-size: 12px;
+    color: #fff;
+    opacity: 0.9;
+  }
+
+  /* Screen content */
+  .screen {
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    overflow: hidden;
+  }
+
+  /* Header */
+  .app-header {
+    padding: 70px 22px 16px;
+    background: linear-gradient(180deg, #0a1220 0%, #0d1520 100%);
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+  }
+
+  .header-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 14px;
+  }
+
+  .airport-badge {
+    display: flex;
+    flex-direction: column;
+  }
+  .airport-code {
+    font-family: 'Space Mono', monospace;
+    font-size: 32px;
+    font-weight: 700;
+    color: #fff;
+    letter-spacing: 2px;
+    line-height: 1;
+  }
+  .airport-name {
+    font-size: 12px;
+    color: #4a7aaa;
+    margin-top: 3px;
+    letter-spacing: 0.5px;
+  }
+
+  .header-right {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 6px;
+  }
+  .live-pill {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    background: rgba(0,192,64,0.1);
+    border: 1px solid rgba(0,192,64,0.25);
+    border-radius: 20px;
+    padding: 4px 10px;
+    font-family: 'Space Mono', monospace;
+    font-size: 10px;
+    color: #00c040;
+    letter-spacing: 1px;
+  }
+  .live-dot {
+    width: 5px; height: 5px;
+    background: #00c040;
+    border-radius: 50%;
+    animation: pulse 1.4s ease-in-out infinite;
+  }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+  .utc-time {
+    font-family: 'Space Mono', monospace;
+    font-size: 11px;
+    color: #2a5a8a;
+    letter-spacing: 0.5px;
+  }
+
+  /* METAR strip */
+  .metar-strip {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: rgba(255,255,255,0.03);
+    border-radius: 8px;
+    padding: 7px 10px;
+  }
+  .metar-cat {
+    font-family: 'Space Mono', monospace;
+    font-size: 9px;
+    font-weight: 700;
+    background: #00c040;
+    color: #000;
+    padding: 2px 6px;
+    border-radius: 4px;
+    letter-spacing: 1px;
+  }
+  .metar-text {
+    font-size: 11px;
+    color: #4a7aaa;
+    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* Tab bar */
+  .tab-bar {
+    display: flex;
+    background: rgba(10,18,32,0.6);
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+  }
+  .tab {
+    flex: 1;
+    padding: 10px 0 8px;
+    text-align: center;
+    font-family: 'Space Mono', monospace;
+    font-size: 9px;
+    color: #2a5a8a;
+    letter-spacing: 1px;
+    cursor: pointer;
+    position: relative;
+    transition: color 0.15s;
+  }
+  .tab.active {
+    color: #4a9eda;
+  }
+  .tab.active::after {
+    content: '';
+    position: absolute;
+    bottom: 0; left: 20%; right: 20%;
+    height: 2px;
+    background: #4a9eda;
+    border-radius: 2px 2px 0 0;
+  }
+  .tab-icon { font-size: 14px; display: block; margin-bottom: 2px; }
+
+  /* Direction toggle */
+  .dir-toggle {
+    display: flex;
+    margin: 12px 22px 8px;
+    background: rgba(255,255,255,0.04);
+    border-radius: 8px;
+    padding: 3px;
+  }
+  .dir-btn {
+    flex: 1;
+    padding: 7px 0;
+    text-align: center;
+    font-family: 'Space Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 1px;
+    border-radius: 6px;
+    color: #2a5a8a;
+  }
+  .dir-btn.active {
+    background: rgba(74,158,218,0.12);
+    color: #4a9eda;
+    border: 1px solid rgba(74,158,218,0.2);
+  }
+
+  /* FIDS table */
+  .fids-header {
+    display: grid;
+    grid-template-columns: 52px 70px 1fr 80px 30px;
+    gap: 4px;
+    padding: 0 22px 6px;
+    font-family: 'Space Mono', monospace;
+    font-size: 8px;
+    color: #1e3a5a;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+  }
+
+  .fids-list {
+    padding: 0 12px;
+    overflow: hidden;
+  }
+
+  .fids-row {
+    display: grid;
+    grid-template-columns: 52px 70px 1fr 80px 30px;
+    gap: 4px;
+    align-items: center;
+    padding: 10px 10px;
+    border-radius: 10px;
+    margin-bottom: 3px;
+    background: rgba(255,255,255,0.02);
+    border: 1px solid rgba(255,255,255,0.03);
+    transition: background 0.15s;
+  }
+  .fids-row:nth-child(even) {
+    background: rgba(255,255,255,0.025);
+  }
+
+  .fids-time {
+    font-family: 'Space Mono', monospace;
+    font-size: 12px;
+    color: #e8f0fe;
+    font-weight: 700;
+  }
+  .fids-flight {
+    font-family: 'Space Mono', monospace;
+    font-size: 11px;
+    color: #7ab0d8;
+  }
+  .fids-dest {
+    font-size: 12px;
+    color: #8aaccc;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .fids-dest-code {
+    font-family: 'Space Mono', monospace;
+    font-size: 9px;
+    color: #3a6a9a;
+    display: block;
+    margin-top: 1px;
+  }
+
+  .status-badge {
+    font-family: 'Space Mono', monospace;
+    font-size: 8px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    padding: 3px 6px;
+    border-radius: 4px;
+    text-align: center;
+    white-space: nowrap;
+  }
+  .status-scheduled { color: #4a9eda; background: rgba(74,158,218,0.1); }
+  .status-departed  { color: #7ab0d8; background: rgba(74,158,218,0.06); opacity: 0.6; }
+  .status-boarding  { color: #00c040; background: rgba(0,192,64,0.12); animation: pulse 1.2s ease-in-out infinite; }
+  .status-delayed   { color: #f0b429; background: rgba(240,180,41,0.1); }
+
+  .fids-ac {
+    font-family: 'Space Mono', monospace;
+    font-size: 9px;
+    color: #2a4a6a;
+    text-align: right;
+  }
+
+  /* Pinned flight card */
+  .pinned-section {
+    padding: 0 12px 8px;
+  }
+  .pinned-label {
+    font-family: 'Space Mono', monospace;
+    font-size: 8px;
+    color: #2a5a8a;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    padding: 0 10px;
+    margin-bottom: 6px;
+  }
+  .pinned-card {
+    background: linear-gradient(135deg, rgba(74,158,218,0.08) 0%, rgba(0,192,64,0.05) 100%);
+    border: 1px solid rgba(74,158,218,0.15);
+    border-radius: 14px;
+    padding: 14px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .pinned-icon { font-size: 24px; }
+  .pinned-info { flex: 1; }
+  .pinned-flight {
+    font-family: 'Space Mono', monospace;
+    font-size: 14px;
+    font-weight: 700;
+    color: #e8f0fe;
+  }
+  .pinned-route {
+    font-size: 11px;
+    color: #4a7aaa;
+    margin-top: 2px;
+  }
+  .pinned-status {
+    font-family: 'Space Mono', monospace;
+    font-size: 9px;
+    color: #00c040;
+    background: rgba(0,192,64,0.1);
+    border: 1px solid rgba(0,192,64,0.2);
+    padding: 4px 8px;
+    border-radius: 6px;
+    letter-spacing: 0.5px;
+  }
+
+  /* Bottom nav */
+  .bottom-nav {
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    height: 82px;
+    background: rgba(9,14,22,0.95);
+    border-top: 1px solid rgba(255,255,255,0.06);
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-around;
+    padding-top: 10px;
+    backdrop-filter: blur(20px);
+  }
+  .nav-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    opacity: 0.35;
+  }
+  .nav-item.active { opacity: 1; }
+  .nav-item-icon { font-size: 20px; }
+  .nav-item-label {
+    font-family: 'Space Mono', monospace;
+    font-size: 8px;
+    color: #4a9eda;
+    letter-spacing: 0.5px;
+  }
+  .nav-item:not(.active) .nav-item-label { color: #2a5a8a; }
+
+  /* Home indicator */
+  .home-indicator {
+    position: absolute;
+    bottom: 8px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 130px;
+    height: 4px;
+    background: rgba(255,255,255,0.25);
+    border-radius: 3px;
+  }
+
+  /* ── Side annotations ── */
+  .annotations {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    padding-top: 80px;
+    max-width: 200px;
+  }
+  .annotation {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+  }
+  .annotation-line {
+    width: 32px;
+    height: 1px;
+    background: #1e3a5a;
+    margin-top: 8px;
+    flex-shrink: 0;
+  }
+  .annotation-text {
+    font-family: 'Space Mono', monospace;
+    font-size: 10px;
+    color: #2a5a8a;
+    line-height: 1.5;
+    letter-spacing: 0.3px;
+  }
+  .annotation-text strong {
+    color: #4a9eda;
+    display: block;
+    margin-bottom: 2px;
+  }
+</style>
+</head>
+<body>
+
+<div class="scene">
+
+  <!-- ── Phone ── -->
+  <div class="phone">
+    <div class="dynamic-island"></div>
+
+    <div class="status-bar">
+      <span class="status-time">09:41</span>
+      <div class="status-icons">
+        <span>●●●</span>
+        <span>WiFi</span>
+        <span>🔋</span>
+      </div>
+    </div>
+
+    <div class="screen">
+
+      <!-- Header -->
+      <div class="app-header">
+        <div class="header-top">
+          <div class="airport-badge">
+            <span class="airport-code">ZRH</span>
+            <span class="airport-name">Zürich Kloten</span>
+          </div>
+          <div class="header-right">
+            <div class="live-pill">
+              <div class="live-dot"></div>
+              LIVE
+            </div>
+            <span class="utc-time">UTC 08:41:22</span>
+          </div>
+        </div>
+        <div class="metar-strip">
+          <span class="metar-cat">VFR</span>
+          <span class="metar-text">CLR · 12°C · Wind 280° 8kt · QNH 1018</span>
+        </div>
+      </div>
+
+      <!-- Tabs -->
+      <div class="tab-bar">
+        <div class="tab active">
+          <span class="tab-icon">🛫</span>FIDS
+        </div>
+        <div class="tab">
+          <span class="tab-icon">📡</span>RADAR
+        </div>
+        <div class="tab">
+          <span class="tab-icon">📅</span>HISTORY
+        </div>
+        <div class="tab">
+          <span class="tab-icon">🛠</span>ADMIN
+        </div>
+      </div>
+
+      <!-- Direction toggle -->
+      <div class="dir-toggle">
+        <div class="dir-btn active">🛫 DEPARTURES</div>
+        <div class="dir-btn">🛬 ARRIVALS</div>
+      </div>
+
+      <!-- FIDS header -->
+      <div class="fids-header">
+        <span>TIME</span>
+        <span>FLIGHT</span>
+        <span>TO</span>
+        <span>STATUS</span>
+        <span>A/C</span>
+      </div>
+
+      <!-- Pinned flight -->
+      <div class="pinned-section">
+        <div class="pinned-label">📌 Pinned</div>
+        <div class="pinned-card">
+          <span class="pinned-icon">🛫</span>
+          <div class="pinned-info">
+            <div class="pinned-flight">SWR 116</div>
+            <div class="pinned-route">ZRH → JFK · B77W</div>
+          </div>
+          <div class="pinned-status">BOARDING</div>
+        </div>
+      </div>
+
+      <!-- FIDS rows -->
+      <div class="fids-list">
+
+        <div class="fids-row">
+          <span class="fids-time">10:05</span>
+          <span class="fids-flight">LX 318</span>
+          <span class="fids-dest">New York
+            <span class="fids-dest-code">JFK</span>
+          </span>
+          <span class="status-badge status-scheduled">SCHED</span>
+          <span class="fids-ac">A343</span>
+        </div>
+
+        <div class="fids-row">
+          <span class="fids-time">10:20</span>
+          <span class="fids-flight">EZY 8465</span>
+          <span class="fids-dest">London
+            <span class="fids-dest-code">LGW</span>
+          </span>
+          <span class="status-badge status-delayed">DELAY</span>
+          <span class="fids-ac">A20N</span>
+        </div>
+
+        <div class="fids-row">
+          <span class="fids-time">10:35</span>
+          <span class="fids-flight">SWR 84</span>
+          <span class="fids-dest">Singapore
+            <span class="fids-dest-code">SIN</span>
+          </span>
+          <span class="status-badge status-scheduled">SCHED</span>
+          <span class="fids-ac">B77W</span>
+        </div>
+
+        <div class="fids-row">
+          <span class="fids-time">09:50</span>
+          <span class="fids-flight">BER 501</span>
+          <span class="fids-dest">Berlin
+            <span class="fids-dest-code">BER</span>
+          </span>
+          <span class="status-badge status-departed">DEPT</span>
+          <span class="fids-ac">A320</span>
+        </div>
+
+      </div>
+
+      <!-- Bottom nav -->
+      <div class="bottom-nav">
+        <div class="nav-item active">
+          <span class="nav-item-icon">🛫</span>
+          <span class="nav-item-label">FIDS</span>
+        </div>
+        <div class="nav-item">
+          <span class="nav-item-icon">📡</span>
+          <span class="nav-item-label">RADAR</span>
+        </div>
+        <div class="nav-item">
+          <span class="nav-item-icon">🔔</span>
+          <span class="nav-item-label">ALERTS</span>
+        </div>
+        <div class="nav-item">
+          <span class="nav-item-icon">⚙️</span>
+          <span class="nav-item-label">SETTINGS</span>
+        </div>
+        <div class="home-indicator"></div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ── Annotations ── -->
+  <div class="annotations">
+    <div class="annotation">
+      <div class="annotation-line"></div>
+      <div class="annotation-text">
+        <strong>Dynamic Island</strong>
+        Live flight alert on status change
+      </div>
+    </div>
+    <div class="annotation">
+      <div class="annotation-line"></div>
+      <div class="annotation-text">
+        <strong>Airport + METAR</strong>
+        One-tap airport switch, live weather strip
+      </div>
+    </div>
+    <div class="annotation">
+      <div class="annotation-line"></div>
+      <div class="annotation-text">
+        <strong>Pinned flight</strong>
+        Track specific callsign, push notify on status change
+      </div>
+    </div>
+    <div class="annotation">
+      <div class="annotation-line"></div>
+      <div class="annotation-text">
+        <strong>FIDS board</strong>
+        Live WebSocket updates, tap row for full detail sheet
+      </div>
+    </div>
+    <div class="annotation">
+      <div class="annotation-line"></div>
+      <div class="annotation-text">
+        <strong>Bottom nav</strong>
+        FIDS · Radar · Alerts · Settings
+      </div>
+    </div>
+  </div>
+
+</div>
+
+</body>
+</html>

@@ -1,0 +1,23 @@
+{
+  "name": "localflight-mobile",
+  "version": "0.2.2-b1",
+  "private": true,
+  "main": "index.ts",
+  "scripts": {
+    "start": "expo start",
+    "ios": "expo run:ios",
+    "ios:device": "expo run:ios --device",
+    "typecheck": "tsc --noEmit",
+    "doctor": "npx expo-doctor"
+  },
+  "dependencies": {
+    "expo": "~55.0.0",
+    "expo-secure-store": "~55.0.13",
+    "react": "19.2.0",
+    "react-native": "0.83.0"
+  },
+  "devDependencies": {
+    "@types/react": "~19.2.0",
+    "typescript": "~5.9.2"
+  }
+}

@@ -18,6 +18,7 @@ No cloud. No accounts. No dashboards that want your email.
 - Shows a **live radar** with sweep animation and blip fading
 - Provides a **split-view display** (FIDS + Radar) with a draggable divider
 - Shows a short **versioned splash screen** on launch before opening setup or the display
+- Includes an early **React Native mobile companion** for iOS-first LAN viewing on iPhone/iPad
 - Stores 90 days of flight history in a local **SQLite database** with a browsable history UI and aggregate stats
 - Supports **profiles** — save and switch airport configurations instantly
 - Displays **UTC and local time** simultaneously, timezone follows the configured airport
@@ -72,6 +73,21 @@ bash installers/pi/install.sh
 ```
 
 The Pi runs headless — access the UI from any device on your network at `http://localflight.local`.
+
+---
+
+## Mobile companion
+
+The Phase 1 React Native / Expo app lives in `mobile/`. It is iOS-first for now and treats the Python/FastAPI app as the server of record.
+
+```bash
+cd mobile
+npm install
+npx expo install --fix
+npm run ios
+```
+
+For a physical iPhone or iPad, use the Local Flight server's LAN address in the app settings, for example `http://192.168.1.42:8000`. Do not use `localhost` on the phone, because that points at the phone itself.
 
 ---
 

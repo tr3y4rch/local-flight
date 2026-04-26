@@ -5,6 +5,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.2.2b1] - 2026-04-26
+
+### Added
+- **React Native mobile companion Phase 1** - new `mobile/` Expo app scaffold for iOS-first testing on iPhone/iPad
+- **Mockup-inspired mobile shell** - native header, pseudo dynamic island/status bar, airport badge, live pill, METAR strip, tab bar, FIDS direction toggle, pinned flight card, compact FIDS rows, admin cards, settings, and bottom nav
+- **Mobile API client** - reads `/api/health`, `/api/config`, `/api/admin/system`, `/api/admin/budget`, `/api/fids`, and `/api/metar`; listens for `/ws` `snapshot_updated` events
+- **On-device server setting** - stores the Local Flight LAN server URL with Expo SecureStore
+
+### Changed
+- Version bumped to `0.2.2b1` for the Python app, runtime fallbacks, PyInstaller fallback, docs, and release guidance
+- Mobile package metadata uses npm-safe prerelease form `0.2.2-b1`; Expo display metadata stays at `0.2.2` with `extra.localFlightVersion` set to `0.2.2b1`
+- Mobile dependency pins were checked against the npm registry; `expo-secure-store` now matches Expo SDK 55 with `~55.0.13`
+
+### Notes
+- Node/npm are not installed on the current Windows workspace, so mobile install/build verification should be run on the Mac/Xcode machine.
+
+---
+
 ## [0.2.1b2] - 2026-04-26
 
 ### Added

@@ -4,7 +4,7 @@
 
 A local-first, self-hosted **Flight Information Display System (FIDS)** that runs on Windows, macOS, and Raspberry Pi. Fetches real and simulated flight data, displays it as a proper airport-style departure/arrival board — in a browser kiosk window, on an LED matrix panel, or on a dedicated HDMI screen.
 
-Built with: Python 3.11+, FastAPI, uvicorn, SQLite, WebSocket, Jinja2, PIL. pystray on macOS only (Windows uses a ctypes taskbar window).
+Built with: Python 3.11+, FastAPI, uvicorn, SQLite, WebSocket, Jinja2, PIL. Mobile companion uses React Native / Expo. pystray on macOS only (Windows uses a ctypes taskbar window).
 
 **Repo:** https://github.com/tr3y4rch/local-flight  
 **Issues:** https://github.com/tr3y4rch/local-flight/issues
@@ -157,9 +157,9 @@ Two separate integrations — do not confuse them:
 
 ### Version
 - Single source of truth: `version` field in `pyproject.toml`
-- Read at runtime via `importlib.metadata.version("localflight")` with `"0.2.1b2"` fallback
+- Read at runtime via `importlib.metadata.version("localflight")` with `"0.2.2b1"` fallback
 - Injected as `app_version` Jinja2 global in `server.py` → available in all templates
-- Shown in nav bar (`v0.2.1b2`) and Admin → System card
+- Shown in nav bar (`v0.2.2b1`) and Admin → System card
 - `LocalFlight.spec` reads it from `pyproject.toml` at build time for macOS `CFBundleShortVersionString`
 
 ### Auto-update check
@@ -168,6 +168,16 @@ Two separate integrations — do not confuse them:
 - Admin → System card shows "Up to date" (green) or "vX.Y.Z available ↗" (amber link)
 
 ---
+
+### Mobile companion
+- Phase 1 mobile lives in `mobile/` as an iOS-first React Native / Expo app.
+- The Python/FastAPI desktop/Pi app remains the server of record; mobile is a LAN client.
+- Mobile stores the Local Flight server URL with Expo SecureStore and expects a reachable LAN URL, not phone-local `localhost`.
+- Mobile reads `/api/health`, `/api/config`, `/api/admin/system`, `/api/admin/budget`, `/api/fids`, and `/api/metar`.
+- Mobile listens to `/ws` for `snapshot_updated` and refreshes FIDS/admin data.
+- Current shell intentionally follows the iOS airport-board mockup: status bar/dynamic island, airport badge, live pill, METAR strip, FIDS tabs, pinned flight, compact rows, and bottom nav.
+- Keep admin mutating controls out of mobile until QR pairing and per-device tokens exist.
+- Current Windows workspace has no Node/npm; run `npm install`, `npx expo install --fix`, and iOS device checks on the Mac/Xcode machine.
 
 ## Environment variables (.env)
 
@@ -306,11 +316,15 @@ python -m localflight
 - ✅ Runtime snapshots — moved canonical JSON storage to `~/.localflight/storage/data/<IATA>/snapshots`; legacy source-tree snapshots remain readable
 - ✅ Scheduler/runtime — pruning now runs inside snapshot jobs; failed cycles preserve the previous `last_success_utc`
 - ✅ Installer/docs sweep — Windows/macOS/Pi source installers clarified; Pi helper path fixed; `.env.example` no longer includes operator Linear vars
-- ✅ Release prep — version bumped to `0.2.1b2`; `psutil`/`packaging` required; Windows build writes a SHA256 checksum
+- ✅ Desktop beta release prep — `psutil`/`packaging` required; Windows build writes a SHA256 checksum
+
+- ✅ Mobile Phase 1 — created `mobile/` React Native / Expo scaffold with SecureStore settings, API client, WebSocket listener, responsive layout helpers, and iOS-first shell
+- ✅ Mobile visual pass — base app now follows the supplied airport-board mockup with status bar/dynamic island, airport/METAR header, FIDS tabs, pinned flight card, compact rows, admin/settings screens, and bottom nav
+- ✅ Version bump — project is now `0.2.2b1`; mobile npm metadata uses `0.2.2-b1`; Expo metadata carries `extra.localFlightVersion = "0.2.2b1"`
 
 ## Pending / next up
 
-- [ ] Create GitHub release v0.2.1b2 — attach `dist/LocalFlight-windows.zip` and `.sha256`, mark as pre-release
+- [ ] Create GitHub release v0.2.2b1 — attach `dist/LocalFlight-windows.zip` and `.sha256`, mark as pre-release
 - [ ] Add screenshot to README (FIDS board)
 - [ ] Notification system (Pushover/Telegram) — ~50 lines, hooks into scheduler after `_broadcast_update()`
 - [ ] Pi hardware arrives — test systemd services + kiosk

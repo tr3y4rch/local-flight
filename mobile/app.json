@@ -1,0 +1,29 @@
+{
+  "expo": {
+    "name": "Local Flight Companion",
+    "slug": "localflight-companion",
+    "version": "0.2.2",
+    "scheme": "localflight",
+    "orientation": "default",
+    "userInterfaceStyle": "dark",
+    "platforms": ["ios", "android"],
+    "ios": {
+      "bundleIdentifier": "com.localflight.companion",
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSLocalNetworkUsageDescription": "Local Flight Companion connects to your Local Flight server on your local network.",
+        "NSBonjourServices": ["_http._tcp"],
+        "NSAppTransportSecurity": {
+          "NSAllowsArbitraryLoads": true
+        }
+      }
+    },
+    "android": {
+      "package": "com.localflight.companion"
+    },
+    "extra": {
+      "localFlightServerHint": "http://192.168.1.10:8000",
+      "localFlightVersion": "0.2.2b1"
+    }
+  }
+}

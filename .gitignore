@@ -44,6 +44,16 @@ Thumbs.db
 build/
 dist/
 
+# Mobile / React Native
+mobile/node_modules/
+mobile/.expo/
+mobile/.expo-shared/
+mobile/ios/
+mobile/android/
+mobile/npm-debug.log*
+mobile/yarn-debug.log*
+mobile/yarn-error.log*
+
 # ── Optional: private dev stuff ────────────────────────
 dev/private/
 assets/*.ico
