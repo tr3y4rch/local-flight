@@ -46,7 +46,10 @@ dist/
 
 # ── Optional: private dev stuff ────────────────────────
 dev/private/
-assets/
+assets/*.ico
+assets/*.icns
+assets/*.png
+assets/*.iconset
 linear_dedup.json
 
 # Claude Code local settings

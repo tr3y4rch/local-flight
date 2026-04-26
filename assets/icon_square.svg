@@ -1,0 +1,45 @@
+<svg width="100%" viewBox="0 0 690 690" role="img" xmlns="http://www.w3.org/2000/svg">
+  <title>Local Flight GitHub icon</title>
+  <desc>Square dark airport icon with aircraft silhouette and FIDS rows</desc>
+
+  <rect x="0" y="0" width="680" height="680" rx="80" fill="#0d1520"/>
+
+  <rect x="60" y="290" width="560" height="1" fill="#1e3a5f"/>
+  <rect x="60" y="340" width="560" height="1" fill="#1e3a5f"/>
+  <rect x="60" y="390" width="560" height="1" fill="#1e3a5f"/>
+
+  <rect x="60" y="280" width="560" height="50" rx="6" fill="#111e2e"/>
+  <rect x="60" y="340" width="560" height="50" rx="6" fill="#0f1a28"/>
+  <rect x="60" y="400" width="560" height="50" rx="6" fill="#111e2e"/>
+
+  <circle cx="100" cy="305" r="6" fill="#4a9eda"/>
+  <rect x="120" y="299" width="80" height="7" rx="3" fill="#1e3a5f"/>
+  <rect x="220" y="299" width="120" height="7" rx="3" fill="#1e3a5f"/>
+  <rect x="460" y="299" width="60" height="7" rx="3" fill="#1e3a5f"/>
+  <rect x="120" y="311" width="55" height="5" rx="2" fill="#162840"/>
+  <rect x="220" y="311" width="80" height="5" rx="2" fill="#162840"/>
+
+  <circle cx="100" cy="365" r="6" fill="#00c040"/>
+  <rect x="120" y="359" width="80" height="7" rx="3" fill="#1e3a5f"/>
+  <rect x="220" y="359" width="120" height="7" rx="3" fill="#1e3a5f"/>
+  <rect x="460" y="359" width="60" height="7" rx="3" fill="#1e3a5f"/>
+  <rect x="120" y="371" width="55" height="5" rx="2" fill="#162840"/>
+  <rect x="220" y="371" width="80" height="5" rx="2" fill="#162840"/>
+
+  <circle cx="100" cy="425" r="6" fill="#f0b429"/>
+  <rect x="120" y="419" width="80" height="7" rx="3" fill="#1e3a5f"/>
+  <rect x="220" y="419" width="120" height="7" rx="3" fill="#1e3a5f"/>
+  <rect x="460" y="419" width="60" height="7" rx="3" fill="#1e3a5f"/>
+  <rect x="120" y="431" width="55" height="5" rx="2" fill="#162840"/>
+  <rect x="220" y="431" width="80" height="5" rx="2" fill="#162840"/>
+
+  <g transform="translate(340,185) rotate(-8)">
+    <path d="M-8 28 Q-2 0 0 -95 Q2 0 8 28 Q2 25 0 25 Q-2 25 -8 28Z" fill="#e8f0fe"/>
+    <path d="M-55 6 Q-25 0 0 2 Q25 0 55 6 Q25 14 0 13 Q-25 14 -55 6Z" fill="#c8d8f0"/>
+    <path d="M-26 22 Q-12 17 0 18 Q12 17 26 22 Q12 26 0 26 Q-12 26 -26 22Z" fill="#b0c8e8"/>
+  </g>
+
+  <rect x="60" y="240" width="560" height="1" fill="#1e3a5f" opacity="0.4"/>
+
+  <text x="340" y="590" text-anchor="middle" fill="#2a5a8a" font-family="ui-monospace, monospace" font-size="28" letter-spacing="8" font-weight="500">LOCAL FLIGHT</text>
+</svg>

@@ -23,26 +23,44 @@ ASSETS = ROOT / "assets"
 
 # ── Icon generation ────────────────────────────────────────────────────────────
 
+def _make_placeholder() -> "Image.Image":
+    from PIL import Image, ImageDraw
+    size = 512
+    img  = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    d    = ImageDraw.Draw(img)
+    d.ellipse([4, 4, size - 4, size - 4], fill="#1D9E75")
+    cx, cy = size // 2, size // 2
+    d.polygon([(cx, cy-160),(cx+36,cy+20),(cx,cy-20),(cx-36,cy+20)], fill="white")
+    d.polygon([(cx-140,cy+40),(cx+140,cy+40),(cx,cy-20)], fill="white")
+    d.polygon([(cx-56,cy+100),(cx+56,cy+100),(cx,cy+20)], fill="white")
+    return img
+
+
 def make_icons() -> None:
-    from PIL import Image, ImageDraw  # pillow is a runtime dep, always available
+    import io
+    from PIL import Image
 
     ASSETS.mkdir(exist_ok=True)
 
-    size = 256
-    img  = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    d    = ImageDraw.Draw(img)
+    is_win   = sys.platform == "win32"
+    svg_file = ASSETS / ("icon_square.svg" if is_win else "icon_circle.svg")
+    png_file = ASSETS / ("icon_square.png" if is_win else "icon_circle.png")
 
-    # Filled circle background
-    d.ellipse([4, 4, size - 4, size - 4], fill="#1D9E75")
-
-    # Simple airplane silhouette (white)
-    cx, cy = size // 2, size // 2
-    d.polygon([                                       # fuselage
-        (cx, cy - 80), (cx + 18, cy + 10),
-        (cx, cy - 10), (cx - 18, cy + 10),
-    ], fill="white")
-    d.polygon([(cx - 70, cy + 20), (cx + 70, cy + 20), (cx, cy - 10)], fill="white")  # wings
-    d.polygon([(cx - 28, cy + 50), (cx + 28, cy + 50), (cx, cy + 10)], fill="white")  # tail
+    img = None
+    if svg_file.exists():
+        try:
+            import cairosvg
+            data = cairosvg.svg2png(url=str(svg_file), output_width=512, output_height=512)
+            img  = Image.open(io.BytesIO(data)).convert("RGBA")
+            print(f"Rendered icon from {svg_file.name}")
+        except ImportError:
+            print("cairosvg not installed — checking for pre-rendered PNG")
+    if img is None and png_file.exists():
+        img = Image.open(png_file).convert("RGBA")
+        print(f"Loaded icon from {png_file.name}")
+    if img is None:
+        img = _make_placeholder()
+        print("Using placeholder icon (install cairosvg or pre-render SVG to PNG)")
 
     img.save(ASSETS / "icon.png")
 

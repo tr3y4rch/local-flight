@@ -258,11 +258,6 @@ def _run_desktop() -> None:
             except Exception: pass
         os._exit(0)
 
-    def on_restart():
-        _load_dotenv()
-        scheduler_ref[0] = _start_scheduler()
-        print("Scheduler restarted")
-
     def on_open_display():
         proc = launch_app_window(f"{BASE_URL}/display")
         if proc:
@@ -270,12 +265,8 @@ def _run_desktop() -> None:
             global _browser_proc
             _browser_proc = proc
 
-    icon = build_tray(
-        on_quit=on_quit,
-        on_restart_scheduler=on_restart,
-        on_open_display=on_open_display,
-    )
-    print("Tray icon active — right-click for menu")
+    icon = build_tray(on_quit=on_quit, on_open_display=on_open_display)
+    print("Local Flight running — right-click taskbar icon for menu")
     icon.run()
 
 
