@@ -35,6 +35,7 @@ import webbrowser
 from contextlib import closing
 from pathlib import Path
 from typing import Optional
+from urllib.parse import quote
 
 from localflight.platform.detect import Platform, detect, is_desktop, is_headless
 from localflight.platform.browser import launch_app_window
@@ -46,6 +47,13 @@ BASE_URL = f"http://localhost:{PORT}"
 # ── Module-level browser process reference ─────────────────────────────────────
 # Exposed so server.py /api/quit can terminate the kiosk window.
 _browser_proc: Optional[subprocess.Popen] = None
+
+
+def _splash_url(next_path: str = "/display") -> str:
+    """Build the short launch splash URL for a local app path."""
+    if not next_path.startswith("/") or next_path.startswith("//"):
+        next_path = "/display"
+    return f"{BASE_URL}/splash?next={quote(next_path, safe='')}"
 
 
 # ── .env loader ────────────────────────────────────────────────────────────────
@@ -152,13 +160,13 @@ def _start_setup_watcher(
         print("Setup watcher: setup complete — starting scheduler")
         scheduler_ref[0] = _start_scheduler()
         time.sleep(1.0)
-        proc = launch_app_window(f"{BASE_URL}/display")
+        proc = launch_app_window(_splash_url("/display"))
         if proc:
             browser_proc_ref[0] = proc
             import localflight.__main__ as _self
             _self._browser_proc = proc
         else:
-            webbrowser.open(f"{BASE_URL}/display")
+            webbrowser.open(_splash_url("/display"))
         print("Setup watcher: done — display opened")
 
     t = threading.Thread(target=_watch, name="setup-watcher", daemon=True)
@@ -217,7 +225,7 @@ def _run_desktop() -> None:
     print("Local Flight starting...")
 
     first_launch = _is_first_launch()
-    launch_url   = f"{BASE_URL}/setup" if first_launch else f"{BASE_URL}/display"
+    launch_url   = _splash_url("/setup" if first_launch else "/display")
 
     if first_launch:
         print("First launch — setup wizard will open")
@@ -259,7 +267,7 @@ def _run_desktop() -> None:
         os._exit(0)
 
     def on_open_display():
-        proc = launch_app_window(f"{BASE_URL}/display")
+        proc = launch_app_window(_splash_url("/display"))
         if proc:
             browser_proc_ref[0] = proc
             global _browser_proc

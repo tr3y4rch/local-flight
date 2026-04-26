@@ -7,7 +7,7 @@ from typing import Any, Callable, List, Optional
 
 from localflight.storage.logging_setup import setup_logging
 from localflight.storage.config import AppConfig, load_config
-from localflight.storage.state import AppState, save_state
+from localflight.storage.state import AppState, load_state, save_state
 
 FetchFn   = Callable[[AppConfig], Any]
 ProcessFn = Callable[[Any, AppConfig], Any]
@@ -49,6 +49,7 @@ def run_loop(
 
         attempt_ts = _utc_now()
         t0         = time.time()
+        previous_state = load_state()
 
         try:
             data = fetch(cfg)
@@ -79,7 +80,7 @@ def run_loop(
             save_state(AppState(
                 ok=False,
                 last_attempt_utc=attempt_ts,
-                last_success_utc=None,
+                last_success_utc=previous_state.last_success_utc,
                 last_error=error_msg,
                 source_name=source_name,
                 last_latency_ms=latency_ms,

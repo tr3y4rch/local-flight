@@ -1,89 +1,85 @@
 #!/usr/bin/env bash
-# ═══════════════════════════════════════════════════════════════════════════════
-# Local Flight — macOS Installer
+# Local Flight - macOS source installer
 #
-# Run from the project root:
-#   chmod +x installers/macos/install.sh
-#   ./installers/macos/install.sh
-# ═══════════════════════════════════════════════════════════════════════════════
+# Use this when running Local Flight from a source checkout:
+#   bash installers/macos/install.sh
+#
+# Release builds may also provide LocalFlight.app. If you have the app bundle,
+# use that instead of this source installer.
 
-set -e
+set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 VENV="$ROOT/.venv"
 
 echo ""
 echo " =========================================="
-echo "   LOCAL FLIGHT — macOS Installer"
+echo "   LOCAL FLIGHT - macOS source install"
 echo " =========================================="
 echo ""
+echo " Project root: $ROOT"
+echo ""
 
-# ── Check Python ───────────────────────────────────────────────────────────────
-if ! command -v python3 &>/dev/null; then
+if ! command -v python3 >/dev/null 2>&1; then
     echo " ERROR: Python 3 not found."
     echo " Install via Homebrew:  brew install python"
     echo " Or download from:      https://www.python.org/downloads/"
     exit 1
 fi
 
-PYVER=$(python3 --version 2>&1)
+PYTHON_BIN="$(command -v python3)"
+PYVER="$("$PYTHON_BIN" --version 2>&1)"
 echo " Python found: $PYVER"
 
-# Check version >= 3.11
-PYMINOR=$(python3 -c "import sys; print(sys.version_info.minor)")
-PYMAJOR=$(python3 -c "import sys; print(sys.version_info.major)")
-if [ "$PYMAJOR" -lt 3 ] || { [ "$PYMAJOR" -eq 3 ] && [ "$PYMINOR" -lt 11 ]; }; then
-    echo " ERROR: Python 3.11+ required (found $PYVER)"
+if ! "$PYTHON_BIN" - <<'PY'
+import sys
+raise SystemExit(0 if sys.version_info >= (3, 11) else 1)
+PY
+then
+    echo " ERROR: Python 3.11+ is required (found $PYVER)."
     exit 1
 fi
 
-# ── Create virtual environment ─────────────────────────────────────────────────
-if [ ! -f "$VENV/bin/activate" ]; then
+if [ ! -x "$VENV/bin/python" ]; then
     echo " Creating virtual environment..."
-    python3 -m venv "$VENV"
+    "$PYTHON_BIN" -m venv "$VENV"
     echo " Done"
 else
-    echo " Virtual environment exists — skipping"
+    echo " Virtual environment exists - skipping"
 fi
 
-# ── Activate + install ─────────────────────────────────────────────────────────
-source "$VENV/bin/activate"
-
-echo " Installing dependencies..."
-cd "$ROOT"
-pip install -e . -q
+echo " Installing Local Flight dependencies..."
+"$VENV/bin/python" -m pip install --upgrade pip -q
+"$VENV/bin/python" -m pip install -e "$ROOT" -q
 echo " Done"
 
-# ── Create .env if missing ─────────────────────────────────────────────────────
 if [ ! -f "$ROOT/.env" ]; then
     echo " Creating .env..."
     if [ -f "$ROOT/.env.example" ]; then
         cp "$ROOT/.env.example" "$ROOT/.env"
     else
-        cat > "$ROOT/.env" << 'EOF'
-# Local Flight — environment variables
+        cat > "$ROOT/.env" <<'EOF'
+# Local Flight environment variables.
 # Fill these in via the setup wizard on first launch.
 
 AVIATIONSTACK_API_KEY=
 LOCALFLIGHT_AVIATIONSTACK_ENABLED=1
 LOCALFLIGHT_AVIATIONSTACK_MONTHLY_LIMIT=90
 
+RAPIDAPI_KEY=
+
 OPENSKY_CLIENT_ID=
 OPENSKY_CLIENT_SECRET=
-
-RAPIDAPI_KEY=
 EOF
     fi
     echo " Done"
 else
-    echo " .env already exists — skipping"
+    echo " .env already exists - skipping"
 fi
 
-# ── Make launcher executable ───────────────────────────────────────────────────
-chmod +x "$ROOT/installers/macos/LocalFlight.command"
-echo " Launcher ready"
+chmod +x "$ROOT/installers/macos/LocalFlight.command" "$ROOT/installers/macos/start.sh"
+echo " Launchers ready"
 
-# ── Create Applications symlink (optional) ────────────────────────────────────
 SYMLINK="$HOME/Applications/LocalFlight.command"
 if [ ! -e "$SYMLINK" ]; then
     mkdir -p "$HOME/Applications"
@@ -93,9 +89,10 @@ fi
 
 echo ""
 echo " =========================================="
-echo "   Installation complete!"
+echo "   Installation complete"
 echo " =========================================="
 echo ""
-echo " Double-click LocalFlight.command in ~/Applications to start."
-echo " The setup wizard will guide you through the first launch."
+echo " Start from Finder:  ~/Applications/LocalFlight.command"
+echo " Start from shell:   bash installers/macos/start.sh"
+echo " The setup wizard will guide you through first launch."
 echo ""

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "localflight"
-version = "0.2.1b1"
+version = "0.2.1b2"
 description = "Local-first Flight Information Display System (FIDS) with web UI and LED matrix support"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -21,6 +21,8 @@ dependencies = [
   "requests",
   "tzdata",
   "pydantic>=2.0",
+  "packaging",
+  "psutil",
   "pystray",
   "pillow",
   "python-multipart",

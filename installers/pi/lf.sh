@@ -1,15 +1,18 @@
 #!/usr/bin/env bash
-# Local Flight — Pi management helper
+# Local Flight - Pi management helper.
 #
 # Usage:
-#   ./installers/pi/lf.sh start
-#   ./installers/pi/lf.sh stop
-#   ./installers/pi/lf.sh restart
-#   ./installers/pi/lf.sh status
-#   ./installers/pi/lf.sh logs
-#   ./installers/pi/lf.sh update
+#   bash installers/pi/lf.sh start
+#   bash installers/pi/lf.sh stop
+#   bash installers/pi/lf.sh restart
+#   bash installers/pi/lf.sh status
+#   bash installers/pi/lf.sh logs
+#   bash installers/pi/lf.sh update
+
+set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+VENV="$ROOT/.venv"
 CMD="${1:-status}"
 
 case "$CMD" in
@@ -28,26 +31,32 @@ case "$CMD" in
         echo "Restarted."
         ;;
     status)
-        echo "── localflight ──────────────────────────────"
+        echo "== localflight =="
         sudo systemctl status localflight --no-pager -l
         echo ""
-        echo "── localflight-kiosk ────────────────────────"
+        echo "== localflight-kiosk =="
         sudo systemctl status localflight-kiosk --no-pager -l
         ;;
     logs)
         sudo journalctl -u localflight -f --no-pager
         ;;
     update)
+        if [ ! -x "$VENV/bin/python" ]; then
+            echo "ERROR: No virtual environment found at $VENV."
+            echo "Run bash installers/pi/install.sh first."
+            exit 1
+        fi
         echo "Pulling latest code..."
-        cd "$ROOT"
-        git pull
-        source "$ROOT/.venv/bin/activate"
-        pip install -e . -q
+        git -C "$ROOT" pull --ff-only
+        echo "Installing updated package..."
+        "$VENV/bin/python" -m pip install -e "$ROOT" -q
         sudo systemctl restart localflight
+        sleep 2
+        sudo systemctl restart localflight-kiosk
         echo "Updated and restarted."
         ;;
     *)
-        echo "Usage: lf.sh [start|stop|restart|status|logs|update]"
+        echo "Usage: bash installers/pi/lf.sh [start|stop|restart|status|logs|update]"
         exit 1
         ;;
 esac

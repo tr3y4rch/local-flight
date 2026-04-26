@@ -5,6 +5,8 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
+from localflight.storage.flights_store import snapshot_store_root
+
 
 class PayloadKind(str, Enum):
     RAW = "raw"          # aviationstack shape: {"data": [...]}
@@ -44,15 +46,19 @@ def _cache_file() -> Path:
     return _repo_root() / "data" / "cache" / "aviationstack_last.json"
 
 
-def _snapshots_dir(airport_iata: str) -> Path:
-    # src/localflight/storage/data/<IATA>/snapshots
-    return (
-        _localflight_root()
-        / "storage"
-        / "data"
-        / airport_iata.upper().strip()
-        / "snapshots"
-    )
+def _legacy_snapshot_store_root() -> Path:
+    return _localflight_root() / "storage" / "data"
+
+
+def _snapshot_dirs(airport_iata: str) -> list[Path]:
+    airport = airport_iata.upper().strip()
+    roots = [snapshot_store_root(), _legacy_snapshot_store_root()]
+    dirs: list[Path] = []
+    for root in roots:
+        snap_dir = root / airport / "snapshots"
+        if snap_dir not in dirs:
+            dirs.append(snap_dir)
+    return dirs
 
 
 def _read_json(p: Path) -> Dict[str, Any]:
@@ -78,7 +84,8 @@ def find_latest_local_payload_path(
 
     Candidates:
       - repo-root/data/cache/aviationstack_last.json  (raw aviationstack typically)
-      - newest JSON under src/localflight/storage/data/<IATA>/snapshots/*.json (your snapshots)
+      - newest JSON under ~/.localflight/storage/data/<IATA>/snapshots/*.json
+      - legacy snapshots under src/localflight/storage/data/<IATA>/snapshots/*.json
 
     kind:
       - RAW: only accept {"data":[...]}
@@ -94,15 +101,15 @@ def find_latest_local_payload_path(
     if cache.exists():
         candidates.append(cache)
 
-    snap_dir = _snapshots_dir(airport_iata)
-    if snap_dir.exists():
-        candidates.extend(
-            sorted(
-                snap_dir.glob("*.json"),
-                key=lambda p: p.stat().st_mtime,
-                reverse=True,
+    for snap_dir in _snapshot_dirs(airport_iata):
+        if snap_dir.exists():
+            candidates.extend(
+                sorted(
+                    snap_dir.glob("*.json"),
+                    key=lambda p: p.stat().st_mtime,
+                    reverse=True,
+                )
             )
-        )
 
     checked: list[Tuple[float, Path]] = []
 

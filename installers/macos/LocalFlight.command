@@ -1,23 +1,21 @@
 #!/usr/bin/env bash
-# Local Flight — macOS launcher
-# Double-click this file in Finder to start Local Flight.
+# Local Flight - macOS source launcher.
+# Double-click this file in Finder after running installers/macos/install.sh.
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 VENV="$ROOT/.venv"
 
-if [ ! -f "$VENV/bin/activate" ]; then
+if [ ! -x "$VENV/bin/python" ]; then
     osascript -e 'display alert "Local Flight" message "Not installed. Run installers/macos/install.sh first." as critical'
     exit 1
 fi
 
-source "$VENV/bin/activate"
-
-# Load .env
 if [ -f "$ROOT/.env" ]; then
     set -a
+    # shellcheck disable=SC1091
     source "$ROOT/.env"
     set +a
 fi
 
 cd "$ROOT/src"
-python -m localflight
+exec "$VENV/bin/python" -m localflight

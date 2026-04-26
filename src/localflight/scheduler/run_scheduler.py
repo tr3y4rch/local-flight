@@ -16,20 +16,6 @@ from __future__ import annotations
 from localflight.scheduler.jobs import run_snapshot_job
 from localflight.scheduler.runtime import run_loop
 from localflight.storage.config import load_config
-from localflight.storage.flights_store import prune_snapshots
-
-
-def _make_process(keep_hours: int = 24):
-    """
-    Returns a process function that prunes old snapshots after each run.
-    Plugs into runtime.run_loop() as the optional process step.
-    """
-    def process(flights, cfg):
-        deleted = prune_snapshots(cfg.airport_iata, keep_hours=keep_hours)
-        if deleted:
-            pass  # runtime logger handles the cycle; keep this quiet
-        return flights
-    return process
 
 
 def main() -> None:
@@ -47,7 +33,6 @@ def main() -> None:
 
     run_loop(
         fetch=run_snapshot_job,
-        process=_make_process(keep_hours=24),
         render=None,
         once=False,
         source_name=cfg.source,

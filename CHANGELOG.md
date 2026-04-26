@@ -5,9 +5,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [0.2.1b1] — 2026-04-26
+## [0.2.1b2] - 2026-04-26
 
 ### Added
+- **Versioned launch splash** - `/splash` shows a short animated Local Flight boot screen with the current app version before setup/display
+- **Regression coverage** - important scheduler, storage, route, and runtime state behaviours now have tests
+- **Windows checksum artifact** - `build.py` writes `dist/LocalFlight-windows.zip.sha256` next to the release zip
 - **Platform abstraction layer** (`platform/`) — unified Windows, macOS, Pi/Linux startup
 - **Cross-platform kiosk browser launcher** — Edge/Chrome app window on desktop, Chromium kiosk service on Pi
 - **Cross-platform system tray** — pystray on Windows/macOS, no-op stub on Pi/Linux
@@ -32,13 +35,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Auto-update check** — Admin hub shows a notice when a newer GitHub release is available
 
 ### Changed
+- Desktop launchers and Pi kiosk service now open `/splash?next=/display` so release builds show the same startup flourish across targets
+- Version bumped to `0.2.1b2` across package metadata, runtime fallbacks, PyInstaller, docs, and release guidance
+- `psutil` and `packaging` are now required runtime dependencies so Admin system info and version comparison work in installed builds
+- Runtime JSON snapshots now live under `~/.localflight/storage/data/<IATA>/snapshots`; legacy source-tree snapshots are still read as a fallback
+- macOS and Raspberry Pi installers are documented as source-checkout installers, matching the Windows source installer vs self-contained release zip split
 - README rewritten from end-user perspective — install-first flow, removed dev-cycle language
 - Installer structure reorganised into `installers/windows|macos|pi/`
+- Windows source installer clarified as source-only; GitHub release zip remains unzip-and-run with bundled dependencies
 - `__main__.py` split into `_run_desktop()` / `_run_headless()` paths
 - Terminal closes automatically on quit (no `pause` in launcher scripts)
 - Quit endpoint uses `os._exit(0)` after terminating the browser process
 
 ### Fixed
+- Scheduler snapshot pruning now runs inside both real and mock snapshot jobs instead of relying on a separate process wrapper
+- Failed scheduler cycles preserve the previous `last_success_utc` instead of clearing a known-good success timestamp
+- Duplicate `/api/config` registration was removed and setup/admin route fallbacks now use the current version
+- Local AviationStack file loading now checks canonical and legacy snapshot locations consistently
+- `.env.example` no longer exposes operator Linear variables intended only for private scheduler auto-filing
+- Windows source installer now detects Python robustly, supports `-NoShortcut`, `-SkipDependencyInstall`, `-Launch`, and `-NoPause`, and writes a safer source launcher
 - `start.bat` — UTF-8 box-drawing chars in `::` comments caused cmd.exe byte-eating bug on `chcp 65001`; replaced with ASCII dashes
 - Setup wizard — RapidAPI signup URL corrected (`adsbexchange` → `adsbx` provider slug); OpenSky registration URL updated from stale Joomla path to `/login?view=registration`
 - Tray icon quit — `sys.exit(0)` inside pystray callback raised `SystemExit` and logged a spurious crash; changed to `os._exit(0)`

@@ -3,8 +3,8 @@
 Build Local Flight for the current platform.
 
 Produces:
-  Windows  → dist/LocalFlight/  +  dist/LocalFlight-windows.zip
-  macOS    → dist/LocalFlight.app
+  Windows  -> dist/LocalFlight/ + dist/LocalFlight-windows.zip + .sha256
+  macOS    -> dist/LocalFlight.app
 
 Usage:
     python build.py           # build
@@ -15,6 +15,7 @@ from __future__ import annotations
 import subprocess
 import sys
 import shutil
+import hashlib
 from pathlib import Path
 
 ROOT   = Path(__file__).parent
@@ -171,6 +172,13 @@ def _sign_macos(app: Path) -> None:
 
 # ── Main ───────────────────────────────────────────────────────────────────────
 
+def _write_sha256(path: Path) -> Path:
+    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    checksum_path = path.with_suffix(path.suffix + ".sha256")
+    checksum_path.write_text(f"{digest}  {path.name}\n", encoding="ascii")
+    return checksum_path
+
+
 def main() -> None:
     if "--clean" in sys.argv:
         for name in ("dist", "build"):
@@ -199,8 +207,10 @@ def main() -> None:
     if sys.platform == "win32":
         _sign_windows(dist / "LocalFlight" / "LocalFlight.exe")
         out = dist / "LocalFlight-windows"
-        shutil.make_archive(str(out), "zip", dist, "LocalFlight")
+        zip_path = Path(shutil.make_archive(str(out), "zip", dist, "LocalFlight"))
+        checksum_path = _write_sha256(zip_path)
         print(f"\nDone: dist/LocalFlight-windows.zip")
+        print(f"Checksum: {checksum_path.relative_to(ROOT)}")
         print("Distribute: unzip, then double-click LocalFlight.exe")
     elif sys.platform == "darwin":
         _sign_macos(dist / "LocalFlight.app")

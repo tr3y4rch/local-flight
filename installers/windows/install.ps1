@@ -1,78 +1,181 @@
-# ═══════════════════════════════════════════════════════════════════════════════
-# Local Flight — Windows Installer
+# Local Flight - Windows source installer
 #
-# Run from the project root:
-#   Right-click install.ps1 → Run with PowerShell
-#   or: powershell -ExecutionPolicy Bypass -File installers\windows\install.ps1
-# ═══════════════════════════════════════════════════════════════════════════════
+# This script is for running Local Flight from a source checkout.
+# End users who download LocalFlight-windows.zip do not need this script:
+# unzip the release and double-click LocalFlight.exe.
+#
+# Usage:
+#   powershell -ExecutionPolicy Bypass -File installers\windows\install.ps1
+#   powershell -ExecutionPolicy Bypass -File installers\windows\install.ps1 -Launch
+#   powershell -ExecutionPolicy Bypass -File installers\windows\install.ps1 -NoShortcut
+#   powershell -ExecutionPolicy Bypass -File installers\windows\install.ps1 -SkipDependencyInstall
+#   powershell -ExecutionPolicy Bypass -File installers\windows\install.ps1 -NoPause
+
+[CmdletBinding()]
+param(
+    [switch]$NoShortcut,
+    [switch]$SkipDependencyInstall,
+    [switch]$Launch,
+    [switch]$NoPause
+)
+
+Set-StrictMode -Version Latest
+$ErrorActionPreference = "Stop"
 
 $SCRIPT_DIR = Split-Path -Parent $MyInvocation.MyCommand.Definition
 $ROOT = (Resolve-Path (Join-Path $SCRIPT_DIR "..\..")).Path
 
-Write-Host ""
-Write-Host " ==========================================" -ForegroundColor Cyan
-Write-Host "   LOCAL FLIGHT - Windows Installer" -ForegroundColor Cyan
-Write-Host " ==========================================" -ForegroundColor Cyan
-Write-Host ""
-
-# ── Find Python (prefer stable 3.13/3.12/3.11 over pre-release 3.14) ──────────
-Write-Host " Checking Python..." -NoNewline
-$pyExe = $null
-$pyArgs = @()
-foreach ($ver in @("3.13", "3.12", "3.11")) {
-    $pyver = & py "-$ver" --version 2>&1
-    if ($LASTEXITCODE -eq 0) { $pyExe = "py"; $pyArgs = @("-$ver"); break }
+function Write-Section($Message) {
+    Write-Host ""
+    Write-Host " ==========================================" -ForegroundColor Cyan
+    Write-Host "   $Message" -ForegroundColor Cyan
+    Write-Host " ==========================================" -ForegroundColor Cyan
+    Write-Host ""
 }
-if (-not $pyExe) {
-    $pyver = & python --version 2>&1
-    if ($LASTEXITCODE -eq 0 -and "$pyver" -match "Python 3") {
-        $pyExe = "python"
+
+function Stop-Installer($ExitCode) {
+    if (-not $NoPause) {
+        Read-Host " Press Enter to exit"
+    }
+    exit $ExitCode
+}
+
+function Test-PythonCandidate {
+    param(
+        [string]$Exe,
+        [string[]]$Args = @()
+    )
+
+    $cmd = Get-Command $Exe -ErrorAction SilentlyContinue
+    if (-not $cmd) {
+        return $null
+    }
+
+    try {
+        $versionText = & $Exe @Args --version 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            return $null
+        }
+        if ("$versionText" -notmatch "Python\s+(\d+)\.(\d+)") {
+            return $null
+        }
+        $major = [int]$Matches[1]
+        $minor = [int]$Matches[2]
+        if ($major -lt 3 -or ($major -eq 3 -and $minor -lt 11)) {
+            return $null
+        }
+        return [pscustomobject]@{
+            Exe = $Exe
+            Args = $Args
+            Version = "$versionText"
+        }
+    } catch {
+        return $null
     }
 }
-if (-not $pyExe) {
+
+function Find-Python {
+    foreach ($candidate in @(
+        @{ Exe = "py"; Args = @("-3.13") },
+        @{ Exe = "py"; Args = @("-3.12") },
+        @{ Exe = "py"; Args = @("-3.11") },
+        @{ Exe = "py"; Args = @("-3") },
+        @{ Exe = "python"; Args = @() }
+    )) {
+        $found = Test-PythonCandidate -Exe $candidate.Exe -Args $candidate.Args
+        if ($found) {
+            return $found
+        }
+    }
+    return $null
+}
+
+function Write-Launcher {
+    param([string]$LauncherPath)
+
+    $launcher = @'
+@echo off
+setlocal
+
+set "ROOT=%~dp0..\.."
+set "PYTHON=%ROOT%\.venv\Scripts\pythonw.exe"
+if not exist "%PYTHON%" set "PYTHON=%ROOT%\.venv\Scripts\python.exe"
+
+if not exist "%PYTHON%" (
+    echo Local Flight source install is incomplete.
+    echo Run installers\windows\install.ps1 from the project root.
+    pause
+    exit /b 1
+)
+
+if not exist "%ROOT%\src\localflight\__main__.py" (
+    echo Local Flight source tree was not found.
+    echo Expected: %ROOT%\src\localflight\__main__.py
+    pause
+    exit /b 1
+)
+
+cd /d "%ROOT%\src"
+start "" "%PYTHON%" -m localflight
+exit /b 0
+'@
+
+    Set-Content -LiteralPath $LauncherPath -Value $launcher -Encoding ASCII
+}
+
+Write-Section "LOCAL FLIGHT - Source Installer"
+
+Write-Host " Source root: $ROOT" -ForegroundColor Gray
+Write-Host " Release zip: unzip LocalFlight-windows.zip and run LocalFlight.exe; no installer needed." -ForegroundColor Gray
+Write-Host ""
+
+Write-Host " Checking Python..." -NoNewline
+$python = Find-Python
+if (-not $python) {
     Write-Host " NOT FOUND" -ForegroundColor Red
     Write-Host ""
-    Write-Host " Python 3.11 or newer is required." -ForegroundColor Yellow
+    Write-Host " Python 3.11 or newer is required for source installs." -ForegroundColor Yellow
     Write-Host " Download from: https://www.python.org/downloads/" -ForegroundColor Yellow
-    Write-Host " Check 'Add Python to PATH' during installation." -ForegroundColor Yellow
+    Write-Host " Check 'Add python.exe to PATH' during installation." -ForegroundColor Yellow
     Write-Host ""
-    Read-Host " Press Enter to exit"
-    exit 1
+    Stop-Installer 1
 }
-Write-Host " $pyver" -ForegroundColor Green
+Write-Host " $($python.Version)" -ForegroundColor Green
 
-# ── Create virtual environment ─────────────────────────────────────────────────
 $venvPath = Join-Path $ROOT ".venv"
 $venvPython = Join-Path $venvPath "Scripts\python.exe"
-if (-not (Test-Path (Join-Path $venvPath "Scripts\activate.bat"))) {
+
+if (-not (Test-Path $venvPython)) {
     Write-Host " Creating virtual environment..." -NoNewline
-    & $pyExe @pyArgs -m venv $venvPath
+    & $python.Exe @($python.Args) -m venv $venvPath
     if ($LASTEXITCODE -ne 0) {
         Write-Host " FAILED" -ForegroundColor Red
-        Read-Host " Press Enter to exit"; exit 1
+        Stop-Installer 1
     }
     Write-Host " Done" -ForegroundColor Green
 } else {
     Write-Host " Virtual environment exists - skipping" -ForegroundColor Gray
 }
 
-# ── Install dependencies (use venv python directly, no activation needed) ──────
-Write-Host " Installing dependencies..." -NoNewline
-Set-Location $ROOT
-& $venvPython -m pip install -e . -q
-if ($LASTEXITCODE -ne 0) {
-    Write-Host " FAILED" -ForegroundColor Red
-    Read-Host " Press Enter to exit"; exit 1
+if (-not $SkipDependencyInstall) {
+    Write-Host " Installing Python dependencies..." -NoNewline
+    Set-Location $ROOT
+    & $venvPython -m pip install -e "$ROOT" -q
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host " FAILED" -ForegroundColor Red
+        Stop-Installer 1
+    }
+    Write-Host " Done" -ForegroundColor Green
+} else {
+    Write-Host " Dependency install skipped by -SkipDependencyInstall" -ForegroundColor Yellow
 }
-Write-Host " Done" -ForegroundColor Green
 
-# ── Create .env if missing ─────────────────────────────────────────────────────
 $envFile = Join-Path $ROOT ".env"
 if (-not (Test-Path $envFile)) {
     Write-Host " Creating .env..." -NoNewline
     $envExample = Join-Path $ROOT ".env.example"
     if (Test-Path $envExample) {
-        Copy-Item $envExample $envFile
+        Copy-Item -LiteralPath $envExample -Destination $envFile
     } else {
         @"
 # Local Flight - environment variables
@@ -86,48 +189,55 @@ OPENSKY_CLIENT_ID=
 OPENSKY_CLIENT_SECRET=
 
 RAPIDAPI_KEY=
-"@ | Set-Content $envFile -Encoding UTF8
+"@ | Set-Content -LiteralPath $envFile -Encoding UTF8
     }
     Write-Host " Done" -ForegroundColor Green
 } else {
     Write-Host " .env already exists - skipping" -ForegroundColor Gray
 }
 
-# ── Create LocalFlight.bat launcher ───────────────────────────────────────────
 $launcherPath = Join-Path $ROOT "installers\windows\LocalFlight.bat"
-Write-Host " Creating launcher..." -NoNewline
-@"
-@echo off
-powershell -ExecutionPolicy Bypass -WindowStyle Hidden -Command "& '%~dp0..\..\.venv\Scripts\Activate.ps1'; cd '%~dp0..\..\src'; python -m localflight"
-"@ | Set-Content $launcherPath -Encoding ASCII
+Write-Host " Writing source launcher..." -NoNewline
+Write-Launcher -LauncherPath $launcherPath
 Write-Host " Done" -ForegroundColor Green
 
-# ── Create desktop shortcut ────────────────────────────────────────────────────
-Write-Host " Creating desktop shortcut..." -NoNewline
-try {
-    $desktop  = [Environment]::GetFolderPath("Desktop")
-    $shortcut = Join-Path $desktop "Local Flight.lnk"
-    $shell    = New-Object -ComObject WScript.Shell
-    $lnk      = $shell.CreateShortcut($shortcut)
-    $lnk.TargetPath       = $launcherPath
-    $lnk.WorkingDirectory = $ROOT
-    $lnk.Description      = "Local Flight - Airport FIDS Display"
-    $lnk.WindowStyle      = 1
-    $pythonExe = Join-Path $venvPath "Scripts\python.exe"
-    if (Test-Path $pythonExe) { $lnk.IconLocation = "$pythonExe,0" }
-    $lnk.Save()
-    Write-Host " Done" -ForegroundColor Green
-} catch {
-    Write-Host " Skipped ($($_.Exception.Message))" -ForegroundColor Yellow
+if (-not $NoShortcut) {
+    Write-Host " Creating desktop shortcut..." -NoNewline
+    try {
+        $desktop = [Environment]::GetFolderPath("Desktop")
+        $shortcut = Join-Path $desktop "Local Flight.lnk"
+        $shell = New-Object -ComObject WScript.Shell
+        $lnk = $shell.CreateShortcut($shortcut)
+        $lnk.TargetPath = $launcherPath
+        $lnk.WorkingDirectory = $ROOT
+        $lnk.Description = "Local Flight - Airport FIDS Display"
+        $lnk.WindowStyle = 1
+
+        $iconPath = Join-Path $ROOT "assets\icon.ico"
+        if (Test-Path $iconPath) {
+            $lnk.IconLocation = $iconPath
+        } elseif (Test-Path $venvPython) {
+            $lnk.IconLocation = "$venvPython,0"
+        }
+
+        $lnk.Save()
+        Write-Host " Done" -ForegroundColor Green
+    } catch {
+        Write-Host " Skipped ($($_.Exception.Message))" -ForegroundColor Yellow
+    }
+} else {
+    Write-Host " Desktop shortcut skipped by -NoShortcut" -ForegroundColor Yellow
 }
 
-# ── Done ───────────────────────────────────────────────────────────────────────
+if ($Launch) {
+    Write-Host " Launching Local Flight..." -ForegroundColor Cyan
+    Start-Process -FilePath $launcherPath -WorkingDirectory $ROOT
+}
+
+Write-Section "Installation complete"
+Write-Host " Source launcher: $launcherPath" -ForegroundColor White
+Write-Host " Release users should run LocalFlight.exe from the downloaded zip." -ForegroundColor Gray
 Write-Host ""
-Write-Host " ==========================================" -ForegroundColor Cyan
-Write-Host "   Installation complete!" -ForegroundColor Green
-Write-Host " ==========================================" -ForegroundColor Cyan
-Write-Host ""
-Write-Host " Double-click 'Local Flight' on your desktop to start." -ForegroundColor White
-Write-Host " Or run start.bat for the dev launcher with console output." -ForegroundColor Gray
-Write-Host ""
-Read-Host " Press Enter to exit"
+if (-not $NoPause) {
+    Read-Host " Press Enter to exit"
+}

@@ -17,6 +17,7 @@ No cloud. No accounts. No dashboards that want your email.
 - Renders a full-featured **FIDS arrivals/departures board** with PAX-friendly flight numbers, coloured status badges, and live WebSocket updates
 - Shows a **live radar** with sweep animation and blip fading
 - Provides a **split-view display** (FIDS + Radar) with a draggable divider
+- Shows a short **versioned splash screen** on launch before opening setup or the display
 - Stores 90 days of flight history in a local **SQLite database** with a browsable history UI and aggregate stats
 - Supports **profiles** — save and switch airport configurations instantly
 - Displays **UTC and local time** simultaneously, timezone follows the configured airport
@@ -39,7 +40,13 @@ No cloud. No accounts. No dashboards that want your email.
 
 > Windows SmartScreen may warn "Unknown publisher" — click **More info → Run anyway**.
 
+The Windows release zip is self-contained. It bundles Python and the app dependencies, so `installers/windows/install.ps1` is only for running Local Flight from a source checkout.
+
+Release builds also produce `LocalFlight-windows.zip.sha256` so the downloaded zip can be verified before running.
+
 ### macOS
+
+The macOS script is for a source checkout. If a packaged `.app` is attached to a release, use that instead.
 
 ```bash
 # One-time setup
@@ -51,15 +58,17 @@ open installers/macos/LocalFlight.command
 
 ### Raspberry Pi
 
+Run these from a source checkout on the Pi. The installer creates the venv, `.env`, systemd app service, Chromium kiosk service, and mDNS hostname.
+
 ```bash
 # One-time setup
 bash installers/pi/install.sh
 
 # Management
-./lf.sh start   # start
-./lf.sh stop    # stop
-./lf.sh logs    # tail logs
-./lf.sh update  # pull latest + restart
+./installers/pi/lf.sh start   # start
+./installers/pi/lf.sh stop    # stop
+./installers/pi/lf.sh logs    # tail logs
+./installers/pi/lf.sh update  # pull latest + restart
 ```
 
 The Pi runs headless — access the UI from any device on your network at `http://localflight.local`.
@@ -68,7 +77,7 @@ The Pi runs headless — access the UI from any device on your network at `http:
 
 ## First-run setup
 
-On first launch the setup wizard opens automatically at `http://localhost:8000/setup`.
+On first launch Local Flight briefly shows a versioned splash screen, then opens the setup wizard at `http://localhost:8000/setup`.
 
 It walks through:
 1. Airport selection (IATA/ICAO search — 8 000+ airports)
@@ -117,6 +126,13 @@ OPENSKY_CLIENT_SECRET=your_secret
 
 Config lives at `~/.localflight/config.json` and is managed via the **Settings** page at `http://localhost:8000`.
 
+Runtime data is also kept outside the source tree:
+
+- Snapshots: `~/.localflight/storage/data/<IATA>/snapshots`
+- History DB: `~/.localflight/history.db`
+- Logs: `~/.localflight/logs`
+- API usage: `~/.localflight/api_usage.json`
+
 | Field | Default | Description |
 |---|---|---|
 | `airport_iata` | `ZRH` | 3-letter IATA code |
@@ -135,6 +151,7 @@ Config lives at `~/.localflight/config.json` and is managed via the **Settings**
 
 | URL | Description |
 |---|---|
+| `/splash` | Short launch splash screen with version badge, then redirects to setup/display |
 | `/display` | Split-view FIDS + Radar with draggable divider (default on launch) |
 | `/fids` | FIDS board standalone (`?view=arrivals\|departures`) |
 | `/radar` | Radar standalone |
@@ -214,6 +231,7 @@ Hit the **🐛 Report** button in the nav bar from anywhere in the app. Your rep
 | Endpoint | Method | Description |
 |---|---|---|
 | `/api/fids` | GET | FIDS rows (`?view=arrivals\|departures&limit=20`) |
+| `/api/fids/detail` | GET | Callsign detail with live position + 7-day history |
 | `/api/radar` | GET | Aircraft positions (`?radius_nm=20`) |
 | `/api/metar` | GET | Decoded + raw METAR |
 | `/api/flights` | GET | Raw flight list from latest snapshot |
@@ -234,6 +252,7 @@ Hit the **🐛 Report** button in the nav bar from anywhere in the app. Your rep
 | `/api/setup/complete` | POST | Save setup, write `.env`, mark complete |
 | `/api/setup/reset` | POST | Re-run setup wizard |
 | `/api/setup/test-aviationstack` | GET | Validate an API key without saving |
+| `/api/setup/test-rapidapi` | GET | Validate an ADS-B Exchange RapidAPI key without saving |
 | `/api/quit` | POST | Graceful shutdown |
 | `/ws` | WS | WebSocket push — broadcasts after each fetch |
 

@@ -1,5 +1,5 @@
 [Unit]
-Description=Local Flight — Chromium Kiosk
+Description=Local Flight - Chromium Kiosk
 After=localflight.service graphical.target
 Wants=localflight.service
 
@@ -23,7 +23,7 @@ ExecStart=/usr/bin/chromium-browser \
     --disable-features=TranslateUI \
     --disk-cache-dir=/tmp/chromium-cache \
     --user-data-dir=/home/pi/.localflight/browser-profile \
-    http://localhost:8000/display
+    http://localhost:8000/splash?next=%2Fdisplay
 Restart=on-failure
 RestartSec=10
 

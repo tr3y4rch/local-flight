@@ -13,10 +13,17 @@ import sys
 import threading
 import webbrowser
 from typing import Callable, Optional
+from urllib.parse import quote
 
 from localflight.platform.detect import is_desktop
 
 BASE_URL = "http://localhost:8000"
+
+
+def _splash_url(next_path: str = "/display") -> str:
+    if not next_path.startswith("/") or next_path.startswith("//"):
+        next_path = "/display"
+    return f"{BASE_URL}/splash?next={quote(next_path, safe='')}"
 
 
 # ── No-op stub ─────────────────────────────────────────────────────────────────
@@ -228,7 +235,7 @@ def build_tray(
     if sys.platform == "win32":
         return _WindowsTaskbar(
             on_quit=on_quit,
-            on_open_display=on_open_display or (lambda: webbrowser.open(f"{BASE_URL}/display")),
+            on_open_display=on_open_display or (lambda: webbrowser.open(_splash_url("/display"))),
         )
 
     # macOS — pystray
@@ -238,7 +245,7 @@ def build_tray(
     stop_event = threading.Event()
 
     def _open_display(icon, item):
-        (on_open_display or (lambda: webbrowser.open(f"{BASE_URL}/display")))()
+        (on_open_display or (lambda: webbrowser.open(_splash_url("/display"))))()
 
     def _open(path: str):
         return lambda icon, item: webbrowser.open(f"{BASE_URL}{path}")

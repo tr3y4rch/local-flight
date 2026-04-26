@@ -9,7 +9,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional, Set
 
-from fastapi import BackgroundTasks, FastAPI, Form, Query, Request, WebSocket, WebSocketDisconnect
+from fastapi import BackgroundTasks, FastAPI, Form, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -40,6 +40,7 @@ FETCH_COOLDOWN_SECONDS = 900
 
 # Paths always accessible even before setup completes
 _SETUP_FREE_PATHS = {
+    "/splash",
     "/setup",
     "/api/setup/complete",
     "/api/setup/reset",
@@ -102,9 +103,17 @@ try:
     from importlib.metadata import version as _pkg_version
     _APP_VERSION = _pkg_version("localflight")
 except Exception:
-    _APP_VERSION = "0.2.1b1"
+    _APP_VERSION = "0.2.1b2"
 
 templates.env.globals["app_version"] = _APP_VERSION
+
+
+def _safe_local_path(path: str, *, fallback: str = "/display") -> str:
+    """Accept only local absolute paths for splash redirects."""
+    path = (path or "").strip()
+    if not path.startswith("/") or path.startswith("//") or "://" in path:
+        return fallback
+    return path
 
 
 # ── WebSocket connection manager ───────────────────────────────────────────────
@@ -351,6 +360,28 @@ async def setup_complete(request: Request) -> Dict[str, Any]:
 
 # ── Pages ──────────────────────────────────────────────────────────────────────
 
+@app.get("/splash", response_class=HTMLResponse)
+def splash_page(
+    request: Request,
+    next_path: str = Query("/display", alias="next"),
+    duration_ms: int = Query(1800, ge=500, le=5000),
+) -> HTMLResponse:
+    target = _safe_local_path(next_path)
+    if not _setup_complete() and target != "/setup":
+        target = "/setup"
+
+    cfg = load_config()
+    return templates.TemplateResponse(
+        request=request,
+        name="splash.html",
+        context={
+            "cfg": cfg,
+            "next_url": target,
+            "duration_ms": duration_ms,
+        },
+    )
+
+
 @app.get("/", response_class=HTMLResponse)
 def settings_page(
     request: Request,
@@ -503,11 +534,6 @@ async def save_settings(
 
 
 # ── Legacy JSON endpoints ──────────────────────────────────────────────────────
-
-@app.get("/api/config")
-def api_config() -> JSONResponse:
-    return JSONResponse(asdict(load_config()))
-
 
 @app.get("/api/status")
 def api_status() -> JSONResponse:

@@ -1,0 +1,249 @@
+{% extends "base.html" %}
+
+{% block title %}Local Flight v{{ app_version }}{% endblock %}
+
+{% block extra_style %}
+  :root {
+    --splash-bg: #071018;
+    --splash-panel: rgba(11, 23, 34, 0.74);
+    --splash-blue: #5ab9ff;
+    --splash-green: #29e287;
+    --splash-amber: #f0b429;
+    --splash-muted: rgba(220, 238, 255, 0.58);
+  }
+
+  body {
+    min-height: 100vh;
+    margin: 0;
+    overflow: hidden;
+    color: #eef7ff;
+    background:
+      radial-gradient(circle at 50% 28%, rgba(90,185,255,0.22), transparent 32%),
+      radial-gradient(circle at 12% 18%, rgba(41,226,135,0.10), transparent 28%),
+      linear-gradient(145deg, #04080d 0%, var(--splash-bg) 48%, #0a1520 100%);
+  }
+
+  .splash-shell {
+    min-height: 100vh;
+    display: grid;
+    place-items: center;
+    padding: 24px;
+    box-sizing: border-box;
+    position: relative;
+    isolation: isolate;
+  }
+
+  .splash-grid {
+    position: fixed;
+    inset: -20%;
+    background-image:
+      linear-gradient(rgba(90,185,255,0.045) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(90,185,255,0.045) 1px, transparent 1px);
+    background-size: 54px 54px;
+    transform: perspective(820px) rotateX(58deg) translateY(22%);
+    transform-origin: center bottom;
+    opacity: 0.62;
+    z-index: -2;
+    animation: grid-drift 2.8s linear infinite;
+  }
+
+  .splash-glow {
+    position: fixed;
+    width: min(72vw, 720px);
+    aspect-ratio: 1;
+    border-radius: 999px;
+    background: radial-gradient(circle, rgba(90,185,255,0.18), transparent 66%);
+    filter: blur(18px);
+    z-index: -1;
+  }
+
+  .splash-card {
+    width: min(92vw, 620px);
+    border: 1px solid rgba(122, 196, 240, 0.20);
+    border-radius: 30px;
+    padding: 42px 38px 34px;
+    background:
+      linear-gradient(180deg, rgba(255,255,255,0.055), transparent 38%),
+      var(--splash-panel);
+    box-shadow:
+      0 24px 80px rgba(0, 0, 0, 0.48),
+      inset 0 1px 0 rgba(255,255,255,0.08);
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
+    text-align: center;
+    animation: card-in 520ms cubic-bezier(.2,.8,.2,1) both;
+  }
+
+  .splash-mark-wrap {
+    width: min(38vw, 190px);
+    margin: 0 auto 22px;
+    position: relative;
+  }
+
+  .splash-mark-wrap::before,
+  .splash-mark-wrap::after {
+    content: "";
+    position: absolute;
+    inset: -18px;
+    border-radius: 999px;
+    border: 1px solid rgba(90,185,255,0.26);
+    animation: ring 1.8s ease-out infinite;
+  }
+
+  .splash-mark-wrap::after {
+    inset: -34px;
+    border-color: rgba(41,226,135,0.14);
+    animation-delay: 260ms;
+  }
+
+  .splash-mark {
+    width: 100%;
+    display: block;
+    filter: drop-shadow(0 22px 36px rgba(0,0,0,0.38));
+    animation: float 2.2s ease-in-out infinite;
+  }
+
+  .splash-kicker {
+    margin: 0 0 10px;
+    font: 700 0.74rem/1.2 ui-monospace, "SFMono-Regular", Consolas, monospace;
+    color: var(--splash-green);
+    letter-spacing: 0.32em;
+    text-transform: uppercase;
+  }
+
+  .splash-title {
+    margin: 0;
+    font-size: clamp(2.3rem, 8vw, 4.9rem);
+    line-height: 0.9;
+    letter-spacing: -0.08em;
+    font-weight: 900;
+    text-transform: uppercase;
+  }
+
+  .splash-sub {
+    margin: 16px auto 0;
+    max-width: 520px;
+    color: var(--splash-muted);
+    font-size: clamp(0.88rem, 2vw, 1.02rem);
+    line-height: 1.55;
+  }
+
+  .splash-version {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 22px;
+    padding: 8px 13px;
+    border: 1px solid rgba(240,180,41,0.26);
+    border-radius: 999px;
+    background: rgba(240,180,41,0.075);
+    color: #ffe0a0;
+    font: 700 0.8rem/1 ui-monospace, "SFMono-Regular", Consolas, monospace;
+    letter-spacing: 0.08em;
+  }
+
+  .splash-progress {
+    width: min(100%, 360px);
+    height: 3px;
+    margin: 30px auto 0;
+    border-radius: 999px;
+    overflow: hidden;
+    background: rgba(255,255,255,0.10);
+  }
+
+  .splash-progress span {
+    display: block;
+    height: 100%;
+    width: 100%;
+    transform-origin: left;
+    background: linear-gradient(90deg, var(--splash-green), var(--splash-blue), var(--splash-amber));
+    animation: progress linear forwards;
+    animation-duration: {{ duration_ms }}ms;
+  }
+
+  .splash-skip {
+    margin-top: 16px;
+    color: rgba(238,247,255,0.42);
+    font: 600 0.72rem/1.4 ui-monospace, "SFMono-Regular", Consolas, monospace;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+
+  .splash-shell a {
+    color: inherit;
+    text-decoration: none;
+  }
+
+  @keyframes card-in {
+    from { opacity: 0; transform: translateY(18px) scale(0.97); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+  }
+
+  @keyframes float {
+    0%, 100% { transform: translateY(0) rotate(-1deg); }
+    50% { transform: translateY(-8px) rotate(1deg); }
+  }
+
+  @keyframes ring {
+    from { opacity: 0.75; transform: scale(0.92); }
+    to { opacity: 0; transform: scale(1.22); }
+  }
+
+  @keyframes progress {
+    from { transform: scaleX(0); }
+    to { transform: scaleX(1); }
+  }
+
+  @keyframes grid-drift {
+    from { background-position: 0 0, 0 0; }
+    to { background-position: 54px 54px, 54px 54px; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .splash-card,
+    .splash-mark,
+    .splash-mark-wrap::before,
+    .splash-mark-wrap::after,
+    .splash-grid,
+    .splash-progress span {
+      animation: none;
+    }
+  }
+
+  @media (max-width: 520px) {
+    .splash-card { padding: 34px 24px 28px; border-radius: 24px; }
+    .splash-mark-wrap { width: min(48vw, 160px); }
+    .splash-kicker { letter-spacing: 0.22em; }
+  }
+{% endblock %}
+
+{% block body %}
+<main class="splash-shell" data-next="{{ next_url }}">
+  <div class="splash-grid" aria-hidden="true"></div>
+  <div class="splash-glow" aria-hidden="true"></div>
+
+  <a class="splash-card" href="{{ next_url }}" aria-label="Continue to Local Flight">
+    <div class="splash-mark-wrap" aria-hidden="true">
+      <img class="splash-mark" src="/static/splash_mark.svg" alt="" />
+    </div>
+    <p class="splash-kicker">Local-first FIDS</p>
+    <h1 class="splash-title">Local Flight</h1>
+    <p class="splash-sub">Booting the board, checking the runway lights, and warming up the radar sweep.</p>
+    <div class="splash-version">v{{ app_version }}</div>
+    <div class="splash-progress" aria-hidden="true"><span></span></div>
+    <div class="splash-skip">Click anywhere to skip</div>
+  </a>
+</main>
+{% endblock %}
+
+{% block extra_script %}
+<script>
+  (function () {
+    const nextUrl = {{ next_url|tojson }};
+    const delay = {{ duration_ms|int }};
+    window.setTimeout(function () {
+      window.location.replace(nextUrl);
+    }, delay);
+  })();
+</script>
+{% endblock %}

@@ -25,7 +25,7 @@ from localflight.storage.config import (
     load_config,
     save_config,
 )
-from localflight.storage.flights_store import load_latest_snapshot_path
+from localflight.storage.flights_store import load_latest_snapshot_path, snapshot_store_root
 from localflight.storage.state import load_state
 
 log = logging.getLogger(__name__)
@@ -665,7 +665,7 @@ def api_admin_system() -> Dict[str, Any]:
         from importlib.metadata import version as _pkg_version
         _ver = _pkg_version("localflight")
     except Exception:
-        _ver = "0.2.0"
+        _ver = "0.2.1b2"
 
     result: Dict[str, Any] = {
         "version":  _ver,
@@ -692,10 +692,9 @@ def api_admin_system() -> Dict[str, Any]:
  
     # Snapshot directory
     try:
-        from localflight.storage.config import config_path
-        result["snapshot_dir"] = str(config_path().parent / "storage" / "data")
+        result["snapshot_dir"] = str(snapshot_store_root())
     except Exception:
-        result["snapshot_dir"] = "~/.localflight"
+        result["snapshot_dir"] = "~/.localflight/storage/data"
  
     return result
  
@@ -798,7 +797,7 @@ def api_admin_updates() -> Dict[str, Any]:
         from importlib.metadata import version as _pkg_version
         current = _pkg_version("localflight")
     except Exception:
-        current = "0.2.0"
+        current = "0.2.1b2"
 
     # Simple in-process cache to avoid hammering GitHub API
     cache = getattr(api_admin_updates, "_cache", None)

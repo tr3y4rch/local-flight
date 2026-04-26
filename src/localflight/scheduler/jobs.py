@@ -32,7 +32,7 @@ from localflight.decode.dedupe import dedupe_codeshares
 from localflight.decode.mappings.aviationstack import aviationstack_to_raw_records
 from localflight.decode.normalize import normalize_flights
 from localflight.storage.config import AppConfig
-from localflight.storage.flights_store import save_snapshot
+from localflight.storage.flights_store import prune_snapshots, save_snapshot
 
 log = logging.getLogger(__name__)
 
@@ -45,6 +45,15 @@ def _write_history(flights: List[Flight], cfg: AppConfig) -> None:
         write_snapshot_to_history(flights, cfg)
     except Exception as exc:
         log.warning("History write failed (non-fatal): %s", exc)
+
+
+def _prune_old_snapshots(cfg: AppConfig, *, keep_hours: int = 24) -> None:
+    try:
+        deleted = prune_snapshots(cfg.airport_iata, keep_hours=keep_hours)
+        if deleted:
+            log.info("Snapshot prune: deleted %d files for %s", deleted, cfg.airport_iata)
+    except Exception as exc:
+        log.warning("Snapshot prune failed (non-fatal): %s", exc)
 
 
 # ── WebSocket broadcast (non-fatal) ───────────────────────────────────────────
@@ -297,6 +306,9 @@ def run_snapshot_job(cfg: AppConfig) -> List[Flight]:
     # Save JSON snapshot
     save_snapshot(cfg.airport_iata, flights, at=datetime.now(timezone.utc))
 
+    # Prune old snapshot files (non-fatal)
+    _prune_old_snapshots(cfg)
+
     # Write to SQLite history DB (non-fatal)
     _write_history(flights, cfg)
 
@@ -320,6 +332,7 @@ def run_mock_snapshot_job(
     cfg     = AppConfig(airport_iata=airport_iata, airport_icao=airport_icao)
     flights = _fetch_mock(cfg)
     save_snapshot(airport_iata, flights, at=datetime.now(timezone.utc))
+    _prune_old_snapshots(cfg)
     _write_history(flights, cfg)
     return flights
 
