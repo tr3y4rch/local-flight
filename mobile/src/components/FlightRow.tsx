@@ -1,10 +1,11 @@
-import { StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import type { FidsRow } from "../api/types";
 import { colors, radius, spacing } from "../theme/tokens";
 
 type Props = {
   row: FidsRow;
+  onPress?: () => void;
 };
 
 function statusTone(statusClass: string): string {
@@ -15,11 +16,11 @@ function statusTone(statusClass: string): string {
   return colors.blue;
 }
 
-export function FlightRow({ row }: Props) {
+export function FlightRow({ row, onPress }: Props) {
   const tone = statusTone(row.status_class || row.status_display);
 
   return (
-    <View style={styles.row}>
+    <Pressable style={styles.row} onPress={onPress}>
       <View style={styles.timeBox}>
         <Text style={styles.time}>{row.display_time || "--:--"}</Text>
         <Text style={styles.gate}>Gate {row.gate || "-"}</Text>
@@ -35,7 +36,7 @@ export function FlightRow({ row }: Props) {
           {row.status_display || "Scheduled"}
         </Text>
       </View>
-    </View>
+    </Pressable>
   );
 }
 

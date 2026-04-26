@@ -58,8 +58,10 @@ mobile/yarn-error.log*
 dev/private/
 assets/*.ico
 assets/*.icns
-assets/*.png
 assets/*.iconset
+assets/*.png
+!assets/icon_circle.png
+!assets/icon_square.png
 linear_dedup.json
 
 # Claude Code local settings

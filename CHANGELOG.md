@@ -8,6 +8,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [0.2.2b1] - 2026-04-26
 
 ### Added
+- **macOS source-checkout `.app` bundle** — `installers/macos/install.sh` now builds a proper `LocalFlight.app` in `~/Applications/` with the SVG-derived icon; uses a compiled Mach-O stub (`cc`) as the bundle executable (required by macOS Launch Services) that exec's a baked shell launcher; `scripts/make_app_bundle.py` orchestrates icon generation + `iconutil` + plist + stub compile
+- **Pre-rendered icon** — `assets/icon_circle.png` committed (1024×1024 RGBA) so `make_app_bundle.py` works without `cairosvg` at install time
 - **React Native mobile companion Phase 1** - new `mobile/` Expo app scaffold for iOS-first testing on iPhone/iPad
 - **Mockup-inspired mobile shell** - native header, pseudo dynamic island/status bar, airport badge, live pill, METAR strip, tab bar, FIDS direction toggle, pinned flight card, compact FIDS rows, admin cards, settings, and bottom nav
 - **Mobile API client** - reads `/api/health`, `/api/config`, `/api/admin/system`, `/api/admin/budget`, `/api/fids`, and `/api/metar`; listens for `/ws` `snapshot_updated` events

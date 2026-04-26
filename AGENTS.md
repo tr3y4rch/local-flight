@@ -300,6 +300,14 @@ python -m localflight
 
 ## What was done in the last session
 
+- ✅ macOS `.app` bundle — `install.sh` now builds `~/Applications/LocalFlight.app` instead of a `.command` symlink; `scripts/make_app_bundle.py` handles SVG→icns (cairosvg → pre-rendered PNG → PIL fallback) + `Info.plist` + compiled Mach-O stub + baked shell launcher
+- ✅ Mach-O stub — macOS Launch Services silently rejects shell scripts as `CFBundleExecutable`; stub is a tiny C program compiled with `cc` at install time that exec's `/bin/bash launcher.sh` in the same `MacOS/` directory
+- ✅ `assets/icon_circle.png` — 1024×1024 pre-rendered from SVG and committed; `.gitignore` updated with `!assets/icon_circle.png` exception so the pre-render survives without `cairosvg`
+- ✅ `LocalFlight.command` — fixed symlink `$0` resolution bug: when launched via Finder the symlink path was used as `$0`, causing `ROOT` to resolve to `~/..` instead of the project root; fixed with `readlink`
+- ✅ `installers/macos/install.sh` — replaced `.command` symlink step with `make_app_bundle.py` call; `.command` file stays as shell-only fallback
+
+## What was done in the previous session
+
 - ✅ `start.bat` — fixed UTF-8 box-drawing chars in `::` comments causing cmd.exe byte-eating bug on `chcp 65001`; replaced all 7 comment lines with ASCII; added error pause
 - ✅ `linear_client.py` — added `test_connection()` with real GraphQL `viewer` query to validate key (not just env var presence); returns specific 401 message
 - ✅ `bug_reporter.py` — new hardcoded developer reporter (`sources/web/bug_reporter.py`); dedicated "Local Flight Reports" Linear workspace; `_system_context()` auto-attaches version/platform/airport
@@ -325,12 +333,14 @@ python -m localflight
 ## Pending / next up
 
 - [ ] Create GitHub release v0.2.2b1 — attach `dist/LocalFlight-windows.zip` and `.sha256`, mark as pre-release
+- [ ] Mobile — `npm install` + `npx expo install --fix` on Mac; test on iOS device via Expo Go
 - [ ] Add screenshot to README (FIDS board)
 - [ ] Notification system (Pushover/Telegram) — ~50 lines, hooks into scheduler after `_broadcast_update()`
 - [ ] Pi hardware arrives — test systemd services + kiosk
 - [ ] RTL-SDR dongle — test dump1090 integration
 - [ ] Interstate 75 W — flash client.py, test WiFi polling
 - [ ] Code signing certificates — Developer ID (macOS) + EV cert (Windows SmartScreen)
+- [ ] Mobile v2 — QR pairing + per-device tokens before exposing admin mutating controls
 
 ---
 

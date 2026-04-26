@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Animated,
+  FlatList,
+  Modal,
   Pressable,
   RefreshControl,
   SafeAreaView,
@@ -17,20 +20,55 @@ import {
   getBudget,
   getConfig,
   getFids,
+  getFidsDetail,
   getHealth,
+  getHistory,
   getMetar,
+  getRadar,
   normalizeServerUrl,
   testConnection,
   wsUrl
 } from "./src/api/client";
-import type { DashboardSnapshot, FidsRow, FlightView } from "./src/api/types";
+import type {
+  DashboardSnapshot,
+  FidsDetailResponse,
+  FidsRow,
+  FlightDetail,
+  FlightView,
+  HistoryDirection,
+  HistoryFlightRow,
+  HistoryResponse,
+  RadarBlip,
+  RadarResponse
+} from "./src/api/types";
 import { loadServerUrl, saveServerUrl } from "./src/storage/settings";
+import { mono, palette } from "./src/theme/tokens";
 import { useResponsiveLayout } from "./src/utils/layout";
 
-type Screen = "fids" | "radar" | "history" | "admin" | "alerts" | "settings";
+type Screen = "fids" | "radar" | "history" | "admin" | "settings";
 type StatusTone = "scheduled" | "departed" | "boarding" | "delayed" | "cancelled";
+type HistoryWindow = 24 | 72 | 168;
+type RadarRadius = 20 | 40 | 80;
+
+type RefreshOptions = {
+  nextUrl?: string;
+  target?: Screen;
+  nextView?: FlightView;
+  nextHistoryDirection?: HistoryDirection;
+  nextHistoryHours?: HistoryWindow;
+  nextRadarRadius?: RadarRadius;
+};
+
+type ProjectedBlip = {
+  blip: RadarBlip;
+  left: number;
+  top: number;
+  distanceNm: number;
+};
 
 const APP_VERSION = "0.2.2b1";
+const HISTORY_WINDOWS: HistoryWindow[] = [24, 72, 168];
+const RADAR_RADII: RadarRadius[] = [20, 40, 80];
 
 const EMPTY_SNAPSHOT: DashboardSnapshot = {
   config: null,
@@ -63,6 +101,29 @@ function formatRelative(value?: string | null): string {
   return date.toLocaleString();
 }
 
+function formatDateTime(value?: string | null): string {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit"
+  });
+}
+
+function formatClock(value?: string | null): string {
+  if (!value) return "--:--";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  });
+}
+
 function routeCode(route: string): string {
   const match = route.match(/\(([A-Z0-9]{3,4})\)/);
   return match?.[1] || "";
@@ -81,10 +142,82 @@ function statusTone(status: string): StatusTone {
   return "scheduled";
 }
 
+function formatAltitudeFeet(value?: number | null): string {
+  if (value == null) return "-";
+  return `${Math.round(value * 3.28084)} ft`;
+}
+
+function formatSpeedKnots(value?: number | null): string {
+  if (value == null) return "-";
+  return `${Math.round(value * 1.94384)} kt`;
+}
+
+function formatHeading(value?: number | null): string {
+  if (value == null) return "-";
+  return `${Math.round(value)} deg`;
+}
+
+function detailOrNull(value: FidsDetailResponse | null): FlightDetail | null {
+  if (!value?.detail || typeof value.detail !== "object") {
+    return null;
+  }
+  if (!("callsign" in value.detail) || typeof value.detail.callsign !== "string") {
+    return null;
+  }
+  return value.detail as FlightDetail;
+}
+
+function historyRouteLabel(row: HistoryFlightRow): string {
+  if (row.direction === "ARR") {
+    return `FROM ${row.origin_iata || "---"}`;
+  }
+  if (row.direction === "DEP") {
+    return `TO ${row.dest_iata || "---"}`;
+  }
+  return `${row.origin_iata || "---"} / ${row.dest_iata || "---"}`;
+}
+
+function detailRouteLabel(detail: FlightDetail | null, fallback: string): string {
+  if (!detail) return fallback;
+  const origin = detail.origin_iata || "---";
+  const dest = detail.dest_iata || "---";
+  return `${origin} -> ${dest}`;
+}
+
+function projectBlip(
+  blip: RadarBlip,
+  center: { lat: number; lon: number },
+  radiusNm: number,
+  scopeSize: number
+): ProjectedBlip | null {
+  const latDeltaNm = (blip.lat - center.lat) * 60;
+  const lonDeltaNm =
+    (blip.lon - center.lon) * 60 * Math.cos((center.lat * Math.PI) / 180);
+  const distanceNm = Math.sqrt(latDeltaNm ** 2 + lonDeltaNm ** 2);
+
+  if (!Number.isFinite(distanceNm) || distanceNm > radiusNm) {
+    return null;
+  }
+
+  const usableRadiusPx = scopeSize * 0.42;
+  const dotOffset = 5;
+  const x = scopeSize / 2 + (lonDeltaNm / radiusNm) * usableRadiusPx - dotOffset;
+  const y = scopeSize / 2 - (latDeltaNm / radiusNm) * usableRadiusPx - dotOffset;
+
+  return { blip, left: x, top: y, distanceNm };
+}
+
+function errorMessage(value: unknown): string {
+  return value instanceof Error ? value.message : String(value);
+}
+
 export default function App() {
   const layout = useResponsiveLayout();
   const [screen, setScreen] = useState<Screen>("fids");
   const [view, setView] = useState<FlightView>("departures");
+  const [historyDirection, setHistoryDirection] = useState<HistoryDirection>("both");
+  const [historyHours, setHistoryHours] = useState<HistoryWindow>(24);
+  const [radarRadius, setRadarRadius] = useState<RadarRadius>(20);
   const [serverUrl, setServerUrl] = useState("");
   const [draftUrl, setDraftUrl] = useState("");
   const [connected, setConnected] = useState(false);
@@ -94,7 +227,15 @@ export default function App() {
   const [utcTime, setUtcTime] = useState(formatUtc());
   const [snapshot, setSnapshot] = useState<DashboardSnapshot>(EMPTY_SNAPSHOT);
   const [rows, setRows] = useState<FidsRow[]>([]);
+  const [historyData, setHistoryData] = useState<HistoryResponse | null>(null);
+  const [radarData, setRadarData] = useState<RadarResponse | null>(null);
+  const [detailVisible, setDetailVisible] = useState(false);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailCallsign, setDetailCallsign] = useState("");
+  const [detailData, setDetailData] = useState<FidsDetailResponse | null>(null);
+
   const socketRef = useRef<WebSocket | null>(null);
+  const detailRequestRef = useRef(0);
 
   useEffect(() => {
     const timer = setInterval(() => setUtcTime(formatUtc()), 1000);
@@ -113,65 +254,168 @@ export default function App() {
     };
   }, []);
 
-  const refreshAll = useCallback(async (url = serverUrl, nextView = view) => {
-    const normalized = normalizeServerUrl(url);
-    if (!normalized) {
-      setError("Enter the Local Flight server URL in Settings.");
-      return;
+  const fetchDashboard = useCallback(async (normalized: string) => {
+    const [state, config, system, budget] = await Promise.all([
+      getHealth(normalized),
+      getConfig(normalized),
+      getAdminSystem(normalized),
+      getBudget(normalized)
+    ]);
+
+    let metar = null;
+    try {
+      metar = await getMetar(normalized);
+    } catch {
+      metar = null;
     }
 
-    setRefreshing(true);
-    setError(null);
-    try {
-      const [state, config, system, budget, fids] = await Promise.all([
-        getHealth(normalized),
-        getConfig(normalized),
-        getAdminSystem(normalized),
-        getBudget(normalized),
-        getFids(normalized, nextView)
-      ]);
+    setSnapshot({ state, config, system, budget, metar });
+    setConnected(true);
+  }, []);
 
-      let metar = null;
+  const fetchFidsData = useCallback(async (normalized: string, nextView: FlightView) => {
+    const fids = await getFids(normalized, nextView);
+    setRows(fids);
+  }, []);
+
+  const fetchHistoryData = useCallback(
+    async (
+      normalized: string,
+      nextDirection: HistoryDirection,
+      nextHours: HistoryWindow
+    ) => {
+      const data = await getHistory(normalized, {
+        direction: nextDirection,
+        hours: nextHours,
+        limit: 120
+      });
+      setHistoryData(data);
+    },
+    []
+  );
+
+  const fetchRadarData = useCallback(async (normalized: string, nextRadius: RadarRadius) => {
+    const data = await getRadar(normalized, nextRadius);
+    setRadarData(data);
+  }, []);
+
+  const loadFlightDetail = useCallback(
+    async (callsign: string) => {
+      const normalized = normalizeServerUrl(serverUrl);
+      if (!normalized || !callsign) return;
+
+      const requestId = detailRequestRef.current + 1;
+      detailRequestRef.current = requestId;
+      setDetailLoading(true);
+
       try {
-        metar = await getMetar(normalized);
-      } catch {
-        metar = null;
+        const data = await getFidsDetail(normalized, callsign);
+        if (detailRequestRef.current === requestId) {
+          setDetailData(data);
+        }
+      } catch (exc) {
+        if (detailRequestRef.current === requestId) {
+          setDetailData(null);
+          setError(errorMessage(exc));
+        }
+      } finally {
+        if (detailRequestRef.current === requestId) {
+          setDetailLoading(false);
+        }
+      }
+    },
+    [serverUrl]
+  );
+
+  const openFlightDetail = useCallback(
+    (callsign: string) => {
+      if (!callsign) return;
+      setDetailCallsign(callsign);
+      setDetailData(null);
+      setDetailVisible(true);
+      void loadFlightDetail(callsign);
+    },
+    [loadFlightDetail]
+  );
+
+  const refreshScreen = useCallback(
+    async ({
+      nextUrl = serverUrl,
+      target = screen,
+      nextView = view,
+      nextHistoryDirection = historyDirection,
+      nextHistoryHours = historyHours,
+      nextRadarRadius = radarRadius
+    }: RefreshOptions = {}) => {
+      const normalized = normalizeServerUrl(nextUrl);
+      if (!normalized) {
+        setError("Enter the Local Flight server URL in Settings.");
+        return;
       }
 
-      setSnapshot({ state, config, system, budget, metar });
-      setRows(fids);
-      setConnected(true);
-    } catch (exc) {
-      setConnected(false);
-      setError(exc instanceof Error ? exc.message : String(exc));
-    } finally {
-      setRefreshing(false);
-    }
-  }, [serverUrl, view]);
+      setRefreshing(true);
+      setError(null);
+
+      try {
+        await fetchDashboard(normalized);
+      } catch (exc) {
+        setConnected(false);
+        setError(errorMessage(exc));
+        setRefreshing(false);
+        return;
+      }
+
+      try {
+        if (target === "fids") {
+          await fetchFidsData(normalized, nextView);
+        } else if (target === "history") {
+          await fetchHistoryData(normalized, nextHistoryDirection, nextHistoryHours);
+        } else if (target === "radar") {
+          await fetchRadarData(normalized, nextRadarRadius);
+        }
+      } catch (exc) {
+        setError(errorMessage(exc));
+      } finally {
+        setRefreshing(false);
+      }
+    },
+    [
+      fetchDashboard,
+      fetchFidsData,
+      fetchHistoryData,
+      fetchRadarData,
+      historyDirection,
+      historyHours,
+      radarRadius,
+      screen,
+      serverUrl,
+      view
+    ]
+  );
 
   const connect = useCallback(async () => {
     const normalized = normalizeServerUrl(draftUrl);
     setLoading(true);
     setError(null);
+
     try {
       await testConnection(normalized);
       await saveServerUrl(normalized);
       setServerUrl(normalized);
       setDraftUrl(normalized);
-      setConnected(true);
-      await refreshAll(normalized);
+      setScreen("fids");
     } catch (exc) {
       setConnected(false);
-      setError(exc instanceof Error ? exc.message : String(exc));
+      setError(errorMessage(exc));
     } finally {
       setLoading(false);
     }
-  }, [draftUrl, refreshAll]);
+  }, [draftUrl]);
 
   useEffect(() => {
     if (!serverUrl) return;
-    refreshAll(serverUrl, view);
-  }, [serverUrl, view, refreshAll]);
+    void refreshScreen({ target: screen });
+  }, [historyDirection, historyHours, radarRadius, refreshScreen, screen, serverUrl, view]);
 
   useEffect(() => {
     if (!serverUrl || !connected) return;
@@ -182,7 +426,10 @@ export default function App() {
       try {
         const message = JSON.parse(String(event.data)) as { type?: string };
         if (message.type === "snapshot_updated") {
-          refreshAll(serverUrl, view);
+          void refreshScreen({ target: screen });
+          if (detailVisible && detailCallsign) {
+            void loadFlightDetail(detailCallsign);
+          }
         }
       } catch {
         // Ignore non-JSON messages.
@@ -197,7 +444,7 @@ export default function App() {
         socketRef.current = null;
       }
     };
-  }, [connected, refreshAll, serverUrl, view]);
+  }, [connected, detailCallsign, detailVisible, loadFlightDetail, refreshScreen, screen, serverUrl]);
 
   const cfg = snapshot.config;
   const state = snapshot.state;
@@ -205,6 +452,7 @@ export default function App() {
   const airportName = cfg?.airport_icao ? `${cfg.airport_icao} Local Flight` : "Connect your server";
   const isLive = connected && state?.ok !== false;
   const contentWidth = Math.min(layout.contentMaxWidth, layout.width - 24);
+  const detail = detailOrNull(detailData);
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -221,49 +469,102 @@ export default function App() {
 
         <TopTabs active={screen} onChange={setScreen} />
 
-        <ScrollView
-          style={styles.screenScroll}
-          contentContainerStyle={styles.screenContent}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              tintColor={palette.blue}
-              onRefresh={() => refreshAll()}
-            />
-          }
-        >
-          {!serverUrl ? (
-            <ConnectPrompt onSettings={() => setScreen("settings")} />
-          ) : null}
+        {screen === "fids" ? (
+          <FidsScreen
+            rows={rows}
+            view={view}
+            loading={refreshing}
+            refreshing={refreshing}
+            error={error}
+            showConnectPrompt={!serverUrl}
+            onOpenSettings={() => setScreen("settings")}
+            onRefresh={() => refreshScreen({ target: "fids" })}
+            onViewChange={setView}
+            onOpenDetail={openFlightDetail}
+          />
+        ) : null}
 
-          {screen === "fids" ? (
-            <FidsScreen rows={rows} view={view} onViewChange={setView} loading={refreshing} />
-          ) : null}
+        {screen === "history" ? (
+          <HistoryScreen
+            data={historyData}
+            direction={historyDirection}
+            hours={historyHours}
+            loading={refreshing}
+            refreshing={refreshing}
+            error={error}
+            showConnectPrompt={!serverUrl}
+            onOpenSettings={() => setScreen("settings")}
+            onRefresh={() => refreshScreen({ target: "history" })}
+            onDirectionChange={setHistoryDirection}
+            onHoursChange={setHistoryHours}
+            onOpenDetail={openFlightDetail}
+          />
+        ) : null}
 
-          {screen === "admin" ? (
-            <AdminScreen snapshot={snapshot} connected={isLive} error={error} />
-          ) : null}
+        {screen === "radar" ? (
+          <RadarScreen
+            data={radarData}
+            radiusNm={radarRadius}
+            loading={refreshing}
+            refreshing={refreshing}
+            error={error}
+            showConnectPrompt={!serverUrl}
+            onOpenSettings={() => setScreen("settings")}
+            onRefresh={() => refreshScreen({ target: "radar" })}
+            onRadiusChange={setRadarRadius}
+            onOpenDetail={openFlightDetail}
+          />
+        ) : null}
 
-          {screen === "settings" ? (
-            <SettingsScreen
-              serverUrl={serverUrl}
-              draftUrl={draftUrl}
-              error={error}
-              loading={loading}
-              isTablet={layout.isTablet}
-              isLandscape={layout.isLandscape}
-              onChangeUrl={setDraftUrl}
-              onConnect={connect}
-            />
-          ) : null}
+        {screen === "admin" || screen === "settings" ? (
+          <ScrollView
+            style={styles.screenScroll}
+            contentContainerStyle={styles.screenContent}
+            refreshControl={
+              <RefreshControl
+                refreshing={refreshing}
+                tintColor={palette.blue}
+                onRefresh={() => refreshScreen({ target: screen })}
+              />
+            }
+          >
+            {!serverUrl ? (
+              <ConnectPrompt onSettings={() => setScreen("settings")} />
+            ) : null}
 
-          {screen === "radar" ? <PlaceholderScreen title="Radar" body="Native radar comes next with react-native-svg." /> : null}
-          {screen === "history" ? <PlaceholderScreen title="History" body="Flight history detail sheets will land after pairing/auth." /> : null}
-          {screen === "alerts" ? <PlaceholderScreen title="Alerts" body="Pinned flight alerts and notifications are queued for the next mobile slice." /> : null}
-        </ScrollView>
+            {error ? <ScreenError message={error} /> : null}
+
+            {screen === "admin" ? (
+              <AdminScreen snapshot={snapshot} connected={isLive} error={error} />
+            ) : null}
+
+            {screen === "settings" ? (
+              <SettingsScreen
+                serverUrl={serverUrl}
+                draftUrl={draftUrl}
+                error={error}
+                loading={loading}
+                isTablet={layout.isTablet}
+                isLandscape={layout.isLandscape}
+                onChangeUrl={setDraftUrl}
+                onConnect={connect}
+              />
+            ) : null}
+          </ScrollView>
+        ) : null}
 
         <BottomNav active={screen} onChange={setScreen} />
       </View>
+
+      <FlightDetailSheet
+        visible={detailVisible}
+        callsign={detailCallsign}
+        detail={detail}
+        history={detailData?.history || []}
+        loading={detailLoading}
+        onClose={() => setDetailVisible(false)}
+        onRefresh={() => loadFlightDetail(detailCallsign)}
+      />
     </SafeAreaView>
   );
 }
@@ -283,12 +584,29 @@ function Header({
   metarCategory: string;
   metarText: string;
 }) {
+  const dotOpacity = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    if (!live) {
+      dotOpacity.setValue(1);
+      return;
+    }
+    const anim = Animated.loop(
+      Animated.sequence([
+        Animated.timing(dotOpacity, { toValue: 0.2, duration: 850, useNativeDriver: true }),
+        Animated.timing(dotOpacity, { toValue: 1, duration: 850, useNativeDriver: true })
+      ])
+    );
+    anim.start();
+    return () => anim.stop();
+  }, [dotOpacity, live]);
+
   return (
     <View style={styles.header}>
       <View style={styles.dynamicIsland} />
       <View style={styles.statusBar}>
-        <Text style={styles.statusTime}>09:41</Text>
-        <Text style={styles.statusIcons}>WiFi 100%</Text>
+        <Text style={styles.statusTime}>{utcTime}</Text>
+        <Text style={styles.statusIcons}>{live ? "ONLINE" : "OFFLINE"}</Text>
       </View>
 
       <View style={styles.headerTop}>
@@ -298,7 +616,7 @@ function Header({
         </View>
         <View style={styles.headerRight}>
           <View style={[styles.livePill, !live && styles.livePillOff]}>
-            <View style={[styles.liveDot, !live && styles.liveDotOff]} />
+            <Animated.View style={[styles.liveDot, !live && styles.liveDotOff, { opacity: dotOpacity }]} />
             <Text style={[styles.liveText, !live && styles.liveTextOff]}>{live ? "LIVE" : "OFF"}</Text>
           </View>
           <Text style={styles.utcTime}>UTC {utcTime}</Text>
@@ -340,49 +658,256 @@ function TopTabs({ active, onChange }: { active: Screen; onChange: (screen: Scre
 function FidsScreen({
   rows,
   view,
+  loading,
+  refreshing,
+  error,
+  showConnectPrompt,
+  onOpenSettings,
+  onRefresh,
   onViewChange,
-  loading
+  onOpenDetail
 }: {
   rows: FidsRow[];
   view: FlightView;
-  onViewChange: (view: FlightView) => void;
   loading: boolean;
+  refreshing: boolean;
+  error: string | null;
+  showConnectPrompt: boolean;
+  onOpenSettings: () => void;
+  onRefresh: () => void;
+  onViewChange: (view: FlightView) => void;
+  onOpenDetail: (callsign: string) => void;
 }) {
   const pinned = rows.find((row) => /board|gate|approach/i.test(row.status_display)) || rows[0];
 
   return (
-    <View>
-      <View style={styles.dirToggle}>
-        <DirectionButton
-          active={view === "departures"}
-          label="DEPARTURES"
-          onPress={() => onViewChange("departures")}
+    <FlatList<FidsRow>
+      data={rows}
+      keyExtractor={(row) => row.id}
+      renderItem={({ item }) => (
+        <View style={styles.fidsListItem}>
+          <FidsRowView row={item} onOpenDetail={onOpenDetail} />
+        </View>
+      )}
+      style={styles.screenScroll}
+      contentContainerStyle={styles.screenContent}
+      refreshControl={
+        <RefreshControl
+          refreshing={refreshing}
+          tintColor={palette.blue}
+          onRefresh={onRefresh}
         />
-        <DirectionButton
-          active={view === "arrivals"}
-          label="ARRIVALS"
-          onPress={() => onViewChange("arrivals")}
-        />
-      </View>
+      }
+      ListHeaderComponent={
+        <>
+          {showConnectPrompt ? <ConnectPrompt onSettings={onOpenSettings} /> : null}
+          {error ? <ScreenError message={error} /> : null}
 
-      {pinned ? <PinnedFlight row={pinned} /> : null}
+          <View style={styles.dirToggle}>
+            <DirectionButton
+              active={view === "departures"}
+              label="DEPARTURES"
+              onPress={() => onViewChange("departures")}
+            />
+            <DirectionButton
+              active={view === "arrivals"}
+              label="ARRIVALS"
+              onPress={() => onViewChange("arrivals")}
+            />
+          </View>
 
-      <View style={styles.fidsHeader}>
-        <Text style={styles.fidsHeaderText}>TIME</Text>
-        <Text style={styles.fidsHeaderText}>FLIGHT</Text>
-        <Text style={styles.fidsHeaderText}>TO</Text>
-        <Text style={styles.fidsHeaderText}>STATUS</Text>
-        <Text style={[styles.fidsHeaderText, styles.alignRight]}>A/C</Text>
-      </View>
+          {pinned ? <PinnedFlight row={pinned} onOpenDetail={onOpenDetail} /> : null}
 
-      <View style={styles.fidsList}>
-        {rows.map((row) => <FidsRowView key={row.id} row={row} />)}
-        {loading && rows.length === 0 ? <ActivityIndicator color={palette.blue} style={styles.loader} /> : null}
-        {!loading && rows.length === 0 ? (
+          <View style={styles.fidsHeader}>
+            <Text style={styles.fidsHeaderText}>TIME</Text>
+            <Text style={styles.fidsHeaderText}>FLIGHT</Text>
+            <Text style={styles.fidsHeaderText}>TO</Text>
+            <Text style={styles.fidsHeaderText}>STATUS</Text>
+            <Text style={[styles.fidsHeaderText, styles.alignRight]}>A/C</Text>
+          </View>
+        </>
+      }
+      ListEmptyComponent={
+        loading ? (
+          <ActivityIndicator color={palette.blue} style={styles.loader} />
+        ) : (
           <Text style={styles.empty}>No rows yet. Complete setup or run a snapshot fetch on the server.</Text>
-        ) : null}
-      </View>
-    </View>
+        )
+      }
+      showsVerticalScrollIndicator={false}
+    />
+  );
+}
+
+function HistoryScreen({
+  data,
+  direction,
+  hours,
+  loading,
+  refreshing,
+  error,
+  showConnectPrompt,
+  onOpenSettings,
+  onRefresh,
+  onDirectionChange,
+  onHoursChange,
+  onOpenDetail
+}: {
+  data: HistoryResponse | null;
+  direction: HistoryDirection;
+  hours: HistoryWindow;
+  loading: boolean;
+  refreshing: boolean;
+  error: string | null;
+  showConnectPrompt: boolean;
+  onOpenSettings: () => void;
+  onRefresh: () => void;
+  onDirectionChange: (value: HistoryDirection) => void;
+  onHoursChange: (value: HistoryWindow) => void;
+  onOpenDetail: (callsign: string) => void;
+}) {
+  const flights = data?.flights || [];
+
+  return (
+    <FlatList<HistoryFlightRow>
+      data={flights}
+      keyExtractor={(row) => String(row.id)}
+      renderItem={({ item }) => (
+        <HistoryRow row={item} onOpenDetail={onOpenDetail} />
+      )}
+      style={styles.screenScroll}
+      contentContainerStyle={styles.screenContent}
+      refreshControl={
+        <RefreshControl
+          refreshing={refreshing}
+          tintColor={palette.blue}
+          onRefresh={onRefresh}
+        />
+      }
+      ListHeaderComponent={
+        <>
+          {showConnectPrompt ? <ConnectPrompt onSettings={onOpenSettings} /> : null}
+          {error ? <ScreenError message={error} /> : null}
+
+          <FilterSection title="DIRECTION">
+            <View style={styles.filterRow}>
+              <DirectionButton active={direction === "both"} label="ALL" onPress={() => onDirectionChange("both")} />
+              <DirectionButton active={direction === "dep"} label="DEPARTURES" onPress={() => onDirectionChange("dep")} />
+              <DirectionButton active={direction === "arr"} label="ARRIVALS" onPress={() => onDirectionChange("arr")} />
+            </View>
+          </FilterSection>
+
+          <FilterSection title="WINDOW">
+            <View style={styles.filterRow}>
+              {HISTORY_WINDOWS.map((item) => (
+                <DirectionButton
+                  key={item}
+                  active={hours === item}
+                  label={item === 168 ? "7 DAYS" : `${item} HOURS`}
+                  onPress={() => onHoursChange(item)}
+                />
+              ))}
+            </View>
+          </FilterSection>
+
+          <View style={styles.metricRow}>
+            <InfoCard label="ROWS" value={data ? String(data.count) : "..."} />
+            <InfoCard label="FILTER" value={direction.toUpperCase()} tone="green" />
+            <InfoCard label="WINDOW" value={hours === 168 ? "7 DAYS" : `${hours}H`} tone="amber" />
+          </View>
+        </>
+      }
+      ListEmptyComponent={
+        loading ? (
+          <ActivityIndicator color={palette.blue} style={styles.loader} />
+        ) : (
+          <Text style={styles.empty}>No recent history yet. Once snapshots have run, flights will appear here.</Text>
+        )
+      }
+      ItemSeparatorComponent={() => <View style={styles.historyGap} />}
+      showsVerticalScrollIndicator={false}
+    />
+  );
+}
+
+function RadarScreen({
+  data,
+  radiusNm,
+  loading,
+  refreshing,
+  error,
+  showConnectPrompt,
+  onOpenSettings,
+  onRefresh,
+  onRadiusChange,
+  onOpenDetail
+}: {
+  data: RadarResponse | null;
+  radiusNm: RadarRadius;
+  loading: boolean;
+  refreshing: boolean;
+  error: string | null;
+  showConnectPrompt: boolean;
+  onOpenSettings: () => void;
+  onRefresh: () => void;
+  onRadiusChange: (value: RadarRadius) => void;
+  onOpenDetail: (callsign: string) => void;
+}) {
+  const blips = data?.blips || [];
+
+  return (
+    <FlatList<RadarBlip>
+      data={blips}
+      keyExtractor={(row, index) => `${row.callsign}-${index}`}
+      renderItem={({ item }) => (
+        <RadarBlipRow blip={item} onOpenDetail={onOpenDetail} />
+      )}
+      style={styles.screenScroll}
+      contentContainerStyle={styles.screenContent}
+      refreshControl={
+        <RefreshControl
+          refreshing={refreshing}
+          tintColor={palette.blue}
+          onRefresh={onRefresh}
+        />
+      }
+      ListHeaderComponent={
+        <>
+          {showConnectPrompt ? <ConnectPrompt onSettings={onOpenSettings} /> : null}
+          {error ? <ScreenError message={error} /> : null}
+
+          <FilterSection title="RADIUS">
+            <View style={styles.filterRow}>
+              {RADAR_RADII.map((item) => (
+                <DirectionButton
+                  key={item}
+                  active={radiusNm === item}
+                  label={`${item} NM`}
+                  onPress={() => onRadiusChange(item)}
+                />
+              ))}
+            </View>
+          </FilterSection>
+
+          <View style={styles.metricRow}>
+            <InfoCard label="BLIPS" value={data ? String(data.count) : "..."} />
+            <InfoCard label="SOURCE" value={data?.source?.toUpperCase() || "WAIT"} tone="green" />
+            <InfoCard label="RANGE" value={`${radiusNm} NM`} tone="amber" />
+          </View>
+
+          <RadarScope data={data} onOpenDetail={onOpenDetail} />
+        </>
+      }
+      ListEmptyComponent={
+        loading ? (
+          <ActivityIndicator color={palette.blue} style={styles.loader} />
+        ) : (
+          <Text style={styles.empty}>No radar tracks available for the current range.</Text>
+        )
+      }
+      ItemSeparatorComponent={() => <View style={styles.historyGap} />}
+      showsVerticalScrollIndicator={false}
+    />
   );
 }
 
@@ -394,25 +919,36 @@ function DirectionButton({ active, label, onPress }: { active: boolean; label: s
   );
 }
 
-function PinnedFlight({ row }: { row: FidsRow }) {
+function FilterSection({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <View style={styles.pinnedSection}>
-      <Text style={styles.pinnedLabel}>PINNED</Text>
-      <View style={styles.pinnedCard}>
-        <Text style={styles.pinnedIcon}>DEP</Text>
-        <View style={styles.pinnedInfo}>
-          <Text style={styles.pinnedFlight}>{row.flight_display || row.callsign || "-"}</Text>
-          <Text style={styles.pinnedRoute}>{routeName(row.route_display)} {row.aircraft_type ? `- ${row.aircraft_type}` : ""}</Text>
-        </View>
-        <StatusBadge status={row.status_display} statusClass={row.status_class} />
-      </View>
+    <View style={styles.filterSection}>
+      <Text style={styles.filterLabel}>{title}</Text>
+      {children}
     </View>
   );
 }
 
-function FidsRowView({ row }: { row: FidsRow }) {
+function PinnedFlight({ row, onOpenDetail }: { row: FidsRow; onOpenDetail: (callsign: string) => void }) {
   return (
-    <Pressable style={styles.fidsRow}>
+    <View style={styles.pinnedSection}>
+      <Text style={styles.pinnedLabel}>PINNED</Text>
+      <Pressable style={styles.pinnedCard} onPress={() => onOpenDetail(row.callsign)}>
+        <Text style={styles.pinnedIcon}>DEP</Text>
+        <View style={styles.pinnedInfo}>
+          <Text style={styles.pinnedFlight}>{row.flight_display || row.callsign || "-"}</Text>
+          <Text style={styles.pinnedRoute}>
+            {routeName(row.route_display)} {row.aircraft_type ? `- ${row.aircraft_type}` : ""}
+          </Text>
+        </View>
+        <StatusBadge status={row.status_display} statusClass={row.status_class} />
+      </Pressable>
+    </View>
+  );
+}
+
+function FidsRowView({ row, onOpenDetail }: { row: FidsRow; onOpenDetail: (callsign: string) => void }) {
+  return (
+    <Pressable style={styles.fidsRow} onPress={() => onOpenDetail(row.callsign)}>
       <Text style={styles.fidsTime}>{row.display_time || "--:--"}</Text>
       <Text style={styles.fidsFlight} numberOfLines={1}>{row.flight_display || row.callsign || "-"}</Text>
       <View style={styles.fidsDest}>
@@ -422,6 +958,248 @@ function FidsRowView({ row }: { row: FidsRow }) {
       <StatusBadge status={row.status_display} statusClass={row.status_class} compact />
       <Text style={styles.fidsAircraft} numberOfLines={1}>{row.aircraft_type || "-"}</Text>
     </Pressable>
+  );
+}
+
+function HistoryRow({ row, onOpenDetail }: { row: HistoryFlightRow; onOpenDetail: (callsign: string) => void }) {
+  return (
+    <Pressable style={styles.historyRow} onPress={() => onOpenDetail(row.callsign)}>
+      <View style={styles.historyTimeBox}>
+        <Text style={styles.historyTime}>{formatClock(row.snapshot_ts)}</Text>
+        <Text style={styles.historyDate}>{formatClock(row.sched_time)}</Text>
+      </View>
+
+      <View style={styles.historyMain}>
+        <Text style={styles.historyFlight}>{row.flight_number || row.callsign || "-"}</Text>
+        <Text style={styles.historyRoute} numberOfLines={1}>{historyRouteLabel(row)}</Text>
+        <Text style={styles.historyMeta} numberOfLines={1}>
+          {row.aircraft_type || "Aircraft pending"} {row.gate ? `- Gate ${row.gate}` : ""}
+          {row.delay_minutes ? ` - ${row.delay_minutes}m delay` : ""}
+        </Text>
+      </View>
+
+      <View style={styles.historyTrail}>
+        <Text style={styles.historyDir}>{row.direction}</Text>
+        <StatusBadge status={row.status} statusClass={row.status} compact />
+      </View>
+    </Pressable>
+  );
+}
+
+function RadarBlipRow({ blip, onOpenDetail }: { blip: RadarBlip; onOpenDetail: (callsign: string) => void }) {
+  return (
+    <Pressable style={styles.historyRow} onPress={() => onOpenDetail(blip.callsign)}>
+      <View style={styles.historyTimeBox}>
+        <Text style={styles.historyTime}>{blip.callsign || "TRACK"}</Text>
+        <Text style={styles.historyDate}>{blip.flight_number || "LIVE"}</Text>
+      </View>
+
+      <View style={styles.historyMain}>
+        <Text style={styles.historyFlight}>{blip.status || "Tracked target"}</Text>
+        <Text style={styles.historyRoute} numberOfLines={1}>
+          {formatAltitudeFeet(blip.altitude_m)} - {formatSpeedKnots(blip.speed_ms)}
+        </Text>
+        <Text style={styles.historyMeta} numberOfLines={1}>
+          {formatHeading(blip.heading)} {blip.on_ground ? "- on ground" : ""}
+        </Text>
+      </View>
+
+      <View style={styles.historyTrail}>
+        <Text style={styles.historyDir}>{blip.enriched ? "LIVE" : "RAW"}</Text>
+        <View style={[styles.radarDotLarge, { backgroundColor: radarTone(blip) }]} />
+      </View>
+    </Pressable>
+  );
+}
+
+function RadarScope({
+  data,
+  onOpenDetail
+}: {
+  data: RadarResponse | null;
+  onOpenDetail: (callsign: string) => void;
+}) {
+  const scopeSize = 280;
+  const projected = (data?.blips || [])
+    .map((blip) => data ? projectBlip(blip, data.center, data.radius_nm, scopeSize) : null)
+    .filter((item): item is ProjectedBlip => Boolean(item))
+    .sort((a, b) => a.distanceNm - b.distanceNm);
+
+  return (
+    <View style={styles.scopeCard}>
+      <Text style={styles.scopeTitle}>RADAR SCOPE</Text>
+      <View style={[styles.scopeFrame, { width: scopeSize, height: scopeSize }]}>
+        <View style={styles.scopeRingOuter} />
+        <View style={styles.scopeRingMid} />
+        <View style={styles.scopeRingInner} />
+        <View style={styles.scopeCrossVertical} />
+        <View style={styles.scopeCrossHorizontal} />
+        <View style={styles.scopeCenterDot} />
+
+        {projected.map((item, index) => (
+          <Pressable
+            key={`${item.blip.callsign}-${index}`}
+            style={[styles.scopeDotWrap, { left: item.left, top: item.top }]}
+            onPress={() => onOpenDetail(item.blip.callsign)}
+          >
+            <View style={[styles.scopeDot, { backgroundColor: radarTone(item.blip) }]} />
+            {index < 10 ? (
+              <Text style={styles.scopeLabel} numberOfLines={1}>
+                {item.blip.callsign}
+              </Text>
+            ) : null}
+          </Pressable>
+        ))}
+
+        {!data || projected.length === 0 ? (
+          <View style={styles.scopeEmpty}>
+            <Text style={styles.scopeEmptyText}>No targets in range</Text>
+          </View>
+        ) : null}
+      </View>
+    </View>
+  );
+}
+
+function radarTone(blip: RadarBlip): string {
+  if (blip.on_ground) return palette.amber;
+  if (blip.enriched) return palette.green;
+  return palette.blue2;
+}
+
+function FlightDetailSheet({
+  visible,
+  callsign,
+  detail,
+  history,
+  loading,
+  onClose,
+  onRefresh
+}: {
+  visible: boolean;
+  callsign: string;
+  detail: FlightDetail | null;
+  history: Array<{ date: string; status?: string | null; delay_minutes?: number | null; gate?: string | null }>;
+  loading: boolean;
+  onClose: () => void;
+  onRefresh: () => void;
+}) {
+  return (
+    <Modal visible={visible} animationType="slide" transparent statusBarTranslucent>
+      <View style={styles.sheetBackdrop}>
+        <Pressable style={styles.sheetBackdropPress} onPress={onClose} />
+        <View style={styles.sheetCard}>
+          <View style={styles.sheetHandle} />
+
+          <View style={styles.sheetHeader}>
+            <View style={styles.sheetHeaderText}>
+              <Text style={styles.sheetEyebrow}>FLIGHT DETAIL</Text>
+              <Text style={styles.sheetTitle}>{detail?.flight_number || callsign || "TRACKED FLIGHT"}</Text>
+              <Text style={styles.sheetSubtitle}>{detailRouteLabel(detail, callsign)}</Text>
+            </View>
+
+            <View style={styles.sheetActions}>
+              <Pressable style={styles.sheetAction} onPress={onRefresh}>
+                <Text style={styles.sheetActionText}>REFRESH</Text>
+              </Pressable>
+              <Pressable style={styles.sheetAction} onPress={onClose}>
+                <Text style={styles.sheetActionText}>CLOSE</Text>
+              </Pressable>
+            </View>
+          </View>
+
+          <ScrollView style={styles.sheetScroll} contentContainerStyle={styles.sheetContent}>
+            {loading ? <ActivityIndicator color={palette.blue} style={styles.loader} /> : null}
+
+            {!loading && detail ? (
+              <>
+                <View style={styles.sheetSummary}>
+                  <StatusBadge status={detail.status || "Tracked"} statusClass={detail.status || ""} />
+                  <Text style={styles.sheetSummaryText}>
+                    {detail.airline || "Unknown carrier"} {detail.aircraft_type ? `- ${detail.aircraft_type}` : ""}
+                  </Text>
+                </View>
+
+                <View style={styles.sheetMetricRow}>
+                  <SheetMetric label="SCHEDULED" value={formatDateTime(detail.sched_time)} />
+                  <SheetMetric label="ESTIMATED" value={formatDateTime(detail.est_time)} />
+                </View>
+                <View style={styles.sheetMetricRow}>
+                  <SheetMetric label="ACTUAL" value={formatDateTime(detail.actual_time)} />
+                  <SheetMetric label="DELAY" value={detail.delay_minutes != null ? `${detail.delay_minutes}m` : "-"} />
+                </View>
+                <View style={styles.sheetMetricRow}>
+                  <SheetMetric label="GATE" value={detail.gate || "-"} />
+                  <SheetMetric label="TERMINAL" value={detail.terminal || "-"} />
+                </View>
+
+                <SectionTitle label="TRACK" />
+                <View style={styles.sheetMetricRow}>
+                  <SheetMetric label="ALTITUDE" value={formatAltitudeFeet(detail.position?.altitude_m)} />
+                  <SheetMetric label="SPEED" value={formatSpeedKnots(detail.position?.speed_ms)} />
+                </View>
+                <View style={styles.sheetMetricRow}>
+                  <SheetMetric label="HEADING" value={formatHeading(detail.position?.heading)} />
+                  <SheetMetric label="GROUND" value={detail.position?.on_ground ? "YES" : "NO"} />
+                </View>
+
+                <SectionTitle label="7-DAY HISTORY" />
+                {history.length > 0 ? (
+                  history.map((item) => (
+                    <View key={`${item.date}-${item.status || "status"}`} style={styles.sheetHistoryRow}>
+                      <Text style={styles.sheetHistoryDate}>{item.date}</Text>
+                      <Text style={styles.sheetHistoryStatus}>{item.status || "Tracked"}</Text>
+                      <Text style={styles.sheetHistoryMeta}>
+                        {item.gate ? `Gate ${item.gate}` : "Gate -"}
+                        {item.delay_minutes ? ` - ${item.delay_minutes}m` : ""}
+                      </Text>
+                    </View>
+                  ))
+                ) : (
+                  <Text style={styles.sheetEmpty}>No recent history for this callsign yet.</Text>
+                )}
+              </>
+            ) : null}
+
+            {!loading && !detail ? (
+              <>
+                <Text style={styles.sheetEmpty}>
+                  This flight is not in the current live snapshot. If it flew recently, its history still appears below.
+                </Text>
+                <SectionTitle label="7-DAY HISTORY" />
+                {history.length > 0 ? (
+                  history.map((item) => (
+                    <View key={`${item.date}-${item.status || "status"}`} style={styles.sheetHistoryRow}>
+                      <Text style={styles.sheetHistoryDate}>{item.date}</Text>
+                      <Text style={styles.sheetHistoryStatus}>{item.status || "Tracked"}</Text>
+                      <Text style={styles.sheetHistoryMeta}>
+                        {item.gate ? `Gate ${item.gate}` : "Gate -"}
+                        {item.delay_minutes ? ` - ${item.delay_minutes}m` : ""}
+                      </Text>
+                    </View>
+                  ))
+                ) : (
+                  <Text style={styles.sheetEmpty}>No recent history available.</Text>
+                )}
+              </>
+            ) : null}
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+function SectionTitle({ label }: { label: string }) {
+  return <Text style={styles.sectionTitle}>{label}</Text>;
+}
+
+function SheetMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <View style={styles.sheetMetric}>
+      <Text style={styles.sheetMetricLabel}>{label}</Text>
+      <Text style={styles.sheetMetricValue}>{value}</Text>
+    </View>
   );
 }
 
@@ -460,6 +1238,8 @@ function AdminScreen({
       <InfoCard label="VERSION" value={snapshot.system?.version || APP_VERSION} />
       <InfoCard label="LAST FETCH" value={formatRelative(snapshot.state?.last_success_utc)} tone="amber" />
       <InfoCard label="API BUDGET" value={budget?.remaining != null ? `${budget.remaining} CALLS LEFT` : "UNKNOWN"} />
+      <InfoCard label="PLATFORM" value={snapshot.system?.platform || "UNKNOWN"} />
+      <InfoCard label="MEMORY" value={snapshot.system?.memory_mb != null ? `${snapshot.system.memory_mb} MB` : "-"} />
       {error ? <Text style={styles.errorText}>{error}</Text> : null}
     </View>
   );
@@ -520,11 +1300,11 @@ function ConnectPrompt({ onSettings }: { onSettings: () => void }) {
   );
 }
 
-function PlaceholderScreen({ title, body }: { title: string; body: string }) {
+function ScreenError({ message }: { message: string }) {
   return (
-    <View style={styles.placeholderCard}>
-      <Text style={styles.placeholderTitle}>{title}</Text>
-      <Text style={styles.placeholderBody}>{body}</Text>
+    <View style={styles.errorBanner}>
+      <Text style={styles.errorBannerLabel}>DATA ISSUE</Text>
+      <Text style={styles.errorBannerText}>{message}</Text>
     </View>
   );
 }
@@ -551,7 +1331,7 @@ function BottomNav({ active, onChange }: { active: Screen; onChange: (screen: Sc
   const items: Array<{ id: Screen; icon: string; label: string }> = [
     { id: "fids", icon: "F", label: "FIDS" },
     { id: "radar", icon: "R", label: "RADAR" },
-    { id: "alerts", icon: "A", label: "ALERTS" },
+    { id: "history", icon: "H", label: "HISTORY" },
     { id: "settings", icon: "S", label: "SETTINGS" }
   ];
 
@@ -570,33 +1350,6 @@ function BottomNav({ active, onChange }: { active: Screen; onChange: (screen: Sc
     </View>
   );
 }
-
-const palette = {
-  bg: "#080c12",
-  shell: "#0d1520",
-  header: "#0a1220",
-  line: "#1e3a5a",
-  lineSoft: "rgba(255,255,255,0.05)",
-  row: "rgba(255,255,255,0.022)",
-  rowAlt: "rgba(255,255,255,0.03)",
-  text: "#e8f0fe",
-  textMuted: "#4a7aaa",
-  textDim: "#2a5a8a",
-  blue: "#4a9eda",
-  blue2: "#7ab0d8",
-  green: "#00c040",
-  amber: "#f0b429",
-  red: "#ff6b6b",
-  status: {
-    scheduled: "#4a9eda",
-    departed: "#7ab0d8",
-    boarding: "#00c040",
-    delayed: "#f0b429",
-    cancelled: "#ff6b6b"
-  }
-};
-
-const mono = "Menlo";
 
 const styles = StyleSheet.create({
   safe: {
@@ -780,6 +1533,45 @@ const styles = StyleSheet.create({
     paddingTop: 12,
     paddingBottom: 104
   },
+  errorBanner: {
+    marginHorizontal: 12,
+    marginBottom: 10,
+    padding: 14,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "rgba(255,107,107,0.18)",
+    backgroundColor: "rgba(255,107,107,0.08)"
+  },
+  errorBannerLabel: {
+    fontFamily: mono,
+    color: palette.red,
+    fontSize: 10,
+    fontWeight: "700",
+    letterSpacing: 1.2
+  },
+  errorBannerText: {
+    marginTop: 5,
+    color: palette.text,
+    fontSize: 12,
+    lineHeight: 18
+  },
+  filterSection: {
+    paddingHorizontal: 12,
+    paddingBottom: 10
+  },
+  filterLabel: {
+    paddingHorizontal: 10,
+    marginBottom: 6,
+    fontFamily: mono,
+    color: palette.textDim,
+    fontSize: 8,
+    letterSpacing: 2,
+    fontWeight: "700"
+  },
+  filterRow: {
+    flexDirection: "row",
+    gap: 8
+  },
   dirToggle: {
     flexDirection: "row",
     marginHorizontal: 22,
@@ -809,6 +1601,12 @@ const styles = StyleSheet.create({
   },
   dirButtonTextActive: {
     color: palette.blue
+  },
+  metricRow: {
+    flexDirection: "row",
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingBottom: 12
   },
   pinnedSection: {
     paddingHorizontal: 12,
@@ -872,7 +1670,7 @@ const styles = StyleSheet.create({
     textAlign: "right",
     flex: 0.48
   },
-  fidsList: {
+  fidsListItem: {
     paddingHorizontal: 12
   },
   fidsRow: {
@@ -921,6 +1719,166 @@ const styles = StyleSheet.create({
     fontFamily: mono,
     color: "#2a4a6a",
     fontSize: 9
+  },
+  historyGap: {
+    height: 8
+  },
+  historyRow: {
+    flexDirection: "row",
+    gap: 12,
+    marginHorizontal: 12,
+    padding: 14,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.05)",
+    backgroundColor: palette.row
+  },
+  historyTimeBox: {
+    width: 68
+  },
+  historyTime: {
+    fontFamily: mono,
+    color: palette.text,
+    fontSize: 13,
+    fontWeight: "700"
+  },
+  historyDate: {
+    marginTop: 4,
+    fontFamily: mono,
+    color: palette.textDim,
+    fontSize: 10
+  },
+  historyMain: {
+    flex: 1,
+    minWidth: 0
+  },
+  historyFlight: {
+    color: palette.text,
+    fontSize: 14,
+    fontWeight: "700"
+  },
+  historyRoute: {
+    marginTop: 3,
+    color: palette.blue2,
+    fontSize: 12,
+    fontWeight: "600"
+  },
+  historyMeta: {
+    marginTop: 4,
+    color: palette.textMuted,
+    fontSize: 11
+  },
+  historyTrail: {
+    alignItems: "flex-end",
+    gap: 8
+  },
+  historyDir: {
+    fontFamily: mono,
+    color: palette.textDim,
+    fontSize: 9,
+    letterSpacing: 1
+  },
+  scopeCard: {
+    marginHorizontal: 12,
+    marginBottom: 12,
+    padding: 18,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: "rgba(74,158,218,0.14)",
+    backgroundColor: "rgba(9,15,23,0.88)"
+  },
+  scopeTitle: {
+    marginBottom: 12,
+    fontFamily: mono,
+    color: palette.blue,
+    fontSize: 11,
+    fontWeight: "700",
+    letterSpacing: 1.3
+  },
+  scopeFrame: {
+    alignSelf: "center",
+    justifyContent: "center",
+    alignItems: "center",
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "rgba(74,158,218,0.18)",
+    backgroundColor: "rgba(0,0,0,0.18)",
+    overflow: "hidden"
+  },
+  scopeRingOuter: {
+    position: "absolute",
+    width: "100%",
+    height: "100%",
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "rgba(74,158,218,0.12)"
+  },
+  scopeRingMid: {
+    position: "absolute",
+    width: "66%",
+    height: "66%",
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "rgba(74,158,218,0.10)"
+  },
+  scopeRingInner: {
+    position: "absolute",
+    width: "33%",
+    height: "33%",
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "rgba(74,158,218,0.08)"
+  },
+  scopeCrossVertical: {
+    position: "absolute",
+    width: 1,
+    top: 0,
+    bottom: 0,
+    backgroundColor: "rgba(74,158,218,0.12)"
+  },
+  scopeCrossHorizontal: {
+    position: "absolute",
+    height: 1,
+    left: 0,
+    right: 0,
+    backgroundColor: "rgba(74,158,218,0.12)"
+  },
+  scopeCenterDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 999,
+    backgroundColor: palette.blue
+  },
+  scopeDotWrap: {
+    position: "absolute"
+  },
+  scopeDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 999
+  },
+  scopeLabel: {
+    position: "absolute",
+    left: 12,
+    top: -4,
+    width: 72,
+    fontFamily: mono,
+    color: palette.text,
+    fontSize: 9
+  },
+  scopeEmpty: {
+    position: "absolute",
+    alignItems: "center",
+    justifyContent: "center"
+  },
+  scopeEmptyText: {
+    color: palette.textMuted,
+    fontSize: 12
+  },
+  radarDotLarge: {
+    width: 10,
+    height: 10,
+    borderRadius: 999
   },
   statusBadge: {
     maxWidth: 92,
@@ -985,6 +1943,7 @@ const styles = StyleSheet.create({
     gap: 8
   },
   infoCard: {
+    flex: 1,
     padding: 14,
     borderRadius: 12,
     borderWidth: 1,
@@ -1077,26 +2036,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 18
   },
-  placeholderCard: {
-    marginHorizontal: 12,
-    padding: 18,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: "rgba(74,158,218,0.14)",
-    backgroundColor: palette.row
-  },
-  placeholderTitle: {
-    fontFamily: mono,
-    color: palette.blue,
-    fontSize: 18,
-    fontWeight: "700"
-  },
-  placeholderBody: {
-    marginTop: 8,
-    color: palette.textMuted,
-    fontSize: 13,
-    lineHeight: 20
-  },
   bottomNav: {
     position: "absolute",
     left: 0,
@@ -1153,6 +2092,163 @@ const styles = StyleSheet.create({
     marginLeft: -65,
     borderRadius: 3,
     backgroundColor: "rgba(255,255,255,0.25)"
+  },
+  sheetBackdrop: {
+    flex: 1,
+    justifyContent: "flex-end",
+    backgroundColor: "rgba(0,0,0,0.48)"
+  },
+  sheetBackdropPress: {
+    flex: 1
+  },
+  sheetCard: {
+    minHeight: "62%",
+    maxHeight: "88%",
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    borderWidth: 1,
+    borderColor: "rgba(74,158,218,0.16)",
+    backgroundColor: "#0b121c",
+    paddingTop: 10
+  },
+  sheetHandle: {
+    alignSelf: "center",
+    width: 54,
+    height: 5,
+    borderRadius: 999,
+    backgroundColor: "rgba(255,255,255,0.18)"
+  },
+  sheetHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    gap: 12,
+    paddingHorizontal: 18,
+    paddingTop: 16,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(255,255,255,0.05)"
+  },
+  sheetHeaderText: {
+    flex: 1,
+    minWidth: 0
+  },
+  sheetEyebrow: {
+    fontFamily: mono,
+    color: palette.textDim,
+    fontSize: 9,
+    fontWeight: "700",
+    letterSpacing: 1.4
+  },
+  sheetTitle: {
+    marginTop: 4,
+    color: palette.text,
+    fontSize: 20,
+    fontWeight: "800"
+  },
+  sheetSubtitle: {
+    marginTop: 4,
+    color: palette.textMuted,
+    fontSize: 12
+  },
+  sheetActions: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8
+  },
+  sheetAction: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "rgba(74,158,218,0.18)",
+    backgroundColor: "rgba(74,158,218,0.08)"
+  },
+  sheetActionText: {
+    fontFamily: mono,
+    color: palette.blue2,
+    fontSize: 10,
+    fontWeight: "700",
+    letterSpacing: 1
+  },
+  sheetScroll: {
+    flex: 1
+  },
+  sheetContent: {
+    padding: 18,
+    paddingBottom: 36
+  },
+  sheetSummary: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginBottom: 16
+  },
+  sheetSummaryText: {
+    flex: 1,
+    color: palette.textMuted,
+    fontSize: 12
+  },
+  sheetMetricRow: {
+    flexDirection: "row",
+    gap: 10,
+    marginBottom: 10
+  },
+  sheetMetric: {
+    flex: 1,
+    padding: 14,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.05)",
+    backgroundColor: "rgba(255,255,255,0.025)"
+  },
+  sheetMetricLabel: {
+    fontFamily: mono,
+    color: palette.textDim,
+    fontSize: 9,
+    fontWeight: "700",
+    letterSpacing: 1.2
+  },
+  sheetMetricValue: {
+    marginTop: 6,
+    color: palette.text,
+    fontSize: 14,
+    fontWeight: "700"
+  },
+  sectionTitle: {
+    marginTop: 8,
+    marginBottom: 10,
+    fontFamily: mono,
+    color: palette.blue,
+    fontSize: 10,
+    fontWeight: "700",
+    letterSpacing: 1.4
+  },
+  sheetHistoryRow: {
+    paddingVertical: 10,
+    borderTopWidth: 1,
+    borderTopColor: "rgba(255,255,255,0.05)"
+  },
+  sheetHistoryDate: {
+    fontFamily: mono,
+    color: palette.text,
+    fontSize: 12,
+    fontWeight: "700"
+  },
+  sheetHistoryStatus: {
+    marginTop: 3,
+    color: palette.blue2,
+    fontSize: 12,
+    fontWeight: "600"
+  },
+  sheetHistoryMeta: {
+    marginTop: 3,
+    color: palette.textMuted,
+    fontSize: 11
+  },
+  sheetEmpty: {
+    color: palette.textMuted,
+    fontSize: 12,
+    lineHeight: 18
   }
 });
 

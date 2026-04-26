@@ -26,7 +26,9 @@ PANEL_W       = 256               # total width (2x 128px panels chained)
 PANEL_H       = 64                # panel height
 MAX_ROWS      = 4                 # flight rows to display
 REFRESH_S     = 60                # fetch interval in seconds
+PING_S        = 600               # ping server every 10 min
 BRIGHTNESS    = 0.8               # 0.0 – 1.0
+CLIENT_VER    = "1.0"
 # ──────────────────────────────────────────────────────────────────────────────
 
 import time
@@ -163,7 +165,7 @@ def ensure_wifi():
         return connect_wifi()
     return True
 
-# ── API fetch ──────────────────────────────────────────────────────────────────
+# ── API helpers ────────────────────────────────────────────────────────────────
 def fetch_fids(view="departures", limit=4):
     url = f"http://{API_HOST}:{API_PORT}/api/fids?view={view}&limit={limit}"
     try:
@@ -176,6 +178,15 @@ def fetch_fids(view="departures", limit=4):
     except Exception as e:
         print(f"Fetch error: {e}")
     return []
+
+
+def ping_server():
+    url = f"http://{API_HOST}:{API_PORT}/api/admin/ping?device=matrix&version={CLIENT_VER}"
+    try:
+        resp = urequests.post(url, timeout=5)
+        resp.close()
+    except Exception as e:
+        print(f"Ping error: {e}")
 
 # ── Drawing helpers ────────────────────────────────────────────────────────────
 def _draw_message(msg, color=WHITE):
@@ -236,6 +247,7 @@ def main():
     flight_data = []
     flap_rows   = [FlapRow(ROW_LEN) for _ in range(MAX_ROWS)]
     last_fetch  = 0
+    last_ping   = 0
     force_fetch = True
 
     i75.set_led(0, 100, 0)  # green LED = running
@@ -244,6 +256,9 @@ def main():
         i75.set_led(100, 0, 0)
         _draw_message("No WiFi. Retrying...", RED)
         time.sleep(5)
+    else:
+        ping_server()
+        last_ping = time.time()
 
     while True:
         now = time.time()
@@ -263,6 +278,12 @@ def main():
         elif b and view != "arrivals":
             view        = "arrivals"
             force_fetch = True
+
+        # ── Periodic ping ─────────────────────────────────────────────────────
+        if now - last_ping >= PING_S:
+            if ensure_wifi():
+                ping_server()
+            last_ping = now
 
         # ── Fetch ─────────────────────────────────────────────────────────────
         if force_fetch or (now - last_fetch >= REFRESH_S):

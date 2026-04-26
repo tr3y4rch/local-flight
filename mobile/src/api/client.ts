@@ -3,9 +3,14 @@ import type {
   AppConfig,
   AppState,
   Budget,
+  FidsDetailResponse,
   FidsRow,
+  FlightHistoryResponse,
   FlightView,
-  Metar
+  HistoryDirection,
+  HistoryResponse,
+  Metar,
+  RadarResponse
 } from "./types";
 
 export class LocalFlightApiError extends Error {
@@ -77,6 +82,55 @@ export function getFids(
   return fetchJson<FidsRow[]>(
     serverUrl,
     `/api/fids?view=${encodeURIComponent(view)}&limit=${limit}`
+  );
+}
+
+export function getFidsDetail(
+  serverUrl: string,
+  callsign: string
+): Promise<FidsDetailResponse> {
+  return fetchJson<FidsDetailResponse>(
+    serverUrl,
+    `/api/fids/detail?callsign=${encodeURIComponent(callsign)}`
+  );
+}
+
+export function getHistory(
+  serverUrl: string,
+  {
+    hours = 24,
+    direction = "both",
+    limit = 100
+  }: {
+    hours?: number;
+    direction?: HistoryDirection;
+    limit?: number;
+  } = {}
+): Promise<HistoryResponse> {
+  return fetchJson<HistoryResponse>(
+    serverUrl,
+    `/api/history?hours=${hours}&direction=${encodeURIComponent(direction)}&limit=${limit}`
+  );
+}
+
+export function getHistoryFlight(
+  serverUrl: string,
+  callsign: string,
+  days = 7
+): Promise<FlightHistoryResponse> {
+  return fetchJson<FlightHistoryResponse>(
+    serverUrl,
+    `/api/history/flight?callsign=${encodeURIComponent(callsign)}&days=${days}`
+  );
+}
+
+export function getRadar(
+  serverUrl: string,
+  radiusNm = 20
+): Promise<RadarResponse> {
+  return fetchJson<RadarResponse>(
+    serverUrl,
+    `/api/radar?radius_nm=${radiusNm}`
   );
 }
 

@@ -78,21 +78,19 @@ else
 fi
 
 chmod +x "$ROOT/installers/macos/LocalFlight.command" "$ROOT/installers/macos/start.sh"
-echo " Launchers ready"
 
-SYMLINK="$HOME/Applications/LocalFlight.command"
-if [ ! -e "$SYMLINK" ]; then
-    mkdir -p "$HOME/Applications"
-    ln -sf "$ROOT/installers/macos/LocalFlight.command" "$SYMLINK"
-    echo " Shortcut created in ~/Applications"
-fi
+echo " Building LocalFlight.app..."
+mkdir -p "$HOME/Applications"
+"$VENV/bin/python" "$ROOT/scripts/make_app_bundle.py" \
+    "$ROOT" "$VENV" "$HOME/Applications"
+echo " Done"
 
 echo ""
 echo " =========================================="
 echo "   Installation complete"
 echo " =========================================="
 echo ""
-echo " Start from Finder:  ~/Applications/LocalFlight.command"
+echo " Start from Finder:  ~/Applications/LocalFlight.app"
 echo " Start from shell:   bash installers/macos/start.sh"
 echo " The setup wizard will guide you through first launch."
 echo ""

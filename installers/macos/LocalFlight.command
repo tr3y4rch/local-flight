@@ -2,7 +2,10 @@
 # Local Flight - macOS source launcher.
 # Double-click this file in Finder after running installers/macos/install.sh.
 
-ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+# Resolve symlink so ROOT is correct when launched via ~/Applications shortcut.
+_SELF="$(readlink "$0" 2>/dev/null)"
+[ -z "$_SELF" ] && _SELF="$0"
+ROOT="$(cd "$(dirname "$_SELF")/../.." && pwd)"
 VENV="$ROOT/.venv"
 
 if [ ! -x "$VENV/bin/python" ]; then
