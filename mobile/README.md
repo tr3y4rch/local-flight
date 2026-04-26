@@ -1,8 +1,10 @@
 # Local Flight Companion
 
-Phase 1 iOS-first React Native companion app for Local Flight. Companion build: `0.2.2b1`.
+Phase 1 React Native / Expo companion app for Local Flight. Companion build: `0.2.2b2`.
 
-The Python/FastAPI app remains the server of record. This mobile app is a LAN client that reads Local Flight APIs, listens for WebSocket updates, and starts with a native version of the airport-board iOS mockup.
+The mobile companion is **work in progress**. It is a developer preview, not a public App Store, TestFlight, Play Store, or APK release yet. A polished iOS and Android companion will follow later.
+
+The Python/FastAPI app remains the server of record. This mobile app is a LAN client that reads Local Flight APIs, listens for WebSocket updates, and starts with a native version of the airport-board mockup.
 
 ## Requirements
 
@@ -19,6 +21,7 @@ Expo SDK 55 targets React Native 0.83 and React 19.2. Run `npx expo install --fi
 cd mobile
 npm install
 npx expo install --fix
+npm run doctor
 npm run ios
 ```
 
@@ -41,15 +44,24 @@ Do not use `localhost` on a physical iPhone. `localhost` means the phone itself,
 
 - Store the Local Flight server URL on-device with SecureStore
 - Connection test against `/api/health`
-- Dashboard data from `/api/admin/system`, `/api/config`, `/api/health`, `/api/admin/budget`, and `/api/metar`
+- Dashboard data from `/api/admin/system`, `/api/config`, `/api/health`, `/api/admin/budget`, `/api/admin/connections`, `/api/admin/updates`, and `/api/metar`
 - Native FIDS list from `/api/fids`
-- Mockup-inspired shell: pseudo status bar/dynamic island, airport badge, live pill, METAR strip, FIDS tabs, pinned flight card, compact board rows, and bottom nav
-- WebSocket listener for `/ws` `snapshot_updated` events
+- Mockup-inspired shell: Flight Island, airport/live header, METAR strip, FIDS tabs, pinned flight, compact board rows, and four-item bottom nav
+- Settings tools for airport/source/update interval, Matrix preview, Admin, scheduler restart, feedback, and Buy Me a Coffee
+- WebSocket listener for `/ws` `snapshot_updated`, `config_updated`, and `scheduler_restarted` events
 - Responsive iPhone/iPad layout foundation
+
+## Not Yet
+
+- Public iOS release
+- Public Android release
+- QR pairing and per-device tokens
+- Production-ready admin permission model
 
 ## Next
 
-- QR pairing and per-device tokens before mutating admin controls
+- QR pairing and per-device tokens before broader mutating admin controls
+- Android test pass after the iOS companion stabilizes
 - Real navigation stack once more screens exist
 - iPad display mode with keep-awake
 - Native radar using `react-native-svg`

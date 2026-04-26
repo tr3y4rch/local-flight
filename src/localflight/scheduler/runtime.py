@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+import threading
 from dataclasses import asdict
 from datetime import datetime, timezone
 from typing import Any, Callable, List, Optional
@@ -25,12 +26,17 @@ def run_loop(
     *,
     once: bool = False,
     source_name: str = "unknown",
+    stop_event: Optional[threading.Event] = None,
 ) -> None:
     logger = setup_logging()
     logger.info("Session started | component=runtime | source=%s", source_name)
     last_cfg: Optional[dict] = None
 
     while True:
+        if stop_event and stop_event.is_set():
+            logger.info("Scheduler stop requested before next cycle | source=%s", source_name)
+            return
+
         cfg      = load_config()
         cfg_dict = asdict(cfg)
 
@@ -116,7 +122,12 @@ def run_loop(
 
         elapsed = time.time() - t0
         sleep_s = max(1, cfg.refresh_seconds - int(elapsed))
-        time.sleep(sleep_s)
+        if stop_event:
+            if stop_event.wait(sleep_s):
+                logger.info("Scheduler stop requested during sleep | source=%s", source_name)
+                return
+        else:
+            time.sleep(sleep_s)
 
 
 def run_multi_airport(

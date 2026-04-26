@@ -2,17 +2,34 @@
   "expo": {
     "name": "Local Flight Companion",
     "slug": "localflight-companion",
-    "version": "0.2.2",
+    "version": "0.2.2b2",
     "scheme": "localflight",
     "orientation": "default",
     "userInterfaceStyle": "dark",
+    "icon": "./assets/icon_circle.png",
     "platforms": ["ios", "android"],
+    "plugins": [
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#080c12",
+          "image": "./assets/icon_circle.png",
+          "imageWidth": 172,
+          "resizeMode": "contain",
+          "dark": {
+            "backgroundColor": "#080c12",
+            "image": "./assets/icon_circle.png"
+          }
+        }
+      ]
+    ],
     "ios": {
       "bundleIdentifier": "com.localflight.companion",
       "supportsTablet": true,
       "infoPlist": {
         "NSLocalNetworkUsageDescription": "Local Flight Companion connects to your Local Flight server on your local network.",
         "NSBonjourServices": ["_http._tcp"],
+        "NSSupportsLiveActivities": true,
         "NSAppTransportSecurity": {
           "NSAllowsArbitraryLoads": true
         }
@@ -23,7 +40,7 @@
     },
     "extra": {
       "localFlightServerHint": "http://192.168.1.10:8000",
-      "localFlightVersion": "0.2.2b1"
+      "localFlightVersion": "0.2.2b2"
     }
   }
 }

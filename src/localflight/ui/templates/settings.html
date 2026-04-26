@@ -101,6 +101,12 @@
     {% if state.last_error %}
       <p class="err"><b>Last error:</b> {{ state.last_error }}</p>
     {% endif %}
+    <div class="row" style="margin-top:14px;align-items:center;">
+      <button type="button" id="restartSchedulerBtn" onclick="restartSchedulerNow()">Restart scheduler</button>
+      <span id="restartSchedulerMsg" class="dim" style="font-size:0.82rem;">
+        Reloads config and starts a fresh fetch cycle.
+      </span>
+    </div>
   </section>
 
   <!-- PROFILES -->
@@ -423,6 +429,29 @@ async function confirmReset() {
     if (r.ok) { window.location.href = "/setup"; }
     else { alert("Reset failed — check logs."); }
   } catch { alert("Network error."); }
+}
+
+async function restartSchedulerNow() {
+  const btn = document.getElementById("restartSchedulerBtn");
+  const msg = document.getElementById("restartSchedulerMsg");
+  if (!btn || !msg) return;
+
+  btn.disabled = true;
+  msg.textContent = "Restarting scheduler...";
+  try {
+    const r = await fetch("/api/admin/scheduler/restart", { method: "POST" });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok || data.ok === false) {
+      msg.textContent = data.message || "Scheduler restart is still in progress.";
+    } else {
+      msg.textContent = data.message || "Scheduler restarted.";
+      setTimeout(() => window.location.reload(), 1200);
+    }
+  } catch {
+    msg.textContent = "Network error while restarting scheduler.";
+  } finally {
+    btn.disabled = false;
+  }
 }
 </script>
 {% endblock %}

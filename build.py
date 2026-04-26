@@ -4,7 +4,7 @@ Build Local Flight for the current platform.
 
 Produces:
   Windows  -> dist/LocalFlight/ + dist/LocalFlight-windows.zip + .sha256
-  macOS    -> dist/LocalFlight.app
+  macOS    -> dist/LocalFlight.app + dist/LocalFlight-macos.zip + .sha256
 
 Usage:
     python build.py           # build
@@ -16,6 +16,7 @@ import subprocess
 import sys
 import shutil
 import hashlib
+import os
 from pathlib import Path
 
 ROOT   = Path(__file__).parent
@@ -140,12 +141,15 @@ def _sign_macos(app: Path) -> None:
         print("  Gatekeeper note: users must right-click → Open on first launch")
         return
     try:
-        subprocess.run([
+        cmd = [
             "codesign", "--deep", "--force", "--options", "runtime",
             "--sign", identity,
-            "--entitlements", str(ROOT / "assets" / "entitlements.plist"),
-            str(app),
-        ], check=True)
+        ]
+        entitlements = ROOT / "assets" / "entitlements.plist"
+        if entitlements.exists():
+            cmd.extend(["--entitlements", str(entitlements)])
+        cmd.append(str(app))
+        subprocess.run(cmd, check=True)
         print(f"  Signed: {app.name}")
     except Exception as e:
         print(f"  codesign failed (non-fatal): {e}")
@@ -157,7 +161,7 @@ def _sign_macos(app: Path) -> None:
         return
     try:
         zip_path = app.parent / "LocalFlight-notarize.zip"
-        subprocess.run(["ditto", "-c", "-k", "--keepParent", str(app), str(zip_path)], check=True)
+        subprocess.run(["ditto", "-c", "-k", "--keepParent", "--norsrc", str(app), str(zip_path)], check=True)
         subprocess.run([
             "xcrun", "notarytool", "submit", str(zip_path),
             "--keychain-profile", profile,
@@ -177,6 +181,25 @@ def _write_sha256(path: Path) -> Path:
     checksum_path = path.with_suffix(path.suffix + ".sha256")
     checksum_path.write_text(f"{digest}  {path.name}\n", encoding="ascii")
     return checksum_path
+
+
+def _archive_macos_app(app: Path) -> Path:
+    """
+    Zip the .app bundle for GitHub Releases.
+    Prefer zip with COPYFILE_DISABLE to avoid AppleDouble ._ sidecars while
+    preserving symlinks; fall back to ditto/shutil if zip is unavailable.
+    """
+    zip_path = app.parent / "LocalFlight-macos.zip"
+    zip_path.unlink(missing_ok=True)
+    if shutil.which("zip"):
+        env = os.environ.copy()
+        env["COPYFILE_DISABLE"] = "1"
+        subprocess.run(["zip", "-qry", zip_path.name, app.name], cwd=app.parent, env=env, check=True)
+        return zip_path
+    if shutil.which("ditto"):
+        subprocess.run(["ditto", "-c", "-k", "--keepParent", "--norsrc", str(app), str(zip_path)], check=True)
+        return zip_path
+    return Path(shutil.make_archive(str(zip_path.with_suffix("")), "zip", app.parent, app.name))
 
 
 def main() -> None:
@@ -213,9 +236,14 @@ def main() -> None:
         print(f"Checksum: {checksum_path.relative_to(ROOT)}")
         print("Distribute: unzip, then double-click LocalFlight.exe")
     elif sys.platform == "darwin":
-        _sign_macos(dist / "LocalFlight.app")
+        app = dist / "LocalFlight.app"
+        _sign_macos(app)
+        zip_path = _archive_macos_app(app)
+        checksum_path = _write_sha256(zip_path)
         print(f"\nDone: dist/LocalFlight.app")
-        print("Distribute: drag LocalFlight.app to /Applications")
+        print(f"Release zip: {zip_path.relative_to(ROOT)}")
+        print(f"Checksum: {checksum_path.relative_to(ROOT)}")
+        print("Distribute: upload the zip; users unzip, then drag LocalFlight.app to /Applications")
     else:
         print(f"\nDone: dist/LocalFlight/")
 

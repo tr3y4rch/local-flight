@@ -54,7 +54,7 @@ def _app_version() -> str:
         return "unknown"
 
 
-def _system_context() -> str:
+def _system_context(client_context: str = "") -> str:
     try:
         from localflight.storage.config import load_config
         cfg = load_config()
@@ -64,13 +64,17 @@ def _system_context() -> str:
         airport = "?"
         source  = "?"
 
-    return (
+    text = (
         f"- **Version:** {_app_version()}\n"
-        f"- **Platform:** {platform.system()} {platform.release()}\n"
+        f"- **Server platform:** {platform.system()} {platform.release()}\n"
         f"- **Python:** {sys.version.split()[0]}\n"
         f"- **Airport:** {airport}\n"
         f"- **Source:** {source}\n"
     )
+    if client_context.strip():
+        text += "\n**Reporter environment**\n"
+        text += client_context.strip()[:1600] + "\n"
+    return text
 
 
 # ── Crash report deduplication ────────────────────────────────────────────────
@@ -144,6 +148,7 @@ def submit_crash(
     error_msg: str,
     traceback_str: str = "",
     context: str = "app",
+    client_context: str = "",
 ) -> dict:
     """
     Auto-file a crash/error report to the developer's Linear.
@@ -157,6 +162,8 @@ def submit_crash(
         title = f"[Auto] {context} — {error_msg[:80]}"
 
         body = f"**Context:** `{context}`\n\n"
+        if client_context.strip():
+            body += f"**Reporter environment:**\n```\n{client_context.strip()[:1200]}\n```\n\n"
         body += f"**Error:**\n```\n{error_msg[:300]}\n```\n"
         if traceback_str:
             body += f"\n**Traceback:**\n```\n{traceback_str[-1200:]}\n```\n"
@@ -172,7 +179,7 @@ def submit_crash(
         return {"ok": False, "error": str(exc)}
 
 
-def submit_report(title: str, description: str = "") -> dict:
+def submit_report(title: str, description: str = "", client_context: str = "") -> dict:
     """
     File a user-submitted bug report / feedback issue in the developer's Linear board.
 
@@ -187,7 +194,7 @@ def submit_report(title: str, description: str = "") -> dict:
     full_description = ""
     if description.strip():
         full_description += description.strip() + "\n\n"
-    full_description += "---\n**System info**\n" + _system_context()
+    full_description += "---\n**System info**\n" + _system_context(client_context)
 
     try:
         resp = requests.post(

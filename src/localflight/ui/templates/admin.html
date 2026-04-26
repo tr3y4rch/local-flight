@@ -404,6 +404,27 @@
   }
 
   refreshAll();
+  function handleSyncMessage(raw) {
+    try {
+      const msg = typeof raw === "string" ? JSON.parse(raw) : raw;
+      if (msg.type === "snapshot_updated" || msg.type === "config_updated" || msg.type === "scheduler_restarted") {
+        refreshAll();
+      }
+    } catch {}
+  }
+
+  function connectWS() {
+    const proto = location.protocol === "https:" ? "wss" : "ws";
+    const ws = new WebSocket(`${proto}://${location.host}/ws`);
+    let retryMs = 1000;
+    ws.onmessage = (e) => handleSyncMessage(e.data);
+    ws.onclose = ws.onerror = () => {
+      setTimeout(connectWS, Math.min(retryMs, 30000));
+      retryMs = Math.min(retryMs * 2, 30000);
+    };
+  }
+
+  connectWS();
   setInterval(refreshAll, 10000);
   setInterval(loadMiniLog, 5000);
 })();

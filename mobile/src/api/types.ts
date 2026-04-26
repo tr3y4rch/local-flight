@@ -32,6 +32,31 @@ export type AdminSystem = {
   snapshot_dir?: string | null;
 };
 
+export type AdminConnections = {
+  count: number;
+  matrix_last_seen?: string | null;
+};
+
+export type AdminUpdates = {
+  current: string;
+  latest?: string | null;
+  update_available: boolean;
+  url?: string | null;
+  error?: string | null;
+};
+
+export type SchedulerRestartResponse = {
+  ok: boolean;
+  status: string;
+  message?: string;
+  running?: boolean;
+  started?: boolean;
+  was_running?: boolean;
+  generation?: number;
+  started_at?: string | null;
+  thread_name?: string | null;
+};
+
 export type Budget = {
   aviationstack?: {
     enabled?: boolean;
@@ -179,10 +204,29 @@ export type RadarResponse = {
   blips: RadarBlip[];
 };
 
+export type AirportResult = {
+  iata: string;
+  icao: string;
+  name: string;
+  city: string;
+  country: string;
+  type: string;
+};
+
+export type ConfigPatch = {
+  airport_iata?: string;
+  airport_icao?: string;
+  source?: "real" | "virtual";
+  refresh_seconds?: number;
+  display_name?: string;
+};
+
 export type DashboardSnapshot = {
   config: AppConfig | null;
   state: AppState | null;
   system: AdminSystem | null;
+  connections: AdminConnections | null;
+  updates: AdminUpdates | null;
   budget: Budget | null;
   metar: Metar | null;
 };

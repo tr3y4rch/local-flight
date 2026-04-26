@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Local Flight Preview Gallery</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #080c12;
+      --panel: #101720;
+      --line: #263445;
+      --text: #e7edf3;
+      --muted: #8192a6;
+      --accent: #4a9eda;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background:
+        radial-gradient(circle at top left, rgba(74, 158, 218, 0.18), transparent 34rem),
+        linear-gradient(135deg, #080c12, #111820);
+      color: var(--text);
+      font-family: Inter, Segoe UI, Helvetica, Arial, sans-serif;
+      padding: 40px 18px;
+    }
+    main {
+      width: min(1180px, 100%);
+      margin: 0 auto;
+    }
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+      gap: 18px;
+      margin-bottom: 24px;
+    }
+    h1 {
+      margin: 0 0 8px;
+      font-size: clamp(30px, 6vw, 58px);
+      letter-spacing: -0.06em;
+    }
+    p {
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.55;
+      max-width: 760px;
+    }
+    code {
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.04);
+      border-radius: 8px;
+      padding: 2px 6px;
+      color: #bfe3ff;
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      border: 1px solid rgba(74, 158, 218, 0.34);
+      background: rgba(74, 158, 218, 0.1);
+      border-radius: 999px;
+      padding: 8px 12px;
+      color: #bfe3ff;
+      font: 700 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      white-space: nowrap;
+    }
+    .dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: #22c55e;
+      box-shadow: 0 0 14px #22c55e;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 18px;
+    }
+    .card {
+      border: 1px solid var(--line);
+      background: rgba(16, 23, 32, 0.72);
+      border-radius: 24px;
+      padding: 12px;
+      box-shadow: 0 24px 70px rgba(0,0,0,0.34);
+    }
+    .card img {
+      display: block;
+      width: 100%;
+      height: auto;
+      border-radius: 18px;
+    }
+    .caption {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 6px 2px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .caption strong { color: var(--text); }
+    @media (max-width: 900px) {
+      header { display: block; }
+      .badge { margin-top: 16px; }
+      .grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div>
+        <h1>Local Flight Preview Gallery</h1>
+        <p>
+          Lightweight illustrative previews for the README. They use sample data so the
+          repository has useful example pictures even when the server is not running.
+          Open the real app for live data from <code>/api/fids</code>, <code>/api/radar</code>,
+          and <code>/settings</code>.
+        </p>
+      </div>
+      <div class="badge"><span class="dot"></span> SAMPLE DATA</div>
+    </header>
+
+    <section class="grid" aria-label="Local Flight preview images">
+      <article class="card">
+        <img src="fids-preview.svg" alt="Local Flight FIDS preview">
+        <div class="caption"><strong>FIDS</strong><span>Airport board</span></div>
+      </article>
+      <article class="card">
+        <img src="radar-preview.svg" alt="Local Flight radar preview">
+        <div class="caption"><strong>Radar</strong><span>Live traffic view</span></div>
+      </article>
+      <article class="card">
+        <img src="settings-preview.svg" alt="Local Flight settings preview">
+        <div class="caption"><strong>Settings</strong><span>Desktop controls</span></div>
+      </article>
+    </section>
+  </main>
+</body>
+</html>

@@ -24,7 +24,6 @@ Pipeline for "real":
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
 from typing import List, Optional
 
 from localflight.core.models import Flight
@@ -65,15 +64,13 @@ def _broadcast_update(flights: List[Flight], cfg: AppConfig) -> None:
     Non-fatal — broadcast failure never stops the scheduler.
     """
     try:
-        import localflight.ui.server as server_module
-        manager = getattr(server_module, "_ws_manager", None)
-        if manager is None:
-            return
-        manager.notify("snapshot_updated", {
+        from localflight.ui.events import _utc_now, notify_clients
+
+        notify_clients("snapshot_updated", {
             "airport_iata": cfg.airport_iata,
             "flight_count": len(flights),
             "source":       cfg.source,
-            "updated_at":   datetime.now(timezone.utc).isoformat(),
+            "updated_at":   _utc_now(),
         })
         log.debug("WS broadcast: snapshot_updated for %s (%d flights)", cfg.airport_iata, len(flights))
     except Exception as exc:

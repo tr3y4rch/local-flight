@@ -256,6 +256,14 @@
     };
 
     ws.onmessage = (e) => {
+      try {
+        const msg = JSON.parse(e.data);
+        if (msg.type === "config_updated") {
+          window.location.reload();
+          return;
+        }
+      } catch {}
+
       // Forward the raw message to both iframes so they refresh themselves
       const fidsWin  = document.getElementById("iframeFids")?.contentWindow;
       const radarWin = document.getElementById("iframeRadar")?.contentWindow;

@@ -11,7 +11,7 @@ from dataclasses import asdict
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Literal, Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from localflight.core.airports import _load_index, lookup_airport
@@ -281,17 +281,25 @@ def api_get_config() -> Dict[str, Any]:
 
 
 @router.patch("/api/config")
-def api_patch_config(patch: ConfigPatch) -> Dict[str, Any]:
+def api_patch_config(patch: ConfigPatch, background_tasks: BackgroundTasks) -> Dict[str, Any]:
     data = patch.model_dump(exclude_none=True)
     if not data:
         raise HTTPException(status_code=400, detail="No fields provided")
     if "refresh_seconds" in data and data["refresh_seconds"] not in ALLOWED_REFRESH_SECONDS:
         raise HTTPException(status_code=422, detail=f"refresh_seconds must be one of {sorted(ALLOWED_REFRESH_SECONDS)}")
-    current = asdict(load_config())
+    current_cfg = load_config()
+    current = asdict(current_cfg)
+    scheduler_fields = {"airport_iata", "airport_icao", "refresh_seconds", "source"}
+    restart_needed = any(key in data and data[key] != current.get(key) for key in scheduler_fields)
     current.update(data)
     new_cfg = AppConfig(**current)
     save_config(new_cfg)
     log.info("Config updated via API: %s", data)
+    from localflight.ui.events import notify_config_updated, restart_scheduler_and_notify
+
+    notify_config_updated(new_cfg, reason="api_config")
+    if restart_needed:
+        background_tasks.add_task(restart_scheduler_and_notify, "api_config")
     return asdict(new_cfg)
 
 
@@ -665,7 +673,7 @@ def api_admin_system() -> Dict[str, Any]:
         from importlib.metadata import version as _pkg_version
         _ver = _pkg_version("localflight")
     except Exception:
-        _ver = "0.2.2b1"
+        _ver = "0.2.2b2"
 
     result: Dict[str, Any] = {
         "version":  _ver,
@@ -755,6 +763,20 @@ def api_admin_connections() -> Dict[str, Any]:
     }
  
  
+@router.get("/api/admin/scheduler")
+def api_admin_scheduler_status() -> Dict[str, Any]:
+    """Scheduler thread status for desktop/mobile controls."""
+    from localflight.scheduler.control import scheduler_status
+    return scheduler_status()
+
+
+@router.post("/api/admin/scheduler/restart")
+def api_admin_scheduler_restart() -> Dict[str, Any]:
+    """Stop the sleeping scheduler loop, reload config/env, and start a fresh cycle."""
+    from localflight.ui.events import restart_scheduler_and_notify
+    return restart_scheduler_and_notify("manual")
+
+
 @router.post("/api/admin/ping")
 def api_admin_ping(
     device:  str = Query(...),
@@ -797,7 +819,7 @@ def api_admin_updates() -> Dict[str, Any]:
         from importlib.metadata import version as _pkg_version
         current = _pkg_version("localflight")
     except Exception:
-        current = "0.2.2b1"
+        current = "0.2.2b2"
 
     # Simple in-process cache to avoid hammering GitHub API
     cache = getattr(api_admin_updates, "_cache", None)
@@ -841,15 +863,41 @@ def api_admin_updates() -> Dict[str, Any]:
 class FeedbackIn(BaseModel):
     title:       str = Field(..., min_length=1, max_length=200)
     description: str = Field("", max_length=4000)
+    client_context: str = Field("", max_length=2000)
 
 
 @router.post("/api/feedback")
 def api_submit_feedback(body: FeedbackIn) -> Dict[str, Any]:
     """Submit a bug report / feedback to the Local Flight developer's Linear board."""
     from localflight.sources.web.bug_reporter import submit_report
-    result = submit_report(body.title, body.description)
+    result = submit_report(body.title, body.description, client_context=body.client_context)
     if not result["ok"]:
         raise HTTPException(status_code=502, detail=result.get("error", "Submission failed"))
+    return {"ok": True, "url": result.get("url")}
+
+
+class FeedbackCrashIn(BaseModel):
+    message: str = Field(..., min_length=1, max_length=500)
+    traceback: str = Field("", max_length=5000)
+    context: str = Field("mobile", max_length=120)
+    client_context: str = Field("", max_length=2000)
+
+
+@router.post("/api/feedback/crash")
+def api_submit_feedback_crash(body: FeedbackCrashIn) -> Dict[str, Any]:
+    """Submit an auto-filed mobile crash report to the developer's Linear board."""
+    from localflight.sources.web.bug_reporter import submit_crash
+
+    result = submit_crash(
+        body.message,
+        traceback_str=body.traceback,
+        context=body.context or "mobile",
+        client_context=body.client_context,
+    )
+    if not result["ok"]:
+        error = result.get("error", "Crash submission failed")
+        status = 409 if "duplicate" in error.lower() else 502
+        raise HTTPException(status_code=status, detail=error)
     return {"ok": True, "url": result.get("url")}
 
 

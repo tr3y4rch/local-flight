@@ -5,6 +5,49 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.2.2b2] - 2026-04-26
+
+### Added
+- **Scheduler control API** — new `src/localflight/scheduler/control.py`, `GET /api/admin/scheduler`, and `POST /api/admin/scheduler/restart`; desktop Settings and mobile Settings can now restart the sleeping scheduler manually
+- **Config sync WebSocket events** — server now broadcasts `config_updated` and `scheduler_restarted` through `src/localflight/ui/events.py` so desktop display windows, Admin, and the mobile companion stay in sync when airport/source/update interval changes
+- **`/api/feedback/crash`** server endpoint — new `POST` route accepting `message`, `traceback`, `context`, and `client_context`; returns `409` for server-side duplicates, `502` for Linear errors
+- **Richer bug report context** — `/api/feedback` and `bug_reporter.py` now accept and forward `client_context` so mobile-reported issues include the client OS, app version, and server config alongside server-side system info
+- **macOS release zip** — `python build.py` on macOS now produces `dist/LocalFlight-macos.zip` and `dist/LocalFlight-macos.zip.sha256` alongside `dist/LocalFlight.app` for GitHub release uploads
+- **README preview gallery** — new `docs/previews/` HTML gallery and SVG preview panels for FIDS, Radar, and Settings using clearly labeled sample data
+
+### Mobile Companion (Work In Progress)
+- The mobile companion remains a developer preview in `mobile/`; it is not a finished public iOS or Android release yet
+- Public iOS and Android companion builds are planned for a later milestone after the LAN pairing/security model is ready
+- **Matrix configurator screen** — mobile Settings now opens a dedicated Matrix panel tool with panel size presets (64×32 → 384×64), row count, brightness, DEP/ARR view, live ASCII preview, and copyable MicroPython client config
+- **Mobile airport/config sheet** — companion app can search airports, switch real/VATSIM source, change the server update interval, and save/apply local airport profiles via SecureStore
+- **Animated launch overlay** — custom fade/scale launch animation coordinated with `expo-splash-screen`; prevents the blank white flash on cold start; splash plugin now uses the circular app icon and dark background
+- **Flight Island** — persistent dynamic-island-style widget pinned to the top of the FIDS board showing the pinned or most relevant active flight; survives tab switches
+- **Flight Action Sheet** — long-press any FIDS row to open actions such as pin/unpin and flight detail; normal tap still opens the detail sheet
+- **In-app feedback form** — Settings → Send Feedback sends title + description to `/api/feedback` with auto-attached client context (app version, OS, server URL, airport, source); routes to developer's Linear board
+- **Mobile crash reporting** — `mobile/src/crash/reporter.ts` installs a global `ErrorUtils` handler and `CrashBoundary.tsx` wraps the React tree; both auto-route caught errors to the new `/api/feedback/crash` endpoint with 10-minute client-side deduplication
+- **Pinned flight persistence** — `mobile/src/storage/settings.ts` gains `loadPinnedFlight` / `savePinnedFlight` backed by SecureStore key `localflight.pinnedFlight`
+- **Admin updates + connections in API client** — `getUpdates()` → `/api/admin/updates` and `getConnections()` → `/api/admin/connections` added; `AdminUpdates` and `AdminConnections` types added; `DashboardSnapshot` extended with both fields
+- **SafeAreaProvider** — `react-native-safe-area-context` replaces RN's built-in `SafeAreaView` for correct inset handling across notched iPhones and iPads
+
+### Changed
+- Version bumped to `0.2.2b2` for Python metadata, runtime fallbacks, mobile package metadata, Expo metadata, and docs
+- Scheduler-relevant config changes now wake/restart the scheduler immediately instead of waiting for the previous sleep interval to expire; mobile also uses the server interval as a fallback refresh cadence
+- Desktop `display.html`, FIDS, Radar, and Admin now listen for sync WebSocket events so host windows update after settings/mobile changes
+- Bug report context now distinguishes server platform from mobile reporter environment
+- Release docs now distinguish source-checkout installers from uploadable PyInstaller artifacts for Windows and macOS
+- README now clearly separates desktop release installation from the work-in-progress mobile companion developer preview
+- Mobile main navigation now contains only FIDS, RADAR, HISTORY, and SETTINGS; Matrix and Admin are tucked into Settings
+- Mobile top bar now shows departure airport + live/source status on the left and UTC + local time on the right
+- Pinned flights persist locally, sort back to the top of the FIDS stack, and drive the Flight Island when available
+- Mobile `submitFeedback` and `submitCrashReport` use a new generic `sendJson` POST helper in `client.ts`, consistent with `fetchJson`
+- `statusShort`, `routeMeta`, `mobileClientContext`, `matrixPreviewLines` helper functions extracted to keep component code declarative
+
+### Fixed
+- Expo/Metro dependency metadata now includes the splash/safe-area/vector-icon stack and keeps the companion package/lock versions aligned at `0.2.2-b2`
+- macOS code signing no longer fails solely because an optional `assets/entitlements.plist` file is absent
+
+---
+
 ## [0.2.2b1] - 2026-04-26
 
 ### Added

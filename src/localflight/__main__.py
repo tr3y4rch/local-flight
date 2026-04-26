@@ -120,15 +120,8 @@ def _wait_for_server(timeout: float = 15.0) -> bool:
 
 
 def _start_scheduler() -> threading.Thread:
-    def _run():
-        from localflight.storage.config import load_config
-        from localflight.scheduler.runtime import run_loop
-        from localflight.scheduler.jobs import run_snapshot_job
-        cfg = load_config()
-        run_loop(fetch=run_snapshot_job, once=False, source_name=cfg.source)
-    t = threading.Thread(target=_run, name="scheduler", daemon=True)
-    t.start()
-    return t
+    from localflight.scheduler.control import start_scheduler_thread
+    return start_scheduler_thread()
 
 
 def _start_uvicorn() -> threading.Thread:

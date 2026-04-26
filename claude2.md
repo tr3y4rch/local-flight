@@ -1,4 +1,4 @@
-# Local Flight — Project Context (v0.2.2b1)
+# Local Flight — Project Context (v0.2.2b2)
 
 > Tracked copy of the AI assistant context. Keep this file current across sessions.  
 > Primary dev machine: Windows PC. Secondary: macOS (Xcode / iOS builds, macOS .app builds).  
@@ -22,7 +22,7 @@ Mobile companion: React Native / Expo (iOS-first, in `mobile/`).
 local-flight/
 ├── build.py                     # PyInstaller build script — SVG→PNG→ico/icns, signing, zip+sha256
 ├── LocalFlight.spec             # PyInstaller spec — datas, hiddenimports, BUNDLE
-├── pyproject.toml               # Single version source of truth (currently 0.2.2b1)
+├── pyproject.toml               # Single version source of truth (currently 0.2.2b2)
 ├── CHANGELOG.md
 ├── AGENTS.md                    # Codex/OpenAI agent context (keep in sync with claude2.md)
 ├── assets/
@@ -55,7 +55,8 @@ local-flight/
 │   │   └── fids.py              # Build Jinja2 template context
 │   ├── scheduler/
 │   │   ├── jobs.py              # run_snapshot_job() — AviationStack + enrichment chain + history write
-│   │   ├── runtime.py           # run_loop(); on error: operator Linear + developer crash report
+│   │   ├── runtime.py           # run_loop(); stop_event-aware sleeps + crash reporting
+│   │   ├── control.py           # In-process scheduler start/status/restart controller
 │   │   └── run_scheduler.py
 │   ├── sources/
 │   │   ├── web/
@@ -84,6 +85,7 @@ local-flight/
 │   └── ui/
 │       ├── server.py            # FastAPI app, WebSocket, SetupGateMiddleware
 │       ├── api.py               # All JSON API endpoints
+│       ├── events.py            # Non-fatal WS events: snapshot/config/scheduler
 │       ├── static/
 │       │   ├── app.css
 │       │   ├── skins.css        # 5 skins: standard / technical / neon / cyan / crt
@@ -106,15 +108,16 @@ local-flight/
 │           └── icons_technical.html
 │
 ├── mobile/                      # React Native / Expo iOS-first companion app
-│   ├── App.tsx                  # Root — navigation, WebSocket listener, server URL gate
+│   ├── App.tsx                  # Root — FIDS/Radar/History/Settings, WS listener
+│   ├── app.json                 # Expo app metadata, splash config, iOS local-network plist
+│   ├── assets/icon_circle.png   # Companion icon + splash image
 │   ├── src/
 │   │   ├── api/client.ts        # Typed fetch helpers for all LF endpoints
 │   │   ├── api/types.ts         # TypeScript types mirroring Python models
-│   │   ├── components/          # FlightRow, MetricCard, StatusPill
-│   │   ├── storage/settings.ts  # Expo SecureStore — server URL persistence
+│   │   ├── crash/               # CrashBoundary + mobile crash reporter
+│   │   ├── storage/settings.ts  # SecureStore — URL, pinned flight, profiles
 │   │   ├── theme/tokens.ts      # Design tokens (colours, spacing)
 │   │   └── utils/layout.ts      # Safe-area / dynamic island helpers
-│   └── preview.html             # Static HTML mockup of the iOS UI
 │
 ├── scripts/
 │   ├── make_app_bundle.py       # macOS: builds ~/Applications/LocalFlight.app from source checkout
@@ -196,10 +199,13 @@ AviationStack (schedule) [90 calls/month budget]
 
 ### WebSocket live push
 - `ConnectionManager` in `server.py` — async queue, drains on broadcast
-- Scheduler → `_broadcast_update()` via `loop.call_soon_threadsafe()`
-- `display.html` holds one WS, forwards via `postMessage` to iframes
+- `ui/events.py` publishes `snapshot_updated`, `config_updated`, and `scheduler_restarted`
+- Scheduler → `_broadcast_update()` after snapshots; settings/API/profile/setup saves → `notify_config_updated()`
+- Scheduler-relevant config changes (`airport_iata`, `airport_icao`, `refresh_seconds`, `source`) queue `restart_scheduler_and_notify()` so interval changes take effect immediately
+- `display.html` holds one WS, reloads on `config_updated`, and forwards other messages via `postMessage` to iframes
+- FIDS/Radar/Admin/mobile refresh on push events and keep lightweight fallback polling
 - Clients reconnect with exponential backoff
-- Mobile (`App.tsx`) also subscribes and refreshes FIDS/admin on `snapshot_updated`
+- Mobile (`App.tsx`) subscribes and refreshes on `snapshot_updated`, `config_updated`, and `scheduler_restarted`
 
 ### Setup gate
 - `SetupGateMiddleware` redirects everything to `/setup` until `~/.localflight/setup_complete` exists
@@ -224,19 +230,22 @@ AviationStack (schedule) [90 calls/month budget]
 - PyInstaller embeds icon in exe; taskbar window extracts it via `ExtractIconExW(sys.executable)`
 
 ### Version
-- Single source: `version` in `pyproject.toml` (currently `0.2.2b1`)
-- Runtime: `importlib.metadata.version("localflight")` with `"0.2.2b1"` fallback
+- Single source: `version` in `pyproject.toml` (currently `0.2.2b2`)
+- Runtime: `importlib.metadata.version("localflight")` with `"0.2.2b2"` fallback
 - Injected as `app_version` Jinja2 global in `server.py`
 - `LocalFlight.spec` reads it for macOS `CFBundleShortVersionString`
 
 ### Mobile companion (`mobile/`)
 - iOS-first React Native / Expo app, LAN client to the Python server
 - Server URL stored in Expo SecureStore; expects LAN address, not localhost
-- Reads: `/api/health`, `/api/config`, `/api/admin/system`, `/api/admin/budget`, `/api/fids`, `/api/metar`
-- WS: subscribes to `/ws`, refreshes on `snapshot_updated`
-- UI follows iOS airport-board mockup: status bar / dynamic island, airport badge, live pill, METAR strip, FIDS tabs, pinned flight, compact rows, bottom nav
-- **No admin mutating controls in mobile** until QR pairing / per-device tokens exist
-- Node/npm on Mac only — `npm install`, `npx expo install --fix`, iOS device testing via Xcode
+- Reads: `/api/health`, `/api/config`, `/api/admin/system`, `/api/admin/budget`, `/api/admin/connections`, `/api/admin/updates`, `/api/fids`, `/api/radar`, `/api/history`, `/api/metar`, `/api/fids/detail`
+- WS: subscribes to `/ws`, refreshes on `snapshot_updated`, `config_updated`, and `scheduler_restarted`; server update interval is used as a capped fallback poll
+- Main bottom nav contains only FIDS, RADAR, HISTORY, SETTINGS; Matrix/Admin are launched from Settings
+- UI follows iOS airport-board mockup: Flight Island, departure-airport/live header, UTC/local clock, METAR strip, FIDS tabs, pinned flight, compact rows, bottom nav
+- Mobile Settings can edit airport/source/update interval, save local profiles, restart scheduler, open Matrix/Admin, submit feedback, and open Buy Me a Coffee
+- Mobile crash reporting lives in `mobile/src/crash/` and sends `/api/feedback/crash` with mobile reporter context
+- Admin mutating controls remain limited until QR pairing / per-device tokens exist; scheduler restart/config changes are current trusted-LAN exceptions
+- Node/npm on Mac/Xcode machine — `npm install`, `npx expo install --fix`, `npm run doctor`, `npm run ios`
 
 ---
 
@@ -283,6 +292,8 @@ Lives at `~/.localflight/config.json`
 
 | Endpoint | Description |
 |---|---|
+| `GET /api/config` | Current AppConfig as JSON |
+| `PATCH /api/config` | Update config fields; broadcasts `config_updated`; restarts scheduler for airport/source/interval changes |
 | `GET /api/fids` | JSON FIDS rows |
 | `GET /api/fids/detail?callsign=` | Live position + 7-day history for one flight |
 | `GET /api/radar` | Aircraft positions (blips) |
@@ -294,16 +305,18 @@ Lives at `~/.localflight/config.json`
 | `GET /api/admin/budget` | AviationStack call count vs limit |
 | `GET /api/admin/connections` | WS client count + device pings |
 | `GET /api/admin/updates` | GitHub release check (1h cache) |
-| `GET /api/config` | Current AppConfig as JSON |
+| `GET /api/admin/scheduler` | Scheduler thread status |
+| `POST /api/admin/scheduler/restart` | Stop sleeping scheduler loop, reload config/env, start fresh cycle, broadcast `scheduler_restarted` |
 | `GET /api/health` | `{"status":"ok"}` — mobile heartbeat |
-| `POST /api/feedback` | `{title, description}` → developer's Linear |
+| `POST /api/feedback` | `{title, description, client_context}` → developer's Linear |
+| `POST /api/feedback/crash` | Auto-file mobile/server crash report with deduplication |
 | `POST /api/admin/ping` | Device ping (matrix client keepalive) |
 | `POST /api/setup/complete` | Save config, write .env, mark setup done |
 | `POST /api/setup/reset` | Delete setup_complete → re-run wizard |
 | `GET /api/setup/test-aviationstack?key=` | Validate key without saving |
 | `GET /api/setup/test-rapidapi?key=` | Validate RapidAPI key without saving |
 | `POST /api/quit` | Graceful shutdown |
-| `WS /ws` | WebSocket push — emits `snapshot_updated` |
+| `WS /ws` | WebSocket push — emits `snapshot_updated`, `config_updated`, `scheduler_restarted` |
 
 ---
 
@@ -315,13 +328,18 @@ python build.py --clean   # wipe dist/ build/ first
 ```
 
 - **Windows** → `dist/LocalFlight-windows.zip` + `.sha256` — unzip, double-click `LocalFlight.exe`
-- **macOS** → `dist/LocalFlight.app` — drag to Applications
+- **macOS** → `dist/LocalFlight.app` plus `dist/LocalFlight-macos.zip` + `.sha256` — upload the zip; users unzip, then drag `LocalFlight.app` to Applications
 
 Signing (optional, via env vars):
 - Windows: `SIGNTOOL_CERT` (.pfx path) + `SIGNTOOL_PASS`
 - macOS: `CODESIGN_IDENTITY` + `NOTARIZE_PROFILE`
 
-`dist/` is gitignored — zip gets attached to GitHub Releases manually.
+Release build notes:
+- Build Windows artifacts on Windows: `python build.py --clean` → upload `LocalFlight-windows.zip` and `.sha256`
+- Build macOS artifacts on macOS: `python build.py --clean` → upload `LocalFlight-macos.zip` and `.sha256`
+- `installers/windows/install.ps1` and `installers/macos/install.sh` are source-checkout installers, not the preferred release-client path
+
+`dist/` is gitignored — zips get attached to GitHub Releases manually.
 
 ---
 
@@ -385,14 +403,17 @@ Swap `enrich_flights_with_adsbexchange` → `enrich_flights_with_adsb` in `jobs.
 - ✅ `LocalFlight.command` — fixed `$0` symlink resolution bug (Finder passes symlink path, causing ROOT to resolve to wrong dir); fixed with `readlink`
 - ✅ `installers/macos/install.sh` — replaced `.command` symlink with `make_app_bundle.py` call
 
-### Session: v0.2.2b1 (macOS)
+### Session: v0.2.2b2 (macOS)
 - ✅ Splash screen (`/splash?next=`) — animated SVG mark + version; all launchers open it
 - ✅ `tests/test_important_regressions.py` — scheduler, storage, route, runtime state coverage
-- ✅ Mobile Phase 1 (`mobile/`) — React Native / Expo scaffold, iOS-first shell, WS listener
+- ✅ Mobile companion pass (`mobile/`) — FIDS/Radar/History/Settings nav, Flight Island, pinned flights, Matrix tool, feedback/crash reporting, config sheet
+- ✅ Scheduler controls — `scheduler/control.py`, desktop/mobile restart controls, and `/api/admin/scheduler*`
+- ✅ Update interval sync — `ui/events.py` broadcasts `config_updated` / `scheduler_restarted`; desktop host, FIDS, Radar, Admin, and mobile react live
+- ✅ Release packaging — Windows build still emits `LocalFlight-windows.zip`; macOS build now emits `LocalFlight-macos.zip` + `.sha256` alongside `.app`
 - ✅ `psutil` + `packaging` — now required runtime deps (Admin system card, version comparison)
 - ✅ Snapshots → `~/.localflight/storage/data/<IATA>/snapshots/`; legacy paths still readable
 - ✅ Windows source installer improved (robust Python detection, `-Launch`, `-NoPause` flags)
-- ✅ Version bumped to `0.2.2b1`
+- ✅ Version bumped to `0.2.2b2`
 
 ### Session: v0.2.1b1 (Windows)
 - ✅ Platform abstraction layer (`platform/detect, browser, tray`)
@@ -407,9 +428,10 @@ Swap `enrich_flights_with_adsbexchange` → `enrich_flights_with_adsb` in `jobs.
 
 ## Pending / next up
 
-- [ ] GitHub release v0.2.2b1 — attach `dist/LocalFlight-windows.zip` + `.sha256`, mark pre-release
-- [ ] macOS PyInstaller `.app` — run `python build.py` on Mac for the self-contained release build; test pystray tray; sign if cert available (source-checkout `.app` via `install.sh` is done ✅)
-- [ ] Mobile — `npm install` + `npx expo install --fix` on Mac; test on iOS device via Expo Go
+- [ ] GitHub release v0.2.2b2 — attach `dist/LocalFlight-windows.zip`, `dist/LocalFlight-windows.zip.sha256`, `dist/LocalFlight-macos.zip`, and `dist/LocalFlight-macos.zip.sha256`; mark pre-release
+- [ ] Windows release build — run `python build.py --clean` on Windows and smoke-test unzipped `LocalFlight.exe`
+- [ ] macOS release build — run `python build.py --clean` on Mac and smoke-test `dist/LocalFlight.app`; sign/notarize if certs are available
+- [ ] Mobile — `npm install` + `npx expo install --fix` on Mac; test in iOS simulator/dev build
 - [ ] Screenshot for README (FIDS board)
 - [ ] Notification system (Pushover / Telegram) — ~50 lines, hooks into scheduler after `_broadcast_update()`
 - [ ] Pi hardware — test systemd services + Chromium kiosk

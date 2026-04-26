@@ -18,7 +18,7 @@ No cloud. No accounts. No dashboards that want your email.
 - Shows a **live radar** with sweep animation and blip fading
 - Provides a **split-view display** (FIDS + Radar) with a draggable divider
 - Shows a short **versioned splash screen** on launch before opening setup or the display
-- Includes an early **React Native mobile companion** for iOS-first LAN viewing on iPhone/iPad
+- Includes an early **mobile companion prototype** for LAN viewing and control experiments; public iOS and Android releases are planned for a later milestone
 - Stores 90 days of flight history in a local **SQLite database** with a browsable history UI and aggregate stats
 - Supports **profiles** — save and switch airport configurations instantly
 - Displays **UTC and local time** simultaneously, timezone follows the configured airport
@@ -27,6 +27,20 @@ No cloud. No accounts. No dashboards that want your email.
 - Runs as a **system tray app** on Windows and macOS; headless on Raspberry Pi with a Chromium kiosk
 - Ships a **MicroPython client** for the Pimoroni Interstate 75 W LED matrix panel
 - **In-browser matrix preview** — see exactly what the LED panel will show, with split-flap animation
+
+---
+
+## Preview
+
+These are lightweight illustrative previews with sample data, not live telemetry screenshots. They show the current FIDS, radar, and settings direction so the README has useful example pictures even before someone runs the app.
+
+Open [docs/previews/index.html](docs/previews/index.html) locally for the standalone HTML gallery.
+
+<p align="center">
+  <img src="docs/previews/fids-preview.svg" alt="Local Flight FIDS preview" width="32%">
+  <img src="docs/previews/radar-preview.svg" alt="Local Flight radar preview" width="32%">
+  <img src="docs/previews/settings-preview.svg" alt="Local Flight settings preview" width="32%">
+</p>
 
 ---
 
@@ -47,14 +61,17 @@ Release builds also produce `LocalFlight-windows.zip.sha256` so the downloaded z
 
 ### macOS
 
-The macOS script is for a source checkout. If a packaged `.app` is attached to a release, use that instead.
+1. Download `LocalFlight-macos.zip` from the [latest release](https://github.com/tr3y4rch/local-flight/releases)
+2. Unzip it
+3. Drag `LocalFlight.app` to Applications
+4. Right-click → Open on first launch if macOS Gatekeeper warns about an unsigned app
+
+Release builds also produce `LocalFlight-macos.zip.sha256` so the downloaded zip can be verified before running.
+
+The macOS source installer is only for running Local Flight from a source checkout:
 
 ```bash
-# One-time setup
 bash installers/macos/install.sh
-
-# Launch
-open installers/macos/LocalFlight.command
 ```
 
 ### Raspberry Pi
@@ -78,16 +95,48 @@ The Pi runs headless — access the UI from any device on your network at `http:
 
 ## Mobile companion
 
-The Phase 1 React Native / Expo app lives in `mobile/`. It is iOS-first for now and treats the Python/FastAPI app as the server of record.
+The mobile companion is **work in progress**. It is not required to use Local Flight, and there is no App Store, TestFlight, Play Store, or APK release yet.
+
+For now, the companion is a developer preview that runs from the `mobile/` folder with React Native / Expo. It connects to the Local Flight desktop/Pi server over your local network. A polished iOS and Android companion release will follow later.
+
+Use it today if you want to test the companion UI on an iPhone/iPad simulator or device. If you only want the normal FIDS display, install the Windows, macOS, or Raspberry Pi app above and skip this section.
+
+### What works now
+
+- FIDS board, radar, history, and settings screens
+- Live updates from the desktop/Pi server over WebSocket
+- Airport/source/update interval configuration against the local server
+- Pinned flight and Flight Island preview
+- Matrix panel preview/config helper
+- Manual feedback and mobile crash-report testing
+
+### Requirements
+
+- macOS with Xcode for iOS simulator/device testing
+- Node.js 20 LTS or newer
+- Local Flight already running on the same WiFi/LAN
+- The LAN URL of your Local Flight server, for example `http://192.168.1.42:8000`
+
+### Run the companion
 
 ```bash
 cd mobile
 npm install
 npx expo install --fix
+npm run doctor
 npm run ios
 ```
 
-For a physical iPhone or iPad, use the Local Flight server's LAN address in the app settings, for example `http://192.168.1.42:8000`. Do not use `localhost` on the phone, because that points at the phone itself.
+For a physical iPhone or iPad:
+
+```bash
+cd mobile
+npm run ios:device
+```
+
+In the app settings, enter the Local Flight server's LAN address. Do **not** use `localhost` on a phone; `localhost` means the phone itself, not your Mac or Windows machine.
+
+Android support is planned, but the current companion testing flow is iOS-first.
 
 ---
 
@@ -263,14 +312,17 @@ Hit the **🐛 Report** button in the nav bar from anywhere in the app. Your rep
 | `/api/admin/budget` | GET | API call budgets and usage |
 | `/api/admin/connections` | GET | WebSocket client count + device pings |
 | `/api/admin/updates` | GET | Latest GitHub release check |
+| `/api/admin/scheduler` | GET | Scheduler thread status |
+| `/api/admin/scheduler/restart` | POST | Restart scheduler and run a fresh fetch cycle |
 | `/api/admin/ping` | POST | Device ping (LED matrix client) |
-| `/api/feedback` | POST | Submit a bug report (`{title, description}`) |
+| `/api/feedback` | POST | Submit a bug report (`{title, description, client_context}`) |
+| `/api/feedback/crash` | POST | Auto-file crash report with deduplication |
 | `/api/setup/complete` | POST | Save setup, write `.env`, mark complete |
 | `/api/setup/reset` | POST | Re-run setup wizard |
 | `/api/setup/test-aviationstack` | GET | Validate an API key without saving |
 | `/api/setup/test-rapidapi` | GET | Validate an ADS-B Exchange RapidAPI key without saving |
 | `/api/quit` | POST | Graceful shutdown |
-| `/ws` | WS | WebSocket push — broadcasts after each fetch |
+| `/ws` | WS | WebSocket push — broadcasts snapshot, config, and scheduler events |
 
 ---
 

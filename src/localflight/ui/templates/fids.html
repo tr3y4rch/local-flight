@@ -766,13 +766,23 @@ async function refreshFIDS() {
 (function () {
   const dot = document.getElementById("liveDot");
   let ws = null, retryMs = 1000;
+  function handleSyncMessage(raw) {
+    try {
+      const msg = typeof raw === "string" ? JSON.parse(raw) : raw;
+      if (msg.type === "snapshot_updated") {
+        refreshFIDS();
+      } else if (msg.type === "config_updated") {
+        window.location.reload();
+      } else if (msg.type === "scheduler_restarted") {
+        checkSchedulerHealth();
+      }
+    } catch {}
+  }
   function connect() {
     const proto = location.protocol === "https:" ? "wss" : "ws";
     ws = new WebSocket(`${proto}://${location.host}/ws`);
     ws.onopen  = () => { retryMs = 1000; dot?.classList.remove("offline"); };
-    ws.onmessage = (e) => {
-      try { const msg = JSON.parse(e.data); if (msg.type === "snapshot_updated") refreshFIDS(); } catch {}
-    };
+    ws.onmessage = (e) => handleSyncMessage(e.data);
     ws.onclose = ws.onerror = () => {
       dot?.classList.add("offline");
       setTimeout(connect, Math.min(retryMs, 30000));
@@ -780,9 +790,7 @@ async function refreshFIDS() {
     };
   }
   connect();
-  window.addEventListener("message", (e) => {
-    try { const msg = JSON.parse(e.data); if (msg.type === "snapshot_updated") refreshFIDS(); } catch {}
-  });
+  window.addEventListener("message", (e) => handleSyncMessage(e.data));
   setInterval(refreshFIDS, 60000);
   checkSchedulerHealth();
 })();

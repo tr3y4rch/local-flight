@@ -222,15 +222,26 @@
   function loop(now){ updateSweep(now); draw(); requestAnimationFrame(loop); }
 
   let ws=null, retryMs=1000;
+  function handleSyncMessage(raw){
+    try{
+      const msg=typeof raw==="string"?JSON.parse(raw):raw;
+      if(msg.type==="snapshot_updated" || msg.type==="scheduler_restarted"){
+        fetchBlips();
+        fetchMETAR();
+      }else if(msg.type==="config_updated"){
+        window.location.reload();
+      }
+    }catch{}
+  }
   function connectWS(){
     const proto=location.protocol==="https:"?"wss":"ws";
     ws=new WebSocket(`${proto}://${location.host}/ws`);
     ws.onopen=()=>{ retryMs=1000; };
-    ws.onmessage=(e)=>{ try{ const msg=JSON.parse(e.data); if(msg.type==="snapshot_updated") fetchBlips(); }catch{} };
+    ws.onmessage=(e)=>handleSyncMessage(e.data);
     ws.onclose=ws.onerror=()=>{ setTimeout(connectWS,Math.min(retryMs,30000)); retryMs=Math.min(retryMs*2,30000); };
   }
   connectWS();
-  window.addEventListener("message",(e)=>{ try{ const msg=JSON.parse(e.data); if(msg.type==="snapshot_updated") fetchBlips(); }catch{} });
+  window.addEventListener("message",(e)=>handleSyncMessage(e.data));
 
   resize();
   window.addEventListener("resize", resize);

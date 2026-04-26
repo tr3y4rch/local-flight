@@ -34,6 +34,11 @@ logger = setup_logging()
 ALLOWED_REFRESH_SECONDS = {900, 1800, 2700, 3600, 7200, 14400, 28800, 43200, 86400}
 DEFAULT_REFRESH_SECONDS = 3600
 FETCH_COOLDOWN_SECONDS = 900
+SCHEDULER_SYNC_FIELDS = ("airport_iata", "airport_icao", "refresh_seconds", "source")
+
+
+def _scheduler_config_changed(before: AppConfig, after: AppConfig) -> bool:
+    return any(getattr(before, field) != getattr(after, field) for field in SCHEDULER_SYNC_FIELDS)
 
 
 # ── Setup gate ─────────────────────────────────────────────────────────────────
@@ -103,7 +108,7 @@ try:
     from importlib.metadata import version as _pkg_version
     _APP_VERSION = _pkg_version("localflight")
 except Exception:
-    _APP_VERSION = "0.2.2b1"
+    _APP_VERSION = "0.2.2b2"
 
 templates.env.globals["app_version"] = _APP_VERSION
 
@@ -282,7 +287,7 @@ async def setup_test_rapidapi(key: str = Query(...)) -> Dict[str, Any]:
 
 
 @app.post("/api/setup/complete")
-async def setup_complete(request: Request) -> Dict[str, Any]:
+async def setup_complete(request: Request, background_tasks: BackgroundTasks) -> Dict[str, Any]:
     """Save setup wizard results — write .env, save config, mark setup complete."""
     try:
         data = await request.json()
@@ -354,6 +359,10 @@ async def setup_complete(request: Request) -> Dict[str, Any]:
     logger.info("Setup complete: %s/%s source=%s", airport_iata, airport_icao, source)
 
     _mark_setup_complete()
+    from localflight.ui.events import notify_config_updated, restart_scheduler_and_notify
+
+    notify_config_updated(cfg, reason="setup_complete")
+    background_tasks.add_task(restart_scheduler_and_notify, "setup_complete")
 
     return {"ok": True}
 
@@ -499,6 +508,7 @@ async def save_settings(
     form_data = await request.form()
     raw_outputs = form_data.getlist("display_outputs")
     display_outputs = [o for o in raw_outputs if o in ALLOWED_OUTPUTS] or list(DEFAULT_OUTPUTS)
+    old_cfg = load_config()
 
     cfg = AppConfig(
         airport_icao=airport_icao.upper().strip(),
@@ -524,11 +534,14 @@ async def save_settings(
         cfg.display_outputs,
     )
 
-    if _should_fetch():
-        logger.info("Triggering background fetch after settings save")
-        background_tasks.add_task(_background_fetch, cfg)
+    from localflight.ui.events import notify_config_updated, restart_scheduler_and_notify
+
+    notify_config_updated(cfg, reason="desktop_settings")
+    if _scheduler_config_changed(old_cfg, cfg):
+        logger.info("Triggering scheduler restart after settings save")
+        background_tasks.add_task(restart_scheduler_and_notify, "desktop_settings")
     else:
-        logger.info("Skipping background fetch — cooldown active (<%ds)", FETCH_COOLDOWN_SECONDS)
+        logger.info("Settings save did not change scheduler fields")
 
     return RedirectResponse(url="/?saved=1", status_code=303)
 
@@ -551,15 +564,19 @@ def profiles_save(profile_name: str = Form(...)) -> RedirectResponse:
 
 @app.post("/profiles/load")
 def profiles_load(background_tasks: BackgroundTasks, profile_name: str = Form(...)) -> RedirectResponse:
+    old_cfg = load_config()
     cfg = load_profile(profile_name)
     save_config(cfg)
     logger.info("UI profile loaded: %s", profile_name)
 
-    if _should_fetch():
-        logger.info("Triggering background fetch after profile load: %s", profile_name)
-        background_tasks.add_task(_background_fetch, cfg)
+    from localflight.ui.events import notify_config_updated, restart_scheduler_and_notify
+
+    notify_config_updated(cfg, reason="profile_load")
+    if _scheduler_config_changed(old_cfg, cfg):
+        logger.info("Triggering scheduler restart after profile load: %s", profile_name)
+        background_tasks.add_task(restart_scheduler_and_notify, "profile_load")
     else:
-        logger.info("Skipping background fetch — cooldown active (<%ds)", FETCH_COOLDOWN_SECONDS)
+        logger.info("Profile load did not change scheduler fields")
 
     return RedirectResponse(url=f"/?profile_msg=loaded:{profile_name}", status_code=303)
 

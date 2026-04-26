@@ -1,6 +1,6 @@
 {
   "name": "localflight-mobile",
-  "version": "0.2.2-b1",
+  "version": "0.2.2-b2",
   "private": true,
   "main": "index.ts",
   "scripts": {
@@ -11,10 +11,13 @@
     "doctor": "npx expo-doctor"
   },
   "dependencies": {
+    "@expo/vector-icons": "^15.0.2",
     "expo": "~55.0.0",
     "expo-secure-store": "~55.0.13",
+    "expo-splash-screen": "^55.0.19",
     "react": "19.2.0",
-    "react-native": "0.83.6"
+    "react-native": "0.83.6",
+    "react-native-safe-area-context": "~5.6.2"
   },
   "devDependencies": {
     "@types/react": "~19.2.0",

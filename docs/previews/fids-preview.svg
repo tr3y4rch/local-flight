@@ -1,0 +1,118 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="540" viewBox="0 0 960 540" role="img" aria-labelledby="title desc">
+  <title id="title">Local Flight FIDS preview</title>
+  <desc id="desc">Illustrative preview of the Local Flight airport-style flight information display board.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#090d12"/>
+      <stop offset="0.58" stop-color="#10161d"/>
+      <stop offset="1" stop-color="#07090d"/>
+    </linearGradient>
+    <linearGradient id="panel" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#141b24"/>
+      <stop offset="1" stop-color="#0d1117"/>
+    </linearGradient>
+    <filter id="softShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="18" stdDeviation="18" flood-color="#000000" flood-opacity="0.45"/>
+    </filter>
+    <style>
+      .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+      .sans { font-family: Inter, Segoe UI, Helvetica, Arial, sans-serif; }
+      .muted { fill: #6f8195; }
+      .text { fill: #e7edf3; }
+      .line { stroke: rgba(255,255,255,0.08); }
+      .thin { stroke-width: 1; }
+      .head { fill: #7f8fa3; font-size: 13px; font-weight: 700; letter-spacing: 2px; }
+      .cell { fill: #dfe8f2; font-size: 21px; font-weight: 700; }
+      .small { font-size: 13px; }
+      .tiny { font-size: 11px; letter-spacing: 1px; }
+    </style>
+  </defs>
+
+  <rect width="960" height="540" rx="28" fill="url(#bg)"/>
+  <rect x="18" y="18" width="924" height="504" rx="22" fill="url(#panel)" stroke="#233041" filter="url(#softShadow)"/>
+
+  <rect x="18" y="18" width="924" height="44" rx="22" fill="#0b1017"/>
+  <rect x="18" y="40" width="924" height="22" fill="#0b1017"/>
+  <text x="42" y="47" class="sans text" font-size="16" font-weight="800">Local Flight</text>
+  <text x="137" y="47" class="mono muted tiny">v0.2.2b2</text>
+  <rect x="575" y="29" width="62" height="24" rx="12" fill="#1f2d3d"/>
+  <text x="594" y="46" class="mono text tiny" font-weight="800">FIDS</text>
+  <text x="654" y="46" class="mono muted tiny">RADAR</text>
+  <text x="724" y="46" class="mono muted tiny">HISTORY</text>
+  <text x="812" y="46" class="mono muted tiny">SETTINGS</text>
+
+  <g transform="translate(42 86)">
+    <text x="0" y="0" class="sans text" font-size="24" font-weight="800">Zurich Airport</text>
+    <text x="165" y="0" class="mono muted small">ZRH / LSZH</text>
+    <rect x="690" y="-24" width="104" height="28" rx="14" fill="rgba(34,197,94,0.12)" stroke="rgba(34,197,94,0.35)"/>
+    <circle cx="709" cy="-10" r="4" fill="#22c55e"/>
+    <text x="721" y="-5" class="mono" fill="#22c55e" font-size="12" font-weight="800">LIVE REAL</text>
+    <text x="806" y="-5" class="mono muted small">UTC 17:24:08</text>
+
+    <rect x="0" y="20" width="876" height="38" rx="10" fill="rgba(255,255,255,0.035)" stroke="rgba(255,255,255,0.08)"/>
+    <rect x="14" y="29" width="45" height="20" rx="5" fill="#22c55e"/>
+    <text x="25" y="44" class="mono" fill="#071009" font-size="12" font-weight="900">VFR</text>
+    <text x="72" y="43" class="mono" fill="#9fb1c5" font-size="14">Wind 240 at 8 kt - visibility 10 km - cloud few 4500 ft - QNH 1018</text>
+
+    <g transform="translate(0 92)">
+      <text x="0" y="0" class="mono head">TIME</text>
+      <text x="132" y="0" class="mono head">FLIGHT</text>
+      <text x="270" y="0" class="mono head">ROUTE</text>
+      <text x="600" y="0" class="mono head">STATUS</text>
+      <text x="760" y="0" class="mono head">GATE</text>
+      <text x="832" y="0" class="mono head">AC</text>
+      <line x1="0" y1="18" x2="876" y2="18" class="line thin"/>
+
+      <g transform="translate(0 48)">
+        <rect x="0" y="-28" width="4" height="50" rx="2" fill="#22c55e"/>
+        <text x="20" y="6" class="mono cell">17:35</text>
+        <text x="132" y="6" class="mono cell" font-size="19">LX 1842</text>
+        <text x="270" y="6" class="sans text" font-size="18">Zurich to Athens</text>
+        <rect x="600" y="-16" width="118" height="28" rx="14" fill="rgba(34,197,94,0.12)" stroke="rgba(34,197,94,0.32)"/>
+        <circle cx="616" cy="-2" r="4" fill="#22c55e"/>
+        <text x="628" y="3" class="mono" fill="#22c55e" font-size="12" font-weight="900">BOARDING</text>
+        <text x="760" y="6" class="mono cell" font-size="19">A62</text>
+        <text x="832" y="6" class="mono muted" font-size="17">A320</text>
+        <line x1="0" y1="26" x2="876" y2="26" class="line thin"/>
+      </g>
+
+      <g transform="translate(0 102)">
+        <rect x="0" y="-28" width="4" height="50" rx="2" fill="#f59e0b"/>
+        <text x="20" y="6" class="mono cell">17:50</text>
+        <text x="132" y="6" class="mono cell" font-size="19">BA 713</text>
+        <text x="270" y="6" class="sans text" font-size="18">Zurich to London Heathrow</text>
+        <rect x="600" y="-16" width="134" height="28" rx="14" fill="rgba(245,158,11,0.12)" stroke="rgba(245,158,11,0.34)"/>
+        <circle cx="616" cy="-2" r="4" fill="#f59e0b"/>
+        <text x="628" y="3" class="mono" fill="#f59e0b" font-size="12" font-weight="900">APPROACHING</text>
+        <text x="760" y="6" class="mono cell" font-size="19">B04</text>
+        <text x="832" y="6" class="mono muted" font-size="17">A319</text>
+        <line x1="0" y1="26" x2="876" y2="26" class="line thin"/>
+      </g>
+
+      <g transform="translate(0 156)">
+        <rect x="0" y="-28" width="4" height="50" rx="2" fill="#ef4444"/>
+        <text x="20" y="6" class="mono cell">18:05</text>
+        <text x="132" y="6" class="mono cell" font-size="19">LH 2369</text>
+        <text x="270" y="6" class="sans text" font-size="18">Zurich to Munich</text>
+        <rect x="600" y="-16" width="100" height="28" rx="14" fill="rgba(239,68,68,0.11)" stroke="rgba(239,68,68,0.32)"/>
+        <circle cx="616" cy="-2" r="4" fill="#ef4444"/>
+        <text x="628" y="3" class="mono" fill="#ef4444" font-size="12" font-weight="900">DELAYED</text>
+        <text x="760" y="6" class="mono cell" font-size="19">D18</text>
+        <text x="832" y="6" class="mono muted" font-size="17">E195</text>
+        <line x1="0" y1="26" x2="876" y2="26" class="line thin"/>
+      </g>
+
+      <g transform="translate(0 210)" opacity="0.48">
+        <text x="20" y="6" class="mono cell">18:20</text>
+        <text x="132" y="6" class="mono cell" font-size="19">AF 1115</text>
+        <text x="270" y="6" class="sans text" font-size="18">Zurich to Paris CDG</text>
+        <circle cx="616" cy="-2" r="4" fill="#8aa0b8"/>
+        <text x="628" y="3" class="mono muted" font-size="12" font-weight="900">SCHEDULED</text>
+        <text x="760" y="6" class="mono cell" font-size="19">A10</text>
+        <text x="832" y="6" class="mono muted" font-size="17">A220</text>
+      </g>
+    </g>
+  </g>
+
+  <text x="42" y="499" class="mono muted tiny">README preview - illustrative sample data, not live telemetry</text>
+</svg>
