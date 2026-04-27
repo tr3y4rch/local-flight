@@ -26,6 +26,7 @@ export type AdminSystem = {
   version: string;
   python: string;
   platform: string;
+  install_id?: string | null;
   uptime?: string | null;
   memory_mb?: number | null;
   cpu_pct?: number | null;
@@ -59,11 +60,23 @@ export type SchedulerRestartResponse = {
 
 export type Budget = {
   aviationstack?: {
+    mode?: "relay" | "byok" | string;
+    relay_url?: string;
     enabled?: boolean;
-    used?: number;
-    limit?: number;
+    calls_this_month?: number;
+    monthly_limit?: number;
     remaining?: number;
     month?: string;
+    budget_ok?: boolean;
+    error?: string;
+  };
+  adsbexchange?: {
+    available?: boolean;
+    calls_this_month?: number;
+    monthly_limit?: number;
+    remaining?: number;
+    month?: string;
+    budget_ok?: boolean;
     error?: string;
   };
   adsbexchange_available?: boolean;
@@ -211,6 +224,30 @@ export type AirportResult = {
   city: string;
   country: string;
   type: string;
+  timezone?: string;
+};
+
+export type AirportDetail = {
+  iata: string;
+  icao: string;
+  name: string;
+  city: string;
+  country: string;
+  region: string;
+  type: string;
+  lat?: number | null;
+  lon?: number | null;
+  timezone: string;
+};
+
+export type HistoryStats = {
+  total_rows: number;
+  oldest?: string | null;
+  newest?: string | null;
+  airports: string[];
+  size_mb: number;
+  db_path: string;
+  error?: string;
 };
 
 export type ConfigPatch = {
@@ -218,7 +255,34 @@ export type ConfigPatch = {
   airport_icao?: string;
   source?: "real" | "virtual";
   refresh_seconds?: number;
+  timezone?: string;
   display_name?: string;
+};
+
+export type RequestLogEntry = {
+  id: number;
+  ts: string;
+  method: string;
+  path: string;
+  status_code: number;
+  latency_ms: number;
+  ip: string;
+  user_agent: string;
+  client_type: "desktop" | "mobile" | "matrix" | "api" | "unknown";
+};
+
+export type RequestLogSummary = {
+  hours: number;
+  total: number;
+  by_client: Record<string, number>;
+  top_paths: Array<{ path: string; count: number }>;
+  hourly: number[];
+  error?: string;
+};
+
+export type RequestLogResponse = {
+  requests: RequestLogEntry[];
+  summary: RequestLogSummary;
 };
 
 export type DashboardSnapshot = {

@@ -52,6 +52,11 @@ def _win_taskbar(on_quit: Callable, on_open_display: Callable) -> None:
     kernel32 = ctypes.windll.kernel32
     shell32  = ctypes.windll.shell32
 
+    # Declare argtypes so ctypes doesn't narrow 64-bit LPARAM to c_long on
+    # 64-bit Windows (causes OverflowError on messages with pointer-sized lparam).
+    user32.DefWindowProcW.restype  = ctypes.c_ssize_t
+    user32.DefWindowProcW.argtypes = [wt.HWND, wt.UINT, wt.WPARAM, wt.LPARAM]
+
     WS_OVERLAPPEDWINDOW = 0x00CF0000
     WS_MINIMIZE         = 0x20000000
     WS_EX_APPWINDOW     = 0x00040000
@@ -92,7 +97,7 @@ def _win_taskbar(on_quit: Callable, on_open_display: Callable) -> None:
             )
         return user32.LoadIconW(None, MAKEINTRESOURCE(32512))  # IDI_APPLICATION
 
-    WNDPROC = ctypes.WINFUNCTYPE(ctypes.c_long, wt.HWND, wt.UINT, wt.WPARAM, wt.LPARAM)
+    WNDPROC = ctypes.WINFUNCTYPE(ctypes.c_ssize_t, wt.HWND, wt.UINT, wt.WPARAM, wt.LPARAM)
 
     class WNDCLASSEX(ctypes.Structure):
         _fields_ = [

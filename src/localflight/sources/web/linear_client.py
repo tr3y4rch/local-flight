@@ -16,6 +16,9 @@ import hashlib
 import json
 import logging
 import os
+import platform
+import re
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -24,6 +27,14 @@ log = logging.getLogger(__name__)
 
 _GRAPHQL_URL = "https://api.linear.app/graphql"
 _DEDUP_HOURS = 6
+
+_SECRET_PATTERNS = (
+    (re.compile(r"(AVIATIONSTACK_API_KEY|RAPIDAPI_KEY|OPENSKY_CLIENT_SECRET|LINEAR_API_KEY)=\S+", re.I), r"\1=[redacted]"),
+    (re.compile(r"(access_key=)[^&\s]+", re.I), r"\1[redacted]"),
+    (re.compile(r"(X-RapidAPI-Key['\":\s]+)[A-Za-z0-9._-]+", re.I), r"\1[redacted]"),
+    (re.compile(r"lin_api_[A-Za-z0-9_]+", re.I), "[redacted-linear-token]"),
+    (re.compile(r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b", re.I), "[redacted-uuid]"),
+)
 
 
 # ── Credentials ────────────────────────────────────────────────────────────────
@@ -100,6 +111,13 @@ def _save_dedup(data: dict) -> None:
 def _fingerprint(error_msg: str) -> str:
     # Stable hash of first 120 chars — enough to identify error class without noise
     return hashlib.sha1(error_msg[:120].encode()).hexdigest()[:12]
+
+
+def _redact_sensitive(text: str) -> str:
+    redacted = text or ""
+    for pattern, repl in _SECRET_PATTERNS:
+        redacted = pattern.sub(repl, redacted)
+    return redacted
 
 
 def _already_filed(fp: str) -> bool:
@@ -202,14 +220,39 @@ def file_error(
 
         ts    = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
         label = f"[{airport_iata}] " if airport_iata else ""
-        title = f"{label}Scheduler error — {error_msg[:80]}"
+        safe_error = _redact_sensitive(error_msg)
+        title = f"{label}Scheduler error — {safe_error[:80]}"
+
+        try:
+            from importlib.metadata import version as _pkg_version
+            app_version = _pkg_version("localflight")
+        except Exception:
+            app_version = "unknown"
+
+        try:
+            from localflight.storage.install import get_install_fingerprint
+            install_id = get_install_fingerprint()
+        except Exception:
+            install_id = "unknown"
+
+        try:
+            from localflight.sources.web.aviationstack_client import _is_relay_mode
+            api_mode = "community relay" if _is_relay_mode() else "byok"
+        except Exception:
+            api_mode = "unknown"
 
         description = (
-            f"**Local Flight scheduler error**\n\n"
+            f"**Local Flight operator scheduler error**\n\n"
             f"- **Time:** {ts}\n"
+            f"- **Version:** {app_version}\n"
+            f"- **Install fingerprint:** `{install_id}`\n"
+            f"- **OS:** {platform.platform()}\n"
+            f"- **Arch:** {platform.machine()}\n"
+            f"- **Python:** {sys.version.split()[0]}\n"
             f"- **Source:** {source_name}\n"
-            f"- **Airport:** {airport_iata or '—'}\n\n"
-            f"**Error:**\n```\n{error_msg}\n```\n"
+            f"- **Airport:** {airport_iata or '—'}\n"
+            f"- **API mode:** {api_mode}\n\n"
+            f"**Error:**\n```\n{safe_error}\n```\n"
         )
 
         url = _post_issue(title, description)

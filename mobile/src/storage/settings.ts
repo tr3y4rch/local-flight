@@ -9,6 +9,7 @@ export type ConfigProfile = {
   name: string;
   iata: string;
   icao: string;
+  timezone?: string;
   source: "real" | "virtual";
   refresh_seconds: number;
 };

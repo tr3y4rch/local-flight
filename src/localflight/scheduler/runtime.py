@@ -175,13 +175,23 @@ def run_multi_airport(
             while True:
                 t0 = time.time()
                 try:
-                    # jobs.run_snapshot_job handles history write internally
                     fetch(cfg)
                 except Exception as exc:
                     logger.exception(
                         "Multi-airport cycle error | %s: %s",
                         cfg.airport_iata, exc,
                     )
+                    error_msg = f"{type(exc).__name__}: {exc}"
+                    try:
+                        import traceback as _tb
+                        from localflight.sources.web.bug_reporter import submit_crash
+                        submit_crash(
+                            error_msg,
+                            traceback_str=_tb.format_exc(),
+                            context=f"scheduler/multi/{cfg.airport_iata}",
+                        )
+                    except Exception:
+                        pass
                 elapsed = time.time() - t0
                 time.sleep(max(1, cfg.refresh_seconds - int(elapsed)))
 

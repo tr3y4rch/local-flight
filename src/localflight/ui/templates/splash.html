@@ -90,6 +90,14 @@
     animation: ring 1.8s ease-out infinite;
   }
 
+  .splash-mark-wrap::before {
+    background:
+      conic-gradient(from 230deg, transparent 0 62%, rgba(90,185,255,0.34) 66%, transparent 73%),
+      radial-gradient(circle, transparent 58%, rgba(90,185,255,0.16) 59%, transparent 61%);
+    border: 0;
+    animation: sweep-spin 3.4s linear infinite;
+  }
+
   .splash-mark-wrap::after {
     inset: -34px;
     border-color: rgba(41,226,135,0.14);
@@ -142,10 +150,27 @@
     letter-spacing: 0.08em;
   }
 
+  .splash-status {
+    width: min(100%, 360px);
+    margin: 24px auto 0;
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    color: rgba(238,247,255,0.70);
+    font: 700 0.72rem/1.4 ui-monospace, "SFMono-Regular", Consolas, monospace;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+  }
+
+  .splash-percent {
+    color: var(--splash-green);
+    font-variant-numeric: tabular-nums;
+  }
+
   .splash-progress {
     width: min(100%, 360px);
     height: 3px;
-    margin: 30px auto 0;
+    margin: 10px auto 0;
     border-radius: 999px;
     overflow: hidden;
     background: rgba(255,255,255,0.10);
@@ -189,6 +214,12 @@
     to { opacity: 0; transform: scale(1.22); }
   }
 
+  @keyframes sweep-spin {
+    from { transform: rotate(0deg); opacity: 0.72; }
+    50% { opacity: 0.42; }
+    to { transform: rotate(360deg); opacity: 0.72; }
+  }
+
   @keyframes progress {
     from { transform: scaleX(0); }
     to { transform: scaleX(1); }
@@ -230,6 +261,10 @@
     <h1 class="splash-title">Local Flight</h1>
     <p class="splash-sub">Booting the board, checking the runway lights, and warming up the radar sweep.</p>
     <div class="splash-version">v{{ app_version }}</div>
+    <div class="splash-status" aria-live="polite">
+      <span id="splashStatusText">Starting services</span>
+      <span class="splash-percent" id="splashPercent">0%</span>
+    </div>
     <div class="splash-progress" aria-hidden="true"><span></span></div>
     <div class="splash-skip">Click anywhere to skip</div>
   </a>
@@ -241,6 +276,36 @@
   (function () {
     const nextUrl = {{ next_url|tojson }};
     const delay = {{ duration_ms|int }};
+    const startedAt = performance.now();
+    const statusText = document.getElementById("splashStatusText");
+    const percentText = document.getElementById("splashPercent");
+    const steps = [
+      "Starting services",
+      "Loading airport profile",
+      "Checking data sources",
+      "Priming radar sweep",
+      "Syncing display channels",
+      "Opening board"
+    ];
+    let lastStep = -1;
+
+    function updateProgress() {
+      const elapsed = performance.now() - startedAt;
+      const progress = Math.min(1, elapsed / delay);
+      const step = Math.min(steps.length - 1, Math.floor(progress * steps.length));
+      if (step !== lastStep && statusText) {
+        statusText.textContent = steps[step];
+        lastStep = step;
+      }
+      if (percentText) {
+        percentText.textContent = `${Math.round(progress * 100)}%`;
+      }
+      if (progress < 1) {
+        window.requestAnimationFrame(updateProgress);
+      }
+    }
+
+    window.requestAnimationFrame(updateProgress);
     window.setTimeout(function () {
       window.location.replace(nextUrl);
     }, delay);

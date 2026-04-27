@@ -138,6 +138,19 @@ def load_latest_snapshot_path(airport_iata: str) -> Optional[Path]:
     return snaps[-1] if snaps else None
 
 
+def snapshot_age_seconds(airport_iata: str) -> Optional[float]:
+    """
+    Age in seconds of the most recent snapshot for this airport.
+    Returns None if no snapshot exists (treat as infinitely stale).
+    Uses the UTC timestamp embedded in the filename, not the file mtime.
+    """
+    p = load_latest_snapshot_path(airport_iata)
+    if p is None:
+        return None
+    ts = _snapshot_timestamp(p)
+    return (_utcnow() - ts).total_seconds()
+
+
 def prune_snapshots(airport_iata: str, *, keep_hours: int = 24) -> int:
     """
     Delete snapshot files older than keep_hours.

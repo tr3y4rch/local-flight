@@ -170,6 +170,18 @@
     .source-card.selected { border-color: #00e84a; background: rgba(0,232,74,0.06); }
     .source-card .src-title { font-weight: 700; font-size: 0.9rem; margin-bottom: 4px; }
     .source-card .src-desc  { font-size: 0.75rem; opacity: 0.55; line-height: 1.4; }
+    .setup-paths { display: grid; gap: 8px; margin: 16px 0 4px; }
+    .setup-path {
+      padding: 10px 12px; border-radius: 8px;
+      border: 1px solid rgba(255,255,255,0.08);
+      background: rgba(255,255,255,0.025);
+      font-size: 0.78rem; line-height: 1.45;
+    }
+    .setup-path strong {
+      display: block; margin-bottom: 2px;
+      font-size: 0.8rem; color: #e7edf3;
+    }
+    .setup-path span { opacity: 0.58; }
 
     /* ── Finish ── */
     .finish-icon { font-size: 4rem; text-align: center; margin-bottom: 12px; }
@@ -222,16 +234,30 @@
   <!-- ── Step 2: Data source ── -->
   <div class="panel" id="panel-1">
     <h2>Data Source</h2>
-    <p class="sub">How do you want to populate your FIDS?</p>
+    <p class="sub">How do you want to populate your FIDS? Local Flight can run in three modes.</p>
 
     <div class="source-grid">
       <div class="source-card selected" id="src-real" onclick="selectSource('real')">
         <div class="src-title">🛫 Real flights</div>
-        <div class="src-desc">Live schedule data from AviationStack. Requires a free API key. Best for home/office use.</div>
+        <div class="src-desc">Live schedule data from AviationStack. Choose the shared relay, or bring your own API keys.</div>
       </div>
       <div class="source-card" id="src-virtual" onclick="selectSource('virtual')">
         <div class="src-title">🎮 Virtual (VATSIM)</div>
         <div class="src-desc">Flight sim traffic. No API key needed. Great for testing or sim setups.</div>
+      </div>
+    </div>
+    <div class="setup-paths">
+      <div class="setup-path">
+        <strong>Shared relay, no key</strong>
+        <span>Use the included community relay for real schedules. Best for first launch and casual use; calls are limited and shared.</span>
+      </div>
+      <div class="setup-path">
+        <strong>Your own keys</strong>
+        <span>Add AviationStack for schedules and RapidAPI ADS-B Exchange for live radar/aircraft details. Best for the 10k/month plans.</span>
+      </div>
+      <div class="setup-path">
+        <strong>Virtual traffic</strong>
+        <span>Use VATSIM flight-sim traffic. No AviationStack, RapidAPI, or relay calls needed.</span>
       </div>
     </div>
     <input type="hidden" id="sourceInput" value="real" />
@@ -246,10 +272,10 @@
   <div class="panel" id="panel-2">
     <h2>AviationStack API Key</h2>
     <p class="sub">
-      AviationStack provides real flight schedules. The free tier gives 100 API calls/month —
-      enough for updates every 8-12 hours.<br><br>
-      <a href="https://aviationstack.com/signup/free" target="_blank" style="color:#00e84a;">
-        → Get your free key at aviationstack.com
+      AviationStack provides real flight schedules. Leave this blank to use the shared community relay
+      with limited calls, or paste your own key to use your own monthly quota.<br><br>
+      <a href="https://aviationstack.com/product" target="_blank" style="color:#00e84a;">
+        → See AviationStack plans
       </a>
     </p>
 
@@ -259,7 +285,7 @@
         <input type="password" id="aviationstackKey" placeholder="Paste your key here…" />
         <button class="key-toggle" onclick="toggleKey('aviationstackKey', this)">👁</button>
       </div>
-      <div class="hint">Looks like: a1b2c3d4e5f6... (50 characters)</div>
+      <div class="hint">Optional. Your key stays on this machine and is written to the local .env file.</div>
     </div>
 
     <button class="btn btn-secondary" onclick="testAviationstack()" style="width:100%; margin-top:0;">
@@ -280,8 +306,9 @@
   <div class="panel" id="panel-3">
     <h2>ADS-B Exchange <span class="optional">optional</span></h2>
     <p class="sub">
-      ADS-B Exchange enriches your flights with live positions, aircraft type, and registration.
-      Free tier via RapidAPI gives 1,000 calls/day — no rate concerns.<br><br>
+      ADS-B Exchange enriches your flights with live positions, aircraft type, registration, and radar data.
+      Leave this blank to use fallback position sources, or paste your RapidAPI key for ADS-B Exchange live updates.
+      Local Flight tracks it against a configurable monthly budget.<br><br>
       <a href="https://rapidapi.com/adsbx/api/adsbexchange-com1" target="_blank" style="color:#00e84a;">
         → Subscribe free at RapidAPI
       </a>
@@ -293,7 +320,7 @@
         <input type="password" id="rapidapiKey" placeholder="Paste your RapidAPI key…" />
         <button class="key-toggle" onclick="toggleKey('rapidapiKey', this)">👁</button>
       </div>
-      <div class="hint">Long alphanumeric string from your RapidAPI dashboard.</div>
+      <div class="hint">Optional. Recommended when you have the RapidAPI ADS-B Exchange 10k/month subscription.</div>
     </div>
 
     <button class="btn btn-secondary" onclick="testRapidapi()" style="width:100%; margin-top:0;">
@@ -450,15 +477,6 @@
   let debounce = null;
   let results  = [];
 
-  const COUNTRY_TZ = {
-    "CH":"Europe/Zurich","DE":"Europe/Berlin","GB":"Europe/London",
-    "FR":"Europe/Paris","AT":"Europe/Vienna","IT":"Europe/Rome",
-    "ES":"Europe/Madrid","NL":"Europe/Amsterdam","BE":"Europe/Brussels",
-    "US":"America/New_York","CA":"America/Toronto","AU":"Australia/Sydney",
-    "JP":"Asia/Tokyo","CN":"Asia/Shanghai","SG":"Asia/Singapore",
-    "AE":"Asia/Dubai","BR":"America/Sao_Paulo",
-  };
-
   function showDropdown(items) {
     results = items;
     dropEl.innerHTML = "";
@@ -478,7 +496,7 @@
     iataEl.value = r.iata || "";
     icaoEl.value = r.icao || "";
     searchEl.value = `${r.iata||"---"} / ${r.icao||"----"}`;
-    tzEl.value = COUNTRY_TZ[r.country] || "UTC";
+    tzEl.value = r.timezone || "UTC";
     selectedEl.innerHTML = `<strong>${r.iata||"---"} / ${r.icao||"----"}</strong> — ${r.name}<br>
       <span style="opacity:0.6">${r.city}, ${r.country}</span>`;
     selectedEl.style.display = "block";
@@ -512,7 +530,11 @@
     result.className = "test-result"; result.style.display = "block";
     result.textContent = "Testing…";
     try {
-      const r = await fetch(`/api/setup/test-aviationstack?key=${encodeURIComponent(key)}`);
+      const r = await fetch("/api/setup/test-aviationstack", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key }),
+      });
       const d = await r.json();
       if (d.ok) {
         result.className = "test-result ok";
@@ -538,7 +560,11 @@
     result.className = "test-result"; result.style.display = "block";
     result.textContent = "Testing…";
     try {
-      const r = await fetch(`/api/setup/test-rapidapi?key=${encodeURIComponent(key)}`);
+      const r = await fetch("/api/setup/test-rapidapi", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key }),
+      });
       const d = await r.json();
       if (d.ok) {
         result.className = "test-result ok";
@@ -565,7 +591,7 @@
     const items = [
       `Airport: ${iata} / ${icao}`,
       `Source: ${source === "real" ? "Real flights (AviationStack)" : "Virtual (VATSIM)"}`,
-      hasAS ? "AviationStack key: set ✓" : "AviationStack key: not set (VATSIM mode works without it)",
+      hasAS ? "AviationStack key: set ✓" : "AviationStack key: not set (community relay)",
       hasRP ? "ADS-B Exchange key: set ✓" : "ADS-B Exchange key: not set (optional)",
       hasOS ? "OpenSky credentials: set ✓" : "OpenSky credentials: not set (optional)",
     ];

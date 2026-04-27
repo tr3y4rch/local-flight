@@ -34,7 +34,7 @@
   <rect x="18" y="18" width="924" height="44" rx="22" fill="#0b1017"/>
   <rect x="18" y="40" width="924" height="22" fill="#0b1017"/>
   <text x="42" y="47" class="sans text" font-size="16" font-weight="800">Local Flight</text>
-  <text x="137" y="47" class="mono muted tiny">v0.2.2b2</text>
+  <text x="137" y="47" class="mono muted tiny">v0.2.2b3</text>
   <rect x="575" y="29" width="62" height="24" rx="12" fill="#1f2d3d"/>
   <text x="594" y="46" class="mono text tiny" font-weight="800">FIDS</text>
   <text x="654" y="46" class="mono muted tiny">RADAR</text>

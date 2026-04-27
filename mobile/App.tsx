@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type ComponentProps } from "r
 import {
   ActivityIndicator,
   Animated,
+  Easing,
   FlatList,
   Image,
   Linking,
@@ -91,7 +92,7 @@ type ProjectedBlip = {
   distanceNm: number;
 };
 
-const APP_VERSION = "0.2.2b2";
+const APP_VERSION = "0.2.2b3";
 const HISTORY_WINDOWS: HistoryWindow[] = [24, 72, 168];
 const RADAR_RADII: RadarRadius[] = [20, 40, 80];
 const MATRIX_PRESETS: MatrixPreset[] = [
@@ -104,8 +105,17 @@ const MATRIX_PRESETS: MatrixPreset[] = [
 ];
 const MATRIX_ROWS = [2, 3, 4, 5, 6];
 const MATRIX_BRIGHTNESS = [40, 60, 80, 100];
-const LAUNCH_MIN_MS = 450;
-const LAUNCH_ANIMATION_DELAY_MS = 140;
+const LAUNCH_MIN_MS = 6200;
+const LAUNCH_NATIVE_MIN_MS = 420;
+const LAUNCH_ANIMATION_DELAY_MS = 180;
+const LAUNCH_STATUS_STEPS = [
+  "Starting companion",
+  "Loading saved server",
+  "Checking flight board",
+  "Priming radar sweep",
+  "Syncing local profile",
+  "Opening companion"
+];
 const REFRESH_OPTIONS: Array<{ seconds: number; label: string }> = [
   { seconds: 900,   label: "15 min" },
   { seconds: 1800,  label: "30 min" },
@@ -464,6 +474,7 @@ function AppShell() {
   const [matrixBrightness, setMatrixBrightness] = useState(80);
   const [matrixData, setMatrixData] = useState<FidsRow[]>([]);
   const [launchVisible, setLaunchVisible] = useState(true);
+  const [launchStatusIndex, setLaunchStatusIndex] = useState(0);
   const [pinnedCallsign, setPinnedCallsign] = useState("");
   const [actionRow, setActionRow] = useState<FidsRow | null>(null);
   const [configSheetVisible, setConfigSheetVisible] = useState(false);
@@ -474,6 +485,8 @@ function AppShell() {
   const launchOpacity = useRef(new Animated.Value(1)).current;
   const launchScale = useRef(new Animated.Value(1)).current;
   const launchShift = useRef(new Animated.Value(0)).current;
+  const launchProgress = useRef(new Animated.Value(0)).current;
+  const launchPulse = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     installGlobalCrashReporter();
@@ -490,8 +503,40 @@ function AppShell() {
   useEffect(() => {
     let alive = true;
     const startedAt = Date.now();
+    let nativeHideTimer: ReturnType<typeof setTimeout> | null = null;
     let hideTimer: ReturnType<typeof setTimeout> | null = null;
     let fadeTimer: ReturnType<typeof setTimeout> | null = null;
+    const statusTimer = setInterval(() => {
+      const elapsed = Date.now() - startedAt;
+      const progress = Math.min(1, elapsed / LAUNCH_MIN_MS);
+      setLaunchStatusIndex(Math.min(LAUNCH_STATUS_STEPS.length - 1, Math.floor(progress * LAUNCH_STATUS_STEPS.length)));
+    }, 420);
+    const pulseAnim = Animated.loop(
+      Animated.sequence([
+        Animated.timing(launchPulse, {
+          toValue: 1,
+          duration: 1600,
+          easing: Easing.inOut(Easing.quad),
+          useNativeDriver: true
+        }),
+        Animated.timing(launchPulse, {
+          toValue: 0,
+          duration: 1600,
+          easing: Easing.inOut(Easing.quad),
+          useNativeDriver: true
+        })
+      ])
+    );
+
+    launchProgress.setValue(0);
+    launchPulse.setValue(0);
+    Animated.timing(launchProgress, {
+      toValue: 1,
+      duration: LAUNCH_MIN_MS,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: false
+    }).start();
+    pulseAnim.start();
 
     Promise.all([loadServerUrl(), loadPinnedFlight(), loadProfiles()])
       .then(([savedUrl, savedPin, savedProfiles]) => {
@@ -508,12 +553,19 @@ function AppShell() {
         }
       })
       .finally(() => {
-        const remaining = Math.max(0, LAUNCH_MIN_MS - (Date.now() - startedAt));
-        hideTimer = setTimeout(() => {
+        if (!alive) return;
+        const nativeRemaining = Math.max(0, LAUNCH_NATIVE_MIN_MS - (Date.now() - startedAt));
+        nativeHideTimer = setTimeout(() => {
           if (!alive) return;
           void SplashScreen.hideAsync().catch(() => {
             // Ignore splash hide races during simulator reloads.
           });
+        }, nativeRemaining);
+
+        const remaining = Math.max(0, LAUNCH_MIN_MS - (Date.now() - startedAt));
+        hideTimer = setTimeout(() => {
+          if (!alive) return;
+          setLaunchStatusIndex(LAUNCH_STATUS_STEPS.length - 1);
           fadeTimer = setTimeout(() => {
             if (!alive) return;
             Animated.parallel([
@@ -543,10 +595,14 @@ function AppShell() {
 
     return () => {
       alive = false;
+      clearInterval(statusTimer);
+      pulseAnim.stop();
+      launchProgress.stopAnimation();
+      if (nativeHideTimer) clearTimeout(nativeHideTimer);
       if (hideTimer) clearTimeout(hideTimer);
       if (fadeTimer) clearTimeout(fadeTimer);
     };
-  }, [launchOpacity, launchScale, launchShift]);
+  }, [launchOpacity, launchProgress, launchPulse, launchScale, launchShift]);
 
   const fetchDashboard = useCallback(async (normalized: string) => {
     const [state, config, system, connections, updates, budget] = await Promise.all([
@@ -1088,6 +1144,9 @@ function AppShell() {
         opacity={launchOpacity}
         shift={launchShift}
         scale={launchScale}
+        progress={launchProgress}
+        pulse={launchPulse}
+        status={LAUNCH_STATUS_STEPS[launchStatusIndex] || LAUNCH_STATUS_STEPS[0]}
       />
     </SafeAreaView>
   );
@@ -1097,14 +1156,25 @@ function LaunchOverlay({
   visible,
   opacity,
   shift,
-  scale
+  scale,
+  progress,
+  pulse,
+  status
 }: {
   visible: boolean;
   opacity: Animated.Value;
   shift: Animated.Value;
   scale: Animated.Value;
+  progress: Animated.Value;
+  pulse: Animated.Value;
+  status: string;
 }) {
   if (!visible) return null;
+
+  const haloScale = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.94, 1.08] });
+  const haloOpacity = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.72, 0.34] });
+  const progressWidth = progress.interpolate({ inputRange: [0, 1], outputRange: ["4%", "100%"] });
+  const sweepRotate = pulse.interpolate({ inputRange: [0, 1], outputRange: ["-18deg", "18deg"] });
 
   return (
     <Animated.View
@@ -1117,17 +1187,27 @@ function LaunchOverlay({
         }
       ]}
     >
-      <View style={styles.launchHalo} />
-      <View style={styles.launchHaloInner} />
+      <Animated.View style={[styles.launchHalo, { opacity: haloOpacity, transform: [{ scale: haloScale }] }]} />
+      <Animated.View style={[styles.launchHaloInner, { transform: [{ rotate: sweepRotate }] }]} />
       <View style={styles.launchPanel}>
-        <Image
-          source={require("./assets/icon_circle.png")}
-          resizeMode="contain"
-          style={styles.launchMark}
-        />
+        <View style={styles.launchMarkWrap}>
+          <View style={styles.launchRadarRing} />
+          <Animated.View style={[styles.launchSweep, { transform: [{ rotate: sweepRotate }] }]} />
+          <Image
+            source={require("./assets/icon_circle.png")}
+            resizeMode="contain"
+            style={styles.launchMark}
+          />
+        </View>
         <Text style={styles.launchEyebrow}>LOCAL FLIGHT</Text>
         <Text style={styles.launchTitle}>COMPANION</Text>
         <Text style={styles.launchVersion}>v{APP_VERSION}</Text>
+        <View style={styles.launchStatusRow}>
+          <Text style={styles.launchStatus}>{status}</Text>
+        </View>
+        <View style={styles.launchProgressTrack}>
+          <Animated.View style={[styles.launchProgressFill, { width: progressWidth }]} />
+        </View>
       </View>
     </Animated.View>
   );
@@ -2681,7 +2761,8 @@ function AirportConfigSheet({
             name: currentConfig.display_name || currentConfig.airport_iata,
             city: "",
             country: "",
-            type: ""
+            type: "",
+            timezone: currentConfig.timezone
           }
         : null
     );
@@ -2718,6 +2799,7 @@ function AirportConfigSheet({
       if (selectedAirport) {
         patch.airport_iata = selectedAirport.iata;
         patch.airport_icao = selectedAirport.icao;
+        if (selectedAirport.timezone) patch.timezone = selectedAirport.timezone;
       }
       onApplied(await patchConfig(serverUrl, patch));
     } catch (e) {
@@ -2736,6 +2818,7 @@ function AirportConfigSheet({
         name: profileName.trim(),
         iata: selectedAirport.iata,
         icao: selectedAirport.icao,
+        timezone: selectedAirport.timezone,
         source,
         refresh_seconds: refreshSecs
       }
@@ -2762,6 +2845,7 @@ function AirportConfigSheet({
         const patch: ConfigPatch = {
           airport_iata: p.iata,
           airport_icao: p.icao,
+          timezone: p.timezone,
           source: p.source,
           refresh_seconds: p.refresh_seconds
         };
@@ -2957,34 +3041,58 @@ const styles = StyleSheet.create({
   },
   launchHalo: {
     position: "absolute",
-    width: 320,
-    height: 320,
+    width: 360,
+    height: 360,
     borderRadius: 999,
-    backgroundColor: "rgba(74,158,218,0.12)"
+    backgroundColor: "rgba(74,158,218,0.14)"
   },
   launchHaloInner: {
     position: "absolute",
-    width: 180,
-    height: 180,
+    width: 238,
+    height: 238,
     borderRadius: 999,
     borderWidth: 1,
-    borderColor: "rgba(122,176,216,0.16)",
-    backgroundColor: "rgba(255,255,255,0.02)"
+    borderColor: "rgba(122,176,216,0.24)",
+    borderTopColor: "rgba(41,226,135,0.72)",
+    borderRightColor: "rgba(240,180,41,0.38)",
+    backgroundColor: "rgba(255,255,255,0.018)"
   },
   launchPanel: {
-    minWidth: 220,
+    minWidth: 250,
     paddingHorizontal: 28,
-    paddingVertical: 28,
+    paddingVertical: 30,
     borderRadius: 28,
     borderWidth: 1,
     borderColor: "rgba(74,158,218,0.16)",
     backgroundColor: "rgba(7,12,18,0.88)",
     alignItems: "center"
   },
-  launchMark: {
-    width: 92,
-    height: 92,
+  launchMarkWrap: {
+    width: 126,
+    height: 126,
+    alignItems: "center",
+    justifyContent: "center",
     marginBottom: 18
+  },
+  launchRadarRing: {
+    position: "absolute",
+    width: 122,
+    height: 122,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "rgba(122,176,216,0.24)"
+  },
+  launchSweep: {
+    position: "absolute",
+    width: 2,
+    height: 58,
+    top: 6,
+    borderRadius: 999,
+    backgroundColor: "rgba(41,226,135,0.72)"
+  },
+  launchMark: {
+    width: 96,
+    height: 96
   },
   launchEyebrow: {
     fontFamily: mono,
@@ -3013,6 +3121,32 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: "700",
     letterSpacing: 1
+  },
+  launchStatusRow: {
+    width: "100%",
+    marginTop: 18,
+    alignItems: "center"
+  },
+  launchStatus: {
+    fontFamily: mono,
+    color: palette.textMuted,
+    fontSize: 10,
+    fontWeight: "700",
+    letterSpacing: 1.2,
+    textTransform: "uppercase"
+  },
+  launchProgressTrack: {
+    width: "100%",
+    height: 4,
+    marginTop: 12,
+    overflow: "hidden",
+    borderRadius: 999,
+    backgroundColor: "rgba(255,255,255,0.09)"
+  },
+  launchProgressFill: {
+    height: "100%",
+    borderRadius: 999,
+    backgroundColor: palette.green
   },
   header: {
     paddingTop: 10,

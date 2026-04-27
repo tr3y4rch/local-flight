@@ -16,6 +16,7 @@ venv/
 # ── Local config / runtime ─────────────────────────────
 config/
 data/
+.pytest_cache/
 
 # Setup marker
 setup_complete
@@ -29,6 +30,11 @@ src/localflight/storage/samples/*_real.json
 
 # ── Logs ───────────────────────────────────────────────
 *.log
+
+# Local traffic / reporting runtime data
+requests.db
+bug_report_dedup.json
+api_usage.json
 
 # ── IDE / OS junk ──────────────────────────────────────
 .vs/
@@ -66,6 +72,7 @@ linear_dedup.json
 
 # Claude Code local settings
 .claude/
+start_network.bat
 
 # AI assistant context files
 Claude.md

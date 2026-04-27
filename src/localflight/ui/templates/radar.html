@@ -37,6 +37,16 @@
   .metar-sep { opacity: 0.2; flex-shrink: 0; }
   .metar-loading { opacity: 0.4; font-style: italic; }
 
+  .radar-range-btns { display: flex; gap: 5px; }
+  .radar-range-btn {
+    padding: 3px 10px; border-radius: 4px; font-size: 0.75rem; font-weight: 700;
+    border: 1px solid rgba(255,255,255,0.18); background: rgba(255,255,255,0.05);
+    color: inherit; cursor: pointer; font-family: ui-monospace, monospace;
+    transition: background 0.1s, border-color 0.1s;
+  }
+  [data-theme="light"] .radar-range-btn { border-color: rgba(0,0,0,0.18); background: rgba(0,0,0,0.04); }
+  .radar-range-btn.active { background: rgba(255,255,255,0.18); border-color: rgba(255,255,255,0.5); }
+  [data-theme="light"] .radar-range-btn.active { background: rgba(0,0,0,0.12); border-color: rgba(0,0,0,0.4); }
   .live-dot { width: 6px; height: 6px; border-radius: 50%; background: #00e84a; display: inline-block; animation: lf-pulse 1.4s ease-in-out infinite; }
   .live-dot.offline { background: #888; animation: none; }
   .radar-canvas-wrap { flex: 1; display: flex; align-items: center; justify-content: center; min-height: 0; }
@@ -51,6 +61,12 @@
   {% if not _embedded %}
   <div class="radar-subheader">
     <span>📡 {{ airport_label }} <span style="opacity:0.45; font-weight:500;">({{ cfg.airport_iata }}/{{ cfg.airport_icao }})</span></span>
+    <div class="radar-range-btns" id="rangeButtons">
+      <button class="radar-range-btn" data-nm="10" onclick="setRadius(10)">10nm</button>
+      <button class="radar-range-btn" data-nm="20" onclick="setRadius(20)">20nm</button>
+      <button class="radar-range-btn" data-nm="40" onclick="setRadius(40)">40nm</button>
+      <button class="radar-range-btn" data-nm="80" onclick="setRadius(80)">80nm</button>
+    </div>
     <span class="radar-lt">LT <span class="clock-local-val">--:--:--</span></span>
   </div>
   {% endif %}
@@ -79,7 +95,7 @@
 
   const CENTER_LAT = {{ center_lat }};
   const CENTER_LON = {{ center_lon }};
-  const RADIUS_NM  = {{ radius_nm }};
+  let   RADIUS_NM  = {{ radius_nm }};
   const POLL_MS    = 15000;
   const METAR_POLL_MS = 30 * 60 * 1000;
 
@@ -107,6 +123,25 @@
     const age=angleSinceSweep(b,s);
     if(age>350||age<30) return 1.0;
     return Math.max(0.1,1.0-(age-30)/310*0.9);
+  }
+
+  function setRadius(nm) {
+    RADIUS_NM = nm;
+    hoveredBlip = null;
+    document.querySelectorAll(".radar-range-btn").forEach(b => {
+      b.classList.toggle("active", parseInt(b.dataset.nm, 10) === nm);
+    });
+    const url = new URL(window.location.href);
+    url.searchParams.set("radius_nm", String(nm));
+    window.history.replaceState(null, "", url);
+    fetchBlips();
+  }
+  window.setRadius = setRadius;
+
+  function _initRangeButtons() {
+    document.querySelectorAll(".radar-range-btn").forEach(b => {
+      b.classList.toggle("active", parseInt(b.dataset.nm, 10) === RADIUS_NM);
+    });
   }
 
   function resize(){ const w=canvas.parentElement, s=Math.min(w.clientWidth,w.clientHeight)-4; canvas.width=s; canvas.height=s; }
@@ -244,6 +279,7 @@
   window.addEventListener("message",(e)=>handleSyncMessage(e.data));
 
   resize();
+  _initRangeButtons();
   window.addEventListener("resize", resize);
   fetchBlips(); fetchMETAR();
   setInterval(fetchBlips, POLL_MS);

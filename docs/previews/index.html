@@ -78,6 +78,12 @@
       grid-template-columns: repeat(3, minmax(0, 1fr));
       gap: 18px;
     }
+    .section-title {
+      margin: 30px 0 14px;
+      color: var(--text);
+      font: 800 18px/1.2 Inter, Segoe UI, Helvetica, Arial, sans-serif;
+      letter-spacing: -0.03em;
+    }
     .card {
       border: 1px solid var(--line);
       background: rgba(16, 23, 32, 0.72);
@@ -123,6 +129,7 @@
       <div class="badge"><span class="dot"></span> SAMPLE DATA</div>
     </header>
 
+    <h2 class="section-title">Desktop and kiosk</h2>
     <section class="grid" aria-label="Local Flight preview images">
       <article class="card">
         <img src="fids-preview.svg" alt="Local Flight FIDS preview">
@@ -135,6 +142,22 @@
       <article class="card">
         <img src="settings-preview.svg" alt="Local Flight settings preview">
         <div class="caption"><strong>Settings</strong><span>Desktop controls</span></div>
+      </article>
+    </section>
+
+    <h2 class="section-title">Mobile companion</h2>
+    <section class="grid" aria-label="Local Flight companion preview images">
+      <article class="card">
+        <img src="mobile-fids-preview.svg" alt="Local Flight companion FIDS preview">
+        <div class="caption"><strong>Companion FIDS</strong><span>Pinned flight focus</span></div>
+      </article>
+      <article class="card">
+        <img src="mobile-radar-preview.svg" alt="Local Flight companion radar preview">
+        <div class="caption"><strong>Companion Radar</strong><span>Live aircraft view</span></div>
+      </article>
+      <article class="card">
+        <img src="mobile-settings-preview.svg" alt="Local Flight companion settings preview">
+        <div class="caption"><strong>Companion Settings</strong><span>LAN controls</span></div>
       </article>
     </section>
   </main>

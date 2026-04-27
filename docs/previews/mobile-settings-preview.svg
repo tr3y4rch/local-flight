@@ -1,0 +1,77 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="540" viewBox="0 0 960 540" role="img" aria-labelledby="title desc">
+  <title id="title">Local Flight mobile settings preview</title>
+  <desc id="desc">Illustrative preview of the Local Flight Companion settings screen.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#09111a"/>
+      <stop offset="1" stop-color="#0d131b"/>
+    </linearGradient>
+    <linearGradient id="phone" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#111923"/>
+      <stop offset="1" stop-color="#0a0f16"/>
+    </linearGradient>
+    <filter id="shadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="22" stdDeviation="22" flood-color="#000000" flood-opacity="0.42"/>
+    </filter>
+    <style>
+      .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+      .sans { font-family: Inter, Segoe UI, Helvetica, Arial, sans-serif; }
+      .text { fill: #e7edf3; }
+      .muted { fill: #7f90a5; }
+      .tiny { font-size: 10px; letter-spacing: 1px; }
+    </style>
+  </defs>
+
+  <rect width="960" height="540" rx="28" fill="url(#bg)"/>
+  <text x="54" y="72" class="sans text" font-size="34" font-weight="800">Companion Preview</text>
+  <text x="54" y="102" class="mono muted" font-size="14">Illustrative mobile settings board for README usage</text>
+
+  <g transform="translate(336 42)" filter="url(#shadow)">
+    <rect x="0" y="0" width="288" height="456" rx="42" fill="#03070c"/>
+    <rect x="10" y="10" width="268" height="436" rx="34" fill="url(#phone)" stroke="#223242"/>
+    <rect x="102" y="18" width="84" height="12" rx="6" fill="#111923"/>
+
+    <g transform="translate(26 40)">
+      <text x="0" y="0" class="mono" fill="#4a9eda" font-size="11" font-weight="800" letter-spacing="2.2">LOCAL FLIGHT</text>
+      <text x="0" y="30" class="sans text" font-size="26" font-weight="900">SETTINGS</text>
+      <text x="118" y="30" class="mono muted" font-size="12">LAN COMPANION</text>
+
+      <g transform="translate(0 50)">
+        <rect width="236" height="76" rx="18" fill="#0e151d" stroke="#243344"/>
+        <text x="16" y="22" class="mono muted tiny">SERVER</text>
+        <text x="16" y="42" class="sans text" font-size="13" font-weight="700">http://192.168.1.42:8000</text>
+        <circle cx="186" cy="34" r="5" fill="#22c55e"/>
+        <text x="198" y="38" class="mono" fill="#22c55e" font-size="10" font-weight="800">ONLINE</text>
+        <text x="16" y="60" class="mono muted tiny">LAST SNAPSHOT  2 MIN AGO</text>
+      </g>
+
+      <g transform="translate(0 140)">
+        <rect width="236" height="56" rx="16" fill="#0e151d" stroke="#243344"/>
+        <text x="16" y="21" class="mono muted tiny">AIRPORT</text>
+        <text x="16" y="40" class="sans text" font-size="14" font-weight="700">Zurich  ZRH / LSZH</text>
+        <text x="170" y="40" class="mono" fill="#4a9eda" font-size="10" font-weight="800">EDIT</text>
+      </g>
+
+      <g transform="translate(0 208)">
+        <rect width="236" height="56" rx="16" fill="#0e151d" stroke="#243344"/>
+        <text x="16" y="21" class="mono muted tiny">SOURCE</text>
+        <text x="16" y="40" class="sans text" font-size="14" font-weight="700">Real flights + ADS-B Exchange</text>
+      </g>
+
+      <g transform="translate(0 276)">
+        <rect width="236" height="56" rx="16" fill="#0e151d" stroke="#243344"/>
+        <text x="16" y="21" class="mono muted tiny">UPDATE INTERVAL</text>
+        <text x="16" y="40" class="sans text" font-size="14" font-weight="700">60 min</text>
+        <text x="176" y="40" class="mono" fill="#f59e0b" font-size="10" font-weight="800">RESTART</text>
+      </g>
+
+      <g transform="translate(0 344)">
+        <rect width="236" height="58" rx="18" fill="rgba(74,158,218,0.12)" stroke="rgba(74,158,218,0.22)"/>
+        <text x="16" y="22" class="mono" fill="#4a9eda" font-size="10" font-weight="800">TOOLS</text>
+        <text x="16" y="42" class="sans text" font-size="13" font-weight="700">Matrix preview  Admin hub  Feedback</text>
+      </g>
+    </g>
+  </g>
+
+  <text x="54" y="500" class="mono muted tiny">README preview - sample companion UI, not a live device capture</text>
+</svg>

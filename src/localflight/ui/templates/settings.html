@@ -179,12 +179,7 @@
         </select>
       </label>
 
-      <label>
-        <span>Timezone</span>
-        <input name="timezone_str" value="{{ cfg.timezone }}" />
-        <small>IANA timezone (e.g. Europe/Zurich). Auto-set when you pick an airport.</small>
-        <input type="hidden" name="timezone" value="{{ cfg.timezone }}" />
-      </label>
+      <input type="hidden" name="timezone" id="timezoneHidden" value="{{ cfg.timezone }}" />
 
       <label>
         <span>Skin</span>
@@ -336,24 +331,11 @@ function selectSkin(sk, fg) {
   const selectedBox = document.getElementById("airportSelected");
   const iataInput   = document.getElementById("airportIata");
   const icaoInput   = document.getElementById("airportIcao");
-  const tzInput     = document.querySelector("input[name='timezone_str']");
 
   let debounceTimer = null;
   let currentResults = [];
 
-  const COUNTRY_TZ = {
-    "CH":"Europe/Zurich","DE":"Europe/Berlin","GB":"Europe/London",
-    "FR":"Europe/Paris","AT":"Europe/Vienna","IT":"Europe/Rome",
-    "ES":"Europe/Madrid","NL":"Europe/Amsterdam","BE":"Europe/Brussels",
-    "PT":"Europe/Lisbon","PL":"Europe/Warsaw","CZ":"Europe/Prague",
-    "HU":"Europe/Budapest","RO":"Europe/Bucharest","SE":"Europe/Stockholm",
-    "NO":"Europe/Oslo","DK":"Europe/Copenhagen","FI":"Europe/Helsinki",
-    "GR":"Europe/Athens","TR":"Europe/Istanbul","RU":"Europe/Moscow",
-    "US":"America/New_York","CA":"America/Toronto","AU":"Australia/Sydney",
-    "JP":"Asia/Tokyo","CN":"Asia/Shanghai","IN":"Asia/Kolkata",
-    "SG":"Asia/Singapore","AE":"Asia/Dubai","ZA":"Africa/Johannesburg",
-    "BR":"America/Sao_Paulo","MX":"America/Mexico_City",
-  };
+  const tzInput = document.getElementById("timezoneHidden");
 
   function showDropdown(results) {
     currentResults = results;
@@ -375,8 +357,9 @@ function selectSkin(sk, fg) {
     iataInput.value = r.iata || "";
     icaoInput.value = r.icao || "";
     searchInput.value = `${r.iata||"---"} / ${r.icao||"----"}`;
-    if (tzInput && r.country && COUNTRY_TZ[r.country]) tzInput.value = COUNTRY_TZ[r.country];
-    selectedBox.innerHTML = `<b>${r.iata||"---"} / ${r.icao||"----"}</b> — ${r.name}<br>
+    if (tzInput && r.timezone) tzInput.value = r.timezone;
+    const tzNote = r.timezone ? `<span style="opacity:0.45;font-size:0.75rem;"> · ${r.timezone}</span>` : "";
+    selectedBox.innerHTML = `<b>${r.iata||"---"} / ${r.icao||"----"}</b> — ${r.name}${tzNote}<br>
       <span style="opacity:0.65">${r.city}, ${r.country}</span>`;
     selectedBox.classList.add("visible");
     dropdown.classList.remove("open");

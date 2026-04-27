@@ -15,6 +15,7 @@ import type {
   HistoryResponse,
   Metar,
   RadarResponse,
+  RequestLogResponse,
   SchedulerRestartResponse
 } from "./types";
 
@@ -212,6 +213,15 @@ export async function patchConfig(serverUrl: string, patch: ConfigPatch): Promis
     throw new LocalFlightApiError(message, response.status);
   }
   return response.json() as Promise<AppConfig>;
+}
+
+export function getRequestLog(
+  serverUrl: string,
+  { hours = 24, limit = 200, clientType }: { hours?: number; limit?: number; clientType?: string } = {}
+): Promise<RequestLogResponse> {
+  const params = new URLSearchParams({ hours: String(hours), limit: String(limit) });
+  if (clientType) params.set("client_type", clientType);
+  return fetchJson<RequestLogResponse>(serverUrl, `/api/admin/requests?${params}`);
 }
 
 export async function testConnection(serverUrl: string): Promise<boolean> {

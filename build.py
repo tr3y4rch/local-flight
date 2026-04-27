@@ -46,7 +46,11 @@ def make_icons() -> None:
 
     is_win   = sys.platform == "win32"
     svg_file = ASSETS / ("icon_square.svg" if is_win else "icon_circle.svg")
-    png_file = ASSETS / ("icon_square.png" if is_win else "icon_circle.png")
+    png_candidates = [
+        ASSETS / ("icon_square.png" if is_win else "icon_circle.png"),
+        ASSETS / "icon_circle.png",
+        ASSETS / "icon.png",
+    ]
 
     img = None
     if svg_file.exists():
@@ -57,9 +61,12 @@ def make_icons() -> None:
             print(f"Rendered icon from {svg_file.name}")
         except ImportError:
             print("cairosvg not installed — checking for pre-rendered PNG")
-    if img is None and png_file.exists():
-        img = Image.open(png_file).convert("RGBA")
-        print(f"Loaded icon from {png_file.name}")
+    if img is None:
+        for png_file in png_candidates:
+            if png_file.exists():
+                img = Image.open(png_file).convert("RGBA")
+                print(f"Loaded icon from {png_file.name}")
+                break
     if img is None:
         img = _make_placeholder()
         print("Using placeholder icon (install cairosvg or pre-render SVG to PNG)")

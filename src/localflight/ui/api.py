@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import time
 from dataclasses import asdict
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Literal, Optional
@@ -31,6 +33,28 @@ from localflight.storage.state import load_state
 log = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+def _network_tools_enabled() -> bool:
+    import os
+    return os.getenv("LOCALFLIGHT_ENABLE_NETWORK_TOOLS", "").strip().lower() in {"1", "true", "yes", "on"}
+
+# In-memory caches for live radar sources. The UI polls frequently, so these
+# prevent each browser tab or mobile companion from spending one API call.
+_adsbx_radar_cache: Dict[str, tuple[float, List[Dict[str, Any]]]] = {}
+_opensky_radar_cache: Dict[str, tuple[float, List[Dict[str, Any]]]] = {}
+_DEFAULT_ADSBX_RADAR_CACHE_TTL_S = 300
+_OPENSKY_RADAR_CACHE_TTL_S = 60
+
+
+def _adsbx_radar_cache_ttl_s() -> int:
+    try:
+        return max(
+            60,
+            int(os.getenv("LOCALFLIGHT_RADAR_ADSB_REFRESH_SECONDS", str(_DEFAULT_ADSBX_RADAR_CACHE_TTL_S))),
+        )
+    except ValueError:
+        return _DEFAULT_ADSBX_RADAR_CACHE_TTL_S
 
 
 # ── Airport search ─────────────────────────────────────────────────────────────
@@ -94,14 +118,17 @@ def airport_search(
         x[1].get("name") or "",
     ))
 
+    from localflight.core.airports import get_airport_timezone
+
     return [
         {
-            "iata":    r.get("iata") or "",
-            "icao":    r.get("icao") or "",
-            "name":    r.get("name") or "",
-            "city":    r.get("city") or "",
-            "country": r.get("country") or "",
-            "type":    r.get("type") or "",
+            "iata":     r.get("iata") or "",
+            "icao":     r.get("icao") or "",
+            "name":     r.get("name") or "",
+            "city":     r.get("city") or "",
+            "country":  r.get("country") or "",
+            "type":     r.get("type") or "",
+            "timezone": get_airport_timezone(r.get("country") or "", r.get("region") or ""),
         }
         for _, r in candidates[:limit]
     ]
@@ -118,14 +145,16 @@ def airport_resolve(
     )
     if not rec:
         raise HTTPException(status_code=404, detail=f"Airport not found: {q}")
+    from localflight.core.airports import get_airport_timezone
     return {
-        "iata":    rec.iata    or "",
-        "icao":    rec.icao    or "",
-        "name":    rec.name    or "",
-        "city":    rec.city    or "",
-        "country": rec.country or "",
-        "lat":     rec.lat,
-        "lon":     rec.lon,
+        "iata":     rec.iata    or "",
+        "icao":     rec.icao    or "",
+        "name":     rec.name    or "",
+        "city":     rec.city    or "",
+        "country":  rec.country or "",
+        "lat":      rec.lat,
+        "lon":      rec.lon,
+        "timezone": get_airport_timezone(rec.country or "", rec.region or ""),
     }
 
 
@@ -422,8 +451,8 @@ def api_radar(
     Returns aircraft positions for the radar display.
     Only shows aircraft with a filed flight plan to/from the configured airport.
 
-    For source=real:    enriched positions from snapshot (OpenSky).
-                        Falls back to live OpenSky fetch if no positions in snapshot.
+    For source=real:    live ADS-B Exchange positions when RapidAPI is configured.
+                        Falls back to snapshot positions, then live OpenSky.
     For source=virtual: live VATSIM, filtered to dep/arr at configured airport only.
     """
     cfg     = load_config()
@@ -494,9 +523,45 @@ def api_radar(
             raise HTTPException(status_code=503, detail=f"VATSIM radar unavailable: {exc}")
 
     else:
-        # Real source — snapshot flights already filtered to airport
-        flights, _ = _load_latest_flights(cfg.airport_iata)
-        source_used = "opensky_snapshot"
+        # Real source: ADS-B Exchange first, then local snapshot/OpenSky fallback.
+        now_ts = time.monotonic()
+        adsbx_cache_key = f"{cfg.airport_iata}:{round(radius_nm, 1)}"
+        try:
+            from localflight.sources.web.adsbexchange_client import (
+                aircraft_to_blips,
+                fetch_aircraft,
+                is_available as adsbx_is_available,
+            )
+
+            if adsbx_is_available():
+                cached = _adsbx_radar_cache.get(adsbx_cache_key)
+                ttl_s = _adsbx_radar_cache_ttl_s()
+                if cached and (now_ts - cached[0]) < ttl_s:
+                    blips = cached[1]
+                    source_used = "adsbexchange_cached"
+                    log.debug("ADS-B Exchange radar: serving cached blips for %s", adsbx_cache_key)
+                else:
+                    source_used = "adsbexchange_live"
+                    aircraft = fetch_aircraft(
+                        lat=center_lat,
+                        lon=center_lon,
+                        radius_nm=radius_nm,
+                    )
+                    blips = aircraft_to_blips(
+                        aircraft=aircraft,
+                        center_lat=center_lat,
+                        center_lon=center_lon,
+                        radius_nm=radius_nm,
+                    )
+                    _adsbx_radar_cache[adsbx_cache_key] = (now_ts, blips)
+                    log.info("ADS-B Exchange radar: fetched %d blips for %s", len(blips), adsbx_cache_key)
+        except Exception as exc:
+            log.warning("ADS-B Exchange live radar unavailable, trying fallback: %s", exc)
+
+        flights: List[Flight] = []
+        if not blips:
+            flights, _ = _load_latest_flights(cfg.airport_iata)
+            source_used = "snapshot_positions"
 
         for f in flights:
             if f.position and f.position.lat is not None:
@@ -515,21 +580,32 @@ def api_radar(
                     "enriched":      True,
                 })
 
-        # Fallback to live OpenSky if snapshot has no positions
+        # Fallback to live OpenSky if snapshot has no positions.
+        # Cached per airport for 60 s so that multiple tabs/mobile polling
+        # don't each trigger a live fetch on every 15-second radar poll.
         if not blips:
-            log.info("No position data in snapshot — falling back to live OpenSky fetch")
-            source_used = "opensky_live"
-            try:
-                from localflight.sources.web.opensky_radar import fetch_radar_blips
-                raw_blips = fetch_radar_blips(
-                    lat=center_lat, lon=center_lon, radius_nm=radius_nm,
-                )
-                for b in raw_blips:
-                    b["enriched"] = False
-                blips = raw_blips
-            except Exception as exc:
-                log.warning("OpenSky live radar fallback failed: %s", exc)
-                raise HTTPException(status_code=503, detail=f"Radar data unavailable: {exc}")
+            cache_key = f"{cfg.airport_iata}:{round(radius_nm, 1)}"
+            cached = _opensky_radar_cache.get(cache_key)
+            now_ts  = time.monotonic()
+            if cached and (now_ts - cached[0]) < _OPENSKY_RADAR_CACHE_TTL_S:
+                blips = cached[1]
+                source_used = "opensky_live_cached"
+                log.debug("OpenSky radar: serving cached blips for %s", cache_key)
+            else:
+                log.info("No position data in snapshot — falling back to live OpenSky fetch")
+                source_used = "opensky_live"
+                try:
+                    from localflight.sources.web.opensky_radar import fetch_radar_blips
+                    raw_blips = fetch_radar_blips(
+                        lat=center_lat, lon=center_lon, radius_nm=radius_nm,
+                    )
+                    for b in raw_blips:
+                        b["enriched"] = False
+                    blips = raw_blips
+                    _opensky_radar_cache[cache_key] = (now_ts, blips)
+                except Exception as exc:
+                    log.warning("OpenSky live radar fallback failed: %s", exc)
+                    raise HTTPException(status_code=503, detail=f"Radar data unavailable: {exc}")
 
     return {
         "center":    {"lat": center_lat, "lon": center_lon},
@@ -673,7 +749,7 @@ def api_admin_system() -> Dict[str, Any]:
         from importlib.metadata import version as _pkg_version
         _ver = _pkg_version("localflight")
     except Exception:
-        _ver = "0.2.2b2"
+        _ver = "0.2.2b3"
 
     result: Dict[str, Any] = {
         "version":  _ver,
@@ -703,7 +779,14 @@ def api_admin_system() -> Dict[str, Any]:
         result["snapshot_dir"] = str(snapshot_store_root())
     except Exception:
         result["snapshot_dir"] = "~/.localflight/storage/data"
- 
+
+    # Install fingerprint. The raw relay token is not exposed through Admin/mobile APIs.
+    try:
+        from localflight.storage.install import get_install_fingerprint
+        result["install_id"] = get_install_fingerprint()
+    except Exception:
+        result["install_id"] = None
+
     return result
  
  
@@ -721,8 +804,12 @@ def api_admin_budget() -> Dict[str, Any]:
     except Exception as exc:
         result["aviationstack"] = {"error": str(exc)}
  
-    # ADS-B Exchange
-    result["adsbexchange_available"] = bool(os.getenv("RAPIDAPI_KEY", "").strip())
+    # ADS-B Exchange (RapidAPI) — includes budget tracking
+    try:
+        from localflight.sources.web.adsbexchange_client import get_usage_stats as adsbx_stats
+        result["adsbexchange"] = adsbx_stats()
+    except Exception as exc:
+        result["adsbexchange"] = {"error": str(exc), "available": False}
  
     # OpenSky
     result["opensky_available"] = bool(
@@ -770,9 +857,32 @@ def api_admin_scheduler_status() -> Dict[str, Any]:
     return scheduler_status()
 
 
+_RESTART_COOLDOWN_S = 60  # prevent rapid-fire thread restarts from multiple clients
+
+
 @router.post("/api/admin/scheduler/restart")
 def api_admin_scheduler_restart() -> Dict[str, Any]:
-    """Stop the sleeping scheduler loop, reload config/env, and start a fresh cycle."""
+    """
+    Stop the sleeping scheduler loop, reload config/env, and start a fresh cycle.
+    Rate-limited to one restart per 60 seconds. The actual fetch is also gated
+    by run_snapshot_job._fetch_is_due — a restart never burns an API call if the
+    snapshot is already fresh.
+    """
+    state = load_state()
+    if state.last_attempt_utc:
+        try:
+            from datetime import timezone as _tz
+            last = datetime.fromisoformat(state.last_attempt_utc.replace("Z", "+00:00"))
+            age_s = (datetime.now(_tz.utc) - last).total_seconds()
+            if age_s < _RESTART_COOLDOWN_S:
+                return {
+                    "ok": False,
+                    "status": "rate_limited",
+                    "message": f"Last fetch was {int(age_s)}s ago — wait {int(_RESTART_COOLDOWN_S - age_s)}s before restarting.",
+                }
+        except Exception:
+            pass
+
     from localflight.ui.events import restart_scheduler_and_notify
     return restart_scheduler_and_notify("manual")
 
@@ -805,6 +915,24 @@ def api_admin_ping(
     log.info("Device ping: %s v%s", device, version)
     return {"ok": True, "device": device, "recorded_at": pings[device]}
 
+# ── Traffic / request log ─────────────────────────────────────────────────────
+
+@router.get("/api/admin/requests")
+def api_admin_requests(
+    hours: int = Query(24, ge=1, le=168),
+    limit: int = Query(200, ge=1, le=500),
+    client_type: Optional[str] = Query(None),
+) -> Dict[str, Any]:
+    """Recent HTTP request log for the Traffic Hub."""
+    if not _network_tools_enabled():
+        raise HTTPException(status_code=404, detail="Not found")
+    from localflight.storage.request_log import query_recent, query_summary
+    return {
+        "requests": query_recent(hours=hours, limit=limit, client_type=client_type or None),
+        "summary":  query_summary(hours=hours),
+    }
+
+
 # ── Update check ──────────────────────────────────────────────────────────────
 
 @router.get("/api/admin/updates")
@@ -819,7 +947,7 @@ def api_admin_updates() -> Dict[str, Any]:
         from importlib.metadata import version as _pkg_version
         current = _pkg_version("localflight")
     except Exception:
-        current = "0.2.2b2"
+        current = "0.2.2b3"
 
     # Simple in-process cache to avoid hammering GitHub API
     cache = getattr(api_admin_updates, "_cache", None)

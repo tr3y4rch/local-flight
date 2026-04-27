@@ -22,8 +22,8 @@ No cloud. No accounts. No dashboards that want your email.
 - Stores 90 days of flight history in a local **SQLite database** with a browsable history UI and aggregate stats
 - Supports **profiles** — save and switch airport configurations instantly
 - Displays **UTC and local time** simultaneously, timezone follows the configured airport
-- **First-run setup wizard** guides through airport selection, API keys, and display settings
-- **Admin hub** — scheduler controls, API budget tracking, connected clients, system status
+- **First-run setup wizard** guides through airport selection, optional API keys, and display settings
+- **Admin hub** — scheduler controls, API budget tracking, anonymized traffic log, connected clients, system status
 - Runs as a **system tray app** on Windows and macOS; headless on Raspberry Pi with a Chromium kiosk
 - Ships a **MicroPython client** for the Pimoroni Interstate 75 W LED matrix panel
 - **In-browser matrix preview** — see exactly what the LED panel will show, with split-flap animation
@@ -32,7 +32,7 @@ No cloud. No accounts. No dashboards that want your email.
 
 ## Preview
 
-These are lightweight illustrative previews with sample data, not live telemetry screenshots. They show the current FIDS, radar, and settings direction so the README has useful example pictures even before someone runs the app.
+These are lightweight illustrative previews with sample data, not live telemetry screenshots. They show the current desktop and mobile companion direction so the README has useful example pictures even before someone runs the app.
 
 Open [docs/previews/index.html](docs/previews/index.html) locally for the standalone HTML gallery.
 
@@ -40,6 +40,12 @@ Open [docs/previews/index.html](docs/previews/index.html) locally for the standa
   <img src="docs/previews/fids-preview.svg" alt="Local Flight FIDS preview" width="32%">
   <img src="docs/previews/radar-preview.svg" alt="Local Flight radar preview" width="32%">
   <img src="docs/previews/settings-preview.svg" alt="Local Flight settings preview" width="32%">
+</p>
+
+<p align="center">
+  <img src="docs/previews/mobile-fids-preview.svg" alt="Local Flight companion FIDS preview" width="32%">
+  <img src="docs/previews/mobile-radar-preview.svg" alt="Local Flight companion radar preview" width="32%">
+  <img src="docs/previews/mobile-settings-preview.svg" alt="Local Flight companion settings preview" width="32%">
 </p>
 
 ---
@@ -95,20 +101,30 @@ The Pi runs headless — access the UI from any device on your network at `http:
 
 ## Mobile companion
 
-The mobile companion is **work in progress**. It is not required to use Local Flight, and there is no App Store, TestFlight, Play Store, or APK release yet.
+The mobile companion is an **iOS-first beta companion** for Local Flight. It is not required to use the main app, and there is still no App Store, TestFlight, Play Store, or APK release yet.
 
-For now, the companion is a developer preview that runs from the `mobile/` folder with React Native / Expo. It connects to the Local Flight desktop/Pi server over your local network. A polished iOS and Android companion release will follow later.
+Today it runs from the `mobile/` folder with React Native / Expo and connects to the Local Flight desktop or Pi server over your local network. The current beta already covers the core use cases well enough for simulator checks, UI review, and real LAN companion testing.
 
-Use it today if you want to test the companion UI on an iPhone/iPad simulator or device. If you only want the normal FIDS display, install the Windows, macOS, or Raspberry Pi app above and skip this section.
+If you only want the main FIDS display, install the Windows, macOS, or Raspberry Pi app above and skip this section. If you want the companion on an iPhone, iPad, or simulator, this is the current path.
 
 ### What works now
 
-- FIDS board, radar, history, and settings screens
-- Live updates from the desktop/Pi server over WebSocket
-- Airport/source/update interval configuration against the local server
-- Pinned flight and Flight Island preview
-- Matrix panel preview/config helper
-- Manual feedback and mobile crash-report testing
+- FIDS, radar, history, and settings screens
+- Live sync over WebSocket with fallback refresh polling
+- Pinned flights and the Flight Island focus card
+- Airport, source, and update-interval changes against the local server
+- Matrix preview and config helper
+- Admin summary access from Settings
+- Manual feedback plus mobile crash-report routing
+- Animated branded launch overlay matching the desktop splash direction
+
+### What it looks like
+
+<p align="center">
+  <img src="docs/previews/mobile-fids-preview.svg" alt="Local Flight companion FIDS preview" width="32%">
+  <img src="docs/previews/mobile-radar-preview.svg" alt="Local Flight companion radar preview" width="32%">
+  <img src="docs/previews/mobile-settings-preview.svg" alt="Local Flight companion settings preview" width="32%">
+</p>
 
 ### Requirements
 
@@ -136,7 +152,7 @@ npm run ios:device
 
 In the app settings, enter the Local Flight server's LAN address. Do **not** use `localhost` on a phone; `localhost` means the phone itself, not your Mac or Windows machine.
 
-Android support is planned, but the current companion testing flow is iOS-first.
+Android support is planned later; the current companion testing flow is still iOS-first.
 
 ---
 
@@ -159,8 +175,8 @@ The scheduler only starts after setup completes. You can re-run the wizard any t
 
 | Source | Key required | Used for |
 |---|---|---|
-| AviationStack | Yes (`AVIATIONSTACK_API_KEY`) | Flight schedules, gates, status |
-| ADS-B Exchange | Yes (`RAPIDAPI_KEY`) | Live positions, aircraft type, registration |
+| AviationStack | Optional (`AVIATIONSTACK_API_KEY`) | Flight schedules, gates, status; without a key Local Flight uses the community relay quota |
+| ADS-B Exchange | Optional (`RAPIDAPI_KEY`) | Live positions, aircraft type, registration |
 | OpenSky Network | Optional (`OPENSKY_CLIENT_ID` / `SECRET`) | Position fallback (anonymous works, lower rate limits) |
 | VATSIM | No | Full data source for flight sim / virtual mode |
 | aviationweather.gov | No | METAR weather — free, no key needed |
@@ -175,10 +191,12 @@ The setup wizard writes these for you. You can also edit `.env` directly — cha
 # AviationStack — real flight schedule data
 AVIATIONSTACK_API_KEY=your_key_here
 LOCALFLIGHT_AVIATIONSTACK_ENABLED=1
-LOCALFLIGHT_AVIATIONSTACK_MONTHLY_LIMIT=90   # free tier is 100; 90 leaves a safety margin
+LOCALFLIGHT_AVIATIONSTACK_MONTHLY_LIMIT=10000
+LOCALFLIGHT_RELAY_MONTHLY_LIMIT=60
 
 # ADS-B Exchange via RapidAPI — live aircraft positions
 RAPIDAPI_KEY=your_rapidapi_key
+LOCALFLIGHT_RAPIDAPI_MONTHLY_LIMIT=10000
 
 # OpenSky Network — position fallback (optional)
 OPENSKY_CLIENT_ID=your_id
@@ -223,6 +241,7 @@ Runtime data is also kept outside the source tree:
 | `/matrix-preview` | Browser LED matrix simulator with split-flap animation |
 | `/` | Settings — airport, skin, outputs |
 | `/admin` | Admin hub — scheduler status, API budgets, connected clients, system info |
+| `/admin/requests` | Traffic log — local, anonymized request counters by endpoint/client type |
 | `/history` | Flight history — filterable table + aggregate stats |
 | `/logs` | Live log viewer |
 | `/feedback` | Report a problem — sends directly to the developer |
@@ -243,14 +262,14 @@ Runtime data is also kept outside the source tree:
 
 ## API call budgets
 
-AviationStack free tier is 100 calls/month. Local Flight enforces a configurable monthly budget:
+AviationStack and RapidAPI usage is tracked locally in `~/.localflight/api_usage.json` and resets monthly.
 
-- Default limit: 90 calls (10-call safety margin)
-- Each scheduler cycle costs 2 calls (departures + arrivals)
-- Budget tracked in `~/.localflight/api_usage.json`, resets monthly
-- Recommended refresh interval: **8–12 hours** (fits within 90 calls/month)
+- AviationStack BYOK default: 10 000 calls/month
+- Community relay default: 60 calls/month per install
+- ADS-B Exchange / RapidAPI default: 10 000 calls/month
+- Each real scheduler cycle normally costs 2 AviationStack calls (departures + arrivals)
 
-ADS-B Exchange and OpenSky free tiers are both 1 000 calls/day — well within limits at any reasonable refresh interval.
+Scheduler restarts and config changes do not burn a new schedule call while the current snapshot is still fresh.
 
 ---
 
@@ -310,6 +329,7 @@ Hit the **🐛 Report** button in the nav bar from anywhere in the app. Your rep
 | `/api/airports/resolve` | GET | Resolve IATA/ICAO to full record |
 | `/api/admin/system` | GET | Uptime, memory, CPU, version |
 | `/api/admin/budget` | GET | API call budgets and usage |
+| `/api/admin/requests` | GET | Anonymized local request log summary |
 | `/api/admin/connections` | GET | WebSocket client count + device pings |
 | `/api/admin/updates` | GET | Latest GitHub release check |
 | `/api/admin/scheduler` | GET | Scheduler thread status |
@@ -319,8 +339,8 @@ Hit the **🐛 Report** button in the nav bar from anywhere in the app. Your rep
 | `/api/feedback/crash` | POST | Auto-file crash report with deduplication |
 | `/api/setup/complete` | POST | Save setup, write `.env`, mark complete |
 | `/api/setup/reset` | POST | Re-run setup wizard |
-| `/api/setup/test-aviationstack` | GET | Validate an API key without saving |
-| `/api/setup/test-rapidapi` | GET | Validate an ADS-B Exchange RapidAPI key without saving |
+| `/api/setup/test-aviationstack` | POST | Validate an API key without saving |
+| `/api/setup/test-rapidapi` | POST | Validate an ADS-B Exchange RapidAPI key without saving |
 | `/api/quit` | POST | Graceful shutdown |
 | `/ws` | WS | WebSocket push — broadcasts snapshot, config, and scheduler events |
 
@@ -333,4 +353,4 @@ Hit the **🐛 Report** button in the nav bar from anywhere in the app. Your rep
 - Clear data flow — every step is a separate module
 - Pi-ready — nothing in the stack requires a GPU or significant RAM
 - Graceful degradation — if an enrichment source fails, the next one kicks in
-- Budget conscious — AviationStack monthly call counter enforced in code
+- Budget conscious — AviationStack, relay, and RapidAPI monthly call counters enforced in code

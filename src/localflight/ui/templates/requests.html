@@ -1,0 +1,382 @@
+{% extends "base.html" %}
+{% from "_nav.html" import topnav %}
+
+{% block title %}Local Flight — Traffic{% endblock %}
+
+{% block extra_style %}
+  body { display: block; min-height: 100vh; padding: 0; }
+  .page-body { padding: 20px 16px; }
+  .card {
+    width: min(1200px, calc(100vw - 32px));
+    max-width: none;
+    margin: 0 auto;
+  }
+  .admin-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-bottom: 20px;
+    padding-bottom: 14px;
+    border-bottom: 1px solid var(--panel-border);
+  }
+  .admin-header h1 { margin: 0; font-size: 1.2rem; }
+  .admin-header .sub { opacity: 0.5; font-size: 0.8rem; margin-top: 3px; }
+  .hub-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 14px;
+    margin-bottom: 18px;
+  }
+  .hub-card {
+    background: var(--panel-bg);
+    border: 1px solid var(--panel-border);
+    border-radius: 12px;
+    padding: 14px 16px;
+  }
+  .hub-card h2 {
+    margin: 0 0 12px 0;
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    opacity: 0.6;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .hub-card h2 .icon { font-size: 1rem; opacity: 1; }
+  .stat-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    padding: 5px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+    font-size: 0.85rem;
+    gap: 8px;
+  }
+  [data-theme="light"] .stat-row { border-bottom-color: rgba(0,0,0,0.05); }
+  .stat-row:last-child { border-bottom: none; }
+  .stat-label { opacity: 0.6; white-space: nowrap; }
+  .stat-val { font-weight: 600; text-align: right; font-variant-numeric: tabular-nums; }
+  .stat-val.mono { font-family: ui-monospace, monospace; font-size: 0.8rem; }
+
+  /* Big count */
+  .big-num { font-size: 2.4rem; font-weight: 800; line-height: 1; margin: 4px 0; }
+  .big-sub  { opacity: 0.45; font-size: 0.78rem; }
+
+  /* Sparkline */
+  .sparkline-wrap { margin-top: 12px; }
+  .sparkline { width: 100%; height: 36px; display: block; }
+
+  /* Filter bar */
+  .filter-bar {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 12px;
+    flex-wrap: wrap;
+  }
+  .filter-btn {
+    padding: 5px 14px;
+    border-radius: 20px;
+    border: 1px solid var(--panel-border);
+    background: none;
+    color: inherit;
+    font-size: 0.8rem;
+    font-weight: 600;
+    cursor: pointer;
+    opacity: 0.5;
+    transition: opacity 0.12s, background 0.12s, border-color 0.12s;
+  }
+  .filter-btn:hover { opacity: 0.8; }
+  .filter-btn.active {
+    opacity: 1;
+    background: rgba(255,255,255,0.1);
+    border-color: rgba(255,255,255,0.25);
+  }
+  [data-theme="light"] .filter-btn.active {
+    background: rgba(0,0,0,0.08);
+    border-color: rgba(0,0,0,0.2);
+  }
+
+  /* Request table */
+  .req-table-wrap {
+    overflow-x: auto;
+    border-radius: 10px;
+    border: 1px solid var(--panel-border);
+  }
+  .req-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.8rem;
+  }
+  .req-table th {
+    text-align: left;
+    padding: 8px 10px;
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    opacity: 0.5;
+    border-bottom: 1px solid var(--panel-border);
+    white-space: nowrap;
+    font-weight: 600;
+    background: var(--panel-bg);
+  }
+  .req-table td {
+    padding: 6px 10px;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+    font-variant-numeric: tabular-nums;
+    vertical-align: middle;
+  }
+  [data-theme="light"] .req-table td { border-bottom-color: rgba(0,0,0,0.04); }
+  .req-table tr:last-child td { border-bottom: none; }
+  .req-table tr:hover td { background: rgba(255,255,255,0.03); }
+  [data-theme="light"] .req-table tr:hover td { background: rgba(0,0,0,0.03); }
+
+  .method-badge {
+    display: inline-block;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 0.68rem;
+    font-weight: 700;
+    font-family: ui-monospace, monospace;
+    letter-spacing: 0.02em;
+  }
+  .method-GET  { background: rgba(0,192,64,0.15);  color: #00c040; }
+  .method-POST { background: rgba(59,130,246,0.15); color: #60a5fa; }
+
+  .status-2 { color: #00c040; font-weight: 600; }
+  .status-3 { color: #60a5fa; font-weight: 600; }
+  .status-4 { color: #ffaa00; font-weight: 600; }
+  .status-5 { color: #ff4040; font-weight: 600; }
+
+  .client-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 0.75rem;
+    padding: 2px 7px;
+    border-radius: 10px;
+    font-weight: 600;
+    border: 1px solid transparent;
+  }
+  .client-desktop { background: rgba(99,102,241,0.12); border-color: rgba(99,102,241,0.25); color: #818cf8; }
+  .client-mobile  { background: rgba(16,185,129,0.12); border-color: rgba(16,185,129,0.25); color: #34d399; }
+  .client-matrix  { background: rgba(245,158,11,0.12); border-color: rgba(245,158,11,0.25); color: #fbbf24; }
+  .client-api     { background: rgba(239,68,68,0.12);  border-color: rgba(239,68,68,0.25);  color: #f87171; }
+  .client-unknown { background: rgba(255,255,255,0.05); border-color: rgba(255,255,255,0.1); color: #888; }
+
+  .path-cell { font-family: ui-monospace, monospace; max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ip-cell   { font-family: ui-monospace, monospace; opacity: 0.5; font-size: 0.75rem; }
+  .ms-cell   { font-family: ui-monospace, monospace; opacity: 0.7; font-size: 0.75rem; }
+  .time-cell { opacity: 0.5; font-size: 0.75rem; white-space: nowrap; }
+
+  .refresh-chip { font-size: 0.7rem; opacity: 0.35; font-family: ui-monospace, monospace; margin-top: 14px; text-align: center; }
+  .empty-row td { text-align: center; opacity: 0.4; padding: 32px 0; font-style: italic; }
+{% endblock %}
+
+{% block body %}
+{{ topnav(active="traffic", cfg=cfg) }}
+
+<div class="page-body">
+<main class="card">
+
+  <div class="admin-header">
+    <div>
+      <h1>🌐 Traffic Log</h1>
+      <div class="sub">{{ cfg.display_name }} · per-request log · 7-day rolling window</div>
+    </div>
+    <div class="clock-bar">
+      <span class="clock-utc">UTC: <span class="clock-utc-val">--:--:--</span></span>
+    </div>
+  </div>
+
+  <div class="hub-grid">
+
+    <div class="hub-card">
+      <h2><span class="icon">📈</span> Last 24 h</h2>
+      <div class="big-num" id="totalCount">—</div>
+      <div class="big-sub">total requests</div>
+      <div class="sparkline-wrap">
+        <svg class="sparkline" id="sparkline" viewBox="0 0 100 36" preserveAspectRatio="none"></svg>
+      </div>
+    </div>
+
+    <div class="hub-card">
+      <h2><span class="icon">📱</span> By client type</h2>
+      <div class="stat-row"><span class="stat-label">🖥 Desktop</span><span class="stat-val mono" id="ctDesktop">—</span></div>
+      <div class="stat-row"><span class="stat-label">📱 Mobile</span><span class="stat-val mono" id="ctMobile">—</span></div>
+      <div class="stat-row"><span class="stat-label">💡 Matrix</span><span class="stat-val mono" id="ctMatrix">—</span></div>
+      <div class="stat-row"><span class="stat-label">🔌 API</span><span class="stat-val mono" id="ctApi">—</span></div>
+      <div class="stat-row"><span class="stat-label">? Unknown</span><span class="stat-val mono" id="ctUnknown">—</span></div>
+    </div>
+
+    <div class="hub-card">
+      <h2><span class="icon">🔝</span> Top endpoints</h2>
+      <div id="topPaths"></div>
+    </div>
+
+  </div>
+
+  <div class="filter-bar">
+    <button class="filter-btn active" id="btn-all"     onclick="setFilter(null)">All</button>
+    <button class="filter-btn"        id="btn-desktop" onclick="setFilter('desktop')">🖥 Desktop</button>
+    <button class="filter-btn"        id="btn-mobile"  onclick="setFilter('mobile')">📱 Mobile</button>
+    <button class="filter-btn"        id="btn-matrix"  onclick="setFilter('matrix')">💡 Matrix</button>
+    <button class="filter-btn"        id="btn-api"     onclick="setFilter('api')">🔌 API</button>
+  </div>
+
+  <div class="req-table-wrap">
+    <table class="req-table">
+      <thead>
+        <tr>
+          <th>Time</th>
+          <th>Method</th>
+          <th>Path</th>
+          <th>Status</th>
+          <th>ms</th>
+          <th>Client</th>
+          <th>Network</th>
+        </tr>
+      </thead>
+      <tbody id="reqBody">
+        <tr class="empty-row"><td colspan="7">Loading…</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="refresh-chip" id="refreshChip">Auto-refresh every 30s</div>
+
+</main>
+</div>
+{% endblock %}
+
+{% block extra_script %}
+<script>
+(function () {
+  let _currentFilter = null;
+
+  const CLIENT_ICONS = {
+    desktop: "🖥",
+    mobile:  "📱",
+    matrix:  "💡",
+    api:     "🔌",
+    unknown: "?",
+  };
+
+  function fmtRel(isoStr) {
+    if (!isoStr) return "—";
+    const d = new Date(isoStr);
+    if (isNaN(d)) return isoStr;
+    const s = Math.max(0, Math.floor((Date.now() - d) / 1000));
+    if (s < 60)   return `${s}s ago`;
+    if (s < 3600) return `${Math.floor(s/60)}m ${s%60}s ago`;
+    return `${Math.floor(s/3600)}h ${Math.floor((s%3600)/60)}m ago`;
+  }
+
+  function statusClass(code) {
+    if (!code) return "";
+    if (code < 300) return "status-2";
+    if (code < 400) return "status-3";
+    if (code < 500) return "status-4";
+    return "status-5";
+  }
+
+  function esc(value) {
+    return String(value ?? "").replace(/[&<>"']/g, ch => ({
+      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+    }[ch]));
+  }
+
+  function renderSparkline(hourly) {
+    const svg = document.getElementById("sparkline");
+    if (!hourly || !hourly.length) { svg.innerHTML = ""; return; }
+    const max = Math.max(...hourly, 1);
+    const n   = hourly.length;
+    const w   = 100 / n;
+    const bars = hourly.map((v, i) => {
+      const h = Math.max(2, Math.round((v / max) * 34));
+      return `<rect x="${i * w}" y="${36 - h}" width="${w - 1}" height="${h}" fill="rgba(99,102,241,0.6)" rx="1"/>`;
+    }).join("");
+    svg.innerHTML = bars;
+  }
+
+  function renderTopPaths(paths) {
+    const el = document.getElementById("topPaths");
+    if (!paths || !paths.length) { el.innerHTML = '<div style="opacity:0.4;font-size:0.8rem;">No data yet</div>'; return; }
+    const max = Math.max(...paths.map(p => p.count), 1);
+    el.innerHTML = paths.slice(0, 8).map(p => {
+      const pct = Math.round(p.count / max * 100);
+      return `<div style="margin-bottom:6px;">
+        <div style="display:flex;justify-content:space-between;font-size:0.75rem;margin-bottom:2px;">
+          <span style="font-family:ui-monospace,monospace;opacity:0.8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:200px;" title="${esc(p.path)}">${esc(p.path)}</span>
+          <span style="opacity:0.5;margin-left:8px;flex-shrink:0;">${esc(p.count)}</span>
+        </div>
+        <div style="background:rgba(255,255,255,0.06);border-radius:2px;height:3px;">
+          <div style="width:${pct}%;height:100%;background:rgba(99,102,241,0.7);border-radius:2px;"></div>
+        </div>
+      </div>`;
+    }).join("");
+  }
+
+  function renderTable(rows) {
+    const tbody = document.getElementById("reqBody");
+    if (!rows || !rows.length) {
+      tbody.innerHTML = '<tr class="empty-row"><td colspan="7">No requests logged yet</td></tr>';
+      return;
+    }
+    tbody.innerHTML = rows.map(r => {
+      const sc = r.status_code || 0;
+      const ct = r.client_type || "unknown";
+      return `<tr>
+        <td class="time-cell">${fmtRel(r.ts)}</td>
+        <td><span class="method-badge method-${esc(r.method || 'GET')}">${esc(r.method || '?')}</span></td>
+        <td class="path-cell" title="${esc(r.path || '')}">${esc(r.path || '—')}</td>
+        <td class="${statusClass(sc)}">${sc || '—'}</td>
+        <td class="ms-cell">${r.latency_ms != null ? r.latency_ms : '—'}</td>
+        <td><span class="client-badge client-${esc(ct)}">${CLIENT_ICONS[ct] || '?'} ${esc(ct)}</span></td>
+        <td class="ip-cell">${esc(r.ip || '—')}</td>
+      </tr>`;
+    }).join("");
+  }
+
+  async function loadData() {
+    try {
+      const params = new URLSearchParams({ hours: 24, limit: 200 });
+      if (_currentFilter) params.set("client_type", _currentFilter);
+      const r = await fetch(`/api/admin/requests?${params}`);
+      if (!r.ok) return;
+      const d = await r.json();
+
+      const sum = d.summary || {};
+      document.getElementById("totalCount").textContent  = (sum.total ?? 0).toLocaleString();
+      const by = sum.by_client || {};
+      document.getElementById("ctDesktop").textContent = (by.desktop || 0).toLocaleString();
+      document.getElementById("ctMobile").textContent  = (by.mobile  || 0).toLocaleString();
+      document.getElementById("ctMatrix").textContent  = (by.matrix  || 0).toLocaleString();
+      document.getElementById("ctApi").textContent     = (by.api     || 0).toLocaleString();
+      document.getElementById("ctUnknown").textContent = (by.unknown || 0).toLocaleString();
+
+      renderSparkline(sum.hourly || []);
+      renderTopPaths(sum.top_paths || []);
+      renderTable(d.requests || []);
+
+      document.getElementById("refreshChip").textContent =
+        `Last updated ${new Date().toUTCString().slice(17,25)} UTC · auto every 30s`;
+    } catch (e) {}
+  }
+
+  window.setFilter = function(type) {
+    _currentFilter = type;
+    document.querySelectorAll(".filter-btn").forEach(b => b.classList.remove("active"));
+    const id = type ? `btn-${type}` : "btn-all";
+    const btn = document.getElementById(id);
+    if (btn) btn.classList.add("active");
+    loadData();
+  };
+
+  loadData();
+  setInterval(loadData, 30000);
+})();
+</script>
+{% endblock %}

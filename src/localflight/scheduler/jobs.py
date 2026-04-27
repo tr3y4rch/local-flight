@@ -24,6 +24,7 @@ Pipeline for "real":
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
 from typing import List, Optional
 
 from localflight.core.models import Flight
@@ -31,9 +32,40 @@ from localflight.decode.dedupe import dedupe_codeshares
 from localflight.decode.mappings.aviationstack import aviationstack_to_raw_records
 from localflight.decode.normalize import normalize_flights
 from localflight.storage.config import AppConfig
-from localflight.storage.flights_store import prune_snapshots, save_snapshot
+from localflight.storage.flights_store import prune_snapshots, save_snapshot, snapshot_age_seconds
 
 log = logging.getLogger(__name__)
+
+# Grace window before the scheduled interval during which a fetch is still allowed.
+# Prevents spurious skips when the scheduler wakes up a few seconds early.
+_REAL_GRACE_S  = 300   # 5 min before interval → allow fetch
+_VIRTUAL_MIN_S = 60    # VATSIM: allow at most once per minute
+
+
+def _fetch_is_due(cfg: AppConfig) -> tuple[bool, str]:
+    """
+    Returns (should_fetch, reason).
+
+    Rules:
+    - No snapshot for this airport            → always fetch (new airport or first run)
+    - source=real, age < interval - 5min      → skip (still fresh)
+    - source=virtual, age < 60s              → skip (spam guard)
+    - Otherwise                               → fetch
+    """
+    age = snapshot_age_seconds(cfg.airport_iata)
+    if age is None:
+        return True, "no snapshot for this airport"
+
+    source = (cfg.source or "real").strip().lower()
+    if source == "real":
+        threshold = max(60, cfg.refresh_seconds - _REAL_GRACE_S)
+        if age < threshold:
+            return False, f"snapshot is {int(age)}s old — due after {int(threshold)}s"
+    else:
+        if age < _VIRTUAL_MIN_S:
+            return False, f"snapshot is {int(age)}s old — virtual minimum is {_VIRTUAL_MIN_S}s"
+
+    return True, f"snapshot is {int(age)}s old — fetch due"
 
 
 # ── History write (non-fatal) ──────────────────────────────────────────────────
@@ -292,7 +324,16 @@ def _fetch_mock(cfg: AppConfig) -> List[Flight]:
 def run_snapshot_job(cfg: AppConfig) -> List[Flight]:
     """
     Main job — fetch, enrich, save, broadcast.
+    Skips the fetch if the existing snapshot is still fresh (see _fetch_is_due).
+    This means any restart triggered by a config save, profile load, or manual
+    button press will not burn an API call if the data is already current.
     """
+    due, reason = _fetch_is_due(cfg)
+    if not due:
+        log.info("Fetch skipped — %s", reason)
+        return []
+
+    log.info("Fetch due — %s", reason)
     source = (cfg.source or "real").strip().lower()
 
     if source == "virtual":

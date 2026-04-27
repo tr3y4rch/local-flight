@@ -19,6 +19,7 @@ import json
 import logging
 import os
 import platform
+import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -26,11 +27,26 @@ from typing import Optional
 
 log = logging.getLogger(__name__)
 
+# Sentinel passed as client_context to submit_report() by submit_crash()
+# to signal that system info is already embedded — don't append it again.
+_SYSTEM_CONTEXT_SENTINEL = "__system_context_already_included__"
+
 _GRAPHQL_URL  = "https://api.linear.app/graphql"
 _REPORTER_KEY = base64.b64decode(
     b"bGluX2FwaV9UU2dJc3RxVVJCNmZFVFhzZXZWOENPZU1VTGFqVkxiNWJUUGowUDhM"
 ).decode()
 _TEAM_ID      = "d343f047-5892-4e90-a15d-1c1c6b1b0423"
+
+_SECRET_PATTERNS = (
+    (re.compile(r"(AVIATIONSTACK_API_KEY|RAPIDAPI_KEY|OPENSKY_CLIENT_SECRET|LINEAR_API_KEY)=\S+", re.I), r"\1=[redacted]"),
+    (re.compile(r"(access_key=)[^&\s]+", re.I), r"\1[redacted]"),
+    (re.compile(r"(X-RapidAPI-Key['\":\s]+)[A-Za-z0-9._-]+", re.I), r"\1[redacted]"),
+    (re.compile(r"lin_api_[A-Za-z0-9_]+", re.I), "[redacted-linear-token]"),
+    (re.compile(r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b", re.I), "[redacted-uuid]"),
+    (re.compile(r"\b10\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})\b"), r"10.\1.\2.x"),
+    (re.compile(r"\b192\.168\.(\d{1,3})\.(\d{1,3})\b"), r"192.168.\1.x"),
+    (re.compile(r"\b172\.(1[6-9]|2\d|3[01])\.(\d{1,3})\.(\d{1,3})\b"), r"172.\1.\2.x"),
+)
 
 _CREATE_MUTATION = """
 mutation CreateIssue($title: String!, $description: String!, $teamId: String!) {
@@ -54,6 +70,13 @@ def _app_version() -> str:
         return "unknown"
 
 
+def _redact_sensitive(text: str) -> str:
+    redacted = text or ""
+    for pattern, repl in _SECRET_PATTERNS:
+        redacted = pattern.sub(repl, redacted)
+    return redacted
+
+
 def _system_context(client_context: str = "") -> str:
     try:
         from localflight.storage.config import load_config
@@ -64,16 +87,31 @@ def _system_context(client_context: str = "") -> str:
         airport = "?"
         source  = "?"
 
+    try:
+        from localflight.storage.install import get_install_fingerprint
+        install_id = get_install_fingerprint()
+    except Exception:
+        install_id = "unknown"
+
+    try:
+        from localflight.sources.web.aviationstack_client import _is_relay_mode
+        api_mode = "community relay" if _is_relay_mode() else "byok"
+    except Exception:
+        api_mode = "unknown"
+
     text = (
         f"- **Version:** {_app_version()}\n"
-        f"- **Server platform:** {platform.system()} {platform.release()}\n"
+        f"- **Install fingerprint:** `{install_id}`\n"
+        f"- **OS:** {platform.platform()}\n"
+        f"- **Arch:** {platform.machine()}\n"
         f"- **Python:** {sys.version.split()[0]}\n"
         f"- **Airport:** {airport}\n"
         f"- **Source:** {source}\n"
+        f"- **API mode:** {api_mode}\n"
     )
     if client_context.strip():
         text += "\n**Reporter environment**\n"
-        text += client_context.strip()[:1600] + "\n"
+        text += _redact_sensitive(client_context.strip())[:1600] + "\n"
     return text
 
 
@@ -161,16 +199,18 @@ def submit_crash(
 
         title = f"[Auto] {context} — {error_msg[:80]}"
 
-        body = f"**Context:** `{context}`\n\n"
-        if client_context.strip():
-            body += f"**Reporter environment:**\n```\n{client_context.strip()[:1200]}\n```\n\n"
-        body += f"**Error:**\n```\n{error_msg[:300]}\n```\n"
+        # System info first — most useful for triage
+        sys_info = _system_context(client_context)
+        body  = f"**Context:** `{context}`\n\n"
+        body += f"---\n**System info**\n{sys_info}\n"
+        body += f"---\n**Error:**\n```\n{_redact_sensitive(error_msg)[:300]}\n```\n"
         if traceback_str:
-            body += f"\n**Traceback:**\n```\n{traceback_str[-1200:]}\n```\n"
+            body += f"\n**Traceback:**\n```\n{_redact_sensitive(traceback_str)[-1200:]}\n```\n"
         log_tail = _read_log_tail(50)
-        body += f"\n**Log tail:**\n```\n{log_tail[-1500:]}\n```"
+        body += f"\n**Log tail:**\n```\n{_redact_sensitive(log_tail)[-1500:]}\n```"
 
-        result = submit_report(title, body[:3500])
+        # Pass empty description so submit_report doesn't double-append system info
+        result = submit_report(title, body[:3800], _SYSTEM_CONTEXT_SENTINEL)
         if result.get("ok"):
             _mark_crash_filed(fp)
         return result
@@ -193,8 +233,9 @@ def submit_report(title: str, description: str = "", client_context: str = "") -
 
     full_description = ""
     if description.strip():
-        full_description += description.strip() + "\n\n"
-    full_description += "---\n**System info**\n" + _system_context(client_context)
+        full_description += _redact_sensitive(description.strip()) + "\n\n"
+    if client_context != _SYSTEM_CONTEXT_SENTINEL:
+        full_description += "---\n**System info**\n" + _system_context(client_context)
 
     try:
         resp = requests.post(

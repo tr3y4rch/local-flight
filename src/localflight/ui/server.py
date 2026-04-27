@@ -4,12 +4,14 @@ import asyncio
 import json
 import logging
 import os
+import time as _time
 from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional, Set
 
 from fastapi import BackgroundTasks, FastAPI, Form, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
+from pydantic import BaseModel, Field
 from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -39,6 +41,10 @@ SCHEDULER_SYNC_FIELDS = ("airport_iata", "airport_icao", "refresh_seconds", "sou
 
 def _scheduler_config_changed(before: AppConfig, after: AppConfig) -> bool:
     return any(getattr(before, field) != getattr(after, field) for field in SCHEDULER_SYNC_FIELDS)
+
+
+def _network_tools_enabled() -> bool:
+    return os.getenv("LOCALFLIGHT_ENABLE_NETWORK_TOOLS", "").strip().lower() in {"1", "true", "yes", "on"}
 
 
 # ── Setup gate ─────────────────────────────────────────────────────────────────
@@ -85,6 +91,32 @@ class SetupGateMiddleware(BaseHTTPMiddleware):
         return RedirectResponse(url="/setup", status_code=302)
 
 
+class RequestLogMiddleware(BaseHTTPMiddleware):
+    """Logs every HTTP request to the local traffic DB (non-fatal)."""
+
+    async def dispatch(self, request: Request, call_next):
+        start = _time.monotonic()
+        response = await call_next(request)
+        latency_ms = int((_time.monotonic() - start) * 1000)
+        try:
+            from localflight.storage.request_log import log_request
+            fwd = request.headers.get("x-forwarded-for", "")
+            ip  = fwd.split(",")[0].strip() if fwd else (
+                request.client.host if request.client else "unknown"
+            )
+            log_request(
+                method=request.method,
+                path=request.url.path,
+                status_code=response.status_code,
+                latency_ms=latency_ms,
+                ip=ip,
+                user_agent=request.headers.get("user-agent", ""),
+            )
+        except Exception:
+            pass
+        return response
+
+
 # ── App setup ──────────────────────────────────────────────────────────────────
 
 def _templates_dir() -> Path:
@@ -97,8 +129,11 @@ def _static_dir() -> Path:
 
 app = FastAPI(title="Local Flight UI", docs_url=None, redoc_url=None)
 
-# Setup gate MUST be added before routes
+# Middleware order: RequestLog (outer) → SetupGate (inner) → route
+# add_middleware is LIFO so SetupGate must be added first
 app.add_middleware(SetupGateMiddleware)
+if _network_tools_enabled():
+    app.add_middleware(RequestLogMiddleware)
 
 app.mount("/static", StaticFiles(directory=str(_static_dir())), name="static")
 app.include_router(api_router)
@@ -108,7 +143,7 @@ try:
     from importlib.metadata import version as _pkg_version
     _APP_VERSION = _pkg_version("localflight")
 except Exception:
-    _APP_VERSION = "0.2.2b2"
+    _APP_VERSION = "0.2.2b3"
 
 templates.env.globals["app_version"] = _APP_VERSION
 
@@ -241,8 +276,11 @@ def setup_page(request: Request) -> HTMLResponse:
     )
 
 
-@app.get("/api/setup/test-aviationstack")
-async def setup_test_aviationstack(key: str = Query(...)) -> Dict[str, Any]:
+class ApiKeyTestIn(BaseModel):
+    key: str = Field(..., min_length=1, max_length=256)
+
+
+async def _test_aviationstack_key(key: str) -> Dict[str, Any]:
     """Test an AviationStack API key without saving it."""
     import requests as _req
     try:
@@ -262,8 +300,17 @@ async def setup_test_aviationstack(key: str = Query(...)) -> Dict[str, Any]:
         return {"ok": False, "error": str(exc)}
 
 
-@app.get("/api/setup/test-rapidapi")
-async def setup_test_rapidapi(key: str = Query(...)) -> Dict[str, Any]:
+@app.post("/api/setup/test-aviationstack")
+async def setup_test_aviationstack_post(body: ApiKeyTestIn) -> Dict[str, Any]:
+    return await _test_aviationstack_key(body.key)
+
+
+@app.get("/api/setup/test-aviationstack")
+async def setup_test_aviationstack_get(key: str = Query(...)) -> Dict[str, Any]:
+    return await _test_aviationstack_key(key)
+
+
+async def _test_rapidapi_key(key: str) -> Dict[str, Any]:
     """Test a RapidAPI key for ADS-B Exchange without saving it."""
     import requests as _req
     try:
@@ -284,6 +331,16 @@ async def setup_test_rapidapi(key: str = Query(...)) -> Dict[str, Any]:
         return {"ok": True}
     except Exception as exc:
         return {"ok": False, "error": str(exc)}
+
+
+@app.post("/api/setup/test-rapidapi")
+async def setup_test_rapidapi_post(body: ApiKeyTestIn) -> Dict[str, Any]:
+    return await _test_rapidapi_key(body.key)
+
+
+@app.get("/api/setup/test-rapidapi")
+async def setup_test_rapidapi_get(key: str = Query(...)) -> Dict[str, Any]:
+    return await _test_rapidapi_key(key)
 
 
 @app.post("/api/setup/complete")
@@ -327,9 +384,10 @@ async def setup_complete(request: Request, background_tasks: BackgroundTasks) ->
     if as_key:
         existing["AVIATIONSTACK_API_KEY"] = as_key
         existing["LOCALFLIGHT_AVIATIONSTACK_ENABLED"] = "1"
-        existing.setdefault("LOCALFLIGHT_AVIATIONSTACK_MONTHLY_LIMIT", "90")
+        existing.setdefault("LOCALFLIGHT_AVIATIONSTACK_MONTHLY_LIMIT", "10000")
     if rp_key:
         existing["RAPIDAPI_KEY"] = rp_key
+        existing.setdefault("LOCALFLIGHT_RAPIDAPI_MONTHLY_LIMIT", "10000")
     if os_id:
         existing["OPENSKY_CLIENT_ID"] = os_id
     if os_sec:
@@ -373,7 +431,7 @@ async def setup_complete(request: Request, background_tasks: BackgroundTasks) ->
 def splash_page(
     request: Request,
     next_path: str = Query("/display", alias="next"),
-    duration_ms: int = Query(1800, ge=500, le=5000),
+    duration_ms: int = Query(6200, ge=5000, le=8000),
 ) -> HTMLResponse:
     target = _safe_local_path(next_path)
     if not _setup_complete() and target != "/setup":
@@ -492,7 +550,7 @@ async def save_settings(
     display_name: str = Form(...),
     theme: Optional[str] = Form("dark"),
     source: Optional[str] = Form(DEFAULT_SOURCE),
-    timezone_str: str = Form("Europe/Zurich"),
+    timezone: str = Form("UTC"),
     skin: Optional[str] = Form(DEFAULT_SKIN),
 ) -> RedirectResponse:
     rs = int(refresh_seconds) if int(refresh_seconds) in ALLOWED_REFRESH_SECONDS else DEFAULT_REFRESH_SECONDS
@@ -517,7 +575,7 @@ async def save_settings(
         display_name=display_name.strip()[:40] or "Local Flight",
         theme=(theme or "dark").strip() or "dark",
         source=src,
-        timezone=timezone_str.strip() or "Europe/Zurich",
+        timezone=timezone.strip() or "UTC",
         skin=sk,
         display_outputs=display_outputs,
     )
@@ -654,7 +712,11 @@ def fids(request: Request, view: str = "arrivals", embedded: bool = Query(False)
 # ── Radar ──────────────────────────────────────────────────────────────────────
 
 @app.get("/radar", response_class=HTMLResponse)
-def radar(request: Request, embedded: bool = Query(False)) -> HTMLResponse:
+def radar(
+    request:   Request,
+    embedded:  bool  = Query(False),
+    radius_nm: int   = Query(20, ge=5, le=200),
+) -> HTMLResponse:
     from localflight.core.airports import lookup_airport
 
     cfg = load_config()
@@ -669,7 +731,7 @@ def radar(request: Request, embedded: bool = Query(False)) -> HTMLResponse:
             "airport_label": best_label(iata=cfg.airport_iata, icao=cfg.airport_icao) or cfg.airport_iata,
             "center_lat": airport.lat if airport and airport.lat else 47.458056,
             "center_lon": airport.lon if airport and airport.lon else 8.548056,
-            "radius_nm": 20,
+            "radius_nm": radius_nm,
             "embedded": embedded,
         },
     )
@@ -759,6 +821,23 @@ def history_page(request: Request) -> HTMLResponse:
             "state": load_state(),
         },
     )
+
+# ── Traffic hub ────────────────────────────────────────────────────────────────
+
+@app.get("/admin/requests", response_class=HTMLResponse)
+def traffic_page(request: Request) -> HTMLResponse:
+    if not _network_tools_enabled():
+        raise HTTPException(status_code=404, detail="Not found")
+    cfg = load_config()
+    return templates.TemplateResponse(
+        request=request,
+        name="requests.html",
+        context={
+            "cfg": cfg,
+            "state": load_state(),
+        },
+    )
+
 
 # ── Quit ───────────────────────────────────────────────────────────────────────
 

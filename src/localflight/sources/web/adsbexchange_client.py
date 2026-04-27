@@ -7,7 +7,7 @@ Endpoint:
   GET https://adsbexchange-com1.p.rapidapi.com/v2/lat/{lat}/lon/{lon}/dist/{nm}/
 
 Returns all aircraft within `dist` nautical miles of a lat/lon point.
-Free tier: 1000 calls/day.
+Subscription: 10,000 calls/month (configurable via LOCALFLIGHT_RAPIDAPI_MONTHLY_LIMIT).
 
 Environment variable required:
   RAPIDAPI_KEY=your_key_here
@@ -27,20 +27,28 @@ Notable fields vs OpenSky:
 """
 from __future__ import annotations
 
+import json
 import logging
 import math
 import os
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import requests
 
 log = logging.getLogger(__name__)
 
-ADSBX_BASE_URL = "https://adsbexchange-com1.p.rapidapi.com/v2"
-_TIMEOUT_S     = 15
+ADSBX_BASE_URL            = "https://adsbexchange-com1.p.rapidapi.com/v2"
+_TIMEOUT_S                = 15
+_DEFAULT_MONTHLY_LIMIT    = 10_000
 
 
 class ADSBExchangeError(RuntimeError):
+    pass
+
+
+class ADSBExchangeBudgetExceeded(ADSBExchangeError):
     pass
 
 
@@ -49,6 +57,79 @@ def _get_api_key() -> str:
     if not key:
         raise ADSBExchangeError("RAPIDAPI_KEY not set in environment")
     return key
+
+
+def _get_monthly_limit() -> int:
+    try:
+        return int(os.getenv("LOCALFLIGHT_RAPIDAPI_MONTHLY_LIMIT", str(_DEFAULT_MONTHLY_LIMIT)))
+    except (ValueError, TypeError):
+        return _DEFAULT_MONTHLY_LIMIT
+
+
+# ── RapidAPI usage counter ─────────────────────────────────────────────────────
+
+def _usage_path() -> Path:
+    from localflight.storage.config import config_path
+    return config_path().parent / "api_usage.json"
+
+
+def _load_usage() -> Dict[str, Any]:
+    p = _usage_path()
+    if not p.exists():
+        return {}
+    try:
+        return json.loads(p.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def _save_usage(data: Dict[str, Any]) -> None:
+    try:
+        _usage_path().write_text(
+            json.dumps(data, indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
+    except Exception:
+        pass
+
+
+def _month_key() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m")
+
+
+def _check_and_increment_budget(n_calls: int = 1) -> None:
+    usage      = _load_usage()
+    month      = _month_key()
+    limit      = _get_monthly_limit()
+    month_data = usage.setdefault("rapidapi", {})
+    current    = month_data.get(month, 0)
+
+    if current + n_calls > limit:
+        raise ADSBExchangeBudgetExceeded(
+            f"RapidAPI monthly budget exceeded: {current}/{limit} calls used "
+            f"this month ({month}). Set LOCALFLIGHT_RAPIDAPI_MONTHLY_LIMIT=N to increase."
+        )
+
+    month_data[month] = current + n_calls
+    for old in sorted(month_data.keys(), reverse=True)[3:]:
+        del month_data[old]
+    _save_usage(usage)
+
+
+def get_usage_stats() -> Dict[str, Any]:
+    """Returns current RapidAPI usage stats. Safe to call anytime."""
+    usage  = _load_usage()
+    month  = _month_key()
+    limit  = _get_monthly_limit()
+    calls  = usage.get("rapidapi", {}).get(month, 0)
+    return {
+        "month":            month,
+        "calls_this_month": calls,
+        "monthly_limit":    limit,
+        "remaining":        max(0, limit - calls),
+        "budget_ok":        calls < limit,
+        "available":        bool(os.getenv("RAPIDAPI_KEY", "").strip()),
+    }
 
 
 def fetch_aircraft(
@@ -65,6 +146,8 @@ def fetch_aircraft(
     # API takes integer nm — round up to nearest 5 for cleaner requests
     dist_nm = max(5, int(math.ceil(radius_nm / 5) * 5))
 
+    _check_and_increment_budget(n_calls=1)
+
     url = f"{ADSBX_BASE_URL}/lat/{lat}/lon/{lon}/dist/{dist_nm}/"
 
     try:
@@ -80,7 +163,7 @@ def fetch_aircraft(
         raise ADSBExchangeError(f"ADS-B Exchange request failed: {exc}") from exc
 
     if r.status_code == 429:
-        raise ADSBExchangeError("ADS-B Exchange rate limit hit (1000 req/day free tier)")
+        raise ADSBExchangeError("ADS-B Exchange rate limit hit — check RapidAPI dashboard")
     if r.status_code == 403:
         raise ADSBExchangeError("ADS-B Exchange API key invalid or not subscribed")
     if r.status_code >= 400:
