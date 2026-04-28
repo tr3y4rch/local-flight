@@ -1,24 +1,22 @@
-# Local Flight Community Relay — Fly.io config
-# Deploy: fly deploy (from the relay/ directory)
-# Secrets: fly secrets set AVIATIONSTACK_API_KEY=... RELAY_ADMIN_PASSWORD=...
+# fly.toml app configuration file generated for localflight-relay on 2026-04-28T04:09:27+02:00
 #
-# App name must be globally unique on Fly.io — change if taken.
-app            = "localflight-relay"
-primary_region = "fra"
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
+
+app = 'localflight-relay'
+primary_region = 'fra'
 
 [build]
-  dockerfile = "Dockerfile"
+  dockerfile = 'Dockerfile'
 
 [env]
-  PORT                = "8080"
-  DB_PATH             = "/data/relay.db"
-  RELAY_MONTHLY_LIMIT = "50"
+  DB_PATH = '/data/relay.db'
+  PORT = '8080'
+  RELAY_MONTHLY_LIMIT = '50'
 
-# Persistent volume for SQLite.
-# Create once: fly volumes create relay_data --region fra --size 1
 [[mounts]]
-  source      = "relay_data"
-  destination = "/data"
+  source = 'relay_data'
+  destination = '/data'
 
 [http_service]
   internal_port = 8000
@@ -33,5 +31,4 @@ primary_region = "fra"
   cpu_kind = 'shared'
   cpus = 1
   memory_mb = 1024
-
-
+  
