@@ -2635,6 +2635,34 @@ function SettingsScreen({
         />
       </View>
 
+      <View style={styles.settingsCard}>
+        <Text style={styles.settingsTitle}>ABOUT</Text>
+        <Text style={styles.settingsHelp}>
+          Local Flight is a local-first flight information display. All flight data, history, and config stay on your machine — nothing is uploaded, synced, or tracked beyond the configured aviation data sources.
+        </Text>
+        <Text style={styles.settingsHelp}>
+          The only data that leaves your machine without your action is an automatic crash report if the server encounters an unhandled error. It contains the version, OS, airport code, and a traceback — no API keys, no IP address, no personal information.
+        </Text>
+        <SettingsToolPill
+          icon="shield-lock-outline"
+          label="Privacy"
+          value="What stays local and what the crash reporter sends"
+          onPress={() => Linking.openURL("https://github.com/tr3y4rch/local-flight/blob/main/PRIVACY.md")}
+        />
+        <SettingsToolPill
+          icon="github"
+          label="Source & releases"
+          value="github.com/tr3y4rch/local-flight"
+          onPress={() => Linking.openURL("https://github.com/tr3y4rch/local-flight")}
+        />
+        <SettingsToolPill
+          icon="format-list-bulleted"
+          label="Changelog"
+          value="Release history and version notes"
+          onPress={() => Linking.openURL("https://github.com/tr3y4rch/local-flight/blob/main/CHANGELOG.md")}
+        />
+      </View>
+
       <Pressable style={styles.coffeeCard} onPress={onOpenCoffee}>
         <View style={styles.coffeeIcon}>
           <MaterialCommunityIcons name="coffee" size={19} color="#111" />

@@ -60,9 +60,14 @@ mobile/npm-debug.log*
 mobile/yarn-debug.log*
 mobile/yarn-error.log*
 
+# ── Relay server runtime (relay/) ─────────────────────
+# relay/.env  — caught by the .env rule above
+# relay/relay.db — caught by *.db above
+# relay/__pycache__/ — caught by __pycache__/ above
+relay/logs/
+
 # ── Optional: private dev stuff ────────────────────────
 dev/private/
-dev/private/community_keys.json
 assets/*.ico
 assets/*.icns
 assets/*.iconset

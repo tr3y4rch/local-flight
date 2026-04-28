@@ -355,9 +355,10 @@ Hit the **🐛 Report** button in the nav bar from anywhere in the app. Your rep
 
 ## Philosophy
 
-- Local first — no cloud dependency after initial setup
-- Boring by design — standard Python, no framework magic
-- Clear data flow — every step is a separate module
-- Pi-ready — nothing in the stack requires a GPU or significant RAM
-- Graceful degradation — if an enrichment source fails, the next one kicks in
-- Budget conscious — AviationStack, relay, and RapidAPI monthly call counters enforced in code
+- **Local first** — flight data, history, config, and logs all live on your own machine. Nothing is uploaded, synced to a cloud, or shared with third parties beyond the configured data source.
+- **Private by design** — no accounts, no email, no analytics SDK, no tracking. The local traffic log anonymizes IPs before storage and is only visible to you. See [PRIVACY.md](PRIVACY.md) for the full breakdown.
+- **Boring by design** — standard Python, no framework magic
+- **Clear data flow** — every step is a separate module
+- **Pi-ready** — nothing in the stack requires a GPU or significant RAM
+- **Graceful degradation** — if an enrichment source fails, the next one kicks in
+- **Budget conscious** — AviationStack, relay, and RapidAPI monthly call counters enforced in code

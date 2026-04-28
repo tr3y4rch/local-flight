@@ -12,7 +12,7 @@ primary_region = "fra"
 [env]
   PORT                = "8080"
   DB_PATH             = "/data/relay.db"
-  RELAY_MONTHLY_LIMIT = "60"
+  RELAY_MONTHLY_LIMIT = "50"
 
 # Persistent volume for SQLite.
 # Create once: fly volumes create relay_data --region fra --size 1
@@ -23,6 +23,8 @@ primary_region = "fra"
 [http_service]
   internal_port        = 8080
   force_https          = true
+  # auto_stop saves cost; cold-start is ~2s — fine for a relay that clients
+  # retry on next cycle anyway. Set min_machines_running = 1 for always-on admin.
   auto_stop_machines   = true
   auto_start_machines  = true
   min_machines_running = 0
