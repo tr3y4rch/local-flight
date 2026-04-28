@@ -7,13 +7,13 @@ from pathlib import Path
 from typing import Any, Dict, Literal, Optional
 
 import requests
+from localflight.sources.web.relay_defaults import default_public_relay_url, relay_root_url
 
 AVIATIONSTACK_BASE_URL = "https://api.aviationstack.com/v1/flights"
 
 _DEFAULT_BYOK_LIMIT = 90
 _BYOK_PLAN_MAX = 100
 _DEFAULT_RELAY_LIMIT = 50
-_RELAY_DEFAULT_URL = "https://relay.localflight.app/v1/flights"
 _MANAGED_STATUS_CACHE_TTL_S = 60
 _COMMUNITY_WINDOW_DAYS = 30
 
@@ -78,7 +78,7 @@ def _get_byok_limit() -> int:
 
 
 def _get_relay_url() -> str:
-    return os.getenv("LOCALFLIGHT_RELAY_URL", _RELAY_DEFAULT_URL).rstrip("/")
+    return default_public_relay_url().rstrip("/")
 
 
 def _get_relay_limit() -> int:
@@ -266,12 +266,7 @@ def _sync_relay_quota_from_headers(headers: Any) -> None:
 
 
 def _client_status_url() -> str:
-    relay_url = _get_relay_url()
-    if relay_url.endswith("/v1/flights"):
-        return relay_url[:-7] + "client/status"
-    if relay_url.endswith("/flights"):
-        return relay_url[:-7] + "client/status"
-    return relay_url.rstrip("/") + "/client/status"
+    return relay_root_url(_get_relay_url()) + "/v1/client/status"
 
 
 def _fetch_managed_status(timeout_s: int = 8) -> Dict[str, Any]:

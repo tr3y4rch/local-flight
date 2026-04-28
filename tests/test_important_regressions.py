@@ -401,7 +401,7 @@ def test_mobile_companion_checkin_is_exposed_in_connections(monkeypatch, tmp_pat
         json={
             "companion_id": "lfc_test_mobile_001",
             "client_name": "Local Flight Companion",
-            "app_version": "0.2.3b1",
+            "app_version": "0.2.3b2",
             "mobile_os": "iOS 18.5 (phone)",
             "device_type": "phone",
         },

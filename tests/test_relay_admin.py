@@ -62,8 +62,8 @@ def test_activate_auto_issues_and_client_status_verifies(tmp_path: Path, monkeyp
             "airport_iata": "ZRH",
             "airport_icao": "LSZH",
             "display_name": "Test kiosk",
-            "requested_mode": "managed",
-            "app_version": "0.2.3b1",
+            "requested_mode": "community",
+            "app_version": "0.2.3b2",
         },
         headers={"x-forwarded-for": "203.0.113.42"},
     )
@@ -79,7 +79,7 @@ def test_activate_auto_issues_and_client_status_verifies(tmp_path: Path, monkeyp
         params={
             "install_id": install_id,
             "activation_token": activate_data["activation_token"],
-            "app_version": "0.2.3b1",
+            "app_version": "0.2.3b2",
         },
     )
     assert status_resp.status_code == 200
@@ -116,7 +116,7 @@ def test_activate_uses_manual_review_after_anonymous_network_burst(tmp_path: Pat
                 "airport_iata": "ZRH",
                 "airport_icao": "LSZH",
                 "display_name": f"Install {suffix}",
-                "requested_mode": "managed",
+                "requested_mode": "community",
             },
             headers={"x-forwarded-for": "198.51.100.44"},
         )
@@ -131,3 +131,95 @@ def test_activate_uses_manual_review_after_anonymous_network_burst(tmp_path: Pat
     assert second["status"] == "issued"
     assert third["status"] == "manual_review"
     assert "activation_token" not in third
+
+
+def test_public_host_hides_admin_surface(tmp_path: Path, monkeypatch) -> None:
+    _use_temp_db(tmp_path, monkeypatch)
+    client = TestClient(relay_main.app)
+
+    response = client.get("/admin", headers={"host": "relay.localflight.app"})
+
+    assert response.status_code == 404
+
+
+def test_admin_host_hides_public_api_surface(tmp_path: Path, monkeypatch) -> None:
+    _use_temp_db(tmp_path, monkeypatch)
+    client = TestClient(relay_main.app)
+
+    response = client.get(
+        "/v1/client/status",
+        params={"install_id": "00000000-0000-0000-0000-000000000111"},
+        headers={"host": "network.localflight.app"},
+    )
+
+    assert response.status_code == 404
+
+
+def test_relay_root_switches_by_hostname(tmp_path: Path, monkeypatch) -> None:
+    _use_temp_db(tmp_path, monkeypatch)
+    client = TestClient(relay_main.app)
+
+    public_response = client.get("/", headers={"host": "relay.localflight.app"})
+    assert public_response.status_code == 200
+    public_payload = public_response.json()
+    assert public_payload["public_host"] == "relay.localflight.app"
+    assert public_payload["admin_host"] == "network.localflight.app"
+
+    admin_response = client.get("/", headers={"host": "network.localflight.app"}, follow_redirects=False)
+    assert admin_response.status_code == 307
+    assert admin_response.headers["location"] == "/admin"
+
+
+def test_activation_requests_do_not_persist_airport_fields(tmp_path: Path, monkeypatch) -> None:
+    _use_temp_db(tmp_path, monkeypatch)
+    client = TestClient(relay_main.app)
+    install_id = "00000000-0000-0000-0000-000000000777"
+
+    response = client.post(
+        "/v1/activate",
+        json={
+            "install_id": install_id,
+            "install_fingerprint": relay_main._install_fingerprint(install_id),
+            "airport_iata": "ZRH",
+            "airport_icao": "LSZH",
+            "display_name": "Privacy test",
+            "requested_mode": "community",
+            "app_version": "0.2.3b2",
+        },
+        headers={"host": "relay.localflight.app", "x-forwarded-for": "203.0.113.55"},
+    )
+    assert response.status_code == 200
+
+    conn = relay_main._connect()
+    row = conn.execute(
+        "SELECT airport_iata, airport_icao, display_name FROM activation_requests WHERE install_id=?",
+        (install_id,),
+    ).fetchone()
+    conn.close()
+
+    assert row is not None
+    assert row["airport_iata"] is None
+    assert row["airport_icao"] is None
+    assert row["display_name"] == "Privacy test"
+
+
+def test_relay_request_log_uses_scope_without_airport_data(tmp_path: Path, monkeypatch) -> None:
+    _use_temp_db(tmp_path, monkeypatch)
+
+    relay_main._log_request(
+        install_id="00000000-0000-0000-0000-000000000555",
+        scope="departures",
+        status=200,
+        latency_ms=123,
+        service="aviationstack",
+        plan="community",
+    )
+
+    conn = relay_main._connect()
+    row = conn.execute("SELECT airport, mode, service FROM request_log ORDER BY id DESC LIMIT 1").fetchone()
+    conn.close()
+
+    assert row is not None
+    assert row["airport"] is None
+    assert row["mode"] == "departures"
+    assert row["service"] == "aviationstack"

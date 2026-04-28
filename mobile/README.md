@@ -1,8 +1,8 @@
 # Local Flight Companion
 
-Phase 1 React Native / Expo companion app for Local Flight. Companion build: `0.2.3b1`.
+Phase 1 React Native / Expo companion app for Local Flight. Companion build: `0.2.3b2`.
 
-The mobile companion is **work in progress**. It is a developer preview, not a public App Store, TestFlight, Play Store, or APK release yet. A polished iOS and Android companion will follow later.
+The mobile companion is **work in progress**. It is version-synced with the desktop app for this release line, but it is still a developer preview rather than a public App Store, TestFlight, Play Store, or APK release.
 
 The Python/FastAPI app remains the server of record. This mobile app is a LAN client that reads Local Flight APIs, listens for WebSocket updates, and starts with a native version of the airport-board mockup.
 

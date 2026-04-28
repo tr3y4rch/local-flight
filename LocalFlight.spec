@@ -1,6 +1,6 @@
 # LocalFlight.spec
 #
-# PyInstaller spec for Local Flight — Windows (.exe) and macOS (.app).
+# PyInstaller spec for Local Flight â€” Windows (.exe) and macOS (.app).
 #
 # Build with:   python build.py
 # Or directly:  pyinstaller LocalFlight.spec --noconfirm
@@ -13,12 +13,12 @@ from PyInstaller.utils.hooks import collect_all, collect_data_files
 # Read version from pyproject.toml so the spec never drifts out of sync
 _pyproject = Path(SPECPATH) / "pyproject.toml"
 _ver_match = re.search(r'^version\s*=\s*"([^"]+)"', _pyproject.read_text(), re.MULTILINE)
-_VERSION = _ver_match.group(1) if _ver_match else "0.2.3b1"
+_VERSION = _ver_match.group(1) if _ver_match else "0.2.3b2"
 
 is_win = sys.platform == "win32"
 is_mac = sys.platform == "darwin"
 
-# ── Collect packages that use dynamic/string-based internal imports ────────────
+# â”€â”€ Collect packages that use dynamic/string-based internal imports â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 uvi_d,      uvi_b,      uvi_h      = collect_all("uvicorn")
 fapi_d,     fapi_b,     fapi_h     = collect_all("fastapi")
 anyio_d,    anyio_b,    anyio_h    = collect_all("anyio")
@@ -31,7 +31,7 @@ a = Analysis(
     binaries=uvi_b + fapi_b + anyio_b + starlette_b,
 
     datas=[
-        # App resources — must mirror the path that Path(__file__).parent resolves to
+        # App resources â€” must mirror the path that Path(__file__).parent resolves to
         ("src/localflight/ui/templates",    "localflight/ui/templates"),
         ("src/localflight/ui/static",       "localflight/ui/static"),
         ("src/localflight/decode/mappings", "localflight/decode/mappings"),
@@ -39,11 +39,11 @@ a = Analysis(
     ] + uvi_d + fapi_d + anyio_d + starlette_d + collect_data_files("tzdata"),
 
     hiddenimports=[
-        # ── pystray + PIL: conditionally imported inside build_tray() ──────────
+        # â”€â”€ pystray + PIL: conditionally imported inside build_tray() â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         "pystray",
         "PIL", "PIL.Image", "PIL.ImageDraw",
 
-        # ── uvicorn internals loaded by string at startup ──────────────────────
+        # â”€â”€ uvicorn internals loaded by string at startup â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         "uvicorn.logging",
         "uvicorn.loops", "uvicorn.loops.auto", "uvicorn.loops.asyncio",
         "uvicorn.protocols.http.auto",
@@ -54,13 +54,13 @@ a = Analysis(
         "uvicorn.protocols.websockets.wsproto_impl",
         "uvicorn.lifespan.off", "uvicorn.lifespan.on",
 
-        # ── Timezone data ──────────────────────────────────────────────────────
+        # â”€â”€ Timezone data â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         "zoneinfo", "tzdata",
 
-        # ── Pydantic v2 ────────────────────────────────────────────────────────
+        # â”€â”€ Pydantic v2 â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         "pydantic_core",
 
-        # ── localflight platform modules (imported conditionally) ──────────────
+        # â”€â”€ localflight platform modules (imported conditionally) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         "localflight.platform.detect",
         "localflight.platform.browser",
         "localflight.platform.tray",
@@ -76,7 +76,7 @@ a = Analysis(
 
 pyz = PYZ(a.pure)
 
-# ── EXE / COLLECT ─────────────────────────────────────────────────────────────
+# â”€â”€ EXE / COLLECT â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 exe = EXE(
     pyz,
@@ -102,7 +102,7 @@ coll = COLLECT(
     name="LocalFlight",
 )
 
-# ── macOS .app bundle ─────────────────────────────────────────────────────────
+# â”€â”€ macOS .app bundle â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 if is_mac:
     app = BUNDLE(
@@ -112,7 +112,7 @@ if is_mac:
         bundle_identifier="com.localflight.app",
         info_plist={
             "NSHighResolutionCapable": True,
-            "LSUIElement": True,               # Tray-only — suppress Dock icon
+            "LSUIElement": True,               # Tray-only â€” suppress Dock icon
             "CFBundleShortVersionString": _VERSION,
             "CFBundleName": "Local Flight",
             "CFBundleDisplayName": "Local Flight",

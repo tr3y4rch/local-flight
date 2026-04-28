@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 import requests
+from localflight.sources.web.relay_defaults import default_public_relay_url, relay_radar_url
 
 log = logging.getLogger(__name__)
 
@@ -37,10 +38,7 @@ def _get_relay_url() -> str:
     base = os.getenv("LOCALFLIGHT_ADSBX_RELAY_URL", "").strip()
     if base:
         return base.rstrip("/")
-    relay_base = os.getenv("LOCALFLIGHT_RELAY_URL", "https://relay.localflight.app/v1/flights").rstrip("/")
-    if relay_base.endswith("/flights"):
-        return relay_base[:-8] + "/radar"
-    return relay_base + "/radar"
+    return relay_radar_url(default_public_relay_url())
 
 
 def _get_activation_token() -> str:

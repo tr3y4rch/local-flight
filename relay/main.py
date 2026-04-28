@@ -9,6 +9,7 @@ import secrets
 import sqlite3
 import time
 import uuid
+from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -48,9 +49,54 @@ def _env(key: str, default: str = "") -> str:
     return os.environ.get(key, default).strip()
 
 
+def _public_host() -> str:
+    return _normalized_host(_env("RELAY_PUBLIC_HOST", "relay.localflight.app"))
+
+
+def _admin_host() -> str:
+    return _normalized_host(_env("RELAY_ADMIN_HOST", "network.localflight.app"))
+
+
+def _normalized_host(value: str) -> str:
+    clean = (value or "").strip().lower()
+    if not clean:
+        return ""
+    clean = clean.split(",", 1)[0].strip()
+    if clean.startswith("[") and "]" in clean:
+        return clean[1 : clean.index("]")]
+    if clean.count(":") == 1:
+        return clean.split(":", 1)[0]
+    return clean
+
+
+def _request_host(request: Request) -> str:
+    return _normalized_host(request.headers.get("x-forwarded-host") or request.headers.get("host") or "")
+
+
+def _is_local_host(host: str) -> bool:
+    return host in {"", "127.0.0.1", "localhost", "::1", "0.0.0.0", "testserver"}
+
+
+def _request_surface(request: Request) -> str:
+    host = _request_host(request)
+    if _is_local_host(host):
+        return "local"
+    if host == _admin_host():
+        return "admin"
+    return "public"
+
+
+def _surface_allows_path(surface: str, path: str) -> bool:
+    if surface == "admin":
+        return path in {"/", "/health", "/admin"} or path.startswith("/admin/")
+    if surface == "public":
+        return path in {"/", "/health"} or path.startswith("/v1/")
+    return True
+
+
 def _community_schedule_limit() -> int:
     try:
-        return int(_env("RELAY_MONTHLY_LIMIT", "50"))
+        return int(_env("RELAY_COMMUNITY_SCHEDULE_LIMIT", _env("RELAY_MONTHLY_LIMIT", "50")))
     except ValueError:
         return 50
 
@@ -455,8 +501,7 @@ def _increment_usage(
 def _log_request(
     *,
     install_id: str,
-    airport: str,
-    mode: str,
+    scope: str,
     status: int,
     latency_ms: int,
     service: str,
@@ -469,7 +514,7 @@ def _log_request(
             INSERT INTO request_log (ts, install_id, airport, mode, status, latency_ms, service, plan)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (_utc_now(), install_id, airport, mode, status, latency_ms, service, plan),
+            (_utc_now(), install_id, None, scope, status, latency_ms, service, plan),
         )
         conn.execute("DELETE FROM request_log WHERE ts < ?", (_hours_ago(24 * 30),))
         conn.commit()
@@ -611,8 +656,6 @@ def _record_activation_event(
     install_id: str,
     install_fingerprint: str,
     network_tag: str,
-    airport_iata: Optional[str],
-    airport_icao: Optional[str],
     display_name: str,
     requested_mode: str,
     app_version: str,
@@ -637,8 +680,8 @@ def _record_activation_event(
             install_id,
             install_fingerprint,
             network_tag,
-            airport_iata,
-            airport_icao,
+            None,
+            None,
             display_name or None,
             requested_mode,
             app_version,
@@ -898,8 +941,6 @@ def _render_admin(username: str, *, created_token: str = "", message: str = "") 
                    install_id,
                    install_fingerprint,
                    network_tag,
-                   airport_iata,
-                   airport_icao,
                    display_name,
                    requested_mode,
                    app_version,
@@ -949,7 +990,7 @@ def _render_admin(username: str, *, created_token: str = "", message: str = "") 
         dict(r)
         for r in conn.execute(
             """
-            SELECT ts, install_id, airport, mode, status, latency_ms, service, plan
+            SELECT ts, install_id, mode, status, latency_ms, service, plan
             FROM request_log
             ORDER BY ts DESC
             LIMIT 100
@@ -1065,7 +1106,7 @@ def _render_admin(username: str, *, created_token: str = "", message: str = "") 
 
     def rows_for_activation_requests() -> str:
         if not activation_requests:
-            return "<tr><td colspan='10' class='muted'>No activation activity yet</td></tr>"
+            return "<tr><td colspan='9' class='muted'>No activation activity yet</td></tr>"
         out = []
         for row in activation_requests:
             request_id = str(row["request_id"] or "")
@@ -1097,9 +1138,6 @@ def _render_admin(username: str, *, created_token: str = "", message: str = "") 
                         "slate",
                     )
                 )
-            route = " / ".join(
-                [part for part in [str(row["airport_iata"] or "").strip(), str(row["airport_icao"] or "").strip()] if part]
-            ) or "-"
             label_bits = [
                 str(row["display_name"] or "").strip(),
                 str(row["requested_mode"] or "").strip(),
@@ -1111,7 +1149,6 @@ def _render_admin(username: str, *, created_token: str = "", message: str = "") 
                 "<tr>"
                 f"<td class='mono'>{html.escape(str(row['install_fingerprint'] or '-'))}</td>"
                 f"<td class='mono'>{html.escape(str(row['network_tag'] or '-'))}</td>"
-                f"<td>{html.escape(route)}</td>"
                 f"<td>{html.escape(label)}</td>"
                 f"<td>{html.escape(status)}</td>"
                 f"<td>{html.escape(source)}</td>"
@@ -1177,7 +1214,7 @@ def _render_admin(username: str, *, created_token: str = "", message: str = "") 
             f"<td class='mono'>{html.escape(_install_fingerprint(str(row['install_id'] or '')))}</td>"
             f"<td>{html.escape(str(row['service'] or '-'))}</td>"
             f"<td>{html.escape(str(row['plan'] or '-'))}</td>"
-            f"<td>{html.escape(str(row['airport'] or '-'))}</td>"
+            f"<td>{html.escape(str(row['mode'] or '-'))}</td>"
             f"<td>{int(row['status'] or 0)}</td>"
             f"<td>{int(row['latency_ms'] or 0)}ms</td>"
             "</tr>"
@@ -1332,7 +1369,7 @@ def _render_admin(username: str, *, created_token: str = "", message: str = "") 
 
   <h3>Activation Lane</h3>
   <table>
-    <thead><tr><th>Install</th><th>Network tag</th><th>Airport</th><th>Request</th><th>Status</th><th>Source</th><th>Token</th><th>Note</th><th>Created</th><th>Actions</th></tr></thead>
+    <thead><tr><th>Install</th><th>Network tag</th><th>Request</th><th>Status</th><th>Source</th><th>Token</th><th>Note</th><th>Created</th><th>Actions</th></tr></thead>
     <tbody>{rows_for_activation_requests()}</tbody>
   </table>
 
@@ -1358,23 +1395,45 @@ def _render_admin(username: str, *, created_token: str = "", message: str = "") 
 </html>"""
 
 
-app = FastAPI(title="Local Flight Network Admin", docs_url=None, redoc_url=None)
-
-
-@app.on_event("startup")
-def _startup() -> None:
+@asynccontextmanager
+async def _lifespan(_app: FastAPI):
     _db_path().parent.mkdir(parents=True, exist_ok=True)
     _ensure_schema()
+    yield
 
+
+app = FastAPI(title="Local Flight Network Admin", lifespan=_lifespan, docs_url=None, redoc_url=None)
+
+
+@app.middleware("http")
+async def _surface_gate(request: Request, call_next):
+    surface = _request_surface(request)
+    if not _surface_allows_path(surface, request.url.path or "/"):
+        return JSONResponse({"detail": "Not found"}, status_code=404)
+    return await call_next(request)
 
 @app.get("/")
-def root() -> RedirectResponse:
+def root(request: Request):
+    if _request_surface(request) == "public":
+        return {
+            "ok": True,
+            "service": "Local Flight Community Relay",
+            "public_host": _public_host(),
+            "admin_host": _admin_host(),
+            "health": "/health",
+            "provider_revision": _provider_revision(),
+        }
     return RedirectResponse(url="/admin", status_code=307)
 
 
 @app.get("/health")
 def health() -> Dict[str, Any]:
-    return {"ok": True, "provider_revision": _provider_revision()}
+    return {
+        "ok": True,
+        "provider_revision": _provider_revision(),
+        "public_host": _public_host(),
+        "admin_host": _admin_host(),
+    }
 
 
 class ActivationRequestIn(BaseModel):
@@ -1383,7 +1442,7 @@ class ActivationRequestIn(BaseModel):
     airport_iata: str = ""
     airport_icao: str = ""
     display_name: str = ""
-    requested_mode: str = "managed"
+    requested_mode: str = "community"
     app_version: str = ""
 
 
@@ -1454,8 +1513,6 @@ def relay_activate(body: ActivationRequestIn, request: Request) -> Dict[str, Any
     if install_fingerprint != expected_fingerprint:
         raise HTTPException(status_code=400, detail="install_fingerprint does not match install_id")
 
-    airport_iata = _clean_airport(body.airport_iata) if body.airport_iata else None
-    airport_icao = _clean_airport(body.airport_icao) if body.airport_icao else None
     display_name = (body.display_name or "").strip()[:80]
     requested_mode = (body.requested_mode or "managed").strip().lower()[:20]
     app_version = (body.app_version or "").strip()[:32]
@@ -1496,9 +1553,7 @@ def relay_activate(body: ActivationRequestIn, request: Request) -> Dict[str, Any
             install_id=install_id,
             install_fingerprint=install_fingerprint,
             network_tag=network_tag,
-            airport_iata=airport_iata,
-            airport_icao=airport_icao,
-            display_name=display_name or f"Local Flight {airport_iata or airport_icao or expected_fingerprint}",
+            display_name=display_name or f"Local Flight {expected_fingerprint}",
             requested_mode=requested_mode,
             app_version=app_version,
             status=_REQUEST_STATUS_MANUAL_REVIEW,
@@ -1518,7 +1573,7 @@ def relay_activate(body: ActivationRequestIn, request: Request) -> Dict[str, Any
     token, token_prefix, issuance = _issue_token_for_install(
         conn,
         install_id=install_id,
-        label=display_name or f"Local Flight {airport_iata or airport_icao or expected_fingerprint}",
+        label=display_name or f"Local Flight {expected_fingerprint}",
         created_by="auto-issue",
     )
     request_id = _record_activation_event(
@@ -1526,9 +1581,7 @@ def relay_activate(body: ActivationRequestIn, request: Request) -> Dict[str, Any
         install_id=install_id,
         install_fingerprint=install_fingerprint,
         network_tag=network_tag,
-        airport_iata=airport_iata,
-        airport_icao=airport_icao,
-        display_name=display_name or f"Local Flight {airport_iata or airport_icao or expected_fingerprint}",
+        display_name=display_name or f"Local Flight {expected_fingerprint}",
         requested_mode=requested_mode,
         app_version=app_version,
         status=_REQUEST_STATUS_ISSUED,
@@ -1649,8 +1702,7 @@ def relay_flights(
     if arr_iata:
         params["arr_iata"] = arr_iata
 
-    airport = dep_iata or arr_iata or ""
-    mode = "dep" if dep_iata else "arr"
+    scope = "departures" if dep_iata else "arrivals"
     t0 = time.monotonic()
     try:
         upstream = _req.get(
@@ -1663,8 +1715,7 @@ def relay_flights(
     except Exception as exc:
         _log_request(
             install_id=install_id,
-            airport=airport,
-            mode=mode,
+            scope=scope,
             status=0,
             latency_ms=0,
             service="aviationstack",
@@ -1681,8 +1732,7 @@ def relay_flights(
     )
     _log_request(
         install_id=install_id,
-        airport=airport,
-        mode=mode,
+        scope=scope,
         status=upstream.status_code,
         latency_ms=latency_ms,
         service="aviationstack",
@@ -1733,8 +1783,7 @@ def relay_radar(
     )
     _log_request(
         install_id=install_id,
-        airport=f"{round(lat, 2)},{round(lon, 2)}",
-        mode=f"{int(radius_nm)}nm",
+        scope=f"{int(radius_nm)}nm",
         status=200,
         latency_ms=latency_ms,
         service="radar",
@@ -1858,7 +1907,7 @@ def admin_activation_request_approve(
         return HTMLResponse(_render_admin(username, message="Activation row is no longer waiting for manual review."))
 
     install_id = str(row["install_id"] or "").strip()
-    label = str(row["display_name"] or row["airport_iata"] or row["install_fingerprint"] or "Managed install")
+    label = str(row["display_name"] or row["install_fingerprint"] or "Managed install")
     token, token_prefix, _issuance = _issue_token_for_install(
         conn,
         install_id=install_id,

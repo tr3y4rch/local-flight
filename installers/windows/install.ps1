@@ -182,7 +182,7 @@ if (-not (Test-Path $envFile)) {
 # Fill these in via the setup wizard on first launch.
 
 LOCALFLIGHT_ACTIVATION_TOKEN=
-LOCALFLIGHT_RELAY_URL=
+LOCALFLIGHT_RELAY_URL=https://relay.localflight.app/v1/flights
 
 AVIATIONSTACK_API_KEY=
 LOCALFLIGHT_AVIATIONSTACK_ENABLED=1

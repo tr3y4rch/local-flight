@@ -20,6 +20,7 @@ from fastapi.templating import Jinja2Templates
 
 from localflight.ui.api import router as api_router
 from localflight.core.airports import best_label
+from localflight.sources.web.relay_defaults import default_public_relay_url, relay_endpoint_url
 from localflight.storage.config import (
     AppConfig, load_config, save_config,
     ALLOWED_OUTPUTS, ALLOWED_SOURCES, ALLOWED_SKINS,
@@ -48,7 +49,7 @@ def _network_tools_enabled() -> bool:
     return os.getenv("LOCALFLIGHT_ENABLE_NETWORK_TOOLS", "").strip().lower() in {"1", "true", "yes", "on"}
 
 
-# ── Setup gate ─────────────────────────────────────────────────────────────────
+# â”€â”€ Setup gate â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 # Paths always accessible even before setup completes
 _SETUP_FREE_PATHS = {
@@ -127,7 +128,7 @@ class RequestLogMiddleware(BaseHTTPMiddleware):
         return response
 
 
-# ── App setup ──────────────────────────────────────────────────────────────────
+# â”€â”€ App setup â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def _templates_dir() -> Path:
     return Path(__file__).resolve().parent / "templates"
@@ -158,7 +159,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(title="Local Flight UI", lifespan=_lifespan, docs_url=None, redoc_url=None)
 
-# Middleware order: RequestLog (outer) → SetupGate (inner) → route
+# Middleware order: RequestLog (outer) â†’ SetupGate (inner) â†’ route
 # add_middleware is LIFO so SetupGate must be added first
 app.add_middleware(SetupGateMiddleware)
 if _network_tools_enabled():
@@ -172,7 +173,7 @@ try:
     from importlib.metadata import version as _pkg_version
     _APP_VERSION = _pkg_version("localflight")
 except Exception:
-    _APP_VERSION = "0.2.3b1"
+    _APP_VERSION = "0.2.3b2"
 
 templates.env.globals["app_version"] = _APP_VERSION
 
@@ -186,50 +187,30 @@ def _safe_local_path(path: str, *, fallback: str = "/display") -> str:
 
 
 def _relay_url_default() -> str:
-    return os.getenv("LOCALFLIGHT_RELAY_URL", "https://relay.localflight.app/v1/flights").strip()
+    return default_public_relay_url()
 
 
 def _managed_status_url(relay_url: str) -> str:
-    relay_url = (relay_url or _relay_url_default()).strip().rstrip("/")
-    if relay_url.endswith("/v1/flights"):
-        return relay_url[:-7] + "managed/config"
-    if relay_url.endswith("/flights"):
-        return relay_url[:-7] + "managed/config"
-    return relay_url + "/managed/config"
+    return relay_endpoint_url(relay_url or _relay_url_default(), "/v1/managed/config")
 
 
 def _client_status_url(relay_url: str) -> str:
-    relay_url = (relay_url or _relay_url_default()).strip().rstrip("/")
-    if relay_url.endswith("/v1/flights"):
-        return relay_url[:-7] + "client/status"
-    if relay_url.endswith("/flights"):
-        return relay_url[:-7] + "client/status"
-    return relay_url + "/client/status"
+    return relay_endpoint_url(relay_url or _relay_url_default(), "/v1/client/status")
 
 
 def _activate_url(relay_url: str) -> str:
-    relay_url = (relay_url or _relay_url_default()).strip().rstrip("/")
-    if relay_url.endswith("/v1/flights"):
-        return relay_url[:-7] + "activate"
-    if relay_url.endswith("/flights"):
-        return relay_url[:-7] + "activate"
-    return relay_url + "/activate"
+    return relay_endpoint_url(relay_url or _relay_url_default(), "/v1/activate")
 
 
 def _activation_request_url(relay_url: str) -> str:
-    relay_url = (relay_url or _relay_url_default()).strip().rstrip("/")
-    if relay_url.endswith("/v1/flights"):
-        return relay_url[:-7] + "activation-request"
-    if relay_url.endswith("/flights"):
-        return relay_url[:-7] + "activation-request"
-    return relay_url + "/activation-request"
+    return relay_endpoint_url(relay_url or _relay_url_default(), "/v1/activation-request")
 
 
 def _activation_request_status_url(relay_url: str) -> str:
     return _activation_request_url(relay_url).rstrip("/") + "/status"
 
 
-# ── WebSocket connection manager ───────────────────────────────────────────────
+# â”€â”€ WebSocket connection manager â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 class ConnectionManager:
     def __init__(self) -> None:
@@ -243,11 +224,11 @@ class ConnectionManager:
     async def connect(self, ws: WebSocket) -> None:
         await ws.accept()
         self._connections.add(ws)
-        logger.debug("WS connect — %d active", len(self._connections))
+        logger.debug("WS connect â€” %d active", len(self._connections))
 
     def disconnect(self, ws: WebSocket) -> None:
         self._connections.discard(ws)
-        logger.debug("WS disconnect — %d active", len(self._connections))
+        logger.debug("WS disconnect â€” %d active", len(self._connections))
 
     async def _broadcast(self, message: str) -> None:
         dead: Set[WebSocket] = set()
@@ -278,7 +259,7 @@ manager = ConnectionManager()
 _ws_manager: Optional[ConnectionManager] = None
 
 
-# ── Background fetch helpers ───────────────────────────────────────────────────
+# â”€â”€ Background fetch helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def _should_fetch() -> bool:
     state = load_state()
@@ -305,7 +286,7 @@ def _background_fetch(cfg: AppConfig) -> None:
         logger.error("Background fetch failed: %s", exc)
 
 
-# ── WebSocket endpoint ─────────────────────────────────────────────────────────
+# â”€â”€ WebSocket endpoint â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket) -> None:
@@ -319,7 +300,7 @@ async def websocket_endpoint(ws: WebSocket) -> None:
         manager.disconnect(ws)
 
 
-# ── Setup wizard ───────────────────────────────────────────────────────────────
+# â”€â”€ Setup wizard â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @app.get("/setup", response_class=HTMLResponse)
 def setup_page(request: Request) -> HTMLResponse:
@@ -353,7 +334,7 @@ class ActivationSetupIn(BaseModel):
     airport_iata: str = Field("", max_length=4)
     airport_icao: str = Field("", max_length=4)
     display_name: str = Field("", max_length=80)
-    requested_mode: str = Field("managed", max_length=20)
+    requested_mode: str = Field("community", max_length=20)
 
 
 class ClientStatusSetupIn(BaseModel):
@@ -411,7 +392,7 @@ async def _test_rapidapi_key(key: str) -> Dict[str, Any]:
         if r.status_code == 403:
             return {"ok": False, "error": "API key invalid or not subscribed to ADS-B Exchange on RapidAPI"}
         if r.status_code == 429:
-            return {"ok": False, "error": "Rate limit hit — try again shortly"}
+            return {"ok": False, "error": "Rate limit hit â€” try again shortly"}
         if r.status_code >= 400:
             return {"ok": False, "error": f"HTTP {r.status_code}"}
         return {"ok": True}
@@ -441,10 +422,8 @@ async def setup_activate(body: ActivationSetupIn) -> Dict[str, Any]:
             json={
                 "install_id": get_install_id(),
                 "install_fingerprint": get_install_fingerprint(),
-                "airport_iata": (body.airport_iata or "").strip().upper(),
-                "airport_icao": (body.airport_icao or "").strip().upper(),
                 "display_name": (body.display_name or "").strip(),
-                "requested_mode": (body.requested_mode or "managed").strip().lower(),
+                "requested_mode": (body.requested_mode or "community").strip().lower(),
                 "app_version": _APP_VERSION,
             },
             headers={"Accept": "application/json"},
@@ -560,7 +539,7 @@ async def setup_test_activation(body: ActivationTokenTestIn) -> Dict[str, Any]:
 
 @app.post("/api/setup/complete")
 async def setup_complete(request: Request, background_tasks: BackgroundTasks) -> Dict[str, Any]:
-    """Save setup wizard results — write .env, save config, mark setup complete."""
+    """Save setup wizard results â€” write .env, save config, mark setup complete."""
     try:
         data = await request.json()
     except Exception:
@@ -574,8 +553,8 @@ async def setup_complete(request: Request, background_tasks: BackgroundTasks) ->
     if source not in ALLOWED_SOURCES:
         source = "real"
 
-    # ── Find .env path ─────────────────────────────────────────────────────────
-    # __file__ is src/localflight/ui/server.py → project root is 3 levels up
+    # â”€â”€ Find .env path â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # __file__ is src/localflight/ui/server.py â†’ project root is 3 levels up
     here = Path(__file__).resolve().parent
     src_dir = here.parent.parent
     env_path = src_dir.parent / ".env"
@@ -618,10 +597,7 @@ async def setup_complete(request: Request, background_tasks: BackgroundTasks) ->
         _clear_real_data_keys()
         if activation_token:
             existing["LOCALFLIGHT_ACTIVATION_TOKEN"] = activation_token
-        if relay_url:
-            existing["LOCALFLIGHT_RELAY_URL"] = relay_url
-        else:
-            existing.pop("LOCALFLIGHT_RELAY_URL", None)
+        existing["LOCALFLIGHT_RELAY_URL"] = relay_url or _relay_url_default()
     elif setup_mode == "byok":
         existing.pop("LOCALFLIGHT_ACTIVATION_TOKEN", None)
         existing.pop("LOCALFLIGHT_RELAY_URL", None)
@@ -644,10 +620,7 @@ async def setup_complete(request: Request, background_tasks: BackgroundTasks) ->
             existing["LOCALFLIGHT_ACTIVATION_TOKEN"] = activation_token
         else:
             existing.pop("LOCALFLIGHT_ACTIVATION_TOKEN", None)
-        if relay_url:
-            existing["LOCALFLIGHT_RELAY_URL"] = relay_url
-        else:
-            existing.pop("LOCALFLIGHT_RELAY_URL", None)
+        existing["LOCALFLIGHT_RELAY_URL"] = relay_url or _relay_url_default()
     else:
         _clear_real_data_keys()
         existing.pop("LOCALFLIGHT_RELAY_URL", None)
@@ -662,7 +635,7 @@ async def setup_complete(request: Request, background_tasks: BackgroundTasks) ->
         existing.pop("OPENSKY_CLIENT_SECRET", None)
 
     try:
-        lines = ["# Local Flight — environment variables\n"]
+        lines = ["# Local Flight â€” environment variables\n"]
         for k, v in existing.items():
             lines.append(f"{k}={v}\n")
         env_path.write_text("".join(lines), encoding="utf-8")
@@ -698,7 +671,7 @@ async def setup_complete(request: Request, background_tasks: BackgroundTasks) ->
     return {"ok": True}
 
 
-# ── Pages ──────────────────────────────────────────────────────────────────────
+# â”€â”€ Pages â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @app.get("/splash", response_class=HTMLResponse)
 def splash_page(
@@ -744,7 +717,7 @@ def settings_page(
     )
 
 
-# ── Log helpers ────────────────────────────────────────────────────────────────
+# â”€â”€ Log helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def _list_log_files() -> list[str]:
     d = logs_dir()
@@ -811,7 +784,7 @@ def logs_tail(file: Optional[str] = Query(None), after: int = Query(0, ge=0)) ->
     return JSONResponse({"lines": all_lines[after:] if after < len(all_lines) else [], "total": len(all_lines)})
 
 
-# ── Settings save ──────────────────────────────────────────────────────────────
+# â”€â”€ Settings save â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @app.post("/save")
 async def save_settings(
@@ -877,14 +850,14 @@ async def save_settings(
     return RedirectResponse(url="/?saved=1", status_code=303)
 
 
-# ── Legacy JSON endpoints ──────────────────────────────────────────────────────
+# â”€â”€ Legacy JSON endpoints â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @app.get("/api/status")
 def api_status() -> JSONResponse:
     return JSONResponse(asdict(load_state()))
 
 
-# ── Profiles ───────────────────────────────────────────────────────────────────
+# â”€â”€ Profiles â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @app.post("/profiles/save")
 def profiles_save(profile_name: str = Form(...)) -> RedirectResponse:
@@ -919,14 +892,14 @@ def profiles_delete(profile_name: str = Form(...)) -> RedirectResponse:
     return RedirectResponse(url=f"/?profile_msg=deleted:{profile_name}", status_code=303)
 
 
-# ── Health ─────────────────────────────────────────────────────────────────────
+# â”€â”€ Health â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @app.get("/health")
 def health() -> dict[str, bool]:
     return {"ok": True}
 
 
-# ── FIDS display ───────────────────────────────────────────────────────────────
+# â”€â”€ FIDS display â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @app.get("/fids", response_class=HTMLResponse)
 def fids(request: Request, view: str = "arrivals", embedded: bool = Query(False)) -> HTMLResponse:
@@ -980,7 +953,7 @@ def fids(request: Request, view: str = "arrivals", embedded: bool = Query(False)
     )
 
 
-# ── Radar ──────────────────────────────────────────────────────────────────────
+# â”€â”€ Radar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @app.get("/radar", response_class=HTMLResponse)
 def radar(
@@ -1008,7 +981,7 @@ def radar(
     )
 
 
-# ── Display ────────────────────────────────────────────────────────────────────
+# â”€â”€ Display â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @app.get("/display", response_class=HTMLResponse)
 def display(request: Request) -> HTMLResponse:
@@ -1023,7 +996,7 @@ def display(request: Request) -> HTMLResponse:
     )
 
 
-# ── Matrix preview ─────────────────────────────────────────────────────────────
+# â”€â”€ Matrix preview â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @app.get("/matrix-preview", response_class=HTMLResponse)
 def matrix_preview(
@@ -1052,7 +1025,7 @@ def matrix_preview(
     )
 
 
-# ── Admin hub ──────────────────────────────────────────────────────────────────
+# â”€â”€ Admin hub â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @app.get("/admin", response_class=HTMLResponse)
 def admin_hub(request: Request) -> HTMLResponse:
@@ -1067,7 +1040,7 @@ def admin_hub(request: Request) -> HTMLResponse:
     )
 
 
-# ── Feedback / bug report ──────────────────────────────────────────────────────
+# â”€â”€ Feedback / bug report â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @app.get("/feedback", response_class=HTMLResponse)
 def feedback_page(request: Request) -> HTMLResponse:
@@ -1079,7 +1052,7 @@ def feedback_page(request: Request) -> HTMLResponse:
     )
 
 
-# ── History browser ────────────────────────────────────────────────────────────
+# â”€â”€ History browser â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @app.get("/history", response_class=HTMLResponse)
 def history_page(request: Request) -> HTMLResponse:
@@ -1093,7 +1066,7 @@ def history_page(request: Request) -> HTMLResponse:
         },
     )
 
-# ── Traffic hub ────────────────────────────────────────────────────────────────
+# â”€â”€ Traffic hub â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @app.get("/admin/requests", response_class=HTMLResponse)
 def traffic_page(request: Request) -> HTMLResponse:
@@ -1110,7 +1083,7 @@ def traffic_page(request: Request) -> HTMLResponse:
     )
 
 
-# ── Quit ───────────────────────────────────────────────────────────────────────
+# â”€â”€ Quit â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @app.post("/api/setup/reset")
 def api_setup_reset() -> dict:
@@ -1121,7 +1094,7 @@ def api_setup_reset() -> dict:
         marker.unlink(missing_ok=True)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-    logger.info("Setup reset via UI — setup_complete marker removed")
+    logger.info("Setup reset via UI â€” setup_complete marker removed")
     return {"ok": True}
 
 

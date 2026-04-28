@@ -1,9 +1,9 @@
 # Local Flight
 
 A **local-first Flight Information Display System (FIDS)** that runs on Windows, macOS, or a Raspberry Pi.
-Fetches real and simulated flight data and renders it as a proper airport-style departure/arrival board — in your browser, on an LED matrix panel, or on a dedicated HDMI screen.
+Fetches real and simulated flight data and renders it as a proper airport-style departure/arrival board â€” in your browser, on an LED matrix panel, or on a dedicated HDMI screen.
 
-No cloud. No accounts. No dashboards that want your email.
+No accounts. No signup wall. Community mode can use the hosted relay, but it still stays install-scoped instead of account-scoped.
 
 **Source:** [github.com/tr3y4rch/local-flight](https://github.com/tr3y4rch/local-flight)
 
@@ -13,20 +13,20 @@ No cloud. No accounts. No dashboards that want your email.
 
 - Fetches live flight data from **AviationStack** (real schedules), **VATSIM** (flight sim traffic), or **ADS-B Exchange** (live positions via RapidAPI)
 - Enriches schedule data with **live aircraft positions** from ADS-B Exchange (primary) or OpenSky Network (fallback)
-- Decodes live **METAR weather** for the configured airport — shown on the FIDS board and radar
+- Decodes live **METAR weather** for the configured airport â€” shown on the FIDS board and radar
 - Renders a full-featured **FIDS arrivals/departures board** with PAX-friendly flight numbers, coloured status badges, and live WebSocket updates
 - Shows a **live radar** with sweep animation and blip fading
 - Provides a **split-view display** (FIDS + Radar) with a draggable divider
 - Shows a short **versioned splash screen** on launch before opening setup or the display
 - Includes an early **mobile companion prototype** for LAN viewing and control experiments; public iOS and Android releases are planned for a later milestone
 - Stores 90 days of flight history in a local **SQLite database** with a browsable history UI and aggregate stats
-- Supports **profiles** — save and switch airport configurations instantly
+- Supports **profiles** â€” save and switch airport configurations instantly
 - Displays **UTC and local time** simultaneously, timezone follows the configured airport
 - **First-run setup wizard** guides through airport selection, optional API keys, and display settings
-- **Admin hub** — scheduler controls, API budget tracking, anonymized traffic log, connected clients, system status
+- **Admin hub** â€” scheduler controls, API budget tracking, anonymized traffic log, connected clients, system status
 - Runs as a **system tray app** on Windows and macOS; headless on Raspberry Pi with a Chromium kiosk
 - Ships a **MicroPython client** for the Pimoroni Interstate 75 W LED matrix panel
-- **In-browser matrix preview** — see exactly what the LED panel will show, with split-flap animation
+- **In-browser matrix preview** â€” see exactly what the LED panel will show, with split-flap animation
 
 ---
 
@@ -59,7 +59,7 @@ Open [docs/previews/index.html](docs/previews/index.html) locally for the standa
 3. Double-click `LocalFlight.exe`
 4. Complete the setup wizard
 
-> Windows SmartScreen may warn "Unknown publisher" — click **More info → Run anyway**.
+> Windows SmartScreen may warn "Unknown publisher" â€” click **More info â†’ Run anyway**.
 
 The Windows release zip is self-contained. It bundles Python and the app dependencies, so `installers/windows/install.ps1` is only for running Local Flight from a source checkout.
 
@@ -70,7 +70,7 @@ Release builds also produce `LocalFlight-windows.zip.sha256` so the downloaded z
 1. Download `LocalFlight-macos.zip` from the [latest release](https://github.com/tr3y4rch/local-flight/releases)
 2. Unzip it
 3. Drag `LocalFlight.app` to Applications
-4. Right-click → Open on first launch if macOS Gatekeeper warns about an unsigned app
+4. Right-click â†’ Open on first launch if macOS Gatekeeper warns about an unsigned app
 
 Release builds also produce `LocalFlight-macos.zip.sha256` so the downloaded zip can be verified before running.
 
@@ -95,7 +95,7 @@ bash installers/pi/install.sh
 ./installers/pi/lf.sh update  # pull latest + restart
 ```
 
-The Pi runs headless — access the UI from any device on your network at `http://localflight.local`.
+The Pi runs headless â€” access the UI from any device on your network at `http://localflight.local`.
 
 ---
 
@@ -161,16 +161,18 @@ Android support is planned later; the current companion testing flow is still iO
 On first launch Local Flight briefly shows a versioned splash screen, then opens the setup wizard at `http://localhost:8000/setup`.
 
 It walks through:
-1. Airport selection (IATA/ICAO search — 8 000+ airports)
-2. Data source — **real** (AviationStack) or **virtual** (VATSIM/sim)
-3. AviationStack path — three options:
-   - **Community relay** — no key needed; uses a shared quota (50 calls/month per install, enforced server-side)
-   - **BYOK** — bring your own AviationStack key (free plan gives 100 calls/month; 90 used by default to keep a reserve)
-   - **VATSIM** — no API key; uses live flight-sim traffic instead of real schedules
-4. ADS-B Exchange key via RapidAPI — live aircraft positions with live connection test (optional)
-5. OpenSky Network credentials — position fallback (optional, anonymous also works)
+1. Airport selection (IATA/ICAO search â€” 8 000+ airports)
+2. Data source â€” **real** (AviationStack) or **virtual** (VATSIM/sim)
+3. AviationStack path â€” three options:
+   - **Community relay** â€” no key needed; uses a shared quota (50 calls/month per install, enforced server-side)
+   - **BYOK** â€” bring your own AviationStack key (free plan gives 100 calls/month; 90 used by default to keep a reserve)
+   - **VATSIM** â€” no API key; uses live flight-sim traffic instead of real schedules
+4. ADS-B Exchange key via RapidAPI â€” live aircraft positions with live connection test (optional)
+5. OpenSky Network credentials â€” position fallback (optional, anonymous also works)
 
-The scheduler only starts after setup completes. You can re-run the wizard any time from **Settings → Re-run setup wizard**.
+The scheduler only starts after setup completes. You can re-run the wizard any time from **Settings â†’ Re-run setup wizard**.
+
+Community mode defaults to `https://relay.localflight.app/v1/flights`. Only change that relay URL if you are deliberately pointing the client at your own backend.
 
 ---
 
@@ -182,30 +184,30 @@ The scheduler only starts after setup completes. You can re-run the wizard any t
 | ADS-B Exchange | Optional (`RAPIDAPI_KEY`) | Live positions, aircraft type, registration |
 | OpenSky Network | Optional (`OPENSKY_CLIENT_ID` / `SECRET`) | Position fallback (anonymous works, lower rate limits) |
 | VATSIM | No | Full data source for flight sim / virtual mode |
-| aviationweather.gov | No | METAR weather — free, no key needed |
+| aviationweather.gov | No | METAR weather â€” free, no key needed |
 
 ---
 
 ## Environment variables (`.env`)
 
-The setup wizard writes these for you. You can also edit `.env` directly — changes take effect on the next fetch without restart.
+The setup wizard writes these for you. You can also edit `.env` directly â€” changes take effect on the next fetch without restart.
 
 ```
-# Managed install (written by setup wizard on activation)
+# Community relay / activation
 LOCALFLIGHT_ACTIVATION_TOKEN=
-LOCALFLIGHT_RELAY_URL=
+LOCALFLIGHT_RELAY_URL=https://relay.localflight.app/v1/flights
 
-# BYOK AviationStack — leave blank to use the community relay instead
+# BYOK AviationStack â€” leave blank to use the community relay instead
 AVIATIONSTACK_API_KEY=your_key_here
 LOCALFLIGHT_AVIATIONSTACK_ENABLED=1
 LOCALFLIGHT_AVIATIONSTACK_MONTHLY_LIMIT=90
 LOCALFLIGHT_RELAY_MONTHLY_LIMIT=50
 
-# ADS-B Exchange via RapidAPI — live aircraft positions
+# ADS-B Exchange via RapidAPI â€” live aircraft positions
 RAPIDAPI_KEY=your_rapidapi_key
 LOCALFLIGHT_RAPIDAPI_MONTHLY_LIMIT=10000
 
-# OpenSky Network — position fallback (optional)
+# OpenSky Network â€” position fallback (optional)
 OPENSKY_CLIENT_ID=your_id
 OPENSKY_CLIENT_SECRET=your_secret
 ```
@@ -246,12 +248,12 @@ Runtime data is also kept outside the source tree:
 | `/fids` | FIDS board standalone (`?view=arrivals\|departures`) |
 | `/radar` | Radar standalone |
 | `/matrix-preview` | Browser LED matrix simulator with split-flap animation |
-| `/` | Settings — airport, skin, outputs |
-| `/admin` | Admin hub — scheduler status, API budgets, connected clients, system info |
-| `/admin/requests` | Traffic log — local, anonymized request counters by endpoint/client type |
-| `/history` | Flight history — filterable table + aggregate stats |
+| `/` | Settings â€” airport, skin, outputs |
+| `/admin` | Admin hub â€” scheduler status, API budgets, connected clients, system info |
+| `/admin/requests` | Traffic log â€” local, anonymized request counters by endpoint/client type |
+| `/history` | Flight history â€” filterable table + aggregate stats |
 | `/logs` | Live log viewer |
-| `/feedback` | Report a problem — sends directly to the developer |
+| `/feedback` | Report a problem â€” sends directly to the developer |
 
 ---
 
@@ -271,7 +273,7 @@ Runtime data is also kept outside the source tree:
 
 AviationStack and RapidAPI usage is tracked locally in `~/.localflight/api_usage.json` and resets monthly.
 
-- AviationStack BYOK default: 90 calls/month (free-plan default; developer's community pool is 10 000/month shared across all relay installs)
+- AviationStack BYOK default: 90 calls/month (free-plan default; the hosted community pool stays relay-side and is not exposed in the client UI)
 - Community relay default: 50 calls/month per install (enforced relay-side, rolling 30-day window)
 - ADS-B Exchange / RapidAPI default: 10 000 calls/month
 - Each real scheduler cycle normally costs 2 AviationStack calls (departures + arrivals)
@@ -284,12 +286,12 @@ Scheduler restarts and config changes do not burn a new schedule call while the 
 
 | Device | Role |
 |---|---|
-| Windows PC | Full desktop app — system tray, Edge/Chrome kiosk window |
-| macOS | Full desktop app — system tray, Chrome/Safari kiosk window |
-| Raspberry Pi 5 | Headless server — systemd services, Chromium kiosk, mDNS (`localflight.local`) |
-| Pimoroni Interstate 75 W | LED matrix display (64×32 up to 384×64) — MicroPython client |
-| RTL-SDR USB dongle | Local ADS-B receiver on Pi — no API key or rate limits |
-| 7–10" HDMI screen | Secondary display via Chromium kiosk (`hdmi` output mode) |
+| Windows PC | Full desktop app â€” system tray, Edge/Chrome kiosk window |
+| macOS | Full desktop app â€” system tray, Chrome/Safari kiosk window |
+| Raspberry Pi 5 | Headless server â€” systemd services, Chromium kiosk, mDNS (`localflight.local`) |
+| Pimoroni Interstate 75 W | LED matrix display (64Ã—32 up to 384Ã—64) â€” MicroPython client |
+| RTL-SDR USB dongle | Local ADS-B receiver on Pi â€” no API key or rate limits |
+| 7â€“10" HDMI screen | Secondary display via Chromium kiosk (`hdmi` output mode) |
 
 ### LED matrix (Interstate 75 W)
 
@@ -313,7 +315,7 @@ Provides unlimited local ADS-B reception with no API key or monthly limits.
 
 ## Reporting issues
 
-Hit the **🐛 Report** button in the nav bar from anywhere in the app. Your report — along with your Local Flight version, platform, and airport — goes directly to the developer. No account required.
+Hit the **ðŸ› Report** button in the nav bar from anywhere in the app. Your report â€” along with your Local Flight version, platform, and airport â€” goes directly to the developer. No account required.
 
 ---
 
@@ -331,7 +333,7 @@ Hit the **🐛 Report** button in the nav bar from anywhere in the app. Your rep
 | `/api/history/stats` | GET | DB row count, size, oldest/newest |
 | `/api/history/summary` | GET | Top airlines, routes, aircraft, on-time rate |
 | `/api/config` | GET / PATCH | Read or update config |
-| `/api/health` | GET | Scheduler state — last fetch, errors, latency |
+| `/api/health` | GET | Scheduler state â€” last fetch, errors, latency |
 | `/api/airports/search` | GET | Airport search (`?q=zurich`) |
 | `/api/airports/resolve` | GET | Resolve IATA/ICAO to full record |
 | `/api/admin/system` | GET | Uptime, memory, CPU, version |
@@ -349,16 +351,16 @@ Hit the **🐛 Report** button in the nav bar from anywhere in the app. Your rep
 | `/api/setup/test-aviationstack` | POST | Validate an API key without saving |
 | `/api/setup/test-rapidapi` | POST | Validate an ADS-B Exchange RapidAPI key without saving |
 | `/api/quit` | POST | Graceful shutdown |
-| `/ws` | WS | WebSocket push — broadcasts snapshot, config, and scheduler events |
+| `/ws` | WS | WebSocket push â€” broadcasts snapshot, config, and scheduler events |
 
 ---
 
 ## Philosophy
 
-- **Local first** — flight data, history, config, and logs all live on your own machine. Nothing is uploaded, synced to a cloud, or shared with third parties beyond the configured data source.
-- **Private by design** — no accounts, no email, no analytics SDK, no tracking. The local traffic log anonymizes IPs before storage and is only visible to you. See [PRIVACY.md](PRIVACY.md) for the full breakdown.
-- **Boring by design** — standard Python, no framework magic
-- **Clear data flow** — every step is a separate module
-- **Pi-ready** — nothing in the stack requires a GPU or significant RAM
-- **Graceful degradation** — if an enrichment source fails, the next one kicks in
-- **Budget conscious** — AviationStack, relay, and RapidAPI monthly call counters enforced in code
+- **Local first** â€” flight data, history, config, and logs all live on your own machine. Nothing is uploaded, synced to a cloud, or shared with third parties beyond the configured data source.
+- **Private by design** â€” no accounts, no email, no analytics SDK, no tracking. The local traffic log anonymizes IPs before storage and is only visible to you. See [PRIVACY.md](PRIVACY.md) for the full breakdown.
+- **Boring by design** â€” standard Python, no framework magic
+- **Clear data flow** â€” every step is a separate module
+- **Pi-ready** â€” nothing in the stack requires a GPU or significant RAM
+- **Graceful degradation** â€” if an enrichment source fails, the next one kicks in
+- **Budget conscious** â€” AviationStack, relay, and RapidAPI monthly call counters enforced in code

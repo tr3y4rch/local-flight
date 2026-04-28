@@ -96,7 +96,7 @@ def _save_companion_presence(data: Dict[str, Any]) -> None:
         pass
 
 
-# ── Airport search ─────────────────────────────────────────────────────────────
+# â”€â”€ Airport search â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 SEARCH_TYPES = {"large_airport", "medium_airport"}
 
@@ -197,7 +197,7 @@ def airport_resolve(
     }
 
 
-# ── Snapshot loader ────────────────────────────────────────────────────────────
+# â”€â”€ Snapshot loader â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def _dict_to_position(d: Optional[dict]) -> Optional[FlightPosition]:
     if not d:
@@ -310,7 +310,7 @@ def _load_latest_flights(airport_iata: str) -> tuple[List[Flight], Optional[date
     return flights, generated_at
 
 
-# ── Pydantic schemas ───────────────────────────────────────────────────────────
+# â”€â”€ Pydantic schemas â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 class ConfigPatch(BaseModel):
     airport_icao:    Optional[str] = None
@@ -336,7 +336,7 @@ class FIDSRowOut(BaseModel):
     callsign:       str = ""
 
 
-# ── Config endpoints ───────────────────────────────────────────────────────────
+# â”€â”€ Config endpoints â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @router.get("/api/health")
 def api_health() -> Dict[str, Any]:
@@ -371,7 +371,7 @@ def api_patch_config(patch: ConfigPatch, background_tasks: BackgroundTasks) -> D
     return asdict(new_cfg)
 
 
-# ── Flight endpoints ───────────────────────────────────────────────────────────
+# â”€â”€ Flight endpoints â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @router.get("/api/flights")
 def api_flights(
@@ -480,7 +480,7 @@ def api_fids_detail(callsign: str = Query(..., min_length=1, max_length=20)) -> 
     return {"detail": detail, "history": history}
 
 
-# ── Radar endpoint ─────────────────────────────────────────────────────────────
+# â”€â”€ Radar endpoint â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @router.get("/api/radar")
 def api_radar(
@@ -520,7 +520,7 @@ def api_radar(
             source_used = "vatsim"
 
             for pilot in pilots:
-                # ── Filter: only aircraft going to/from our airport ──────────
+                # â”€â”€ Filter: only aircraft going to/from our airport â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
                 fp  = pilot.get("flight_plan") or {}
                 dep = (fp.get("departure") or "").strip().upper()
                 arr = (fp.get("arrival")   or "").strip().upper()
@@ -532,7 +532,7 @@ def api_radar(
                 if plat is None or plon is None:
                     continue
 
-                # ── Filter: within bounding box ──────────────────────────────
+                # â”€â”€ Filter: within bounding box â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
                 if not (lamin <= plat <= lamax and lomin <= plon <= lomax):
                     continue
 
@@ -631,7 +631,7 @@ def api_radar(
                 source_used = "opensky_live_cached"
                 log.debug("OpenSky radar: serving cached blips for %s", cache_key)
             else:
-                log.info("No position data in snapshot — falling back to live OpenSky fetch")
+                log.info("No position data in snapshot â€” falling back to live OpenSky fetch")
                 source_used = "opensky_live"
                 try:
                     from localflight.sources.web.opensky_radar import fetch_radar_blips
@@ -655,7 +655,7 @@ def api_radar(
         "blips":     blips,
     }
 
-# ── History endpoints ──────────────────────────────────────────────────────────
+# â”€â”€ History endpoints â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
  
 @router.get("/api/history")
 def api_history(
@@ -743,7 +743,7 @@ def api_history_stats() -> Dict[str, Any]:
     from localflight.storage.history import db_stats
     return db_stats()
 
-# ── METAR endpoint ─────────────────────────────────────────────────────────────
+# â”€â”€ METAR endpoint â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
  
 @router.get("/api/metar")
 def api_metar(
@@ -775,7 +775,7 @@ def api_metar(
         )
     return data
 
-# ── Admin endpoints ────────────────────────────────────────────────────────────
+# â”€â”€ Admin endpoints â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
  
 @router.get("/api/admin/system")
 def api_admin_system() -> Dict[str, Any]:
@@ -789,7 +789,7 @@ def api_admin_system() -> Dict[str, Any]:
         from importlib.metadata import version as _pkg_version
         _ver = _pkg_version("localflight")
     except Exception:
-        _ver = "0.2.3b1"
+        _ver = "0.2.3b2"
 
     result: Dict[str, Any] = {
         "version":  _ver,
@@ -969,7 +969,7 @@ def api_admin_scheduler_restart() -> Dict[str, Any]:
     """
     Stop the sleeping scheduler loop, reload config/env, and start a fresh cycle.
     Rate-limited to one restart per 60 seconds. The actual fetch is also gated
-    by run_snapshot_job._fetch_is_due — a restart never burns an API call if the
+    by run_snapshot_job._fetch_is_due â€” a restart never burns an API call if the
     snapshot is already fresh.
     """
     state = load_state()
@@ -982,7 +982,7 @@ def api_admin_scheduler_restart() -> Dict[str, Any]:
                 return {
                     "ok": False,
                     "status": "rate_limited",
-                    "message": f"Last fetch was {int(age_s)}s ago — wait {int(_RESTART_COOLDOWN_S - age_s)}s before restarting.",
+                    "message": f"Last fetch was {int(age_s)}s ago â€” wait {int(_RESTART_COOLDOWN_S - age_s)}s before restarting.",
                 }
         except Exception:
             pass
@@ -997,7 +997,7 @@ def api_admin_ping(
     version: str = Query("unknown"),
 ) -> Dict[str, Any]:
     """
-    Device ping endpoint — called by matrix client on boot and periodically.
+    Device ping endpoint â€” called by matrix client on boot and periodically.
     Records last-seen timestamp for each device.
     """
     import json as _json
@@ -1069,7 +1069,7 @@ def api_admin_companion_checkin(body: CompanionCheckinIn) -> Dict[str, Any]:
         "platform_pair": f"{server_platform} / {entry['mobile_os']}",
     }
 
-# ── Traffic / request log ─────────────────────────────────────────────────────
+# â”€â”€ Traffic / request log â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @router.get("/api/admin/requests")
 def api_admin_requests(
@@ -1087,7 +1087,7 @@ def api_admin_requests(
     }
 
 
-# ── Update check ──────────────────────────────────────────────────────────────
+# â”€â”€ Update check â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @router.get("/api/admin/updates")
 def api_admin_updates() -> Dict[str, Any]:
@@ -1101,7 +1101,7 @@ def api_admin_updates() -> Dict[str, Any]:
         from importlib.metadata import version as _pkg_version
         current = _pkg_version("localflight")
     except Exception:
-        current = "0.2.3b1"
+        current = "0.2.3b2"
 
     # Simple in-process cache to avoid hammering GitHub API
     cache = getattr(api_admin_updates, "_cache", None)
@@ -1140,7 +1140,7 @@ def api_admin_updates() -> Dict[str, Any]:
 
 
 
-# ── User feedback / bug report ────────────────────────────────────────────────
+# â”€â”€ User feedback / bug report â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 class FeedbackIn(BaseModel):
     title:       str = Field(..., min_length=1, max_length=200)
@@ -1183,7 +1183,7 @@ def api_submit_feedback_crash(body: FeedbackCrashIn) -> Dict[str, Any]:
     return {"ok": True, "url": result.get("url")}
 
 
-# ── Standalone app ─────────────────────────────────────────────────────────────
+# â”€â”€ Standalone app â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 try:
     from fastapi import FastAPI as _FastAPI

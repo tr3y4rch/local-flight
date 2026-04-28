@@ -138,7 +138,7 @@
       <div class="mini-cell"><b>Machine ID</b><span id="clientInstallId" class="mono">Loading...</span></div>
       <div class="mini-cell"><b>Mode</b><span id="clientMode">Loading...</span></div>
       <div class="mini-cell"><b>Community key</b><span id="clientCommunityKey">Loading...</span></div>
-      <div class="mini-cell"><b>Managed token</b><span id="clientToken">Loading...</span></div>
+      <div class="mini-cell"><b>Relay token</b><span id="clientToken">Loading...</span></div>
       <div class="mini-cell"><b>Relay URL</b><span id="clientRelayUrl" class="mono">Loading...</span></div>
       <div class="mini-cell"><b>Relay status</b><span id="clientManagedStatus">Loading...</span></div>
     </div>
@@ -379,7 +379,7 @@ function selectSkin(sk, fg) {
       "clientManagedStatus",
       mode === "managed"
         ? (client.managed_verified ? "Verified" : (client.managed_status || "Waiting for verification"))
-        : "Not in managed mode"
+        : "Not using relay link"
     );
   } catch {
     setText("clientInstallId", "Unavailable");

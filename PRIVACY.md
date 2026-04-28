@@ -1,52 +1,62 @@
 # Privacy
 
-Local Flight is built on a simple principle: **your data stays on your machine.**
+Local Flight is built around a simple rule: **stay local unless a feature genuinely needs a network hop.**
 
-No accounts. No tracking. No analytics platform. No third-party SDKs phoning home.
+No user accounts. No analytics SDKs. No ad tech. No sign-up flow.
 
 ---
 
-## What stays local (everything by default)
+## What stays local by default
 
-- Flight data fetched from AviationStack, VATSIM, and ADS-B Exchange is stored in `~/.localflight/` on your own machine. It is not transmitted anywhere beyond the configured data source.
-- Your airport, display preferences, and API keys live in `~/.localflight/config.json` and your local `.env` file. They are never uploaded.
-- The local traffic log (`~/.localflight/requests.db`) records which endpoints your own browser and connected devices hit. It is visible only to you via `/admin/requests`, is retained for 7 days, and IPs are anonymized before storage (LAN IPs masked to `/24`, public IPs masked to `/16`). It is never sent anywhere.
-- Flight history lives in a local SQLite database (`~/.localflight/history.db`). 90-day retention, pruned automatically, stays on your machine.
+- Flight snapshots, config, history, and logs stay on your machine under `~/.localflight/`.
+- Your airport settings, display preferences, and personal API keys stay in your local config and `.env`.
+- The optional local traffic log at `~/.localflight/requests.db` is visible only on your own Local Flight instance.
+- The mobile companion talks to your Local Flight server over your LAN. It does not send data to a cloud account service.
 
 ---
 
 ## Crash reports
 
-If Local Flight encounters an unhandled error, it automatically files a crash report with the developer. This is the only data that leaves your machine without your explicit action.
+If Local Flight hits an unhandled error, it can send a crash report to the developer so the issue can be fixed.
 
 A crash report contains:
-- Local Flight version number
-- Operating system (Windows / macOS / Linux)
-- Configured airport IATA code (e.g. `ZRH`)
-- The Python traceback
-- The last 50 lines of the application log
+- Local Flight version
+- Operating system
+- Configured airport IATA code
+- Python traceback
+- Last 50 lines of the application log
 
 A crash report does **not** contain:
-- Your API keys
-- Your IP address
-- Any flight data or history
-- Any personally identifiable information
+- API keys
+- Raw IP addresses
+- Stored flight history
+- Account data, because there are no Local Flight accounts
 
-Reports are deduplicated — the same error from the same install is only filed once per 6 hours. You can also submit a report manually at any time via the **🐛 Report** button in the nav bar.
+Reports are deduplicated so the same install does not file the same crash repeatedly within a short window.
 
 ---
 
 ## Community relay
 
-If you use the community relay path (no BYOK API key), your install communicates with the relay server to fetch flight schedules. The relay logs:
+If you choose the **Community** setup path, your Local Flight install uses the hosted relay to fetch shared AviationStack schedules and relay-backed ADS-B radar data.
 
-- Your install's randomly generated UUID (assigned at activation, stored locally in `~/.localflight/`)
-- Number of API calls made this billing month
-- Timestamp of the last request
+The relay stores only the minimum metadata needed to run that shared service safely:
+- a random local install UUID
+- a hashed install fingerprint
+- per-install usage counts
+- last-seen timestamps
+- token prefixes for relay-linked installs
+- anonymous network tags derived from the incoming network path for abuse protection
 
-The relay does **not** log your IP address, airport, flight data, or any personal information. Your install ID is a random UUID — it is not linked to your name, email, or any personal identifier.
+The relay does **not** store:
+- raw IP addresses
+- airport IATA or ICAO values in new relay activity records
+- readable personal identifiers
+- flight history snapshots from your local app
 
-If you bring your own AviationStack key (BYOK), your install communicates directly with AviationStack and the relay is not involved at all.
+Those anonymous network tags are one-way derived values. They help rate-limit obvious abuse without turning the relay into a user-tracking system.
+
+If you use **Bring your own keys**, the client talks directly to the upstream providers and the hosted community relay is not part of that schedule path.
 
 ---
 
@@ -56,27 +66,33 @@ When Local Flight fetches data, it communicates with:
 
 | Service | What is sent | Their privacy policy |
 |---|---|---|
-| AviationStack | Your API key + airport IATA code + date range | [aviationstack.com/privacy](https://aviationstack.com/privacy-policy) |
-| ADS-B Exchange via RapidAPI | Your API key + bounding box coordinates | [rapidapi.com/privacy](https://rapidapi.com/privacy/) |
-| OpenSky Network | Airport bounding box (anonymous) | [opensky-network.org/about/privacy](https://opensky-network.org/about/privacy) |
-| VATSIM | Airport IATA code (anonymous) | [vatsim.net/privacy-policy](https://vatsim.net/privacy-policy) |
-| aviationweather.gov | ICAO code (anonymous) | US government public API |
+| AviationStack | API key + airport IATA code + date range | [aviationstack.com/privacy](https://aviationstack.com/privacy-policy) |
+| ADS-B Exchange via RapidAPI | API key + radar search coordinates | [rapidapi.com/privacy](https://rapidapi.com/privacy/) |
+| OpenSky Network | Radar search coordinates | [opensky-network.org/about/privacy](https://opensky-network.org/about/privacy) |
+| VATSIM | Airport IATA code | [vatsim.net/privacy-policy](https://vatsim.net/privacy-policy) |
+| aviationweather.gov | ICAO code | Public government API |
 
-No tracking, analytics, or advertising SDKs from any of these services are embedded in Local Flight.
+Local Flight does not embed tracking or advertising SDKs from any of these services.
 
 ---
 
 ## Mobile companion
 
-The Local Flight mobile companion connects directly to your Local Flight instance over your local network (LAN). It does not connect to any external server. The server URL you enter is stored in your device's secure keychain (Expo SecureStore) and never transmitted anywhere.
+The mobile companion stores its server URL and companion ID locally on the device. When it connects to your Local Flight server, it reports a companion-specific ID plus a platform label so companion-originated actions can be distinguished from the desktop/server app in diagnostics.
+
+That identity is install-scoped. It is not a login or a person profile.
 
 ---
 
-## GDPR
+## GDPR / personal data stance
 
-Local Flight does not collect, store, or process personal data as defined under GDPR. There are no user accounts, no email addresses, no cookies, and no cross-device tracking. The crash reporting described above is the closest thing to data transmission — it contains no personal identifiers.
+Local Flight is designed to avoid collecting personal data in the ordinary sense:
+- no accounts
+- no email addresses
+- no cross-device profile
+- no raw IP storage in the hosted relay
 
-If you deploy the community relay in the EU, the relay stores only anonymous install UUIDs and call counts. No personal data is processed relay-side.
+The closest thing to remote processing is the hosted community relay and crash reporting. Both are designed around install-level technical identifiers rather than user identity.
 
 ---
 
@@ -84,9 +100,9 @@ If you deploy the community relay in the EU, the relay stores only anonymous ins
 
 | Data | Where it lives | Who can see it |
 |---|---|---|
-| Flight snapshots | Your machine (`~/.localflight/`) | You |
-| Config and API keys | Your machine (`~/.localflight/`) | You |
-| Local traffic log | Your machine (`~/.localflight/requests.db`) | You (via `/admin/requests`) |
-| Flight history | Your machine (`~/.localflight/history.db`) | You |
-| Crash reports | Developer's issue tracker | Developer only |
-| Relay usage counter | Relay server (anonymous UUID + count) | Relay admin (developer) |
+| Flight snapshots | Your machine | You |
+| Config and personal API keys | Your machine | You |
+| Local traffic log | Your machine | You |
+| Flight history | Your machine | You |
+| Crash reports | Developer issue inbox | Developer |
+| Community relay usage metadata | Relay server | Relay operator |
