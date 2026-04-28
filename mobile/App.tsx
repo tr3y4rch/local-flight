@@ -493,7 +493,7 @@ function AppShell() {
   const [companionIdentity, setCompanionIdentity] = useState<CompanionIdentity | null>(null);
 
   const socketRef = useRef<WebSocket | null>(null);
-  const detailRequestRef = useRef(0);
+  const detailRequestRef = useRef<number>(0);
   const launchOpacity = useRef(new Animated.Value(1)).current;
   const launchScale = useRef(new Animated.Value(1)).current;
   const launchShift = useRef(new Animated.Value(0)).current;
@@ -2647,19 +2647,19 @@ function SettingsScreen({
           icon="shield-lock-outline"
           label="Privacy"
           value="What stays local and what the crash reporter sends"
-          onPress={() => Linking.openURL("https://github.com/tr3y4rch/local-flight/blob/main/PRIVACY.md")}
+          onPress={() => void Linking.openURL("https://github.com/tr3y4rch/local-flight/blob/main/PRIVACY.md")}
         />
         <SettingsToolPill
           icon="github"
           label="Source & releases"
           value="github.com/tr3y4rch/local-flight"
-          onPress={() => Linking.openURL("https://github.com/tr3y4rch/local-flight")}
+          onPress={() => void Linking.openURL("https://github.com/tr3y4rch/local-flight")}
         />
         <SettingsToolPill
           icon="format-list-bulleted"
           label="Changelog"
           value="Release history and version notes"
-          onPress={() => Linking.openURL("https://github.com/tr3y4rch/local-flight/blob/main/CHANGELOG.md")}
+          onPress={() => void Linking.openURL("https://github.com/tr3y4rch/local-flight/blob/main/CHANGELOG.md")}
         />
       </View>
 

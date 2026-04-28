@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import time as _time
+from contextlib import asynccontextmanager
 from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -136,7 +137,26 @@ def _static_dir() -> Path:
     return Path(__file__).resolve().parent / "static"
 
 
-app = FastAPI(title="Local Flight UI", docs_url=None, redoc_url=None)
+@asynccontextmanager
+async def _lifespan(_app: FastAPI):
+    logger.info("Session started | component=ui")
+    loop = asyncio.get_running_loop()
+    manager.set_loop(loop)
+    asyncio.create_task(manager.broadcast_loop())
+
+    import localflight.ui.server as _self
+    _self._ws_manager = manager
+
+    try:
+        _ = best_label(iata="ZRH", icao="LSZH")
+        logger.info("Airport DB loaded | component=ui")
+    except Exception as e:
+        logger.warning("Airport DB not available: %s", e)
+
+    yield
+
+
+app = FastAPI(title="Local Flight UI", lifespan=_lifespan, docs_url=None, redoc_url=None)
 
 # Middleware order: RequestLog (outer) → SetupGate (inner) → route
 # add_middleware is LIFO so SetupGate must be added first
@@ -283,25 +303,6 @@ def _background_fetch(cfg: AppConfig) -> None:
         )
     except Exception as exc:
         logger.error("Background fetch failed: %s", exc)
-
-
-# ── Startup ────────────────────────────────────────────────────────────────────
-
-@app.on_event("startup")
-async def _on_startup() -> None:
-    logger.info("Session started | component=ui")
-    loop = asyncio.get_running_loop()
-    manager.set_loop(loop)
-    asyncio.create_task(manager.broadcast_loop())
-
-    import localflight.ui.server as _self
-    _self._ws_manager = manager
-
-    try:
-        _ = best_label(iata="ZRH", icao="LSZH")
-        logger.info("Airport DB loaded | component=ui")
-    except Exception as e:
-        logger.warning("Airport DB not available: %s", e)
 
 
 # ── WebSocket endpoint ─────────────────────────────────────────────────────────
