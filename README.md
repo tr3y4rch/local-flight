@@ -163,9 +163,12 @@ On first launch Local Flight briefly shows a versioned splash screen, then opens
 It walks through:
 1. Airport selection (IATA/ICAO search — 8 000+ airports)
 2. Data source — **real** (AviationStack) or **virtual** (VATSIM/sim)
-3. AviationStack API key — with live connection test
-4. ADS-B Exchange key via RapidAPI — with live connection test (optional)
-5. OpenSky Network credentials (optional)
+3. AviationStack path — three options:
+   - **Community relay** — no key needed; uses a shared quota (50 calls/month per install, enforced server-side)
+   - **BYOK** — bring your own AviationStack key (free plan gives 100 calls/month; 90 used by default to keep a reserve)
+   - **VATSIM** — no API key; uses live flight-sim traffic instead of real schedules
+4. ADS-B Exchange key via RapidAPI — live aircraft positions with live connection test (optional)
+5. OpenSky Network credentials — position fallback (optional, anonymous also works)
 
 The scheduler only starts after setup completes. You can re-run the wizard any time from **Settings → Re-run setup wizard**.
 

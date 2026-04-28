@@ -806,6 +806,9 @@ def _render_admin(username: str, *, created_token: str = "", message: str = "") 
         "SELECT COALESCE(SUM(calls), 0) FROM usage WHERE month=? AND service='aviationstack'",
         (month,),
     ).fetchone()[0]
+    total_schedule = (total_schedule or 0) + int(
+        _setting_get_conn(conn, f"schedule_counter_offset:{month}", "0") or 0
+    )
     total_radar = conn.execute(
         "SELECT COALESCE(SUM(calls), 0) FROM usage WHERE month=? AND service='radar'",
         (month,),
@@ -1244,7 +1247,7 @@ def _render_admin(username: str, *, created_token: str = "", message: str = "") 
 
   <div class="grid">
     <div class="card"><h2>Known installs</h2><div class="big">{int(total_installs or 0)}</div></div>
-    <div class="card"><h2>Schedule calls</h2><div class="big">{int(total_schedule or 0)}</div></div>
+    <div class="card"><h2>Schedule calls</h2><div class="big">{int(total_schedule or 0):,} / {_managed_schedule_limit():,}</div></div>
     <div class="card"><h2>Radar calls</h2><div class="big">{int(total_radar or 0)}</div></div>
     <div class="card"><h2>Requests (24h)</h2><div class="big">{int(totals_24h['requests'] or 0)}</div></div>
     <div class="card"><h2>Errors (24h)</h2><div class="big">{int(totals_24h['errors'] or 0)}</div></div>
@@ -1302,6 +1305,10 @@ def _render_admin(username: str, *, created_token: str = "", message: str = "") 
         {_post_form('/admin/counters/reset', {'scope': 'service', 'service': 'aviationstack'}, 'Reset schedule counters', 'slate')}
         {_post_form('/admin/counters/reset', {'scope': 'service', 'service': 'radar'}, 'Reset radar counters', 'slate')}
         {_post_form('/admin/counters/reset', {'scope': 'logs'}, 'Clear network log', 'slate')}
+        <form method="post" action="/admin/counters/correct-schedule" style="margin-top:0.5rem;display:flex;gap:0.4rem;align-items:center">
+          <input name="total" type="number" min="0" value="{int(total_schedule or 0)}" style="width:9rem" title="Set known schedule total for this month (includes prior usage outside this relay)" />
+          <button type="submit">Correct schedule total</button>
+        </form>
       </div>
     </div>
   </div>
@@ -2112,6 +2119,24 @@ def admin_reset_counters(
     conn.commit()
     conn.close()
     return HTMLResponse(_render_admin(username, message=message))
+
+
+@app.post("/admin/counters/correct-schedule")
+def admin_correct_schedule(
+    total: int = Form(...),
+    username: str = Depends(_require_admin),
+) -> HTMLResponse:
+    conn = _connect()
+    month = _month_key()
+    db_count = conn.execute(
+        "SELECT COALESCE(SUM(calls), 0) FROM usage WHERE month=? AND service='aviationstack'",
+        (month,),
+    ).fetchone()[0] or 0
+    offset = max(0, total - db_count)
+    _setting_set_conn(conn, f"schedule_counter_offset:{month}", str(offset))
+    conn.commit()
+    conn.close()
+    return HTMLResponse(_render_admin(username, message=f"Schedule total corrected to {total:,} ({offset:,} offset stored for {month})."))
 
 
 def main() -> None:

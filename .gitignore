@@ -79,3 +79,6 @@ start_network.bat
 Claude.md
 CLAUDE.md
 .github/copilot-instructions.md
+
+# Developer-only reference (not for public repo)
+DEV_README.md
