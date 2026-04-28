@@ -47,13 +47,14 @@ local-flight/
 │   │   └── run_scheduler.py
 │   ├── sources/
 │   │   ├── web/
-│   │   │   ├── aviationstack_client.py  # Monthly budget guard, lazy env reads
+│   │   │   ├── aviationstack_client.py  # BYOK + community relay budget guard; activation token; lazy env reads
 │   │   │   ├── aviationstack_mock.py
-│   │   │   ├── adsbexchange_client.py   # RapidAPI, primary position enrichment
+│   │   │   ├── adsbexchange_client.py   # RapidAPI + relay radar proxy; primary position enrichment
 │   │   │   ├── opensky_radar.py         # fetch_radar_blips(), bounding_box()
 │   │   │   ├── vatsim_client.py         # VATSIM v3, aircraft type extraction
 │   │   │   ├── metar_client.py          # aviationweather.gov, 30min cache
 │   │   │   ├── linear_client.py         # Linear GraphQL API — file_error() (operator auto-filing)
+│   │   │   ├── private_keys.py          # Dev-only community key lookup (dev/private/community_keys.json, gitignored)
 │   │   │   └── bug_reporter.py          # Hardcoded developer reporter — powers /feedback
 │   │   ├── adsb/
 │   │   │   └── adsb_client.py           # dump1090 client (RTL-SDR, Pi)
@@ -63,8 +64,10 @@ local-flight/
 │   │   ├── config.py            # AppConfig dataclass, load/save
 │   │   ├── flights_store.py     # JSON snapshot storage under ~/.localflight, legacy fallback
 │   │   ├── history.py           # SQLite history DB, 90-day retention
+│   │   ├── install.py           # Machine fingerprint + activation token (get/set_activation_token)
 │   │   ├── logging_setup.py     # RotatingFileHandler, pruning
 │   │   ├── profiles.py          # Airport profiles
+│   │   ├── request_log.py       # Anonymized traffic log (SQLite) — client_type/client_id/platform
 │   │   ├── samples/             # Sample AviationStack payloads (mock source)
 │   │   └── state.py             # AppState (last fetch, errors, latency)
 │   └── ui/
@@ -100,7 +103,8 @@ local-flight/
 │   └── src/
 │       ├── api/                 # LAN API client + response types
 │       ├── crash/               # CrashBoundary + mobile crash reporter
-│       ├── storage/             # SecureStore URL, pinned flight, profiles
+│       ├── device/identity.ts   # Companion identity: companionId, platform, deviceType, appVersion
+│       ├── storage/             # SecureStore URL, companionId, pinned flight, profiles
 │       └── theme/               # Mobile visual tokens
 │
 ├── installers/
@@ -163,7 +167,7 @@ Linear issue filed (deduplicated per 6h via ~/.localflight/linear_dedup.json)
 
 ### API call budget
 - AviationStack BYOK default: 10,000 calls/month, tracked in `~/.localflight/api_usage.json`
-- Community relay default: 60 calls/month per install
+- Community relay default: 50 calls/month per install
 - ADS-B Exchange / RapidAPI default: 10,000 calls/month
 - Enforced in `aviationstack_client.py` via `_check_and_increment_budget()` before each request
 - All env vars read lazily at call time (not module import time) to avoid race with `_load_dotenv()`
@@ -175,9 +179,9 @@ Two separate integrations — do not confuse them:
 
 ### Version
 - Single source of truth: `version` field in `pyproject.toml`
-- Read at runtime via `importlib.metadata.version("localflight")` with `"0.2.2b3"` fallback
+- Read at runtime via `importlib.metadata.version("localflight")` with `"0.2.3b1"` fallback
 - Injected as `app_version` Jinja2 global in `server.py` → available in all templates
-- Shown in nav bar (`v0.2.2b3`) and Admin → System card
+- Shown in nav bar (`v0.2.3b1`) and Admin → System card
 - `LocalFlight.spec` reads it from `pyproject.toml` at build time for macOS `CFBundleShortVersionString`
 
 ### Auto-update check
@@ -204,10 +208,15 @@ Two separate integrations — do not confuse them:
 ## Environment variables (.env)
 
 ```
+# Managed install
+LOCALFLIGHT_ACTIVATION_TOKEN=
+LOCALFLIGHT_RELAY_URL=
+
+# BYOK AviationStack (leave blank to use community relay)
 AVIATIONSTACK_API_KEY=
 LOCALFLIGHT_AVIATIONSTACK_ENABLED=1
-LOCALFLIGHT_AVIATIONSTACK_MONTHLY_LIMIT=10000
-LOCALFLIGHT_RELAY_MONTHLY_LIMIT=60
+LOCALFLIGHT_AVIATIONSTACK_MONTHLY_LIMIT=90
+LOCALFLIGHT_RELAY_MONTHLY_LIMIT=50
 
 OPENSKY_CLIENT_ID=
 OPENSKY_CLIENT_SECRET=
@@ -215,6 +224,8 @@ OPENSKY_CLIENT_SECRET=
 RAPIDAPI_KEY=
 LOCALFLIGHT_RAPIDAPI_MONTHLY_LIMIT=10000
 ```
+
+Relay server env vars (relay/.env): `RELAY_ADMIN_PASSWORD`, `DB_PATH`, `RELAY_RADAR_MONTHLY_LIMIT`, `RELAY_MANAGED_SCHEDULE_LIMIT`, `RELAY_MANAGED_RADAR_LIMIT`, `RELAY_RADAR_CACHE_SECONDS`
 
 ---
 
@@ -261,8 +272,15 @@ Config lives at `~/.localflight/config.json`
 | `POST /api/admin/ping` | Device ping (matrix client) |
 | `POST /api/setup/complete` | Save setup, write .env, mark complete |
 | `POST /api/setup/reset` | Delete setup_complete marker → re-run wizard |
-| `POST /api/setup/test-aviationstack` | Test AviationStack key without saving |
-| `POST /api/setup/test-rapidapi` | Test RapidAPI key without saving |
+| `POST /api/setup/test-aviationstack` | Test AviationStack key (body) without saving |
+| `POST /api/setup/test-rapidapi` | Test RapidAPI key (body) without saving |
+| `GET /api/setup/client-info` | Machine fingerprint, relay URL, token presence, managed status |
+| `POST /api/setup/activate` | Store managed activation token |
+| `POST /api/setup/client-status` | Check relay client status |
+| `POST /api/setup/request-activation` | Request activation from relay |
+| `POST /api/setup/request-activation/status` | Poll activation request status |
+| `POST /api/setup/test-activation` | Test an activation token without saving |
+| `POST /api/admin/companion/checkin` | Mobile companion check-in (companionId, platform, appVersion) |
 | `POST /api/quit` | Graceful shutdown (terminates browser proc + os._exit) |
 | `WS /ws` | WebSocket push endpoint |
 
@@ -341,25 +359,31 @@ npm run ios
 
 ## Current handoff for the dev machine
 
-- Active version is `0.2.2b3`: `pyproject.toml`, runtime fallbacks, mobile package metadata, Expo `extra.localFlightVersion`, and docs should all agree.
+- Active version is `0.2.3b1`: `pyproject.toml`, runtime fallbacks, mobile package metadata, Expo `extra.localFlightVersion`, and docs should all agree.
 - New repo additions in this beta cycle include the relay service, request-log storage/UI, install fingerprint helper, and the companion preview SVG gallery under `docs/previews/`.
 - `mobile/node_modules` is still absent on this Windows workspace, so Expo/TypeScript validation belongs on the Mac/Xcode side after `npm install`.
 - Desktop resume on Windows: run `.\start.bat`, open Settings, try "Restart scheduler", then change the update interval and confirm the display/admin/mobile clients receive the update without waiting for the old interval.
-- Release resume: run `python build.py --clean` separately on Windows and macOS. Upload `dist/LocalFlight-windows.zip`, `dist/LocalFlight-windows.zip.sha256`, `dist/LocalFlight-macos.zip`, and `dist/LocalFlight-macos.zip.sha256` to GitHub release `v0.2.2b3`.
+- Release resume: run `python build.py --clean` separately on Windows and macOS. Upload `dist/LocalFlight-windows.zip`, `dist/LocalFlight-windows.zip.sha256`, `dist/LocalFlight-macos.zip`, and `dist/LocalFlight-macos.zip.sha256` to GitHub release `v0.2.3b1`.
 - Mobile resume on Mac/Xcode: from `mobile/`, run `npm install`, `npx expo install --fix`, `npm run doctor`, then `npm run ios`. Expo Go may reject SDK 55 depending on installed Expo Go; simulator/dev build is the safer path.
 - Verification already run on this Mac session: `python3 -m compileall src/localflight`, `.venv/bin/python` route/OpenAPI import checks, `cd mobile && npm run typecheck`, and `git diff --check`.
 
-## What was done in the latest session
+## What was done in the latest session (v0.2.3b1)
 
-- ✅ Radar now prefers ADS-B Exchange live data when a RapidAPI key is configured, with per-airport/range caching so the faster UI refresh does not burn subscription calls.
-- ✅ Radar range buttons were fixed and expanded; desktop/mobile radar stays aligned with the selected range and the URL now preserves it.
-- ✅ Setup now clearly explains the three main usage paths: shared relay with no key, your own keys, or VATSIM.
-- ✅ Setup/API key tests use POST bodies, not URL query strings.
-- ✅ Privacy hardening pass: install fingerprints are hashed, request logs are anonymized, and traffic/admin views no longer expose raw identifiers or unsanitized request values.
-- ✅ Admin Traffic Log shipped with `request_log.py`, `/api/admin/requests`, and `requests.html`.
-- ✅ Splash screens now run longer with progress/status text and richer logo/radar animation on desktop and in the companion.
-- ✅ README and preview gallery now include illustrative mobile companion graphics for FIDS, radar, and settings.
-- ✅ Version bump and docs sweep complete for `0.2.2b3`.
+- ✅ `private_keys.py` — dev-only community key lookup from `dev/private/community_keys.json` (gitignored)
+- ✅ `install.py` — `get_activation_token()` / `set_activation_token()` for managed install tokens
+- ✅ `aviationstack_client.py` — explicit BYOK vs relay split; 30-day rolling community window; activation token forwarding; BYOK default 90/month; community cap 50/month
+- ✅ `adsbexchange_client.py` — relay radar proxy path
+- ✅ `request_log.py` — `client_type`, `client_id`, `platform` columns + schema migration; companion tracking
+- ✅ `api.py` — `POST /api/admin/companion/checkin` endpoint with `CompanionCheckinIn`
+- ✅ `server.py` — 6 new relay setup endpoints: client-info, activate, client-status, request-activation, request-activation/status, test-activation
+- ✅ `relay/main.py` — full network admin console: provider key storage, token lifecycle/revocation, install access control, API counters, traffic stats, anonymous activation tags
+- ✅ `setup.html` — three explicit paths (community / BYOK / VATSIM); managed activation flow; machine identity shown
+- ✅ `admin.html` — community vs BYOK budget mode separated
+- ✅ `settings.html` — read-only client link card (fingerprint, relay URL, token presence)
+- ✅ `mobile/src/device/identity.ts` — companion identity (UUID, platform, deviceType, appVersion)
+- ✅ `mobile/src/storage/settings.ts` — companionId persisted in Expo SecureStore
+- ✅ `tests/test_relay_admin.py` — relay admin regression tests
+- ✅ Version bumped to `0.2.3b1`; CHANGELOG, CLAUDE.md, AGENTS.md updated
 
 ## What was done in the macOS app session
 

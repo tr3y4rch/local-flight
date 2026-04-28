@@ -18,6 +18,7 @@ import type {
   RequestLogResponse,
   SchedulerRestartResponse
 } from "./types";
+import { getCompanionIdentity } from "../device/identity";
 
 export class LocalFlightApiError extends Error {
   constructor(message: string, public readonly status?: number) {
@@ -43,14 +44,27 @@ export function wsUrl(serverUrl: string): string {
   return normalizeServerUrl(serverUrl).replace(/^http/i, "ws") + "/ws";
 }
 
+async function companionHeaders(): Promise<Record<string, string>> {
+  const identity = await getCompanionIdentity();
+  return {
+    "X-LocalFlight-Client-Name": identity.clientName,
+    "X-LocalFlight-Client-Type": "mobile-companion",
+    "X-LocalFlight-Companion-Id": identity.companionId,
+    "X-LocalFlight-Client-Platform": identity.mobileOs,
+    "X-LocalFlight-Device-Type": identity.deviceType,
+    "X-LocalFlight-App-Version": identity.appVersion
+  };
+}
+
 async function fetchJson<T>(serverUrl: string, path: string): Promise<T> {
   const base = normalizeServerUrl(serverUrl);
   if (!base) {
     throw new LocalFlightApiError("Set a Local Flight server URL first.");
   }
 
+  const headers = await companionHeaders();
   const response = await fetch(`${base}${path}`, {
-    headers: { Accept: "application/json" }
+    headers: { Accept: "application/json", ...headers }
   });
 
   if (!response.ok) {
@@ -70,11 +84,13 @@ async function sendJson<T>(
     throw new LocalFlightApiError("Set a Local Flight server URL first.");
   }
 
+  const headers = await companionHeaders();
   const response = await fetch(`${base}${path}`, {
     method: "POST",
     headers: {
       Accept: "application/json",
-      "Content-Type": "application/json"
+      "Content-Type": "application/json",
+      ...headers
     },
     body: JSON.stringify(body)
   });
@@ -198,9 +214,10 @@ export async function patchConfig(serverUrl: string, patch: ConfigPatch): Promis
   const base = normalizeServerUrl(serverUrl);
   if (!base) throw new LocalFlightApiError("Set a Local Flight server URL first.");
 
+  const headers = await companionHeaders();
   const response = await fetch(`${base}/api/config`, {
     method: "PATCH",
-    headers: { Accept: "application/json", "Content-Type": "application/json" },
+    headers: { Accept: "application/json", "Content-Type": "application/json", ...headers },
     body: JSON.stringify(patch)
   });
 
@@ -227,6 +244,19 @@ export function getRequestLog(
 export async function testConnection(serverUrl: string): Promise<boolean> {
   await getHealth(serverUrl);
   return true;
+}
+
+export function sendCompanionCheckin(
+  serverUrl: string,
+  input: {
+    companion_id: string;
+    client_name: string;
+    app_version: string;
+    mobile_os: string;
+    device_type: string;
+  }
+): Promise<{ ok: boolean; recorded_at?: string; platform_pair?: string; server_install_id?: string | null }> {
+  return sendJson(serverUrl, "/api/admin/companion/checkin", input);
 }
 
 export function submitFeedback(

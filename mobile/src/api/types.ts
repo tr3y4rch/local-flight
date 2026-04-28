@@ -31,11 +31,33 @@ export type AdminSystem = {
   memory_mb?: number | null;
   cpu_pct?: number | null;
   snapshot_dir?: string | null;
+  client?: {
+    mode?: string;
+    relay_url?: string | null;
+    activation_token_present?: boolean;
+    activation_token_prefix?: string;
+    community_key_present?: boolean;
+    managed_verified?: boolean;
+    managed_status?: string;
+  };
+};
+
+export type CompanionPresence = {
+  companion_id: string;
+  client_name: string;
+  app_version: string;
+  mobile_os: string;
+  device_type: "phone" | "tablet" | "desktop" | "unknown" | string;
+  platform_pair: string;
+  last_seen: string;
 };
 
 export type AdminConnections = {
   count: number;
   matrix_last_seen?: string | null;
+  companion_last_seen?: string | null;
+  companion_count?: number;
+  companions?: CompanionPresence[];
 };
 
 export type AdminUpdates = {
@@ -60,7 +82,8 @@ export type SchedulerRestartResponse = {
 
 export type Budget = {
   aviationstack?: {
-    mode?: "relay" | "byok" | string;
+    mode?: "community" | "managed" | "relay" | "byok" | "virtual" | string;
+    active_mode?: "community" | "managed" | "relay" | "byok" | "virtual" | string;
     relay_url?: string;
     enabled?: boolean;
     calls_this_month?: number;
@@ -69,6 +92,46 @@ export type Budget = {
     month?: string;
     budget_ok?: boolean;
     error?: string;
+    community?: {
+      configured?: boolean;
+      transport?: "relay" | "local_key" | string;
+      relay_url?: string;
+      key_present?: boolean;
+      calls_this_month?: number;
+      monthly_limit?: number;
+      remaining?: number;
+      month?: string;
+      budget_ok?: boolean;
+    };
+    managed?: {
+      configured?: boolean;
+      relay_url?: string;
+      token_present?: boolean;
+      token_prefix?: string;
+      providers?: {
+        aviationstack?: boolean;
+        adsbexchange?: boolean;
+      };
+      status_ok?: boolean;
+      status_error?: string;
+      calls_this_month?: number;
+      monthly_limit?: number;
+      remaining?: number;
+      month?: string;
+      budget_ok?: boolean;
+    };
+    byok?: {
+      configured?: boolean;
+      enabled?: boolean;
+      calls_this_month?: number;
+      monthly_limit?: number;
+      ui_monthly_max?: number;
+      remaining?: number;
+      plan_remaining?: number;
+      safety_reserve?: number;
+      month?: string;
+      budget_ok?: boolean;
+    };
   };
   adsbexchange?: {
     available?: boolean;
@@ -269,6 +332,8 @@ export type RequestLogEntry = {
   ip: string;
   user_agent: string;
   client_type: "desktop" | "mobile" | "matrix" | "api" | "unknown";
+  client_id?: string;
+  platform?: string;
 };
 
 export type RequestLogSummary = {

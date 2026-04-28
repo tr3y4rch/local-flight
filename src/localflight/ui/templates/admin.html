@@ -153,16 +153,13 @@
     </div>
 
     <div class="hub-card">
-      <h2><span class="icon">📊</span> API Budget</h2>
+      <h2><span class="icon">📊</span> Flight Data</h2>
       <div class="stat-row"><span class="stat-label" id="budgetSourceLabel">Flight data</span><span class="stat-val mono" id="budgetUsed">—</span></div>
       <div class="stat-row"><span class="stat-label">Remaining</span><span class="stat-val" id="budgetRemain">—</span></div>
-      <div class="stat-row"><span class="stat-label">Month</span><span class="stat-val mono" id="budgetMonth">—</span></div>
-      <div class="stat-row"><span class="stat-label">Mode</span><span class="stat-val mono" id="budgetMode">—</span></div>
+      <div class="stat-row"><span class="stat-label">Window</span><span class="stat-val mono" id="budgetMonth">—</span></div>
+      <div class="stat-row"><span class="stat-label">Path</span><span class="stat-val mono" id="budgetMode">—</span></div>
       <div class="budget-bar-wrap" style="margin-top:2px;"><div class="budget-bar" id="budgetBar" style="width:0%"></div></div>
-      <div class="stat-row" style="margin-top:10px;"><span class="stat-label">RapidAPI</span><span class="stat-val mono" id="adsbStatus">—</span></div>
-      <div class="stat-row"><span class="stat-label">RapidAPI left</span><span class="stat-val" id="adsbRemain">—</span></div>
-      <div class="budget-bar-wrap" style="margin-top:4px;"><div class="budget-bar" id="adsbBar" style="width:0%"></div></div>
-      <div class="stat-row" style="margin-top:10px;"><span class="stat-label">OpenSky</span><span class="stat-val" id="openskyStatus">—</span></div>
+      <div class="stat-row" style="margin-top:10px;"><span class="stat-label">Reset</span><span class="stat-val mono" id="budgetReset">-</span></div>
     </div>
 
     <div class="hub-card">
@@ -174,6 +171,11 @@
           <div class="device-dot unknown" id="matrixDot"></div>
           <span class="device-name">💡 Interstate 75 W</span>
           <span class="device-meta" id="matrixSeen">never seen</span>
+        </div>
+        <div class="device-row">
+          <div class="device-dot unknown" id="companionDot"></div>
+          <span class="device-name">📱 Mobile Companion</span>
+          <span class="device-meta" id="companionSeen">never seen</span>
         </div>
         <div class="device-row">
           <div class="device-dot unknown" id="piDot"></div>
@@ -280,42 +282,69 @@
     try {
       const r = await fetch("/api/admin/budget"); if (!r.ok) return;
       const b = await r.json();
-      const as  = b.aviationstack || {};
-      const mode = as.mode || "byok";
-      const used   = as.calls_this_month ?? 0;
-      const limit  = as.monthly_limit    ?? (mode === "relay" ? 60 : 90);
-      const remain = as.remaining        ?? limit;
-      const pct    = Math.min(100, Math.round(used / limit * 100));
+      const as = b.aviationstack || {};
+      const community = as.community || {};
+      const managed = as.managed || {};
+      const mode = as.active_mode || as.mode || "community";
+      const used = as.calls_this_month ?? 0;
+      const limit = as.monthly_limit ?? 0;
+      const remain = as.remaining ?? Math.max(0, limit - used);
+      const pct = limit > 0 ? Math.min(100, Math.round(used / limit * 100)) : 0;
+      const periodDays = community.period_days ?? 30;
+      const resetText = community.period_end ? fmtRel(community.period_end) : "-";
 
-      el("budgetSourceLabel").textContent = mode === "relay" ? "Community plan" : "AviationStack";
-      el("budgetUsed").textContent   = `${used} / ${limit} calls`;
-      el("budgetRemain").textContent = `${remain} remaining`;
-      el("budgetRemain").className   = `stat-val ${remain < 5 ? "bad" : remain < 15 ? "warn" : "ok"}`;
-      el("budgetMonth").textContent  = as.month || "—";
-      el("budgetMode").textContent   = mode === "relay" ? "✦ Community relay" : "✓ Your key (BYOK)";
-      el("budgetMode").className     = `stat-val ${mode === "relay" ? "warn" : "ok"}`;
+      el("budgetSourceLabel").textContent = mode === "virtual"
+        ? "Virtual traffic"
+        : mode === "managed"
+          ? "Relay-linked schedule"
+          : mode === "byok"
+            ? "BYOK schedule"
+            : "Community schedule";
+      el("budgetUsed").textContent = mode === "managed"
+        ? `${used} calls on this install`
+        : limit > 0
+          ? `${used} / ${limit} calls`
+          : "No schedule calls";
+      el("budgetRemain").textContent = mode === "virtual"
+        ? "No real-data budget in use"
+        : mode === "managed"
+          ? "Handled through relay link"
+          : `${remain} remaining`;
+      el("budgetRemain").className = `stat-val ${mode === "virtual" ? "" : remain < 5 ? "bad" : remain < 15 ? "warn" : "ok"}`;
+      el("budgetMonth").textContent = mode === "community"
+        ? `${periodDays}-day window`
+        : mode === "managed"
+          ? "Relay-managed"
+          : (as.month || "-");
+      el("budgetMode").textContent = mode === "managed"
+        ? "Community / relay link"
+        : mode === "community"
+          ? ((community.transport || "relay") === "local_key" ? "Local community key" : "Community relay")
+          : mode === "byok"
+            ? "Your key (BYOK)"
+            : "VATSIM only";
+      el("budgetMode").className = `stat-val ${mode === "managed" || mode === "byok" ? "ok" : mode === "community" ? "warn" : ""}`;
       const bar = el("budgetBar");
-      bar.style.width = pct + "%";
-      bar.className   = `budget-bar ${pct > 90 ? "bad" : pct > 70 ? "warn" : ""}`;
+      bar.style.width = mode === "managed" ? "0%" : pct + "%";
+      bar.className = `budget-bar ${mode === "managed" ? "" : pct > 90 ? "bad" : pct > 70 ? "warn" : ""}`;
 
-      const adsbx = b.adsbexchange || {};
-      if (adsbx.available) {
-        const au = adsbx.calls_this_month ?? 0, al = adsbx.monthly_limit ?? 10000, ar = adsbx.remaining ?? al;
-        const apct = Math.min(100, Math.round(au / al * 100));
-        el("adsbStatus").textContent = `${au} / ${al} calls`;
-        el("adsbRemain").textContent = `${ar} remaining`;
-        el("adsbRemain").className   = `stat-val ${ar < 500 ? "bad" : ar < 1000 ? "warn" : "ok"}`;
-        const ab = el("adsbBar"); ab.style.width = apct + "%";
-        ab.className = `budget-bar ${apct > 90 ? "bad" : apct > 70 ? "warn" : ""}`;
-      } else {
-        el("adsbStatus").textContent = "✗ No key"; el("adsbStatus").className = "stat-val warn";
-        el("adsbRemain").textContent = ""; el("adsbBar").style.width = "0%";
+      if (el("budgetReset")) {
+        if (mode === "community") {
+          el("budgetReset").textContent = resetText;
+          el("budgetReset").className = "stat-val mono";
+        } else if (mode === "managed") {
+          el("budgetReset").textContent = managed.status_ok ? "Relay linked" : (managed.status_error || "Waiting for relay");
+          el("budgetReset").className = `stat-val ${managed.status_ok ? "ok" : "warn"}`;
+        } else if (mode === "byok") {
+          el("budgetReset").textContent = "Personal key path";
+          el("budgetReset").className = "stat-val mono";
+        } else {
+          el("budgetReset").textContent = "Not applicable";
+          el("budgetReset").className = "stat-val mono";
+        }
       }
-      el("openskyStatus").textContent = b.opensky_available ? "✓ Credentials set" : "Anonymous";
-      el("openskyStatus").className   = `stat-val ${b.opensky_available ? "ok" : ""}`;
     } catch(e) {}
   }
-
   async function loadWSCount() {
     try {
       const r = await fetch("/api/admin/connections"); if (!r.ok) return;
@@ -325,6 +354,14 @@
         const age = Math.floor((Date.now() - new Date(d.matrix_last_seen)) / 1000);
         el("matrixSeen").textContent = fmtRel(d.matrix_last_seen);
         el("matrixDot").className    = `device-dot ${age < 300 ? "online" : "offline"}`;
+      }
+      if (d.companion_last_seen) {
+        const age = Math.floor((Date.now() - new Date(d.companion_last_seen)) / 1000);
+        el("companionSeen").textContent = `${d.companion_count || 1} linked · ${fmtRel(d.companion_last_seen)}`;
+        el("companionDot").className = `device-dot ${age < 900 ? "online" : "offline"}`;
+      } else {
+        el("companionSeen").textContent = "never seen";
+        el("companionDot").className = "device-dot unknown";
       }
     } catch(e) {}
   }

@@ -62,6 +62,7 @@ mobile/yarn-error.log*
 
 # ── Optional: private dev stuff ────────────────────────
 dev/private/
+dev/private/community_keys.json
 assets/*.ico
 assets/*.icns
 assets/*.iconset

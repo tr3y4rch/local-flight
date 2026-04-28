@@ -69,9 +69,16 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
             latency_ms  INTEGER,
             ip          TEXT,
             user_agent  TEXT,
-            client_type TEXT
+            client_type TEXT,
+            client_id   TEXT,
+            platform    TEXT
         )
     """)
+    columns = {str(row["name"]) for row in conn.execute("PRAGMA table_info(requests)").fetchall()}
+    if "client_id" not in columns:
+        conn.execute("ALTER TABLE requests ADD COLUMN client_id TEXT")
+    if "platform" not in columns:
+        conn.execute("ALTER TABLE requests ADD COLUMN platform TEXT")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_req_ts     ON requests (ts)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_req_client ON requests (client_type, ts)")
     conn.commit()
@@ -90,7 +97,10 @@ def _should_log(path: str) -> bool:
     return True
 
 
-def _client_type(user_agent: str, path: str) -> str:
+def _client_type(user_agent: str, path: str, override: str = "") -> str:
+    forced = (override or "").strip().lower()
+    if forced:
+        return forced[:24]
     if "device=matrix" in path or "matrix" in path.lower():
         return "matrix"
     ua = (user_agent or "").lower()
@@ -147,12 +157,19 @@ def _safe_path(path: str) -> str:
     return _SAFE_PATH_RE.sub("_", clean)
 
 
+def _safe_platform_label(value: str) -> str:
+    clean = (value or "").strip()[:120]
+    return _SAFE_PATH_RE.sub("_", clean)
+
+
 def _sanitize_row(row: Dict[str, Any]) -> Dict[str, Any]:
     safe = dict(row)
     safe["path"] = _safe_path(str(safe.get("path") or ""))
     safe["ip"] = _anonymize_ip(str(safe.get("ip") or ""))
     safe["user_agent"] = _user_agent_family(str(safe.get("user_agent") or ""))
     safe["method"] = str(safe.get("method") or "").upper()[:8]
+    safe["client_id"] = str(safe.get("client_id") or "")[:64]
+    safe["platform"] = _safe_platform_label(str(safe.get("platform") or ""))
     return safe
 
 
@@ -163,11 +180,14 @@ def log_request(
     latency_ms: int,
     ip: str,
     user_agent: str,
+    client_id: str = "",
+    platform: str = "",
+    client_type_override: str = "",
 ) -> None:
     if not _should_log(path):
         return
     safe_path = _safe_path(path)
-    client_type = _client_type(user_agent, safe_path)
+    client_type = _client_type(user_agent, safe_path, client_type_override)
     ts = _utcnow().isoformat()
     cutoff = (_utcnow() - timedelta(days=REQUEST_LOG_DAYS)).isoformat()
     try:
@@ -175,8 +195,8 @@ def log_request(
         _ensure_schema(conn)
         conn.execute(
             """INSERT INTO requests
-               (ts, method, path, status_code, latency_ms, ip, user_agent, client_type)
-               VALUES (?,?,?,?,?,?,?,?)""",
+               (ts, method, path, status_code, latency_ms, ip, user_agent, client_type, client_id, platform)
+               VALUES (?,?,?,?,?,?,?,?,?,?)""",
             (
                 ts,
                 method.upper()[:8],
@@ -186,6 +206,8 @@ def log_request(
                 _anonymize_ip(ip),
                 _user_agent_family(user_agent),
                 client_type,
+                (client_id or "").strip()[:64],
+                _safe_platform_label(platform),
             ),
         )
         conn.execute("DELETE FROM requests WHERE ts < ?", (cutoff,))

@@ -58,18 +58,24 @@
 {% if not _embedded %}{{ topnav(active="radar", cfg=cfg) }}{% endif %}
 <div class="radar-wrap">
 
-  {% if not _embedded %}
   <div class="radar-subheader">
+    {% if not _embedded %}
     <span>📡 {{ airport_label }} <span style="opacity:0.45; font-weight:500;">({{ cfg.airport_iata }}/{{ cfg.airport_icao }})</span></span>
+    {% else %}
+    <span style="opacity:0.55; font-size:0.78rem;">Radar range</span>
+    {% endif %}
     <div class="radar-range-btns" id="rangeButtons">
       <button class="radar-range-btn" data-nm="10" onclick="setRadius(10)">10nm</button>
       <button class="radar-range-btn" data-nm="20" onclick="setRadius(20)">20nm</button>
       <button class="radar-range-btn" data-nm="40" onclick="setRadius(40)">40nm</button>
       <button class="radar-range-btn" data-nm="80" onclick="setRadius(80)">80nm</button>
     </div>
+    {% if not _embedded %}
     <span class="radar-lt">LT <span class="clock-local-val">--:--:--</span></span>
+    {% else %}
+    <span class="radar-lt">live</span>
+    {% endif %}
   </div>
-  {% endif %}
 
   <div class="metar-bar" id="metarBar">
     <span class="metar-loading">Loading weather...</span>
@@ -151,13 +157,35 @@
 
   let blips=[], hoveredBlip=null;
 
+  let radarPollTimer = null;
+
+  function scheduleBlipFetch(delayMs) {
+    if (radarPollTimer) window.clearTimeout(radarPollTimer);
+    radarPollTimer = window.setTimeout(fetchBlips, Math.max(5000, delayMs));
+  }
+
+  function nextPollDelayMs(data) {
+    const refreshAfterS = Number(data?.refresh_after_s || 0);
+    const source = String(data?.source || "");
+    let baseMs = refreshAfterS > 0 ? refreshAfterS * 1000 : POLL_MS;
+    if (!refreshAfterS && source === "vatsim") baseMs = POLL_MS;
+    if (document.hidden) {
+      return Math.max(baseMs, 120000);
+    }
+    return baseMs;
+  }
+
   async function fetchBlips() {
     try {
       const r=await fetch(`/api/radar?radius_nm=${RADIUS_NM}`); if(!r.ok) throw new Error(`HTTP ${r.status}`);
       const data=await r.json(); blips=data.blips||[];
       const upd=new Date().toUTCString().slice(17,25);
       status.innerHTML=`<span class="live-dot${ws&&ws.readyState===1?'':' offline'}" id="liveDot"></span> ${blips.length} aircraft · ${data.source||""} · ${upd} UTC`;
-    } catch(e){ status.innerHTML=`<span class="live-dot offline" id="liveDot"></span> Radar fetch failed: ${e.message}`; }
+      scheduleBlipFetch(nextPollDelayMs(data));
+    } catch(e){
+      status.innerHTML=`<span class="live-dot offline" id="liveDot"></span> Radar fetch failed: ${e.message}`;
+      scheduleBlipFetch(document.hidden ? 120000 : 60000);
+    }
   }
 
   async function fetchMETAR() {
@@ -281,8 +309,14 @@
   resize();
   _initRangeButtons();
   window.addEventListener("resize", resize);
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) {
+      fetchBlips();
+      return;
+    }
+    scheduleBlipFetch(120000);
+  });
   fetchBlips(); fetchMETAR();
-  setInterval(fetchBlips, POLL_MS);
   setInterval(fetchMETAR, METAR_POLL_MS);
   requestAnimationFrame(loop);
 })();

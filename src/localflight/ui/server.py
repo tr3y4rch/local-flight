@@ -55,6 +55,12 @@ _SETUP_FREE_PATHS = {
     "/setup",
     "/api/setup/complete",
     "/api/setup/reset",
+    "/api/setup/client-info",
+    "/api/setup/activate",
+    "/api/setup/client-status",
+    "/api/setup/request-activation",
+    "/api/setup/request-activation/status",
+    "/api/setup/test-activation",
     "/api/setup/test-aviationstack",
     "/api/setup/test-rapidapi",
     "/api/airports/search",
@@ -111,6 +117,9 @@ class RequestLogMiddleware(BaseHTTPMiddleware):
                 latency_ms=latency_ms,
                 ip=ip,
                 user_agent=request.headers.get("user-agent", ""),
+                client_id=request.headers.get("x-localflight-companion-id", ""),
+                platform=request.headers.get("x-localflight-client-platform", ""),
+                client_type_override=request.headers.get("x-localflight-client-type", ""),
             )
         except Exception:
             pass
@@ -143,7 +152,7 @@ try:
     from importlib.metadata import version as _pkg_version
     _APP_VERSION = _pkg_version("localflight")
 except Exception:
-    _APP_VERSION = "0.2.2b3"
+    _APP_VERSION = "0.2.3b1"
 
 templates.env.globals["app_version"] = _APP_VERSION
 
@@ -154,6 +163,50 @@ def _safe_local_path(path: str, *, fallback: str = "/display") -> str:
     if not path.startswith("/") or path.startswith("//") or "://" in path:
         return fallback
     return path
+
+
+def _relay_url_default() -> str:
+    return os.getenv("LOCALFLIGHT_RELAY_URL", "https://relay.localflight.app/v1/flights").strip()
+
+
+def _managed_status_url(relay_url: str) -> str:
+    relay_url = (relay_url or _relay_url_default()).strip().rstrip("/")
+    if relay_url.endswith("/v1/flights"):
+        return relay_url[:-7] + "managed/config"
+    if relay_url.endswith("/flights"):
+        return relay_url[:-7] + "managed/config"
+    return relay_url + "/managed/config"
+
+
+def _client_status_url(relay_url: str) -> str:
+    relay_url = (relay_url or _relay_url_default()).strip().rstrip("/")
+    if relay_url.endswith("/v1/flights"):
+        return relay_url[:-7] + "client/status"
+    if relay_url.endswith("/flights"):
+        return relay_url[:-7] + "client/status"
+    return relay_url + "/client/status"
+
+
+def _activate_url(relay_url: str) -> str:
+    relay_url = (relay_url or _relay_url_default()).strip().rstrip("/")
+    if relay_url.endswith("/v1/flights"):
+        return relay_url[:-7] + "activate"
+    if relay_url.endswith("/flights"):
+        return relay_url[:-7] + "activate"
+    return relay_url + "/activate"
+
+
+def _activation_request_url(relay_url: str) -> str:
+    relay_url = (relay_url or _relay_url_default()).strip().rstrip("/")
+    if relay_url.endswith("/v1/flights"):
+        return relay_url[:-7] + "activation-request"
+    if relay_url.endswith("/flights"):
+        return relay_url[:-7] + "activation-request"
+    return relay_url + "/activation-request"
+
+
+def _activation_request_status_url(relay_url: str) -> str:
+    return _activation_request_url(relay_url).rstrip("/") + "/status"
 
 
 # ── WebSocket connection manager ───────────────────────────────────────────────
@@ -276,8 +329,40 @@ def setup_page(request: Request) -> HTMLResponse:
     )
 
 
+@app.get("/api/setup/client-info")
+def setup_client_info() -> Dict[str, Any]:
+    from localflight.storage.install import get_activation_token, get_install_fingerprint, get_install_id
+
+    token = get_activation_token().strip()
+    return {
+        "install_id": get_install_id(),
+        "install_fingerprint": get_install_fingerprint(),
+        "relay_url": _relay_url_default(),
+        "activation_token_present": bool(token),
+        "activation_token_prefix": token[:10] if token else "",
+    }
+
+
 class ApiKeyTestIn(BaseModel):
     key: str = Field(..., min_length=1, max_length=256)
+
+
+class ActivationSetupIn(BaseModel):
+    relay_url: str = Field("", max_length=300)
+    airport_iata: str = Field("", max_length=4)
+    airport_icao: str = Field("", max_length=4)
+    display_name: str = Field("", max_length=80)
+    requested_mode: str = Field("managed", max_length=20)
+
+
+class ClientStatusSetupIn(BaseModel):
+    relay_url: str = Field("", max_length=300)
+    activation_token: str = Field("", max_length=256)
+
+
+class ActivationTokenTestIn(BaseModel):
+    relay_url: str = Field("", max_length=300)
+    activation_token: str = Field("", max_length=256)
 
 
 async def _test_aviationstack_key(key: str) -> Dict[str, Any]:
@@ -343,6 +428,135 @@ async def setup_test_rapidapi_get(key: str = Query(...)) -> Dict[str, Any]:
     return await _test_rapidapi_key(key)
 
 
+@app.post("/api/setup/activate")
+async def setup_activate(body: ActivationSetupIn) -> Dict[str, Any]:
+    import requests as _req
+    from localflight.storage.install import get_install_fingerprint, get_install_id, set_activation_token
+
+    relay_url = (body.relay_url or _relay_url_default()).strip()
+    try:
+        response = _req.post(
+            _activate_url(relay_url),
+            json={
+                "install_id": get_install_id(),
+                "install_fingerprint": get_install_fingerprint(),
+                "airport_iata": (body.airport_iata or "").strip().upper(),
+                "airport_icao": (body.airport_icao or "").strip().upper(),
+                "display_name": (body.display_name or "").strip(),
+                "requested_mode": (body.requested_mode or "managed").strip().lower(),
+                "app_version": _APP_VERSION,
+            },
+            headers={"Accept": "application/json"},
+            timeout=12,
+        )
+    except Exception as exc:
+        return {"ok": False, "error": f"Relay activation failed: {exc}"}
+
+    try:
+        payload = response.json()
+    except Exception:
+        payload = {"detail": f"Relay returned HTTP {response.status_code}"}
+    if response.status_code >= 400:
+        return {"ok": False, "error": str(payload.get("detail") or payload.get("error") or f"HTTP {response.status_code}")}
+    if not isinstance(payload, dict):
+        return {"ok": False, "error": "Relay activation response was invalid"}
+    token = str(payload.get("activation_token") or "").strip()
+    if token:
+        try:
+            set_activation_token(token)
+        except Exception:
+            pass
+        payload["activation_token_present"] = True
+        payload["activation_token_prefix"] = payload.get("token_prefix") or token[:10]
+        payload.pop("activation_token", None)
+    payload.setdefault("ok", True)
+    return payload
+
+
+@app.post("/api/setup/client-status")
+async def setup_client_status(body: ClientStatusSetupIn) -> Dict[str, Any]:
+    import requests as _req
+    from localflight.storage.install import get_activation_token, get_install_id
+
+    relay_url = (body.relay_url or _relay_url_default()).strip()
+    activation_token = (body.activation_token or "").strip() or get_activation_token().strip()
+    try:
+        response = _req.get(
+            _client_status_url(relay_url),
+            params={
+                "install_id": get_install_id(),
+                "activation_token": activation_token,
+                "app_version": _APP_VERSION,
+            },
+            headers={"Accept": "application/json"},
+            timeout=12,
+        )
+    except Exception as exc:
+        return {"ok": False, "error": f"Relay status check failed: {exc}"}
+
+    try:
+        payload = response.json()
+    except Exception:
+        payload = {"detail": f"Relay returned HTTP {response.status_code}"}
+    if response.status_code >= 400:
+        return {"ok": False, "error": str(payload.get("detail") or payload.get("error") or f"HTTP {response.status_code}")}
+    if not isinstance(payload, dict):
+        return {"ok": False, "error": "Relay status response was invalid"}
+    payload.setdefault("ok", True)
+    return payload
+
+
+@app.post("/api/setup/request-activation")
+async def setup_request_activation_compat(body: ActivationSetupIn) -> Dict[str, Any]:
+    return await setup_activate(body)
+
+
+@app.post("/api/setup/request-activation/status")
+async def setup_request_activation_status_compat(body: ClientStatusSetupIn) -> Dict[str, Any]:
+    return await setup_client_status(body)
+
+
+@app.post("/api/setup/test-activation")
+async def setup_test_activation(body: ActivationTokenTestIn) -> Dict[str, Any]:
+    import requests as _req
+    from localflight.storage.install import get_activation_token, get_install_fingerprint, get_install_id
+
+    relay_url = (body.relay_url or _relay_url_default()).strip()
+    token = body.activation_token.strip() or get_activation_token().strip()
+    if not token:
+        return {"ok": False, "error": "Managed activation token is not loaded on this machine yet."}
+    try:
+        response = _req.get(
+            _client_status_url(relay_url),
+            params={"install_id": get_install_id(), "activation_token": token, "app_version": _APP_VERSION},
+            headers={"Accept": "application/json"},
+            timeout=12,
+        )
+    except Exception as exc:
+        return {"ok": False, "error": f"Relay verification failed: {exc}"}
+
+    try:
+        payload = response.json()
+    except Exception:
+        payload = {"detail": f"Relay returned HTTP {response.status_code}"}
+
+    if response.status_code >= 400:
+        return {"ok": False, "error": str(payload.get("detail") or payload.get("error") or f"HTTP {response.status_code}")}
+    if not isinstance(payload, dict):
+        return {"ok": False, "error": "Relay verification response was invalid"}
+
+    return {
+        "ok": bool(payload.get("ok", True)),
+        "install_fingerprint": payload.get("install_fingerprint") or get_install_fingerprint(),
+        "token_prefix": payload.get("token_prefix") or token[:10],
+        "providers": payload.get("providers") or {},
+        "limits": payload.get("limits") or {},
+        "plan": payload.get("plan") or "managed",
+        "provider_revision": payload.get("provider_revision"),
+        "label": payload.get("label") or "",
+    }
+
+
 @app.post("/api/setup/complete")
 async def setup_complete(request: Request, background_tasks: BackgroundTasks) -> Dict[str, Any]:
     """Save setup wizard results — write .env, save config, mark setup complete."""
@@ -355,6 +569,7 @@ async def setup_complete(request: Request, background_tasks: BackgroundTasks) ->
     airport_icao = (data.get("airport_icao") or "LSZH").upper().strip()
     timezone_str = data.get("timezone") or "Europe/Zurich"
     source = data.get("source") or "real"
+    setup_mode = str(data.get("setup_mode") or "").strip().lower()
     if source not in ALLOWED_SOURCES:
         source = "real"
 
@@ -378,20 +593,72 @@ async def setup_complete(request: Request, background_tasks: BackgroundTasks) ->
 
     as_key = data.get("aviationstack_key", "").strip()
     rp_key = data.get("rapidapi_key", "").strip()
+    activation_token = data.get("activation_token", "").strip()
+    relay_url = data.get("relay_url", "").strip()
     os_id = data.get("opensky_id", "").strip()
     os_sec = data.get("opensky_secret", "").strip()
 
-    if as_key:
-        existing["AVIATIONSTACK_API_KEY"] = as_key
-        existing["LOCALFLIGHT_AVIATIONSTACK_ENABLED"] = "1"
-        existing.setdefault("LOCALFLIGHT_AVIATIONSTACK_MONTHLY_LIMIT", "10000")
-    if rp_key:
-        existing["RAPIDAPI_KEY"] = rp_key
-        existing.setdefault("LOCALFLIGHT_RAPIDAPI_MONTHLY_LIMIT", "10000")
+    if setup_mode in {"managed", "community"} and not activation_token:
+        try:
+            from localflight.storage.install import get_activation_token
+
+            activation_token = get_activation_token().strip()
+        except Exception:
+            activation_token = ""
+
+    def _clear_real_data_keys(*, clear_activation: bool = True) -> None:
+        if clear_activation:
+            existing.pop("LOCALFLIGHT_ACTIVATION_TOKEN", None)
+        existing.pop("AVIATIONSTACK_API_KEY", None)
+        existing.pop("RAPIDAPI_KEY", None)
+        existing["LOCALFLIGHT_AVIATIONSTACK_ENABLED"] = "0"
+
+    if setup_mode == "managed":
+        _clear_real_data_keys()
+        if activation_token:
+            existing["LOCALFLIGHT_ACTIVATION_TOKEN"] = activation_token
+        if relay_url:
+            existing["LOCALFLIGHT_RELAY_URL"] = relay_url
+        else:
+            existing.pop("LOCALFLIGHT_RELAY_URL", None)
+    elif setup_mode == "byok":
+        existing.pop("LOCALFLIGHT_ACTIVATION_TOKEN", None)
+        existing.pop("LOCALFLIGHT_RELAY_URL", None)
+        existing.pop("AVIATIONSTACK_API_KEY", None)
+        existing.pop("RAPIDAPI_KEY", None)
+        if as_key:
+            existing["AVIATIONSTACK_API_KEY"] = as_key
+            existing["LOCALFLIGHT_AVIATIONSTACK_ENABLED"] = "1"
+            current_as_limit = existing.get("LOCALFLIGHT_AVIATIONSTACK_MONTHLY_LIMIT", "").strip()
+            if not current_as_limit or current_as_limit == "10000":
+                existing["LOCALFLIGHT_AVIATIONSTACK_MONTHLY_LIMIT"] = "90"
+        else:
+            existing["LOCALFLIGHT_AVIATIONSTACK_ENABLED"] = "0"
+        if rp_key:
+            existing["RAPIDAPI_KEY"] = rp_key
+            existing.setdefault("LOCALFLIGHT_RAPIDAPI_MONTHLY_LIMIT", "10000")
+    elif setup_mode == "community":
+        _clear_real_data_keys(clear_activation=False)
+        if activation_token:
+            existing["LOCALFLIGHT_ACTIVATION_TOKEN"] = activation_token
+        else:
+            existing.pop("LOCALFLIGHT_ACTIVATION_TOKEN", None)
+        if relay_url:
+            existing["LOCALFLIGHT_RELAY_URL"] = relay_url
+        else:
+            existing.pop("LOCALFLIGHT_RELAY_URL", None)
+    else:
+        _clear_real_data_keys()
+        existing.pop("LOCALFLIGHT_RELAY_URL", None)
+
     if os_id:
         existing["OPENSKY_CLIENT_ID"] = os_id
+    elif setup_mode in {"managed", "community", "virtual"}:
+        existing.pop("OPENSKY_CLIENT_ID", None)
     if os_sec:
         existing["OPENSKY_CLIENT_SECRET"] = os_sec
+    elif setup_mode in {"managed", "community", "virtual"}:
+        existing.pop("OPENSKY_CLIENT_SECRET", None)
 
     try:
         lines = ["# Local Flight — environment variables\n"]
@@ -400,8 +667,13 @@ async def setup_complete(request: Request, background_tasks: BackgroundTasks) ->
         env_path.write_text("".join(lines), encoding="utf-8")
 
         for k, v in existing.items():
-            if k not in os.environ:
-                os.environ[k] = v
+            os.environ[k] = v
+        try:
+            from localflight.storage.install import set_activation_token
+
+            set_activation_token(existing.get("LOCALFLIGHT_ACTIVATION_TOKEN", ""))
+        except Exception:
+            pass
     except Exception as exc:
         logger.error("Setup: could not write .env: %s", exc)
         return JSONResponse({"ok": False, "error": f"Could not save config: {exc}"}, status_code=500)
@@ -679,13 +951,11 @@ def fids(request: Request, view: str = "arrivals", embedded: bool = Query(False)
     def _best_time(f):
         return f.times.actual or f.times.estimated or f.times.scheduled
 
-    now = datetime.now(timezone.utc)
     direction = FlightDirection.DEPARTURE if view == "departures" else FlightDirection.ARRIVAL
     all_flights = [_dict_to_flight(f) for f in (raw.get("flights") or [])]
     flights = [
         f for f in all_flights
         if f.direction == direction
-        and (_best_time(f) is None or _best_time(f) >= now)
     ][:12]
 
     ctx = _build(

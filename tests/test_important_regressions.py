@@ -1,12 +1,20 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+import sys
+import types
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+
+from fastapi.testclient import TestClient
 
 import localflight.scheduler.jobs as jobs
 import localflight.scheduler.runtime as runtime
+import localflight.sources.web.adsbexchange_client as adsbexchange_client
+import localflight.sources.web.aviationstack_client as aviationstack_client
 import localflight.storage.flights_store as flights_store
+import localflight.ui.api as ui_api
+import localflight.ui.server as ui_server
 from localflight.core.models import AirportRef, Flight, FlightDirection, FlightTime
 from localflight.storage.config import AppConfig
 from localflight.storage.state import AppState
@@ -134,3 +142,367 @@ def test_api_config_get_route_is_registered_once() -> None:
 
     assert len(routes) == 1
     assert routes[0].endpoint.__name__ == "api_get_config"
+
+
+def test_aviationstack_usage_stats_report_separate_buckets(monkeypatch) -> None:
+    monkeypatch.setattr(
+        aviationstack_client,
+        "_load_usage",
+        lambda: {
+            "relay": {
+                "period_start": "2026-04-01T00:00:00+00:00",
+                "period_end": "2026-05-01T00:00:00+00:00",
+                "calls": 12,
+                "limit": 50,
+                "period_days": 30,
+            },
+            "aviationstack": {"2026-04": 34},
+        },
+    )
+    monkeypatch.setattr(aviationstack_client, "_utc_now", lambda: datetime(2026, 4, 15, tzinfo=timezone.utc))
+    monkeypatch.setattr(aviationstack_client, "_month_key", lambda: "2026-04")
+    monkeypatch.setattr(aviationstack_client, "_get_relay_limit", lambda: 50)
+    monkeypatch.setattr(aviationstack_client, "_get_byok_limit", lambda: 90)
+    monkeypatch.setattr(aviationstack_client, "_get_relay_url", lambda: "https://relay.localflight.app/v1/flights")
+    monkeypatch.setattr(aviationstack_client, "_has_enabled_byok_key", lambda: False)
+    monkeypatch.setattr(aviationstack_client, "_has_api_key", lambda: False)
+    monkeypatch.setattr(aviationstack_client, "_has_community_api_key", lambda: False)
+    monkeypatch.setattr(aviationstack_client, "_get_activation_token", lambda: "")
+    monkeypatch.setattr(aviationstack_client, "_is_enabled", lambda: False)
+
+    community_stats = aviationstack_client.get_usage_stats("real")
+    assert community_stats["active_mode"] == "community"
+    assert community_stats["community"]["calls_this_month"] == 12
+    assert community_stats["community"]["monthly_limit"] == 50
+    assert community_stats["byok"]["calls_this_month"] == 34
+    assert community_stats["byok"]["monthly_limit"] == 90
+    assert community_stats["byok"]["ui_monthly_max"] == 100
+
+    virtual_stats = aviationstack_client.get_usage_stats("virtual")
+    assert virtual_stats["active_mode"] == "virtual"
+    assert virtual_stats["calls_this_month"] == 0
+    assert virtual_stats["monthly_limit"] == 0
+
+
+def test_fetch_flights_once_prefers_managed_relay_before_local_community_key(monkeypatch) -> None:
+    calls: list[str] = []
+
+    monkeypatch.setattr(aviationstack_client, "_has_enabled_byok_key", lambda: False)
+    monkeypatch.setattr(aviationstack_client, "_has_activation_token", lambda: True)
+    monkeypatch.setattr(aviationstack_client, "_has_community_api_key", lambda: True)
+    monkeypatch.setattr(
+        aviationstack_client,
+        "_fetch_community_direct",
+        lambda **kwargs: calls.append("community") or {"data": []},
+    )
+    monkeypatch.setattr(
+        aviationstack_client,
+        "_fetch_relay",
+        lambda **kwargs: calls.append("relay") or {"data": []},
+    )
+
+    result = aviationstack_client.fetch_flights_once(airport_iata="ZRH")
+
+    assert result == {"data": []}
+    assert calls == ["relay"]
+
+
+def test_aviationstack_usage_stats_use_managed_bucket_when_token_present(monkeypatch) -> None:
+    monkeypatch.setattr(
+        aviationstack_client,
+        "_load_usage",
+        lambda: {
+            "relay": {
+                "period_start": "2026-04-01T00:00:00+00:00",
+                "period_end": "2026-05-01T00:00:00+00:00",
+                "calls": 112,
+                "limit": 50,
+                "period_days": 30,
+            },
+            "relay_managed": {"2026-04": 3},
+            "relay_managed_limits": {"2026-04": 10000},
+            "aviationstack": {"2026-04": 8},
+        },
+    )
+    monkeypatch.setattr(aviationstack_client, "_utc_now", lambda: datetime(2026, 4, 15, tzinfo=timezone.utc))
+    monkeypatch.setattr(aviationstack_client, "_month_key", lambda: "2026-04")
+    monkeypatch.setattr(aviationstack_client, "_get_relay_limit", lambda: 50)
+    monkeypatch.setattr(aviationstack_client, "_get_byok_limit", lambda: 90)
+    monkeypatch.setattr(aviationstack_client, "_has_enabled_byok_key", lambda: False)
+    monkeypatch.setattr(aviationstack_client, "_has_api_key", lambda: False)
+    monkeypatch.setattr(aviationstack_client, "_has_community_api_key", lambda: True)
+    monkeypatch.setattr(aviationstack_client, "_get_activation_token", lambda: "lfm_test_token")
+    monkeypatch.setattr(
+        aviationstack_client,
+        "_fetch_managed_status",
+        lambda timeout_s=8: {
+            "ok": True,
+            "limits": {"schedule": 10000},
+            "providers": {"aviationstack": True, "adsbexchange": True},
+            "token_prefix": "lfm_test",
+        },
+    )
+
+    stats = aviationstack_client.get_usage_stats("real")
+
+    assert stats["active_mode"] == "managed"
+    assert stats["calls_this_month"] == 3
+    assert stats["monthly_limit"] == 10000
+    assert stats["managed"]["token_prefix"] == "lfm_test"
+    assert stats["managed"]["providers"]["aviationstack"] is True
+
+
+def test_community_budget_uses_rolling_30_day_window(monkeypatch) -> None:
+    saved: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        aviationstack_client,
+        "_load_usage",
+        lambda: {
+            "relay": {
+                "period_start": "2026-03-01T00:00:00+00:00",
+                "period_end": "2026-03-31T00:00:00+00:00",
+                "calls": 49,
+                "limit": 50,
+                "period_days": 30,
+            }
+        },
+    )
+    monkeypatch.setattr(aviationstack_client, "_save_usage", lambda data: saved.update(data))
+    monkeypatch.setattr(aviationstack_client, "_utc_now", lambda: datetime(2026, 4, 5, tzinfo=timezone.utc))
+
+    aviationstack_client._increment_community_budget(50)
+
+    relay = saved["relay"]
+    assert isinstance(relay, dict)
+    assert relay["calls"] == 1
+    assert relay["limit"] == 50
+    assert relay["period_days"] == 30
+
+
+def test_virtual_mode_does_not_clear_community_budget_memory(monkeypatch) -> None:
+    monkeypatch.setattr(
+        aviationstack_client,
+        "_load_usage",
+        lambda: {
+            "relay": {
+                "period_start": "2026-04-10T00:00:00+00:00",
+                "period_end": "2026-05-10T00:00:00+00:00",
+                "calls": 17,
+                "limit": 50,
+                "period_days": 30,
+            }
+        },
+    )
+    monkeypatch.setattr(aviationstack_client, "_utc_now", lambda: datetime(2026, 4, 20, tzinfo=timezone.utc))
+    monkeypatch.setattr(aviationstack_client, "_get_relay_limit", lambda: 50)
+    monkeypatch.setattr(aviationstack_client, "_get_byok_limit", lambda: 90)
+    monkeypatch.setattr(aviationstack_client, "_get_relay_url", lambda: "https://relay.localflight.app/v1/flights")
+    monkeypatch.setattr(aviationstack_client, "_has_enabled_byok_key", lambda: False)
+    monkeypatch.setattr(aviationstack_client, "_has_api_key", lambda: False)
+    monkeypatch.setattr(aviationstack_client, "_has_community_api_key", lambda: False)
+    monkeypatch.setattr(aviationstack_client, "_get_activation_token", lambda: "")
+    monkeypatch.setattr(aviationstack_client, "_is_enabled", lambda: False)
+
+    virtual_stats = aviationstack_client.get_usage_stats("virtual")
+    community_stats = aviationstack_client.get_usage_stats("real")
+
+    assert virtual_stats["active_mode"] == "virtual"
+    assert virtual_stats["calls_this_month"] == 0
+    assert community_stats["active_mode"] == "community"
+    assert community_stats["calls_this_month"] == 17
+    assert community_stats["remaining"] == 33
+
+
+def test_api_radar_virtual_uses_vatsim_only(monkeypatch) -> None:
+    monkeypatch.setattr(
+        ui_api,
+        "load_config",
+        lambda: AppConfig(airport_iata="ZRH", airport_icao="LSZH", source="virtual"),
+    )
+    monkeypatch.setattr(
+        ui_api,
+        "lookup_airport",
+        lambda **kwargs: types.SimpleNamespace(lat=47.45, lon=8.55, icao="LSZH"),
+    )
+
+    vatsim_module = types.ModuleType("localflight.sources.web.vatsim_client")
+    vatsim_module.fetch_vatsim_data = lambda: {
+        "pilots": [
+            {
+                "callsign": "SWR100",
+                "latitude": 47.5,
+                "longitude": 8.6,
+                "altitude": 12000,
+                "groundspeed": 250,
+                "heading": 140,
+                "flight_plan": {"departure": "LSZH", "arrival": "EGLL"},
+            }
+        ]
+    }
+    monkeypatch.setitem(sys.modules, "localflight.sources.web.vatsim_client", vatsim_module)
+
+    opensky_module = types.ModuleType("localflight.sources.web.opensky_radar")
+    opensky_module.bounding_box = lambda lat, lon, radius_nm: (47.0, 8.0, 48.0, 9.0)
+    opensky_module.fetch_radar_blips = lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("OpenSky should not be used"))
+    monkeypatch.setitem(sys.modules, "localflight.sources.web.opensky_radar", opensky_module)
+
+    adsbx_module = types.ModuleType("localflight.sources.web.adsbexchange_client")
+    adsbx_module.fetch_aircraft = lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("ADS-B Exchange should not be used"))
+    adsbx_module.aircraft_to_blips = lambda *args, **kwargs: []
+    adsbx_module.is_available = lambda: True
+    monkeypatch.setitem(sys.modules, "localflight.sources.web.adsbexchange_client", adsbx_module)
+
+    result = ui_api.api_radar(20.0)
+
+    assert result["source"] == "vatsim"
+    assert result["count"] == 1
+    assert result["blips"][0]["callsign"] == "SWR100"
+
+
+def test_api_admin_budget_hides_provider_side_totals(monkeypatch) -> None:
+    monkeypatch.setattr(ui_api, "load_config", lambda: AppConfig(source="real"))
+
+    fake_module = types.ModuleType("localflight.sources.web.aviationstack_client")
+    fake_module.get_usage_stats = lambda source=None: {"active_mode": "community", "calls_this_month": 7, "monthly_limit": 50}
+    monkeypatch.setitem(sys.modules, "localflight.sources.web.aviationstack_client", fake_module)
+
+    result = ui_api.api_admin_budget()
+
+    assert "aviationstack" in result
+    assert "adsbexchange" not in result
+    assert "opensky_available" not in result
+
+
+def test_adsbexchange_fetch_aircraft_uses_managed_relay_when_token_present(monkeypatch) -> None:
+    calls: list[tuple[float, float, int, int]] = []
+
+    monkeypatch.setenv("RAPIDAPI_KEY", "")
+    monkeypatch.setattr(adsbexchange_client, "_get_activation_token", lambda: "lfm_test_token")
+    monkeypatch.setattr(
+        adsbexchange_client,
+        "_fetch_managed_relay",
+        lambda lat, lon, dist_nm, timeout_s: calls.append((lat, lon, dist_nm, timeout_s)) or [{"hex": "abc123"}],
+    )
+
+    result = adsbexchange_client.fetch_aircraft(lat=47.45, lon=8.55, radius_nm=21.0, timeout_s=9)
+
+    assert result == [{"hex": "abc123"}]
+    assert calls == [(47.45, 8.55, 25, 9)]
+
+
+def test_mobile_companion_checkin_is_exposed_in_connections(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(ui_server, "_setup_complete", lambda: True)
+    monkeypatch.setattr(ui_api, "_companion_presence_path", lambda: tmp_path / "companion_clients.json")
+
+    client = TestClient(app)
+    response = client.post(
+        "/api/admin/companion/checkin",
+        json={
+            "companion_id": "lfc_test_mobile_001",
+            "client_name": "Local Flight Companion",
+            "app_version": "0.2.3b1",
+            "mobile_os": "iOS 18.5 (phone)",
+            "device_type": "phone",
+        },
+    )
+
+    assert response.status_code == 200
+    checkin = response.json()
+    assert checkin["ok"] is True
+    assert " / iOS 18.5 (phone)" in checkin["platform_pair"]
+
+    connections = client.get("/api/admin/connections")
+    assert connections.status_code == 200
+    payload = connections.json()
+    assert payload["companion_count"] == 1
+    assert payload["companions"][0]["companion_id"] == "lfc_test_mobile_001"
+    assert payload["companions"][0]["platform_pair"].endswith("/ iOS 18.5 (phone)")
+
+
+def test_fids_page_keeps_recent_departures_inside_grace_window(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(ui_server, "_setup_complete", lambda: True)
+    monkeypatch.setattr(
+        ui_server,
+        "load_config",
+        lambda: AppConfig(airport_iata="ZRH", airport_icao="LSZH", timezone="UTC", source="real"),
+    )
+    monkeypatch.setattr(ui_server, "best_label", lambda **kwargs: "Zurich")
+    monkeypatch.setattr(ui_server, "load_state", lambda: AppState(ok=True))
+
+    now = datetime.now(timezone.utc)
+    snapshot = tmp_path / "latest.json"
+    snapshot.write_text(
+        json.dumps(
+            {
+                "generated_at": now.isoformat(),
+                "flights": [
+                    {
+                        "direction": "DEP",
+                        "airport": {"iata": "ZRH", "icao": "LSZH"},
+                        "callsign": "SWR10",
+                        "airline": {"name": "Swiss", "iata": "LX", "icao": "SWR"},
+                        "flight_number": "LX10",
+                        "origin": {"iata": "ZRH", "icao": "LSZH", "name": "Zurich"},
+                        "destination": {"iata": "LHR", "icao": "EGLL", "name": "London Heathrow"},
+                        "aircraft_type": "A320",
+                        "gate": "A1",
+                        "terminal": "1",
+                        "stand": None,
+                        "status": "Scheduled",
+                        "times": {
+                            "scheduled": (now - timedelta(minutes=10)).isoformat(),
+                            "estimated": None,
+                            "actual": None,
+                        },
+                        "delay_minutes": None,
+                        "position": None,
+                        "source": "aviationstack",
+                        "enriched_by": None,
+                        "updated_at": now.isoformat(),
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        "localflight.storage.flights_store.load_latest_snapshot_path",
+        lambda airport_iata: snapshot,
+    )
+
+    client = TestClient(app)
+    response = client.get("/fids?view=departures")
+
+    assert response.status_code == 200
+    assert "LX 10" in response.text
+    assert "London Heathrow" in response.text or "LHR" in response.text
+
+
+def test_api_radar_reports_refresh_hint_for_adsb_cache(monkeypatch) -> None:
+    ui_api._adsbx_radar_cache.clear()
+    ui_api._opensky_radar_cache.clear()
+    monkeypatch.setattr(
+        ui_api,
+        "load_config",
+        lambda: AppConfig(airport_iata="ZRH", airport_icao="LSZH", source="real"),
+    )
+    monkeypatch.setattr(
+        ui_api,
+        "lookup_airport",
+        lambda **kwargs: types.SimpleNamespace(lat=47.45, lon=8.55, icao="LSZH"),
+    )
+
+    adsbx_module = types.ModuleType("localflight.sources.web.adsbexchange_client")
+    adsbx_module.is_available = lambda: True
+    adsbx_module.fetch_aircraft = lambda lat, lon, radius_nm, timeout_s=10: [{"hex": "abc123"}]
+    adsbx_module.aircraft_to_blips = lambda aircraft, center_lat, center_lon, radius_nm=50.0: [
+        {"callsign": "SWR100", "lat": 47.46, "lon": 8.56}
+    ]
+    monkeypatch.setitem(sys.modules, "localflight.sources.web.adsbexchange_client", adsbx_module)
+
+    result = ui_api.api_radar(20.0)
+
+    assert result["source"] == "adsbexchange_live"
+    assert result["refresh_after_s"] >= 60
+    assert result["count"] == 1

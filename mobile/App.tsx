@@ -8,7 +8,6 @@ import {
   Linking,
   Modal,
   PanResponder,
-  Platform,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -38,6 +37,7 @@ import {
   patchConfig,
   restartScheduler,
   searchAirports,
+  sendCompanionCheckin,
   submitFeedback,
   testConnection,
   wsUrl
@@ -59,6 +59,7 @@ import type {
 } from "./src/api/types";
 import { CrashBoundary } from "./src/crash/CrashBoundary";
 import { installGlobalCrashReporter, reportMobileCrash } from "./src/crash/reporter";
+import { appVersion, getCompanionIdentity, platformPairLabel, type CompanionIdentity } from "./src/device/identity";
 import { type ConfigProfile, loadPinnedFlight, loadProfiles, loadServerUrl, savePinnedFlight, saveProfiles, saveServerUrl } from "./src/storage/settings";
 import { mono, palette } from "./src/theme/tokens";
 import { useResponsiveLayout } from "./src/utils/layout";
@@ -92,7 +93,8 @@ type ProjectedBlip = {
   distanceNm: number;
 };
 
-const APP_VERSION = "0.2.2b3";
+const APP_VERSION = appVersion();
+const COMPANION_PING_MS = 10 * 60 * 1000;
 const HISTORY_WINDOWS: HistoryWindow[] = [24, 72, 168];
 const RADAR_RADII: RadarRadius[] = [20, 40, 80];
 const MATRIX_PRESETS: MatrixPreset[] = [
@@ -350,15 +352,24 @@ function flightPinKey(row: FidsRow): string {
   return row.callsign || row.id;
 }
 
-function mobileClientContext(serverUrl: string, snapshot?: DashboardSnapshot): string {
+function mobileClientContext(
+  serverUrl: string,
+  snapshot?: DashboardSnapshot,
+  companion?: CompanionIdentity | null
+): string {
+  const mobileOs = companion?.mobileOs || "Unknown mobile OS";
+  const companionId = companion?.companionId || "unknown";
+  const serverPlatform = snapshot?.system?.platform || "unknown";
   return [
-    `Reporter     Local Flight Companion`,
-    `App version  ${APP_VERSION}`,
-    `Client OS    ${Platform.OS} ${String(Platform.Version)}`,
-    `Server URL   ${normalizeServerUrl(serverUrl) || "not set"}`,
-    `Server OS    ${snapshot?.system?.platform || "unknown"}`,
-    `Airport      ${snapshot?.config?.airport_iata || "---"}`,
-    `Source       ${snapshot?.state?.source_name || snapshot?.config?.source || "unknown"}`
+    `Reporter       ${companion?.clientName || "Local Flight Companion"}`,
+    `Companion ID   ${companionId}`,
+    `App version    ${companion?.appVersion || APP_VERSION}`,
+    `Companion OS   ${mobileOs}`,
+    `Server install ${snapshot?.system?.install_id || "unknown"}`,
+    `Platform pair  ${platformPairLabel(serverPlatform, mobileOs)}`,
+    `Server URL     ${normalizeServerUrl(serverUrl) || "not set"}`,
+    `Airport        ${snapshot?.config?.airport_iata || "---"}`,
+    `Source         ${snapshot?.state?.source_name || snapshot?.config?.source || "unknown"}`
   ].join("\n");
 }
 
@@ -479,6 +490,7 @@ function AppShell() {
   const [actionRow, setActionRow] = useState<FidsRow | null>(null);
   const [configSheetVisible, setConfigSheetVisible] = useState(false);
   const [profiles, setProfiles] = useState<ConfigProfile[]>([]);
+  const [companionIdentity, setCompanionIdentity] = useState<CompanionIdentity | null>(null);
 
   const socketRef = useRef<WebSocket | null>(null);
   const detailRequestRef = useRef(0);
@@ -538,8 +550,8 @@ function AppShell() {
     }).start();
     pulseAnim.start();
 
-    Promise.all([loadServerUrl(), loadPinnedFlight(), loadProfiles()])
-      .then(([savedUrl, savedPin, savedProfiles]) => {
+    Promise.all([loadServerUrl(), loadPinnedFlight(), loadProfiles(), getCompanionIdentity()])
+      .then(([savedUrl, savedPin, savedProfiles, identity]) => {
         if (!alive) return;
         if (savedUrl) {
           setServerUrl(savedUrl);
@@ -551,6 +563,7 @@ function AppShell() {
         if (savedProfiles.length) {
           setProfiles(savedProfiles);
         }
+        setCompanionIdentity(identity);
       })
       .finally(() => {
         if (!alive) return;
@@ -821,7 +834,7 @@ function AppShell() {
       await submitFeedback(normalized, {
         title: feedbackTitle.trim(),
         description: feedbackDescription.trim(),
-        client_context: mobileClientContext(normalized, snapshot)
+        client_context: mobileClientContext(normalized, snapshot, companionIdentity)
       });
       setFeedbackTone("ok");
       setFeedbackMessage("Feedback sent to the Local Flight Reports board.");
@@ -833,7 +846,7 @@ function AppShell() {
     } finally {
       setFeedbackSending(false);
     }
-  }, [feedbackDescription, feedbackTitle, serverUrl, snapshot]);
+  }, [companionIdentity, feedbackDescription, feedbackTitle, serverUrl, snapshot]);
 
   const sendAutoReportTest = useCallback(async () => {
     setAutoReportMessage("Sending auto-report test...");
@@ -841,10 +854,10 @@ function AppShell() {
       message: "Intentional mobile auto-report test",
       traceback: "Triggered from the Admin screen to verify Linear crash wiring.",
       context: "mobile/manual-auto-test",
-      client_context: mobileClientContext(serverUrl, snapshot)
+      client_context: mobileClientContext(serverUrl, snapshot, companionIdentity)
     });
     setAutoReportMessage("Auto-report test sent with the crash route.");
-  }, [serverUrl, snapshot]);
+  }, [companionIdentity, serverUrl, snapshot]);
 
   const togglePinnedFlight = useCallback(
     async (row: FidsRow) => {
@@ -919,6 +932,40 @@ function AppShell() {
     }, syncIntervalMs);
     return () => clearInterval(timer);
   }, [connected, refreshScreen, screen, serverUrl, syncIntervalMs]);
+
+  useEffect(() => {
+    if (!serverUrl || !connected || !companionIdentity) return;
+    const normalized = normalizeServerUrl(serverUrl);
+    if (!normalized) return;
+
+    let alive = true;
+    const sendCheckin = async () => {
+      try {
+        await sendCompanionCheckin(normalized, {
+          companion_id: companionIdentity.companionId,
+          client_name: companionIdentity.clientName,
+          app_version: companionIdentity.appVersion,
+          mobile_os: companionIdentity.mobileOs,
+          device_type: companionIdentity.deviceType
+        });
+        const connections = await getConnections(normalized);
+        if (alive) {
+          setSnapshot((prev) => ({ ...prev, connections }));
+        }
+      } catch {
+        // Presence check-in is best-effort and should not disturb the main UI.
+      }
+    };
+
+    void sendCheckin();
+    const timer = setInterval(() => {
+      void sendCheckin();
+    }, COMPANION_PING_MS);
+    return () => {
+      alive = false;
+      clearInterval(timer);
+    };
+  }, [companionIdentity, connected, serverUrl]);
 
   const contentWidth = Math.min(layout.contentMaxWidth, layout.width - 24);
   const detail = detailOrNull(detailData);
@@ -1058,6 +1105,7 @@ function AppShell() {
               {screen === "admin" ? (
                 <AdminScreen
                   snapshot={snapshot}
+                  companionIdentity={companionIdentity}
                   connected={isLive}
                   error={error}
                   rows={rows}
@@ -2314,6 +2362,7 @@ function StatusBadge({
 
 function AdminScreen({
   snapshot,
+  companionIdentity,
   connected,
   error,
   rows,
@@ -2331,6 +2380,7 @@ function AdminScreen({
   onBackSettings
 }: {
   snapshot: DashboardSnapshot;
+  companionIdentity: CompanionIdentity | null;
   connected: boolean;
   error: string | null;
   rows: FidsRow[];
@@ -2350,18 +2400,23 @@ function AdminScreen({
   const budget = snapshot.budget?.aviationstack;
   const matrixEnabled = snapshot.config?.display_outputs?.includes("matrix") || false;
   const matrixLastSeen = snapshot.connections?.matrix_last_seen;
+  const companionRecord =
+    snapshot.connections?.companions?.find((item) => item.companion_id === companionIdentity?.companionId) || null;
   const matrixOnline =
     !!matrixLastSeen && Date.now() - new Date(matrixLastSeen).getTime() < 5 * 60 * 1000;
   const updateValue = snapshot.updates?.update_available
     ? `V${snapshot.updates.latest || "NEW"} READY`
     : `V${snapshot.updates?.current || snapshot.system?.version || APP_VERSION}`;
+  const platformPair = platformPairLabel(snapshot.system?.platform, companionIdentity?.mobileOs);
   const feedbackContext = [
-    `Reporter   Local Flight Companion`,
-    `Client OS  ${Platform.OS} ${String(Platform.Version)}`,
-    `Build      ${APP_VERSION}`,
-    `Server OS  ${snapshot.system?.platform || "UNKNOWN"}`,
-    `Airport    ${snapshot.config?.airport_iata || "---"}`,
-    `Source     ${snapshot.state?.source_name || snapshot.config?.source || "UNKNOWN"}`
+    `Reporter      ${companionIdentity?.clientName || "Local Flight Companion"}`,
+    `Companion ID  ${companionIdentity?.companionId || "UNKNOWN"}`,
+    `Companion OS  ${companionIdentity?.mobileOs || "UNKNOWN"}`,
+    `Build         ${companionIdentity?.appVersion || APP_VERSION}`,
+    `Server ID     ${snapshot.system?.install_id || "UNKNOWN"}`,
+    `Platform pair ${platformPair}`,
+    `Airport       ${snapshot.config?.airport_iata || "---"}`,
+    `Source        ${snapshot.state?.source_name || snapshot.config?.source || "UNKNOWN"}`
   ].join("\n");
 
   return (
@@ -2388,9 +2443,21 @@ function AdminScreen({
         <InfoCard label="API BUDGET" value={budget?.remaining != null ? `${budget.remaining} LEFT` : "UNKNOWN"} />
       </View>
       <View style={styles.metricRow}>
-        <InfoCard label="PLATFORM" value={snapshot.system?.platform || "UNKNOWN"} />
+        <InfoCard label="PAIR" value={companionRecord?.platform_pair || platformPair} />
         <InfoCard label="MEMORY" value={snapshot.system?.memory_mb != null ? `${snapshot.system.memory_mb} MB` : "-"} />
         <InfoCard label="MATRIX" value={matrixOnline ? "ONLINE" : matrixEnabled ? "WAITING" : "DISABLED"} tone={matrixOnline ? "green" : matrixEnabled ? "amber" : "red"} />
+      </View>
+
+      <View style={styles.settingsCard}>
+        <Text style={styles.settingsTitle}>COMPANION LINK</Text>
+        <Text style={styles.moduleIntro}>
+          Separate mobile identity used for server presence, request tracing, and Linear reports.
+        </Text>
+        <InfoLine label="Companion ID" value={companionIdentity?.companionId || "Loading..."} />
+        <InfoLine label="Companion OS" value={companionIdentity?.mobileOs || "Loading..."} />
+        <InfoLine label="Server install" value={snapshot.system?.install_id || "Unknown"} />
+        <InfoLine label="Platform pair" value={companionRecord?.platform_pair || platformPair} />
+        <InfoLine label="Last check-in" value={companionRecord?.last_seen ? formatRelative(companionRecord.last_seen) : "Not seen yet"} />
       </View>
 
       <View style={styles.settingsCard}>

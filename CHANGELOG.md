@@ -6,6 +6,37 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.2.3b1] - 2026-04-27
+
+### Added
+- Separate community and BYOK schedule tracking in Admin, including the active runtime mode, community path, and BYOK spare-call headroom.
+- Local-only private key lookup for community schedule testing via ignored `dev/private/community_keys.json`.
+- Managed-install activation tokens for relay-backed deployments, including relay proxy support for both AviationStack schedules and ADS-B radar.
+- A dedicated network admin console for managed relay deployments, covering provider-key storage, token reshuffling and revocation, install access control, API totals, and traffic statistics.
+- A read-only client link card in Settings showing the machine fingerprint, current key family, relay URL, token presence, and managed verification state.
+- Direct managed-relay activation from Setup, so a normal install can connect itself to the relay and verify the path without waiting for a manual token handoff.
+- Anonymous relay network tags for activation safety checks, so the network console can flag unusual bursts without storing readable IP addresses.
+- A separate mobile companion identity, plus companion OS/device reporting and server-side companion check-ins for traceable mobile diagnostics.
+
+### Changed
+- Local Flight now treats the three setup paths more explicitly: community schedules, BYOK schedules, or VATSIM virtual traffic.
+- BYOK AviationStack budgeting now defaults back to 90 calls/month so free-plan users keep 10 calls in reserve.
+- Community relay installs now cap AviationStack schedule usage at 50 calls/month per machine, and the relay admin shows that ceiling directly.
+- Community relay installs now keep that 50-call limit in a rolling 30-day local window, even if you switch to virtual traffic and back again later.
+- Setup now shows the machine identity, can connect straight to the relay, and verifies the relay communication path once the managed link is active.
+- Setup can now store a managed-install activation token so deployment clients can use the hosted relay without shipping vendor secrets.
+- Managed relay key changes now stay relay-side and take effect for clients on their next request instead of requiring vendor keys in the shipped app.
+- The network admin console now shows anonymous activation activity and manual-review exceptions instead of a default approval queue.
+- Mobile companion requests now identify themselves with a separate companion ID and platform label, and server-side connection data now distinguishes server install identity from companion identity.
+- Runtime fallbacks and mobile metadata now target `0.2.3b1`.
+
+### Fixed
+- Budget reporting no longer collapses community and BYOK schedule usage into one ambiguous AviationStack mode.
+- Virtual radar mode stays on the VATSIM branch and is covered by regression checks so real-data fallbacks do not creep back in.
+- Managed relay installs no longer inherit stale community usage counts, and the client now verifies the correct relay-linked key family before launch.
+
+---
+
 ## [0.2.2b3] - 2026-04-27
 
 ### Added

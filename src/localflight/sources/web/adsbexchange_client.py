@@ -1,30 +1,3 @@
-"""
-localflight/sources/web/adsbexchange_client.py
-
-ADS-B Exchange data source via RapidAPI.
-
-Endpoint:
-  GET https://adsbexchange-com1.p.rapidapi.com/v2/lat/{lat}/lon/{lon}/dist/{nm}/
-
-Returns all aircraft within `dist` nautical miles of a lat/lon point.
-Subscription: 10,000 calls/month (configurable via LOCALFLIGHT_RAPIDAPI_MONTHLY_LIMIT).
-
-Environment variable required:
-  RAPIDAPI_KEY=your_key_here
-
-Notable fields vs OpenSky:
-  - `t`  aircraft type (e.g. "A321") — not available on AviationStack free tier
-  - `r`  registration (e.g. "HB-JBA")
-  - `flight` callsign (trimmed)
-  - `alt_baro` barometric altitude in feet
-  - `alt_geom` geometric altitude in feet
-  - `gs` ground speed in knots
-  - `track` true heading degrees
-  - `baro_rate` vertical rate ft/min
-  - `squawk`
-  - `hex` ICAO 24-bit address
-  - `lat`, `lon` position
-"""
 from __future__ import annotations
 
 import json
@@ -33,15 +6,16 @@ import math
 import os
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 import requests
 
 log = logging.getLogger(__name__)
 
-ADSBX_BASE_URL            = "https://adsbexchange-com1.p.rapidapi.com/v2"
-_TIMEOUT_S                = 15
-_DEFAULT_MONTHLY_LIMIT    = 10_000
+ADSBX_BASE_URL = "https://adsbexchange-com1.p.rapidapi.com/v2"
+_TIMEOUT_S = 15
+_DEFAULT_MONTHLY_LIMIT = 10_000
+_DEFAULT_RELAY_LIMIT = 600
 
 
 class ADSBExchangeError(RuntimeError):
@@ -59,6 +33,25 @@ def _get_api_key() -> str:
     return key
 
 
+def _get_relay_url() -> str:
+    base = os.getenv("LOCALFLIGHT_ADSBX_RELAY_URL", "").strip()
+    if base:
+        return base.rstrip("/")
+    relay_base = os.getenv("LOCALFLIGHT_RELAY_URL", "https://relay.localflight.app/v1/flights").rstrip("/")
+    if relay_base.endswith("/flights"):
+        return relay_base[:-8] + "/radar"
+    return relay_base + "/radar"
+
+
+def _get_activation_token() -> str:
+    try:
+        from localflight.storage.install import get_activation_token
+
+        return get_activation_token()
+    except Exception:
+        return ""
+
+
 def _get_monthly_limit() -> int:
     try:
         return int(os.getenv("LOCALFLIGHT_RAPIDAPI_MONTHLY_LIMIT", str(_DEFAULT_MONTHLY_LIMIT)))
@@ -66,10 +59,16 @@ def _get_monthly_limit() -> int:
         return _DEFAULT_MONTHLY_LIMIT
 
 
-# ── RapidAPI usage counter ─────────────────────────────────────────────────────
+def _get_relay_limit() -> int:
+    try:
+        return int(os.getenv("LOCALFLIGHT_RELAY_RADAR_MONTHLY_LIMIT", str(_DEFAULT_RELAY_LIMIT)))
+    except (ValueError, TypeError):
+        return _DEFAULT_RELAY_LIMIT
+
 
 def _usage_path() -> Path:
     from localflight.storage.config import config_path
+
     return config_path().parent / "api_usage.json"
 
 
@@ -97,17 +96,16 @@ def _month_key() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m")
 
 
-def _check_and_increment_budget(n_calls: int = 1) -> None:
-    usage      = _load_usage()
-    month      = _month_key()
-    limit      = _get_monthly_limit()
-    month_data = usage.setdefault("rapidapi", {})
-    current    = month_data.get(month, 0)
+def _check_and_increment_budget(bucket: str, limit: int, n_calls: int = 1) -> None:
+    usage = _load_usage()
+    month = _month_key()
+    month_data = usage.setdefault(bucket, {})
+    current = int(month_data.get(month, 0) or 0)
 
     if current + n_calls > limit:
         raise ADSBExchangeBudgetExceeded(
-            f"RapidAPI monthly budget exceeded: {current}/{limit} calls used "
-            f"this month ({month}). Set LOCALFLIGHT_RAPIDAPI_MONTHLY_LIMIT=N to increase."
+            f"ADS-B monthly budget exceeded: {current}/{limit} calls used "
+            f"this month ({month})."
         )
 
     month_data[month] = current + n_calls
@@ -116,45 +114,53 @@ def _check_and_increment_budget(n_calls: int = 1) -> None:
     _save_usage(usage)
 
 
+def _sync_relay_quota_from_headers(headers: Any) -> None:
+    used_str = headers.get("X-LF-Radar-Quota-Used") if headers else None
+    limit_str = headers.get("X-LF-Radar-Quota-Limit") if headers else None
+    if used_str is None:
+        return
+    try:
+        used = int(used_str)
+        usage = _load_usage()
+        month = _month_key()
+        usage.setdefault("rapidapi_relay", {})[month] = used
+        if limit_str:
+            usage.setdefault("rapidapi_relay_limits", {})[month] = int(limit_str)
+        _save_usage(usage)
+    except Exception:
+        pass
+
+
 def get_usage_stats() -> Dict[str, Any]:
-    """Returns current RapidAPI usage stats. Safe to call anytime."""
-    usage  = _load_usage()
-    month  = _month_key()
-    limit  = _get_monthly_limit()
-    calls  = usage.get("rapidapi", {}).get(month, 0)
+    usage = _load_usage()
+    month = _month_key()
+    direct_available = bool(os.getenv("RAPIDAPI_KEY", "").strip())
+    managed_available = bool(_get_activation_token())
+    mode = "byok" if direct_available else ("managed_relay" if managed_available else "none")
+    bucket = "rapidapi" if direct_available else "rapidapi_relay"
+    limit_map_key = "rapidapi_relay_limits" if bucket == "rapidapi_relay" else ""
+
+    limit = _get_monthly_limit() if bucket == "rapidapi" else int(usage.get(limit_map_key, {}).get(month, _get_relay_limit()) or _get_relay_limit())
+    calls = int(usage.get(bucket, {}).get(month, 0) or 0)
     return {
-        "month":            month,
+        "month": month,
         "calls_this_month": calls,
-        "monthly_limit":    limit,
-        "remaining":        max(0, limit - calls),
-        "budget_ok":        calls < limit,
-        "available":        bool(os.getenv("RAPIDAPI_KEY", "").strip()),
+        "monthly_limit": limit,
+        "remaining": max(0, limit - calls),
+        "budget_ok": calls < limit,
+        "available": direct_available or managed_available,
+        "mode": mode,
     }
 
 
-def fetch_aircraft(
-    lat:       float,
-    lon:       float,
-    radius_nm: float = 50.0,
-    timeout_s: int   = _TIMEOUT_S,
-) -> List[Dict[str, Any]]:
-    """
-    Fetch all aircraft within radius_nm of (lat, lon) from ADS-B Exchange.
-    Returns the raw aircraft list from the API.
-    Raises ADSBExchangeError on failure.
-    """
-    # API takes integer nm — round up to nearest 5 for cleaner requests
-    dist_nm = max(5, int(math.ceil(radius_nm / 5) * 5))
-
-    _check_and_increment_budget(n_calls=1)
-
+def _fetch_direct(lat: float, lon: float, dist_nm: int, timeout_s: int) -> List[Dict[str, Any]]:
+    _check_and_increment_budget("rapidapi", _get_monthly_limit(), n_calls=1)
     url = f"{ADSBX_BASE_URL}/lat/{lat}/lon/{lon}/dist/{dist_nm}/"
-
     try:
         r = requests.get(
             url,
             headers={
-                "X-RapidAPI-Key":  _get_api_key(),
+                "X-RapidAPI-Key": _get_api_key(),
                 "X-RapidAPI-Host": "adsbexchange-com1.p.rapidapi.com",
             },
             timeout=timeout_s,
@@ -163,7 +169,7 @@ def fetch_aircraft(
         raise ADSBExchangeError(f"ADS-B Exchange request failed: {exc}") from exc
 
     if r.status_code == 429:
-        raise ADSBExchangeError("ADS-B Exchange rate limit hit — check RapidAPI dashboard")
+        raise ADSBExchangeError("ADS-B Exchange rate limit hit - check RapidAPI dashboard")
     if r.status_code == 403:
         raise ADSBExchangeError("ADS-B Exchange API key invalid or not subscribed")
     if r.status_code >= 400:
@@ -173,27 +179,83 @@ def fetch_aircraft(
         data = r.json()
     except Exception as exc:
         raise ADSBExchangeError(f"ADS-B Exchange response not valid JSON: {exc}") from exc
+    return data.get("ac") or []
 
-    aircraft = data.get("ac") or []
+
+def _fetch_managed_relay(lat: float, lon: float, dist_nm: int, timeout_s: int) -> List[Dict[str, Any]]:
+    from localflight.storage.install import get_install_id
+
+    params = {
+        "install_id": get_install_id(),
+        "lat": lat,
+        "lon": lon,
+        "radius_nm": dist_nm,
+        "activation_token": _get_activation_token(),
+    }
+    try:
+        r = requests.get(
+            _get_relay_url(),
+            params=params,
+            headers={"Accept": "application/json", "User-Agent": "local-flight/1.0 (+https://localflight.invalid)"},
+            timeout=timeout_s,
+        )
+    except requests.RequestException as exc:
+        raise ADSBExchangeError(f"Managed ADS-B relay request failed: {exc}") from exc
+
+    if r.status_code == 429:
+        raise ADSBExchangeBudgetExceeded("Managed ADS-B relay quota exceeded")
+    if r.status_code >= 400:
+        detail = f"Managed ADS-B relay HTTP {r.status_code}"
+        try:
+            payload = r.json()
+            error = payload.get("error") if isinstance(payload, dict) else None
+            if isinstance(error, dict):
+                detail += f" ({error.get('code')}): {error.get('info')}"
+        except Exception:
+            pass
+        raise ADSBExchangeError(detail)
+
+    _sync_relay_quota_from_headers(r.headers)
+    try:
+        data = r.json()
+    except Exception as exc:
+        raise ADSBExchangeError(f"Managed ADS-B relay response not valid JSON: {exc}") from exc
+    return data.get("ac") or []
+
+
+def fetch_aircraft(
+    lat: float,
+    lon: float,
+    radius_nm: float = 50.0,
+    timeout_s: int = _TIMEOUT_S,
+) -> List[Dict[str, Any]]:
+    dist_nm = max(5, int(math.ceil(radius_nm / 5) * 5))
+
+    if os.getenv("RAPIDAPI_KEY", "").strip():
+        aircraft = _fetch_direct(lat, lon, dist_nm, timeout_s)
+    elif _get_activation_token():
+        aircraft = _fetch_managed_relay(lat, lon, dist_nm, timeout_s)
+    else:
+        raise ADSBExchangeError("No ADS-B relay or RAPIDAPI_KEY configured")
+
     log.info(
         "ADS-B Exchange: %d aircraft within %dnm of (%.4f, %.4f)",
-        len(aircraft), dist_nm, lat, lon,
+        len(aircraft),
+        dist_nm,
+        lat,
+        lon,
     )
     return aircraft
 
 
 def aircraft_to_blips(
-    aircraft:   List[Dict[str, Any]],
+    aircraft: List[Dict[str, Any]],
     center_lat: float,
     center_lon: float,
-    radius_nm:  float = 50.0,
+    radius_nm: float = 50.0,
 ) -> List[Dict[str, Any]]:
-    """
-    Convert ADS-B Exchange aircraft list to radar blip dicts.
-    Compatible with /api/radar response format.
-    """
     blips: List[Dict[str, Any]] = []
-    NM_PER_DEG = 60.0
+    nm_per_deg = 60.0
 
     for ac in aircraft:
         lat = ac.get("lat")
@@ -201,68 +263,57 @@ def aircraft_to_blips(
         if lat is None or lon is None:
             continue
 
-        # Distance check (API already filters but double-check)
-        dlat = (lat - center_lat) * NM_PER_DEG
-        dlon = (lon - center_lon) * NM_PER_DEG * math.cos(math.radians(center_lat))
+        dlat = (lat - center_lat) * nm_per_deg
+        dlon = (lon - center_lon) * nm_per_deg * math.cos(math.radians(center_lat))
         dist = math.sqrt(dlat**2 + dlon**2)
         if dist > radius_nm:
             continue
 
-        callsign = (ac.get("flight") or "").strip().upper() or ac.get("hex", "").upper()
+        callsign = (ac.get("flight") or "").strip().upper() or (ac.get("hex") or "").upper()
         alt_baro = ac.get("alt_baro")
-        gs_kts   = ac.get("gs")
-        hdg      = ac.get("track")
+        gs_kts = ac.get("gs")
+        hdg = ac.get("track")
 
-        # alt_baro can be "ground" string
-        on_ground = (alt_baro == "ground")
-        alt_m     = None
+        on_ground = alt_baro == "ground"
+        alt_m = None
         if not on_ground and alt_baro is not None:
             try:
                 alt_m = float(alt_baro) * 0.3048
             except (ValueError, TypeError):
                 alt_m = None
 
-        blips.append({
-            "callsign":      callsign,
-            "lat":           float(lat),
-            "lon":           float(lon),
-            "altitude_m":    alt_m,
-            "heading":       float(hdg)    if hdg    is not None else None,
-            "speed_ms":      float(gs_kts) * 0.514444 if gs_kts is not None else None,
-            "vertical_rate": float(ac["baro_rate"]) * 0.00508 if ac.get("baro_rate") else None,
-            "on_ground":     on_ground,
-            "icao24":        (ac.get("hex") or "").upper(),
-            "squawk":        ac.get("squawk"),
-            "aircraft_type": ac.get("t"),        # bonus — not in OpenSky
-            "registration":  ac.get("r"),         # bonus — not in OpenSky
-            "source":        "adsbexchange",
-            "enriched":      True,
-            "distance_nm":   round(dist, 1),
-        })
+        blips.append(
+            {
+                "callsign": callsign,
+                "lat": float(lat),
+                "lon": float(lon),
+                "altitude_m": alt_m,
+                "heading": float(hdg) if hdg is not None else None,
+                "speed_ms": float(gs_kts) * 0.514444 if gs_kts is not None else None,
+                "vertical_rate": float(ac["baro_rate"]) * 0.00508 if ac.get("baro_rate") else None,
+                "on_ground": on_ground,
+                "icao24": (ac.get("hex") or "").upper(),
+                "squawk": ac.get("squawk"),
+                "aircraft_type": ac.get("t"),
+                "registration": ac.get("r"),
+                "source": "adsbexchange",
+                "enriched": True,
+                "distance_nm": round(dist, 1),
+            }
+        )
 
     return blips
 
 
 def enrich_flights_with_adsbexchange(
-    flights:   List[Any],
-    lat:       float,
-    lon:       float,
+    flights: List[Any],
+    lat: float,
+    lon: float,
     radius_nm: float = 50.0,
 ) -> List[Any]:
-    """
-    Enrich a list of Flight objects with ADS-B Exchange position data.
-    Drop-in replacement for enrich_flights_with_opensky().
+    from datetime import datetime as _dt
 
-    Bonus: also backfills aircraft_type from ADS-B Exchange `t` field
-    when AviationStack free tier left it empty.
-
-    Matching priority:
-      1. Exact callsign match
-      2. Flight number as callsign
-      3. ICAO hex address match
-    """
     from localflight.core.models import Flight, FlightPosition
-    from datetime import datetime, timezone
 
     try:
         aircraft = fetch_aircraft(lat=lat, lon=lon, radius_nm=radius_nm)
@@ -270,89 +321,82 @@ def enrich_flights_with_adsbexchange(
         log.warning("ADS-B Exchange enrichment skipped: %s", exc)
         return flights
 
-    # Build lookup by callsign and hex
-    by_callsign: Dict[str, Dict] = {}
-    by_hex:      Dict[str, Dict] = {}
-
+    by_callsign: Dict[str, Dict[str, Any]] = {}
+    by_hex: Dict[str, Dict[str, Any]] = {}
     for ac in aircraft:
-        cs  = (ac.get("flight") or "").strip().upper()
-        hx  = (ac.get("hex")    or "").strip().upper()
-        if cs: by_callsign[cs] = ac
-        if hx: by_hex[hx]      = ac
+        cs = (ac.get("flight") or "").strip().upper()
+        hx = (ac.get("hex") or "").strip().upper()
+        if cs:
+            by_callsign[cs] = ac
+        if hx:
+            by_hex[hx] = ac
 
     enriched = []
-    matched  = 0
+    matched = 0
 
     for flight in flights:
-        # Match attempt
         ac = by_callsign.get(flight.callsign)
         if ac is None and flight.flight_number:
-            fn = flight.flight_number.replace(" ", "").upper()
-            ac = by_callsign.get(fn)
+            ac = by_callsign.get(flight.flight_number.replace(" ", "").upper())
         if ac is None and flight.position and flight.position.icao24:
             ac = by_hex.get(flight.position.icao24.upper())
-
         if ac is None:
             enriched.append(flight)
             continue
 
         matched += 1
 
-        alt_baro  = ac.get("alt_baro")
-        gs_kts    = ac.get("gs")
-        on_ground = (alt_baro == "ground")
-        alt_m     = None
+        alt_baro = ac.get("alt_baro")
+        gs_kts = ac.get("gs")
+        on_ground = alt_baro == "ground"
+        alt_m = None
         if not on_ground and alt_baro is not None:
             try:
                 alt_m = float(alt_baro) * 0.3048
             except (ValueError, TypeError):
-                pass
+                alt_m = None
 
         position = FlightPosition(
             lat=ac.get("lat"),
             lon=ac.get("lon"),
             altitude_baro=alt_m,
             altitude_geo=float(ac["alt_geom"]) * 0.3048 if ac.get("alt_geom") else None,
-            heading=float(ac["track"])     if ac.get("track")     is not None else None,
+            heading=float(ac["track"]) if ac.get("track") is not None else None,
             speed_ms=float(gs_kts) * 0.514444 if gs_kts is not None else None,
             vertical_rate=float(ac["baro_rate"]) * 0.00508 if ac.get("baro_rate") else None,
             on_ground=on_ground,
             icao24=(ac.get("hex") or "").upper(),
             squawk=ac.get("squawk"),
-            last_contact=datetime.now(timezone.utc),
+            last_contact=_dt.now(timezone.utc),
         )
 
-        # Backfill aircraft_type if AviationStack left it empty
         aircraft_type = flight.aircraft_type or ac.get("t") or None
+        enriched.append(
+            Flight(
+                direction=flight.direction,
+                airport=flight.airport,
+                callsign=flight.callsign,
+                airline=flight.airline,
+                flight_number=flight.flight_number,
+                origin=flight.origin,
+                destination=flight.destination,
+                aircraft_type=aircraft_type,
+                gate=flight.gate,
+                terminal=flight.terminal,
+                stand=flight.stand,
+                status=flight.status,
+                times=flight.times,
+                delay_minutes=flight.delay_minutes,
+                position=position,
+                source=flight.source,
+                enriched_by="adsbexchange",
+                updated_at=flight.updated_at,
+            )
+        )
 
-        enriched.append(Flight(
-            direction=flight.direction,
-            airport=flight.airport,
-            callsign=flight.callsign,
-            airline=flight.airline,
-            flight_number=flight.flight_number,
-            origin=flight.origin,
-            destination=flight.destination,
-            aircraft_type=aircraft_type,
-            gate=flight.gate,
-            terminal=flight.terminal,
-            stand=flight.stand,
-            status=flight.status,
-            times=flight.times,
-            delay_minutes=flight.delay_minutes,
-            position=position,
-            source=flight.source,
-            enriched_by="adsbexchange",
-            updated_at=flight.updated_at,
-        ))
-
-    log.info(
-        "ADS-B Exchange enrichment: %d/%d flights matched",
-        matched, len(flights),
-    )
+    log.info("ADS-B Exchange enrichment: %d/%d flights matched", matched, len(flights))
     return enriched
 
 
 def is_available() -> bool:
-    """Quick check — returns True if API key is set."""
-    return bool(os.getenv("RAPIDAPI_KEY", "").strip())
+    return bool(os.getenv("RAPIDAPI_KEY", "").strip() or _get_activation_token())

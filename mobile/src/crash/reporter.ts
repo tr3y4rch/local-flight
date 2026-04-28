@@ -1,6 +1,5 @@
-import { Platform } from "react-native";
-
 import { normalizeServerUrl, submitCrashReport } from "../api/client";
+import { getCompanionIdentity } from "../device/identity";
 import { loadServerUrl } from "../storage/settings";
 
 type ErrorUtilsHandler = (error: Error, isFatal?: boolean) => void;
@@ -50,14 +49,17 @@ async function postCrash(input: CrashInput): Promise<void> {
   if (shouldSkipRecent(fp)) return;
 
   try {
+    const identity = await getCompanionIdentity();
     await submitCrashReport(serverUrl, {
       ...input,
       client_context:
         input.client_context ||
         [
-          "Reporter     Local Flight Companion",
-          `Client OS    ${Platform.OS} ${String(Platform.Version)}`,
-          `Server URL   ${serverUrl}`
+          `Reporter      ${identity.clientName}`,
+          `Companion ID  ${identity.companionId}`,
+          `App version   ${identity.appVersion}`,
+          `Companion OS  ${identity.mobileOs}`,
+          `Server URL    ${serverUrl}`
         ].join("\n")
     });
   } catch {

@@ -34,6 +34,9 @@ log = logging.getLogger(__name__)
 
 router = APIRouter()
 
+_COMPANION_STALE_SECONDS = 15 * 60
+_COMPANION_RETENTION_DAYS = 30
+
 
 def _network_tools_enabled() -> bool:
     import os
@@ -55,6 +58,42 @@ def _adsbx_radar_cache_ttl_s() -> int:
         )
     except ValueError:
         return _DEFAULT_ADSBX_RADAR_CACHE_TTL_S
+
+
+def _radar_refresh_after_s(source_used: str) -> int:
+    source_name = (source_used or "").strip().lower()
+    if source_name.startswith("adsbexchange"):
+        return _adsbx_radar_cache_ttl_s()
+    if source_name.startswith("opensky"):
+        return _OPENSKY_RADAR_CACHE_TTL_S
+    if source_name == "snapshot_positions":
+        return 60
+    return 15
+
+
+def _companion_presence_path():
+    from localflight.storage.config import config_path
+
+    return config_path().parent / "companion_clients.json"
+
+
+def _load_companion_presence() -> Dict[str, Any]:
+    path = _companion_presence_path()
+    if not path.exists():
+        return {}
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def _save_companion_presence(data: Dict[str, Any]) -> None:
+    try:
+        path = _companion_presence_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+    except Exception:
+        pass
 
 
 # ── Airport search ─────────────────────────────────────────────────────────────
@@ -611,6 +650,7 @@ def api_radar(
         "center":    {"lat": center_lat, "lon": center_lon},
         "radius_nm": radius_nm,
         "source":    source_used,
+        "refresh_after_s": _radar_refresh_after_s(source_used),
         "count":     len(blips),
         "blips":     blips,
     }
@@ -749,7 +789,7 @@ def api_admin_system() -> Dict[str, Any]:
         from importlib.metadata import version as _pkg_version
         _ver = _pkg_version("localflight")
     except Exception:
-        _ver = "0.2.2b3"
+        _ver = "0.2.3b1"
 
     result: Dict[str, Any] = {
         "version":  _ver,
@@ -787,35 +827,47 @@ def api_admin_system() -> Dict[str, Any]:
     except Exception:
         result["install_id"] = None
 
+    try:
+        from localflight.sources.web.aviationstack_client import get_usage_stats
+
+        usage = get_usage_stats(load_config().source)
+        managed = usage.get("managed") or {}
+        community = usage.get("community") or {}
+        result["client"] = {
+            "mode": usage.get("active_mode") or usage.get("mode") or "virtual",
+            "relay_url": managed.get("relay_url") or community.get("relay_url"),
+            "activation_token_present": bool(managed.get("token_present")),
+            "activation_token_prefix": managed.get("token_prefix") or "",
+            "community_key_present": bool(community.get("key_present")),
+            "managed_verified": bool(managed.get("status_ok")),
+            "managed_status": managed.get("status_error") or "",
+        }
+    except Exception:
+        result["client"] = {
+            "mode": "unknown",
+            "relay_url": None,
+            "activation_token_present": False,
+            "activation_token_prefix": "",
+            "community_key_present": False,
+            "managed_verified": False,
+            "managed_status": "",
+        }
+
     return result
  
  
 @router.get("/api/admin/budget")
 def api_admin_budget() -> Dict[str, Any]:
-    """API call budget status for the admin hub."""
-    import os
+    """User-facing budget status for the admin hub."""
  
     result: Dict[str, Any] = {}
+    cfg = load_config()
  
-    # AviationStack
     try:
         from localflight.sources.web.aviationstack_client import get_usage_stats
-        result["aviationstack"] = get_usage_stats()
+        result["aviationstack"] = get_usage_stats(cfg.source)
     except Exception as exc:
         result["aviationstack"] = {"error": str(exc)}
- 
-    # ADS-B Exchange (RapidAPI) — includes budget tracking
-    try:
-        from localflight.sources.web.adsbexchange_client import get_usage_stats as adsbx_stats
-        result["adsbexchange"] = adsbx_stats()
-    except Exception as exc:
-        result["adsbexchange"] = {"error": str(exc), "available": False}
- 
-    # OpenSky
-    result["opensky_available"] = bool(
-        os.getenv("OPENSKY_CLIENT_ID", "").strip() and
-        os.getenv("OPENSKY_CLIENT_SECRET", "").strip()
-    )
  
     return result
  
@@ -843,10 +895,62 @@ def api_admin_connections() -> Dict[str, Any]:
             matrix_last_seen = pings.get("matrix")
     except Exception:
         pass
- 
+
+    companions: List[Dict[str, Any]] = []
+    companion_last_seen = None
+    try:
+        from datetime import timedelta
+
+        raw = _load_companion_presence()
+        now = datetime.now(timezone.utc)
+        cutoff = now - timedelta(days=_COMPANION_RETENTION_DAYS)
+        dirty = False
+
+        for companion_id, entry in list(raw.items()):
+            if not isinstance(entry, dict):
+                dirty = True
+                raw.pop(companion_id, None)
+                continue
+            last_seen = str(entry.get("last_seen") or "")
+            try:
+                last_dt = datetime.fromisoformat(last_seen)
+                if last_dt.tzinfo is None:
+                    last_dt = last_dt.replace(tzinfo=timezone.utc)
+            except Exception:
+                last_dt = None
+            if not last_dt or last_dt < cutoff:
+                dirty = True
+                raw.pop(companion_id, None)
+                continue
+
+            server_platform = entry.get("server_platform") or "Unknown server"
+            mobile_os = entry.get("mobile_os") or "Unknown mobile"
+            platform_pair = f"{server_platform} / {mobile_os}"
+            companions.append(
+                {
+                    "companion_id": str(entry.get("companion_id") or companion_id),
+                    "client_name": str(entry.get("client_name") or "Local Flight Companion"),
+                    "app_version": str(entry.get("app_version") or ""),
+                    "mobile_os": mobile_os,
+                    "device_type": str(entry.get("device_type") or "unknown"),
+                    "platform_pair": platform_pair,
+                    "last_seen": last_seen,
+                }
+            )
+        if dirty:
+            _save_companion_presence(raw)
+        companions.sort(key=lambda item: str(item.get("last_seen") or ""), reverse=True)
+        if companions:
+            companion_last_seen = companions[0]["last_seen"]
+    except Exception:
+        companions = []
+
     return {
         "count":            count,
         "matrix_last_seen": matrix_last_seen,
+        "companion_last_seen": companion_last_seen,
+        "companion_count": len(companions),
+        "companions": companions[:10],
     }
  
  
@@ -915,6 +1019,56 @@ def api_admin_ping(
     log.info("Device ping: %s v%s", device, version)
     return {"ok": True, "device": device, "recorded_at": pings[device]}
 
+
+class CompanionCheckinIn(BaseModel):
+    companion_id: str = Field(..., min_length=8, max_length=80)
+    client_name: str = Field("Local Flight Companion", max_length=80)
+    app_version: str = Field("", max_length=40)
+    mobile_os: str = Field(..., min_length=3, max_length=120)
+    device_type: str = Field("unknown", max_length=20)
+
+
+@router.post("/api/admin/companion/checkin")
+def api_admin_companion_checkin(body: CompanionCheckinIn) -> Dict[str, Any]:
+    import platform
+
+    now = datetime.now(timezone.utc).isoformat()
+    server_platform = platform.system() + " " + platform.release()
+    entry = {
+        "companion_id": body.companion_id.strip(),
+        "client_name": body.client_name.strip() or "Local Flight Companion",
+        "app_version": body.app_version.strip(),
+        "mobile_os": body.mobile_os.strip(),
+        "device_type": body.device_type.strip() or "unknown",
+        "last_seen": now,
+        "server_platform": server_platform,
+    }
+    companions = _load_companion_presence()
+    companions[entry["companion_id"]] = entry
+    _save_companion_presence(companions)
+
+    server_install_id = None
+    try:
+        from localflight.storage.install import get_install_fingerprint
+
+        server_install_id = get_install_fingerprint()
+    except Exception:
+        server_install_id = None
+
+    log.info(
+        "Companion check-in: %s %s %s",
+        entry["companion_id"],
+        entry["mobile_os"],
+        entry["app_version"] or "unknown",
+    )
+    return {
+        "ok": True,
+        "recorded_at": now,
+        "server_platform": server_platform,
+        "server_install_id": server_install_id,
+        "platform_pair": f"{server_platform} / {entry['mobile_os']}",
+    }
+
 # ── Traffic / request log ─────────────────────────────────────────────────────
 
 @router.get("/api/admin/requests")
@@ -947,7 +1101,7 @@ def api_admin_updates() -> Dict[str, Any]:
         from importlib.metadata import version as _pkg_version
         current = _pkg_version("localflight")
     except Exception:
-        current = "0.2.2b3"
+        current = "0.2.3b1"
 
     # Simple in-process cache to avoid hammering GitHub API
     cache = getattr(api_admin_updates, "_cache", None)
