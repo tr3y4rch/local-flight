@@ -188,11 +188,15 @@ The scheduler only starts after setup completes. You can re-run the wizard any t
 The setup wizard writes these for you. You can also edit `.env` directly — changes take effect on the next fetch without restart.
 
 ```
-# AviationStack — real flight schedule data
+# Managed install (written by setup wizard on activation)
+LOCALFLIGHT_ACTIVATION_TOKEN=
+LOCALFLIGHT_RELAY_URL=
+
+# BYOK AviationStack — leave blank to use the community relay instead
 AVIATIONSTACK_API_KEY=your_key_here
 LOCALFLIGHT_AVIATIONSTACK_ENABLED=1
-LOCALFLIGHT_AVIATIONSTACK_MONTHLY_LIMIT=10000
-LOCALFLIGHT_RELAY_MONTHLY_LIMIT=60
+LOCALFLIGHT_AVIATIONSTACK_MONTHLY_LIMIT=90
+LOCALFLIGHT_RELAY_MONTHLY_LIMIT=50
 
 # ADS-B Exchange via RapidAPI — live aircraft positions
 RAPIDAPI_KEY=your_rapidapi_key
@@ -264,8 +268,8 @@ Runtime data is also kept outside the source tree:
 
 AviationStack and RapidAPI usage is tracked locally in `~/.localflight/api_usage.json` and resets monthly.
 
-- AviationStack BYOK default: 10 000 calls/month
-- Community relay default: 60 calls/month per install
+- AviationStack BYOK default: 90 calls/month (free-plan default; developer's community pool is 10 000/month shared across all relay installs)
+- Community relay default: 50 calls/month per install (enforced relay-side, rolling 30-day window)
 - ADS-B Exchange / RapidAPI default: 10 000 calls/month
 - Each real scheduler cycle normally costs 2 AviationStack calls (departures + arrivals)
 

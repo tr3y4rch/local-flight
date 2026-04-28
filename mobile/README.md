@@ -1,6 +1,6 @@
 # Local Flight Companion
 
-Phase 1 React Native / Expo companion app for Local Flight. Companion build: `0.2.2b2`.
+Phase 1 React Native / Expo companion app for Local Flight. Companion build: `0.2.3b1`.
 
 The mobile companion is **work in progress**. It is a developer preview, not a public App Store, TestFlight, Play Store, or APK release yet. A polished iOS and Android companion will follow later.
 

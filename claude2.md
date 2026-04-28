@@ -1,4 +1,4 @@
-# Local Flight — Project Context (v0.2.2b2)
+# Local Flight — Project Context (v0.2.3b1)
 
 > Tracked copy of the AI assistant context. Keep this file current across sessions.  
 > Primary dev machine: Windows PC. Secondary: macOS (Xcode / iOS builds, macOS .app builds).  
@@ -22,7 +22,7 @@ Mobile companion: React Native / Expo (iOS-first, in `mobile/`).
 local-flight/
 ├── build.py                     # PyInstaller build script — SVG→PNG→ico/icns, signing, zip+sha256
 ├── LocalFlight.spec             # PyInstaller spec — datas, hiddenimports, BUNDLE
-├── pyproject.toml               # Single version source of truth (currently 0.2.2b2)
+├── pyproject.toml               # Single version source of truth (currently 0.2.3b1)
 ├── CHANGELOG.md
 ├── AGENTS.md                    # Codex/OpenAI agent context (keep in sync with claude2.md)
 ├── assets/
@@ -230,8 +230,8 @@ AviationStack (schedule) [90 calls/month budget]
 - PyInstaller embeds icon in exe; taskbar window extracts it via `ExtractIconExW(sys.executable)`
 
 ### Version
-- Single source: `version` in `pyproject.toml` (currently `0.2.2b2`)
-- Runtime: `importlib.metadata.version("localflight")` with `"0.2.2b2"` fallback
+- Single source: `version` in `pyproject.toml` (currently `0.2.3b1`)
+- Runtime: `importlib.metadata.version("localflight")` with `"0.2.3b1"` fallback
 - Injected as `app_version` Jinja2 global in `server.py`
 - `LocalFlight.spec` reads it for macOS `CFBundleShortVersionString`
 
@@ -428,7 +428,7 @@ Swap `enrich_flights_with_adsbexchange` → `enrich_flights_with_adsb` in `jobs.
 
 ## Pending / next up
 
-- [ ] GitHub release v0.2.2b2 — attach `dist/LocalFlight-windows.zip`, `dist/LocalFlight-windows.zip.sha256`, `dist/LocalFlight-macos.zip`, and `dist/LocalFlight-macos.zip.sha256`; mark pre-release
+- [ ] GitHub release v0.2.3b1 — attach `dist/LocalFlight-windows.zip`, `dist/LocalFlight-windows.zip.sha256`, `dist/LocalFlight-macos.zip`, and `dist/LocalFlight-macos.zip.sha256`; mark pre-release
 - [ ] Windows release build — run `python build.py --clean` on Windows and smoke-test unzipped `LocalFlight.exe`
 - [ ] macOS release build — run `python build.py --clean` on Mac and smoke-test `dist/LocalFlight.app`; sign/notarize if certs are available
 - [ ] Mobile — `npm install` + `npx expo install --fix` on Mac; test in iOS simulator/dev build

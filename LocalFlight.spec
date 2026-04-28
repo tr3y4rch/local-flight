@@ -13,7 +13,7 @@ from PyInstaller.utils.hooks import collect_all, collect_data_files
 # Read version from pyproject.toml so the spec never drifts out of sync
 _pyproject = Path(SPECPATH) / "pyproject.toml"
 _ver_match = re.search(r'^version\s*=\s*"([^"]+)"', _pyproject.read_text(), re.MULTILINE)
-_VERSION = _ver_match.group(1) if _ver_match else "0.2.2b2"
+_VERSION = _ver_match.group(1) if _ver_match else "0.2.3b1"
 
 is_win = sys.platform == "win32"
 is_mac = sys.platform == "darwin"
