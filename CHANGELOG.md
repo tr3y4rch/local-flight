@@ -6,7 +6,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [0.2.3b1] - 2026-04-27
+## [0.2.3b2] - 2026-04-27
 
 ### Added
 - Separate community and BYOK schedule tracking in Admin, including the active runtime mode, community path, and BYOK spare-call headroom.
