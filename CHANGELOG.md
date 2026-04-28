@@ -6,6 +6,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.2.4b1] - 2026-04-28
+
+### Changed
+- Community relay URL updated to the live Fly.io endpoint (`https://localflight-community-relay.fly.dev/v1/flights`). The `relay.localflight.app` custom domain is planned once DNS is configured.
+- Source installers (Windows, macOS, Pi) and `.env` defaults now point to the confirmed-working relay endpoint.
+- Version bumped to `0.2.4b1` across `pyproject.toml`, runtime fallbacks, and mobile metadata.
+- Removed orphaned `claude2.md` and root `package-lock.json`.
+
+### Fixed
+- `relay/main.py` used `uvicorn.run("relay.main:app", ...)` (string module import) which fails in Docker because there is no `relay` package in the container filesystem. Changed to `uvicorn.run(app, ...)`.
+- Removed redundant `DB_PATH` `fly secrets set` step from deploy docs — the value is already hardcoded in `fly.toml [env]`.
+
+---
+
 ## [0.2.3b2] - 2026-04-28
 
 ### Added

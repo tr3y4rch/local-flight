@@ -789,7 +789,7 @@ def api_admin_system() -> Dict[str, Any]:
         from importlib.metadata import version as _pkg_version
         _ver = _pkg_version("localflight")
     except Exception:
-        _ver = "0.2.3b2"
+        _ver = "0.2.4b1"
 
     result: Dict[str, Any] = {
         "version":  _ver,
@@ -1101,7 +1101,7 @@ def api_admin_updates() -> Dict[str, Any]:
         from importlib.metadata import version as _pkg_version
         current = _pkg_version("localflight")
     except Exception:
-        current = "0.2.3b2"
+        current = "0.2.4b1"
 
     # Simple in-process cache to avoid hammering GitHub API
     cache = getattr(api_admin_updates, "_cache", None)

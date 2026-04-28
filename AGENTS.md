@@ -1,8 +1,8 @@
-# Local Flight â€” Codex Context
+# Local Flight — Codex Context
 
 ## What this project is
 
-A local-first, self-hosted **Flight Information Display System (FIDS)** that runs on Windows, macOS, and Raspberry Pi. Fetches real and simulated flight data, displays it as a proper airport-style departure/arrival board â€” in a browser kiosk window, on an LED matrix panel, or on a dedicated HDMI screen.
+A local-first, self-hosted **Flight Information Display System (FIDS)** that runs on Windows, macOS, and Raspberry Pi. Fetches real and simulated flight data, displays it as a proper airport-style departure/arrival board — in a browser kiosk window, on an LED matrix panel, or on a dedicated HDMI screen.
 
 Built with: Python 3.11+, FastAPI, uvicorn, SQLite, WebSocket, Jinja2, PIL. Mobile companion uses React Native / Expo. pystray on macOS only (Windows uses a ctypes taskbar window).
 
@@ -15,113 +15,116 @@ Built with: Python 3.11+, FastAPI, uvicorn, SQLite, WebSocket, Jinja2, PIL. Mobi
 
 ```
 local-flight/
-â”œâ”€â”€ build.py                     # PyInstaller build script â€” icons, signing, zip
-â”œâ”€â”€ LocalFlight.spec             # PyInstaller spec â€” datas, hiddenimports, BUNDLE
-â”œâ”€â”€ LICENSE                      # MIT â€” Philipp Schumacher 2025
-â”œâ”€â”€ CHANGELOG.md
-â”œâ”€â”€ .gitattributes               # LF for sh/command, CRLF for bat/ps1
-â”œâ”€â”€ src/localflight/
-â”‚   â”œâ”€â”€ __main__.py              # Entry point â€” platform-aware startup; installs sys/threading crash hooks
-â”‚   â”œâ”€â”€ platform/                # Cross-platform abstraction layer
-â”‚   â”‚   â”œâ”€â”€ detect.py            # Platform detection (Windows/macOS/Pi/Linux)
-â”‚   â”‚   â”œâ”€â”€ browser.py           # Cross-platform kiosk browser launcher
-â”‚   â”‚   â””â”€â”€ tray.py              # Windows: ctypes taskbar window; macOS: pystray; Pi: stub
-â”‚   â”œâ”€â”€ core/
-â”‚   â”‚   â”œâ”€â”€ airports.py          # Airport DB lookup (IATA/ICAO)
-â”‚   â”‚   â”œâ”€â”€ config.py
-â”‚   â”‚   â””â”€â”€ models.py            # Flight, FlightPosition, FlightDirection, etc.
-â”‚   â”œâ”€â”€ decode/
-â”‚   â”‚   â”œâ”€â”€ dedupe.py            # Codeshare deduplication
-â”‚   â”‚   â”œâ”€â”€ normalize.py         # Raw records â†’ Flight objects
-â”‚   â”‚   â”œâ”€â”€ opensky.py           # OpenSky enrichment
-â”‚   â”‚   â””â”€â”€ mappings/
-â”‚   â”‚       â””â”€â”€ aviationstack.py
-â”‚   â”œâ”€â”€ display/
-â”‚   â”‚   â””â”€â”€ fids_from_flights.py # PAX-friendly flight number formatting
-â”‚   â”œâ”€â”€ render/
-â”‚   â”‚   â””â”€â”€ fids.py              # Build Jinja2 template context
-â”‚   â”œâ”€â”€ scheduler/
-â”‚   â”‚   â”œâ”€â”€ jobs.py              # Main fetch job â€” AviationStack + enrichment chain
-â”‚   â”‚   â”œâ”€â”€ runtime.py           # run_loop(); stop_event-aware sleeps + crash reporting
-â”‚   â”‚   â”œâ”€â”€ control.py           # In-process scheduler start/status/restart controller
-â”‚   â”‚   â””â”€â”€ run_scheduler.py
-â”‚   â”œâ”€â”€ sources/
-â”‚   â”‚   â”œâ”€â”€ web/
-â”‚   â”‚   â”‚   â”œâ”€â”€ aviationstack_client.py  # BYOK + community relay budget guard; activation token; lazy env reads
-â”‚   â”‚   â”‚   â”œâ”€â”€ aviationstack_mock.py
-â”‚   â”‚   â”‚   â”œâ”€â”€ adsbexchange_client.py   # RapidAPI + relay radar proxy; primary position enrichment
-â”‚   â”‚   â”‚   â”œâ”€â”€ opensky_radar.py         # fetch_radar_blips(), bounding_box()
-â”‚   â”‚   â”‚   â”œâ”€â”€ vatsim_client.py         # VATSIM v3, aircraft type extraction
-â”‚   â”‚   â”‚   â”œâ”€â”€ metar_client.py          # aviationweather.gov, 30min cache
-â”‚   â”‚   â”‚   â”œâ”€â”€ linear_client.py         # Linear GraphQL API â€” file_error() (operator auto-filing)
-â”‚   â”‚   â”‚   â”œâ”€â”€ private_keys.py          # Dev-only community key lookup (dev/private/community_keys.json, gitignored)
-â”‚   â”‚   â”‚   â””â”€â”€ bug_reporter.py          # Hardcoded developer reporter â€” powers /feedback
-â”‚   â”‚   â”œâ”€â”€ adsb/
-â”‚   â”‚   â”‚   â””â”€â”€ adsb_client.py           # dump1090 client (RTL-SDR, Pi)
-â”‚   â”‚   â””â”€â”€ matrix/
-â”‚   â”‚       â””â”€â”€ client.py                # MicroPython for Interstate 75 W
-â”‚   â”œâ”€â”€ storage/
-â”‚   â”‚   â”œâ”€â”€ config.py            # AppConfig dataclass, load/save
-â”‚   â”‚   â”œâ”€â”€ flights_store.py     # JSON snapshot storage under ~/.localflight, legacy fallback
-â”‚   â”‚   â”œâ”€â”€ history.py           # SQLite history DB, 90-day retention
-â”‚   â”‚   â”œâ”€â”€ install.py           # Machine fingerprint + activation token (get/set_activation_token)
-â”‚   â”‚   â”œâ”€â”€ logging_setup.py     # RotatingFileHandler, pruning
-â”‚   â”‚   â”œâ”€â”€ profiles.py          # Airport profiles
-â”‚   â”‚   â”œâ”€â”€ request_log.py       # Anonymized traffic log (SQLite) â€” client_type/client_id/platform
-â”‚   â”‚   â”œâ”€â”€ samples/             # Sample AviationStack payloads (mock source)
-â”‚   â”‚   â””â”€â”€ state.py             # AppState (last fetch, errors, latency)
-â”‚   â””â”€â”€ ui/
-â”‚       â”œâ”€â”€ server.py            # FastAPI app, WebSocket, setup gate middleware
-â”‚       â”œâ”€â”€ api.py               # All JSON API endpoints
-â”‚       â”œâ”€â”€ events.py            # Non-fatal WebSocket notifications: snapshot/config/scheduler
-â”‚       â”œâ”€â”€ static/
-â”‚       â”‚   â”œâ”€â”€ app.css
-â”‚       â”‚   â”œâ”€â”€ skins.css        # 5 skins: standard/technical/neon/cyan/crt
-â”‚       â”‚   â””â”€â”€ splash_mark.svg  # Versioned launch splash mark
-â”‚       â””â”€â”€ templates/
-â”‚           â”œâ”€â”€ _nav.html        # Shared nav macro â€” version badge, quit modal
-â”‚           â”œâ”€â”€ base.html        # Base layout, clock, nav CSS
-â”‚           â”œâ”€â”€ fids.html        # FIDS board â€” error banner, detail drawer, WebSocket
-â”‚           â”œâ”€â”€ radar.html       # Radar canvas + sweep + METAR
-â”‚           â”œâ”€â”€ display.html     # Split-view FIDS+Radar, draggable divider
-â”‚           â”œâ”€â”€ matrix_preview.html  # LED simulator + split-flap animation
-â”‚           â”œâ”€â”€ settings.html    # Airport picker, skins, re-run setup button
-â”‚           â”œâ”€â”€ admin.html       # Admin hub â€” scheduler/budget/updates/system
-â”‚           â”œâ”€â”€ feedback.html    # Bug reporter form â€” title, description, auto-attached system info
-â”‚           â”œâ”€â”€ history.html     # History browser â€” filterable table + detail panel
-â”‚           â”œâ”€â”€ setup.html       # First-run setup wizard (strict gate)
-â”‚           â”œâ”€â”€ splash.html      # Short versioned launch splash -> setup/display
-â”‚           â”œâ”€â”€ logs.html        # Live log viewer
-â”‚           â”œâ”€â”€ icons_pictogram.html  # Aircraft SVG icons (standard skin)
-â”‚           â””â”€â”€ icons_technical.html  # Vector icons (neon/cyan/crt skins)
-â”‚
-â”œâ”€â”€ mobile/
-â”‚   â”œâ”€â”€ App.tsx                  # Expo companion shell: FIDS/Radar/History/Settings
-â”‚   â”œâ”€â”€ app.json                 # Expo app metadata, splash config, iOS local-network plist
-â”‚   â”œâ”€â”€ assets/
-â”‚   â”‚   â””â”€â”€ icon_circle.png      # Companion icon + splash image
-â”‚   â””â”€â”€ src/
-â”‚       â”œâ”€â”€ api/                 # LAN API client + response types
-â”‚       â”œâ”€â”€ crash/               # CrashBoundary + mobile crash reporter
-â”‚       â”œâ”€â”€ device/identity.ts   # Companion identity: companionId, platform, deviceType, appVersion
-â”‚       â”œâ”€â”€ storage/             # SecureStore URL, companionId, pinned flight, profiles
-â”‚       â””â”€â”€ theme/               # Mobile visual tokens
-â”‚
-â”œâ”€â”€ installers/
-â”‚   â”œâ”€â”€ windows/
-â”‚   â”‚   â”œâ”€â”€ install.ps1          # Windows source checkout installer
-â”‚   â”‚   â””â”€â”€ LocalFlight.bat      # Windows source checkout launcher
-â”‚   â”œâ”€â”€ macos/
-â”‚   â”‚   â”œâ”€â”€ install.sh
-â”‚   â”‚   â”œâ”€â”€ LocalFlight.command  # Double-clickable launcher
-â”‚   â”‚   â””â”€â”€ start.sh
-â”‚   â””â”€â”€ pi/
-â”‚       â”œâ”€â”€ install.sh           # Full Pi setup â€” venv, systemd, mDNS
-â”‚       â”œâ”€â”€ localflight.service  # Python app systemd service
-â”‚       â”œâ”€â”€ localflight-kiosk.service  # Chromium kiosk systemd service
-â”‚       â””â”€â”€ lf.sh                # Management helper (start/stop/logs/update)
-â”‚
-â””â”€â”€ start.bat                    # Dev launcher (Windows, project root)
+├── build.py                     # PyInstaller build script — icons, signing, zip
+├── LocalFlight.spec             # PyInstaller spec — datas, hiddenimports, BUNDLE
+├── LICENSE                      # MIT — Philipp Schumacher 2025
+├── CHANGELOG.md
+├── .gitattributes               # LF for sh/command, CRLF for bat/ps1
+├── src/localflight/
+│   ├── __main__.py              # Entry point — platform-aware startup; installs sys/threading crash hooks
+│   ├── platform/                # Cross-platform abstraction layer
+│   │   ├── detect.py            # Platform detection (Windows/macOS/Pi/Linux)
+│   │   ├── browser.py           # Cross-platform kiosk browser launcher
+│   │   └── tray.py              # Windows: ctypes taskbar window; macOS: pystray; Pi: stub
+│   ├── core/
+│   │   ├── airports.py          # Airport DB lookup (IATA/ICAO)
+│   │   ├── config.py
+│   │   └── models.py            # Flight, FlightPosition, FlightDirection, etc.
+│   ├── decode/
+│   │   ├── dedupe.py            # Codeshare deduplication
+│   │   ├── normalize.py         # Raw records → Flight objects
+│   │   ├── opensky.py           # OpenSky enrichment
+│   │   └── mappings/
+│   │       └── aviationstack.py
+│   ├── display/
+│   │   └── fids_from_flights.py # PAX-friendly flight number formatting
+│   ├── render/
+│   │   └── fids.py              # Build Jinja2 template context
+│   ├── scheduler/
+│   │   ├── jobs.py              # Main fetch job — AviationStack + enrichment chain
+│   │   ├── runtime.py           # run_loop(); stop_event-aware sleeps + crash reporting
+│   │   ├── control.py           # In-process scheduler start/status/restart controller
+│   │   └── run_scheduler.py
+│   ├── sources/
+│   │   ├── web/
+│   │   │   ├── aviationstack_client.py  # BYOK + community relay budget guard; activation token; lazy env reads
+│   │   │   ├── aviationstack_mock.py
+│   │   │   ├── adsbexchange_client.py   # RapidAPI + relay radar proxy; primary position enrichment
+│   │   │   ├── opensky_radar.py         # fetch_radar_blips(), bounding_box()
+│   │   │   ├── vatsim_client.py         # VATSIM v3, aircraft type extraction
+│   │   │   ├── metar_client.py          # aviationweather.gov, 30min cache
+│   │   │   ├── linear_client.py         # Linear GraphQL API — file_error() (operator auto-filing)
+│   │   │   ├── private_keys.py          # Dev-only community key lookup (dev/private/community_keys.json, gitignored)
+│   │   │   ├── relay_defaults.py        # Hosted relay URL + admin host constants
+│   │   │   ├── aviationstack_files.py   # Local file loading (canonical + legacy paths)
+│   │   │   └── bug_reporter.py          # Hardcoded developer reporter — powers /feedback
+│   │   ├── adsb/
+│   │   │   └── adsb_client.py           # dump1090 client (RTL-SDR, Pi)
+│   │   └── matrix/
+│   │       └── client.py                # MicroPython for Interstate 75 W
+│   ├── storage/
+│   │   ├── config.py            # AppConfig dataclass, load/save
+│   │   ├── flights_store.py     # JSON snapshot storage under ~/.localflight, legacy fallback
+│   │   ├── history.py           # SQLite history DB, 90-day retention
+│   │   ├── install.py           # Machine fingerprint + activation token (get/set_activation_token)
+│   │   ├── logging_setup.py     # RotatingFileHandler, pruning
+│   │   ├── profiles.py          # Airport profiles
+│   │   ├── request_log.py       # Anonymized traffic log (SQLite) — client_type/client_id/platform
+│   │   ├── samples/             # Sample AviationStack payloads (mock source)
+│   │   └── state.py             # AppState (last fetch, errors, latency)
+│   └── ui/
+│       ├── server.py            # FastAPI app, WebSocket, setup gate middleware
+│       ├── api.py               # All JSON API endpoints
+│       ├── events.py            # Non-fatal WebSocket publisher: snapshot/config/scheduler events
+│       ├── static/
+│       │   ├── app.css
+│       │   ├── skins.css        # 5 skins: standard/technical/neon/cyan/crt
+│       │   └── splash_mark.svg  # Versioned launch splash mark
+│       └── templates/
+│           ├── _nav.html        # Shared nav macro — version badge, quit modal
+│           ├── base.html        # Base layout, clock, nav CSS
+│           ├── fids.html        # FIDS board — error banner, detail drawer, WebSocket
+│           ├── radar.html       # Radar canvas + sweep + METAR
+│           ├── display.html     # Split-view FIDS+Radar, draggable divider
+│           ├── matrix_preview.html  # LED simulator + split-flap animation
+│           ├── settings.html    # Airport picker, skins, re-run setup button
+│           ├── admin.html       # Admin hub — scheduler/budget/updates/system
+│           ├── feedback.html    # Bug reporter form — title, description, auto-attached system info
+│           ├── history.html     # History browser — filterable table + detail panel
+│           ├── setup.html       # First-run setup wizard (strict gate)
+│           ├── splash.html      # Short versioned launch splash -> setup/display
+│           ├── logs.html        # Live log viewer
+│           ├── requests.html    # Anonymized local traffic log viewer
+│           ├── icons_pictogram.html  # Aircraft SVG icons (standard skin)
+│           └── icons_technical.html  # Vector icons (neon/cyan/crt skins)
+│
+├── mobile/
+│   ├── App.tsx                  # Expo companion shell: FIDS/Radar/History/Settings
+│   ├── app.json                 # Expo app metadata, splash config, iOS local-network plist
+│   ├── assets/
+│   │   └── icon_circle.png      # Companion icon + splash image
+│   └── src/
+│       ├── api/                 # LAN API client + response types
+│       ├── crash/               # CrashBoundary + mobile crash reporter
+│       ├── device/identity.ts   # Companion identity: companionId, platform, deviceType, appVersion
+│       ├── storage/             # SecureStore URL, companionId, pinned flight, profiles
+│       └── theme/               # Mobile visual tokens
+│
+├── installers/
+│   ├── windows/
+│   │   ├── install.ps1          # Windows source checkout installer
+│   │   └── LocalFlight.bat      # Windows source checkout launcher
+│   ├── macos/
+│   │   ├── install.sh
+│   │   ├── LocalFlight.command  # Double-clickable launcher
+│   │   └── start.sh
+│   └── pi/
+│       ├── install.sh           # Full Pi setup — venv, systemd, mDNS
+│       ├── localflight.service  # Python app systemd service
+│       ├── localflight-kiosk.service  # Chromium kiosk systemd service
+│       └── lf.sh                # Management helper (start/stop/logs/update)
+│
+└── start.bat                    # Dev launcher (Windows, project root)
 ```
 
 ---
@@ -129,7 +132,7 @@ local-flight/
 ## Architecture decisions
 
 ### Platform model
-- `platform/detect.py` â€” `detect()` returns `Platform` enum, cached. `is_desktop()` / `is_headless()` helpers.
+- `platform/detect.py` — `detect()` returns `Platform` enum, cached. `is_desktop()` / `is_headless()` helpers.
 - Desktop (Windows/macOS): kiosk browser window + system tray + full GUI
 - Headless (Pi/Linux): uvicorn + scheduler only, no window management. Chromium kiosk is a separate systemd service.
 - `__main__.py` dispatches to `_run_desktop()` or `_run_headless()` based on platform.
@@ -138,15 +141,15 @@ local-flight/
 ### Data enrichment chain (source=real)
 ```
 AviationStack (schedule: times, gates, status) [90 calls/month budget guard]
-    â†“
+    ↓
 ADS-B Exchange via RapidAPI (primary: position + aircraft type + registration)
-    â†“ fallback
+    ↓ fallback
 OpenSky Network (position fallback)
-    â†“ fallback
+    ↓ fallback
 Schedule data only
-    â†“
-Dedupe codeshares â†’ save JSON snapshot â†’ write SQLite history â†’ WebSocket broadcast
-    â†“ on error
+    ↓
+Dedupe codeshares → save JSON snapshot → write SQLite history → WebSocket broadcast
+    ↓ on error
 Linear issue filed (deduplicated per 6h via ~/.localflight/linear_dedup.json)
 ```
 
@@ -163,7 +166,7 @@ Linear issue filed (deduplicated per 6h via ~/.localflight/linear_dedup.json)
 - `SetupGateMiddleware` in `server.py` redirects all routes to `/setup` until `~/.localflight/setup_complete` exists
 - Exempt paths: `/setup`, `/api/setup/*`, `/api/airports/search`, `/static`, `/health`, `/ws`
 - On first launch, scheduler is deferred. Setup watcher thread polls for `setup_complete` and auto-starts scheduler when detected.
-- `/api/setup/reset` deletes the marker â€” triggers re-run wizard. Button in Settings footer.
+- `/api/setup/reset` deletes the marker — triggers re-run wizard. Button in Settings footer.
 
 ### API call budget
 - AviationStack BYOK default: 90 calls/month, tracked in `~/.localflight/api_usage.json`
@@ -173,21 +176,21 @@ Linear issue filed (deduplicated per 6h via ~/.localflight/linear_dedup.json)
 - All env vars read lazily at call time (not module import time) to avoid race with `_load_dotenv()`
 
 ### Linear issue tracker
-Two separate integrations â€” do not confuse them:
+Two separate integrations — do not confuse them:
 - **Operator auto-filing** (`sources/web/linear_client.py`): `file_error()` called from `scheduler/runtime.py` on every cycle error. Uses `LINEAR_API_KEY` / `LINEAR_TEAM_ID` env vars pointing at the operator's own Linear workspace. Optional, completely silent, deduplicates per 6h.
 - **User bug reporter** (`sources/web/bug_reporter.py`): hardcoded developer credentials for a dedicated "Local Flight Reports" workspace. Powers `/feedback`, `POST /api/feedback`, and `POST /api/feedback/crash`; accepts optional mobile `client_context`. Always-on, no user config required. Worst case if credentials are compromised: spam to an isolated inbox, easy to rotate.
 
 ### Version
 - Single source of truth: `version` field in `pyproject.toml`
-- Read at runtime via `importlib.metadata.version("localflight")` with `"0.2.3b2"` fallback
-- Injected as `app_version` Jinja2 global in `server.py` â†’ available in all templates
-- Shown in nav bar (`v0.2.3b2`) and Admin â†’ System card
+- Read at runtime via `importlib.metadata.version("localflight")` with `"0.2.4b1"` fallback
+- Injected as `app_version` Jinja2 global in `server.py` → available in all templates
+- Shown in nav bar (`v0.2.4b1`) and Admin → System card
 - `LocalFlight.spec` reads it from `pyproject.toml` at build time for macOS `CFBundleShortVersionString`
 
 ### Auto-update check
 - `GET /api/admin/updates` checks GitHub releases API for `tr3y4rch/local-flight`
 - 1-hour in-process cache to avoid hammering GitHub
-- Admin â†’ System card shows "Up to date" (green) or "vX.Y.Z available â†—" (amber link)
+- Admin → System card shows "Up to date" (green) or "vX.Y.Z available ↗" (amber link)
 
 ---
 
@@ -210,7 +213,7 @@ Two separate integrations â€” do not confuse them:
 ```
 # Community relay / activation
 LOCALFLIGHT_ACTIVATION_TOKEN=
-LOCALFLIGHT_RELAY_URL=https://relay.localflight.app/v1/flights
+LOCALFLIGHT_RELAY_URL=https://localflight-community-relay.fly.dev/v1/flights
 
 # BYOK AviationStack (leave blank to use community relay)
 AVIATIONSTACK_API_KEY=
@@ -254,7 +257,7 @@ Config lives at `~/.localflight/config.json`
 | `GET /api/config` | Current server config |
 | `PATCH /api/config` | Update config fields; broadcasts `config_updated`; restarts scheduler for airport/source/interval changes |
 | `GET /api/fids` | JSON FIDS rows |
-| `GET /api/fids/detail` | Per-callsign detail â€” live position + 7-day history |
+| `GET /api/fids/detail` | Per-callsign detail — live position + 7-day history |
 | `GET /api/radar` | Aircraft positions |
 | `GET /api/metar` | Decoded + raw METAR |
 | `GET /api/history` | Recent flights from SQLite |
@@ -267,11 +270,11 @@ Config lives at `~/.localflight/config.json`
 | `GET /api/admin/updates` | GitHub release update check (1h cache) |
 | `GET /api/admin/scheduler` | Scheduler thread status |
 | `POST /api/admin/scheduler/restart` | Stop sleeping scheduler loop, reload config/env, start fresh cycle, broadcast `scheduler_restarted` |
-| `POST /api/feedback` | Submit bug report `{title, description, client_context}` â€” routes to developer's Linear |
+| `POST /api/feedback` | Submit bug report `{title, description, client_context}` — routes to developer's Linear |
 | `POST /api/feedback/crash` | Auto-file mobile/server crash report with deduplication |
 | `POST /api/admin/ping` | Device ping (matrix client) |
 | `POST /api/setup/complete` | Save setup, write .env, mark complete |
-| `POST /api/setup/reset` | Delete setup_complete marker â†’ re-run wizard |
+| `POST /api/setup/reset` | Delete setup_complete marker → re-run wizard |
 | `POST /api/setup/test-aviationstack` | Test AviationStack key (body) without saving |
 | `POST /api/setup/test-rapidapi` | Test RapidAPI key (body) without saving |
 | `GET /api/setup/client-info` | Machine fingerprint, relay URL, token presence, managed status |
@@ -294,18 +297,18 @@ python build.py --clean   # wipe dist/ and build/ first
 ```
 
 Output:
-- **Windows:** `dist/LocalFlight-windows.zip` + `.sha256` â€” unzip, double-click `LocalFlight.exe`
-- **macOS:** `dist/LocalFlight.app` plus `dist/LocalFlight-macos.zip` + `.sha256` â€” upload the zip; users unzip, then drag `LocalFlight.app` to Applications
+- **Windows:** `dist/LocalFlight-windows.zip` + `.sha256` — unzip, double-click `LocalFlight.exe`
+- **macOS:** `dist/LocalFlight.app` plus `dist/LocalFlight-macos.zip` + `.sha256` — upload the zip; users unzip, then drag `LocalFlight.app` to Applications
 
 Optional code signing via env vars:
 - Windows: `SIGNTOOL_CERT` (path to .pfx) + `SIGNTOOL_PASS`
 - macOS: `CODESIGN_IDENTITY` (Developer ID string) + `NOTARIZE_PROFILE` (notarytool keychain profile)
 
-Without signing: Windows shows SmartScreen "Unknown publisher"; macOS requires right-click â†’ Open on first launch.
+Without signing: Windows shows SmartScreen "Unknown publisher"; macOS requires right-click → Open on first launch.
 
 Release build notes:
-- Build Windows artifacts on Windows: `python build.py --clean` â†’ attach `LocalFlight-windows.zip` and `LocalFlight-windows.zip.sha256`.
-- Build macOS artifacts on macOS: `python build.py --clean` â†’ attach `LocalFlight-macos.zip` and `LocalFlight-macos.zip.sha256`.
+- Build Windows artifacts on Windows: `python build.py --clean` → attach `LocalFlight-windows.zip` and `LocalFlight-windows.zip.sha256`.
+- Build macOS artifacts on macOS: `python build.py --clean` → attach `LocalFlight-macos.zip` and `LocalFlight-macos.zip.sha256`.
 - `installers/windows/install.ps1` and `installers/macos/install.sh` are source-checkout installers; release users should prefer the PyInstaller zip artifacts.
 
 ---
@@ -314,10 +317,10 @@ Release build notes:
 
 | Device | Role | Status |
 |---|---|---|
-| Windows PC | Dev machine | âœ… Running |
-| Raspberry Pi 5 | Production server | ðŸ”œ Installer ready, awaiting hardware |
-| Pimoroni Interstate 75 W (RP2350) | LED matrix 256Ã—64 | ðŸ”œ MicroPython client written |
-| RTL-SDR USB dongle | ADS-B receiver for Pi | ðŸ”œ dump1090 client written |
+| Windows PC | Dev machine | ✅ Running |
+| Raspberry Pi 5 | Production server | 🔜 Installer ready, awaiting hardware |
+| Pimoroni Interstate 75 W (RP2350) | LED matrix 256×64 | 🔜 MicroPython client written |
+| RTL-SDR USB dongle | ADS-B receiver for Pi | 🔜 dump1090 client written |
 
 ### LED matrix client (`sources/matrix/client.py`)
 - MicroPython, polls `/api/fids` over WiFi every 60s
@@ -330,7 +333,7 @@ Release build notes:
 sudo apt install dump1090-fa
 sudo systemctl enable dump1090-fa
 ```
-Swap `enrich_flights_with_adsbexchange` â†’ `enrich_flights_with_adsb` in `jobs.py`
+Swap `enrich_flights_with_adsbexchange` → `enrich_flights_with_adsb` in `jobs.py`
 
 ---
 
@@ -359,83 +362,93 @@ npm run ios
 
 ## Current handoff for the dev machine
 
-- Active version is `0.2.3b2`: `pyproject.toml`, runtime fallbacks, mobile package metadata, Expo `extra.localFlightVersion`, and docs should all agree.
-- Public community relay default is `https://relay.localflight.app/v1/flights`.
-- Operator admin host is `https://network.localflight.app`.
-- Fly deployment now expects one warm machine in `fra`, one SQLite volume, and host-based public/admin gating in `relay/main.py`.
+- Active version is `0.2.4b1`: `pyproject.toml`, runtime fallbacks, mobile package metadata, Expo `extra.localFlightVersion`, and docs should all agree.
+- Community relay is live at `https://localflight-community-relay.fly.dev/v1/flights`. The custom domain `relay.localflight.app` is planned once DNS is registered.
+- Relay admin panel: access via `RELAY_ADMIN_ON_PUBLIC=1` (already set as a Fly secret) at `https://localflight-community-relay.fly.dev/admin`, or via `fly proxy 8080` (unreliable on Windows) or `fly ssh console` for CLI access.
+- Fly deployment: one warm machine in `fra`, one SQLite volume (`relay_data`), host-based public/admin gating in `relay/main.py`.
 - `mobile/node_modules` is still absent on this Windows workspace, so Expo/TypeScript validation belongs on the Mac/Xcode side after `npm install`.
 - Desktop resume on Windows: run `.\start.bat`, confirm Community setup preloads the hosted relay URL, then verify FIDS/radar/admin against the live relay contract.
-- Release resume: run `python build.py --clean` separately on Windows and macOS. Upload `dist/LocalFlight-windows.zip`, `dist/LocalFlight-windows.zip.sha256`, `dist/LocalFlight-macos.zip`, and `dist/LocalFlight-macos.zip.sha256` to GitHub release `v0.2.3b2`.
+- Release resume: run `python build.py --clean` separately on Windows and macOS. Upload `dist/LocalFlight-windows.zip`, `dist/LocalFlight-windows.zip.sha256`, `dist/LocalFlight-macos.zip`, and `dist/LocalFlight-macos.zip.sha256` to GitHub release `v0.2.4b1`.
 - Mobile resume on Mac/Xcode: from `mobile/`, run `npm install`, `npx expo install --fix`, `npm run doctor`, then `npm run ios`. Expo Go may reject SDK 55 depending on installed Expo Go; simulator/dev build is the safer path.
 - Verification to rerun after the version bump: `python -m pip install -e .`, `python -m compileall -q src relay`, `pytest tests`, plus installer shell syntax checks.
 
-## What was done in the latest session (v0.2.3b2)
+## What was done in the latest session (v0.2.4b1)
+
+- ✅ Fly.io relay deployed and verified live at `localflight-community-relay.fly.dev`.
+- ✅ Fixed `relay/main.py`: `uvicorn.run("relay.main:app", ...)` → `uvicorn.run(app, ...)` (string import fails in Docker; no `relay` package in container).
+- ✅ Added `RELAY_ADMIN_ON_PUBLIC` flag: allows `/admin` on public surface when custom DNS isn't set up; admin password still required.
+- ✅ Community relay URL updated to live endpoint across all installers, `.env` defaults, and docs.
+- ✅ UTF-8 mojibake fixed in `README.md` and `AGENTS.md` (double-encoding from cp1252 re-save).
+- ✅ Removed orphaned `claude2.md` and root `package-lock.json`.
+- ✅ Version bumped to `0.2.4b1`.
+
+## What was done in session v0.2.3b2
 
 - ✅ Hosted relay defaults centralized in `relay_defaults.py` and wired through the desktop clients, setup flow, and installers.
 - ✅ `relay/main.py` hardened for Fly.io: port `8080`, FastAPI lifespan startup, `/health`, host-based public/admin gating, and reduced relay-side metadata writes.
-- ✅ `relay/fly.toml` and `.github/workflows/fly-deploy.yml` updated for explicit `relay/` deployment, one warm `fra` machine, and the `relay.localflight.app` / `network.localflight.app` split.
+- ✅ `relay/fly.toml` updated for explicit `relay/` deployment, one warm `fra` machine, and the `relay.localflight.app` / `network.localflight.app` split.
 - ✅ Privacy and handoff docs rewritten for the hosted relay model and install-scoped identifiers.
-- âœ… `private_keys.py` â€” dev-only community key lookup from `dev/private/community_keys.json` (gitignored)
-- âœ… `install.py` â€” `get_activation_token()` / `set_activation_token()` for managed install tokens
-- âœ… `aviationstack_client.py` â€” explicit BYOK vs relay split; 30-day rolling community window; activation token forwarding; BYOK default 90/month; community cap 50/month
-- âœ… `adsbexchange_client.py` â€” relay radar proxy path
-- âœ… `request_log.py` â€” `client_type`, `client_id`, `platform` columns + schema migration; companion tracking
-- âœ… `api.py` â€” `POST /api/admin/companion/checkin` endpoint with `CompanionCheckinIn`
-- âœ… `server.py` â€” 6 new relay setup endpoints: client-info, activate, client-status, request-activation, request-activation/status, test-activation
-- âœ… `relay/main.py` â€” full network admin console: provider key storage, token lifecycle/revocation, install access control, API counters, traffic stats, anonymous activation tags
-- âœ… `setup.html` â€” three explicit paths (community / BYOK / VATSIM); managed activation flow; machine identity shown
-- âœ… `admin.html` â€” community vs BYOK budget mode separated
-- âœ… `settings.html` â€” read-only client link card (fingerprint, relay URL, token presence)
-- âœ… `mobile/src/device/identity.ts` â€” companion identity (UUID, platform, deviceType, appVersion)
-- âœ… `mobile/src/storage/settings.ts` â€” companionId persisted in Expo SecureStore
-- âœ… `tests/test_relay_admin.py` â€” relay admin regression tests
-- âœ… Version bumped to `0.2.3b2`; CHANGELOG, CLAUDE.md, AGENTS.md updated
+- ✅ `private_keys.py` — dev-only community key lookup from `dev/private/community_keys.json` (gitignored)
+- ✅ `install.py` — `get_activation_token()` / `set_activation_token()` for managed install tokens
+- ✅ `aviationstack_client.py` — explicit BYOK vs relay split; 30-day rolling community window; activation token forwarding; BYOK default 90/month; community cap 50/month
+- ✅ `adsbexchange_client.py` — relay radar proxy path
+- ✅ `request_log.py` — `client_type`, `client_id`, `platform` columns + schema migration; companion tracking
+- ✅ `api.py` — `POST /api/admin/companion/checkin` endpoint with `CompanionCheckinIn`
+- ✅ `server.py` — 6 new relay setup endpoints: client-info, activate, client-status, request-activation, request-activation/status, test-activation
+- ✅ `relay/main.py` — full network admin console: provider key storage, token lifecycle/revocation, install access control, API counters, traffic stats, anonymous activation tags
+- ✅ `setup.html` — three explicit paths (community / BYOK / VATSIM); managed activation flow; machine identity shown
+- ✅ `admin.html` — community vs BYOK budget mode separated
+- ✅ `settings.html` — read-only client link card (fingerprint, relay URL, token presence)
+- ✅ `mobile/src/device/identity.ts` — companion identity (UUID, platform, deviceType, appVersion)
+- ✅ `mobile/src/storage/settings.ts` — companionId persisted in Expo SecureStore
+- ✅ `tests/test_relay_admin.py` — relay admin regression tests
+- ✅ Version bumped to `0.2.4b1`; CHANGELOG, CLAUDE.md, AGENTS.md updated
 
 ## What was done in the macOS app session
 
-- âœ… macOS `.app` bundle â€” `install.sh` now builds `~/Applications/LocalFlight.app` instead of a `.command` symlink; `scripts/make_app_bundle.py` handles SVGâ†’icns (cairosvg â†’ pre-rendered PNG â†’ PIL fallback) + `Info.plist` + compiled Mach-O stub + baked shell launcher
-- âœ… Mach-O stub â€” macOS Launch Services silently rejects shell scripts as `CFBundleExecutable`; stub is a tiny C program compiled with `cc` at install time that exec's `/bin/bash launcher.sh` in the same `MacOS/` directory
-- âœ… `assets/icon_circle.png` â€” 1024Ã—1024 pre-rendered from SVG and committed; `.gitignore` updated with `!assets/icon_circle.png` exception so the pre-render survives without `cairosvg`
-- âœ… `LocalFlight.command` â€” fixed symlink `$0` resolution bug: when launched via Finder the symlink path was used as `$0`, causing `ROOT` to resolve to `~/..` instead of the project root; fixed with `readlink`
-- âœ… `installers/macos/install.sh` â€” replaced `.command` symlink step with `make_app_bundle.py` call; `.command` file stays as shell-only fallback
+- ✅ macOS `.app` bundle — `install.sh` now builds `~/Applications/LocalFlight.app` instead of a `.command` symlink; `scripts/make_app_bundle.py` handles SVG→icns (cairosvg → pre-rendered PNG → PIL fallback) + `Info.plist` + compiled Mach-O stub + baked shell launcher
+- ✅ Mach-O stub — macOS Launch Services silently rejects shell scripts as `CFBundleExecutable`; stub is a tiny C program compiled with `cc` at install time that exec's `/bin/bash launcher.sh` in the same `MacOS/` directory
+- ✅ `assets/icon_circle.png` — 1024×1024 pre-rendered from SVG and committed; `.gitignore` updated with `!assets/icon_circle.png` exception so the pre-render survives without `cairosvg`
+- ✅ `LocalFlight.command` — fixed symlink `$0` resolution bug: when launched via Finder the symlink path was used as `$0`, causing `ROOT` to resolve to `~/..` instead of the project root; fixed with `readlink`
+- ✅ `installers/macos/install.sh` — replaced `.command` symlink step with `make_app_bundle.py` call; `.command` file stays as shell-only fallback
 
 ## What was done in previous sessions
 
-- âœ… `start.bat` â€” fixed UTF-8 box-drawing chars in `::` comments causing cmd.exe byte-eating bug on `chcp 65001`; replaced all 7 comment lines with ASCII; added error pause
-- âœ… `linear_client.py` â€” added `test_connection()` with real GraphQL `viewer` query to validate key (not just env var presence); returns specific 401 message
-- âœ… `bug_reporter.py` â€” new hardcoded developer reporter (`sources/web/bug_reporter.py`); dedicated "Local Flight Reports" Linear workspace; `_system_context()` auto-attaches version/platform/airport
-- âœ… `feedback.html` â€” new `/feedback` page with title+description form, system info preview, success/error state
-- âœ… `/api/feedback` endpoint â€” `POST`, `FeedbackIn` Pydantic model, calls `bug_reporter.submit_report()`
-- âœ… `/feedback` route in `server.py`
-- âœ… ðŸ› Report nav item added to `_nav.html` management group
-- âœ… Admin hub Linear Issues card **removed** â€” replaced by dedicated `/feedback` page (no duplicate reporting)
-- âœ… README rewritten from end-user perspective â€” install-first flow, removed dev-cycle / awaiting-hardware language
-- âœ… File consistency sweep â€” LINEAR vars removed from all 3 installer `.env` templates; `pyproject.toml` Issues URL â†’ GitHub; `CHANGELOG.md` updated; `AGENTS.md` updated
-- âœ… Setup wizard â€” added ADS-B Exchange test endpoint + "Test connection" button for panel 3; POST body is now the preferred path and GET remains only as compatibility fallback
-- âœ… Setup wizard â€” fixed RapidAPI signup URL (`adsbexchange` â†’ `adsbx` provider slug in RapidAPI path); fixed OpenSky registration URL (old Joomla path â†’ `/login?view=registration`)
-- âœ… Admin hub â€” added Buy Me a Coffee strip at bottom (`buymeacoffee.com/localflight`); subtle ghost opacity, not a card
-- âœ… Runtime snapshots â€” moved canonical JSON storage to `~/.localflight/storage/data/<IATA>/snapshots`; legacy source-tree snapshots remain readable
-- âœ… Scheduler/runtime â€” pruning now runs inside snapshot jobs; failed cycles preserve the previous `last_success_utc`
-- âœ… Installer/docs sweep â€” Windows/macOS/Pi source installers clarified; Pi helper path fixed; `.env.example` no longer includes operator Linear vars
-- âœ… Desktop beta release prep â€” `psutil`/`packaging` required; Windows build writes a SHA256 checksum
+- ✅ `start.bat` — fixed UTF-8 box-drawing chars in `::` comments causing cmd.exe byte-eating bug on `chcp 65001`; replaced all 7 comment lines with ASCII; added error pause
+- ✅ `linear_client.py` — added `test_connection()` with real GraphQL `viewer` query to validate key (not just env var presence); returns specific 401 message
+- ✅ `bug_reporter.py` — new hardcoded developer reporter (`sources/web/bug_reporter.py`); dedicated "Local Flight Reports" Linear workspace; `_system_context()` auto-attaches version/platform/airport
+- ✅ `feedback.html` — new `/feedback` page with title+description form, system info preview, success/error state
+- ✅ `/api/feedback` endpoint — `POST`, `FeedbackIn` Pydantic model, calls `bug_reporter.submit_report()`
+- ✅ `/feedback` route in `server.py`
+- ✅ ðŸ› Report nav item added to `_nav.html` management group
+- ✅ Admin hub Linear Issues card **removed** — replaced by dedicated `/feedback` page (no duplicate reporting)
+- ✅ README rewritten from end-user perspective — install-first flow, removed dev-cycle / awaiting-hardware language
+- ✅ File consistency sweep — LINEAR vars removed from all 3 installer `.env` templates; `pyproject.toml` Issues URL → GitHub; `CHANGELOG.md` updated; `AGENTS.md` updated
+- ✅ Setup wizard — added ADS-B Exchange test endpoint + "Test connection" button for panel 3; POST body is now the preferred path and GET remains only as compatibility fallback
+- ✅ Setup wizard — fixed RapidAPI signup URL (`adsbexchange` → `adsbx` provider slug in RapidAPI path); fixed OpenSky registration URL (old Joomla path → `/login?view=registration`)
+- ✅ Admin hub — added Buy Me a Coffee strip at bottom (`buymeacoffee.com/localflight`); subtle ghost opacity, not a card
+- ✅ Runtime snapshots — moved canonical JSON storage to `~/.localflight/storage/data/<IATA>/snapshots`; legacy source-tree snapshots remain readable
+- ✅ Scheduler/runtime — pruning now runs inside snapshot jobs; failed cycles preserve the previous `last_success_utc`
+- ✅ Installer/docs sweep — Windows/macOS/Pi source installers clarified; Pi helper path fixed; `.env.example` no longer includes operator Linear vars
+- ✅ Desktop beta release prep — `psutil`/`packaging` required; Windows build writes a SHA256 checksum
 
-- âœ… Mobile Phase 1 â€” created `mobile/` React Native / Expo scaffold with SecureStore settings, API client, WebSocket listener, responsive layout helpers, and iOS-first shell
-- âœ… Mobile visual pass â€” base app followed the supplied airport-board mockup with status bar/dynamic-island-style treatment, airport/METAR header, FIDS tabs, pinned flight card, compact rows, admin/settings screens, and bottom nav
-- âœ… Version bump â€” project moved to `0.2.2b1`; mobile npm metadata used `0.2.2-b1`; Expo metadata carried `extra.localFlightVersion = "0.2.2b1"`
+- ✅ Mobile Phase 1 — created `mobile/` React Native / Expo scaffold with SecureStore settings, API client, WebSocket listener, responsive layout helpers, and iOS-first shell
+- ✅ Mobile visual pass — base app followed the supplied airport-board mockup with status bar/dynamic-island-style treatment, airport/METAR header, FIDS tabs, pinned flight card, compact rows, admin/settings screens, and bottom nav
+- ✅ Version bump — project moved to `0.2.2b1`; mobile npm metadata used `0.2.2-b1`; Expo metadata carried `extra.localFlightVersion = "0.2.2b1"`
 
 ## Pending / next up
 
-- [ ] Create GitHub release `v0.2.3b2` and attach Windows/macOS artifacts plus both `.sha256` files.
-- [ ] Deploy the Fly relay, set production secrets, and wire `relay.localflight.app` plus `network.localflight.app`.
-- [ ] Run hosted relay smoke tests: `/health`, public `/v1/*`, admin `/admin`, and one end-to-end community client activation.
-- [ ] Mobile â€” `npm install` + `npx expo install --fix` on Mac; test in iOS simulator/dev build
+- [ ] Create GitHub release `v0.2.4b1` and attach Windows/macOS artifacts plus both `.sha256` files.
+- [ ] Register custom domain and wire `relay.localflight.app` + `network.localflight.app` DNS → `localflight-community-relay.fly.dev`; run `fly certs add` for both.
+- [ ] End-to-end community client activation test against live relay.
+- [ ] Mobile — `npm install` + `npx expo install --fix` on Mac; test in iOS simulator/dev build
 - [ ] Validate the companion on the Mac/Xcode side after installing `mobile/` dependencies (`npm install`, `npm run doctor`, `npm run ios`)
-- [ ] Notification system (Pushover/Telegram) â€” ~50 lines, hooks into scheduler after `_broadcast_update()`
-- [ ] Pi hardware arrives â€” test systemd services + kiosk
-- [ ] RTL-SDR dongle â€” test dump1090 integration
-- [ ] Interstate 75 W â€” flash client.py, test WiFi polling
-- [ ] Code signing certificates â€” Developer ID (macOS) + EV cert (Windows SmartScreen)
-- [ ] Mobile v2 â€” QR pairing + per-device tokens before exposing admin mutating controls
+- [ ] Notification system (Pushover/Telegram) — ~50 lines, hooks into scheduler after `_broadcast_update()`
+- [ ] Pi hardware arrives — test systemd services + kiosk
+- [ ] RTL-SDR dongle — test dump1090 integration
+- [ ] Interstate 75 W — flash client.py, test WiFi polling
+- [ ] Code signing certificates — Developer ID (macOS) + EV cert (Windows SmartScreen)
+- [ ] Mobile v2 — QR pairing + per-device tokens before exposing admin mutating controls
 
 ---
 
@@ -443,7 +456,7 @@ npm run ios
 
 - Python 3.11+, type hints throughout, `from __future__ import annotations`
 - FastAPI for the web layer, Jinja2 for templates
-- No module-level env var reads â€” always read lazily inside functions
+- No module-level env var reads — always read lazily inside functions
 - Non-fatal pattern: wrap risky operations in try/except, log warning, continue
 - History writes, enrichment failures, WS broadcasts, Linear calls are all non-fatal
 - `os._exit(0)` for hard shutdown (bypasses uvicorn's signal handling)

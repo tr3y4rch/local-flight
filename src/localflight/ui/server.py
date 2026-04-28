@@ -173,7 +173,7 @@ try:
     from importlib.metadata import version as _pkg_version
     _APP_VERSION = _pkg_version("localflight")
 except Exception:
-    _APP_VERSION = "0.2.3b2"
+    _APP_VERSION = "0.2.4b1"
 
 templates.env.globals["app_version"] = _APP_VERSION
 

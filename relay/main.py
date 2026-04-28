@@ -86,10 +86,16 @@ def _request_surface(request: Request) -> str:
     return "public"
 
 
+def _admin_on_public() -> bool:
+    return _env("RELAY_ADMIN_ON_PUBLIC", "").lower() in {"1", "true", "yes"}
+
+
 def _surface_allows_path(surface: str, path: str) -> bool:
     if surface == "admin":
         return path in {"/", "/health", "/admin"} or path.startswith("/admin/")
     if surface == "public":
+        if _admin_on_public() and (path == "/admin" or path.startswith("/admin/")):
+            return True
         return path in {"/", "/health"} or path.startswith("/v1/")
     return True
 
@@ -2190,7 +2196,7 @@ def admin_correct_schedule(
 
 def main() -> None:
     uvicorn.run(
-        "relay.main:app",
+        app,
         host=_env("HOST", "0.0.0.0"),
         port=int(_env("PORT", "8080")),
         reload=False,

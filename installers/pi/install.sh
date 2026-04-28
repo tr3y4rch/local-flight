@@ -100,7 +100,7 @@ if [ ! -f "$ROOT/.env" ]; then
 # Edit this file, then restart with: sudo systemctl restart localflight
 
 LOCALFLIGHT_ACTIVATION_TOKEN=
-LOCALFLIGHT_RELAY_URL=https://relay.localflight.app/v1/flights
+LOCALFLIGHT_RELAY_URL=https://localflight-community-relay.fly.dev/v1/flights
 
 AVIATIONSTACK_API_KEY=
 LOCALFLIGHT_AVIATIONSTACK_ENABLED=1
