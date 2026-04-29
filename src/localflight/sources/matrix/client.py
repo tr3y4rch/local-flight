@@ -14,22 +14,24 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 
 # ── User config — edit these ───────────────────────────────────────────────────
-WIFI_SSID     = "your_wifi_name"
-WIFI_PASSWORD = "your_wifi_password"
+WIFI_SSID     = "Sunrise_2151269"
+WIFI_PASSWORD = ""
 
-API_HOST      = "192.168.1.100"   # IP of machine running Local Flight
+API_HOST      = "192.168.1.49"   # IP of machine running Local Flight (e.g. Pi's LAN IP)
 API_PORT      = 8000
-AIRPORT_IATA  = "ZRH"
-AIRPORT_ICAO  = "LSZH"
 
 PANEL_W       = 256               # total width (2x 128px panels chained)
 PANEL_H       = 64                # panel height
 MAX_ROWS      = 4                 # flight rows to display
-REFRESH_S     = 60                # fetch interval in seconds
+REFRESH_S     = 60                # flight data fetch interval in seconds
+CONFIG_REFRESH_S = 300            # re-read server config (airport) every 5 min
 PING_S        = 600               # ping server every 10 min
 BRIGHTNESS    = 0.8               # 0.0 – 1.0
 CLIENT_VER    = "1.0"
 # ──────────────────────────────────────────────────────────────────────────────
+
+# Airport is read from the server — no hardcoding needed
+_airport_iata = "---"
 
 import time
 import network
@@ -166,6 +168,22 @@ def ensure_wifi():
     return True
 
 # ── API helpers ────────────────────────────────────────────────────────────────
+def fetch_config():
+    global _airport_iata
+    url = f"http://{API_HOST}:{API_PORT}/api/config"
+    try:
+        resp = urequests.get(url, timeout=8)
+        if resp.status_code == 200:
+            data = ujson.loads(resp.text)
+            resp.close()
+            _airport_iata = (data.get("airport_iata") or "---").upper()
+            return True
+        resp.close()
+    except Exception as e:
+        print(f"Config fetch error: {e}")
+    return False
+
+
 def fetch_fids(view="departures", limit=4):
     url = f"http://{API_HOST}:{API_PORT}/api/fids?view={view}&limit={limit}"
     try:
@@ -198,7 +216,7 @@ def _draw_message(msg, color=WHITE):
     i75.update(graphics)
 
 def draw_header(view, connected=True):
-    label = f"{AIRPORT_IATA} {'DEP' if view == 'departures' else 'ARR'}"
+    label = f"{_airport_iata} {'DEP' if view == 'departures' else 'ARR'}"
     graphics.set_pen(GREEN)
     graphics.set_font("bitmap8")
     graphics.text(label, 0, 0, WIDTH, 1)
@@ -243,12 +261,13 @@ def draw_row(flap_row, row_data, y):
 
 # ── Main loop ──────────────────────────────────────────────────────────────────
 def main():
-    view        = "departures"
-    flight_data = []
-    flap_rows   = [FlapRow(ROW_LEN) for _ in range(MAX_ROWS)]
-    last_fetch  = 0
-    last_ping   = 0
-    force_fetch = True
+    view             = "departures"
+    flight_data      = []
+    flap_rows        = [FlapRow(ROW_LEN) for _ in range(MAX_ROWS)]
+    last_fetch       = 0
+    last_ping        = 0
+    last_config      = 0
+    force_fetch      = True
 
     i75.set_led(0, 100, 0)  # green LED = running
 
@@ -257,6 +276,8 @@ def main():
         _draw_message("No WiFi. Retrying...", RED)
         time.sleep(5)
     else:
+        fetch_config()
+        last_config = time.time()
         ping_server()
         last_ping = time.time()
 
@@ -278,6 +299,12 @@ def main():
         elif b and view != "arrivals":
             view        = "arrivals"
             force_fetch = True
+
+        # ── Periodic config refresh (picks up airport changes) ────────────────
+        if now - last_config >= CONFIG_REFRESH_S:
+            if ensure_wifi():
+                fetch_config()
+            last_config = now
 
         # ── Periodic ping ─────────────────────────────────────────────────────
         if now - last_ping >= PING_S:
