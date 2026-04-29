@@ -40,11 +40,6 @@ echo " Updating package lists..."
 sudo apt-get update -qq
 
 echo " Resolving package names..."
-CHROMIUM_PKG="chromium-browser"
-if ! apt-cache show chromium-browser >/dev/null 2>&1; then
-    CHROMIUM_PKG="chromium"
-fi
-
 ASOUND_PKG="libasound2t64"
 if ! apt-cache show libasound2t64 >/dev/null 2>&1; then
     ASOUND_PKG="libasound2"
@@ -55,27 +50,28 @@ sudo apt-get install -y -qq \
     python3 \
     python3-venv \
     python3-pip \
-    "$CHROMIUM_PKG" \
     avahi-daemon \
-    libatk1.0-0 \
-    libatk-bridge2.0-0 \
-    libcups2 \
-    libdrm2 \
-    libxkbcommon0 \
-    libxcomposite1 \
-    libxdamage1 \
-    libxfixes3 \
-    libxrandr2 \
-    libgbm1 \
     "$ASOUND_PKG"
 echo " System packages installed"
 
-CHROMIUM_BIN="$(command -v chromium-browser || command -v chromium || true)"
-if [ -z "$CHROMIUM_BIN" ]; then
-    echo " ERROR: Chromium was installed but no chromium binary was found in PATH."
-    exit 1
+# Chromium is optional — needed only for kiosk mode (HDMI display attached).
+# Headless / LED-only installs skip it silently.
+CHROMIUM_BIN=""
+echo " Checking for Chromium (kiosk mode, optional)..."
+for PKG in chromium-browser chromium; do
+    if apt-cache show "$PKG" >/dev/null 2>&1; then
+        if sudo apt-get install -y -qq "$PKG" 2>/dev/null; then
+            CHROMIUM_BIN="$(command -v chromium-browser || command -v chromium || true)"
+            break
+        fi
+    fi
+done
+
+if [ -n "$CHROMIUM_BIN" ]; then
+    echo " Chromium binary: $CHROMIUM_BIN"
+else
+    echo " Chromium not available — headless mode only (no kiosk service)"
 fi
-echo " Chromium binary: $CHROMIUM_BIN"
 
 if [ ! -x "$VENV/bin/python" ]; then
     echo " Creating virtual environment..."
@@ -143,18 +139,19 @@ WantedBy=multi-user.target
 EOF
 echo " Done"
 
-echo " Installing localflight-kiosk.service..."
-DISPLAY_ENV="DISPLAY=:0"
-if [ -n "${WAYLAND_DISPLAY:-}" ]; then
-    DISPLAY_ENV="WAYLAND_DISPLAY=${WAYLAND_DISPLAY}"
-elif command -v loginctl >/dev/null 2>&1; then
-    SESSION_ID="$(loginctl 2>/dev/null | awk -v user="$SERVICE_USER" '$3 == user {print $1; exit}')"
-    if [ -n "${SESSION_ID:-}" ] && loginctl show-session "$SESSION_ID" -p Type 2>/dev/null | grep -q wayland; then
-        DISPLAY_ENV="WAYLAND_DISPLAY=wayland-0"
+if [ -n "$CHROMIUM_BIN" ]; then
+    echo " Installing localflight-kiosk.service..."
+    DISPLAY_ENV="DISPLAY=:0"
+    if [ -n "${WAYLAND_DISPLAY:-}" ]; then
+        DISPLAY_ENV="WAYLAND_DISPLAY=${WAYLAND_DISPLAY}"
+    elif command -v loginctl >/dev/null 2>&1; then
+        SESSION_ID="$(loginctl 2>/dev/null | awk -v user="$SERVICE_USER" '$3 == user {print $1; exit}')"
+        if [ -n "${SESSION_ID:-}" ] && loginctl show-session "$SESSION_ID" -p Type 2>/dev/null | grep -q wayland; then
+            DISPLAY_ENV="WAYLAND_DISPLAY=wayland-0"
+        fi
     fi
-fi
 
-sudo tee /etc/systemd/system/localflight-kiosk.service >/dev/null <<EOF
+    sudo tee /etc/systemd/system/localflight-kiosk.service >/dev/null <<EOF
 [Unit]
 Description=Local Flight - Chromium Kiosk
 After=localflight.service graphical.target
@@ -187,7 +184,10 @@ RestartSec=10
 [Install]
 WantedBy=graphical.target
 EOF
-echo " Done"
+    echo " Done"
+else
+    echo " Skipping kiosk service (headless install)"
+fi
 
 echo " Configuring mDNS..."
 sudo systemctl enable --now avahi-daemon
@@ -207,13 +207,17 @@ echo " Done"
 echo " Enabling services..."
 sudo systemctl daemon-reload
 sudo systemctl enable localflight.service
-sudo systemctl enable localflight-kiosk.service
+if [ -n "$CHROMIUM_BIN" ]; then
+    sudo systemctl enable localflight-kiosk.service
+fi
 echo " Done"
 
 echo " Starting Local Flight..."
 sudo systemctl restart localflight.service
-sleep 3
-sudo systemctl restart localflight-kiosk.service
+if [ -n "$CHROMIUM_BIN" ]; then
+    sleep 3
+    sudo systemctl restart localflight-kiosk.service
+fi
 
 PI_IP="$(hostname -I | awk '{print $1}')"
 
