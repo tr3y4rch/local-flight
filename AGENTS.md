@@ -178,13 +178,13 @@ Linear issue filed (deduplicated per 6h via ~/.localflight/linear_dedup.json)
 ### Linear issue tracker
 Two separate integrations — do not confuse them:
 - **Operator auto-filing** (`sources/web/linear_client.py`): `file_error()` called from `scheduler/runtime.py` on every cycle error. Uses `LINEAR_API_KEY` / `LINEAR_TEAM_ID` env vars pointing at the operator's own Linear workspace. Optional, completely silent, deduplicates per 6h.
-- **User bug reporter** (`sources/web/bug_reporter.py`): hardcoded developer credentials for a dedicated "Local Flight Reports" workspace. Powers `/feedback`, `POST /api/feedback`, and `POST /api/feedback/crash`; accepts optional mobile `client_context`. Always-on, no user config required. Worst case if credentials are compromised: spam to an isolated inbox, easy to rotate.
+- **User bug reporter** (`sources/web/bug_reporter.py`): hardcoded developer credentials for a dedicated "Local Flight Reports" workspace. Powers `/feedback`, `POST /api/feedback`, and `POST /api/feedback/crash`; accepts optional mobile `client_context`. Manual reports are always available. Automatic crash diagnostics are gated by `diagnostics_mode` (`manual` / `auto` / `auto_logs`) and only attach log tail data in `auto_logs`. Worst case if credentials are compromised: spam to an isolated inbox, easy to rotate.
 
 ### Version
 - Single source of truth: `version` field in `pyproject.toml`
-- Read at runtime via `importlib.metadata.version("localflight")` with `"0.2.4b1"` fallback
+- Read at runtime via `importlib.metadata.version("localflight")` with `"0.2.5b1"` fallback
 - Injected as `app_version` Jinja2 global in `server.py` → available in all templates
-- Shown in nav bar (`v0.2.4b1`) and Admin → System card
+- Shown in nav bar (`v0.2.5b1`) and Admin → System card
 - `LocalFlight.spec` reads it from `pyproject.toml` at build time for macOS `CFBundleShortVersionString`
 
 ### Auto-update check
@@ -204,7 +204,7 @@ Two separate integrations — do not confuse them:
 - Current shell follows the iOS airport-board mockup: Flight Island, departure-airport/live header, UTC/local clock, METAR strip, FIDS tabs, pinned flight, compact rows, and bottom nav.
 - Mobile Settings can edit airport/source/update interval via `PATCH /api/config`, save local airport profiles, restart the scheduler, open Matrix/Admin, submit feedback, and open Buy Me a Coffee.
 - Mobile now ships with a longer branded launch overlay that mirrors the desktop splash direction with progress/status messaging.
-- Mobile crash reporting lives in `mobile/src/crash/`; `CrashBoundary` and the global reporter send `/api/feedback/crash` with mobile reporter context.
+- Mobile crash reporting lives in `mobile/src/crash/`; `CrashBoundary` and the global reporter only auto-send `/api/feedback/crash` when the server diagnostics mode allows it.
 - Admin mutating controls are still intentionally limited until QR pairing and per-device tokens exist; scheduler restart/config changes are the current trusted-LAN exception.
 - Current Windows workspace has no Node/npm; run `npm install`, `npx expo install --fix`, and iOS device checks on the Mac/Xcode machine unless Node is installed on the dev PC.
 
@@ -244,6 +244,7 @@ source: str = "real"          # "real" | "virtual"
 timezone: str = "Europe/Zurich"
 skin: str = "standard"        # standard | technical | neon | cyan | crt
 display_outputs: List[str] = ["web"]  # web | matrix | hdmi
+diagnostics_mode: str = "unset"  # unset | manual | auto | auto_logs
 ```
 
 Config lives at `~/.localflight/config.json`
@@ -265,13 +266,13 @@ Config lives at `~/.localflight/config.json`
 | `GET /api/history/stats` | DB size, row count |
 | `GET /api/admin/system` | Uptime, memory, CPU, version |
 | `GET /api/admin/budget` | API call budgets |
-| `GET /api/admin/requests` | Anonymized local traffic log summary |
+| `GET /api/admin/requests` | Anonymized local traffic log summary (only when network tools are enabled) |
 | `GET /api/admin/connections` | WS count + device pings |
 | `GET /api/admin/updates` | GitHub release update check (1h cache) |
 | `GET /api/admin/scheduler` | Scheduler thread status |
 | `POST /api/admin/scheduler/restart` | Stop sleeping scheduler loop, reload config/env, start fresh cycle, broadcast `scheduler_restarted` |
-| `POST /api/feedback` | Submit bug report `{title, description, client_context}` — routes to developer's Linear |
-| `POST /api/feedback/crash` | Auto-file mobile/server crash report with deduplication |
+| `POST /api/feedback` | Submit manual bug report `{title, description, client_context}` — routes to developer's Linear |
+| `POST /api/feedback/crash` | Automatic mobile/server crash route; blocked unless `diagnostics_mode` allows it |
 | `POST /api/admin/ping` | Device ping (matrix client) |
 | `POST /api/setup/complete` | Save setup, write .env, mark complete |
 | `POST /api/setup/reset` | Delete setup_complete marker → re-run wizard |
@@ -362,25 +363,25 @@ npm run ios
 
 ## Current handoff for the dev machine
 
-- Active version is `0.2.4b1`: `pyproject.toml`, runtime fallbacks, mobile package metadata, Expo `extra.localFlightVersion`, and docs should all agree.
+- Active version is `0.2.5b1`: `pyproject.toml`, runtime fallbacks, mobile package metadata, Expo `extra.localFlightVersion`, and docs should all agree.
 - Community relay is live at `https://localflight-community-relay.fly.dev/v1/flights`. The custom domain `relay.localflight.app` is planned once DNS is registered.
 - Relay admin panel: access via `RELAY_ADMIN_ON_PUBLIC=1` (already set as a Fly secret) at `https://localflight-community-relay.fly.dev/admin`, or via `fly proxy 8080` (unreliable on Windows) or `fly ssh console` for CLI access.
 - Fly deployment: one warm machine in `fra`, one SQLite volume (`relay_data`), host-based public/admin gating in `relay/main.py`.
 - `mobile/node_modules` is still absent on this Windows workspace, so Expo/TypeScript validation belongs on the Mac/Xcode side after `npm install`.
 - Desktop resume on Windows: run `.\start.bat`, confirm Community setup preloads the hosted relay URL, then verify FIDS/radar/admin against the live relay contract.
-- Release resume: run `python build.py --clean` separately on Windows and macOS. Upload `dist/LocalFlight-windows.zip`, `dist/LocalFlight-windows.zip.sha256`, `dist/LocalFlight-macos.zip`, and `dist/LocalFlight-macos.zip.sha256` to GitHub release `v0.2.4b1`.
+- Release resume: run `python build.py --clean` separately on Windows and macOS. Upload `dist/LocalFlight-windows.zip`, `dist/LocalFlight-windows.zip.sha256`, `dist/LocalFlight-macos.zip`, and `dist/LocalFlight-macos.zip.sha256` to GitHub release `v0.2.5b1`.
 - Mobile resume on Mac/Xcode: from `mobile/`, run `npm install`, `npx expo install --fix`, `npm run doctor`, then `npm run ios`. Expo Go may reject SDK 55 depending on installed Expo Go; simulator/dev build is the safer path.
-- Verification to rerun after the version bump: `python -m pip install -e .`, `python -m compileall -q src relay`, `pytest tests`, plus installer shell syntax checks.
+- Verification currently green on Windows side: `python -m pip install -e .`, `python -m py_compile build.py`, `python build.py --clean`, `python -m compileall -q src relay`, `pytest tests` (`34 passed`), plus installer shell syntax checks.
 
-## What was done in the latest session (v0.2.4b1)
+## What was done in the latest session (v0.2.5b1)
 
-- ✅ Fly.io relay deployed and verified live at `localflight-community-relay.fly.dev`.
-- ✅ Fixed `relay/main.py`: `uvicorn.run("relay.main:app", ...)` → `uvicorn.run(app, ...)` (string import fails in Docker; no `relay` package in container).
-- ✅ Added `RELAY_ADMIN_ON_PUBLIC` flag: allows `/admin` on public surface when custom DNS isn't set up; admin password still required.
-- ✅ Community relay URL updated to live endpoint across all installers, `.env` defaults, and docs.
-- ✅ UTF-8 mojibake fixed in `README.md` and `AGENTS.md` (double-encoding from cp1252 re-save).
-- ✅ Removed orphaned `claude2.md` and root `package-lock.json`.
-- ✅ Version bumped to `0.2.4b1`.
+- ✅ Version sweep completed to `0.2.5b1` across Python runtime fallbacks, PyInstaller metadata, mobile metadata, docs, and preview assets.
+- ✅ Community relay default centralized to `https://localflight-community-relay.fly.dev/v1/flights`; setup, installers, and client code now point at the same source of truth.
+- ✅ Added route-contract regression coverage for core UI/API surfaces and relay public/admin surfaces; current Windows verification passed with `34` tests.
+- ✅ Diagnostics/privacy reporting adapted: first-run diagnostics choice, settings control, truthful `/feedback` wording, and crash auto-report gating through `diagnostics_mode`.
+- ✅ Mobile crash reporter now respects the server diagnostics setting before auto-sending.
+- ✅ Matrix/I75W path hardened: `/api/matrix/config` repaired, `/api/matrix/script` added, browser helper blocks `localhost`, and board-side config intake is sanitized.
+- ✅ README / privacy / mobile docs updated to match the current community / BYOK / VATSIM setup and hosted relay story.
 
 ## What was done in session v0.2.3b2
 
@@ -402,7 +403,7 @@ npm run ios
 - ✅ `mobile/src/device/identity.ts` — companion identity (UUID, platform, deviceType, appVersion)
 - ✅ `mobile/src/storage/settings.ts` — companionId persisted in Expo SecureStore
 - ✅ `tests/test_relay_admin.py` — relay admin regression tests
-- ✅ Version bumped to `0.2.4b1`; CHANGELOG, CLAUDE.md, AGENTS.md updated
+- ✅ Version bumped to `0.2.3b2`; CHANGELOG, CLAUDE.md, AGENTS.md updated
 
 ## What was done in the macOS app session
 
@@ -438,17 +439,26 @@ npm run ios
 
 ## Pending / next up
 
-- [ ] Create GitHub release `v0.2.4b1` and attach Windows/macOS artifacts plus both `.sha256` files.
+- [ ] Create GitHub release `v0.2.5b1` and attach Windows/macOS artifacts plus both `.sha256` files.
 - [ ] Register custom domain and wire `relay.localflight.app` + `network.localflight.app` DNS → `localflight-community-relay.fly.dev`; run `fly certs add` for both.
 - [ ] End-to-end community client activation test against live relay.
 - [ ] Mobile — `npm install` + `npx expo install --fix` on Mac; test in iOS simulator/dev build
 - [ ] Validate the companion on the Mac/Xcode side after installing `mobile/` dependencies (`npm install`, `npm run doctor`, `npm run ios`)
 - [ ] Notification system (Pushover/Telegram) — ~50 lines, hooks into scheduler after `_broadcast_update()`
-- [ ] Pi hardware arrives — test systemd services + kiosk
+- [ ] Pi hardware on hand — run systemd services + kiosk validation on the real unit
 - [ ] RTL-SDR dongle — test dump1090 integration
 - [ ] Interstate 75 W — flash client.py, test WiFi polling
 - [ ] Code signing certificates — Developer ID (macOS) + EV cert (Windows SmartScreen)
 - [ ] Mobile v2 — QR pairing + per-device tokens before exposing admin mutating controls
+
+## Afternoon handoff (2026-04-30)
+
+- ✅ `AGENTS.md` is the working memory file again for current-state handoff notes.
+- ✅ `.gitignore` covers local assistant / dev context files including `.claude/`, `CLAUDE.md`, `DEV_README.md`, and `AGENTS.md`. Important: `AGENTS.md` is still tracked by git right now, so the ignore rule only protects future untracked state.
+- ✅ Windows side is currently verified for the hosted-relay desktop app: `build.py --clean`, `compileall`, `py_compile`, and `pytest tests` passed in the latest release sweep.
+- ✅ Pi / I75W prep is staged in code: Pi installer plus `lf` helper are ready, matrix preview is safer for DAU use, and the board download path rejects `localhost` in favor of LAN-safe server targets.
+- ✅ Mobile companion remains version-synced but still WIP; runtime validation still belongs on the Mac/Xcode side after dependency install.
+- 🔜 Next physical test focus: Raspberry Pi service / kiosk pass, Interstate 75 W flash plus matrix polling check, and later the macOS PyInstaller validation for the release app.
 
 ---
 

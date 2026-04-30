@@ -81,6 +81,7 @@ linear_dedup.json
 start_network.bat
 
 # AI assistant context files
+AGENTS.md
 Claude.md
 CLAUDE.md
 .github/copilot-instructions.md
