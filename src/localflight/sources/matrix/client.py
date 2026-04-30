@@ -20,14 +20,18 @@ WIFI_PASSWORD = ""
 API_HOST      = "192.168.1.49"   # IP of machine running Local Flight (e.g. Pi's LAN IP)
 API_PORT      = 8000
 
-PANEL_W       = 256               # total width (2x 128px panels chained)
-PANEL_H       = 64                # panel height
-MAX_ROWS      = 4                 # flight rows to display
-REFRESH_S     = 60                # flight data fetch interval in seconds
-CONFIG_REFRESH_S = 300            # re-read server config (airport) every 5 min
-PING_S        = 600               # ping server every 10 min
-BRIGHTNESS    = 0.8               # 0.0 – 1.0
-CLIENT_VER    = "1.0"
+PANEL_W          = 256   # total width  — must match physical panel chain
+PANEL_H          = 64    # panel height — must match physical panel height
+
+# Runtime defaults — overwritten by /api/matrix/config on boot
+MAX_ROWS         = 4     # flight rows to display
+REFRESH_S        = 60    # flight data fetch interval in seconds
+BRIGHTNESS       = 0.8   # 0.0 – 1.0
+DEFAULT_VIEW     = "departures"
+
+CONFIG_REFRESH_S = 300   # re-read server config every 5 min
+PING_S           = 600   # ping server every 10 min
+CLIENT_VER       = "1.0"
 # ──────────────────────────────────────────────────────────────────────────────
 
 # Airport is read from the server — no hardcoding needed
@@ -53,13 +57,30 @@ btn_a = Button(i75.SWITCH_A)
 btn_b = Button(i75.SWITCH_B)
 
 # ── Colors ─────────────────────────────────────────────────────────────────────
-BLACK  = graphics.create_pen(0,   0,   0)
-GREEN  = graphics.create_pen(0,   220, 60)
-AMBER  = graphics.create_pen(255, 160, 0)
-RED    = graphics.create_pen(220, 30,  30)
-WHITE  = graphics.create_pen(220, 240, 220)
-DIM    = graphics.create_pen(0,   80,  20)
-DIMBG  = graphics.create_pen(10,  10,  10)
+BLACK = graphics.create_pen(0, 0, 0)
+DIMBG = graphics.create_pen(10, 10, 10)
+
+# Skin palettes: primary, text, dim, warning, danger
+_SKIN_PALETTES = {
+    "standard":  [(0,220,60),   (220,240,220), (0,80,20),   (255,160,0),  (220,30,30)],
+    "technical": [(74,158,218), (200,216,232), (26,58,90),  (212,160,32), (192,64,64)],
+    "neon":      [(0,255,80),   (0,255,80),    (0,122,40),  (170,255,0),  (255,64,64)],
+    "cyan":      [(0,204,255),  (0,255,204),   (0,102,136), (255,204,0),  (255,64,96)],
+    "crt":       [(255,170,0),  (255,204,68),  (122,80,0),  (255,221,0),  (255,64,32)],
+}
+_active_skin = "standard"
+
+def apply_skin(name):
+    global GREEN, WHITE, DIM, AMBER, RED, _active_skin
+    p = _SKIN_PALETTES.get(name, _SKIN_PALETTES["standard"])
+    GREEN = graphics.create_pen(*p[0])
+    WHITE = graphics.create_pen(*p[1])
+    DIM   = graphics.create_pen(*p[2])
+    AMBER = graphics.create_pen(*p[3])
+    RED   = graphics.create_pen(*p[4])
+    _active_skin = name
+
+apply_skin("standard")
 
 # ── Split-flap animation ───────────────────────────────────────────────────────
 FLAP_CHARS = " ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.:/-+"
@@ -184,6 +205,32 @@ def fetch_config():
     return False
 
 
+def fetch_matrix_config():
+    global MAX_ROWS, REFRESH_S, BRIGHTNESS, DEFAULT_VIEW
+    url = f"http://{API_HOST}:{API_PORT}/api/matrix/config"
+    try:
+        resp = urequests.get(url, timeout=8)
+        if resp.status_code == 200:
+            data = ujson.loads(resp.text)
+            resp.close()
+            MAX_ROWS     = int(data.get("max_rows",         MAX_ROWS))
+            REFRESH_S    = int(data.get("refresh_seconds",  REFRESH_S))
+            BRIGHTNESS   = float(data.get("brightness",     BRIGHTNESS))
+            DEFAULT_VIEW = data.get("default_view", DEFAULT_VIEW)
+            skin = data.get("skin", "standard")
+            if skin != _active_skin:
+                apply_skin(skin)
+            try:
+                i75.set_brightness(BRIGHTNESS)
+            except Exception:
+                pass
+            return True
+        resp.close()
+    except Exception as e:
+        print(f"Matrix config fetch error: {e}")
+    return False
+
+
 def fetch_fids(view="departures", limit=4):
     url = f"http://{API_HOST}:{API_PORT}/api/fids?view={view}&limit={limit}"
     try:
@@ -261,9 +308,7 @@ def draw_row(flap_row, row_data, y):
 
 # ── Main loop ──────────────────────────────────────────────────────────────────
 def main():
-    view             = "departures"
     flight_data      = []
-    flap_rows        = [FlapRow(ROW_LEN) for _ in range(MAX_ROWS)]
     last_fetch       = 0
     last_ping        = 0
     last_config      = 0
@@ -277,9 +322,13 @@ def main():
         time.sleep(5)
     else:
         fetch_config()
+        fetch_matrix_config()
         last_config = time.time()
         ping_server()
         last_ping = time.time()
+
+    view      = DEFAULT_VIEW
+    flap_rows = [FlapRow(ROW_LEN) for _ in range(MAX_ROWS)]
 
     while True:
         now = time.time()
@@ -300,10 +349,15 @@ def main():
             view        = "arrivals"
             force_fetch = True
 
-        # ── Periodic config refresh (picks up airport changes) ────────────────
+        # ── Periodic config refresh (picks up airport + matrix setting changes) ─
         if now - last_config >= CONFIG_REFRESH_S:
             if ensure_wifi():
                 fetch_config()
+                fetch_matrix_config()
+                # Resize flap_rows if MAX_ROWS changed
+                if len(flap_rows) != MAX_ROWS:
+                    flap_rows = [FlapRow(ROW_LEN) for _ in range(MAX_ROWS)]
+                    force_fetch = True
             last_config = now
 
         # ── Periodic ping ─────────────────────────────────────────────────────

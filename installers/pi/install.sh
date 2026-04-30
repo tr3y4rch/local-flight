@@ -1,99 +1,105 @@
 #!/usr/bin/env bash
-# Local Flight - Raspberry Pi source installer
+# Local Flight — Raspberry Pi installer
 #
-# Tested on Raspberry Pi OS Bookworm (64-bit), Pi 4 and Pi 5.
+# Usage:
+#   bash installers/pi/install.sh            # headless (default) — LED panels, LAN clients
+#   bash installers/pi/install.sh --kiosk    # headless + Chromium kiosk on HDMI
 #
-# What this does:
-#   1. Installs system dependencies (Python, Chromium, Avahi/mDNS)
-#   2. Creates a Python venv and installs Local Flight from this checkout
-#   3. Creates .env from .env.example when missing
-#   4. Installs the Python app and Chromium kiosk systemd services
-#   5. Enables localflight.local via mDNS
-#   6. Starts both services
-#
-# Run as the normal Pi user, not root:
-#   bash installers/pi/install.sh
+# Run as the normal Pi user (not root). Requires: Pi OS Bookworm 64-bit, Python 3.11+.
 
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-VENV="$ROOT/.venv"
-USER_HOME="$HOME"
-SERVICE_USER="$(whoami)"
-
-echo ""
-echo " =========================================="
-echo "   LOCAL FLIGHT - Pi source install"
-echo " =========================================="
-echo ""
-echo " Project root: $ROOT"
-echo " Running as:   $SERVICE_USER"
-echo ""
-
-if [ "${EUID:-$(id -u)}" -eq 0 ]; then
-    echo " ERROR: Do not run as root. Run as the normal Pi user."
-    echo " The installer will use sudo where needed."
-    exit 1
-fi
-
-echo " Updating package lists..."
-sudo apt-get update -qq
-
-echo " Resolving package names..."
-ASOUND_PKG="libasound2t64"
-if ! apt-cache show libasound2t64 >/dev/null 2>&1; then
-    ASOUND_PKG="libasound2"
-fi
-
-echo " Installing system packages..."
-sudo apt-get install -y -qq \
-    python3 \
-    python3-venv \
-    python3-pip \
-    avahi-daemon \
-    "$ASOUND_PKG"
-echo " System packages installed"
-
-# Chromium is optional — needed only for kiosk mode (HDMI display attached).
-# Headless / LED-only installs skip it silently.
-CHROMIUM_BIN=""
-echo " Checking for Chromium (kiosk mode, optional)..."
-for PKG in chromium-browser chromium; do
-    if apt-cache show "$PKG" >/dev/null 2>&1; then
-        if sudo apt-get install -y -qq "$PKG" 2>/dev/null; then
-            CHROMIUM_BIN="$(command -v chromium-browser || command -v chromium || true)"
-            break
-        fi
-    fi
+# ── Args ───────────────────────────────────────────────────────────────────────
+KIOSK=0
+for arg in "$@"; do
+    case "$arg" in
+        --kiosk)    KIOSK=1 ;;
+        --headless) KIOSK=0 ;;
+        --help|-h)
+            echo "Usage: bash installers/pi/install.sh [--kiosk|--headless]"
+            echo "  (default is headless)"
+            exit 0 ;;
+    esac
 done
 
-if [ -n "$CHROMIUM_BIN" ]; then
-    echo " Chromium binary: $CHROMIUM_BIN"
-else
-    echo " Chromium not available — headless mode only (no kiosk service)"
+# ── Paths ──────────────────────────────────────────────────────────────────────
+ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+VENV="$ROOT/.venv"
+SERVICE_USER="$(whoami)"
+
+# ── Helpers ────────────────────────────────────────────────────────────────────
+ok()   { echo "  [OK]  $*"; }
+step() { echo ""; echo "  -->  $*"; }
+fail() { echo ""; echo "  [ERR] $*"; exit 1; }
+
+echo ""
+echo "  ╔══════════════════════════════════════╗"
+echo "  ║   Local Flight — Pi Installer        ║"
+echo "  ╚══════════════════════════════════════╝"
+echo ""
+echo "  Root:  $ROOT"
+echo "  User:  $SERVICE_USER"
+[ "$KIOSK" -eq 1 ] && echo "  Mode:  kiosk (Chromium on HDMI)" || echo "  Mode:  headless (no display)"
+echo ""
+
+[ "${EUID:-$(id -u)}" -eq 0 ] && fail "Do not run as root. Run as your normal Pi user — sudo is used internally."
+
+# ── 1. System packages ─────────────────────────────────────────────────────────
+step "Updating package lists..."
+sudo apt-get update -qq > /dev/null 2>&1
+ok "Package lists updated"
+
+step "Installing Python and mDNS packages..."
+sudo apt-get install -y -qq python3 python3-venv python3-pip avahi-daemon > /dev/null 2>&1
+ok "python3, python3-venv, python3-pip, avahi-daemon installed"
+
+# ── 2. Chromium (kiosk only) ───────────────────────────────────────────────────
+CHROMIUM_BIN=""
+if [ "$KIOSK" -eq 1 ]; then
+    step "Installing Chromium for kiosk display..."
+    INSTALLED=0
+    for PKG in chromium chromium-browser; do
+        if apt-cache show "$PKG" > /dev/null 2>&1; then
+            if sudo apt-get install -y -qq "$PKG" > /dev/null 2>&1; then
+                CHROMIUM_BIN="$(command -v chromium || command -v chromium-browser || true)"
+                INSTALLED=1
+                break
+            fi
+        fi
+    done
+    if [ "$INSTALLED" -eq 1 ] && [ -n "$CHROMIUM_BIN" ]; then
+        ok "Chromium installed: $CHROMIUM_BIN"
+    else
+        echo "  [WARN] Chromium not available — kiosk service will be skipped"
+        KIOSK=0
+    fi
 fi
 
+# ── 3. Python venv ─────────────────────────────────────────────────────────────
 if [ ! -x "$VENV/bin/python" ]; then
-    echo " Creating virtual environment..."
+    step "Creating Python virtual environment..."
     python3 -m venv "$VENV"
-    echo " Done"
+    ok "Virtual environment created"
 else
-    echo " Virtual environment exists - skipping"
+    step "Upgrading existing virtual environment..."
+    ok "Already exists — will upgrade package"
 fi
 
-echo " Installing Local Flight dependencies..."
-"$VENV/bin/python" -m pip install --upgrade pip -q
-"$VENV/bin/python" -m pip install -e "$ROOT" -q
-echo " Done"
+step "Installing Local Flight..."
+"$VENV/bin/python" -m pip install --upgrade pip -q > /dev/null 2>&1
+"$VENV/bin/python" -m pip install -e "$ROOT" -q > /dev/null 2>&1
+ok "Local Flight installed"
 
+# ── 4. Environment file ────────────────────────────────────────────────────────
 if [ ! -f "$ROOT/.env" ]; then
-    echo " Creating .env..."
+    step "Creating .env..."
     if [ -f "$ROOT/.env.example" ]; then
         cp "$ROOT/.env.example" "$ROOT/.env"
     else
-        cat > "$ROOT/.env" <<'EOF'
-# Local Flight environment variables.
-# Edit this file, then restart with: sudo systemctl restart localflight
+        cat > "$ROOT/.env" <<'ENVEOF'
+# Local Flight — environment config
+# The setup wizard writes these on first launch.
+# Restart after any manual changes: sudo systemctl restart localflight
 
 LOCALFLIGHT_ACTIVATION_TOKEN=
 LOCALFLIGHT_RELAY_URL=https://localflight-community-relay.fly.dev/v1/flights
@@ -108,17 +114,18 @@ LOCALFLIGHT_RAPIDAPI_MONTHLY_LIMIT=10000
 
 OPENSKY_CLIENT_ID=
 OPENSKY_CLIENT_SECRET=
-EOF
+ENVEOF
     fi
-    echo " Done - edit $ROOT/.env to add API keys"
+    ok ".env created"
 else
-    echo " .env already exists - skipping"
+    ok ".env already exists — skipping"
 fi
 
-echo " Installing localflight.service..."
-sudo tee /etc/systemd/system/localflight.service >/dev/null <<EOF
+# ── 5. systemd: main service ───────────────────────────────────────────────────
+step "Installing localflight.service..."
+sudo tee /etc/systemd/system/localflight.service > /dev/null <<EOF
 [Unit]
-Description=Local Flight - Airport FIDS Display
+Description=Local Flight - Airport FIDS
 After=network-online.target
 Wants=network-online.target
 
@@ -137,21 +144,25 @@ SyslogIdentifier=localflight
 [Install]
 WantedBy=multi-user.target
 EOF
-echo " Done"
+ok "localflight.service installed"
 
-if [ -n "$CHROMIUM_BIN" ]; then
-    echo " Installing localflight-kiosk.service..."
+# ── 6. systemd: kiosk service (optional) ──────────────────────────────────────
+if [ "$KIOSK" -eq 1 ] && [ -n "$CHROMIUM_BIN" ]; then
+    step "Installing localflight-kiosk.service..."
+
     DISPLAY_ENV="DISPLAY=:0"
     if [ -n "${WAYLAND_DISPLAY:-}" ]; then
         DISPLAY_ENV="WAYLAND_DISPLAY=${WAYLAND_DISPLAY}"
-    elif command -v loginctl >/dev/null 2>&1; then
-        SESSION_ID="$(loginctl 2>/dev/null | awk -v user="$SERVICE_USER" '$3 == user {print $1; exit}')"
+    elif command -v loginctl > /dev/null 2>&1; then
+        SESSION_ID="$(loginctl 2>/dev/null | awk -v u="$SERVICE_USER" '$3==u{print $1;exit}')"
         if [ -n "${SESSION_ID:-}" ] && loginctl show-session "$SESSION_ID" -p Type 2>/dev/null | grep -q wayland; then
             DISPLAY_ENV="WAYLAND_DISPLAY=wayland-0"
         fi
     fi
 
-    sudo tee /etc/systemd/system/localflight-kiosk.service >/dev/null <<EOF
+    # Note: %% in the heredoc produces a literal % in the unit file,
+    # which is required because systemd treats % as a unit specifier prefix.
+    sudo tee /etc/systemd/system/localflight-kiosk.service > /dev/null <<EOF
 [Unit]
 Description=Local Flight - Chromium Kiosk
 After=localflight.service graphical.target
@@ -160,84 +171,82 @@ Wants=localflight.service
 [Service]
 Type=simple
 User=$SERVICE_USER
-Environment=$DISPLAY_ENV
-Environment=XAUTHORITY=$USER_HOME/.Xauthority
+Environment="$DISPLAY_ENV"
+Environment="XAUTHORITY=$HOME/.Xauthority"
 ExecStartPre=/bin/sleep 5
-ExecStart=$CHROMIUM_BIN \\
-    --kiosk \\
-    --no-sandbox \\
-    --disable-infobars \\
-    --disable-session-crashed-bubble \\
-    --disable-restore-session-state \\
-    --noerrdialogs \\
-    --disable-translate \\
-    --no-first-run \\
-    --fast \\
-    --fast-start \\
-    --disable-features=TranslateUI \\
-    --disk-cache-dir=/tmp/chromium-cache \\
-    --user-data-dir=$USER_HOME/.localflight/browser-profile \\
-    http://localhost:8000/splash?next=%2Fdisplay
+ExecStart=$CHROMIUM_BIN --kiosk --no-sandbox --disable-infobars --disable-session-crashed-bubble --disable-restore-session-state --noerrdialogs --disable-translate --no-first-run --fast --fast-start --disable-features=TranslateUI --disk-cache-dir=/tmp/chromium-cache --user-data-dir=$HOME/.localflight/browser-profile http://localhost:8000/display
 Restart=on-failure
 RestartSec=10
 
 [Install]
 WantedBy=graphical.target
 EOF
-    echo " Done"
-else
-    echo " Skipping kiosk service (headless install)"
+    ok "localflight-kiosk.service installed"
 fi
 
-echo " Configuring mDNS..."
-sudo systemctl enable --now avahi-daemon
-CURRENT_HOST="$(hostname)"
-if [ "$CURRENT_HOST" != "localflight" ]; then
-    echo " Setting hostname to 'localflight'..."
+# Remove stale kiosk service if we're in headless mode
+if [ "$KIOSK" -eq 0 ] && [ -f /etc/systemd/system/localflight-kiosk.service ]; then
+    step "Removing stale kiosk service (headless mode)..."
+    sudo systemctl stop localflight-kiosk 2>/dev/null || true
+    sudo systemctl disable localflight-kiosk 2>/dev/null || true
+    sudo rm -f /etc/systemd/system/localflight-kiosk.service
+    ok "Kiosk service removed"
+fi
+
+# ── 7. mDNS hostname ──────────────────────────────────────────────────────────
+step "Configuring mDNS (localflight.local)..."
+sudo systemctl enable --now avahi-daemon > /dev/null 2>&1
+if [ "$(hostname)" != "localflight" ]; then
     sudo hostnamectl set-hostname localflight
     if grep -q "127.0.1.1" /etc/hosts; then
         sudo sed -i "s/^127.0.1.1.*/127.0.1.1\tlocalflight/" /etc/hosts
     else
-        echo "127.0.1.1 localflight" | sudo tee -a /etc/hosts >/dev/null
+        echo "127.0.1.1 localflight" | sudo tee -a /etc/hosts > /dev/null
     fi
-    echo " Pi will be accessible at localflight.local after hostname refresh"
 fi
-echo " Done"
+ok "Hostname: localflight — accessible as localflight.local"
 
-echo " Enabling services..."
+# ── 8. lf command ─────────────────────────────────────────────────────────────
+step "Installing 'lf' management command..."
+sudo tee /usr/local/bin/lf > /dev/null <<EOF
+#!/usr/bin/env bash
+exec bash $ROOT/installers/pi/lf.sh "\$@"
+EOF
+sudo chmod +x /usr/local/bin/lf
+ok "'lf' available system-wide"
+
+# ── 9. Enable and start ────────────────────────────────────────────────────────
+step "Enabling and starting services..."
 sudo systemctl daemon-reload
-sudo systemctl enable localflight.service
-if [ -n "$CHROMIUM_BIN" ]; then
-    sudo systemctl enable localflight-kiosk.service
-fi
-echo " Done"
-
-echo " Starting Local Flight..."
+sudo systemctl enable localflight.service > /dev/null 2>&1
 sudo systemctl restart localflight.service
-if [ -n "$CHROMIUM_BIN" ]; then
+
+if [ "$KIOSK" -eq 1 ] && [ -f /etc/systemd/system/localflight-kiosk.service ]; then
+    sudo systemctl enable localflight-kiosk.service > /dev/null 2>&1
     sleep 3
     sudo systemctl restart localflight-kiosk.service
 fi
+ok "Services started"
 
-PI_IP="$(hostname -I | awk '{print $1}')"
+# ── Summary ────────────────────────────────────────────────────────────────────
+PI_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
 
 echo ""
-echo " =========================================="
-echo "   Installation complete"
-echo " =========================================="
+echo "  ╔══════════════════════════════════════╗"
+echo "  ║   Installation complete              ║"
+echo "  ╚══════════════════════════════════════╝"
 echo ""
-echo " Local Flight is running."
-echo " Access from any device on your network:"
-echo "   http://localflight.local:8000"
-if [ -n "$PI_IP" ]; then
-    echo "   http://$PI_IP:8000"
-fi
+echo "  Open in any browser on your network:"
+[ -n "$PI_IP" ] && echo "    http://$PI_IP:8000"
+echo "    http://localflight.local:8000  (mDNS — may take a minute)"
 echo ""
-echo " Useful commands:"
-echo "   bash installers/pi/lf.sh status"
-echo "   bash installers/pi/lf.sh logs"
-echo "   bash installers/pi/lf.sh update"
+echo "  Management:"
+echo "    lf status     — check if running"
+echo "    lf logs       — live log tail"
+echo "    lf restart    — restart after config changes"
+echo "    lf update     — pull latest code and restart"
 echo ""
-echo " Edit API keys:  nano $ROOT/.env"
-echo " Then restart:   sudo systemctl restart localflight"
+echo "  To add API keys later:"
+echo "    nano $ROOT/.env"
+echo "    lf restart"
 echo ""

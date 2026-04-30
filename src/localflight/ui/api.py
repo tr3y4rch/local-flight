@@ -1180,7 +1180,65 @@ def api_submit_feedback_crash(body: FeedbackCrashIn) -> Dict[str, Any]:
         error = result.get("error", "Crash submission failed")
         status = 409 if "duplicate" in error.lower() else 502
         raise HTTPException(status_code=status, detail=error)
-    return {"ok": True, "url": result.get("url")}
+    return {“ok”: True, “url”: result.get(“url”)}
+
+
+# ── Matrix config ──────────────────────────────────────────────────────────────
+
+_MATRIX_CONFIG_DEFAULTS: Dict[str, Any] = {
+    “brightness”: 0.8,
+    “max_rows”: 4,
+    “refresh_seconds”: 60,
+    “default_view”: “departures”,
+}
+
+
+def _matrix_config_path():
+    from localflight.storage.config import config_path
+    return config_path().parent / “matrix_config.json”
+
+
+def _load_matrix_config() -> Dict[str, Any]:
+    path = _matrix_config_path()
+    if not path.exists():
+        return dict(_MATRIX_CONFIG_DEFAULTS)
+    try:
+        data = json.loads(path.read_text())
+        return {**_MATRIX_CONFIG_DEFAULTS, **data}
+    except Exception:
+        return dict(_MATRIX_CONFIG_DEFAULTS)
+
+
+class MatrixConfigIn(BaseModel):
+    brightness: float = Field(0.8, ge=0.0, le=1.0)
+    max_rows: int = Field(4, ge=1, le=8)
+    refresh_seconds: int = Field(60, ge=10, le=3600)
+    default_view: str = Field(“departures”)
+
+
+@router.get(“/api/matrix/config”)
+def api_matrix_config_get() -> Dict[str, Any]:
+    try:
+        skin = load_config().skin
+    except Exception:
+        skin = “standard”
+    return {**_load_matrix_config(), “skin”: skin}
+
+
+@router.post(“/api/matrix/config”)
+def api_matrix_config_post(body: MatrixConfigIn) -> Dict[str, Any]:
+    data: Dict[str, Any] = {
+        “brightness”: round(float(body.brightness), 2),
+        “max_rows”: int(body.max_rows),
+        “refresh_seconds”: int(body.refresh_seconds),
+        “default_view”: body.default_view if body.default_view in (“departures”, “arrivals”) else “departures”,
+    }
+    try:
+        path = _matrix_config_path()
+        path.write_text(json.dumps(data, indent=2))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+    return {“ok”: True, **data}
 
 
 # â”€â”€ Standalone app â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€

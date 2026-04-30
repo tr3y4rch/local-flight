@@ -6,6 +6,27 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.2.5b1] - 2026-04-29
+
+### Added
+- Pi installer (`installers/pi/install.sh`) fully rewritten: headless by default, optional `--kiosk` flag for Chromium kiosk, clean progress output (`ok`/`step`/`fail` helpers), all apt output suppressed, stale kiosk service removed on headless re-runs.
+- `lf` management command installed to `/usr/local/bin/lf` during Pi setup — `lf start`, `lf stop`, `lf restart`, `lf status`, `lf logs`, `lf update` work from any directory.
+- `lf.sh` rewritten: `has_kiosk()` guard makes all kiosk operations conditional on whether the kiosk service is installed; kiosk operations never run in headless mode.
+- `GET /api/matrix/config` and `POST /api/matrix/config` — LED matrix config (brightness, max rows, refresh interval, default view) stored server-side at `~/.localflight/matrix_config.json`; board picks up changes without reflashing.
+- Matrix preview **Download main.py** button: generates a complete, ready-to-flash `main.py` with WiFi credentials and panel dimensions filled in by the browser — credentials never sent to the server.
+- Matrix preview **Save Config** button: stores brightness, rows, refresh interval, and default view to the server so the board picks them up automatically.
+
+### Changed
+- MicroPython matrix client (`sources/matrix/client.py`) no longer has hardcoded airport or config values. Airport is read from `/api/config` on boot and every 5 minutes. Brightness, row count, refresh interval, default view, and skin are read from `/api/matrix/config`.
+- Matrix board LED colors now track the app's active skin (`standard`, `technical`, `neon`, `cyan`, `crt`) — skin propagated via `/api/matrix/config` response, applied by `apply_skin()` which recreates all PicoGraphics pen objects.
+- Matrix preview canvas palette is now skin-aware: initialized from `{{ cfg.skin }}` at page render, updates when skin changes.
+- Matrix preview page cleaned up: removed dev-internal notes, aligned visual style with the rest of the app, two-column setup layout (flash once / tune without reflash).
+
+### Fixed
+- `.env.example` relay URL corrected from the unregistered `relay.localflight.app` to the live endpoint `https://localflight-community-relay.fly.dev/v1/flights`.
+
+---
+
 ## [0.2.4b1] - 2026-04-28
 
 ### Changed
