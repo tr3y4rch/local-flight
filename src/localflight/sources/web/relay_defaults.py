@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 
-DEFAULT_PUBLIC_RELAY_HOST = "relay.localflight.app"
+DEFAULT_PUBLIC_RELAY_HOST = "localflight-community-relay.fly.dev"
 DEFAULT_ADMIN_RELAY_HOST = "network.localflight.app"
 DEFAULT_PUBLIC_RELAY_URL = f"https://{DEFAULT_PUBLIC_RELAY_HOST}/v1/flights"
 

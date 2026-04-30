@@ -1,6 +1,6 @@
 {
   "name": "localflight-mobile",
-  "version": "0.2.4-b1",
+  "version": "0.2.5-b1",
   "private": true,
   "main": "index.ts",
   "scripts": {

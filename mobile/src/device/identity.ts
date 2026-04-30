@@ -2,7 +2,7 @@ import { Dimensions, Platform } from "react-native";
 
 import { loadCompanionId } from "../storage/settings";
 
-const COMPANION_APP_VERSION = "0.2.3b2";
+const COMPANION_APP_VERSION = "0.2.5b1";
 
 export type CompanionIdentity = {
   companionId: string;

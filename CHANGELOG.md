@@ -24,11 +24,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Matrix preview page cleaned up: aligned visual style with the rest of the app, clearer "flash once / tune here" guidance, explicit LAN host / port entry, and safer DAU-oriented hints instead of browser alerts.
 - Automatic diagnostics now respect the install's chosen privacy mode across desktop, browser UI, scheduler/runtime, and mobile companion flows.
 - Manual reports and automatic crash reports now describe their delivery path, source context, Python/runtime details, and whether a sanitized log excerpt was included.
+- Version metadata, mobile companion metadata, runtime fallbacks, and preview badges are now aligned to `0.2.5b1`.
+- Community relay defaults are now centralized on the live Fly.io endpoint so app code, setup, installers, and docs stop drifting.
 
 ### Fixed
 - `.env.example` relay URL corrected from the unregistered `relay.localflight.app` to the live endpoint `https://localflight-community-relay.fly.dev/v1/flights`.
 - Matrix board download no longer depends on a stale browser-only copy of the MicroPython client, no longer suggests `localhost`, and no longer ships real local SSID / IP placeholders in the canonical board file.
 - Automatic crash submission now returns a clear disabled state when diagnostics are turned off instead of looking like a backend failure.
+- Setup, installer, and runtime relay references now resolve to the same hosted community backend contract.
 
 ---
 

@@ -63,7 +63,7 @@ def test_activate_auto_issues_and_client_status_verifies(tmp_path: Path, monkeyp
             "airport_icao": "LSZH",
             "display_name": "Test kiosk",
             "requested_mode": "community",
-            "app_version": "0.2.3b2",
+            "app_version": "0.2.5b1",
         },
         headers={"x-forwarded-for": "203.0.113.42"},
     )
@@ -79,7 +79,7 @@ def test_activate_auto_issues_and_client_status_verifies(tmp_path: Path, monkeyp
         params={
             "install_id": install_id,
             "activation_token": activate_data["activation_token"],
-            "app_version": "0.2.3b2",
+            "app_version": "0.2.5b1",
         },
     )
     assert status_resp.status_code == 200
@@ -184,7 +184,7 @@ def test_activation_requests_do_not_persist_airport_fields(tmp_path: Path, monke
             "airport_icao": "LSZH",
             "display_name": "Privacy test",
             "requested_mode": "community",
-            "app_version": "0.2.3b2",
+            "app_version": "0.2.5b1",
         },
         headers={"host": "relay.localflight.app", "x-forwarded-for": "203.0.113.55"},
     )

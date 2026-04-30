@@ -343,7 +343,7 @@
       </div>
       <div class="field" style="margin-top:12px; margin-bottom:0;">
         <label>Relay URL <span class="optional">optional</span></label>
-        <input type="text" id="relayUrl" placeholder="https://relay.localflight.app/v1/flights" />
+        <input type="text" id="relayUrl" placeholder="{{ relay_url_default or 'https://localflight-community-relay.fly.dev/v1/flights' }}" />
         <div class="hint">Leave this on the default relay unless you run your own community endpoint. BYOK and VATSIM do not need this.</div>
       </div>
       <div class="mini-actions" id="managedActions">

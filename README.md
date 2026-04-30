@@ -233,7 +233,7 @@ Runtime data is also kept outside the source tree:
 | `/matrix-preview` | Browser LED matrix simulator, board-file helper, and runtime config surface |
 | `/` | Settings - airport, skin, outputs |
 | `/admin` | Admin hub - scheduler status, API budgets, connected clients, system info |
-| `/admin/requests` | Traffic log - local, anonymized request counters by endpoint/client type |
+| `/admin/requests` | Traffic log - local, anonymized request counters by endpoint/client type (only when network tools are explicitly enabled) |
 | `/history` | Flight history - filterable table + aggregate stats |
 | `/logs` | Live log viewer |
 | `/feedback` | Report a problem - sends directly to the developer |
@@ -303,7 +303,7 @@ Provides unlimited local ADS-B reception with no API key or monthly limits.
 
 ## Reporting issues
 
-Use the **Report** page from the nav bar anywhere in the app. Your report - along with the Local Flight version, platform, and airport - goes directly to the developer. No account required.
+Use the **Report** page from the nav bar anywhere in the app. Manual reports are always available. Automatic diagnostics are an install-level choice you can keep off, enable for crash reports only, or enable with sanitized log excerpts. Reports go directly to the developer. No account required.
 
 ---
 
@@ -326,7 +326,7 @@ Use the **Report** page from the nav bar anywhere in the app. Your report - alon
 | `/api/airports/resolve` | GET | Resolve IATA/ICAO to full record |
 | `/api/admin/system` | GET | Uptime, memory, CPU, version |
 | `/api/admin/budget` | GET | API call budgets and usage |
-| `/api/admin/requests` | GET | Anonymized local request log summary |
+| `/api/admin/requests` | GET | Anonymized local request log summary (only when network tools are explicitly enabled) |
 | `/api/admin/connections` | GET | WebSocket client count + device pings |
 | `/api/admin/updates` | GET | Latest GitHub release check |
 | `/api/admin/scheduler` | GET | Scheduler thread status |

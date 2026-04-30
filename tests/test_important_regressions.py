@@ -13,10 +13,12 @@ import localflight.scheduler.runtime as runtime
 import localflight.sources.web.adsbexchange_client as adsbexchange_client
 import localflight.sources.web.aviationstack_client as aviationstack_client
 import localflight.sources.web.bug_reporter as bug_reporter
+import localflight.sources.web.relay_defaults as relay_defaults
 import localflight.storage.config as storage_config
 import localflight.storage.flights_store as flights_store
 import localflight.ui.api as ui_api
 import localflight.ui.server as ui_server
+import relay.main as relay_main
 from localflight.core.models import AirportRef, Flight, FlightDirection, FlightTime
 from localflight.storage.config import AppConfig
 from localflight.storage.state import AppState
@@ -165,7 +167,7 @@ def test_aviationstack_usage_stats_report_separate_buckets(monkeypatch) -> None:
     monkeypatch.setattr(aviationstack_client, "_month_key", lambda: "2026-04")
     monkeypatch.setattr(aviationstack_client, "_get_relay_limit", lambda: 50)
     monkeypatch.setattr(aviationstack_client, "_get_byok_limit", lambda: 90)
-    monkeypatch.setattr(aviationstack_client, "_get_relay_url", lambda: "https://relay.localflight.app/v1/flights")
+    monkeypatch.setattr(aviationstack_client, "_get_relay_url", lambda: "https://localflight-community-relay.fly.dev/v1/flights")
     monkeypatch.setattr(aviationstack_client, "_has_enabled_byok_key", lambda: False)
     monkeypatch.setattr(aviationstack_client, "_has_api_key", lambda: False)
     monkeypatch.setattr(aviationstack_client, "_has_community_api_key", lambda: False)
@@ -299,7 +301,7 @@ def test_virtual_mode_does_not_clear_community_budget_memory(monkeypatch) -> Non
     monkeypatch.setattr(aviationstack_client, "_utc_now", lambda: datetime(2026, 4, 20, tzinfo=timezone.utc))
     monkeypatch.setattr(aviationstack_client, "_get_relay_limit", lambda: 50)
     monkeypatch.setattr(aviationstack_client, "_get_byok_limit", lambda: 90)
-    monkeypatch.setattr(aviationstack_client, "_get_relay_url", lambda: "https://relay.localflight.app/v1/flights")
+    monkeypatch.setattr(aviationstack_client, "_get_relay_url", lambda: "https://localflight-community-relay.fly.dev/v1/flights")
     monkeypatch.setattr(aviationstack_client, "_has_enabled_byok_key", lambda: False)
     monkeypatch.setattr(aviationstack_client, "_has_api_key", lambda: False)
     monkeypatch.setattr(aviationstack_client, "_has_community_api_key", lambda: False)
@@ -403,7 +405,7 @@ def test_mobile_companion_checkin_is_exposed_in_connections(monkeypatch, tmp_pat
         json={
             "companion_id": "lfc_test_mobile_001",
             "client_name": "Local Flight Companion",
-            "app_version": "0.2.3b2",
+            "app_version": "0.2.5b1",
             "mobile_os": "iOS 18.5 (phone)",
             "device_type": "phone",
         },
@@ -687,3 +689,62 @@ def test_api_config_patch_accepts_diagnostics_mode(tmp_path: Path, monkeypatch) 
     payload = response.json()
     assert payload["diagnostics_mode"] == "auto_logs"
     assert json.loads(config_file.read_text(encoding="utf-8"))["diagnostics_mode"] == "auto_logs"
+
+
+def test_default_public_relay_url_matches_live_installer_default(monkeypatch) -> None:
+    monkeypatch.delenv("LOCALFLIGHT_RELAY_URL", raising=False)
+
+    assert relay_defaults.default_public_relay_url() == "https://localflight-community-relay.fly.dev/v1/flights"
+
+
+def test_ui_route_contracts_cover_core_pages_and_api_surfaces() -> None:
+    paths = {getattr(route, "path", None) for route in ui_server.app.router.routes}
+
+    expected = {
+        "/",
+        "/setup",
+        "/display",
+        "/fids",
+        "/radar",
+        "/admin",
+        "/history",
+        "/feedback",
+        "/matrix-preview",
+        "/ws",
+        "/api/config",
+        "/api/fids",
+        "/api/radar",
+        "/api/metar",
+        "/api/history",
+        "/api/admin/system",
+        "/api/admin/budget",
+        "/api/admin/connections",
+        "/api/admin/updates",
+        "/api/admin/scheduler",
+        "/api/setup/client-info",
+        "/api/setup/complete",
+        "/api/matrix/config",
+        "/api/matrix/script",
+        "/api/feedback",
+        "/api/feedback/crash",
+    }
+
+    assert expected.issubset(paths)
+
+
+def test_relay_route_contracts_cover_public_and_admin_surfaces() -> None:
+    paths = {getattr(route, "path", None) for route in relay_main.app.router.routes}
+
+    expected = {
+        "/",
+        "/health",
+        "/admin",
+        "/v1/flights",
+        "/v1/radar",
+        "/v1/activate",
+        "/v1/client/status",
+        "/v1/client/checkin",
+        "/v1/managed/config",
+    }
+
+    assert expected.issubset(paths)
