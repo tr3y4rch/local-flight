@@ -10,20 +10,25 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 - Pi installer (`installers/pi/install.sh`) fully rewritten: headless by default, optional `--kiosk` flag for Chromium kiosk, clean progress output (`ok`/`step`/`fail` helpers), all apt output suppressed, stale kiosk service removed on headless re-runs.
-- `lf` management command installed to `/usr/local/bin/lf` during Pi setup — `lf start`, `lf stop`, `lf restart`, `lf status`, `lf logs`, `lf update` work from any directory.
+- `lf` management command installed to `/usr/local/bin/lf` during Pi setup - `lf start`, `lf stop`, `lf restart`, `lf status`, `lf logs`, `lf update` work from any directory.
 - `lf.sh` rewritten: `has_kiosk()` guard makes all kiosk operations conditional on whether the kiosk service is installed; kiosk operations never run in headless mode.
-- `GET /api/matrix/config` and `POST /api/matrix/config` — LED matrix config (brightness, max rows, refresh interval, default view) stored server-side at `~/.localflight/matrix_config.json`; board picks up changes without reflashing.
-- Matrix preview **Download main.py** button: generates a complete, ready-to-flash `main.py` with WiFi credentials and panel dimensions filled in by the browser — credentials never sent to the server.
+- `GET /api/matrix/config` and `POST /api/matrix/config` - LED matrix config (brightness, max rows, refresh interval, default view) stored server-side at `~/.localflight/matrix_config.json`; board picks up changes without reflashing.
+- `POST /api/matrix/script` - generates a complete, ready-to-flash Interstate 75 W `main.py` from the canonical board client template, with LAN-host validation for the board download path.
 - Matrix preview **Save Config** button: stores brightness, rows, refresh interval, and default view to the server so the board picks them up automatically.
+- First-launch diagnostics choice for each install: `Manual reports only`, `Automatic crash reports`, or `Automatic crash reports + sanitized logs`.
 
 ### Changed
 - MicroPython matrix client (`sources/matrix/client.py`) no longer has hardcoded airport or config values. Airport is read from `/api/config` on boot and every 5 minutes. Brightness, row count, refresh interval, default view, and skin are read from `/api/matrix/config`.
-- Matrix board LED colors now track the app's active skin (`standard`, `technical`, `neon`, `cyan`, `crt`) — skin propagated via `/api/matrix/config` response, applied by `apply_skin()` which recreates all PicoGraphics pen objects.
+- Matrix board LED colors now track the app's active skin (`standard`, `technical`, `neon`, `cyan`, `crt`) - skin propagated via `/api/matrix/config` response, applied by `apply_skin()` which recreates all PicoGraphics pen objects.
 - Matrix preview canvas palette is now skin-aware: initialized from `{{ cfg.skin }}` at page render, updates when skin changes.
-- Matrix preview page cleaned up: removed dev-internal notes, aligned visual style with the rest of the app, two-column setup layout (flash once / tune without reflash).
+- Matrix preview page cleaned up: aligned visual style with the rest of the app, clearer "flash once / tune here" guidance, explicit LAN host / port entry, and safer DAU-oriented hints instead of browser alerts.
+- Automatic diagnostics now respect the install's chosen privacy mode across desktop, browser UI, scheduler/runtime, and mobile companion flows.
+- Manual reports and automatic crash reports now describe their delivery path, source context, Python/runtime details, and whether a sanitized log excerpt was included.
 
 ### Fixed
 - `.env.example` relay URL corrected from the unregistered `relay.localflight.app` to the live endpoint `https://localflight-community-relay.fly.dev/v1/flights`.
+- Matrix board download no longer depends on a stale browser-only copy of the MicroPython client, no longer suggests `localhost`, and no longer ships real local SSID / IP placeholders in the canonical board file.
+- Automatic crash submission now returns a clear disabled state when diagnostics are turned off instead of looking like a backend failure.
 
 ---
 
@@ -37,7 +42,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 - `relay/main.py` used `uvicorn.run("relay.main:app", ...)` (string module import) which fails in Docker because there is no `relay` package in the container filesystem. Changed to `uvicorn.run(app, ...)`.
-- Removed redundant `DB_PATH` `fly secrets set` step from deploy docs — the value is already hardcoded in `fly.toml [env]`.
+- Removed redundant `DB_PATH` `fly secrets set` step from deploy docs - the value is already hardcoded in `fly.toml [env]`.
 
 ---
 

@@ -195,6 +195,19 @@
       </label>
 
       <label>
+        <span>Diagnostics</span>
+        <select name="diagnostics_mode">
+          <option value="unset" {% if (cfg.diagnostics_mode or "unset") == "unset" %}selected{% endif %}>Ask me again on next launch</option>
+          <option value="manual" {% if cfg.diagnostics_mode == "manual" %}selected{% endif %}>Manual reports only</option>
+          <option value="auto" {% if cfg.diagnostics_mode == "auto" %}selected{% endif %}>Automatic crash reports</option>
+          <option value="auto_logs" {% if cfg.diagnostics_mode == "auto_logs" %}selected{% endif %}>Automatic crash reports + sanitized logs</option>
+        </select>
+        <small>
+          Manual reports stay available from the Report page. Automatic diagnostics go to the developer issue inbox on Linear and stay install-scoped.
+        </small>
+      </label>
+
+      <label>
         <span>Update frequency</span>
         <select name="refresh_seconds">
           {% set choices = [

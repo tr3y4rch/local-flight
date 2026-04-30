@@ -83,9 +83,11 @@ def _system_context(client_context: str = "") -> str:
         cfg = load_config()
         airport = cfg.airport_iata or "?"
         source  = cfg.source or "?"
+        diagnostics_mode = cfg.diagnostics_mode or "unset"
     except Exception:
         airport = "?"
         source  = "?"
+        diagnostics_mode = "unset"
 
     try:
         from localflight.storage.install import get_install_fingerprint
@@ -108,11 +110,22 @@ def _system_context(client_context: str = "") -> str:
         f"- **Airport:** {airport}\n"
         f"- **Source:** {source}\n"
         f"- **API mode:** {api_mode}\n"
+        f"- **Diagnostics mode:** {diagnostics_mode}\n"
     )
     if client_context.strip():
         text += "\n**Reporter environment**\n"
         text += _redact_sensitive(client_context.strip())[:1600] + "\n"
     return text
+
+
+def _auto_diagnostics_mode() -> str:
+    try:
+        from localflight.storage.config import load_config
+
+        mode = str(load_config().diagnostics_mode or "").strip().lower()
+    except Exception:
+        mode = "unset"
+    return mode if mode in {"unset", "manual", "auto", "auto_logs"} else "unset"
 
 
 # ── Crash report deduplication ────────────────────────────────────────────────
@@ -193,6 +206,10 @@ def submit_crash(
     Deduped per 6h by error fingerprint. Never raises.
     """
     try:
+        diagnostics_mode = _auto_diagnostics_mode()
+        if diagnostics_mode in {"unset", "manual"}:
+            return {"ok": False, "error": "automatic diagnostics disabled"}
+
         fp = _crash_fingerprint(error_msg)
         if _already_crash_filed(fp):
             return {"ok": False, "error": "duplicate (deduped)"}
@@ -202,12 +219,18 @@ def submit_crash(
         # System info first — most useful for triage
         sys_info = _system_context(client_context)
         body  = f"**Context:** `{context}`\n\n"
+        body += f"**Report type:** Automatic crash diagnostics\n"
+        body += f"**Delivery:** Developer issue inbox via Linear\n"
+        body += f"**Diagnostics mode:** `{diagnostics_mode}`\n"
+        body += f"**Traceback included:** {'yes' if traceback_str else 'no'}\n"
+        body += f"**Sanitized log excerpt included:** {'yes' if diagnostics_mode == 'auto_logs' else 'no'}\n\n"
         body += f"---\n**System info**\n{sys_info}\n"
         body += f"---\n**Error:**\n```\n{_redact_sensitive(error_msg)[:300]}\n```\n"
         if traceback_str:
             body += f"\n**Traceback:**\n```\n{_redact_sensitive(traceback_str)[-1200:]}\n```\n"
-        log_tail = _read_log_tail(50)
-        body += f"\n**Log tail:**\n```\n{_redact_sensitive(log_tail)[-1500:]}\n```"
+        if diagnostics_mode == "auto_logs":
+            log_tail = _read_log_tail(50)
+            body += f"\n**Log tail:**\n```\n{_redact_sensitive(log_tail)[-1500:]}\n```"
 
         # Pass empty description so submit_report doesn't double-append system info
         result = submit_report(title, body[:3800], _SYSTEM_CONTEXT_SENTINEL)
@@ -231,7 +254,10 @@ def submit_report(title: str, description: str = "", client_context: str = "") -
     if not title or not title.strip():
         return {"ok": False, "error": "Title is required"}
 
-    full_description = ""
+    full_description = (
+        "**Report type:** Manual report\n"
+        "**Delivery:** Developer issue inbox via Linear\n\n"
+    )
     if description.strip():
         full_description += _redact_sensitive(description.strip()) + "\n\n"
     if client_context != _SYSTEM_CONTEXT_SENTINEL:

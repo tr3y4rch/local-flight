@@ -40,7 +40,7 @@ export class CrashBoundary extends React.Component<Props, State> {
       <View style={styles.wrap}>
         <Text style={styles.title}>Mobile Companion Paused</Text>
         <Text style={styles.body}>
-          A critical UI error was caught and auto-reported to the Local Flight developer board.
+          A critical UI error was caught. If automatic diagnostics are enabled, a report was sent to the Local Flight developer board.
         </Text>
         <Pressable style={styles.button} onPress={this.retry}>
           <Text style={styles.buttonText}>RETRY APP</Text>

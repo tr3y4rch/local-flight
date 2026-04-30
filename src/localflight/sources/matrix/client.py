@@ -14,10 +14,10 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 
 # ── User config — edit these ───────────────────────────────────────────────────
-WIFI_SSID     = "Sunrise_2151269"
-WIFI_PASSWORD = ""
+WIFI_SSID     = "your_wifi_name"
+WIFI_PASSWORD = "your_wifi_password"
 
-API_HOST      = "192.168.1.49"   # IP of machine running Local Flight (e.g. Pi's LAN IP)
+API_HOST      = "localflight.local"   # LAN name or IP of the machine running Local Flight
 API_PORT      = 8000
 
 PANEL_W          = 256   # total width  — must match physical panel chain
@@ -46,7 +46,8 @@ from picographics import PicoGraphics, DISPLAY_INTERSTATE75_128X64 as DISPLAY
 from pimoroni import Button
 
 # ── Display init ───────────────────────────────────────────────────────────────
-i75 = Interstate75(display=DISPLAY_INTERSTATE75_128X64, panels=2)
+PANELS = max(1, PANEL_W // 128)
+i75 = Interstate75(display=DISPLAY_INTERSTATE75_128X64, panels=PANELS)
 graphics = PicoGraphics(display=DISPLAY, width=PANEL_W, height=PANEL_H)
 graphics.set_font("bitmap8")
 
@@ -188,6 +189,34 @@ def ensure_wifi():
         return connect_wifi()
     return True
 
+
+def _clamp_int(value, minimum, maximum, fallback):
+    try:
+        parsed = int(value)
+    except Exception:
+        return fallback
+    return max(minimum, min(maximum, parsed))
+
+
+def _clamp_float(value, minimum, maximum, fallback):
+    try:
+        parsed = float(value)
+    except Exception:
+        return fallback
+    return max(minimum, min(maximum, parsed))
+
+
+def _normalize_view(value, fallback):
+    view = (value or "").strip().lower()
+    return view if view in ("departures", "arrivals") else fallback
+
+
+def _normalize_airport_iata(value):
+    code = (value or "").strip().upper()
+    if len(code) == 3 and all("A" <= ch <= "Z" for ch in code):
+        return code
+    return "---"
+
 # ── API helpers ────────────────────────────────────────────────────────────────
 def fetch_config():
     global _airport_iata
@@ -197,7 +226,9 @@ def fetch_config():
         if resp.status_code == 200:
             data = ujson.loads(resp.text)
             resp.close()
-            _airport_iata = (data.get("airport_iata") or "---").upper()
+            if not isinstance(data, dict):
+                return False
+            _airport_iata = _normalize_airport_iata(data.get("airport_iata"))
             return True
         resp.close()
     except Exception as e:
@@ -213,10 +244,12 @@ def fetch_matrix_config():
         if resp.status_code == 200:
             data = ujson.loads(resp.text)
             resp.close()
-            MAX_ROWS     = int(data.get("max_rows",         MAX_ROWS))
-            REFRESH_S    = int(data.get("refresh_seconds",  REFRESH_S))
-            BRIGHTNESS   = float(data.get("brightness",     BRIGHTNESS))
-            DEFAULT_VIEW = data.get("default_view", DEFAULT_VIEW)
+            if not isinstance(data, dict):
+                return False
+            MAX_ROWS     = _clamp_int(data.get("max_rows", MAX_ROWS), 1, 8, MAX_ROWS)
+            REFRESH_S    = _clamp_int(data.get("refresh_seconds", REFRESH_S), 10, 3600, REFRESH_S)
+            BRIGHTNESS   = _clamp_float(data.get("brightness", BRIGHTNESS), 0.05, 1.0, BRIGHTNESS)
+            DEFAULT_VIEW = _normalize_view(data.get("default_view", DEFAULT_VIEW), DEFAULT_VIEW)
             skin = data.get("skin", "standard")
             if skin != _active_skin:
                 apply_skin(skin)
@@ -232,13 +265,15 @@ def fetch_matrix_config():
 
 
 def fetch_fids(view="departures", limit=4):
+    view = _normalize_view(view, "departures")
+    limit = _clamp_int(limit, 1, 8, MAX_ROWS)
     url = f"http://{API_HOST}:{API_PORT}/api/fids?view={view}&limit={limit}"
     try:
         resp = urequests.get(url, timeout=10)
         if resp.status_code == 200:
             data = ujson.loads(resp.text)
             resp.close()
-            return data
+            return data if isinstance(data, list) else []
         resp.close()
     except Exception as e:
         print(f"Fetch error: {e}")

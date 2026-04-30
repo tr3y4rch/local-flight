@@ -23,6 +23,7 @@ from localflight.core.airports import best_label
 from localflight.sources.web.relay_defaults import default_public_relay_url, relay_endpoint_url
 from localflight.storage.config import (
     AppConfig, load_config, save_config,
+    ALLOWED_DIAGNOSTICS_MODES, DEFAULT_DIAGNOSTICS_MODE,
     ALLOWED_OUTPUTS, ALLOWED_SOURCES, ALLOWED_SKINS,
     DEFAULT_OUTPUTS, DEFAULT_SOURCE, DEFAULT_SKIN,
 )
@@ -798,6 +799,7 @@ async def save_settings(
     source: Optional[str] = Form(DEFAULT_SOURCE),
     timezone: str = Form("UTC"),
     skin: Optional[str] = Form(DEFAULT_SKIN),
+    diagnostics_mode: Optional[str] = Form(DEFAULT_DIAGNOSTICS_MODE),
 ) -> RedirectResponse:
     rs = int(refresh_seconds) if int(refresh_seconds) in ALLOWED_REFRESH_SECONDS else DEFAULT_REFRESH_SECONDS
 
@@ -808,6 +810,10 @@ async def save_settings(
     sk = (skin or DEFAULT_SKIN).strip().lower()
     if sk not in ALLOWED_SKINS:
         sk = DEFAULT_SKIN
+
+    diag_mode = (diagnostics_mode or DEFAULT_DIAGNOSTICS_MODE).strip().lower()
+    if diag_mode not in ALLOWED_DIAGNOSTICS_MODES:
+        diag_mode = DEFAULT_DIAGNOSTICS_MODE
 
     form_data = await request.form()
     raw_outputs = form_data.getlist("display_outputs")
@@ -824,11 +830,12 @@ async def save_settings(
         timezone=timezone.strip() or "UTC",
         skin=sk,
         display_outputs=display_outputs,
+        diagnostics_mode=diag_mode,
     )
     save_config(cfg)
 
     logger.info(
-        "UI save: %s/%s refresh=%ss theme=%s source=%s skin=%s outputs=%s",
+        "UI save: %s/%s refresh=%ss theme=%s source=%s skin=%s outputs=%s diagnostics=%s",
         cfg.airport_iata,
         cfg.airport_icao,
         cfg.refresh_seconds,
@@ -836,6 +843,7 @@ async def save_settings(
         cfg.source,
         cfg.skin,
         cfg.display_outputs,
+        cfg.diagnostics_mode,
     )
 
     from localflight.ui.events import notify_config_updated, restart_scheduler_and_notify

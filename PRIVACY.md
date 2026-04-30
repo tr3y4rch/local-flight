@@ -12,27 +12,59 @@ No user accounts. No analytics SDKs. No ad tech. No sign-up flow.
 - Your airport settings, display preferences, and personal API keys stay in your local config and `.env`.
 - The optional local traffic log at `~/.localflight/requests.db` is visible only on your own Local Flight instance.
 - The mobile companion talks to your Local Flight server over your LAN. It does not send data to a cloud account service.
+- The Interstate 75 W board talks to your Local Flight server over your LAN. Its runtime settings live in `~/.localflight/matrix_config.json`.
+
+When you use the Matrix page to download a ready-to-flash `main.py`, the Wi-Fi details and server host are sent to your own Local Flight instance only long enough to render that file. They are not stored in `matrix_config.json`, the hosted relay, or crash reports.
 
 ---
 
-## Crash reports
+## Diagnostics and reports
 
-If Local Flight hits an unhandled error, it can send a crash report to the developer so the issue can be fixed.
+Manual issue reports are always available from the in-app **Report** page. Automatic diagnostics are a separate, install-level choice.
 
-A crash report contains:
+On first launch into the main app, Local Flight asks you to choose one of these modes:
+- `Manual reports only`
+- `Automatic crash reports`
+- `Automatic crash reports + sanitized logs`
+
+You can change that choice later from **Settings**.
+
+### Manual reports
+
+When you send a report yourself, Local Flight sends:
+- the title and description you wrote
 - Local Flight version
-- Operating system
-- Configured airport IATA code
-- Python traceback
-- Last 50 lines of the application log
+- install fingerprint
+- operating system
+- Python version
+- configured airport and source mode
+- API mode and diagnostics mode
+- optional mobile companion context if the report came from the companion flow
 
-A crash report does **not** contain:
+### Automatic crash reports
+
+If you enable automatic diagnostics, Local Flight can send a crash report to the developer issue inbox on Linear when a serious error is caught.
+
+An automatic crash report contains:
+- Local Flight version
+- install fingerprint
+- operating system
+- Python version
+- configured airport and source mode
+- API mode and diagnostics mode
+- crash context
+- traceback, when available
+
+If you choose `Automatic crash reports + sanitized logs`, the report also includes:
+- a sanitized recent log excerpt from the local app log
+
+Automatic diagnostics do **not** contain:
 - API keys
-- Raw IP addresses
-- Stored flight history
-- Account data, because there are no Local Flight accounts
+- raw IP addresses
+- stored flight history
+- Local Flight account data, because there are no Local Flight accounts
 
-Reports are deduplicated so the same install does not file the same crash repeatedly within a short window.
+Crash reports are deduplicated so the same install does not file the same crash repeatedly within a short window.
 
 ---
 
@@ -92,7 +124,7 @@ Local Flight is designed to avoid collecting personal data in the ordinary sense
 - no cross-device profile
 - no raw IP storage in the hosted relay
 
-The closest thing to remote processing is the hosted community relay and crash reporting. Both are designed around install-level technical identifiers rather than user identity.
+The closest thing to remote processing is the hosted community relay and install-scoped diagnostics. Both are designed around technical identifiers rather than user identity.
 
 ---
 
@@ -104,5 +136,5 @@ The closest thing to remote processing is the hosted community relay and crash r
 | Config and personal API keys | Your machine | You |
 | Local traffic log | Your machine | You |
 | Flight history | Your machine | You |
-| Crash reports | Developer issue inbox | Developer |
+| Manual reports and automatic diagnostics | Developer issue inbox on Linear | Developer |
 | Community relay usage metadata | Relay server | Relay operator |

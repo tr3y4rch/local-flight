@@ -11,6 +11,7 @@ export type AppConfig = {
   timezone: string;
   skin: string;
   display_outputs: string[];
+  diagnostics_mode?: "unset" | "manual" | "auto" | "auto_logs" | string;
 };
 
 export type AppState = {

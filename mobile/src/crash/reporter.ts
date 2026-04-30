@@ -1,4 +1,4 @@
-import { normalizeServerUrl, submitCrashReport } from "../api/client";
+import { getConfig, normalizeServerUrl, submitCrashReport } from "../api/client";
 import { getCompanionIdentity } from "../device/identity";
 import { loadServerUrl } from "../storage/settings";
 
@@ -49,6 +49,12 @@ async function postCrash(input: CrashInput): Promise<void> {
   if (shouldSkipRecent(fp)) return;
 
   try {
+    const cfg = await getConfig(serverUrl);
+    const diagnosticsMode = String(cfg.diagnostics_mode || "unset").trim().toLowerCase();
+    if (!(diagnosticsMode === "auto" || diagnosticsMode === "auto_logs")) {
+      return;
+    }
+
     const identity = await getCompanionIdentity();
     await submitCrashReport(serverUrl, {
       ...input,
@@ -67,8 +73,20 @@ async function postCrash(input: CrashInput): Promise<void> {
   }
 }
 
-export async function reportMobileCrash(input: CrashInput): Promise<void> {
+export async function reportMobileCrash(input: CrashInput): Promise<boolean> {
+  const serverUrl = normalizeServerUrl(await loadServerUrl());
+  if (!serverUrl) return false;
+  try {
+    const cfg = await getConfig(serverUrl);
+    const diagnosticsMode = String(cfg.diagnostics_mode || "unset").trim().toLowerCase();
+    if (!(diagnosticsMode === "auto" || diagnosticsMode === "auto_logs")) {
+      return false;
+    }
+  } catch {
+    return false;
+  }
   await postCrash(input);
+  return true;
 }
 
 export function installGlobalCrashReporter(): void {

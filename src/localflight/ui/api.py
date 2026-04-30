@@ -8,12 +8,15 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import time
 from dataclasses import asdict
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
+from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, Field
 
 from localflight.core.airports import _load_index, lookup_airport
@@ -21,6 +24,7 @@ from localflight.core.models import Flight, FlightDirection, FlightPosition
 from localflight.render.fids import build_fids_context
 from localflight.storage.config import (
     ALLOWED_REFRESH_SECONDS,
+    ALLOWED_DIAGNOSTICS_MODES,
     ALLOWED_SKINS,
     ALLOWED_SOURCES,
     AppConfig,
@@ -321,6 +325,7 @@ class ConfigPatch(BaseModel):
     source:          Optional[Literal["real", "virtual"]] = None
     timezone:        Optional[str] = None
     skin:            Optional[str] = None
+    diagnostics_mode: Optional[str] = None
 
 
 class FIDSRowOut(BaseModel):
@@ -355,6 +360,11 @@ def api_patch_config(patch: ConfigPatch, background_tasks: BackgroundTasks) -> D
         raise HTTPException(status_code=400, detail="No fields provided")
     if "refresh_seconds" in data and data["refresh_seconds"] not in ALLOWED_REFRESH_SECONDS:
         raise HTTPException(status_code=422, detail=f"refresh_seconds must be one of {sorted(ALLOWED_REFRESH_SECONDS)}")
+    if "diagnostics_mode" in data:
+        mode = str(data["diagnostics_mode"]).strip().lower()
+        if mode not in ALLOWED_DIAGNOSTICS_MODES:
+            raise HTTPException(status_code=422, detail=f"diagnostics_mode must be one of {sorted(ALLOWED_DIAGNOSTICS_MODES)}")
+        data["diagnostics_mode"] = mode
     current_cfg = load_config()
     current = asdict(current_cfg)
     scheduler_fields = {"airport_iata", "airport_icao", "refresh_seconds", "source"}
@@ -841,6 +851,7 @@ def api_admin_system() -> Dict[str, Any]:
             "community_key_present": bool(community.get("key_present")),
             "managed_verified": bool(managed.get("status_ok")),
             "managed_status": managed.get("status_error") or "",
+            "diagnostics_mode": load_config().diagnostics_mode,
         }
     except Exception:
         result["client"] = {
@@ -851,6 +862,7 @@ def api_admin_system() -> Dict[str, Any]:
             "community_key_present": False,
             "managed_verified": False,
             "managed_status": "",
+            "diagnostics_mode": load_config().diagnostics_mode,
         }
 
     return result
@@ -1167,7 +1179,7 @@ class FeedbackCrashIn(BaseModel):
 
 @router.post("/api/feedback/crash")
 def api_submit_feedback_crash(body: FeedbackCrashIn) -> Dict[str, Any]:
-    """Submit an auto-filed mobile crash report to the developer's Linear board."""
+    """Submit an automatic crash report to the developer's Linear board."""
     from localflight.sources.web.bug_reporter import submit_crash
 
     result = submit_crash(
@@ -1178,24 +1190,31 @@ def api_submit_feedback_crash(body: FeedbackCrashIn) -> Dict[str, Any]:
     )
     if not result["ok"]:
         error = result.get("error", "Crash submission failed")
-        status = 409 if "duplicate" in error.lower() else 502
+        lower_error = error.lower()
+        if "duplicate" in lower_error:
+            status = 409
+        elif "disabled" in lower_error:
+            status = 403
+        else:
+            status = 502
         raise HTTPException(status_code=status, detail=error)
-    return {“ok”: True, “url”: result.get(“url”)}
+    return {"ok": True, "url": result.get("url")}
 
 
-# ── Matrix config ──────────────────────────────────────────────────────────────
+# Matrix config -------------------------------------------------------------
 
 _MATRIX_CONFIG_DEFAULTS: Dict[str, Any] = {
-    “brightness”: 0.8,
-    “max_rows”: 4,
-    “refresh_seconds”: 60,
-    “default_view”: “departures”,
+    "brightness": 0.8,
+    "max_rows": 4,
+    "refresh_seconds": 60,
+    "default_view": "departures",
 }
 
 
 def _matrix_config_path():
     from localflight.storage.config import config_path
-    return config_path().parent / “matrix_config.json”
+
+    return config_path().parent / "matrix_config.json"
 
 
 def _load_matrix_config() -> Dict[str, Any]:
@@ -1203,7 +1222,9 @@ def _load_matrix_config() -> Dict[str, Any]:
     if not path.exists():
         return dict(_MATRIX_CONFIG_DEFAULTS)
     try:
-        data = json.loads(path.read_text())
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            return dict(_MATRIX_CONFIG_DEFAULTS)
         return {**_MATRIX_CONFIG_DEFAULTS, **data}
     except Exception:
         return dict(_MATRIX_CONFIG_DEFAULTS)
@@ -1213,35 +1234,111 @@ class MatrixConfigIn(BaseModel):
     brightness: float = Field(0.8, ge=0.0, le=1.0)
     max_rows: int = Field(4, ge=1, le=8)
     refresh_seconds: int = Field(60, ge=10, le=3600)
-    default_view: str = Field(“departures”)
+    default_view: str = Field("departures")
 
 
-@router.get(“/api/matrix/config”)
+@router.get("/api/matrix/config")
 def api_matrix_config_get() -> Dict[str, Any]:
     try:
         skin = load_config().skin
     except Exception:
-        skin = “standard”
-    return {**_load_matrix_config(), “skin”: skin}
+        skin = "standard"
+    return {**_load_matrix_config(), "skin": skin}
 
 
-@router.post(“/api/matrix/config”)
+@router.post("/api/matrix/config")
 def api_matrix_config_post(body: MatrixConfigIn) -> Dict[str, Any]:
     data: Dict[str, Any] = {
-        “brightness”: round(float(body.brightness), 2),
-        “max_rows”: int(body.max_rows),
-        “refresh_seconds”: int(body.refresh_seconds),
-        “default_view”: body.default_view if body.default_view in (“departures”, “arrivals”) else “departures”,
+        "brightness": round(float(body.brightness), 2),
+        "max_rows": int(body.max_rows),
+        "refresh_seconds": int(body.refresh_seconds),
+        "default_view": body.default_view if body.default_view in ("departures", "arrivals") else "departures",
     }
     try:
         path = _matrix_config_path()
-        path.write_text(json.dumps(data, indent=2))
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(data, indent=2), encoding="utf-8")
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
-    return {“ok”: True, **data}
+    return {"ok": True, **data}
 
 
-# â”€â”€ Standalone app â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+class MatrixScriptIn(BaseModel):
+    wifi_ssid: str = Field(..., min_length=1, max_length=64)
+    wifi_password: str = Field("", max_length=128)
+    api_host: str = Field(..., min_length=1, max_length=253)
+    api_port: int = Field(8000, ge=1, le=65535)
+    panel_w: int = Field(256, ge=64, le=512)
+    panel_h: int = Field(64, ge=16, le=128)
+    max_rows: int = Field(4, ge=1, le=8)
+    refresh_seconds: int = Field(60, ge=10, le=3600)
+    brightness: float = Field(0.8, ge=0.05, le=1.0)
+    default_view: str = Field("departures")
+
+
+def _matrix_client_template_path() -> Path:
+    return Path(__file__).resolve().parents[1] / "sources" / "matrix" / "client.py"
+
+
+def _normalize_matrix_api_host(value: str) -> str:
+    host = (value or "").strip().lower()
+    if host in {"localhost", "127.0.0.1", "::1", "[::1]"}:
+        raise HTTPException(
+            status_code=422,
+            detail="Use a LAN IP or mDNS host such as localflight.local, not localhost.",
+        )
+    if not re.fullmatch(r"[a-z0-9.-]+", host):
+        raise HTTPException(
+            status_code=422,
+            detail="Server host must be a LAN IP or mDNS host using letters, numbers, dots, or hyphens.",
+        )
+    return host
+
+
+def _matrix_assignment_line(name: str, value: str) -> str:
+    return f"{name.ljust(14)}= {value}"
+
+
+def _render_matrix_client_script(body: MatrixScriptIn) -> str:
+    if body.panel_h != 64:
+        raise HTTPException(
+            status_code=422,
+            detail="The generated board file is currently validated for 64px-tall HUB75 chains only.",
+        )
+
+    default_view = body.default_view if body.default_view in {"departures", "arrivals"} else "departures"
+    host = _normalize_matrix_api_host(body.api_host)
+    text = _matrix_client_template_path().read_text(encoding="utf-8")
+    replacements = {
+        "WIFI_SSID": json.dumps(body.wifi_ssid),
+        "WIFI_PASSWORD": json.dumps(body.wifi_password),
+        "API_HOST": json.dumps(host),
+        "API_PORT": str(int(body.api_port)),
+        "PANEL_W": str(int(body.panel_w)),
+        "PANEL_H": str(int(body.panel_h)),
+        "MAX_ROWS": str(int(body.max_rows)),
+        "REFRESH_S": str(int(body.refresh_seconds)),
+        "BRIGHTNESS": f"{float(body.brightness):.2f}",
+        "DEFAULT_VIEW": json.dumps(default_view),
+    }
+    for key, value in replacements.items():
+        text = re.sub(
+            rf"^{key}\s*=.*$",
+            _matrix_assignment_line(key, value),
+            text,
+            flags=re.MULTILINE,
+        )
+    return text
+
+
+@router.post("/api/matrix/script", response_class=PlainTextResponse)
+def api_matrix_script(body: MatrixScriptIn) -> PlainTextResponse:
+    script = _render_matrix_client_script(body)
+    return PlainTextResponse(
+        script,
+        headers={"Content-Disposition": 'attachment; filename="main.py"'},
+    )
+
 
 try:
     from fastapi import FastAPI as _FastAPI

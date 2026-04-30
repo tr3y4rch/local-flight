@@ -12,6 +12,8 @@ import localflight.scheduler.jobs as jobs
 import localflight.scheduler.runtime as runtime
 import localflight.sources.web.adsbexchange_client as adsbexchange_client
 import localflight.sources.web.aviationstack_client as aviationstack_client
+import localflight.sources.web.bug_reporter as bug_reporter
+import localflight.storage.config as storage_config
 import localflight.storage.flights_store as flights_store
 import localflight.ui.api as ui_api
 import localflight.ui.server as ui_server
@@ -506,3 +508,182 @@ def test_api_radar_reports_refresh_hint_for_adsb_cache(monkeypatch) -> None:
     assert result["source"] == "adsbexchange_live"
     assert result["refresh_after_s"] >= 60
     assert result["count"] == 1
+
+
+def test_matrix_config_endpoint_round_trip(tmp_path: Path, monkeypatch) -> None:
+    matrix_config = tmp_path / "matrix_config.json"
+    monkeypatch.setattr(ui_api, "_matrix_config_path", lambda: matrix_config)
+    monkeypatch.setattr(ui_api, "load_config", lambda: AppConfig(skin="technical"))
+
+    client = TestClient(ui_api.app)
+
+    response = client.get("/api/matrix/config")
+    assert response.status_code == 200
+    assert response.json() == {
+        "brightness": 0.8,
+        "max_rows": 4,
+        "refresh_seconds": 60,
+        "default_view": "departures",
+        "skin": "technical",
+    }
+
+    response = client.post(
+        "/api/matrix/config",
+        json={
+            "brightness": 0.55,
+            "max_rows": 6,
+            "refresh_seconds": 90,
+            "default_view": "arrivals",
+        },
+    )
+    assert response.status_code == 200
+    assert response.json() == {
+        "ok": True,
+        "brightness": 0.55,
+        "max_rows": 6,
+        "refresh_seconds": 90,
+        "default_view": "arrivals",
+    }
+    assert json.loads(matrix_config.read_text(encoding="utf-8")) == {
+        "brightness": 0.55,
+        "max_rows": 6,
+        "refresh_seconds": 90,
+        "default_view": "arrivals",
+    }
+
+
+def test_matrix_script_endpoint_renders_from_canonical_template(tmp_path: Path, monkeypatch) -> None:
+    template = tmp_path / "client.py"
+    template.write_text(
+        "\n".join(
+            [
+                'WIFI_SSID     = "your_wifi_name"',
+                'WIFI_PASSWORD = "your_wifi_password"',
+                'API_HOST      = "localflight.local"',
+                "API_PORT      = 8000",
+                "PANEL_W       = 256",
+                "PANEL_H       = 64",
+                "MAX_ROWS      = 4",
+                "REFRESH_S     = 60",
+                "BRIGHTNESS    = 0.80",
+                'DEFAULT_VIEW  = "departures"',
+            ]
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(ui_api, "_matrix_client_template_path", lambda: template)
+
+    client = TestClient(ui_api.app)
+    response = client.post(
+        "/api/matrix/script",
+        json={
+            "wifi_ssid": "BoardNet",
+            "wifi_password": "secret123",
+            "api_host": "localflight.local",
+            "api_port": 8000,
+            "panel_w": 256,
+            "panel_h": 64,
+            "max_rows": 6,
+            "refresh_seconds": 120,
+            "brightness": 0.55,
+            "default_view": "arrivals",
+        },
+    )
+
+    assert response.status_code == 200
+    assert 'WIFI_SSID     = "BoardNet"' in response.text
+    assert 'WIFI_PASSWORD = "secret123"' in response.text
+    assert 'API_HOST      = "localflight.local"' in response.text
+    assert "API_PORT      = 8000" in response.text
+    assert "PANEL_W       = 256" in response.text
+    assert "PANEL_H       = 64" in response.text
+    assert "MAX_ROWS      = 6" in response.text
+    assert "REFRESH_S     = 120" in response.text
+    assert "BRIGHTNESS    = 0.55" in response.text
+    assert 'DEFAULT_VIEW  = "arrivals"' in response.text
+
+
+def test_matrix_script_endpoint_rejects_loopback_host(tmp_path: Path, monkeypatch) -> None:
+    template = tmp_path / "client.py"
+    template.write_text('API_HOST      = "localflight.local"', encoding="utf-8")
+    monkeypatch.setattr(ui_api, "_matrix_client_template_path", lambda: template)
+
+    client = TestClient(ui_api.app)
+    response = client.post(
+        "/api/matrix/script",
+        json={
+            "wifi_ssid": "BoardNet",
+            "wifi_password": "",
+            "api_host": "localhost",
+            "api_port": 8000,
+            "panel_w": 256,
+            "panel_h": 64,
+            "max_rows": 4,
+            "refresh_seconds": 60,
+            "brightness": 0.8,
+            "default_view": "departures",
+        },
+    )
+
+    assert response.status_code == 422
+    assert "not localhost" in response.json()["detail"]
+
+
+def test_submit_crash_respects_diagnostics_mode_gate(monkeypatch) -> None:
+    calls: list[tuple] = []
+
+    monkeypatch.setattr(bug_reporter, "_auto_diagnostics_mode", lambda: "manual")
+    monkeypatch.setattr(bug_reporter, "submit_report", lambda *args, **kwargs: calls.append((args, kwargs)) or {"ok": True})
+
+    result = bug_reporter.submit_crash("Boom")
+
+    assert result == {"ok": False, "error": "automatic diagnostics disabled"}
+    assert calls == []
+
+    monkeypatch.setattr(bug_reporter, "_auto_diagnostics_mode", lambda: "unset")
+    result = bug_reporter.submit_crash("Boom again")
+
+    assert result == {"ok": False, "error": "automatic diagnostics disabled"}
+    assert calls == []
+
+
+def test_submit_crash_only_attaches_log_tail_in_auto_logs(monkeypatch) -> None:
+    submitted: list[str] = []
+
+    monkeypatch.setattr(bug_reporter, "_crash_fingerprint", lambda msg: f"fp-{msg}")
+    monkeypatch.setattr(bug_reporter, "_already_crash_filed", lambda fp: False)
+    monkeypatch.setattr(bug_reporter, "_mark_crash_filed", lambda fp: None)
+    monkeypatch.setattr(bug_reporter, "_system_context", lambda client_context="": "- **Version:** test\n")
+    monkeypatch.setattr(bug_reporter, "_read_log_tail", lambda n_lines=50: "line-1\nline-2")
+    monkeypatch.setattr(
+        bug_reporter,
+        "submit_report",
+        lambda title, description="", client_context="": submitted.append(description) or {"ok": True, "url": "https://example.test"},
+    )
+
+    monkeypatch.setattr(bug_reporter, "_auto_diagnostics_mode", lambda: "auto")
+    result = bug_reporter.submit_crash("Auto only", traceback_str="tb", context="desktop")
+    assert result["ok"] is True
+    assert submitted
+    assert "**Log tail:**" not in submitted[-1]
+    assert "**Traceback:**" in submitted[-1]
+
+    monkeypatch.setattr(bug_reporter, "_auto_diagnostics_mode", lambda: "auto_logs")
+    result = bug_reporter.submit_crash("Auto plus logs", traceback_str="tb", context="desktop")
+    assert result["ok"] is True
+    assert "**Log tail:**" in submitted[-1]
+    assert "line-1" in submitted[-1]
+
+
+def test_api_config_patch_accepts_diagnostics_mode(tmp_path: Path, monkeypatch) -> None:
+    config_file = tmp_path / ".localflight" / "config.json"
+    config_file.parent.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(storage_config, "config_path", lambda: config_file)
+
+    client = TestClient(ui_api.app)
+    response = client.patch("/api/config", json={"diagnostics_mode": "auto_logs"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["diagnostics_mode"] == "auto_logs"
+    assert json.loads(config_file.read_text(encoding="utf-8"))["diagnostics_mode"] == "auto_logs"

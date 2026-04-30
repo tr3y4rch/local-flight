@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% from "_nav.html" import topnav %}
 
-{% block title %}Local Flight — Report an Issue{% endblock %}
+{% block title %}Local Flight - Report an Issue{% endblock %}
 
 {% block extra_style %}
   body { display: block; min-height: 100vh; padding: 0; }
@@ -12,7 +12,7 @@
   }
   .fb-header { margin-bottom: 24px; }
   .fb-header h1 { margin: 0 0 6px 0; font-size: 1.2rem; }
-  .fb-header .sub { opacity: 0.5; font-size: 0.82rem; }
+  .fb-header .sub { opacity: 0.5; font-size: 0.82rem; line-height: 1.5; }
   .fb-form { display: flex; flex-direction: column; gap: 14px; }
   .fb-field label {
     display: block; font-size: 0.78rem; font-weight: 600;
@@ -35,7 +35,7 @@
     border-color: rgba(0,0,0,0.3);
   }
   .fb-field textarea { resize: vertical; min-height: 120px; }
-  .fb-hint { font-size: 0.75rem; opacity: 0.45; margin-top: 5px; }
+  .fb-hint { font-size: 0.75rem; opacity: 0.5; margin-top: 5px; line-height: 1.5; }
   .fb-submit {
     padding: 10px 24px; border-radius: 8px; border: none;
     background: #5e6ad2; color: #fff;
@@ -55,7 +55,8 @@
     border: 1px solid var(--panel-border);
     border-radius: 8px; padding: 10px 14px;
     font-size: 0.75rem; font-family: ui-monospace, monospace;
-    line-height: 1.7; opacity: 0.6;
+    line-height: 1.7; opacity: 0.68;
+    white-space: pre-wrap;
   }
 {% endblock %}
 
@@ -67,7 +68,7 @@
 
   <div class="fb-header">
     <h1>Report an Issue</h1>
-    <div class="sub">Your report goes directly to the Local Flight developer. No account needed.</div>
+    <div class="sub">Your report goes directly to the Local Flight developer issue inbox on Linear. No account needed.</div>
   </div>
 
   <div class="fb-form">
@@ -79,13 +80,13 @@
 
     <div class="fb-field">
       <label>Details <span style="opacity:0.5;font-weight:400;text-transform:none;">(optional)</span></label>
-      <textarea id="fbDesc" placeholder="Steps to reproduce, what you expected, what happened instead…" maxlength="4000"></textarea>
+      <textarea id="fbDesc" placeholder="Steps to reproduce, what you expected, what happened instead..." maxlength="4000"></textarea>
     </div>
 
     <div class="fb-field">
       <label>Attached automatically</label>
-      <div class="fb-sysinfo" id="fbSysInfo">Loading…</div>
-      <div class="fb-hint">This info helps diagnose the problem. It contains no personal data.</div>
+      <div class="fb-sysinfo" id="fbSysInfo">Loading...</div>
+      <div class="fb-hint">This form sends the text you write plus install-scoped technical diagnostics shown below. It does not create a Local Flight account profile.</div>
     </div>
 
     <button class="fb-submit" id="fbSubmit" onclick="submitFeedback()">Send Report</button>
@@ -104,16 +105,20 @@
   async function loadSysInfo() {
     const box = document.getElementById("fbSysInfo");
     try {
-      const [sys, cfg] = await Promise.all([
-        fetch("/api/admin/system").then(r => r.json()),
-        fetch("/api/config").then(r => r.json()),
+      const [sys, cfg, client] = await Promise.all([
+        fetch("/api/admin/system").then((r) => r.json()),
+        fetch("/api/config").then((r) => r.json()),
+        fetch("/api/setup/client-info").then((r) => r.json()),
       ]);
       box.textContent =
         `Version:  v${sys.version || "?"}\n` +
         `Platform: ${sys.platform || "?"}\n` +
         `Python:   ${sys.python || "?"}\n` +
+        `Install:  ${client.install_fingerprint || sys.install_id || "?"}\n` +
         `Airport:  ${cfg.airport_iata || "?"}\n` +
-        `Source:   ${cfg.source || "?"}`;
+        `Source:   ${cfg.source || "?"}\n` +
+        `API mode: ${(sys.client && sys.client.mode) || "?"}\n` +
+        `Diag:     ${cfg.diagnostics_mode || "unset"}`;
     } catch {
       box.textContent = "Could not load system info.";
     }
@@ -129,35 +134,35 @@ async function submitFeedback() {
 
   if (!title) { document.getElementById("fbTitle").focus(); return; }
 
-  btn.disabled    = true;
-  btn.textContent = "Sending…";
+  btn.disabled = true;
+  btn.textContent = "Sending...";
   res.style.display = "none";
 
   try {
     const r = await fetch("/api/feedback", {
-      method:  "POST",
+      method: "POST",
       headers: { "Content-Type": "application/json" },
-      body:    JSON.stringify({ title, description: desc }),
+      body: JSON.stringify({ title, description: desc }),
     });
     const d = await r.json();
     if (r.ok && d.ok) {
-      res.className   = "fb-result ok";
-      res.textContent = "Report sent — thank you! The developer will look into it.";
+      res.className = "fb-result ok";
+      res.textContent = "Report sent - thank you! The developer will look into it.";
       res.style.display = "";
       document.getElementById("fbTitle").value = "";
-      document.getElementById("fbDesc").value  = "";
+      document.getElementById("fbDesc").value = "";
     } else {
-      res.className   = "fb-result err";
+      res.className = "fb-result err";
       res.textContent = d.detail || "Failed to send report. Please try again.";
       res.style.display = "";
     }
   } catch {
-    res.className   = "fb-result err";
-    res.textContent = "Network error — could not reach server.";
+    res.className = "fb-result err";
+    res.textContent = "Network error - could not reach server.";
     res.style.display = "";
   }
 
-  btn.disabled    = false;
+  btn.disabled = false;
   btn.textContent = "Send Report";
 }
 </script>

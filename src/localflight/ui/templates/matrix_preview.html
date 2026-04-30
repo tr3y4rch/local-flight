@@ -275,6 +275,64 @@
     font-size: 0.78rem;
     color: #667080;
   }
+
+  .toggle-btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+
+  .setup-intro {
+    margin-bottom: 16px;
+    padding: 12px 14px;
+    border: 1px solid #2a3040;
+    border-radius: 10px;
+    background: #181b22;
+  }
+
+  .setup-intro p {
+    margin: 0 0 10px 0;
+    font-size: 0.8rem;
+    color: #c8d0da;
+    line-height: 1.5;
+  }
+
+  .setup-checklist {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 8px;
+  }
+
+  .setup-step {
+    padding: 10px 12px;
+    border-radius: 8px;
+    background: #101319;
+    border: 1px solid #232937;
+    font-size: 0.76rem;
+    color: #aeb7c2;
+    line-height: 1.45;
+  }
+
+  .setup-step strong {
+    display: block;
+    margin-bottom: 4px;
+    color: #e0e4ec;
+    font-size: 0.8rem;
+  }
+
+  .setup-note {
+    margin-top: 12px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    border: 1px solid rgba(0, 232, 74, 0.15);
+    background: rgba(0, 232, 74, 0.05);
+    color: #c8d0da;
+    font-size: 0.76rem;
+    line-height: 1.5;
+  }
+
+  .setup-note strong {
+    color: #e0e4ec;
+  }
 {% endblock %}
 
 {% block body %}
@@ -363,6 +421,26 @@
 
   <!-- ── Setup section ── -->
   <div class="setup-section">
+    <div class="setup-intro">
+      <p>This board only needs one local path: flash it once with Wi-Fi and the Local Flight server address, then let it read schedules and matrix settings over your LAN.</p>
+      <div class="setup-checklist">
+        <div class="setup-step">
+          <strong>1. Point it at the server</strong>
+          Use the Pi or desktop LAN name or IP. <code>localflight.local</code> is the safest default on a Pi install.
+        </div>
+        <div class="setup-step">
+          <strong>2. Flash once</strong>
+          Save the downloaded file to the MicroPython device as <code>main.py</code>.
+        </div>
+        <div class="setup-step">
+          <strong>3. Tune from the web app</strong>
+          Rows, brightness, refresh, default view, and skin stay adjustable here without reflashing.
+        </div>
+      </div>
+      <div class="setup-note">
+        <strong>Board data path:</strong> the Interstate 75 W reads <code>/api/config</code>, <code>/api/matrix/config</code>, and <code>/api/fids</code>, then sends a lightweight <code>/api/admin/ping</code> heartbeat. No Wi-Fi details are written back to the server.
+      </div>
+    </div>
 
     <div class="setup-row">
       <div class="setup-col">
@@ -377,8 +455,17 @@
             <label>Password</label>
             <input id="wifiPass" type="password" placeholder="••••••••" oninput="updateCfgBlock()" />
           </div>
+          <div class="wifi-field">
+            <label>Server host</label>
+            <input id="serverHost" type="text" placeholder="localflight.local" oninput="updateCfgBlock()" />
+          </div>
+          <div class="wifi-field">
+            <label>Server port</label>
+            <input id="serverPort" type="number" min="1" max="65535" placeholder="8000" oninput="updateCfgBlock()" />
+          </div>
           <button class="toggle-btn active setup-dl-btn" onclick="downloadMainPy()">Download main.py</button>
         </div>
+        <div class="setup-hint" id="downloadHint">Use a LAN name or IP the board can reach. Do not use localhost.</div>
         <div class="cfg-block" id="cfgBlock">Loading...</div>
       </div>
 
@@ -417,10 +504,18 @@
   let BRIGHTNESS    = 0.8;
   let REFRESH_S_SRV = 60;   // device refresh interval saved to server
   const POLL_MS     = 15000;
+  const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "::1", "[::1]"]);
+  const DEFAULT_SERVER_HOST = LOOPBACK_HOSTS.has(window.location.hostname)
+    ? "localflight.local"
+    : window.location.hostname;
+  const DEFAULT_SERVER_PORT = window.location.port || "8000";
 
   const canvas = document.getElementById("matrixCanvas");
   const ctx    = canvas.getContext("2d");
   const status = document.getElementById("matrixStatus");
+  const serverHostInput = document.getElementById("serverHost");
+  const serverPortInput = document.getElementById("serverPort");
+  const downloadHint = document.getElementById("downloadHint");
 
   // ── Skin-aware LED palettes ────────────────────────────────────────────────
   // Each entry: [off, primary, text, dim, warning, danger]
@@ -735,6 +830,7 @@
   window.setRows = function(v) {
     MAX_ROWS = parseInt(v);
     document.getElementById("rowsVal").textContent = v;
+    updateCfgBlock();
     fetchRows();
   };
 
@@ -742,16 +838,19 @@
     VIEW = v;
     document.getElementById("btnDep").classList.toggle("active", v==="departures");
     document.getElementById("btnArr").classList.toggle("active", v==="arrivals");
+    updateCfgBlock();
     fetchRows();
   };
 
   window.setBrightness = function(v) {
     BRIGHTNESS = parseInt(v)/100;
     document.getElementById("brightnessVal").textContent = v;
+    updateCfgBlock();
   };
 
   window.setRefresh = function(v) {
     REFRESH_S_SRV = parseInt(v);
+    updateCfgBlock();
   };
 
   window.applyPreset = function(v) {
@@ -765,16 +864,83 @@
   };
 
   // ── Config block preview ─────────────────────────────────────────────────
+  function getServerHost() {
+    return (serverHostInput?.value || "").trim();
+  }
+
+  function getServerPort() {
+    const parsed = parseInt(serverPortInput?.value || DEFAULT_SERVER_PORT, 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 8000;
+  }
+
+  function validateDownloadSetup() {
+    const ssid = document.getElementById("wifiSsid")?.value?.trim() || "";
+    const host = getServerHost().toLowerCase();
+    if (!ssid) {
+      return { ok: false, message: "Enter the board Wi-Fi name before downloading." };
+    }
+    if (!host) {
+      return { ok: false, message: "Enter the Local Flight server host the board should contact." };
+    }
+    if (LOOPBACK_HOSTS.has(host)) {
+      return { ok: false, message: "Use the Pi or desktop LAN host, not localhost." };
+    }
+    if (!/^[a-z0-9.-]+$/.test(host)) {
+      return { ok: false, message: "Use only a LAN IP or mDNS host such as localflight.local." };
+    }
+    if (PANEL_H !== 64) {
+      return { ok: false, message: "Board downloads are currently validated for 64px-tall HUB75 chains only." };
+    }
+    return { ok: true, message: "Board file is ready to download." };
+  }
+
+  function updateDownloadState() {
+    const btn = document.querySelector(".setup-dl-btn");
+    const state = validateDownloadSetup();
+    if (btn) {
+      btn.disabled = !state.ok;
+    }
+    if (downloadHint) {
+      downloadHint.textContent = state.message;
+      downloadHint.style.color = state.ok ? "#667080" : "#ffb347";
+    }
+  }
+
   function updateCfgBlock() {
-    const host = window.location.hostname;
-    const port = window.location.port || "8000";
-    const ssid = document.getElementById("wifiSsid")?.value || "your_wifi_name";
-    const pass = document.getElementById("wifiPass")?.value ? "••••••••" : "your_wifi_password";
+    const host = getServerHost() || "localflight.local";
+    const port = getServerPort();
+    const ssid = document.getElementById("wifiSsid")?.value?.trim() || "your_wifi_name";
+    const hasPassword = Boolean(document.getElementById("wifiPass")?.value);
+    const passPreview = hasPassword ? '"********"' : '"your_wifi_password"';
     document.getElementById("cfgBlock").textContent =
-`WIFI_SSID  = "${ssid}"
-WIFI_PASS  = ${pass ? '"' + pass + '"' : '""'}
-API_HOST   = "${host}"  →  port ${port}
-PANEL_W    = ${PANEL_W}  ·  PANEL_H = ${PANEL_H}`;
+`WIFI_SSID     = "${ssid}"
+WIFI_PASSWORD = ${passPreview}
+API_HOST      = "${host}"
+API_PORT      = ${port}
+PANEL_W       = ${PANEL_W}
+PANEL_H       = ${PANEL_H}
+MAX_ROWS      = ${MAX_ROWS}
+REFRESH_S     = ${REFRESH_S_SRV}
+BRIGHTNESS    = ${BRIGHTNESS.toFixed(2)}
+DEFAULT_VIEW  = "${VIEW}"
+
+Board reads: /api/config -> /api/matrix/config -> /api/fids`;
+    updateDownloadState();
+  }
+
+  function buildMatrixScriptPayload() {
+    return {
+      wifi_ssid: document.getElementById("wifiSsid")?.value?.trim() || "",
+      wifi_password: document.getElementById("wifiPass")?.value || "",
+      api_host: getServerHost(),
+      api_port: getServerPort(),
+      panel_w: PANEL_W,
+      panel_h: PANEL_H,
+      max_rows: MAX_ROWS,
+      refresh_seconds: REFRESH_S_SRV,
+      brightness: BRIGHTNESS,
+      default_view: VIEW,
+    };
   }
 
   // ── Generate complete main.py content ────────────────────────────────────
@@ -1140,21 +1306,61 @@ if __name__ == "__main__":
   }
 
   // ── Download main.py ────────────────────────────────────────────────────
-  window.downloadMainPy = function() {
-    const ssid = document.getElementById("wifiSsid")?.value?.trim();
-    if (!ssid) {
-      alert("Enter your WiFi network name first.");
-      document.getElementById("wifiSsid").focus();
+  window.downloadMainPy = async function() {
+    const state = validateDownloadSetup();
+    const btn = document.querySelector(".setup-dl-btn");
+    if (!state.ok) {
+      updateDownloadState();
+      if (!getServerHost()) {
+        serverHostInput?.focus();
+      } else if (!(document.getElementById("wifiSsid")?.value?.trim())) {
+        document.getElementById("wifiSsid")?.focus();
+      }
       return;
     }
-    const content = generateMainPy();
-    const blob    = new Blob([content], {type: "text/plain"});
-    const url     = URL.createObjectURL(blob);
-    const a       = document.createElement("a");
-    a.href        = url;
-    a.download    = "main.py";
-    a.click();
-    URL.revokeObjectURL(url);
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = "Preparing...";
+    }
+    try {
+      const response = await fetch("/api/matrix/script", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify(buildMatrixScriptPayload()),
+      });
+      if (!response.ok) {
+        let message = `HTTP ${response.status}`;
+        try {
+          const payload = await response.json();
+          message = payload.detail || message;
+        } catch (error) {
+          // Keep the plain status fallback.
+        }
+        throw new Error(message);
+      }
+      const content = await response.text();
+      const blob = new Blob([content], {type: "text/x-python"});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "main.py";
+      a.click();
+      URL.revokeObjectURL(url);
+      if (downloadHint) {
+        downloadHint.textContent = "Downloaded main.py. Save it to the MicroPython device as main.py.";
+        downloadHint.style.color = "#00e84a";
+      }
+    } catch (e) {
+      if (downloadHint) {
+        downloadHint.textContent = `Download failed: ${e.message}`;
+        downloadHint.style.color = "#ff6060";
+      }
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = "Download main.py";
+      }
+    }
   };
 
   // ── Load saved matrix config from server ────────────────────────────────
@@ -1220,14 +1426,16 @@ if __name__ == "__main__":
   };
 
   // ── Init ───────────────────────────────────────────────────────────────────
+  if (serverHostInput && !serverHostInput.value) serverHostInput.value = DEFAULT_SERVER_HOST;
+  if (serverPortInput && !serverPortInput.value) serverPortInput.value = DEFAULT_SERVER_PORT;
   resizeCanvas();
   updateCfgBlock();
 
-  // Load saved config from server (populates controls + updates cfgBlock)
-  loadMatrixConfig().then(() => { updateCfgBlock(); fetchRows(); });
-
   // Start demo animation immediately so there's something to see
   triggerDemo();
+
+  // Load saved config from server (populates controls + updates cfgBlock)
+  loadMatrixConfig().then(() => { updateCfgBlock(); fetchRows(); });
 
   setInterval(fetchRows, POLL_MS);
 

@@ -850,13 +850,17 @@ function AppShell() {
 
   const sendAutoReportTest = useCallback(async () => {
     setAutoReportMessage("Sending auto-report test...");
-    await reportMobileCrash({
+    const sent = await reportMobileCrash({
       message: "Intentional mobile auto-report test",
       traceback: "Triggered from the Admin screen to verify Linear crash wiring.",
       context: "mobile/manual-auto-test",
       client_context: mobileClientContext(serverUrl, snapshot, companionIdentity)
     });
-    setAutoReportMessage("Auto-report test sent with the crash route.");
+    setAutoReportMessage(
+      sent
+        ? "Auto-report test sent with the crash route."
+        : "Automatic diagnostics are disabled on the connected Local Flight server."
+    );
   }, [companionIdentity, serverUrl, snapshot]);
 
   const togglePinnedFlight = useCallback(

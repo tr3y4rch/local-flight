@@ -17,6 +17,9 @@ DEFAULT_SKIN  = "standard"
 ALLOWED_OUTPUTS = {"web", "matrix", "hdmi"}
 DEFAULT_OUTPUTS  = ["web"]
 
+ALLOWED_DIAGNOSTICS_MODES = {"unset", "manual", "auto", "auto_logs"}
+DEFAULT_DIAGNOSTICS_MODE = "unset"
+
 
 @dataclass(frozen=True)
 class AppConfig:
@@ -29,6 +32,7 @@ class AppConfig:
     timezone:        str       = "Europe/Zurich"
     skin:            str       = DEFAULT_SKIN
     display_outputs: List[str] = field(default_factory=lambda: list(DEFAULT_OUTPUTS))
+    diagnostics_mode: str      = DEFAULT_DIAGNOSTICS_MODE
 
 
 def config_path() -> Path:
@@ -90,6 +94,10 @@ def load_config() -> AppConfig:
     if not display_outputs:
         display_outputs = list(DEFAULT_OUTPUTS)
 
+    diagnostics_mode = str(raw.get("diagnostics_mode", DEFAULT_DIAGNOSTICS_MODE)).strip().lower() or DEFAULT_DIAGNOSTICS_MODE
+    if diagnostics_mode not in ALLOWED_DIAGNOSTICS_MODES:
+        diagnostics_mode = DEFAULT_DIAGNOSTICS_MODE
+
     return AppConfig(
         airport_icao=airport_icao,
         airport_iata=airport_iata,
@@ -100,6 +108,7 @@ def load_config() -> AppConfig:
         timezone=timezone,
         skin=skin,
         display_outputs=display_outputs,
+        diagnostics_mode=diagnostics_mode,
     )
 
 
