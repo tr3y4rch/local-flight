@@ -261,6 +261,163 @@
       }
       /* ══════════════════════════════════════════════════════════════════ */
 
+      /* nav layout refresh */
+      .lf-nav {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+        align-items: center;
+        gap: 12px;
+        padding: 8px 14px;
+        min-height: 54px;
+        height: auto;
+      }
+      .lf-nav-left,
+      .lf-nav-center,
+      .lf-nav-right {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-width: 0;
+      }
+      .lf-nav-center { justify-self: center; }
+      .lf-nav-right { justify-self: end; }
+      .lf-nav-brand {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        min-width: 0;
+        margin-right: 0;
+        letter-spacing: 0;
+      }
+      .lf-nav-brand-mark {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 22px;
+        height: 22px;
+        border-radius: 999px;
+        background: rgba(124,196,240,0.12);
+        color: #7cc4f0;
+        font-size: 0.82rem;
+        flex-shrink: 0;
+      }
+      [data-theme="light"] .lf-nav-brand-mark {
+        background: rgba(30,108,180,0.1);
+        color: #1e6cb4;
+      }
+      .lf-nav-brand-name {
+        opacity: 0.74;
+        font-weight: 650;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .lf-nav-ver {
+        opacity: 0.42;
+        font-size: 0.66rem;
+        font-weight: 600;
+      }
+      .lf-nav-clocks {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        flex-wrap: wrap;
+      }
+      .lf-nav-clock-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 5px 8px;
+        border-radius: 999px;
+        background: rgba(255,255,255,0.04);
+        border: 1px solid rgba(255,255,255,0.06);
+        font-family: ui-monospace, monospace;
+        font-size: 0.76rem;
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
+      }
+      [data-theme="light"] .lf-nav-clock-chip {
+        background: rgba(0,0,0,0.035);
+        border-color: rgba(0,0,0,0.06);
+      }
+      .lf-nav-clock-tag {
+        opacity: 0.52;
+        font-size: 0.66rem;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+      }
+      .lf-nav-clock-utc,
+      .lf-nav-clock-local {
+        font-weight: 700;
+      }
+      .lf-nav-group {
+        gap: 2px;
+        padding: 4px;
+        border-radius: 10px;
+      }
+      .lf-nav-item {
+        display: inline-flex;
+        gap: 6px;
+        padding: 6px 10px;
+        border-radius: 7px;
+        font-size: 0.79rem;
+        font-weight: 650;
+        letter-spacing: 0;
+      }
+      .lf-nav-icon {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 14px;
+        font-size: 0.83rem;
+      }
+      .lf-nav-quit {
+        width: 36px;
+        height: 36px;
+        margin: 0;
+        margin-left: 0;
+        margin-top: 0;
+        padding: 0;
+        border-radius: 10px;
+        background: rgba(255,255,255,0.02);
+        opacity: 0.55;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+      }
+      [data-theme="light"] .lf-nav-quit {
+        background: rgba(0,0,0,0.02);
+      }
+      .lf-nav-quit svg {
+        width: 16px;
+        height: 16px;
+        stroke: currentColor;
+        fill: none;
+        stroke-width: 1.8;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+      @media (max-width: 1180px) {
+        .lf-nav {
+          grid-template-columns: minmax(0, 1fr) auto;
+          grid-template-areas:
+            "left right"
+            "center center";
+        }
+        .lf-nav-left { grid-area: left; }
+        .lf-nav-center { grid-area: center; justify-self: start; }
+        .lf-nav-right { grid-area: right; }
+      }
+      @media (max-width: 760px) {
+        .lf-nav {
+          padding: 8px 10px;
+          gap: 8px;
+        }
+        .lf-nav-brand-name { display: none; }
+        .lf-nav-label { display: none; }
+        .lf-nav-item { padding: 7px 8px; }
+      }
+
       {% block extra_style %}{% endblock %}
     </style>
   </head>

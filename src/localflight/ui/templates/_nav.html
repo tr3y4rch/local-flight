@@ -8,98 +8,106 @@
     {{ topnav(active="settings", cfg=cfg) }}
 
   active: one of "display" | "fids" | "radar" | "matrix" |
-                 "settings" | "admin" | "history" | "logs" | "traffic"
+                 "settings" | "admin" | "history" | "logs" | "feedback" | "traffic"
 #}
 
 {% macro topnav(active="", cfg=none, embedded=false) %}
 {% if not embedded %}
 <nav class="lf-nav">
+  <div class="lf-nav-left">
+    <a href="/display" class="lf-nav-brand" title="Open Display">
+      <span class="lf-nav-brand-mark" aria-hidden="true">&#9992;</span>
+      <span class="lf-nav-brand-name">{{ cfg.display_name if cfg else "Local Flight" }}</span>
+      <span class="lf-nav-ver">v{{ app_version }}</span>
+    </a>
 
-  {# ── Brand ── #}
-  <a href="/display" class="lf-nav-brand" title="Open Display">
-    ✈ <span class="lf-nav-brand-name">{{ cfg.display_name if cfg else "Local Flight" }}</span>
-    <span class="lf-nav-ver">v{{ app_version }}</span>
-  </a>
-
-  {# ── Display group ── #}
-  <div class="lf-nav-group">
-    <a href="/display"
-       class="lf-nav-item {% if active == 'display' %}lf-nav-active{% endif %}"
-       title="Split display">
-      <span class="lf-nav-icon">⛶</span>
-      <span class="lf-nav-label">Display</span>
-    </a>
-    <a href="/fids?view=departures"
-       class="lf-nav-item {% if active == 'fids' %}lf-nav-active{% endif %}"
-       title="FIDS board">
-      <span class="lf-nav-icon">🛫</span>
-      <span class="lf-nav-label">FIDS</span>
-    </a>
-    <a href="/radar"
-       class="lf-nav-item {% if active == 'radar' %}lf-nav-active{% endif %}"
-       title="Radar">
-      <span class="lf-nav-icon">📡</span>
-      <span class="lf-nav-label">Radar</span>
-    </a>
-    <a href="/matrix-preview"
-       class="lf-nav-item {% if active == 'matrix' %}lf-nav-active{% endif %}"
-       title="Matrix preview">
-      <span class="lf-nav-icon">💡</span>
-      <span class="lf-nav-label">Matrix</span>
-    </a>
+    <div class="lf-nav-clocks" aria-label="Current time">
+      <span class="lf-nav-clock-chip">
+        <span class="lf-nav-clock-tag">UTC</span>
+        <span class="clock-utc-val lf-nav-clock-utc">--:--:--</span>
+      </span>
+      <span class="lf-nav-clock-chip">
+        <span class="lf-nav-clock-tag">LT</span>
+        <span class="clock-local-val lf-nav-clock-local">--:--:--</span>
+      </span>
+    </div>
   </div>
 
-  {# ── Divider ── #}
-  <div class="lf-nav-sep"></div>
-
-  {# ── Management group ── #}
-  <div class="lf-nav-group">
-    <a href="/"
-       class="lf-nav-item {% if active == 'settings' %}lf-nav-active{% endif %}"
-       title="Settings">
-      <span class="lf-nav-icon">⚙️</span>
-      <span class="lf-nav-label">Settings</span>
-    </a>
-    <a href="/admin"
-       class="lf-nav-item {% if active == 'admin' %}lf-nav-active{% endif %}"
-       title="Admin hub">
-      <span class="lf-nav-icon">🛠</span>
-      <span class="lf-nav-label">Admin</span>
-    </a>
-    <a href="/history"
-       class="lf-nav-item {% if active == 'history' %}lf-nav-active{% endif %}"
-       title="Flight history">
-      <span class="lf-nav-icon">📅</span>
-      <span class="lf-nav-label">History</span>
-    </a>
-    <a href="/logs"
-       class="lf-nav-item {% if active == 'logs' %}lf-nav-active{% endif %}"
-       title="Logs">
-      <span class="lf-nav-icon">📋</span>
-      <span class="lf-nav-label">Logs</span>
-    </a>
-    <a href="/feedback"
-       class="lf-nav-item {% if active == 'feedback' %}lf-nav-active{% endif %}"
-       title="Report an issue">
-      <span class="lf-nav-icon">🐛</span>
-      <span class="lf-nav-label">Report</span>
-    </a>
+  <div class="lf-nav-center">
+    <div class="lf-nav-group lf-nav-group-core">
+      <a href="/display"
+         class="lf-nav-item {% if active == 'display' %}lf-nav-active{% endif %}"
+         title="Split display">
+        <span class="lf-nav-icon">&#9635;</span>
+        <span class="lf-nav-label">Display</span>
+      </a>
+      <a href="/fids?view=departures"
+         class="lf-nav-item {% if active == 'fids' %}lf-nav-active{% endif %}"
+         title="FIDS board">
+        <span class="lf-nav-icon">&#9776;</span>
+        <span class="lf-nav-label">FIDS</span>
+      </a>
+      <a href="/radar"
+         class="lf-nav-item {% if active == 'radar' %}lf-nav-active{% endif %}"
+         title="Radar">
+        <span class="lf-nav-icon">&#9678;</span>
+        <span class="lf-nav-label">Radar</span>
+      </a>
+      <a href="/matrix-preview"
+         class="lf-nav-item {% if active == 'matrix' %}lf-nav-active{% endif %}"
+         title="Matrix preview">
+        <span class="lf-nav-icon">&#9638;</span>
+        <span class="lf-nav-label">Matrix</span>
+      </a>
+    </div>
   </div>
 
-  {# ── Clock + Quit — pushed to right ── #}
-  <div class="lf-nav-clock">
-    <span class="clock-utc-val lf-nav-clock-utc">--:--:--</span>
-    <span class="lf-nav-clock-sep">UTC</span>
+  <div class="lf-nav-right">
+    <div class="lf-nav-group lf-nav-group-ops">
+      <a href="/"
+         class="lf-nav-item {% if active == 'settings' %}lf-nav-active{% endif %}"
+         title="Settings">
+        <span class="lf-nav-icon">&#9881;</span>
+        <span class="lf-nav-label">Settings</span>
+      </a>
+      <a href="/admin"
+         class="lf-nav-item {% if active == 'admin' %}lf-nav-active{% endif %}"
+         title="Admin hub">
+        <span class="lf-nav-icon">&#9874;</span>
+        <span class="lf-nav-label">Admin</span>
+      </a>
+      <a href="/history"
+         class="lf-nav-item {% if active == 'history' %}lf-nav-active{% endif %}"
+         title="Flight history">
+        <span class="lf-nav-icon">&#9716;</span>
+        <span class="lf-nav-label">History</span>
+      </a>
+      <a href="/logs"
+         class="lf-nav-item {% if active == 'logs' %}lf-nav-active{% endif %}"
+         title="Logs">
+        <span class="lf-nav-icon">&#8801;</span>
+        <span class="lf-nav-label">Logs</span>
+      </a>
+      <a href="/feedback"
+         class="lf-nav-item {% if active == 'feedback' %}lf-nav-active{% endif %}"
+         title="Report an issue">
+        <span class="lf-nav-icon">&#9888;</span>
+        <span class="lf-nav-label">Report</span>
+      </a>
+    </div>
+
+    <button class="lf-nav-quit" type="button" onclick="lfQuitOpen()" title="Shut down Local Flight" aria-label="Shut down Local Flight">
+      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <path d="M12 3v8"></path>
+        <path d="M7.05 5.64A8 8 0 1 0 16.95 5.64"></path>
+      </svg>
+    </button>
   </div>
-
-  <button class="lf-nav-quit" onclick="lfQuitOpen()" title="Quit Local Flight">⏻</button>
-
 </nav>
 
-{# ── Quit confirmation modal ── #}
 <div id="lfQuitModal" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.55);backdrop-filter:blur(4px);align-items:center;justify-content:center;">
   <div style="background:var(--panel-bg,#1a1a1a);border:1px solid var(--panel-border,rgba(255,255,255,0.12));border-radius:14px;padding:28px 32px;min-width:280px;max-width:360px;text-align:center;box-shadow:0 24px 64px rgba(0,0,0,0.5);">
-    <div style="font-size:2rem;margin-bottom:12px;">⏻</div>
+    <div style="font-size:2rem;margin-bottom:12px;">&#x23FB;</div>
     <div style="font-weight:700;font-size:1rem;margin-bottom:6px;">Quit Local Flight?</div>
     <div style="opacity:0.5;font-size:0.82rem;margin-bottom:24px;" id="lfQuitSub">The app and browser window will close.</div>
     <div style="display:flex;gap:10px;justify-content:center;">
@@ -125,9 +133,9 @@ function _lfQuitEsc(e) { if (e.key === "Escape") lfQuitClose(); }
 async function lfQuitConfirm() {
   const btn = document.getElementById("lfQuitBtn");
   const sub = document.getElementById("lfQuitSub");
-  btn.textContent = "Shutting down…";
+  btn.textContent = "Shutting down...";
   btn.disabled = true;
-  sub.textContent = "Stopping server…";
+  sub.textContent = "Stopping server...";
   try { await fetch("/api/quit", { method: "POST" }); } catch {}
   sub.textContent = "Done. You can close this window.";
   setTimeout(() => window.close(), 800);
@@ -136,120 +144,4 @@ async function lfQuitConfirm() {
 {% endif %}
 {% endmacro %}
 
-{# nav_styles() removed — all CSS is inlined in base.html #}
-{# Keeping this comment so the macro call would fail loudly if accidentally re-added #}
 {% macro nav_styles() %}{# NOOP #}{% endmacro %}
-{#
-DEAD CODE BELOW — left for reference, not executed
-<style>
-/* ══ Local Flight nav bar ════════════════════════════════════════════════════ */
-.lf-nav {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 0 14px;
-  height: 42px;
-  flex-shrink: 0;
-  border-bottom: 1px solid rgba(255,255,255,0.07);
-  background: rgba(0,0,0,0.25);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-  position: sticky;
-  top: 0;
-  z-index: 50;
-  box-sizing: border-box;
-  width: 100%;
-}
-[data-theme="light"] .lf-nav {
-  border-bottom-color: rgba(0,0,0,0.08);
-  background: rgba(255,255,255,0.85);
-}
-
-/* Brand */
-.lf-nav-brand {
-  display: flex; align-items: center; gap: 6px;
-  font-size: 0.88rem; font-weight: 700;
-  text-decoration: none; color: inherit;
-  opacity: 0.9; white-space: nowrap;
-  margin-right: 6px; letter-spacing: -0.01em;
-}
-.lf-nav-brand:hover { opacity: 1; }
-.lf-nav-brand-name  { opacity: 0.7; font-weight: 600; }
-
-/* Groups */
-.lf-nav-group {
-  display: flex; align-items: center; gap: 1px;
-  background: rgba(255,255,255,0.04);
-  border-radius: 8px; padding: 3px;
-}
-[data-theme="light"] .lf-nav-group { background: rgba(0,0,0,0.04); }
-
-/* Items */
-.lf-nav-item {
-  display: flex; align-items: center; gap: 5px;
-  padding: 4px 10px; border-radius: 5px;
-  text-decoration: none; color: inherit;
-  font-size: 0.78rem; font-weight: 600;
-  opacity: 0.5; white-space: nowrap;
-  transition: opacity 0.12s, background 0.12s;
-  letter-spacing: 0.01em;
-}
-.lf-nav-item:hover { opacity: 0.85; background: rgba(255,255,255,0.07); }
-[data-theme="light"] .lf-nav-item:hover { background: rgba(0,0,0,0.06); }
-.lf-nav-active { opacity: 1 !important; background: rgba(255,255,255,0.1) !important; }
-[data-theme="light"] .lf-nav-active { background: rgba(0,0,0,0.08) !important; }
-.lf-nav-icon  { font-size: 0.88rem; line-height: 1; flex-shrink: 0; }
-.lf-nav-label { line-height: 1; }
-
-/* Separator */
-.lf-nav-sep {
-  width: 1px; height: 18px;
-  background: rgba(255,255,255,0.1);
-  margin: 0 4px; flex-shrink: 0;
-}
-[data-theme="light"] .lf-nav-sep { background: rgba(0,0,0,0.1); }
-
-/* Clock */
-.lf-nav-clock {
-  margin-left: auto;
-  display: flex; align-items: baseline; gap: 4px;
-  font-family: ui-monospace, monospace;
-  font-size: 0.78rem; font-variant-numeric: tabular-nums;
-  opacity: 0.6; white-space: nowrap;
-}
-.lf-nav-clock-utc { font-weight: 700; }
-.lf-nav-clock-sep { opacity: 0.5; font-size: 0.68rem; }
-
-/* Quit button */
-.lf-nav-quit {
-  margin-left: 8px;
-  padding: 4px 8px;
-  border-radius: 5px;
-  border: 1px solid rgba(255,255,255,0.1);
-  background: none;
-  color: inherit;
-  font-size: 0.9rem;
-  opacity: 0.3;
-  cursor: pointer;
-  transition: opacity 0.12s, background 0.12s, border-color 0.12s;
-  line-height: 1;
-  flex-shrink: 0;
-}
-.lf-nav-quit:hover {
-  opacity: 0.9;
-  background: rgba(255,60,60,0.12);
-  border-color: rgba(255,60,60,0.35);
-  color: #ff6060;
-}
-[data-theme="light"] .lf-nav-quit { border-color: rgba(0,0,0,0.1); }
-[data-theme="light"] .lf-nav-quit:hover { background: rgba(200,0,0,0.08); border-color: rgba(200,0,0,0.25); color: #cc0000; }
-
-/* Narrow screens */
-@media (max-width: 600px) {
-  .lf-nav-label     { display: none; }
-  .lf-nav-brand-name { display: none; }
-  .lf-nav-item      { padding: 4px 7px; }
-}
-/* ══════════════════════════════════════════════════════════════════════════ */
-</style>
-#}
