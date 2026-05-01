@@ -75,7 +75,9 @@ bash installers/macos/install.sh
 
 ### Raspberry Pi
 
-Run these from a source checkout on the Pi. The installer creates the venv, `.env`, systemd app service, optional Chromium kiosk service, and mDNS hostname. Add `--kiosk` during install if you want HDMI Chromium on the Pi itself.
+You can either clone the repo on the Pi or download the versioned Pi source bundle from the [latest release](https://github.com/tr3y4rch/local-flight/releases), for example `LocalFlight-pi-source-0.2.5b1.zip`.
+
+Unzip or clone on the Pi, then run the installer from the project folder. The installer creates the venv, `.env`, systemd app service, optional Chromium kiosk service, and mDNS hostname. Add `--kiosk` during install if you want HDMI Chromium on the Pi itself.
 
 ```bash
 # One-time setup
@@ -87,6 +89,8 @@ lf stop     # stop
 lf logs     # tail logs
 lf update   # pull latest + restart
 ```
+
+Release builds also produce `LocalFlight-pi-source-<version>.zip.sha256` so the downloaded Pi source bundle can be verified before running.
 
 The Pi runs headless - access the UI from any device on your network at `http://localflight.local`.
 

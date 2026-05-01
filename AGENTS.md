@@ -310,6 +310,7 @@ Without signing: Windows shows SmartScreen "Unknown publisher"; macOS requires r
 Release build notes:
 - Build Windows artifacts on Windows: `python build.py --clean` → attach `LocalFlight-windows.zip` and `LocalFlight-windows.zip.sha256`.
 - Build macOS artifacts on macOS: `python build.py --clean` → attach `LocalFlight-macos.zip` and `LocalFlight-macos.zip.sha256`.
+- Build the Pi source installer bundle on any machine with git available: `python scripts/package_pi_source.py` → attach `LocalFlight-pi-source-<version>.zip` and `.sha256`.
 - `installers/windows/install.ps1` and `installers/macos/install.sh` are source-checkout installers; release users should prefer the PyInstaller zip artifacts.
 
 ---
@@ -370,6 +371,7 @@ npm run ios
 - `mobile/node_modules` is still absent on this Windows workspace, so Expo/TypeScript validation belongs on the Mac/Xcode side after `npm install`.
 - Desktop resume on Windows: run `.\start.bat`, confirm Community setup preloads the hosted relay URL, then verify FIDS/radar/admin against the live relay contract.
 - Release resume: run `python build.py --clean` separately on Windows and macOS. Upload `dist/LocalFlight-windows.zip`, `dist/LocalFlight-windows.zip.sha256`, `dist/LocalFlight-macos.zip`, and `dist/LocalFlight-macos.zip.sha256` to GitHub release `v0.2.5b1`.
+- Pi release resume: run `python scripts/package_pi_source.py` and upload `dist/LocalFlight-pi-source-0.2.5b1.zip` plus `dist/LocalFlight-pi-source-0.2.5b1.zip.sha256`.
 - Settings now split install/relay state, flight setup, app controls, and diagnostics/resources into clearer sections; the community relay card now reports active relay usage truthfully, and the docs buttons open bundled local files through `/docs/readme`, `/docs/privacy`, and `/docs/changelog`.
 - macOS packaging is confirmed on this workspace: `python build.py --clean` produced `dist/LocalFlight.app`, `dist/LocalFlight-macos.zip`, and `dist/LocalFlight-macos.zip.sha256`, and the packaged app includes bundled README/privacy/changelog files plus the local doc viewer template.
 - Mobile resume on Mac/Xcode: from `mobile/`, run `npm install`, `npx expo install --fix`, `npm run doctor`, then `npm run ios`. Expo Go may reject SDK 55 depending on installed Expo Go; simulator/dev build is the safer path.
@@ -386,6 +388,7 @@ npm run ios
 - ✅ README / privacy / mobile docs updated to match the current community / BYOK / VATSIM setup and hosted relay story.
 - ✅ Settings IA cleaned up: install/relay state is separated from app controls and diagnostics/resources, community relay wording is now accurate, and README/privacy/changelog open inside the app instead of dead external placeholders.
 - ✅ PyInstaller/macOS build now bundles the local docs into the app and uses a more reliable `.icns` generation path; `dist/LocalFlight-macos.zip` and `.sha256` were rebuilt successfully on this workspace.
+- ✅ `DEV_README.md` now includes a quick "where to find what" map for relay URLs, network admin entrypoints, bundled docs routes, version sweep files, and release artifact commands; Pi source releases now use `python scripts/package_pi_source.py`.
 
 ## What was done in session v0.2.3b2
 
@@ -443,7 +446,8 @@ npm run ios
 
 ## Pending / next up
 
-- [ ] Create GitHub release `v0.2.5b1` and attach Windows/macOS artifacts plus both `.sha256` files.
+- [ ] Create GitHub release `v0.2.5b1` and attach Windows/macOS/Pi artifacts plus all matching `.sha256` files.
+- [ ] Attach the Pi source bundle too: `LocalFlight-pi-source-0.2.5b1.zip` and `.sha256`.
 - [ ] Register custom domain and wire `relay.localflight.app` + `network.localflight.app` DNS → `localflight-community-relay.fly.dev`; run `fly certs add` for both.
 - [ ] End-to-end community client activation test against live relay.
 - [ ] Mobile — `npm install` + `npx expo install --fix` on Mac; test in iOS simulator/dev build
@@ -477,3 +481,4 @@ npm run ios
 - Jinja2 templates use `{% from "_nav.html" import topnav %}` for consistent nav
 - Nav active state passed as `active="pagename"` string parameter
 - `app_version` available in all templates as a Jinja2 global (injected in `server.py`)
+- Separation-of-power rule: keep internal/operator references out of public docs and UI copy. Public-facing surfaces such as `README.md`, `PRIVACY.md`, `CHANGELOG.md`, release text, and user-visible templates should not mention `DEV_README.md`, `AGENTS.md`, relay admin hostnames, or other operator-only paths unless there is a real end-user need.

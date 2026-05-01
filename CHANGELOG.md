@@ -12,6 +12,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Pi installer (`installers/pi/install.sh`) fully rewritten: headless by default, optional `--kiosk` flag for Chromium kiosk, clean progress output (`ok`/`step`/`fail` helpers), all apt output suppressed, stale kiosk service removed on headless re-runs.
 - `lf` management command installed to `/usr/local/bin/lf` during Pi setup - `lf start`, `lf stop`, `lf restart`, `lf status`, `lf logs`, `lf update` work from any directory.
 - `lf.sh` rewritten: `has_kiosk()` guard makes all kiosk operations conditional on whether the kiosk service is installed; kiosk operations never run in headless mode.
+- `scripts/package_pi_source.py` builds the versioned Pi source release bundle plus SHA256 so the Pi installer is reproducible from one documented command.
 - `GET /api/matrix/config` and `POST /api/matrix/config` - LED matrix config (brightness, max rows, refresh interval, default view) stored server-side at `~/.localflight/matrix_config.json`; board picks up changes without reflashing.
 - `POST /api/matrix/script` - generates a complete, ready-to-flash Interstate 75 W `main.py` from the canonical board client template, with LAN-host validation for the board download path.
 - Matrix preview **Save Config** button: stores brightness, rows, refresh interval, and default view to the server so the board picks them up automatically.
@@ -28,6 +29,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Version metadata, mobile companion metadata, runtime fallbacks, and preview badges are now aligned to `0.2.5b1`.
 - Community relay defaults are now centralized on the live Fly.io endpoint so app code, setup, installers, and docs stop drifting.
 - Settings now separate install/relay status, flight setup, app controls, and diagnostics/resources more clearly, and community mode now truthfully reports when the hosted relay is active.
+- README now documents the Pi source release bundle and the local docs viewer routes.
 
 ### Fixed
 - `.env.example` relay URL corrected from the unregistered `relay.localflight.app` to the live endpoint `https://localflight-community-relay.fly.dev/v1/flights`.
