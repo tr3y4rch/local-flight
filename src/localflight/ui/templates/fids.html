@@ -529,6 +529,50 @@
 {% block extra_script %}
 <script>
 const FIDS_VIEW = "{{ view }}";
+const WEB_ROW_LIMIT = {{ cfg.web_row_limit }};
+const WEB_ROTATION_SECONDS = {{ cfg.web_rotation_seconds }};
+const DISPLAY_GRACE_MINUTES = {{ cfg.display_grace_minutes }};
+const DISPLAY_HORIZON_HOURS = {{ cfg.display_horizon_hours }};
+let latestRows = [];
+let latestPageIndex = 0;
+let rotationTimer = null;
+
+function chunkRows(rows, pageSize) {
+  const pages = [];
+  for (let i = 0; i < rows.length; i += pageSize) {
+    pages.push(rows.slice(i, i + pageSize));
+  }
+  return pages.length ? pages : [[]];
+}
+
+function renderActiveRows() {
+  const tbody = document.getElementById("fidsBody");
+  if (!tbody) return;
+  const pages = chunkRows(latestRows, WEB_ROW_LIMIT);
+  const page = pages[Math.min(latestPageIndex, pages.length - 1)] || [];
+  tbody.innerHTML = renderRows(page);
+  const upd = document.getElementById("lastUpdated");
+  if (upd) {
+    const base = new Date().toUTCString().slice(17,25) + " UTC";
+    upd.textContent = pages.length > 1 ? `${base} · page ${latestPageIndex + 1}/${pages.length}` : base;
+  }
+}
+
+function scheduleRotation() {
+  if (rotationTimer) {
+    clearTimeout(rotationTimer);
+    rotationTimer = null;
+  }
+  const pages = chunkRows(latestRows, WEB_ROW_LIMIT);
+  if (pages.length <= 1 || WEB_ROTATION_SECONDS <= 0) {
+    return;
+  }
+  rotationTimer = setTimeout(() => {
+    latestPageIndex = (latestPageIndex + 1) % pages.length;
+    renderActiveRows();
+    scheduleRotation();
+  }, WEB_ROTATION_SECONDS * 1000);
+}
 
 /* ── Render helpers ──────────────────────────────────────────────────────── */
 function renderTime(s) {
@@ -555,7 +599,7 @@ function renderRows(rows) {
         <span class="fids-empty-icon">✈</span>
         <div>
           <div class="fids-empty-title">No flights in window</div>
-          <div class="fids-empty-sub">±30 min grace · 12 h horizon</div>
+          <div class="fids-empty-sub">±${DISPLAY_GRACE_MINUTES} min grace · ${DISPLAY_HORIZON_HOURS} h horizon</div>
         </div>
       </div></td></tr>`;
   }
@@ -612,14 +656,13 @@ async function checkSchedulerHealth() {
 /* ── FIDS refresh ────────────────────────────────────────────────────────── */
 async function refreshFIDS() {
   try {
-    const r = await fetch(`/api/fids?view=${FIDS_VIEW}&limit=20`);
+    const fetchLimit = Math.min(WEB_ROW_LIMIT * 4, 100);
+    const r = await fetch(`/api/fids?view=${FIDS_VIEW}&limit=${fetchLimit}`);
     if (!r.ok) return;
-    const rows = await r.json();
-    const tbody = document.getElementById("fidsBody");
-    if (!tbody) return;
-    tbody.innerHTML = renderRows(rows);
-    const upd = document.getElementById("lastUpdated");
-    if (upd) upd.textContent = new Date().toUTCString().slice(17,25) + " UTC";
+    latestRows = await r.json();
+    latestPageIndex = 0;
+    renderActiveRows();
+    scheduleRotation();
     checkSchedulerHealth();
   } catch (e) { console.warn("FIDS refresh failed:", e); }
 }

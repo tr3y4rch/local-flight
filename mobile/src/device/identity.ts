@@ -2,7 +2,20 @@ import { Dimensions, Platform } from "react-native";
 
 import { loadCompanionId } from "../storage/settings";
 
-const COMPANION_APP_VERSION = "0.2.5b1";
+const APP_CONFIG = require("../../app.json") as {
+  expo?: {
+    version?: string;
+    extra?: {
+      localFlightVersion?: string;
+    };
+  };
+};
+
+const COMPANION_APP_VERSION = String(
+  APP_CONFIG?.expo?.extra?.localFlightVersion ||
+  APP_CONFIG?.expo?.version ||
+  "0.2.5b3"
+);
 
 export type CompanionIdentity = {
   companionId: string;

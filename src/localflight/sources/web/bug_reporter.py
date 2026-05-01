@@ -54,6 +54,120 @@ def _redact_sensitive(text: str) -> str:
     return redacted
 
 
+def _schedule_mode_context(source: str) -> dict[str, Any]:
+    source_name = str(source or "real").strip().lower() or "real"
+    details: dict[str, Any] = {
+        "mode_label": "unknown",
+        "transport": "unknown",
+        "shared_snapshot": False,
+        "relay_url": "",
+    }
+    if source_name == "virtual":
+        details.update(
+            {
+                "mode_label": "virtual",
+                "transport": "none",
+                "shared_snapshot": False,
+            }
+        )
+        return details
+
+    try:
+        from localflight.sources.web.aviationstack_client import (
+            _get_relay_url,
+            _has_activation_token,
+            _has_community_api_key,
+            _has_enabled_byok_key,
+            _relay_uses_shared_schedule,
+        )
+
+        shared_snapshot = bool(_relay_uses_shared_schedule(source_name))
+        relay_url = _get_relay_url()
+
+        if _has_enabled_byok_key():
+            details.update({"mode_label": "byok", "transport": "direct"})
+        elif _has_activation_token():
+            details.update(
+                {
+                    "mode_label": "managed relay",
+                    "transport": "relay",
+                    "shared_snapshot": shared_snapshot,
+                    "relay_url": relay_url,
+                }
+            )
+        elif _has_community_api_key():
+            details.update({"mode_label": "community direct key", "transport": "direct"})
+        else:
+            details.update(
+                {
+                    "mode_label": "community relay",
+                    "transport": "relay",
+                    "shared_snapshot": shared_snapshot,
+                    "relay_url": relay_url,
+                }
+            )
+        if details["transport"] == "relay" and details["shared_snapshot"]:
+            details["mode_label"] = f"{details['mode_label']} (shared snapshot)"
+    except Exception:
+        pass
+    return details
+
+
+def _system_context(client_context: str = "") -> str:
+    try:
+        from localflight.storage.config import load_config
+        cfg = load_config()
+        airport = cfg.airport_iata or "?"
+        source  = cfg.source or "?"
+        timezone_name = getattr(cfg, "timezone", "") or "?"
+        diagnostics_mode = cfg.diagnostics_mode or "unset"
+        display_grace_minutes = str(getattr(cfg, "display_grace_minutes", "?"))
+        display_horizon_hours = str(getattr(cfg, "display_horizon_hours", "?"))
+        web_row_limit = str(getattr(cfg, "web_row_limit", "?"))
+        web_rotation_seconds = str(getattr(cfg, "web_rotation_seconds", "?"))
+    except Exception:
+        airport = "?"
+        source  = "?"
+        timezone_name = "?"
+        diagnostics_mode = "unset"
+        display_grace_minutes = "?"
+        display_horizon_hours = "?"
+        web_row_limit = "?"
+        web_rotation_seconds = "?"
+
+    try:
+        from localflight.storage.install import get_install_fingerprint
+        install_id = get_install_fingerprint()
+    except Exception:
+        install_id = "unknown"
+
+    schedule_context = _schedule_mode_context(source)
+
+    text = (
+        f"- **Version:** {_app_version()}\n"
+        f"- **Install fingerprint:** `{install_id}`\n"
+        f"- **OS:** {platform.platform()}\n"
+        f"- **Arch:** {platform.machine()}\n"
+        f"- **Python:** {sys.version.split()[0]}\n"
+        f"- **Airport:** {airport}\n"
+        f"- **Timezone:** {timezone_name}\n"
+        f"- **Source:** {source}\n"
+        f"- **Schedule mode:** {schedule_context['mode_label']}\n"
+        f"- **Transport:** {schedule_context['transport']}\n"
+        f"- **Shared snapshot path:** {'yes' if schedule_context['shared_snapshot'] else 'no'}\n"
+        f"- **Display window:** -{display_grace_minutes}m / +{display_horizon_hours}h\n"
+        f"- **Web board:** {web_row_limit} rows, rotate {web_rotation_seconds}s\n"
+        f"- **Diagnostics mode:** {diagnostics_mode}\n"
+    )
+    relay_url = str(schedule_context.get("relay_url") or "").strip()
+    if relay_url:
+        text += f"- **Relay URL:** {relay_url}\n"
+    if client_context.strip():
+        text += "\n**Reporter environment**\n"
+        text += _redact_sensitive(client_context.strip())[:1600] + "\n"
+    return text
+
+
 def _auto_diagnostics_mode() -> str:
     try:
         from localflight.storage.config import load_config
@@ -94,10 +208,13 @@ def _system_metadata() -> Dict[str, str]:
         airport = cfg.airport_iata or "?"
         source = cfg.source or "?"
         diagnostics_mode = cfg.diagnostics_mode or "unset"
+        schedule_context = _schedule_mode_context(source)
+        api_mode = str(schedule_context.get("mode_label") or _api_mode())
     except Exception:
         airport = "?"
         source = "?"
         diagnostics_mode = "unset"
+        api_mode = "unknown"
 
     install = _install_metadata()
     return {
@@ -109,7 +226,7 @@ def _system_metadata() -> Dict[str, str]:
         "python_version": sys.version.split()[0],
         "airport": airport,
         "source": source,
-        "api_mode": _api_mode(),
+        "api_mode": api_mode,
         "diagnostics_mode": diagnostics_mode,
     }
 
@@ -171,6 +288,7 @@ def _build_payload(
     client_context: str = "",
 ) -> Dict[str, Any]:
     metadata = _system_metadata()
+    report_context = _system_context(client_context)
     return {
         "report_type": report_type,
         "origin": origin,
@@ -182,7 +300,7 @@ def _build_payload(
         "message": _redact_sensitive(message)[:500],
         "traceback": _redact_sensitive(traceback_str)[-5000:],
         "context": _redact_sensitive(context)[:120],
-        "client_context": _redact_sensitive(client_context)[:2000],
+        "client_context": _redact_sensitive(report_context)[:2000],
         "app_version": metadata["app_version"],
         "platform": metadata["platform"],
         "os": metadata["os"],
@@ -226,8 +344,9 @@ def _save_crash_dedup(data: dict) -> None:
         pass
 
 
-def _crash_fingerprint(msg: str) -> str:
-    return hashlib.sha1(msg[:120].encode()).hexdigest()[:12]
+def _crash_fingerprint(msg: str, context: str = "") -> str:
+    fingerprint_basis = f"{str(context or '').strip().lower()}|{msg[:120]}"
+    return hashlib.sha1(fingerprint_basis.encode()).hexdigest()[:12]
 
 
 def _already_crash_filed(fp: str) -> bool:
@@ -271,14 +390,14 @@ def submit_crash(
 ) -> dict:
     """
     Auto-file a crash/error report through the hosted relay.
-    Deduped per 6h by error fingerprint. Never raises.
+    Deduped per 6h by crash context plus error fingerprint. Never raises.
     """
     try:
         diagnostics_mode = _auto_diagnostics_mode()
         if diagnostics_mode in {"unset", "manual"}:
             return {"ok": False, "error": "automatic diagnostics disabled"}
 
-        fp = _crash_fingerprint(error_msg)
+        fp = _crash_fingerprint(error_msg, context=context)
         if _already_crash_filed(fp):
             return {"ok": False, "error": "duplicate (deduped)"}
 

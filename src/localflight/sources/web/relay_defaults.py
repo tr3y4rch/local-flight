@@ -27,3 +27,7 @@ def relay_endpoint_url(relay_url: str, suffix: str) -> str:
 
 def relay_radar_url(relay_url: str) -> str:
     return relay_endpoint_url(relay_url, "/v1/radar")
+
+
+def relay_schedule_url(relay_url: str) -> str:
+    return relay_endpoint_url(relay_url, "/v1/schedule")

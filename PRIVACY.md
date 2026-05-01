@@ -38,7 +38,7 @@ When you send a report yourself, Local Flight sends:
 - operating system
 - Python version
 - configured airport and source mode
-- API mode and diagnostics mode
+- schedule mode, diagnostics mode, and display window settings
 - optional mobile companion context if the report came from the companion flow
 
 ### Automatic crash reports
@@ -51,7 +51,7 @@ An automatic crash report contains:
 - operating system
 - Python version
 - configured airport and source mode
-- API mode and diagnostics mode
+- schedule mode, diagnostics mode, and display window settings
 - crash context
 - traceback, when available
 
@@ -64,7 +64,7 @@ Automatic diagnostics do **not** contain:
 - stored flight history
 - Local Flight account data, because there are no Local Flight accounts
 
-Crash reports are deduplicated locally and again by the hosted relay so the same install does not file the same crash repeatedly within a short window. Manual reports with the same title/body are also briefly deduplicated to avoid accidental spam.
+Crash reports are deduplicated locally and again by the hosted relay so the same install does not file the same crash repeatedly within a short window. The deduplication key includes the crash context as well as the error message so unrelated subsystems do not collapse into one report. Manual reports with the same title/body are also briefly deduplicated to avoid accidental spam.
 
 ---
 
@@ -79,14 +79,23 @@ The relay stores only the minimum metadata needed to run that shared service saf
 - last-seen timestamps
 - token prefixes for relay-linked installs
 - anonymous network tags derived from the incoming network path for abuse protection
+- short-lived install interest rows so the relay knows which airport/window an install is currently watching
+- short-lived shared schedule snapshots keyed by airport and display window, containing canonical schedule records plus cache metadata
 
 The relay does **not** store:
 - raw IP addresses
-- airport IATA or ICAO values in new relay activity records
+- personal API keys from your install
 - readable personal identifiers
 - flight history snapshots from your local app
 
 Those anonymous network tags are one-way derived values. They help rate-limit obvious abuse without turning the relay into a user-tracking system.
+
+The important nuance is this:
+- airport identifiers are no longer stored in new generic relay activity log rows
+- but the relay does temporarily store the currently watched airport/window in its internal shared-cache tables, because that is how shared snapshot fan-out works
+- to build a usable board, the relay may also perform additional internal paginated or undated upstream schedule requests when a provider date slice comes back sparse; clients still receive only Local Flight canonical records, not reusable raw provider payloads
+
+Those shared snapshots are an internal service cache, not a public export or account profile.
 
 If you use **Bring your own keys**, the client talks directly to the upstream providers and the hosted community relay is not part of that schedule path.
 
@@ -98,7 +107,7 @@ When Local Flight fetches data, it communicates with:
 
 | Service | What is sent | Their privacy policy |
 |---|---|---|
-| AviationStack | API key + airport IATA code + date range | [aviationstack.com/privacy](https://aviationstack.com/privacy-policy) |
+| AviationStack | BYOK/direct path: API key + airport IATA code + date/window request details. Relay-backed path: the hosted relay makes that upstream request with its own provider key, shared cache, and sparse-board rescue logic when needed. | [aviationstack.com/privacy](https://aviationstack.com/privacy-policy) |
 | ADS-B Exchange via RapidAPI | API key + radar search coordinates | [rapidapi.com/privacy](https://rapidapi.com/privacy/) |
 | OpenSky Network | Radar search coordinates | [opensky-network.org/about/privacy](https://opensky-network.org/about/privacy) |
 | VATSIM | Airport IATA code | [vatsim.net/privacy-policy](https://vatsim.net/privacy-policy) |
@@ -137,4 +146,4 @@ The closest thing to remote processing is the hosted community relay and install
 | Local traffic log | Your machine | You |
 | Flight history | Your machine | You |
 | Manual reports and automatic diagnostics | Hosted relay reporting gateway, then developer issue inbox on Linear | Developer |
-| Community relay usage metadata | Relay server | Relay operator |
+| Community relay usage metadata and short-lived shared schedule cache | Relay server | Relay operator |

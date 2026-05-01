@@ -187,6 +187,9 @@
       <div class="mini-cell"><b>Managed token</b><span id="clientToken">Loading...</span></div>
       <div class="mini-cell"><b>Relay URL</b><span id="clientRelayUrl" class="mono">Loading...</span></div>
       <div class="mini-cell"><b>Access path</b><span id="clientAccessStatus">Loading...</span></div>
+      <div class="mini-cell"><b>Schedule window</b><span id="clientFetchWindow">Loading...</span></div>
+      <div class="mini-cell"><b>Access summary</b><span id="clientBurnRate">Loading...</span></div>
+      <div class="mini-cell"><b>Data note</b><span id="clientCadenceNote">Loading...</span></div>
     </div>
   </section>
 
@@ -258,6 +261,26 @@
             <option value="{{ val }}" {% if cfg.refresh_seconds == val %}selected{% endif %}>{{ label }}</option>
           {% endfor %}
         </select>
+      </label>
+
+      <label>
+        <span>Board grace window</span>
+        <select name="display_grace_minutes">
+          {% for val, label in [(0, "Hide immediately"), (15, "15 minutes"), (30, "30 minutes"), (60, "60 minutes"), (90, "90 minutes")] %}
+            <option value="{{ val }}" {% if cfg.display_grace_minutes == val %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+        <small>How long departed or arrived flights remain visible before dropping off the board.</small>
+      </label>
+
+      <label>
+        <span>Board horizon</span>
+        <select name="display_horizon_hours">
+          {% for val in [6, 12, 18, 24] %}
+            <option value="{{ val }}" {% if cfg.display_horizon_hours == val %}selected{% endif %}>{{ val }} hours</option>
+          {% endfor %}
+        </select>
+        <small>How far ahead upcoming flights stay eligible for FIDS and matrix display.</small>
       </label>
     </section>
 
@@ -332,6 +355,25 @@
       <label>
         <span>Display name</span>
         <input name="display_name" value="{{ cfg.display_name }}" maxlength="40" />
+      </label>
+
+      <label>
+        <span>Web board rows</span>
+        <select name="web_row_limit">
+          {% for val in [10, 12, 16, 20, 24, 28, 32] %}
+            <option value="{{ val }}" {% if cfg.web_row_limit == val %}selected{% endif %}>{{ val }} visible rows</option>
+          {% endfor %}
+        </select>
+      </label>
+
+      <label>
+        <span>Web page rotation</span>
+        <select name="web_rotation_seconds">
+          {% for val in [4, 6, 8, 10, 12, 15] %}
+            <option value="{{ val }}" {% if cfg.web_rotation_seconds == val %}selected{% endif %}>Every {{ val }} seconds</option>
+          {% endfor %}
+        </select>
+        <small>When more rows exist than the visible board cap, rotate board pages instead of scrolling.</small>
       </label>
     </section>
 
@@ -465,7 +507,11 @@ function selectSkin(sk, fg) {
     const r = await fetch("/api/admin/system");
     const data = await r.json();
     const client = data.client || {};
+    const estimate = client.cost_estimate || {};
+    const shared = client.shared_snapshot || {};
+    const sharedStats = shared.shared_stats || {};
     const mode = client.mode || "unknown";
+    const sharedMode = mode === "managed" || (mode === "community" && !client.community_key_present);
     const modeLabel = {
       community: "Community relay",
       managed: "Managed token",
@@ -488,6 +534,36 @@ function selectSkin(sk, fg) {
     setText("clientToken", client.activation_token_present ? (client.activation_token_prefix || "Present") : "Not set");
     setText("clientRelayUrl", client.relay_url || (mode === "byok" || mode === "virtual" ? "Not used" : "Default relay"));
     setText("clientAccessStatus", accessLabel);
+    setText(
+      "clientFetchWindow",
+      mode === "virtual"
+        ? "VATSIM live only"
+        : `${estimate.dates_touched || 0} date${(estimate.dates_touched || 0) === 1 ? "" : "s"} · ${estimate.page_size || 100}/page`
+    );
+    setText(
+      "clientBurnRate",
+      mode === "virtual"
+        ? "No schedule calls"
+        : `~${estimate.estimated_calls_per_refresh || 0} per refresh · ~${estimate.estimated_calls_per_month || 0}/30d`
+    );
+    setText(
+      "clientCadenceNote",
+      estimate.cadence_warning || (mode === "virtual" ? "Not applicable" : `Recent avg ${estimate.recent_avg_pages_per_direction || 0} pages/direction`)
+    );
+    if (sharedMode) {
+      setText(
+        "clientBurnRate",
+        sharedStats.client_accesses != null
+          ? `${sharedStats.client_accesses || 0} relay accesses · ${sharedStats.upstream_pulls || 0} upstream pulls`
+          : "Waiting for first shared relay snapshot"
+      );
+      setText(
+        "clientCadenceNote",
+        sharedStats.client_accesses != null
+          ? `${shared.cache_state || "fresh"} snapshot · ${sharedStats.cache_hit_rate_pct || 0}% hit rate · ~${sharedStats.estimated_savings || 0} refreshes shared`
+          : "Relay-backed mode shares upstream fetches by airport/window"
+      );
+    }
   } catch {
     setText("clientInstallId", "Unavailable");
     setText("clientMode", "Unavailable");
@@ -495,6 +571,9 @@ function selectSkin(sk, fg) {
     setText("clientToken", "Unavailable");
     setText("clientRelayUrl", "Unavailable");
     setText("clientAccessStatus", "Unavailable");
+    setText("clientFetchWindow", "Unavailable");
+    setText("clientBurnRate", "Unavailable");
+    setText("clientCadenceNote", "Unavailable");
   }
 })();
 

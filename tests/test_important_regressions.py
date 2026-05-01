@@ -16,6 +16,7 @@ import localflight.sources.web.bug_reporter as bug_reporter
 import localflight.sources.web.relay_defaults as relay_defaults
 import localflight.storage.config as storage_config
 import localflight.storage.flights_store as flights_store
+import localflight.storage.install as storage_install
 import localflight.ui.api as ui_api
 import localflight.ui.server as ui_server
 import relay.main as relay_main
@@ -93,6 +94,7 @@ def test_load_latest_snapshot_path_reads_legacy_snapshots_during_migration(
 def test_run_snapshot_job_prunes_snapshots_in_all_entrypoints(monkeypatch) -> None:
     prune_calls: list[tuple[str, int]] = []
 
+    monkeypatch.setattr(jobs, "_fetch_is_due", lambda cfg: (True, "forced by test"))
     monkeypatch.setattr(jobs, "_fetch_real", lambda cfg: [_flight()])
     monkeypatch.setattr(jobs, "save_snapshot", lambda *args, **kwargs: Path("snapshot.json"))
     monkeypatch.setattr(jobs, "prune_snapshots", lambda airport_iata, keep_hours=24: prune_calls.append((airport_iata, keep_hours)) or 0)
@@ -160,6 +162,26 @@ def test_aviationstack_usage_stats_report_separate_buckets(monkeypatch) -> None:
                 "limit": 50,
                 "period_days": 30,
             },
+            "relay_snapshot": {
+                "generated_at": "2026-04-15T12:00:00+00:00",
+                "cache_state": "fresh",
+                "provider": "aviationstack",
+                "airport_iata": "ZRH",
+                "timezone": "Europe/Zurich",
+                "display_grace_minutes": 30,
+                "display_horizon_hours": 12,
+                "meta": {
+                    "shared_stats": {
+                        "client_accesses": 12,
+                        "upstream_pulls": 4,
+                        "refresh_count": 1,
+                        "cache_hits": 11,
+                        "stale_serves": 0,
+                        "cache_hit_rate_pct": 91.7,
+                        "estimated_savings": 11,
+                    }
+                },
+            },
             "aviationstack": {"2026-04": 34},
         },
     )
@@ -173,11 +195,24 @@ def test_aviationstack_usage_stats_report_separate_buckets(monkeypatch) -> None:
     monkeypatch.setattr(aviationstack_client, "_has_community_api_key", lambda: False)
     monkeypatch.setattr(aviationstack_client, "_get_activation_token", lambda: "")
     monkeypatch.setattr(aviationstack_client, "_is_enabled", lambda: False)
+    monkeypatch.setattr(
+        storage_config,
+        "load_config",
+        lambda: AppConfig(
+            airport_iata="ZRH",
+            airport_icao="LSZH",
+            timezone="Europe/Zurich",
+            display_grace_minutes=30,
+            display_horizon_hours=12,
+        ),
+    )
 
     community_stats = aviationstack_client.get_usage_stats("real")
     assert community_stats["active_mode"] == "community"
+    assert community_stats["shared_relay"] is True
     assert community_stats["community"]["calls_this_month"] == 12
     assert community_stats["community"]["monthly_limit"] == 50
+    assert community_stats["shared_snapshot"]["shared_stats"]["upstream_pulls"] == 4
     assert community_stats["byok"]["calls_this_month"] == 34
     assert community_stats["byok"]["monthly_limit"] == 90
     assert community_stats["byok"]["ui_monthly_max"] == 100
@@ -447,7 +482,7 @@ def test_mobile_companion_checkin_is_exposed_in_connections(monkeypatch, tmp_pat
         json={
             "companion_id": "lfc_test_mobile_001",
             "client_name": "Local Flight Companion",
-            "app_version": "0.2.5b1",
+            "app_version": "0.2.5b3",
             "mobile_os": "iOS 18.5 (phone)",
             "device_type": "phone",
         },
@@ -651,6 +686,7 @@ def test_matrix_config_endpoint_round_trip(tmp_path: Path, monkeypatch) -> None:
         "max_rows": 4,
         "refresh_seconds": 60,
         "default_view": "departures",
+        "page_rotation_seconds": 10,
         "skin": "technical",
     }
 
@@ -660,6 +696,7 @@ def test_matrix_config_endpoint_round_trip(tmp_path: Path, monkeypatch) -> None:
             "brightness": 0.55,
             "max_rows": 6,
             "refresh_seconds": 90,
+            "page_rotation_seconds": 12,
             "default_view": "arrivals",
         },
     )
@@ -669,12 +706,14 @@ def test_matrix_config_endpoint_round_trip(tmp_path: Path, monkeypatch) -> None:
         "brightness": 0.55,
         "max_rows": 6,
         "refresh_seconds": 90,
+        "page_rotation_seconds": 12,
         "default_view": "arrivals",
     }
     assert json.loads(matrix_config.read_text(encoding="utf-8")) == {
         "brightness": 0.55,
         "max_rows": 6,
         "refresh_seconds": 90,
+        "page_rotation_seconds": 12,
         "default_view": "arrivals",
     }
 
@@ -692,6 +731,7 @@ def test_matrix_script_endpoint_renders_from_canonical_template(tmp_path: Path, 
                 "PANEL_H       = 64",
                 "MAX_ROWS      = 4",
                 "REFRESH_S     = 60",
+                "PAGE_ROTATION_S = 10",
                 "BRIGHTNESS    = 0.80",
                 'DEFAULT_VIEW  = "departures"',
             ]
@@ -712,6 +752,7 @@ def test_matrix_script_endpoint_renders_from_canonical_template(tmp_path: Path, 
             "panel_h": 64,
             "max_rows": 6,
             "refresh_seconds": 120,
+            "page_rotation_seconds": 14,
             "brightness": 0.55,
             "default_view": "arrivals",
         },
@@ -726,6 +767,7 @@ def test_matrix_script_endpoint_renders_from_canonical_template(tmp_path: Path, 
     assert "PANEL_H       = 64" in response.text
     assert "MAX_ROWS      = 6" in response.text
     assert "REFRESH_S     = 120" in response.text
+    assert "PAGE_ROTATION_S = 14" in response.text
     assert "BRIGHTNESS    = 0.55" in response.text
     assert 'DEFAULT_VIEW  = "arrivals"' in response.text
 
@@ -777,7 +819,7 @@ def test_submit_crash_respects_diagnostics_mode_gate(monkeypatch) -> None:
 def test_submit_crash_only_attaches_log_tail_in_auto_logs(monkeypatch) -> None:
     submitted: list[dict] = []
 
-    monkeypatch.setattr(bug_reporter, "_crash_fingerprint", lambda msg: f"fp-{msg}")
+    monkeypatch.setattr(bug_reporter, "_crash_fingerprint", lambda msg, context="": f"fp-{context}-{msg}")
     monkeypatch.setattr(bug_reporter, "_already_crash_filed", lambda fp: False)
     monkeypatch.setattr(bug_reporter, "_mark_crash_filed", lambda fp: None)
     monkeypatch.setattr(
@@ -852,6 +894,48 @@ def test_bug_reporter_forwards_to_relay_without_direct_linear(monkeypatch) -> No
     assert submitted[0]["activation_token"] == "lfm_secret"
     assert "secret" not in submitted[0]["description"]
     assert "api.linear.app/graphql" not in Path(bug_reporter.__file__).read_text(encoding="utf-8")
+
+
+def test_crash_fingerprint_is_scoped_by_context() -> None:
+    assert bug_reporter._crash_fingerprint("Same message", context="desktop") != bug_reporter._crash_fingerprint(
+        "Same message",
+        context="mobile",
+    )
+
+
+def test_system_context_reports_schedule_mode_and_board_window(monkeypatch) -> None:
+    class DummyCfg:
+        airport_iata = "OMDB"
+        source = "real"
+        diagnostics_mode = "auto_logs"
+        timezone = "Asia/Dubai"
+        display_grace_minutes = 45
+        display_horizon_hours = 16
+        web_row_limit = 24
+        web_rotation_seconds = 12
+
+    monkeypatch.setattr(storage_config, "load_config", lambda: DummyCfg())
+    monkeypatch.setattr(
+        bug_reporter,
+        "_schedule_mode_context",
+        lambda source: {
+            "mode_label": "managed relay (shared snapshot)",
+            "transport": "relay",
+            "shared_snapshot": True,
+            "relay_url": "https://relay.example.test/v1/flights",
+        },
+    )
+    monkeypatch.setattr(storage_install, "get_install_fingerprint", lambda: "install-test")
+
+    context = bug_reporter._system_context("Reporter\tmobile")
+
+    assert "- **Schedule mode:** managed relay (shared snapshot)" in context
+    assert "- **Transport:** relay" in context
+    assert "- **Shared snapshot path:** yes" in context
+    assert "- **Display window:** -45m / +16h" in context
+    assert "- **Web board:** 24 rows, rotate 12s" in context
+    assert "- **Relay URL:** https://relay.example.test/v1/flights" in context
+    assert "**Reporter environment**" in context
 
 
 def test_api_config_patch_accepts_diagnostics_mode(tmp_path: Path, monkeypatch) -> None:

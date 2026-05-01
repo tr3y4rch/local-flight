@@ -174,7 +174,7 @@ User=$SERVICE_USER
 Environment="$DISPLAY_ENV"
 Environment="XAUTHORITY=$HOME/.Xauthority"
 ExecStartPre=/bin/sleep 5
-ExecStart=$CHROMIUM_BIN --kiosk --no-sandbox --disable-infobars --disable-session-crashed-bubble --disable-restore-session-state --noerrdialogs --disable-translate --no-first-run --fast --fast-start --disable-features=TranslateUI --disk-cache-dir=/tmp/chromium-cache --user-data-dir=$HOME/.localflight/browser-profile http://localhost:8000/display
+ExecStart=$CHROMIUM_BIN --kiosk --no-sandbox --disable-infobars --disable-session-crashed-bubble --disable-restore-session-state --noerrdialogs --disable-translate --no-first-run --fast --fast-start --disable-features=TranslateUI --disk-cache-dir=/tmp/chromium-cache --user-data-dir=$HOME/.localflight/browser-profile http://localhost:8000/splash?next=%2Fdisplay
 Restart=on-failure
 RestartSec=10
 

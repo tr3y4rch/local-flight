@@ -12,6 +12,10 @@ export type AppConfig = {
   skin: string;
   display_outputs: string[];
   diagnostics_mode?: "unset" | "manual" | "auto" | "auto_logs" | string;
+  web_row_limit?: number;
+  web_rotation_seconds?: number;
+  display_grace_minutes?: number;
+  display_horizon_hours?: number;
 };
 
 export type AppState = {
@@ -40,6 +44,32 @@ export type AdminSystem = {
     community_key_present?: boolean;
     managed_verified?: boolean;
     managed_status?: string;
+    cost_estimate?: {
+      enabled?: boolean;
+      usage_model?: string;
+      dates_touched?: number;
+      page_size?: number;
+      recent_avg_pages_per_direction?: number;
+      estimated_calls_per_refresh?: number;
+      estimated_calls_per_month?: number;
+      refreshes_per_30_days?: number;
+      cadence_warning?: string;
+    };
+    shared_snapshot?: {
+      generated_at?: string;
+      cache_state?: string;
+      provider?: string;
+      meta?: Record<string, unknown>;
+      shared_stats?: {
+        client_accesses?: number;
+        upstream_pulls?: number;
+        refresh_count?: number;
+        cache_hits?: number;
+        stale_serves?: number;
+        cache_hit_rate_pct?: number;
+        estimated_savings?: number;
+      };
+    };
   };
 };
 
@@ -87,12 +117,39 @@ export type Budget = {
     active_mode?: "community" | "managed" | "relay" | "byok" | "virtual" | string;
     relay_url?: string;
     enabled?: boolean;
+    shared_relay?: boolean;
+    shared_snapshot?: {
+      generated_at?: string;
+      cache_state?: string;
+      provider?: string;
+      meta?: Record<string, unknown>;
+      shared_stats?: {
+        client_accesses?: number;
+        upstream_pulls?: number;
+        refresh_count?: number;
+        cache_hits?: number;
+        stale_serves?: number;
+        cache_hit_rate_pct?: number;
+        estimated_savings?: number;
+      };
+    };
     calls_this_month?: number;
     monthly_limit?: number;
     remaining?: number;
     month?: string;
     budget_ok?: boolean;
     error?: string;
+    cost_estimate?: {
+      enabled?: boolean;
+      usage_model?: string;
+      dates_touched?: number;
+      page_size?: number;
+      recent_avg_pages_per_direction?: number;
+      estimated_calls_per_refresh?: number;
+      estimated_calls_per_month?: number;
+      refreshes_per_30_days?: number;
+      cadence_warning?: string;
+    };
     community?: {
       configured?: boolean;
       transport?: "relay" | "local_key" | string;
@@ -103,6 +160,7 @@ export type Budget = {
       remaining?: number;
       month?: string;
       budget_ok?: boolean;
+      shared_snapshot?: Budget["aviationstack"]["shared_snapshot"];
     };
     managed?: {
       configured?: boolean;
@@ -120,6 +178,7 @@ export type Budget = {
       remaining?: number;
       month?: string;
       budget_ok?: boolean;
+      shared_snapshot?: Budget["aviationstack"]["shared_snapshot"];
     };
     byok?: {
       configured?: boolean;

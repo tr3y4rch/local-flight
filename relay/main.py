@@ -3,14 +3,16 @@ from __future__ import annotations
 import hashlib
 import html
 import hmac
+import json
 import os
 import re
 import secrets
 import sqlite3
+import threading
 import time
 import uuid
 from contextlib import asynccontextmanager
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, time as dt_time, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -43,6 +45,13 @@ _REQUEST_STATUS_DISMISSED = "dismissed"
 
 _AUTO_ACTIVATION_NETWORK_DAILY_LIMIT = 6
 _AUTO_ACTIVATION_NETWORK_INSTALLS_DAILY_LIMIT = 4
+_SHARED_SCHEDULE_PROVIDER = "aviationstack"
+_SHARED_SCHEDULE_PLANNER_VERSION = "fair-v3"
+_SHARED_SCHEDULE_SCHEMA_VERSION = "canonical-raw-v1"
+_SHARED_SCHEDULE_LOCK_WAIT_S = 4.0
+
+_schedule_refresh_locks: Dict[str, threading.Lock] = {}
+_schedule_refresh_locks_guard = threading.Lock()
 
 _REPORT_CRASH_DEDUPE_HOURS = 6
 _REPORT_MANUAL_DEDUPE_MINUTES = 30
@@ -119,8 +128,14 @@ def _admin_on_public() -> bool:
     return _env("RELAY_ADMIN_ON_PUBLIC", "").lower() in {"1", "true", "yes"}
 
 
+def _raw_provider_debug_enabled() -> bool:
+    return _env("RELAY_ALLOW_RAW_PROVIDER_DEBUG", "").lower() in {"1", "true", "yes"}
+
+
 def _surface_allows_path(surface: str, path: str) -> bool:
     if surface == "admin":
+        if _raw_provider_debug_enabled() and path == "/v1/flights":
+            return True
         return path in {"/", "/health", "/admin"} or path.startswith("/admin/")
     if surface == "public":
         if _admin_on_public() and (path == "/admin" or path.startswith("/admin/")):
@@ -297,6 +312,31 @@ def _ensure_schema() -> None:
     )
     conn.execute(
         """
+        CREATE TABLE IF NOT EXISTS schedule_snapshots (
+            cache_key               TEXT PRIMARY KEY,
+            airport_iata            TEXT NOT NULL,
+            timezone                TEXT NOT NULL,
+            display_grace_minutes   INTEGER NOT NULL,
+            display_horizon_hours   INTEGER NOT NULL,
+            planner_version         TEXT NOT NULL,
+            schema_version          TEXT NOT NULL,
+            provider                TEXT NOT NULL,
+            generated_at            TEXT NOT NULL,
+            updated_at              TEXT NOT NULL,
+            meta_json               TEXT NOT NULL,
+            records_json            TEXT NOT NULL,
+            client_accesses         INTEGER DEFAULT 0,
+            upstream_pulls          INTEGER DEFAULT 0,
+            refresh_count           INTEGER DEFAULT 0,
+            cache_hits              INTEGER DEFAULT 0,
+            stale_serves            INTEGER DEFAULT 0,
+            last_cache_state        TEXT,
+            last_error              TEXT
+        )
+        """
+    )
+    conn.execute(
+        """
         CREATE TABLE IF NOT EXISTS report_events (
             id                  INTEGER PRIMARY KEY AUTOINCREMENT,
             ts                  TEXT NOT NULL,
@@ -308,6 +348,20 @@ def _ensure_schema() -> None:
             team                TEXT NOT NULL,
             status              TEXT NOT NULL,
             dedupe_key          TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS client_interests (
+            install_id               TEXT PRIMARY KEY,
+            plan                     TEXT NOT NULL,
+            airport_iata             TEXT,
+            timezone                 TEXT,
+            display_grace_minutes    INTEGER,
+            display_horizon_hours    INTEGER,
+            refresh_seconds          INTEGER,
+            last_seen                TEXT NOT NULL
         )
         """
     )
@@ -332,6 +386,8 @@ def _ensure_schema() -> None:
     conn.execute("CREATE INDEX IF NOT EXISTS idx_report_events_install ON report_events (install_fingerprint, report_type, ts)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_report_events_network ON report_events (network_tag, ts)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_report_dedupe_seen ON report_dedupe (last_seen)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_schedule_snapshots_airport ON schedule_snapshots (airport_iata, updated_at DESC)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_client_interests_last_seen ON client_interests (last_seen DESC)")
     conn.commit()
     conn.close()
 
@@ -542,21 +598,22 @@ def _increment_usage(
     service: str,
     month: str,
     plan: str,
-    install_id: str,
+    install_id: Optional[str],
+    n_calls: int = 1,
 ) -> int:
     conn = _connect()
     now = _utc_now()
     conn.execute(
         """
         INSERT INTO usage (subject_key, service, month, calls, last_seen, plan, install_id)
-        VALUES (?, ?, ?, 1, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(subject_key, service, month) DO UPDATE SET
-            calls = calls + 1,
+            calls = calls + excluded.calls,
             last_seen = excluded.last_seen,
             plan = excluded.plan,
             install_id = excluded.install_id
         """,
-        (subject_key, service, month, now, plan, install_id),
+        (subject_key, service, month, max(1, int(n_calls)), now, plan, install_id),
     )
     row = conn.execute(
         "SELECT calls FROM usage WHERE subject_key=? AND service=? AND month=?",
@@ -1136,6 +1193,819 @@ mutation CreateIssue($title: String!, $description: String!, $teamId: String!) {
     errors = data.get("errors")
     detail = errors[0].get("message") if errors and isinstance(errors[0], dict) else "Linear rejected report"
     raise HTTPException(status_code=502, detail=str(detail))
+def _schedule_cache_key(
+    *,
+    airport_iata: str,
+    timezone_name: str,
+    display_grace_minutes: int,
+    display_horizon_hours: int,
+) -> str:
+    payload = "|".join(
+        [
+            airport_iata.upper().strip(),
+            timezone_name.strip(),
+            str(int(display_grace_minutes)),
+            str(int(display_horizon_hours)),
+            _SHARED_SCHEDULE_PLANNER_VERSION,
+            _SHARED_SCHEDULE_SCHEMA_VERSION,
+        ]
+    )
+    return "sch_" + hashlib.sha256(payload.encode("utf-8")).hexdigest()[:24]
+
+
+def _parse_utc_dt(value: Any) -> Optional[datetime]:
+    if not value:
+        return None
+    try:
+        dt = datetime.fromisoformat(str(value))
+    except Exception:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
+def _schedule_ttls(refresh_seconds: int) -> tuple[int, int]:
+    try:
+        refresh = max(60, int(refresh_seconds))
+    except Exception:
+        refresh = 3600
+    fresh_ttl_s = max(180, min(900, refresh // 4))
+    stale_ttl_s = max(fresh_ttl_s * 4, 1800)
+    return fresh_ttl_s, stale_ttl_s
+
+
+def _load_json_blob(raw: Any, default: Any) -> Any:
+    try:
+        data = json.loads(str(raw or ""))
+    except Exception:
+        return default
+    return data if isinstance(data, type(default)) else default
+
+
+def _snapshot_age_seconds(generated_at: str) -> Optional[int]:
+    dt = _parse_utc_dt(generated_at)
+    if not dt:
+        return None
+    return max(0, int((datetime.now(timezone.utc) - dt).total_seconds()))
+
+
+def _snapshot_shared_stats(row: sqlite3.Row) -> Dict[str, Any]:
+    client_accesses = int(row["client_accesses"] or 0)
+    upstream_pulls = int(row["upstream_pulls"] or 0)
+    refresh_count = int(row["refresh_count"] or 0)
+    cache_hits = int(row["cache_hits"] or 0)
+    stale_serves = int(row["stale_serves"] or 0)
+    return {
+        "client_accesses": client_accesses,
+        "upstream_pulls": upstream_pulls,
+        "refresh_count": refresh_count,
+        "cache_hits": cache_hits,
+        "stale_serves": stale_serves,
+        "cache_hit_rate_pct": round((cache_hits / client_accesses) * 100.0, 1) if client_accesses > 0 else 0.0,
+        "estimated_savings": max(0, client_accesses - refresh_count),
+    }
+
+
+def _snapshot_payload_from_row(row: sqlite3.Row, *, cache_state: Optional[str] = None) -> Dict[str, Any]:
+    meta = _load_json_blob(row["meta_json"], {})
+    records = _load_json_blob(row["records_json"], [])
+    meta = dict(meta) if isinstance(meta, dict) else {}
+    records = list(records) if isinstance(records, list) else []
+    meta["planner_version"] = str(row["planner_version"] or _SHARED_SCHEDULE_PLANNER_VERSION)
+    meta["schema_version"] = str(row["schema_version"] or _SHARED_SCHEDULE_SCHEMA_VERSION)
+    meta["shared_stats"] = _snapshot_shared_stats(row)
+    if row["last_error"]:
+        meta["last_error"] = str(row["last_error"])
+    return {
+        "generated_at": str(row["generated_at"] or ""),
+        "cache_state": cache_state or str(row["last_cache_state"] or "fresh"),
+        "provider": str(row["provider"] or _SHARED_SCHEDULE_PROVIDER),
+        "meta": meta,
+        "records": records,
+    }
+
+
+def _snapshot_lifecycle_state(row: Optional[sqlite3.Row], *, refresh_seconds: int) -> str:
+    if row is None:
+        return "miss"
+    age_s = _snapshot_age_seconds(str(row["generated_at"] or ""))
+    if age_s is None:
+        return "miss"
+    fresh_ttl_s, stale_ttl_s = _schedule_ttls(refresh_seconds)
+    if age_s <= fresh_ttl_s:
+        return "fresh"
+    if age_s <= stale_ttl_s:
+        return "stale"
+    return "expired"
+
+
+def _get_schedule_lock(cache_key: str) -> threading.Lock:
+    with _schedule_refresh_locks_guard:
+        lock = _schedule_refresh_locks.get(cache_key)
+        if lock is None:
+            lock = threading.Lock()
+            _schedule_refresh_locks[cache_key] = lock
+        return lock
+
+
+def _load_schedule_snapshot_conn(conn: sqlite3.Connection, cache_key: str) -> Optional[sqlite3.Row]:
+    return conn.execute(
+        "SELECT * FROM schedule_snapshots WHERE cache_key=?",
+        (cache_key,),
+    ).fetchone()
+
+
+def _store_schedule_snapshot(
+    *,
+    cache_key: str,
+    airport_iata: str,
+    timezone_name: str,
+    display_grace_minutes: int,
+    display_horizon_hours: int,
+    payload: Dict[str, Any],
+    pages_fetched: int,
+    last_error: str = "",
+) -> None:
+    conn = _connect()
+    existing = _load_schedule_snapshot_conn(conn, cache_key)
+    shared_stats = _snapshot_shared_stats(existing) if existing is not None else {
+        "client_accesses": 0,
+        "upstream_pulls": 0,
+        "refresh_count": 0,
+        "cache_hits": 0,
+        "stale_serves": 0,
+        "cache_hit_rate_pct": 0.0,
+        "estimated_savings": 0,
+    }
+    meta = dict(payload.get("meta") or {})
+    meta.pop("shared_stats", None)
+    generated_at = str(payload.get("generated_at") or _utc_now())
+    now_iso = _utc_now()
+    conn.execute(
+        """
+        INSERT INTO schedule_snapshots (
+            cache_key, airport_iata, timezone, display_grace_minutes, display_horizon_hours,
+            planner_version, schema_version, provider, generated_at, updated_at,
+            meta_json, records_json, client_accesses, upstream_pulls, refresh_count,
+            cache_hits, stale_serves, last_cache_state, last_error
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(cache_key) DO UPDATE SET
+            airport_iata = excluded.airport_iata,
+            timezone = excluded.timezone,
+            display_grace_minutes = excluded.display_grace_minutes,
+            display_horizon_hours = excluded.display_horizon_hours,
+            planner_version = excluded.planner_version,
+            schema_version = excluded.schema_version,
+            provider = excluded.provider,
+            generated_at = excluded.generated_at,
+            updated_at = excluded.updated_at,
+            meta_json = excluded.meta_json,
+            records_json = excluded.records_json,
+            client_accesses = excluded.client_accesses,
+            upstream_pulls = excluded.upstream_pulls,
+            refresh_count = excluded.refresh_count,
+            cache_hits = excluded.cache_hits,
+            stale_serves = excluded.stale_serves,
+            last_cache_state = excluded.last_cache_state,
+            last_error = excluded.last_error
+        """,
+        (
+            cache_key,
+            airport_iata,
+            timezone_name,
+            int(display_grace_minutes),
+            int(display_horizon_hours),
+            _SHARED_SCHEDULE_PLANNER_VERSION,
+            _SHARED_SCHEDULE_SCHEMA_VERSION,
+            str(payload.get("provider") or _SHARED_SCHEDULE_PROVIDER),
+            generated_at,
+            now_iso,
+            json.dumps(meta, ensure_ascii=False),
+            json.dumps(list(payload.get("records") or []), ensure_ascii=False),
+            int(shared_stats["client_accesses"]),
+            int(shared_stats["upstream_pulls"]) + max(0, int(pages_fetched)),
+            int(shared_stats["refresh_count"]) + 1,
+            int(shared_stats["cache_hits"]),
+            int(shared_stats["stale_serves"]),
+            "fresh",
+            last_error.strip(),
+        ),
+    )
+    conn.commit()
+    conn.close()
+
+
+def _record_schedule_access(
+    *,
+    cache_key: str,
+    cache_state: str,
+    count_cache_hit: bool = False,
+    count_stale: bool = False,
+) -> None:
+    conn = _connect()
+    now_iso = _utc_now()
+    conn.execute(
+        """
+        UPDATE schedule_snapshots
+        SET client_accesses = client_accesses + 1,
+            cache_hits = cache_hits + ?,
+            stale_serves = stale_serves + ?,
+            last_cache_state = ?,
+            updated_at = ?
+        WHERE cache_key=?
+        """,
+        (
+            1 if count_cache_hit else 0,
+            1 if count_stale else 0,
+            cache_state,
+            now_iso,
+            cache_key,
+        ),
+    )
+    conn.commit()
+    conn.close()
+
+
+def _record_client_interest(
+    *,
+    install_id: str,
+    plan: str,
+    airport_iata: str,
+    timezone_name: str,
+    display_grace_minutes: int,
+    display_horizon_hours: int,
+    refresh_seconds: int,
+) -> None:
+    conn = _connect()
+    conn.execute(
+        """
+        INSERT INTO client_interests (
+            install_id, plan, airport_iata, timezone, display_grace_minutes,
+            display_horizon_hours, refresh_seconds, last_seen
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(install_id) DO UPDATE SET
+            plan = excluded.plan,
+            airport_iata = excluded.airport_iata,
+            timezone = excluded.timezone,
+            display_grace_minutes = excluded.display_grace_minutes,
+            display_horizon_hours = excluded.display_horizon_hours,
+            refresh_seconds = excluded.refresh_seconds,
+            last_seen = excluded.last_seen
+        """,
+        (
+            install_id,
+            plan,
+            airport_iata.upper().strip() or None,
+            timezone_name.strip() or None,
+            int(display_grace_minutes),
+            int(display_horizon_hours),
+            int(refresh_seconds),
+            _utc_now(),
+        ),
+    )
+    conn.execute("DELETE FROM client_interests WHERE last_seen < ?", (_hours_ago(24 * 30),))
+    conn.commit()
+    conn.close()
+
+
+def _client_interest_snapshot(conn: sqlite3.Connection, install_id: str) -> Optional[Dict[str, Any]]:
+    interest = conn.execute(
+        """
+        SELECT install_id, plan, airport_iata, timezone, display_grace_minutes,
+               display_horizon_hours, refresh_seconds, last_seen
+        FROM client_interests
+        WHERE install_id=?
+        """,
+        (install_id,),
+    ).fetchone()
+    if not interest:
+        return None
+    airport_iata = str(interest["airport_iata"] or "").strip()
+    timezone_name = str(interest["timezone"] or "").strip()
+    if not airport_iata or not timezone_name:
+        return {
+            "airport_iata": airport_iata,
+            "timezone": timezone_name,
+            "display_grace_minutes": int(interest["display_grace_minutes"] or 0),
+            "display_horizon_hours": int(interest["display_horizon_hours"] or 0),
+            "refresh_seconds": int(interest["refresh_seconds"] or 0),
+            "last_seen": str(interest["last_seen"] or ""),
+        }
+    cache_key = _schedule_cache_key(
+        airport_iata=airport_iata,
+        timezone_name=timezone_name,
+        display_grace_minutes=int(interest["display_grace_minutes"] or 0),
+        display_horizon_hours=int(interest["display_horizon_hours"] or 0),
+    )
+    snapshot_row = _load_schedule_snapshot_conn(conn, cache_key)
+    data = {
+        "airport_iata": airport_iata,
+        "timezone": timezone_name,
+        "display_grace_minutes": int(interest["display_grace_minutes"] or 0),
+        "display_horizon_hours": int(interest["display_horizon_hours"] or 0),
+        "refresh_seconds": int(interest["refresh_seconds"] or 0),
+        "last_seen": str(interest["last_seen"] or ""),
+    }
+    if snapshot_row is not None:
+        snapshot = _snapshot_payload_from_row(snapshot_row)
+        data["schedule_cache"] = {
+            "generated_at": snapshot["generated_at"],
+            "cache_state": snapshot["cache_state"],
+            "provider": snapshot["provider"],
+            "meta": snapshot["meta"],
+        }
+    return data
+
+
+def _parse_provider_utc(value: Any) -> Optional[datetime]:
+    if not value:
+        return None
+    try:
+        dt = datetime.fromisoformat(str(value))
+    except Exception:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
+def _provider_row_best_time(row: Dict[str, Any], mode: str) -> Optional[datetime]:
+    block_name = "departure" if mode == "departures" else "arrival"
+    block = row.get(block_name) if isinstance(row, dict) else None
+    if not isinstance(block, dict):
+        return None
+    for key in ("actual", "estimated", "scheduled"):
+        value = _parse_provider_utc(block.get(key))
+        if value is not None:
+            return value
+    return None
+
+
+def _provider_scope_latest_time(rows: list[Dict[str, Any]], mode: str) -> Optional[datetime]:
+    latest: Optional[datetime] = None
+    for row in rows:
+        candidate = _provider_row_best_time(row, mode)
+        if candidate is not None and (latest is None or candidate > latest):
+            latest = candidate
+    return latest
+
+
+def _shared_schedule_target_end(window: Any, flight_date: Optional[str]) -> Optional[datetime]:
+    if not flight_date:
+        return None
+    try:
+        scope_date = date.fromisoformat(str(flight_date))
+    except Exception:
+        return None
+
+    display_start_date = window.display_start.date()
+    display_end_date = window.display_end.date()
+    if scope_date < display_start_date or scope_date > display_end_date:
+        return None
+
+    tz = window.local_now.tzinfo
+    if scope_date == display_end_date:
+        return window.display_end.astimezone(timezone.utc)
+
+    target_local = datetime.combine(scope_date, dt_time.max, tzinfo=tz)
+    return target_local.astimezone(timezone.utc)
+
+
+def _provider_rows_within_window(
+    rows: list[Dict[str, Any]],
+    mode: str,
+    *,
+    window_start_utc: datetime,
+    window_end_utc: datetime,
+) -> int:
+    count = 0
+    for row in rows:
+        candidate = _provider_row_best_time(row, mode)
+        if candidate is not None and window_start_utc <= candidate <= window_end_utc:
+            count += 1
+    return count
+
+
+def _merge_scope_counts(first: Dict[str, Any], second: Dict[str, Any]) -> Dict[str, Any]:
+    merged: Dict[str, Any] = {}
+    for source in (first, second):
+        for key, value in (source or {}).items():
+            merged[key] = int(merged.get(key, 0) or 0) + int(value or 0)
+    return merged
+
+
+def _merge_schedule_meta(primary: Dict[str, Any], extra: Dict[str, Any]) -> Dict[str, Any]:
+    merged = dict(primary)
+    merged["pages_requested"] = int(primary.get("pages_requested", 0) or 0) + int(
+        extra.get("pages_requested", 0) or 0
+    )
+    merged["pages_fetched"] = int(primary.get("pages_fetched", 0) or 0) + int(
+        extra.get("pages_fetched", 0) or 0
+    )
+    merged["raw_rows"] = int(primary.get("raw_rows", 0) or 0) + int(extra.get("raw_rows", 0) or 0)
+    merged["record_count"] = int(primary.get("record_count", 0) or 0) + int(
+        extra.get("record_count", 0) or 0
+    )
+    merged["adaptive_extra_pages"] = int(primary.get("adaptive_extra_pages", 0) or 0) + int(
+        extra.get("adaptive_extra_pages", 0) or 0
+    )
+    merged["dates_touched"] = sorted(
+        {
+            *list(primary.get("dates_touched") or []),
+            *list(extra.get("dates_touched") or []),
+        }
+    )
+    merged["pages_by_scope"] = _merge_scope_counts(
+        primary.get("pages_by_scope") or {},
+        extra.get("pages_by_scope") or {},
+    )
+    merged["rows_by_scope"] = _merge_scope_counts(
+        primary.get("rows_by_scope") or {},
+        extra.get("rows_by_scope") or {},
+    )
+    return merged
+
+
+def _fetch_shared_schedule_from_upstream(
+    *,
+    airport_iata: str,
+    timezone_name: str,
+    display_grace_minutes: int,
+    display_horizon_hours: int,
+) -> Dict[str, Any]:
+    from localflight.decode.mappings.aviationstack import aviationstack_to_raw_records
+    from localflight.sources.web.aviationstack_plan import (
+        DEFAULT_AUDIT_PAGES_PER_DATE,
+        DEFAULT_FETCH_FUTURE_HOURS,
+        DEFAULT_FETCH_PAST_HOURS,
+        DEFAULT_PAGE_SIZE,
+        DEFAULT_PRODUCTION_PAGES_PER_DATE,
+        build_fetch_plan,
+        build_fetch_window,
+        build_undated_plan,
+    )
+
+    aviationstack_key = _aviationstack_key()
+    generated_at_dt = datetime.now(timezone.utc)
+    generated_at = generated_at_dt.isoformat()
+    window = build_fetch_window(
+        timezone_name=timezone_name,
+        now=generated_at_dt,
+        display_grace_minutes=display_grace_minutes,
+        display_horizon_hours=display_horizon_hours,
+        fetch_past_hours=DEFAULT_FETCH_PAST_HOURS,
+        fetch_future_hours=DEFAULT_FETCH_FUTURE_HOURS,
+    )
+    planner_inputs = {
+        "airport_iata": airport_iata,
+        "timezone_name": timezone_name,
+        "display_grace_minutes": display_grace_minutes,
+        "display_horizon_hours": display_horizon_hours,
+        "fetch_past_hours": DEFAULT_FETCH_PAST_HOURS,
+        "fetch_future_hours": DEFAULT_FETCH_FUTURE_HOURS,
+        "page_size": DEFAULT_PAGE_SIZE,
+        "pages_per_date": DEFAULT_PRODUCTION_PAGES_PER_DATE,
+    }
+    requests_plan = build_fetch_plan(mode="departures", **planner_inputs) + build_fetch_plan(
+        mode="arrivals",
+        **planner_inputs,
+    )
+    adaptive_targets = {
+        req.scope_key: target
+        for req in requests_plan
+        if (target := _shared_schedule_target_end(window, req.flight_date)) is not None
+    }
+
+    records: list[Dict[str, Any]] = []
+    raw_rows_by_scope: dict[tuple[str, str], list[Dict[str, Any]]] = {}
+    pages_by_scope: dict[tuple[str, str], int] = {}
+    rows_by_scope: dict[tuple[str, str], int] = {}
+    last_page_sizes: dict[tuple[str, str], int] = {}
+    skip_scopes: set[tuple[str, str]] = set()
+    scope_templates: dict[tuple[str, str], Any] = {}
+    touched_dates: set[str] = set()
+    pages_fetched = 0
+    raw_rows = 0
+    adaptive_extra_pages = 0
+
+    for req in requests_plan:
+        scope_templates.setdefault(req.scope_key, req)
+        if req.scope_key in skip_scopes:
+            continue
+
+        params: Dict[str, Any] = {"access_key": aviationstack_key, "limit": req.limit}
+        if req.flight_date:
+            params["flight_date"] = req.flight_date
+            touched_dates.add(req.flight_date)
+        if req.offset > 0:
+            params["offset"] = req.offset
+        if req.dep_iata:
+            params["dep_iata"] = req.dep_iata
+        if req.arr_iata:
+            params["arr_iata"] = req.arr_iata
+
+        try:
+            response = _req.get(
+                AVIATIONSTACK_URL,
+                params=params,
+                headers={"User-Agent": "localflight-relay/1.0"},
+                timeout=25,
+            )
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail=f"AviationStack unreachable: {exc}")
+
+        if response.status_code >= 400:
+            try:
+                payload = response.json()
+                detail = payload.get("error") if isinstance(payload, dict) else None
+                info = detail.get("info") if isinstance(detail, dict) else ""
+            except Exception:
+                info = ""
+            suffix = f": {info}" if info else ""
+            raise HTTPException(status_code=502, detail=f"AviationStack upstream HTTP {response.status_code}{suffix}")
+
+        try:
+            payload = response.json()
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail=f"AviationStack returned invalid JSON: {exc}")
+
+        if not isinstance(payload, dict):
+            raise HTTPException(status_code=502, detail="AviationStack response shape invalid")
+        page_rows = payload.get("data")
+        if not isinstance(page_rows, list):
+            raise HTTPException(status_code=502, detail="AviationStack response missing data rows")
+
+        pages_fetched += 1
+        raw_rows += len(page_rows)
+        raw_rows_by_scope.setdefault(req.scope_key, []).extend(page_rows)
+        pages_by_scope[req.scope_key] = pages_by_scope.get(req.scope_key, 0) + 1
+        rows_by_scope[req.scope_key] = rows_by_scope.get(req.scope_key, 0) + len(page_rows)
+        last_page_sizes[req.scope_key] = len(page_rows)
+        records.extend(
+            aviationstack_to_raw_records(
+                {"data": page_rows},
+                airport_iata=airport_iata,
+                mode="dep" if req.mode == "departures" else "arr",
+            )
+        )
+        if len(page_rows) < req.limit:
+            skip_scopes.add(req.scope_key)
+
+    for scope_key, target_end in adaptive_targets.items():
+        if scope_key in skip_scopes:
+            continue
+        template = scope_templates.get(scope_key)
+        if template is None:
+            continue
+        fetched_pages = pages_by_scope.get(scope_key, 0)
+        if fetched_pages <= 0:
+            continue
+
+        while fetched_pages < DEFAULT_AUDIT_PAGES_PER_DATE:
+            latest = _provider_scope_latest_time(raw_rows_by_scope.get(scope_key, []), template.mode)
+            if latest is not None and latest >= target_end:
+                break
+            if last_page_sizes.get(scope_key, 0) < template.limit:
+                skip_scopes.add(scope_key)
+                break
+
+            params: Dict[str, Any] = {"access_key": aviationstack_key, "limit": template.limit}
+            if template.flight_date:
+                params["flight_date"] = template.flight_date
+                touched_dates.add(template.flight_date)
+            next_offset = fetched_pages * template.limit
+            if next_offset > 0:
+                params["offset"] = next_offset
+            if template.dep_iata:
+                params["dep_iata"] = template.dep_iata
+            if template.arr_iata:
+                params["arr_iata"] = template.arr_iata
+
+            try:
+                response = _req.get(
+                    AVIATIONSTACK_URL,
+                    params=params,
+                    headers={"User-Agent": "localflight-relay/1.0"},
+                    timeout=25,
+                )
+            except Exception as exc:
+                raise HTTPException(status_code=502, detail=f"AviationStack unreachable: {exc}")
+
+            if response.status_code >= 400:
+                try:
+                    payload = response.json()
+                    detail = payload.get("error") if isinstance(payload, dict) else None
+                    info = detail.get("info") if isinstance(detail, dict) else ""
+                except Exception:
+                    info = ""
+                suffix = f": {info}" if info else ""
+                raise HTTPException(status_code=502, detail=f"AviationStack upstream HTTP {response.status_code}{suffix}")
+
+            try:
+                payload = response.json()
+            except Exception as exc:
+                raise HTTPException(status_code=502, detail=f"AviationStack returned invalid JSON: {exc}")
+
+            if not isinstance(payload, dict):
+                raise HTTPException(status_code=502, detail="AviationStack response shape invalid")
+            page_rows = payload.get("data")
+            if not isinstance(page_rows, list):
+                raise HTTPException(status_code=502, detail="AviationStack response missing data rows")
+
+            pages_fetched += 1
+            adaptive_extra_pages += 1
+            raw_rows += len(page_rows)
+            raw_rows_by_scope.setdefault(scope_key, []).extend(page_rows)
+            fetched_pages += 1
+            pages_by_scope[scope_key] = fetched_pages
+            rows_by_scope[scope_key] = rows_by_scope.get(scope_key, 0) + len(page_rows)
+            last_page_sizes[scope_key] = len(page_rows)
+            records.extend(
+                aviationstack_to_raw_records(
+                    {"data": page_rows},
+                    airport_iata=airport_iata,
+                    mode="dep" if template.mode == "departures" else "arr",
+                )
+            )
+            if len(page_rows) < template.limit:
+                skip_scopes.add(scope_key)
+                break
+
+    meta = {
+        "pages_requested": len(requests_plan),
+        "pages_fetched": pages_fetched,
+        "page_size": DEFAULT_PAGE_SIZE,
+        "pages_per_date_cap": DEFAULT_PRODUCTION_PAGES_PER_DATE,
+        "max_pages_per_scope": DEFAULT_AUDIT_PAGES_PER_DATE,
+        "adaptive_extra_pages": adaptive_extra_pages,
+        "dates_touched": sorted(touched_dates),
+        "raw_rows": raw_rows,
+        "record_count": len(records),
+        "planner_version": _SHARED_SCHEDULE_PLANNER_VERSION,
+        "schema_version": _SHARED_SCHEDULE_SCHEMA_VERSION,
+        "pages_by_scope": {
+            f"{mode}:{flight_date or 'undated'}": count
+            for (mode, flight_date), count in pages_by_scope.items()
+        },
+        "rows_by_scope": {
+            f"{mode}:{flight_date or 'undated'}": count
+            for (mode, flight_date), count in rows_by_scope.items()
+        },
+    }
+    display_start_utc = window.display_start.astimezone(timezone.utc)
+    display_end_utc = window.display_end.astimezone(timezone.utc)
+    undated_fallback_used = False
+    for mode in ("departures", "arrivals"):
+        if _provider_rows_within_window(
+            raw_rows_by_scope.get((mode, ""), [])
+            + raw_rows_by_scope.get((mode, window.display_start.date().isoformat()), [])
+            + raw_rows_by_scope.get((mode, window.display_end.date().isoformat()), []),
+            mode,
+            window_start_utc=display_start_utc,
+            window_end_utc=display_end_utc,
+        ) > 0:
+            continue
+
+        fallback_plan = build_undated_plan(
+            airport_iata=airport_iata,
+            mode=mode,
+            page_size=DEFAULT_PAGE_SIZE,
+            page_cap=DEFAULT_PRODUCTION_PAGES_PER_DATE,
+        )
+        fallback_rows: list[Dict[str, Any]] = []
+        fallback_pages = 0
+        fallback_adaptive_pages = 0
+        last_page_size = DEFAULT_PAGE_SIZE
+        for req in fallback_plan:
+            params: Dict[str, Any] = {"access_key": aviationstack_key, "limit": req.limit}
+            if req.offset > 0:
+                params["offset"] = req.offset
+            if req.dep_iata:
+                params["dep_iata"] = req.dep_iata
+            if req.arr_iata:
+                params["arr_iata"] = req.arr_iata
+            try:
+                response = _req.get(
+                    AVIATIONSTACK_URL,
+                    params=params,
+                    headers={"User-Agent": "localflight-relay/1.0"},
+                    timeout=25,
+                )
+            except Exception as exc:
+                raise HTTPException(status_code=502, detail=f"AviationStack unreachable: {exc}")
+
+            if response.status_code >= 400:
+                try:
+                    payload = response.json()
+                    detail = payload.get("error") if isinstance(payload, dict) else None
+                    info = detail.get("info") if isinstance(detail, dict) else ""
+                except Exception:
+                    info = ""
+                suffix = f": {info}" if info else ""
+                raise HTTPException(status_code=502, detail=f"AviationStack upstream HTTP {response.status_code}{suffix}")
+
+            try:
+                payload = response.json()
+            except Exception as exc:
+                raise HTTPException(status_code=502, detail=f"AviationStack returned invalid JSON: {exc}")
+
+            if not isinstance(payload, dict):
+                raise HTTPException(status_code=502, detail="AviationStack response shape invalid")
+            page_rows = payload.get("data")
+            if not isinstance(page_rows, list):
+                raise HTTPException(status_code=502, detail="AviationStack response missing data rows")
+
+            fallback_rows.extend(page_rows)
+            fallback_pages += 1
+            last_page_size = len(page_rows)
+            if len(page_rows) < req.limit:
+                break
+
+        while fallback_pages < DEFAULT_AUDIT_PAGES_PER_DATE:
+            latest = _provider_scope_latest_time(fallback_rows, mode)
+            if latest is not None and latest >= display_end_utc:
+                break
+            if last_page_size < DEFAULT_PAGE_SIZE:
+                break
+            params = {"access_key": aviationstack_key, "limit": DEFAULT_PAGE_SIZE, "offset": fallback_pages * DEFAULT_PAGE_SIZE}
+            if mode == "departures":
+                params["dep_iata"] = airport_iata
+            else:
+                params["arr_iata"] = airport_iata
+            try:
+                response = _req.get(
+                    AVIATIONSTACK_URL,
+                    params=params,
+                    headers={"User-Agent": "localflight-relay/1.0"},
+                    timeout=25,
+                )
+            except Exception as exc:
+                raise HTTPException(status_code=502, detail=f"AviationStack unreachable: {exc}")
+
+            if response.status_code >= 400:
+                try:
+                    payload = response.json()
+                    detail = payload.get("error") if isinstance(payload, dict) else None
+                    info = detail.get("info") if isinstance(detail, dict) else ""
+                except Exception:
+                    info = ""
+                suffix = f": {info}" if info else ""
+                raise HTTPException(status_code=502, detail=f"AviationStack upstream HTTP {response.status_code}{suffix}")
+
+            try:
+                payload = response.json()
+            except Exception as exc:
+                raise HTTPException(status_code=502, detail=f"AviationStack returned invalid JSON: {exc}")
+
+            if not isinstance(payload, dict):
+                raise HTTPException(status_code=502, detail="AviationStack response shape invalid")
+            page_rows = payload.get("data")
+            if not isinstance(page_rows, list):
+                raise HTTPException(status_code=502, detail="AviationStack response missing data rows")
+
+            fallback_rows.extend(page_rows)
+            fallback_pages += 1
+            fallback_adaptive_pages += 1
+            last_page_size = len(page_rows)
+            if len(page_rows) < DEFAULT_PAGE_SIZE:
+                break
+
+        if fallback_rows:
+            undated_fallback_used = True
+            raw_rows += len(fallback_rows)
+            pages_fetched += fallback_pages
+            adaptive_extra_pages += fallback_adaptive_pages
+            raw_rows_by_scope.setdefault((mode, ""), []).extend(fallback_rows)
+            pages_by_scope[(mode, "")] = pages_by_scope.get((mode, ""), 0) + fallback_pages
+            rows_by_scope[(mode, "")] = rows_by_scope.get((mode, ""), 0) + len(fallback_rows)
+            records.extend(
+                aviationstack_to_raw_records(
+                    {"data": fallback_rows},
+                    airport_iata=airport_iata,
+                    mode="dep" if mode == "departures" else "arr",
+                )
+            )
+
+    meta["pages_fetched"] = pages_fetched
+    meta["raw_rows"] = raw_rows
+    meta["record_count"] = len(records)
+    meta["adaptive_extra_pages"] = adaptive_extra_pages
+    meta["pages_by_scope"] = {
+        f"{mode}:{flight_date or 'undated'}": count
+        for (mode, flight_date), count in pages_by_scope.items()
+    }
+    meta["rows_by_scope"] = {
+        f"{mode}:{flight_date or 'undated'}": count
+        for (mode, flight_date), count in rows_by_scope.items()
+    }
+    meta["undated_fallback_used"] = undated_fallback_used
+    return {
+        "generated_at": generated_at,
+        "provider": _SHARED_SCHEDULE_PROVIDER,
+        "meta": meta,
+        "records": records,
+    }
 
 
 _radar_cache: Dict[str, tuple[float, bytes]] = {}
@@ -1218,13 +2088,13 @@ def _store_activation_token(
     )
 
 
-def _render_admin(username: str, *, created_token: str = "", message: str = "") -> str:
+def _render_admin_legacy(username: str, *, created_token: str = "", message: str = "") -> str:
     conn = _connect()
     month = _month_key()
     day_cutoff = _hours_ago(24)
 
     total_installs = conn.execute(
-        "SELECT COUNT(DISTINCT install_id) FROM usage WHERE month=?",
+        "SELECT COUNT(DISTINCT install_id) FROM usage WHERE month=? AND service IN ('aviationstack', 'radar')",
         (month,),
     ).fetchone()[0]
     total_schedule = conn.execute(
@@ -1238,6 +2108,21 @@ def _render_admin(username: str, *, created_token: str = "", message: str = "") 
         "SELECT COALESCE(SUM(calls), 0) FROM usage WHERE month=? AND service='radar'",
         (month,),
     ).fetchone()[0]
+    total_schedule_upstream = conn.execute(
+        "SELECT COALESCE(SUM(calls), 0) FROM usage WHERE month=? AND service='aviationstack_upstream'",
+        (month,),
+    ).fetchone()[0]
+    snapshot_totals = conn.execute(
+        """
+        SELECT
+            COALESCE(SUM(client_accesses), 0) AS client_accesses,
+            COALESCE(SUM(upstream_pulls), 0) AS upstream_pulls,
+            COALESCE(SUM(refresh_count), 0) AS refresh_count,
+            COALESCE(SUM(cache_hits), 0) AS cache_hits,
+            COALESCE(SUM(stale_serves), 0) AS stale_serves
+        FROM schedule_snapshots
+        """
+    ).fetchone()
     totals_24h = conn.execute(
         """
         SELECT COUNT(*) AS requests,
@@ -1250,6 +2135,12 @@ def _render_admin(username: str, *, created_token: str = "", message: str = "") 
     ).fetchone()
     provider_revision = _provider_revision(conn)
     blocked_count = conn.execute("SELECT COUNT(*) FROM blocked_installs").fetchone()[0]
+    snapshot_accesses = int(snapshot_totals["client_accesses"] or 0) if snapshot_totals else 0
+    snapshot_refreshes = int(snapshot_totals["refresh_count"] or 0) if snapshot_totals else 0
+    snapshot_hits = int(snapshot_totals["cache_hits"] or 0) if snapshot_totals else 0
+    snapshot_stale = int(snapshot_totals["stale_serves"] or 0) if snapshot_totals else 0
+    snapshot_hit_rate = round((snapshot_hits / snapshot_accesses) * 100.0, 1) if snapshot_accesses > 0 else 0.0
+    snapshot_savings = max(0, snapshot_accesses - snapshot_refreshes)
 
     service_breakdown = [
         dict(r)
@@ -1360,7 +2251,7 @@ def _render_admin(username: str, *, created_token: str = "", message: str = "") 
                    CASE WHEN b.install_id IS NULL THEN 0 ELSE 1 END AS blocked
             FROM usage u
             LEFT JOIN blocked_installs b ON b.install_id = u.install_id
-            WHERE u.month=?
+            WHERE u.month=? AND u.service IN ('aviationstack', 'radar')
             GROUP BY u.install_id
             ORDER BY (schedule_calls + radar_calls) DESC, last_seen DESC
             LIMIT 300
@@ -1666,13 +2557,16 @@ def _render_admin(username: str, *, created_token: str = "", message: str = "") 
 
   <div class="grid">
     <div class="card"><h2>Known installs</h2><div class="big">{int(total_installs or 0)}</div></div>
-    <div class="card"><h2>Schedule calls</h2><div class="big">{int(total_schedule or 0):,} / {_managed_schedule_limit():,}</div></div>
+    <div class="card"><h2>Relay accesses</h2><div class="big">{int(total_schedule or 0):,}</div></div>
+    <div class="card"><h2>Upstream pulls</h2><div class="big">{int(total_schedule_upstream or 0):,}</div></div>
     <div class="card"><h2>Radar calls</h2><div class="big">{int(total_radar or 0)}</div></div>
     <div class="card"><h2>Requests (24h)</h2><div class="big">{int(totals_24h['requests'] or 0)}</div></div>
     <div class="card"><h2>Errors (24h)</h2><div class="big">{int(totals_24h['errors'] or 0)}</div></div>
     <div class="card"><h2>Manual reviews</h2><div class="big">{int(pending_requests or 0)}</div></div>
     <div class="card"><h2>Provider revision</h2><div class="big">{provider_revision}</div></div>
     <div class="card"><h2>Avg latency</h2><div class="big">{int(totals_24h['avg_latency'] or 0)}ms</div></div>
+    <div class="card"><h2>Cache hit rate</h2><div class="big">{snapshot_hit_rate:.1f}%</div></div>
+    <div class="card"><h2>Shared savings</h2><div class="big">{snapshot_savings:,}</div></div>
     <div class="card"><h2>Blocked installs</h2><div class="big">{int(blocked_count or 0)}</div></div>
   </div>
 
@@ -1683,8 +2577,10 @@ def _render_admin(username: str, *, created_token: str = "", message: str = "") 
         <div class="kicker">Managed clients do not receive raw vendor keys. Key changes take effect on the next relay request and advance the provider revision.</div>
         <div class="provider-line"><span>AviationStack</span><span>{html.escape(_mask_secret(aviationstack_key))} <span class="tiny">({html.escape(aviationstack_source)})</span></span></div>
         <div class="provider-line"><span>RapidAPI ADS-B</span><span>{html.escape(_mask_secret(rapidapi_key))} <span class="tiny">({html.escape(rapidapi_source)})</span></span></div>
-        <div class="provider-line"><span>Community schedule cap</span><span>{_community_schedule_limit()} calls per install / 30-day window</span></div>
+        <div class="provider-line"><span>Community schedule cap</span><span>{_community_schedule_limit()} relay accesses per install / 30-day window</span></div>
+        <div class="provider-line"><span>Shared snapshot pool</span><span>{snapshot_refreshes:,} refreshes · {snapshot_stale:,} stale serves</span></div>
         <div class="provider-line"><span>Radar cache</span><span>{_radar_cache_seconds()}s</span></div>
+        <div class="provider-line"><span>Raw provider debug</span><span>{'enabled' if _raw_provider_debug_enabled() else 'disabled'}</span></div>
         <div class="provider-line"><span>Activation privacy</span><span>Anonymous network tags only</span></div>
       </div>
       <form method="post" action="/admin/providers/save">
@@ -1777,6 +2673,1231 @@ def _render_admin(username: str, *, created_token: str = "", message: str = "") 
 </html>"""
 
 
+def _render_admin(username: str, *, created_token: str = "", message: str = "") -> str:
+    conn = _connect()
+    month = _month_key()
+    day_cutoff = _hours_ago(24)
+    day_cutoff_dt = _parse_utc_dt(day_cutoff) or datetime.now(timezone.utc)
+
+    total_installs = conn.execute(
+        "SELECT COUNT(DISTINCT install_id) FROM usage WHERE month=? AND service IN ('aviationstack', 'radar')",
+        (month,),
+    ).fetchone()[0]
+    total_schedule = conn.execute(
+        "SELECT COALESCE(SUM(calls), 0) FROM usage WHERE month=? AND service='aviationstack'",
+        (month,),
+    ).fetchone()[0]
+    total_schedule = (total_schedule or 0) + int(
+        _setting_get_conn(conn, f"schedule_counter_offset:{month}", "0") or 0
+    )
+    total_radar = conn.execute(
+        "SELECT COALESCE(SUM(calls), 0) FROM usage WHERE month=? AND service='radar'",
+        (month,),
+    ).fetchone()[0]
+    total_schedule_upstream = conn.execute(
+        "SELECT COALESCE(SUM(calls), 0) FROM usage WHERE month=? AND service='aviationstack_upstream'",
+        (month,),
+    ).fetchone()[0]
+    snapshot_pool_count = conn.execute("SELECT COUNT(*) FROM schedule_snapshots").fetchone()[0]
+    snapshot_stale_count = conn.execute(
+        "SELECT COUNT(*) FROM schedule_snapshots WHERE last_cache_state='stale'"
+    ).fetchone()[0]
+    snapshot_error_count = conn.execute(
+        "SELECT COUNT(*) FROM schedule_snapshots WHERE COALESCE(last_error, '') <> ''"
+    ).fetchone()[0]
+    snapshot_totals = conn.execute(
+        """
+        SELECT
+            COALESCE(SUM(client_accesses), 0) AS client_accesses,
+            COALESCE(SUM(upstream_pulls), 0) AS upstream_pulls,
+            COALESCE(SUM(refresh_count), 0) AS refresh_count,
+            COALESCE(SUM(cache_hits), 0) AS cache_hits,
+            COALESCE(SUM(stale_serves), 0) AS stale_serves
+        FROM schedule_snapshots
+        """
+    ).fetchone()
+    totals_24h = conn.execute(
+        """
+        SELECT COUNT(*) AS requests,
+               COALESCE(AVG(latency_ms), 0) AS avg_latency,
+               COALESCE(SUM(CASE WHEN status >= 400 OR status = 0 THEN 1 ELSE 0 END), 0) AS errors
+        FROM request_log
+        WHERE ts >= ?
+        """,
+        (day_cutoff,),
+    ).fetchone()
+    provider_revision = _provider_revision(conn)
+    blocked_count = conn.execute("SELECT COUNT(*) FROM blocked_installs").fetchone()[0]
+    snapshot_accesses = int(snapshot_totals["client_accesses"] or 0) if snapshot_totals else 0
+    snapshot_refreshes = int(snapshot_totals["refresh_count"] or 0) if snapshot_totals else 0
+    snapshot_hits = int(snapshot_totals["cache_hits"] or 0) if snapshot_totals else 0
+    snapshot_stale = int(snapshot_totals["stale_serves"] or 0) if snapshot_totals else 0
+    snapshot_hit_rate = round((snapshot_hits / snapshot_accesses) * 100.0, 1) if snapshot_accesses > 0 else 0.0
+    snapshot_savings = max(0, snapshot_accesses - snapshot_refreshes)
+
+    service_breakdown = [
+        dict(r)
+        for r in conn.execute(
+            """
+            SELECT service,
+                   plan,
+                   COUNT(DISTINCT install_id) AS installs,
+                   COALESCE(SUM(calls), 0) AS calls,
+                   MAX(last_seen) AS last_seen
+            FROM usage
+            WHERE month=?
+            GROUP BY service, plan
+            ORDER BY service, plan
+            """,
+            (month,),
+        ).fetchall()
+    ]
+    network_breakdown = [
+        dict(r)
+        for r in conn.execute(
+            """
+            SELECT service,
+                   plan,
+                   COUNT(*) AS requests,
+                   COALESCE(AVG(latency_ms), 0) AS avg_latency,
+                   COALESCE(SUM(CASE WHEN status >= 400 OR status = 0 THEN 1 ELSE 0 END), 0) AS errors
+            FROM request_log
+            WHERE ts >= ?
+            GROUP BY service, plan
+            ORDER BY service, plan
+            """,
+            (day_cutoff,),
+        ).fetchall()
+    ]
+    tokens = [
+        dict(r)
+        for r in conn.execute(
+            """
+            SELECT t.token_hash,
+                   t.token_prefix,
+                   t.label,
+                   t.schedule_limit,
+                   t.radar_limit,
+                   t.created_at,
+                   t.bound_install_id,
+                   t.last_seen,
+                   t.revoked_at,
+                   COALESCE(us.calls, 0) AS schedule_used,
+                   COALESCE(ur.calls, 0) AS radar_used
+            FROM activation_tokens t
+            LEFT JOIN usage us
+                ON us.subject_key = ('managed:' || t.token_hash)
+               AND us.service = 'aviationstack'
+               AND us.month = ?
+            LEFT JOIN usage ur
+                ON ur.subject_key = ('managed:' || t.token_hash)
+               AND ur.service = 'radar'
+               AND ur.month = ?
+            ORDER BY t.created_at DESC
+            LIMIT 200
+            """,
+            (month, month),
+        ).fetchall()
+    ]
+    activation_requests = [
+        dict(r)
+        for r in conn.execute(
+            """
+            SELECT request_id,
+                   install_id,
+                   install_fingerprint,
+                   network_tag,
+                   display_name,
+                   requested_mode,
+                   app_version,
+                   status,
+                   created_at,
+                   updated_at,
+                   last_seen,
+                   decision_source,
+                   decision_note,
+                   token_prefix,
+                   approved_at,
+                   delivered_at
+            FROM activation_requests
+            ORDER BY
+                CASE status
+                    WHEN 'manual_review' THEN 0
+                    WHEN 'issued' THEN 1
+                    ELSE 2
+                END,
+                created_at DESC
+            LIMIT 200
+            """
+        ).fetchall()
+    ]
+    pending_requests = sum(1 for row in activation_requests if row.get("status") == _REQUEST_STATUS_MANUAL_REVIEW)
+    installs = [
+        dict(r)
+        for r in conn.execute(
+            """
+            SELECT u.install_id,
+                   MAX(u.last_seen) AS last_seen,
+                   COALESCE(SUM(CASE WHEN u.service = 'aviationstack' THEN u.calls ELSE 0 END), 0) AS schedule_calls,
+                   COALESCE(SUM(CASE WHEN u.service = 'radar' THEN u.calls ELSE 0 END), 0) AS radar_calls,
+                   GROUP_CONCAT(DISTINCT u.plan) AS plans,
+                   CASE WHEN b.install_id IS NULL THEN 0 ELSE 1 END AS blocked
+            FROM usage u
+            LEFT JOIN blocked_installs b ON b.install_id = u.install_id
+            WHERE u.month=? AND u.service IN ('aviationstack', 'radar')
+            GROUP BY u.install_id
+            ORDER BY (schedule_calls + radar_calls) DESC, last_seen DESC
+            LIMIT 300
+            """,
+            (month,),
+        ).fetchall()
+    ]
+    recent = [
+        dict(r)
+        for r in conn.execute(
+            """
+            SELECT ts, install_id, mode, status, latency_ms, service, plan
+            FROM request_log
+            ORDER BY ts DESC
+            LIMIT 100
+            """
+        ).fetchall()
+    ]
+    client_interests = [
+        dict(r)
+        for r in conn.execute(
+            """
+            SELECT install_id,
+                   plan,
+                   airport_iata,
+                   timezone,
+                   display_grace_minutes,
+                   display_horizon_hours,
+                   refresh_seconds,
+                   last_seen
+            FROM client_interests
+            ORDER BY last_seen DESC
+            LIMIT 400
+            """
+        ).fetchall()
+    ]
+    snapshots = [
+        dict(r)
+        for r in conn.execute(
+            """
+            SELECT *
+            FROM schedule_snapshots
+            ORDER BY client_accesses DESC, updated_at DESC
+            LIMIT 80
+            """
+        ).fetchall()
+    ]
+    aviationstack_key, aviationstack_source = _provider_status(
+        _SETTING_AVIATIONSTACK_KEY,
+        "AVIATIONSTACK_API_KEY",
+        conn=conn,
+    )
+    rapidapi_key, rapidapi_source = _provider_status(
+        _SETTING_RAPIDAPI_KEY,
+        "RAPIDAPI_KEY",
+        conn=conn,
+    )
+    conn.close()
+
+    service_order = {"aviationstack": 0, "aviationstack_upstream": 1, "radar": 2}
+    plan_order = {"community": 0, "managed": 1, "shared": 2}
+    service_breakdown.sort(
+        key=lambda row: (
+            service_order.get(str(row.get("service") or ""), 99),
+            plan_order.get(str(row.get("plan") or ""), 99),
+            -int(row.get("calls") or 0),
+        )
+    )
+    network_breakdown.sort(
+        key=lambda row: (
+            service_order.get(str(row.get("service") or ""), 99),
+            plan_order.get(str(row.get("plan") or ""), 99),
+            -int(row.get("requests") or 0),
+        )
+    )
+
+    snapshot_by_key = {str(row.get("cache_key") or ""): row for row in snapshots if row.get("cache_key")}
+    interest_by_install = {
+        str(row.get("install_id") or ""): row for row in client_interests if str(row.get("install_id") or "").strip()
+    }
+    active_interest_rows = [
+        row
+        for row in client_interests
+        if (_parse_utc_dt(row.get("last_seen")) or datetime.min.replace(tzinfo=timezone.utc)) >= day_cutoff_dt
+    ]
+    active_clients_24h = len(active_interest_rows)
+    active_lanes_map: Dict[str, Dict[str, Any]] = {}
+    for row in active_interest_rows:
+        airport_iata = str(row.get("airport_iata") or "").strip().upper()
+        timezone_name = str(row.get("timezone") or "").strip()
+        if not airport_iata or not timezone_name:
+            continue
+        grace = max(0, int(row.get("display_grace_minutes") or 0))
+        horizon = max(1, int(row.get("display_horizon_hours") or 1))
+        cache_key = _schedule_cache_key(
+            airport_iata=airport_iata,
+            timezone_name=timezone_name,
+            display_grace_minutes=grace,
+            display_horizon_hours=horizon,
+        )
+        lane = active_lanes_map.setdefault(
+            cache_key,
+            {
+                "cache_key": cache_key,
+                "airport_iata": airport_iata,
+                "timezone": timezone_name,
+                "display_grace_minutes": grace,
+                "display_horizon_hours": horizon,
+                "refresh_min": max(60, int(row.get("refresh_seconds") or 3600)),
+                "refresh_max": max(60, int(row.get("refresh_seconds") or 3600)),
+                "install_count": 0,
+                "plans": set(),
+                "last_seen": str(row.get("last_seen") or ""),
+                "install_fingerprints": [],
+                "snapshot": snapshot_by_key.get(cache_key),
+            },
+        )
+        refresh_seconds = max(60, int(row.get("refresh_seconds") or 3600))
+        lane["install_count"] += 1
+        lane["refresh_min"] = min(int(lane["refresh_min"]), refresh_seconds)
+        lane["refresh_max"] = max(int(lane["refresh_max"]), refresh_seconds)
+        lane["plans"].add(str(row.get("plan") or "community"))
+        if str(row.get("last_seen") or "") > str(lane.get("last_seen") or ""):
+            lane["last_seen"] = str(row.get("last_seen") or "")
+        fingerprint = _install_fingerprint(str(row.get("install_id") or ""))
+        if fingerprint and fingerprint not in lane["install_fingerprints"] and len(lane["install_fingerprints"]) < 3:
+            lane["install_fingerprints"].append(fingerprint)
+    active_lanes = sorted(
+        active_lanes_map.values(),
+        key=lambda row: (
+            -int(row.get("install_count") or 0),
+            -int(_snapshot_shared_stats(row.get("snapshot") or {}).get("client_accesses", 0))
+            if row.get("snapshot")
+            else 0,
+            str(row.get("airport_iata") or ""),
+        ),
+    )
+    active_lane_count = len(active_lanes)
+
+    def _fmt_ts(value: Any, default: str = "-") -> str:
+        dt = _parse_utc_dt(value)
+        if not dt:
+            return default
+        return dt.strftime("%Y-%m-%d %H:%M UTC")
+
+    def _fmt_age(value: Any, default: str = "-") -> str:
+        dt = _parse_utc_dt(value)
+        if not dt:
+            return default
+        seconds = max(0, int((datetime.now(timezone.utc) - dt).total_seconds()))
+        if seconds < 60:
+            return f"{seconds}s ago"
+        minutes = seconds // 60
+        if minutes < 60:
+            return f"{minutes}m ago"
+        hours = minutes // 60
+        if hours < 24:
+            return f"{hours}h ago"
+        days = hours // 24
+        return f"{days}d ago"
+
+    def _fmt_refresh(seconds: int) -> str:
+        seconds = max(60, int(seconds or 60))
+        minutes = seconds // 60
+        if minutes % 60 == 0:
+            hours = minutes // 60
+            return f"{hours}h"
+        if minutes >= 60:
+            hours = minutes // 60
+            remainder = minutes % 60
+            return f"{hours}h {remainder}m"
+        return f"{minutes}m"
+
+    def _fmt_refresh_range(min_seconds: int, max_seconds: int) -> str:
+        min_seconds = max(60, int(min_seconds or 60))
+        max_seconds = max(60, int(max_seconds or 60))
+        if min_seconds == max_seconds:
+            return _fmt_refresh(min_seconds)
+        return f"{_fmt_refresh(min_seconds)} to {_fmt_refresh(max_seconds)}"
+
+    def _window_label(grace_minutes: int, horizon_hours: int) -> str:
+        return f"-{int(grace_minutes)}m / +{int(horizon_hours)}h"
+
+    def _badge(label: str, tone: str = "slate") -> str:
+        safe_tone = tone if tone in {"green", "amber", "red", "slate", "blue", "cyan"} else "slate"
+        return f"<span class='badge badge-{safe_tone}'>{html.escape(label)}</span>"
+
+    def _service_label(service: str) -> str:
+        mapping = {
+            "aviationstack": "Schedule accesses",
+            "aviationstack_upstream": "AviationStack upstream",
+            "radar": "Radar accesses",
+        }
+        return mapping.get(service, service.replace("_", " ").title())
+
+    def _service_badge(service: str) -> str:
+        tone = {"aviationstack": "blue", "aviationstack_upstream": "cyan", "radar": "amber"}.get(service, "slate")
+        return _badge(_service_label(service), tone)
+
+    def _plan_badge(plan: str) -> str:
+        tone = {"community": "blue", "managed": "green", "shared": "cyan"}.get(plan, "slate")
+        return _badge(plan or "unknown", tone)
+
+    def _cache_badge(state: str, *, has_error: bool = False) -> str:
+        normalized = (state or "unknown").strip().lower()
+        if has_error and normalized not in {"fresh"}:
+            return _badge(normalized or "error", "red")
+        tone = {"fresh": "green", "stale": "amber", "miss": "slate", "expired": "red"}.get(normalized, "slate")
+        return _badge(normalized or "unknown", tone)
+
+    def _request_status_badge(status: str) -> str:
+        normalized = (status or "").strip().lower()
+        tone = {
+            _REQUEST_STATUS_MANUAL_REVIEW: "amber",
+            _REQUEST_STATUS_ISSUED: "green",
+            _REQUEST_STATUS_REJECTED: "red",
+            _REQUEST_STATUS_PENDING: "slate",
+        }.get(normalized, "slate")
+        return _badge(normalized.replace("_", " ") or "unknown", tone)
+
+    def _http_badge(status_code: int) -> str:
+        status_code = int(status_code or 0)
+        if status_code == 0 or status_code >= 500:
+            tone = "red"
+        elif status_code >= 400:
+            tone = "amber"
+        else:
+            tone = "green"
+        return _badge(str(status_code), tone)
+
+    def _usage_tone(used: int, limit: int) -> str:
+        limit = max(1, int(limit or 1))
+        ratio = int(used or 0) / limit
+        if ratio >= 1.0:
+            return "red"
+        if ratio >= 0.8:
+            return "amber"
+        return "green"
+
+    def _meter(used: int, limit: int) -> str:
+        limit = max(1, int(limit or 1))
+        used = max(0, int(used or 0))
+        percent = max(0, min(100, int(round((used / limit) * 100))))
+        tone = _usage_tone(used, limit)
+        return (
+            "<div class='meter'>"
+            f"<div class='meter-fill meter-{tone}' style='width:{percent}%'></div>"
+            "</div>"
+            f"<div class='tiny'>{used:,} / {limit:,}</div>"
+        )
+
+    def _install_lane_summary(install_id: str) -> str:
+        row = interest_by_install.get(install_id)
+        if not row:
+            return "<span class='soft'>No current airport lane</span>"
+        airport_iata = html.escape(str(row.get("airport_iata") or "-"))
+        timezone_name = html.escape(str(row.get("timezone") or "-"))
+        cadence = _fmt_refresh(max(60, int(row.get("refresh_seconds") or 3600)))
+        return (
+            f"<div class='cell-title mono'>{airport_iata}</div>"
+            f"<div class='cell-sub'>{timezone_name} | {_window_label(int(row.get('display_grace_minutes') or 0), int(row.get('display_horizon_hours') or 0))}</div>"
+            f"<div class='cell-sub'>Refresh every {cadence}</div>"
+        )
+
+    def rows_for_service_breakdown() -> str:
+        if not service_breakdown:
+            return "<tr><td colspan='5' class='muted'>No monthly usage yet</td></tr>"
+        out = []
+        for row in service_breakdown:
+            service = str(row.get("service") or "")
+            plan = str(row.get("plan") or "")
+            out.append(
+                "<tr>"
+                f"<td><div class='cell-title'>{_service_badge(service)}</div><div class='cell-sub mono'>{html.escape(service or '-')}</div></td>"
+                f"<td>{_plan_badge(plan)}</td>"
+                f"<td>{int(row.get('installs') or 0):,}</td>"
+                f"<td>{int(row.get('calls') or 0):,}</td>"
+                f"<td><div class='cell-title'>{_fmt_age(row.get('last_seen'))}</div><div class='cell-sub'>{_fmt_ts(row.get('last_seen'))}</div></td>"
+                "</tr>"
+            )
+        return "".join(out)
+
+    def rows_for_network_breakdown() -> str:
+        if not network_breakdown:
+            return "<tr><td colspan='5' class='muted'>No request logs yet</td></tr>"
+        out = []
+        for row in network_breakdown:
+            service = str(row.get("service") or "")
+            plan = str(row.get("plan") or "")
+            errors = int(row.get("errors") or 0)
+            out.append(
+                "<tr>"
+                f"<td><div class='cell-title'>{_service_badge(service)}</div><div class='cell-sub mono'>{html.escape(service or '-')}</div></td>"
+                f"<td>{_plan_badge(plan)}</td>"
+                f"<td>{int(row.get('requests') or 0):,}</td>"
+                f"<td>{int(row.get('avg_latency') or 0)}ms</td>"
+                f"<td>{_badge(f'{errors:,} error' + ('' if errors == 1 else 's'), 'red' if errors else 'green')}</td>"
+                "</tr>"
+            )
+        return "".join(out)
+
+    def rows_for_snapshot_pool() -> str:
+        if not snapshots:
+            return "<tr><td colspan='5' class='muted'>No shared schedule snapshots have been cached yet</td></tr>"
+        out = []
+        for row in snapshots[:18]:
+            meta = _load_json_blob(row.get("meta_json"), {})
+            stats = _snapshot_shared_stats(row)
+            records_count = len(_load_json_blob(row.get("records_json"), []))
+            pages_fetched = int(meta.get("pages_fetched", 0) or 0)
+            raw_rows = int(meta.get("raw_rows", 0) or 0)
+            dates_touched = meta.get("dates_touched", 0)
+            if isinstance(dates_touched, list):
+                dates_count = len(dates_touched)
+            else:
+                try:
+                    dates_count = int(dates_touched or 0)
+                except Exception:
+                    dates_count = 0
+            last_error = str(row.get("last_error") or "").strip()
+            last_state = str(row.get("last_cache_state") or "fresh")
+            out.append(
+                "<tr>"
+                f"<td><div class='cell-title mono'>{html.escape(str(row.get('airport_iata') or '-'))}</div>"
+                f"<div class='cell-sub'>{html.escape(str(row.get('timezone') or '-'))}</div>"
+                f"<div class='cell-sub'>{_window_label(int(row.get('display_grace_minutes') or 0), int(row.get('display_horizon_hours') or 0))}</div></td>"
+                f"<td><div class='cell-title'>{records_count:,} records</div>"
+                f"<div class='cell-sub'>{raw_rows:,} raw rows | {pages_fetched} pages | {dates_count} dates</div></td>"
+                f"<td><div class='cell-title'>{stats['client_accesses']:,} client serves</div>"
+                f"<div class='cell-sub'>{stats['upstream_pulls']:,} upstream pulls | {stats['cache_hit_rate_pct']:.1f}% hit rate | {stats['estimated_savings']:,} saved</div></td>"
+                f"<td><div class='cell-title'>{_cache_badge(last_state, has_error=bool(last_error))}</div>"
+                f"<div class='cell-sub'>{html.escape(last_error[:88]) if last_error else 'Healthy latest payload'}</div></td>"
+                f"<td><div class='cell-title'>{_fmt_age(row.get('updated_at'))}</div>"
+                f"<div class='cell-sub'>Generated {_fmt_age(row.get('generated_at'))}</div>"
+                f"<div class='cell-sub'>{_fmt_ts(row.get('updated_at'))}</div></td>"
+                "</tr>"
+            )
+        return "".join(out)
+
+    def rows_for_live_lanes() -> str:
+        if not active_lanes:
+            return "<tr><td colspan='5' class='muted'>No client interests reported in the last 24 hours</td></tr>"
+        out = []
+        for row in active_lanes[:18]:
+            snapshot = row.get("snapshot")
+            lifecycle = (
+                _snapshot_lifecycle_state(snapshot, refresh_seconds=int(row.get("refresh_min") or 3600))
+                if snapshot is not None
+                else "miss"
+            )
+            stats = _snapshot_shared_stats(snapshot or {})
+            records_count = len(_load_json_blob((snapshot or {}).get("records_json"), [])) if snapshot else 0
+            installs_preview = ", ".join(row.get("install_fingerprints") or [])
+            plan_html = " ".join(
+                _plan_badge(plan)
+                for plan in sorted(
+                    row.get("plans") or set(),
+                    key=lambda plan: plan_order.get(str(plan or ""), 99),
+                )
+            )
+            out.append(
+                "<tr>"
+                f"<td><div class='cell-title mono'>{html.escape(str(row.get('airport_iata') or '-'))}</div><div class='cell-sub'>{html.escape(str(row.get('timezone') or '-'))}</div></td>"
+                f"<td><div class='cell-title'>{int(row.get('install_count') or 0)} installs</div><div class='cell-sub'>{plan_html or _badge('unknown', 'slate')}</div><div class='cell-sub mono'>{html.escape(installs_preview) if installs_preview else 'No fingerprints yet'}</div></td>"
+                f"<td><div class='cell-title'>{_window_label(int(row.get('display_grace_minutes') or 0), int(row.get('display_horizon_hours') or 0))}</div><div class='cell-sub'>Refresh every {_fmt_refresh_range(int(row.get('refresh_min') or 3600), int(row.get('refresh_max') or 3600))}</div></td>"
+                f"<td><div class='cell-title'>{_cache_badge(lifecycle, has_error=bool((snapshot or {}).get('last_error')))}</div><div class='cell-sub'>{records_count:,} records | {stats['client_accesses']:,} serves | {stats['estimated_savings']:,} saved</div></td>"
+                f"<td><div class='cell-title'>{_fmt_age(row.get('last_seen'))}</div><div class='cell-sub'>Last client {_fmt_ts(row.get('last_seen'))}</div><div class='cell-sub'>Snapshot {(_fmt_age((snapshot or {}).get('generated_at')) if snapshot else '-')}</div></td>"
+                "</tr>"
+            )
+        return "".join(out)
+
+    def rows_for_tokens() -> str:
+        if not tokens:
+            return "<tr><td colspan='7' class='muted'>No managed activation tokens created yet</td></tr>"
+        out = []
+        for row in tokens:
+            status = "revoked" if row["revoked_at"] else "active"
+            action_bits = [
+                _post_form(
+                    "/admin/activation/rotate",
+                    {"token_hash": str(row["token_hash"] or "")},
+                    "Reshuffle",
+                    "amber",
+                ),
+                _post_form(
+                    "/admin/counters/reset",
+                    {"scope": "token", "token_hash": str(row["token_hash"] or "")},
+                    "Reset counters",
+                    "slate",
+                ),
+                _post_form(
+                    "/admin/activation/unbind",
+                    {"token_hash": str(row["token_hash"] or "")},
+                    "Unbind install",
+                    "slate",
+                ),
+            ]
+            if row["revoked_at"]:
+                action_bits.append(
+                    _post_form(
+                        "/admin/activation/reactivate",
+                        {"token_hash": str(row["token_hash"] or "")},
+                        "Restore",
+                        "green",
+                    )
+                )
+            else:
+                action_bits.append(
+                    _post_form(
+                        "/admin/activation/revoke",
+                        {"token_hash": str(row["token_hash"] or "")},
+                        "Revoke",
+                        "red",
+                    )
+                )
+            action_bits.append(
+                _post_form(
+                    "/admin/activation/delete",
+                    {"token_hash": str(row["token_hash"] or "")},
+                    "Delete",
+                    "red",
+                )
+            )
+            out.append(
+                "<tr>"
+                f"<td><div class='cell-title mono'>{html.escape(str(row['token_prefix'] or '-'))}...</div><div class='cell-sub'>{_fmt_ts(row.get('created_at'))}</div></td>"
+                f"<td><div class='cell-title'>{html.escape(str(row['label'] or '-'))}</div><div class='cell-sub'>{_plan_badge('managed')}</div></td>"
+                f"<td>{_meter(int(row['schedule_used'] or 0), int(row['schedule_limit'] or 0))}</td>"
+                f"<td>{_meter(int(row['radar_used'] or 0), int(row['radar_limit'] or 0))}</td>"
+                f"<td><div class='cell-title mono'>{html.escape(_install_fingerprint(str(row['bound_install_id'] or ''))) if row['bound_install_id'] else '-'}</div><div class='cell-sub'>{_fmt_ts(row.get('last_seen')) if row['last_seen'] else 'No recent token check-in'}</div></td>"
+                f"<td><div class='cell-title'>{_badge(status, 'red' if status == 'revoked' else 'green')}</div><div class='cell-sub'>{'Token can no longer authenticate' if status == 'revoked' else 'Managed access is enabled'}</div></td>"
+                f"<td class='actions'>{''.join(action_bits)}</td>"
+                "</tr>"
+            )
+        return "".join(out)
+
+    def rows_for_activation_requests() -> str:
+        if not activation_requests:
+            return "<tr><td colspan='7' class='muted'>No activation requests have reached the relay yet</td></tr>"
+        out = []
+        for row in activation_requests:
+            request_id = str(row["request_id"] or "")
+            status = str(row["status"] or _REQUEST_STATUS_PENDING)
+            action_bits = []
+            if status == _REQUEST_STATUS_MANUAL_REVIEW:
+                action_bits.extend(
+                    [
+                        _post_form(
+                            "/admin/activation-request/approve",
+                            {"request_id": request_id},
+                            "Issue now",
+                            "green",
+                        ),
+                        _post_form(
+                            "/admin/activation-request/reject",
+                            {"request_id": request_id, "decision_note": "dismissed"},
+                            "Dismiss",
+                            "slate",
+                        ),
+                    ]
+                )
+            else:
+                action_bits.append(
+                    _post_form(
+                        "/admin/activation-request/delete",
+                        {"request_id": request_id},
+                        "Clear row",
+                        "slate",
+                    )
+                )
+            label_bits = [
+                str(row["display_name"] or "").strip(),
+                str(row["requested_mode"] or "").strip(),
+                str(row["app_version"] or "").strip(),
+            ]
+            label = " | ".join([bit for bit in label_bits if bit]) or "-"
+            source = str(row["decision_source"] or "-").strip() or "-"
+            note = str(row["decision_note"] or "").strip() or "No decision note recorded"
+            lifecycle_bits = [f"Created {_fmt_ts(row.get('created_at'))}"]
+            if row.get("updated_at"):
+                lifecycle_bits.append(f"Updated {_fmt_ts(row.get('updated_at'))}")
+            if row.get("last_seen"):
+                lifecycle_bits.append(f"Last seen {_fmt_age(row.get('last_seen'))}")
+            out.append(
+                "<tr>"
+                f"<td><div class='cell-title mono'>{html.escape(str(row['install_fingerprint'] or '-'))}</div><div class='cell-sub mono'>{html.escape(str(row['install_id'] or ''))[:12]}...</div></td>"
+                f"<td><div class='cell-title mono'>{html.escape(str(row['network_tag'] or '-'))}</div><div class='cell-sub'>{_badge(source, 'slate')}</div></td>"
+                f"<td><div class='cell-title'>{html.escape(label)}</div><div class='cell-sub'>{_plan_badge(str(row.get('requested_mode') or 'community'))}</div></td>"
+                f"<td><div class='cell-title'>{_request_status_badge(status)}</div><div class='cell-sub'>{html.escape(str(row['token_prefix'] or '-') + ('...' if row['token_prefix'] else ''))}</div></td>"
+                f"<td><div class='cell-title'>{html.escape(note[:88])}</div><div class='cell-sub'>{' | '.join(html.escape(bit) for bit in lifecycle_bits)}</div></td>"
+                f"<td><div class='cell-title'>{_fmt_age(row.get('created_at'))}</div><div class='cell-sub'>{_fmt_ts(row.get('created_at'))}</div></td>"
+                f"<td class='actions'>{''.join(action_bits)}</td>"
+                "</tr>"
+            )
+        return "".join(out)
+
+    def rows_for_installs() -> str:
+        if not installs:
+            return "<tr><td colspan='7' class='muted'>No relay install usage recorded yet</td></tr>"
+        out = []
+        for row in installs:
+            install_id = str(row["install_id"] or "")
+            blocked = bool(row["blocked"])
+            action_bits = [
+                _post_form(
+                    "/admin/counters/reset",
+                    {"scope": "install", "install_id": install_id},
+                    "Reset counters",
+                    "slate",
+                )
+            ]
+            if blocked:
+                action_bits.append(
+                    _post_form(
+                        "/admin/install/unblock",
+                        {"install_id": install_id},
+                        "Restore access",
+                        "green",
+                    )
+                )
+            else:
+                action_bits.append(
+                    _post_form(
+                        "/admin/install/block",
+                        {"install_id": install_id, "reason": "revoked by admin"},
+                        "Revoke access",
+                        "red",
+                    )
+                )
+            plans = [bit.strip() for bit in str(row["plans"] or "").split(",") if bit.strip()]
+            plan_html = " ".join(_plan_badge(plan) for plan in sorted(plans, key=lambda plan: plan_order.get(plan, 99)))
+            out.append(
+                "<tr>"
+                f"<td><div class='cell-title mono'>{html.escape(_install_fingerprint(install_id))}</div><div class='cell-sub mono'>{html.escape(install_id[:12])}...</div></td>"
+                f"<td><div class='cell-title'>{int(row['schedule_calls'] or 0):,}</div><div class='cell-sub'>Schedule accesses</div></td>"
+                f"<td><div class='cell-title'>{int(row['radar_calls'] or 0):,}</div><div class='cell-sub'>Radar accesses</div></td>"
+                f"<td>{_install_lane_summary(install_id)}</td>"
+                f"<td>{plan_html or _badge('unknown', 'slate')}</td>"
+                f"<td><div class='cell-title'>{_badge('blocked', 'red') if blocked else _badge('active', 'green')}</div><div class='cell-sub'>{_fmt_ts(row.get('last_seen'))}</div></td>"
+                f"<td class='actions'>{''.join(action_bits)}</td>"
+                "</tr>"
+            )
+        return "".join(out)
+
+    def rows_for_recent() -> str:
+        if not recent:
+            return "<tr><td colspan='7' class='muted'>No requests yet</td></tr>"
+        out = []
+        for row in recent:
+            service = str(row.get("service") or "")
+            plan = str(row.get("plan") or "")
+            scope = str(row.get("mode") or "-").replace("_", " ")
+            out.append(
+                "<tr>"
+                f"<td><div class='cell-title'>{_fmt_age(row.get('ts'))}</div><div class='cell-sub'>{_fmt_ts(row.get('ts'))}</div></td>"
+                f"<td class='mono'>{html.escape(_install_fingerprint(str(row['install_id'] or '')))}</td>"
+                f"<td>{_service_badge(service)}</td>"
+                f"<td><div class='cell-title'>{html.escape(scope)}</div><div class='cell-sub'>{_plan_badge(plan)}</div></td>"
+                f"<td>{_http_badge(int(row.get('status') or 0))}</td>"
+                f"<td>{int(row.get('latency_ms') or 0)}ms</td>"
+                f"<td class='cell-sub mono'>{html.escape(service or '-')}</td>"
+                "</tr>"
+            )
+        return "".join(out)
+
+    token_notice = (
+        f"<div class='notice ok'><strong>Fresh token:</strong> <span class='mono'>{html.escape(created_token)}</span></div>"
+        if created_token
+        else ""
+    )
+    message_notice = f"<div class='notice'>{html.escape(message)}</div>" if message else ""
+    activation_open = " open" if pending_requests else ""
+
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Local Flight Network Admin</title>
+<style>
+  :root {{
+    --bg: #061019;
+    --panel: #0f1926;
+    --line: #223448;
+    --line-soft: #182737;
+    --text: #ecf4ff;
+    --muted: #91a7c0;
+    --soft: #6f849b;
+    --blue: #5ca8ff;
+    --cyan: #43d8e8;
+    --green: #2ad07f;
+    --amber: #ffbf59;
+    --red: #ff716d;
+    --shadow: 0 28px 80px rgba(0, 0, 0, 0.34);
+  }}
+  * {{ box-sizing: border-box; }}
+  body {{
+    margin: 0;
+    min-height: 100vh;
+    font-family: "Segoe UI Variable", "Aptos", "SF Pro Display", sans-serif;
+    background:
+      radial-gradient(circle at top left, rgba(67, 216, 232, 0.12), transparent 28%),
+      radial-gradient(circle at top right, rgba(92, 168, 255, 0.10), transparent 24%),
+      linear-gradient(180deg, #061019 0%, #0b1723 48%, #08111a 100%);
+    color: var(--text);
+    line-height: 1.45;
+  }}
+  .wrap {{ max-width: 1600px; margin: 0 auto; padding: 28px; }}
+  .hero {{
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 24px;
+    padding: 24px 26px;
+    margin-bottom: 16px;
+    border-radius: 22px;
+    border: 1px solid rgba(92, 168, 255, 0.22);
+    background:
+      linear-gradient(135deg, rgba(92, 168, 255, 0.16), rgba(15, 25, 38, 0.92) 42%),
+      linear-gradient(180deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0.01));
+    box-shadow: var(--shadow);
+  }}
+  .eyebrow {{
+    margin-bottom: 8px;
+    color: var(--cyan);
+    font-size: .78rem;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+  }}
+  h1 {{ margin: 0 0 8px; font-size: 2rem; line-height: 1.05; }}
+  .sub {{
+    max-width: 860px;
+    color: var(--muted);
+    font-size: .95rem;
+  }}
+  .hero-meta {{
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: flex-end;
+    align-content: flex-start;
+    min-width: 260px;
+  }}
+  .notice {{
+    margin: 0 0 14px;
+    padding: 12px 14px;
+    border-radius: 14px;
+    background: rgba(17, 29, 42, 0.92);
+    border: 1px solid var(--line);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.18);
+  }}
+  .notice.ok {{
+    border-color: rgba(42, 208, 127, 0.42);
+    background: rgba(10, 41, 26, 0.88);
+  }}
+  .grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 18px; }}
+  .metric {{
+    padding: 16px 18px;
+    border-radius: 18px;
+    border: 1px solid var(--line);
+    background: linear-gradient(180deg, rgba(19, 33, 49, 0.94), rgba(12, 22, 34, 0.96));
+    box-shadow: 0 18px 44px rgba(0, 0, 0, 0.18);
+  }}
+  .metric-label {{
+    color: var(--muted);
+    font-size: .74rem;
+    letter-spacing: .10em;
+    text-transform: uppercase;
+  }}
+  .metric-value {{
+    margin-top: 8px;
+    font-size: 1.9rem;
+    font-weight: 800;
+    line-height: 1;
+  }}
+  .metric-sub {{
+    margin-top: 6px;
+    color: var(--soft);
+    font-size: .82rem;
+  }}
+  .split {{ display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-bottom: 16px; }}
+  .card, .section {{
+    border-radius: 20px;
+    border: 1px solid var(--line);
+    background: linear-gradient(180deg, rgba(14, 25, 38, 0.96), rgba(10, 18, 29, 0.98));
+    box-shadow: 0 18px 48px rgba(0, 0, 0, 0.18);
+  }}
+  .card {{ padding: 18px 20px; }}
+  .stack {{ display: grid; gap: 16px; }}
+  .section-head {{
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 16px;
+    padding: 18px 20px 0;
+  }}
+  .section-head h2 {{
+    margin: 0 0 6px;
+    font-size: .9rem;
+    color: var(--text);
+    letter-spacing: .12em;
+    text-transform: uppercase;
+  }}
+  .section-copy {{
+    color: var(--muted);
+    font-size: .88rem;
+    max-width: 820px;
+  }}
+  .section-tools {{ padding: 0 20px 18px; color: var(--soft); font-size: .82rem; }}
+  .soft {{ color: var(--soft); }}
+  .muted {{ color: var(--soft); padding: 24px 14px; text-align: center; }}
+  .mono {{ font-family: "Cascadia Code", "SFMono-Regular", Consolas, monospace; }}
+  .tiny {{ font-size: .8rem; color: var(--muted); }}
+  .cell-title {{ font-weight: 700; }}
+  .cell-sub {{ margin-top: 3px; color: var(--soft); font-size: .8rem; }}
+  .badge {{
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 9px;
+    border-radius: 999px;
+    border: 1px solid transparent;
+    font-size: .74rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .08em;
+    white-space: nowrap;
+  }}
+  .badge-blue {{ color: #a7d3ff; background: rgba(92, 168, 255, 0.14); border-color: rgba(92, 168, 255, 0.25); }}
+  .badge-cyan {{ color: #b6f6ff; background: rgba(67, 216, 232, 0.14); border-color: rgba(67, 216, 232, 0.28); }}
+  .badge-green {{ color: #b9ffd9; background: rgba(42, 208, 127, 0.14); border-color: rgba(42, 208, 127, 0.26); }}
+  .badge-amber {{ color: #ffe3a7; background: rgba(255, 191, 89, 0.14); border-color: rgba(255, 191, 89, 0.28); }}
+  .badge-red {{ color: #ffd0cd; background: rgba(255, 113, 109, 0.14); border-color: rgba(255, 113, 109, 0.28); }}
+  .badge-slate {{ color: #d0dded; background: rgba(145, 167, 192, 0.12); border-color: rgba(145, 167, 192, 0.20); }}
+  .stat-list {{ display: grid; gap: 10px; }}
+  .stat-row {{
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--line-soft);
+    font-size: .92rem;
+  }}
+  .stat-row:last-child {{ border-bottom: 0; }}
+  .stat-row strong {{ color: var(--text); }}
+  .table-shell {{ padding: 0 20px 20px; overflow-x: auto; }}
+  table {{
+    width: 100%;
+    border-collapse: collapse;
+    font-size: .84rem;
+    background: rgba(8, 16, 25, 0.86);
+    border: 1px solid var(--line-soft);
+    border-radius: 16px;
+    overflow: hidden;
+  }}
+  th {{
+    text-align: left;
+    padding: 11px 12px;
+    background: rgba(15, 25, 38, 0.95);
+    border-bottom: 1px solid var(--line);
+    color: var(--muted);
+    font-size: .72rem;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+  }}
+  td {{
+    padding: 12px;
+    border-bottom: 1px solid var(--line-soft);
+    vertical-align: top;
+  }}
+  tr:last-child td {{ border-bottom: 0; }}
+  tr:hover td {{ background: rgba(92, 168, 255, 0.04); }}
+  .actions {{ min-width: 240px; }}
+  form {{ display: grid; gap: 10px; }}
+  .inline {{ display: inline-block; margin: 0 6px 6px 0; }}
+  .inline input {{ display: none; }}
+  label {{ font-size: .83rem; color: var(--muted); }}
+  input {{
+    width: 100%;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 11px 12px;
+    background: rgba(5, 11, 18, 0.92);
+    color: var(--text);
+    outline: none;
+  }}
+  input:focus {{ border-color: rgba(92, 168, 255, 0.45); box-shadow: 0 0 0 3px rgba(92, 168, 255, 0.12); }}
+  button {{
+    border: 0;
+    border-radius: 12px;
+    padding: 10px 13px;
+    font-weight: 800;
+    cursor: pointer;
+    background: var(--green);
+    color: #041108;
+  }}
+  button.red {{ background: var(--red); color: #220605; }}
+  button.amber {{ background: var(--amber); color: #261500; }}
+  button.slate {{ background: #223447; color: var(--text); }}
+  button.green {{ background: var(--green); color: #041108; }}
+  .meter {{
+    height: 8px;
+    border-radius: 999px;
+    background: rgba(145, 167, 192, 0.13);
+    overflow: hidden;
+    margin-bottom: 6px;
+  }}
+  .meter-fill {{ height: 100%; border-radius: inherit; }}
+  .meter-green {{ background: linear-gradient(90deg, rgba(42, 208, 127, 0.45), rgba(42, 208, 127, 0.92)); }}
+  .meter-amber {{ background: linear-gradient(90deg, rgba(255, 191, 89, 0.45), rgba(255, 191, 89, 0.92)); }}
+  .meter-red {{ background: linear-gradient(90deg, rgba(255, 113, 109, 0.45), rgba(255, 113, 109, 0.92)); }}
+  details.section {{ margin-bottom: 16px; overflow: hidden; }}
+  details.section > summary {{
+    list-style: none;
+    cursor: pointer;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 16px;
+    padding: 18px 20px;
+    font-weight: 700;
+  }}
+  details.section > summary::-webkit-details-marker {{ display: none; }}
+  details.section[open] > summary {{ border-bottom: 1px solid var(--line); }}
+  .summary-meta {{ color: var(--muted); font-size: .82rem; font-weight: 600; }}
+  @media (max-width: 1080px) {{
+    .split {{ grid-template-columns: 1fr; }}
+    .hero {{ flex-direction: column; }}
+    .hero-meta {{ justify-content: flex-start; min-width: 0; }}
+  }}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="hero">
+    <div>
+      <div class="eyebrow">Shared Schedule Relay</div>
+      <h1>Local Flight Community Relay Admin</h1>
+      <div class="sub">This surface is the operator view for shared airport snapshots, activation flow, managed exceptions, radar relay traffic, and upstream provider health. Community and managed installs share cached schedule windows here, while raw provider passthrough stays operator-only.</div>
+    </div>
+    <div class="hero-meta">
+      {_badge(f"Month {month}", "blue")}
+      {_badge(f"Revision {provider_revision}", "cyan")}
+      {_badge("Raw IP storage disabled", "slate")}
+      {_badge("Raw provider debug on" if _raw_provider_debug_enabled() else "Raw provider debug off", "amber" if _raw_provider_debug_enabled() else "slate")}
+      {_badge(f"Logged in as {username}", "green")}
+    </div>
+  </div>
+  {token_notice}
+  {message_notice}
+
+  <div class="grid">
+    <div class="metric"><div class="metric-label">Known installs</div><div class="metric-value">{int(total_installs or 0):,}</div><div class="metric-sub">Distinct installs with relay usage this month</div></div>
+    <div class="metric"><div class="metric-label">Active clients (24h)</div><div class="metric-value">{active_clients_24h:,}</div><div class="metric-sub">Installs that checked in with an airport lane today</div></div>
+    <div class="metric"><div class="metric-label">Active airport lanes</div><div class="metric-value">{active_lane_count:,}</div><div class="metric-sub">Distinct airport and board-window combinations active today</div></div>
+    <div class="metric"><div class="metric-label">Schedule accesses</div><div class="metric-value">{int(total_schedule or 0):,}</div><div class="metric-sub">Per-install relay schedule uses this month</div></div>
+    <div class="metric"><div class="metric-label">Upstream pulls</div><div class="metric-value">{int(total_schedule_upstream or 0):,}</div><div class="metric-sub">Actual AviationStack page pulls charged upstream</div></div>
+    <div class="metric"><div class="metric-label">Snapshot refreshes</div><div class="metric-value">{snapshot_refreshes:,}</div><div class="metric-sub">{snapshot_pool_count:,} cached windows | {snapshot_stale_count:,} currently stale</div></div>
+    <div class="metric"><div class="metric-label">Cache hit rate</div><div class="metric-value">{snapshot_hit_rate:.1f}%</div><div class="metric-sub">{snapshot_hits:,} cache hits | {snapshot_stale:,} stale serves</div></div>
+    <div class="metric"><div class="metric-label">Estimated savings</div><div class="metric-value">{snapshot_savings:,}</div><div class="metric-sub">Upstream refreshes avoided by sharing airport snapshots</div></div>
+    <div class="metric"><div class="metric-label">Radar accesses</div><div class="metric-value">{int(total_radar or 0):,}</div><div class="metric-sub">Relay radar uses this month</div></div>
+    <div class="metric"><div class="metric-label">Request errors (24h)</div><div class="metric-value">{int(totals_24h['errors'] or 0):,}</div><div class="metric-sub">{int(totals_24h['requests'] or 0):,} requests | {int(totals_24h['avg_latency'] or 0)}ms average latency</div></div>
+    <div class="metric"><div class="metric-label">Pending reviews</div><div class="metric-value">{int(pending_requests or 0):,}</div><div class="metric-sub">Activation requests waiting for a human decision</div></div>
+    <div class="metric"><div class="metric-label">Blocked installs</div><div class="metric-value">{int(blocked_count or 0):,}</div><div class="metric-sub">{snapshot_error_count:,} snapshot rows currently carry a last error note</div></div>
+  </div>
+
+  <div class="split">
+    <div class="card stack">
+      <div>
+        <div class="eyebrow">Provider State</div>
+        <h1 style="font-size:1.35rem;margin:0 0 8px;">Relay keys and shared behavior</h1>
+        <div class="section-copy">Managed and community clients do not receive vendor keys directly. The relay keeps provider credentials private, shares airport snapshots across installs, and only exposes Local Flight's canonical schedule records to clients.</div>
+      </div>
+      <div class="stat-list">
+        <div class="stat-row"><span>Provider revision</span><strong>{html.escape(str(provider_revision))}</strong></div>
+        <div class="stat-row"><span>AviationStack</span><strong>{html.escape(_mask_secret(aviationstack_key))} <span class="tiny">({html.escape(aviationstack_source)})</span></strong></div>
+        <div class="stat-row"><span>RapidAPI ADS-B</span><strong>{html.escape(_mask_secret(rapidapi_key))} <span class="tiny">({html.escape(rapidapi_source)})</span></strong></div>
+        <div class="stat-row"><span>Community schedule cap</span><strong>{_community_schedule_limit()} accesses / install / 30-day window</strong></div>
+        <div class="stat-row"><span>Managed defaults</span><strong>{_managed_schedule_limit()} schedule | {_managed_radar_limit()} radar</strong></div>
+        <div class="stat-row"><span>Snapshot pool</span><strong>{snapshot_pool_count:,} windows | {snapshot_refreshes:,} refreshes | {snapshot_stale:,} stale serves</strong></div>
+        <div class="stat-row"><span>Radar cache</span><strong>{_radar_cache_seconds()} seconds</strong></div>
+        <div class="stat-row"><span>Raw provider debug</span><strong>{'Enabled on admin/local only' if _raw_provider_debug_enabled() else 'Disabled'}</strong></div>
+        <div class="stat-row"><span>Activation privacy</span><strong>Anonymous network tags only | no raw IP storage</strong></div>
+      </div>
+      <form method="post" action="/admin/providers/save">
+        <label>AviationStack key
+          <input name="aviationstack_key" placeholder="Paste a replacement key to store in the relay" />
+        </label>
+        <label>RapidAPI ADS-B key
+          <input name="rapidapi_key" placeholder="Paste a replacement key to store in the relay" />
+        </label>
+        <button type="submit">Save provider keys</button>
+      </form>
+      <div>
+        {_post_form('/admin/providers/clear', {'provider': 'aviationstack'}, 'Clear AviationStack override', 'slate')}
+        {_post_form('/admin/providers/clear', {'provider': 'rapidapi'}, 'Clear RapidAPI override', 'slate')}
+      </div>
+    </div>
+
+    <div class="card stack">
+      <div>
+        <div class="eyebrow">Operator Controls</div>
+        <h1 style="font-size:1.35rem;margin:0 0 8px;">Managed tokens and relay counters</h1>
+        <div class="section-copy">Normal installs should keep auto-issuing through the setup flow. This panel exists for managed exceptions, manual quota corrections, reshuffles, revokes, and log resets when you need to intervene.</div>
+      </div>
+      <form method="post" action="/admin/activation/create">
+        <label>Label
+          <input name="label" placeholder="Client name or deployment note" />
+        </label>
+        <label>Schedule limit
+          <input name="schedule_limit" type="number" min="1" value="{_managed_schedule_limit()}" />
+        </label>
+        <label>Radar limit
+          <input name="radar_limit" type="number" min="1" value="{_managed_radar_limit()}" />
+        </label>
+        <button type="submit">Create activation token</button>
+      </form>
+      <div>
+        {_post_form('/admin/counters/reset', {'scope': 'all'}, 'Reset all monthly counters', 'amber')}
+        {_post_form('/admin/counters/reset', {'scope': 'service', 'service': 'aviationstack'}, 'Reset schedule counters', 'slate')}
+        {_post_form('/admin/counters/reset', {'scope': 'service', 'service': 'radar'}, 'Reset radar counters', 'slate')}
+        {_post_form('/admin/counters/reset', {'scope': 'logs'}, 'Clear network log', 'slate')}
+        <form method="post" action="/admin/counters/correct-schedule" style="margin-top:0.5rem;display:flex;gap:0.4rem;align-items:center">
+          <input name="total" type="number" min="0" value="{int(total_schedule or 0)}" style="width:9rem" title="Set known schedule total for this month (includes prior usage outside this relay)" />
+          <button type="submit">Correct schedule total</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <div class="split">
+    <section class="section">
+      <div class="section-head">
+        <div>
+          <h2>Monthly service counters</h2>
+          <div class="section-copy">This is the usage view that matters for product policy: per-install schedule accesses, shared upstream pulls, and radar relay traffic, all split by plan.</div>
+        </div>
+      </div>
+      <div class="table-shell">
+        <table>
+          <thead><tr><th>Service</th><th>Plan</th><th>Installs</th><th>Calls</th><th>Last seen</th></tr></thead>
+          <tbody>{rows_for_service_breakdown()}</tbody>
+        </table>
+      </div>
+    </section>
+    <section class="section">
+      <div class="section-head">
+        <div>
+          <h2>Transport health (24h)</h2>
+          <div class="section-copy">Recent network behavior across the relay. This is the quickest place to spot latency drift, quota failures, or a provider path getting noisy.</div>
+        </div>
+      </div>
+      <div class="table-shell">
+        <table>
+          <thead><tr><th>Service</th><th>Plan</th><th>Requests</th><th>Avg latency</th><th>Errors</th></tr></thead>
+          <tbody>{rows_for_network_breakdown()}</tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+
+  <div class="split">
+    <section class="section">
+      <div class="section-head">
+        <div>
+          <h2>Shared snapshot pool</h2>
+          <div class="section-copy">Every row below is one cached airport + timezone + board-window intent. If many installs watch the same lane, they should pile into one of these rows instead of generating duplicate AviationStack traffic.</div>
+        </div>
+        <div class="summary-meta">{snapshot_pool_count:,} cached windows</div>
+      </div>
+      <div class="table-shell">
+        <table>
+          <thead><tr><th>Airport window</th><th>Coverage</th><th>Shared use</th><th>State</th><th>Updated</th></tr></thead>
+          <tbody>{rows_for_snapshot_pool()}</tbody>
+        </table>
+      </div>
+    </section>
+    <section class="section">
+      <div class="section-head">
+        <div>
+          <h2>Live airport lanes (24h)</h2>
+          <div class="section-copy">This is the clean operator view of what clients are actually watching right now. It groups installs by airport lane, shows the cadence they requested, and tells you whether the shared schedule row behind that lane is fresh or drifting.</div>
+        </div>
+        <div class="summary-meta">{active_lane_count:,} grouped lanes</div>
+      </div>
+      <div class="table-shell">
+        <table>
+          <thead><tr><th>Airport</th><th>Watching installs</th><th>Window + cadence</th><th>Snapshot</th><th>Activity</th></tr></thead>
+          <tbody>{rows_for_live_lanes()}</tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+
+  <details class="section"{activation_open}>
+    <summary>
+      <span>Activation queue</span>
+      <span class="summary-meta">{pending_requests:,} pending review | {len(activation_requests):,} total rows</span>
+    </summary>
+    <div class="section-tools">Use this queue for manual review fallbacks, instant issue, dismissals, and clearing historic activation rows once they are no longer useful.</div>
+    <div class="table-shell">
+      <table>
+        <thead><tr><th>Install</th><th>Network tag</th><th>Request</th><th>Status</th><th>Decision note</th><th>Created</th><th>Actions</th></tr></thead>
+        <tbody>{rows_for_activation_requests()}</tbody>
+      </table>
+    </div>
+  </details>
+
+  <details class="section">
+    <summary>
+      <span>Managed tokens</span>
+      <span class="summary-meta">{len(tokens):,} tracked tokens</span>
+    </summary>
+    <div class="section-tools">Managed tokens are the exception lane. The meters below show this month's relay-facing schedule and radar usage against the limits stored on each token.</div>
+    <div class="table-shell">
+      <table>
+        <thead><tr><th>Token</th><th>Label</th><th>Schedule</th><th>Radar</th><th>Binding</th><th>Status</th><th>Actions</th></tr></thead>
+        <tbody>{rows_for_tokens()}</tbody>
+      </table>
+    </div>
+  </details>
+
+  <details class="section">
+    <summary>
+      <span>Install registry</span>
+      <span class="summary-meta">{len(installs):,} installs with monthly usage</span>
+    </summary>
+    <div class="section-tools">This registry is useful when you need to trace a specific install fingerprint, reset a single install's counters, or revoke access without touching the rest of the shared pool.</div>
+    <div class="table-shell">
+      <table>
+        <thead><tr><th>Install</th><th>Schedule</th><th>Radar</th><th>Current lane</th><th>Plans</th><th>Status</th><th>Actions</th></tr></thead>
+        <tbody>{rows_for_installs()}</tbody>
+      </table>
+    </div>
+  </details>
+
+  <details class="section">
+    <summary>
+      <span>Recent relay requests</span>
+      <span class="summary-meta">Last {len(recent):,} request log rows</span>
+    </summary>
+    <div class="section-tools">This is the rawer transport tail for the relay. It is useful when you want to eyeball status codes, shared schedule scope, or latency spikes without dropping into logs.</div>
+    <div class="table-shell">
+      <table>
+        <thead><tr><th>Time</th><th>Install</th><th>Service</th><th>Scope</th><th>Status</th><th>Latency</th><th>Wire id</th></tr></thead>
+        <tbody>{rows_for_recent()}</tbody>
+      </table>
+    </div>
+  </details>
+</div>
+</body>
+</html>"""
+
+
 @asynccontextmanager
 async def _lifespan(_app: FastAPI):
     _db_path().parent.mkdir(parents=True, exist_ok=True)
@@ -1832,6 +3953,11 @@ class ClientStatusIn(BaseModel):
     install_id: str
     activation_token: str = ""
     app_version: str = ""
+    airport_iata: str = ""
+    timezone: str = ""
+    display_grace_minutes: int = 30
+    display_horizon_hours: int = 12
+    refresh_seconds: int = 3600
 
 
 class ReportIn(BaseModel):
@@ -1888,6 +4014,7 @@ def _build_client_status(
     aviationstack_key, _ = _provider_status(_SETTING_AVIATIONSTACK_KEY, "AVIATIONSTACK_API_KEY", conn=conn)
     rapidapi_key, _ = _provider_status(_SETTING_RAPIDAPI_KEY, "RAPIDAPI_KEY", conn=conn)
     revision = _provider_revision(conn)
+    interest = _client_interest_snapshot(conn, install_id)
     conn.close()
 
     return {
@@ -1907,6 +4034,8 @@ def _build_client_status(
             "schedule": schedule_limit,
             "radar": radar_limit,
         },
+        "interest": interest or {},
+        "schedule_cache": (interest or {}).get("schedule_cache") or {},
     }
 
 
@@ -2026,11 +4155,29 @@ def relay_client_status(
 @app.post("/v1/client/checkin")
 def relay_client_checkin(body: ClientStatusIn) -> Dict[str, Any]:
     install_id = _validate_install_id(body.install_id)
-    return _build_client_status(
+    status = _build_client_status(
         install_id=install_id,
         activation_token=(body.activation_token or "").strip(),
         app_version=body.app_version,
     )
+    airport_iata = _clean_airport(body.airport_iata) if (body.airport_iata or "").strip() else None
+    timezone_name = (body.timezone or "").strip()
+    if airport_iata and timezone_name:
+        _record_client_interest(
+            install_id=install_id,
+            plan=str(status.get("plan") or "community"),
+            airport_iata=airport_iata,
+            timezone_name=timezone_name,
+            display_grace_minutes=max(0, int(body.display_grace_minutes or 0)),
+            display_horizon_hours=max(1, int(body.display_horizon_hours or 1)),
+            refresh_seconds=max(60, int(body.refresh_seconds or 3600)),
+        )
+        status = _build_client_status(
+            install_id=install_id,
+            activation_token=(body.activation_token or "").strip(),
+            app_version=body.app_version,
+        )
+    return status
 
 
 @app.post("/v1/activation-request")
@@ -2157,14 +4304,256 @@ def relay_reports(body: ReportIn, request: Request) -> Dict[str, Any]:
         conn.close()
 
 
+@app.get("/v1/schedule")
+def relay_schedule(
+    airport_iata: str = Query(...),
+    timezone: str = Query(...),
+    display_grace_minutes: int = Query(30, ge=0, le=180),
+    display_horizon_hours: int = Query(12, ge=1, le=24),
+    refresh_seconds: int = Query(3600, ge=60, le=86400),
+    install_id: str = Query(...),
+    activation_token: str = Query(""),
+) -> JSONResponse:
+    install_id = _validate_install_id(install_id)
+    airport_iata = _clean_airport(airport_iata)
+    timezone_name = (timezone or "").strip()
+    if not timezone_name:
+        raise HTTPException(status_code=400, detail="timezone is required")
+
+    access = _resolve_access(install_id=install_id, activation_token=activation_token, service="aviationstack")
+    _record_client_interest(
+        install_id=install_id,
+        plan=str(access["plan"] or "community"),
+        airport_iata=airport_iata,
+        timezone_name=timezone_name,
+        display_grace_minutes=display_grace_minutes,
+        display_horizon_hours=display_horizon_hours,
+        refresh_seconds=refresh_seconds,
+    )
+
+    month = _month_key()
+    current = _get_usage(access["subject_key"], "aviationstack", month)
+    if current >= access["limit"]:
+        return JSONResponse(
+            {
+                "error": {
+                    "code": "quota_exceeded",
+                    "info": (
+                        f"{access['plan'].title()} relay schedule access quota exceeded: "
+                        f"{current}/{access['limit']} accesses used in the current window."
+                    ),
+                }
+            },
+            status_code=429,
+            headers=_quota_headers("aviationstack", current, access["limit"], access["plan"]),
+        )
+
+    cache_key = _schedule_cache_key(
+        airport_iata=airport_iata,
+        timezone_name=timezone_name,
+        display_grace_minutes=display_grace_minutes,
+        display_horizon_hours=display_horizon_hours,
+    )
+    lock = _get_schedule_lock(cache_key)
+
+    def _quota_headers_for_access(used_count: int) -> Dict[str, str]:
+        return _quota_headers("aviationstack", used_count, access["limit"], access["plan"])
+
+    def _serve_snapshot(
+        row: sqlite3.Row,
+        *,
+        cache_state: str,
+        served_via: str,
+        count_cache_hit: bool = False,
+        count_stale: bool = False,
+        used_count: int,
+    ) -> JSONResponse:
+        payload = _snapshot_payload_from_row(row, cache_state=cache_state)
+        payload["meta"]["served_via"] = served_via
+        _record_schedule_access(
+            cache_key=cache_key,
+            cache_state=cache_state,
+            count_cache_hit=count_cache_hit,
+            count_stale=count_stale,
+        )
+        return JSONResponse(payload, headers=_quota_headers_for_access(used_count))
+
+    used = _increment_usage(
+        subject_key=access["subject_key"],
+        service="aviationstack",
+        month=month,
+        plan=access["plan"],
+        install_id=install_id,
+    )
+
+    conn = _connect()
+    snapshot_row = _load_schedule_snapshot_conn(conn, cache_key)
+    state = _snapshot_lifecycle_state(snapshot_row, refresh_seconds=refresh_seconds)
+    conn.close()
+
+    if snapshot_row is not None and state == "fresh":
+        _log_request(
+            install_id=install_id,
+            scope="shared_schedule",
+            status=200,
+            latency_ms=0,
+            service="aviationstack",
+            plan=access["plan"],
+        )
+        return _serve_snapshot(
+            snapshot_row,
+            cache_state="fresh",
+            served_via="cache-hit",
+            count_cache_hit=True,
+            used_count=used,
+        )
+
+    acquired = lock.acquire(blocking=False)
+    if not acquired:
+        if snapshot_row is not None and state == "stale":
+            _log_request(
+                install_id=install_id,
+                scope="shared_schedule",
+                status=200,
+                latency_ms=0,
+                service="aviationstack",
+                plan=access["plan"],
+            )
+            return _serve_snapshot(
+                snapshot_row,
+                cache_state="stale",
+                served_via="stale-fallback",
+                count_stale=True,
+                used_count=used,
+            )
+
+        waited = lock.acquire(timeout=_SHARED_SCHEDULE_LOCK_WAIT_S)
+        if waited:
+            lock.release()
+        conn = _connect()
+        latest = _load_schedule_snapshot_conn(conn, cache_key)
+        latest_state = _snapshot_lifecycle_state(latest, refresh_seconds=refresh_seconds)
+        conn.close()
+        if latest is not None and latest_state in {"fresh", "stale"}:
+            _log_request(
+                install_id=install_id,
+                scope="shared_schedule",
+                status=200,
+                latency_ms=0,
+                service="aviationstack",
+                plan=access["plan"],
+            )
+            return _serve_snapshot(
+                latest,
+                cache_state="fresh" if latest_state == "fresh" else "stale",
+                served_via="awaited-refresh" if latest_state == "fresh" else "stale-fallback",
+                count_cache_hit=latest_state == "fresh",
+                count_stale=latest_state == "stale",
+                used_count=used,
+            )
+        raise HTTPException(status_code=503, detail="Relay schedule refresh is already in progress")
+
+    t0 = time.monotonic()
+    try:
+        snapshot = _fetch_shared_schedule_from_upstream(
+            airport_iata=airport_iata,
+            timezone_name=timezone_name,
+            display_grace_minutes=display_grace_minutes,
+            display_horizon_hours=display_horizon_hours,
+        )
+        latency_ms = int((time.monotonic() - t0) * 1000)
+        pages_fetched = int(((snapshot.get("meta") or {}).get("pages_fetched", 0) or 0))
+        _store_schedule_snapshot(
+            cache_key=cache_key,
+            airport_iata=airport_iata,
+            timezone_name=timezone_name,
+            display_grace_minutes=display_grace_minutes,
+            display_horizon_hours=display_horizon_hours,
+            payload=snapshot,
+            pages_fetched=pages_fetched,
+        )
+        if pages_fetched > 0:
+            _increment_usage(
+                subject_key=f"shared:{cache_key}",
+                service="aviationstack_upstream",
+                month=month,
+                plan="shared",
+                install_id=None,
+                n_calls=pages_fetched,
+            )
+        _log_request(
+            install_id=install_id,
+            scope="shared_schedule",
+            status=200,
+            latency_ms=latency_ms,
+            service="aviationstack",
+            plan=access["plan"],
+        )
+        conn = _connect()
+        fresh_row = _load_schedule_snapshot_conn(conn, cache_key)
+        conn.close()
+        if fresh_row is None:
+            raise HTTPException(status_code=500, detail="Relay snapshot storage failed")
+        public_state = "miss" if snapshot_row is None else "fresh"
+        return _serve_snapshot(
+            fresh_row,
+            cache_state=public_state,
+            served_via="cold-fill" if public_state == "miss" else "refresh",
+            used_count=used,
+        )
+    except HTTPException as exc:
+        latency_ms = int((time.monotonic() - t0) * 1000)
+        if snapshot_row is not None and state == "stale":
+            conn = _connect()
+            conn.execute(
+                "UPDATE schedule_snapshots SET last_error=?, updated_at=? WHERE cache_key=?",
+                (str(exc.detail), _utc_now(), cache_key),
+            )
+            conn.commit()
+            stale_row = _load_schedule_snapshot_conn(conn, cache_key)
+            conn.close()
+            _log_request(
+                install_id=install_id,
+                scope="shared_schedule",
+                status=200,
+                latency_ms=latency_ms,
+                service="aviationstack",
+                plan=access["plan"],
+            )
+            if stale_row is not None:
+                return _serve_snapshot(
+                    stale_row,
+                    cache_state="stale",
+                    served_via="stale-on-error",
+                    count_stale=True,
+                    used_count=used,
+                )
+        _log_request(
+            install_id=install_id,
+            scope="shared_schedule",
+            status=getattr(exc, "status_code", 502),
+            latency_ms=latency_ms,
+            service="aviationstack",
+            plan=access["plan"],
+        )
+        raise
+    finally:
+        lock.release()
+
+
 @app.get("/v1/flights")
 def relay_flights(
+    request: Request,
     dep_iata: Optional[str] = Query(None),
     arr_iata: Optional[str] = Query(None),
     limit: int = Query(10, ge=1, le=100),
+    flight_date: Optional[str] = Query(None),
+    offset: int = Query(0, ge=0, le=10000),
     install_id: str = Query(...),
     activation_token: str = Query(""),
 ) -> Response:
+    if not _raw_provider_debug_enabled() or _request_surface(request) not in {"admin", "local"}:
+        raise HTTPException(status_code=404, detail="Not found")
     install_id = _validate_install_id(install_id)
     dep_iata = _clean_airport(dep_iata)
     arr_iata = _clean_airport(arr_iata)
@@ -2192,6 +4581,10 @@ def relay_flights(
         raise HTTPException(status_code=503, detail=str(exc))
 
     params: Dict[str, Any] = {"access_key": aviationstack_key, "limit": limit}
+    if flight_date:
+        params["flight_date"] = str(flight_date).strip()
+    if offset > 0:
+        params["offset"] = int(offset)
     if dep_iata:
         params["dep_iata"] = dep_iata
     if arr_iata:

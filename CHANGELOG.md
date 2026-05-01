@@ -6,18 +6,48 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [0.2.5b2] - 2026-05-01 (preliminary)
+## [0.2.5b3] - 2026-05-01
 
 ### Added
+- Shared relay schedule snapshots for community and managed installs via `GET /v1/schedule`, so the relay can fan out one upstream AviationStack refresh to many clients watching the same airport window.
+- Relay-side schedule cache metadata and savings stats in admin/settings payloads, including shared access counts, upstream pull counts, cache-hit rate, and estimated savings.
+- AviationStack audit script (`scripts/audit_aviationstack.py`) for comparing baseline, paginated, and fair windowed fetch strategies across a global airport sample.
+- Configurable board-density controls for real-data fairness and overflow handling: `display_grace_minutes`, `display_horizon_hours`, `web_row_limit`, `web_rotation_seconds`, and matrix page rotation.
+- Relay-backed developer report gateway at `POST /v1/reports`, with Linear team routing, relay-side dedupe, rate limits, and secret redaction before Linear issue creation.
+- Mobile-local diagnostics consent, stored on-device, so companion auto-reporting requires both the mobile choice and the connected server diagnostics mode to allow it.
+
+### Changed
+- AviationStack schedule fetching now uses a shared date-aware planner across BYOK, direct local relay-key use, and hosted relay-backed paths: page size `100`, airport-local date windows, and per-date pagination.
+- The AviationStack planner now keeps paging past the initial production slice when a busy airport has not yet reached the visible board window, and relay-backed shared snapshots now rebuild on planner version `fair-v3`.
+- Community and managed installs no longer consume raw provider JSON from the relay. They now receive Local Flight canonical records and continue the normal local normalize, enrich, history, and FIDS pipeline.
+- Community relay budget wording now reflects the actual model: `LOCALFLIGHT_RELAY_MONTHLY_LIMIT` tracks per-install relay schedule accesses, while upstream AviationStack pulls are shared and counted separately on the relay.
+- Web and matrix boards now rotate overflow pages locally instead of forcing a single fixed visible slice.
+- When a date-scoped AviationStack board would otherwise come back empty, Local Flight now tries an undated rescue pass before surfacing that sparse result.
+- Developer report submission now forwards through the hosted relay instead of shipping a developer Linear credential in the desktop/mobile package.
+
+### Fixed
+- FIDS board filtering now uses the snapshot timestamp as its reference clock, so valid saved rows do not disappear just because the wall clock moved on while the snapshot stayed unchanged.
+- When a real-data lane still has no rows inside the live display window, the board now falls back to the nearest available real flights instead of showing a completely empty departures/arrivals table.
+- Matrix clients now clear stale rows when a refresh fails or returns empty data, avoiding misleading leftovers and tight retry hammering.
+- Bug reports now attach truthful schedule-mode context for BYOK, direct local community-key, and shared relay snapshot paths, plus the active display window and web board density settings.
+- Automatic crash deduplication is now scoped by crash context as well as message, and the mobile crash boundary copy now reflects best-effort report delivery more honestly.
+- Relay production packaging now bundles the `localflight` schedule helpers inside the Fly image, so the shared `/v1/schedule` route works live instead of failing with `ModuleNotFoundError`.
+- Relay-backed schedule fetches now allow a longer timeout on cold shared-snapshot rebuilds, reducing false client failures while the relay performs the heavier sparse-board rescue path.
+- Mobile crash reports with feature-specific context now keep the standard companion identity, app version, device type, and server URL attached for triage.
+
+---
+
+## [0.2.5b2] - 2026-04-30
+
+### Added
+- iOS-first companion polish pass across the Expo shell, including the longer branded launch overlay, stronger crash-reporting context, and cleaner companion identity reporting.
 - Mobile companion appearance system with independent on-device `dark` / `light` theme selection and five mobile skins: `standard`, `technical`, `neon`, `cyan`, and `crt`.
 - Mobile Settings **Appearance** controls with theme toggle, skin chips, and a live preview strip. Mobile appearance stays local to the device and does not sync with desktop/server skin.
 - Mobile support for the existing `/api/matrix/config` runtime contract. The Matrix screen now loads server config, edits a local draft, saves explicitly, and can reset unsaved edits back to the server state.
 - Mobile landscape display mode for FIDS and Radar. Rotating while on either screen opens a side-by-side display, with FIDS-primary or Radar-primary focus preserved.
 - Responsive mobile radar scope with pinch-to-zoom range changes that snap across the desktop-aligned 10 / 20 / 40 / 80 NM ranges, plus compact fallback range chips.
-- Longer mobile launch overlay with FIDS/radar/runway visual treatment so the companion startup feels closer to the desktop splash direction.
 - In-app mobile document reader for README, Privacy, and Changelog, with formatted Markdown rendering and browser fallback.
-- Relay-backed developer report gateway at `POST /v1/reports`, with Linear team routing, relay-side dedupe, rate limits, and secret redaction before Linear issue creation.
-- Mobile-local diagnostics consent, stored on-device, so companion auto-reporting requires both the mobile choice and the connected server diagnostics mode to allow it.
+- Mobile settings/admin support for the refined desktop relay and diagnostics surfaces, keeping the companion aligned with the latest server controls.
 
 ### Changed
 - Desktop `/api/fids/detail` now exposes richer no-extra-request live-track metadata from stored snapshots, including geometric/barometric altitude fields, ICAO24, squawk, last contact, snapshot age, enrichment source, and confidence.
@@ -35,18 +65,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Mobile airport/profile changes now explicitly ask the connected server to restart the scheduler and begin a fresh fetch cycle after config save.
 - Mobile flight detail sheets now consume the expanded `/api/fids/detail` contract, including real vs VATSIM detail modes, data-source freshness, aircraft registration, ICAO24/squawk, geometric/barometric altitude, and filed VATSIM plan fields when available.
 - Mobile automatic diagnostics now cover critical flight-detail communication failures (`5xx` responses or malformed JSON) through the existing diagnostics-gated crash route, while normal offline, validation, and `4xx` states stay user-visible without auto-report noise.
-- Developer report submission now forwards through the hosted relay instead of shipping a developer Linear credential in the desktop/mobile package.
+- The companion now feels closer to the supplied airport-board mockup in daily use, with the updated FIDS shell, launch flow, and diagnostics-aware reporting path.
+- Public mobile docs now describe the current beta scope more accurately instead of treating the companion like a bare phase-one scaffold.
 - Expo mobile dependency alignment updated for SDK 55: `expo` now targets `~55.0.19` and `expo-font` is installed for `@expo/vector-icons`.
 
 ### Fixed
 - Mobile pinned-flight island and bottom nav no longer keep hardcoded dark backgrounds in light mode.
 - Mobile landscape split panes are constrained for safer scrolling/resizing after rotation.
-- Mobile crash reports with feature-specific context now keep the standard companion identity, app version, device type, and server URL attached for triage.
+- Companion version reporting now derives from Expo app metadata instead of a duplicated hardcoded string, reducing release drift risk.
+- Mobile API typings now include the newer board-window config fields, keeping the companion aligned with the desktop server contract.
 
-### Notes
-- This is a preliminary `0.2.5b2` changelog entry for the active mobile companion sprint. Repo-wide version metadata remains on `0.2.5b1` until the later version sweep.
-- `npm run typecheck` passes for the mobile app. `npm run doctor` is 17/18 on the current Mac workspace; the remaining failure is local tooling only because Expo SDK 55 reports Xcode `16.3.0` as incompatible and requires Xcode `>=26.0.0`.
-- The mobile companion still communicates with AviationStack / ADS-B data only through the Local Flight server API. It does not call the provider or hosted relay endpoints directly.
+---
 
 ## [0.2.5b1] - 2026-04-29
 
@@ -54,6 +83,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Pi installer (`installers/pi/install.sh`) fully rewritten: headless by default, optional `--kiosk` flag for Chromium kiosk, clean progress output (`ok`/`step`/`fail` helpers), all apt output suppressed, stale kiosk service removed on headless re-runs.
 - `lf` management command installed to `/usr/local/bin/lf` during Pi setup - `lf start`, `lf stop`, `lf restart`, `lf status`, `lf logs`, `lf update` work from any directory.
 - `lf.sh` rewritten: `has_kiosk()` guard makes all kiosk operations conditional on whether the kiosk service is installed; kiosk operations never run in headless mode.
+- `scripts/package_pi_source.py` builds the versioned Pi source release bundle plus SHA256 so the Pi installer is reproducible from one documented command.
 - `GET /api/matrix/config` and `POST /api/matrix/config` - LED matrix config (brightness, max rows, refresh interval, default view) stored server-side at `~/.localflight/matrix_config.json`; board picks up changes without reflashing.
 - `POST /api/matrix/script` - generates a complete, ready-to-flash Interstate 75 W `main.py` from the canonical board client template, with LAN-host validation for the board download path.
 - Matrix preview **Save Config** button: stores brightness, rows, refresh interval, and default view to the server so the board picks them up automatically.
@@ -70,6 +100,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Version metadata, mobile companion metadata, runtime fallbacks, and preview badges are now aligned to `0.2.5b1`.
 - Community relay defaults are now centralized on the live Fly.io endpoint so app code, setup, installers, and docs stop drifting.
 - Settings now separate install/relay status, flight setup, app controls, and diagnostics/resources more clearly, and community mode now truthfully reports when the hosted relay is active.
+- README now documents the Pi source release bundle and the local docs viewer routes.
 
 ### Fixed
 - `.env.example` relay URL corrected from the unregistered `relay.localflight.app` to the live endpoint `https://localflight-community-relay.fly.dev/v1/flights`.
