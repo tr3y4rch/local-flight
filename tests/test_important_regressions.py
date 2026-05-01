@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 
 import localflight.scheduler.jobs as jobs
 import localflight.scheduler.runtime as runtime
+import localflight.__main__ as localflight_main
 import localflight.sources.web.adsbexchange_client as adsbexchange_client
 import localflight.sources.web.aviationstack_client as aviationstack_client
 import localflight.sources.web.bug_reporter as bug_reporter
@@ -170,6 +171,31 @@ def test_api_config_get_route_is_registered_once() -> None:
 
     assert len(routes) == 1
     assert routes[0].endpoint.__name__ == "api_get_config"
+
+
+def test_windowed_pyinstaller_stdio_fallback_is_writable(tmp_path: Path, monkeypatch) -> None:
+    previous_handles = list(localflight_main._stdio_fallback_handles)
+
+    monkeypatch.setattr(localflight_main, "Path", types.SimpleNamespace(home=lambda: tmp_path))
+    monkeypatch.setattr(sys, "stdin", None)
+    monkeypatch.setattr(sys, "stdout", None)
+    monkeypatch.setattr(sys, "stderr", None)
+
+    localflight_main._ensure_stdio()
+
+    assert sys.stdin is not None
+    assert sys.stdout is not None
+    assert sys.stderr is not None
+    sys.stderr.write("windowed bootstrap ok\n")
+    assert (tmp_path / ".localflight" / "logs").exists()
+
+    for handle in localflight_main._stdio_fallback_handles:
+        if handle not in previous_handles:
+            try:
+                handle.close()
+            except Exception:
+                pass
+    localflight_main._stdio_fallback_handles[:] = previous_handles
 
 
 def test_aviationstack_usage_stats_report_separate_buckets(monkeypatch) -> None:
@@ -644,6 +670,7 @@ def test_fids_detail_exposes_live_track_metadata(monkeypatch, tmp_path: Path) ->
     )
 
     monkeypatch.setattr(ui_api, "load_config", lambda: AppConfig(airport_iata="ZRH", airport_icao="LSZH"))
+    monkeypatch.setattr(ui_server, "_setup_complete", lambda: True)
     monkeypatch.setattr(ui_api, "load_latest_snapshot_path", lambda airport_iata: snapshot)
     import localflight.storage.history as history
 

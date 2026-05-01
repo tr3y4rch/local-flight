@@ -47,6 +47,37 @@ BASE_URL = f"http://localhost:{PORT}"
 # ── Module-level browser process reference ─────────────────────────────────────
 # Exposed so server.py /api/quit can terminate the kiosk window.
 _browser_proc: Optional[subprocess.Popen] = None
+_stdio_fallback_handles: list[object] = []
+
+
+def _ensure_stdio() -> None:
+    """
+    PyInstaller windowed builds can start with stdio streams set to None.
+    Uvicorn/logging expects writable streams, so provide a local bootstrap log.
+    """
+    if sys.stdout is not None and sys.stderr is not None and sys.stdin is not None:
+        return
+    try:
+        log_dir = Path.home() / ".localflight" / "logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        stream = open(log_dir / f"bootstrap_{os.getpid()}.log", "a", encoding="utf-8", buffering=1)
+        _stdio_fallback_handles.append(stream)
+        if sys.stdout is None:
+            sys.stdout = stream
+        if sys.stderr is None:
+            sys.stderr = stream
+        if sys.stdin is None:
+            stdin = open(os.devnull, "r", encoding="utf-8")
+            _stdio_fallback_handles.append(stdin)
+            sys.stdin = stdin
+    except Exception:
+        # Last-resort fallback: keep startup alive even if the log path is unavailable.
+        devnull_out = open(os.devnull, "a", encoding="utf-8")
+        devnull_in = open(os.devnull, "r", encoding="utf-8")
+        _stdio_fallback_handles.extend([devnull_out, devnull_in])
+        sys.stdout = sys.stdout or devnull_out
+        sys.stderr = sys.stderr or devnull_out
+        sys.stdin = sys.stdin or devnull_in
 
 
 def _splash_url(next_path: str = "/display") -> str:
@@ -312,6 +343,7 @@ def _install_crash_hooks() -> None:
 
 
 def main() -> None:
+    _ensure_stdio()
     _load_dotenv()
     _install_crash_hooks()
 

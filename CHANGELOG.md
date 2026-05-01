@@ -40,6 +40,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Mobile crash reports with feature-specific context now keep the standard companion identity, app version, device type, and server URL attached for triage.
 - Relay report routing now respects explicit desktop/web/server origins before inferring iOS from generic OS text, keeping platform triage separated.
 - Relay admin Basic auth now throttles repeated bad password attempts per network tag.
+- Windows PyInstaller release EXEs now bootstrap writable stdio in windowed mode, preventing uvicorn/logging startup from failing silently before the browser window opens.
 
 ---
 

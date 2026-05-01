@@ -486,8 +486,8 @@ npm run ios
 - Live shared schedule planner is currently `fair-v3`: date-scoped fair paging, adaptive continuation, and an undated rescue fallback. Cold relay rebuilds may take longer, so relay-backed desktop fetches now allow `60s`.
 - `mobile/node_modules` is still absent on the Windows workspace, so Expo/TypeScript validation belongs on the Mac/Xcode side after `npm install` unless Node/npm are installed there.
 - Desktop resume on Windows: run `.\start.bat`, confirm Community setup preloads the hosted relay URL, then verify FIDS/radar/admin against the live relay contract.
-- Release resume: Windows and Pi artifacts are regenerated on the Windows workspace from `368128a`; macOS artifacts are ready from the Mac workspace. Next release step is uploading Windows/macOS/Pi artifacts plus all matching `.sha256` files to GitHub release `v0.2.5b3`.
-- Windows distribution package is ready from this workspace: `dist/LocalFlight-windows.zip` plus `dist/LocalFlight-windows.zip.sha256`; checksum verified. SHA256: `fc27b6f04a01d262b50d79bd7781ebc363fcff5dc59b5e02ba442dd135048288`.
+- Release resume: Windows and Pi artifacts are regenerated on the Windows workspace from the current checkout; macOS artifacts are ready from the Mac workspace. Next release step is uploading Windows/macOS/Pi artifacts plus all matching `.sha256` files to GitHub release `v0.2.5b3`.
+- Windows distribution package is ready from this workspace: `dist/LocalFlight-windows.zip` plus `dist/LocalFlight-windows.zip.sha256`; checksum verified, and a freshly extracted ZIP smoke test launched `LocalFlight.exe`, returned `/health` 200, and opened Edge to `/splash?next=/setup`. SHA256: `1f9d582c114ee446ff37b15cf7eb78ef4de5a7567953e9e847dd39884a86983b`.
 - macOS distribution package is ready from this workspace: `dist/LocalFlight-macos.zip` plus `dist/LocalFlight-macos.zip.sha256`; checksum verified, `Info.plist` reports `0.2.5b3`, executable is Mach-O ARM64, and on-disk codesign verification passes. SHA256: `ea87b114b0f2d79a47b424c4d6b134ef64bfa273729fa7e8b2d0874249a05fe0`.
 - Pi source distribution package is ready from this workspace: `dist/LocalFlight-pi-source-0.2.5b3.zip` plus `.sha256`; checksum verified. SHA256: `db877d75daf24dee08dc7534e0b5fcedff7f983bc41655940ddde7a14aa78d15`.
 - `scripts/package_pi_source.py` now excludes internal handoff-only files (`AGENTS.md`, `CLAUDE.md`, `DEV_README.md`) from the Pi source zip even if they are tracked locally.
@@ -507,7 +507,7 @@ npm run ios
 - Mobile resume on Mac/Xcode: resolve the Xcode/Expo SDK compatibility issue first, then run `npm run doctor` and `npm run ios`. Expo Go may reject SDK 55 depending on installed Expo Go; simulator/dev build is the safer path.
 - Windows-side AviationStack reliability pass is now documented in public/internal docs. Important: the local board/filter bug is fixed, but some live airports can still show sparse future departures because AviationStack itself does not return enough near-term rows even after fair paging plus undated rescue. Current observed example: `ZRH` on `2026-05-01`.
 - Sparse-board UX fallback is now active on the client: if a real-data lane has no rows inside the live window, the board shows the nearest available real flights instead of an empty departures page. Current live local check after the patch: `/api/fids?view=departures` returned `20` rows again.
-- Verification currently green on this Windows workspace: `.venv\Scripts\python.exe -m compileall -q src relay`, `.venv\Scripts\python.exe -m pytest tests` (`76 passed`), `python build.py --clean`, and `python scripts/package_pi_source.py`. Mac mobile validation remains: `npm run typecheck` passes, while `npm run doctor` is 17/18 because Expo SDK 55 requires a newer Xcode than the installed `16.3.0`.
+- Verification currently green on this Windows workspace: `.venv\Scripts\python.exe -m compileall -q src relay`, `.venv\Scripts\python.exe -m pytest tests` (`80 passed`), `python build.py --clean`, and Windows ZIP smoke test from `dist/LocalFlight-windows.zip`. Mac mobile validation remains: `npm run typecheck` passes, while `npm run doctor` is 17/18 because Expo SDK 55 requires a newer Xcode than the installed `16.3.0`.
 
 ## What was done in the latest session (v0.2.5b3)
 
@@ -528,6 +528,7 @@ npm run ios
 - ✅ Security/privacy abuse sweep pass: relay community traffic now has daily network/global caps in addition to install quotas; relay admin login attempts are throttled; setup-provided relay URLs are restricted to official/default roots unless custom/private dev flags are set; local browser cross-origin mutations are rejected; report routing now honors explicit platform origins before iOS inference; diagnostics wording now describes the hosted relay reporting gateway.
 - ✅ macOS release packaging for `0.2.5b3` is complete on the Mac side: clean PyInstaller build, checksum verification, `Info.plist` version check, ARM64 executable check, on-disk codesign verification, and macOS installer script syntax checks passed.
 - ✅ Pi source package for `0.2.5b3` is complete on the Mac side and no longer includes internal handoff files in the generated release zip.
+- ✅ Windows release EXE silent-start failure fixed: PyInstaller windowed builds now bootstrap writable stdio to a local `~/.localflight/logs/bootstrap_<pid>.log`, preventing uvicorn/logging startup from failing before `/health` and the browser window come up. Fresh ZIP smoke test passed.
 
 ## What was done in session v0.2.5b2
 
@@ -610,7 +611,7 @@ npm run ios
 
 ## Pending / next up
 
-- [ ] Build the Windows artifact on the Windows dev machine: `python build.py --clean`, then verify `dist/LocalFlight-windows.zip.sha256`.
+- [x] Build the Windows artifact on the Windows dev machine: `python build.py --clean`, verify `dist/LocalFlight-windows.zip.sha256`, and smoke-test the extracted EXE.
 - [ ] Create GitHub release `v0.2.5b3` and attach Windows/macOS/Pi artifacts plus all matching `.sha256` files.
 - [ ] Register custom domain and wire the public relay hostname plus operator admin hostname DNS to `localflight-community-relay.fly.dev`; run `fly certs add` for both.
 - [ ] End-to-end community client activation test against live relay.
