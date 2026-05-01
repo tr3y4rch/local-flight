@@ -486,10 +486,12 @@ npm run ios
 - Live shared schedule planner is currently `fair-v3`: date-scoped fair paging, adaptive continuation, and an undated rescue fallback. Cold relay rebuilds may take longer, so relay-backed desktop fetches now allow `60s`.
 - `mobile/node_modules` is still absent on the Windows workspace, so Expo/TypeScript validation belongs on the Mac/Xcode side after `npm install` unless Node/npm are installed there.
 - Desktop resume on Windows: run `.\start.bat`, confirm Community setup preloads the hosted relay URL, then verify FIDS/radar/admin against the live relay contract.
-- Release resume: run `python build.py --clean` separately on Windows and macOS. Upload `dist/LocalFlight-windows.zip`, `dist/LocalFlight-windows.zip.sha256`, `dist/LocalFlight-macos.zip`, and `dist/LocalFlight-macos.zip.sha256` to GitHub release `v0.2.5b3`.
-- Pi release resume: run `python scripts/package_pi_source.py` and upload `dist/LocalFlight-pi-source-0.2.5b3.zip` plus `dist/LocalFlight-pi-source-0.2.5b3.zip.sha256`.
+- Release resume from Windows: macOS and Pi artifacts are already regenerated on this Mac. On Windows, run `python build.py --clean`, verify `dist/LocalFlight-windows.zip.sha256`, then upload Windows/macOS/Pi artifacts plus all matching `.sha256` files to GitHub release `v0.2.5b3`.
+- macOS distribution package is ready from this workspace: `dist/LocalFlight-macos.zip` plus `dist/LocalFlight-macos.zip.sha256`; checksum verified, `Info.plist` reports `0.2.5b3`, executable is Mach-O ARM64, and on-disk codesign verification passes. SHA256: `ea87b114b0f2d79a47b424c4d6b134ef64bfa273729fa7e8b2d0874249a05fe0`.
+- Pi source distribution package is ready from this workspace: `dist/LocalFlight-pi-source-0.2.5b3.zip` plus `.sha256`; checksum verified. SHA256: `c113d6654b95939c0aa7c233deb09949c17555e09742a9b4f3611f3f76166be7`.
+- `scripts/package_pi_source.py` now excludes internal handoff-only files (`AGENTS.md`, `CLAUDE.md`, `DEV_README.md`) from the Pi source zip even if they are tracked locally.
 - Settings now split install/relay state, flight setup, app controls, and diagnostics/resources into clearer sections; the community relay card now reports active relay usage truthfully, and the docs buttons open bundled local files through `/docs/readme`, `/docs/privacy`, and `/docs/changelog`.
-- macOS packaging is confirmed on this workspace: `python build.py --clean` produced `dist/LocalFlight.app`, `dist/LocalFlight-macos.zip`, and `dist/LocalFlight-macos.zip.sha256`, and the packaged app includes bundled README/privacy/changelog files plus the local doc viewer template.
+- macOS packaging is confirmed on this workspace: `python build.py --clean` produced `dist/LocalFlight.app`, `dist/LocalFlight-macos.zip`, and `dist/LocalFlight-macos.zip.sha256`, and the packaged app includes bundled README/privacy/changelog files plus the local doc viewer template. This artifact is unsigned Apple Silicon/ARM64; if Intel Mac support is needed later, build a separate Intel/universal artifact.
 - Mobile companion is now mid-`0.2.5-b2` pass on this workspace: independent mobile appearance, server-backed Matrix runtime editor, landscape split display, responsive radar, and pinch zoom are implemented in code.
 - Mobile companion polish pass is in progress on top of that: main nav is now FIDS/Radar/Settings only, History/Matrix/Admin/Docs are Settings-launched tools, the pinned-flight island is compact and theme-aware, Settings is sectioned, docs read inside the app, airport/profile saves request a scheduler restart, and flight details consume the expanded `/api/fids/detail` contract.
 - Desktop flight-detail enrichment pass started first: `/api/fids/detail` now returns richer stored snapshot metadata for live track/source coverage without new external calls, and the desktop FIDS drawer renders operations/aircraft, source confidence/freshness, and position fields more clearly.
@@ -522,6 +524,8 @@ npm run ios
 - ✅ Reality check after the fix: the Local Flight fetch/filter bugs were corrected, but live `ZRH` departures on `2026-05-01` still remained sparse after the stronger fetch strategy. That remaining gap is currently documented as upstream AviationStack coverage behavior, not a known unresolved client filter bug.
 - ✅ Client FIDS now falls back to the nearest available real rows when a sparse provider window would otherwise render `0` departures or arrivals, so the board stays useful even when AviationStack only returns older rows for that lane.
 - ✅ Security/privacy abuse sweep pass: relay community traffic now has daily network/global caps in addition to install quotas; relay admin login attempts are throttled; setup-provided relay URLs are restricted to official/default roots unless custom/private dev flags are set; local browser cross-origin mutations are rejected; report routing now honors explicit platform origins before iOS inference; diagnostics wording now describes the hosted relay reporting gateway.
+- ✅ macOS release packaging for `0.2.5b3` is complete on the Mac side: clean PyInstaller build, checksum verification, `Info.plist` version check, ARM64 executable check, on-disk codesign verification, and macOS installer script syntax checks passed.
+- ✅ Pi source package for `0.2.5b3` is complete on the Mac side and no longer includes internal handoff files in the generated release zip.
 
 ## What was done in session v0.2.5b2
 
@@ -604,8 +608,8 @@ npm run ios
 
 ## Pending / next up
 
+- [ ] Build the Windows artifact on the Windows dev machine: `python build.py --clean`, then verify `dist/LocalFlight-windows.zip.sha256`.
 - [ ] Create GitHub release `v0.2.5b3` and attach Windows/macOS/Pi artifacts plus all matching `.sha256` files.
-- [ ] Attach the Pi source bundle too: `LocalFlight-pi-source-0.2.5b3.zip` and `.sha256`.
 - [ ] Register custom domain and wire the public relay hostname plus operator admin hostname DNS to `localflight-community-relay.fly.dev`; run `fly certs add` for both.
 - [ ] End-to-end community client activation test against live relay.
 - [ ] Decide the next step for sparse AviationStack airports: second provider merge, sparse-board warning UX, or a deliberate stale-board fallback instead of an empty departures page.

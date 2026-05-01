@@ -15,6 +15,7 @@ except ModuleNotFoundError:  # pragma: no cover - Python < 3.11 fallback
 ROOT = Path(__file__).resolve().parent.parent
 BUILD_DIR = ROOT / "build"
 DIST_DIR = ROOT / "dist"
+EXCLUDED_RELEASE_FILES = {"AGENTS.md", "CLAUDE.md", "DEV_README.md"}
 
 
 def _version() -> str:
@@ -32,7 +33,11 @@ def _tracked_files() -> list[Path]:
         raise SystemExit(f"Could not list tracked files with git: {exc}") from exc
 
     paths = [Path(item) for item in raw.decode("utf-8").split("\0") if item]
-    return [path for path in paths if path.name != ".DS_Store"]
+    return [
+        path
+        for path in paths
+        if path.name != ".DS_Store" and path.as_posix() not in EXCLUDED_RELEASE_FILES
+    ]
 
 
 def _write_sha256(path: Path) -> Path:
