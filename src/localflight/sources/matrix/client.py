@@ -26,6 +26,7 @@ PANEL_H          = 64    # panel height — must match physical panel height
 # Runtime defaults — overwritten by /api/matrix/config on boot
 MAX_ROWS         = 4     # flight rows to display
 REFRESH_S        = 60    # flight data fetch interval in seconds
+PAGE_ROTATION_S  = 10    # rotate to the next local board page when overflow exists
 BRIGHTNESS       = 0.8   # 0.0 – 1.0
 DEFAULT_VIEW     = "departures"
 
@@ -237,7 +238,7 @@ def fetch_config():
 
 
 def fetch_matrix_config():
-    global MAX_ROWS, REFRESH_S, BRIGHTNESS, DEFAULT_VIEW
+    global MAX_ROWS, REFRESH_S, PAGE_ROTATION_S, BRIGHTNESS, DEFAULT_VIEW
     url = f"http://{API_HOST}:{API_PORT}/api/matrix/config"
     try:
         resp = urequests.get(url, timeout=8)
@@ -248,6 +249,7 @@ def fetch_matrix_config():
                 return False
             MAX_ROWS     = _clamp_int(data.get("max_rows", MAX_ROWS), 1, 8, MAX_ROWS)
             REFRESH_S    = _clamp_int(data.get("refresh_seconds", REFRESH_S), 10, 3600, REFRESH_S)
+            PAGE_ROTATION_S = _clamp_int(data.get("page_rotation_seconds", PAGE_ROTATION_S), 3, 120, PAGE_ROTATION_S)
             BRIGHTNESS   = _clamp_float(data.get("brightness", BRIGHTNESS), 0.05, 1.0, BRIGHTNESS)
             DEFAULT_VIEW = _normalize_view(data.get("default_view", DEFAULT_VIEW), DEFAULT_VIEW)
             skin = data.get("skin", "standard")
@@ -266,7 +268,7 @@ def fetch_matrix_config():
 
 def fetch_fids(view="departures", limit=4):
     view = _normalize_view(view, "departures")
-    limit = _clamp_int(limit, 1, 8, MAX_ROWS)
+    limit = _clamp_int(limit, 1, 32, max(MAX_ROWS, limit))
     url = f"http://{API_HOST}:{API_PORT}/api/fids?view={view}&limit={limit}"
     try:
         resp = urequests.get(url, timeout=10)
@@ -344,9 +346,11 @@ def draw_row(flap_row, row_data, y):
 # ── Main loop ──────────────────────────────────────────────────────────────────
 def main():
     flight_data      = []
+    page_data        = []
     last_fetch       = 0
     last_ping        = 0
     last_config      = 0
+    last_page_rotate = 0
     force_fetch      = True
 
     i75.set_led(0, 100, 0)  # green LED = running
@@ -364,6 +368,19 @@ def main():
 
     view      = DEFAULT_VIEW
     flap_rows = [FlapRow(ROW_LEN) for _ in range(MAX_ROWS)]
+
+    def _chunk_pages(rows):
+        pages = []
+        step = max(1, MAX_ROWS)
+        for idx in range(0, len(rows), step):
+            pages.append(rows[idx:idx + step])
+        return pages or [[]]
+
+    def _apply_visible_page(rows):
+        for i, row in enumerate(rows[:MAX_ROWS]):
+            flap_rows[i].set_text(build_row_text(row))
+        for i in range(len(rows), MAX_ROWS):
+            flap_rows[i].set_text(" " * ROW_LEN)
 
     while True:
         now = time.time()
@@ -392,6 +409,7 @@ def main():
                 # Resize flap_rows if MAX_ROWS changed
                 if len(flap_rows) != MAX_ROWS:
                     flap_rows = [FlapRow(ROW_LEN) for _ in range(MAX_ROWS)]
+                    page_data = []
                     force_fetch = True
             last_config = now
 
@@ -407,20 +425,35 @@ def main():
             i75.set_led(0, 0, 100)  # blue = fetching
 
             if ensure_wifi():
-                data = fetch_fids(view=view, limit=MAX_ROWS)
+                data = fetch_fids(view=view, limit=min(MAX_ROWS * 4, 32))
                 if data:
                     flight_data = data
-                    for i, row in enumerate(flight_data[:MAX_ROWS]):
-                        flap_rows[i].set_text(build_row_text(row))
-                    # Clear unused rows
-                    for i in range(len(flight_data), MAX_ROWS):
-                        flap_rows[i].set_text(" " * ROW_LEN)
-                    last_fetch = now
+                    pages = _chunk_pages(flight_data)
+                    page_data = pages[0]
+                    _apply_visible_page(page_data)
+                    last_page_rotate = now
                     i75.set_led(0, 100, 0)  # green = ok
                 else:
+                    flight_data = []
+                    page_data = []
+                    _apply_visible_page([])
+                    last_page_rotate = now
                     i75.set_led(100, 50, 0)  # amber = no data
+                last_fetch = now
             else:
                 i75.set_led(100, 0, 0)  # red = no wifi
+                last_fetch = now
+
+        if len(flight_data) > MAX_ROWS and (now - last_page_rotate) >= PAGE_ROTATION_S:
+            pages = _chunk_pages(flight_data)
+            if pages:
+                try:
+                    page_idx = pages.index(page_data)
+                except ValueError:
+                    page_idx = 0
+                page_data = pages[(page_idx + 1) % len(pages)]
+                _apply_visible_page(page_data)
+                last_page_rotate = now
 
         # ── Animate ───────────────────────────────────────────────────────────
         for flap in flap_rows:
@@ -437,7 +470,7 @@ def main():
 
         for i in range(MAX_ROWS):
             y        = data_start + i * row_h
-            row_data = flight_data[i] if i < len(flight_data) else None
+            row_data = page_data[i] if i < len(page_data) else None
             draw_row(flap_rows[i], row_data, y)
 
             # Row separator

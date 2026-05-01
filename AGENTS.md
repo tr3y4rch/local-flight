@@ -170,7 +170,8 @@ Linear issue filed (deduplicated per 6h via ~/.localflight/linear_dedup.json)
 
 ### API call budget
 - AviationStack BYOK default: 90 calls/month, tracked in `~/.localflight/api_usage.json`
-- Community relay default: 50 calls/month per install
+- Community relay default: 50 relay schedule accesses/month per install
+- Community and managed relay-backed installs now share airport snapshots on the relay; upstream AviationStack pulls are counted separately from per-install accesses
 - ADS-B Exchange / RapidAPI default: 10,000 calls/month
 - Enforced in `aviationstack_client.py` via `_check_and_increment_budget()` before each request
 - All env vars read lazily at call time (not module import time) to avoid race with `_load_dotenv()`
@@ -182,9 +183,9 @@ Two separate integrations — do not confuse them:
 
 ### Version
 - Single source of truth: `version` field in `pyproject.toml`
-- Read at runtime via `importlib.metadata.version("localflight")` with `"0.2.5b1"` fallback
+- Read at runtime via `importlib.metadata.version("localflight")` with `"0.2.5b3"` fallback
 - Injected as `app_version` Jinja2 global in `server.py` → available in all templates
-- Shown in nav bar (`v0.2.5b1`) and Admin → System card
+- Shown in nav bar (`v0.2.5b3`) and Admin → System card
 - `LocalFlight.spec` reads it from `pyproject.toml` at build time for macOS `CFBundleShortVersionString`
 
 ### Auto-update check
@@ -245,6 +246,10 @@ timezone: str = "Europe/Zurich"
 skin: str = "standard"        # standard | technical | neon | cyan | crt
 display_outputs: List[str] = ["web"]  # web | matrix | hdmi
 diagnostics_mode: str = "unset"  # unset | manual | auto | auto_logs
+web_row_limit: int = 20
+web_rotation_seconds: int = 8
+display_grace_minutes: int = 30
+display_horizon_hours: int = 12
 ```
 
 Config lives at `~/.localflight/config.json`
@@ -364,20 +369,35 @@ npm run ios
 
 ## Current handoff for the dev machine
 
-- Active version is `0.2.5b1`: `pyproject.toml`, runtime fallbacks, mobile package metadata, Expo `extra.localFlightVersion`, and docs should all agree.
+- Active version is `0.2.5b3`: `pyproject.toml`, runtime fallbacks, mobile package metadata, Expo `extra.localFlightVersion`, and docs should all agree.
 - Community relay is live at `https://localflight-community-relay.fly.dev/v1/flights`. The custom domain `relay.localflight.app` is planned once DNS is registered.
 - Relay admin panel: access via `RELAY_ADMIN_ON_PUBLIC=1` (already set as a Fly secret) at `https://localflight-community-relay.fly.dev/admin`, or via `fly proxy 8080` (unreliable on Windows) or `fly ssh console` for CLI access.
 - Fly deployment: one warm machine in `fra`, one SQLite volume (`relay_data`), host-based public/admin gating in `relay/main.py`.
 - `mobile/node_modules` is still absent on this Windows workspace, so Expo/TypeScript validation belongs on the Mac/Xcode side after `npm install`.
 - Desktop resume on Windows: run `.\start.bat`, confirm Community setup preloads the hosted relay URL, then verify FIDS/radar/admin against the live relay contract.
-- Release resume: run `python build.py --clean` separately on Windows and macOS. Upload `dist/LocalFlight-windows.zip`, `dist/LocalFlight-windows.zip.sha256`, `dist/LocalFlight-macos.zip`, and `dist/LocalFlight-macos.zip.sha256` to GitHub release `v0.2.5b1`.
-- Pi release resume: run `python scripts/package_pi_source.py` and upload `dist/LocalFlight-pi-source-0.2.5b1.zip` plus `dist/LocalFlight-pi-source-0.2.5b1.zip.sha256`.
+- Release resume: run `python build.py --clean` separately on Windows and macOS. Upload `dist/LocalFlight-windows.zip`, `dist/LocalFlight-windows.zip.sha256`, `dist/LocalFlight-macos.zip`, and `dist/LocalFlight-macos.zip.sha256` to GitHub release `v0.2.5b3`.
+- Pi release resume: run `python scripts/package_pi_source.py` and upload `dist/LocalFlight-pi-source-0.2.5b3.zip` plus `dist/LocalFlight-pi-source-0.2.5b3.zip.sha256`.
 - Settings now split install/relay state, flight setup, app controls, and diagnostics/resources into clearer sections; the community relay card now reports active relay usage truthfully, and the docs buttons open bundled local files through `/docs/readme`, `/docs/privacy`, and `/docs/changelog`.
 - macOS packaging is confirmed on this workspace: `python build.py --clean` produced `dist/LocalFlight.app`, `dist/LocalFlight-macos.zip`, and `dist/LocalFlight-macos.zip.sha256`, and the packaged app includes bundled README/privacy/changelog files plus the local doc viewer template.
 - Mobile resume on Mac/Xcode: from `mobile/`, run `npm install`, `npx expo install --fix`, `npm run doctor`, then `npm run ios`. Expo Go may reject SDK 55 depending on installed Expo Go; simulator/dev build is the safer path.
 - Verification currently green on Windows side: `python -m pip install -e .`, `python -m py_compile build.py`, `python build.py --clean`, `python -m compileall -q src relay`, `pytest tests` (`34 passed`), plus installer shell syntax checks.
 
-## What was done in the latest session (v0.2.5b1)
+## What was done in the latest session (v0.2.5b3)
+
+- ✅ AviationStack fairness work now applies across all paths: shared date-aware fetch planning, airport-local date windows, `100`-row pages, per-date pagination, and configurable board display windows.
+- ✅ Community and managed relay-backed installs now use a shared airport snapshot service instead of raw per-install upstream pass-through. Relay clients receive canonical Local Flight schedule records from `/v1/schedule`, while BYOK and direct local key paths stay unchanged.
+- ✅ Relay accounting now separates per-install relay accesses from shared upstream AviationStack pulls, and admin/settings surfaces expose shared snapshot stats, cache-hit rate, and estimated savings.
+- ✅ Web and matrix overflow handling now rotate local pages instead of clipping to a single fixed slice, with new config fields for grace window, horizon, web row limit, and web rotation timing.
+- ✅ Added `scripts/audit_aviationstack.py` plus regression coverage for request planning, relay coalescing, stale fallback, and direct-vs-relay normalization parity.
+- ✅ Version sweep completed to `0.2.5b3` across Python runtime fallbacks, mobile metadata, preview badges, tests, and public docs.
+- ✅ Bug reporting now attaches truthful schedule-mode context (BYOK, local community key, managed/community shared relay), includes board-window details for triage, and scopes automatic crash dedupe by context as well as message.
+
+## What was done in session v0.2.5b2
+
+- ✅ macOS-side mobile companion pass landed on `main`: updated Expo metadata, device identity reporting, crash reporter polish, README notes, and the iOS shell refinements from the Xcode machine work.
+- ✅ Mobile review cleanup on Windows: companion version reporting now derives from Expo metadata instead of a duplicated string, and the mobile API config typing now includes the newer board-window fields from the desktop server.
+
+## What was done in session v0.2.5b1
 
 - ✅ Version sweep completed to `0.2.5b1` across Python runtime fallbacks, PyInstaller metadata, mobile metadata, docs, and preview assets.
 - ✅ Community relay default centralized to `https://localflight-community-relay.fly.dev/v1/flights`; setup, installers, and client code now point at the same source of truth.
@@ -446,8 +466,8 @@ npm run ios
 
 ## Pending / next up
 
-- [ ] Create GitHub release `v0.2.5b1` and attach Windows/macOS/Pi artifacts plus all matching `.sha256` files.
-- [ ] Attach the Pi source bundle too: `LocalFlight-pi-source-0.2.5b1.zip` and `.sha256`.
+- [ ] Create GitHub release `v0.2.5b3` and attach Windows/macOS/Pi artifacts plus all matching `.sha256` files.
+- [ ] Attach the Pi source bundle too: `LocalFlight-pi-source-0.2.5b3.zip` and `.sha256`.
 - [ ] Register custom domain and wire `relay.localflight.app` + `network.localflight.app` DNS → `localflight-community-relay.fly.dev`; run `fly certs add` for both.
 - [ ] End-to-end community client activation test against live relay.
 - [ ] Mobile — `npm install` + `npx expo install --fix` on Mac; test in iOS simulator/dev build

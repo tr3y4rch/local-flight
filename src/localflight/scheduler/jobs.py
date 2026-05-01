@@ -112,23 +112,122 @@ def _broadcast_update(flights: List[Flight], cfg: AppConfig) -> None:
 # ── AviationStack fetch ────────────────────────────────────────────────────────
 
 def _fetch_aviationstack(cfg: AppConfig) -> List[Flight]:
-    from localflight.sources.web.aviationstack_client import fetch_flights_once
+    from localflight.sources.web.aviationstack_client import (
+        fetch_relay_schedule_records,
+        fetch_flights_windowed,
+        record_fetch_cycle_stats,
+        _relay_uses_shared_schedule,
+    )
 
     airport_iata = cfg.airport_iata
     airport_icao = cfg.airport_icao
+    if _relay_uses_shared_schedule(cfg.source):
+        records, _relay_meta = fetch_relay_schedule_records(
+            airport_iata=airport_iata,
+            timezone_name=cfg.timezone,
+            display_grace_minutes=cfg.display_grace_minutes,
+            display_horizon_hours=cfg.display_horizon_hours,
+            refresh_seconds=cfg.refresh_seconds,
+            return_meta=True,
+        )
+        flights = normalize_flights(
+            records,
+            airport_iata=airport_iata,
+            airport_icao=airport_icao,
+            source_name="aviationstack",
+        )
+        return _dedupe_identical_flights(flights)
 
-    raw_dep = fetch_flights_once(airport_iata=airport_iata, mode="departures", limit=50)
-    raw_arr = fetch_flights_once(airport_iata=airport_iata, mode="arrivals",   limit=50)
+    now = datetime.now(timezone.utc)
 
-    records  = aviationstack_to_raw_records(raw_dep, airport_iata=airport_iata, mode="dep")
+    raw_dep, dep_meta = fetch_flights_windowed(
+        airport_iata=airport_iata,
+        timezone_name=cfg.timezone,
+        mode="departures",
+        display_grace_minutes=cfg.display_grace_minutes,
+        display_horizon_hours=cfg.display_horizon_hours,
+        return_meta=True,
+        now=now,
+    )
+    raw_arr, arr_meta = fetch_flights_windowed(
+        airport_iata=airport_iata,
+        timezone_name=cfg.timezone,
+        mode="arrivals",
+        display_grace_minutes=cfg.display_grace_minutes,
+        display_horizon_hours=cfg.display_horizon_hours,
+        return_meta=True,
+        now=now,
+    )
+    record_fetch_cycle_stats(dep_meta, arr_meta)
+
+    records = aviationstack_to_raw_records(raw_dep, airport_iata=airport_iata, mode="dep")
     records += aviationstack_to_raw_records(raw_arr, airport_iata=airport_iata, mode="arr")
 
-    return normalize_flights(
+    flights = normalize_flights(
         records,
         airport_iata=airport_iata,
         airport_icao=airport_icao,
         source_name="aviationstack",
     )
+    return _dedupe_identical_flights(flights)
+
+
+def _flight_identity_signature(flight: Flight) -> tuple[str, str, str, str, str, str, str]:
+    def _code(ref) -> str:
+        if not ref:
+            return ""
+        return (ref.iata or ref.icao or "").upper()
+
+    def _stamp(value: Optional[datetime]) -> str:
+        if not value:
+            return ""
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc).isoformat()
+
+    return (
+        flight.direction.value,
+        (flight.callsign or "").upper(),
+        _code(flight.origin),
+        _code(flight.destination),
+        _stamp(flight.times.scheduled),
+        _stamp(flight.times.estimated),
+        _stamp(flight.times.actual),
+    )
+
+
+def _flight_detail_score(flight: Flight) -> tuple[int, int, int, int, int, str]:
+    return (
+        1 if flight.times.actual else 0,
+        1 if flight.times.estimated else 0,
+        1 if flight.gate else 0,
+        1 if flight.terminal else 0,
+        1 if flight.aircraft_type else 0,
+        flight.callsign,
+    )
+
+
+def _dedupe_identical_flights(flights: List[Flight]) -> List[Flight]:
+    grouped: dict[tuple[str, str, str, str, str, str, str], List[Flight]] = {}
+    for flight in flights:
+        grouped.setdefault(_flight_identity_signature(flight), []).append(flight)
+
+    deduped: List[Flight] = []
+    for items in grouped.values():
+        if len(items) == 1:
+            deduped.append(items[0])
+            continue
+        deduped.append(sorted(items, key=_flight_detail_score, reverse=True)[0])
+
+    deduped.sort(
+        key=lambda item: (
+            item.times.actual
+            or item.times.estimated
+            or item.times.scheduled
+            or datetime.min.replace(tzinfo=timezone.utc)
+        )
+    )
+    return deduped
 
 
 # ── Position enrichment ────────────────────────────────────────────────────────

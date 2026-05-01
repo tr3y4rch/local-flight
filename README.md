@@ -15,6 +15,7 @@ No accounts. No signup wall. Community mode can use the hosted relay, but it sti
 - Airport-style **FIDS departures / arrivals board** with live WebSocket refresh, flight detail drawer, history, and UTC/local clock
 - **Radar view** with ADS-B Exchange enrichment, OpenSky fallback, and METAR weather
 - **Split display** mode for FIDS + radar on one screen, plus kiosk-ready desktop and Pi flows
+- Configurable **board window and page rotation** so web and matrix displays stay readable at busier airports
 - **Admin hub** for scheduler status, install-local API budgets, connected clients, updates, and diagnostics
 - **Diagnostics choice** so each install can stay on manual reports only, automatic crash reports, or automatic crash reports with sanitized logs
 - **Profiles** for saving and switching airport presets quickly
@@ -75,7 +76,7 @@ bash installers/macos/install.sh
 
 ### Raspberry Pi
 
-You can either clone the repo on the Pi or download the versioned Pi source bundle from the [latest release](https://github.com/tr3y4rch/local-flight/releases), for example `LocalFlight-pi-source-0.2.5b1.zip`.
+You can either clone the repo on the Pi or download the versioned Pi source bundle from the [latest release](https://github.com/tr3y4rch/local-flight/releases), for example `LocalFlight-pi-source-0.2.5b3.zip`.
 
 Unzip or clone on the Pi, then run the installer from the project folder. The installer creates the venv, `.env`, systemd app service, optional Chromium kiosk service, and mDNS hostname. Add `--kiosk` during install if you want HDMI Chromium on the Pi itself.
 
@@ -107,8 +108,10 @@ It runs from the `mobile/` folder with React Native / Expo and connects to the L
 - FIDS, radar, history, and settings screens
 - WebSocket live sync with fallback polling
 - Pinned flights and the Flight Island focus card
+- Longer branded launch overlay and crash reporting that follows the server's diagnostics mode
 - Airport, source, and refresh interval changes against the local server
-- Matrix preview helper, admin summary, and feedback / crash reporting
+- Matrix preview helper, admin summary, feedback tools, and companion identity reporting
+- Relay-aware admin/budget payloads, including shared snapshot status for community and managed installs
 - Companion-specific ID and platform reporting for cleaner diagnostics
 
 ### Requirements
@@ -148,7 +151,7 @@ On first launch Local Flight briefly shows a versioned splash screen, then opens
 It walks through:
 1. Airport selection (IATA / ICAO search)
 2. How you want to run it:
-   - **Community** - uses the hosted shared backend for schedules, limited to 50 requests per 30-day window per install
+   - **Community** - uses the hosted shared backend for schedules, limited to 50 relay schedule accesses per 30-day window per install
    - **Bring your own keys** - uses your own AviationStack key for schedules and optional RapidAPI / OpenSky keys for radar
    - **VATSIM** - uses virtual traffic only, with no real-data API key required
 3. Optional radar providers:
@@ -159,7 +162,7 @@ The scheduler only starts after setup completes. You can re-run the wizard any t
 
 After the first launch into the main app, Local Flight asks once how you want diagnostics handled. Manual reports always stay available from the **Report** page.
 
-Community mode defaults to `https://localflight-community-relay.fly.dev/v1/flights`. Only change that relay URL if you are deliberately pointing the client at your own backend.
+Community mode defaults to `https://localflight-community-relay.fly.dev/v1/flights`. Relay-backed community and managed installs share airport snapshots on the relay, so the per-install `50` limit applies to relay accesses rather than raw AviationStack pulls. Only change that relay URL if you are deliberately pointing the client at your own backend.
 
 ---
 
@@ -167,7 +170,7 @@ Community mode defaults to `https://localflight-community-relay.fly.dev/v1/fligh
 
 | Source | Key required | Used for |
 |---|---|---|
-| AviationStack | Optional (`AVIATIONSTACK_API_KEY`) | Flight schedules, gates, status; without a key Local Flight uses the community relay quota |
+| AviationStack | Optional (`AVIATIONSTACK_API_KEY`) | Flight schedules, gates, status; without a key Local Flight uses the hosted relay's shared airport snapshots and per-install relay access quota |
 | ADS-B Exchange | Optional (`RAPIDAPI_KEY`) | Live positions, aircraft type, registration |
 | OpenSky Network | Optional (`OPENSKY_CLIENT_ID` / `SECRET`) | Position fallback (anonymous works, lower rate limits) |
 | VATSIM | No | Full data source for flight sim / virtual mode |
@@ -188,6 +191,7 @@ LOCALFLIGHT_RELAY_URL=https://localflight-community-relay.fly.dev/v1/flights
 AVIATIONSTACK_API_KEY=your_key_here
 LOCALFLIGHT_AVIATIONSTACK_ENABLED=1
 LOCALFLIGHT_AVIATIONSTACK_MONTHLY_LIMIT=90
+# Counts relay schedule accesses per install, not raw upstream pulls.
 LOCALFLIGHT_RELAY_MONTHLY_LIMIT=50
 
 # ADS-B Exchange via RapidAPI - live aircraft positions
@@ -223,6 +227,10 @@ Runtime data is also kept outside the source tree:
 | `skin` | `standard` | `standard`, `technical`, `neon`, `cyan`, `crt` |
 | `display_name` | `Local Flight` | Shown in the UI header |
 | `display_outputs` | `["web"]` | `web`, `matrix`, `hdmi` |
+| `display_grace_minutes` | `30` | How long recently departed/arrived flights stay visible on the boards |
+| `display_horizon_hours` | `12` | How far ahead the board window reaches when filtering upcoming flights |
+| `web_row_limit` | `20` | Visible rows per web FIDS page before local rotation kicks in |
+| `web_rotation_seconds` | `8` | Seconds between rotated web FIDS pages when overflow exists |
 
 ---
 
@@ -231,6 +239,7 @@ Runtime data is also kept outside the source tree:
 | URL | Description |
 |---|---|
 | `/splash` | Short launch splash screen with version badge, then redirects to setup/display |
+| `/setup` | First-run setup wizard with Community / BYOK / VATSIM paths |
 | `/display` | Split-view FIDS + Radar with draggable divider (default on launch) |
 | `/fids` | FIDS board standalone (`?view=arrivals\|departures`) |
 | `/radar` | Radar standalone |
@@ -241,6 +250,9 @@ Runtime data is also kept outside the source tree:
 | `/history` | Flight history - filterable table + aggregate stats |
 | `/logs` | Live log viewer |
 | `/feedback` | Report a problem - sends directly to the developer |
+| `/docs/readme` | In-app README viewer |
+| `/docs/privacy` | In-app privacy viewer |
+| `/docs/changelog` | In-app changelog viewer |
 
 ---
 
@@ -261,9 +273,10 @@ Runtime data is also kept outside the source tree:
 AviationStack and RapidAPI usage is tracked locally in `~/.localflight/api_usage.json` and resets monthly.
 
 - AviationStack BYOK default: 90 calls/month
-- Community relay default: 50 calls/month per install (enforced relay-side, rolling 30-day window)
+- Community relay default: 50 relay schedule accesses/month per install (enforced relay-side, rolling 30-day window)
 - ADS-B Exchange / RapidAPI default: 10,000 calls/month
-- Each real scheduler cycle normally costs 2 AviationStack calls (departures + arrivals)
+- BYOK and local direct community-key mode use the fair AviationStack planner, so real upstream usage depends on airport traffic, date window coverage, and pagination
+- Relay-backed community and managed installs usually spend one relay schedule access per refresh cycle locally, while the relay may satisfy that from a shared cache or trigger a shared upstream refresh for many installs at once
 
 Scheduler restarts and config changes do not burn a new schedule call while the current snapshot is still fresh.
 
@@ -332,6 +345,7 @@ Use the **Report** page from the nav bar anywhere in the app. Manual reports are
 | `/api/admin/budget` | GET | API call budgets and usage |
 | `/api/admin/requests` | GET | Anonymized local request log summary (only when network tools are explicitly enabled) |
 | `/api/admin/connections` | GET | WebSocket client count + device pings |
+| `/api/admin/companion/checkin` | POST | Mobile companion presence check-in |
 | `/api/admin/updates` | GET | Latest GitHub release check |
 | `/api/admin/scheduler` | GET | Scheduler thread status |
 | `/api/admin/scheduler/restart` | POST | Restart scheduler and run a fresh fetch cycle |
@@ -342,6 +356,12 @@ Use the **Report** page from the nav bar anywhere in the app. Manual reports are
 | `/api/feedback/crash` | POST | Auto-file crash report with deduplication |
 | `/api/setup/complete` | POST | Save setup, write `.env`, mark complete |
 | `/api/setup/reset` | POST | Re-run setup wizard |
+| `/api/setup/client-info` | GET | Install fingerprint, relay URL, token status, and managed status hint |
+| `/api/setup/activate` | POST | Save a managed activation token |
+| `/api/setup/client-status` | POST | Check the relay status for this install/token |
+| `/api/setup/request-activation` | POST | Request relay activation |
+| `/api/setup/request-activation/status` | POST | Poll activation-request status |
+| `/api/setup/test-activation` | POST | Test an activation token without saving |
 | `/api/setup/test-aviationstack` | POST | Validate an API key without saving |
 | `/api/setup/test-rapidapi` | POST | Validate an ADS-B Exchange RapidAPI key without saving |
 | `/api/quit` | POST | Graceful shutdown |

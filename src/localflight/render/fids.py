@@ -7,11 +7,10 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from localflight.core.airports import lookup_airport
 from localflight.core.models import Flight
 from localflight.display.fids_from_flights import FidsView, flight_to_fids_row
-
-# How long to keep a departed/arrived flight visible on the board
-_GRACE_MINUTES = 30
-# How far ahead to show upcoming flights
-_HORIZON_HOURS = 12
+from localflight.storage.config import (
+    DEFAULT_DISPLAY_GRACE_MINUTES,
+    DEFAULT_DISPLAY_HORIZON_HOURS,
+)
 
 
 def _resolve_tz(cfg: Any) -> ZoneInfo:
@@ -41,7 +40,24 @@ def _sort_key(display_time: str) -> tuple[int, str]:
     return (0, hhmm)
 
 
-def _filter_for_display(flights: list[Flight], now: datetime) -> list[Flight]:
+def _display_window(cfg: Any) -> tuple[int, int]:
+    grace_minutes = getattr(cfg, "display_grace_minutes", DEFAULT_DISPLAY_GRACE_MINUTES)
+    horizon_hours = getattr(cfg, "display_horizon_hours", DEFAULT_DISPLAY_HORIZON_HOURS)
+    try:
+        grace_minutes = int(grace_minutes)
+    except Exception:
+        grace_minutes = DEFAULT_DISPLAY_GRACE_MINUTES
+    try:
+        horizon_hours = int(horizon_hours)
+    except Exception:
+        horizon_hours = DEFAULT_DISPLAY_HORIZON_HOURS
+    return (
+        max(0, grace_minutes),
+        max(1, horizon_hours),
+    )
+
+
+def _filter_for_display(flights: list[Flight], now: datetime, *, cfg: Any) -> list[Flight]:
     """
     Remove flights that don't belong on a live FIDS board.
 
@@ -51,8 +67,9 @@ def _filter_for_display(flights: list[Flight], now: datetime) -> list[Flight]:
       - Best time (actual > estimated > scheduled) more than GRACE_MINUTES in the past: hidden.
       - Best time more than HORIZON_HOURS ahead: hidden.
     """
-    cutoff_past   = now - timedelta(minutes=_GRACE_MINUTES)
-    cutoff_future = now + timedelta(hours=_HORIZON_HOURS)
+    grace_minutes, horizon_hours = _display_window(cfg)
+    cutoff_past = now - timedelta(minutes=grace_minutes)
+    cutoff_future = now + timedelta(hours=horizon_hours)
 
     result = []
     for f in flights:
@@ -89,7 +106,7 @@ def build_fids_context(
     view_str   = "departures" if str(view).lower() == "departures" else "arrivals"
     view_typed = cast(FidsView, view_str)
 
-    flights = _filter_for_display(flights, now)
+    flights = _filter_for_display(flights, now, cfg=cfg)
 
     ap = lookup_airport(iata=getattr(cfg, "airport_iata", None), icao=getattr(cfg, "airport_icao", None))
     airport_lat = ap.lat if ap else None

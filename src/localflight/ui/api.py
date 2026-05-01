@@ -28,6 +28,10 @@ from localflight.storage.config import (
     ALLOWED_SKINS,
     ALLOWED_SOURCES,
     AppConfig,
+    DEFAULT_DISPLAY_GRACE_MINUTES,
+    DEFAULT_DISPLAY_HORIZON_HOURS,
+    DEFAULT_WEB_ROTATION_SECONDS,
+    DEFAULT_WEB_ROW_LIMIT,
     load_config,
     save_config,
 )
@@ -326,6 +330,10 @@ class ConfigPatch(BaseModel):
     timezone:        Optional[str] = None
     skin:            Optional[str] = None
     diagnostics_mode: Optional[str] = None
+    web_row_limit: Optional[int] = Field(None, ge=5, le=40)
+    web_rotation_seconds: Optional[int] = Field(None, ge=3, le=60)
+    display_grace_minutes: Optional[int] = Field(None, ge=0, le=180)
+    display_horizon_hours: Optional[int] = Field(None, ge=1, le=24)
 
 
 class FIDSRowOut(BaseModel):
@@ -367,7 +375,15 @@ def api_patch_config(patch: ConfigPatch, background_tasks: BackgroundTasks) -> D
         data["diagnostics_mode"] = mode
     current_cfg = load_config()
     current = asdict(current_cfg)
-    scheduler_fields = {"airport_iata", "airport_icao", "refresh_seconds", "source"}
+    scheduler_fields = {
+        "airport_iata",
+        "airport_icao",
+        "refresh_seconds",
+        "source",
+        "timezone",
+        "display_grace_minutes",
+        "display_horizon_hours",
+    }
     restart_needed = any(key in data and data[key] != current.get(key) for key in scheduler_fields)
     current.update(data)
     new_cfg = AppConfig(**current)
@@ -399,7 +415,7 @@ def api_flights(
 @router.get("/api/fids", response_model=List[FIDSRowOut])
 def api_fids(
     view:  Literal["departures", "arrivals"] = Query("departures"),
-    limit: int = Query(20, ge=1, le=100),
+    limit: int = Query(DEFAULT_WEB_ROW_LIMIT, ge=1, le=100),
 ) -> List[FIDSRowOut]:
     cfg = load_config()
     flights, last_refreshed = _load_latest_flights(cfg.airport_iata)
@@ -411,7 +427,6 @@ def api_fids(
         return t if t else datetime.min.replace(tzinfo=timezone.utc)
 
     flights.sort(key=_sort_key)
-    flights = flights[:limit]
 
     ctx = build_fids_context(
         cfg=cfg,
@@ -421,6 +436,7 @@ def api_fids(
         last_refreshed=last_refreshed,
         source_status=cfg.source,
     )
+    rows = list(ctx["rows"])[:limit]
 
     return [
         FIDSRowOut(
@@ -430,7 +446,7 @@ def api_fids(
             gate=r.gate, aircraft_type=r.aircraft_type,
             callsign=r.callsign,
         )
-        for r in ctx["rows"]
+        for r in rows
     ]
 
 
@@ -799,7 +815,7 @@ def api_admin_system() -> Dict[str, Any]:
         from importlib.metadata import version as _pkg_version
         _ver = _pkg_version("localflight")
     except Exception:
-        _ver = "0.2.5b1"
+        _ver = "0.2.5b3"
 
     result: Dict[str, Any] = {
         "version":  _ver,
@@ -843,6 +859,8 @@ def api_admin_system() -> Dict[str, Any]:
         usage = get_usage_stats(load_config().source)
         managed = usage.get("managed") or {}
         community = usage.get("community") or {}
+        cost_estimate = usage.get("cost_estimate") or {}
+        shared_snapshot = usage.get("shared_snapshot") or managed.get("shared_snapshot") or community.get("shared_snapshot") or {}
         result["client"] = {
             "mode": usage.get("active_mode") or usage.get("mode") or "virtual",
             "relay_url": managed.get("relay_url") or community.get("relay_url"),
@@ -852,6 +870,8 @@ def api_admin_system() -> Dict[str, Any]:
             "managed_verified": bool(managed.get("status_ok")),
             "managed_status": managed.get("status_error") or "",
             "diagnostics_mode": load_config().diagnostics_mode,
+            "cost_estimate": cost_estimate,
+            "shared_snapshot": shared_snapshot,
         }
     except Exception:
         result["client"] = {
@@ -863,6 +883,18 @@ def api_admin_system() -> Dict[str, Any]:
             "managed_verified": False,
             "managed_status": "",
             "diagnostics_mode": load_config().diagnostics_mode,
+            "cost_estimate": {
+                "enabled": False,
+                "usage_model": "unknown",
+                "dates_touched": 0,
+                "page_size": 100,
+                "recent_avg_pages_per_direction": 0.0,
+                "estimated_calls_per_refresh": 0,
+                "estimated_calls_per_month": 0,
+                "refreshes_per_30_days": 0,
+                "cadence_warning": "",
+            },
+            "shared_snapshot": {},
         }
 
     return result
@@ -1113,7 +1145,7 @@ def api_admin_updates() -> Dict[str, Any]:
         from importlib.metadata import version as _pkg_version
         current = _pkg_version("localflight")
     except Exception:
-        current = "0.2.5b1"
+        current = "0.2.5b3"
 
     # Simple in-process cache to avoid hammering GitHub API
     cache = getattr(api_admin_updates, "_cache", None)
@@ -1208,6 +1240,7 @@ _MATRIX_CONFIG_DEFAULTS: Dict[str, Any] = {
     "max_rows": 4,
     "refresh_seconds": 60,
     "default_view": "departures",
+    "page_rotation_seconds": 10,
 }
 
 
@@ -1235,6 +1268,7 @@ class MatrixConfigIn(BaseModel):
     max_rows: int = Field(4, ge=1, le=8)
     refresh_seconds: int = Field(60, ge=10, le=3600)
     default_view: str = Field("departures")
+    page_rotation_seconds: int = Field(10, ge=3, le=120)
 
 
 @router.get("/api/matrix/config")
@@ -1253,6 +1287,7 @@ def api_matrix_config_post(body: MatrixConfigIn) -> Dict[str, Any]:
         "max_rows": int(body.max_rows),
         "refresh_seconds": int(body.refresh_seconds),
         "default_view": body.default_view if body.default_view in ("departures", "arrivals") else "departures",
+        "page_rotation_seconds": int(body.page_rotation_seconds),
     }
     try:
         path = _matrix_config_path()
@@ -1274,6 +1309,7 @@ class MatrixScriptIn(BaseModel):
     refresh_seconds: int = Field(60, ge=10, le=3600)
     brightness: float = Field(0.8, ge=0.05, le=1.0)
     default_view: str = Field("departures")
+    page_rotation_seconds: int = Field(10, ge=3, le=120)
 
 
 def _matrix_client_template_path() -> Path:
@@ -1296,7 +1332,7 @@ def _normalize_matrix_api_host(value: str) -> str:
 
 
 def _matrix_assignment_line(name: str, value: str) -> str:
-    return f"{name.ljust(14)}= {value}"
+    return f"{name.ljust(max(14, len(name) + 1))}= {value}"
 
 
 def _render_matrix_client_script(body: MatrixScriptIn) -> str:
@@ -1318,6 +1354,7 @@ def _render_matrix_client_script(body: MatrixScriptIn) -> str:
         "PANEL_H": str(int(body.panel_h)),
         "MAX_ROWS": str(int(body.max_rows)),
         "REFRESH_S": str(int(body.refresh_seconds)),
+        "PAGE_ROTATION_S": str(int(body.page_rotation_seconds)),
         "BRIGHTNESS": f"{float(body.brightness):.2f}",
         "DEFAULT_VIEW": json.dumps(default_view),
     }

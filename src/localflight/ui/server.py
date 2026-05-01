@@ -25,7 +25,9 @@ from localflight.storage.config import (
     AppConfig, load_config, save_config,
     ALLOWED_DIAGNOSTICS_MODES, DEFAULT_DIAGNOSTICS_MODE,
     ALLOWED_OUTPUTS, ALLOWED_SOURCES, ALLOWED_SKINS,
+    DEFAULT_DISPLAY_GRACE_MINUTES, DEFAULT_DISPLAY_HORIZON_HOURS,
     DEFAULT_OUTPUTS, DEFAULT_SOURCE, DEFAULT_SKIN,
+    DEFAULT_WEB_ROTATION_SECONDS, DEFAULT_WEB_ROW_LIMIT,
 )
 from localflight.storage.logging_setup import (
     logs_dir, setup_logging,
@@ -39,7 +41,15 @@ logger = setup_logging()
 ALLOWED_REFRESH_SECONDS = {900, 1800, 2700, 3600, 7200, 14400, 28800, 43200, 86400}
 DEFAULT_REFRESH_SECONDS = 3600
 FETCH_COOLDOWN_SECONDS = 900
-SCHEDULER_SYNC_FIELDS = ("airport_iata", "airport_icao", "refresh_seconds", "source")
+SCHEDULER_SYNC_FIELDS = (
+    "airport_iata",
+    "airport_icao",
+    "refresh_seconds",
+    "source",
+    "timezone",
+    "display_grace_minutes",
+    "display_horizon_hours",
+)
 
 
 def _scheduler_config_changed(before: AppConfig, after: AppConfig) -> bool:
@@ -174,7 +184,7 @@ try:
     from importlib.metadata import version as _pkg_version
     _APP_VERSION = _pkg_version("localflight")
 except Exception:
-    _APP_VERSION = "0.2.5b1"
+    _APP_VERSION = "0.2.5b3"
 
 templates.env.globals["app_version"] = _APP_VERSION
 
@@ -834,6 +844,10 @@ async def save_settings(
     timezone: str = Form("UTC"),
     skin: Optional[str] = Form(DEFAULT_SKIN),
     diagnostics_mode: Optional[str] = Form(DEFAULT_DIAGNOSTICS_MODE),
+    web_row_limit: int = Form(DEFAULT_WEB_ROW_LIMIT),
+    web_rotation_seconds: int = Form(DEFAULT_WEB_ROTATION_SECONDS),
+    display_grace_minutes: int = Form(DEFAULT_DISPLAY_GRACE_MINUTES),
+    display_horizon_hours: int = Form(DEFAULT_DISPLAY_HORIZON_HOURS),
 ) -> RedirectResponse:
     rs = int(refresh_seconds) if int(refresh_seconds) in ALLOWED_REFRESH_SECONDS else DEFAULT_REFRESH_SECONDS
 
@@ -848,6 +862,10 @@ async def save_settings(
     diag_mode = (diagnostics_mode or DEFAULT_DIAGNOSTICS_MODE).strip().lower()
     if diag_mode not in ALLOWED_DIAGNOSTICS_MODES:
         diag_mode = DEFAULT_DIAGNOSTICS_MODE
+    web_rows = max(5, min(40, int(web_row_limit)))
+    web_rotate = max(3, min(60, int(web_rotation_seconds)))
+    grace_minutes = max(0, min(180, int(display_grace_minutes)))
+    horizon_hours = max(1, min(24, int(display_horizon_hours)))
 
     form_data = await request.form()
     raw_outputs = form_data.getlist("display_outputs")
@@ -865,19 +883,26 @@ async def save_settings(
         skin=sk,
         display_outputs=display_outputs,
         diagnostics_mode=diag_mode,
+        web_row_limit=web_rows,
+        web_rotation_seconds=web_rotate,
+        display_grace_minutes=grace_minutes,
+        display_horizon_hours=horizon_hours,
     )
     save_config(cfg)
 
     logger.info(
-        "UI save: %s/%s refresh=%ss theme=%s source=%s skin=%s outputs=%s diagnostics=%s",
+        "UI save: %s/%s refresh=%ss source=%s skin=%s outputs=%s diagnostics=%s web_rows=%s web_rotate=%ss grace=%sm horizon=%sh",
         cfg.airport_iata,
         cfg.airport_icao,
         cfg.refresh_seconds,
-        cfg.theme,
         cfg.source,
         cfg.skin,
         cfg.display_outputs,
         cfg.diagnostics_mode,
+        cfg.web_row_limit,
+        cfg.web_rotation_seconds,
+        cfg.display_grace_minutes,
+        cfg.display_horizon_hours,
     )
 
     from localflight.ui.events import notify_config_updated, restart_scheduler_and_notify
@@ -964,23 +989,18 @@ def fids(request: Request, view: str = "arrivals", embedded: bool = Query(False)
         raw = {"flights": []}
         source_label = "real:NO SNAPSHOT"
 
-    def _best_time(f):
-        return f.times.actual or f.times.estimated or f.times.scheduled
-
     direction = FlightDirection.DEPARTURE if view == "departures" else FlightDirection.ARRIVAL
     all_flights = [_dict_to_flight(f) for f in (raw.get("flights") or [])]
-    flights = [
-        f for f in all_flights
-        if f.direction == direction
-    ][:12]
+    flights = [f for f in all_flights if f.direction == direction]
 
     ctx = _build(
         cfg=cfg,
         view=view,
         refresh_seconds=cfg.refresh_seconds,
         flights=flights,
-        source_status=f"{source_label} payload={len(all_flights)} showing={len(flights)}",
+        source_status=f"{source_label} payload={len(all_flights)} visible={min(len(flights), cfg.web_row_limit)}",
     )
+    ctx["rows"] = list(ctx["rows"])[: cfg.web_row_limit]
     ctx.update({
         "state": state,
         "cfg": cfg,

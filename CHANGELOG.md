@@ -6,6 +6,43 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.2.5b3] - 2026-05-01
+
+### Added
+- Shared relay schedule snapshots for community and managed installs via `GET /v1/schedule`, so the relay can fan out one upstream AviationStack refresh to many clients watching the same airport window.
+- Relay-side schedule cache metadata and savings stats in admin/settings payloads, including shared access counts, upstream pull counts, cache-hit rate, and estimated savings.
+- AviationStack audit script (`scripts/audit_aviationstack.py`) for comparing baseline, paginated, and fair windowed fetch strategies across a global airport sample.
+- Configurable board-density controls for real-data fairness and overflow handling: `display_grace_minutes`, `display_horizon_hours`, `web_row_limit`, `web_rotation_seconds`, and matrix page rotation.
+
+### Changed
+- AviationStack schedule fetching now uses a shared date-aware planner across BYOK, direct local relay-key use, and hosted relay-backed paths: page size `100`, airport-local date windows, and per-date pagination.
+- Community and managed installs no longer consume raw provider JSON from the relay. They now receive Local Flight canonical records and continue the normal local normalize, enrich, history, and FIDS pipeline.
+- Community relay budget wording now reflects the actual model: `LOCALFLIGHT_RELAY_MONTHLY_LIMIT` tracks per-install relay schedule accesses, while upstream AviationStack pulls are shared and counted separately on the relay.
+- Web and matrix boards now rotate overflow pages locally instead of forcing a single fixed visible slice.
+
+### Fixed
+- Matrix clients now clear stale rows when a refresh fails or returns empty data, avoiding misleading leftovers and tight retry hammering.
+- Bug reports now attach truthful schedule-mode context for BYOK, direct local community-key, and shared relay snapshot paths, plus the active display window and web board density settings.
+- Automatic crash deduplication is now scoped by crash context as well as message, and the mobile crash boundary copy now reflects best-effort report delivery more honestly.
+
+---
+
+## [0.2.5b2] - 2026-04-30
+
+### Added
+- iOS-first companion polish pass across the Expo shell, including the longer branded launch overlay, stronger crash-reporting context, and cleaner companion identity reporting.
+- Mobile settings/admin support for the refined desktop relay and diagnostics surfaces, keeping the companion aligned with the latest server controls.
+
+### Changed
+- The companion now feels closer to the supplied airport-board mockup in daily use, with the updated FIDS shell, launch flow, and diagnostics-aware reporting path.
+- Public mobile docs now describe the current beta scope more accurately instead of treating the companion like a bare phase-one scaffold.
+
+### Fixed
+- Companion version reporting now derives from Expo app metadata instead of a duplicated hardcoded string, reducing release drift risk.
+- Mobile API typings now include the newer board-window config fields, keeping the companion aligned with the desktop server contract.
+
+---
+
 ## [0.2.5b1] - 2026-04-29
 
 ### Added

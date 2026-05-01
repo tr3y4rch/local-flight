@@ -2,7 +2,7 @@
   "expo": {
     "name": "Local Flight Companion",
     "slug": "localflight-companion",
-    "version": "0.2.5b1",
+    "version": "0.2.5b3",
     "scheme": "localflight",
     "orientation": "default",
     "userInterfaceStyle": "dark",
@@ -40,7 +40,7 @@
     },
     "extra": {
       "localFlightServerHint": "http://192.168.1.10:8000",
-      "localFlightVersion": "0.2.5b1"
+      "localFlightVersion": "0.2.5b3"
     }
   }
 }

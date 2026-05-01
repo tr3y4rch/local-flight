@@ -102,6 +102,16 @@
 {% block extra_script %}
 <script>
 (function () {
+  function describeScheduleMode(sys) {
+    const client = (sys && sys.client) || {};
+    const mode = String(client.mode || "?").trim().toLowerCase();
+    if (mode === "managed") return "managed relay (shared snapshot)";
+    if (mode === "community") return client.community_key_present ? "community direct key" : "community relay (shared snapshot)";
+    if (mode === "byok") return "byok";
+    if (mode === "virtual") return "virtual";
+    return client.mode || "?";
+  }
+
   async function loadSysInfo() {
     const box = document.getElementById("fbSysInfo");
     try {
@@ -110,14 +120,18 @@
         fetch("/api/config").then((r) => r.json()),
         fetch("/api/setup/client-info").then((r) => r.json()),
       ]);
+      const scheduleMode = describeScheduleMode(sys);
       box.textContent =
         `Version:  v${sys.version || "?"}\n` +
         `Platform: ${sys.platform || "?"}\n` +
         `Python:   ${sys.python || "?"}\n` +
         `Install:  ${client.install_fingerprint || sys.install_id || "?"}\n` +
         `Airport:  ${cfg.airport_iata || "?"}\n` +
+        `Timezone: ${cfg.timezone || "?"}\n` +
         `Source:   ${cfg.source || "?"}\n` +
-        `API mode: ${(sys.client && sys.client.mode) || "?"}\n` +
+        `Schedule: ${scheduleMode}\n` +
+        `Window:   -${cfg.display_grace_minutes ?? "?"}m / +${cfg.display_horizon_hours ?? "?"}h\n` +
+        `Web rows: ${cfg.web_row_limit ?? "?"} @ ${cfg.web_rotation_seconds ?? "?"}s\n` +
         `Diag:     ${cfg.diagnostics_mode || "unset"}`;
     } catch {
       box.textContent = "Could not load system info.";

@@ -19,6 +19,10 @@ DEFAULT_OUTPUTS  = ["web"]
 
 ALLOWED_DIAGNOSTICS_MODES = {"unset", "manual", "auto", "auto_logs"}
 DEFAULT_DIAGNOSTICS_MODE = "unset"
+DEFAULT_WEB_ROW_LIMIT = 20
+DEFAULT_WEB_ROTATION_SECONDS = 8
+DEFAULT_DISPLAY_GRACE_MINUTES = 30
+DEFAULT_DISPLAY_HORIZON_HOURS = 12
 
 
 @dataclass(frozen=True)
@@ -33,6 +37,10 @@ class AppConfig:
     skin:            str       = DEFAULT_SKIN
     display_outputs: List[str] = field(default_factory=lambda: list(DEFAULT_OUTPUTS))
     diagnostics_mode: str      = DEFAULT_DIAGNOSTICS_MODE
+    web_row_limit: int         = DEFAULT_WEB_ROW_LIMIT
+    web_rotation_seconds: int  = DEFAULT_WEB_ROTATION_SECONDS
+    display_grace_minutes: int = DEFAULT_DISPLAY_GRACE_MINUTES
+    display_horizon_hours: int = DEFAULT_DISPLAY_HORIZON_HOURS
 
 
 def config_path() -> Path:
@@ -98,6 +106,27 @@ def load_config() -> AppConfig:
     if diagnostics_mode not in ALLOWED_DIAGNOSTICS_MODES:
         diagnostics_mode = DEFAULT_DIAGNOSTICS_MODE
 
+    web_row_limit = _to_int(raw.get("web_row_limit", DEFAULT_WEB_ROW_LIMIT), default=DEFAULT_WEB_ROW_LIMIT)
+    web_row_limit = max(5, min(40, web_row_limit))
+
+    web_rotation_seconds = _to_int(
+        raw.get("web_rotation_seconds", DEFAULT_WEB_ROTATION_SECONDS),
+        default=DEFAULT_WEB_ROTATION_SECONDS,
+    )
+    web_rotation_seconds = max(3, min(60, web_rotation_seconds))
+
+    display_grace_minutes = _to_int(
+        raw.get("display_grace_minutes", DEFAULT_DISPLAY_GRACE_MINUTES),
+        default=DEFAULT_DISPLAY_GRACE_MINUTES,
+    )
+    display_grace_minutes = max(0, min(180, display_grace_minutes))
+
+    display_horizon_hours = _to_int(
+        raw.get("display_horizon_hours", DEFAULT_DISPLAY_HORIZON_HOURS),
+        default=DEFAULT_DISPLAY_HORIZON_HOURS,
+    )
+    display_horizon_hours = max(1, min(24, display_horizon_hours))
+
     return AppConfig(
         airport_icao=airport_icao,
         airport_iata=airport_iata,
@@ -109,6 +138,10 @@ def load_config() -> AppConfig:
         skin=skin,
         display_outputs=display_outputs,
         diagnostics_mode=diagnostics_mode,
+        web_row_limit=web_row_limit,
+        web_rotation_seconds=web_rotation_seconds,
+        display_grace_minutes=display_grace_minutes,
+        display_horizon_hours=display_horizon_hours,
     )
 
 

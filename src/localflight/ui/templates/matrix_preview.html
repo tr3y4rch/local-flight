@@ -407,6 +407,17 @@
       </select>
     </div>
 
+    <div class="ctrl-group">
+      <label>Rotate</label>
+      <select id="rotationSelect" onchange="setPageRotation(this.value)">
+        <option value="5">5 s</option>
+        <option value="8">8 s</option>
+        <option value="10" selected>10 s</option>
+        <option value="12">12 s</option>
+        <option value="15">15 s</option>
+      </select>
+     </div>
+
     <button class="toggle-btn" onclick="triggerDemo()">Demo</button>
   </div>
 
@@ -434,7 +445,7 @@
         </div>
         <div class="setup-step">
           <strong>3. Tune from the web app</strong>
-          Rows, brightness, refresh, default view, and skin stay adjustable here without reflashing.
+          Rows, rotation, brightness, refresh, default view, and skin stay adjustable here without reflashing.
         </div>
       </div>
       <div class="setup-note">
@@ -503,6 +514,7 @@
   let MAX_ROWS      = {{ rows }};
   let BRIGHTNESS    = 0.8;
   let REFRESH_S_SRV = 60;   // device refresh interval saved to server
+  let PAGE_ROTATION_S = 10;
   const POLL_MS     = 15000;
   const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "::1", "[::1]"]);
   const DEFAULT_SERVER_HOST = LOOPBACK_HOSTS.has(window.location.hostname)
@@ -755,20 +767,44 @@
   }
 
   // ── Flight data ────────────────────────────────────────────────────────────
-  let flightData   = [];
+  let allFlightData = [];
+  let flightData = [];
   let flightColors = [];
+  let flightPages = [];
+  let flightPageIndex = 0;
+  let lastRotationTs = 0;
 
-  function applyFlightData(data) {
-    flightData   = data;
-    flightColors = data.map(r => statusColor(r.status_display));
+  function chunkFlightPages(data) {
+    const pages = [];
+    for (let i = 0; i < data.length; i += MAX_ROWS) {
+      pages.push(data.slice(i, i + MAX_ROWS));
+    }
+    return pages.length ? pages : [[]];
+  }
+
+  function applyVisiblePage(rows) {
+    flightData = rows;
+    flightColors = rows.map(r => statusColor(r.status_display));
 
     for (let i=0; i<MAX_ROWS; i++) {
-      if (i < data.length) {
-        setRowText(i, buildRowText(data[i]));
+      if (i < rows.length) {
+        setRowText(i, buildRowText(rows[i]));
       } else {
         setRowText(i, "");
       }
     }
+  }
+
+  function applyFlightData(data, resetRotation = true) {
+    allFlightData = Array.isArray(data) ? data : [];
+    flightPages = chunkFlightPages(allFlightData);
+    if (resetRotation) {
+      flightPageIndex = 0;
+      lastRotationTs = performance.now();
+    } else if (flightPageIndex >= flightPages.length) {
+      flightPageIndex = 0;
+    }
+    applyVisiblePage(flightPages[flightPageIndex] || []);
   }
 
   // ── Demo mode ─────────────────────────────────────────────────────────────
@@ -786,15 +822,18 @@
   // ── Fetch ──────────────────────────────────────────────────────────────────
   async function fetchRows() {
     try {
-      const r    = await fetch(`/api/fids?view=${VIEW}&limit=${MAX_ROWS}`);
+      const fetchLimit = Math.min(MAX_ROWS * 4, 32);
+      const r = await fetch(`/api/fids?view=${VIEW}&limit=${fetchLimit}`);
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const data = await r.json();
       if (data.length === 0) {
+        applyFlightData([]);
         status.textContent = "No flight data available — click Demo to preview animation";
         return;
       }
       applyFlightData(data);
-      status.textContent = `${data.length} flights · ${VIEW} · ${PANEL_W}×${PANEL_H}px · updated ${new Date().toUTCString().slice(17,25)} UTC`;
+      const pageCount = flightPages.length;
+      status.textContent = `${data.length} flights · ${VIEW} · ${PANEL_W}×${PANEL_H}px · ${pageCount > 1 ? `pages ${pageCount} · ` : ""}updated ${new Date().toUTCString().slice(17,25)} UTC`;
     } catch (e) {
       status.textContent = `Fetch failed: ${e.message} — click Demo to preview animation`;
     }
@@ -808,6 +847,11 @@
   function loop(ts) {
     if (ts - lastStep >= STEP_MS) {
       lastStep = ts;
+      if (flightPages.length > 1 && ts - lastRotationTs >= PAGE_ROTATION_S * 1000) {
+        flightPageIndex = (flightPageIndex + 1) % flightPages.length;
+        applyVisiblePage(flightPages[flightPageIndex] || []);
+        lastRotationTs = ts;
+      }
       stepAllFlap();
       drawFrame();
     }
@@ -831,6 +875,7 @@
     MAX_ROWS = parseInt(v);
     document.getElementById("rowsVal").textContent = v;
     updateCfgBlock();
+    applyFlightData(allFlightData);
     fetchRows();
   };
 
@@ -850,6 +895,12 @@
 
   window.setRefresh = function(v) {
     REFRESH_S_SRV = parseInt(v);
+    updateCfgBlock();
+  };
+
+  window.setPageRotation = function(v) {
+    PAGE_ROTATION_S = parseInt(v);
+    lastRotationTs = performance.now();
     updateCfgBlock();
   };
 
@@ -921,6 +972,7 @@ PANEL_W       = ${PANEL_W}
 PANEL_H       = ${PANEL_H}
 MAX_ROWS      = ${MAX_ROWS}
 REFRESH_S     = ${REFRESH_S_SRV}
+PAGE_ROTATION_S = ${PAGE_ROTATION_S}
 BRIGHTNESS    = ${BRIGHTNESS.toFixed(2)}
 DEFAULT_VIEW  = "${VIEW}"
 
@@ -938,6 +990,7 @@ Board reads: /api/config -> /api/matrix/config -> /api/fids`;
       panel_h: PANEL_H,
       max_rows: MAX_ROWS,
       refresh_seconds: REFRESH_S_SRV,
+      page_rotation_seconds: PAGE_ROTATION_S,
       brightness: BRIGHTNESS,
       default_view: VIEW,
     };
@@ -1386,6 +1439,12 @@ if __name__ == "__main__":
         const opt = [...sel.options].find(o => parseInt(o.value) === d.refresh_seconds);
         if (opt) sel.value = String(d.refresh_seconds);
       }
+      if (d.page_rotation_seconds !== undefined) {
+        PAGE_ROTATION_S = d.page_rotation_seconds;
+        const sel = document.getElementById("rotationSelect");
+        const opt = [...sel.options].find(o => parseInt(o.value) === d.page_rotation_seconds);
+        if (opt) sel.value = String(d.page_rotation_seconds);
+      }
       if (d.default_view !== undefined) {
         VIEW = d.default_view;
         document.getElementById("btnDep").classList.toggle("active", d.default_view === "departures");
@@ -1410,6 +1469,7 @@ if __name__ == "__main__":
           brightness:      BRIGHTNESS,
           max_rows:        MAX_ROWS,
           refresh_seconds: REFRESH_S_SRV,
+          page_rotation_seconds: PAGE_ROTATION_S,
           default_view:    VIEW,
         }),
       });
