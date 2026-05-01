@@ -430,7 +430,7 @@
         <h2 class="lf-diag-title" id="lfDiagTitle">Choose diagnostics for Local Flight</h2>
         <p class="lf-diag-sub">
           Local Flight stays local by default. Manual reports remain available from the Report page.
-          Automatic diagnostics, if enabled, go to the developer issue inbox on Linear and stay install-scoped rather than account-scoped.
+          Automatic diagnostics, if enabled, are sanitized locally and sent through the hosted relay reporting gateway before developer triage.
         </p>
         <div class="lf-diag-grid">
           <button class="lf-diag-opt" type="button" onclick="lfChooseDiagnostics('manual')">

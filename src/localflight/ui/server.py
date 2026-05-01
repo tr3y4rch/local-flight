@@ -10,6 +10,7 @@ from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional, Set
+from urllib.parse import urlparse
 
 from fastapi import BackgroundTasks, FastAPI, Form, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
@@ -20,7 +21,7 @@ from fastapi.templating import Jinja2Templates
 
 from localflight.ui.api import router as api_router
 from localflight.core.airports import best_label
-from localflight.sources.web.relay_defaults import default_public_relay_url, relay_endpoint_url
+from localflight.sources.web.relay_defaults import default_public_relay_url, relay_endpoint_url, validate_public_relay_url
 from localflight.storage.config import (
     AppConfig, load_config, save_config,
     ALLOWED_DIAGNOSTICS_MODES, DEFAULT_DIAGNOSTICS_MODE,
@@ -81,6 +82,45 @@ _SETUP_FREE_PATHS = {
     "/health",
     "/ws",
 }
+_UNSAFE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+
+
+def _normalized_request_host(value: str) -> str:
+    host = (value or "").strip().lower()
+    if not host:
+        return ""
+    if host.startswith("[") and "]" in host:
+        return host[1 : host.index("]")]
+    if host.count(":") == 1:
+        return host.split(":", 1)[0]
+    return host
+
+
+def _origin_host(value: str) -> str:
+    try:
+        parsed = urlparse(value or "")
+    except Exception:
+        return ""
+    return _normalized_request_host(parsed.netloc or "")
+
+
+def _is_cross_origin_mutation(request: Request) -> bool:
+    if request.method.upper() not in _UNSAFE_METHODS:
+        return False
+
+    fetch_site = request.headers.get("sec-fetch-site", "").strip().lower()
+    if fetch_site == "cross-site":
+        return True
+
+    request_host = _normalized_request_host(request.headers.get("host", ""))
+    for header_name in ("origin", "referer"):
+        raw = request.headers.get(header_name, "")
+        if not raw:
+            continue
+        source_host = _origin_host(raw)
+        if source_host and request_host and source_host != request_host:
+            return True
+    return False
 
 
 def _setup_complete() -> bool:
@@ -110,6 +150,15 @@ class SetupGateMiddleware(BaseHTTPMiddleware):
         return RedirectResponse(url="/setup", status_code=302)
 
 
+class LocalMutationGuardMiddleware(BaseHTTPMiddleware):
+    """Blocks browser drive-by POSTs from unrelated origins."""
+
+    async def dispatch(self, request: Request, call_next):
+        if _is_cross_origin_mutation(request):
+            return JSONResponse({"detail": "Cross-origin mutation blocked"}, status_code=403)
+        return await call_next(request)
+
+
 class RequestLogMiddleware(BaseHTTPMiddleware):
     """Logs every HTTP request to the local traffic DB (non-fatal)."""
 
@@ -119,8 +168,7 @@ class RequestLogMiddleware(BaseHTTPMiddleware):
         latency_ms = int((_time.monotonic() - start) * 1000)
         try:
             from localflight.storage.request_log import log_request
-            fwd = request.headers.get("x-forwarded-for", "")
-            ip  = fwd.split(",")[0].strip() if fwd else (
+            ip = request.headers.get("fly-client-ip", "").strip() or (
                 request.client.host if request.client else "unknown"
             )
             log_request(
@@ -170,9 +218,10 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(title="Local Flight UI", lifespan=_lifespan, docs_url=None, redoc_url=None)
 
-# Middleware order: RequestLog (outer) â†’ SetupGate (inner) â†’ route
-# add_middleware is LIFO so SetupGate must be added first
+# Middleware order: RequestLog (outer, optional) -> MutationGuard -> SetupGate -> route.
+# add_middleware is LIFO, so SetupGate must be added first.
 app.add_middleware(SetupGateMiddleware)
+app.add_middleware(LocalMutationGuardMiddleware)
 if _network_tools_enabled():
     app.add_middleware(RequestLogMiddleware)
 
@@ -199,6 +248,10 @@ def _safe_local_path(path: str, *, fallback: str = "/display") -> str:
 
 def _relay_url_default() -> str:
     return default_public_relay_url()
+
+
+def _validated_setup_relay_url(relay_url: str) -> str:
+    return validate_public_relay_url(relay_url or _relay_url_default(), trusted_default=_relay_url_default())
 
 
 def _managed_status_url(relay_url: str) -> str:
@@ -460,7 +513,10 @@ async def setup_activate(body: ActivationSetupIn) -> Dict[str, Any]:
     import requests as _req
     from localflight.storage.install import get_install_fingerprint, get_install_id, set_activation_token
 
-    relay_url = (body.relay_url or _relay_url_default()).strip()
+    try:
+        relay_url = _validated_setup_relay_url(body.relay_url)
+    except ValueError as exc:
+        return {"ok": False, "error": str(exc)}
     try:
         response = _req.post(
             _activate_url(relay_url),
@@ -503,7 +559,10 @@ async def setup_client_status(body: ClientStatusSetupIn) -> Dict[str, Any]:
     import requests as _req
     from localflight.storage.install import get_activation_token, get_install_id
 
-    relay_url = (body.relay_url or _relay_url_default()).strip()
+    try:
+        relay_url = _validated_setup_relay_url(body.relay_url)
+    except ValueError as exc:
+        return {"ok": False, "error": str(exc)}
     activation_token = (body.activation_token or "").strip() or get_activation_token().strip()
     try:
         response = _req.get(
@@ -546,7 +605,10 @@ async def setup_test_activation(body: ActivationTokenTestIn) -> Dict[str, Any]:
     import requests as _req
     from localflight.storage.install import get_activation_token, get_install_fingerprint, get_install_id
 
-    relay_url = (body.relay_url or _relay_url_default()).strip()
+    try:
+        relay_url = _validated_setup_relay_url(body.relay_url)
+    except ValueError as exc:
+        return {"ok": False, "error": str(exc)}
     token = body.activation_token.strip() or get_activation_token().strip()
     if not token:
         return {"ok": False, "error": "Managed activation token is not loaded on this machine yet."}
@@ -620,6 +682,11 @@ async def setup_complete(request: Request, background_tasks: BackgroundTasks) ->
     rp_key = data.get("rapidapi_key", "").strip()
     activation_token = data.get("activation_token", "").strip()
     relay_url = data.get("relay_url", "").strip()
+    if setup_mode in {"managed", "community"}:
+        try:
+            relay_url = _validated_setup_relay_url(relay_url)
+        except ValueError as exc:
+            return JSONResponse({"ok": False, "error": str(exc)}, status_code=400)
     os_id = data.get("opensky_id", "").strip()
     os_sec = data.get("opensky_secret", "").strip()
 

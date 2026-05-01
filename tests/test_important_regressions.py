@@ -6,6 +6,7 @@ import types
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 import localflight.scheduler.jobs as jobs
@@ -60,6 +61,27 @@ def test_save_snapshot_uses_canonical_user_storage(tmp_path: Path, monkeypatch) 
         / "20260102T030405Z.json"
     )
     assert written.exists()
+
+
+def test_local_mutation_guard_blocks_cross_origin_browser_posts() -> None:
+    cross_origin = types.SimpleNamespace(
+        method="POST",
+        headers={"host": "127.0.0.1:8000", "origin": "https://evil.example"},
+    )
+    same_origin = types.SimpleNamespace(
+        method="POST",
+        headers={"host": "127.0.0.1:8000", "origin": "http://127.0.0.1:8000"},
+    )
+    native_client = types.SimpleNamespace(method="POST", headers={"host": "192.168.1.20:8000"})
+    cross_site_fetch = types.SimpleNamespace(
+        method="POST",
+        headers={"host": "127.0.0.1:8000", "sec-fetch-site": "cross-site"},
+    )
+
+    assert ui_server._is_cross_origin_mutation(cross_origin) is True
+    assert ui_server._is_cross_origin_mutation(cross_site_fetch) is True
+    assert ui_server._is_cross_origin_mutation(same_origin) is False
+    assert ui_server._is_cross_origin_mutation(native_client) is False
 
 
 def test_load_latest_snapshot_path_reads_legacy_snapshots_during_migration(
@@ -578,6 +600,7 @@ def test_fids_detail_exposes_live_track_metadata(monkeypatch, tmp_path: Path) ->
                         "origin": {"iata": "ZRH", "icao": "LSZH", "name": "Zurich"},
                         "destination": {"iata": "LHR", "icao": "EGLL", "name": "London Heathrow"},
                         "aircraft_type": "A320",
+                        "aircraft_registration": "HB-JCA",
                         "gate": "A1",
                         "terminal": "1",
                         "stand": None,
@@ -956,6 +979,35 @@ def test_default_public_relay_url_matches_live_installer_default(monkeypatch) ->
     monkeypatch.delenv("LOCALFLIGHT_RELAY_URL", raising=False)
 
     assert relay_defaults.default_public_relay_url() == "https://localflight-community-relay.fly.dev/v1/flights"
+
+
+def test_setup_relay_url_validation_blocks_untrusted_roots(monkeypatch) -> None:
+    monkeypatch.delenv("LOCALFLIGHT_ALLOW_CUSTOM_RELAY_URL", raising=False)
+    monkeypatch.delenv("LOCALFLIGHT_ALLOW_PRIVATE_RELAY_URL", raising=False)
+    default_url = "https://localflight-community-relay.fly.dev/v1/flights"
+
+    assert relay_defaults.validate_public_relay_url(default_url, trusted_default=default_url) == default_url
+    assert relay_defaults.validate_public_relay_url(
+        "https://relay.localflight.app/v1/flights",
+        trusted_default=default_url,
+    ) == "https://relay.localflight.app/v1/flights"
+
+    with pytest.raises(ValueError, match="Custom relay hosts"):
+        relay_defaults.validate_public_relay_url("https://relay.example.test/v1/flights", trusted_default=default_url)
+    with pytest.raises(ValueError, match="Private or local"):
+        relay_defaults.validate_public_relay_url("http://127.0.0.1:8080/v1/flights", trusted_default=default_url)
+
+    monkeypatch.setenv("LOCALFLIGHT_ALLOW_CUSTOM_RELAY_URL", "1")
+    assert relay_defaults.validate_public_relay_url(
+        "https://relay.example.test/v1/flights",
+        trusted_default=default_url,
+    ) == "https://relay.example.test/v1/flights"
+
+    monkeypatch.setenv("LOCALFLIGHT_ALLOW_PRIVATE_RELAY_URL", "1")
+    assert relay_defaults.validate_public_relay_url(
+        "http://127.0.0.1:8080/v1/flights",
+        trusted_default=default_url,
+    ) == "http://127.0.0.1:8080/v1/flights"
 
 
 def test_ui_route_contracts_cover_core_pages_and_api_surfaces() -> None:

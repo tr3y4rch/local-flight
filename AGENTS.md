@@ -281,12 +281,12 @@ PowerShell CLI form:
 
 ```powershell
 fly secrets set -a localflight-community-relay `
-  LINEAR_REPORTER_API_KEY="lin_api_key_here" `
-  LINEAR_TEAM_IOS_ID="ios_team_id_here" `
-  LINEAR_TEAM_DESKTOP_ID="desktop_team_id_here" `
-  LINEAR_TEAM_SERVER_ID="server_team_id_here" `
-  LINEAR_TEAM_RELAY_ID="relay_team_id_here" `
-  LINEAR_TEAM_DEFAULT_ID="default_team_id_here"
+  LINEAR_REPORTER_API_KEY="<linear-api-key>" `
+  LINEAR_TEAM_IOS_ID="<ios-team-id>" `
+  LINEAR_TEAM_DESKTOP_ID="<desktop-team-id>" `
+  LINEAR_TEAM_SERVER_ID="<server-team-id>" `
+  LINEAR_TEAM_RELAY_ID="<relay-team-id>" `
+  LINEAR_TEAM_DEFAULT_ID="<default-team-id>"
 ```
 
 PowerShell line-continuation backticks must be the final character on the line; no trailing spaces after them. Confirm the secret names are present with:
@@ -481,7 +481,7 @@ npm run ios
 
 - Active version is `0.2.5b3`: `pyproject.toml`, runtime fallbacks, mobile package metadata, Expo `extra.localFlightVersion`, and docs should all agree.
 - Community relay is live at `https://localflight-community-relay.fly.dev/v1/flights`. The custom domain `relay.localflight.app` is planned once DNS is registered.
-- Relay admin panel: access via `RELAY_ADMIN_ON_PUBLIC=1` (already set as a Fly secret) at `https://localflight-community-relay.fly.dev/admin`, or via `fly proxy 8080` (unreliable on Windows) or `fly ssh console` for CLI access.
+- Relay admin panel: prefer Fly dashboard/CLI or `fly ssh console`. Public admin access is optional and must stay password-protected; do not publish operator-only entrypoints in public docs.
 - Fly deployment: one warm machine in `fra`, one SQLite volume (`relay_data`), host-based public/admin gating in `relay/main.py`. Shared-schedule relay deploys now need the repo-root command `fly deploy --config relay/fly.toml --dockerfile relay/Dockerfile --remote-only` so the image includes `src/localflight`.
 - Live shared schedule planner is currently `fair-v3`: date-scoped fair paging, adaptive continuation, and an undated rescue fallback. Cold relay rebuilds may take longer, so relay-backed desktop fetches now allow `60s`.
 - `mobile/node_modules` is still absent on the Windows workspace, so Expo/TypeScript validation belongs on the Mac/Xcode side after `npm install` unless Node/npm are installed there.
@@ -498,12 +498,13 @@ npm run ios
 - Mobile detail communication stays server-mediated: the companion calls `/api/fids/detail` and does not call AviationStack, ADS-B Exchange, RapidAPI, or the hosted relay endpoints directly.
 - Mobile automatic diagnostics now includes critical detail communication failures (`5xx` or malformed JSON) through diagnostics-gated `/api/feedback/crash`; feature-specific reports keep companion identity, app version, device type, and server URL in the client context. Mobile also has its own SecureStore diagnostics choice, so auto-reporting requires both mobile and server consent.
 - Linear developer reporting now goes through relay `POST /v1/reports`; no developer Linear API key/team ID is shipped in the packaged desktop or companion app. Relay secrets required: `LINEAR_REPORTER_API_KEY`, `LINEAR_TEAM_IOS_ID`, `LINEAR_TEAM_DESKTOP_ID`, `LINEAR_TEAM_SERVER_ID`, `LINEAR_TEAM_RELAY_ID`, and `LINEAR_TEAM_DEFAULT_ID`.
+- Security sweep hardening is now staged in code: relay community schedule/radar access has network/global daily caps, Fly client IP handling no longer trusts spoofable `X-Forwarded-For`, admin Basic auth has failed-login throttling, local setup relay URLs are validated before server-side calls, and browser cross-origin local mutations are blocked.
 - Mobile structure refactor is complete enough for handoff: `App.tsx` is a provider entrypoint, `src/app/AppShell.tsx` coordinates state/refresh, pure helpers live in `src/domain/`, stateful behavior in `src/hooks/`, and screens/sheets in `src/screens/AppScreens.tsx`.
 - Mobile validation: `npm run typecheck` passes; `npm run doctor` is 17/18 after adding `expo-font` and updating Expo to `~55.0.19`. Remaining doctor failure is environment-only: Expo SDK 55 reports Xcode `16.3.0` incompatible and requires Xcode `>=26.0.0`.
 - Mobile resume on Mac/Xcode: resolve the Xcode/Expo SDK compatibility issue first, then run `npm run doctor` and `npm run ios`. Expo Go may reject SDK 55 depending on installed Expo Go; simulator/dev build is the safer path.
 - Windows-side AviationStack reliability pass is now documented in public/internal docs. Important: the local board/filter bug is fixed, but some live airports can still show sparse future departures because AviationStack itself does not return enough near-term rows even after fair paging plus undated rescue. Current observed example: `ZRH` on `2026-05-01`.
 - Sparse-board UX fallback is now active on the client: if a real-data lane has no rows inside the live window, the board shows the nearest available real flights instead of an empty departures page. Current live local check after the patch: `/api/fids?view=departures` returned `20` rows again.
-- Verification currently green on Windows side: `python -m compileall -q src relay` and `pytest tests` (`58 passed`) after the AviationStack fairness, relay rescue, and sparse-board fallback changes.
+- Verification currently green on this macOS workspace: `.venv/bin/python -m compileall -q src relay`, `.venv/bin/python -m pytest tests` (`75 passed`), and `npm run typecheck`. `npm run doctor` remains 17/18 because Expo SDK 55 requires a newer Xcode than the installed `16.3.0`.
 
 ## What was done in the latest session (v0.2.5b3)
 
@@ -520,6 +521,7 @@ npm run ios
 - ✅ Relay planner/version was pushed live through `fair-v3`, and relay-backed schedule fetch timeout was raised to `60s` to tolerate heavier cold shared-snapshot rebuilds.
 - ✅ Reality check after the fix: the Local Flight fetch/filter bugs were corrected, but live `ZRH` departures on `2026-05-01` still remained sparse after the stronger fetch strategy. That remaining gap is currently documented as upstream AviationStack coverage behavior, not a known unresolved client filter bug.
 - ✅ Client FIDS now falls back to the nearest available real rows when a sparse provider window would otherwise render `0` departures or arrivals, so the board stays useful even when AviationStack only returns older rows for that lane.
+- ✅ Security/privacy abuse sweep pass: relay community traffic now has daily network/global caps in addition to install quotas; relay admin login attempts are throttled; setup-provided relay URLs are restricted to official/default roots unless custom/private dev flags are set; local browser cross-origin mutations are rejected; report routing now honors explicit platform origins before iOS inference; diagnostics wording now describes the hosted relay reporting gateway.
 
 ## What was done in session v0.2.5b2
 
@@ -544,13 +546,13 @@ npm run ios
 - ✅ Detail data model now preserves DAU-important aircraft/plan fields without overdoing it: aircraft registration for ADS-B/AviationStack when available, plus VATSIM filed flight rules, route, cruise altitude/TAS, planned times, enroute duration, alternate, and transponder.
 - ✅ `/api/fids/detail` includes `detail_mode` (`real` / `virtual`) plus origin/destination ICAO codes, allowing desktop and companion to render source-specific detail layouts.
 - ✅ Mobile detail sheet is aligned with the new server detail contract and guarded auto-reporting now catches critical detail endpoint failures without reporting normal offline/4xx cases.
-- ✅ `DEV_README.md` now includes a quick "where to find what" map for relay URLs, network admin entrypoints, bundled docs routes, version sweep files, and release artifact commands; Pi source releases now use `python scripts/package_pi_source.py`.
+- ✅ `DEV_README.md` is not present in the current checkout; `AGENTS.md` is the single handoff file. Pi source releases now use `python scripts/package_pi_source.py`.
 
 ## What was done in session v0.2.3b2
 
 - ✅ Hosted relay defaults centralized in `relay_defaults.py` and wired through the desktop clients, setup flow, and installers.
 - ✅ `relay/main.py` hardened for Fly.io: port `8080`, FastAPI lifespan startup, `/health`, host-based public/admin gating, and reduced relay-side metadata writes.
-- ✅ `relay/fly.toml` updated for explicit `relay/` deployment, one warm `fra` machine, and the `relay.localflight.app` / `network.localflight.app` split.
+- ✅ `relay/fly.toml` updated for explicit `relay/` deployment, one warm `fra` machine, and a public/operator hostname split.
 - ✅ Privacy and handoff docs rewritten for the hosted relay model and install-scoped identifiers.
 - ✅ `private_keys.py` — dev-only community key lookup from `dev/private/community_keys.json` (gitignored)
 - ✅ `install.py` — `get_activation_token()` / `set_activation_token()` for managed install tokens
@@ -604,7 +606,7 @@ npm run ios
 
 - [ ] Create GitHub release `v0.2.5b3` and attach Windows/macOS/Pi artifacts plus all matching `.sha256` files.
 - [ ] Attach the Pi source bundle too: `LocalFlight-pi-source-0.2.5b3.zip` and `.sha256`.
-- [ ] Register custom domain and wire `relay.localflight.app` + `network.localflight.app` DNS → `localflight-community-relay.fly.dev`; run `fly certs add` for both.
+- [ ] Register custom domain and wire the public relay hostname plus operator admin hostname DNS to `localflight-community-relay.fly.dev`; run `fly certs add` for both.
 - [ ] End-to-end community client activation test against live relay.
 - [ ] Decide the next step for sparse AviationStack airports: second provider merge, sparse-board warning UX, or a deliberate stale-board fallback instead of an empty departures page.
 - [ ] Mobile — resolve Expo SDK 55 vs Xcode compatibility, then test in iOS simulator/dev build.

@@ -200,6 +200,20 @@ def test_activate_uses_manual_review_after_anonymous_network_burst(tmp_path: Pat
     assert "activation_token" not in third
 
 
+def test_relay_client_ip_ignores_spoofable_forwarded_for() -> None:
+    request = types.SimpleNamespace(
+        headers={"fly-client-ip": "203.0.113.42", "x-forwarded-for": "10.0.0.1"},
+        client=types.SimpleNamespace(host="198.51.100.10"),
+    )
+    assert relay_main._client_ip(request) == "203.0.113.42"
+
+    request_without_fly = types.SimpleNamespace(
+        headers={"x-forwarded-for": "10.0.0.1"},
+        client=types.SimpleNamespace(host="198.51.100.10"),
+    )
+    assert relay_main._client_ip(request_without_fly) == "198.51.100.10"
+
+
 def test_public_host_hides_admin_surface(tmp_path: Path, monkeypatch) -> None:
     _use_temp_db(tmp_path, monkeypatch)
     client = TestClient(relay_main.app)
@@ -235,6 +249,22 @@ def test_relay_root_switches_by_hostname(tmp_path: Path, monkeypatch) -> None:
     admin_response = client.get("/", headers={"host": "network.localflight.app"}, follow_redirects=False)
     assert admin_response.status_code == 307
     assert admin_response.headers["location"] == "/admin"
+
+
+def test_admin_auth_throttles_repeated_bad_passwords(tmp_path: Path, monkeypatch) -> None:
+    _use_temp_db(tmp_path, monkeypatch)
+    monkeypatch.setenv("RELAY_ADMIN_PASSWORD", "correct-horse")
+    monkeypatch.setattr(relay_main, "_ADMIN_AUTH_FAILURE_LIMIT", 2)
+    relay_main._admin_auth_failures.clear()
+    client = TestClient(relay_main.app)
+
+    first = client.get("/admin", headers={"host": "network.localflight.app"}, auth=("admin", "wrong"))
+    second = client.get("/admin", headers={"host": "network.localflight.app"}, auth=("admin", "wrong"))
+    third = client.get("/admin", headers={"host": "network.localflight.app"}, auth=("admin", "wrong"))
+
+    assert first.status_code == 401
+    assert second.status_code == 401
+    assert third.status_code == 429
 
 
 def test_activation_requests_do_not_persist_airport_fields(tmp_path: Path, monkeypatch) -> None:
@@ -663,6 +693,121 @@ def test_shared_schedule_route_coalesces_repeated_accesses_and_counts_upstream_s
     assert int(snapshot_row["refresh_count"] or 0) == 1
     assert int(snapshot_row["cache_hits"] or 0) == 19
     assert int(snapshot_row["upstream_pulls"] or 0) == 8
+
+
+def test_shared_schedule_network_daily_limit_blocks_rotating_install_ids(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    _use_temp_db(tmp_path, monkeypatch)
+    monkeypatch.setenv("RELAY_COMMUNITY_SCHEDULE_NETWORK_DAILY_LIMIT", "1")
+    monkeypatch.setenv("RELAY_COMMUNITY_SCHEDULE_GLOBAL_DAILY_LIMIT", "100")
+    client = TestClient(relay_main.app)
+    upstream_calls: list[dict[str, object]] = []
+
+    def fake_shared_fetch(**kwargs):
+        upstream_calls.append(dict(kwargs))
+        return _shared_snapshot_payload(pages_fetched=1)
+
+    monkeypatch.setattr(relay_main, "_fetch_shared_schedule_from_upstream", fake_shared_fetch)
+    params = {
+        "airport_iata": "ZRH",
+        "timezone": "Europe/Zurich",
+        "display_grace_minutes": 30,
+        "display_horizon_hours": 12,
+        "refresh_seconds": 3600,
+    }
+
+    first = client.get(
+        "/v1/schedule",
+        params={**params, "install_id": "00000000-0000-0000-0000-000000000421"},
+    )
+    second = client.get(
+        "/v1/schedule",
+        params={**params, "install_id": "00000000-0000-0000-0000-000000000422"},
+    )
+
+    assert first.status_code == 200
+    assert second.status_code == 429
+    assert "network daily limit" in second.json()["detail"]
+    assert len(upstream_calls) == 1
+
+
+def test_shared_schedule_global_daily_limit_blocks_rotating_networks(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    _use_temp_db(tmp_path, monkeypatch)
+    monkeypatch.setenv("RELAY_COMMUNITY_SCHEDULE_NETWORK_DAILY_LIMIT", "100")
+    monkeypatch.setenv("RELAY_COMMUNITY_SCHEDULE_GLOBAL_DAILY_LIMIT", "1")
+    client = TestClient(relay_main.app)
+    upstream_calls: list[dict[str, object]] = []
+
+    def fake_shared_fetch(**kwargs):
+        upstream_calls.append(dict(kwargs))
+        return _shared_snapshot_payload(pages_fetched=1)
+
+    monkeypatch.setattr(relay_main, "_fetch_shared_schedule_from_upstream", fake_shared_fetch)
+    params = {
+        "airport_iata": "ZRH",
+        "timezone": "Europe/Zurich",
+        "display_grace_minutes": 30,
+        "display_horizon_hours": 12,
+        "refresh_seconds": 3600,
+    }
+
+    first = client.get(
+        "/v1/schedule",
+        params={**params, "install_id": "00000000-0000-0000-0000-000000000423"},
+        headers={"fly-client-ip": "203.0.113.1"},
+    )
+    second = client.get(
+        "/v1/schedule",
+        params={**params, "install_id": "00000000-0000-0000-0000-000000000424"},
+        headers={"fly-client-ip": "203.0.113.2"},
+    )
+
+    assert first.status_code == 200
+    assert second.status_code == 429
+    assert "daily safety limit" in second.json()["detail"]
+    assert len(upstream_calls) == 1
+
+
+def test_shared_schedule_invalid_timezones_share_normalized_cache_key(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    _use_temp_db(tmp_path, monkeypatch)
+    client = TestClient(relay_main.app)
+    upstream_calls: list[dict[str, object]] = []
+
+    def fake_shared_fetch(**kwargs):
+        upstream_calls.append(dict(kwargs))
+        return _shared_snapshot_payload(pages_fetched=1)
+
+    monkeypatch.setattr(relay_main, "_fetch_shared_schedule_from_upstream", fake_shared_fetch)
+    base_params = {
+        "airport_iata": "ZRH",
+        "display_grace_minutes": 30,
+        "display_horizon_hours": 12,
+        "refresh_seconds": 3600,
+        "install_id": "00000000-0000-0000-0000-000000000425",
+    }
+
+    first = client.get("/v1/schedule", params={**base_params, "timezone": "Bad/One"})
+    second = client.get("/v1/schedule", params={**base_params, "timezone": "Bad/Two"})
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert len(upstream_calls) == 1
+    assert upstream_calls[0]["timezone_name"] == "UTC"
+
+    conn = relay_main._connect()
+    row = conn.execute("SELECT COUNT(*) AS n, MIN(timezone) AS timezone FROM schedule_snapshots").fetchone()
+    conn.close()
+    assert row is not None
+    assert int(row["n"] or 0) == 1
+    assert row["timezone"] == "UTC"
 
 
 def test_shared_schedule_upstream_fetch_adds_adaptive_pages_for_busy_departures(monkeypatch) -> None:

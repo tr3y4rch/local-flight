@@ -2,36 +2,87 @@
 
 Local Flight is built around a simple rule: **stay local unless a feature genuinely needs a network hop.**
 
-No user accounts. No analytics SDKs. No ad tech. No sign-up flow.
+No accounts. No analytics SDKs. No ad tech. No sign-up flow.
+
+This is a hobbyist/open-source project, not a legal document, but the app is designed to be privacy-minimal and GDPR-friendly: collect as little as possible, keep identifiers technical and install-scoped, and make diagnostics opt-in.
 
 ---
 
-## What stays local by default
+## Quick Summary
 
-- Flight snapshots, config, history, and logs stay on your machine under `~/.localflight/`.
+- Your config, API keys, snapshots, history, and logs stay on your own machine.
+- The mobile companion talks to your Local Flight server over your LAN. It does not call AviationStack, ADS-B Exchange, RapidAPI, OpenSky, VATSIM, or the hosted relay directly.
+- Community mode can use the hosted Local Flight relay for shared schedules and relay-backed radar. That relay stores operational metadata, not accounts or user profiles.
+- Manual reports are always your choice. Automatic crash diagnostics are off unless you allow them.
+- Mobile automatic diagnostics require two yeses: the mobile app's local diagnostics choice and the connected server's diagnostics mode.
+- Developer reporting credentials are kept on the hosted relay, not in the desktop package, mobile app, installers, or docs.
+
+---
+
+## What Stays Local
+
+- Flight snapshots, config, history, and logs stay under `~/.localflight/`.
 - Your airport settings, display preferences, and personal API keys stay in your local config and `.env`.
-- The optional local traffic log at `~/.localflight/requests.db` is visible only on your own Local Flight instance.
-- The mobile companion talks to your Local Flight server over your LAN. It does not send data to a cloud account service.
+- The optional local traffic log at `~/.localflight/requests.db` is visible only on your own Local Flight instance and is only enabled for explicit local network diagnostics.
 - The Interstate 75 W board talks to your Local Flight server over your LAN. Its runtime settings live in `~/.localflight/matrix_config.json`.
 
 When you use the Matrix page to download a ready-to-flash `main.py`, the Wi-Fi details and server host are sent to your own Local Flight instance only long enough to render that file. They are not stored in `matrix_config.json`, the hosted relay, or crash reports.
 
 ---
 
-## Diagnostics and reports
+## Setup Paths
 
-Manual issue reports are always available from the in-app **Report** page. Automatic diagnostics are a separate, install-level choice.
+### Community Relay
+
+If you choose **Community**, your install uses the hosted relay for shared AviationStack schedule snapshots and, when available, relay-backed ADS-B radar. The relay is there to protect provider keys and make the hobbyist path usable without everybody bringing paid API credentials on day one.
+
+The relay stores the minimum metadata needed to run that shared service safely:
+
+- random local install UUID
+- hashed install fingerprint
+- per-install usage counts
+- last-seen timestamps
+- token prefixes for relay-linked installs
+- one-way anonymous network tags for abuse protection
+- short-lived "current interest" rows, such as airport and display window, so shared schedule snapshots can be reused
+- short-lived shared schedule snapshots containing Local Flight canonical schedule records and cache metadata
+
+The relay does **not** store:
+
+- raw IP addresses
+- personal API keys from your install
+- readable personal identifiers
+- your local flight history database
+- your local app logs, unless you explicitly allow diagnostic reports with sanitized logs
+
+Community relay traffic has per-install quotas plus network/global safety caps. Duplicate reports are deduplicated before routing, so one noisy install should not spam every triage area.
+
+### Bring Your Own Keys
+
+If you choose **Bring your own keys**, your local app talks directly to the upstream providers you configured. Your provider keys stay in your local `.env` and are not sent to the Local Flight relay reporting gateway.
+
+### VATSIM
+
+If you choose **VATSIM**, the app uses virtual traffic data and does not need real-world schedule API keys.
+
+---
+
+## Diagnostics And Reports
+
+Manual issue reports are always available from the in-app **Report** page. Automatic diagnostics are a separate install-level choice.
 
 On first launch into the main app, Local Flight asks you to choose one of these modes:
+
 - `Manual reports only`
 - `Automatic crash reports`
 - `Automatic crash reports + sanitized logs`
 
 You can change that choice later from **Settings**.
 
-### Manual reports
+### Manual Reports
 
 When you send a report yourself, Local Flight sends:
+
 - the title and description you wrote
 - Local Flight version
 - install fingerprint
@@ -41,11 +92,14 @@ When you send a report yourself, Local Flight sends:
 - schedule mode, diagnostics mode, and display window settings
 - optional mobile companion context if the report came from the companion flow
 
-### Automatic crash reports
+Manual reports are sanitized locally, forwarded to the hosted relay reporting gateway, deduplicated/rate-limited there, and then filed for developer triage.
 
-If you enable automatic diagnostics, Local Flight can send a crash report to the developer issue inbox on Linear when a serious error is caught. Reports are sent through the hosted relay reporting gateway so Linear credentials are never included in the desktop or mobile app package.
+### Automatic Crash Reports
 
-An automatic crash report contains:
+If you enable automatic diagnostics, Local Flight can send a crash report when a serious error is caught. Automatic reports use the same relay reporting gateway as manual reports.
+
+An automatic crash report can contain:
+
 - Local Flight version
 - install fingerprint
 - operating system
@@ -55,95 +109,77 @@ An automatic crash report contains:
 - crash context
 - traceback, when available
 
-If you choose `Automatic crash reports + sanitized logs`, the report also includes:
+If you choose `Automatic crash reports + sanitized logs`, the report can also include:
+
 - a sanitized recent log excerpt from the local app log
 
-Automatic diagnostics do **not** contain:
+Automatic diagnostics do **not** intentionally contain:
+
 - API keys
+- activation tokens
 - raw IP addresses
 - stored flight history
-- Local Flight account data, because there are no Local Flight accounts
+- full local logs
+- account data, because there are no Local Flight accounts
 
-Crash reports are deduplicated locally and again by the hosted relay so the same install does not file the same crash repeatedly within a short window. The deduplication key includes the crash context as well as the error message so unrelated subsystems do not collapse into one report. Manual reports with the same title/body are also briefly deduplicated to avoid accidental spam.
-
----
-
-## Community relay
-
-If you choose the **Community** setup path, your Local Flight install uses the hosted relay to fetch shared AviationStack schedules and relay-backed ADS-B radar data.
-
-The relay stores only the minimum metadata needed to run that shared service safely:
-- a random local install UUID
-- a hashed install fingerprint
-- per-install usage counts
-- last-seen timestamps
-- token prefixes for relay-linked installs
-- anonymous network tags derived from the incoming network path for abuse protection
-- short-lived install interest rows so the relay knows which airport/window an install is currently watching
-- short-lived shared schedule snapshots keyed by airport and display window, containing canonical schedule records plus cache metadata
-
-The relay does **not** store:
-- raw IP addresses
-- personal API keys from your install
-- readable personal identifiers
-- flight history snapshots from your local app
-
-Those anonymous network tags are one-way derived values. They help rate-limit obvious abuse without turning the relay into a user-tracking system.
-
-The important nuance is this:
-- airport identifiers are no longer stored in new generic relay activity log rows
-- but the relay does temporarily store the currently watched airport/window in its internal shared-cache tables, because that is how shared snapshot fan-out works
-- to build a usable board, the relay may also perform additional internal paginated or undated upstream schedule requests when a provider date slice comes back sparse; clients still receive only Local Flight canonical records, not reusable raw provider payloads
-
-Those shared snapshots are an internal service cache, not a public export or account profile.
-
-If you use **Bring your own keys**, the client talks directly to the upstream providers and the hosted community relay is not part of that schedule path.
+Expo JS/React errors in the mobile companion are covered by the current crash reporter. Native iOS crashes before JavaScript starts are not covered without adding a native crash-reporting service or relying on Apple crash logs.
 
 ---
 
-## Third-party data sources
+## Mobile Companion
 
-When Local Flight fetches data, it communicates with:
+The mobile companion stores its server URL, companion ID, appearance choice, pinned flight, local profiles, and mobile diagnostics choice locally on the device with Expo storage APIs.
+
+When it connects to your Local Flight server, it reports a companion-specific ID plus platform/device labels so companion-originated actions can be distinguished from desktop/server actions. That ID is install-scoped. It is not a login, an account, or a person profile.
+
+Automatic companion reports only send when:
+
+- the mobile diagnostics mode allows automatic reports
+- the connected Local Flight server diagnostics mode also allows automatic reports
+
+If either side is set to manual or unset, automatic mobile reporting stays off.
+
+---
+
+## Third-Party Data Sources
+
+When Local Flight fetches data, it may communicate with:
 
 | Service | What is sent | Their privacy policy |
 |---|---|---|
-| AviationStack | BYOK/direct path: API key + airport IATA code + date/window request details. Relay-backed path: the hosted relay makes that upstream request with its own provider key, shared cache, and sparse-board rescue logic when needed. | [aviationstack.com/privacy](https://aviationstack.com/privacy-policy) |
-| ADS-B Exchange via RapidAPI | API key + radar search coordinates | [rapidapi.com/privacy](https://rapidapi.com/privacy/) |
+| AviationStack | BYOK/direct path: API key, airport IATA code, date/window request details. Relay-backed path: the hosted relay makes the upstream request with its own provider key and shared cache. | [aviationstack.com/privacy](https://aviationstack.com/privacy-policy) |
+| ADS-B Exchange via RapidAPI | Direct path: API key and radar search coordinates. Relay-backed path: the hosted relay makes the upstream request when relay access is available. | [rapidapi.com/privacy](https://rapidapi.com/privacy/) |
 | OpenSky Network | Radar search coordinates | [opensky-network.org/about/privacy](https://opensky-network.org/about/privacy) |
-| VATSIM | Airport IATA code | [vatsim.net/privacy-policy](https://vatsim.net/privacy-policy) |
-| aviationweather.gov | ICAO code | Public government API |
+| VATSIM | Virtual network data for the configured airport/source mode | [vatsim.net/privacy-policy](https://vatsim.net/privacy-policy) |
+| aviationweather.gov | ICAO code for METAR weather | Public government API |
 
 Local Flight does not embed tracking or advertising SDKs from any of these services.
 
 ---
 
-## Mobile companion
+## GDPR-Friendly Stance
 
-The mobile companion stores its server URL, companion ID, and mobile diagnostics choice locally on the device. When it connects to your Local Flight server, it reports a companion-specific ID plus a platform label so companion-originated actions can be distinguished from the desktop/server app in diagnostics. Automatic companion reports require both the mobile diagnostics choice and the connected server diagnostics choice to allow them.
+Local Flight is designed to avoid collecting personal data in normal use:
 
-That identity is install-scoped. It is not a login or a person profile.
-
----
-
-## GDPR / personal data stance
-
-Local Flight is designed to avoid collecting personal data in the ordinary sense:
-- no accounts
+- no user accounts
 - no email addresses
-- no cross-device profile
+- no analytics profiles
+- no ad tracking
 - no raw IP storage in the hosted relay
 
-The closest thing to remote processing is the hosted community relay and install-scoped diagnostics. Both are designed around technical identifiers rather than user identity.
+Technical identifiers, such as install fingerprints and companion IDs, can still be personal data in some contexts. Local Flight keeps them short-lived or install-scoped where practical, uses them for rate limiting and troubleshooting, and avoids turning them into account profiles.
+
+Your local data is under your control. To wipe local app data, stop Local Flight and remove `~/.localflight/`.
 
 ---
 
-## Summary
+## Data Summary
 
 | Data | Where it lives | Who can see it |
 |---|---|---|
 | Flight snapshots | Your machine | You |
 | Config and personal API keys | Your machine | You |
-| Local traffic log | Your machine | You |
+| Local traffic log | Your machine | You, if network tools are enabled |
 | Flight history | Your machine | You |
-| Manual reports and automatic diagnostics | Hosted relay reporting gateway, then developer issue inbox on Linear | Developer |
+| Manual reports and automatic diagnostics | Hosted relay reporting gateway, then developer triage inbox | Developer |
 | Community relay usage metadata and short-lived shared schedule cache | Relay server | Relay operator |

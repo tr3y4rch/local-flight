@@ -3,7 +3,7 @@
 A **local-first Flight Information Display System (FIDS)** that runs on Windows, macOS, or a Raspberry Pi.
 Fetches real and simulated flight data and renders it as a proper airport-style departure/arrival board - in your browser, on an LED matrix panel, or on a dedicated HDMI screen.
 
-No accounts. No signup wall. Community mode can use the hosted relay, but it still stays install-scoped instead of account-scoped.
+No accounts. No signup wall. Community mode can use the hosted relay, but it stays install-scoped instead of account-scoped.
 
 **Source:** [github.com/tr3y4rch/local-flight](https://github.com/tr3y4rch/local-flight)
 
@@ -106,14 +106,15 @@ It runs from the `mobile/` folder with React Native / Expo and connects to the L
 
 ### What works now
 
-- FIDS, radar, history, and settings screens
+- FIDS, radar, and settings as the main companion screens, with history, docs, matrix, and admin tools opened from Settings
 - WebSocket live sync with fallback polling
 - Pinned flights and the Flight Island focus card
-- Longer branded launch overlay and crash reporting that follows the server's diagnostics mode
+- Longer branded launch overlay and diagnostics that follow both the phone's local choice and the connected server's diagnostics mode
 - Airport, source, and refresh interval changes against the local server
-- Matrix preview helper, admin summary, feedback tools, and companion identity reporting
+- Server-backed Matrix runtime editor, local panel preview helper, admin summary, feedback tools, and companion identity reporting
 - Relay-aware admin/budget payloads, including shared snapshot status for community and managed installs
 - Companion-specific ID and platform reporting for cleaner diagnostics
+- Independent mobile appearance settings and an in-app document reader for README, Privacy, and Changelog
 
 ### Requirements
 
@@ -161,9 +162,9 @@ It walks through:
 
 The scheduler only starts after setup completes. You can re-run the wizard any time from **Settings -> Re-run setup wizard**.
 
-After the first launch into the main app, Local Flight asks once how you want diagnostics handled. Manual reports always stay available from the **Report** page. Developer reports are forwarded through the hosted relay reporting gateway; Linear credentials are not shipped in the desktop or mobile app.
+After the first launch into the main app, Local Flight asks once how you want diagnostics handled. Manual reports always stay available from the **Report** page. Reports are sanitized locally, forwarded through the hosted relay reporting gateway, deduplicated/rate-limited there, and then filed for developer triage. Developer reporting credentials are not shipped in the desktop or mobile app.
 
-Community mode defaults to `https://localflight-community-relay.fly.dev/v1/flights`. Relay-backed community and managed installs share airport snapshots on the relay, so the per-install `50` limit applies to relay accesses rather than raw AviationStack pulls. Only change that relay URL if you are deliberately pointing the client at your own backend.
+Community mode defaults to `https://localflight-community-relay.fly.dev/v1/flights`. Relay-backed community and managed installs share airport snapshots on the relay, so the per-install `50` limit applies to relay accesses rather than raw AviationStack pulls. The relay also has network-level and global safety caps to protect the shared provider budget from obvious abuse. Only change the relay URL if you are deliberately pointing the client at your own backend; custom or private relay URLs require explicit local opt-in environment flags.
 
 For real schedules, Local Flight now tries the same stronger fetch policy across BYOK and relay-backed modes: airport-local date windows, per-date pagination, and an extra rescue pass when the visible board would otherwise be empty. If the provider still only returns older real flights for a lane, Local Flight now falls back to showing the nearest available rows instead of a dead-empty board. Some airports can still look sparse if AviationStack itself does not return near-term schedule rows for that lane.
 
@@ -191,19 +192,24 @@ LOCALFLIGHT_ACTIVATION_TOKEN=
 LOCALFLIGHT_RELAY_URL=https://localflight-community-relay.fly.dev/v1/flights
 
 # BYOK AviationStack - leave blank to use the community relay instead
-AVIATIONSTACK_API_KEY=your_key_here
+AVIATIONSTACK_API_KEY=<your-aviationstack-key>
 LOCALFLIGHT_AVIATIONSTACK_ENABLED=1
 LOCALFLIGHT_AVIATIONSTACK_MONTHLY_LIMIT=90
 # Counts relay schedule accesses per install, not raw upstream pulls.
 LOCALFLIGHT_RELAY_MONTHLY_LIMIT=50
 
 # ADS-B Exchange via RapidAPI - live aircraft positions
-RAPIDAPI_KEY=your_rapidapi_key
+RAPIDAPI_KEY=<your-rapidapi-key>
 LOCALFLIGHT_RAPIDAPI_MONTHLY_LIMIT=10000
 
 # OpenSky Network - position fallback (optional)
-OPENSKY_CLIENT_ID=your_id
-OPENSKY_CLIENT_SECRET=your_secret
+OPENSKY_CLIENT_ID=<your-opensky-client-id>
+OPENSKY_CLIENT_SECRET=<your-opensky-client-secret>
+
+# Advanced: only needed if you intentionally run your own relay.
+# Keep these unset for normal users.
+LOCALFLIGHT_ALLOW_CUSTOM_RELAY_URL=
+LOCALFLIGHT_ALLOW_PRIVATE_RELAY_URL=
 ```
 
 ---
@@ -252,7 +258,7 @@ Runtime data is also kept outside the source tree:
 | `/admin/requests` | Traffic log - local, anonymized request counters by endpoint/client type (only when network tools are explicitly enabled) |
 | `/history` | Flight history - filterable table + aggregate stats |
 | `/logs` | Live log viewer |
-| `/feedback` | Report a problem - sends directly to the developer |
+| `/feedback` | Report a problem - sanitized locally, then forwarded through the hosted reporting gateway |
 | `/docs/readme` | In-app README viewer |
 | `/docs/privacy` | In-app privacy viewer |
 | `/docs/changelog` | In-app changelog viewer |
@@ -323,7 +329,7 @@ Provides unlimited local ADS-B reception with no API key or monthly limits.
 
 ## Reporting issues
 
-Use the **Report** page from the nav bar anywhere in the app. Manual reports are always available. Automatic diagnostics are an install-level choice you can keep off, enable for crash reports only, or enable with sanitized log excerpts. Reports are sanitized locally, forwarded through the hosted relay, deduplicated/rate-limited there, and then filed into the developer's Linear inbox. No account required.
+Use the **Report** page from the nav bar anywhere in the app. Manual reports are always available. Automatic diagnostics are an install-level choice you can keep off, enable for crash reports only, or enable with sanitized log excerpts. Reports are sanitized locally, forwarded through the hosted relay reporting gateway, deduplicated/rate-limited there, and then filed for developer triage. No account required.
 
 ---
 
@@ -355,8 +361,8 @@ Use the **Report** page from the nav bar anywhere in the app. Manual reports are
 | `/api/admin/ping` | POST | Device ping (LED matrix client) |
 | `/api/matrix/config` | GET / POST | Read or update LED matrix runtime settings |
 | `/api/matrix/script` | POST | Generate a ready-to-flash Interstate 75 W `main.py` |
-| `/api/feedback` | POST | Submit a bug report (`{title, description, client_context}`) |
-| `/api/feedback/crash` | POST | Auto-file crash report with deduplication |
+| `/api/feedback` | POST | Submit a sanitized manual report (`{title, description, client_context}`) through the reporting gateway |
+| `/api/feedback/crash` | POST | Submit diagnostics-gated crash report with deduplication |
 | `/api/setup/complete` | POST | Save setup, write `.env`, mark complete |
 | `/api/setup/reset` | POST | Re-run setup wizard |
 | `/api/setup/client-info` | GET | Install fingerprint, relay URL, token status, and managed status hint |
@@ -376,6 +382,7 @@ Use the **Report** page from the nav bar anywhere in the app. Manual reports are
 
 - **Local first** - flight data, history, config, and logs live on your own machine.
 - **Private by design** - no accounts, no email, no analytics SDK, no tracking. See [PRIVACY.md](PRIVACY.md).
+- **Trusted LAN by default** - the app is meant for your own network, not the open internet. Browser drive-by mutations are blocked, but full per-device pairing is still planned.
 - **Simple stack** - standard Python, clear modules, predictable behavior.
 - **Pi-ready** - nothing in the stack needs a GPU or big hardware.
 - **Graceful fallback** - if one enrichment source fails, the next one takes over.

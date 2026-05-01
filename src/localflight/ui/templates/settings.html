@@ -390,7 +390,7 @@
           <option value="auto_logs" {% if cfg.diagnostics_mode == "auto_logs" %}selected{% endif %}>Automatic crash reports + sanitized logs</option>
         </select>
         <small>
-          Manual reports stay available from the Report page. Automatic diagnostics go to the developer issue inbox on Linear and stay install-scoped.
+          Manual reports stay available from the Report page. Automatic diagnostics are sanitized locally, sent through the hosted relay reporting gateway, and then filed into the developer issue inbox.
         </small>
       </label>
 

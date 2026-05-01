@@ -15,6 +15,7 @@ from contextlib import asynccontextmanager
 from datetime import date, datetime, time as dt_time, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import requests as _req
 import uvicorn
@@ -52,12 +53,20 @@ _SHARED_SCHEDULE_LOCK_WAIT_S = 4.0
 
 _schedule_refresh_locks: Dict[str, threading.Lock] = {}
 _schedule_refresh_locks_guard = threading.Lock()
+_admin_auth_failures: Dict[str, list[float]] = {}
+_admin_auth_failures_guard = threading.Lock()
 
 _REPORT_CRASH_DEDUPE_HOURS = 6
 _REPORT_MANUAL_DEDUPE_MINUTES = 30
 _REPORT_MANUAL_INSTALL_DAILY_LIMIT = 5
 _REPORT_CRASH_INSTALL_DAILY_LIMIT = 20
 _REPORT_NETWORK_DAILY_LIMIT = 60
+_COMMUNITY_SCHEDULE_NETWORK_DAILY_LIMIT = 240
+_COMMUNITY_SCHEDULE_GLOBAL_DAILY_LIMIT = 1000
+_COMMUNITY_RADAR_NETWORK_DAILY_LIMIT = 600
+_COMMUNITY_RADAR_GLOBAL_DAILY_LIMIT = 3000
+_ADMIN_AUTH_FAILURE_LIMIT = 8
+_ADMIN_AUTH_WINDOW_SECONDS = 5 * 60
 _LINEAR_GRAPHQL_URL = "https://api.linear.app/graphql"
 
 _REPORT_ALLOWED_TYPES = {"manual", "crash"}
@@ -108,7 +117,7 @@ def _normalized_host(value: str) -> str:
 
 
 def _request_host(request: Request) -> str:
-    return _normalized_host(request.headers.get("x-forwarded-host") or request.headers.get("host") or "")
+    return _normalized_host(request.headers.get("host") or request.headers.get("x-forwarded-host") or "")
 
 
 def _is_local_host(host: str) -> bool:
@@ -156,6 +165,22 @@ def _community_radar_limit() -> int:
         return int(_env("RELAY_RADAR_MONTHLY_LIMIT", "600"))
     except ValueError:
         return 600
+
+
+def _community_daily_limit(service: str, scope: str) -> int:
+    service_key = "SCHEDULE" if service == "aviationstack" else "RADAR"
+    scope_key = "NETWORK" if scope == "network" else "GLOBAL"
+    defaults = {
+        ("SCHEDULE", "NETWORK"): _COMMUNITY_SCHEDULE_NETWORK_DAILY_LIMIT,
+        ("SCHEDULE", "GLOBAL"): _COMMUNITY_SCHEDULE_GLOBAL_DAILY_LIMIT,
+        ("RADAR", "NETWORK"): _COMMUNITY_RADAR_NETWORK_DAILY_LIMIT,
+        ("RADAR", "GLOBAL"): _COMMUNITY_RADAR_GLOBAL_DAILY_LIMIT,
+    }
+    default = defaults[(service_key, scope_key)]
+    try:
+        return max(1, int(_env(f"RELAY_COMMUNITY_{service_key}_{scope_key}_DAILY_LIMIT", str(default))))
+    except ValueError:
+        return default
 
 
 def _managed_schedule_limit() -> int:
@@ -396,6 +421,10 @@ def _month_key() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m")
 
 
+def _day_key() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -427,6 +456,18 @@ def _clean_airport(value: Optional[str]) -> Optional[str]:
     if not _AIRPORT_RE.match(clean):
         raise HTTPException(status_code=400, detail="airport code must be 2-4 letters/numbers")
     return clean
+
+
+def _normalize_timezone_name(value: str) -> str:
+    clean = (value or "").strip()
+    if not clean:
+        raise HTTPException(status_code=400, detail="timezone is required")
+    if len(clean) > 64:
+        raise HTTPException(status_code=400, detail="timezone is too long")
+    try:
+        return ZoneInfo(clean).key
+    except (ZoneInfoNotFoundError, ValueError):
+        return "UTC"
 
 
 def _validate_install_id(install_id: str) -> str:
@@ -524,10 +565,19 @@ def _hmac_short(secret: str, payload: str, *, length: int = 12) -> str:
     return hmac.new(secret.encode("utf-8"), payload.encode("utf-8"), hashlib.sha256).hexdigest()[:length]
 
 
+def _header_ip(value: str) -> str:
+    candidate = (value or "").split(",", 1)[0].strip()
+    if not candidate or len(candidate) > 64:
+        return ""
+    return candidate
+
+
 def _client_ip(request: Request) -> str:
-    fwd = request.headers.get("x-forwarded-for", "")
-    if fwd:
-        return fwd.split(",")[0].strip()
+    # Fly sets this at the edge. Do not trust generic X-Forwarded-For here:
+    # clients can spoof it and bypass network-level abuse counters.
+    fly_ip = _header_ip(request.headers.get("fly-client-ip", ""))
+    if fly_ip:
+        return fly_ip
     if request.client and request.client.host:
         return str(request.client.host)
     return ""
@@ -882,6 +932,60 @@ def _quota_headers(service: str, used: int, limit: int, plan: str) -> Dict[str, 
     return headers
 
 
+def _check_and_increment_community_daily_limit(*, service: str, network_tag: str) -> None:
+    service_label = "schedule" if service == "aviationstack" else "radar"
+    day = _day_key()
+    network_limit = _community_daily_limit(service, "network")
+    global_limit = _community_daily_limit(service, "global")
+    network_subject = f"community-network:{network_tag or 'unknown'}"
+    global_subject = "community-global"
+    network_service = f"{service}:network-day"
+    global_service = f"{service}:global-day"
+
+    conn = _connect()
+    try:
+        network_row = conn.execute(
+            "SELECT calls FROM usage WHERE subject_key=? AND service=? AND month=?",
+            (network_subject, network_service, day),
+        ).fetchone()
+        global_row = conn.execute(
+            "SELECT calls FROM usage WHERE subject_key=? AND service=? AND month=?",
+            (global_subject, global_service, day),
+        ).fetchone()
+        network_current = int(network_row["calls"] or 0) if network_row else 0
+        global_current = int(global_row["calls"] or 0) if global_row else 0
+        if network_current >= network_limit:
+            raise HTTPException(
+                status_code=429,
+                detail=f"Community relay {service_label} network daily limit reached; try again tomorrow.",
+            )
+        if global_current >= global_limit:
+            raise HTTPException(
+                status_code=429,
+                detail=f"Community relay {service_label} daily safety limit reached; try again tomorrow.",
+            )
+
+        now = _utc_now()
+        for subject_key, scoped_service, plan_name in (
+            (network_subject, network_service, "community-network"),
+            (global_subject, global_service, "community-global"),
+        ):
+            conn.execute(
+                """
+                INSERT INTO usage (subject_key, service, month, calls, last_seen, plan, install_id)
+                VALUES (?, ?, ?, 1, ?, ?, NULL)
+                ON CONFLICT(subject_key, service, month) DO UPDATE SET
+                    calls = calls + 1,
+                    last_seen = excluded.last_seen,
+                    plan = excluded.plan
+                """,
+                (subject_key, scoped_service, day, now, plan_name),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def _report_limit(report_type: str) -> int:
     if report_type == "manual":
         try:
@@ -920,10 +1024,12 @@ def _collapse(value: str, *, limit: int) -> str:
 def _report_origin(body: "ReportIn") -> str:
     hint = f"{body.origin} {body.context} {body.client_context} {body.platform} {body.os}".lower()
     origin = (body.origin or "").strip().lower()
+    if origin in _REPORT_ALLOWED_ORIGINS:
+        if origin == "mobile" and "ios" in hint:
+            return "ios"
+        return origin
     if "ios" in hint:
         return "ios"
-    if origin in _REPORT_ALLOWED_ORIGINS:
-        return origin
     if body.context.startswith("web/"):
         return "web"
     if body.context.startswith("mobile/"):
@@ -1437,6 +1543,7 @@ def _record_client_interest(
     display_horizon_hours: int,
     refresh_seconds: int,
 ) -> None:
+    timezone_name = _normalize_timezone_name(timezone_name)
     conn = _connect()
     conn.execute(
         """
@@ -2038,12 +2145,50 @@ def _fetch_adsbx_payload(lat: float, lon: float, radius_nm: float) -> bytes:
     return response.content
 
 
-def _require_admin(creds: HTTPBasicCredentials = Depends(HTTPBasic())) -> str:
+def _admin_auth_key(request: Request) -> str:
+    return _network_tag(_client_ip(request))
+
+
+def _check_admin_auth_throttle(key: str) -> None:
+    now = time.monotonic()
+    with _admin_auth_failures_guard:
+        attempts = [
+            ts
+            for ts in _admin_auth_failures.get(key, [])
+            if now - ts < _ADMIN_AUTH_WINDOW_SECONDS
+        ]
+        _admin_auth_failures[key] = attempts
+        if len(attempts) >= _ADMIN_AUTH_FAILURE_LIMIT:
+            raise HTTPException(status_code=429, detail="Too many admin login attempts; try again shortly")
+
+
+def _record_admin_auth_failure(key: str) -> None:
+    now = time.monotonic()
+    with _admin_auth_failures_guard:
+        attempts = [
+            ts
+            for ts in _admin_auth_failures.get(key, [])
+            if now - ts < _ADMIN_AUTH_WINDOW_SECONDS
+        ]
+        attempts.append(now)
+        _admin_auth_failures[key] = attempts
+
+
+def _clear_admin_auth_failures(key: str) -> None:
+    with _admin_auth_failures_guard:
+        _admin_auth_failures.pop(key, None)
+
+
+def _require_admin(request: Request, creds: HTTPBasicCredentials = Depends(HTTPBasic())) -> str:
     admin_pw = _admin_password()
     if not admin_pw or admin_pw == "changeme":
         raise HTTPException(status_code=503, detail="RELAY_ADMIN_PASSWORD is not configured")
+    auth_key = _admin_auth_key(request)
+    _check_admin_auth_throttle(auth_key)
     if not secrets.compare_digest(creds.password.encode(), admin_pw.encode()):
+        _record_admin_auth_failure(auth_key)
         raise HTTPException(status_code=401, detail="Unauthorized", headers={"WWW-Authenticate": "Basic"})
+    _clear_admin_auth_failures(auth_key)
     return creds.username or "admin"
 
 
@@ -4306,6 +4451,7 @@ def relay_reports(body: ReportIn, request: Request) -> Dict[str, Any]:
 
 @app.get("/v1/schedule")
 def relay_schedule(
+    request: Request,
     airport_iata: str = Query(...),
     timezone: str = Query(...),
     display_grace_minutes: int = Query(30, ge=0, le=180),
@@ -4316,11 +4462,14 @@ def relay_schedule(
 ) -> JSONResponse:
     install_id = _validate_install_id(install_id)
     airport_iata = _clean_airport(airport_iata)
-    timezone_name = (timezone or "").strip()
-    if not timezone_name:
-        raise HTTPException(status_code=400, detail="timezone is required")
+    timezone_name = _normalize_timezone_name(timezone)
 
     access = _resolve_access(install_id=install_id, activation_token=activation_token, service="aviationstack")
+    if access["plan"] == "community":
+        _check_and_increment_community_daily_limit(
+            service="aviationstack",
+            network_tag=_network_tag(_client_ip(request)),
+        )
     _record_client_interest(
         install_id=install_id,
         plan=str(access["plan"] or "community"),
@@ -4637,6 +4786,7 @@ def relay_flights(
 
 @app.get("/v1/radar")
 def relay_radar(
+    request: Request,
     lat: float = Query(...),
     lon: float = Query(...),
     radius_nm: float = Query(20.0, ge=5.0, le=200.0),
@@ -4645,6 +4795,11 @@ def relay_radar(
 ) -> Response:
     install_id = _validate_install_id(install_id)
     access = _resolve_access(install_id=install_id, activation_token=activation_token, service="radar")
+    if access["plan"] == "community":
+        _check_and_increment_community_daily_limit(
+            service="radar",
+            network_tag=_network_tag(_client_ip(request)),
+        )
     month = _month_key()
     current = _get_usage(access["subject_key"], "radar", month)
     if current >= access["limit"]:

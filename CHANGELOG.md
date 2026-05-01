@@ -24,6 +24,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Web and matrix boards now rotate overflow pages locally instead of forcing a single fixed visible slice.
 - When a date-scoped AviationStack board would otherwise come back empty, Local Flight now tries an undated rescue pass before surfacing that sparse result.
 - Developer report submission now forwards through the hosted relay instead of shipping a developer Linear credential in the desktop/mobile package.
+- Relay community traffic now has network-level and global daily safety caps on top of per-install monthly quotas, reducing abuse risk from rotated install IDs.
+- Setup-provided relay URLs are now validated before the local app calls them; official relay hosts work by default, while custom/private relay roots require explicit local opt-in environment flags.
+- Local browser mutations now reject cross-origin POST-style requests, blocking drive-by web pages from changing settings or triggering local actions on the LAN.
+- README, Privacy, and mobile docs now explain the current relay, diagnostics, LAN trust, and companion privacy model in plain end-user language.
 
 ### Fixed
 - FIDS board filtering now uses the snapshot timestamp as its reference clock, so valid saved rows do not disappear just because the wall clock moved on while the snapshot stayed unchanged.
@@ -34,6 +38,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Relay production packaging now bundles the `localflight` schedule helpers inside the Fly image, so the shared `/v1/schedule` route works live instead of failing with `ModuleNotFoundError`.
 - Relay-backed schedule fetches now allow a longer timeout on cold shared-snapshot rebuilds, reducing false client failures while the relay performs the heavier sparse-board rescue path.
 - Mobile crash reports with feature-specific context now keep the standard companion identity, app version, device type, and server URL attached for triage.
+- Relay report routing now respects explicit desktop/web/server origins before inferring iOS from generic OS text, keeping platform triage separated.
+- Relay admin Basic auth now throttles repeated bad password attempts per network tag.
 
 ---
 
@@ -128,7 +134,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [0.2.3b2] - 2026-04-28
 
 ### Added
-- Fly.io deployment guidance and defaults for the hosted community backend, including the public relay host `relay.localflight.app` and the separate operator host `network.localflight.app`.
+- Fly.io deployment guidance and defaults for the hosted community backend, including a public relay host and a separate operator host.
 - Host-aware relay health and root responses so public clients can hit the hosted backend directly while the operator console stays on its own hostname.
 - Regression coverage for public/admin hostname gating, relay privacy writes, hosted relay defaults, and the `0.2.3b2` runtime metadata sweep.
 

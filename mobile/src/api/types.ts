@@ -160,7 +160,7 @@ export type Budget = {
       remaining?: number;
       month?: string;
       budget_ok?: boolean;
-      shared_snapshot?: Budget["aviationstack"]["shared_snapshot"];
+      shared_snapshot?: NonNullable<Budget["aviationstack"]>["shared_snapshot"];
     };
     managed?: {
       configured?: boolean;
@@ -178,7 +178,7 @@ export type Budget = {
       remaining?: number;
       month?: string;
       budget_ok?: boolean;
-      shared_snapshot?: Budget["aviationstack"]["shared_snapshot"];
+      shared_snapshot?: NonNullable<Budget["aviationstack"]>["shared_snapshot"];
     };
     byok?: {
       configured?: boolean;
