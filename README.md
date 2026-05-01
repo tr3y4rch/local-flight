@@ -77,7 +77,7 @@ bash installers/macos/install.sh
 
 ### Raspberry Pi
 
-You can either clone the repo on the Pi or download the versioned Pi source bundle from the [latest release](https://github.com/tr3y4rch/local-flight/releases), for example `LocalFlight-pi-source-0.2.5b3.zip`.
+You can either clone the repo on the Pi or download the versioned Pi source bundle from the [latest release](https://github.com/tr3y4rch/local-flight/releases), for example `LocalFlight-pi-source-0.2.5b4.zip`.
 
 Unzip or clone on the Pi, then run the installer from the project folder. The installer creates the venv, `.env`, systemd app service, optional Chromium kiosk service, and mDNS hostname. Add `--kiosk` during install if you want HDMI Chromium on the Pi itself.
 
@@ -164,7 +164,7 @@ The scheduler only starts after setup completes. You can re-run the wizard any t
 
 After the first launch into the main app, Local Flight asks once how you want diagnostics handled. Manual reports always stay available from the **Report** page. Reports are sanitized locally, forwarded through the hosted relay reporting gateway, deduplicated/rate-limited there, and then filed for developer triage. Developer reporting credentials are not shipped in the desktop or mobile app.
 
-Community mode defaults to `https://localflight-community-relay.fly.dev/v1/flights`. Relay-backed community and managed installs share airport snapshots on the relay, so the per-install `50` limit applies to relay accesses rather than raw AviationStack pulls. The relay also has network-level and global safety caps to protect the shared provider budget from obvious abuse. Only change the relay URL if you are deliberately pointing the client at your own backend; custom or private relay URLs require explicit local opt-in environment flags.
+Community mode defaults to `https://localflight-community-relay.fly.dev`. Relay-backed community and managed installs share airport snapshots on the relay, so the per-install `50` limit applies to relay accesses rather than raw AviationStack pulls. The app derives its internal relay paths automatically; `/v1/schedule` is used for shared schedules, while `/v1/flights` is not a user-facing endpoint. Only change the relay URL if you are deliberately pointing the client at your own backend; custom or private relay URLs require explicit local opt-in environment flags.
 
 For real schedules, Local Flight now tries the same stronger fetch policy across BYOK and relay-backed modes: airport-local date windows, per-date pagination, and an extra rescue pass when the visible board would otherwise be empty. If the provider still only returns older real flights for a lane, Local Flight now falls back to showing the nearest available rows instead of a dead-empty board. Some airports can still look sparse if AviationStack itself does not return near-term schedule rows for that lane.
 
@@ -189,7 +189,7 @@ The setup wizard writes these for you. You can also edit `.env` directly — cha
 ```
 # Community relay / activation
 LOCALFLIGHT_ACTIVATION_TOKEN=
-LOCALFLIGHT_RELAY_URL=https://localflight-community-relay.fly.dev/v1/flights
+LOCALFLIGHT_RELAY_URL=https://localflight-community-relay.fly.dev
 
 # BYOK AviationStack - leave blank to use the community relay instead
 AVIATIONSTACK_API_KEY=<your-aviationstack-key>

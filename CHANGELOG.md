@@ -6,6 +6,19 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.2.5b4] - 2026-05-01
+
+### Changed
+- Community setup and source installers now show the hosted relay root URL (`https://localflight-community-relay.fly.dev`) instead of the legacy compatibility path ending in `/v1/flights`. The app still derives `/v1/schedule`, `/v1/radar`, `/v1/reports`, and activation routes internally.
+- Relay auto-activation burst limits can now be tuned with Fly secrets for local lab reinstall testing without changing the default production safety rails.
+
+### Fixed
+- Relay admin no longer crashes when a live client lane exists before a shared schedule snapshot has been created.
+- Schedule snapshot counter columns are now migration-safe for older relay databases.
+
+### Added
+- Hosted relay maintenance now has a clean setup-trial action that clears transient request logs, activation-review rows, live client lanes, shared schedule snapshots, and report-event clutter while keeping provider keys, managed tokens, blocked installs, and usage counters intact.
+
 ## [0.2.5b3] - 2026-05-01
 
 ### Added

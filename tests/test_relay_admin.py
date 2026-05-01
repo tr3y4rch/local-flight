@@ -130,7 +130,7 @@ def test_activate_auto_issues_and_client_status_verifies(tmp_path: Path, monkeyp
             "airport_icao": "LSZH",
             "display_name": "Test kiosk",
             "requested_mode": "community",
-            "app_version": "0.2.5b3",
+            "app_version": "0.2.5b4",
         },
         headers={"x-forwarded-for": "203.0.113.42"},
     )
@@ -146,7 +146,7 @@ def test_activate_auto_issues_and_client_status_verifies(tmp_path: Path, monkeyp
         params={
             "install_id": install_id,
             "activation_token": activate_data["activation_token"],
-            "app_version": "0.2.5b3",
+            "app_version": "0.2.5b4",
         },
     )
     assert status_resp.status_code == 200
@@ -198,6 +198,203 @@ def test_activate_uses_manual_review_after_anonymous_network_burst(tmp_path: Pat
     assert second["status"] == "issued"
     assert third["status"] == "manual_review"
     assert "activation_token" not in third
+
+
+def test_auto_activation_network_burst_limits_can_be_overridden_by_env(tmp_path: Path, monkeypatch) -> None:
+    _use_temp_db(tmp_path, monkeypatch)
+    monkeypatch.setenv("RELAY_AUTO_ACTIVATION_NETWORK_DAILY_LIMIT", "1")
+    monkeypatch.setenv("RELAY_AUTO_ACTIVATION_NETWORK_INSTALLS_DAILY_LIMIT", "99")
+    client = TestClient(relay_main.app)
+
+    def _activate(suffix: int) -> dict[str, object]:
+        install_id = f"00000000-0000-0000-0000-0000000002{suffix:02d}"
+        resp = client.post(
+            "/v1/activate",
+            json={
+                "install_id": install_id,
+                "install_fingerprint": relay_main._install_fingerprint(install_id),
+                "airport_iata": "ZRH",
+                "airport_icao": "LSZH",
+                "display_name": f"Install {suffix}",
+                "requested_mode": "community",
+            },
+            headers={"x-forwarded-for": "198.51.100.45"},
+        )
+        assert resp.status_code == 200
+        return resp.json()
+
+    first = _activate(1)
+    second = _activate(2)
+
+    assert first["status"] == "issued"
+    assert second["status"] == "manual_review"
+
+
+def test_admin_dashboard_handles_live_lane_without_snapshot(tmp_path: Path, monkeypatch) -> None:
+    _use_temp_db(tmp_path, monkeypatch)
+    monkeypatch.setenv("RELAY_ADMIN_PASSWORD", "correct-horse")
+    conn = relay_main._connect()
+    conn.execute(
+        """
+        INSERT INTO client_interests (
+            install_id, plan, airport_iata, timezone,
+            display_grace_minutes, display_horizon_hours, refresh_seconds, last_seen
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            "00000000-0000-0000-0000-000000000404",
+            "community",
+            "ZRH",
+            "Europe/Zurich",
+            30,
+            12,
+            3600,
+            relay_main._utc_now(),
+        ),
+    )
+    conn.commit()
+    conn.close()
+    client = TestClient(relay_main.app)
+
+    admin = client.get("/admin", headers={"host": "network.localflight.app"}, auth=("admin", "correct-horse"))
+
+    assert admin.status_code == 200
+    assert "Live airport lanes" in admin.text
+    assert "ZRH" in admin.text
+    assert "miss" in admin.text
+
+
+def test_admin_clean_trial_state_keeps_tokens_and_usage_counters(tmp_path: Path, monkeypatch) -> None:
+    _use_temp_db(tmp_path, monkeypatch)
+    monkeypatch.setenv("RELAY_ADMIN_PASSWORD", "correct-horse")
+    install_id = "00000000-0000-0000-0000-000000000405"
+    fingerprint = relay_main._install_fingerprint(install_id)
+    now = relay_main._utc_now()
+    cache_key = relay_main._schedule_cache_key(
+        airport_iata="ZRH",
+        timezone_name="Europe/Zurich",
+        display_grace_minutes=30,
+        display_horizon_hours=12,
+    )
+    conn = relay_main._connect()
+    relay_main._store_activation_token(
+        conn,
+        token="lfm_test-cleanup-token",
+        label="Keep this token",
+        schedule_limit=50,
+        radar_limit=600,
+        created_by="test",
+    )
+    conn.execute(
+        """
+        INSERT INTO usage (subject_key, service, month, calls, last_seen, plan, install_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        ("install:test", "aviationstack", relay_main._month_key(), 7, now, "community", install_id),
+    )
+    conn.execute(
+        """
+        INSERT INTO request_log (ts, install_id, airport, mode, status, latency_ms, service, plan)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (now, install_id, "", "schedule", 200, 42, "aviationstack", "community"),
+    )
+    conn.execute(
+        """
+        INSERT INTO client_interests (
+            install_id, plan, airport_iata, timezone,
+            display_grace_minutes, display_horizon_hours, refresh_seconds, last_seen
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (install_id, "community", "ZRH", "Europe/Zurich", 30, 12, 3600, now),
+    )
+    conn.execute(
+        """
+        INSERT INTO schedule_snapshots (
+            cache_key, airport_iata, timezone, display_grace_minutes, display_horizon_hours,
+            planner_version, schema_version, provider, generated_at, updated_at,
+            meta_json, records_json, client_accesses, upstream_pulls, refresh_count,
+            cache_hits, stale_serves, last_cache_state, last_error
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            cache_key,
+            "ZRH",
+            "Europe/Zurich",
+            30,
+            12,
+            relay_main._SHARED_SCHEDULE_PLANNER_VERSION,
+            relay_main._SHARED_SCHEDULE_SCHEMA_VERSION,
+            "aviationstack",
+            now,
+            now,
+            "{}",
+            "[]",
+            1,
+            1,
+            1,
+            0,
+            0,
+            "fresh",
+            "",
+        ),
+    )
+    conn.execute(
+        """
+        INSERT INTO activation_requests (
+            request_id, install_id, install_fingerprint, network_tag,
+            display_name, requested_mode, status, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        ("lfr_cleanup", install_id, fingerprint, "net_cleanup", "Cleanup test", "community", "manual_review", now, now),
+    )
+    conn.execute(
+        """
+        INSERT INTO report_events (
+            ts, install_fingerprint, network_tag, report_type, origin, context, team, status, dedupe_key
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (now, fingerprint, "net_cleanup", "manual", "web", "cleanup", "default", "filed", "dedupe-cleanup"),
+    )
+    conn.execute(
+        """
+        INSERT INTO report_dedupe (
+            dedupe_key, team, report_type, origin, install_fingerprint, first_seen, last_seen, count, url
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        ("dedupe-cleanup", "default", "manual", "web", fingerprint, now, now, 1, "https://linear.test/cleanup"),
+    )
+    conn.commit()
+    conn.close()
+    client = TestClient(relay_main.app)
+
+    response = client.post(
+        "/admin/maintenance/clean-trial",
+        headers={"host": "network.localflight.app"},
+        auth=("admin", "correct-horse"),
+    )
+
+    assert response.status_code == 200
+    assert "Clean setup trial state" in response.text
+    assert "monthly usage counters were kept" in response.text
+    conn = relay_main._connect()
+    cleared_counts = {
+        table: int(conn.execute(f"SELECT COUNT(*) AS n FROM {table}").fetchone()["n"] or 0)
+        for table in (
+            "request_log",
+            "client_interests",
+            "schedule_snapshots",
+            "activation_requests",
+            "report_events",
+            "report_dedupe",
+        )
+    }
+    usage_count = conn.execute("SELECT COUNT(*) AS n FROM usage").fetchone()
+    token_count = conn.execute("SELECT COUNT(*) AS n FROM activation_tokens").fetchone()
+    conn.close()
+    assert cleared_counts == {table: 0 for table in cleared_counts}
+    assert usage_count is not None and int(usage_count["n"] or 0) == 1
+    assert token_count is not None and int(token_count["n"] or 0) == 1
 
 
 def test_relay_client_ip_ignores_spoofable_forwarded_for() -> None:
@@ -281,7 +478,7 @@ def test_activation_requests_do_not_persist_airport_fields(tmp_path: Path, monke
             "airport_icao": "LSZH",
             "display_name": "Privacy test",
             "requested_mode": "community",
-            "app_version": "0.2.5b3",
+            "app_version": "0.2.5b4",
         },
         headers={"host": "relay.localflight.app", "x-forwarded-for": "203.0.113.55"},
     )

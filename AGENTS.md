@@ -188,9 +188,9 @@ Two separate integrations — do not confuse them:
 
 ### Version
 - Single source of truth: `version` field in `pyproject.toml`
-- Read at runtime via `importlib.metadata.version("localflight")` with `"0.2.5b3"` fallback
+- Read at runtime via `importlib.metadata.version("localflight")` with `"0.2.5b4"` fallback
 - Injected as `app_version` Jinja2 global in `server.py` → available in all templates
-- Shown in nav bar (`v0.2.5b3`) and Admin → System card
+- Shown in nav bar (`v0.2.5b4`) and Admin → System card
 - `LocalFlight.spec` reads it from `pyproject.toml` at build time for macOS `CFBundleShortVersionString`
 
 ### Auto-update check
@@ -219,7 +219,7 @@ Two separate integrations — do not confuse them:
 ```
 # Community relay / activation
 LOCALFLIGHT_ACTIVATION_TOKEN=
-LOCALFLIGHT_RELAY_URL=https://localflight-community-relay.fly.dev/v1/flights
+LOCALFLIGHT_RELAY_URL=https://localflight-community-relay.fly.dev
 
 # BYOK AviationStack (leave blank to use community relay)
 AVIATIONSTACK_API_KEY=
@@ -234,7 +234,7 @@ RAPIDAPI_KEY=
 LOCALFLIGHT_RAPIDAPI_MONTHLY_LIMIT=10000
 ```
 
-Relay server env vars (relay/.env): `RELAY_ADMIN_PASSWORD`, `DB_PATH`, `RELAY_PUBLIC_HOST`, `RELAY_ADMIN_HOST`, `RELAY_COMMUNITY_SCHEDULE_LIMIT`, `RELAY_RADAR_MONTHLY_LIMIT`, `RELAY_MANAGED_SCHEDULE_LIMIT`, `RELAY_MANAGED_RADAR_LIMIT`, `RELAY_RADAR_CACHE_SECONDS`, `LINEAR_REPORTER_API_KEY`, `LINEAR_TEAM_IOS_ID`, `LINEAR_TEAM_DESKTOP_ID`, `LINEAR_TEAM_SERVER_ID`, `LINEAR_TEAM_RELAY_ID`, `LINEAR_TEAM_DEFAULT_ID`
+Relay server env vars (relay/.env): `RELAY_ADMIN_PASSWORD`, `DB_PATH`, `RELAY_PUBLIC_HOST`, `RELAY_ADMIN_HOST`, `RELAY_COMMUNITY_SCHEDULE_LIMIT`, `RELAY_RADAR_MONTHLY_LIMIT`, `RELAY_MANAGED_SCHEDULE_LIMIT`, `RELAY_MANAGED_RADAR_LIMIT`, `RELAY_RADAR_CACHE_SECONDS`, `RELAY_AUTO_ACTIVATION_NETWORK_DAILY_LIMIT`, `RELAY_AUTO_ACTIVATION_NETWORK_INSTALLS_DAILY_LIMIT`, `LINEAR_REPORTER_API_KEY`, `LINEAR_TEAM_IOS_ID`, `LINEAR_TEAM_DESKTOP_ID`, `LINEAR_TEAM_SERVER_ID`, `LINEAR_TEAM_RELAY_ID`, `LINEAR_TEAM_DEFAULT_ID`
 
 ---
 
@@ -479,17 +479,14 @@ npm run ios
 
 ## Current handoff for the dev machine
 
-- Active version is `0.2.5b3`: `pyproject.toml`, runtime fallbacks, mobile package metadata, Expo `extra.localFlightVersion`, and docs should all agree.
-- Community relay is live at `https://localflight-community-relay.fly.dev/v1/flights`. The custom domain `relay.localflight.app` is planned once DNS is registered.
+- Active version is `0.2.5b4`: `pyproject.toml`, runtime fallbacks, mobile package metadata, Expo `extra.localFlightVersion`, and docs should all agree.
+- Community relay root is live at `https://localflight-community-relay.fly.dev`. The client derives `/v1/schedule`, `/v1/radar`, `/v1/reports`, and activation routes internally; `/v1/flights` is raw-provider debug only.
 - Relay admin panel: prefer Fly dashboard/CLI or `fly ssh console`. Public admin access is optional and must stay password-protected; do not publish operator-only entrypoints in public docs.
 - Fly deployment: one warm machine in `fra`, one SQLite volume (`relay_data`), host-based public/admin gating in `relay/main.py`. Shared-schedule relay deploys now need the repo-root command `fly deploy --config relay/fly.toml --dockerfile relay/Dockerfile --remote-only` so the image includes `src/localflight`.
 - Live shared schedule planner is currently `fair-v3`: date-scoped fair paging, adaptive continuation, and an undated rescue fallback. Cold relay rebuilds may take longer, so relay-backed desktop fetches now allow `60s`.
 - `mobile/node_modules` is still absent on the Windows workspace, so Expo/TypeScript validation belongs on the Mac/Xcode side after `npm install` unless Node/npm are installed there.
 - Desktop resume on Windows: run `.\start.bat`, confirm Community setup preloads the hosted relay URL, then verify FIDS/radar/admin against the live relay contract.
-- Release resume: Windows and Pi artifacts are regenerated on the Windows workspace from the current checkout; macOS artifacts are ready from the Mac workspace. Next release step is uploading Windows/macOS/Pi artifacts plus all matching `.sha256` files to GitHub release `v0.2.5b3`.
-- Windows distribution package is ready from this workspace: `dist/LocalFlight-windows.zip` plus `dist/LocalFlight-windows.zip.sha256`; checksum verified, and a freshly extracted ZIP smoke test launched `LocalFlight.exe`, returned `/health` 200, and opened Edge to `/splash?next=/setup`. SHA256: `1f9d582c114ee446ff37b15cf7eb78ef4de5a7567953e9e847dd39884a86983b`.
-- macOS distribution package is ready from this workspace: `dist/LocalFlight-macos.zip` plus `dist/LocalFlight-macos.zip.sha256`; checksum verified, `Info.plist` reports `0.2.5b3`, executable is Mach-O ARM64, and on-disk codesign verification passes. SHA256: `ea87b114b0f2d79a47b424c4d6b134ef64bfa273729fa7e8b2d0874249a05fe0`.
-- Pi source distribution package is ready from this workspace: `dist/LocalFlight-pi-source-0.2.5b3.zip` plus `.sha256`; checksum verified. SHA256: `db877d75daf24dee08dc7534e0b5fcedff7f983bc41655940ddde7a14aa78d15`.
+- Release resume: rebuild Windows, macOS, and Pi artifacts from the current `0.2.5b4` checkout before creating GitHub release `v0.2.5b4`; the previous `0.2.5b3` artifacts are no longer current.
 - `scripts/package_pi_source.py` now excludes internal handoff-only files (`AGENTS.md`, `CLAUDE.md`, `DEV_README.md`) from the Pi source zip even if they are tracked locally.
 - Settings now split install/relay state, flight setup, app controls, and diagnostics/resources into clearer sections; the community relay card now reports active relay usage truthfully, and the docs buttons open bundled local files through `/docs/readme`, `/docs/privacy`, and `/docs/changelog`.
 - macOS packaging is confirmed on this workspace: `python build.py --clean` produced `dist/LocalFlight.app`, `dist/LocalFlight-macos.zip`, and `dist/LocalFlight-macos.zip.sha256`, and the packaged app includes bundled README/privacy/changelog files plus the local doc viewer template. This artifact is unsigned Apple Silicon/ARM64; if Intel Mac support is needed later, build a separate Intel/universal artifact.
@@ -509,7 +506,15 @@ npm run ios
 - Sparse-board UX fallback is now active on the client: if a real-data lane has no rows inside the live window, the board shows the nearest available real flights instead of an empty departures page. Current live local check after the patch: `/api/fids?view=departures` returned `20` rows again.
 - Verification currently green on this Windows workspace: `.venv\Scripts\python.exe -m compileall -q src relay`, `.venv\Scripts\python.exe -m pytest tests` (`80 passed`), `python build.py --clean`, and Windows ZIP smoke test from `dist/LocalFlight-windows.zip`. Mac mobile validation remains: `npm run typecheck` passes, while `npm run doctor` is 17/18 because Expo SDK 55 requires a newer Xcode than the installed `16.3.0`.
 
-## What was done in the latest session (v0.2.5b3)
+## What was done in the latest session (v0.2.5b4)
+
+- ✅ Version sweep started for `0.2.5b4` across Python metadata/runtime fallbacks, mobile metadata, setup defaults, source installers, README, changelog, dev reference, and tests.
+- ✅ Community relay setup now shows the human-friendly root URL `https://localflight-community-relay.fly.dev`; the client still derives `/v1/schedule`, `/v1/radar`, `/v1/reports`, and activation routes internally.
+- ✅ Relay admin can now clean setup-trial clutter without wiping provider keys, managed tokens, blocked installs, or monthly usage counters. The cleanup clears transient request logs, activation-request rows, live client lanes, shared schedule snapshots, and report event/dedupe noise.
+- ✅ Relay admin live-lane crash fix remains included: snapshot stats tolerate missing counter fields and older relay DBs get migration-safe schedule snapshot counter columns.
+- ✅ Fly relay redeployed on image `deployment-01KQJM7HKYXMF8EDRKFY24A7S9`; live `/health` returned ok, live admin HTML rendered with the cleanup button, and the live setup-trial cleanup was run. Transient tables now read `0` rows each; monthly usage counters were preserved (`usage` count was `30` after cleanup).
+
+## What was done in session v0.2.5b3
 
 - ✅ AviationStack fairness work now applies across all paths: shared date-aware fetch planning, airport-local date windows, `100`-row pages, per-date pagination, and configurable board display windows.
 - ✅ Community and managed relay-backed installs now use a shared airport snapshot service instead of raw per-install upstream pass-through. Relay clients receive canonical Local Flight schedule records from `/v1/schedule`, while BYOK and direct local key paths stay unchanged.
@@ -523,6 +528,7 @@ npm run ios
 - ✅ AviationStack fetchers now keep paging past the initial production slice when the visible board has not been reached yet, and both the local client and the hosted relay can attempt an undated rescue pass before surfacing an empty real-data board.
 - ✅ Relay planner/version was pushed live through `fair-v3`, and relay-backed schedule fetch timeout was raised to `60s` to tolerate heavier cold shared-snapshot rebuilds.
 - ✅ Relay admin was updated and redeployed from Windows so the operator page now shows `/v1/reports` gateway health, 24h report filed/deduped counts, recent report events, and report dedupe groups. Fly deploy succeeded on image `deployment-01KQJF7D3NH7CTWQQWYKHBN8FM`; `/health` returned ok and public `/v1/flights` still returns `404`.
+- ✅ Relay admin live-lane crash fixed and redeployed after Pi clean-install testing exposed a no-snapshot lane: `_snapshot_shared_stats()` now tolerates missing snapshot counters, `schedule_snapshots` counter columns are migration-safe, and auto-activation network burst caps can be tuned through Fly secrets (`RELAY_AUTO_ACTIVATION_NETWORK_DAILY_LIMIT`, `RELAY_AUTO_ACTIVATION_NETWORK_INSTALLS_DAILY_LIMIT`). Fly deploy succeeded on image `deployment-01KQJK5R9JZDY7W6Q125F9GPZ3`; `/health` returned ok and live admin HTML rendered against the production volume.
 - ✅ Reality check after the fix: the Local Flight fetch/filter bugs were corrected, but live `ZRH` departures on `2026-05-01` still remained sparse after the stronger fetch strategy. That remaining gap is currently documented as upstream AviationStack coverage behavior, not a known unresolved client filter bug.
 - ✅ Client FIDS now falls back to the nearest available real rows when a sparse provider window would otherwise render `0` departures or arrivals, so the board stays useful even when AviationStack only returns older rows for that lane.
 - ✅ Security/privacy abuse sweep pass: relay community traffic now has daily network/global caps in addition to install quotas; relay admin login attempts are throttled; setup-provided relay URLs are restricted to official/default roots unless custom/private dev flags are set; local browser cross-origin mutations are rejected; report routing now honors explicit platform origins before iOS inference; diagnostics wording now describes the hosted relay reporting gateway.
@@ -612,7 +618,7 @@ npm run ios
 ## Pending / next up
 
 - [x] Build the Windows artifact on the Windows dev machine: `python build.py --clean`, verify `dist/LocalFlight-windows.zip.sha256`, and smoke-test the extracted EXE.
-- [ ] Create GitHub release `v0.2.5b3` and attach Windows/macOS/Pi artifacts plus all matching `.sha256` files.
+- [ ] Rebuild Windows/macOS/Pi artifacts for `v0.2.5b4`, then create the GitHub release and attach all matching `.sha256` files.
 - [ ] Register custom domain and wire the public relay hostname plus operator admin hostname DNS to `localflight-community-relay.fly.dev`; run `fly certs add` for both.
 - [ ] End-to-end community client activation test against live relay.
 - [ ] Decide the next step for sparse AviationStack airports: second provider merge, sparse-board warning UX, or a deliberate stale-board fallback instead of an empty departures page.

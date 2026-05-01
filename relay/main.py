@@ -183,6 +183,36 @@ def _community_daily_limit(service: str, scope: str) -> int:
         return default
 
 
+def _auto_activation_network_daily_limit() -> int:
+    try:
+        return max(
+            1,
+            int(
+                _env(
+                    "RELAY_AUTO_ACTIVATION_NETWORK_DAILY_LIMIT",
+                    str(_AUTO_ACTIVATION_NETWORK_DAILY_LIMIT),
+                )
+            ),
+        )
+    except ValueError:
+        return _AUTO_ACTIVATION_NETWORK_DAILY_LIMIT
+
+
+def _auto_activation_network_installs_daily_limit() -> int:
+    try:
+        return max(
+            1,
+            int(
+                _env(
+                    "RELAY_AUTO_ACTIVATION_NETWORK_INSTALLS_DAILY_LIMIT",
+                    str(_AUTO_ACTIVATION_NETWORK_INSTALLS_DAILY_LIMIT),
+                )
+            ),
+        )
+    except ValueError:
+        return _AUTO_ACTIVATION_NETWORK_INSTALLS_DAILY_LIMIT
+
+
 def _managed_schedule_limit() -> int:
     try:
         return int(_env("RELAY_MANAGED_SCHEDULE_LIMIT", "10000"))
@@ -404,6 +434,13 @@ def _ensure_schema() -> None:
     _ensure_column(conn, "activation_requests", "issued_token TEXT")
     _ensure_column(conn, "activation_requests", "approved_at TEXT")
     _ensure_column(conn, "activation_requests", "delivered_at TEXT")
+    _ensure_column(conn, "schedule_snapshots", "client_accesses INTEGER DEFAULT 0")
+    _ensure_column(conn, "schedule_snapshots", "upstream_pulls INTEGER DEFAULT 0")
+    _ensure_column(conn, "schedule_snapshots", "refresh_count INTEGER DEFAULT 0")
+    _ensure_column(conn, "schedule_snapshots", "cache_hits INTEGER DEFAULT 0")
+    _ensure_column(conn, "schedule_snapshots", "stale_serves INTEGER DEFAULT 0")
+    _ensure_column(conn, "schedule_snapshots", "last_cache_state TEXT")
+    _ensure_column(conn, "schedule_snapshots", "last_error TEXT")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_usage_month_service ON usage (month, service, calls DESC)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_activation_revoked ON activation_tokens (revoked_at)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_activation_requests_status ON activation_requests (status, created_at DESC)")
@@ -1356,12 +1393,25 @@ def _snapshot_age_seconds(generated_at: str) -> Optional[int]:
     return max(0, int((datetime.now(timezone.utc) - dt).total_seconds()))
 
 
-def _snapshot_shared_stats(row: sqlite3.Row) -> Dict[str, Any]:
-    client_accesses = int(row["client_accesses"] or 0)
-    upstream_pulls = int(row["upstream_pulls"] or 0)
-    refresh_count = int(row["refresh_count"] or 0)
-    cache_hits = int(row["cache_hits"] or 0)
-    stale_serves = int(row["stale_serves"] or 0)
+def _snapshot_int(row: Any, key: str) -> int:
+    if not row:
+        return 0
+    try:
+        value = row.get(key, 0) if isinstance(row, dict) else row[key]
+    except (IndexError, KeyError, TypeError):
+        return 0
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _snapshot_shared_stats(row: Any) -> Dict[str, Any]:
+    client_accesses = _snapshot_int(row, "client_accesses")
+    upstream_pulls = _snapshot_int(row, "upstream_pulls")
+    refresh_count = _snapshot_int(row, "refresh_count")
+    cache_hits = _snapshot_int(row, "cache_hits")
+    stale_serves = _snapshot_int(row, "stale_serves")
     return {
         "client_accesses": client_accesses,
         "upstream_pulls": upstream_pulls,
@@ -2764,6 +2814,7 @@ def _render_admin_legacy(username: str, *, created_token: str = "", message: str
         {_post_form('/admin/counters/reset', {'scope': 'service', 'service': 'aviationstack'}, 'Reset schedule counters', 'slate')}
         {_post_form('/admin/counters/reset', {'scope': 'service', 'service': 'radar'}, 'Reset radar counters', 'slate')}
         {_post_form('/admin/counters/reset', {'scope': 'logs'}, 'Clear network log', 'slate')}
+        {_post_form('/admin/maintenance/clean-trial', {}, 'Clean setup trial state', 'amber')}
         <form method="post" action="/admin/counters/correct-schedule" style="margin-top:0.5rem;display:flex;gap:0.4rem;align-items:center">
           <input name="total" type="number" min="0" value="{int(total_schedule or 0)}" style="width:9rem" title="Set known schedule total for this month (includes prior usage outside this relay)" />
           <button type="submit">Correct schedule total</button>
@@ -4076,6 +4127,7 @@ def _render_admin(username: str, *, created_token: str = "", message: str = "") 
         {_post_form('/admin/counters/reset', {'scope': 'service', 'service': 'aviationstack'}, 'Reset schedule counters', 'slate')}
         {_post_form('/admin/counters/reset', {'scope': 'service', 'service': 'radar'}, 'Reset radar counters', 'slate')}
         {_post_form('/admin/counters/reset', {'scope': 'logs'}, 'Clear network log', 'slate')}
+        {_post_form('/admin/maintenance/clean-trial', {}, 'Clean setup trial state', 'amber')}
         <form method="post" action="/admin/counters/correct-schedule" style="margin-top:0.5rem;display:flex;gap:0.4rem;align-items:center">
           <input name="total" type="number" min="0" value="{int(total_schedule or 0)}" style="width:9rem" title="Set known schedule total for this month (includes prior usage outside this relay)" />
           <button type="submit">Correct schedule total</button>
@@ -4415,9 +4467,9 @@ def relay_activate(body: ActivationRequestIn, request: Request) -> Dict[str, Any
 
     conn = _connect()
     counts = _recent_activation_counts(conn, install_id=install_id, network_tag=network_tag)
-    manual_review = counts["network_requests"] >= _AUTO_ACTIVATION_NETWORK_DAILY_LIMIT or counts[
+    manual_review = counts["network_requests"] >= _auto_activation_network_daily_limit() or counts[
         "network_installs"
-    ] >= _AUTO_ACTIVATION_NETWORK_INSTALLS_DAILY_LIMIT
+    ] >= _auto_activation_network_installs_daily_limit()
 
     if manual_review:
         existing = conn.execute(
@@ -5378,6 +5430,36 @@ def admin_install_unblock(
     conn.commit()
     conn.close()
     return HTMLResponse(_render_admin(username, message="Install access restored."))
+
+
+@app.post("/admin/maintenance/clean-trial")
+def admin_clean_trial_state(username: str = Depends(_require_admin)) -> HTMLResponse:
+    """Clear transient operator-panel noise without resetting real quota counters."""
+    conn = _connect()
+    tables = (
+        "request_log",
+        "client_interests",
+        "schedule_snapshots",
+        "activation_requests",
+        "report_events",
+        "report_dedupe",
+    )
+    deleted_total = 0
+    for table in tables:
+        row = conn.execute(f"SELECT COUNT(*) AS n FROM {table}").fetchone()
+        deleted_total += int(row["n"] or 0) if row else 0
+        conn.execute(f"DELETE FROM {table}")
+    conn.commit()
+    conn.close()
+    return HTMLResponse(
+        _render_admin(
+            username,
+            message=(
+                f"Cleaned {deleted_total:,} transient setup-trial rows. "
+                "Provider keys, activation tokens, blocked installs, and monthly usage counters were kept."
+            ),
+        )
+    )
 
 
 @app.post("/admin/counters/reset")

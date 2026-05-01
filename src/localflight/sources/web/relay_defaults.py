@@ -6,7 +6,7 @@ from urllib.parse import urlparse
 
 DEFAULT_PUBLIC_RELAY_HOST = "localflight-community-relay.fly.dev"
 DEFAULT_ADMIN_RELAY_HOST = "network.localflight.app"
-DEFAULT_PUBLIC_RELAY_URL = f"https://{DEFAULT_PUBLIC_RELAY_HOST}/v1/flights"
+DEFAULT_PUBLIC_RELAY_URL = f"https://{DEFAULT_PUBLIC_RELAY_HOST}"
 OFFICIAL_PUBLIC_RELAY_HOSTS = {DEFAULT_PUBLIC_RELAY_HOST, "relay.localflight.app"}
 
 
