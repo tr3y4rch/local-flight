@@ -1,5 +1,5 @@
 [Unit]
-Description=Local Flight - Airport FIDS Display
+Description=Local Flight - Airport FIDS
 After=network-online.target
 Wants=network-online.target
 
