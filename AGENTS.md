@@ -105,10 +105,15 @@ local-flight/
 │   │   └── icon_circle.png      # Companion icon + splash image
 │   └── src/
 │       ├── api/                 # LAN API client + response types
+│       ├── app/AppShell.tsx     # Companion coordinator: state, refresh, shell chrome, style factory
+│       ├── components/          # Shared chrome/components such as bottom nav and launch overlay
 │       ├── crash/               # CrashBoundary + mobile crash reporter
 │       ├── device/identity.ts   # Companion identity: companionId, platform, deviceType, appVersion
+│       ├── domain/              # Pure mobile helpers/constants for flights, radar, matrix, formatting
+│       ├── hooks/               # Launch/bootstrap, flight detail, matrix draft/save/reset hooks
+│       ├── screens/             # FIDS/Radar/History/Matrix/Admin/Settings screens and sheets
 │       ├── storage/             # SecureStore URL, companionId, pinned flight, profiles
-│       └── theme/               # Mobile visual tokens
+│       └── theme/               # Mobile visual tokens, runtime provider, style bridge
 │
 ├── installers/
 │   ├── windows/
@@ -367,12 +372,15 @@ npm run ios
 - Community relay is live at `https://localflight-community-relay.fly.dev/v1/flights`. The custom domain `relay.localflight.app` is planned once DNS is registered.
 - Relay admin panel: access via `RELAY_ADMIN_ON_PUBLIC=1` (already set as a Fly secret) at `https://localflight-community-relay.fly.dev/admin`, or via `fly proxy 8080` (unreliable on Windows) or `fly ssh console` for CLI access.
 - Fly deployment: one warm machine in `fra`, one SQLite volume (`relay_data`), host-based public/admin gating in `relay/main.py`.
-- `mobile/node_modules` is still absent on this Windows workspace, so Expo/TypeScript validation belongs on the Mac/Xcode side after `npm install`.
+- `mobile/node_modules` is present on this Mac workspace; Expo/TypeScript validation can run locally, but iOS simulator/device launch is blocked until the Xcode/Expo SDK mismatch below is resolved.
 - Desktop resume on Windows: run `.\start.bat`, confirm Community setup preloads the hosted relay URL, then verify FIDS/radar/admin against the live relay contract.
 - Release resume: run `python build.py --clean` separately on Windows and macOS. Upload `dist/LocalFlight-windows.zip`, `dist/LocalFlight-windows.zip.sha256`, `dist/LocalFlight-macos.zip`, and `dist/LocalFlight-macos.zip.sha256` to GitHub release `v0.2.5b1`.
 - Settings now split install/relay state, flight setup, app controls, and diagnostics/resources into clearer sections; the community relay card now reports active relay usage truthfully, and the docs buttons open bundled local files through `/docs/readme`, `/docs/privacy`, and `/docs/changelog`.
 - macOS packaging is confirmed on this workspace: `python build.py --clean` produced `dist/LocalFlight.app`, `dist/LocalFlight-macos.zip`, and `dist/LocalFlight-macos.zip.sha256`, and the packaged app includes bundled README/privacy/changelog files plus the local doc viewer template.
-- Mobile resume on Mac/Xcode: from `mobile/`, run `npm install`, `npx expo install --fix`, `npm run doctor`, then `npm run ios`. Expo Go may reject SDK 55 depending on installed Expo Go; simulator/dev build is the safer path.
+- Mobile companion is now mid-`0.2.5-b2` pass on this workspace: independent mobile appearance, server-backed Matrix runtime editor, landscape split display, responsive radar, and pinch zoom are implemented in code.
+- Mobile structure refactor is complete enough for handoff: `App.tsx` is a provider entrypoint, `src/app/AppShell.tsx` coordinates state/refresh, pure helpers live in `src/domain/`, stateful behavior in `src/hooks/`, and screens/sheets in `src/screens/AppScreens.tsx`.
+- Mobile validation: `npm run typecheck` passes; `npm run doctor` is 17/18 after adding `expo-font` and updating Expo to `~55.0.18`. Remaining doctor failure is environment-only: Expo SDK 55 reports Xcode `16.3.0` incompatible and requires Xcode `>=26.0.0`.
+- Mobile resume on Mac/Xcode: resolve the Xcode/Expo SDK compatibility issue first, then run `npm run doctor` and `npm run ios`. Expo Go may reject SDK 55 depending on installed Expo Go; simulator/dev build is the safer path.
 - Verification currently green on Windows side: `python -m pip install -e .`, `python -m py_compile build.py`, `python build.py --clean`, `python -m compileall -q src relay`, `pytest tests` (`34 passed`), plus installer shell syntax checks.
 
 ## What was done in the latest session (v0.2.5b1)
@@ -386,6 +394,8 @@ npm run ios
 - ✅ README / privacy / mobile docs updated to match the current community / BYOK / VATSIM setup and hosted relay story.
 - ✅ Settings IA cleaned up: install/relay state is separated from app controls and diagnostics/resources, community relay wording is now accurate, and README/privacy/changelog open inside the app instead of dead external placeholders.
 - ✅ PyInstaller/macOS build now bundles the local docs into the app and uses a more reliable `.icns` generation path; `dist/LocalFlight-macos.zip` and `.sha256` were rebuilt successfully on this workspace.
+- ✅ Mobile companion now has an independent appearance system (dark/light + 5 skins), a server-backed Matrix runtime editor, and auto landscape split display with responsive pinch-zoom radar. `npm install` and `npm run typecheck` passed on the Mac workspace; simulator/device validation still remains.
+- ✅ Mobile companion structure refactor split the former single-file app into provider entrypoint, `AppShell`, domain helpers, state hooks, extracted chrome components, and `AppScreens`. `npm run typecheck` passes; `npm run doctor` is blocked only by local Xcode compatibility.
 
 ## What was done in session v0.2.3b2
 
@@ -443,11 +453,9 @@ npm run ios
 
 ## Pending / next up
 
-- [ ] Create GitHub release `v0.2.5b1` and attach Windows/macOS artifacts plus both `.sha256` files.
-- [ ] Register custom domain and wire `relay.localflight.app` + `network.localflight.app` DNS → `localflight-community-relay.fly.dev`; run `fly certs add` for both.
 - [ ] End-to-end community client activation test against live relay.
-- [ ] Mobile — `npm install` + `npx expo install --fix` on Mac; test in iOS simulator/dev build
-- [ ] Validate the companion on the Mac/Xcode side after installing `mobile/` dependencies (`npm install`, `npm run doctor`, `npm run ios`)
+- [ ] Mobile — resolve Expo SDK 55 vs Xcode compatibility, then test in iOS simulator/dev build.
+- [ ] Validate the companion runtime flows on-device/simulator: connection setup, FIDS/Radar/History/Settings, appearance persistence, Matrix save/reset, landscape split, radar pinch zoom, feedback, crash gating, and WebSocket refresh.
 - [ ] Notification system (Pushover/Telegram) — ~50 lines, hooks into scheduler after `_broadcast_update()`
 - [ ] Pi hardware on hand — run systemd services + kiosk validation on the real unit
 - [ ] RTL-SDR dongle — test dump1090 integration

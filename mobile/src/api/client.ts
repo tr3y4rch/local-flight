@@ -13,6 +13,9 @@ import type {
   FlightView,
   HistoryDirection,
   HistoryResponse,
+  MatrixRuntimeConfig,
+  MatrixRuntimeConfigSave,
+  MatrixRuntimeConfigSaveResponse,
   Metar,
   RadarResponse,
   RequestLogResponse,
@@ -201,6 +204,46 @@ export function getRadar(
     serverUrl,
     `/api/radar?radius_nm=${radiusNm}`
   );
+}
+
+export function getMatrixConfig(serverUrl: string): Promise<MatrixRuntimeConfig> {
+  return fetchJson<MatrixRuntimeConfig>(serverUrl, "/api/matrix/config");
+}
+
+export async function saveMatrixConfig(
+  serverUrl: string,
+  body: MatrixRuntimeConfigSave
+): Promise<MatrixRuntimeConfigSaveResponse> {
+  const base = normalizeServerUrl(serverUrl);
+  if (!base) {
+    throw new LocalFlightApiError("Set a Local Flight server URL first.");
+  }
+
+  const headers = await companionHeaders();
+  const response = await fetch(`${base}/api/matrix/config`, {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+      ...headers
+    },
+    body: JSON.stringify(body)
+  });
+
+  if (!response.ok) {
+    let message = `HTTP ${response.status} for /api/matrix/config`;
+    try {
+      const data = (await response.json()) as { detail?: string };
+      if (data.detail) {
+        message = data.detail;
+      }
+    } catch {
+      // Ignore non-JSON error responses.
+    }
+    throw new LocalFlightApiError(message, response.status);
+  }
+
+  return response.json() as Promise<MatrixRuntimeConfigSaveResponse>;
 }
 
 export function searchAirports(serverUrl: string, q: string, limit = 8): Promise<AirportResult[]> {

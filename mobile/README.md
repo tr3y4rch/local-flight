@@ -8,12 +8,12 @@ The Python/FastAPI app remains the server of record. This mobile app is a LAN cl
 
 ## Requirements
 
-- macOS with Xcode installed
+- macOS with an Xcode version compatible with Expo SDK 55
 - Node.js 20 LTS or newer for Expo SDK 55
 - iPhone/iPad connected for device builds, or an iOS simulator
 - Local Flight running on the same network
 
-Expo SDK 55 targets React Native 0.83 and React 19.2. Run `npx expo install --fix` after install on the Mac to align patch versions.
+Expo SDK 55 targets React Native 0.83 and React 19.2. Run `npm run doctor` after install on the Mac to confirm the active Xcode and package versions are compatible.
 
 ## First Run
 
@@ -40,7 +40,7 @@ http://192.168.1.42:8000
 
 Do not use `localhost` on a physical iPhone. `localhost` means the phone itself, not your Mac or Windows machine.
 
-## Phase 1 Scope
+## Current Dev Scope
 
 - Store the Local Flight server URL on-device with SecureStore
 - Connection test against `/api/health`
@@ -52,6 +52,18 @@ Do not use `localhost` on a physical iPhone. `localhost` means the phone itself,
 - Feedback and crash reporting, with automatic diagnostics following the server's chosen privacy mode
 - WebSocket listener for `/ws` `snapshot_updated`, `config_updated`, and `scheduler_restarted` events
 - Responsive iPhone/iPad layout foundation
+- Independent mobile appearance with dark/light theme plus standard, technical, neon, cyan, and CRT skins
+- Server-backed Matrix runtime editor using `/api/matrix/config`, with local-only panel preview presets
+- Landscape split display for FIDS/Radar and responsive radar pinch zoom across the existing 20/40/80 NM ranges
+
+## Structure
+
+- `App.tsx` is only the provider entrypoint.
+- `src/app/AppShell.tsx` coordinates connection state, refresh flow, WebSocket handling, and shared app chrome.
+- `src/domain/` contains pure helpers and constants for flights, formatting, radar, matrix, and feedback context.
+- `src/hooks/` contains stateful behavior such as launch/bootstrap, flight detail loading, and Matrix draft/save/reset.
+- `src/screens/AppScreens.tsx` contains the main screens and sheets.
+- `src/theme/` contains mobile appearance tokens, runtime appearance storage, and the style bridge used by extracted screens.
 
 ## Not Yet
 
@@ -64,6 +76,6 @@ Do not use `localhost` on a physical iPhone. `localhost` means the phone itself,
 
 - QR pairing and per-device tokens before broader mutating admin controls
 - Android test pass after the iOS companion stabilizes
-- Real navigation stack once more screens exist
-- iPad display mode with keep-awake
+- Real navigation stack once screen history/deep links justify it
+- iPad keep-awake/display-mode polish
 - Native radar using `react-native-svg`

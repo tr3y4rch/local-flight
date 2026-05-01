@@ -281,6 +281,25 @@ export type RadarResponse = {
   blips: RadarBlip[];
 };
 
+export type MatrixRuntimeConfig = {
+  brightness: number;
+  max_rows: number;
+  refresh_seconds: number;
+  default_view: FlightView | string;
+  skin?: string;
+};
+
+export type MatrixRuntimeConfigSave = {
+  brightness: number;
+  max_rows: number;
+  refresh_seconds: number;
+  default_view: FlightView;
+};
+
+export type MatrixRuntimeConfigSaveResponse = MatrixRuntimeConfigSave & {
+  ok: boolean;
+};
+
 export type AirportResult = {
   iata: string;
   icao: string;

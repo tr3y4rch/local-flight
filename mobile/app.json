@@ -5,9 +5,12 @@
     "version": "0.2.5b1",
     "scheme": "localflight",
     "orientation": "default",
-    "userInterfaceStyle": "dark",
+    "userInterfaceStyle": "automatic",
     "icon": "./assets/icon_circle.png",
-    "platforms": ["ios", "android"],
+    "platforms": [
+      "ios",
+      "android"
+    ],
     "plugins": [
       [
         "expo-splash-screen",
@@ -21,14 +24,17 @@
             "image": "./assets/icon_circle.png"
           }
         }
-      ]
+      ],
+      "expo-font"
     ],
     "ios": {
       "bundleIdentifier": "com.localflight.companion",
       "supportsTablet": true,
       "infoPlist": {
         "NSLocalNetworkUsageDescription": "Local Flight Companion connects to your Local Flight server on your local network.",
-        "NSBonjourServices": ["_http._tcp"],
+        "NSBonjourServices": [
+          "_http._tcp"
+        ],
         "NSSupportsLiveActivities": true,
         "NSAppTransportSecurity": {
           "NSAllowsArbitraryLoads": true
