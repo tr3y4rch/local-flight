@@ -313,6 +313,7 @@ def test_display_window_config_changes_visible_board_rows() -> None:
         refresh_seconds=tight_cfg.refresh_seconds,
         flights=[recent_departure, distant_departure],
         last_refreshed=now,
+        allow_sparse_fallback=False,
         source_status="test",
     )["rows"]
     wide_rows = build_fids_context(
@@ -321,11 +322,42 @@ def test_display_window_config_changes_visible_board_rows() -> None:
         refresh_seconds=wide_cfg.refresh_seconds,
         flights=[recent_departure, distant_departure],
         last_refreshed=now,
+        allow_sparse_fallback=False,
         source_status="test",
     )["rows"]
 
     assert len(list(tight_rows)) == 0
     assert len(list(wide_rows)) == 2
+
+
+def test_build_fids_context_uses_sparse_fallback_when_window_is_empty() -> None:
+    now = datetime.now(timezone.utc).replace(second=0, microsecond=0)
+    older_a = _flight("SWR110", now - timedelta(hours=4))
+    older_b = _flight("SWR120", now - timedelta(hours=2))
+
+    cfg = AppConfig(
+        airport_iata="ZRH",
+        airport_icao="LSZH",
+        timezone="UTC",
+        web_row_limit=10,
+        display_grace_minutes=30,
+        display_horizon_hours=12,
+    )
+
+    ctx = build_fids_context(
+        cfg=cfg,
+        view="departures",
+        refresh_seconds=cfg.refresh_seconds,
+        flights=[older_a, older_b],
+        last_refreshed=now,
+        source_status="test",
+    )
+
+    rows = list(ctx["rows"])
+
+    assert ctx["sparse_window_fallback"] is True
+    assert len(rows) == 2
+    assert [row.callsign for row in rows] == ["SWR110", "SWR120"]
 
 
 def test_api_fids_can_serve_overflow_rows_for_rotating_clients(monkeypatch) -> None:
@@ -354,6 +386,33 @@ def test_api_fids_can_serve_overflow_rows_for_rotating_clients(monkeypatch) -> N
     assert len(rows) == 15
     assert rows[0].callsign == "SWR100"
     assert rows[-1].callsign == "SWR114"
+
+
+def test_api_fids_uses_sparse_departure_fallback_when_window_is_empty(monkeypatch) -> None:
+    now = datetime(2026, 5, 1, 14, 0, tzinfo=timezone.utc)
+    flights = [
+        _flight("SWR100", datetime(2026, 5, 1, 8, 0, tzinfo=timezone.utc)),
+        _flight("SWR101", datetime(2026, 5, 1, 9, 30, tzinfo=timezone.utc)),
+    ]
+
+    monkeypatch.setattr(
+        ui_api,
+        "load_config",
+        lambda: AppConfig(
+            airport_iata="ZRH",
+            airport_icao="LSZH",
+            timezone="UTC",
+            web_row_limit=10,
+            display_grace_minutes=30,
+            display_horizon_hours=12,
+        ),
+    )
+    monkeypatch.setattr(ui_api, "_load_latest_flights", lambda airport_iata: (flights, now))
+
+    rows = ui_api.api_fids(view="departures", limit=20)
+
+    assert len(rows) == 2
+    assert [row.callsign for row in rows] == ["SWR100", "SWR101"]
 
 
 def test_byok_and_relay_fair_fetch_normalize_equivalently(monkeypatch) -> None:

@@ -165,7 +165,7 @@ After the first launch into the main app, Local Flight asks once how you want di
 
 Community mode defaults to `https://localflight-community-relay.fly.dev/v1/flights`. Relay-backed community and managed installs share airport snapshots on the relay, so the per-install `50` limit applies to relay accesses rather than raw AviationStack pulls. Only change that relay URL if you are deliberately pointing the client at your own backend.
 
-For real schedules, Local Flight now tries the same stronger fetch policy across BYOK and relay-backed modes: airport-local date windows, per-date pagination, and an extra rescue pass when the visible board would otherwise be empty. Some airports can still look sparse if AviationStack itself does not return near-term schedule rows for that lane.
+For real schedules, Local Flight now tries the same stronger fetch policy across BYOK and relay-backed modes: airport-local date windows, per-date pagination, and an extra rescue pass when the visible board would otherwise be empty. If the provider still only returns older real flights for a lane, Local Flight now falls back to showing the nearest available rows instead of a dead-empty board. Some airports can still look sparse if AviationStack itself does not return near-term schedule rows for that lane.
 
 ---
 

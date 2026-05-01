@@ -57,6 +57,15 @@ def _display_window(cfg: Any) -> tuple[int, int]:
     )
 
 
+def _best_time_for_display(flight: Flight) -> datetime | None:
+    value = flight.times.actual or flight.times.estimated or flight.times.scheduled
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value
+
+
 def _filter_for_display(flights: list[Flight], now: datetime, *, cfg: Any) -> list[Flight]:
     """
     Remove flights that don't belong on a live FIDS board.
@@ -91,6 +100,37 @@ def _filter_for_display(flights: list[Flight], now: datetime, *, cfg: Any) -> li
     return result
 
 
+def _fallback_for_sparse_window(flights: list[Flight], now: datetime, *, cfg: Any) -> list[Flight]:
+    if not flights:
+        return []
+
+    grace_minutes, horizon_hours = _display_window(cfg)
+    cutoff_past = now - timedelta(minutes=grace_minutes)
+    cutoff_future = now + timedelta(hours=horizon_hours)
+    fallback_limit = max(10, int(getattr(cfg, "web_row_limit", 20) or 20) * 2)
+
+    with_times = [(flight, _best_time_for_display(flight)) for flight in flights]
+    timed = [(flight, stamp) for flight, stamp in with_times if stamp is not None]
+    recent_past = [(flight, stamp) for flight, stamp in timed if stamp < cutoff_past]
+    future = [(flight, stamp) for flight, stamp in timed if stamp > cutoff_future]
+
+    if recent_past:
+        recent_past.sort(key=lambda item: item[1], reverse=True)
+        selected = recent_past[:fallback_limit]
+        selected.sort(key=lambda item: item[1])
+        return [flight for flight, _stamp in selected]
+
+    if future:
+        future.sort(key=lambda item: item[1])
+        return [flight for flight, _stamp in future[:fallback_limit]]
+
+    untimed = [flight for flight, stamp in with_times if stamp is None]
+    if untimed:
+        return untimed[:fallback_limit]
+
+    return []
+
+
 def build_fids_context(
     *,
     cfg: Any,
@@ -99,6 +139,7 @@ def build_fids_context(
     flights: list[Flight],
     last_refreshed: datetime | None = None,
     reference_now: datetime | None = None,
+    allow_sparse_fallback: bool = True,
     source_status: str = "OK",
 ) -> dict[str, Any]:
     tz = _resolve_tz(cfg)
@@ -113,7 +154,14 @@ def build_fids_context(
     view_str   = "departures" if str(view).lower() == "departures" else "arrivals"
     view_typed = cast(FidsView, view_str)
 
-    flights = _filter_for_display(flights, now, cfg=cfg)
+    visible_flights = _filter_for_display(flights, now, cfg=cfg)
+    sparse_window_fallback = False
+    if not visible_flights and allow_sparse_fallback:
+        fallback_flights = _fallback_for_sparse_window(flights, now, cfg=cfg)
+        if fallback_flights:
+            visible_flights = fallback_flights
+            sparse_window_fallback = True
+    flights = visible_flights
 
     ap = lookup_airport(iata=getattr(cfg, "airport_iata", None), icao=getattr(cfg, "airport_icao", None))
     airport_lat = ap.lat if ap else None
@@ -131,4 +179,5 @@ def build_fids_context(
         "last_refreshed": _fmt_ts(last, tz),
         "next_in": _fmt_mmss(refresh_seconds),
         "source_status": source_status,
+        "sparse_window_fallback": sparse_window_fallback,
     }
