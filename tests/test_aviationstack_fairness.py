@@ -184,6 +184,85 @@ def test_fetch_flights_strategy_fair_beats_baseline_on_date_scoped_fixture(monke
     assert len(fair_payload["data"]) == 2
 
 
+def test_fetch_flights_strategy_fair_adds_adaptive_pages_until_window_is_covered(monkeypatch) -> None:
+    now = datetime(2026, 5, 1, 5, 0, tzinfo=timezone.utc)
+    start = datetime(2026, 5, 1, 0, 0, tzinfo=timezone.utc)
+    calls: list[tuple[str | None, int]] = []
+
+    def fake_fetch_flights_once(**kwargs):
+        flight_date = kwargs.get("flight_date")
+        offset = int(kwargs.get("offset", 0) or 0)
+        limit = int(kwargs.get("limit", 100) or 100)
+        calls.append((flight_date, offset))
+        if flight_date != "2026-05-01" or offset >= 500:
+            return {"pagination": {"limit": limit, "offset": offset}, "data": []}
+        rows = [
+            _aviationstack_departure(
+                f"{1000 + offset + idx}",
+                start + timedelta(minutes=offset + idx),
+                gate="A1",
+            )
+            for idx in range(limit)
+        ]
+        return {"pagination": {"limit": limit, "offset": offset}, "data": rows}
+
+    monkeypatch.setattr(aviationstack_client, "fetch_flights_once", fake_fetch_flights_once)
+
+    payload, meta = aviationstack_client.fetch_flights_strategy(
+        airport_iata="ZRH",
+        timezone_name="UTC",
+        mode="departures",
+        strategy="fair",
+        display_horizon_hours=2,
+        page_size=100,
+        pages_per_date=4,
+        now=now,
+    )
+
+    latest = datetime.fromisoformat(payload["data"][-1]["departure"]["scheduled"])
+
+    assert meta["pages_requested"] == 4
+    assert meta["pages_fetched"] == 5
+    assert meta["adaptive_extra_pages"] == 1
+    assert calls[-1] == ("2026-05-01", 400)
+    assert latest >= datetime(2026, 5, 1, 7, 0, tzinfo=timezone.utc)
+
+
+def test_fetch_flights_strategy_fair_falls_back_to_undated_when_date_scope_is_board_empty(monkeypatch) -> None:
+    now = datetime(2026, 5, 1, 12, 0, tzinfo=timezone.utc)
+    early = _aviationstack_departure("100", datetime(2026, 5, 1, 5, 0, tzinfo=timezone.utc), gate="A1")
+    rescue = _aviationstack_departure("200", datetime(2026, 5, 1, 15, 0, tzinfo=timezone.utc), gate="B7")
+
+    def fake_fetch_flights_once(**kwargs):
+        flight_date = kwargs.get("flight_date")
+        offset = kwargs.get("offset", 0)
+        limit = kwargs.get("limit", 100)
+        if flight_date == "2026-05-01" and offset == 0:
+            return {"pagination": {"limit": limit, "offset": 0}, "data": [early]}
+        if flight_date is None and offset == 0:
+            return {"pagination": {"limit": limit, "offset": 0}, "data": [early, rescue]}
+        return {"pagination": {"limit": limit, "offset": offset}, "data": []}
+
+    monkeypatch.setattr(aviationstack_client, "fetch_flights_once", fake_fetch_flights_once)
+
+    payload, meta = aviationstack_client.fetch_flights_strategy(
+        airport_iata="ZRH",
+        timezone_name="UTC",
+        mode="departures",
+        strategy="fair",
+        display_horizon_hours=12,
+        page_size=100,
+        pages_per_date=4,
+        now=now,
+    )
+
+    scheduled_values = {row["departure"]["scheduled"] for row in payload["data"]}
+
+    assert meta["undated_fallback_used"] is True
+    assert any(key.startswith("departures:undated") for key in meta["pages_by_scope"])
+    assert rescue["departure"]["scheduled"] in scheduled_values
+
+
 def test_dedupe_identical_flights_collapses_duplicate_pages_and_keeps_best_details() -> None:
     scheduled = datetime(2026, 5, 1, 10, 0, tzinfo=timezone.utc)
     plain = _flight("SWR100", scheduled)

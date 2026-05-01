@@ -434,6 +434,7 @@ def api_fids(
         refresh_seconds=cfg.refresh_seconds,
         flights=flights,
         last_refreshed=last_refreshed,
+        reference_now=last_refreshed,
         source_status=cfg.source,
     )
     rows = list(ctx["rows"])[:limit]

@@ -94,6 +94,7 @@ def test_load_latest_snapshot_path_reads_legacy_snapshots_during_migration(
 def test_run_snapshot_job_prunes_snapshots_in_all_entrypoints(monkeypatch) -> None:
     prune_calls: list[tuple[str, int]] = []
 
+    monkeypatch.setattr(jobs, "_fetch_is_due", lambda cfg: (True, "forced by test"))
     monkeypatch.setattr(jobs, "_fetch_real", lambda cfg: [_flight()])
     monkeypatch.setattr(jobs, "save_snapshot", lambda *args, **kwargs: Path("snapshot.json"))
     monkeypatch.setattr(jobs, "prune_snapshots", lambda airport_iata, keep_hours=24: prune_calls.append((airport_iata, keep_hours)) or 0)

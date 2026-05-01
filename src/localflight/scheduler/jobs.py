@@ -128,6 +128,7 @@ def _fetch_aviationstack(cfg: AppConfig) -> List[Flight]:
             display_grace_minutes=cfg.display_grace_minutes,
             display_horizon_hours=cfg.display_horizon_hours,
             refresh_seconds=cfg.refresh_seconds,
+            timeout_s=60,
             return_meta=True,
         )
         flights = normalize_flights(
@@ -135,6 +136,15 @@ def _fetch_aviationstack(cfg: AppConfig) -> List[Flight]:
             airport_iata=airport_iata,
             airport_icao=airport_icao,
             source_name="aviationstack",
+        )
+        log.info(
+            "AviationStack relay snapshot: %s canonical records -> %d flights (%s, provider=%s, pages=%s, adaptive_extra=%s)",
+            len(records),
+            len(flights),
+            _relay_meta.get("cache_state") or "unknown",
+            _relay_meta.get("provider") or "aviationstack",
+            _relay_meta.get("pages_fetched"),
+            _relay_meta.get("adaptive_extra_pages", 0),
         )
         return _dedupe_identical_flights(flights)
 
@@ -168,6 +178,16 @@ def _fetch_aviationstack(cfg: AppConfig) -> List[Flight]:
         airport_iata=airport_iata,
         airport_icao=airport_icao,
         source_name="aviationstack",
+    )
+    log.info(
+        "AviationStack fair-fetch: dep raw=%d arr raw=%d normalized=%d dep_pages=%s arr_pages=%s dep_extra=%s arr_extra=%s",
+        len(raw_dep.get("data") or []),
+        len(raw_arr.get("data") or []),
+        len(flights),
+        dep_meta.get("pages_fetched"),
+        arr_meta.get("pages_fetched"),
+        dep_meta.get("adaptive_extra_pages", 0),
+        arr_meta.get("adaptive_extra_pages", 0),
     )
     return _dedupe_identical_flights(flights)
 

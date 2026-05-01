@@ -15,6 +15,7 @@ No accounts. No signup wall. Community mode can use the hosted relay, but it sti
 - Airport-style **FIDS departures / arrivals board** with live WebSocket refresh, flight detail drawer, history, and UTC/local clock
 - **Radar view** with ADS-B Exchange enrichment, OpenSky fallback, and METAR weather
 - **Split display** mode for FIDS + radar on one screen, plus kiosk-ready desktop and Pi flows
+- Real-data schedule fetching that tries **date-aware fair paging first** and a **rescue fallback** before giving up on a sparse board
 - Configurable **board window and page rotation** so web and matrix displays stay readable at busier airports
 - **Admin hub** for scheduler status, install-local API budgets, connected clients, updates, and diagnostics
 - **Diagnostics choice** so each install can stay on manual reports only, automatic crash reports, or automatic crash reports with sanitized logs
@@ -164,13 +165,15 @@ After the first launch into the main app, Local Flight asks once how you want di
 
 Community mode defaults to `https://localflight-community-relay.fly.dev/v1/flights`. Relay-backed community and managed installs share airport snapshots on the relay, so the per-install `50` limit applies to relay accesses rather than raw AviationStack pulls. Only change that relay URL if you are deliberately pointing the client at your own backend.
 
+For real schedules, Local Flight now tries the same stronger fetch policy across BYOK and relay-backed modes: airport-local date windows, per-date pagination, and an extra rescue pass when the visible board would otherwise be empty. Some airports can still look sparse if AviationStack itself does not return near-term schedule rows for that lane.
+
 ---
 
 ## Data sources
 
 | Source | Key required | Used for |
 |---|---|---|
-| AviationStack | Optional (`AVIATIONSTACK_API_KEY`) | Flight schedules, gates, status; without a key Local Flight uses the hosted relay's shared airport snapshots and per-install relay access quota |
+| AviationStack | Optional (`AVIATIONSTACK_API_KEY`) | Flight schedules, gates, status; without a key Local Flight uses the hosted relay's shared airport snapshots and per-install relay access quota. Local Flight tries fair date-window paging plus a rescue fallback before treating a board as empty, but upstream coverage can still vary by airport and time. |
 | ADS-B Exchange | Optional (`RAPIDAPI_KEY`) | Live positions, aircraft type, registration |
 | OpenSky Network | Optional (`OPENSKY_CLIENT_ID` / `SECRET`) | Position fallback (anonymous works, lower rate limits) |
 | VATSIM | No | Full data source for flight sim / virtual mode |

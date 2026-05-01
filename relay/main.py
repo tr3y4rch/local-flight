@@ -12,7 +12,7 @@ import threading
 import time
 import uuid
 from contextlib import asynccontextmanager
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, time as dt_time, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -46,7 +46,7 @@ _REQUEST_STATUS_DISMISSED = "dismissed"
 _AUTO_ACTIVATION_NETWORK_DAILY_LIMIT = 6
 _AUTO_ACTIVATION_NETWORK_INSTALLS_DAILY_LIMIT = 4
 _SHARED_SCHEDULE_PROVIDER = "aviationstack"
-_SHARED_SCHEDULE_PLANNER_VERSION = "fair-v1"
+_SHARED_SCHEDULE_PLANNER_VERSION = "fair-v3"
 _SHARED_SCHEDULE_SCHEMA_VERSION = "canonical-raw-v1"
 _SHARED_SCHEDULE_LOCK_WAIT_S = 4.0
 
@@ -1144,6 +1144,115 @@ def _client_interest_snapshot(conn: sqlite3.Connection, install_id: str) -> Opti
     return data
 
 
+def _parse_provider_utc(value: Any) -> Optional[datetime]:
+    if not value:
+        return None
+    try:
+        dt = datetime.fromisoformat(str(value))
+    except Exception:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
+def _provider_row_best_time(row: Dict[str, Any], mode: str) -> Optional[datetime]:
+    block_name = "departure" if mode == "departures" else "arrival"
+    block = row.get(block_name) if isinstance(row, dict) else None
+    if not isinstance(block, dict):
+        return None
+    for key in ("actual", "estimated", "scheduled"):
+        value = _parse_provider_utc(block.get(key))
+        if value is not None:
+            return value
+    return None
+
+
+def _provider_scope_latest_time(rows: list[Dict[str, Any]], mode: str) -> Optional[datetime]:
+    latest: Optional[datetime] = None
+    for row in rows:
+        candidate = _provider_row_best_time(row, mode)
+        if candidate is not None and (latest is None or candidate > latest):
+            latest = candidate
+    return latest
+
+
+def _shared_schedule_target_end(window: Any, flight_date: Optional[str]) -> Optional[datetime]:
+    if not flight_date:
+        return None
+    try:
+        scope_date = date.fromisoformat(str(flight_date))
+    except Exception:
+        return None
+
+    display_start_date = window.display_start.date()
+    display_end_date = window.display_end.date()
+    if scope_date < display_start_date or scope_date > display_end_date:
+        return None
+
+    tz = window.local_now.tzinfo
+    if scope_date == display_end_date:
+        return window.display_end.astimezone(timezone.utc)
+
+    target_local = datetime.combine(scope_date, dt_time.max, tzinfo=tz)
+    return target_local.astimezone(timezone.utc)
+
+
+def _provider_rows_within_window(
+    rows: list[Dict[str, Any]],
+    mode: str,
+    *,
+    window_start_utc: datetime,
+    window_end_utc: datetime,
+) -> int:
+    count = 0
+    for row in rows:
+        candidate = _provider_row_best_time(row, mode)
+        if candidate is not None and window_start_utc <= candidate <= window_end_utc:
+            count += 1
+    return count
+
+
+def _merge_scope_counts(first: Dict[str, Any], second: Dict[str, Any]) -> Dict[str, Any]:
+    merged: Dict[str, Any] = {}
+    for source in (first, second):
+        for key, value in (source or {}).items():
+            merged[key] = int(merged.get(key, 0) or 0) + int(value or 0)
+    return merged
+
+
+def _merge_schedule_meta(primary: Dict[str, Any], extra: Dict[str, Any]) -> Dict[str, Any]:
+    merged = dict(primary)
+    merged["pages_requested"] = int(primary.get("pages_requested", 0) or 0) + int(
+        extra.get("pages_requested", 0) or 0
+    )
+    merged["pages_fetched"] = int(primary.get("pages_fetched", 0) or 0) + int(
+        extra.get("pages_fetched", 0) or 0
+    )
+    merged["raw_rows"] = int(primary.get("raw_rows", 0) or 0) + int(extra.get("raw_rows", 0) or 0)
+    merged["record_count"] = int(primary.get("record_count", 0) or 0) + int(
+        extra.get("record_count", 0) or 0
+    )
+    merged["adaptive_extra_pages"] = int(primary.get("adaptive_extra_pages", 0) or 0) + int(
+        extra.get("adaptive_extra_pages", 0) or 0
+    )
+    merged["dates_touched"] = sorted(
+        {
+            *list(primary.get("dates_touched") or []),
+            *list(extra.get("dates_touched") or []),
+        }
+    )
+    merged["pages_by_scope"] = _merge_scope_counts(
+        primary.get("pages_by_scope") or {},
+        extra.get("pages_by_scope") or {},
+    )
+    merged["rows_by_scope"] = _merge_scope_counts(
+        primary.get("rows_by_scope") or {},
+        extra.get("rows_by_scope") or {},
+    )
+    return merged
+
+
 def _fetch_shared_schedule_from_upstream(
     *,
     airport_iata: str,
@@ -1153,15 +1262,27 @@ def _fetch_shared_schedule_from_upstream(
 ) -> Dict[str, Any]:
     from localflight.decode.mappings.aviationstack import aviationstack_to_raw_records
     from localflight.sources.web.aviationstack_plan import (
+        DEFAULT_AUDIT_PAGES_PER_DATE,
         DEFAULT_FETCH_FUTURE_HOURS,
         DEFAULT_FETCH_PAST_HOURS,
         DEFAULT_PAGE_SIZE,
         DEFAULT_PRODUCTION_PAGES_PER_DATE,
         build_fetch_plan,
+        build_fetch_window,
+        build_undated_plan,
     )
 
     aviationstack_key = _aviationstack_key()
-    generated_at = _utc_now()
+    generated_at_dt = datetime.now(timezone.utc)
+    generated_at = generated_at_dt.isoformat()
+    window = build_fetch_window(
+        timezone_name=timezone_name,
+        now=generated_at_dt,
+        display_grace_minutes=display_grace_minutes,
+        display_horizon_hours=display_horizon_hours,
+        fetch_past_hours=DEFAULT_FETCH_PAST_HOURS,
+        fetch_future_hours=DEFAULT_FETCH_FUTURE_HOURS,
+    )
     planner_inputs = {
         "airport_iata": airport_iata,
         "timezone_name": timezone_name,
@@ -1176,16 +1297,26 @@ def _fetch_shared_schedule_from_upstream(
         mode="arrivals",
         **planner_inputs,
     )
+    adaptive_targets = {
+        req.scope_key: target
+        for req in requests_plan
+        if (target := _shared_schedule_target_end(window, req.flight_date)) is not None
+    }
 
     records: list[Dict[str, Any]] = []
+    raw_rows_by_scope: dict[tuple[str, str], list[Dict[str, Any]]] = {}
     pages_by_scope: dict[tuple[str, str], int] = {}
     rows_by_scope: dict[tuple[str, str], int] = {}
+    last_page_sizes: dict[tuple[str, str], int] = {}
     skip_scopes: set[tuple[str, str]] = set()
+    scope_templates: dict[tuple[str, str], Any] = {}
     touched_dates: set[str] = set()
     pages_fetched = 0
     raw_rows = 0
+    adaptive_extra_pages = 0
 
     for req in requests_plan:
+        scope_templates.setdefault(req.scope_key, req)
         if req.scope_key in skip_scopes:
             continue
 
@@ -1233,8 +1364,10 @@ def _fetch_shared_schedule_from_upstream(
 
         pages_fetched += 1
         raw_rows += len(page_rows)
+        raw_rows_by_scope.setdefault(req.scope_key, []).extend(page_rows)
         pages_by_scope[req.scope_key] = pages_by_scope.get(req.scope_key, 0) + 1
         rows_by_scope[req.scope_key] = rows_by_scope.get(req.scope_key, 0) + len(page_rows)
+        last_page_sizes[req.scope_key] = len(page_rows)
         records.extend(
             aviationstack_to_raw_records(
                 {"data": page_rows},
@@ -1245,11 +1378,93 @@ def _fetch_shared_schedule_from_upstream(
         if len(page_rows) < req.limit:
             skip_scopes.add(req.scope_key)
 
+    for scope_key, target_end in adaptive_targets.items():
+        if scope_key in skip_scopes:
+            continue
+        template = scope_templates.get(scope_key)
+        if template is None:
+            continue
+        fetched_pages = pages_by_scope.get(scope_key, 0)
+        if fetched_pages <= 0:
+            continue
+
+        while fetched_pages < DEFAULT_AUDIT_PAGES_PER_DATE:
+            latest = _provider_scope_latest_time(raw_rows_by_scope.get(scope_key, []), template.mode)
+            if latest is not None and latest >= target_end:
+                break
+            if last_page_sizes.get(scope_key, 0) < template.limit:
+                skip_scopes.add(scope_key)
+                break
+
+            params: Dict[str, Any] = {"access_key": aviationstack_key, "limit": template.limit}
+            if template.flight_date:
+                params["flight_date"] = template.flight_date
+                touched_dates.add(template.flight_date)
+            next_offset = fetched_pages * template.limit
+            if next_offset > 0:
+                params["offset"] = next_offset
+            if template.dep_iata:
+                params["dep_iata"] = template.dep_iata
+            if template.arr_iata:
+                params["arr_iata"] = template.arr_iata
+
+            try:
+                response = _req.get(
+                    AVIATIONSTACK_URL,
+                    params=params,
+                    headers={"User-Agent": "localflight-relay/1.0"},
+                    timeout=25,
+                )
+            except Exception as exc:
+                raise HTTPException(status_code=502, detail=f"AviationStack unreachable: {exc}")
+
+            if response.status_code >= 400:
+                try:
+                    payload = response.json()
+                    detail = payload.get("error") if isinstance(payload, dict) else None
+                    info = detail.get("info") if isinstance(detail, dict) else ""
+                except Exception:
+                    info = ""
+                suffix = f": {info}" if info else ""
+                raise HTTPException(status_code=502, detail=f"AviationStack upstream HTTP {response.status_code}{suffix}")
+
+            try:
+                payload = response.json()
+            except Exception as exc:
+                raise HTTPException(status_code=502, detail=f"AviationStack returned invalid JSON: {exc}")
+
+            if not isinstance(payload, dict):
+                raise HTTPException(status_code=502, detail="AviationStack response shape invalid")
+            page_rows = payload.get("data")
+            if not isinstance(page_rows, list):
+                raise HTTPException(status_code=502, detail="AviationStack response missing data rows")
+
+            pages_fetched += 1
+            adaptive_extra_pages += 1
+            raw_rows += len(page_rows)
+            raw_rows_by_scope.setdefault(scope_key, []).extend(page_rows)
+            fetched_pages += 1
+            pages_by_scope[scope_key] = fetched_pages
+            rows_by_scope[scope_key] = rows_by_scope.get(scope_key, 0) + len(page_rows)
+            last_page_sizes[scope_key] = len(page_rows)
+            records.extend(
+                aviationstack_to_raw_records(
+                    {"data": page_rows},
+                    airport_iata=airport_iata,
+                    mode="dep" if template.mode == "departures" else "arr",
+                )
+            )
+            if len(page_rows) < template.limit:
+                skip_scopes.add(scope_key)
+                break
+
     meta = {
         "pages_requested": len(requests_plan),
         "pages_fetched": pages_fetched,
         "page_size": DEFAULT_PAGE_SIZE,
         "pages_per_date_cap": DEFAULT_PRODUCTION_PAGES_PER_DATE,
+        "max_pages_per_scope": DEFAULT_AUDIT_PAGES_PER_DATE,
+        "adaptive_extra_pages": adaptive_extra_pages,
         "dates_touched": sorted(touched_dates),
         "raw_rows": raw_rows,
         "record_count": len(records),
@@ -1264,6 +1479,153 @@ def _fetch_shared_schedule_from_upstream(
             for (mode, flight_date), count in rows_by_scope.items()
         },
     }
+    display_start_utc = window.display_start.astimezone(timezone.utc)
+    display_end_utc = window.display_end.astimezone(timezone.utc)
+    undated_fallback_used = False
+    for mode in ("departures", "arrivals"):
+        if _provider_rows_within_window(
+            raw_rows_by_scope.get((mode, ""), [])
+            + raw_rows_by_scope.get((mode, window.display_start.date().isoformat()), [])
+            + raw_rows_by_scope.get((mode, window.display_end.date().isoformat()), []),
+            mode,
+            window_start_utc=display_start_utc,
+            window_end_utc=display_end_utc,
+        ) > 0:
+            continue
+
+        fallback_plan = build_undated_plan(
+            airport_iata=airport_iata,
+            mode=mode,
+            page_size=DEFAULT_PAGE_SIZE,
+            page_cap=DEFAULT_PRODUCTION_PAGES_PER_DATE,
+        )
+        fallback_rows: list[Dict[str, Any]] = []
+        fallback_pages = 0
+        fallback_adaptive_pages = 0
+        last_page_size = DEFAULT_PAGE_SIZE
+        for req in fallback_plan:
+            params: Dict[str, Any] = {"access_key": aviationstack_key, "limit": req.limit}
+            if req.offset > 0:
+                params["offset"] = req.offset
+            if req.dep_iata:
+                params["dep_iata"] = req.dep_iata
+            if req.arr_iata:
+                params["arr_iata"] = req.arr_iata
+            try:
+                response = _req.get(
+                    AVIATIONSTACK_URL,
+                    params=params,
+                    headers={"User-Agent": "localflight-relay/1.0"},
+                    timeout=25,
+                )
+            except Exception as exc:
+                raise HTTPException(status_code=502, detail=f"AviationStack unreachable: {exc}")
+
+            if response.status_code >= 400:
+                try:
+                    payload = response.json()
+                    detail = payload.get("error") if isinstance(payload, dict) else None
+                    info = detail.get("info") if isinstance(detail, dict) else ""
+                except Exception:
+                    info = ""
+                suffix = f": {info}" if info else ""
+                raise HTTPException(status_code=502, detail=f"AviationStack upstream HTTP {response.status_code}{suffix}")
+
+            try:
+                payload = response.json()
+            except Exception as exc:
+                raise HTTPException(status_code=502, detail=f"AviationStack returned invalid JSON: {exc}")
+
+            if not isinstance(payload, dict):
+                raise HTTPException(status_code=502, detail="AviationStack response shape invalid")
+            page_rows = payload.get("data")
+            if not isinstance(page_rows, list):
+                raise HTTPException(status_code=502, detail="AviationStack response missing data rows")
+
+            fallback_rows.extend(page_rows)
+            fallback_pages += 1
+            last_page_size = len(page_rows)
+            if len(page_rows) < req.limit:
+                break
+
+        while fallback_pages < DEFAULT_AUDIT_PAGES_PER_DATE:
+            latest = _provider_scope_latest_time(fallback_rows, mode)
+            if latest is not None and latest >= display_end_utc:
+                break
+            if last_page_size < DEFAULT_PAGE_SIZE:
+                break
+            params = {"access_key": aviationstack_key, "limit": DEFAULT_PAGE_SIZE, "offset": fallback_pages * DEFAULT_PAGE_SIZE}
+            if mode == "departures":
+                params["dep_iata"] = airport_iata
+            else:
+                params["arr_iata"] = airport_iata
+            try:
+                response = _req.get(
+                    AVIATIONSTACK_URL,
+                    params=params,
+                    headers={"User-Agent": "localflight-relay/1.0"},
+                    timeout=25,
+                )
+            except Exception as exc:
+                raise HTTPException(status_code=502, detail=f"AviationStack unreachable: {exc}")
+
+            if response.status_code >= 400:
+                try:
+                    payload = response.json()
+                    detail = payload.get("error") if isinstance(payload, dict) else None
+                    info = detail.get("info") if isinstance(detail, dict) else ""
+                except Exception:
+                    info = ""
+                suffix = f": {info}" if info else ""
+                raise HTTPException(status_code=502, detail=f"AviationStack upstream HTTP {response.status_code}{suffix}")
+
+            try:
+                payload = response.json()
+            except Exception as exc:
+                raise HTTPException(status_code=502, detail=f"AviationStack returned invalid JSON: {exc}")
+
+            if not isinstance(payload, dict):
+                raise HTTPException(status_code=502, detail="AviationStack response shape invalid")
+            page_rows = payload.get("data")
+            if not isinstance(page_rows, list):
+                raise HTTPException(status_code=502, detail="AviationStack response missing data rows")
+
+            fallback_rows.extend(page_rows)
+            fallback_pages += 1
+            fallback_adaptive_pages += 1
+            last_page_size = len(page_rows)
+            if len(page_rows) < DEFAULT_PAGE_SIZE:
+                break
+
+        if fallback_rows:
+            undated_fallback_used = True
+            raw_rows += len(fallback_rows)
+            pages_fetched += fallback_pages
+            adaptive_extra_pages += fallback_adaptive_pages
+            raw_rows_by_scope.setdefault((mode, ""), []).extend(fallback_rows)
+            pages_by_scope[(mode, "")] = pages_by_scope.get((mode, ""), 0) + fallback_pages
+            rows_by_scope[(mode, "")] = rows_by_scope.get((mode, ""), 0) + len(fallback_rows)
+            records.extend(
+                aviationstack_to_raw_records(
+                    {"data": fallback_rows},
+                    airport_iata=airport_iata,
+                    mode="dep" if mode == "departures" else "arr",
+                )
+            )
+
+    meta["pages_fetched"] = pages_fetched
+    meta["raw_rows"] = raw_rows
+    meta["record_count"] = len(records)
+    meta["adaptive_extra_pages"] = adaptive_extra_pages
+    meta["pages_by_scope"] = {
+        f"{mode}:{flight_date or 'undated'}": count
+        for (mode, flight_date), count in pages_by_scope.items()
+    }
+    meta["rows_by_scope"] = {
+        f"{mode}:{flight_date or 'undated'}": count
+        for (mode, flight_date), count in rows_by_scope.items()
+    }
+    meta["undated_fallback_used"] = undated_fallback_used
     return {
         "generated_at": generated_at,
         "provider": _SHARED_SCHEDULE_PROVIDER,

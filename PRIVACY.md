@@ -93,6 +93,7 @@ Those anonymous network tags are one-way derived values. They help rate-limit ob
 The important nuance is this:
 - airport identifiers are no longer stored in new generic relay activity log rows
 - but the relay does temporarily store the currently watched airport/window in its internal shared-cache tables, because that is how shared snapshot fan-out works
+- to build a usable board, the relay may also perform additional internal paginated or undated upstream schedule requests when a provider date slice comes back sparse; clients still receive only Local Flight canonical records, not reusable raw provider payloads
 
 Those shared snapshots are an internal service cache, not a public export or account profile.
 
@@ -106,7 +107,7 @@ When Local Flight fetches data, it communicates with:
 
 | Service | What is sent | Their privacy policy |
 |---|---|---|
-| AviationStack | BYOK/direct path: API key + airport IATA code + date range. Relay-backed path: the hosted relay makes that upstream request with its own provider key and shared cache. | [aviationstack.com/privacy](https://aviationstack.com/privacy-policy) |
+| AviationStack | BYOK/direct path: API key + airport IATA code + date/window request details. Relay-backed path: the hosted relay makes that upstream request with its own provider key, shared cache, and sparse-board rescue logic when needed. | [aviationstack.com/privacy](https://aviationstack.com/privacy-policy) |
 | ADS-B Exchange via RapidAPI | API key + radar search coordinates | [rapidapi.com/privacy](https://rapidapi.com/privacy/) |
 | OpenSky Network | Radar search coordinates | [opensky-network.org/about/privacy](https://opensky-network.org/about/privacy) |
 | VATSIM | Airport IATA code | [vatsim.net/privacy-policy](https://vatsim.net/privacy-policy) |

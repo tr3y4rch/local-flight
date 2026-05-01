@@ -16,15 +16,19 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 - AviationStack schedule fetching now uses a shared date-aware planner across BYOK, direct local relay-key use, and hosted relay-backed paths: page size `100`, airport-local date windows, and per-date pagination.
+- The AviationStack planner now keeps paging past the initial production slice when a busy airport has not yet reached the visible board window, and relay-backed shared snapshots now rebuild on planner version `fair-v3`.
 - Community and managed installs no longer consume raw provider JSON from the relay. They now receive Local Flight canonical records and continue the normal local normalize, enrich, history, and FIDS pipeline.
 - Community relay budget wording now reflects the actual model: `LOCALFLIGHT_RELAY_MONTHLY_LIMIT` tracks per-install relay schedule accesses, while upstream AviationStack pulls are shared and counted separately on the relay.
 - Web and matrix boards now rotate overflow pages locally instead of forcing a single fixed visible slice.
+- When a date-scoped AviationStack board would otherwise come back empty, Local Flight now tries an undated rescue pass before surfacing that sparse result.
 
 ### Fixed
+- FIDS board filtering now uses the snapshot timestamp as its reference clock, so valid saved rows do not disappear just because the wall clock moved on while the snapshot stayed unchanged.
 - Matrix clients now clear stale rows when a refresh fails or returns empty data, avoiding misleading leftovers and tight retry hammering.
 - Bug reports now attach truthful schedule-mode context for BYOK, direct local community-key, and shared relay snapshot paths, plus the active display window and web board density settings.
 - Automatic crash deduplication is now scoped by crash context as well as message, and the mobile crash boundary copy now reflects best-effort report delivery more honestly.
 - Relay production packaging now bundles the `localflight` schedule helpers inside the Fly image, so the shared `/v1/schedule` route works live instead of failing with `ModuleNotFoundError`.
+- Relay-backed schedule fetches now allow a longer timeout on cold shared-snapshot rebuilds, reducing false client failures while the relay performs the heavier sparse-board rescue path.
 
 ---
 

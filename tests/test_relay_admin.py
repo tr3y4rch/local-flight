@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import types
 
@@ -23,7 +24,7 @@ def _shared_snapshot_payload(*, pages_fetched: int = 4) -> dict[str, object]:
             "pages_fetched": pages_fetched,
             "dates_touched": ["2026-05-01"],
             "raw_rows": 1,
-            "planner_version": "fair-v1",
+            "planner_version": relay_main._SHARED_SCHEDULE_PLANNER_VERSION,
         },
         "records": [
             {
@@ -48,6 +49,35 @@ def _shared_snapshot_payload(*, pages_fetched: int = 4) -> dict[str, object]:
                 "delay_minutes": 0,
             }
         ],
+    }
+
+
+def _aviationstack_departure(number: str, scheduled: datetime) -> dict[str, object]:
+    stamp = scheduled.astimezone(timezone.utc).isoformat()
+    return {
+        "flight_date": stamp[:10],
+        "flight_status": "scheduled",
+        "departure": {
+            "iata": "ZRH",
+            "icao": "LSZH",
+            "scheduled": stamp,
+            "estimated": stamp,
+            "actual": None,
+            "gate": "A1",
+            "terminal": "1",
+        },
+        "arrival": {
+            "iata": "LHR",
+            "icao": "EGLL",
+            "scheduled": stamp,
+            "estimated": stamp,
+            "actual": None,
+            "gate": None,
+            "terminal": None,
+        },
+        "airline": {"name": "Swiss", "iata": "LX", "icao": "SWR"},
+        "flight": {"number": number, "iata": f"LX{number}", "icao": f"SWR{number}"},
+        "aircraft": {"icao": "A320", "iata": "320"},
     }
 
 
@@ -407,6 +437,81 @@ def test_shared_schedule_route_coalesces_repeated_accesses_and_counts_upstream_s
     assert int(snapshot_row["refresh_count"] or 0) == 1
     assert int(snapshot_row["cache_hits"] or 0) == 19
     assert int(snapshot_row["upstream_pulls"] or 0) == 8
+
+
+def test_shared_schedule_upstream_fetch_adds_adaptive_pages_for_busy_departures(monkeypatch) -> None:
+    monkeypatch.setattr(relay_main, "_aviationstack_key", lambda: "relay-key-123")
+    start = datetime(2026, 5, 1, 0, 0, tzinfo=timezone.utc)
+    captured: list[dict[str, object]] = []
+
+    def fake_get(url, *, params, headers, timeout):
+        captured.append(dict(params))
+        limit = int(params.get("limit", 100) or 100)
+        offset = int(params.get("offset", 0) or 0)
+        if params.get("dep_iata") == "ZRH" and params.get("flight_date") == "2026-05-01" and offset < 500:
+            rows = [
+                _aviationstack_departure(
+                    str(1000 + offset + idx),
+                    start + timedelta(minutes=offset + idx),
+                )
+                for idx in range(limit)
+            ]
+        else:
+            rows = []
+        return types.SimpleNamespace(status_code=200, json=lambda: {"data": rows})
+
+    monkeypatch.setattr(relay_main._req, "get", fake_get)
+
+    payload = relay_main._fetch_shared_schedule_from_upstream(
+        airport_iata="ZRH",
+        timezone_name="UTC",
+        display_grace_minutes=30,
+        display_horizon_hours=2,
+    )
+
+    meta = payload["meta"]
+
+    assert meta["adaptive_extra_pages"] >= 1
+    assert meta["pages_by_scope"]["departures:2026-05-01"] >= 5
+    assert meta["pages_by_scope"]["arrivals:2026-05-01"] == 1
+    assert len(payload["records"]) == 500
+    assert any(
+        params.get("dep_iata") == "ZRH" and int(params.get("offset", 0) or 0) == 400
+        for params in captured
+    )
+
+
+def test_shared_schedule_upstream_fetch_falls_back_to_undated_when_date_scope_is_empty_on_board(monkeypatch) -> None:
+    monkeypatch.setattr(relay_main, "_aviationstack_key", lambda: "relay-key-123")
+    early = _aviationstack_departure("100", datetime(2026, 5, 1, 5, 0, tzinfo=timezone.utc))
+    rescue = _aviationstack_departure("200", datetime(2026, 5, 1, 15, 0, tzinfo=timezone.utc))
+
+    def fake_get(url, *, params, headers, timeout):
+        flight_date = params.get("flight_date")
+        offset = int(params.get("offset", 0) or 0)
+        if params.get("dep_iata") == "ZRH" and flight_date == "2026-05-01" and offset == 0:
+            rows = [early]
+        elif params.get("dep_iata") == "ZRH" and flight_date is None and offset == 0:
+            rows = [early, rescue]
+        else:
+            rows = []
+        return types.SimpleNamespace(status_code=200, json=lambda: {"data": rows})
+
+    monkeypatch.setattr(relay_main._req, "get", fake_get)
+
+    payload = relay_main._fetch_shared_schedule_from_upstream(
+        airport_iata="ZRH",
+        timezone_name="UTC",
+        display_grace_minutes=30,
+        display_horizon_hours=12,
+    )
+
+    meta = payload["meta"]
+    scheduled_values = {record["scheduled"] for record in payload["records"] if record.get("direction") == "DEP"}
+
+    assert meta["undated_fallback_used"] is True
+    assert "departures:undated" in meta["pages_by_scope"]
+    assert rescue["departure"]["scheduled"] in scheduled_values
 
 
 def test_shared_schedule_cache_key_changes_with_window_settings(tmp_path: Path, monkeypatch) -> None:

@@ -98,10 +98,17 @@ def build_fids_context(
     refresh_seconds: int,
     flights: list[Flight],
     last_refreshed: datetime | None = None,
+    reference_now: datetime | None = None,
     source_status: str = "OK",
 ) -> dict[str, Any]:
     tz = _resolve_tz(cfg)
-    now = datetime.now(tz)
+    if reference_now is None:
+        now = datetime.now(tz)
+    else:
+        now = reference_now
+        if now.tzinfo is None:
+            now = now.replace(tzinfo=timezone.utc)
+        now = now.astimezone(tz)
 
     view_str   = "departures" if str(view).lower() == "departures" else "arrivals"
     view_typed = cast(FidsView, view_str)
