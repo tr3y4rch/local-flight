@@ -9,7 +9,7 @@ import type {
 export type Screen = "fids" | "radar" | "history" | "matrix" | "admin" | "settings";
 export type StatusTone = "scheduled" | "departed" | "boarding" | "delayed" | "cancelled";
 export type HistoryWindow = 24 | 72 | 168;
-export type RadarRadius = 20 | 40 | 80;
+export type RadarRadius = 10 | 20 | 40 | 80;
 export type FeedbackTone = "ok" | "error";
 
 export type MatrixPreset = {

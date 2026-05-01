@@ -379,7 +379,7 @@ npm run ios
 - macOS packaging is confirmed on this workspace: `python build.py --clean` produced `dist/LocalFlight.app`, `dist/LocalFlight-macos.zip`, and `dist/LocalFlight-macos.zip.sha256`, and the packaged app includes bundled README/privacy/changelog files plus the local doc viewer template.
 - Mobile companion is now mid-`0.2.5-b2` pass on this workspace: independent mobile appearance, server-backed Matrix runtime editor, landscape split display, responsive radar, and pinch zoom are implemented in code.
 - Mobile structure refactor is complete enough for handoff: `App.tsx` is a provider entrypoint, `src/app/AppShell.tsx` coordinates state/refresh, pure helpers live in `src/domain/`, stateful behavior in `src/hooks/`, and screens/sheets in `src/screens/AppScreens.tsx`.
-- Mobile validation: `npm run typecheck` passes; `npm run doctor` is 17/18 after adding `expo-font` and updating Expo to `~55.0.18`. Remaining doctor failure is environment-only: Expo SDK 55 reports Xcode `16.3.0` incompatible and requires Xcode `>=26.0.0`.
+- Mobile validation: `npm run typecheck` passes; `npm run doctor` is 17/18 after adding `expo-font` and updating Expo to `~55.0.19`. Remaining doctor failure is environment-only: Expo SDK 55 reports Xcode `16.3.0` incompatible and requires Xcode `>=26.0.0`.
 - Mobile resume on Mac/Xcode: resolve the Xcode/Expo SDK compatibility issue first, then run `npm run doctor` and `npm run ios`. Expo Go may reject SDK 55 depending on installed Expo Go; simulator/dev build is the safer path.
 - Verification currently green on Windows side: `python -m pip install -e .`, `python -m py_compile build.py`, `python build.py --clean`, `python -m compileall -q src relay`, `pytest tests` (`34 passed`), plus installer shell syntax checks.
 

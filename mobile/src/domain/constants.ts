@@ -6,7 +6,7 @@ export const APP_VERSION = appVersion();
 export const COMPANION_PING_MS = 10 * 60 * 1000;
 
 export const HISTORY_WINDOWS: HistoryWindow[] = [24, 72, 168];
-export const RADAR_RADII: RadarRadius[] = [20, 40, 80];
+export const RADAR_RADII: RadarRadius[] = [10, 20, 40, 80];
 
 export const MATRIX_PRESETS: MatrixPreset[] = [
   { label: "64x32", panelW: 64, panelH: 32, modules: "1 module" },

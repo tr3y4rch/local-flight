@@ -13,14 +13,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Mobile Settings **Appearance** controls with theme toggle, skin chips, and a live preview strip. Mobile appearance stays local to the device and does not sync with desktop/server skin.
 - Mobile support for the existing `/api/matrix/config` runtime contract. The Matrix screen now loads server config, edits a local draft, saves explicitly, and can reset unsaved edits back to the server state.
 - Mobile landscape display mode for FIDS and Radar. Rotating while on either screen opens a side-by-side display, with FIDS-primary or Radar-primary focus preserved.
-- Responsive mobile radar scope with pinch-to-zoom range changes that snap across the existing 20 / 40 / 80 NM ranges, plus compact fallback range chips.
+- Responsive mobile radar scope with pinch-to-zoom range changes that snap across the desktop-aligned 10 / 20 / 40 / 80 NM ranges, plus compact fallback range chips.
 
 ### Changed
 - Mobile Matrix tooling is now split into **Board Runtime** controls for server-backed settings and **Panel Preview** controls for local Interstate 75 W / HUB75 sizing.
 - Matrix board preview keeps the mobile app chrome on the selected mobile appearance while rendering simulated LED colors from the server-returned matrix skin.
 - Mobile Expo config now allows automatic system appearance instead of forcing dark mode, while the app drives its own StatusBar styling from the selected mobile theme.
 - Mobile app internals were refactored from a single large `App.tsx` into a provider entrypoint, `AppShell`, domain helpers, state hooks, extracted chrome components, and screen/sheet modules.
-- Expo mobile dependency alignment updated for SDK 55: `expo` now targets `~55.0.18` and `expo-font` is installed for `@expo/vector-icons`.
+- Mobile About links now open README, Privacy, and Changelog through the connected desktop app's `/docs/...` viewer when available, with GitHub fallback when offline.
+- Expo mobile dependency alignment updated for SDK 55: `expo` now targets `~55.0.19` and `expo-font` is installed for `@expo/vector-icons`.
 
 ### Notes
 - This is a preliminary `0.2.5b2` changelog entry for the active mobile companion sprint. Repo-wide version metadata remains on `0.2.5b1` until the later version sweep.

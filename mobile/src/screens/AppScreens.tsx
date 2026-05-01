@@ -15,7 +15,7 @@ import {
 } from "react-native";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 
-import { patchConfig, searchAirports } from "../api/client";
+import { normalizeServerUrl, patchConfig, searchAirports } from "../api/client";
 import type {
   AppConfig,
   AirportResult,
@@ -1696,6 +1696,12 @@ export function SettingsScreen({
   onChangeUrl: (value: string) => void;
   onConnect: () => void;
 }) {
+  const openDoc = (slug: "readme" | "privacy" | "changelog", fallbackUrl: string) => {
+    const base = normalizeServerUrl(serverUrl);
+    const url = base ? `${base}/docs/${slug}` : fallbackUrl;
+    void Linking.openURL(url);
+  };
+
   return (
     <View style={styles.cardStack}>
       <View style={styles.settingsCard}>
@@ -1793,10 +1799,16 @@ export function SettingsScreen({
           The only data that leaves your machine without your action is an automatic crash report if the server encounters an unhandled error. It contains the version, OS, airport code, and a traceback — no API keys, no IP address, no personal information.
         </Text>
         <SettingsToolPill
+          icon="book-open-variant"
+          label="Local docs"
+          value={serverUrl ? "Open README from the connected Local Flight app" : "README on GitHub"}
+          onPress={() => openDoc("readme", "https://github.com/tr3y4rch/local-flight/blob/main/README.md")}
+        />
+        <SettingsToolPill
           icon="shield-lock-outline"
           label="Privacy"
           value="What stays local and what the crash reporter sends"
-          onPress={() => void Linking.openURL("https://github.com/tr3y4rch/local-flight/blob/main/PRIVACY.md")}
+          onPress={() => openDoc("privacy", "https://github.com/tr3y4rch/local-flight/blob/main/PRIVACY.md")}
         />
         <SettingsToolPill
           icon="github"
@@ -1808,7 +1820,7 @@ export function SettingsScreen({
           icon="format-list-bulleted"
           label="Changelog"
           value="Release history and version notes"
-          onPress={() => void Linking.openURL("https://github.com/tr3y4rch/local-flight/blob/main/CHANGELOG.md")}
+          onPress={() => openDoc("changelog", "https://github.com/tr3y4rch/local-flight/blob/main/CHANGELOG.md")}
         />
       </View>
 

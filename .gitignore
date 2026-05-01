@@ -17,6 +17,7 @@ venv/
 config/
 data/
 .pytest_cache/
+.smoke-home/
 
 # Setup marker
 setup_complete
