@@ -56,6 +56,19 @@ export function LaunchOverlay({
         <Text style={styles.launchEyebrow}>LOCAL FLIGHT</Text>
         <Text style={styles.launchTitle}>COMPANION</Text>
         <Text style={styles.launchVersion}>v{APP_VERSION}</Text>
+        <View style={styles.launchBoard}>
+          {["ZRH  LX  READY", "MUC  LH  SYNC", "RADAR  SWEEP"].map((line, index) => (
+            <View key={line} style={styles.launchBoardRow}>
+              <Text style={styles.launchBoardTime}>{index === 0 ? "UTC" : index === 1 ? "LAN" : "NM"}</Text>
+              <Text style={styles.launchBoardText}>{line}</Text>
+            </View>
+          ))}
+        </View>
+        <View style={styles.launchRunway}>
+          <View style={styles.launchRunwayLine} />
+          <View style={styles.launchRunwayDash} />
+          <View style={styles.launchRunwayLine} />
+        </View>
         <View style={styles.launchStatusRow}>
           <Text style={styles.launchStatus}>{status}</Text>
         </View>

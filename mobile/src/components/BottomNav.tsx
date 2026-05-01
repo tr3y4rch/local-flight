@@ -19,14 +19,16 @@ export function BottomNav({ active, onChange, insetBottom, palette, styles }: Bo
   const items: Array<{ id: Screen; icon: MaterialIconName; label: string }> = [
     { id: "fids", icon: "airplane-takeoff", label: "FIDS" },
     { id: "radar", icon: "radar", label: "RADAR" },
-    { id: "history", icon: "history", label: "HISTORY" },
     { id: "settings", icon: "cog-outline", label: "SETTINGS" }
   ];
 
   return (
     <View style={[styles.bottomNav, { paddingBottom: Math.max(insetBottom, 10) }]}>
       {items.map((item) => {
-        const selected = active === item.id || ((active === "matrix" || active === "admin") && item.id === "settings");
+        const selected =
+          active === item.id ||
+          ((active === "matrix" || active === "admin" || active === "history" || active === "docs") &&
+            item.id === "settings");
         return (
           <Pressable key={item.id} style={styles.navItem} onPress={() => onChange(item.id)}>
             <View style={[styles.navIcon, selected && styles.navIconActive]}>

@@ -439,12 +439,34 @@ def api_fids_detail(callsign: str = Query(..., min_length=1, max_length=20)) -> 
     from localflight.storage.history import query_flight_history
 
     cfg = load_config()
-    flights, _ = _load_latest_flights(cfg.airport_iata)
+    flights, generated_at = _load_latest_flights(cfg.airport_iata)
     flight = next((f for f in flights if (f.callsign or "").upper() == callsign.upper()), None)
+
+    def _iso(value: Optional[datetime]) -> Optional[str]:
+        return value.isoformat() if value else None
+
+    def _age_seconds(value: Optional[datetime]) -> Optional[int]:
+        if not value:
+            return None
+        now = datetime.now(timezone.utc)
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        return max(0, int((now - value).total_seconds()))
+
+    def _source_confidence() -> str:
+        if not flight:
+            return "missing"
+        if flight.position and flight.enriched_by:
+            return "live_position_matched"
+        if flight.position:
+            return "position_from_snapshot"
+        return "schedule_only"
 
     detail: Dict[str, Any] = {}
     if flight:
         pos = flight.position
+        snapshot_age = _age_seconds(generated_at)
+        position_age = _age_seconds(pos.last_contact if pos else None)
         detail = {
             "callsign":      flight.callsign,
             "flight_number": flight.flight_number,
@@ -465,14 +487,29 @@ def api_fids_detail(callsign: str = Query(..., min_length=1, max_length=20)) -> 
             "status":        flight.status.value,
             "source":        flight.source,
             "enriched_by":   flight.enriched_by,
+            "updated_at":    _iso(flight.updated_at),
+            "data_sources": {
+                "schedule":              flight.source,
+                "enrichment":            flight.enriched_by,
+                "confidence":            _source_confidence(),
+                "snapshot_generated_at": _iso(generated_at),
+                "snapshot_age_seconds":  snapshot_age,
+                "position_last_contact": _iso(pos.last_contact if pos else None),
+                "position_age_seconds":  position_age,
+            },
             "position": {
-                "lat":           pos.lat,
-                "lon":           pos.lon,
-                "altitude_m":    pos.altitude_baro,
-                "speed_ms":      pos.speed_ms,
-                "heading":       pos.heading,
-                "on_ground":     pos.on_ground,
-                "vertical_rate": pos.vertical_rate,
+                "lat":             pos.lat,
+                "lon":             pos.lon,
+                "altitude_m":      pos.altitude_baro,
+                "altitude_baro_m": pos.altitude_baro,
+                "altitude_geo_m":  pos.altitude_geo,
+                "speed_ms":        pos.speed_ms,
+                "heading":         pos.heading,
+                "on_ground":       pos.on_ground,
+                "vertical_rate":   pos.vertical_rate,
+                "icao24":          pos.icao24,
+                "squawk":          pos.squawk,
+                "last_contact":    _iso(pos.last_contact),
             } if pos else None,
         }
 

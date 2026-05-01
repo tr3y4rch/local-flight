@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  Animated,
   Linking,
   RefreshControl,
   ScrollView,
@@ -12,7 +13,7 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 
 import { BottomNav } from "../components/BottomNav";
 import { LaunchOverlay } from "../components/LaunchOverlay";
-import { AdminScreen, AirportConfigSheet, ConnectPrompt, FidsScreen, FlightActionSheet, FlightDetailSheet, Header, HistoryScreen, LandscapeDisplay, MatrixScreen, RadarScreen, ScreenError, SettingsScreen } from "../screens/AppScreens";
+import { AdminScreen, AirportConfigSheet, ConnectPrompt, DocsScreen, FidsScreen, FlightActionSheet, FlightDetailSheet, Header, HistoryScreen, LandscapeDisplay, MatrixScreen, RadarScreen, ScreenError, SettingsScreen, type DocSlug } from "../screens/AppScreens";
 import {
   getAdminSystem,
   getBudget,
@@ -119,12 +120,15 @@ export function AppShell() {
   const [autoReportMessage, setAutoReportMessage] = useState<string | null>(null);
   const [matrixPreset, setMatrixPreset] = useState<MatrixPreset>(MATRIX_PRESETS[4]!);
   const [pinnedCallsign, setPinnedCallsign] = useState("");
+  const [docsSlug, setDocsSlug] = useState<DocSlug>("readme");
   const [actionRow, setActionRow] = useState<FidsRow | null>(null);
   const [configSheetVisible, setConfigSheetVisible] = useState(false);
   const [profiles, setProfiles] = useState<ConfigProfile[]>([]);
   const [companionIdentity, setCompanionIdentity] = useState<CompanionIdentity | null>(null);
 
   const socketRef = useRef<WebSocket | null>(null);
+  const screenOpacity = useRef(new Animated.Value(1)).current;
+  const screenLift = useRef(new Animated.Value(0)).current;
   const flightDetail = useFlightDetail(serverUrl, setError);
   const matrix = useMatrixCompanion(serverUrl);
   const {
@@ -170,6 +174,25 @@ export function AppShell() {
     }, 1000);
     return () => clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    screenOpacity.setValue(0);
+    screenLift.setValue(10);
+    Animated.parallel([
+      Animated.timing(screenOpacity, {
+        toValue: 1,
+        duration: 180,
+        useNativeDriver: true
+      }),
+      Animated.spring(screenLift, {
+        toValue: 0,
+        damping: 18,
+        stiffness: 190,
+        mass: 0.8,
+        useNativeDriver: true
+      })
+    ]).start();
+  }, [screen, docsSlug, screenLift, screenOpacity]);
 
   const onLaunchHydrated = useCallback(
     ({ savedUrl, savedPin, savedProfiles, identity }: LaunchHydration) => {
@@ -409,6 +432,11 @@ export function AppShell() {
     [pinnedCallsign]
   );
 
+  const openDoc = useCallback((slug: DocSlug) => {
+    setDocsSlug(slug);
+    setScreen("docs");
+  }, []);
+
   useEffect(() => {
     if (!serverUrl) return;
     void refreshScreen({ target: screen });
@@ -556,12 +584,22 @@ export function AppShell() {
           rowCount={rows.length}
           view={view}
           pinnedRow={islandRow}
+          islandPinned={Boolean(islandRow && flightPinKey(islandRow) === pinnedCallsign)}
           onOpenDetail={openFlightDetail}
           onOpenActions={setActionRow}
+          onTogglePin={togglePinnedFlight}
           onOpenConfig={() => setConfigSheetVisible(true)}
         />
 
-        <View style={styles.mainArea}>
+        <Animated.View
+          style={[
+            styles.mainArea,
+            {
+              opacity: screenOpacity,
+              transform: [{ translateY: screenLift }]
+            }
+          ]}
+        >
           {showLandscapeDisplay ? (
             <LandscapeDisplay
               primary={screen}
@@ -670,6 +708,14 @@ export function AppShell() {
             />
           ) : null}
 
+          {screen === "docs" ? (
+            <DocsScreen
+              slug={docsSlug}
+              onBackSettings={() => setScreen("settings")}
+              contentPaddingBottom={screenContentPadding}
+            />
+          ) : null}
+
           {screen === "admin" || screen === "settings" ? (
             <ScrollView
               style={styles.screenScroll}
@@ -726,8 +772,10 @@ export function AppShell() {
                   schedulerMessage={schedulerMessage}
                   onThemeModeChange={setThemeMode}
                   onSkinChange={setSkin}
+                  onOpenHistory={() => setScreen("history")}
                   onOpenAdmin={() => setScreen("admin")}
                   onOpenMatrix={() => setScreen("matrix")}
+                  onOpenDoc={openDoc}
                   onOpenCoffee={() => void Linking.openURL("https://buymeacoffee.com/localflight")}
                   onRestartScheduler={restartSchedulerNow}
                   onChangeUrl={setDraftUrl}
@@ -736,7 +784,7 @@ export function AppShell() {
               ) : null}
             </ScrollView>
           ) : null}
-        </View>
+        </Animated.View>
 
         <BottomNav
           active={screen}
@@ -778,7 +826,8 @@ export function AppShell() {
         onApplied={(newConfig) => {
           setSnapshot((prev) => ({ ...prev, config: newConfig }));
           setConfigSheetVisible(false);
-          void refreshScreen({ target: screen });
+          setSchedulerMessage("Server config saved. Asking the Pi for a fresh fetch...");
+          void restartSchedulerNow();
         }}
         onProfilesChange={setProfiles}
       />
@@ -873,7 +922,7 @@ function createStyles() {
     borderRadius: 28,
     borderWidth: 1,
     borderColor: accent16,
-    backgroundColor: "rgba(7,12,18,0.88)",
+    backgroundColor: palette.rowAlt,
     alignItems: "center"
   },
   launchMarkWrap: {
@@ -931,9 +980,58 @@ function createStyles() {
     fontWeight: "700",
     letterSpacing: 1
   },
-  launchStatusRow: {
+  launchBoard: {
     width: "100%",
     marginTop: 18,
+    padding: 10,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: accent14,
+    backgroundColor: palette.row
+  },
+  launchBoardRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingVertical: 4
+  },
+  launchBoardTime: {
+    width: 34,
+    fontFamily: mono,
+    color: palette.green,
+    fontSize: 10,
+    fontWeight: "800",
+    letterSpacing: 1
+  },
+  launchBoardText: {
+    flex: 1,
+    fontFamily: mono,
+    color: palette.text,
+    fontSize: 10,
+    fontWeight: "700",
+    letterSpacing: 1
+  },
+  launchRunway: {
+    width: "100%",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 14
+  },
+  launchRunwayLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: accent18
+  },
+  launchRunwayDash: {
+    width: 42,
+    height: 3,
+    borderRadius: 999,
+    backgroundColor: palette.amber
+  },
+  launchStatusRow: {
+    width: "100%",
+    marginTop: 16,
     alignItems: "center"
   },
   launchStatus: {
@@ -970,14 +1068,28 @@ function createStyles() {
   },
   islandShell: {
     alignSelf: "center",
+    width: "100%",
+    maxWidth: 368,
+    minHeight: 52,
     marginBottom: 14,
     borderRadius: 22,
     borderWidth: 1,
-    borderColor: accent16,
-    backgroundColor: "rgba(0,0,0,0.58)",
-    overflow: "hidden"
+    borderColor: palette.lineSoft,
+    backgroundColor: palette.rowAlt,
+    overflow: "hidden",
+    flexDirection: "row",
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOpacity: 0.12,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 8 }
+  },
+  islandShellActive: {
+    borderColor: accent30,
+    backgroundColor: palette.row
   },
   islandPressable: {
+    flex: 1,
     paddingHorizontal: 14,
     paddingTop: 9,
     paddingBottom: 8
@@ -1019,6 +1131,28 @@ function createStyles() {
     fontSize: 10,
     fontWeight: "700",
     letterSpacing: 0.8
+  },
+  islandActionHint: {
+    fontFamily: mono,
+    color: palette.textDim,
+    fontSize: 8,
+    fontWeight: "800",
+    letterSpacing: 0.9
+  },
+  islandPinButton: {
+    width: 38,
+    height: 38,
+    marginRight: 8,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: accent14,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: accent06
+  },
+  islandPinButtonActive: {
+    borderColor: warn38,
+    backgroundColor: warn08
   },
   islandExpanded: {
     overflow: "hidden"
@@ -1265,6 +1399,7 @@ function createStyles() {
     flex: 1
   },
   screenContent: {
+    flexGrow: 1,
     paddingTop: 12,
     paddingBottom: 20
   },
@@ -1715,6 +1850,12 @@ function createStyles() {
     letterSpacing: 1.2,
     marginBottom: 10
   },
+  settingsSectionGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginTop: 14
+  },
   moduleIntro: {
     color: palette.textMuted,
     fontSize: 12,
@@ -1910,6 +2051,72 @@ function createStyles() {
     fontSize: 12,
     lineHeight: 18
   },
+  docsCard: {
+    marginHorizontal: 12,
+    padding: 16,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: accent14,
+    backgroundColor: palette.row
+  },
+  docTitle: {
+    marginBottom: 12,
+    color: palette.text,
+    fontSize: 24,
+    fontWeight: "900",
+    letterSpacing: 0.3
+  },
+  docHeading: {
+    marginTop: 16,
+    marginBottom: 8,
+    fontFamily: mono,
+    color: palette.blue,
+    fontSize: 14,
+    fontWeight: "800",
+    letterSpacing: 0.8
+  },
+  docSubheading: {
+    marginTop: 12,
+    marginBottom: 6,
+    color: palette.text,
+    fontSize: 13,
+    fontWeight: "800"
+  },
+  docBody: {
+    color: palette.textMuted,
+    fontSize: 13,
+    lineHeight: 20
+  },
+  docBulletRow: {
+    flexDirection: "row",
+    gap: 8,
+    marginVertical: 3
+  },
+  docBulletMark: {
+    width: 12,
+    color: palette.green,
+    fontFamily: mono,
+    fontSize: 12,
+    fontWeight: "800",
+    lineHeight: 20
+  },
+  docCodeBlock: {
+    marginVertical: 8,
+    padding: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: accent14,
+    backgroundColor: "rgba(0,0,0,0.20)"
+  },
+  docCodeText: {
+    fontFamily: mono,
+    color: palette.text,
+    fontSize: 11,
+    lineHeight: 17
+  },
+  docSpacer: {
+    height: 8
+  },
   feedbackInput: {
     minHeight: 108,
     paddingTop: 12,
@@ -2045,8 +2252,8 @@ function createStyles() {
     paddingTop: 10,
     paddingHorizontal: 12,
     borderTopWidth: 1,
-    borderTopColor: "rgba(255,255,255,0.06)",
-    backgroundColor: "rgba(9,14,22,0.97)"
+    borderTopColor: palette.lineSoft,
+    backgroundColor: palette.header
   },
   navItem: {
     alignItems: "center",
@@ -2547,11 +2754,14 @@ function createStyles() {
     flex: 1,
     flexDirection: "row",
     gap: 8,
-    paddingHorizontal: 8
+    paddingHorizontal: 8,
+    minHeight: 0
   },
   splitPane: {
     flex: 1,
-    minWidth: 0
+    minWidth: 0,
+    minHeight: 0,
+    overflow: "hidden"
   },
   splitPanePrimary: {
     flex: 1.12

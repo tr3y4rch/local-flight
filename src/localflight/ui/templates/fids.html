@@ -253,7 +253,7 @@
   }
   .fd-panel {
     position: fixed; top: 0; right: 0; bottom: 0;
-    width: 340px; max-width: 100vw; z-index: 101;
+    width: 420px; max-width: 100vw; z-index: 101;
     background: var(--card-bg, #13161c);
     border-left: 1px solid rgba(255,255,255,0.08);
     display: flex; flex-direction: column;
@@ -303,6 +303,30 @@
   .fd-lbl { opacity: 0.4; min-width: 72px; font-size: 0.72rem; flex-shrink: 0; }
   .fd-val { font-weight: 600; font-family: ui-monospace, monospace; }
   .fd-val-text { font-weight: 500; }
+  .fd-val-dim { opacity: 0.38; }
+
+  .fd-source-grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+  }
+  .fd-source-card {
+    padding: 9px 10px; border-radius: 9px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.06);
+  }
+  [data-theme="light"] .fd-source-card {
+    background: rgba(0,0,0,0.03);
+    border-color: rgba(0,0,0,0.06);
+  }
+  .fd-source-label {
+    font-size: 0.56rem; font-weight: 800; letter-spacing: 0.12em;
+    text-transform: uppercase; opacity: 0.35;
+  }
+  .fd-source-value {
+    margin-top: 4px; font-family: ui-monospace, monospace;
+    font-size: 0.76rem; font-weight: 800; overflow: hidden; text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .fd-source-sub { margin-top: 3px; font-size: 0.66rem; opacity: 0.45; }
 
   .fd-times-grid {
     display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px;
@@ -463,13 +487,18 @@
       <div class="fd-section">
         <div class="fd-section-label">Times (UTC)</div>
         <div class="fd-times-grid" id="fdTimes"></div>
+        <div id="fdDelay"></div>
       </div>
       <div class="fd-section">
-        <div class="fd-section-label">Operations</div>
+        <div class="fd-section-label">Operations & Aircraft</div>
         <div id="fdOps"></div>
       </div>
+      <div class="fd-section" id="fdDataSection">
+        <div class="fd-section-label">Data Sources</div>
+        <div id="fdData"></div>
+      </div>
       <div class="fd-section" id="fdPosSection" style="display:none">
-        <div class="fd-section-label">Position</div>
+        <div class="fd-section-label">Live Track</div>
         <div id="fdPos"></div>
       </div>
       <div class="fd-section">
@@ -605,6 +634,37 @@ async function refreshFIDS() {
     return `<span class="lf-shimmer fd-shimmer-line" style="display:block;width:${w}">&nbsp;</span>`;
   }
 
+  function esc(v) {
+    return String(v ?? "—").replace(/[&<>"']/g, c => ({
+      "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;"
+    }[c]));
+  }
+
+  function sourceLabel(v) {
+    if (!v) return "—";
+    return String(v).replace(/_/g, " ").toUpperCase();
+  }
+
+  function ageLabel(seconds) {
+    if (typeof seconds !== "number") return "age unknown";
+    if (seconds < 90) return `${seconds}s ago`;
+    const mins = Math.round(seconds / 60);
+    if (mins < 90) return `${mins}m ago`;
+    const hours = Math.round(mins / 60);
+    return `${hours}h ago`;
+  }
+
+  function coordLabel(lat, lon) {
+    if (lat == null || lon == null) return "—";
+    return `${Number(lat).toFixed(4)}, ${Number(lon).toFixed(4)}`;
+  }
+
+  function rowHtml(label, value, cls = "") {
+    const empty = value == null || value === "";
+    return `<div class="fd-row"><span class="fd-lbl">${esc(label)}</span>` +
+      `<span class="fd-val ${empty ? "fd-val-dim" : ""} ${cls}">${esc(empty ? "—" : value)}</span></div>`;
+  }
+
   function renderDetail({ detail, history }) {
     const d = detail || {};
 
@@ -627,7 +687,7 @@ async function refreshFIDS() {
     };
     const statusLabel = statusMap[d.status?.toLowerCase()] || (d.status || "SCHEDULED");
     document.getElementById("fdStatus").innerHTML =
-      `<span class="fids-badge badge-${sc}"><span class="fids-bdot"></span>${statusLabel}</span>`;
+      `<span class="fids-badge badge-${esc(sc)}"><span class="fids-bdot"></span>${esc(statusLabel)}</span>`;
 
     // Times
     const timesEl = document.getElementById("fdTimes");
@@ -649,12 +709,14 @@ async function refreshFIDS() {
       </div>`;
 
     // Delay callout under times
+    const delayEl = document.getElementById("fdDelay");
     if (typeof d.delay_minutes === "number" && Math.abs(d.delay_minutes) >= 5) {
       const sign = d.delay_minutes > 0 ? "+" : "";
       const cls  = d.delay_minutes >= 15 ? "fd-delay-bad" : "fd-delay-warn";
-      timesEl.insertAdjacentHTML("afterend",
-        `<div class="fd-row" style="margin-top:6px"><span class="fd-lbl">Delay</span>` +
-        `<span class="fd-val ${cls}">${sign}${d.delay_minutes} min</span></div>`);
+      delayEl.innerHTML = `<div class="fd-row" style="margin-top:6px"><span class="fd-lbl">Delay</span>` +
+        `<span class="fd-val ${cls}">${esc(sign + d.delay_minutes + " min")}</span></div>`;
+    } else {
+      delayEl.innerHTML = "";
     }
 
     // Operations
@@ -663,11 +725,27 @@ async function refreshFIDS() {
       ["Gate",     d.gate     || "—"],
       ["Terminal", d.terminal || "—"],
       ["Aircraft", d.aircraft_type || "—"],
-      ["Source",   d.source   || "—"],
+      ["Callsign", d.callsign || "—"],
+      ["Airline",  d.airline_iata || d.airline || "—"],
     ];
-    opsEl.innerHTML = rows.map(([lbl, val]) =>
-      `<div class="fd-row"><span class="fd-lbl">${lbl}</span><span class="fd-val">${val}</span></div>`
-    ).join("");
+    opsEl.innerHTML = rows.map(([lbl, val]) => rowHtml(lbl, val)).join("");
+
+    // Data source coverage
+    const data = d.data_sources || {};
+    const dataEl = document.getElementById("fdData");
+    const confidence = sourceLabel(data.confidence || (d.position ? "position_from_snapshot" : "schedule_only"));
+    dataEl.innerHTML = `<div class="fd-source-grid">
+      <div class="fd-source-card">
+        <div class="fd-source-label">Schedule</div>
+        <div class="fd-source-value">${esc(sourceLabel(data.schedule || d.source))}</div>
+        <div class="fd-source-sub">snapshot ${esc(ageLabel(data.snapshot_age_seconds))}</div>
+      </div>
+      <div class="fd-source-card">
+        <div class="fd-source-label">Live track</div>
+        <div class="fd-source-value">${esc(sourceLabel(data.enrichment || d.enriched_by))}</div>
+        <div class="fd-source-sub">${esc(confidence)}</div>
+      </div>
+    </div>`;
 
     // Position
     const posSection = document.getElementById("fdPosSection");
@@ -675,21 +753,28 @@ async function refreshFIDS() {
     const pos = d.position;
     if (pos && pos.lat != null) {
       posSection.style.display = "";
-      const altFt  = pos.altitude_m  != null ? Math.round(pos.altitude_m * 3.28084).toLocaleString() + " ft" : "—";
-      const spdKt  = pos.speed_ms    != null ? Math.round(pos.speed_ms * 1.944) + " kt" : "—";
-      const hdg    = pos.heading     != null ? Math.round(pos.heading) + "°" : "—";
-      const vr     = pos.vertical_rate != null ? (pos.vertical_rate >= 0 ? "+" : "") + Math.round(pos.vertical_rate * 196.85) + " fpm" : null;
-      const ground = pos.on_ground ? "On ground" : null;
+      const altSource = pos.altitude_geo_m != null ? "geo" : "baro";
+      const altitudeM = pos.altitude_geo_m ?? pos.altitude_baro_m ?? pos.altitude_m;
+      const altFt  = altitudeM != null ? `${Math.round(altitudeM * 3.28084).toLocaleString()} ft ${altSource}` : "—";
+      const spdKt  = pos.speed_ms != null ? `${Math.round(pos.speed_ms * 1.944)} kt` : "—";
+      const hdg    = pos.heading != null ? `${Math.round(pos.heading)}°` : "—";
+      const vr     = pos.vertical_rate != null ? `${pos.vertical_rate >= 0 ? "+" : ""}${Math.round(pos.vertical_rate * 196.85)} fpm` : "—";
+      const ground = pos.on_ground ? "On ground" : "Airborne";
+      const contact = data.position_age_seconds != null
+        ? ageLabel(data.position_age_seconds)
+        : (pos.last_contact ? "contact recorded" : "—");
       const posRows = [
+        ["Coordinates", coordLabel(pos.lat, pos.lon)],
         ["Altitude", altFt],
         ["Speed",    spdKt],
         ["Heading",  hdg],
+        ["Vert rate", vr],
+        ["Surface",   ground],
+        ["ICAO24",    pos.icao24 || "—"],
+        ["Squawk",    pos.squawk || "—"],
+        ["Contact",   contact],
       ];
-      if (vr)     posRows.push(["Vert rate", vr]);
-      if (ground) posRows.push(["Surface",   ground]);
-      posEl.innerHTML = posRows.map(([lbl, val]) =>
-        `<div class="fd-row"><span class="fd-lbl">${lbl}</span><span class="fd-val">${val}</span></div>`
-      ).join("");
+      posEl.innerHTML = posRows.map(([lbl, val]) => rowHtml(lbl, val)).join("");
     } else {
       posSection.style.display = "none";
     }
@@ -710,9 +795,9 @@ async function refreshFIDS() {
         }
         const gate = h.gate && h.gate !== "-" ? ` · G${h.gate}` : "";
         return `<div class="fd-hist-row">
-          <span class="fd-hist-date">${h.date.slice(5)}</span>
-          <span class="fd-hist-status">${h.status || ""}${gate}</span>
-          <span class="fd-hist-delay ${delayCls}">${delayTxt}</span>
+          <span class="fd-hist-date">${esc(h.date.slice(5))}</span>
+          <span class="fd-hist-status">${esc((h.status || "") + gate)}</span>
+          <span class="fd-hist-delay ${delayCls}">${esc(delayTxt)}</span>
         </div>`;
       }).join("");
     }
@@ -727,7 +812,9 @@ async function refreshFIDS() {
     document.getElementById("fdAirline").textContent   = "";
     document.getElementById("fdStatus").innerHTML  = shimmer("80px");
     document.getElementById("fdTimes").innerHTML   = shimmer("100%");
+    document.getElementById("fdDelay").innerHTML   = "";
     document.getElementById("fdOps").innerHTML     = shimmer("100%");
+    document.getElementById("fdData").innerHTML    = shimmer("100%");
     document.getElementById("fdHistory").innerHTML = shimmer("100%");
     document.getElementById("fdPosSection").style.display = "none";
     show();

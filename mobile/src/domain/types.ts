@@ -6,7 +6,7 @@ import type {
   RadarBlip
 } from "../api/types";
 
-export type Screen = "fids" | "radar" | "history" | "matrix" | "admin" | "settings";
+export type Screen = "fids" | "radar" | "history" | "matrix" | "admin" | "docs" | "settings";
 export type StatusTone = "scheduled" | "departed" | "boarding" | "delayed" | "cancelled";
 export type HistoryWindow = 24 | 72 | 168;
 export type RadarRadius = 10 | 20 | 40 | 80;

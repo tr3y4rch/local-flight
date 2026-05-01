@@ -483,6 +483,74 @@ def test_fids_page_keeps_recent_departures_inside_grace_window(monkeypatch, tmp_
     assert "London Heathrow" in response.text or "LHR" in response.text
 
 
+def test_fids_detail_exposes_live_track_metadata(monkeypatch, tmp_path: Path) -> None:
+    now = datetime.now(timezone.utc)
+    snapshot = tmp_path / "latest.json"
+    snapshot.write_text(
+        json.dumps(
+            {
+                "generated_at": now.isoformat(),
+                "flights": [
+                    {
+                        "direction": "DEP",
+                        "airport": {"iata": "ZRH", "icao": "LSZH"},
+                        "callsign": "SWR10",
+                        "airline": {"name": "Swiss", "iata": "LX", "icao": "SWR"},
+                        "flight_number": "LX10",
+                        "origin": {"iata": "ZRH", "icao": "LSZH", "name": "Zurich"},
+                        "destination": {"iata": "LHR", "icao": "EGLL", "name": "London Heathrow"},
+                        "aircraft_type": "A320",
+                        "gate": "A1",
+                        "terminal": "1",
+                        "stand": None,
+                        "status": "Scheduled",
+                        "times": {
+                            "scheduled": now.isoformat(),
+                            "estimated": None,
+                            "actual": None,
+                        },
+                        "delay_minutes": None,
+                        "position": {
+                            "lat": 47.45,
+                            "lon": 8.56,
+                            "altitude_baro": 3048,
+                            "altitude_geo": 3200,
+                            "heading": 270,
+                            "speed_ms": 120,
+                            "vertical_rate": 5,
+                            "on_ground": False,
+                            "icao24": "4B1800",
+                            "squawk": "7000",
+                            "last_contact": now.isoformat(),
+                        },
+                        "source": "aviationstack",
+                        "enriched_by": "adsbexchange",
+                        "updated_at": now.isoformat(),
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(ui_api, "load_config", lambda: AppConfig(airport_iata="ZRH", airport_icao="LSZH"))
+    monkeypatch.setattr(ui_api, "load_latest_snapshot_path", lambda airport_iata: snapshot)
+    import localflight.storage.history as history
+
+    monkeypatch.setattr(history, "query_flight_history", lambda callsign, days=7: [])
+
+    response = TestClient(app).get("/api/fids/detail?callsign=SWR10")
+
+    assert response.status_code == 200
+    detail = response.json()["detail"]
+    assert detail["position"]["altitude_geo_m"] == 3200
+    assert detail["position"]["icao24"] == "4B1800"
+    assert detail["position"]["squawk"] == "7000"
+    assert detail["data_sources"]["enrichment"] == "adsbexchange"
+    assert detail["data_sources"]["confidence"] == "live_position_matched"
+    assert isinstance(detail["data_sources"]["snapshot_age_seconds"], int)
+
+
 def test_api_radar_reports_refresh_hint_for_adsb_cache(monkeypatch) -> None:
     ui_api._adsbx_radar_cache.clear()
     ui_api._opensky_radar_cache.clear()

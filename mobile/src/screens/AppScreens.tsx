@@ -5,7 +5,6 @@ import {
   FlatList,
   Linking,
   Modal,
-  PanResponder,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -15,7 +14,7 @@ import {
 } from "react-native";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 
-import { normalizeServerUrl, patchConfig, searchAirports } from "../api/client";
+import { patchConfig, searchAirports } from "../api/client";
 import type {
   AppConfig,
   AirportResult,
@@ -74,6 +73,27 @@ import {
 } from "../theme/tokens";
 
 type MaterialIconName = ComponentProps<typeof MaterialCommunityIcons>["name"];
+export type DocSlug = "readme" | "privacy" | "changelog";
+
+const DOC_SOURCES: Record<DocSlug, { title: string; detail: string; url: string }> = {
+  readme: {
+    title: "README",
+    detail: "Project overview, install notes, and operating model",
+    url: "https://raw.githubusercontent.com/tr3y4rch/local-flight/main/README.md"
+  },
+  privacy: {
+    title: "Privacy",
+    detail: "What stays local and what diagnostics can send",
+    url: "https://raw.githubusercontent.com/tr3y4rch/local-flight/main/PRIVACY.md"
+  },
+  changelog: {
+    title: "Changelog",
+    detail: "Release history and beta notes",
+    url: "https://raw.githubusercontent.com/tr3y4rch/local-flight/main/CHANGELOG.md"
+  }
+};
+
+type SettingsSection = "server" | "appearance" | "tools" | "about";
 
 function metarAccentColor(category: string): string {
   switch (category.toUpperCase()) {
@@ -98,8 +118,10 @@ export function Header({
   rowCount,
   view,
   pinnedRow,
+  islandPinned,
   onOpenDetail,
   onOpenActions,
+  onTogglePin,
   onOpenConfig,
 }: {
   airportCode: string;
@@ -114,8 +136,10 @@ export function Header({
   rowCount: number;
   view: FlightView;
   pinnedRow: FidsRow | null;
+  islandPinned: boolean;
   onOpenDetail: (callsign: string) => void;
   onOpenActions: (row: FidsRow) => void;
+  onTogglePin: (row: FidsRow) => void;
   onOpenConfig: () => void;
 }) {
   const accent = metarAccentColor(metarCategory);
@@ -187,10 +211,12 @@ export function Header({
       {/* Flight Island */}
       <FlightIsland
         row={pinnedRow}
+        isPinned={islandPinned}
         live={live}
         utcTime={utcTime}
         onOpenDetail={onOpenDetail}
         onOpenActions={onOpenActions}
+        onTogglePin={onTogglePin}
       />
 
       {/* METAR strip — decoded chips when parseable, raw text fallback */}
@@ -218,84 +244,23 @@ export function Header({
 
 function FlightIsland({
   row,
+  isPinned,
   live,
   utcTime,
   onOpenDetail,
-  onOpenActions
+  onOpenActions,
+  onTogglePin
 }: {
   row: FidsRow | null;
+  isPinned: boolean;
   live: boolean;
   utcTime: string;
   onOpenDetail: (callsign: string) => void;
   onOpenActions: (row: FidsRow) => void;
+  onTogglePin: (row: FidsRow) => void;
 }) {
-  const [expanded, setExpanded] = useState(false);
-  const expandAnim = useRef(new Animated.Value(0)).current;
-  const hintAnim = useRef(new Animated.Value(0)).current;
-
-  const toggle = useCallback(
-    (next: boolean) => {
-      setExpanded(next);
-      Animated.spring(expandAnim, {
-        toValue: next ? 1 : 0,
-        damping: 18,
-        stiffness: 180,
-        mass: 0.8,
-        useNativeDriver: false
-      }).start();
-    },
-    [expandAnim]
-  );
-
-  useEffect(() => {
-    const anim = Animated.loop(
-      Animated.sequence([
-        Animated.timing(hintAnim, { toValue: 1, duration: 800, useNativeDriver: true }),
-        Animated.timing(hintAnim, { toValue: 0, duration: 800, useNativeDriver: true })
-      ])
-    );
-    anim.start();
-    return () => anim.stop();
-  }, [hintAnim]);
-
-  useEffect(() => {
-    if (!row && expanded) {
-      toggle(false);
-    }
-  }, [expanded, row, toggle]);
-
-  const panResponder = useRef(
-    PanResponder.create({
-      onMoveShouldSetPanResponder: (_, gesture) =>
-        Math.abs(gesture.dy) > 8 && Math.abs(gesture.dy) > Math.abs(gesture.dx),
-      onPanResponderRelease: (_, gesture) => {
-        if (gesture.dy > 22) {
-          toggle(true);
-          return;
-        }
-        if (gesture.dy < -22) {
-          toggle(false);
-        }
-      }
-    })
-  ).current;
-
-  const hintOffset = hintAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0, expanded ? -3 : 3]
-  });
-
   return (
-    <Animated.View
-      {...panResponder.panHandlers}
-      style={[
-        styles.islandShell,
-        {
-          width: expandAnim.interpolate({ inputRange: [0, 1], outputRange: [164, 324] }),
-          minHeight: expandAnim.interpolate({ inputRange: [0, 1], outputRange: [42, 102] })
-        }
-      ]}
-    >
+    <View style={[styles.islandShell, row && styles.islandShellActive]}>
       <Pressable
         style={styles.islandPressable}
         delayLongPress={360}
@@ -303,11 +268,9 @@ function FlightIsland({
           if (row) onOpenActions(row);
         }}
         onPress={() => {
-          if (expanded && row?.callsign) {
+          if (row?.callsign) {
             onOpenDetail(row.callsign);
-            return;
           }
-          toggle(!expanded);
         }}
       >
         <View style={styles.islandCompactRow}>
@@ -331,34 +294,25 @@ function FlightIsland({
             <Text style={[styles.islandStatus, { color: live ? palette.green : palette.red }]}>
               {row ? statusShort(row.status_display) : live ? "READY" : "OFF"}
             </Text>
-            <Animated.View style={{ transform: [{ translateY: hintOffset }] }}>
-              <MaterialCommunityIcons
-                name={expanded ? "chevron-up" : "chevron-down"}
-                size={16}
-                color={palette.textMuted}
-              />
-            </Animated.View>
+            <Text style={styles.islandActionHint}>{row ? "DETAIL" : "STATUS"}</Text>
           </View>
         </View>
-
-        <Animated.View
-          style={[
-            styles.islandExpanded,
-            {
-              height: expandAnim.interpolate({ inputRange: [0, 1], outputRange: [0, 52] }),
-              opacity: expandAnim
-            }
-          ]}
-        >
-          <Text style={styles.islandExpandedLine} numberOfLines={1}>
-            {row ? `${routeMeta(row)} · ${row.aircraft_type || "A/C PENDING"}` : "Swipe down to surface the pinned flight."}
-          </Text>
-          <Text style={styles.islandExpandedHint} numberOfLines={1}>
-            {row ? "Tap open for full detail. Swipe up to tuck away." : "Live status stays up here while the rest of the board scrolls."}
-          </Text>
-        </Animated.View>
       </Pressable>
-    </Animated.View>
+
+      {row ? (
+        <Pressable
+          style={[styles.islandPinButton, isPinned && styles.islandPinButtonActive]}
+          onPress={() => onTogglePin(row)}
+          hitSlop={10}
+        >
+          <MaterialCommunityIcons
+            name={isPinned ? "pin-off" : "pin-outline"}
+            size={15}
+            color={isPinned ? palette.amber : palette.blue2}
+          />
+        </Pressable>
+      ) : null}
+    </View>
   );
 }
 
@@ -1261,6 +1215,23 @@ function radarTone(blip: RadarBlip): string {
   return palette.blue2;
 }
 
+function airportMetric(code?: string | null, name?: string | null): string {
+  if (code && name) return `${code} · ${name}`;
+  return code || name || "-";
+}
+
+function formatCoordinate(value: number | null | undefined, positive: string, negative: string): string {
+  if (value == null || Number.isNaN(value)) return "-";
+  const suffix = value >= 0 ? positive : negative;
+  return `${Math.abs(value).toFixed(4)}°${suffix}`;
+}
+
+function formatVerticalRate(value: number | null | undefined): string {
+  if (value == null || Number.isNaN(value)) return "-";
+  const feetPerMinute = Math.round(value * 196.8504);
+  return `${feetPerMinute} ft/min`;
+}
+
 export function FlightDetailSheet({
   visible,
   callsign,
@@ -1314,6 +1285,21 @@ export function FlightDetailSheet({
                   </Text>
                 </View>
 
+                <SectionTitle label="ROUTE & DATA" />
+                <View style={styles.sheetMetricRow}>
+                  <SheetMetric label="FROM" value={airportMetric(detail.origin_iata, detail.origin_name)} />
+                  <SheetMetric label="TO" value={airportMetric(detail.dest_iata, detail.dest_name)} />
+                </View>
+                <View style={styles.sheetMetricRow}>
+                  <SheetMetric label="AIRLINE" value={detail.airline_iata || detail.airline || "-"} />
+                  <SheetMetric label="CALLSIGN" value={detail.callsign || callsign || "-"} />
+                </View>
+                <View style={styles.sheetMetricRow}>
+                  <SheetMetric label="SOURCE" value={detail.source ? detail.source.toUpperCase() : "-"} />
+                  <SheetMetric label="ENRICHED" value={detail.enriched_by ? detail.enriched_by.toUpperCase() : "-"} />
+                </View>
+
+                <SectionTitle label="TIMES & GATE" />
                 <View style={styles.sheetMetricRow}>
                   <SheetMetric label="SCHEDULED" value={formatDateTime(detail.sched_time)} />
                   <SheetMetric label="ESTIMATED" value={formatDateTime(detail.est_time)} />
@@ -1335,6 +1321,14 @@ export function FlightDetailSheet({
                 <View style={styles.sheetMetricRow}>
                   <SheetMetric label="HEADING" value={formatHeading(detail.position?.heading)} />
                   <SheetMetric label="GROUND" value={detail.position?.on_ground ? "YES" : "NO"} />
+                </View>
+                <View style={styles.sheetMetricRow}>
+                  <SheetMetric label="LAT" value={formatCoordinate(detail.position?.lat, "N", "S")} />
+                  <SheetMetric label="LON" value={formatCoordinate(detail.position?.lon, "E", "W")} />
+                </View>
+                <View style={styles.sheetMetricRow}>
+                  <SheetMetric label="VERT RATE" value={formatVerticalRate(detail.position?.vertical_rate)} />
+                  <SheetMetric label="DIRECTION" value={detail.direction ? detail.direction.toUpperCase() : "-"} />
                 </View>
 
                 <SectionTitle label="7-DAY HISTORY" />
@@ -1668,8 +1662,10 @@ export function SettingsScreen({
   schedulerMessage,
   onThemeModeChange,
   onSkinChange,
+  onOpenHistory,
   onOpenAdmin,
   onOpenMatrix,
+  onOpenDoc,
   onOpenCoffee,
   onRestartScheduler,
   onChangeUrl,
@@ -1689,21 +1685,43 @@ export function SettingsScreen({
   schedulerMessage: string | null;
   onThemeModeChange: (value: MobileThemeMode) => void;
   onSkinChange: (value: MobileSkin) => void;
+  onOpenHistory: () => void;
   onOpenAdmin: () => void;
   onOpenMatrix: () => void;
+  onOpenDoc: (slug: DocSlug) => void;
   onOpenCoffee: () => void;
   onRestartScheduler: () => void;
   onChangeUrl: (value: string) => void;
   onConnect: () => void;
 }) {
-  const openDoc = (slug: "readme" | "privacy" | "changelog", fallbackUrl: string) => {
-    const base = normalizeServerUrl(serverUrl);
-    const url = base ? `${base}/docs/${slug}` : fallbackUrl;
-    void Linking.openURL(url);
-  };
+  const [section, setSection] = useState<SettingsSection>("server");
 
   return (
     <View style={styles.cardStack}>
+      <View style={styles.settingsCard}>
+        <Text style={styles.settingsTitle}>SETTINGS</Text>
+        <Text style={styles.moduleIntro}>
+          Keep the main companion calm: connection, looks, tools, and documents live here.
+        </Text>
+        <View style={styles.settingsSectionGrid}>
+          {([
+            ["server", "Server", "LAN"],
+            ["appearance", "Looks", themeMode],
+            ["tools", "Tools", "Ops"],
+            ["about", "Docs", "Read"]
+          ] as Array<[SettingsSection, string, string]>).map(([id, label, meta]) => (
+            <OptionChip
+              key={id}
+              active={section === id}
+              label={label}
+              meta={meta}
+              onPress={() => setSection(id)}
+            />
+          ))}
+        </View>
+      </View>
+
+      {section === "server" ? (
       <View style={styles.settingsCard}>
         <Text style={styles.settingsTitle}>LOCAL SERVER</Text>
         <TextInput
@@ -1729,7 +1747,9 @@ export function SettingsScreen({
           Use the LAN IP of the machine running Local Flight. On a physical iPhone, localhost points at the phone itself.
         </Text>
       </View>
+      ) : null}
 
+      {section === "appearance" ? (
       <View style={styles.settingsCard}>
         <Text style={styles.settingsTitle}>APPEARANCE</Text>
         <Text style={styles.moduleIntro}>
@@ -1765,7 +1785,9 @@ export function SettingsScreen({
 
         <AppearancePreviewStrip />
       </View>
+      ) : null}
 
+      {section === "tools" ? (
       <View style={styles.settingsCard}>
         <Text style={styles.settingsTitle}>TOOLS</Text>
         <SettingsToolPill
@@ -1775,6 +1797,12 @@ export function SettingsScreen({
           onPress={onRestartScheduler}
           loading={schedulerRestarting}
           disabled={schedulerRestarting}
+        />
+        <SettingsToolPill
+          icon="history"
+          label="History"
+          value="Browse stored flights without crowding the main nav"
+          onPress={onOpenHistory}
         />
         <SettingsToolPill
           icon="view-grid"
@@ -1789,7 +1817,9 @@ export function SettingsScreen({
           onPress={onOpenAdmin}
         />
       </View>
+      ) : null}
 
+      {section === "about" ? (
       <View style={styles.settingsCard}>
         <Text style={styles.settingsTitle}>ABOUT</Text>
         <Text style={styles.settingsHelp}>
@@ -1801,14 +1831,14 @@ export function SettingsScreen({
         <SettingsToolPill
           icon="book-open-variant"
           label="Local docs"
-          value={serverUrl ? "Open README from the connected Local Flight app" : "README on GitHub"}
-          onPress={() => openDoc("readme", "https://github.com/tr3y4rch/local-flight/blob/main/README.md")}
+          value="Read README inside the companion"
+          onPress={() => onOpenDoc("readme")}
         />
         <SettingsToolPill
           icon="shield-lock-outline"
           label="Privacy"
           value="What stays local and what the crash reporter sends"
-          onPress={() => openDoc("privacy", "https://github.com/tr3y4rch/local-flight/blob/main/PRIVACY.md")}
+          onPress={() => onOpenDoc("privacy")}
         />
         <SettingsToolPill
           icon="github"
@@ -1820,22 +1850,178 @@ export function SettingsScreen({
           icon="format-list-bulleted"
           label="Changelog"
           value="Release history and version notes"
-          onPress={() => openDoc("changelog", "https://github.com/tr3y4rch/local-flight/blob/main/CHANGELOG.md")}
+          onPress={() => onOpenDoc("changelog")}
         />
-      </View>
 
-      <Pressable style={styles.coffeeCard} onPress={onOpenCoffee}>
-        <View style={styles.coffeeIcon}>
-          <MaterialCommunityIcons name="coffee" size={19} color="#111" />
-        </View>
-        <View style={styles.coffeeCopy}>
-          <Text style={styles.coffeeTitle}>BUY ME A COFFEE</Text>
-          <Text style={styles.coffeeBody}>Support Local Flight and keep the boards glowing.</Text>
-        </View>
-        <MaterialCommunityIcons name="open-in-new" size={16} color={palette.amber} />
-      </Pressable>
+        <Pressable style={styles.coffeeCard} onPress={onOpenCoffee}>
+          <View style={styles.coffeeIcon}>
+            <MaterialCommunityIcons name="coffee" size={19} color="#111" />
+          </View>
+          <View style={styles.coffeeCopy}>
+            <Text style={styles.coffeeTitle}>BUY ME A COFFEE</Text>
+            <Text style={styles.coffeeBody}>Support Local Flight and keep the boards glowing.</Text>
+          </View>
+          <MaterialCommunityIcons name="open-in-new" size={16} color={palette.amber} />
+        </Pressable>
+      </View>
+      ) : null}
     </View>
   );
+}
+
+export function DocsScreen({
+  slug,
+  onBackSettings,
+  contentPaddingBottom
+}: {
+  slug: DocSlug;
+  onBackSettings: () => void;
+  contentPaddingBottom: number;
+}) {
+  const source = DOC_SOURCES[slug];
+  const [content, setContent] = useState("");
+  const [loadingDoc, setLoadingDoc] = useState(true);
+  const [docError, setDocError] = useState<string | null>(null);
+
+  const loadDoc = useCallback(async () => {
+    setLoadingDoc(true);
+    setDocError(null);
+    try {
+      const response = await fetch(source.url, { headers: { Accept: "text/plain" } });
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      setContent(await response.text());
+    } catch (exc) {
+      setDocError(exc instanceof Error ? exc.message : String(exc));
+    } finally {
+      setLoadingDoc(false);
+    }
+  }, [source.url]);
+
+  useEffect(() => {
+    void loadDoc();
+  }, [loadDoc]);
+
+  return (
+    <ScrollView
+      style={styles.screenScroll}
+      contentContainerStyle={[styles.screenContent, { paddingBottom: contentPaddingBottom }]}
+      refreshControl={<RefreshControl refreshing={loadingDoc} tintColor={palette.blue} onRefresh={loadDoc} />}
+      showsVerticalScrollIndicator={false}
+    >
+      <View style={styles.cardStack}>
+        <HiddenToolHeader
+          icon="book-open-variant"
+          title={source.title}
+          detail={source.detail}
+          onBack={onBackSettings}
+        />
+
+        <View style={styles.docsCard}>
+          {loadingDoc ? <ActivityIndicator color={palette.blue} style={styles.loader} /> : null}
+          {!loadingDoc && docError ? (
+            <>
+              <Text style={styles.sheetEmpty}>
+                Could not load the GitHub document inside the app: {docError}
+              </Text>
+              <SettingsToolPill
+                icon="open-in-new"
+                label="Open in GitHub"
+                value="Fallback if the phone has no GitHub raw access"
+                onPress={() => void Linking.openURL(source.url.replace("raw.githubusercontent.com/tr3y4rch/local-flight/main", "github.com/tr3y4rch/local-flight/blob/main"))}
+              />
+            </>
+          ) : null}
+          {!loadingDoc && !docError ? <MarkdownDocument content={content} /> : null}
+        </View>
+      </View>
+    </ScrollView>
+  );
+}
+
+function MarkdownDocument({ content }: { content: string }) {
+  const nodes: ReactNode[] = [];
+  const lines = content.split(/\r?\n/);
+  let codeLines: string[] = [];
+  let inCode = false;
+
+  const flushCode = () => {
+    if (!codeLines.length) return;
+    nodes.push(
+      <View key={`code-${nodes.length}`} style={styles.docCodeBlock}>
+        <Text style={styles.docCodeText}>{codeLines.join("\n")}</Text>
+      </View>
+    );
+    codeLines = [];
+  };
+
+  lines.forEach((rawLine, index) => {
+    const line = rawLine.trimEnd();
+    if (line.startsWith("```")) {
+      if (inCode) {
+        inCode = false;
+        flushCode();
+      } else {
+        inCode = true;
+      }
+      return;
+    }
+    if (inCode) {
+      codeLines.push(rawLine);
+      return;
+    }
+    if (!line.trim()) {
+      nodes.push(<View key={`space-${index}`} style={styles.docSpacer} />);
+      return;
+    }
+    if (line.startsWith("# ")) {
+      nodes.push(<Text key={index} style={styles.docTitle}>{cleanMarkdownInline(line.replace(/^#\s+/, ""))}</Text>);
+      return;
+    }
+    if (line.startsWith("## ")) {
+      nodes.push(<Text key={index} style={styles.docHeading}>{cleanMarkdownInline(line.replace(/^##\s+/, ""))}</Text>);
+      return;
+    }
+    if (line.startsWith("### ")) {
+      nodes.push(<Text key={index} style={styles.docSubheading}>{cleanMarkdownInline(line.replace(/^###\s+/, ""))}</Text>);
+      return;
+    }
+    const bullet = line.match(/^[-*]\s+(.*)$/);
+    if (bullet) {
+      nodes.push(
+        <View key={index} style={styles.docBulletRow}>
+          <Text style={styles.docBulletMark}>-</Text>
+          <Text style={styles.docBody}>{cleanMarkdownInline(bullet[1] || "")}</Text>
+        </View>
+      );
+      return;
+    }
+    const numbered = line.match(/^\d+\.\s+(.*)$/);
+    if (numbered) {
+      nodes.push(
+        <View key={index} style={styles.docBulletRow}>
+          <Text style={styles.docBulletMark}>#</Text>
+          <Text style={styles.docBody}>{cleanMarkdownInline(numbered[1] || "")}</Text>
+        </View>
+      );
+      return;
+    }
+    nodes.push(<Text key={index} style={styles.docBody}>{cleanMarkdownInline(line)}</Text>);
+  });
+
+  if (inCode) {
+    flushCode();
+  }
+
+  return <>{nodes}</>;
+}
+
+function cleanMarkdownInline(value: string): string {
+  return value
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+    .replace(/[*_`]/g, "")
+    .trim();
 }
 
 function AppearancePreviewStrip() {

@@ -21,13 +21,14 @@ export const MATRIX_ROWS = [2, 3, 4, 5, 6];
 export const MATRIX_BRIGHTNESS = [0.4, 0.6, 0.8, 1];
 export const MATRIX_REFRESH_SECONDS = [30, 60, 120, 300];
 
-export const LAUNCH_MIN_MS = 6200;
+export const LAUNCH_MIN_MS = 7800;
 export const LAUNCH_NATIVE_MIN_MS = 420;
 export const LAUNCH_ANIMATION_DELAY_MS = 180;
 export const LAUNCH_STATUS_STEPS = [
   "Starting companion",
   "Loading saved server",
-  "Checking flight board",
+  "Checking LAN link",
+  "Aligning FIDS rows",
   "Priming radar sweep",
   "Syncing local profile",
   "Opening companion"
