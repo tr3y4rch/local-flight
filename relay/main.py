@@ -1352,7 +1352,7 @@ def _store_activation_token(
     )
 
 
-def _render_admin(username: str, *, created_token: str = "", message: str = "") -> str:
+def _render_admin_legacy(username: str, *, created_token: str = "", message: str = "") -> str:
     conn = _connect()
     month = _month_key()
     day_cutoff = _hours_ago(24)
@@ -1932,6 +1932,1231 @@ def _render_admin(username: str, *, created_token: str = "", message: str = "") 
     <thead><tr><th>Time</th><th>Install</th><th>Service</th><th>Plan</th><th>Scope</th><th>Status</th><th>Latency</th></tr></thead>
     <tbody>{rows_for_recent()}</tbody>
   </table>
+</div>
+</body>
+</html>"""
+
+
+def _render_admin(username: str, *, created_token: str = "", message: str = "") -> str:
+    conn = _connect()
+    month = _month_key()
+    day_cutoff = _hours_ago(24)
+    day_cutoff_dt = _parse_utc_dt(day_cutoff) or datetime.now(timezone.utc)
+
+    total_installs = conn.execute(
+        "SELECT COUNT(DISTINCT install_id) FROM usage WHERE month=? AND service IN ('aviationstack', 'radar')",
+        (month,),
+    ).fetchone()[0]
+    total_schedule = conn.execute(
+        "SELECT COALESCE(SUM(calls), 0) FROM usage WHERE month=? AND service='aviationstack'",
+        (month,),
+    ).fetchone()[0]
+    total_schedule = (total_schedule or 0) + int(
+        _setting_get_conn(conn, f"schedule_counter_offset:{month}", "0") or 0
+    )
+    total_radar = conn.execute(
+        "SELECT COALESCE(SUM(calls), 0) FROM usage WHERE month=? AND service='radar'",
+        (month,),
+    ).fetchone()[0]
+    total_schedule_upstream = conn.execute(
+        "SELECT COALESCE(SUM(calls), 0) FROM usage WHERE month=? AND service='aviationstack_upstream'",
+        (month,),
+    ).fetchone()[0]
+    snapshot_pool_count = conn.execute("SELECT COUNT(*) FROM schedule_snapshots").fetchone()[0]
+    snapshot_stale_count = conn.execute(
+        "SELECT COUNT(*) FROM schedule_snapshots WHERE last_cache_state='stale'"
+    ).fetchone()[0]
+    snapshot_error_count = conn.execute(
+        "SELECT COUNT(*) FROM schedule_snapshots WHERE COALESCE(last_error, '') <> ''"
+    ).fetchone()[0]
+    snapshot_totals = conn.execute(
+        """
+        SELECT
+            COALESCE(SUM(client_accesses), 0) AS client_accesses,
+            COALESCE(SUM(upstream_pulls), 0) AS upstream_pulls,
+            COALESCE(SUM(refresh_count), 0) AS refresh_count,
+            COALESCE(SUM(cache_hits), 0) AS cache_hits,
+            COALESCE(SUM(stale_serves), 0) AS stale_serves
+        FROM schedule_snapshots
+        """
+    ).fetchone()
+    totals_24h = conn.execute(
+        """
+        SELECT COUNT(*) AS requests,
+               COALESCE(AVG(latency_ms), 0) AS avg_latency,
+               COALESCE(SUM(CASE WHEN status >= 400 OR status = 0 THEN 1 ELSE 0 END), 0) AS errors
+        FROM request_log
+        WHERE ts >= ?
+        """,
+        (day_cutoff,),
+    ).fetchone()
+    provider_revision = _provider_revision(conn)
+    blocked_count = conn.execute("SELECT COUNT(*) FROM blocked_installs").fetchone()[0]
+    snapshot_accesses = int(snapshot_totals["client_accesses"] or 0) if snapshot_totals else 0
+    snapshot_refreshes = int(snapshot_totals["refresh_count"] or 0) if snapshot_totals else 0
+    snapshot_hits = int(snapshot_totals["cache_hits"] or 0) if snapshot_totals else 0
+    snapshot_stale = int(snapshot_totals["stale_serves"] or 0) if snapshot_totals else 0
+    snapshot_hit_rate = round((snapshot_hits / snapshot_accesses) * 100.0, 1) if snapshot_accesses > 0 else 0.0
+    snapshot_savings = max(0, snapshot_accesses - snapshot_refreshes)
+
+    service_breakdown = [
+        dict(r)
+        for r in conn.execute(
+            """
+            SELECT service,
+                   plan,
+                   COUNT(DISTINCT install_id) AS installs,
+                   COALESCE(SUM(calls), 0) AS calls,
+                   MAX(last_seen) AS last_seen
+            FROM usage
+            WHERE month=?
+            GROUP BY service, plan
+            ORDER BY service, plan
+            """,
+            (month,),
+        ).fetchall()
+    ]
+    network_breakdown = [
+        dict(r)
+        for r in conn.execute(
+            """
+            SELECT service,
+                   plan,
+                   COUNT(*) AS requests,
+                   COALESCE(AVG(latency_ms), 0) AS avg_latency,
+                   COALESCE(SUM(CASE WHEN status >= 400 OR status = 0 THEN 1 ELSE 0 END), 0) AS errors
+            FROM request_log
+            WHERE ts >= ?
+            GROUP BY service, plan
+            ORDER BY service, plan
+            """,
+            (day_cutoff,),
+        ).fetchall()
+    ]
+    tokens = [
+        dict(r)
+        for r in conn.execute(
+            """
+            SELECT t.token_hash,
+                   t.token_prefix,
+                   t.label,
+                   t.schedule_limit,
+                   t.radar_limit,
+                   t.created_at,
+                   t.bound_install_id,
+                   t.last_seen,
+                   t.revoked_at,
+                   COALESCE(us.calls, 0) AS schedule_used,
+                   COALESCE(ur.calls, 0) AS radar_used
+            FROM activation_tokens t
+            LEFT JOIN usage us
+                ON us.subject_key = ('managed:' || t.token_hash)
+               AND us.service = 'aviationstack'
+               AND us.month = ?
+            LEFT JOIN usage ur
+                ON ur.subject_key = ('managed:' || t.token_hash)
+               AND ur.service = 'radar'
+               AND ur.month = ?
+            ORDER BY t.created_at DESC
+            LIMIT 200
+            """,
+            (month, month),
+        ).fetchall()
+    ]
+    activation_requests = [
+        dict(r)
+        for r in conn.execute(
+            """
+            SELECT request_id,
+                   install_id,
+                   install_fingerprint,
+                   network_tag,
+                   display_name,
+                   requested_mode,
+                   app_version,
+                   status,
+                   created_at,
+                   updated_at,
+                   last_seen,
+                   decision_source,
+                   decision_note,
+                   token_prefix,
+                   approved_at,
+                   delivered_at
+            FROM activation_requests
+            ORDER BY
+                CASE status
+                    WHEN 'manual_review' THEN 0
+                    WHEN 'issued' THEN 1
+                    ELSE 2
+                END,
+                created_at DESC
+            LIMIT 200
+            """
+        ).fetchall()
+    ]
+    pending_requests = sum(1 for row in activation_requests if row.get("status") == _REQUEST_STATUS_MANUAL_REVIEW)
+    installs = [
+        dict(r)
+        for r in conn.execute(
+            """
+            SELECT u.install_id,
+                   MAX(u.last_seen) AS last_seen,
+                   COALESCE(SUM(CASE WHEN u.service = 'aviationstack' THEN u.calls ELSE 0 END), 0) AS schedule_calls,
+                   COALESCE(SUM(CASE WHEN u.service = 'radar' THEN u.calls ELSE 0 END), 0) AS radar_calls,
+                   GROUP_CONCAT(DISTINCT u.plan) AS plans,
+                   CASE WHEN b.install_id IS NULL THEN 0 ELSE 1 END AS blocked
+            FROM usage u
+            LEFT JOIN blocked_installs b ON b.install_id = u.install_id
+            WHERE u.month=? AND u.service IN ('aviationstack', 'radar')
+            GROUP BY u.install_id
+            ORDER BY (schedule_calls + radar_calls) DESC, last_seen DESC
+            LIMIT 300
+            """,
+            (month,),
+        ).fetchall()
+    ]
+    recent = [
+        dict(r)
+        for r in conn.execute(
+            """
+            SELECT ts, install_id, mode, status, latency_ms, service, plan
+            FROM request_log
+            ORDER BY ts DESC
+            LIMIT 100
+            """
+        ).fetchall()
+    ]
+    client_interests = [
+        dict(r)
+        for r in conn.execute(
+            """
+            SELECT install_id,
+                   plan,
+                   airport_iata,
+                   timezone,
+                   display_grace_minutes,
+                   display_horizon_hours,
+                   refresh_seconds,
+                   last_seen
+            FROM client_interests
+            ORDER BY last_seen DESC
+            LIMIT 400
+            """
+        ).fetchall()
+    ]
+    snapshots = [
+        dict(r)
+        for r in conn.execute(
+            """
+            SELECT *
+            FROM schedule_snapshots
+            ORDER BY client_accesses DESC, updated_at DESC
+            LIMIT 80
+            """
+        ).fetchall()
+    ]
+    aviationstack_key, aviationstack_source = _provider_status(
+        _SETTING_AVIATIONSTACK_KEY,
+        "AVIATIONSTACK_API_KEY",
+        conn=conn,
+    )
+    rapidapi_key, rapidapi_source = _provider_status(
+        _SETTING_RAPIDAPI_KEY,
+        "RAPIDAPI_KEY",
+        conn=conn,
+    )
+    conn.close()
+
+    service_order = {"aviationstack": 0, "aviationstack_upstream": 1, "radar": 2}
+    plan_order = {"community": 0, "managed": 1, "shared": 2}
+    service_breakdown.sort(
+        key=lambda row: (
+            service_order.get(str(row.get("service") or ""), 99),
+            plan_order.get(str(row.get("plan") or ""), 99),
+            -int(row.get("calls") or 0),
+        )
+    )
+    network_breakdown.sort(
+        key=lambda row: (
+            service_order.get(str(row.get("service") or ""), 99),
+            plan_order.get(str(row.get("plan") or ""), 99),
+            -int(row.get("requests") or 0),
+        )
+    )
+
+    snapshot_by_key = {str(row.get("cache_key") or ""): row for row in snapshots if row.get("cache_key")}
+    interest_by_install = {
+        str(row.get("install_id") or ""): row for row in client_interests if str(row.get("install_id") or "").strip()
+    }
+    active_interest_rows = [
+        row
+        for row in client_interests
+        if (_parse_utc_dt(row.get("last_seen")) or datetime.min.replace(tzinfo=timezone.utc)) >= day_cutoff_dt
+    ]
+    active_clients_24h = len(active_interest_rows)
+    active_lanes_map: Dict[str, Dict[str, Any]] = {}
+    for row in active_interest_rows:
+        airport_iata = str(row.get("airport_iata") or "").strip().upper()
+        timezone_name = str(row.get("timezone") or "").strip()
+        if not airport_iata or not timezone_name:
+            continue
+        grace = max(0, int(row.get("display_grace_minutes") or 0))
+        horizon = max(1, int(row.get("display_horizon_hours") or 1))
+        cache_key = _schedule_cache_key(
+            airport_iata=airport_iata,
+            timezone_name=timezone_name,
+            display_grace_minutes=grace,
+            display_horizon_hours=horizon,
+        )
+        lane = active_lanes_map.setdefault(
+            cache_key,
+            {
+                "cache_key": cache_key,
+                "airport_iata": airport_iata,
+                "timezone": timezone_name,
+                "display_grace_minutes": grace,
+                "display_horizon_hours": horizon,
+                "refresh_min": max(60, int(row.get("refresh_seconds") or 3600)),
+                "refresh_max": max(60, int(row.get("refresh_seconds") or 3600)),
+                "install_count": 0,
+                "plans": set(),
+                "last_seen": str(row.get("last_seen") or ""),
+                "install_fingerprints": [],
+                "snapshot": snapshot_by_key.get(cache_key),
+            },
+        )
+        refresh_seconds = max(60, int(row.get("refresh_seconds") or 3600))
+        lane["install_count"] += 1
+        lane["refresh_min"] = min(int(lane["refresh_min"]), refresh_seconds)
+        lane["refresh_max"] = max(int(lane["refresh_max"]), refresh_seconds)
+        lane["plans"].add(str(row.get("plan") or "community"))
+        if str(row.get("last_seen") or "") > str(lane.get("last_seen") or ""):
+            lane["last_seen"] = str(row.get("last_seen") or "")
+        fingerprint = _install_fingerprint(str(row.get("install_id") or ""))
+        if fingerprint and fingerprint not in lane["install_fingerprints"] and len(lane["install_fingerprints"]) < 3:
+            lane["install_fingerprints"].append(fingerprint)
+    active_lanes = sorted(
+        active_lanes_map.values(),
+        key=lambda row: (
+            -int(row.get("install_count") or 0),
+            -int(_snapshot_shared_stats(row.get("snapshot") or {}).get("client_accesses", 0))
+            if row.get("snapshot")
+            else 0,
+            str(row.get("airport_iata") or ""),
+        ),
+    )
+    active_lane_count = len(active_lanes)
+
+    def _fmt_ts(value: Any, default: str = "-") -> str:
+        dt = _parse_utc_dt(value)
+        if not dt:
+            return default
+        return dt.strftime("%Y-%m-%d %H:%M UTC")
+
+    def _fmt_age(value: Any, default: str = "-") -> str:
+        dt = _parse_utc_dt(value)
+        if not dt:
+            return default
+        seconds = max(0, int((datetime.now(timezone.utc) - dt).total_seconds()))
+        if seconds < 60:
+            return f"{seconds}s ago"
+        minutes = seconds // 60
+        if minutes < 60:
+            return f"{minutes}m ago"
+        hours = minutes // 60
+        if hours < 24:
+            return f"{hours}h ago"
+        days = hours // 24
+        return f"{days}d ago"
+
+    def _fmt_refresh(seconds: int) -> str:
+        seconds = max(60, int(seconds or 60))
+        minutes = seconds // 60
+        if minutes % 60 == 0:
+            hours = minutes // 60
+            return f"{hours}h"
+        if minutes >= 60:
+            hours = minutes // 60
+            remainder = minutes % 60
+            return f"{hours}h {remainder}m"
+        return f"{minutes}m"
+
+    def _fmt_refresh_range(min_seconds: int, max_seconds: int) -> str:
+        min_seconds = max(60, int(min_seconds or 60))
+        max_seconds = max(60, int(max_seconds or 60))
+        if min_seconds == max_seconds:
+            return _fmt_refresh(min_seconds)
+        return f"{_fmt_refresh(min_seconds)} to {_fmt_refresh(max_seconds)}"
+
+    def _window_label(grace_minutes: int, horizon_hours: int) -> str:
+        return f"-{int(grace_minutes)}m / +{int(horizon_hours)}h"
+
+    def _badge(label: str, tone: str = "slate") -> str:
+        safe_tone = tone if tone in {"green", "amber", "red", "slate", "blue", "cyan"} else "slate"
+        return f"<span class='badge badge-{safe_tone}'>{html.escape(label)}</span>"
+
+    def _service_label(service: str) -> str:
+        mapping = {
+            "aviationstack": "Schedule accesses",
+            "aviationstack_upstream": "AviationStack upstream",
+            "radar": "Radar accesses",
+        }
+        return mapping.get(service, service.replace("_", " ").title())
+
+    def _service_badge(service: str) -> str:
+        tone = {"aviationstack": "blue", "aviationstack_upstream": "cyan", "radar": "amber"}.get(service, "slate")
+        return _badge(_service_label(service), tone)
+
+    def _plan_badge(plan: str) -> str:
+        tone = {"community": "blue", "managed": "green", "shared": "cyan"}.get(plan, "slate")
+        return _badge(plan or "unknown", tone)
+
+    def _cache_badge(state: str, *, has_error: bool = False) -> str:
+        normalized = (state or "unknown").strip().lower()
+        if has_error and normalized not in {"fresh"}:
+            return _badge(normalized or "error", "red")
+        tone = {"fresh": "green", "stale": "amber", "miss": "slate", "expired": "red"}.get(normalized, "slate")
+        return _badge(normalized or "unknown", tone)
+
+    def _request_status_badge(status: str) -> str:
+        normalized = (status or "").strip().lower()
+        tone = {
+            _REQUEST_STATUS_MANUAL_REVIEW: "amber",
+            _REQUEST_STATUS_ISSUED: "green",
+            _REQUEST_STATUS_REJECTED: "red",
+            _REQUEST_STATUS_PENDING: "slate",
+        }.get(normalized, "slate")
+        return _badge(normalized.replace("_", " ") or "unknown", tone)
+
+    def _http_badge(status_code: int) -> str:
+        status_code = int(status_code or 0)
+        if status_code == 0 or status_code >= 500:
+            tone = "red"
+        elif status_code >= 400:
+            tone = "amber"
+        else:
+            tone = "green"
+        return _badge(str(status_code), tone)
+
+    def _usage_tone(used: int, limit: int) -> str:
+        limit = max(1, int(limit or 1))
+        ratio = int(used or 0) / limit
+        if ratio >= 1.0:
+            return "red"
+        if ratio >= 0.8:
+            return "amber"
+        return "green"
+
+    def _meter(used: int, limit: int) -> str:
+        limit = max(1, int(limit or 1))
+        used = max(0, int(used or 0))
+        percent = max(0, min(100, int(round((used / limit) * 100))))
+        tone = _usage_tone(used, limit)
+        return (
+            "<div class='meter'>"
+            f"<div class='meter-fill meter-{tone}' style='width:{percent}%'></div>"
+            "</div>"
+            f"<div class='tiny'>{used:,} / {limit:,}</div>"
+        )
+
+    def _install_lane_summary(install_id: str) -> str:
+        row = interest_by_install.get(install_id)
+        if not row:
+            return "<span class='soft'>No current airport lane</span>"
+        airport_iata = html.escape(str(row.get("airport_iata") or "-"))
+        timezone_name = html.escape(str(row.get("timezone") or "-"))
+        cadence = _fmt_refresh(max(60, int(row.get("refresh_seconds") or 3600)))
+        return (
+            f"<div class='cell-title mono'>{airport_iata}</div>"
+            f"<div class='cell-sub'>{timezone_name} | {_window_label(int(row.get('display_grace_minutes') or 0), int(row.get('display_horizon_hours') or 0))}</div>"
+            f"<div class='cell-sub'>Refresh every {cadence}</div>"
+        )
+
+    def rows_for_service_breakdown() -> str:
+        if not service_breakdown:
+            return "<tr><td colspan='5' class='muted'>No monthly usage yet</td></tr>"
+        out = []
+        for row in service_breakdown:
+            service = str(row.get("service") or "")
+            plan = str(row.get("plan") or "")
+            out.append(
+                "<tr>"
+                f"<td><div class='cell-title'>{_service_badge(service)}</div><div class='cell-sub mono'>{html.escape(service or '-')}</div></td>"
+                f"<td>{_plan_badge(plan)}</td>"
+                f"<td>{int(row.get('installs') or 0):,}</td>"
+                f"<td>{int(row.get('calls') or 0):,}</td>"
+                f"<td><div class='cell-title'>{_fmt_age(row.get('last_seen'))}</div><div class='cell-sub'>{_fmt_ts(row.get('last_seen'))}</div></td>"
+                "</tr>"
+            )
+        return "".join(out)
+
+    def rows_for_network_breakdown() -> str:
+        if not network_breakdown:
+            return "<tr><td colspan='5' class='muted'>No request logs yet</td></tr>"
+        out = []
+        for row in network_breakdown:
+            service = str(row.get("service") or "")
+            plan = str(row.get("plan") or "")
+            errors = int(row.get("errors") or 0)
+            out.append(
+                "<tr>"
+                f"<td><div class='cell-title'>{_service_badge(service)}</div><div class='cell-sub mono'>{html.escape(service or '-')}</div></td>"
+                f"<td>{_plan_badge(plan)}</td>"
+                f"<td>{int(row.get('requests') or 0):,}</td>"
+                f"<td>{int(row.get('avg_latency') or 0)}ms</td>"
+                f"<td>{_badge(f'{errors:,} error' + ('' if errors == 1 else 's'), 'red' if errors else 'green')}</td>"
+                "</tr>"
+            )
+        return "".join(out)
+
+    def rows_for_snapshot_pool() -> str:
+        if not snapshots:
+            return "<tr><td colspan='5' class='muted'>No shared schedule snapshots have been cached yet</td></tr>"
+        out = []
+        for row in snapshots[:18]:
+            meta = _load_json_blob(row.get("meta_json"), {})
+            stats = _snapshot_shared_stats(row)
+            records_count = len(_load_json_blob(row.get("records_json"), []))
+            pages_fetched = int(meta.get("pages_fetched", 0) or 0)
+            raw_rows = int(meta.get("raw_rows", 0) or 0)
+            dates_touched = meta.get("dates_touched", 0)
+            if isinstance(dates_touched, list):
+                dates_count = len(dates_touched)
+            else:
+                try:
+                    dates_count = int(dates_touched or 0)
+                except Exception:
+                    dates_count = 0
+            last_error = str(row.get("last_error") or "").strip()
+            last_state = str(row.get("last_cache_state") or "fresh")
+            out.append(
+                "<tr>"
+                f"<td><div class='cell-title mono'>{html.escape(str(row.get('airport_iata') or '-'))}</div>"
+                f"<div class='cell-sub'>{html.escape(str(row.get('timezone') or '-'))}</div>"
+                f"<div class='cell-sub'>{_window_label(int(row.get('display_grace_minutes') or 0), int(row.get('display_horizon_hours') or 0))}</div></td>"
+                f"<td><div class='cell-title'>{records_count:,} records</div>"
+                f"<div class='cell-sub'>{raw_rows:,} raw rows | {pages_fetched} pages | {dates_count} dates</div></td>"
+                f"<td><div class='cell-title'>{stats['client_accesses']:,} client serves</div>"
+                f"<div class='cell-sub'>{stats['upstream_pulls']:,} upstream pulls | {stats['cache_hit_rate_pct']:.1f}% hit rate | {stats['estimated_savings']:,} saved</div></td>"
+                f"<td><div class='cell-title'>{_cache_badge(last_state, has_error=bool(last_error))}</div>"
+                f"<div class='cell-sub'>{html.escape(last_error[:88]) if last_error else 'Healthy latest payload'}</div></td>"
+                f"<td><div class='cell-title'>{_fmt_age(row.get('updated_at'))}</div>"
+                f"<div class='cell-sub'>Generated {_fmt_age(row.get('generated_at'))}</div>"
+                f"<div class='cell-sub'>{_fmt_ts(row.get('updated_at'))}</div></td>"
+                "</tr>"
+            )
+        return "".join(out)
+
+    def rows_for_live_lanes() -> str:
+        if not active_lanes:
+            return "<tr><td colspan='5' class='muted'>No client interests reported in the last 24 hours</td></tr>"
+        out = []
+        for row in active_lanes[:18]:
+            snapshot = row.get("snapshot")
+            lifecycle = (
+                _snapshot_lifecycle_state(snapshot, refresh_seconds=int(row.get("refresh_min") or 3600))
+                if snapshot is not None
+                else "miss"
+            )
+            stats = _snapshot_shared_stats(snapshot or {})
+            records_count = len(_load_json_blob((snapshot or {}).get("records_json"), [])) if snapshot else 0
+            installs_preview = ", ".join(row.get("install_fingerprints") or [])
+            plan_html = " ".join(
+                _plan_badge(plan)
+                for plan in sorted(
+                    row.get("plans") or set(),
+                    key=lambda plan: plan_order.get(str(plan or ""), 99),
+                )
+            )
+            out.append(
+                "<tr>"
+                f"<td><div class='cell-title mono'>{html.escape(str(row.get('airport_iata') or '-'))}</div><div class='cell-sub'>{html.escape(str(row.get('timezone') or '-'))}</div></td>"
+                f"<td><div class='cell-title'>{int(row.get('install_count') or 0)} installs</div><div class='cell-sub'>{plan_html or _badge('unknown', 'slate')}</div><div class='cell-sub mono'>{html.escape(installs_preview) if installs_preview else 'No fingerprints yet'}</div></td>"
+                f"<td><div class='cell-title'>{_window_label(int(row.get('display_grace_minutes') or 0), int(row.get('display_horizon_hours') or 0))}</div><div class='cell-sub'>Refresh every {_fmt_refresh_range(int(row.get('refresh_min') or 3600), int(row.get('refresh_max') or 3600))}</div></td>"
+                f"<td><div class='cell-title'>{_cache_badge(lifecycle, has_error=bool((snapshot or {}).get('last_error')))}</div><div class='cell-sub'>{records_count:,} records | {stats['client_accesses']:,} serves | {stats['estimated_savings']:,} saved</div></td>"
+                f"<td><div class='cell-title'>{_fmt_age(row.get('last_seen'))}</div><div class='cell-sub'>Last client {_fmt_ts(row.get('last_seen'))}</div><div class='cell-sub'>Snapshot {(_fmt_age((snapshot or {}).get('generated_at')) if snapshot else '-')}</div></td>"
+                "</tr>"
+            )
+        return "".join(out)
+
+    def rows_for_tokens() -> str:
+        if not tokens:
+            return "<tr><td colspan='7' class='muted'>No managed activation tokens created yet</td></tr>"
+        out = []
+        for row in tokens:
+            status = "revoked" if row["revoked_at"] else "active"
+            action_bits = [
+                _post_form(
+                    "/admin/activation/rotate",
+                    {"token_hash": str(row["token_hash"] or "")},
+                    "Reshuffle",
+                    "amber",
+                ),
+                _post_form(
+                    "/admin/counters/reset",
+                    {"scope": "token", "token_hash": str(row["token_hash"] or "")},
+                    "Reset counters",
+                    "slate",
+                ),
+                _post_form(
+                    "/admin/activation/unbind",
+                    {"token_hash": str(row["token_hash"] or "")},
+                    "Unbind install",
+                    "slate",
+                ),
+            ]
+            if row["revoked_at"]:
+                action_bits.append(
+                    _post_form(
+                        "/admin/activation/reactivate",
+                        {"token_hash": str(row["token_hash"] or "")},
+                        "Restore",
+                        "green",
+                    )
+                )
+            else:
+                action_bits.append(
+                    _post_form(
+                        "/admin/activation/revoke",
+                        {"token_hash": str(row["token_hash"] or "")},
+                        "Revoke",
+                        "red",
+                    )
+                )
+            action_bits.append(
+                _post_form(
+                    "/admin/activation/delete",
+                    {"token_hash": str(row["token_hash"] or "")},
+                    "Delete",
+                    "red",
+                )
+            )
+            out.append(
+                "<tr>"
+                f"<td><div class='cell-title mono'>{html.escape(str(row['token_prefix'] or '-'))}...</div><div class='cell-sub'>{_fmt_ts(row.get('created_at'))}</div></td>"
+                f"<td><div class='cell-title'>{html.escape(str(row['label'] or '-'))}</div><div class='cell-sub'>{_plan_badge('managed')}</div></td>"
+                f"<td>{_meter(int(row['schedule_used'] or 0), int(row['schedule_limit'] or 0))}</td>"
+                f"<td>{_meter(int(row['radar_used'] or 0), int(row['radar_limit'] or 0))}</td>"
+                f"<td><div class='cell-title mono'>{html.escape(_install_fingerprint(str(row['bound_install_id'] or ''))) if row['bound_install_id'] else '-'}</div><div class='cell-sub'>{_fmt_ts(row.get('last_seen')) if row['last_seen'] else 'No recent token check-in'}</div></td>"
+                f"<td><div class='cell-title'>{_badge(status, 'red' if status == 'revoked' else 'green')}</div><div class='cell-sub'>{'Token can no longer authenticate' if status == 'revoked' else 'Managed access is enabled'}</div></td>"
+                f"<td class='actions'>{''.join(action_bits)}</td>"
+                "</tr>"
+            )
+        return "".join(out)
+
+    def rows_for_activation_requests() -> str:
+        if not activation_requests:
+            return "<tr><td colspan='7' class='muted'>No activation requests have reached the relay yet</td></tr>"
+        out = []
+        for row in activation_requests:
+            request_id = str(row["request_id"] or "")
+            status = str(row["status"] or _REQUEST_STATUS_PENDING)
+            action_bits = []
+            if status == _REQUEST_STATUS_MANUAL_REVIEW:
+                action_bits.extend(
+                    [
+                        _post_form(
+                            "/admin/activation-request/approve",
+                            {"request_id": request_id},
+                            "Issue now",
+                            "green",
+                        ),
+                        _post_form(
+                            "/admin/activation-request/reject",
+                            {"request_id": request_id, "decision_note": "dismissed"},
+                            "Dismiss",
+                            "slate",
+                        ),
+                    ]
+                )
+            else:
+                action_bits.append(
+                    _post_form(
+                        "/admin/activation-request/delete",
+                        {"request_id": request_id},
+                        "Clear row",
+                        "slate",
+                    )
+                )
+            label_bits = [
+                str(row["display_name"] or "").strip(),
+                str(row["requested_mode"] or "").strip(),
+                str(row["app_version"] or "").strip(),
+            ]
+            label = " | ".join([bit for bit in label_bits if bit]) or "-"
+            source = str(row["decision_source"] or "-").strip() or "-"
+            note = str(row["decision_note"] or "").strip() or "No decision note recorded"
+            lifecycle_bits = [f"Created {_fmt_ts(row.get('created_at'))}"]
+            if row.get("updated_at"):
+                lifecycle_bits.append(f"Updated {_fmt_ts(row.get('updated_at'))}")
+            if row.get("last_seen"):
+                lifecycle_bits.append(f"Last seen {_fmt_age(row.get('last_seen'))}")
+            out.append(
+                "<tr>"
+                f"<td><div class='cell-title mono'>{html.escape(str(row['install_fingerprint'] or '-'))}</div><div class='cell-sub mono'>{html.escape(str(row['install_id'] or ''))[:12]}...</div></td>"
+                f"<td><div class='cell-title mono'>{html.escape(str(row['network_tag'] or '-'))}</div><div class='cell-sub'>{_badge(source, 'slate')}</div></td>"
+                f"<td><div class='cell-title'>{html.escape(label)}</div><div class='cell-sub'>{_plan_badge(str(row.get('requested_mode') or 'community'))}</div></td>"
+                f"<td><div class='cell-title'>{_request_status_badge(status)}</div><div class='cell-sub'>{html.escape(str(row['token_prefix'] or '-') + ('...' if row['token_prefix'] else ''))}</div></td>"
+                f"<td><div class='cell-title'>{html.escape(note[:88])}</div><div class='cell-sub'>{' | '.join(html.escape(bit) for bit in lifecycle_bits)}</div></td>"
+                f"<td><div class='cell-title'>{_fmt_age(row.get('created_at'))}</div><div class='cell-sub'>{_fmt_ts(row.get('created_at'))}</div></td>"
+                f"<td class='actions'>{''.join(action_bits)}</td>"
+                "</tr>"
+            )
+        return "".join(out)
+
+    def rows_for_installs() -> str:
+        if not installs:
+            return "<tr><td colspan='7' class='muted'>No relay install usage recorded yet</td></tr>"
+        out = []
+        for row in installs:
+            install_id = str(row["install_id"] or "")
+            blocked = bool(row["blocked"])
+            action_bits = [
+                _post_form(
+                    "/admin/counters/reset",
+                    {"scope": "install", "install_id": install_id},
+                    "Reset counters",
+                    "slate",
+                )
+            ]
+            if blocked:
+                action_bits.append(
+                    _post_form(
+                        "/admin/install/unblock",
+                        {"install_id": install_id},
+                        "Restore access",
+                        "green",
+                    )
+                )
+            else:
+                action_bits.append(
+                    _post_form(
+                        "/admin/install/block",
+                        {"install_id": install_id, "reason": "revoked by admin"},
+                        "Revoke access",
+                        "red",
+                    )
+                )
+            plans = [bit.strip() for bit in str(row["plans"] or "").split(",") if bit.strip()]
+            plan_html = " ".join(_plan_badge(plan) for plan in sorted(plans, key=lambda plan: plan_order.get(plan, 99)))
+            out.append(
+                "<tr>"
+                f"<td><div class='cell-title mono'>{html.escape(_install_fingerprint(install_id))}</div><div class='cell-sub mono'>{html.escape(install_id[:12])}...</div></td>"
+                f"<td><div class='cell-title'>{int(row['schedule_calls'] or 0):,}</div><div class='cell-sub'>Schedule accesses</div></td>"
+                f"<td><div class='cell-title'>{int(row['radar_calls'] or 0):,}</div><div class='cell-sub'>Radar accesses</div></td>"
+                f"<td>{_install_lane_summary(install_id)}</td>"
+                f"<td>{plan_html or _badge('unknown', 'slate')}</td>"
+                f"<td><div class='cell-title'>{_badge('blocked', 'red') if blocked else _badge('active', 'green')}</div><div class='cell-sub'>{_fmt_ts(row.get('last_seen'))}</div></td>"
+                f"<td class='actions'>{''.join(action_bits)}</td>"
+                "</tr>"
+            )
+        return "".join(out)
+
+    def rows_for_recent() -> str:
+        if not recent:
+            return "<tr><td colspan='7' class='muted'>No requests yet</td></tr>"
+        out = []
+        for row in recent:
+            service = str(row.get("service") or "")
+            plan = str(row.get("plan") or "")
+            scope = str(row.get("mode") or "-").replace("_", " ")
+            out.append(
+                "<tr>"
+                f"<td><div class='cell-title'>{_fmt_age(row.get('ts'))}</div><div class='cell-sub'>{_fmt_ts(row.get('ts'))}</div></td>"
+                f"<td class='mono'>{html.escape(_install_fingerprint(str(row['install_id'] or '')))}</td>"
+                f"<td>{_service_badge(service)}</td>"
+                f"<td><div class='cell-title'>{html.escape(scope)}</div><div class='cell-sub'>{_plan_badge(plan)}</div></td>"
+                f"<td>{_http_badge(int(row.get('status') or 0))}</td>"
+                f"<td>{int(row.get('latency_ms') or 0)}ms</td>"
+                f"<td class='cell-sub mono'>{html.escape(service or '-')}</td>"
+                "</tr>"
+            )
+        return "".join(out)
+
+    token_notice = (
+        f"<div class='notice ok'><strong>Fresh token:</strong> <span class='mono'>{html.escape(created_token)}</span></div>"
+        if created_token
+        else ""
+    )
+    message_notice = f"<div class='notice'>{html.escape(message)}</div>" if message else ""
+    activation_open = " open" if pending_requests else ""
+
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Local Flight Network Admin</title>
+<style>
+  :root {{
+    --bg: #061019;
+    --panel: #0f1926;
+    --line: #223448;
+    --line-soft: #182737;
+    --text: #ecf4ff;
+    --muted: #91a7c0;
+    --soft: #6f849b;
+    --blue: #5ca8ff;
+    --cyan: #43d8e8;
+    --green: #2ad07f;
+    --amber: #ffbf59;
+    --red: #ff716d;
+    --shadow: 0 28px 80px rgba(0, 0, 0, 0.34);
+  }}
+  * {{ box-sizing: border-box; }}
+  body {{
+    margin: 0;
+    min-height: 100vh;
+    font-family: "Segoe UI Variable", "Aptos", "SF Pro Display", sans-serif;
+    background:
+      radial-gradient(circle at top left, rgba(67, 216, 232, 0.12), transparent 28%),
+      radial-gradient(circle at top right, rgba(92, 168, 255, 0.10), transparent 24%),
+      linear-gradient(180deg, #061019 0%, #0b1723 48%, #08111a 100%);
+    color: var(--text);
+    line-height: 1.45;
+  }}
+  .wrap {{ max-width: 1600px; margin: 0 auto; padding: 28px; }}
+  .hero {{
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 24px;
+    padding: 24px 26px;
+    margin-bottom: 16px;
+    border-radius: 22px;
+    border: 1px solid rgba(92, 168, 255, 0.22);
+    background:
+      linear-gradient(135deg, rgba(92, 168, 255, 0.16), rgba(15, 25, 38, 0.92) 42%),
+      linear-gradient(180deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0.01));
+    box-shadow: var(--shadow);
+  }}
+  .eyebrow {{
+    margin-bottom: 8px;
+    color: var(--cyan);
+    font-size: .78rem;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+  }}
+  h1 {{ margin: 0 0 8px; font-size: 2rem; line-height: 1.05; }}
+  .sub {{
+    max-width: 860px;
+    color: var(--muted);
+    font-size: .95rem;
+  }}
+  .hero-meta {{
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: flex-end;
+    align-content: flex-start;
+    min-width: 260px;
+  }}
+  .notice {{
+    margin: 0 0 14px;
+    padding: 12px 14px;
+    border-radius: 14px;
+    background: rgba(17, 29, 42, 0.92);
+    border: 1px solid var(--line);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.18);
+  }}
+  .notice.ok {{
+    border-color: rgba(42, 208, 127, 0.42);
+    background: rgba(10, 41, 26, 0.88);
+  }}
+  .grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 18px; }}
+  .metric {{
+    padding: 16px 18px;
+    border-radius: 18px;
+    border: 1px solid var(--line);
+    background: linear-gradient(180deg, rgba(19, 33, 49, 0.94), rgba(12, 22, 34, 0.96));
+    box-shadow: 0 18px 44px rgba(0, 0, 0, 0.18);
+  }}
+  .metric-label {{
+    color: var(--muted);
+    font-size: .74rem;
+    letter-spacing: .10em;
+    text-transform: uppercase;
+  }}
+  .metric-value {{
+    margin-top: 8px;
+    font-size: 1.9rem;
+    font-weight: 800;
+    line-height: 1;
+  }}
+  .metric-sub {{
+    margin-top: 6px;
+    color: var(--soft);
+    font-size: .82rem;
+  }}
+  .split {{ display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-bottom: 16px; }}
+  .card, .section {{
+    border-radius: 20px;
+    border: 1px solid var(--line);
+    background: linear-gradient(180deg, rgba(14, 25, 38, 0.96), rgba(10, 18, 29, 0.98));
+    box-shadow: 0 18px 48px rgba(0, 0, 0, 0.18);
+  }}
+  .card {{ padding: 18px 20px; }}
+  .stack {{ display: grid; gap: 16px; }}
+  .section-head {{
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 16px;
+    padding: 18px 20px 0;
+  }}
+  .section-head h2 {{
+    margin: 0 0 6px;
+    font-size: .9rem;
+    color: var(--text);
+    letter-spacing: .12em;
+    text-transform: uppercase;
+  }}
+  .section-copy {{
+    color: var(--muted);
+    font-size: .88rem;
+    max-width: 820px;
+  }}
+  .section-tools {{ padding: 0 20px 18px; color: var(--soft); font-size: .82rem; }}
+  .soft {{ color: var(--soft); }}
+  .muted {{ color: var(--soft); padding: 24px 14px; text-align: center; }}
+  .mono {{ font-family: "Cascadia Code", "SFMono-Regular", Consolas, monospace; }}
+  .tiny {{ font-size: .8rem; color: var(--muted); }}
+  .cell-title {{ font-weight: 700; }}
+  .cell-sub {{ margin-top: 3px; color: var(--soft); font-size: .8rem; }}
+  .badge {{
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 9px;
+    border-radius: 999px;
+    border: 1px solid transparent;
+    font-size: .74rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .08em;
+    white-space: nowrap;
+  }}
+  .badge-blue {{ color: #a7d3ff; background: rgba(92, 168, 255, 0.14); border-color: rgba(92, 168, 255, 0.25); }}
+  .badge-cyan {{ color: #b6f6ff; background: rgba(67, 216, 232, 0.14); border-color: rgba(67, 216, 232, 0.28); }}
+  .badge-green {{ color: #b9ffd9; background: rgba(42, 208, 127, 0.14); border-color: rgba(42, 208, 127, 0.26); }}
+  .badge-amber {{ color: #ffe3a7; background: rgba(255, 191, 89, 0.14); border-color: rgba(255, 191, 89, 0.28); }}
+  .badge-red {{ color: #ffd0cd; background: rgba(255, 113, 109, 0.14); border-color: rgba(255, 113, 109, 0.28); }}
+  .badge-slate {{ color: #d0dded; background: rgba(145, 167, 192, 0.12); border-color: rgba(145, 167, 192, 0.20); }}
+  .stat-list {{ display: grid; gap: 10px; }}
+  .stat-row {{
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--line-soft);
+    font-size: .92rem;
+  }}
+  .stat-row:last-child {{ border-bottom: 0; }}
+  .stat-row strong {{ color: var(--text); }}
+  .table-shell {{ padding: 0 20px 20px; overflow-x: auto; }}
+  table {{
+    width: 100%;
+    border-collapse: collapse;
+    font-size: .84rem;
+    background: rgba(8, 16, 25, 0.86);
+    border: 1px solid var(--line-soft);
+    border-radius: 16px;
+    overflow: hidden;
+  }}
+  th {{
+    text-align: left;
+    padding: 11px 12px;
+    background: rgba(15, 25, 38, 0.95);
+    border-bottom: 1px solid var(--line);
+    color: var(--muted);
+    font-size: .72rem;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+  }}
+  td {{
+    padding: 12px;
+    border-bottom: 1px solid var(--line-soft);
+    vertical-align: top;
+  }}
+  tr:last-child td {{ border-bottom: 0; }}
+  tr:hover td {{ background: rgba(92, 168, 255, 0.04); }}
+  .actions {{ min-width: 240px; }}
+  form {{ display: grid; gap: 10px; }}
+  .inline {{ display: inline-block; margin: 0 6px 6px 0; }}
+  .inline input {{ display: none; }}
+  label {{ font-size: .83rem; color: var(--muted); }}
+  input {{
+    width: 100%;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 11px 12px;
+    background: rgba(5, 11, 18, 0.92);
+    color: var(--text);
+    outline: none;
+  }}
+  input:focus {{ border-color: rgba(92, 168, 255, 0.45); box-shadow: 0 0 0 3px rgba(92, 168, 255, 0.12); }}
+  button {{
+    border: 0;
+    border-radius: 12px;
+    padding: 10px 13px;
+    font-weight: 800;
+    cursor: pointer;
+    background: var(--green);
+    color: #041108;
+  }}
+  button.red {{ background: var(--red); color: #220605; }}
+  button.amber {{ background: var(--amber); color: #261500; }}
+  button.slate {{ background: #223447; color: var(--text); }}
+  button.green {{ background: var(--green); color: #041108; }}
+  .meter {{
+    height: 8px;
+    border-radius: 999px;
+    background: rgba(145, 167, 192, 0.13);
+    overflow: hidden;
+    margin-bottom: 6px;
+  }}
+  .meter-fill {{ height: 100%; border-radius: inherit; }}
+  .meter-green {{ background: linear-gradient(90deg, rgba(42, 208, 127, 0.45), rgba(42, 208, 127, 0.92)); }}
+  .meter-amber {{ background: linear-gradient(90deg, rgba(255, 191, 89, 0.45), rgba(255, 191, 89, 0.92)); }}
+  .meter-red {{ background: linear-gradient(90deg, rgba(255, 113, 109, 0.45), rgba(255, 113, 109, 0.92)); }}
+  details.section {{ margin-bottom: 16px; overflow: hidden; }}
+  details.section > summary {{
+    list-style: none;
+    cursor: pointer;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 16px;
+    padding: 18px 20px;
+    font-weight: 700;
+  }}
+  details.section > summary::-webkit-details-marker {{ display: none; }}
+  details.section[open] > summary {{ border-bottom: 1px solid var(--line); }}
+  .summary-meta {{ color: var(--muted); font-size: .82rem; font-weight: 600; }}
+  @media (max-width: 1080px) {{
+    .split {{ grid-template-columns: 1fr; }}
+    .hero {{ flex-direction: column; }}
+    .hero-meta {{ justify-content: flex-start; min-width: 0; }}
+  }}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="hero">
+    <div>
+      <div class="eyebrow">Shared Schedule Relay</div>
+      <h1>Local Flight Community Relay Admin</h1>
+      <div class="sub">This surface is the operator view for shared airport snapshots, activation flow, managed exceptions, radar relay traffic, and upstream provider health. Community and managed installs share cached schedule windows here, while raw provider passthrough stays operator-only.</div>
+    </div>
+    <div class="hero-meta">
+      {_badge(f"Month {month}", "blue")}
+      {_badge(f"Revision {provider_revision}", "cyan")}
+      {_badge("Raw IP storage disabled", "slate")}
+      {_badge("Raw provider debug on" if _raw_provider_debug_enabled() else "Raw provider debug off", "amber" if _raw_provider_debug_enabled() else "slate")}
+      {_badge(f"Logged in as {username}", "green")}
+    </div>
+  </div>
+  {token_notice}
+  {message_notice}
+
+  <div class="grid">
+    <div class="metric"><div class="metric-label">Known installs</div><div class="metric-value">{int(total_installs or 0):,}</div><div class="metric-sub">Distinct installs with relay usage this month</div></div>
+    <div class="metric"><div class="metric-label">Active clients (24h)</div><div class="metric-value">{active_clients_24h:,}</div><div class="metric-sub">Installs that checked in with an airport lane today</div></div>
+    <div class="metric"><div class="metric-label">Active airport lanes</div><div class="metric-value">{active_lane_count:,}</div><div class="metric-sub">Distinct airport and board-window combinations active today</div></div>
+    <div class="metric"><div class="metric-label">Schedule accesses</div><div class="metric-value">{int(total_schedule or 0):,}</div><div class="metric-sub">Per-install relay schedule uses this month</div></div>
+    <div class="metric"><div class="metric-label">Upstream pulls</div><div class="metric-value">{int(total_schedule_upstream or 0):,}</div><div class="metric-sub">Actual AviationStack page pulls charged upstream</div></div>
+    <div class="metric"><div class="metric-label">Snapshot refreshes</div><div class="metric-value">{snapshot_refreshes:,}</div><div class="metric-sub">{snapshot_pool_count:,} cached windows | {snapshot_stale_count:,} currently stale</div></div>
+    <div class="metric"><div class="metric-label">Cache hit rate</div><div class="metric-value">{snapshot_hit_rate:.1f}%</div><div class="metric-sub">{snapshot_hits:,} cache hits | {snapshot_stale:,} stale serves</div></div>
+    <div class="metric"><div class="metric-label">Estimated savings</div><div class="metric-value">{snapshot_savings:,}</div><div class="metric-sub">Upstream refreshes avoided by sharing airport snapshots</div></div>
+    <div class="metric"><div class="metric-label">Radar accesses</div><div class="metric-value">{int(total_radar or 0):,}</div><div class="metric-sub">Relay radar uses this month</div></div>
+    <div class="metric"><div class="metric-label">Request errors (24h)</div><div class="metric-value">{int(totals_24h['errors'] or 0):,}</div><div class="metric-sub">{int(totals_24h['requests'] or 0):,} requests | {int(totals_24h['avg_latency'] or 0)}ms average latency</div></div>
+    <div class="metric"><div class="metric-label">Pending reviews</div><div class="metric-value">{int(pending_requests or 0):,}</div><div class="metric-sub">Activation requests waiting for a human decision</div></div>
+    <div class="metric"><div class="metric-label">Blocked installs</div><div class="metric-value">{int(blocked_count or 0):,}</div><div class="metric-sub">{snapshot_error_count:,} snapshot rows currently carry a last error note</div></div>
+  </div>
+
+  <div class="split">
+    <div class="card stack">
+      <div>
+        <div class="eyebrow">Provider State</div>
+        <h1 style="font-size:1.35rem;margin:0 0 8px;">Relay keys and shared behavior</h1>
+        <div class="section-copy">Managed and community clients do not receive vendor keys directly. The relay keeps provider credentials private, shares airport snapshots across installs, and only exposes Local Flight's canonical schedule records to clients.</div>
+      </div>
+      <div class="stat-list">
+        <div class="stat-row"><span>Provider revision</span><strong>{html.escape(str(provider_revision))}</strong></div>
+        <div class="stat-row"><span>AviationStack</span><strong>{html.escape(_mask_secret(aviationstack_key))} <span class="tiny">({html.escape(aviationstack_source)})</span></strong></div>
+        <div class="stat-row"><span>RapidAPI ADS-B</span><strong>{html.escape(_mask_secret(rapidapi_key))} <span class="tiny">({html.escape(rapidapi_source)})</span></strong></div>
+        <div class="stat-row"><span>Community schedule cap</span><strong>{_community_schedule_limit()} accesses / install / 30-day window</strong></div>
+        <div class="stat-row"><span>Managed defaults</span><strong>{_managed_schedule_limit()} schedule | {_managed_radar_limit()} radar</strong></div>
+        <div class="stat-row"><span>Snapshot pool</span><strong>{snapshot_pool_count:,} windows | {snapshot_refreshes:,} refreshes | {snapshot_stale:,} stale serves</strong></div>
+        <div class="stat-row"><span>Radar cache</span><strong>{_radar_cache_seconds()} seconds</strong></div>
+        <div class="stat-row"><span>Raw provider debug</span><strong>{'Enabled on admin/local only' if _raw_provider_debug_enabled() else 'Disabled'}</strong></div>
+        <div class="stat-row"><span>Activation privacy</span><strong>Anonymous network tags only | no raw IP storage</strong></div>
+      </div>
+      <form method="post" action="/admin/providers/save">
+        <label>AviationStack key
+          <input name="aviationstack_key" placeholder="Paste a replacement key to store in the relay" />
+        </label>
+        <label>RapidAPI ADS-B key
+          <input name="rapidapi_key" placeholder="Paste a replacement key to store in the relay" />
+        </label>
+        <button type="submit">Save provider keys</button>
+      </form>
+      <div>
+        {_post_form('/admin/providers/clear', {'provider': 'aviationstack'}, 'Clear AviationStack override', 'slate')}
+        {_post_form('/admin/providers/clear', {'provider': 'rapidapi'}, 'Clear RapidAPI override', 'slate')}
+      </div>
+    </div>
+
+    <div class="card stack">
+      <div>
+        <div class="eyebrow">Operator Controls</div>
+        <h1 style="font-size:1.35rem;margin:0 0 8px;">Managed tokens and relay counters</h1>
+        <div class="section-copy">Normal installs should keep auto-issuing through the setup flow. This panel exists for managed exceptions, manual quota corrections, reshuffles, revokes, and log resets when you need to intervene.</div>
+      </div>
+      <form method="post" action="/admin/activation/create">
+        <label>Label
+          <input name="label" placeholder="Client name or deployment note" />
+        </label>
+        <label>Schedule limit
+          <input name="schedule_limit" type="number" min="1" value="{_managed_schedule_limit()}" />
+        </label>
+        <label>Radar limit
+          <input name="radar_limit" type="number" min="1" value="{_managed_radar_limit()}" />
+        </label>
+        <button type="submit">Create activation token</button>
+      </form>
+      <div>
+        {_post_form('/admin/counters/reset', {'scope': 'all'}, 'Reset all monthly counters', 'amber')}
+        {_post_form('/admin/counters/reset', {'scope': 'service', 'service': 'aviationstack'}, 'Reset schedule counters', 'slate')}
+        {_post_form('/admin/counters/reset', {'scope': 'service', 'service': 'radar'}, 'Reset radar counters', 'slate')}
+        {_post_form('/admin/counters/reset', {'scope': 'logs'}, 'Clear network log', 'slate')}
+        <form method="post" action="/admin/counters/correct-schedule" style="margin-top:0.5rem;display:flex;gap:0.4rem;align-items:center">
+          <input name="total" type="number" min="0" value="{int(total_schedule or 0)}" style="width:9rem" title="Set known schedule total for this month (includes prior usage outside this relay)" />
+          <button type="submit">Correct schedule total</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <div class="split">
+    <section class="section">
+      <div class="section-head">
+        <div>
+          <h2>Monthly service counters</h2>
+          <div class="section-copy">This is the usage view that matters for product policy: per-install schedule accesses, shared upstream pulls, and radar relay traffic, all split by plan.</div>
+        </div>
+      </div>
+      <div class="table-shell">
+        <table>
+          <thead><tr><th>Service</th><th>Plan</th><th>Installs</th><th>Calls</th><th>Last seen</th></tr></thead>
+          <tbody>{rows_for_service_breakdown()}</tbody>
+        </table>
+      </div>
+    </section>
+    <section class="section">
+      <div class="section-head">
+        <div>
+          <h2>Transport health (24h)</h2>
+          <div class="section-copy">Recent network behavior across the relay. This is the quickest place to spot latency drift, quota failures, or a provider path getting noisy.</div>
+        </div>
+      </div>
+      <div class="table-shell">
+        <table>
+          <thead><tr><th>Service</th><th>Plan</th><th>Requests</th><th>Avg latency</th><th>Errors</th></tr></thead>
+          <tbody>{rows_for_network_breakdown()}</tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+
+  <div class="split">
+    <section class="section">
+      <div class="section-head">
+        <div>
+          <h2>Shared snapshot pool</h2>
+          <div class="section-copy">Every row below is one cached airport + timezone + board-window intent. If many installs watch the same lane, they should pile into one of these rows instead of generating duplicate AviationStack traffic.</div>
+        </div>
+        <div class="summary-meta">{snapshot_pool_count:,} cached windows</div>
+      </div>
+      <div class="table-shell">
+        <table>
+          <thead><tr><th>Airport window</th><th>Coverage</th><th>Shared use</th><th>State</th><th>Updated</th></tr></thead>
+          <tbody>{rows_for_snapshot_pool()}</tbody>
+        </table>
+      </div>
+    </section>
+    <section class="section">
+      <div class="section-head">
+        <div>
+          <h2>Live airport lanes (24h)</h2>
+          <div class="section-copy">This is the clean operator view of what clients are actually watching right now. It groups installs by airport lane, shows the cadence they requested, and tells you whether the shared schedule row behind that lane is fresh or drifting.</div>
+        </div>
+        <div class="summary-meta">{active_lane_count:,} grouped lanes</div>
+      </div>
+      <div class="table-shell">
+        <table>
+          <thead><tr><th>Airport</th><th>Watching installs</th><th>Window + cadence</th><th>Snapshot</th><th>Activity</th></tr></thead>
+          <tbody>{rows_for_live_lanes()}</tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+
+  <details class="section"{activation_open}>
+    <summary>
+      <span>Activation queue</span>
+      <span class="summary-meta">{pending_requests:,} pending review | {len(activation_requests):,} total rows</span>
+    </summary>
+    <div class="section-tools">Use this queue for manual review fallbacks, instant issue, dismissals, and clearing historic activation rows once they are no longer useful.</div>
+    <div class="table-shell">
+      <table>
+        <thead><tr><th>Install</th><th>Network tag</th><th>Request</th><th>Status</th><th>Decision note</th><th>Created</th><th>Actions</th></tr></thead>
+        <tbody>{rows_for_activation_requests()}</tbody>
+      </table>
+    </div>
+  </details>
+
+  <details class="section">
+    <summary>
+      <span>Managed tokens</span>
+      <span class="summary-meta">{len(tokens):,} tracked tokens</span>
+    </summary>
+    <div class="section-tools">Managed tokens are the exception lane. The meters below show this month's relay-facing schedule and radar usage against the limits stored on each token.</div>
+    <div class="table-shell">
+      <table>
+        <thead><tr><th>Token</th><th>Label</th><th>Schedule</th><th>Radar</th><th>Binding</th><th>Status</th><th>Actions</th></tr></thead>
+        <tbody>{rows_for_tokens()}</tbody>
+      </table>
+    </div>
+  </details>
+
+  <details class="section">
+    <summary>
+      <span>Install registry</span>
+      <span class="summary-meta">{len(installs):,} installs with monthly usage</span>
+    </summary>
+    <div class="section-tools">This registry is useful when you need to trace a specific install fingerprint, reset a single install's counters, or revoke access without touching the rest of the shared pool.</div>
+    <div class="table-shell">
+      <table>
+        <thead><tr><th>Install</th><th>Schedule</th><th>Radar</th><th>Current lane</th><th>Plans</th><th>Status</th><th>Actions</th></tr></thead>
+        <tbody>{rows_for_installs()}</tbody>
+      </table>
+    </div>
+  </details>
+
+  <details class="section">
+    <summary>
+      <span>Recent relay requests</span>
+      <span class="summary-meta">Last {len(recent):,} request log rows</span>
+    </summary>
+    <div class="section-tools">This is the rawer transport tail for the relay. It is useful when you want to eyeball status codes, shared schedule scope, or latency spikes without dropping into logs.</div>
+    <div class="table-shell">
+      <table>
+        <thead><tr><th>Time</th><th>Install</th><th>Service</th><th>Scope</th><th>Status</th><th>Latency</th><th>Wire id</th></tr></thead>
+        <tbody>{rows_for_recent()}</tbody>
+      </table>
+    </div>
+  </details>
 </div>
 </body>
 </html>"""
