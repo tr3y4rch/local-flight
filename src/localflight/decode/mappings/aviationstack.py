@@ -202,6 +202,7 @@ def aviationstack_to_raw_records(
             "destination_iata": arr.get("iata"),
             "destination_icao": arr.get("icao"),
             "aircraft_type": _pick(aircraft.get("icao"), aircraft.get("iata")),
+            "aircraft_registration": _pick(aircraft.get("registration"), aircraft.get("reg")),
             "gate": gate,
             "stand": stand,
             "terminal": terminal,

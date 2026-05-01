@@ -57,7 +57,7 @@ local-flight/
 │   │   │   ├── private_keys.py          # Dev-only community key lookup (dev/private/community_keys.json, gitignored)
 │   │   │   ├── relay_defaults.py        # Hosted relay URL + admin host constants
 │   │   │   ├── aviationstack_files.py   # Local file loading (canonical + legacy paths)
-│   │   │   └── bug_reporter.py          # Hardcoded developer reporter — powers /feedback
+│   │   │   └── bug_reporter.py          # Sanitized report forwarder — powers /feedback + crash reports via relay
 │   │   ├── adsb/
 │   │   │   └── adsb_client.py           # dump1090 client (RTL-SDR, Pi)
 │   │   └── matrix/
@@ -183,7 +183,7 @@ Linear issue filed (deduplicated per 6h via ~/.localflight/linear_dedup.json)
 ### Linear issue tracker
 Two separate integrations — do not confuse them:
 - **Operator auto-filing** (`sources/web/linear_client.py`): `file_error()` called from `scheduler/runtime.py` on every cycle error. Uses `LINEAR_API_KEY` / `LINEAR_TEAM_ID` env vars pointing at the operator's own Linear workspace. Optional, completely silent, deduplicates per 6h.
-- **User bug reporter** (`sources/web/bug_reporter.py`): hardcoded developer credentials for a dedicated "Local Flight Reports" workspace. Powers `/feedback`, `POST /api/feedback`, and `POST /api/feedback/crash`; accepts optional mobile `client_context`. Manual reports are always available. Automatic crash diagnostics are gated by `diagnostics_mode` (`manual` / `auto` / `auto_logs`) and only attach log tail data in `auto_logs`. Worst case if credentials are compromised: spam to an isolated inbox, easy to rotate.
+- **User/developer report gateway** (`sources/web/bug_reporter.py` + relay `POST /v1/reports`): local app sanitizes report payloads and forwards them to the hosted relay. The relay owns `LINEAR_REPORTER_API_KEY` plus per-platform team IDs as Fly secrets, applies rate limits/dedupe, then files into Linear. Manual reports are always available. Automatic crash diagnostics are gated by server `diagnostics_mode`; mobile auto-reporting additionally requires the mobile-local diagnostics choice.
 
 ### Version
 - Single source of truth: `version` field in `pyproject.toml`
@@ -233,7 +233,112 @@ RAPIDAPI_KEY=
 LOCALFLIGHT_RAPIDAPI_MONTHLY_LIMIT=10000
 ```
 
-Relay server env vars (relay/.env): `RELAY_ADMIN_PASSWORD`, `DB_PATH`, `RELAY_PUBLIC_HOST`, `RELAY_ADMIN_HOST`, `RELAY_COMMUNITY_SCHEDULE_LIMIT`, `RELAY_RADAR_MONTHLY_LIMIT`, `RELAY_MANAGED_SCHEDULE_LIMIT`, `RELAY_MANAGED_RADAR_LIMIT`, `RELAY_RADAR_CACHE_SECONDS`
+Relay server env vars (relay/.env): `RELAY_ADMIN_PASSWORD`, `DB_PATH`, `RELAY_PUBLIC_HOST`, `RELAY_ADMIN_HOST`, `RELAY_COMMUNITY_SCHEDULE_LIMIT`, `RELAY_RADAR_MONTHLY_LIMIT`, `RELAY_MANAGED_SCHEDULE_LIMIT`, `RELAY_MANAGED_RADAR_LIMIT`, `RELAY_RADAR_CACHE_SECONDS`, `LINEAR_REPORTER_API_KEY`, `LINEAR_TEAM_IOS_ID`, `LINEAR_TEAM_DESKTOP_ID`, `LINEAR_TEAM_SERVER_ID`, `LINEAR_TEAM_RELAY_ID`, `LINEAR_TEAM_DEFAULT_ID`
+
+---
+
+## Hosted relay deployment checklist
+
+Use this when moving back to the Windows dev machine and deploying the relay/reporting gateway directly.
+
+### One-time sanity checks
+- Work from a clean/current checkout of `https://github.com/tr3y4rch/local-flight`.
+- Confirm Fly CLI is installed and authenticated: `fly auth login`
+- Confirm the target app exists: `fly status -a localflight-community-relay`
+- Relay deploys from the `relay/` directory because `relay/fly.toml` and `relay/Dockerfile` are scoped there.
+- Do not put Linear secrets in `.env`, `fly.toml`, GitHub, desktop code, mobile code, or docs. They belong only in Fly secrets / dashboard env.
+
+### Deploy updated relay code
+
+```powershell
+cd relay
+fly deploy --remote-only
+cd ..
+```
+
+If Fly asks which app to use, choose `localflight-community-relay`. If in doubt, use the explicit form:
+
+```powershell
+cd relay
+fly deploy --remote-only -a localflight-community-relay
+cd ..
+```
+
+### Add/update Linear reporting secrets
+
+Set these in the Fly dashboard for `localflight-community-relay` or through the CLI. The dashboard path is: app → Secrets / Environment → add secret values → save → restart/redeploy machine if Fly does not do it automatically.
+
+Required report-gateway secrets:
+- `LINEAR_REPORTER_API_KEY`
+- `LINEAR_TEAM_IOS_ID`
+- `LINEAR_TEAM_DESKTOP_ID`
+- `LINEAR_TEAM_SERVER_ID`
+- `LINEAR_TEAM_RELAY_ID`
+- `LINEAR_TEAM_DEFAULT_ID`
+
+PowerShell CLI form:
+
+```powershell
+fly secrets set -a localflight-community-relay `
+  LINEAR_REPORTER_API_KEY="lin_api_key_here" `
+  LINEAR_TEAM_IOS_ID="ios_team_id_here" `
+  LINEAR_TEAM_DESKTOP_ID="desktop_team_id_here" `
+  LINEAR_TEAM_SERVER_ID="server_team_id_here" `
+  LINEAR_TEAM_RELAY_ID="relay_team_id_here" `
+  LINEAR_TEAM_DEFAULT_ID="default_team_id_here"
+```
+
+PowerShell line-continuation backticks must be the final character on the line; no trailing spaces after them. Confirm the secret names are present with:
+
+```powershell
+fly secrets list -a localflight-community-relay
+```
+
+Fly secrets are injected as runtime environment variables at machine boot. `fly secrets set` normally restarts/updates Machines; if secrets were staged or added via dashboard without a restart, redeploy from the relay folder:
+
+```powershell
+cd relay
+fly deploy --remote-only -a localflight-community-relay
+cd ..
+```
+
+### Verify relay health
+
+```powershell
+curl.exe -I --max-time 20 https://localflight-community-relay.fly.dev/health
+```
+
+Expected: HTTP `200`.
+
+Optional synthetic report smoke test after secrets are live:
+
+```powershell
+$body = @{
+  report_type = "manual"
+  origin = "desktop"
+  install_id = "00000000-0000-4000-8000-000000000001"
+  install_fingerprint = "11e594f48195"
+  title = "Relay smoke test"
+  description = "Safe test from deployment checklist"
+  app_version = "0.2.5b1"
+  platform = "Windows"
+  diagnostics_mode = "manual"
+} | ConvertTo-Json
+
+Invoke-RestMethod `
+  -Method Post `
+  -Uri "https://localflight-community-relay.fly.dev/v1/reports" `
+  -ContentType "application/json" `
+  -Body $body
+```
+
+Expected success shape: `{ ok: true, team: "desktop", deduped: false }`. Re-running the same test within 30 minutes should return `deduped: true` and should not create another Linear issue.
+
+### After successful report test
+- Rotate/revoke the old Linear key that was previously embedded in shipped code.
+- Submit one real desktop `/feedback` report from the local app and confirm it lands in the Desktop Linear team.
+- Trigger or simulate one diagnostics-gated crash only after confirming diagnostics mode is `auto` or `auto_logs`.
+- Keep `sources/web/linear_client.py` unchanged for optional operator-owned `LINEAR_API_KEY` / `LINEAR_TEAM_ID`; it is separate from developer/user reporting.
 
 ---
 
@@ -276,8 +381,8 @@ Config lives at `~/.localflight/config.json`
 | `GET /api/admin/updates` | GitHub release update check (1h cache) |
 | `GET /api/admin/scheduler` | Scheduler thread status |
 | `POST /api/admin/scheduler/restart` | Stop sleeping scheduler loop, reload config/env, start fresh cycle, broadcast `scheduler_restarted` |
-| `POST /api/feedback` | Submit manual bug report `{title, description, client_context}` — routes to developer's Linear |
-| `POST /api/feedback/crash` | Automatic mobile/server crash route; blocked unless `diagnostics_mode` allows it |
+| `POST /api/feedback` | Submit manual bug report `{title, description, client_context}` — sanitizes locally, then forwards to relay `/v1/reports` |
+| `POST /api/feedback/crash` | Automatic mobile/server crash route; blocked unless diagnostics settings allow it |
 | `POST /api/admin/ping` | Device ping (matrix client) |
 | `POST /api/setup/complete` | Save setup, write .env, mark complete |
 | `POST /api/setup/reset` | Delete setup_complete marker → re-run wizard |
@@ -378,8 +483,13 @@ npm run ios
 - Settings now split install/relay state, flight setup, app controls, and diagnostics/resources into clearer sections; the community relay card now reports active relay usage truthfully, and the docs buttons open bundled local files through `/docs/readme`, `/docs/privacy`, and `/docs/changelog`.
 - macOS packaging is confirmed on this workspace: `python build.py --clean` produced `dist/LocalFlight.app`, `dist/LocalFlight-macos.zip`, and `dist/LocalFlight-macos.zip.sha256`, and the packaged app includes bundled README/privacy/changelog files plus the local doc viewer template.
 - Mobile companion is now mid-`0.2.5-b2` pass on this workspace: independent mobile appearance, server-backed Matrix runtime editor, landscape split display, responsive radar, and pinch zoom are implemented in code.
-- Mobile companion polish pass is in progress on top of that: main nav is now FIDS/Radar/Settings only, History/Matrix/Admin/Docs are Settings-launched tools, the pinned-flight island is compact and theme-aware, Settings is sectioned, docs read inside the app, airport/profile saves request a scheduler restart, and flight details expose richer route/source/position fields.
+- Mobile companion polish pass is in progress on top of that: main nav is now FIDS/Radar/Settings only, History/Matrix/Admin/Docs are Settings-launched tools, the pinned-flight island is compact and theme-aware, Settings is sectioned, docs read inside the app, airport/profile saves request a scheduler restart, and flight details consume the expanded `/api/fids/detail` contract.
 - Desktop flight-detail enrichment pass started first: `/api/fids/detail` now returns richer stored snapshot metadata for live track/source coverage without new external calls, and the desktop FIDS drawer renders operations/aircraft, source confidence/freshness, and position fields more clearly.
+- VATSIM detail completeness pass keeps useful filed-plan fields in canonical snapshots: flight rules, planned route, cruise altitude/TAS, planned departure/arrival, enroute time, alternate, and assigned transponder. Intentionally does not store pilot names/CIDs.
+- Desktop FIDS detail drawer now has real vs virtual modes: real flights show airport operations/aircraft/source freshness, while VATSIM flights show virtual flight plan/network/pilot track labels and suppress real-world-only emphasis.
+- Mobile detail communication stays server-mediated: the companion calls `/api/fids/detail` and does not call AviationStack, ADS-B Exchange, RapidAPI, or the hosted relay endpoints directly.
+- Mobile automatic diagnostics now includes critical detail communication failures (`5xx` or malformed JSON) through diagnostics-gated `/api/feedback/crash`; feature-specific reports keep companion identity, app version, device type, and server URL in the client context. Mobile also has its own SecureStore diagnostics choice, so auto-reporting requires both mobile and server consent.
+- Linear developer reporting now goes through relay `POST /v1/reports`; no developer Linear API key/team ID is shipped in the packaged desktop or companion app. Relay secrets required: `LINEAR_REPORTER_API_KEY`, `LINEAR_TEAM_IOS_ID`, `LINEAR_TEAM_DESKTOP_ID`, `LINEAR_TEAM_SERVER_ID`, `LINEAR_TEAM_RELAY_ID`, and `LINEAR_TEAM_DEFAULT_ID`.
 - Mobile structure refactor is complete enough for handoff: `App.tsx` is a provider entrypoint, `src/app/AppShell.tsx` coordinates state/refresh, pure helpers live in `src/domain/`, stateful behavior in `src/hooks/`, and screens/sheets in `src/screens/AppScreens.tsx`.
 - Mobile validation: `npm run typecheck` passes; `npm run doctor` is 17/18 after adding `expo-font` and updating Expo to `~55.0.19`. Remaining doctor failure is environment-only: Expo SDK 55 reports Xcode `16.3.0` incompatible and requires Xcode `>=26.0.0`.
 - Mobile resume on Mac/Xcode: resolve the Xcode/Expo SDK compatibility issue first, then run `npm run doctor` and `npm run ios`. Expo Go may reject SDK 55 depending on installed Expo Go; simulator/dev build is the safer path.
@@ -400,6 +510,9 @@ npm run ios
 - ✅ Mobile companion structure refactor split the former single-file app into provider entrypoint, `AppShell`, domain helpers, state hooks, extracted chrome components, and `AppScreens`. `npm run typecheck` passes; `npm run doctor` is blocked only by local Xcode compatibility.
 - ✅ Mobile companion UX polish: longer animated launch overlay, simplified main nav, sectioned Settings, in-app Markdown docs, compact theme-aware pinned-flight island with pin/unpin, richer detail sheet fields, explicit scheduler restart after mobile airport/profile changes, smoother screen transitions, and safer landscape split sizing.
 - ✅ Desktop flight detail now exposes and renders richer stored enrichment data: source/enrichment confidence, snapshot age, last contact, geometric/barometric altitude, ICAO24, squawk, coordinates, speed, heading, vertical rate, and surface state. No new RapidAPI/OpenSky/VATSIM calls were added.
+- ✅ Detail data model now preserves DAU-important aircraft/plan fields without overdoing it: aircraft registration for ADS-B/AviationStack when available, plus VATSIM filed flight rules, route, cruise altitude/TAS, planned times, enroute duration, alternate, and transponder.
+- ✅ `/api/fids/detail` includes `detail_mode` (`real` / `virtual`) plus origin/destination ICAO codes, allowing desktop and companion to render source-specific detail layouts.
+- ✅ Mobile detail sheet is aligned with the new server detail contract and guarded auto-reporting now catches critical detail endpoint failures without reporting normal offline/4xx cases.
 
 ## What was done in session v0.2.3b2
 
@@ -435,7 +548,7 @@ npm run ios
 
 - ✅ `start.bat` — fixed UTF-8 box-drawing chars in `::` comments causing cmd.exe byte-eating bug on `chcp 65001`; replaced all 7 comment lines with ASCII; added error pause
 - ✅ `linear_client.py` — added `test_connection()` with real GraphQL `viewer` query to validate key (not just env var presence); returns specific 401 message
-- ✅ `bug_reporter.py` — new hardcoded developer reporter (`sources/web/bug_reporter.py`); dedicated "Local Flight Reports" Linear workspace; `_system_context()` auto-attaches version/platform/airport
+- ✅ `bug_reporter.py` — originally added as the local feedback reporter; current implementation sanitizes locally and forwards developer/user reports through relay `/v1/reports`
 - ✅ `feedback.html` — new `/feedback` page with title+description form, system info preview, success/error state
 - ✅ `/api/feedback` endpoint — `POST`, `FeedbackIn` Pydantic model, calls `bug_reporter.submit_report()`
 - ✅ `/feedback` route in `server.py`

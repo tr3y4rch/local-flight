@@ -1,6 +1,6 @@
 import { getConfig, normalizeServerUrl, submitCrashReport } from "../api/client";
 import { getCompanionIdentity } from "../device/identity";
-import { loadServerUrl } from "../storage/settings";
+import { loadMobileDiagnosticsMode, loadServerUrl } from "../storage/settings";
 
 type ErrorUtilsHandler = (error: Error, isFatal?: boolean) => void;
 
@@ -41,52 +41,52 @@ function shouldSkipRecent(fp: string): boolean {
   return false;
 }
 
-async function postCrash(input: CrashInput): Promise<void> {
-  const serverUrl = normalizeServerUrl(await loadServerUrl());
-  if (!serverUrl) return;
-
-  const fp = fingerprint(input);
-  if (shouldSkipRecent(fp)) return;
-
-  try {
-    const cfg = await getConfig(serverUrl);
-    const diagnosticsMode = String(cfg.diagnostics_mode || "unset").trim().toLowerCase();
-    if (!(diagnosticsMode === "auto" || diagnosticsMode === "auto_logs")) {
-      return;
-    }
-
-    const identity = await getCompanionIdentity();
-    await submitCrashReport(serverUrl, {
-      ...input,
-      client_context:
-        input.client_context ||
-        [
-          `Reporter      ${identity.clientName}`,
-          `Companion ID  ${identity.companionId}`,
-          `App version   ${identity.appVersion}`,
-          `Companion OS  ${identity.mobileOs}`,
-          `Server URL    ${serverUrl}`
-        ].join("\n")
-    });
-  } catch {
-    // Crash reporting is always best-effort on the mobile side.
-  }
+async function mobileCrashContext(serverUrl: string, mobileDiagnosticsMode: string, extraContext = ""): Promise<string> {
+  const identity = await getCompanionIdentity();
+  const base = [
+    `Reporter      ${identity.clientName}`,
+    `Companion ID  ${identity.companionId}`,
+    `App version   ${identity.appVersion}`,
+    `Companion OS  ${identity.mobileOs}`,
+    `Device type   ${identity.deviceType}`,
+    `Mobile diag   ${mobileDiagnosticsMode}`,
+    `Server URL    ${serverUrl}`
+  ].join("\n");
+  return extraContext.trim() ? `${base}\n\n${extraContext.trim()}` : base;
 }
 
-export async function reportMobileCrash(input: CrashInput): Promise<boolean> {
-  const serverUrl = normalizeServerUrl(await loadServerUrl());
-  if (!serverUrl) return false;
+async function postCrash(input: CrashInput): Promise<boolean> {
   try {
+    const serverUrl = normalizeServerUrl(await loadServerUrl());
+    if (!serverUrl) return false;
+
+    const fp = fingerprint(input);
+    if (shouldSkipRecent(fp)) return false;
+
+    const mobileDiagnosticsMode = await loadMobileDiagnosticsMode();
+    if (!(mobileDiagnosticsMode === "auto" || mobileDiagnosticsMode === "auto_logs")) {
+      return false;
+    }
+
     const cfg = await getConfig(serverUrl);
     const diagnosticsMode = String(cfg.diagnostics_mode || "unset").trim().toLowerCase();
     if (!(diagnosticsMode === "auto" || diagnosticsMode === "auto_logs")) {
       return false;
     }
+
+    await submitCrashReport(serverUrl, {
+      ...input,
+      client_context: await mobileCrashContext(serverUrl, mobileDiagnosticsMode, input.client_context)
+    });
+    return true;
   } catch {
+    // Crash reporting is always best-effort on the mobile side.
     return false;
   }
-  await postCrash(input);
-  return true;
+}
+
+export async function reportMobileCrash(input: CrashInput): Promise<boolean> {
+  return postCrash(input);
 }
 
 export function installGlobalCrashReporter(): void {

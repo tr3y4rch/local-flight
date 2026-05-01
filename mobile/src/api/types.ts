@@ -161,10 +161,37 @@ export type FlightPosition = {
   lat?: number | null;
   lon?: number | null;
   altitude_m?: number | null;
+  altitude_baro_m?: number | null;
+  altitude_geo_m?: number | null;
   speed_ms?: number | null;
   heading?: number | null;
   on_ground?: boolean | null;
   vertical_rate?: number | null;
+  icao24?: string | null;
+  squawk?: string | null;
+  last_contact?: string | null;
+};
+
+export type FlightDetailSources = {
+  schedule?: string | null;
+  enrichment?: string | null;
+  confidence?: "live_position_matched" | "position_from_snapshot" | "schedule_only" | "missing" | string | null;
+  snapshot_generated_at?: string | null;
+  snapshot_age_seconds?: number | null;
+  position_last_contact?: string | null;
+  position_age_seconds?: number | null;
+};
+
+export type FlightPlanDetail = {
+  flight_rules?: string | null;
+  route?: string | null;
+  cruise_altitude?: string | null;
+  planned_departure?: string | null;
+  planned_arrival?: string | null;
+  enroute_minutes?: number | null;
+  cruise_tas?: number | null;
+  alternate_icao?: string | null;
+  assigned_transponder?: string | null;
 };
 
 export type FidsRow = {
@@ -186,8 +213,10 @@ export type FlightDetail = {
   airline?: string | null;
   airline_iata?: string | null;
   origin_iata?: string | null;
+  origin_icao?: string | null;
   origin_name?: string | null;
   dest_iata?: string | null;
+  dest_icao?: string | null;
   dest_name?: string | null;
   sched_time?: string | null;
   est_time?: string | null;
@@ -196,10 +225,15 @@ export type FlightDetail = {
   gate?: string | null;
   terminal?: string | null;
   aircraft_type?: string | null;
+  aircraft_registration?: string | null;
   direction?: string | null;
   status?: string | null;
   source?: string | null;
   enriched_by?: string | null;
+  updated_at?: string | null;
+  detail_mode?: "real" | "virtual" | string | null;
+  data_sources?: FlightDetailSources | null;
+  flight_plan?: FlightPlanDetail | null;
   position?: FlightPosition | null;
 };
 

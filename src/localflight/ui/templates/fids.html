@@ -327,6 +327,17 @@
     white-space: nowrap;
   }
   .fd-source-sub { margin-top: 3px; font-size: 0.66rem; opacity: 0.45; }
+  .fd-plan-route {
+    display: block; margin-top: 6px; padding: 9px 10px;
+    border-radius: 9px; background: rgba(255,255,255,0.035);
+    border: 1px solid rgba(255,255,255,0.055);
+    font-family: ui-monospace, monospace; font-size: 0.72rem; line-height: 1.45;
+    white-space: normal; word-break: break-word;
+  }
+  [data-theme="light"] .fd-plan-route {
+    background: rgba(0,0,0,0.025);
+    border-color: rgba(0,0,0,0.055);
+  }
 
   .fd-times-grid {
     display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px;
@@ -490,15 +501,19 @@
         <div id="fdDelay"></div>
       </div>
       <div class="fd-section">
-        <div class="fd-section-label">Operations & Aircraft</div>
+        <div class="fd-section-label" id="fdOpsLabel">Operations & Aircraft</div>
         <div id="fdOps"></div>
       </div>
+      <div class="fd-section" id="fdPlanSection" style="display:none">
+        <div class="fd-section-label">Virtual Flight Plan</div>
+        <div id="fdPlan"></div>
+      </div>
       <div class="fd-section" id="fdDataSection">
-        <div class="fd-section-label">Data Sources</div>
+        <div class="fd-section-label" id="fdDataLabel">Data Sources</div>
         <div id="fdData"></div>
       </div>
       <div class="fd-section" id="fdPosSection" style="display:none">
-        <div class="fd-section-label">Live Track</div>
+        <div class="fd-section-label" id="fdPosLabel">Live Track</div>
         <div id="fdPos"></div>
       </div>
       <div class="fd-section">
@@ -665,8 +680,29 @@ async function refreshFIDS() {
       `<span class="fd-val ${empty ? "fd-val-dim" : ""} ${cls}">${esc(empty ? "—" : value)}</span></div>`;
   }
 
+  function fmtPlanTime(iso) {
+    if (!iso) return "—";
+    try { return new Date(iso).toISOString().slice(11, 16) + "Z"; } catch { return "—"; }
+  }
+
+  function fmtEnroute(minutes) {
+    if (typeof minutes !== "number") return "—";
+    const h = Math.floor(minutes / 60);
+    const m = minutes % 60;
+    return h ? `${h}h ${String(m).padStart(2, "0")}m` : `${m}m`;
+  }
+
+  function isVirtualDetail(d) {
+    const src = String(d.detail_mode || d.source || d.data_sources?.schedule || "").toLowerCase();
+    return src === "virtual" || src.includes("vatsim");
+  }
+
   function renderDetail({ detail, history }) {
     const d = detail || {};
+    const virtual = isVirtualDetail(d);
+    document.getElementById("fdOpsLabel").textContent = virtual ? "Virtual Flight" : "Operations & Aircraft";
+    document.getElementById("fdDataLabel").textContent = virtual ? "VATSIM Data" : "Data Sources";
+    document.getElementById("fdPosLabel").textContent = virtual ? "Pilot Track" : "Live Track";
 
     // Header
     document.getElementById("fdFlightNum").textContent =
@@ -721,31 +757,81 @@ async function refreshFIDS() {
 
     // Operations
     const opsEl = document.getElementById("fdOps");
-    const rows = [
-      ["Gate",     d.gate     || "—"],
-      ["Terminal", d.terminal || "—"],
-      ["Aircraft", d.aircraft_type || "—"],
-      ["Callsign", d.callsign || "—"],
-      ["Airline",  d.airline_iata || d.airline || "—"],
-    ];
+    const rows = virtual
+      ? [
+          ["Callsign", d.callsign || "—"],
+          ["Aircraft", d.aircraft_type || "—"],
+          ["Rules", d.flight_plan?.flight_rules || "—"],
+          ["From", d.origin_icao || d.origin_iata || "—"],
+          ["To", d.dest_icao || d.dest_iata || "—"],
+          ["Status", d.status || "—"],
+        ]
+      : [
+          ["Gate",     d.gate     || "—"],
+          ["Terminal", d.terminal || "—"],
+          ["Aircraft", d.aircraft_type || "—"],
+          ["Reg",      d.aircraft_registration || "—"],
+          ["Callsign", d.callsign || "—"],
+          ["Airline",  d.airline_iata || d.airline || "—"],
+        ];
     opsEl.innerHTML = rows.map(([lbl, val]) => rowHtml(lbl, val)).join("");
+
+    // VATSIM/virtual plan fields. Hidden for schedule-only real flights.
+    const plan = d.flight_plan || {};
+    const hasPlan = Boolean(
+      plan.flight_rules || plan.route || plan.cruise_altitude || plan.enroute_minutes ||
+      plan.cruise_tas || plan.alternate_icao || plan.assigned_transponder
+    );
+    const planSection = document.getElementById("fdPlanSection");
+    const planEl = document.getElementById("fdPlan");
+    if (hasPlan) {
+      planSection.style.display = "";
+      const planRows = [
+        ["Rules", plan.flight_rules || "—"],
+        ["Cruise", plan.cruise_altitude || "—"],
+        ["TAS", plan.cruise_tas ? `${plan.cruise_tas} kt` : "—"],
+        ["Dep", fmtPlanTime(plan.planned_departure)],
+        ["Arr", fmtPlanTime(plan.planned_arrival)],
+        ["Enroute", fmtEnroute(plan.enroute_minutes)],
+        ["Alternate", plan.alternate_icao || "—"],
+        ["XPDR", plan.assigned_transponder || "—"],
+      ];
+      planEl.innerHTML = planRows.map(([lbl, val]) => rowHtml(lbl, val)).join("") +
+        (plan.route ? `<div class="fd-plan-route">${esc(plan.route)}</div>` : "");
+    } else {
+      planSection.style.display = "none";
+      planEl.innerHTML = "";
+    }
 
     // Data source coverage
     const data = d.data_sources || {};
     const dataEl = document.getElementById("fdData");
     const confidence = sourceLabel(data.confidence || (d.position ? "position_from_snapshot" : "schedule_only"));
-    dataEl.innerHTML = `<div class="fd-source-grid">
-      <div class="fd-source-card">
-        <div class="fd-source-label">Schedule</div>
-        <div class="fd-source-value">${esc(sourceLabel(data.schedule || d.source))}</div>
-        <div class="fd-source-sub">snapshot ${esc(ageLabel(data.snapshot_age_seconds))}</div>
-      </div>
-      <div class="fd-source-card">
-        <div class="fd-source-label">Live track</div>
-        <div class="fd-source-value">${esc(sourceLabel(data.enrichment || d.enriched_by))}</div>
-        <div class="fd-source-sub">${esc(confidence)}</div>
-      </div>
-    </div>`;
+    dataEl.innerHTML = virtual
+      ? `<div class="fd-source-grid">
+        <div class="fd-source-card">
+          <div class="fd-source-label">Network</div>
+          <div class="fd-source-value">VATSIM</div>
+          <div class="fd-source-sub">snapshot ${esc(ageLabel(data.snapshot_age_seconds))}</div>
+        </div>
+        <div class="fd-source-card">
+          <div class="fd-source-label">Track</div>
+          <div class="fd-source-value">${esc(sourceLabel(data.enrichment || d.enriched_by || "vatsim position"))}</div>
+          <div class="fd-source-sub">${esc(confidence)}</div>
+        </div>
+      </div>`
+      : `<div class="fd-source-grid">
+        <div class="fd-source-card">
+          <div class="fd-source-label">Schedule</div>
+          <div class="fd-source-value">${esc(sourceLabel(data.schedule || d.source))}</div>
+          <div class="fd-source-sub">snapshot ${esc(ageLabel(data.snapshot_age_seconds))}</div>
+        </div>
+        <div class="fd-source-card">
+          <div class="fd-source-label">Live track</div>
+          <div class="fd-source-value">${esc(sourceLabel(data.enrichment || d.enriched_by))}</div>
+          <div class="fd-source-sub">${esc(confidence)}</div>
+        </div>
+      </div>`;
 
     // Position
     const posSection = document.getElementById("fdPosSection");
@@ -768,12 +854,15 @@ async function refreshFIDS() {
         ["Altitude", altFt],
         ["Speed",    spdKt],
         ["Heading",  hdg],
-        ["Vert rate", vr],
         ["Surface",   ground],
-        ["ICAO24",    pos.icao24 || "—"],
-        ["Squawk",    pos.squawk || "—"],
         ["Contact",   contact],
       ];
+      if (virtual) {
+        posRows.splice(4, 0, ["XPDR", plan.assigned_transponder || pos.squawk || "—"]);
+      } else {
+        posRows.splice(4, 0, ["Vert rate", vr]);
+        posRows.splice(6, 0, ["ICAO24", pos.icao24 || "—"], ["Squawk", pos.squawk || "—"]);
+      }
       posEl.innerHTML = posRows.map(([lbl, val]) => rowHtml(lbl, val)).join("");
     } else {
       posSection.style.display = "none";
@@ -814,6 +903,8 @@ async function refreshFIDS() {
     document.getElementById("fdTimes").innerHTML   = shimmer("100%");
     document.getElementById("fdDelay").innerHTML   = "";
     document.getElementById("fdOps").innerHTML     = shimmer("100%");
+    document.getElementById("fdPlan").innerHTML    = "";
+    document.getElementById("fdPlanSection").style.display = "none";
     document.getElementById("fdData").innerHTML    = shimmer("100%");
     document.getElementById("fdHistory").innerHTML = shimmer("100%");
     document.getElementById("fdPosSection").style.display = "none";

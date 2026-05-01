@@ -2,10 +2,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Animated,
   Linking,
+  Modal,
+  Pressable,
   RefreshControl,
   ScrollView,
   StatusBar,
   StyleSheet,
+  Text,
   View
 } from "react-native";
 import * as SplashScreen from "expo-splash-screen";
@@ -69,7 +72,14 @@ import type {
 import { useFlightDetail } from "../hooks/useFlightDetail";
 import { type LaunchHydration, useLaunchOverlay } from "../hooks/useLaunchOverlay";
 import { useMatrixCompanion } from "../hooks/useMatrixCompanion";
-import { type ConfigProfile, savePinnedFlight, saveServerUrl } from "../storage/settings";
+import {
+  loadMobileDiagnosticsMode,
+  type ConfigProfile,
+  type MobileDiagnosticsMode,
+  saveMobileDiagnosticsMode,
+  savePinnedFlight,
+  saveServerUrl
+} from "../storage/settings";
 import { useMobileTheme } from "../theme/runtime";
 import { setStyleBridge } from "../theme/styleBridge";
 import {
@@ -125,6 +135,8 @@ export function AppShell() {
   const [configSheetVisible, setConfigSheetVisible] = useState(false);
   const [profiles, setProfiles] = useState<ConfigProfile[]>([]);
   const [companionIdentity, setCompanionIdentity] = useState<CompanionIdentity | null>(null);
+  const [mobileDiagnosticsMode, setMobileDiagnosticsMode] = useState<MobileDiagnosticsMode>("unset");
+  const [mobileDiagnosticsLoaded, setMobileDiagnosticsLoaded] = useState(false);
 
   const socketRef = useRef<WebSocket | null>(null);
   const screenOpacity = useRef(new Animated.Value(1)).current;
@@ -158,6 +170,24 @@ export function AppShell() {
 
   useEffect(() => {
     installGlobalCrashReporter();
+  }, []);
+
+  useEffect(() => {
+    let alive = true;
+    loadMobileDiagnosticsMode()
+      .then((mode) => {
+        if (alive) {
+          setMobileDiagnosticsMode(mode);
+        }
+      })
+      .finally(() => {
+        if (alive) {
+          setMobileDiagnosticsLoaded(true);
+        }
+      });
+    return () => {
+      alive = false;
+    };
   }, []);
 
   if (palette.key !== appearance.key) {
@@ -211,6 +241,13 @@ export function AppShell() {
     []
   );
   const launch = useLaunchOverlay(onLaunchHydrated);
+  const shouldShowMobileDiagnosticsPrompt =
+    mobileDiagnosticsLoaded && connected && mobileDiagnosticsMode === "unset" && !launch.visible;
+
+  const chooseMobileDiagnosticsMode = useCallback(async (mode: MobileDiagnosticsMode) => {
+    await saveMobileDiagnosticsMode(mode);
+    setMobileDiagnosticsMode(mode);
+  }, []);
 
   const fetchDashboard = useCallback(async (normalized: string) => {
     const [state, config, system, connections, updates, budget] = await Promise.all([
@@ -766,12 +803,14 @@ export function AppShell() {
                   isLandscape={layout.isLandscape}
                   themeMode={themeMode}
                   skin={skin}
+                  mobileDiagnosticsMode={mobileDiagnosticsMode}
                   outputs={snapshot.config?.display_outputs || []}
                   refreshSeconds={snapshot.config?.refresh_seconds ?? null}
                   schedulerRestarting={schedulerRestarting}
                   schedulerMessage={schedulerMessage}
                   onThemeModeChange={setThemeMode}
                   onSkinChange={setSkin}
+                  onMobileDiagnosticsModeChange={chooseMobileDiagnosticsMode}
                   onOpenHistory={() => setScreen("history")}
                   onOpenAdmin={() => setScreen("admin")}
                   onOpenMatrix={() => setScreen("matrix")}
@@ -831,6 +870,32 @@ export function AppShell() {
         }}
         onProfilesChange={setProfiles}
       />
+
+      <Modal visible={shouldShowMobileDiagnosticsPrompt} transparent animationType="fade">
+        <View style={styles.diagnosticsBackdrop}>
+          <View style={styles.diagnosticsCard}>
+            <Text style={styles.diagnosticsEyebrow}>COMPANION DIAGNOSTICS</Text>
+            <Text style={styles.diagnosticsTitle}>Choose iOS crash reporting</Text>
+            <Text style={styles.diagnosticsBody}>
+              Manual reports are always available. Automatic companion reports only send when both this device and the connected Local Flight server allow diagnostics.
+            </Text>
+            <View style={styles.diagnosticsOptionStack}>
+              <Pressable style={styles.diagnosticsOption} onPress={() => void chooseMobileDiagnosticsMode("manual")}>
+                <Text style={styles.diagnosticsOptionTitle}>MANUAL ONLY</Text>
+                <Text style={styles.diagnosticsOptionBody}>No background companion reports. Send feedback yourself from Admin.</Text>
+              </Pressable>
+              <Pressable style={styles.diagnosticsOption} onPress={() => void chooseMobileDiagnosticsMode("auto")}>
+                <Text style={styles.diagnosticsOptionTitle}>AUTO CRASH REPORTS</Text>
+                <Text style={styles.diagnosticsOptionBody}>Send serious React/JS companion crashes with device, app, and server context.</Text>
+              </Pressable>
+              <Pressable style={styles.diagnosticsOption} onPress={() => void chooseMobileDiagnosticsMode("auto_logs")}>
+                <Text style={styles.diagnosticsOptionTitle}>AUTO + CONTEXT</Text>
+                <Text style={styles.diagnosticsOptionBody}>Same as auto for now; no native iOS logs are collected in this pass.</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       <LaunchOverlay
         visible={launch.visible}
@@ -2839,6 +2904,69 @@ function createStyles() {
     fontSize: 11,
     fontWeight: "700",
     letterSpacing: 0.8
+  },
+  diagnosticsBackdrop: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 22,
+    backgroundColor: "rgba(0,0,0,0.62)"
+  },
+  diagnosticsCard: {
+    width: "100%",
+    maxWidth: 430,
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: accent20,
+    backgroundColor: palette.rowAlt,
+    padding: 20,
+    shadowColor: "#000",
+    shadowOpacity: 0.35,
+    shadowRadius: 22,
+    shadowOffset: { width: 0, height: 14 }
+  },
+  diagnosticsEyebrow: {
+    fontFamily: mono,
+    color: palette.green,
+    fontSize: 10,
+    fontWeight: "800",
+    letterSpacing: 1.2
+  },
+  diagnosticsTitle: {
+    marginTop: 8,
+    color: palette.text,
+    fontSize: 21,
+    fontWeight: "800"
+  },
+  diagnosticsBody: {
+    marginTop: 10,
+    color: palette.textMuted,
+    fontSize: 13,
+    lineHeight: 19
+  },
+  diagnosticsOptionStack: {
+    gap: 10,
+    marginTop: 16
+  },
+  diagnosticsOption: {
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: accent18,
+    backgroundColor: accent06,
+    padding: 13
+  },
+  diagnosticsOptionTitle: {
+    fontFamily: mono,
+    color: palette.blue2,
+    fontSize: 11,
+    fontWeight: "800",
+    letterSpacing: 0.9
+  },
+  diagnosticsOptionBody: {
+    marginTop: 5,
+    color: palette.textMuted,
+    fontSize: 12,
+    lineHeight: 17
   },
   appearancePreview: {
     marginTop: 14,

@@ -364,6 +364,48 @@ def test_api_radar_virtual_uses_vatsim_only(monkeypatch) -> None:
     assert result["blips"][0]["callsign"] == "SWR100"
 
 
+def test_vatsim_records_keep_dau_flight_plan_fields() -> None:
+    from localflight.sources.web.vatsim_client import vatsim_to_raw_records
+
+    records = vatsim_to_raw_records(
+        {
+            "pilots": [
+                {
+                    "callsign": "SWR100",
+                    "altitude": 12000,
+                    "groundspeed": 250,
+                    "heading": 140,
+                    "flight_plan": {
+                        "flight_rules": "I",
+                        "aircraft_icao": "A320/M",
+                        "departure": "LSZH",
+                        "arrival": "EGLL",
+                        "alternate": "EGKK",
+                        "deptime": "1030",
+                        "enroute_time": "0135",
+                        "altitude": "FL350",
+                        "cruise_tas": "450",
+                        "assigned_transponder": "2200",
+                        "route": "DEGES Z1 BLM UL613 MID",
+                    },
+                }
+            ]
+        },
+        airport_icao="LSZH",
+    )
+
+    assert len(records) == 1
+    record = records[0]
+    assert record["aircraft_type"] == "A320"
+    assert record["flight_rules"] == "I"
+    assert record["planned_altitude"] == "FL350"
+    assert record["planned_enroute_minutes"] == 95
+    assert record["cruise_tas"] == "450"
+    assert record["alternate_icao"] == "EGKK"
+    assert record["assigned_transponder"] == "2200"
+    assert record["planned_route"] == "DEGES Z1 BLM UL613 MID"
+
+
 def test_api_admin_budget_hides_provider_side_totals(monkeypatch) -> None:
     monkeypatch.setattr(ui_api, "load_config", lambda: AppConfig(source="real"))
 
@@ -450,6 +492,7 @@ def test_fids_page_keeps_recent_departures_inside_grace_window(monkeypatch, tmp_
                         "origin": {"iata": "ZRH", "icao": "LSZH", "name": "Zurich"},
                         "destination": {"iata": "LHR", "icao": "EGLL", "name": "London Heathrow"},
                         "aircraft_type": "A320",
+                        "aircraft_registration": "HB-JCA",
                         "gate": "A1",
                         "terminal": "1",
                         "stand": None,
@@ -510,6 +553,15 @@ def test_fids_detail_exposes_live_track_metadata(monkeypatch, tmp_path: Path) ->
                             "actual": None,
                         },
                         "delay_minutes": None,
+                        "flight_rules": "IFR",
+                        "planned_route": "DEGES Z1 BLM UL613 MID",
+                        "planned_altitude": "FL350",
+                        "planned_departure": now.isoformat(),
+                        "planned_arrival": (now + timedelta(minutes=95)).isoformat(),
+                        "planned_enroute_minutes": 95,
+                        "cruise_tas": 450,
+                        "alternate_icao": "EGKK",
+                        "assigned_transponder": "2200",
                         "position": {
                             "lat": 47.45,
                             "lon": 8.56,
@@ -543,6 +595,11 @@ def test_fids_detail_exposes_live_track_metadata(monkeypatch, tmp_path: Path) ->
 
     assert response.status_code == 200
     detail = response.json()["detail"]
+    assert detail["detail_mode"] == "real"
+    assert detail["aircraft_registration"] == "HB-JCA"
+    assert detail["flight_plan"]["route"] == "DEGES Z1 BLM UL613 MID"
+    assert detail["flight_plan"]["enroute_minutes"] == 95
+    assert detail["flight_plan"]["assigned_transponder"] == "2200"
     assert detail["position"]["altitude_geo_m"] == 3200
     assert detail["position"]["icao24"] == "4B1800"
     assert detail["position"]["squawk"] == "7000"
@@ -703,7 +760,7 @@ def test_submit_crash_respects_diagnostics_mode_gate(monkeypatch) -> None:
     calls: list[tuple] = []
 
     monkeypatch.setattr(bug_reporter, "_auto_diagnostics_mode", lambda: "manual")
-    monkeypatch.setattr(bug_reporter, "submit_report", lambda *args, **kwargs: calls.append((args, kwargs)) or {"ok": True})
+    monkeypatch.setattr(bug_reporter, "_post_relay_report", lambda payload: calls.append((payload,)) or {"ok": True})
 
     result = bug_reporter.submit_crash("Boom")
 
@@ -718,31 +775,83 @@ def test_submit_crash_respects_diagnostics_mode_gate(monkeypatch) -> None:
 
 
 def test_submit_crash_only_attaches_log_tail_in_auto_logs(monkeypatch) -> None:
-    submitted: list[str] = []
+    submitted: list[dict] = []
 
     monkeypatch.setattr(bug_reporter, "_crash_fingerprint", lambda msg: f"fp-{msg}")
     monkeypatch.setattr(bug_reporter, "_already_crash_filed", lambda fp: False)
     monkeypatch.setattr(bug_reporter, "_mark_crash_filed", lambda fp: None)
-    monkeypatch.setattr(bug_reporter, "_system_context", lambda client_context="": "- **Version:** test\n")
+    monkeypatch.setattr(
+        bug_reporter,
+        "_system_metadata",
+        lambda: {
+            "install_id": "00000000-0000-0000-0000-000000000111",
+            "install_fingerprint": "fp-test",
+            "activation_token": "",
+            "app_version": "test",
+            "platform": "Darwin",
+            "os": "macOS",
+            "arch": "arm64",
+            "python_version": "3.11",
+            "airport": "ZRH",
+            "source": "real",
+            "api_mode": "community relay",
+            "diagnostics_mode": "auto",
+        },
+    )
     monkeypatch.setattr(bug_reporter, "_read_log_tail", lambda n_lines=50: "line-1\nline-2")
     monkeypatch.setattr(
         bug_reporter,
-        "submit_report",
-        lambda title, description="", client_context="": submitted.append(description) or {"ok": True, "url": "https://example.test"},
+        "_post_relay_report",
+        lambda payload: submitted.append(payload) or {"ok": True, "url": "https://example.test"},
     )
 
     monkeypatch.setattr(bug_reporter, "_auto_diagnostics_mode", lambda: "auto")
     result = bug_reporter.submit_crash("Auto only", traceback_str="tb", context="desktop")
     assert result["ok"] is True
     assert submitted
-    assert "**Log tail:**" not in submitted[-1]
-    assert "**Traceback:**" in submitted[-1]
+    assert submitted[-1]["description"] == ""
+    assert submitted[-1]["traceback"] == "tb"
 
     monkeypatch.setattr(bug_reporter, "_auto_diagnostics_mode", lambda: "auto_logs")
     result = bug_reporter.submit_crash("Auto plus logs", traceback_str="tb", context="desktop")
     assert result["ok"] is True
-    assert "**Log tail:**" in submitted[-1]
-    assert "line-1" in submitted[-1]
+    assert "line-1" in submitted[-1]["description"]
+
+
+def test_bug_reporter_forwards_to_relay_without_direct_linear(monkeypatch) -> None:
+    submitted: list[dict] = []
+    monkeypatch.setattr(
+        bug_reporter,
+        "_system_metadata",
+        lambda: {
+            "install_id": "00000000-0000-0000-0000-000000000222",
+            "install_fingerprint": "fp-test",
+            "activation_token": "lfm_secret",
+            "app_version": "test",
+            "platform": "Darwin",
+            "os": "macOS",
+            "arch": "arm64",
+            "python_version": "3.11",
+            "airport": "ZRH",
+            "source": "real",
+            "api_mode": "community relay",
+            "diagnostics_mode": "manual",
+        },
+    )
+    monkeypatch.setattr(
+        bug_reporter,
+        "_post_relay_report",
+        lambda payload: submitted.append(payload) or {"ok": True, "url": "https://linear.test/report"},
+    )
+
+    result = bug_reporter.submit_report("Broken thing", "AVIATIONSTACK_API_KEY=secret")
+
+    assert result["ok"] is True
+    assert submitted[0]["report_type"] == "manual"
+    assert submitted[0]["origin"] == "desktop"
+    assert submitted[0]["activation_token"] == "lfm_secret"
+    assert "secret" not in submitted[0]["description"]
+    assert "api.linear.app/graphql" not in Path(bug_reporter.__file__).read_text(encoding="utf-8")
 
 
 def test_api_config_patch_accepts_diagnostics_mode(tmp_path: Path, monkeypatch) -> None:
@@ -809,6 +918,7 @@ def test_relay_route_contracts_cover_public_and_admin_surfaces() -> None:
         "/admin",
         "/v1/flights",
         "/v1/radar",
+        "/v1/reports",
         "/v1/activate",
         "/v1/client/status",
         "/v1/client/checkin",

@@ -21,6 +21,18 @@ def parse_time(value: str | None) -> datetime | None:
     return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(timezone.utc)
 
 
+def _parse_optional_int(value: object) -> int | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        return int(float(text))
+    except (TypeError, ValueError):
+        return None
+
+
 def normalize_flights(
     raw_flights: Iterable[dict],
     *,
@@ -79,12 +91,22 @@ def normalize_flights(
                 icao=record.get("destination_icao"),
             ) if record.get("destination_iata") or record.get("destination_icao") else None,
             aircraft_type=record.get("aircraft_type"),
+            aircraft_registration=record.get("aircraft_registration"),
             gate=record.get("gate"),
             terminal=record.get("terminal"),
             stand=record.get("stand"),
             status=status,
             times=times,
             delay_minutes=delay_minutes,
+            flight_rules=record.get("flight_rules"),
+            planned_route=record.get("planned_route"),
+            planned_altitude=record.get("planned_altitude"),
+            planned_departure=parse_time(record.get("planned_departure")),
+            planned_arrival=parse_time(record.get("planned_arrival")),
+            planned_enroute_minutes=_parse_optional_int(record.get("planned_enroute_minutes")),
+            cruise_tas=_parse_optional_int(record.get("cruise_tas")),
+            alternate_icao=record.get("alternate_icao"),
+            assigned_transponder=record.get("assigned_transponder"),
             source=source_name,
             updated_at=datetime.now(timezone.utc),
         )

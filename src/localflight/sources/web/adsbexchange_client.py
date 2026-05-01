@@ -369,6 +369,7 @@ def enrich_flights_with_adsbexchange(
         )
 
         aircraft_type = flight.aircraft_type or ac.get("t") or None
+        registration = flight.aircraft_registration or ac.get("r") or None
         enriched.append(
             Flight(
                 direction=flight.direction,
@@ -379,12 +380,22 @@ def enrich_flights_with_adsbexchange(
                 origin=flight.origin,
                 destination=flight.destination,
                 aircraft_type=aircraft_type,
+                aircraft_registration=registration,
                 gate=flight.gate,
                 terminal=flight.terminal,
                 stand=flight.stand,
                 status=flight.status,
                 times=flight.times,
                 delay_minutes=flight.delay_minutes,
+                flight_rules=flight.flight_rules,
+                planned_route=flight.planned_route,
+                planned_altitude=flight.planned_altitude,
+                planned_departure=flight.planned_departure,
+                planned_arrival=flight.planned_arrival,
+                planned_enroute_minutes=flight.planned_enroute_minutes,
+                cruise_tas=flight.cruise_tas,
+                alternate_icao=flight.alternate_icao,
+                assigned_transponder=flight.assigned_transponder,
                 position=position,
                 source=flight.source,
                 enriched_by="adsbexchange",

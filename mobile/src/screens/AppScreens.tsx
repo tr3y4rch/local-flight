@@ -63,7 +63,7 @@ import {
 import { MATRIX_SKIN_PALETTES, matrixPreviewLines } from "../domain/matrix";
 import { projectBlip } from "../domain/radar";
 import type { FeedbackTone, HistoryWindow, MatrixPreset, ProjectedBlip, RadarRadius, StatusTone } from "../domain/types";
-import { type ConfigProfile, saveProfiles } from "../storage/settings";
+import { type ConfigProfile, type MobileDiagnosticsMode, saveProfiles } from "../storage/settings";
 import { palette, styles } from "../theme/styleBridge";
 import {
   MOBILE_SKIN_OPTIONS,
@@ -1232,6 +1232,30 @@ function formatVerticalRate(value: number | null | undefined): string {
   return `${feetPerMinute} ft/min`;
 }
 
+function isVirtualFlightDetail(detail: FlightDetail | null): boolean {
+  const value = `${detail?.detail_mode || ""} ${detail?.source || ""} ${detail?.data_sources?.schedule || ""}`.toLowerCase();
+  return value.includes("virtual") || value.includes("vatsim");
+}
+
+function sourceMetric(value?: string | null): string {
+  return value ? value.replace(/_/g, " ").toUpperCase() : "-";
+}
+
+function formatAgeSeconds(value?: number | null): string {
+  if (value == null || Number.isNaN(value)) return "-";
+  if (value < 90) return `${Math.max(0, Math.round(value))}s ago`;
+  const minutes = Math.round(value / 60);
+  if (minutes < 90) return `${minutes}m ago`;
+  return `${Math.round(minutes / 60)}h ago`;
+}
+
+function formatEnrouteMinutes(value?: number | null): string {
+  if (value == null || Number.isNaN(value)) return "-";
+  const hours = Math.floor(value / 60);
+  const minutes = value % 60;
+  return hours ? `${hours}h ${String(minutes).padStart(2, "0")}m` : `${minutes}m`;
+}
+
 export function FlightDetailSheet({
   visible,
   callsign,
@@ -1249,6 +1273,17 @@ export function FlightDetailSheet({
   onClose: () => void;
   onRefresh: () => void;
 }) {
+  const virtualDetail = isVirtualFlightDetail(detail);
+  const plan = detail?.flight_plan || {};
+  const sources = detail?.data_sources || {};
+  const altitudeMeters = detail?.position?.altitude_geo_m ?? detail?.position?.altitude_baro_m ?? detail?.position?.altitude_m;
+  const sourceFreshness = sources.snapshot_age_seconds != null
+    ? formatAgeSeconds(sources.snapshot_age_seconds)
+    : formatRelative(sources.snapshot_generated_at);
+  const positionFreshness = sources.position_age_seconds != null
+    ? formatAgeSeconds(sources.position_age_seconds)
+    : formatRelative(detail?.position?.last_contact);
+
   return (
     <Modal visible={visible} animationType="slide" transparent statusBarTranslucent>
       <View style={styles.sheetBackdrop}>
@@ -1281,25 +1316,60 @@ export function FlightDetailSheet({
                 <View style={styles.sheetSummary}>
                   <StatusBadge status={detail.status || "Tracked"} statusClass={detail.status || ""} />
                   <Text style={styles.sheetSummaryText}>
-                    {detail.airline || "Unknown carrier"} {detail.aircraft_type ? `- ${detail.aircraft_type}` : ""}
+                    {virtualDetail
+                      ? `VATSIM ${detail.aircraft_type || "aircraft"}`
+                      : `${detail.airline || "Unknown carrier"} ${detail.aircraft_type ? `- ${detail.aircraft_type}` : ""}`}
                   </Text>
                 </View>
 
-                <SectionTitle label="ROUTE & DATA" />
+                <SectionTitle label={virtualDetail ? "VIRTUAL FLIGHT" : "ROUTE & DATA"} />
                 <View style={styles.sheetMetricRow}>
-                  <SheetMetric label="FROM" value={airportMetric(detail.origin_iata, detail.origin_name)} />
-                  <SheetMetric label="TO" value={airportMetric(detail.dest_iata, detail.dest_name)} />
+                  <SheetMetric
+                    label="FROM"
+                    value={virtualDetail ? (detail.origin_icao || detail.origin_iata || "-") : airportMetric(detail.origin_iata, detail.origin_name)}
+                  />
+                  <SheetMetric
+                    label="TO"
+                    value={virtualDetail ? (detail.dest_icao || detail.dest_iata || "-") : airportMetric(detail.dest_iata, detail.dest_name)}
+                  />
                 </View>
                 <View style={styles.sheetMetricRow}>
-                  <SheetMetric label="AIRLINE" value={detail.airline_iata || detail.airline || "-"} />
+                  <SheetMetric label={virtualDetail ? "RULES" : "AIRLINE"} value={virtualDetail ? (plan.flight_rules || "-") : (detail.airline_iata || detail.airline || "-")} />
                   <SheetMetric label="CALLSIGN" value={detail.callsign || callsign || "-"} />
                 </View>
                 <View style={styles.sheetMetricRow}>
-                  <SheetMetric label="SOURCE" value={detail.source ? detail.source.toUpperCase() : "-"} />
-                  <SheetMetric label="ENRICHED" value={detail.enriched_by ? detail.enriched_by.toUpperCase() : "-"} />
+                  <SheetMetric label={virtualDetail ? "NETWORK" : "SOURCE"} value={sourceMetric(sources.schedule || detail.source)} />
+                  <SheetMetric label={virtualDetail ? "TRACK" : "ENRICHED"} value={sourceMetric(sources.enrichment || detail.enriched_by)} />
                 </View>
 
-                <SectionTitle label="TIMES & GATE" />
+                {virtualDetail ? (
+                  <>
+                    <SectionTitle label="FILED PLAN" />
+                    <View style={styles.sheetMetricRow}>
+                      <SheetMetric label="CRUISE" value={plan.cruise_altitude || "-"} />
+                      <SheetMetric label="TAS" value={plan.cruise_tas != null ? `${plan.cruise_tas} kt` : "-"} />
+                    </View>
+                    <View style={styles.sheetMetricRow}>
+                      <SheetMetric label="DEP" value={formatDateTime(plan.planned_departure)} />
+                      <SheetMetric label="ARR" value={formatDateTime(plan.planned_arrival)} />
+                    </View>
+                    <View style={styles.sheetMetricRow}>
+                      <SheetMetric label="ENROUTE" value={formatEnrouteMinutes(plan.enroute_minutes)} />
+                      <SheetMetric label="ALTN" value={plan.alternate_icao || "-"} />
+                    </View>
+                    <View style={styles.sheetMetricRow}>
+                      <SheetMetric label="XPDR" value={plan.assigned_transponder || "-"} />
+                      <SheetMetric label="FRESH" value={sourceFreshness} />
+                    </View>
+                    {plan.route ? (
+                      <View style={styles.sheetMetricRow}>
+                        <SheetMetric label="ROUTE" value={plan.route} />
+                      </View>
+                    ) : null}
+                  </>
+                ) : null}
+
+                <SectionTitle label={virtualDetail ? "TIMES" : "TIMES & GATE"} />
                 <View style={styles.sheetMetricRow}>
                   <SheetMetric label="SCHEDULED" value={formatDateTime(detail.sched_time)} />
                   <SheetMetric label="ESTIMATED" value={formatDateTime(detail.est_time)} />
@@ -1308,14 +1378,22 @@ export function FlightDetailSheet({
                   <SheetMetric label="ACTUAL" value={formatDateTime(detail.actual_time)} />
                   <SheetMetric label="DELAY" value={detail.delay_minutes != null ? `${detail.delay_minutes}m` : "-"} />
                 </View>
-                <View style={styles.sheetMetricRow}>
-                  <SheetMetric label="GATE" value={detail.gate || "-"} />
-                  <SheetMetric label="TERMINAL" value={detail.terminal || "-"} />
-                </View>
+                {!virtualDetail ? (
+                  <View style={styles.sheetMetricRow}>
+                    <SheetMetric label="GATE" value={detail.gate || "-"} />
+                    <SheetMetric label="TERMINAL" value={detail.terminal || "-"} />
+                  </View>
+                ) : null}
+                {!virtualDetail ? (
+                  <View style={styles.sheetMetricRow}>
+                    <SheetMetric label="REG" value={detail.aircraft_registration || "-"} />
+                    <SheetMetric label="FRESH" value={sourceFreshness} />
+                  </View>
+                ) : null}
 
-                <SectionTitle label="TRACK" />
+                <SectionTitle label={virtualDetail ? "PILOT TRACK" : "LIVE TRACK"} />
                 <View style={styles.sheetMetricRow}>
-                  <SheetMetric label="ALTITUDE" value={formatAltitudeFeet(detail.position?.altitude_m)} />
+                  <SheetMetric label="ALTITUDE" value={formatAltitudeFeet(altitudeMeters)} />
                   <SheetMetric label="SPEED" value={formatSpeedKnots(detail.position?.speed_ms)} />
                 </View>
                 <View style={styles.sheetMetricRow}>
@@ -1327,8 +1405,18 @@ export function FlightDetailSheet({
                   <SheetMetric label="LON" value={formatCoordinate(detail.position?.lon, "E", "W")} />
                 </View>
                 <View style={styles.sheetMetricRow}>
-                  <SheetMetric label="VERT RATE" value={formatVerticalRate(detail.position?.vertical_rate)} />
+                  <SheetMetric label={virtualDetail ? "XPDR" : "VERT RATE"} value={virtualDetail ? (plan.assigned_transponder || detail.position?.squawk || "-") : formatVerticalRate(detail.position?.vertical_rate)} />
+                  <SheetMetric label="CONTACT" value={positionFreshness} />
+                </View>
+                {!virtualDetail ? (
+                  <View style={styles.sheetMetricRow}>
+                    <SheetMetric label="ICAO24" value={detail.position?.icao24 || "-"} />
+                    <SheetMetric label="SQUAWK" value={detail.position?.squawk || "-"} />
+                  </View>
+                ) : null}
+                <View style={styles.sheetMetricRow}>
                   <SheetMetric label="DIRECTION" value={detail.direction ? detail.direction.toUpperCase() : "-"} />
+                  <SheetMetric label="CONFIDENCE" value={sourceMetric(sources.confidence)} />
                 </View>
 
                 <SectionTitle label="7-DAY HISTORY" />
@@ -1656,12 +1744,14 @@ export function SettingsScreen({
   isLandscape,
   themeMode,
   skin,
+  mobileDiagnosticsMode,
   outputs,
   refreshSeconds,
   schedulerRestarting,
   schedulerMessage,
   onThemeModeChange,
   onSkinChange,
+  onMobileDiagnosticsModeChange,
   onOpenHistory,
   onOpenAdmin,
   onOpenMatrix,
@@ -1679,12 +1769,14 @@ export function SettingsScreen({
   isLandscape: boolean;
   themeMode: MobileThemeMode;
   skin: MobileSkin;
+  mobileDiagnosticsMode: MobileDiagnosticsMode;
   outputs: string[];
   refreshSeconds: number | null;
   schedulerRestarting: boolean;
   schedulerMessage: string | null;
   onThemeModeChange: (value: MobileThemeMode) => void;
   onSkinChange: (value: MobileSkin) => void;
+  onMobileDiagnosticsModeChange: (value: MobileDiagnosticsMode) => void;
   onOpenHistory: () => void;
   onOpenAdmin: () => void;
   onOpenMatrix: () => void;
@@ -1826,8 +1918,24 @@ export function SettingsScreen({
           Local Flight is a local-first flight information display. All flight data, history, and config stay on your machine — nothing is uploaded, synced, or tracked beyond the configured aviation data sources.
         </Text>
         <Text style={styles.settingsHelp}>
-          The only data that leaves your machine without your action is an automatic crash report if the server encounters an unhandled error. It contains the version, OS, airport code, and a traceback — no API keys, no IP address, no personal information.
+          Automatic companion reports require both this iOS app and the connected Local Flight server to allow diagnostics. Expo JS/React errors are covered; native iOS crashes before JavaScript starts still rely on Apple crash logs.
         </Text>
+        <FilterSection title="MOBILE DIAGNOSTICS">
+          <View style={styles.filterRow}>
+            {([
+              ["manual", "MANUAL"],
+              ["auto", "AUTO"],
+              ["auto_logs", "AUTO + CONTEXT"]
+            ] as Array<[MobileDiagnosticsMode, string]>).map(([mode, label]) => (
+              <DirectionButton
+                key={mode}
+                active={mobileDiagnosticsMode === mode}
+                label={label}
+                onPress={() => onMobileDiagnosticsModeChange(mode)}
+              />
+            ))}
+          </View>
+        </FilterSection>
         <SettingsToolPill
           icon="book-open-variant"
           label="Local docs"

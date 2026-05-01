@@ -164,6 +164,19 @@ def _parse_enroute(enroute: Optional[str]) -> Optional[timedelta]:
         return None
 
 
+def _enroute_minutes(value: Optional[timedelta]) -> Optional[int]:
+    if value is None:
+        return None
+    return int(value.total_seconds() // 60)
+
+
+def _clean_fp_text(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
 def _infer_status(*, direction: str, groundspeed: int, altitude: int) -> str:
     """Crude status from position data. VATSIM has no flight_status field."""
     airborne = groundspeed > _GS_AIRBORNE or altitude > _ALT_AIRBORNE
@@ -287,6 +300,15 @@ def vatsim_to_raw_records(
             "stand":            None,
             "terminal":         None,
             "delay_minutes":    None,
+            "flight_rules":     _clean_fp_text(fp.get("flight_rules")),
+            "planned_route":    _clean_fp_text(fp.get("route")),
+            "planned_altitude": _clean_fp_text(fp.get("altitude")),
+            "planned_departure": dep_time_iso,
+            "planned_arrival":   arr_time_iso,
+            "planned_enroute_minutes": _enroute_minutes(enroute_td),
+            "cruise_tas":       _clean_fp_text(fp.get("cruise_tas")),
+            "alternate_icao":    _clean_fp_text(fp.get("alternate")),
+            "assigned_transponder": _clean_fp_text(fp.get("assigned_transponder")) or _clean_fp_text(pilot.get("transponder")),
         })
 
     log.info(

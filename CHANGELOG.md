@@ -16,10 +16,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Responsive mobile radar scope with pinch-to-zoom range changes that snap across the desktop-aligned 10 / 20 / 40 / 80 NM ranges, plus compact fallback range chips.
 - Longer mobile launch overlay with FIDS/radar/runway visual treatment so the companion startup feels closer to the desktop splash direction.
 - In-app mobile document reader for README, Privacy, and Changelog, with formatted Markdown rendering and browser fallback.
+- Relay-backed developer report gateway at `POST /v1/reports`, with Linear team routing, relay-side dedupe, rate limits, and secret redaction before Linear issue creation.
+- Mobile-local diagnostics consent, stored on-device, so companion auto-reporting requires both the mobile choice and the connected server diagnostics mode to allow it.
 
 ### Changed
 - Desktop `/api/fids/detail` now exposes richer no-extra-request live-track metadata from stored snapshots, including geometric/barometric altitude fields, ICAO24, squawk, last contact, snapshot age, enrichment source, and confidence.
-- Desktop FIDS flight detail drawer now presents operations/aircraft, data source coverage, and live-track fields more explicitly so real-source enrichment is visible before the companion adopts the same contract.
+- Canonical flight snapshots now preserve DAU-relevant aircraft and virtual-flight-plan fields: registration, flight rules, planned route, cruise altitude/TAS, planned departure/arrival, enroute time, alternate, and assigned transponder.
+- Desktop FIDS flight detail drawer now presents operations/aircraft, data source coverage, and live-track fields more explicitly, matching the companion's expanded detail contract.
+- VATSIM normalization now keeps filed plan details useful to virtual pilots while avoiding noisy personal fields such as pilot names or VATSIM IDs.
+- Desktop flight detail UI now branches between real-world and VATSIM modes: real flights prioritize airport operations, registration, and real data-source freshness, while VATSIM flights prioritize filed plan, virtual network, pilot track, route, cruise, alternate, and transponder details.
 - Mobile Matrix tooling is now split into **Board Runtime** controls for server-backed settings and **Panel Preview** controls for local Interstate 75 W / HUB75 sizing.
 - Matrix board preview keeps the mobile app chrome on the selected mobile appearance while rendering simulated LED colors from the server-returned matrix skin.
 - Mobile Expo config now allows automatic system appearance instead of forcing dark mode, while the app drives its own StatusBar styling from the selected mobile theme.
@@ -28,16 +33,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Mobile Settings is now sectioned into Server, Looks, Tools, and Docs areas to reduce page density.
 - Pinned-flight chrome is now a compact, theme-aware info island with direct pin/unpin and tap-for-detail behavior instead of the previous expandable dark pill.
 - Mobile airport/profile changes now explicitly ask the connected server to restart the scheduler and begin a fresh fetch cycle after config save.
-- Mobile flight detail sheets show more of the existing server payload, including route/source/enrichment, callsign, coordinates, vertical rate, and direction fields when available.
+- Mobile flight detail sheets now consume the expanded `/api/fids/detail` contract, including real vs VATSIM detail modes, data-source freshness, aircraft registration, ICAO24/squawk, geometric/barometric altitude, and filed VATSIM plan fields when available.
+- Mobile automatic diagnostics now cover critical flight-detail communication failures (`5xx` responses or malformed JSON) through the existing diagnostics-gated crash route, while normal offline, validation, and `4xx` states stay user-visible without auto-report noise.
+- Developer report submission now forwards through the hosted relay instead of shipping a developer Linear credential in the desktop/mobile package.
 - Expo mobile dependency alignment updated for SDK 55: `expo` now targets `~55.0.19` and `expo-font` is installed for `@expo/vector-icons`.
 
 ### Fixed
 - Mobile pinned-flight island and bottom nav no longer keep hardcoded dark backgrounds in light mode.
 - Mobile landscape split panes are constrained for safer scrolling/resizing after rotation.
+- Mobile crash reports with feature-specific context now keep the standard companion identity, app version, device type, and server URL attached for triage.
 
 ### Notes
 - This is a preliminary `0.2.5b2` changelog entry for the active mobile companion sprint. Repo-wide version metadata remains on `0.2.5b1` until the later version sweep.
 - `npm run typecheck` passes for the mobile app. `npm run doctor` is 17/18 on the current Mac workspace; the remaining failure is local tooling only because Expo SDK 55 reports Xcode `16.3.0` as incompatible and requires Xcode `>=26.0.0`.
+- The mobile companion still communicates with AviationStack / ADS-B data only through the Local Flight server API. It does not call the provider or hosted relay endpoints directly.
 
 ## [0.2.5b1] - 2026-04-29
 

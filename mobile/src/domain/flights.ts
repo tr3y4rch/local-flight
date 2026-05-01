@@ -77,8 +77,10 @@ export function historyRouteLabel(row: HistoryFlightRow): string {
 
 export function detailRouteLabel(detail: FlightDetail | null, fallback: string): string {
   if (!detail) return fallback;
-  const origin = detail.origin_iata || "---";
-  const dest = detail.dest_iata || "---";
+  const sourceHint = `${detail.detail_mode || ""} ${detail.source || ""} ${detail.data_sources?.schedule || ""}`.toLowerCase();
+  const virtual = sourceHint.includes("virtual") || sourceHint.includes("vatsim");
+  const origin = (virtual ? detail.origin_icao : detail.origin_iata) || detail.origin_iata || detail.origin_icao || "---";
+  const dest = (virtual ? detail.dest_icao : detail.dest_iata) || detail.dest_iata || detail.dest_icao || "---";
   return `${origin} -> ${dest}`;
 }
 

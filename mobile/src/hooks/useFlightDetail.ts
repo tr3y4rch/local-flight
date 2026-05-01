@@ -1,7 +1,8 @@
 import { useCallback, useRef, useState } from "react";
 
-import { getFidsDetail, normalizeServerUrl } from "../api/client";
+import { getFidsDetail, LocalFlightApiError, normalizeServerUrl } from "../api/client";
 import type { FidsDetailResponse } from "../api/types";
+import { reportMobileCrash } from "../crash/reporter";
 import { detailOrNull } from "../domain/flights";
 import { errorMessage } from "../domain/formatting";
 
@@ -11,6 +12,26 @@ export function useFlightDetail(serverUrl: string, onError: (message: string) =>
   const [callsign, setCallsign] = useState("");
   const [data, setData] = useState<FidsDetailResponse | null>(null);
   const requestRef = useRef(0);
+
+  const reportDetailFailure = useCallback((exc: unknown, nextCallsign: string, normalized: string) => {
+    const shouldReport =
+      exc instanceof LocalFlightApiError
+        ? Boolean(exc.status && exc.status >= 500)
+        : exc instanceof SyntaxError;
+    if (!shouldReport) return;
+
+    void reportMobileCrash({
+      message: `Flight detail fetch failed: ${errorMessage(exc)}`,
+      traceback: exc instanceof Error ? exc.stack || "" : "",
+      context: "mobile/fids-detail",
+      client_context: [
+        "Endpoint      /api/fids/detail",
+        `Callsign      ${nextCallsign}`,
+        `Server URL    ${normalized}`,
+        `Error class   ${exc instanceof Error ? exc.name : typeof exc}`
+      ].join("\n")
+    });
+  }, []);
 
   const load = useCallback(
     async (nextCallsign: string) => {
@@ -30,6 +51,7 @@ export function useFlightDetail(serverUrl: string, onError: (message: string) =>
         if (requestRef.current === requestId) {
           setData(null);
           onError(errorMessage(exc));
+          reportDetailFailure(exc, nextCallsign, normalized);
         }
       } finally {
         if (requestRef.current === requestId) {
@@ -37,7 +59,7 @@ export function useFlightDetail(serverUrl: string, onError: (message: string) =>
         }
       }
     },
-    [onError, serverUrl]
+    [onError, reportDetailFailure, serverUrl]
   );
 
   const open = useCallback(

@@ -19,7 +19,7 @@ import uvicorn
 from fastapi import Depends, FastAPI, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 AVIATIONSTACK_URL = "https://api.aviationstack.com/v1/flights"
 ADSBX_URL = "https://adsbexchange-com1.p.rapidapi.com/v2"
@@ -43,6 +43,35 @@ _REQUEST_STATUS_DISMISSED = "dismissed"
 
 _AUTO_ACTIVATION_NETWORK_DAILY_LIMIT = 6
 _AUTO_ACTIVATION_NETWORK_INSTALLS_DAILY_LIMIT = 4
+
+_REPORT_CRASH_DEDUPE_HOURS = 6
+_REPORT_MANUAL_DEDUPE_MINUTES = 30
+_REPORT_MANUAL_INSTALL_DAILY_LIMIT = 5
+_REPORT_CRASH_INSTALL_DAILY_LIMIT = 20
+_REPORT_NETWORK_DAILY_LIMIT = 60
+_LINEAR_GRAPHQL_URL = "https://api.linear.app/graphql"
+
+_REPORT_ALLOWED_TYPES = {"manual", "crash"}
+_REPORT_ALLOWED_ORIGINS = {"desktop", "web", "server", "scheduler", "mobile", "ios", "relay"}
+_REPORT_TEAM_ENV = {
+    "ios": "LINEAR_TEAM_IOS_ID",
+    "desktop": "LINEAR_TEAM_DESKTOP_ID",
+    "server": "LINEAR_TEAM_SERVER_ID",
+    "relay": "LINEAR_TEAM_RELAY_ID",
+    "default": "LINEAR_TEAM_DEFAULT_ID",
+}
+
+_SECRET_PATTERNS = (
+    (re.compile(r"(AVIATIONSTACK_API_KEY|RAPIDAPI_KEY|OPENSKY_CLIENT_SECRET|LINEAR_API_KEY|LINEAR_REPORTER_API_KEY)=\S+", re.I), r"\1=[redacted]"),
+    (re.compile(r"(access_key=)[^&\s]+", re.I), r"\1[redacted]"),
+    (re.compile(r"(X-RapidAPI-Key['\":\s]+)[A-Za-z0-9._-]+", re.I), r"\1[redacted]"),
+    (re.compile(r"lin_api_[A-Za-z0-9_]+", re.I), "[redacted-linear-token]"),
+    (re.compile(r"lfm_[A-Za-z0-9._-]+", re.I), "[redacted-activation-token]"),
+    (re.compile(r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b", re.I), "[redacted-uuid]"),
+    (re.compile(r"\b10\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})\b"), r"10.\1.\2.x"),
+    (re.compile(r"\b192\.168\.(\d{1,3})\.(\d{1,3})\b"), r"192.168.\1.x"),
+    (re.compile(r"\b172\.(1[6-9]|2\d|3[01])\.(\d{1,3})\.(\d{1,3})\b"), r"172.\1.\2.x"),
+)
 
 
 def _env(key: str, default: str = "") -> str:
@@ -251,6 +280,37 @@ def _ensure_schema() -> None:
         )
         """
     )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS report_dedupe (
+            dedupe_key          TEXT PRIMARY KEY,
+            team                TEXT NOT NULL,
+            report_type         TEXT NOT NULL,
+            origin              TEXT NOT NULL,
+            install_fingerprint TEXT NOT NULL,
+            first_seen          TEXT NOT NULL,
+            last_seen           TEXT NOT NULL,
+            count               INTEGER DEFAULT 1,
+            url                 TEXT
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS report_events (
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            ts                  TEXT NOT NULL,
+            install_fingerprint TEXT NOT NULL,
+            network_tag         TEXT NOT NULL,
+            report_type         TEXT NOT NULL,
+            origin              TEXT NOT NULL,
+            context             TEXT,
+            team                TEXT NOT NULL,
+            status              TEXT NOT NULL,
+            dedupe_key          TEXT NOT NULL
+        )
+        """
+    )
     _ensure_column(conn, "request_log", "service TEXT")
     _ensure_column(conn, "request_log", "plan TEXT")
     _ensure_column(conn, "activation_requests", "display_name TEXT")
@@ -269,6 +329,9 @@ def _ensure_schema() -> None:
     conn.execute("CREATE INDEX IF NOT EXISTS idx_activation_revoked ON activation_tokens (revoked_at)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_activation_requests_status ON activation_requests (status, created_at DESC)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_log_ts ON request_log (ts)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_report_events_install ON report_events (install_fingerprint, report_type, ts)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_report_events_network ON report_events (network_tag, ts)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_report_dedupe_seen ON report_dedupe (last_seen)")
     conn.commit()
     conn.close()
 
@@ -760,6 +823,319 @@ def _quota_headers(service: str, used: int, limit: int, plan: str) -> Dict[str, 
             }
         )
     return headers
+
+
+def _report_limit(report_type: str) -> int:
+    if report_type == "manual":
+        try:
+            return int(_env("RELAY_REPORT_MANUAL_DAILY_LIMIT", str(_REPORT_MANUAL_INSTALL_DAILY_LIMIT)))
+        except ValueError:
+            return _REPORT_MANUAL_INSTALL_DAILY_LIMIT
+    try:
+        return int(_env("RELAY_REPORT_CRASH_DAILY_LIMIT", str(_REPORT_CRASH_INSTALL_DAILY_LIMIT)))
+    except ValueError:
+        return _REPORT_CRASH_INSTALL_DAILY_LIMIT
+
+
+def _report_network_limit() -> int:
+    try:
+        return int(_env("RELAY_REPORT_NETWORK_DAILY_LIMIT", str(_REPORT_NETWORK_DAILY_LIMIT)))
+    except ValueError:
+        return _REPORT_NETWORK_DAILY_LIMIT
+
+
+def _linear_reporter_key() -> str:
+    return _env("LINEAR_REPORTER_API_KEY")
+
+
+def _redact_sensitive(text: str) -> str:
+    redacted = text or ""
+    for pattern, repl in _SECRET_PATTERNS:
+        redacted = pattern.sub(repl, redacted)
+    return redacted
+
+
+def _collapse(value: str, *, limit: int) -> str:
+    clean = re.sub(r"\s+", " ", _redact_sensitive(value or "")).strip()
+    return clean[:limit]
+
+
+def _report_origin(body: "ReportIn") -> str:
+    hint = f"{body.origin} {body.context} {body.client_context} {body.platform} {body.os}".lower()
+    origin = (body.origin or "").strip().lower()
+    if "ios" in hint:
+        return "ios"
+    if origin in _REPORT_ALLOWED_ORIGINS:
+        return origin
+    if body.context.startswith("web/"):
+        return "web"
+    if body.context.startswith("mobile/"):
+        return "mobile"
+    if body.context.startswith("scheduler/"):
+        return "scheduler"
+    if body.context.startswith("thread/") or body.context == "main-thread":
+        return "server"
+    return "desktop" if body.report_type == "manual" else "server"
+
+
+def _report_team(origin: str, context: str) -> str:
+    origin = (origin or "").strip().lower()
+    context = (context or "").strip().lower()
+    if origin in {"ios", "mobile"} or context.startswith("mobile/"):
+        return "ios"
+    if origin in {"desktop", "web"} or context.startswith("web/"):
+        return "desktop"
+    if origin in {"server", "scheduler"} or context.startswith("scheduler/") or context.startswith("thread/") or context == "main-thread":
+        return "server"
+    if origin == "relay":
+        return "relay"
+    return "default"
+
+
+def _report_team_id(team: str) -> str:
+    env_key = _REPORT_TEAM_ENV.get(team) or _REPORT_TEAM_ENV["default"]
+    return _env(env_key) or _env(_REPORT_TEAM_ENV["default"])
+
+
+def _report_team_label(team: str, origin: str) -> str:
+    if team == "ios":
+        return "iOS"
+    if origin == "web":
+        return "Web"
+    if team == "desktop":
+        return "Desktop"
+    if team == "server":
+        return "Server"
+    if team == "relay":
+        return "Relay"
+    return "Default"
+
+
+def _report_type_label(report_type: str) -> str:
+    return "Manual" if report_type == "manual" else "Crash"
+
+
+def _report_window_start(report_type: str) -> str:
+    if report_type == "manual":
+        minutes = _REPORT_MANUAL_DEDUPE_MINUTES
+    else:
+        minutes = _REPORT_CRASH_DEDUPE_HOURS * 60
+    return (datetime.now(timezone.utc) - timedelta(minutes=minutes)).isoformat()
+
+
+def _normalize_message_hash(body: "ReportIn") -> str:
+    if body.report_type == "manual":
+        source = f"{body.title}\n{body.description}"
+    else:
+        source = body.message or body.title or body.description
+    normalized = re.sub(r"\s+", " ", _redact_sensitive(source).lower()).strip()
+    return hashlib.sha256(normalized[:1000].encode("utf-8")).hexdigest()[:16]
+
+
+def _report_dedupe_key(
+    *,
+    team: str,
+    report_type: str,
+    origin: str,
+    context: str,
+    message_hash: str,
+    install_fingerprint: str,
+) -> str:
+    parts = [team, report_type, origin, context or "-", message_hash, install_fingerprint]
+    return hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()
+
+
+def _check_report_rate_limit(
+    conn: sqlite3.Connection,
+    *,
+    report_type: str,
+    install_fingerprint: str,
+    network_tag: str,
+) -> None:
+    cutoff = _hours_ago(24)
+    install_count = conn.execute(
+        """
+        SELECT COUNT(*) AS count
+        FROM report_events
+        WHERE install_fingerprint=? AND report_type=? AND ts>=?
+        """,
+        (install_fingerprint, report_type, cutoff),
+    ).fetchone()
+    network_count = conn.execute(
+        """
+        SELECT COUNT(*) AS count
+        FROM report_events
+        WHERE network_tag=? AND ts>=?
+        """,
+        (network_tag, cutoff),
+    ).fetchone()
+    if int(install_count["count"] or 0) >= _report_limit(report_type):
+        raise HTTPException(status_code=429, detail="Report rate limit reached for this install")
+    if int(network_count["count"] or 0) >= _report_network_limit():
+        raise HTTPException(status_code=429, detail="Report rate limit reached for this network")
+
+
+def _record_report_event(
+    conn: sqlite3.Connection,
+    *,
+    install_fingerprint: str,
+    network_tag: str,
+    report_type: str,
+    origin: str,
+    context: str,
+    team: str,
+    status: str,
+    dedupe_key: str,
+) -> None:
+    conn.execute(
+        """
+        INSERT INTO report_events (
+            ts, install_fingerprint, network_tag, report_type, origin, context, team, status, dedupe_key
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (_utc_now(), install_fingerprint, network_tag, report_type, origin, context[:120], team, status, dedupe_key),
+    )
+
+
+def _dedupe_report(
+    conn: sqlite3.Connection,
+    *,
+    dedupe_key: str,
+    team: str,
+    report_type: str,
+    origin: str,
+    install_fingerprint: str,
+) -> Optional[str]:
+    row = conn.execute(
+        "SELECT url, last_seen FROM report_dedupe WHERE dedupe_key=?",
+        (dedupe_key,),
+    ).fetchone()
+    if row:
+        last_seen = str(row["last_seen"] or "")
+        try:
+            in_window = last_seen >= _report_window_start(report_type)
+        except Exception:
+            in_window = True
+        if in_window:
+            conn.execute(
+                """
+                UPDATE report_dedupe
+                SET last_seen=?, count=count+1
+                WHERE dedupe_key=?
+                """,
+                (_utc_now(), dedupe_key),
+            )
+            return str(row["url"] or "")
+    conn.execute(
+        """
+        INSERT INTO report_dedupe (
+            dedupe_key, team, report_type, origin, install_fingerprint, first_seen, last_seen, count, url
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, 0, NULL)
+        ON CONFLICT(dedupe_key) DO UPDATE SET
+            team=excluded.team,
+            report_type=excluded.report_type,
+            origin=excluded.origin,
+            install_fingerprint=excluded.install_fingerprint,
+            first_seen=excluded.first_seen,
+            last_seen=excluded.last_seen,
+            count=0,
+            url=NULL
+        """,
+        (dedupe_key, team, report_type, origin, install_fingerprint, _utc_now(), _utc_now()),
+    )
+    return None
+
+
+def _mark_report_filed(conn: sqlite3.Connection, *, dedupe_key: str, url: str) -> None:
+    conn.execute(
+        """
+        UPDATE report_dedupe
+        SET last_seen=?, count=count+1, url=?
+        WHERE dedupe_key=?
+        """,
+        (_utc_now(), url, dedupe_key),
+    )
+
+
+def _linear_issue_title(body: "ReportIn", *, team: str, origin: str) -> str:
+    platform_label = _report_team_label(team, origin)
+    type_label = _report_type_label(body.report_type)
+    if body.report_type == "manual":
+        summary = body.title or "Manual report"
+    else:
+        summary = body.message or body.title or "Crash report"
+    context = _collapse(body.context, limit=40)
+    summary = _collapse(summary, limit=96)
+    prefix = f"[{platform_label}][{type_label}]"
+    if body.report_type == "crash" and context:
+        return f"{prefix} {context} - {summary}"[:200]
+    return f"{prefix} {summary}"[:200]
+
+
+def _linear_issue_body(body: "ReportIn", *, team: str, origin: str, install_fingerprint: str) -> str:
+    type_label = _report_type_label(body.report_type)
+    sections = [
+        f"**Report type:** {type_label}",
+        f"**Origin:** {origin}",
+        f"**Linear team bucket:** {team}",
+        f"**Version/package:** {body.app_version or 'unknown'}",
+        f"**Install fingerprint:** `{install_fingerprint}`",
+        f"**Platform:** {body.platform or body.os or 'unknown'}",
+        f"**OS:** {body.os or 'unknown'}",
+        f"**Arch:** {body.arch or 'unknown'}",
+        f"**Python:** {body.python_version or 'unknown'}",
+        f"**Airport:** {body.airport or '—'}",
+        f"**Source:** {body.source or 'unknown'}",
+        f"**API mode:** {body.api_mode or 'unknown'}",
+        f"**Diagnostics mode:** {body.diagnostics_mode or 'unset'}",
+        f"**Context:** `{body.context or 'n/a'}`",
+    ]
+    body_text = "\n".join(sections)
+    if body.report_type == "manual" and body.description.strip():
+        body_text += f"\n\n---\n**User description**\n{_redact_sensitive(body.description.strip())[:3000]}"
+    if body.report_type == "crash":
+        error = body.message or body.title or "Unknown crash"
+        body_text += f"\n\n---\n**Error**\n```\n{_redact_sensitive(error)[:500]}\n```"
+        if body.traceback.strip():
+            body_text += f"\n\n**Traceback**\n```\n{_redact_sensitive(body.traceback)[-1800:]}\n```"
+        if body.description.strip():
+            body_text += f"\n\n**Sanitized log excerpt**\n```\n{_redact_sensitive(body.description)[-1500:]}\n```"
+    if body.client_context.strip():
+        body_text += f"\n\n---\n**Client / reporter context**\n{_redact_sensitive(body.client_context.strip())[:1800]}"
+    return body_text[:4000]
+
+
+def _post_linear_issue(*, team_id: str, title: str, description: str) -> str:
+    api_key = _linear_reporter_key()
+    if not api_key or not team_id:
+        raise HTTPException(status_code=503, detail="Linear reporting is not configured on the relay")
+    response = _req.post(
+        _LINEAR_GRAPHQL_URL,
+        json={
+            "query": """
+mutation CreateIssue($title: String!, $description: String!, $teamId: String!) {
+  issueCreate(input: { title: $title, description: $description, teamId: $teamId }) {
+    success
+    issue { url }
+  }
+}
+""",
+            "variables": {"title": title, "description": description, "teamId": team_id},
+        },
+        headers={"Authorization": api_key, "Content-Type": "application/json"},
+        timeout=10,
+    )
+    if response.status_code >= 400:
+        raise HTTPException(status_code=502, detail=f"Linear returned HTTP {response.status_code}")
+    data = response.json()
+    result = (data.get("data") or {}).get("issueCreate") or {}
+    if result.get("success"):
+        return str((result.get("issue") or {}).get("url") or "")
+    errors = data.get("errors")
+    detail = errors[0].get("message") if errors and isinstance(errors[0], dict) else "Linear rejected report"
+    raise HTTPException(status_code=502, detail=str(detail))
 
 
 _radar_cache: Dict[str, tuple[float, bytes]] = {}
@@ -1458,6 +1834,29 @@ class ClientStatusIn(BaseModel):
     app_version: str = ""
 
 
+class ReportIn(BaseModel):
+    report_type: str = Field(..., min_length=1, max_length=20)
+    origin: str = Field("", max_length=20)
+    install_id: str = Field(..., min_length=1, max_length=80)
+    install_fingerprint: str = Field(..., min_length=1, max_length=80)
+    activation_token: str = Field("", max_length=160)
+    title: str = Field("", max_length=200)
+    description: str = Field("", max_length=4000)
+    message: str = Field("", max_length=500)
+    traceback: str = Field("", max_length=5000)
+    context: str = Field("", max_length=120)
+    client_context: str = Field("", max_length=2000)
+    app_version: str = Field("", max_length=80)
+    platform: str = Field("", max_length=160)
+    os: str = Field("", max_length=160)
+    arch: str = Field("", max_length=80)
+    python_version: str = Field("", max_length=80)
+    airport: str = Field("", max_length=12)
+    source: str = Field("", max_length=40)
+    api_mode: str = Field("", max_length=40)
+    diagnostics_mode: str = Field("", max_length=40)
+
+
 def _build_client_status(
     *,
     install_id: str,
@@ -1666,6 +2065,96 @@ def relay_activation_request_status_compat(
         "token_prefix": str(row["token_prefix"] or ""),
         "delivered": str(row["status"] or "") == _REQUEST_STATUS_ISSUED,
     }
+
+
+@app.post("/v1/reports")
+def relay_reports(body: ReportIn, request: Request) -> Dict[str, Any]:
+    report_type = (body.report_type or "").strip().lower()
+    if report_type not in _REPORT_ALLOWED_TYPES:
+        raise HTTPException(status_code=422, detail="report_type must be manual or crash")
+
+    install_id = _validate_install_id(body.install_id.strip())
+    expected_fingerprint = _install_fingerprint(install_id)
+    install_fingerprint = (body.install_fingerprint or "").strip()
+    if install_fingerprint != expected_fingerprint:
+        raise HTTPException(status_code=422, detail="install_fingerprint does not match install_id")
+
+    if body.activation_token.strip():
+        _build_client_status(
+            install_id=install_id,
+            activation_token=body.activation_token.strip(),
+            app_version=body.app_version,
+        )
+    else:
+        _ensure_install_allowed(install_id)
+
+    origin = _report_origin(body)
+    team = _report_team(origin, body.context)
+    team_id = _report_team_id(team)
+    if not _linear_reporter_key() or not team_id:
+        raise HTTPException(status_code=503, detail="Linear reporting is not configured on the relay")
+
+    message_hash = _normalize_message_hash(body)
+    dedupe_key = _report_dedupe_key(
+        team=team,
+        report_type=report_type,
+        origin=origin,
+        context=(body.context or "").strip().lower(),
+        message_hash=message_hash,
+        install_fingerprint=install_fingerprint,
+    )
+    network_tag = _network_tag(_client_ip(request))
+
+    conn = _connect()
+    try:
+        _check_report_rate_limit(
+            conn,
+            report_type=report_type,
+            install_fingerprint=install_fingerprint,
+            network_tag=network_tag,
+        )
+        duplicate_url = _dedupe_report(
+            conn,
+            dedupe_key=dedupe_key,
+            team=team,
+            report_type=report_type,
+            origin=origin,
+            install_fingerprint=install_fingerprint,
+        )
+        if duplicate_url is not None:
+            _record_report_event(
+                conn,
+                install_fingerprint=install_fingerprint,
+                network_tag=network_tag,
+                report_type=report_type,
+                origin=origin,
+                context=body.context,
+                team=team,
+                status="deduped",
+                dedupe_key=dedupe_key,
+            )
+            conn.commit()
+            return {"ok": True, "url": None, "team": team, "deduped": True}
+
+        title = _linear_issue_title(body, team=team, origin=origin)
+        description = _linear_issue_body(body, team=team, origin=origin, install_fingerprint=install_fingerprint)
+        url = _post_linear_issue(team_id=team_id, title=title, description=description)
+        _mark_report_filed(conn, dedupe_key=dedupe_key, url=url)
+        _record_report_event(
+            conn,
+            install_fingerprint=install_fingerprint,
+            network_tag=network_tag,
+            report_type=report_type,
+            origin=origin,
+            context=body.context,
+            team=team,
+            status="filed",
+            dedupe_key=dedupe_key,
+        )
+        conn.commit()
+        return {"ok": True, "url": url, "team": team, "deduped": False}
+    finally:
+        conn.close()
 
 
 @app.get("/v1/flights")

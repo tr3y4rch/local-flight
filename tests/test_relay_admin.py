@@ -223,3 +223,229 @@ def test_relay_request_log_uses_scope_without_airport_data(tmp_path: Path, monke
     assert row["airport"] is None
     assert row["mode"] == "departures"
     assert row["service"] == "aviationstack"
+
+
+def _report_payload(
+    install_id: str,
+    *,
+    report_type: str = "crash",
+    origin: str = "ios",
+    context: str = "mobile/react-boundary",
+    title: str = "Companion report",
+    message: str = "Example crash",
+    description: str = "",
+    client_context: str = "Companion OS  iOS 18.0\nCompanion ID  lfc_test",
+) -> dict[str, str]:
+    return {
+        "report_type": report_type,
+        "origin": origin,
+        "install_id": install_id,
+        "install_fingerprint": relay_main._install_fingerprint(install_id),
+        "title": title,
+        "description": description,
+        "message": message,
+        "traceback": "stack",
+        "context": context,
+        "client_context": client_context,
+        "app_version": "0.2.5b1",
+        "platform": "Darwin",
+        "os": "iOS 18.0",
+        "arch": "arm64",
+        "python_version": "3.11",
+        "airport": "ZRH",
+        "source": "real",
+        "api_mode": "community relay",
+        "diagnostics_mode": "auto",
+    }
+
+
+def _enable_reporter_env(monkeypatch) -> None:
+    monkeypatch.setenv("LINEAR_REPORTER_API_KEY", "lin_api_test")
+    monkeypatch.setenv("LINEAR_TEAM_IOS_ID", "team-ios")
+    monkeypatch.setenv("LINEAR_TEAM_DESKTOP_ID", "team-desktop")
+    monkeypatch.setenv("LINEAR_TEAM_SERVER_ID", "team-server")
+    monkeypatch.setenv("LINEAR_TEAM_RELAY_ID", "team-relay")
+    monkeypatch.setenv("LINEAR_TEAM_DEFAULT_ID", "team-default")
+
+
+def test_relay_reports_route_to_platform_teams(tmp_path: Path, monkeypatch) -> None:
+    _use_temp_db(tmp_path, monkeypatch)
+    _enable_reporter_env(monkeypatch)
+    filed: list[dict[str, str]] = []
+    monkeypatch.setattr(
+        relay_main,
+        "_post_linear_issue",
+        lambda **kwargs: filed.append(kwargs) or f"https://linear.test/{len(filed)}",
+    )
+    client = TestClient(relay_main.app)
+
+    cases = [
+        ("00000000-0000-0000-0000-000000000301", "ios", "mobile/react-boundary", "team-ios", "ios"),
+        ("00000000-0000-0000-0000-000000000302", "web", "web/js-error", "team-desktop", "desktop"),
+        ("00000000-0000-0000-0000-000000000303", "scheduler", "scheduler/real", "team-server", "server"),
+        ("00000000-0000-0000-0000-000000000304", "relay", "relay/report", "team-relay", "relay"),
+    ]
+    for install_id, origin, context, team_id, team in cases:
+        client_context = "Companion OS  iOS 18.0" if origin == "ios" else "Reporter Web/Desktop"
+        response = client.post(
+            "/v1/reports",
+            json=_report_payload(
+                install_id,
+                origin=origin,
+                context=context,
+                message=f"Crash {origin}",
+                client_context=client_context,
+            ),
+        )
+        assert response.status_code == 200
+        assert response.json()["team"] == team
+        assert response.json()["deduped"] is False
+        assert filed[-1]["team_id"] == team_id
+
+    assert filed[0]["title"].startswith("[iOS][Crash]")
+    assert filed[1]["title"].startswith("[Web][Crash]")
+    assert filed[2]["title"].startswith("[Server][Crash]")
+    assert filed[3]["title"].startswith("[Relay][Crash]")
+
+
+def test_relay_reports_fall_back_to_default_team_when_specific_team_missing(tmp_path: Path, monkeypatch) -> None:
+    _use_temp_db(tmp_path, monkeypatch)
+    monkeypatch.setenv("LINEAR_REPORTER_API_KEY", "lin_api_test")
+    monkeypatch.setenv("LINEAR_TEAM_DEFAULT_ID", "team-default")
+    filed: list[dict[str, str]] = []
+    monkeypatch.setattr(
+        relay_main,
+        "_post_linear_issue",
+        lambda **kwargs: filed.append(kwargs) or "https://linear.test/fallback",
+    )
+    client = TestClient(relay_main.app)
+    install_id = "00000000-0000-0000-0000-000000000305"
+
+    response = client.post("/v1/reports", json=_report_payload(install_id))
+
+    assert response.status_code == 200
+    assert response.json()["team"] == "ios"
+    assert filed[0]["team_id"] == "team-default"
+
+
+def test_relay_reports_dedupe_repeated_crashes_before_linear(tmp_path: Path, monkeypatch) -> None:
+    _use_temp_db(tmp_path, monkeypatch)
+    _enable_reporter_env(monkeypatch)
+    filed: list[dict[str, str]] = []
+    monkeypatch.setattr(
+        relay_main,
+        "_post_linear_issue",
+        lambda **kwargs: filed.append(kwargs) or "https://linear.test/one",
+    )
+    client = TestClient(relay_main.app)
+    install_id = "00000000-0000-0000-0000-000000000306"
+    payload = _report_payload(install_id, message="Same crash")
+
+    first = client.post("/v1/reports", json=payload)
+    second = client.post("/v1/reports", json=payload)
+
+    assert first.status_code == 200
+    assert first.json()["deduped"] is False
+    assert second.status_code == 200
+    assert second.json() == {"ok": True, "url": None, "team": "ios", "deduped": True}
+    assert len(filed) == 1
+
+
+def test_relay_reports_dedupe_repeated_manual_reports_for_short_window(tmp_path: Path, monkeypatch) -> None:
+    _use_temp_db(tmp_path, monkeypatch)
+    _enable_reporter_env(monkeypatch)
+    filed: list[dict[str, str]] = []
+    monkeypatch.setattr(
+        relay_main,
+        "_post_linear_issue",
+        lambda **kwargs: filed.append(kwargs) or f"https://linear.test/{len(filed)}",
+    )
+    client = TestClient(relay_main.app)
+    install_id = "00000000-0000-0000-0000-000000000307"
+    payload = _report_payload(
+        install_id,
+        report_type="manual",
+        origin="web",
+        context="",
+        title="Same manual report",
+        message="",
+        description="Same body",
+        client_context="Reporter Web UI",
+    )
+    distinct = {**payload, "title": "Different manual report"}
+
+    first = client.post("/v1/reports", json=payload)
+    second = client.post("/v1/reports", json=payload)
+    third = client.post("/v1/reports", json=distinct)
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert second.json()["deduped"] is True
+    assert third.status_code == 200
+    assert third.json()["deduped"] is False
+    assert len(filed) == 2
+
+
+def test_relay_reports_rate_limit_by_install(tmp_path: Path, monkeypatch) -> None:
+    _use_temp_db(tmp_path, monkeypatch)
+    _enable_reporter_env(monkeypatch)
+    monkeypatch.setenv("RELAY_REPORT_MANUAL_DAILY_LIMIT", "1")
+    monkeypatch.setattr(relay_main, "_post_linear_issue", lambda **kwargs: "https://linear.test/rate")
+    client = TestClient(relay_main.app)
+    install_id = "00000000-0000-0000-0000-000000000308"
+    payload = _report_payload(
+        install_id,
+        report_type="manual",
+        origin="web",
+        title="First manual report",
+        message="",
+        description="First",
+    )
+    second_payload = {**payload, "title": "Second manual report", "description": "Second"}
+
+    assert client.post("/v1/reports", json=payload).status_code == 200
+    second = client.post("/v1/reports", json=second_payload)
+
+    assert second.status_code == 429
+
+
+def test_relay_reports_redact_secrets_before_linear(tmp_path: Path, monkeypatch) -> None:
+    _use_temp_db(tmp_path, monkeypatch)
+    _enable_reporter_env(monkeypatch)
+    filed: list[dict[str, str]] = []
+    monkeypatch.setattr(
+        relay_main,
+        "_post_linear_issue",
+        lambda **kwargs: filed.append(kwargs) or "https://linear.test/redacted",
+    )
+    client = TestClient(relay_main.app)
+    install_id = "00000000-0000-0000-0000-000000000309"
+    payload = _report_payload(
+        install_id,
+        report_type="manual",
+        origin="web",
+        title="Secret report",
+        description="RAPIDAPI_KEY=supersecret lin_api_abcdef access_key=abc 192.168.1.44",
+        message="",
+    )
+
+    response = client.post("/v1/reports", json=payload)
+
+    assert response.status_code == 200
+    description = filed[0]["description"]
+    assert "supersecret" not in description
+    assert "lin_api_abcdef" not in description
+    assert "access_key=abc" not in description
+    assert "192.168.1.44" not in description
+
+
+def test_relay_reports_require_linear_configuration(tmp_path: Path, monkeypatch) -> None:
+    _use_temp_db(tmp_path, monkeypatch)
+    monkeypatch.delenv("LINEAR_REPORTER_API_KEY", raising=False)
+    monkeypatch.delenv("LINEAR_TEAM_DEFAULT_ID", raising=False)
+    client = TestClient(relay_main.app)
+    install_id = "00000000-0000-0000-0000-000000000310"
+
+    response = client.post("/v1/reports", json=_report_payload(install_id))
+
+    assert response.status_code == 503

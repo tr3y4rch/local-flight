@@ -7,6 +7,7 @@ const PROFILES_KEY = "localflight.profiles";
 const COMPANION_ID_KEY = "localflight.companionId";
 const APPEARANCE_THEME_KEY = "localflight.mobileTheme";
 const APPEARANCE_SKIN_KEY = "localflight.mobileSkin";
+const MOBILE_DIAGNOSTICS_KEY = "localflight.mobileDiagnosticsMode";
 
 const DEFAULT_THEME_MODE: MobileThemeMode = "dark";
 const DEFAULT_SKIN: MobileSkin = "technical";
@@ -22,6 +23,8 @@ export type ConfigProfile = {
   source: "real" | "virtual";
   refresh_seconds: number;
 };
+
+export type MobileDiagnosticsMode = "unset" | "manual" | "auto" | "auto_logs";
 
 function createCompanionId(): string {
   const part = () => Math.floor(Math.random() * 0xffffffff).toString(16).padStart(8, "0");
@@ -94,6 +97,17 @@ function normalizeSkin(value: string | null | undefined): MobileSkin {
   }
 }
 
+function normalizeDiagnosticsMode(value: string | null | undefined): MobileDiagnosticsMode {
+  switch (value) {
+    case "manual":
+    case "auto":
+    case "auto_logs":
+      return value;
+    default:
+      return "unset";
+  }
+}
+
 export async function loadAppearancePrefs(): Promise<{
   themeMode: MobileThemeMode;
   skin: MobileSkin;
@@ -116,4 +130,12 @@ export async function saveAppearancePrefs(value: {
     SecureStore.setItemAsync(APPEARANCE_THEME_KEY, normalizeThemeMode(value.themeMode)),
     SecureStore.setItemAsync(APPEARANCE_SKIN_KEY, normalizeSkin(value.skin))
   ]);
+}
+
+export async function loadMobileDiagnosticsMode(): Promise<MobileDiagnosticsMode> {
+  return normalizeDiagnosticsMode(await SecureStore.getItemAsync(MOBILE_DIAGNOSTICS_KEY));
+}
+
+export async function saveMobileDiagnosticsMode(value: MobileDiagnosticsMode): Promise<void> {
+  await SecureStore.setItemAsync(MOBILE_DIAGNOSTICS_KEY, normalizeDiagnosticsMode(value));
 }

@@ -153,7 +153,7 @@ It walks through:
 
 The scheduler only starts after setup completes. You can re-run the wizard any time from **Settings -> Re-run setup wizard**.
 
-After the first launch into the main app, Local Flight asks once how you want diagnostics handled. Manual reports always stay available from the **Report** page.
+After the first launch into the main app, Local Flight asks once how you want diagnostics handled. Manual reports always stay available from the **Report** page. Developer reports are forwarded through the hosted relay reporting gateway; Linear credentials are not shipped in the desktop or mobile app.
 
 Community mode defaults to `https://localflight-community-relay.fly.dev/v1/flights`. Only change that relay URL if you are deliberately pointing the client at your own backend.
 
@@ -303,7 +303,7 @@ Provides unlimited local ADS-B reception with no API key or monthly limits.
 
 ## Reporting issues
 
-Use the **Report** page from the nav bar anywhere in the app. Manual reports are always available. Automatic diagnostics are an install-level choice you can keep off, enable for crash reports only, or enable with sanitized log excerpts. Reports go directly to the developer. No account required.
+Use the **Report** page from the nav bar anywhere in the app. Manual reports are always available. Automatic diagnostics are an install-level choice you can keep off, enable for crash reports only, or enable with sanitized log excerpts. Reports are sanitized locally, forwarded through the hosted relay, deduplicated/rate-limited there, and then filed into the developer's Linear inbox. No account required.
 
 ---
 

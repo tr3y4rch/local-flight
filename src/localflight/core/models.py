@@ -84,12 +84,22 @@ class Flight:
     origin:       Optional[AirportRef] = None
     destination:  Optional[AirportRef] = None
     aircraft_type: Optional[str] = None
+    aircraft_registration: Optional[str] = None
     gate:         Optional[str]  = None
     terminal:     Optional[str]  = None
     stand:        Optional[str]  = None
     status:       FlightStatus   = FlightStatus.UNKNOWN
     times:        FlightTime     = field(default_factory=FlightTime)
     delay_minutes: Optional[int] = None
+    flight_rules: Optional[str] = None
+    planned_route: Optional[str] = None
+    planned_altitude: Optional[str] = None
+    planned_departure: Optional[datetime] = None
+    planned_arrival: Optional[datetime] = None
+    planned_enroute_minutes: Optional[int] = None
+    cruise_tas: Optional[int] = None
+    alternate_icao: Optional[str] = None
+    assigned_transponder: Optional[str] = None
 
     # ── Enrichment layer (OpenSky / VATSIM position data) ─────────────────────
     position:     Optional[FlightPosition] = None

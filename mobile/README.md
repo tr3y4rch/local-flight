@@ -49,7 +49,7 @@ Do not use `localhost` on a physical iPhone. `localhost` means the phone itself,
 - Companion-specific ID and platform reporting so mobile-originated actions are traceable separately from the desktop/server app
 - Mockup-inspired shell: Flight Island, airport/live header, METAR strip, FIDS tabs, pinned flight, compact board rows, and four-item bottom nav
 - Settings tools for airport/source/update interval, Matrix preview, Admin, scheduler restart, feedback, and Buy Me a Coffee
-- Feedback and crash reporting, with automatic diagnostics following the server's chosen privacy mode
+- Feedback and crash reporting, with automatic diagnostics requiring both the mobile-local choice and the connected server's privacy mode
 - WebSocket listener for `/ws` `snapshot_updated`, `config_updated`, and `scheduler_restarted` events
 - Responsive iPhone/iPad layout foundation
 - Independent mobile appearance with dark/light theme plus standard, technical, neon, cyan, and CRT skins

@@ -43,7 +43,7 @@ When you send a report yourself, Local Flight sends:
 
 ### Automatic crash reports
 
-If you enable automatic diagnostics, Local Flight can send a crash report to the developer issue inbox on Linear when a serious error is caught.
+If you enable automatic diagnostics, Local Flight can send a crash report to the developer issue inbox on Linear when a serious error is caught. Reports are sent through the hosted relay reporting gateway so Linear credentials are never included in the desktop or mobile app package.
 
 An automatic crash report contains:
 - Local Flight version
@@ -64,7 +64,7 @@ Automatic diagnostics do **not** contain:
 - stored flight history
 - Local Flight account data, because there are no Local Flight accounts
 
-Crash reports are deduplicated so the same install does not file the same crash repeatedly within a short window.
+Crash reports are deduplicated locally and again by the hosted relay so the same install does not file the same crash repeatedly within a short window. Manual reports with the same title/body are also briefly deduplicated to avoid accidental spam.
 
 ---
 
@@ -110,7 +110,7 @@ Local Flight does not embed tracking or advertising SDKs from any of these servi
 
 ## Mobile companion
 
-The mobile companion stores its server URL and companion ID locally on the device. When it connects to your Local Flight server, it reports a companion-specific ID plus a platform label so companion-originated actions can be distinguished from the desktop/server app in diagnostics.
+The mobile companion stores its server URL, companion ID, and mobile diagnostics choice locally on the device. When it connects to your Local Flight server, it reports a companion-specific ID plus a platform label so companion-originated actions can be distinguished from the desktop/server app in diagnostics. Automatic companion reports require both the mobile diagnostics choice and the connected server diagnostics choice to allow them.
 
 That identity is install-scoped. It is not a login or a person profile.
 
@@ -136,5 +136,5 @@ The closest thing to remote processing is the hosted community relay and install
 | Config and personal API keys | Your machine | You |
 | Local traffic log | Your machine | You |
 | Flight history | Your machine | You |
-| Manual reports and automatic diagnostics | Developer issue inbox on Linear | Developer |
+| Manual reports and automatic diagnostics | Hosted relay reporting gateway, then developer issue inbox on Linear | Developer |
 | Community relay usage metadata | Relay server | Relay operator |
