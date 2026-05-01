@@ -83,17 +83,25 @@ def make_icons() -> None:
         print("Generated assets/icon.ico")
 
     elif sys.platform == "darwin":
-        iconset = ASSETS / "icon.iconset"
-        iconset.mkdir(exist_ok=True)
-        for s in [16, 32, 64, 128, 256, 512]:
-            img.resize((s,    s),    Image.LANCZOS).save(iconset / f"icon_{s}x{s}.png")
-            img.resize((s*2,  s*2),  Image.LANCZOS).save(iconset / f"icon_{s}x{s}@2x.png")
-        subprocess.run(
-            ["iconutil", "-c", "icns", str(iconset), "-o", str(ASSETS / "icon.icns")],
-            check=True,
-        )
-        shutil.rmtree(iconset)
-        print("Generated assets/icon.icns")
+        icns_path = ASSETS / "icon.icns"
+        try:
+            img.save(icns_path, format="ICNS")
+            print("Generated assets/icon.icns via Pillow")
+        except Exception:
+            iconset = ASSETS / "icon.iconset"
+            shutil.rmtree(iconset, ignore_errors=True)
+            iconset.mkdir(exist_ok=True)
+            # Valid macOS iconset members are 16/32/128/256/512 plus their @2x
+            # variants (which cover 32/64/256/512/1024 actual pixel sizes).
+            for s in [16, 32, 128, 256, 512]:
+                img.resize((s,    s),    Image.LANCZOS).save(iconset / f"icon_{s}x{s}.png")
+                img.resize((s*2,  s*2),  Image.LANCZOS).save(iconset / f"icon_{s}x{s}@2x.png")
+            subprocess.run(
+                ["iconutil", "-c", "icns", str(iconset), "-o", str(icns_path)],
+                check=True,
+            )
+            shutil.rmtree(iconset)
+            print("Generated assets/icon.icns via iconutil")
 
     else:
         print("Generated assets/icon.png  (Linux — no .ico/.icns needed)")

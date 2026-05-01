@@ -211,6 +211,40 @@ def _activation_request_status_url(relay_url: str) -> str:
     return _activation_request_url(relay_url).rstrip("/") + "/status"
 
 
+_DOC_PAGES: Dict[str, Dict[str, str]] = {
+    "readme": {
+        "title": "Project README",
+        "filename": "README.md",
+        "summary": "Install notes, setup paths, and the current Local Flight overview.",
+        "github_url": "https://github.com/tr3y4rch/local-flight#readme",
+    },
+    "privacy": {
+        "title": "Privacy & Diagnostics",
+        "filename": "PRIVACY.md",
+        "summary": "What stays local, what reporting can send, and how diagnostics modes work.",
+        "github_url": "https://github.com/tr3y4rch/local-flight/blob/main/PRIVACY.md",
+    },
+    "changelog": {
+        "title": "Release Notes",
+        "filename": "CHANGELOG.md",
+        "summary": "Version history and recent release changes.",
+        "github_url": "https://github.com/tr3y4rch/local-flight/blob/main/CHANGELOG.md",
+    },
+}
+
+
+def _resolve_doc_path(filename: str) -> Optional[Path]:
+    here = Path(__file__).resolve()
+    candidates = [
+        here.parent / "docs" / filename,
+        here.parents[3] / filename,
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return None
+
+
 # â”€â”€ WebSocket connection manager â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 class ConnectionManager:
@@ -1057,6 +1091,36 @@ def feedback_page(request: Request) -> HTMLResponse:
         request=request,
         name="feedback.html",
         context={"cfg": cfg, "state": load_state()},
+    )
+
+
+@app.get("/docs/{slug}", response_class=HTMLResponse)
+def docs_page(request: Request, slug: str) -> HTMLResponse:
+    page = _DOC_PAGES.get((slug or "").strip().lower())
+    if not page:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    path = _resolve_doc_path(page["filename"])
+    if path is None:
+        content = f"{page['filename']} is not bundled with this build."
+    else:
+        content = path.read_text(encoding="utf-8", errors="replace")
+
+    cfg = load_config()
+    return templates.TemplateResponse(
+        request=request,
+        name="doc_view.html",
+        context={
+            "cfg": cfg,
+            "state": load_state(),
+            "doc_slug": slug,
+            "doc_title": page["title"],
+            "doc_summary": page["summary"],
+            "doc_filename": page["filename"],
+            "doc_text": content,
+            "doc_github_url": page["github_url"],
+            "doc_pages": _DOC_PAGES,
+        },
     )
 
 

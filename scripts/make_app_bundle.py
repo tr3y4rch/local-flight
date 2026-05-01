@@ -75,19 +75,24 @@ def _make_icns(root: Path, iconset_dir: Path) -> Path:
         d.polygon([(cx-280, cy+80), (cx+280, cy+80), (cx, cy-40)], fill="white")
         d.polygon([(cx-112, cy+200), (cx+112, cy+200), (cx, cy+40)], fill="white")
 
-    iconset_dir.mkdir(parents=True, exist_ok=True)
     from PIL import Image
-    for s in [16, 32, 64, 128, 256, 512, 1024]:
-        img.resize((s, s), Image.LANCZOS).save(iconset_dir / f"icon_{s}x{s}.png")
-        if s <= 512:
+    try:
+        img.save(icns_out, format="ICNS")
+        print(f"  Icon: generated {icns_out.name} via Pillow")
+        return icns_out
+    except Exception:
+        shutil.rmtree(iconset_dir, ignore_errors=True)
+        iconset_dir.mkdir(parents=True, exist_ok=True)
+        for s in [16, 32, 128, 256, 512]:
+            img.resize((s, s), Image.LANCZOS).save(iconset_dir / f"icon_{s}x{s}.png")
             img.resize((s * 2, s * 2), Image.LANCZOS).save(iconset_dir / f"icon_{s}x{s}@2x.png")
 
-    subprocess.run(
-        ["iconutil", "-c", "icns", str(iconset_dir), "-o", str(icns_out)],
-        check=True,
-    )
-    shutil.rmtree(iconset_dir)
-    print(f"  Icon: generated {icns_out.name}")
+        subprocess.run(
+            ["iconutil", "-c", "icns", str(iconset_dir), "-o", str(icns_out)],
+            check=True,
+        )
+        shutil.rmtree(iconset_dir)
+        print(f"  Icon: generated {icns_out.name} via iconutil")
     return icns_out
 
 

@@ -16,6 +16,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `POST /api/matrix/script` - generates a complete, ready-to-flash Interstate 75 W `main.py` from the canonical board client template, with LAN-host validation for the board download path.
 - Matrix preview **Save Config** button: stores brightness, rows, refresh interval, and default view to the server so the board picks them up automatically.
 - First-launch diagnostics choice for each install: `Manual reports only`, `Automatic crash reports`, or `Automatic crash reports + sanitized logs`.
+- In-app document viewer routes (`/docs/readme`, `/docs/privacy`, `/docs/changelog`) so README, privacy, and changelog content are readable from Settings inside the desktop app.
 
 ### Changed
 - MicroPython matrix client (`sources/matrix/client.py`) no longer has hardcoded airport or config values. Airport is read from `/api/config` on boot and every 5 minutes. Brightness, row count, refresh interval, default view, and skin are read from `/api/matrix/config`.
@@ -26,12 +27,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Manual reports and automatic crash reports now describe their delivery path, source context, Python/runtime details, and whether a sanitized log excerpt was included.
 - Version metadata, mobile companion metadata, runtime fallbacks, and preview badges are now aligned to `0.2.5b1`.
 - Community relay defaults are now centralized on the live Fly.io endpoint so app code, setup, installers, and docs stop drifting.
+- Settings now separate install/relay status, flight setup, app controls, and diagnostics/resources more clearly, and community mode now truthfully reports when the hosted relay is active.
 
 ### Fixed
 - `.env.example` relay URL corrected from the unregistered `relay.localflight.app` to the live endpoint `https://localflight-community-relay.fly.dev/v1/flights`.
 - Matrix board download no longer depends on a stale browser-only copy of the MicroPython client, no longer suggests `localhost`, and no longer ships real local SSID / IP placeholders in the canonical board file.
 - Automatic crash submission now returns a clear disabled state when diagnostics are turned off instead of looking like a backend failure.
 - Setup, installer, and runtime relay references now resolve to the same hosted community backend contract.
+- macOS packaging now bundles `README.md`, `PRIVACY.md`, and `CHANGELOG.md` into the app and uses a more reliable `.icns` generation path before falling back to `iconutil`.
 
 ---
 

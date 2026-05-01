@@ -69,6 +69,52 @@
     text-transform: uppercase;
     letter-spacing: 0.03em;
   }
+  .panel-intro {
+    margin: -4px 0 14px 0;
+    font-size: 0.84rem;
+    line-height: 1.5;
+    opacity: 0.68;
+  }
+  .resource-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 10px;
+    margin-top: 10px;
+  }
+  .resource-card {
+    display: block;
+    padding: 12px 14px;
+    color: inherit;
+    text-decoration: none;
+    border-radius: 10px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08);
+    transition: border-color 0.12s ease, background 0.12s ease, transform 0.12s ease;
+  }
+  .resource-card:hover {
+    border-color: rgba(124,196,240,0.35);
+    background: rgba(124,196,240,0.08);
+    transform: translateY(-1px);
+  }
+  [data-theme="light"] .resource-card {
+    background: rgba(0,0,0,0.03);
+    border-color: rgba(0,0,0,0.08);
+  }
+  [data-theme="light"] .resource-card:hover {
+    border-color: rgba(30,108,180,0.28);
+    background: rgba(30,108,180,0.05);
+  }
+  .resource-card strong {
+    display: block;
+    margin-bottom: 4px;
+    font-size: 0.85rem;
+  }
+  .resource-card span {
+    display: block;
+    font-size: 0.78rem;
+    line-height: 1.45;
+    opacity: 0.68;
+  }
 {% endblock %}
 
 {% block body %}
@@ -132,15 +178,15 @@
   </section>
 
   <section class="panel">
-    <h2>Client Link</h2>
-    <p class="hint">Read-only install details for checking which relay path this machine is on.</p>
+    <h2>Install &amp; Relay</h2>
+    <p class="hint">Read-only details about how this install reaches live schedule data.</p>
     <div class="mini-grid">
       <div class="mini-cell"><b>Machine ID</b><span id="clientInstallId" class="mono">Loading...</span></div>
-      <div class="mini-cell"><b>Mode</b><span id="clientMode">Loading...</span></div>
+      <div class="mini-cell"><b>Data mode</b><span id="clientMode">Loading...</span></div>
       <div class="mini-cell"><b>Community key</b><span id="clientCommunityKey">Loading...</span></div>
-      <div class="mini-cell"><b>Relay token</b><span id="clientToken">Loading...</span></div>
+      <div class="mini-cell"><b>Managed token</b><span id="clientToken">Loading...</span></div>
       <div class="mini-cell"><b>Relay URL</b><span id="clientRelayUrl" class="mono">Loading...</span></div>
-      <div class="mini-cell"><b>Relay status</b><span id="clientManagedStatus">Loading...</span></div>
+      <div class="mini-cell"><b>Access path</b><span id="clientAccessStatus">Loading...</span></div>
     </div>
   </section>
 
@@ -165,10 +211,10 @@
     </form>
   </section>
 
-  <!-- SETTINGS -->
-  <section class="panel">
-    <h2>Settings</h2>
-    <form action="/save" method="post" id="settingsForm">
+  <form action="/save" method="post" id="settingsForm">
+    <section class="panel">
+      <h2>Flight Setup</h2>
+      <p class="panel-intro">Choose which airport the board follows, where the live data comes from, and how often Local Flight refreshes it.</p>
 
       <label>
         <span>Airport</span>
@@ -195,19 +241,6 @@
       </label>
 
       <label>
-        <span>Diagnostics</span>
-        <select name="diagnostics_mode">
-          <option value="unset" {% if (cfg.diagnostics_mode or "unset") == "unset" %}selected{% endif %}>Ask me again on next launch</option>
-          <option value="manual" {% if cfg.diagnostics_mode == "manual" %}selected{% endif %}>Manual reports only</option>
-          <option value="auto" {% if cfg.diagnostics_mode == "auto" %}selected{% endif %}>Automatic crash reports</option>
-          <option value="auto_logs" {% if cfg.diagnostics_mode == "auto_logs" %}selected{% endif %}>Automatic crash reports + sanitized logs</option>
-        </select>
-        <small>
-          Manual reports stay available from the Report page. Automatic diagnostics go to the developer issue inbox on Linear and stay install-scoped.
-        </small>
-      </label>
-
-      <label>
         <span>Update frequency</span>
         <select name="refresh_seconds">
           {% set choices = [
@@ -226,6 +259,11 @@
           {% endfor %}
         </select>
       </label>
+    </section>
+
+    <section class="panel">
+      <h2>Display &amp; Devices</h2>
+      <p class="panel-intro">Set how the board looks and which outputs this install should serve.</p>
 
       <input type="hidden" name="timezone" id="timezoneHidden" value="{{ cfg.timezone }}" />
 
@@ -277,6 +315,11 @@
           <a href="/matrix-preview" style="color:inherit; opacity:0.7;">Preview matrix →</a>
         </small>
       </label>
+    </section>
+
+    <section class="panel">
+      <h2>App</h2>
+      <p class="panel-intro">Adjust the local app shell without changing the live flight-data path.</p>
 
       <label>
         <span>Theme</span>
@@ -290,10 +333,50 @@
         <span>Display name</span>
         <input name="display_name" value="{{ cfg.display_name }}" maxlength="40" />
       </label>
+    </section>
 
-      <button type="submit">Save settings</button>
-    </form>
-  </section>
+    <section class="panel">
+      <h2>Diagnostics &amp; Documents</h2>
+      <p class="panel-intro">Keep support, reporting, and project docs separate from the live-board controls.</p>
+
+      <label>
+        <span>Diagnostics</span>
+        <select name="diagnostics_mode">
+          <option value="unset" {% if (cfg.diagnostics_mode or "unset") == "unset" %}selected{% endif %}>Ask me again on next launch</option>
+          <option value="manual" {% if cfg.diagnostics_mode == "manual" %}selected{% endif %}>Manual reports only</option>
+          <option value="auto" {% if cfg.diagnostics_mode == "auto" %}selected{% endif %}>Automatic crash reports</option>
+          <option value="auto_logs" {% if cfg.diagnostics_mode == "auto_logs" %}selected{% endif %}>Automatic crash reports + sanitized logs</option>
+        </select>
+        <small>
+          Manual reports stay available from the Report page. Automatic diagnostics go to the developer issue inbox on Linear and stay install-scoped.
+        </small>
+      </label>
+
+      <div class="resource-grid">
+        <a class="resource-card" href="/feedback">
+          <strong>Report an issue</strong>
+          <span>Send a manual bug report with install-scoped diagnostics attached.</span>
+        </a>
+        <a class="resource-card" href="/docs/readme">
+          <strong>Project README</strong>
+          <span>Install notes, setup paths, source overview, and current usage guidance.</span>
+        </a>
+        <a class="resource-card" href="/docs/privacy">
+          <strong>Privacy &amp; diagnostics</strong>
+          <span>What gets sent, what stays local, and how the reporting modes behave.</span>
+        </a>
+        <a class="resource-card" href="/docs/changelog">
+          <strong>Release notes</strong>
+          <span>See what changed in the current beta and what landed in earlier passes.</span>
+        </a>
+      </div>
+
+      <div class="row" style="margin-top:14px;align-items:center;">
+        <button type="submit">Save settings</button>
+        <span class="dim" style="font-size:0.82rem;">Saves the local config and restarts the scheduler if the flight setup changed.</span>
+      </div>
+    </section>
+  </form>
 
   <footer>
     <p class="hint">Config: <code>~/.localflight/config.json</code></p>
@@ -383,24 +466,35 @@ function selectSkin(sk, fg) {
     const data = await r.json();
     const client = data.client || {};
     const mode = client.mode || "unknown";
+    const modeLabel = {
+      community: "Community relay",
+      managed: "Managed token",
+      byok: "Personal keys",
+      virtual: "Virtual only",
+    }[mode] || mode;
+    const accessLabel =
+      mode === "managed"
+        ? (client.managed_verified ? "Managed relay verified" : (client.managed_status || "Managed relay pending verification"))
+        : mode === "community"
+          ? "Community relay active"
+          : mode === "byok"
+            ? "Direct provider access"
+            : mode === "virtual"
+              ? "No schedule relay in use"
+              : "Unavailable";
     setText("clientInstallId", data.install_id || "-");
-    setText("clientMode", mode);
+    setText("clientMode", modeLabel);
     setText("clientCommunityKey", client.community_key_present ? "Set locally" : "Not set");
     setText("clientToken", client.activation_token_present ? (client.activation_token_prefix || "Present") : "Not set");
-    setText("clientRelayUrl", client.relay_url || "Default relay");
-    setText(
-      "clientManagedStatus",
-      mode === "managed"
-        ? (client.managed_verified ? "Verified" : (client.managed_status || "Waiting for verification"))
-        : "Not using relay link"
-    );
+    setText("clientRelayUrl", client.relay_url || (mode === "byok" || mode === "virtual" ? "Not used" : "Default relay"));
+    setText("clientAccessStatus", accessLabel);
   } catch {
     setText("clientInstallId", "Unavailable");
     setText("clientMode", "Unavailable");
     setText("clientCommunityKey", "Unavailable");
     setText("clientToken", "Unavailable");
     setText("clientRelayUrl", "Unavailable");
-    setText("clientManagedStatus", "Unavailable");
+    setText("clientAccessStatus", "Unavailable");
   }
 })();
 

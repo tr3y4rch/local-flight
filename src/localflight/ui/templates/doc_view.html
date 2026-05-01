@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% from "_nav.html" import topnav %}
+
+{% block title %}Local Flight — {{ doc_title }}{% endblock %}
+
+{% block extra_style %}
+  body { display: block; min-height: 100vh; padding: 0; }
+  .page-body { padding: 24px 16px; }
+  .card {
+    width: min(940px, calc(100vw - 32px));
+    max-width: none;
+    margin: 0 auto;
+  }
+  .doc-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 18px 0 10px 0;
+  }
+  .doc-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 12px;
+    border-radius: 8px;
+    color: inherit;
+    text-decoration: none;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08);
+    font-size: 0.82rem;
+    font-weight: 600;
+    transition: border-color 0.12s ease, background 0.12s ease;
+  }
+  .doc-link:hover {
+    border-color: rgba(124,196,240,0.35);
+    background: rgba(124,196,240,0.08);
+  }
+  [data-theme="light"] .doc-link {
+    background: rgba(0,0,0,0.03);
+    border-color: rgba(0,0,0,0.08);
+  }
+  [data-theme="light"] .doc-link:hover {
+    border-color: rgba(30,108,180,0.28);
+    background: rgba(30,108,180,0.05);
+  }
+  .doc-link.active {
+    border-color: rgba(124,196,240,0.45);
+    background: rgba(124,196,240,0.12);
+    color: #7cc4f0;
+  }
+  [data-theme="light"] .doc-link.active {
+    border-color: rgba(30,108,180,0.28);
+    background: rgba(30,108,180,0.08);
+    color: #1e6cb4;
+  }
+  .doc-meta {
+    margin: 0 0 18px 0;
+    font-size: 0.84rem;
+    line-height: 1.55;
+    opacity: 0.72;
+  }
+  .doc-body {
+    margin: 0;
+    padding: 18px;
+    border-radius: 12px;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.08);
+    white-space: pre-wrap;
+    word-break: break-word;
+    font: 0.9rem/1.62 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  }
+  [data-theme="light"] .doc-body {
+    background: rgba(0,0,0,0.03);
+    border-color: rgba(0,0,0,0.08);
+  }
+{% endblock %}
+
+{% block body %}
+{{ topnav(active="settings", cfg=cfg) }}
+
+<div class="page-body">
+<main class="card">
+  <header>
+    <h1>{{ doc_title }}</h1>
+    <p class="sub">{{ doc_summary }}</p>
+  </header>
+
+  <div class="doc-actions">
+    {% for key, page in doc_pages.items() %}
+      <a href="/docs/{{ key }}" class="doc-link {% if key == doc_slug %}active{% endif %}">{{ page.title }}</a>
+    {% endfor %}
+    <a href="{{ doc_github_url }}" class="doc-link" target="_blank" rel="noreferrer">Open on GitHub</a>
+  </div>
+
+  <p class="doc-meta">
+    Showing <code>{{ doc_filename }}</code> from the local app bundle or source checkout.
+  </p>
+
+  <pre class="doc-body">{{ doc_text }}</pre>
+</main>
+</div>
+{% endblock %}

@@ -34,6 +34,9 @@ a = Analysis(
         # App resources â€” must mirror the path that Path(__file__).parent resolves to
         ("src/localflight/ui/templates",    "localflight/ui/templates"),
         ("src/localflight/ui/static",       "localflight/ui/static"),
+        ("README.md",                       "localflight/ui/docs"),
+        ("PRIVACY.md",                     "localflight/ui/docs"),
+        ("CHANGELOG.md",                   "localflight/ui/docs"),
         ("src/localflight/decode/mappings", "localflight/decode/mappings"),
         ("src/localflight/storage/samples", "localflight/storage/samples"),
     ] + uvi_d + fapi_d + anyio_d + starlette_d + collect_data_files("tzdata"),
