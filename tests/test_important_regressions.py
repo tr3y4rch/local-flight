@@ -919,6 +919,97 @@ def test_bug_reporter_forwards_to_relay_without_direct_linear(monkeypatch) -> No
     assert "api.linear.app/graphql" not in Path(bug_reporter.__file__).read_text(encoding="utf-8")
 
 
+def test_feedback_api_routes_mobile_reports_with_ios_origin(monkeypatch) -> None:
+    submitted: list[dict] = []
+    monkeypatch.setattr(
+        bug_reporter,
+        "_system_metadata",
+        lambda: {
+            "install_id": "00000000-0000-0000-0000-000000000333",
+            "install_fingerprint": "fp-test",
+            "activation_token": "",
+            "app_version": "test",
+            "platform": "Darwin",
+            "os": "iOS 18.0",
+            "arch": "arm64",
+            "python_version": "3.11",
+            "airport": "ZRH",
+            "source": "real",
+            "api_mode": "community relay",
+            "diagnostics_mode": "auto",
+        },
+    )
+    monkeypatch.setattr(bug_reporter, "_system_context", lambda client_context="": client_context)
+    monkeypatch.setattr(
+        bug_reporter,
+        "_post_relay_report",
+        lambda payload: submitted.append(payload) or {"ok": True, "url": "https://linear.test/mobile-manual"},
+    )
+
+    response = TestClient(ui_api.app).post(
+        "/api/feedback",
+        json={
+            "title": "Mobile button issue",
+            "description": "The board detail drawer feels stuck",
+            "client_context": "Companion OS  iOS 18.0\nCompanion ID  lfc_ios_test",
+        },
+    )
+
+    assert response.status_code == 200
+    assert submitted[0]["report_type"] == "manual"
+    assert submitted[0]["origin"] == "ios"
+    assert submitted[0]["title"] == "Mobile button issue"
+    assert "Companion ID" in submitted[0]["client_context"]
+
+
+def test_feedback_crash_api_routes_mobile_crashes_with_context(monkeypatch) -> None:
+    submitted: list[dict] = []
+    monkeypatch.setattr(bug_reporter, "_auto_diagnostics_mode", lambda: "auto")
+    monkeypatch.setattr(bug_reporter, "_crash_fingerprint", lambda msg, context="": f"fp-{context}-{msg}")
+    monkeypatch.setattr(bug_reporter, "_already_crash_filed", lambda fp: False)
+    monkeypatch.setattr(bug_reporter, "_mark_crash_filed", lambda fp: None)
+    monkeypatch.setattr(
+        bug_reporter,
+        "_system_metadata",
+        lambda: {
+            "install_id": "00000000-0000-0000-0000-000000000334",
+            "install_fingerprint": "fp-test",
+            "activation_token": "",
+            "app_version": "test",
+            "platform": "Darwin",
+            "os": "iOS 18.0",
+            "arch": "arm64",
+            "python_version": "3.11",
+            "airport": "ZRH",
+            "source": "real",
+            "api_mode": "community relay",
+            "diagnostics_mode": "auto",
+        },
+    )
+    monkeypatch.setattr(bug_reporter, "_system_context", lambda client_context="": client_context)
+    monkeypatch.setattr(
+        bug_reporter,
+        "_post_relay_report",
+        lambda payload: submitted.append(payload) or {"ok": True, "url": "https://linear.test/mobile-crash"},
+    )
+
+    response = TestClient(ui_api.app).post(
+        "/api/feedback/crash",
+        json={
+            "message": "Mobile render crash",
+            "traceback": "stack",
+            "context": "mobile/manual-auto-test",
+            "client_context": "Companion OS  iOS 18.0\nCompanion ID  lfc_ios_test",
+        },
+    )
+
+    assert response.status_code == 200
+    assert submitted[0]["report_type"] == "crash"
+    assert submitted[0]["origin"] == "ios"
+    assert submitted[0]["context"] == "mobile/manual-auto-test"
+    assert submitted[0]["traceback"] == "stack"
+
+
 def test_crash_fingerprint_is_scoped_by_context() -> None:
     assert bug_reporter._crash_fingerprint("Same message", context="desktop") != bug_reporter._crash_fingerprint(
         "Same message",

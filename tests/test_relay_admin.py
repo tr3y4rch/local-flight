@@ -398,6 +398,9 @@ def test_relay_reports_route_to_platform_teams(tmp_path: Path, monkeypatch) -> N
         assert response.json()["team"] == team
         assert response.json()["deduped"] is False
         assert filed[-1]["team_id"] == team_id
+        assert f"**Origin:** {origin}" in filed[-1]["description"]
+        assert f"**Linear team bucket:** {team}" in filed[-1]["description"]
+        assert f"**Context:** `{context}`" in filed[-1]["description"]
 
     assert filed[0]["title"].startswith("[iOS][Crash]")
     assert filed[1]["title"].startswith("[Web][Crash]")
@@ -546,6 +549,81 @@ def test_relay_reports_require_linear_configuration(tmp_path: Path, monkeypatch)
     response = client.post("/v1/reports", json=_report_payload(install_id))
 
     assert response.status_code == 503
+
+
+def test_admin_dashboard_surfaces_report_gateway_events(tmp_path: Path, monkeypatch) -> None:
+    _use_temp_db(tmp_path, monkeypatch)
+    _enable_reporter_env(monkeypatch)
+    monkeypatch.setenv("RELAY_ADMIN_PASSWORD", "correct-horse")
+    monkeypatch.setattr(relay_main, "_post_linear_issue", lambda **kwargs: "https://linear.test/admin")
+    client = TestClient(relay_main.app)
+    install_id = "00000000-0000-0000-0000-000000000311"
+    payload = _report_payload(
+        install_id,
+        report_type="manual",
+        origin="web",
+        context="web/feedback",
+        title="Admin dashboard report",
+        message="",
+        description="Dashboard visibility",
+        client_context="Reporter Web UI",
+    )
+
+    first = client.post("/v1/reports", json=payload)
+    second = client.post("/v1/reports", json=payload)
+    admin = client.get("/admin", headers={"host": "network.localflight.app"}, auth=("admin", "correct-horse"))
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert second.json()["deduped"] is True
+    assert admin.status_code == 200
+    assert "Report gateway (24h)" in admin.text
+    assert "Recent report events" in admin.text
+    assert "Report dedupe groups" in admin.text
+    assert "filed" in admin.text
+    assert "deduped" in admin.text
+    assert "web/feedback" in admin.text
+
+
+def test_admin_dashboard_sorts_recent_report_events_newest_first(tmp_path: Path, monkeypatch) -> None:
+    _use_temp_db(tmp_path, monkeypatch)
+    _enable_reporter_env(monkeypatch)
+    monkeypatch.setenv("RELAY_ADMIN_PASSWORD", "correct-horse")
+    monkeypatch.setattr(relay_main, "_post_linear_issue", lambda **kwargs: "https://linear.test/admin-sort")
+    client = TestClient(relay_main.app)
+
+    old_report = client.post(
+        "/v1/reports",
+        json=_report_payload(
+            "00000000-0000-0000-0000-000000000312",
+            report_type="manual",
+            origin="web",
+            context="web/feedback-old",
+            title="Old admin sorting report",
+            message="",
+            description="Old body",
+            client_context="Reporter Web UI",
+        ),
+    )
+    new_report = client.post(
+        "/v1/reports",
+        json=_report_payload(
+            "00000000-0000-0000-0000-000000000313",
+            report_type="manual",
+            origin="web",
+            context="web/feedback-new",
+            title="New admin sorting report",
+            message="",
+            description="New body",
+            client_context="Reporter Web UI",
+        ),
+    )
+    admin = client.get("/admin", headers={"host": "network.localflight.app"}, auth=("admin", "correct-horse"))
+
+    assert old_report.status_code == 200
+    assert new_report.status_code == 200
+    assert admin.status_code == 200
+    assert admin.text.index("web/feedback-new") < admin.text.index("web/feedback-old")
 
 
 def test_relay_flights_forwards_page_params_and_counts_one_raw_call(tmp_path: Path, monkeypatch) -> None:

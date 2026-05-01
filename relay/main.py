@@ -2415,7 +2415,6 @@ def _render_admin_legacy(username: str, *, created_token: str = "", message: str
             """
         ).fetchall()
     ]
-
     aviationstack_key, aviationstack_source = _provider_status(
         _SETTING_AVIATIONSTACK_KEY,
         "AVIATIONSTACK_API_KEY",
@@ -2871,6 +2870,18 @@ def _render_admin(username: str, *, created_token: str = "", message: str = "") 
         """,
         (day_cutoff,),
     ).fetchone()
+    report_totals_24h = conn.execute(
+        """
+        SELECT COUNT(*) AS reports,
+               COUNT(DISTINCT install_fingerprint) AS installs,
+               COALESCE(SUM(CASE WHEN status='filed' THEN 1 ELSE 0 END), 0) AS filed,
+               COALESCE(SUM(CASE WHEN status='deduped' THEN 1 ELSE 0 END), 0) AS deduped,
+               MAX(ts) AS last_seen
+        FROM report_events
+        WHERE ts >= ?
+        """,
+        (day_cutoff,),
+    ).fetchone()
     provider_revision = _provider_revision(conn)
     blocked_count = conn.execute("SELECT COUNT(*) FROM blocked_installs").fetchone()[0]
     snapshot_accesses = int(snapshot_totals["client_accesses"] or 0) if snapshot_totals else 0
@@ -2879,6 +2890,22 @@ def _render_admin(username: str, *, created_token: str = "", message: str = "") 
     snapshot_stale = int(snapshot_totals["stale_serves"] or 0) if snapshot_totals else 0
     snapshot_hit_rate = round((snapshot_hits / snapshot_accesses) * 100.0, 1) if snapshot_accesses > 0 else 0.0
     snapshot_savings = max(0, snapshot_accesses - snapshot_refreshes)
+    report_count_24h = int(report_totals_24h["reports"] or 0) if report_totals_24h else 0
+    report_installs_24h = int(report_totals_24h["installs"] or 0) if report_totals_24h else 0
+    report_filed_24h = int(report_totals_24h["filed"] or 0) if report_totals_24h else 0
+    report_deduped_24h = int(report_totals_24h["deduped"] or 0) if report_totals_24h else 0
+    report_key_configured = bool(_linear_reporter_key())
+    report_team_config = {
+        team: bool(_env(env_key))
+        for team, env_key in _REPORT_TEAM_ENV.items()
+    }
+    report_specific_teams = sum(1 for team, ready in report_team_config.items() if team != "default" and ready)
+    report_gateway_ready = report_key_configured and bool(report_team_config.get("default"))
+    report_gateway_label = (
+        "configured"
+        if report_gateway_ready
+        else "partial" if report_key_configured or report_specific_teams else "missing"
+    )
 
     service_breakdown = [
         dict(r)
@@ -2910,6 +2937,26 @@ def _render_admin(username: str, *, created_token: str = "", message: str = "") 
             WHERE ts >= ?
             GROUP BY service, plan
             ORDER BY service, plan
+            """,
+            (day_cutoff,),
+        ).fetchall()
+    ]
+    report_breakdown = [
+        dict(r)
+        for r in conn.execute(
+            """
+            SELECT report_type,
+                   origin,
+                   team,
+                   status,
+                   COUNT(*) AS reports,
+                   COUNT(DISTINCT install_fingerprint) AS installs,
+                   MAX(ts) AS last_seen
+            FROM report_events
+            WHERE ts >= ?
+            GROUP BY report_type, origin, team, status
+            ORDER BY reports DESC, last_seen DESC
+            LIMIT 60
             """,
             (day_cutoff,),
         ).fetchall()
@@ -3005,6 +3052,42 @@ def _render_admin(username: str, *, created_token: str = "", message: str = "") 
             FROM request_log
             ORDER BY ts DESC
             LIMIT 100
+            """
+        ).fetchall()
+    ]
+    recent_reports = [
+        dict(r)
+        for r in conn.execute(
+            """
+            SELECT ts,
+                   install_fingerprint,
+                   network_tag,
+                   report_type,
+                   origin,
+                   context,
+                   team,
+                   status
+            FROM report_events
+            ORDER BY ts DESC
+            LIMIT 80
+            """
+        ).fetchall()
+    ]
+    report_dedupe_rows = [
+        dict(r)
+        for r in conn.execute(
+            """
+            SELECT team,
+                   report_type,
+                   origin,
+                   install_fingerprint,
+                   first_seen,
+                   last_seen,
+                   count,
+                   url
+            FROM report_dedupe
+            ORDER BY last_seen DESC
+            LIMIT 80
             """
         ).fetchall()
     ]
@@ -3210,6 +3293,20 @@ def _render_admin(username: str, *, created_token: str = "", message: str = "") 
         }.get(normalized, "slate")
         return _badge(normalized.replace("_", " ") or "unknown", tone)
 
+    def _report_status_badge(status: str) -> str:
+        normalized = (status or "").strip().lower()
+        tone = {
+            "filed": "green",
+            "deduped": "cyan",
+            "failed": "red",
+            "rate_limited": "amber",
+        }.get(normalized, "slate")
+        return _badge(normalized.replace("_", " ") or "unknown", tone)
+
+    def _report_gateway_badge() -> str:
+        tone = {"configured": "green", "partial": "amber", "missing": "red"}.get(report_gateway_label, "slate")
+        return _badge(report_gateway_label, tone)
+
     def _http_badge(status_code: int) -> str:
         status_code = int(status_code or 0)
         if status_code == 0 or status_code >= 500:
@@ -3287,6 +3384,72 @@ def _render_admin(username: str, *, created_token: str = "", message: str = "") 
                 f"<td>{int(row.get('requests') or 0):,}</td>"
                 f"<td>{int(row.get('avg_latency') or 0)}ms</td>"
                 f"<td>{_badge(f'{errors:,} error' + ('' if errors == 1 else 's'), 'red' if errors else 'green')}</td>"
+                "</tr>"
+            )
+        return "".join(out)
+
+    def rows_for_report_breakdown() -> str:
+        if not report_breakdown:
+            return "<tr><td colspan='6' class='muted'>No report gateway events in the last 24 hours</td></tr>"
+        out = []
+        for row in report_breakdown:
+            report_type = str(row.get("report_type") or "")
+            origin = str(row.get("origin") or "")
+            team = str(row.get("team") or "")
+            status = str(row.get("status") or "")
+            out.append(
+                "<tr>"
+                f"<td><div class='cell-title'>{_badge(report_type or 'unknown', 'amber' if report_type == 'crash' else 'blue')}</div><div class='cell-sub mono'>{html.escape(origin or '-')}</div></td>"
+                f"<td>{_badge(team or 'default', 'cyan')}</td>"
+                f"<td>{_report_status_badge(status)}</td>"
+                f"<td>{int(row.get('reports') or 0):,}</td>"
+                f"<td>{int(row.get('installs') or 0):,}</td>"
+                f"<td><div class='cell-title'>{_fmt_age(row.get('last_seen'))}</div><div class='cell-sub'>{_fmt_ts(row.get('last_seen'))}</div></td>"
+                "</tr>"
+            )
+        return "".join(out)
+
+    def rows_for_recent_reports() -> str:
+        if not recent_reports:
+            return "<tr><td colspan='7' class='muted'>No report gateway events recorded yet</td></tr>"
+        out = []
+        for row in recent_reports:
+            report_type = str(row.get("report_type") or "")
+            origin = str(row.get("origin") or "")
+            context = str(row.get("context") or "").strip()
+            team = str(row.get("team") or "")
+            status = str(row.get("status") or "")
+            out.append(
+                "<tr>"
+                f"<td><div class='cell-title'>{_fmt_age(row.get('ts'))}</div><div class='cell-sub'>{_fmt_ts(row.get('ts'))}</div></td>"
+                f"<td class='mono'>{html.escape(str(row.get('install_fingerprint') or '-'))}</td>"
+                f"<td><div class='cell-title'>{_badge(report_type or 'unknown', 'amber' if report_type == 'crash' else 'blue')}</div><div class='cell-sub mono'>{html.escape(origin or '-')}</div></td>"
+                f"<td><div class='cell-title'>{html.escape(context[:80] or '-')}</div><div class='cell-sub mono'>{html.escape(str(row.get('network_tag') or '-'))}</div></td>"
+                f"<td>{_badge(team or 'default', 'cyan')}</td>"
+                f"<td>{_report_status_badge(status)}</td>"
+                f"<td class='cell-sub mono'>{html.escape(status or '-')}</td>"
+                "</tr>"
+            )
+        return "".join(out)
+
+    def rows_for_report_dedupe() -> str:
+        if not report_dedupe_rows:
+            return "<tr><td colspan='6' class='muted'>No report dedupe groups recorded yet</td></tr>"
+        out = []
+        for row in report_dedupe_rows[:30]:
+            report_type = str(row.get("report_type") or "")
+            origin = str(row.get("origin") or "")
+            team = str(row.get("team") or "")
+            count = int(row.get("count") or 0)
+            url = str(row.get("url") or "").strip()
+            out.append(
+                "<tr>"
+                f"<td><div class='cell-title'>{_badge(report_type or 'unknown', 'amber' if report_type == 'crash' else 'blue')}</div><div class='cell-sub mono'>{html.escape(origin or '-')}</div></td>"
+                f"<td>{_badge(team or 'default', 'cyan')}</td>"
+                f"<td class='mono'>{html.escape(str(row.get('install_fingerprint') or '-'))}</td>"
+                f"<td><div class='cell-title'>{count:,} seen</div><div class='cell-sub'>{'Linear issue filed' if url else 'No issue URL stored'}</div></td>"
+                f"<td><div class='cell-title'>{_fmt_age(row.get('last_seen'))}</div><div class='cell-sub'>First {_fmt_age(row.get('first_seen'))}</div></td>"
+                f"<td class='cell-sub mono'>{html.escape(url[:92]) if url else '-'}</td>"
                 "</tr>"
             )
         return "".join(out)
@@ -3851,6 +4014,7 @@ def _render_admin(username: str, *, created_token: str = "", message: str = "") 
     <div class="metric"><div class="metric-label">Estimated savings</div><div class="metric-value">{snapshot_savings:,}</div><div class="metric-sub">Upstream refreshes avoided by sharing airport snapshots</div></div>
     <div class="metric"><div class="metric-label">Radar accesses</div><div class="metric-value">{int(total_radar or 0):,}</div><div class="metric-sub">Relay radar uses this month</div></div>
     <div class="metric"><div class="metric-label">Request errors (24h)</div><div class="metric-value">{int(totals_24h['errors'] or 0):,}</div><div class="metric-sub">{int(totals_24h['requests'] or 0):,} requests | {int(totals_24h['avg_latency'] or 0)}ms average latency</div></div>
+    <div class="metric"><div class="metric-label">Reports (24h)</div><div class="metric-value">{report_count_24h:,}</div><div class="metric-sub">{report_filed_24h:,} filed | {report_deduped_24h:,} deduped | {report_installs_24h:,} installs</div></div>
     <div class="metric"><div class="metric-label">Pending reviews</div><div class="metric-value">{int(pending_requests or 0):,}</div><div class="metric-sub">Activation requests waiting for a human decision</div></div>
     <div class="metric"><div class="metric-label">Blocked installs</div><div class="metric-value">{int(blocked_count or 0):,}</div><div class="metric-sub">{snapshot_error_count:,} snapshot rows currently carry a last error note</div></div>
   </div>
@@ -3871,6 +4035,7 @@ def _render_admin(username: str, *, created_token: str = "", message: str = "") 
         <div class="stat-row"><span>Snapshot pool</span><strong>{snapshot_pool_count:,} windows | {snapshot_refreshes:,} refreshes | {snapshot_stale:,} stale serves</strong></div>
         <div class="stat-row"><span>Radar cache</span><strong>{_radar_cache_seconds()} seconds</strong></div>
         <div class="stat-row"><span>Raw provider debug</span><strong>{'Enabled on admin/local only' if _raw_provider_debug_enabled() else 'Disabled'}</strong></div>
+        <div class="stat-row"><span>Report gateway</span><strong>{_report_gateway_badge()} <span class="tiny">{report_specific_teams} specific teams + default {'ready' if report_team_config.get('default') else 'missing'}</span></strong></div>
         <div class="stat-row"><span>Activation privacy</span><strong>Anonymous network tags only | no raw IP storage</strong></div>
       </div>
       <form method="post" action="/admin/providers/save">
@@ -3954,6 +4119,39 @@ def _render_admin(username: str, *, created_token: str = "", message: str = "") 
     <section class="section">
       <div class="section-head">
         <div>
+          <h2>Report gateway (24h)</h2>
+          <div class="section-copy">Manual feedback and diagnostics-gated crash reports flow through `/v1/reports`. This panel shows what was filed to Linear, what the relay deduped, and which platform/team bucket handled it.</div>
+        </div>
+        <div class="summary-meta">{_report_gateway_badge()} | {report_count_24h:,} events</div>
+      </div>
+      <div class="table-shell">
+        <table>
+          <thead><tr><th>Type / origin</th><th>Team</th><th>Status</th><th>Events</th><th>Installs</th><th>Last seen</th></tr></thead>
+          <tbody>{rows_for_report_breakdown()}</tbody>
+        </table>
+      </div>
+    </section>
+    <section class="section">
+      <div class="section-head">
+        <div>
+          <h2>Recent report events</h2>
+          <div class="section-copy">A compact tail of the report gateway. Fingerprints and network tags stay anonymized; payload text is not stored here.</div>
+        </div>
+        <div class="summary-meta">Last {len(recent_reports):,} events</div>
+      </div>
+      <div class="table-shell">
+        <table>
+          <thead><tr><th>Time</th><th>Install</th><th>Type</th><th>Context</th><th>Team</th><th>Status</th><th>Wire id</th></tr></thead>
+          <tbody>{rows_for_recent_reports()}</tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+
+  <div class="split">
+    <section class="section">
+      <div class="section-head">
+        <div>
           <h2>Shared snapshot pool</h2>
           <div class="section-copy">Every row below is one cached airport + timezone + board-window intent. If many installs watch the same lane, they should pile into one of these rows instead of generating duplicate AviationStack traffic.</div>
         </div>
@@ -4021,6 +4219,20 @@ def _render_admin(username: str, *, created_token: str = "", message: str = "") 
       <table>
         <thead><tr><th>Install</th><th>Schedule</th><th>Radar</th><th>Current lane</th><th>Plans</th><th>Status</th><th>Actions</th></tr></thead>
         <tbody>{rows_for_installs()}</tbody>
+      </table>
+    </div>
+  </details>
+
+  <details class="section">
+    <summary>
+      <span>Report dedupe groups</span>
+      <span class="summary-meta">{len(report_dedupe_rows):,} recent groups</span>
+    </summary>
+    <div class="section-tools">These rows explain why repeat crashes or repeated manual reports may not open a new Linear issue every time.</div>
+    <div class="table-shell">
+      <table>
+        <thead><tr><th>Type / origin</th><th>Team</th><th>Install</th><th>Count</th><th>Last seen</th><th>Linear URL</th></tr></thead>
+        <tbody>{rows_for_report_dedupe()}</tbody>
       </table>
     </div>
   </details>
