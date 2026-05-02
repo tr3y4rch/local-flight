@@ -23,10 +23,7 @@ has_kiosk() {
 }
 
 uses_native_gui() {
-    if [ -f "$ROOT/.env" ] && grep -q '^LOCALFLIGHT_GUI_MODE=native' "$ROOT/.env"; then
-        return 0
-    fi
-    "$VENV/bin/python" -c "import PySide6" > /dev/null 2>&1
+    [ -f "$ROOT/.env" ] && grep -Eq '^LOCALFLIGHT_GUI_MODE="?native"?$' "$ROOT/.env"
 }
 
 install_localflight_package() {

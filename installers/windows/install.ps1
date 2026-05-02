@@ -2,7 +2,8 @@
 #
 # This script is for running Local Flight from a source checkout.
 # End users who download LocalFlight-windows.zip do not need this script:
-# unzip the release and double-click LocalFlight.exe.
+# unzip the release and double-click LocalFlight.exe. The release app is
+# native Qt first; the local browser UI remains available at localhost.
 #
 # Usage:
 #   powershell -ExecutionPolicy Bypass -File installers\windows\install.ps1
@@ -124,10 +125,35 @@ exit /b 0
     Set-Content -LiteralPath $LauncherPath -Value $launcher -Encoding ASCII
 }
 
+function Write-ClientEnv {
+    param([string]$EnvPath)
+
+    @"
+# Local Flight - client environment
+# The setup wizard writes these on first launch.
+
+LOCALFLIGHT_ACTIVATION_TOKEN=
+LOCALFLIGHT_RELAY_URL=https://localflight-community-relay.fly.dev
+LOCALFLIGHT_GUI_MODE=native
+
+AVIATIONSTACK_API_KEY=
+LOCALFLIGHT_AVIATIONSTACK_ENABLED=1
+LOCALFLIGHT_AVIATIONSTACK_MONTHLY_LIMIT=90
+LOCALFLIGHT_RELAY_MONTHLY_LIMIT=50
+
+RAPIDAPI_KEY=
+LOCALFLIGHT_RAPIDAPI_MONTHLY_LIMIT=10000
+
+OPENSKY_CLIENT_ID=
+OPENSKY_CLIENT_SECRET=
+"@ | Set-Content -LiteralPath $EnvPath -Encoding UTF8
+}
+
 Write-Section "LOCAL FLIGHT - Source Installer"
 
 Write-Host " Source root: $ROOT" -ForegroundColor Gray
 Write-Host " Release zip: unzip LocalFlight-windows.zip and run LocalFlight.exe; no installer needed." -ForegroundColor Gray
+Write-Host " GUI default: native Qt shell; browser fallback stays at http://localhost:8000." -ForegroundColor Gray
 Write-Host ""
 
 Write-Host " Checking Python..." -NoNewline
@@ -184,30 +210,7 @@ if (-not $SkipDependencyInstall) {
 $envFile = Join-Path $ROOT ".env"
 if (-not (Test-Path $envFile)) {
     Write-Host " Creating .env..." -NoNewline
-    $envExample = Join-Path $ROOT ".env.example"
-    if (Test-Path $envExample) {
-        Copy-Item -LiteralPath $envExample -Destination $envFile
-    } else {
-        @"
-# Local Flight - environment variables
-# Fill these in via the setup wizard on first launch.
-
-LOCALFLIGHT_ACTIVATION_TOKEN=
-LOCALFLIGHT_RELAY_URL=https://localflight-community-relay.fly.dev
-LOCALFLIGHT_GUI_MODE=native
-
-AVIATIONSTACK_API_KEY=
-LOCALFLIGHT_AVIATIONSTACK_ENABLED=1
-LOCALFLIGHT_AVIATIONSTACK_MONTHLY_LIMIT=90
-LOCALFLIGHT_RELAY_MONTHLY_LIMIT=50
-
-OPENSKY_CLIENT_ID=
-OPENSKY_CLIENT_SECRET=
-
-RAPIDAPI_KEY=
-LOCALFLIGHT_RAPIDAPI_MONTHLY_LIMIT=10000
-"@ | Set-Content -LiteralPath $envFile -Encoding UTF8
-    }
+    Write-ClientEnv -EnvPath $envFile
     Write-Host " Done" -ForegroundColor Green
 } else {
     Write-Host " .env already exists - skipping" -ForegroundColor Gray
@@ -253,6 +256,7 @@ if ($Launch) {
 
 Write-Section "Installation complete"
 Write-Host " Source launcher: $launcherPath" -ForegroundColor White
+Write-Host " Native Qt shell opens by default; LAN browser UI remains at http://localhost:8000." -ForegroundColor Gray
 Write-Host " Release users should run LocalFlight.exe from the downloaded zip." -ForegroundColor Gray
 Write-Host ""
 if (-not $NoPause) {

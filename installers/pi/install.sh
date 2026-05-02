@@ -35,6 +35,11 @@ for arg in "$@"; do
     esac
 done
 
+PI_GUI_MODE="headless"
+if [ "$NATIVE_KIOSK" -eq 1 ]; then
+    PI_GUI_MODE="native"
+fi
+
 # Paths ----------------------------------------------------------------------
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 VENV="$ROOT/.venv"
@@ -44,6 +49,17 @@ SERVICE_USER="$(whoami)"
 ok()   { echo "  [OK]  $*"; }
 step() { echo ""; echo "  -->  $*"; }
 fail() { echo ""; echo "  [ERR] $*"; exit 1; }
+
+set_env_value() {
+    local key="$1"
+    local value="$2"
+    local file="$3"
+    if grep -q "^${key}=" "$file"; then
+        sed -i "s|^${key}=.*|${key}=${value}|" "$file"
+    else
+        printf '\n%s=%s\n' "$key" "$value" >> "$file"
+    fi
+}
 
 echo ""
 echo "  +--------------------------------------+"
@@ -147,17 +163,14 @@ fi
 # 4. Environment file --------------------------------------------------------
 if [ ! -f "$ROOT/.env" ]; then
     step "Creating .env..."
-    if [ -f "$ROOT/.env.example" ]; then
-        cp "$ROOT/.env.example" "$ROOT/.env"
-    else
-        cat > "$ROOT/.env" <<'ENVEOF'
-# Local Flight - environment config
+    cat > "$ROOT/.env" <<'ENVEOF'
+# Local Flight - client environment
 # The setup wizard writes these on first launch.
 # Restart after any manual changes: sudo systemctl restart localflight
 
 LOCALFLIGHT_ACTIVATION_TOKEN=
 LOCALFLIGHT_RELAY_URL=https://localflight-community-relay.fly.dev
-LOCALFLIGHT_GUI_MODE=native
+LOCALFLIGHT_GUI_MODE=headless
 
 AVIATIONSTACK_API_KEY=
 LOCALFLIGHT_AVIATIONSTACK_ENABLED=1
@@ -170,21 +183,14 @@ LOCALFLIGHT_RAPIDAPI_MONTHLY_LIMIT=10000
 OPENSKY_CLIENT_ID=
 OPENSKY_CLIENT_SECRET=
 ENVEOF
-    fi
     ok ".env created"
 else
     ok ".env already exists - skipping"
 fi
 
-if [ "$NATIVE_KIOSK" -eq 1 ]; then
-    step "Setting native GUI mode in .env..."
-    if grep -q '^LOCALFLIGHT_GUI_MODE=' "$ROOT/.env"; then
-        sed -i 's/^LOCALFLIGHT_GUI_MODE=.*/LOCALFLIGHT_GUI_MODE=native/' "$ROOT/.env"
-    else
-        printf '\nLOCALFLIGHT_GUI_MODE=native\n' >> "$ROOT/.env"
-    fi
-    ok "LOCALFLIGHT_GUI_MODE=native"
-fi
+step "Setting Pi GUI mode in .env..."
+set_env_value "LOCALFLIGHT_GUI_MODE" "$PI_GUI_MODE" "$ROOT/.env"
+ok "LOCALFLIGHT_GUI_MODE=$PI_GUI_MODE"
 
 # 5. systemd: main service ---------------------------------------------------
 step "Installing localflight.service..."

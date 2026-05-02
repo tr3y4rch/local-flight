@@ -2037,6 +2037,20 @@ def test_gui_mode_defaults_to_native_only_when_a_local_display_is_expected() -> 
     assert resolve_gui_mode(Platform.WINDOWS, {"LOCALFLIGHT_GUI_MODE": "nonsense"}) == "native"
 
 
+def test_release_installers_keep_pi_headless_default_and_windows_native() -> None:
+    pi_install = Path("installers/pi/install.sh").read_text(encoding="utf-8")
+    pi_helper = Path("installers/pi/lf.sh").read_text(encoding="utf-8")
+    win_install = Path("installers/windows/install.ps1").read_text(encoding="utf-8")
+
+    assert 'PI_GUI_MODE="headless"' in pi_install
+    assert "LOCALFLIGHT_GUI_MODE=headless" in pi_install
+    assert 'PI_GUI_MODE="native"' in pi_install
+    assert "grep -Eq" in pi_helper
+    assert "import PySide6" not in pi_helper
+    assert "LOCALFLIGHT_GUI_MODE=native" in win_install
+    assert ".env.example" not in win_install
+
+
 def test_network_admin_client_accepts_relay_root_or_admin_url() -> None:
     assert _normalize_relay_base_url("https://localflight-community-relay.fly.dev") == "https://localflight-community-relay.fly.dev"
     assert _normalize_relay_base_url("https://localflight-community-relay.fly.dev/admin") == "https://localflight-community-relay.fly.dev"
