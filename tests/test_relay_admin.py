@@ -969,7 +969,7 @@ def _report_payload(
         "traceback": "stack",
         "context": context,
         "client_context": client_context,
-        "app_version": "0.2.5b1",
+        "app_version": "0.2.5b4",
         "platform": "Darwin",
         "os": "iOS 18.0",
         "arch": "arm64",
