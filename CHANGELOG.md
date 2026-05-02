@@ -25,6 +25,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - GUI launch now goes through a shared native-first platform decision layer. Blank or invalid `LOCALFLIGHT_GUI_MODE` values request the PySide6/Qt shell first, then fall back to browser/kiosk only when Qt or display support is unusable; display-less Pi/Linux still runs headless.
 - Windows and macOS source launchers now install/verify the native PySide6 extra before native launch; release packaging also fails early if PySide6/Qt is unavailable.
 - Bug reports now include requested/effective GUI shell, display availability, Qt availability, fullscreen state, and launch-decision reason so native GUI, browser kiosk, and headless service reports are distinguishable inside the same two-team Linear routing model.
+- Native Qt now follows the web kiosk structure more closely: top navigation, version/clocks, Display/FIDS/Radar/Matrix/Settings/Admin/History/Logs/Report pages, responsive nav labels, and a quit confirmation replace the earlier side-nav prototype.
+- Native FIDS, Radar, Display, Settings, Admin, History, Logs, Matrix, Setup, and Feedback now use the same local API contracts as the web kiosk instead of debug JSON-only placeholders.
+- Native Qt now connects directly to the local `/ws` live-push endpoint and reacts to `snapshot_updated`, `config_updated`, and `scheduler_restarted` events like the web kiosk instead of relying only on fallback polling.
+- Native Qt now has a browser-parity design-token layer for dark/light theme plus standard/technical/neon/cyan/crt skins. The shell reloads styling from `/api/config`, the top nav scrolls compactly on smaller displays, and FIDS/Radar/Matrix renderers use the active skin palette instead of one hardcoded cyan-dark look.
+- Native Qt now reuses short-lived local GET results for high-frequency routes such as config, FIDS, radar, METAR, airport search, admin summaries, logs, and surface geometry. Mutating actions clear the cache immediately, reducing duplicate local API/database work without changing backend contracts.
 
 ### Fixed
 - Relay admin no longer crashes when a live client lane exists before a shared schedule snapshot has been created.
@@ -33,6 +38,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - FIDS row times now use the active airport timezone passed into the board renderer instead of falling back to whatever timezone is currently stored in the global config.
 - Pi source pre-release bundles now include non-ignored local file additions as well as tracked files, preventing hardware test zips from silently missing newly added modules before a commit exists.
 - Radar surface overlay no longer appears broken on a clean first run when the relay surface cache is disabled or empty. If no cached OSM geometry is available yet, the radar now draws a clearly labeled local estimated airport surface instead of silently rendering nothing.
+- Native History stats no longer deletes and reuses its own period selector during refreshes, avoiding a Qt lifecycle crash after interacting with the stats tab.
+- Native traffic/log/report controls now have declared routes and constructor coverage so user-visible buttons are less likely to drift into no-op placeholders.
+- Native first-run completion now opens the Display page and prompts for the same diagnostics/reporting choice when diagnostics mode is still unset, keeping bug reporting consent behavior aligned with the browser shell.
+- Native WebSocket shutdown now tolerates Qt deleting the socket during app/test teardown, avoiding an ugly finalizer traceback after otherwise successful native constructor tests.
+- Native Radar and Matrix canvases now pause their animation timers while hidden, Radar sweep runs at a lighter cadence, active page polling backs off to 30 seconds, and airport search avoids repeating the same query while typing.
 
 ### Added
 - Hosted relay maintenance now has a clean setup-trial action that clears transient request logs, activation-review rows, live client lanes, shared schedule snapshots, and report-event clutter while keeping provider keys, managed tokens, blocked installs, and usage counters intact.
@@ -41,6 +51,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - FIDS, Radar, and Admin now render the METAR-derived weather mood with compact weather-app-style icons, colored tone treatments, and local summaries while preserving raw METAR visibility.
 - Chrome-free native UI is now the default requested shell for desktop/source/release builds; `LOCALFLIGHT_GUI_MODE=browser` remains an explicit fallback/debug override.
 - Raspberry Pi installs still run headless without a display, keep legacy Chromium kiosk available through `--kiosk`, and add a `--native-kiosk` path that installs Qt runtime packages, verifies PySide6/Qt, and starts Local Flight as a fullscreen native shell on the attached display.
+- Native first-run setup now has a real wizard for airport search, community/BYOK/managed/virtual source selection, relay activation checks, API key tests, and setup completion without opening a browser.
+- Native Matrix now has a LED-style canvas preview, panel/zoom/brightness/runtime controls, config save, and MicroPython script generation.
+- Native Logs now has log-file selection, refresh, live tail, scroll-to-bottom, line counts, and last-update metadata. Native Admin can open the local anonymized traffic log as a user-facing tool.
 
 ## [0.2.5b3] - 2026-05-01
 

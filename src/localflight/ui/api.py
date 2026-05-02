@@ -850,6 +850,13 @@ def api_radar(
                 alt_ft = float(pilot.get("altitude")    or 0)
                 gs_kts = float(pilot.get("groundspeed") or 0)
                 hdg    = pilot.get("heading")
+                distance_nm = _distance_nm(center_lat, center_lon, plat_f, plon_f)
+                aircraft_type = (
+                    fp.get("aircraft_short")
+                    or fp.get("aircraft_icao")
+                    or fp.get("aircraft_faa")
+                    or None
+                )
 
                 blips.append({
                     "callsign":   callsign,
@@ -860,8 +867,17 @@ def api_radar(
                     "speed_ms":   gs_kts * 0.514444 if gs_kts else None,
                     "on_ground":  (alt_ft < 100 and gs_kts < 50),
                     "icao24":     None,
-                    "squawk":     None,
+                    "squawk":     pilot.get("transponder") or fp.get("assigned_transponder"),
                     "enriched":   False,
+                    "source":     "vatsim",
+                    "aircraft_type": aircraft_type,
+                    "departure_icao": dep or None,
+                    "arrival_icao": arr or None,
+                    "flight_rules": fp.get("flight_rules"),
+                    "route":      fp.get("route"),
+                    "planned_altitude": fp.get("altitude"),
+                    "cruise_tas": fp.get("cruise_tas"),
+                    "distance_nm": round(distance_nm, 2),
                 })
 
         except Exception as exc:
@@ -943,6 +959,11 @@ def api_radar(
                     "squawk":        f.position.squawk,
                     "flight_number": f.flight_number,
                     "status":        f.status.value,
+                    "source":        f.source,
+                    "aircraft_type": f.aircraft_type,
+                    "departure_icao": f.origin.icao if f.origin else None,
+                    "arrival_icao": f.destination.icao if f.destination else None,
+                    "distance_nm": round(_distance_nm(center_lat, center_lon, f.position.lat, f.position.lon), 2),
                     "enriched":      True,
                 })
 

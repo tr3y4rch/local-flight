@@ -35,6 +35,8 @@ a = Analysis(
         # App resources â€” must mirror the path that Path(__file__).parent resolves to
         ("src/localflight/ui/templates",    "localflight/ui/templates"),
         ("src/localflight/ui/static",       "localflight/ui/static"),
+        ("assets",                          "localflight/assets"),
+        ("docs/previews",                   "localflight/docs/previews"),
         ("README.md",                       "localflight/ui/docs"),
         ("PRIVACY.md",                     "localflight/ui/docs"),
         ("CHANGELOG.md",                   "localflight/ui/docs"),
@@ -72,10 +74,14 @@ a = Analysis(
         "localflight.native",
         "localflight.native.api_client",
         "localflight.native.app",
+        "localflight.native.design",
         "localflight.native.network_admin",
         "localflight.native.qt_compat",
+        "localflight.native.routes",
         "PySide6.QtCore",
         "PySide6.QtGui",
+        "PySide6.QtSvg",
+        "PySide6.QtWebSockets",
         "PySide6.QtWidgets",
     ] + uvi_h + fapi_h + anyio_h + starlette_h + qt_h,
 

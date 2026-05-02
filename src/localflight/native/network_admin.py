@@ -12,24 +12,28 @@ import sys
 from typing import Any, Callable
 
 from localflight.native.api_client import NativeApiError, RelayAdminClient
+from localflight.native.design import icon_from_media, native_stylesheet
 from localflight.native.qt_compat import import_qt
+from localflight.native.routes import NETWORK_ADMIN_ROUTES
 
 ADMIN_ENDPOINTS = {
-    "overview": "/admin/api/overview",
-    "usage": "/admin/api/usage",
-    "schedules": "/admin/api/schedules",
-    "surfaces": "/admin/api/surfaces",
-    "activations": "/admin/api/activations",
-    "reports": "/admin/api/reports",
+    route.action_id.split(".", 1)[1]: route.path
+    for route in NETWORK_ADMIN_ROUTES
+    if route.method == "GET" and route.action_id.startswith("network.")
 }
 
 
 def main() -> None:
     try:
-        QtCore, _QtGui, QtWidgets = import_qt()
+        QtCore, QtGui, QtWidgets = import_qt()
         app = QtWidgets.QApplication.instance() or QtWidgets.QApplication(sys.argv[:1])
         app.setApplicationName("Local Flight Network Admin")
+        app_icon = icon_from_media(QtGui, "assets", "icon_square.svg")
+        if not app_icon.isNull():
+            app.setWindowIcon(app_icon)
         window = NetworkAdminWindow(QtCore, QtWidgets)
+        if not app_icon.isNull():
+            window.setWindowIcon(app_icon)
         window.resize(1280, 820)
         window.show()
         raise SystemExit(int(app.exec()))
@@ -46,7 +50,7 @@ class NetworkAdminWindow:  # pragma: no cover - optional Qt runtime
                 self.QtCore = QtCore
                 self.QtWidgets = QtWidgets
                 self.setWindowTitle("Local Flight Network Admin")
-                self.setStyleSheet(_STYLE)
+                self.setStyleSheet(native_stylesheet(operator=True) + _NETWORK_ADMIN_STYLE)
                 self.client: RelayAdminClient | None = None
                 self.payloads: dict[str, dict[str, Any]] = {}
                 self._refreshing = False
@@ -56,6 +60,22 @@ class NetworkAdminWindow:  # pragma: no cover - optional Qt runtime
                 layout.setContentsMargins(14, 14, 14, 14)
                 layout.setSpacing(10)
 
+                hero = QtWidgets.QHBoxLayout()
+                title_box = QtWidgets.QVBoxLayout()
+                title = QtWidgets.QLabel("Network Admin")
+                title.setObjectName("Title")
+                sub = QtWidgets.QLabel("Operator-only relay controls. Public Local Flight clients do not link here.")
+                sub.setObjectName("Muted")
+                sub.setWordWrap(True)
+                title_box.addWidget(title)
+                title_box.addWidget(sub)
+                self.operator_chip = QtWidgets.QLabel("ADMIN SURFACE")
+                self.operator_chip.setObjectName("ClockChip")
+                hero.addLayout(title_box)
+                hero.addStretch(1)
+                hero.addWidget(self.operator_chip)
+                layout.addLayout(hero)
+
                 login = QtWidgets.QHBoxLayout()
                 self.url = QtWidgets.QLineEdit(
                     os.environ.get("LOCALFLIGHT_NETWORK_ADMIN_URL", "https://localflight-community-relay.fly.dev/admin")
@@ -63,8 +83,8 @@ class NetworkAdminWindow:  # pragma: no cover - optional Qt runtime
                 self.user = QtWidgets.QLineEdit(os.environ.get("LOCALFLIGHT_NETWORK_ADMIN_USER", "admin"))
                 self.password = QtWidgets.QLineEdit()
                 self.password.setEchoMode(QtWidgets.QLineEdit.Password)
-                self.connect_btn = QtWidgets.QPushButton("Connect")
-                self.refresh_btn = QtWidgets.QPushButton("Refresh")
+                self.connect_btn = QtWidgets.QPushButton("Connect to admin")
+                self.refresh_btn = QtWidgets.QPushButton("Refresh snapshot")
                 self.auto_refresh = QtWidgets.QCheckBox("Auto-refresh")
                 self.auto_refresh.setChecked(True)
                 self.refresh_interval = QtWidgets.QSpinBox()
@@ -72,7 +92,7 @@ class NetworkAdminWindow:  # pragma: no cover - optional Qt runtime
                 self.refresh_interval.setValue(30)
                 self.refresh_interval.setSuffix("s")
                 self.status = QtWidgets.QLabel("Operator-only console. Mutating actions require admin auth.")
-                login.addWidget(QtWidgets.QLabel("Relay"))
+                login.addWidget(QtWidgets.QLabel("Relay admin URL"))
                 login.addWidget(self.url, 3)
                 login.addWidget(QtWidgets.QLabel("User"))
                 login.addWidget(self.user)
@@ -210,7 +230,7 @@ class NetworkAdminWindow:  # pragma: no cover - optional Qt runtime
             def refresh_all(self, *, silent: bool = False) -> None:
                 if self.client is None:
                     if not silent:
-                        self.status.setText("Enter relay URL and admin credentials, then connect.")
+                        self.status.setText("Enter relay admin URL and credentials, then connect.")
                     return
                 if self._refreshing:
                     return
@@ -640,84 +660,17 @@ def _clean_payload(value: Any) -> Any:
     return str(value)
 
 
-_STYLE = """
-QWidget {
-  background: #081018;
-  color: #e6f3fb;
-  font-family: "Segoe UI", "Helvetica Neue", sans-serif;
-  font-size: 13px;
-}
+_NETWORK_ADMIN_STYLE = """
 QLabel#Title {
-  font-size: 24px;
-  font-weight: 800;
-  color: #ffffff;
-}
-QLabel#Section {
-  margin-top: 10px;
-  font-size: 16px;
-  font-weight: 800;
-  color: #b7e7ff;
-}
-QLabel#Kicker {
-  color: #72a6be;
-  font-size: 11px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  color: #fff4df;
 }
 QLabel#Metric {
-  color: #ffffff;
-  font-size: 28px;
-  font-weight: 800;
-}
-QLabel#Muted {
-  color: #8eb3c5;
-}
-QFrame#Card {
-  background: #0d1824;
-  border: 1px solid #224059;
-  border-radius: 14px;
-}
-QLineEdit, QPlainTextEdit, QSpinBox, QTableWidget, QTabWidget::pane {
-  background: #0d1824;
-  border: 1px solid #224059;
-  border-radius: 8px;
-  color: #e6f3fb;
-}
-QHeaderView::section {
-  background: #102335;
-  color: #b7e7ff;
-  border: none;
-  padding: 7px;
-}
-QTableWidget {
-  alternate-background-color: #0a1420;
-  gridline-color: #20384c;
-}
-QPlainTextEdit {
-  font-family: Consolas, "SF Mono", monospace;
-}
-QPushButton {
-  background: #174866;
-  border: 1px solid #347ca6;
-  border-radius: 8px;
-  padding: 7px 12px;
-  color: #ffffff;
-}
-QPushButton:hover {
-  background: #1f5f85;
+  font-size: 26px;
 }
 QPushButton#Danger {
-  background: #61301f;
-  border-color: #a95d3c;
-}
-QTabBar::tab {
-  padding: 8px 12px;
-  background: #102335;
-  border-top-left-radius: 7px;
-  border-top-right-radius: 7px;
-}
-QTabBar::tab:selected {
-  background: #195073;
+  background: rgba(239,68,68,0.20);
+  border-color: rgba(239,68,68,0.50);
+  color: #ffd0d0;
 }
 """
 

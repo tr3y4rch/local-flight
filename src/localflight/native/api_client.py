@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+import time
+from dataclasses import dataclass, field
+from threading import RLock
 from typing import Any, Optional
 from urllib.parse import urljoin
 
@@ -17,13 +19,57 @@ class NativeApiError(RuntimeError):
 class LocalApiClient:
     base_url: str = "http://127.0.0.1:8000"
     timeout_s: float = 10.0
+    _session: requests.Session = field(default_factory=requests.Session, init=False, repr=False)
+    _cache: dict[tuple[str, str], tuple[float, Any]] = field(default_factory=dict, init=False, repr=False)
+    _lock: RLock = field(default_factory=RLock, init=False, repr=False)
 
     def _url(self, path: str) -> str:
         return urljoin(self.base_url.rstrip("/") + "/", path.lstrip("/"))
 
+    def _cache_key(self, path: str, params: Optional[dict[str, Any]]) -> tuple[str, str]:
+        normalized = json.dumps(params or {}, sort_keys=True, default=str, separators=(",", ":"))
+        return path, normalized
+
+    def _cache_ttl(self, path: str) -> float:
+        """Short local cache to avoid hammering the same backend routes from Qt pages."""
+        if path in {"/api/config", "/api/setup/client-info", "/api/matrix/config"}:
+            return 2.0
+        if path in {"/api/fids", "/api/radar", "/api/fids/detail"}:
+            return 2.0
+        if path == "/api/metar":
+            return 30.0
+        if path == "/api/airports/search":
+            return 30.0
+        if path == "/api/radar/surface":
+            return 300.0
+        if path.startswith("/api/admin/") or path.startswith("/api/history"):
+            return 5.0
+        if path in {"/api/logs", "/logs/tail"}:
+            return 2.0
+        return 0.0
+
+    def clear_cache(self) -> None:
+        with self._lock:
+            self._cache.clear()
+
     def get_json(self, path: str, *, params: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+        payload = self.get_any_json(path, params=params)
+        if not isinstance(payload, dict):
+            raise NativeApiError("Response JSON was not an object")
+        return payload
+
+    def get_any_json(self, path: str, *, params: Optional[dict[str, Any]] = None) -> Any:
+        ttl = self._cache_ttl(path)
+        key = self._cache_key(path, params)
+        now = time.monotonic()
+        if ttl > 0:
+            with self._lock:
+                cached = self._cache.get(key)
+                if cached and now - cached[0] <= ttl:
+                    return cached[1]
         try:
-            response = requests.get(self._url(path), params=params, timeout=self.timeout_s)
+            with self._lock:
+                response = self._session.get(self._url(path), params=params, timeout=self.timeout_s)
         except requests.RequestException as exc:
             raise NativeApiError(str(exc)) from exc
         if response.status_code >= 400:
@@ -32,13 +78,16 @@ class LocalApiClient:
             payload = response.json()
         except json.JSONDecodeError as exc:
             raise NativeApiError("Response was not JSON") from exc
-        if not isinstance(payload, dict):
-            raise NativeApiError("Response JSON was not an object")
+        if ttl > 0:
+            with self._lock:
+                self._cache[key] = (time.monotonic(), payload)
         return payload
 
     def post_json(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
+        self.clear_cache()
         try:
-            response = requests.post(self._url(path), json=payload, timeout=self.timeout_s)
+            with self._lock:
+                response = self._session.post(self._url(path), json=payload, timeout=self.timeout_s)
         except requests.RequestException as exc:
             raise NativeApiError(str(exc)) from exc
         if response.status_code >= 400:
@@ -48,6 +97,47 @@ class LocalApiClient:
         except json.JSONDecodeError:
             return {"ok": True, "status_code": response.status_code}
         return data if isinstance(data, dict) else {"ok": True, "data": data}
+
+    def patch_json(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
+        self.clear_cache()
+        try:
+            with self._lock:
+                response = self._session.patch(self._url(path), json=payload, timeout=self.timeout_s)
+        except requests.RequestException as exc:
+            raise NativeApiError(str(exc)) from exc
+        if response.status_code >= 400:
+            raise NativeApiError(f"HTTP {response.status_code}: {response.text[:180]}")
+        try:
+            data = response.json()
+        except json.JSONDecodeError:
+            return {"ok": True, "status_code": response.status_code}
+        return data if isinstance(data, dict) else {"ok": True, "data": data}
+
+    def post_form(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
+        self.clear_cache()
+        try:
+            with self._lock:
+                response = self._session.post(self._url(path), data=payload, timeout=self.timeout_s)
+        except requests.RequestException as exc:
+            raise NativeApiError(str(exc)) from exc
+        if response.status_code >= 400:
+            raise NativeApiError(f"HTTP {response.status_code}: {response.text[:180]}")
+        try:
+            data = response.json()
+        except json.JSONDecodeError:
+            return {"ok": True, "status_code": response.status_code}
+        return data if isinstance(data, dict) else {"ok": True, "data": data}
+
+    def post_text(self, path: str, payload: dict[str, Any]) -> str:
+        self.clear_cache()
+        try:
+            with self._lock:
+                response = self._session.post(self._url(path), json=payload, timeout=self.timeout_s)
+        except requests.RequestException as exc:
+            raise NativeApiError(str(exc)) from exc
+        if response.status_code >= 400:
+            raise NativeApiError(f"HTTP {response.status_code}: {response.text[:180]}")
+        return response.text
 
 
 @dataclass

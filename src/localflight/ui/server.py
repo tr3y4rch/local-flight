@@ -657,6 +657,10 @@ async def setup_complete(request: Request, background_tasks: BackgroundTasks) ->
     timezone_str = data.get("timezone") or "Europe/Zurich"
     source = data.get("source") or "real"
     setup_mode = str(data.get("setup_mode") or "").strip().lower()
+    if setup_mode == "virtual":
+        source = "virtual"
+    elif setup_mode in {"community", "managed", "byok"}:
+        source = "real"
     if source not in ALLOWED_SOURCES:
         source = "real"
 
@@ -769,6 +773,7 @@ async def setup_complete(request: Request, background_tasks: BackgroundTasks) ->
         airport_icao=airport_icao,
         timezone=timezone_str,
         source=source,
+        display_name=str(data.get("display_name") or "Local Flight").strip()[:40] or "Local Flight",
         refresh_seconds=28800 if source == "real" else 900,
     )
     save_config(cfg)
@@ -894,6 +899,31 @@ def logs_tail(file: Optional[str] = Query(None), after: int = Query(0, ge=0)) ->
         return JSONResponse({"lines": [], "total": 0})
 
     return JSONResponse({"lines": all_lines[after:] if after < len(all_lines) else [], "total": len(all_lines)})
+
+
+@app.get("/api/logs")
+def api_logs(file: Optional[str] = Query(None)) -> JSONResponse:
+    """Native/client-friendly log metadata without scraping the HTML logs page."""
+    files = _list_log_files()
+    selected = file if (file in files) else (files[0] if files else None)
+    total = 0
+    if selected:
+        try:
+            total = len((logs_dir() / selected).read_text(encoding="utf-8", errors="replace").splitlines())
+        except FileNotFoundError:
+            total = 0
+    return JSONResponse(
+        {
+            "files": files,
+            "selected": selected,
+            "total": total,
+            "max_files": MAX_LOG_FILES,
+            "max_days": MAX_LOG_DAYS,
+            "max_mb": MAX_LOG_BYTES // 1_048_576,
+            "live_mode": True,
+            "auto_scroll": True,
+        }
+    )
 
 
 # â”€â”€ Settings save â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€

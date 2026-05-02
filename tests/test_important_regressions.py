@@ -690,7 +690,16 @@ def test_api_radar_virtual_uses_vatsim_only(monkeypatch) -> None:
                 "altitude": 12000,
                 "groundspeed": 250,
                 "heading": 140,
-                "flight_plan": {"departure": "LSZH", "arrival": "EGLL"},
+                "transponder": "2201",
+                "cid": 123456,
+                "name": "Private Pilot",
+                "flight_plan": {
+                    "departure": "LSZH",
+                    "arrival": "EGLL",
+                    "aircraft_short": "A320",
+                    "route": "DCT TEST",
+                    "flight_rules": "I",
+                },
             }
         ]
     }
@@ -712,6 +721,13 @@ def test_api_radar_virtual_uses_vatsim_only(monkeypatch) -> None:
     assert result["source"] == "vatsim"
     assert result["count"] == 1
     assert result["blips"][0]["callsign"] == "SWR100"
+    assert result["blips"][0]["source"] == "vatsim"
+    assert result["blips"][0]["departure_icao"] == "LSZH"
+    assert result["blips"][0]["arrival_icao"] == "EGLL"
+    assert result["blips"][0]["aircraft_type"] == "A320"
+    assert result["blips"][0]["route"] == "DCT TEST"
+    assert "name" not in result["blips"][0]
+    assert "cid" not in result["blips"][0]
 
 
 def test_api_radar_virtual_uses_exact_circular_range(monkeypatch) -> None:
