@@ -11,7 +11,8 @@ This is a hobbyist/open-source project, not a legal document, but the app is des
 ## Quick Summary
 
 - Your config, API keys, snapshots, history, and logs stay on your own machine.
-- The desktop native GUI is not a webview and does not launch Chrome, Edge, or Chromium. It talks to the same local Local Flight server as the browser fallback.
+- The desktop native GUI is a real Qt shell, not a webview. The primary client does not launch Chrome, Edge, Chromium, QWebEngine, or a browser profile.
+- Native mode avoids browser sync, extensions, cookies, browsing history, default-browser behavior, online fonts, and CDN assets for the main Local Flight window.
 - The mobile companion talks to your Local Flight server over your LAN. It does not call AviationStack, ADS-B Exchange, RapidAPI, OpenSky, VATSIM, or the hosted relay directly.
 - Community mode can use the hosted Local Flight relay for shared schedules and relay-backed radar. An airport-surface overlay can also use the relay cache, but it is opt-in and disabled by default. The relay stores operational metadata, not accounts or user profiles.
 - Manual reports are always your choice. Automatic crash diagnostics are off unless you allow them.
@@ -29,6 +30,21 @@ This is a hobbyist/open-source project, not a legal document, but the app is des
 - The Interstate 75 W board talks to your Local Flight server over your LAN. Its runtime settings live in `~/.localflight/matrix_config.json`.
 
 When you use the Matrix page to download a ready-to-flash `main.py`, the Wi-Fi details and server host are sent to your own Local Flight instance only long enough to render that file. They are not stored in `matrix_config.json`, the hosted relay, or crash reports.
+
+---
+
+## Why The Native GUI Exists
+
+Local Flight started with a browser kiosk because that made the project practical: one local web app could run on Windows, macOS, Raspberry Pi, phones, and tablets. The native GUI was added because a browser kiosk is still a general-purpose browser process, and that is more machinery than a local airport board should need for everyday use.
+
+The privacy goal is data minimization and separation of purpose:
+
+- The display shell should show Local Flight, not become another browser session.
+- The app should not rely on a browser profile, browser sync, extensions, cookies, history, or default-browser integrations just to render the main UI.
+- The main window should not need a webview engine or remote web assets when the backend is already local.
+- Browser access should remain available as a deliberate fallback and LAN access path, not the only way the app can exist.
+
+Native mode does not change the aviation data sources you choose. If you enable Community, BYOK, VATSIM, radar, METAR, update checks, or reports, the relevant network calls still happen as described below. The native GUI simply keeps the app window itself out of the browser-vendor data surface.
 
 ---
 

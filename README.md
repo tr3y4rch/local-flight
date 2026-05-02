@@ -5,7 +5,7 @@ Fetches real and simulated flight data and renders it as a proper airport-style 
 
 No accounts. No signup wall. Community mode can use the hosted relay, but it stays install-scoped instead of account-scoped.
 
-The primary desktop UI is now a Chrome-free native Qt shell. It still starts the same local FastAPI server underneath, so the LAN browser UI, mobile companion, matrix board, and API integrations keep working from the same source of truth.
+The primary desktop UI is now a Chrome-free native Qt shell. That choice is deliberate: the main app window no longer needs a Chrome, Edge, Chromium, WebView, browser profile, online font, CDN, extension, sync, cookie, or browsing-history surface just to show your local FIDS. Local Flight still starts the same local FastAPI server underneath, so the LAN browser UI, mobile companion, matrix board, and API integrations keep working from the same source of truth.
 
 **Source:** [github.com/tr3y4rch/local-flight](https://github.com/tr3y4rch/local-flight)
 
@@ -186,6 +186,21 @@ Native mode is not a separate backend. It uses the same local routes, WebSocket 
 - Settings/Admin/History/Logs/Report: user-facing controls backed by the same local APIs
 
 The LAN browser UI remains available at `http://localhost:8000` for phones, tablets, troubleshooting, and fallback use. Set `LOCALFLIGHT_GUI_MODE=browser` only when you intentionally want the legacy browser shell.
+
+### Why native instead of a browser kiosk?
+
+The original browser kiosk was useful because it made Local Flight quick to build and easy to test. The long-term privacy goal is stricter: the normal desktop/display client should not depend on a general-purpose browser process when all it needs is a local control surface.
+
+The native Qt shell keeps the app local-first in a more literal way:
+
+- No automatic Chrome/Edge/Chromium launch for the primary client
+- No browser sync, extensions, profile cookies, browsing history, or default-browser behavior involved in the main UI
+- No webview wrapper or QWebEngine shortcut for the main window
+- No online font/CDN asset fetches for the primary client shell
+- Same local backend, same local storage, same setup choices, same reporting controls
+- Browser fallback still exists for LAN access, compatibility, and recovery when native GUI support is not available
+
+This does not remove every network call. Real schedules, radar, VATSIM, METAR, update checks, community relay access, and manual/automatic reports still contact their configured services when those features are enabled. The point is separation and minimization: the display shell itself should not add an extra browser-vendor data surface on top of the aviation data sources you deliberately chose.
 
 ---
 
@@ -410,7 +425,7 @@ Native GUI interaction crashes use the same diagnostics-gated `/api/feedback/cra
 
 - **Local first** - flight data, history, config, and logs live on your own machine.
 - **Private by design** - no accounts, no email, no analytics SDK, no tracking. See [PRIVACY.md](PRIVACY.md).
-- **Chrome-free first** - native Qt is the intended desktop/display shell; browser mode stays as a fallback and LAN access path.
+- **Chrome-free first** - native Qt is the intended desktop/display shell so the main UI does not need browser profiles, sync, extensions, cookies, webviews, or CDN assets; browser mode stays as a fallback and LAN access path.
 - **Trusted LAN by default** - the app is meant for your own network, not the open internet. Browser drive-by mutations are blocked, but full per-device pairing is still planned.
 - **Simple stack** - standard Python, clear modules, predictable behavior.
 - **Pi-ready** - nothing in the stack needs a GPU or big hardware.
