@@ -269,6 +269,8 @@ def _system_metadata() -> Dict[str, str]:
 
 def _origin_for_report(report_type: str, context: str = "", client_context: str = "") -> str:
     hint = f"{context}\n{client_context}".lower()
+    if "native/gui" in hint or context.startswith("native/"):
+        return "desktop"
     if "ios" in hint:
         return "ios"
     if "companion id" in hint or context.startswith("mobile/"):

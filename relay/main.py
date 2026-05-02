@@ -1100,6 +1100,8 @@ def _collapse(value: str, *, limit: int) -> str:
 def _report_origin(body: "ReportIn") -> str:
     hint = f"{body.origin} {body.context} {body.client_context} {body.platform} {body.os}".lower()
     origin = (body.origin or "").strip().lower()
+    if origin == "native" or body.context.startswith("native/") or "native/gui" in hint:
+        return "desktop"
     if origin in _REPORT_ALLOWED_ORIGINS:
         if origin == "mobile" and "ios" in hint:
             return "ios"
@@ -1122,7 +1124,7 @@ def _report_team(origin: str, context: str) -> str:
     context = (context or "").strip().lower()
     if origin in {"ios", "mobile"} or context.startswith("mobile/"):
         return "ios"
-    if origin in {"desktop", "web"} or context.startswith("web/"):
+    if origin in {"desktop", "web", "native"} or context.startswith("web/") or context.startswith("native/"):
         return "desktop"
     if origin in {"server", "scheduler"} or context.startswith("scheduler/") or context.startswith("thread/") or context == "main-thread":
         return "server"

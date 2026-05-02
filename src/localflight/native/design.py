@@ -148,11 +148,26 @@ def native_stylesheet(
     skin: str | None = "standard",
     operator: bool = False,
 ) -> str:
-    colors = colors_for(theme, skin)
+    normalized_theme = _normalized_theme(theme)
+    is_light = normalized_theme == "light"
+    colors = colors_for(normalized_theme, skin)
     accent = colors["amber"] if operator else colors["blue"]
     accent_soft = _rgba(accent, 0.18)
     accent_border = _rgba(accent, 0.42)
-    nav_bg = _rgba("#000000", 0.25) if _normalized_theme(theme) == "dark" else _rgba("#ffffff", 0.78)
+    subtle_surface = _rgba("#000000" if is_light else "#ffffff", 0.04)
+    soft_surface = _rgba("#000000" if is_light else "#ffffff", 0.07)
+    strong_surface = _rgba("#000000" if is_light else "#ffffff", 0.10)
+    nav_bg = _rgba("#ffffff", 0.92) if is_light else _rgba("#000000", 0.25)
+    nav_border = _rgba("#000000", 0.10) if is_light else _rgba("#ffffff", 0.07)
+    button_bg = _rgba(accent, 0.14) if is_light else "#12324d"
+    button_hover_bg = _rgba(accent, 0.22) if is_light else "#1a4d72"
+    button_border = _rgba(accent, 0.40) if is_light else "#2b648d"
+    button_text = colors["text"] if is_light else "#ffffff"
+    checked_text = colors["text"] if is_light else "#ffffff"
+    nav_text = colors["muted"] if is_light else _rgba(colors["text"], 0.68)
+    muted_panel_text = colors["dim"] if is_light else colors["muted"]
+    danger_text = "#9f1239" if is_light else "#ffc7c7"
+    table_header_text = colors["dim"] if is_light else "#9cd6f4"
     return f"""
 QWidget {{
   background: {colors["bg"]};
@@ -165,7 +180,7 @@ QMainWindow {{
 }}
 QFrame#TopNav {{
   background: {nav_bg};
-  border-bottom: 1px solid rgba(255,255,255,0.07);
+  border-bottom: 1px solid {nav_border};
 }}
 QScrollArea#NavScroll {{
   background: transparent;
@@ -181,7 +196,7 @@ QFrame#Card, QFrame#Panel {{
   border-radius: 14px;
 }}
 QFrame#WeatherStrip {{
-  background: rgba(255,255,255,0.03);
+  background: {subtle_surface};
   border: 1px solid {_rgba(accent, 0.22)};
   border-radius: 10px;
 }}
@@ -200,7 +215,7 @@ QFrame#Drawer {{
   border-left: 1px solid {colors["line"]};
 }}
 QFrame#PreviewCard {{
-  background: rgba(255,255,255,0.025);
+  background: {subtle_surface};
   border: 1px solid {_rgba(accent, 0.18)};
   border-radius: 12px;
 }}
@@ -215,8 +230,8 @@ QFrame#StatusPill {{
   border-radius: 8px;
 }}
 QFrame#BudgetBar {{
-  background: rgba(255,255,255,0.045);
-  border: 1px solid rgba(255,255,255,0.08);
+  background: {subtle_surface};
+  border: 1px solid {soft_surface};
   border-radius: 7px;
 }}
 QFrame#NativeSplash {{
@@ -230,7 +245,7 @@ QDialog#NativeModal {{
   border-radius: 16px;
 }}
 QLabel#Brand {{
-  color: #ffffff;
+  color: {colors["text"]};
   font-weight: 800;
   font-size: 15px;
 }}
@@ -241,13 +256,13 @@ QLabel#BrandMark {{
   padding: 3px;
 }}
 QLabel#Version {{
-  color: rgba(255,255,255,0.34);
+  color: {colors["dim"]};
   font-family: "Space Mono", Consolas, monospace;
   font-size: 10px;
 }}
 QLabel#ClockChip {{
-  background: rgba(255,255,255,0.04);
-  border: 1px solid rgba(255,255,255,0.08);
+  background: {subtle_surface};
+  border: 1px solid {soft_surface};
   border-radius: 8px;
   padding: 4px 8px;
   color: {colors["muted"]};
@@ -261,17 +276,17 @@ QLabel#ClockChip[connected="true"] {{
 QLabel#Title {{
   font-size: 24px;
   font-weight: 900;
-  color: #ffffff;
+  color: {colors["text"]};
 }}
 QLabel#AirportCode {{
   font-family: "Space Mono", Consolas, monospace;
   font-size: 34px;
   font-weight: 900;
   letter-spacing: 0.12em;
-  color: #ffffff;
+  color: {colors["text"]};
 }}
 QLabel#Subtle, QLabel#Muted {{
-  color: {colors["muted"]};
+  color: {muted_panel_text};
 }}
 QLabel#Dim {{
   color: {colors["dim"]};
@@ -285,7 +300,7 @@ QLabel#Kicker, QLabel#Section {{
   text-transform: uppercase;
 }}
 QLabel#Metric {{
-  color: #ffffff;
+  color: {colors["text"]};
   font-size: 24px;
   font-weight: 900;
 }}
@@ -303,31 +318,31 @@ QLabel#LiveDot {{
   font-size: 18px;
 }}
 QPushButton {{
-  background: #12324d;
-  border: 1px solid #2b648d;
+  background: {button_bg};
+  border: 1px solid {button_border};
   border-radius: 8px;
   padding: 8px 12px;
-  color: #ffffff;
+  color: {button_text};
   font-weight: 700;
 }}
 QPushButton:hover {{
-  background: #1a4d72;
+  background: {button_hover_bg};
 }}
 QPushButton:checked, QPushButton#NavButton:checked, QPushButton#SegmentButton:checked {{
-  background: rgba(74,158,218,0.22);
+  background: {accent_soft};
   border-color: {accent};
-  color: #ffffff;
+  color: {checked_text};
 }}
 QPushButton#NavButton {{
-  background: rgba(255,255,255,0.04);
+  background: {subtle_surface};
   border: 1px solid transparent;
   border-radius: 6px;
   padding: 6px 10px;
-  color: rgba(232,240,254,0.68);
+  color: {nav_text};
 }}
 QPushButton#SegmentButton {{
-  background: rgba(255,255,255,0.04);
-  border: 1px solid rgba(255,255,255,0.08);
+  background: {subtle_surface};
+  border: 1px solid {soft_surface};
   border-radius: 7px;
   padding: 6px 10px;
   font-family: "Space Mono", Consolas, monospace;
@@ -336,11 +351,11 @@ QPushButton#SegmentButton {{
 QPushButton#Danger {{
   background: rgba(239,68,68,0.18);
   border-color: rgba(239,68,68,0.45);
-  color: #ffc7c7;
+  color: {danger_text};
 }}
 QPushButton#Quiet {{
   background: transparent;
-  border-color: rgba(255,255,255,0.12);
+  border-color: {strong_surface};
   color: {colors["muted"]};
 }}
 QLineEdit, QPlainTextEdit, QTextEdit, QSpinBox, QComboBox, QTableWidget, QListWidget, QTabWidget::pane {{
@@ -354,7 +369,7 @@ QPlainTextEdit, QTextEdit {{
 }}
 QHeaderView::section {{
   background: {colors["panel_2"]};
-  color: #9cd6f4;
+  color: {table_header_text};
   border: none;
   padding: 8px;
   font-family: "Space Mono", Consolas, monospace;
@@ -374,8 +389,8 @@ QTableWidget::item {{
   padding: 7px;
 }}
 QProgressBar {{
-  background: rgba(255,255,255,0.045);
-  border: 1px solid rgba(255,255,255,0.08);
+  background: {subtle_surface};
+  border: 1px solid {soft_surface};
   border-radius: 7px;
   min-height: 12px;
   color: transparent;
@@ -386,7 +401,7 @@ QProgressBar::chunk {{
 }}
 QSlider::groove:horizontal {{
   height: 6px;
-  background: rgba(255,255,255,0.08);
+  background: {soft_surface};
   border-radius: 3px;
 }}
 QSlider::handle:horizontal {{
@@ -397,17 +412,17 @@ QSlider::handle:horizontal {{
 }}
 QTabBar::tab {{
   padding: 8px 12px;
-  background: rgba(255,255,255,0.04);
+  background: {subtle_surface};
   border-top-left-radius: 7px;
   border-top-right-radius: 7px;
   color: {colors["muted"]};
 }}
 QTabBar::tab:selected {{
-  background: rgba(74,158,218,0.20);
-  color: #ffffff;
+  background: {accent_soft};
+  color: {checked_text};
 }}
 QSplitter::handle {{
-  background: rgba(255,255,255,0.10);
+  background: {strong_surface};
 }}
 QScrollBar:vertical, QScrollBar:horizontal {{
   background: {colors["panel_2"]};

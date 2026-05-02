@@ -15,6 +15,7 @@ from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
+from uuid import uuid4
 
 import requests as _req
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
@@ -999,7 +1000,7 @@ def api_radar(
     radar_mode = "surface" if _surface_radar_mode(radius_nm) else "airborne"
     if radar_mode == "surface":
         blips, airborne_filtered = _filter_ground_radar_blips(blips)
-    elif cfg.source != "virtual":
+    else:
         blips, ground_filtered = _filter_airborne_radar_blips(blips)
 
     adsb_source = source_used.startswith("adsbexchange")
@@ -1013,6 +1014,8 @@ def api_radar(
         "radar_mode": radar_mode,
         "ground_filtered": ground_filtered,
         "airborne_filtered": airborne_filtered,
+        "hidden_ground_count": ground_filtered,
+        "hidden_airborne_count": airborne_filtered,
         "provider_radius_nm": provider_radius_nm if cfg.source != "virtual" and adsb_source else radius_nm,
         "raw_provider_count": adsbx_raw_count if cfg.source != "virtual" and adsb_source else len(blips),
         "blips":     blips,
@@ -1543,6 +1546,22 @@ class FeedbackIn(BaseModel):
     client_context: str = Field("", max_length=2000)
 
 
+def _feedback_response(result: Dict[str, Any], *, default_message: str) -> Dict[str, Any]:
+    message = str(result.get("message") or "").strip()
+    if not message:
+        if result.get("deduped"):
+            message = "Report already received recently; no duplicate Linear issue was created."
+        else:
+            message = default_message
+    return {
+        "ok": True,
+        "url": result.get("url"),
+        "team": result.get("team"),
+        "deduped": bool(result.get("deduped", False)),
+        "message": message,
+    }
+
+
 @router.post("/api/feedback")
 def api_submit_feedback(body: FeedbackIn) -> Dict[str, Any]:
     """Submit a bug report / feedback to the Local Flight developer's Linear board."""
@@ -1550,7 +1569,7 @@ def api_submit_feedback(body: FeedbackIn) -> Dict[str, Any]:
     result = submit_report(body.title, body.description, client_context=body.client_context)
     if not result["ok"]:
         raise HTTPException(status_code=502, detail=result.get("error", "Submission failed"))
-    return {"ok": True, "url": result.get("url")}
+    return _feedback_response(result, default_message="Report sent. Thank you.")
 
 
 class FeedbackCrashIn(BaseModel):
@@ -1581,18 +1600,99 @@ def api_submit_feedback_crash(body: FeedbackCrashIn) -> Dict[str, Any]:
         else:
             status = 502
         raise HTTPException(status_code=status, detail=error)
-    return {"ok": True, "url": result.get("url")}
+    return _feedback_response(result, default_message="Crash report sent.")
 
 
 # Matrix config -------------------------------------------------------------
 
+_MATRIX_PRESETS: Dict[str, Dict[str, Any]] = {
+    "classic_split_flap": {
+        "id": "classic_split_flap",
+        "label": "Classic Split-Flap",
+        "renderer": "split_flap",
+        "description": "Mechanical station-board rhythm with staggered character flips.",
+        "options": {
+            "palette": ["amber", "green", "white"],
+            "animation_mode": ["split_flap", "slide_left", "slide_right", "static"],
+            "animation_speed": {"min": 1, "max": 5, "default": 3},
+            "row_stagger_ms": {"min": 0, "max": 800, "default": 120},
+            "show_clock": True,
+            "ticker": False,
+        },
+    },
+    "modern_airport_fids": {
+        "id": "modern_airport_fids",
+        "label": "Modern Airport FIDS",
+        "renderer": "modern_fids",
+        "description": "Dark airport-screen layout with colored status accents.",
+        "options": {
+            "palette": ["standard", "technical", "cyan"],
+            "animation_mode": ["slide_left", "split_flap", "static"],
+            "animation_speed": {"min": 1, "max": 5, "default": 2},
+            "show_clock": True,
+            "show_metar": True,
+            "row_pulse": True,
+        },
+    },
+    "terminal_minimal": {
+        "id": "terminal_minimal",
+        "label": "Terminal Minimal",
+        "renderer": "terminal_minimal",
+        "description": "Readable next-flight hero with a compact queue.",
+        "options": {
+            "palette": ["standard", "white", "cyan"],
+            "animation_mode": ["slide_left", "slide_right", "static"],
+            "hero_flight": True,
+            "queue_rows": {"min": 1, "max": 4, "default": 3},
+            "ticker": True,
+            "show_clock": True,
+        },
+    },
+    "radar_strip": {
+        "id": "radar_strip",
+        "label": "Radar Strip",
+        "renderer": "radar_strip",
+        "description": "Compact scope/status display for nearby traffic.",
+        "options": {
+            "palette": ["technical", "green", "cyan"],
+            "animation_mode": ["slide_left", "static"],
+            "range_nm": {"min": 1, "max": 40, "default": 5},
+            "sweep": True,
+            "show_labels": True,
+            "metar_footer": True,
+        },
+    },
+}
+
 _MATRIX_CONFIG_DEFAULTS: Dict[str, Any] = {
+    "id": "default",
+    "name": "Default Board",
+    "preset": "classic_split_flap",
+    "panel_w": 256,
+    "panel_h": 64,
     "brightness": 0.8,
     "max_rows": 4,
     "refresh_seconds": 60,
     "default_view": "departures",
     "page_rotation_seconds": 10,
+    "animation_enabled": True,
+    "animation_mode": "split_flap",
+    "animation_speed": 3,
+    "status_animation_enabled": True,
+    "palette": "standard",
+    "options": {},
 }
+
+_MATRIX_V1_FIELDS = {
+    "brightness",
+    "max_rows",
+    "refresh_seconds",
+    "default_view",
+    "page_rotation_seconds",
+    "animation_enabled",
+}
+
+_MATRIX_ANIMATION_MODES = {"split_flap", "slide_left", "slide_right", "static"}
 
 
 def _matrix_config_path():
@@ -1601,17 +1701,156 @@ def _matrix_config_path():
     return config_path().parent / "matrix_config.json"
 
 
-def _load_matrix_config() -> Dict[str, Any]:
+def _utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _matrix_slug(value: str, fallback: str = "matrix") -> str:
+    clean = re.sub(r"[^a-z0-9_-]+", "-", str(value or "").strip().lower()).strip("-")
+    return clean[:48] or fallback
+
+
+def _matrix_default_config(overrides: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    data = {**_MATRIX_CONFIG_DEFAULTS, **(overrides or {})}
+    return _normalize_matrix_config(data, fallback_id=str(data.get("id") or "default"))
+
+
+def _normalize_matrix_config(raw: Dict[str, Any], *, fallback_id: str) -> Dict[str, Any]:
+    preset = str(raw.get("preset") or _MATRIX_CONFIG_DEFAULTS["preset"])
+    if preset not in _MATRIX_PRESETS:
+        preset = _MATRIX_CONFIG_DEFAULTS["preset"]
+    view = str(raw.get("default_view") or "departures").strip().lower()
+    if view not in {"departures", "arrivals"}:
+        view = "departures"
+    options = raw.get("options") if isinstance(raw.get("options"), dict) else {}
+    palette = str(raw.get("palette") or options.get("palette") or _MATRIX_CONFIG_DEFAULTS["palette"])
+    animation_enabled = bool(raw.get("animation_enabled", True))
+    animation_mode = str(raw.get("animation_mode") or options.get("animation_mode") or _MATRIX_CONFIG_DEFAULTS["animation_mode"])
+    if animation_mode not in _MATRIX_ANIMATION_MODES:
+        animation_mode = _MATRIX_CONFIG_DEFAULTS["animation_mode"]
+    if not animation_enabled:
+        animation_mode = "static"
+    return {
+        "id": _matrix_slug(str(raw.get("id") or fallback_id), fallback_id),
+        "name": str(raw.get("name") or "Matrix Config").strip()[:80] or "Matrix Config",
+        "preset": preset,
+        "panel_w": max(64, min(512, int(raw.get("panel_w") or 256))),
+        "panel_h": max(16, min(128, int(raw.get("panel_h") or 64))),
+        "brightness": round(max(0.05, min(1.0, float(raw.get("brightness", 0.8)))), 2),
+        "max_rows": max(1, min(8, int(raw.get("max_rows") or 4))),
+        "refresh_seconds": max(10, min(3600, int(raw.get("refresh_seconds") or 60))),
+        "default_view": view,
+        "page_rotation_seconds": max(3, min(120, int(raw.get("page_rotation_seconds") or 10))),
+        "animation_enabled": animation_enabled,
+        "animation_mode": animation_mode,
+        "animation_speed": max(1, min(5, int(raw.get("animation_speed") or 3))),
+        "status_animation_enabled": bool(raw.get("status_animation_enabled", True)),
+        "palette": palette[:32],
+        "options": {**options, "palette": palette[:32], "animation_mode": animation_mode},
+    }
+
+
+def _matrix_v1_from_config(config: Dict[str, Any]) -> Dict[str, Any]:
+    return {key: config[key] for key in _MATRIX_V1_FIELDS if key in config}
+
+
+def _matrix_config_from_v1(data: Dict[str, Any]) -> Dict[str, Any]:
+    overrides = {key: data[key] for key in _MATRIX_V1_FIELDS if key in data}
+    return _matrix_default_config(overrides)
+
+
+def _empty_matrix_store() -> Dict[str, Any]:
+    cfg = _matrix_default_config({"id": "default", "name": "Default Board"})
+    return {"schema_version": 2, "default_config_id": cfg["id"], "configs": [cfg], "devices": []}
+
+
+def _normalize_matrix_store(data: Dict[str, Any]) -> Dict[str, Any]:
+    if int(data.get("schema_version") or 1) != 2:
+        cfg = _matrix_config_from_v1(data)
+        return {"schema_version": 2, "default_config_id": cfg["id"], "configs": [cfg], "devices": []}
+    configs_raw = data.get("configs") if isinstance(data.get("configs"), list) else []
+    configs = [
+        _normalize_matrix_config(item, fallback_id=f"config-{idx + 1}")
+        for idx, item in enumerate(configs_raw)
+        if isinstance(item, dict)
+    ]
+    if not configs:
+        configs = [_matrix_default_config({"id": "default", "name": "Default Board"})]
+    seen: set[str] = set()
+    unique_configs: list[Dict[str, Any]] = []
+    for cfg in configs:
+        original = cfg["id"]
+        while cfg["id"] in seen:
+            cfg = {**cfg, "id": f"{original}-{len(seen) + 1}"}
+        seen.add(cfg["id"])
+        unique_configs.append(cfg)
+    default_id = str(data.get("default_config_id") or unique_configs[0]["id"])
+    if default_id not in {cfg["id"] for cfg in unique_configs}:
+        default_id = unique_configs[0]["id"]
+    devices_raw = data.get("devices") if isinstance(data.get("devices"), list) else []
+    devices: list[Dict[str, Any]] = []
+    for item in devices_raw:
+        if not isinstance(item, dict):
+            continue
+        device_id = _matrix_slug(str(item.get("device_id") or item.get("id") or ""), "")
+        if not device_id:
+            continue
+        assigned = str(item.get("assigned_config_id") or default_id)
+        if assigned not in {cfg["id"] for cfg in unique_configs}:
+            assigned = default_id
+        devices.append({
+            "device_id": device_id,
+            "label": str(item.get("label") or device_id)[:80],
+            "panel_w": max(64, min(512, int(item.get("panel_w") or 256))),
+            "panel_h": max(16, min(128, int(item.get("panel_h") or 64))),
+            "firmware": str(item.get("firmware") or "")[:32],
+            "renderers": [str(v)[:40] for v in (item.get("renderers") or []) if isinstance(v, str)],
+            "assigned_config_id": assigned,
+            "last_seen": item.get("last_seen"),
+        })
+    return {"schema_version": 2, "default_config_id": default_id, "configs": unique_configs, "devices": devices}
+
+
+def _load_matrix_store(*, persist_migration: bool = True) -> Dict[str, Any]:
     path = _matrix_config_path()
     if not path.exists():
-        return dict(_MATRIX_CONFIG_DEFAULTS)
+        return _empty_matrix_store()
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-        if not isinstance(data, dict):
-            return dict(_MATRIX_CONFIG_DEFAULTS)
-        return {**_MATRIX_CONFIG_DEFAULTS, **data}
+        raw = json.loads(path.read_text(encoding="utf-8"))
     except Exception:
-        return dict(_MATRIX_CONFIG_DEFAULTS)
+        return _empty_matrix_store()
+    if not isinstance(raw, dict):
+        return _empty_matrix_store()
+    store = _normalize_matrix_store(raw)
+    if persist_migration and raw != store:
+        _save_matrix_store(store)
+    return store
+
+
+def _save_matrix_store(store: Dict[str, Any]) -> None:
+    path = _matrix_config_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(_normalize_matrix_store(store), indent=2), encoding="utf-8")
+
+
+def _matrix_config_by_id(store: Dict[str, Any], config_id: Optional[str]) -> Dict[str, Any]:
+    wanted = str(config_id or store.get("default_config_id") or "")
+    for cfg in store["configs"]:
+        if cfg["id"] == wanted:
+            return cfg
+    return store["configs"][0]
+
+
+def _matrix_device_by_id(store: Dict[str, Any], device_id: str) -> Optional[Dict[str, Any]]:
+    for device in store["devices"]:
+        if device["device_id"] == device_id:
+            return device
+    return None
+
+
+def _load_matrix_config() -> Dict[str, Any]:
+    store = _load_matrix_store()
+    return _matrix_v1_from_config(_matrix_config_by_id(store, store.get("default_config_id")))
 
 
 class MatrixConfigIn(BaseModel):
@@ -1620,6 +1859,40 @@ class MatrixConfigIn(BaseModel):
     refresh_seconds: int = Field(60, ge=10, le=3600)
     default_view: str = Field("departures")
     page_rotation_seconds: int = Field(10, ge=3, le=120)
+    animation_enabled: bool = True
+
+
+class MatrixV2ConfigIn(BaseModel):
+    id: Optional[str] = Field(None, max_length=80)
+    name: Optional[str] = Field(None, max_length=80)
+    preset: Optional[str] = None
+    panel_w: Optional[int] = Field(None, ge=64, le=512)
+    panel_h: Optional[int] = Field(None, ge=16, le=128)
+    brightness: Optional[float] = Field(None, ge=0.05, le=1.0)
+    max_rows: Optional[int] = Field(None, ge=1, le=8)
+    refresh_seconds: Optional[int] = Field(None, ge=10, le=3600)
+    default_view: Optional[str] = None
+    page_rotation_seconds: Optional[int] = Field(None, ge=3, le=120)
+    animation_enabled: Optional[bool] = None
+    animation_mode: Optional[str] = None
+    animation_speed: Optional[int] = Field(None, ge=1, le=5)
+    status_animation_enabled: Optional[bool] = None
+    palette: Optional[str] = None
+    options: Dict[str, Any] = Field(default_factory=dict)
+
+
+class MatrixDeviceCheckIn(BaseModel):
+    device_id: Optional[str] = Field(None, max_length=80)
+    label: Optional[str] = Field(None, max_length=80)
+    panel_w: int = Field(256, ge=64, le=512)
+    panel_h: int = Field(64, ge=16, le=128)
+    firmware: str = Field("", max_length=32)
+    renderers: List[str] = Field(default_factory=list)
+
+
+class MatrixDevicePatchIn(BaseModel):
+    label: Optional[str] = Field(None, max_length=80)
+    assigned_config_id: Optional[str] = Field(None, max_length=80)
 
 
 @router.get("/api/matrix/config")
@@ -1633,20 +1906,252 @@ def api_matrix_config_get() -> Dict[str, Any]:
 
 @router.post("/api/matrix/config")
 def api_matrix_config_post(body: MatrixConfigIn) -> Dict[str, Any]:
-    data: Dict[str, Any] = {
+    store = _load_matrix_store()
+    cfg = _matrix_config_by_id(store, store.get("default_config_id"))
+    updates = {
         "brightness": round(float(body.brightness), 2),
         "max_rows": int(body.max_rows),
         "refresh_seconds": int(body.refresh_seconds),
         "default_view": body.default_view if body.default_view in ("departures", "arrivals") else "departures",
         "page_rotation_seconds": int(body.page_rotation_seconds),
+        "animation_enabled": bool(body.animation_enabled),
     }
+    merged = _normalize_matrix_config({**cfg, **updates}, fallback_id=cfg["id"])
+    store["configs"] = [merged if item["id"] == cfg["id"] else item for item in store["configs"]]
     try:
-        path = _matrix_config_path()
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        _save_matrix_store(store)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
-    return {"ok": True, **data}
+    return {"ok": True, **_matrix_v1_from_config(merged)}
+
+
+@router.get("/api/matrix/v2/presets")
+def api_matrix_v2_presets() -> Dict[str, Any]:
+    return {"presets": list(_MATRIX_PRESETS.values())}
+
+
+@router.get("/api/matrix/v2/configs")
+def api_matrix_v2_configs() -> Dict[str, Any]:
+    store = _load_matrix_store()
+    return {
+        "schema_version": 2,
+        "default_config_id": store["default_config_id"],
+        "configs": store["configs"],
+    }
+
+
+@router.post("/api/matrix/v2/configs")
+def api_matrix_v2_config_create(body: MatrixV2ConfigIn) -> Dict[str, Any]:
+    store = _load_matrix_store()
+    base = _matrix_default_config({
+        "id": body.id or body.name or f"matrix-{uuid4().hex[:8]}",
+        "name": body.name or "New Matrix Config",
+    })
+    updates = body.model_dump(exclude_unset=True) if hasattr(body, "model_dump") else body.dict(exclude_unset=True)
+    cfg = _normalize_matrix_config({**base, **updates}, fallback_id=base["id"])
+    existing = {item["id"] for item in store["configs"]}
+    if cfg["id"] in existing:
+        cfg["id"] = f"{cfg['id']}-{uuid4().hex[:4]}"
+    store["configs"].append(cfg)
+    _save_matrix_store(store)
+    return {"ok": True, "config": cfg}
+
+
+@router.get("/api/matrix/v2/configs/{config_id}")
+def api_matrix_v2_config_get(config_id: str) -> Dict[str, Any]:
+    store = _load_matrix_store()
+    cfg = _matrix_config_by_id(store, config_id)
+    if cfg["id"] != config_id:
+        raise HTTPException(status_code=404, detail="Matrix config not found")
+    return cfg
+
+
+@router.patch("/api/matrix/v2/configs/{config_id}")
+def api_matrix_v2_config_patch(config_id: str, body: MatrixV2ConfigIn) -> Dict[str, Any]:
+    store = _load_matrix_store()
+    cfg = _matrix_config_by_id(store, config_id)
+    if cfg["id"] != config_id:
+        raise HTTPException(status_code=404, detail="Matrix config not found")
+    updates = body.model_dump(exclude_unset=True) if hasattr(body, "model_dump") else body.dict(exclude_unset=True)
+    updates.pop("id", None)
+    merged = _normalize_matrix_config({**cfg, **updates}, fallback_id=cfg["id"])
+    store["configs"] = [merged if item["id"] == cfg["id"] else item for item in store["configs"]]
+    if bool(updates.get("set_default", False)):
+        store["default_config_id"] = merged["id"]
+    _save_matrix_store(store)
+    return {"ok": True, "config": merged}
+
+
+@router.delete("/api/matrix/v2/configs/{config_id}")
+def api_matrix_v2_config_delete(config_id: str) -> Dict[str, Any]:
+    store = _load_matrix_store()
+    if len(store["configs"]) <= 1:
+        raise HTTPException(status_code=422, detail="At least one matrix config is required")
+    if config_id not in {cfg["id"] for cfg in store["configs"]}:
+        raise HTTPException(status_code=404, detail="Matrix config not found")
+    store["configs"] = [cfg for cfg in store["configs"] if cfg["id"] != config_id]
+    if store["default_config_id"] == config_id:
+        store["default_config_id"] = store["configs"][0]["id"]
+    for device in store["devices"]:
+        if device.get("assigned_config_id") == config_id:
+            device["assigned_config_id"] = store["default_config_id"]
+    _save_matrix_store(store)
+    return {"ok": True, "default_config_id": store["default_config_id"]}
+
+
+@router.post("/api/matrix/v2/configs/{config_id}/default")
+def api_matrix_v2_config_set_default(config_id: str) -> Dict[str, Any]:
+    store = _load_matrix_store()
+    if config_id not in {cfg["id"] for cfg in store["configs"]}:
+        raise HTTPException(status_code=404, detail="Matrix config not found")
+    store["default_config_id"] = config_id
+    _save_matrix_store(store)
+    return {"ok": True, "default_config_id": config_id}
+
+
+@router.get("/api/matrix/v2/devices")
+def api_matrix_v2_devices() -> Dict[str, Any]:
+    store = _load_matrix_store()
+    return {"devices": store["devices"], "default_config_id": store["default_config_id"]}
+
+
+@router.post("/api/matrix/v2/devices/checkin")
+def api_matrix_v2_device_checkin(body: MatrixDeviceCheckIn) -> Dict[str, Any]:
+    store = _load_matrix_store()
+    device_id = _matrix_slug(body.device_id or f"matrix-{uuid4().hex[:8]}", "matrix")
+    device = _matrix_device_by_id(store, device_id)
+    if not device:
+        device = {
+            "device_id": device_id,
+            "label": (body.label or device_id)[:80],
+            "assigned_config_id": store["default_config_id"],
+        }
+        store["devices"].append(device)
+    device.update({
+        "panel_w": int(body.panel_w),
+        "panel_h": int(body.panel_h),
+        "firmware": body.firmware[:32],
+        "renderers": [str(v)[:40] for v in body.renderers],
+        "last_seen": _utc_now_iso(),
+    })
+    _save_matrix_store(store)
+    return {"ok": True, "device": device, "assigned_config_id": device["assigned_config_id"]}
+
+
+@router.patch("/api/matrix/v2/devices/{device_id}")
+def api_matrix_v2_device_patch(device_id: str, body: MatrixDevicePatchIn) -> Dict[str, Any]:
+    store = _load_matrix_store()
+    device = _matrix_device_by_id(store, _matrix_slug(device_id, "matrix"))
+    if not device:
+        raise HTTPException(status_code=404, detail="Matrix device not found")
+    if body.label is not None:
+        device["label"] = body.label.strip()[:80] or device["device_id"]
+    if body.assigned_config_id is not None:
+        if body.assigned_config_id not in {cfg["id"] for cfg in store["configs"]}:
+            raise HTTPException(status_code=404, detail="Matrix config not found")
+        device["assigned_config_id"] = body.assigned_config_id
+    _save_matrix_store(store)
+    return {"ok": True, "device": device}
+
+
+def _matrix_resolved_config(store: Dict[str, Any], device_id: Optional[str]) -> Dict[str, Any]:
+    device = _matrix_device_by_id(store, _matrix_slug(device_id or "", "")) if device_id else None
+    cfg = _matrix_config_by_id(store, device.get("assigned_config_id") if device else store.get("default_config_id"))
+    preset = _MATRIX_PRESETS.get(cfg["preset"], _MATRIX_PRESETS["classic_split_flap"])
+    return {
+        **cfg,
+        "config_rev": int(Path(_matrix_config_path()).stat().st_mtime) if Path(_matrix_config_path()).exists() else 0,
+        "renderer": preset["renderer"],
+        "preset_label": preset["label"],
+        "device_id": device["device_id"] if device else None,
+    }
+
+
+@router.get("/api/matrix/v2/devices/{device_id}/config")
+def api_matrix_v2_device_config(device_id: str) -> Dict[str, Any]:
+    store = _load_matrix_store()
+    return _matrix_resolved_config(store, device_id)
+
+
+def _matrix_row_payload(row: Any) -> Dict[str, Any]:
+    data = row.model_dump() if hasattr(row, "model_dump") else row.dict() if hasattr(row, "dict") else dict(row)
+    status = str(data.get("status_display") or "")
+    lowered = status.lower()
+    kind = (
+        "delayed" if "delay" in lowered else
+        "cancelled" if "cancel" in lowered else
+        "boarding" if "board" in lowered else
+        "at_gate" if "gate" in lowered or "ground" in lowered else
+        "arriving" if "arriv" in lowered or "approach" in lowered else
+        "departing" if "depart" in lowered else
+        "landed" if "land" in lowered else
+        "scheduled"
+    )
+    flight = data.get("flight_display") or data.get("callsign") or "-"
+    operator = data.get("airline_display") or ""
+    codeshare = data.get("codeshare_display") or ""
+    return {
+        "id": data.get("id"),
+        "time": data.get("display_time") or "--:--",
+        "display_time": data.get("display_time") or "--:--",
+        "flight": flight,
+        "flight_display": flight,
+        "flight_number": flight,
+        "route": data.get("route_display") or "-",
+        "route_display": data.get("route_display") or "-",
+        "status": status or "-",
+        "status_display": status or "-",
+        "gate": data.get("gate") or "-",
+        "aircraft": data.get("aircraft_type") or "",
+        "aircraft_type": data.get("aircraft_type") or "",
+        "callsign": data.get("callsign") or "",
+        "operator": operator,
+        "operating_airline": operator,
+        "airline_display": operator,
+        "codeshare": codeshare,
+        "codeshare_display": codeshare,
+        "sold_as": codeshare,
+        "status_class": data.get("status_class") or kind,
+        "status_kind": data.get("status_class") or kind,
+    }
+
+
+@router.get("/api/matrix/v2/devices/{device_id}/feed")
+def api_matrix_v2_device_feed(device_id: str, view: Optional[str] = Query(None)) -> Dict[str, Any]:
+    store = _load_matrix_store()
+    resolved = _matrix_resolved_config(store, device_id)
+    effective_view = view if view in {"departures", "arrivals"} else resolved["default_view"]
+    rows = api_fids(view=effective_view, limit=min(max(1, resolved["max_rows"]) * 4, 32))
+    payload: Dict[str, Any] = {
+        "config_rev": resolved["config_rev"],
+        "data_rev": int(time.time()),
+        "view": effective_view,
+        "generated_at": _utc_now_iso(),
+        "airport_iata": load_config().airport_iata,
+        "rows": [_matrix_row_payload(row) for row in rows],
+    }
+    try:
+        metar = api_metar()
+        payload["metar"] = {
+            "category": metar.get("flight_cat"),
+            "summary": metar.get("weather_label") or metar.get("decoded_summary"),
+            "raw": metar.get("raw_text"),
+            "wind": metar.get("wind_display") or metar.get("wind"),
+        }
+    except Exception:
+        payload["metar"] = None
+    if resolved["preset"] == "radar_strip":
+        try:
+            radar = api_radar(float(resolved.get("options", {}).get("range_nm") or 5.0))
+            payload["radar"] = {
+                "range_nm": resolved.get("options", {}).get("range_nm") or 5,
+                "count": radar.get("count"),
+                "source": radar.get("source"),
+                "blips": list(radar.get("blips") or [])[:12],
+            }
+        except Exception:
+            payload["radar"] = {"range_nm": resolved.get("options", {}).get("range_nm") or 5, "count": 0, "blips": []}
+    return payload
 
 
 class MatrixScriptIn(BaseModel):
@@ -1654,6 +2159,7 @@ class MatrixScriptIn(BaseModel):
     wifi_password: str = Field("", max_length=128)
     api_host: str = Field(..., min_length=1, max_length=253)
     api_port: int = Field(8000, ge=1, le=65535)
+    device_label: str = Field("Interstate 75 W", max_length=80)
     panel_w: int = Field(256, ge=64, le=512)
     panel_h: int = Field(64, ge=16, le=128)
     max_rows: int = Field(4, ge=1, le=8)
@@ -1661,6 +2167,7 @@ class MatrixScriptIn(BaseModel):
     brightness: float = Field(0.8, ge=0.05, le=1.0)
     default_view: str = Field("departures")
     page_rotation_seconds: int = Field(10, ge=3, le=120)
+    animation_enabled: bool = True
 
 
 def _matrix_client_template_path() -> Path:
@@ -1701,6 +2208,7 @@ def _render_matrix_client_script(body: MatrixScriptIn) -> str:
         "WIFI_PASSWORD": json.dumps(body.wifi_password),
         "API_HOST": json.dumps(host),
         "API_PORT": str(int(body.api_port)),
+        "DEVICE_LABEL": json.dumps(body.device_label.strip() or "Interstate 75 W"),
         "PANEL_W": str(int(body.panel_w)),
         "PANEL_H": str(int(body.panel_h)),
         "MAX_ROWS": str(int(body.max_rows)),
@@ -1708,6 +2216,7 @@ def _render_matrix_client_script(body: MatrixScriptIn) -> str:
         "PAGE_ROTATION_S": str(int(body.page_rotation_seconds)),
         "BRIGHTNESS": f"{float(body.brightness):.2f}",
         "DEFAULT_VIEW": json.dumps(default_view),
+        "ANIMATION_ENABLED": "True" if body.animation_enabled else "False",
     }
     for key, value in replacements.items():
         text = re.sub(

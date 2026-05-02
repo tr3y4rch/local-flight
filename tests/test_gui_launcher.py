@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import sys
+
 import pytest
 
 from localflight.platform.detect import Platform
@@ -158,7 +160,85 @@ def test_native_client_window_exposes_real_user_pages(monkeypatch: pytest.Monkey
         "Report",
     ]
     assert all(button.text() != button.property("lf_label") for button in window._nav_buttons.values())
+    assert [window.primary_nav_layout.itemAt(i).widget().property("lf_label") for i in range(window.primary_nav_layout.count())] == [
+        "Display",
+        "FIDS",
+        "Radar",
+        "Matrix",
+    ]
+    assert [window.utility_nav_layout.itemAt(i).widget().property("lf_label") for i in range(window.utility_nav_layout.count())] == [
+        "Settings",
+        "Admin",
+        "History",
+        "Logs",
+        "Report",
+    ]
     assert window.stack.count() == 10
+
+
+def test_native_history_stats_render_code_labels(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    pytest.importorskip("PySide6")
+    from PySide6 import QtWidgets
+    from localflight.native.app import HistoryScreen
+    from localflight.native.qt_compat import import_qt
+
+    class _Client:
+        def get_json(self, path: str, *, params: dict[str, object] | None = None) -> dict[str, object]:
+            assert path == "/api/history/summary"
+            return {
+                "total": 12,
+                "departures": 7,
+                "arrivals": 5,
+                "on_time_pct": 91.2,
+                "avg_delay_minutes": 3,
+                "top_airlines": [{"code": "LX", "count": 8}],
+                "top_destinations": [{"code": "BCN", "count": 4}],
+                "top_origins": [{"code": "FRA", "count": 3}],
+                "top_aircraft": [{"aircraft_type": "A320", "count": 2}],
+            }
+
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    screen = HistoryScreen(*import_qt()[2:], client=_Client())
+    screen._render_stats()
+
+    labels = {child.text() for child in screen.stats_content.findChildren(QtWidgets.QLabel)}
+    assert app is not None
+    assert {"LX", "BCN", "FRA", "A320"}.issubset(labels)
+
+
+def test_native_admin_uses_active_nested_schedule_budget() -> None:
+    from localflight.native.app import _active_schedule_budget, _budget_label
+
+    bucket = _active_schedule_budget(
+        {
+            "active_mode": "community",
+            "calls_this_month": 2,
+            "monthly_limit": 10000,
+            "community": {"calls_this_month": 2, "monthly_limit": 50, "remaining": 48},
+        }
+    )
+
+    assert _budget_label(bucket) == "2 / 50"
+
+
+def test_native_admin_exposes_buy_me_a_coffee_link(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    pytest.importorskip("PySide6")
+    from PySide6 import QtWidgets
+    import localflight.native.app as native_app
+    from localflight.native.app import AdminSummaryScreen, COFFEE_URL
+
+    opened: list[str] = []
+    monkeypatch.setattr(native_app.webbrowser, "open", lambda url: opened.append(url))
+
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    screen = AdminSummaryScreen(QtWidgets, client=object(), navigate=lambda _key: None)
+    screen._open_quick_tool("coffee")
+
+    assert app is not None
+    assert opened == [COFFEE_URL]
+    assert COFFEE_URL in screen.status.text()
 
 
 def test_native_first_launch_main_window_does_not_embed_setup(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -215,10 +295,78 @@ def test_native_parity_screens_construct_core_controls(monkeypatch: pytest.Monke
     assert setup.finish_btn.isVisible() is False
     assert matrix.canvas is not None
     assert matrix.script_preview.isReadOnly()
+    assert matrix.zoom_value.text().endswith("px")
+    assert matrix.brightness_value.text().endswith("%")
+    assert matrix.animation_mode.currentData() == "split_flap"
     assert logs.file_combo is not None
     assert logs.live_tail.text() == "Live tail"
     assert requests.client_type.currentText() == "all clients"
     assert feedback.sysinfo.isReadOnly()
+
+
+def test_native_matrix_controls_drive_preview_and_script(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    pytest.importorskip("PySide6")
+    from PySide6 import QtWidgets
+    from localflight.native.app import MatrixScreen
+    from localflight.native.qt_compat import import_qt
+
+    class _Client:
+        def __init__(self) -> None:
+            self.saved: dict[str, object] = {}
+            self.script_payload: dict[str, object] = {}
+
+        def get_json(self, path: str, *, params: dict[str, object] | None = None) -> dict[str, object]:
+            if path == "/api/matrix/config":
+                return {
+                    "brightness": 0.55,
+                    "max_rows": 3,
+                    "refresh_seconds": 90,
+                    "page_rotation_seconds": 12,
+                    "default_view": "arrivals",
+                    "animation_enabled": False,
+                }
+            if path == "/api/admin/connections":
+                return {"matrix_last_seen": "2026-05-02T15:00:00+00:00"}
+            return {}
+
+        def get_any_json(self, path: str, *, params: dict[str, object] | None = None) -> dict[str, object]:
+            assert path == "/api/fids"
+            return {
+                "rows": [
+                    {"display_time": "09:10", "flight_display": "LX 1", "route_display": "BCN", "status_display": "SCHEDULED"},
+                    {"display_time": "09:20", "flight_display": "LX 2", "route_display": "FRA", "status_display": "BOARDING"},
+                ]
+            }
+
+        def post_json(self, path: str, payload: dict[str, object]) -> dict[str, object]:
+            assert path == "/api/matrix/config"
+            self.saved = payload
+            return {"ok": True, **payload}
+
+        def post_text(self, path: str, payload: dict[str, object]) -> str:
+            assert path == "/api/matrix/script"
+            self.script_payload = payload
+            return "WIFI_SSID = 'BoardNet'\nANIMATION_ENABLED = False\n"
+
+    QtCore, _QtGui, QtWidgets2 = import_qt()
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    client = _Client()
+    screen = MatrixScreen(QtWidgets2, client)
+    screen.refresh()
+
+    assert app is not None
+    assert screen.brightness.value() == 55
+    assert screen.max_rows.value() == 3
+    assert screen.animation_mode.currentData() == "static"
+    assert screen.canvas.animation_mode == "static"
+    screen.zoom.setValue(7)
+    assert screen.zoom_value.text() == "7px"
+    screen.save_config()
+    assert client.saved["animation_enabled"] is False
+    screen.generate_script()
+    assert client.script_payload["animation_enabled"] is False
+    assert "ANIMATION_ENABLED" in screen.script_preview.toPlainText()
 
 
 def test_native_setup_reuses_stored_relay_token(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -310,6 +458,43 @@ def test_native_radar_projects_lat_lon_blips(monkeypatch: pytest.MonkeyPatch) ->
     assert canvas._blip_angle(canvas.blips[0]) == pytest.approx(0.0)
 
 
+def test_native_radar_defaults_to_airborne_range_and_uses_current_hidden_counts(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    pytest.importorskip("PySide6")
+    from PySide6 import QtWidgets
+    from localflight.native.app import RadarScreen
+    from localflight.native.qt_compat import import_qt
+
+    class _Client:
+        pass
+
+    QtCore, QtGui, QtWidgets2 = import_qt()
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    screen = RadarScreen(QtCore, QtGui, QtWidgets2, _Client())
+    screen._apply_radar(
+        {
+            "payload": {
+                "count": 2,
+                "source": "vatsim",
+                "radar_mode": "airborne",
+                "radius_nm": 20,
+                "provider_radius_nm": 20,
+                "raw_provider_count": 2,
+                "ground_filtered": 3,
+                "blips": [],
+            },
+            "surface": None,
+            "surface_error": "",
+            "weather": {},
+        }
+    )
+
+    assert app is not None
+    assert screen.radius_nm == 20
+    assert "3 ground hidden" in screen.status.text()
+    assert "source vatsim" in screen.status.text()
+
+
 def test_native_radar_tooltip_handles_vatsim_safe_fields(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
     pytest.importorskip("PySide6")
@@ -329,6 +514,9 @@ def test_native_radar_tooltip_handles_vatsim_safe_fields(monkeypatch: pytest.Mon
             "altitude_m": 3048,
             "speed_ms": 128.6,
             "source": "vatsim",
+            "flight_rules": "I",
+            "route": "DCT TEST",
+            "planned_altitude": "39000",
             "pilot_name": "Should Not Render",
             "cid": 12345,
         }
@@ -339,8 +527,24 @@ def test_native_radar_tooltip_handles_vatsim_safe_fields(monkeypatch: pytest.Mon
     assert "LSZH -> KJFK" in tooltip
     assert "10000 ft" in tooltip
     assert "250 kt" in tooltip
+    assert "Rules I" in tooltip
+    assert "DCT TEST" in tooltip
     assert "Should Not Render" not in tooltip
     assert "12345" not in tooltip
+
+
+def test_native_weather_line_translates_icons_and_keeps_keys_hidden() -> None:
+    from localflight.native.app import _weather_icon_glyph, _weather_line
+
+    line = _weather_line(
+        {"weather_icon": "rain", "flight_cat": "VFR", "temperature_c": 12, "decoded_summary": "Light rain"},
+        raw=False,
+    )
+
+    assert _weather_icon_glyph("rain") == chr(0x2614)
+    assert line.startswith(chr(0x2614))
+    assert "rain VFR" not in line
+    assert "Light rain" in line
 
 
 def test_native_fids_detail_splits_real_and_virtual(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -384,6 +588,33 @@ def test_native_fids_detail_splits_real_and_virtual(monkeypatch: pytest.MonkeyPa
     assert "DCT TEST" in text
     assert "Private Person" not in text
     assert "123456" not in text
+
+
+def test_native_fids_empty_board_shows_relay_warming_message(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    pytest.importorskip("PySide6")
+    from PySide6 import QtWidgets
+    from localflight.native.app import FidsScreen
+    from localflight.native.qt_compat import import_qt
+
+    QtCore, QtGui, QtWidgets2 = import_qt()
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    screen = FidsScreen(QtCore, QtGui, QtWidgets2, client=object())
+    screen._apply_board(
+        {
+            "view": "departures",
+            "cfg": {"airport_iata": "ZRH", "source": "real", "web_row_limit": 20, "web_rotation_seconds": 8},
+            "payload": [],
+            "weather": {"weather_icon": "sun", "flight_cat": "VFR", "temperature_c": 12, "decoded_summary": "Clear"},
+        }
+    )
+
+    label_widget = screen.info_banner.findChild(QtWidgets.QLabel)
+
+    assert app is not None
+    assert not screen.info_banner.isHidden()
+    assert label_widget is not None
+    assert "relay may still be warming" in label_widget.text().lower()
 
 
 def test_native_settings_has_airport_search_picker(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -433,6 +664,21 @@ def test_native_theme_and_skin_tokens_cover_web_choices() -> None:
             assert colors["blue"] in sheet
             assert "QFrame#TopNav" in sheet
             assert "QTableWidget#FidsTable" in sheet
+
+
+def test_native_light_theme_keeps_nav_and_core_text_readable() -> None:
+    from localflight.native.design import colors_for, native_stylesheet
+
+    colors = colors_for("light", "crt")
+    sheet = native_stylesheet(theme="light", skin="crt")
+
+    assert f"QLabel#Brand {{\n  color: {colors['text']};" in sheet
+    assert f"QLabel#Title {{\n  font-size: 24px;\n  font-weight: 900;\n  color: {colors['text']};" in sheet
+    assert f"QLabel#Metric {{\n  color: {colors['text']};" in sheet
+    assert "rgba(232,240,254,0.68)" not in sheet
+    assert "border-bottom: 1px solid rgba(255,255,255,0.07)" not in sheet
+    assert "QPushButton#NavButton:checked" in sheet
+    assert f"color: {colors['text']};" in sheet
 
 
 def test_native_window_applies_config_skin(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -508,6 +754,7 @@ def test_native_declared_routes_exist() -> None:
 
     assert client_paths.issubset(local_paths)
     assert relay_admin_paths.issubset(relay_paths)
+    assert {"/api/feedback", "/api/feedback/crash"}.issubset(client_paths)
 
 
 def test_native_route_registry_is_labelled_and_owned() -> None:
@@ -520,6 +767,46 @@ def test_native_route_registry_is_labelled_and_owned() -> None:
     assert all(route.method in {"GET", "POST", "PATCH"} for route in routes)
     assert len({route.action_id for route in routes}) == len(routes)
     assert {route.surface for route in routes} == {"client", "network-admin"}
+
+
+def test_native_crash_reporter_posts_local_crash_route(monkeypatch: pytest.MonkeyPatch) -> None:
+    import localflight.native.app as native_app
+
+    posts: list[tuple[str, dict[str, object]]] = []
+
+    class _Client:
+        def __init__(self, *, base_url: str, timeout_s: float = 10.0) -> None:
+            assert base_url == "http://127.0.0.1:8000"
+            assert timeout_s == 6.0
+
+        def get_json(self, path: str) -> dict[str, object]:
+            assert path == "/api/config"
+            return {"source": "virtual", "airport_iata": "ZRH"}
+
+        def post_json(self, path: str, payload: dict[str, object]) -> dict[str, object]:
+            posts.append((path, payload))
+            return {"ok": True, "team": "desktop"}
+
+    monkeypatch.setattr(native_app, "LocalApiClient", _Client)
+    monkeypatch.setattr(native_app, "_app_version", lambda: "test-version")
+    reporter = native_app._NativeCrashReporter(
+        "http://127.0.0.1:8000",
+        screen_provider=lambda: "radar",
+    )
+
+    try:
+        raise RuntimeError("native boom")
+    except RuntimeError:
+        reporter.report_exception(*sys.exc_info(), sync=True)
+
+    assert posts
+    path, payload = posts[0]
+    assert path == "/api/feedback/crash"
+    assert payload["context"] == "native/gui"
+    assert "RuntimeError: native boom" in str(payload["message"])
+    assert "native/gui" in str(payload["client_context"])
+    assert "screen=radar" in str(payload["client_context"])
+    assert "source=virtual" in str(payload["client_context"])
 
 
 def test_local_api_client_accepts_list_fids_payload(monkeypatch: pytest.MonkeyPatch) -> None:

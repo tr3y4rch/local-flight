@@ -778,6 +778,54 @@ def test_api_radar_virtual_uses_exact_circular_range(monkeypatch) -> None:
     assert [b["callsign"] for b in result["blips"]] == ["INRING"]
 
 
+def test_api_radar_virtual_filters_ground_blips_on_airborne_ranges(monkeypatch) -> None:
+    monkeypatch.setattr(
+        ui_api,
+        "load_config",
+        lambda: AppConfig(airport_iata="ZRH", airport_icao="LSZH", source="virtual"),
+    )
+    monkeypatch.setattr(
+        ui_api,
+        "lookup_airport",
+        lambda **kwargs: types.SimpleNamespace(lat=47.45, lon=8.55, icao="LSZH"),
+    )
+
+    vatsim_module = types.ModuleType("localflight.sources.web.vatsim_client")
+    vatsim_module.fetch_vatsim_data = lambda: {
+        "pilots": [
+            {
+                "callsign": "AIRBORNE",
+                "latitude": 47.50,
+                "longitude": 8.60,
+                "altitude": 9000,
+                "groundspeed": 240,
+                "flight_plan": {"departure": "LSZH", "arrival": "EGLL"},
+            },
+            {
+                "callsign": "GROUND",
+                "latitude": 47.451,
+                "longitude": 8.551,
+                "altitude": 0,
+                "groundspeed": 4,
+                "flight_plan": {"departure": "LSZH", "arrival": "EGLL"},
+            },
+        ]
+    }
+    monkeypatch.setitem(sys.modules, "localflight.sources.web.vatsim_client", vatsim_module)
+
+    opensky_module = types.ModuleType("localflight.sources.web.opensky_radar")
+    opensky_module.bounding_box = lambda lat, lon, radius_nm: (47.0, 8.0, 48.0, 9.0)
+    monkeypatch.setitem(sys.modules, "localflight.sources.web.opensky_radar", opensky_module)
+
+    result = ui_api.api_radar(20.0)
+
+    assert result["source"] == "vatsim"
+    assert result["radar_mode"] == "airborne"
+    assert result["ground_filtered"] == 1
+    assert result["hidden_ground_count"] == 1
+    assert [b["callsign"] for b in result["blips"]] == ["AIRBORNE"]
+
+
 def test_vatsim_records_keep_dau_flight_plan_fields() -> None:
     from localflight.sources.web.vatsim_client import vatsim_to_raw_records
 
@@ -1379,6 +1427,7 @@ def test_matrix_config_endpoint_round_trip(tmp_path: Path, monkeypatch) -> None:
         "refresh_seconds": 60,
         "default_view": "departures",
         "page_rotation_seconds": 10,
+        "animation_enabled": True,
         "skin": "technical",
     }
 
@@ -1390,6 +1439,7 @@ def test_matrix_config_endpoint_round_trip(tmp_path: Path, monkeypatch) -> None:
             "refresh_seconds": 90,
             "page_rotation_seconds": 12,
             "default_view": "arrivals",
+            "animation_enabled": False,
         },
     )
     assert response.status_code == 200
@@ -1400,14 +1450,66 @@ def test_matrix_config_endpoint_round_trip(tmp_path: Path, monkeypatch) -> None:
         "refresh_seconds": 90,
         "page_rotation_seconds": 12,
         "default_view": "arrivals",
+        "animation_enabled": False,
     }
-    assert json.loads(matrix_config.read_text(encoding="utf-8")) == {
-        "brightness": 0.55,
-        "max_rows": 6,
-        "refresh_seconds": 90,
-        "page_rotation_seconds": 12,
-        "default_view": "arrivals",
-    }
+    saved = json.loads(matrix_config.read_text(encoding="utf-8"))
+    assert saved["schema_version"] == 2
+    default = saved["configs"][0]
+    assert default["brightness"] == 0.55
+    assert default["max_rows"] == 6
+    assert default["refresh_seconds"] == 90
+    assert default["page_rotation_seconds"] == 12
+    assert default["default_view"] == "arrivals"
+    assert default["animation_enabled"] is False
+
+
+def test_matrix_v2_migrates_flat_config_and_registers_device(tmp_path: Path, monkeypatch) -> None:
+    matrix_config = tmp_path / "matrix_config.json"
+    matrix_config.write_text(
+        json.dumps(
+            {
+                "brightness": 0.44,
+                "max_rows": 3,
+                "refresh_seconds": 120,
+                "default_view": "arrivals",
+                "page_rotation_seconds": 8,
+                "animation_enabled": False,
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(ui_api, "_matrix_config_path", lambda: matrix_config)
+    monkeypatch.setattr(ui_api, "load_config", lambda: AppConfig(airport_iata="ZRH", airport_icao="LSZH"))
+
+    client = TestClient(ui_api.app)
+    response = client.get("/api/matrix/v2/configs")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["schema_version"] == 2
+    assert payload["configs"][0]["brightness"] == 0.44
+    assert payload["configs"][0]["animation_enabled"] is False
+
+    response = client.post(
+        "/api/matrix/v2/devices/checkin",
+        json={
+            "device_id": "i75w-test",
+            "label": "Desk Board",
+            "panel_w": 256,
+            "panel_h": 64,
+            "firmware": "2.0",
+            "renderers": ["split_flap", "modern_fids"],
+        },
+    )
+    assert response.status_code == 200
+    device = response.json()["device"]
+    assert device["device_id"] == "i75w-test"
+    assert device["assigned_config_id"] == payload["default_config_id"]
+
+    response = client.get("/api/matrix/v2/devices/i75w-test/config")
+    assert response.status_code == 200
+    resolved = response.json()
+    assert resolved["renderer"] == "split_flap"
+    assert resolved["device_id"] == "i75w-test"
 
 
 def test_matrix_script_endpoint_renders_from_canonical_template(tmp_path: Path, monkeypatch) -> None:
@@ -1419,6 +1521,7 @@ def test_matrix_script_endpoint_renders_from_canonical_template(tmp_path: Path, 
                 'WIFI_PASSWORD = "your_wifi_password"',
                 'API_HOST      = "localflight.local"',
                 "API_PORT      = 8000",
+                'DEVICE_LABEL = "Interstate 75 W"',
                 "PANEL_W       = 256",
                 "PANEL_H       = 64",
                 "MAX_ROWS      = 4",
@@ -1426,6 +1529,7 @@ def test_matrix_script_endpoint_renders_from_canonical_template(tmp_path: Path, 
                 "PAGE_ROTATION_S = 10",
                 "BRIGHTNESS    = 0.80",
                 'DEFAULT_VIEW  = "departures"',
+                "ANIMATION_ENABLED = True",
             ]
         ),
         encoding="utf-8",
@@ -1447,6 +1551,7 @@ def test_matrix_script_endpoint_renders_from_canonical_template(tmp_path: Path, 
             "page_rotation_seconds": 14,
             "brightness": 0.55,
             "default_view": "arrivals",
+            "animation_enabled": False,
         },
     )
 
@@ -1455,6 +1560,7 @@ def test_matrix_script_endpoint_renders_from_canonical_template(tmp_path: Path, 
     assert 'WIFI_PASSWORD = "secret123"' in response.text
     assert 'API_HOST      = "localflight.local"' in response.text
     assert "API_PORT      = 8000" in response.text
+    assert 'DEVICE_LABEL  = "Interstate 75 W"' in response.text
     assert "PANEL_W       = 256" in response.text
     assert "PANEL_H       = 64" in response.text
     assert "MAX_ROWS      = 6" in response.text
@@ -1462,6 +1568,7 @@ def test_matrix_script_endpoint_renders_from_canonical_template(tmp_path: Path, 
     assert "PAGE_ROTATION_S = 14" in response.text
     assert "BRIGHTNESS    = 0.55" in response.text
     assert 'DEFAULT_VIEW  = "arrivals"' in response.text
+    assert "ANIMATION_ENABLED = False" in response.text
 
 
 def test_matrix_script_endpoint_rejects_loopback_host(tmp_path: Path, monkeypatch) -> None:
@@ -1588,6 +1695,54 @@ def test_bug_reporter_forwards_to_relay_without_direct_linear(monkeypatch) -> No
     assert "api.linear.app/graphql" not in Path(bug_reporter.__file__).read_text(encoding="utf-8")
 
 
+def test_bug_reporter_routes_native_gui_reports_to_desktop(monkeypatch) -> None:
+    submitted: list[dict] = []
+    monkeypatch.setattr(bug_reporter, "_auto_diagnostics_mode", lambda: "auto")
+    monkeypatch.setattr(bug_reporter, "_crash_fingerprint", lambda msg, context="": f"fp-{context}-{msg}")
+    monkeypatch.setattr(bug_reporter, "_already_crash_filed", lambda fp: False)
+    monkeypatch.setattr(bug_reporter, "_mark_crash_filed", lambda fp: None)
+    monkeypatch.setattr(
+        bug_reporter,
+        "_system_metadata",
+        lambda: {
+            "install_id": "00000000-0000-0000-0000-000000000223",
+            "install_fingerprint": "fp-test",
+            "activation_token": "",
+            "app_version": "test",
+            "platform": "Windows",
+            "os": "Windows 11",
+            "arch": "amd64",
+            "python_version": "3.13",
+            "airport": "ZRH",
+            "source": "virtual",
+            "api_mode": "community relay",
+            "diagnostics_mode": "auto",
+        },
+    )
+    monkeypatch.setattr(bug_reporter, "_system_context", lambda client_context="": client_context)
+    monkeypatch.setattr(
+        bug_reporter,
+        "_post_relay_report",
+        lambda payload: submitted.append(payload) or {"ok": True, "url": "https://linear.test/native", "team": "desktop"},
+    )
+
+    manual = bug_reporter.submit_report("Native button issue", "Native report details", "native/gui; screen=feedback")
+    crash = bug_reporter.submit_crash(
+        "Native interaction crash",
+        traceback_str="stack",
+        context="native/gui",
+        client_context="native/gui; screen=radar",
+    )
+
+    assert manual["ok"] is True
+    assert crash["ok"] is True
+    assert submitted[0]["origin"] == "desktop"
+    assert submitted[0]["report_type"] == "manual"
+    assert submitted[1]["origin"] == "desktop"
+    assert submitted[1]["report_type"] == "crash"
+    assert submitted[1]["context"] == "native/gui"
+
+
 def test_feedback_api_routes_mobile_reports_with_ios_origin(monkeypatch) -> None:
     submitted: list[dict] = []
     monkeypatch.setattr(
@@ -1612,7 +1767,12 @@ def test_feedback_api_routes_mobile_reports_with_ios_origin(monkeypatch) -> None
     monkeypatch.setattr(
         bug_reporter,
         "_post_relay_report",
-        lambda payload: submitted.append(payload) or {"ok": True, "url": "https://linear.test/mobile-manual"},
+        lambda payload: submitted.append(payload) or {
+            "ok": True,
+            "url": "https://linear.test/mobile-manual",
+            "team": "ios",
+            "deduped": False,
+        },
     )
 
     response = TestClient(ui_api.app).post(
@@ -1629,6 +1789,9 @@ def test_feedback_api_routes_mobile_reports_with_ios_origin(monkeypatch) -> None
     assert submitted[0]["origin"] == "ios"
     assert submitted[0]["title"] == "Mobile button issue"
     assert "Companion ID" in submitted[0]["client_context"]
+    assert response.json()["team"] == "ios"
+    assert response.json()["deduped"] is False
+    assert response.json()["url"] == "https://linear.test/mobile-manual"
 
 
 def test_feedback_crash_api_routes_mobile_crashes_with_context(monkeypatch) -> None:
@@ -1659,7 +1822,12 @@ def test_feedback_crash_api_routes_mobile_crashes_with_context(monkeypatch) -> N
     monkeypatch.setattr(
         bug_reporter,
         "_post_relay_report",
-        lambda payload: submitted.append(payload) or {"ok": True, "url": "https://linear.test/mobile-crash"},
+        lambda payload: submitted.append(payload) or {
+            "ok": True,
+            "url": "https://linear.test/mobile-crash",
+            "team": "ios",
+            "deduped": False,
+        },
     )
 
     response = TestClient(ui_api.app).post(
@@ -1677,6 +1845,8 @@ def test_feedback_crash_api_routes_mobile_crashes_with_context(monkeypatch) -> N
     assert submitted[0]["origin"] == "ios"
     assert submitted[0]["context"] == "mobile/manual-auto-test"
     assert submitted[0]["traceback"] == "stack"
+    assert response.json()["team"] == "ios"
+    assert response.json()["deduped"] is False
 
 
 def test_crash_fingerprint_is_scoped_by_context() -> None:

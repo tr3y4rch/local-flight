@@ -52,6 +52,7 @@ CLIENT_ROUTES: tuple[NativeRoute, ...] = (
     NativeRoute("logs.list", "Load log files", "GET", "/api/logs", "client", "logs"),
     NativeRoute("logs.tail", "Load log tail", "GET", "/logs/tail", "client", "logs"),
     NativeRoute("feedback.send", "Send report", "POST", "/api/feedback", "client", "feedback"),
+    NativeRoute("feedback.crash", "Send native crash report", "POST", "/api/feedback/crash", "client", "feedback"),
     NativeRoute("profile.save", "Save profile", "POST", "/profiles/save", "client", "settings"),
     NativeRoute("profile.load", "Load profile", "POST", "/profiles/load", "client", "settings"),
     NativeRoute("profile.delete", "Delete profile", "POST", "/profiles/delete", "client", "settings"),

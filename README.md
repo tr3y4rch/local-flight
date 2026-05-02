@@ -5,6 +5,8 @@ Fetches real and simulated flight data and renders it as a proper airport-style 
 
 No accounts. No signup wall. Community mode can use the hosted relay, but it stays install-scoped instead of account-scoped.
 
+The primary desktop UI is now a Chrome-free native Qt shell. It still starts the same local FastAPI server underneath, so the LAN browser UI, mobile companion, matrix board, and API integrations keep working from the same source of truth.
+
 **Source:** [github.com/tr3y4rch/local-flight](https://github.com/tr3y4rch/local-flight)
 
 ---
@@ -12,6 +14,7 @@ No accounts. No signup wall. Community mode can use the hosted relay, but it sta
 ## What it does
 
 - Three clear setup paths: **Community**, **Bring your own keys**, or **VATSIM**
+- **Native Qt desktop shell** with Display, FIDS, Radar, Matrix, Settings, Admin, History, Logs, and Report views, plus browser fallback when native Qt is not available
 - Airport-style **FIDS departures / arrivals board** with airport-local time ordering, decoded airline names, codeshare grouping, live WebSocket refresh, flight detail drawer, history, and UTC/local clock
 - **Radar view** with ADS-B Exchange enrichment, OpenSky fallback, METAR-derived weather mood/icons/temperature, responsive standalone scaling for Pi screens and wall displays, airborne-vs-surface filtering, tight ground-radar ranges that crop from the shortest practical provider fetch, and an optional opt-in airport-surface overlay
 - **Split display** mode for FIDS + radar on one screen, plus native-first desktop and kiosk-ready Pi flows
@@ -21,7 +24,7 @@ No accounts. No signup wall. Community mode can use the hosted relay, but it sta
 - **Diagnostics choice** so each install can stay on manual reports only, automatic crash reports, or automatic crash reports with sanitized logs
 - **Profiles** for saving and switching airport presets quickly
 - **Mobile companion** beta for LAN viewing and light control from iPhone, iPad, and simulator
-- **Interstate 75 W LED matrix support** with a browser preview, safe board-file download, and server-side runtime config
+- **Interstate 75 W LED matrix support** with native/browser preview tooling, safe board-file download, and server-side runtime config
 
 ---
 
@@ -148,7 +151,7 @@ Android support is planned later; the current companion testing flow is still iO
 
 ## First-run setup
 
-On first launch Local Flight briefly shows a versioned splash screen, then opens the setup wizard at `http://localhost:8000/setup`.
+On first launch Local Flight briefly shows a versioned splash screen, then opens a guided setup wizard. In native mode this is a standalone setup window; in browser fallback mode it is available at `http://localhost:8000/setup`.
 
 It walks through:
 1. Airport selection (IATA / ICAO search)
@@ -162,11 +165,27 @@ It walks through:
 
 The scheduler only starts after setup completes. You can re-run the wizard any time from **Settings -> Re-run setup wizard**.
 
-After the first launch into the main app, Local Flight asks once how you want diagnostics handled. Manual reports always stay available from the **Report** page. Reports are sanitized locally, forwarded through the hosted relay reporting gateway, deduplicated/rate-limited there, and then filed for developer triage. Developer reporting credentials are not shipped in the desktop or mobile app.
+If diagnostics mode has not been set yet, Local Flight asks once how you want diagnostics handled. Manual reports always stay available from the **Report** page. Reports are sanitized locally, forwarded through the hosted relay reporting gateway, deduplicated/rate-limited there, and then filed for developer triage. Developer reporting credentials are not shipped in the desktop or mobile app.
 
 Community mode defaults to `https://localflight-community-relay.fly.dev`. Relay-backed community and managed installs share airport snapshots on the relay, so the per-install `50` limit applies to relay accesses rather than raw AviationStack pulls. The app derives its internal relay paths automatically; `/v1/schedule` is used for shared schedules, while `/v1/flights` is not a user-facing endpoint. Only change the relay URL if you are deliberately pointing the client at your own backend; custom or private relay URLs require explicit local opt-in environment flags.
 
 For real schedules, Local Flight now tries the same stronger fetch policy across BYOK and relay-backed modes: airport-local date windows, per-date pagination, and an extra rescue pass when the visible board would otherwise be empty. If the provider still only returns older real flights for a lane, Local Flight now falls back to showing the nearest available rows instead of a dead-empty board. Some airports can still look sparse if AviationStack itself does not return near-term schedule rows for that lane.
+
+---
+
+## Native GUI and browser fallback
+
+The Windows and macOS app launch the native Qt shell by default. The Pi installer stays headless unless you explicitly install a display mode, with `--native-kiosk` for the Qt fullscreen HDMI shell and `--kiosk` only for the legacy Chromium fallback.
+
+Native mode is not a separate backend. It uses the same local routes, WebSocket events, config, history, docs, reporting, and matrix tooling as the browser UI:
+
+- Display: split FIDS/radar board with live status and fullscreen-friendly scaling
+- FIDS: arrivals/departures, weather strip, row rotation, airline/codeshare display, and detail drawer
+- Radar: native canvas with range chips, surface/airborne filtering, weather, and optional surface overlay
+- Matrix: LED preview, runtime settings, brightness/zoom controls, and `main.py` generator
+- Settings/Admin/History/Logs/Report: user-facing controls backed by the same local APIs
+
+The LAN browser UI remains available at `http://localhost:8000` for phones, tablets, troubleshooting, and fallback use. Set `LOCALFLIGHT_GUI_MODE=browser` only when you intentionally want the legacy browser shell.
 
 ---
 
@@ -249,6 +268,8 @@ Runtime data is also kept outside the source tree:
 
 ## Pages
 
+These web routes remain available for browser fallback and LAN clients even when the native GUI is the primary shell.
+
 | URL | Description |
 |---|---|
 | `/splash` | Short launch splash screen with version badge, then redirects to setup/display |
@@ -313,7 +334,7 @@ The board connects to your WiFi independently, reads runtime settings from Local
 - Classic split-flap letter animation
 - Button A = departures, Button B = arrivals, A+B = force refresh
 - RGB status LED: green = ok, blue = fetching, amber = no data, red = no WiFi
-- Browser-side matrix setup page with:
+- Matrix setup surfaces with:
   - server-generated `main.py` download from the canonical board client
   - server-side matrix runtime config (`/api/matrix/config`) for rows, brightness, refresh, and default view
   - host validation so the board is pointed at a LAN host such as `localflight.local`, not `localhost`
@@ -333,7 +354,9 @@ Provides unlimited local ADS-B reception with no API key or monthly limits.
 
 ## Reporting issues
 
-Use the **Report** page from the nav bar anywhere in the app. Manual reports are always available. Automatic diagnostics are an install-level choice you can keep off, enable for crash reports only, or enable with sanitized log excerpts. Reports are sanitized locally, forwarded through the hosted relay reporting gateway, deduplicated/rate-limited there, and then filed for developer triage. No account required.
+Use the **Report** page from the nav bar anywhere in the app. Manual reports are always available from both the native GUI and browser fallback. Automatic diagnostics are an install-level choice you can keep off, enable for crash reports only, or enable with sanitized log excerpts.
+
+Native GUI interaction crashes use the same diagnostics-gated `/api/feedback/crash` route as the rest of the app. Reports are sanitized locally, forwarded through the hosted relay reporting gateway, deduplicated/rate-limited there, and then filed for developer triage. No account required.
 
 ---
 
@@ -366,8 +389,8 @@ Use the **Report** page from the nav bar anywhere in the app. Manual reports are
 | `/api/admin/ping` | POST | Device ping (LED matrix client) |
 | `/api/matrix/config` | GET / POST | Read or update LED matrix runtime settings |
 | `/api/matrix/script` | POST | Generate a ready-to-flash Interstate 75 W `main.py` |
-| `/api/feedback` | POST | Submit a sanitized manual report (`{title, description, client_context}`) through the reporting gateway |
-| `/api/feedback/crash` | POST | Submit diagnostics-gated crash report with deduplication |
+| `/api/feedback` | POST | Submit a sanitized manual report (`{title, description, client_context}`) through the reporting gateway; returns safe queue/dedupe status when available |
+| `/api/feedback/crash` | POST | Submit a diagnostics-gated crash report with deduplication, used by native GUI, server, and companion crash reporters when allowed |
 | `/api/setup/complete` | POST | Save setup, write `.env`, mark complete |
 | `/api/setup/reset` | POST | Re-run setup wizard |
 | `/api/setup/client-info` | GET | Install fingerprint, relay URL, token status, and managed status hint |
@@ -387,6 +410,7 @@ Use the **Report** page from the nav bar anywhere in the app. Manual reports are
 
 - **Local first** - flight data, history, config, and logs live on your own machine.
 - **Private by design** - no accounts, no email, no analytics SDK, no tracking. See [PRIVACY.md](PRIVACY.md).
+- **Chrome-free first** - native Qt is the intended desktop/display shell; browser mode stays as a fallback and LAN access path.
 - **Trusted LAN by default** - the app is meant for your own network, not the open internet. Browser drive-by mutations are blocked, but full per-device pairing is still planned.
 - **Simple stack** - standard Python, clear modules, predictable behavior.
 - **Pi-ready** - nothing in the stack needs a GPU or big hardware.

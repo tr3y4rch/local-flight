@@ -34,6 +34,8 @@ class LocalApiClient:
         """Short local cache to avoid hammering the same backend routes from Qt pages."""
         if path in {"/api/config", "/api/setup/client-info", "/api/matrix/config"}:
             return 2.0
+        if path.startswith("/api/matrix/v2/"):
+            return 2.0
         if path in {"/api/fids", "/api/radar", "/api/fids/detail"}:
             return 2.0
         if path == "/api/metar":
@@ -103,6 +105,21 @@ class LocalApiClient:
         try:
             with self._lock:
                 response = self._session.patch(self._url(path), json=payload, timeout=self.timeout_s)
+        except requests.RequestException as exc:
+            raise NativeApiError(str(exc)) from exc
+        if response.status_code >= 400:
+            raise NativeApiError(f"HTTP {response.status_code}: {response.text[:180]}")
+        try:
+            data = response.json()
+        except json.JSONDecodeError:
+            return {"ok": True, "status_code": response.status_code}
+        return data if isinstance(data, dict) else {"ok": True, "data": data}
+
+    def delete_json(self, path: str) -> dict[str, Any]:
+        self.clear_cache()
+        try:
+            with self._lock:
+                response = self._session.delete(self._url(path), timeout=self.timeout_s)
         except requests.RequestException as exc:
             raise NativeApiError(str(exc)) from exc
         if response.status_code >= 400:

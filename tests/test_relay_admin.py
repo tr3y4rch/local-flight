@@ -1032,6 +1032,23 @@ def test_relay_reports_route_to_platform_teams(tmp_path: Path, monkeypatch) -> N
     assert filed[2]["title"].startswith("[Server][Crash]")
     assert filed[3]["title"].startswith("[Relay][Crash]")
 
+    response = client.post(
+        "/v1/reports",
+        json=_report_payload(
+            "00000000-0000-0000-0000-000000000309",
+            origin="native",
+            context="native/gui",
+            message="Native Qt smoke",
+            client_context="native/gui; screen=fids; owner=client",
+        ),
+    )
+    assert response.status_code == 200
+    assert response.json()["team"] == "desktop"
+    assert filed[-1]["team_id"] == "team-desktop"
+    assert filed[-1]["title"].startswith("[Desktop][Crash]")
+    assert "**Origin:** desktop" in filed[-1]["description"]
+    assert "**Context:** `native/gui`" in filed[-1]["description"]
+
 
 def test_relay_reports_fall_back_to_default_team_when_specific_team_missing(tmp_path: Path, monkeypatch) -> None:
     _use_temp_db(tmp_path, monkeypatch)

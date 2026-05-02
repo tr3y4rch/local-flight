@@ -11,6 +11,7 @@ This is a hobbyist/open-source project, not a legal document, but the app is des
 ## Quick Summary
 
 - Your config, API keys, snapshots, history, and logs stay on your own machine.
+- The desktop native GUI is not a webview and does not launch Chrome, Edge, or Chromium. It talks to the same local Local Flight server as the browser fallback.
 - The mobile companion talks to your Local Flight server over your LAN. It does not call AviationStack, ADS-B Exchange, RapidAPI, OpenSky, VATSIM, or the hosted relay directly.
 - Community mode can use the hosted Local Flight relay for shared schedules and relay-backed radar. An airport-surface overlay can also use the relay cache, but it is opt-in and disabled by default. The relay stores operational metadata, not accounts or user profiles.
 - Manual reports are always your choice. Automatic crash diagnostics are off unless you allow them.
@@ -23,6 +24,7 @@ This is a hobbyist/open-source project, not a legal document, but the app is des
 
 - Flight snapshots, config, history, and logs stay under `~/.localflight/`.
 - Your airport settings, display preferences, and personal API keys stay in your local config and `.env`.
+- The native GUI, browser fallback, LAN clients, and matrix board all talk to your local Local Flight server first. Native mode does not fetch online fonts, CDN assets, or a webview shell for the main UI.
 - The optional local traffic log at `~/.localflight/requests.db` is visible only on your own Local Flight instance and is only enabled for explicit local network diagnostics.
 - The Interstate 75 W board talks to your Local Flight server over your LAN. Its runtime settings live in `~/.localflight/matrix_config.json`.
 
@@ -74,7 +76,7 @@ Local Flight fetches the public VATSIM network feed and keeps only flight-board-
 
 Manual issue reports are always available from the in-app **Report** page. Automatic diagnostics are a separate install-level choice.
 
-On first launch into the main app, Local Flight asks you to choose one of these modes:
+If diagnostics mode has not been set yet, Local Flight asks you to choose one of these modes:
 
 - `Manual reports only`
 - `Automatic crash reports`
@@ -93,6 +95,7 @@ When you send a report yourself, Local Flight sends:
 - Python version
 - configured airport and source mode
 - schedule mode, diagnostics mode, and display window settings
+- the reporting surface, such as native GUI, browser fallback, server, or mobile companion
 - optional mobile companion context if the report came from the companion flow
 
 Manual reports are sanitized locally, forwarded to the hosted relay reporting gateway, deduplicated/rate-limited there, and then filed for developer triage.
@@ -110,6 +113,7 @@ An automatic crash report can contain:
 - configured airport and source mode
 - schedule mode, diagnostics mode, and display window settings
 - crash context
+- native GUI screen/action context, when the crash happened in the Qt shell
 - traceback, when available
 
 If you choose `Automatic crash reports + sanitized logs`, the report can also include:
@@ -121,6 +125,7 @@ Automatic diagnostics do **not** intentionally contain:
 - API keys
 - activation tokens
 - raw IP addresses
+- raw screenshots or screen recordings
 - stored flight history
 - full local logs
 - account data, because there are no Local Flight accounts
@@ -183,6 +188,7 @@ Your local data is under your control. To wipe local app data, stop Local Flight
 |---|---|---|
 | Flight snapshots | Your machine | You |
 | Config and personal API keys | Your machine | You |
+| Native GUI state and appearance | Your machine | You |
 | Local traffic log | Your machine | You, if network tools are enabled |
 | Flight history | Your machine | You |
 | Manual reports and automatic diagnostics | Hosted relay reporting gateway, then developer triage inbox | Developer |

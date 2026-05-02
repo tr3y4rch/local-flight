@@ -30,6 +30,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Native Qt now connects directly to the local `/ws` live-push endpoint and reacts to `snapshot_updated`, `config_updated`, and `scheduler_restarted` events like the web kiosk instead of relying only on fallback polling.
 - Native Qt now has a browser-parity design-token layer for dark/light theme plus standard/technical/neon/cyan/crt skins. The shell reloads styling from `/api/config`, the top nav scrolls compactly on smaller displays, and FIDS/Radar/Matrix renderers use the active skin palette instead of one hardcoded cyan-dark look.
 - Native Qt now reuses short-lived local GET results for high-frequency routes such as config, FIDS, radar, METAR, airport search, admin summaries, logs, and surface geometry. Mutating actions clear the cache immediately, reducing duplicate local API/database work without changing backend contracts.
+- Native Qt manual reports now carry richer `native/gui` context, and diagnostics-gated native UI crashes use the same local `/api/feedback/crash` and relay `/v1/reports` path as the browser, server, and mobile reporters.
+- README and Privacy now describe the native Qt shell as the primary privacy-first UI while keeping the LAN browser UI as a fallback/access path.
 
 ### Fixed
 - Relay admin no longer crashes when a live client lane exists before a shared schedule snapshot has been created.
@@ -43,6 +45,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Native first-run completion now opens the Display page and prompts for the same diagnostics/reporting choice when diagnostics mode is still unset, keeping bug reporting consent behavior aligned with the browser shell.
 - Native WebSocket shutdown now tolerates Qt deleting the socket during app/test teardown, avoiding an ugly finalizer traceback after otherwise successful native constructor tests.
 - Native Radar and Matrix canvases now pause their animation timers while hidden, Radar sweep runs at a lighter cadence, active page polling backs off to 30 seconds, and airport search avoids repeating the same query while typing.
+- Native report routing now maps `native/gui` issues to the desktop/user report bucket instead of letting UI exceptions look like server-only crashes.
 
 ### Added
 - Hosted relay maintenance now has a clean setup-trial action that clears transient request logs, activation-review rows, live client lanes, shared schedule snapshots, and report-event clutter while keeping provider keys, managed tokens, blocked installs, and usage counters intact.

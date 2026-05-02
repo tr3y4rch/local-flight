@@ -408,6 +408,33 @@
     </div>
 
     <div class="ctrl-group">
+      <label>Config</label>
+      <select id="matrixConfigSelect" onchange="applyMatrixConfigSelection(this.value)">
+        <option value="">Default</option>
+      </select>
+    </div>
+
+    <div class="ctrl-group">
+      <label>Preset</label>
+      <select id="presetSelect" onchange="setMatrixPreset(this.value)">
+        <option value="classic_split_flap">Classic split-flap</option>
+        <option value="modern_airport_fids">Modern airport FIDS</option>
+        <option value="terminal_minimal">Terminal minimal</option>
+        <option value="radar_strip">Radar strip</option>
+      </select>
+    </div>
+
+    <div class="ctrl-group">
+      <label>Animation</label>
+      <select id="animationModeSelect" onchange="setAnimationMode(this.value)">
+        <option value="split_flap" selected>Split-flap</option>
+        <option value="slide_left">Slide left</option>
+        <option value="slide_right">Slide right</option>
+        <option value="static">Static</option>
+      </select>
+    </div>
+
+    <div class="ctrl-group">
       <label>Rotate</label>
       <select id="rotationSelect" onchange="setPageRotation(this.value)">
         <option value="5">5 s</option>
@@ -515,6 +542,13 @@
   let BRIGHTNESS    = 0.8;
   let REFRESH_S_SRV = 60;   // device refresh interval saved to server
   let PAGE_ROTATION_S = 10;
+  let MATRIX_PRESET = "classic_split_flap";
+  let ANIMATION_MODE = "split_flap";
+  let ANIMATION_SPEED = 3;
+  let STATUS_ANIMATION_ENABLED = true;
+  let MATRIX_CONFIGS = [];
+  let MATRIX_PRESETS = [];
+  let CURRENT_CONFIG_ID = "";
   const POLL_MS     = 15000;
   const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "::1", "[::1]"]);
   const DEFAULT_SERVER_HOST = LOOPBACK_HOSTS.has(window.location.hostname)
@@ -650,19 +684,76 @@
   let flapRows  = Array.from({length:8}, () =>
     Array.from({length: ROW_LEN}, () => new FlapCell())
   );
+  let slideRows = Array.from({length:8}, () => ({
+    current: " ".repeat(ROW_LEN),
+    source: " ".repeat(ROW_LEN),
+    target: " ".repeat(ROW_LEN),
+    frame: 0,
+    frames: 1,
+  }));
 
   function setRowText(rowIdx, text) {
     text = (text||"").toUpperCase().padEnd(ROW_LEN," ").slice(0,ROW_LEN);
+    if (ANIMATION_MODE === "static") {
+      slideRows[rowIdx].current = text;
+      slideRows[rowIdx].source = text;
+      slideRows[rowIdx].target = text;
+      for (let i=0; i<ROW_LEN; i++) {
+        flapRows[rowIdx][i].current = text[i];
+        flapRows[rowIdx][i].target = text[i];
+        flapRows[rowIdx][i].frame = 99;
+        flapRows[rowIdx][i].frames = 0;
+      }
+      return;
+    }
+    if (ANIMATION_MODE === "slide_left" || ANIMATION_MODE === "slide_right") {
+      const slide = slideRows[rowIdx];
+      if (slide.target === text && slide.frame < slide.frames) return;
+      if (slide.current === text) {
+        slide.target = text;
+        return;
+      }
+      slide.source = slide.current;
+      slide.target = text;
+      slide.frame = 0;
+      slide.frames = Math.max(5, 18 - ANIMATION_SPEED * 2);
+      return;
+    }
     for (let i=0; i<ROW_LEN; i++) {
       flapRows[rowIdx][i].setTarget(text[i]);
     }
   }
 
   function getRowText(rowIdx) {
+    if (ANIMATION_MODE === "slide_left" || ANIMATION_MODE === "slide_right") {
+      const slide = slideRows[rowIdx];
+      if (slide.frame >= slide.frames) return slide.current;
+      const gap = "   ";
+      const span = ROW_LEN + gap.length;
+      const offset = Math.floor((slide.frame / Math.max(1, slide.frames)) * span);
+      if (ANIMATION_MODE === "slide_right") {
+        const canvas = slide.target + gap + slide.source;
+        return canvas.slice(span - offset, span - offset + ROW_LEN).padEnd(ROW_LEN, " ");
+      }
+      const canvas = slide.source + gap + slide.target;
+      return canvas.slice(offset, offset + ROW_LEN).padEnd(ROW_LEN, " ");
+    }
+    if (ANIMATION_MODE === "static") return slideRows[rowIdx].current;
     return flapRows[rowIdx].map(c => c.current).join("");
   }
 
   function stepAllFlap() {
+    if (ANIMATION_MODE === "slide_left" || ANIMATION_MODE === "slide_right") {
+      for (let r=0; r<MAX_ROWS; r++) {
+        const slide = slideRows[r];
+        if (slide.frame < slide.frames) {
+          slide.frame++;
+          if (slide.frame >= slide.frames) slide.current = slide.target;
+        }
+      }
+      return;
+    }
+    if (ANIMATION_MODE === "static") return;
     for (let r=0; r<MAX_ROWS; r++) {
       for (let c=0; c<ROW_LEN; c++) {
         flapRows[r][c].step();
@@ -672,19 +763,39 @@
 
   // ── Row text builder ───────────────────────────────────────────────────────
   function buildRowText(row) {
-    const t  = ((row.display_time   ||"--:--")+"     ").slice(0,5);
-    const fn = ((row.flight_display ||"")+"        ").slice(0,8);
-    const rt = ((row.route_display  ||"")+"            ").slice(0,14);
-    const st = ((row.status_display ||"")+"          ").slice(0,10);
-    const gt = ((row.gate           ||"-")+"    ").slice(0,4);
+    const t  = ((row.display_time || row.time || "--:--")+"     ").slice(0,5);
+    const fn = ((row.flight_display || row.flight || row.flight_number || row.callsign || "")+"        ").slice(0,8);
+    const rt = ((row.route_display || row.route || "")+"            ").slice(0,14);
+    const st = ((row.status_display || row.status || "")+"          ").slice(0,10);
+    const gt = ((row.gate || "-")+"    ").slice(0,4);
     return `${t} ${fn} ${rt} ${st} ${gt}`;
   }
 
-  function statusColor(s) {
-    s = (s||"").toLowerCase();
+  function detailText(row) {
+    const operator = row.operating_airline || row.operator || row.airline_display || "";
+    const sold = row.sold_as || row.codeshare || row.codeshare_display || "";
+    const aircraft = row.aircraft || row.aircraft_type || "";
+    return [
+      operator ? `OP ${operator}` : "",
+      sold ? `SOLD ${String(sold).replace(/^Also /, "")}` : "",
+      aircraft || "",
+    ].filter(Boolean).join(" | ").toUpperCase();
+  }
+
+  function statusKey(rowOrStatus) {
+    if (typeof rowOrStatus === "object" && rowOrStatus) {
+      return String(rowOrStatus.status_kind || rowOrStatus.status_class || rowOrStatus.status_display || rowOrStatus.status || "").toLowerCase();
+    }
+    return String(rowOrStatus || "").toLowerCase();
+  }
+
+  function statusColor(rowOrStatus) {
+    const s = statusKey(rowOrStatus);
     if (s.includes("delay"))                    return C.amber;
     if (s.includes("cancel"))                   return C.red;
-    if (s.includes("depart")||s.includes("land")) return C.dim;
+    if (s.includes("boarding") || s.includes("gate") || s.includes("ground")) return (STATUS_ANIMATION_ENABLED && Math.floor(performance.now()/280)%2) ? C.amber : C.green;
+    if (s.includes("depart") || s.includes("arriv") || s.includes("approach")) return (STATUS_ANIMATION_ENABLED && Math.floor(performance.now()/240)%2) ? C.white : C.green;
+    if (s.includes("land")) return C.dim;
     return C.green;
   }
 
@@ -736,9 +847,18 @@
       const y   = dataY + ri*rowH;
       if (y+7 > PANEL_H) break;
       const txt = getRowText(ri);
+      const row = flightData[ri] || null;
+      const cancelled = statusKey(row).includes("cancel");
+      if (cancelled) {
+        ctx.save();
+        ctx.globalAlpha = STATUS_ANIMATION_ENABLED && Math.floor(performance.now()/350)%2 ? 0.52 : 0.28;
+        ctx.fillStyle = C.red;
+        ctx.fillRect(0, y * PIXEL_SIZE, PANEL_W * PIXEL_SIZE, Math.max(8, rowH - 1) * PIXEL_SIZE);
+        ctx.restore();
+      }
 
       // Time (0-4) green
-      drawString(txt.slice(0,5), 0, y, C.green);
+      drawString(txt.slice(0,5), 0, y, cancelled ? C.white : C.green);
 
       // Flight number (6-13) white
       drawString(txt.slice(6,14), 36, y, C.white);
@@ -747,12 +867,15 @@
       if (PANEL_W >= 150) drawString(txt.slice(15,29), 102, y, C.white);
 
       // Status (30-39) — color; position scales with panel width
-      const sc = flightColors[ri] || C.green;
+      const sc = row ? statusColor(row) : (flightColors[ri] || C.green);
       const sx = PANEL_W >= 300 ? 230 : PANEL_W >= 150 ? 186 : 96;
       drawString(txt.slice(30,40), sx, y, sc);
 
       // Gate dim right (only if enough room)
       if (PANEL_W >= 220) drawString(txt.slice(41,45), PANEL_W - 25, y, C.dim);
+      if (flightDetails[ri] && rowH >= 17 && PANEL_W >= 180) {
+        drawString(flightDetails[ri].slice(0, 34), 36, y + 8, C.dim, PANEL_W - 42);
+      }
 
       // Row separator
       if (ri < MAX_ROWS-1 && rowH > 9) {
@@ -770,6 +893,7 @@
   let allFlightData = [];
   let flightData = [];
   let flightColors = [];
+  let flightDetails = [];
   let flightPages = [];
   let flightPageIndex = 0;
   let lastRotationTs = 0;
@@ -784,7 +908,8 @@
 
   function applyVisiblePage(rows) {
     flightData = rows;
-    flightColors = rows.map(r => statusColor(r.status_display));
+    flightColors = rows.map(r => statusColor(r));
+    flightDetails = rows.map(r => detailText(r));
 
     for (let i=0; i<MAX_ROWS; i++) {
       if (i < rows.length) {
@@ -810,10 +935,10 @@
   // ── Demo mode ─────────────────────────────────────────────────────────────
   window.triggerDemo = function () {
     const demo = [
-      { display_time:"10:35", flight_display:"LX 184",  route_display:"SINGAPORE (WSSS)", status_display:"SCHEDULED", gate:"A32" },
-      { display_time:"11:15", flight_display:"LH 456",  route_display:"FRANKFURT (EDDF)", status_display:"BOARDING",  gate:"B12" },
-      { display_time:"11:40", flight_display:"SWR 92",  route_display:"SAO PAULO (SBGR)", status_display:"DELAYED",   gate:"-"   },
-      { display_time:"12:05", flight_display:"BCC 981", route_display:"EL MATORRAL(GCFV)",status_display:"SCHEDULED", gate:"C4"  },
+      { display_time:"10:35", flight_display:"LX 184",  route_display:"SINGAPORE (WSSS)", status_display:"SCHEDULED", status_class:"scheduled", gate:"A32", airline_display:"Swiss", codeshare_display:"Also SQ 2914" },
+      { display_time:"11:15", flight_display:"LH 456",  route_display:"FRANKFURT (EDDF)", status_display:"BOARDING",  status_class:"boarding", gate:"B12", airline_display:"Lufthansa" },
+      { display_time:"11:40", flight_display:"SWR 92",  route_display:"SAO PAULO (SBGR)", status_display:"DELAYED",   status_class:"delayed", gate:"-", airline_display:"Swiss" },
+      { display_time:"12:05", flight_display:"QR 96", route_display:"DOHA (OTHH)", status_display:"CANCELLED", status_class:"cancelled", gate:"C4", airline_display:"Qatar Airways", codeshare_display:"Also BA 7006" },
     ];
     applyFlightData(demo);
     status.textContent = "Demo mode active — showing sample data";
@@ -842,10 +967,9 @@
 
   // ── Animation loop ─────────────────────────────────────────────────────────
   let lastStep = 0;
-  const STEP_MS = 55; // ~18fps, visible flap speed
-
   function loop(ts) {
-    if (ts - lastStep >= STEP_MS) {
+    const stepMs = Math.max(28, 95 - ANIMATION_SPEED * 12);
+    if (ts - lastStep >= stepMs) {
       lastStep = ts;
       if (flightPages.length > 1 && ts - lastRotationTs >= PAGE_ROTATION_S * 1000) {
         flightPageIndex = (flightPageIndex + 1) % flightPages.length;
@@ -890,6 +1014,25 @@
   window.setBrightness = function(v) {
     BRIGHTNESS = parseInt(v)/100;
     document.getElementById("brightnessVal").textContent = v;
+    updateCfgBlock();
+  };
+
+  window.setAnimationMode = function(v) {
+    ANIMATION_MODE = v || "split_flap";
+    if (!["split_flap", "slide_left", "slide_right", "static"].includes(ANIMATION_MODE)) {
+      ANIMATION_MODE = "split_flap";
+    }
+    flapRows = Array.from({length:8}, () =>
+      Array.from({length: ROW_LEN}, () => new FlapCell())
+    );
+    slideRows = Array.from({length:8}, () => ({
+      current: " ".repeat(ROW_LEN),
+      source: " ".repeat(ROW_LEN),
+      target: " ".repeat(ROW_LEN),
+      frame: 0,
+      frames: 1,
+    }));
+    applyVisiblePage(flightData);
     updateCfgBlock();
   };
 
@@ -975,8 +1118,10 @@ REFRESH_S     = ${REFRESH_S_SRV}
 PAGE_ROTATION_S = ${PAGE_ROTATION_S}
 BRIGHTNESS    = ${BRIGHTNESS.toFixed(2)}
 DEFAULT_VIEW  = "${VIEW}"
+PRESET        = "${MATRIX_PRESET}"
+ANIMATION_MODE = "${ANIMATION_MODE}"
 
-Board reads: /api/config -> /api/matrix/config -> /api/fids`;
+Board reads: /api/config -> /api/matrix/v2/devices/{id}/config -> /api/matrix/v2/devices/{id}/feed`;
     updateDownloadState();
   }
 
@@ -986,6 +1131,7 @@ Board reads: /api/config -> /api/matrix/config -> /api/fids`;
       wifi_password: document.getElementById("wifiPass")?.value || "",
       api_host: getServerHost(),
       api_port: getServerPort(),
+      device_label: "Interstate 75 W",
       panel_w: PANEL_W,
       panel_h: PANEL_H,
       max_rows: MAX_ROWS,
@@ -1419,41 +1565,114 @@ if __name__ == "__main__":
   // ── Load saved matrix config from server ────────────────────────────────
   async function loadMatrixConfig() {
     try {
+      const [presetRes, configRes] = await Promise.all([
+        fetch("/api/matrix/v2/presets"),
+        fetch("/api/matrix/v2/configs"),
+      ]);
+      if (presetRes.ok && configRes.ok) {
+        const presetPayload = await presetRes.json();
+        const configPayload = await configRes.json();
+        MATRIX_PRESETS = Array.isArray(presetPayload.presets) ? presetPayload.presets : [];
+        MATRIX_CONFIGS = Array.isArray(configPayload.configs) ? configPayload.configs : [];
+        CURRENT_CONFIG_ID = configPayload.default_config_id || (MATRIX_CONFIGS[0] && MATRIX_CONFIGS[0].id) || "";
+        populateMatrixV2Selectors();
+        const selected = MATRIX_CONFIGS.find(c => c.id === CURRENT_CONFIG_ID) || MATRIX_CONFIGS[0];
+        if (selected) {
+          applyMatrixConfig(selected);
+          return;
+        }
+      }
       const r = await fetch("/api/matrix/config");
       if (!r.ok) return;
       const d = await r.json();
-      if (d.brightness !== undefined) {
-        BRIGHTNESS = d.brightness;
-        const pct = Math.round(d.brightness * 100);
-        document.getElementById("brightnessSlider").value = pct;
-        document.getElementById("brightnessVal").textContent = pct;
-      }
-      if (d.max_rows !== undefined) {
-        MAX_ROWS = d.max_rows;
-        document.getElementById("rowsSlider").value = d.max_rows;
-        document.getElementById("rowsVal").textContent = d.max_rows;
-      }
-      if (d.refresh_seconds !== undefined) {
-        REFRESH_S_SRV = d.refresh_seconds;
-        const sel = document.getElementById("refreshSelect");
-        const opt = [...sel.options].find(o => parseInt(o.value) === d.refresh_seconds);
-        if (opt) sel.value = String(d.refresh_seconds);
-      }
-      if (d.page_rotation_seconds !== undefined) {
-        PAGE_ROTATION_S = d.page_rotation_seconds;
-        const sel = document.getElementById("rotationSelect");
-        const opt = [...sel.options].find(o => parseInt(o.value) === d.page_rotation_seconds);
-        if (opt) sel.value = String(d.page_rotation_seconds);
-      }
-      if (d.default_view !== undefined) {
-        VIEW = d.default_view;
-        document.getElementById("btnDep").classList.toggle("active", d.default_view === "departures");
-        document.getElementById("btnArr").classList.toggle("active", d.default_view === "arrivals");
-      }
+      applyMatrixConfig(d);
     } catch (e) {
       console.warn("Could not load matrix config:", e);
     }
   }
+
+  function populateMatrixV2Selectors() {
+    const configSel = document.getElementById("matrixConfigSelect");
+    const presetSel = document.getElementById("presetSelect");
+    if (configSel && MATRIX_CONFIGS.length) {
+      configSel.innerHTML = MATRIX_CONFIGS.map(c =>
+        `<option value="${c.id}">${c.name || c.id}</option>`
+      ).join("");
+      configSel.value = CURRENT_CONFIG_ID;
+    }
+    if (presetSel && MATRIX_PRESETS.length) {
+      presetSel.innerHTML = MATRIX_PRESETS.map(p =>
+        `<option value="${p.id}">${p.label || p.id}</option>`
+      ).join("");
+    }
+  }
+
+  function applyMatrixConfig(d) {
+    if (!d) return;
+    CURRENT_CONFIG_ID = d.id || CURRENT_CONFIG_ID;
+    MATRIX_PRESET = d.preset || MATRIX_PRESET;
+    const presetSel = document.getElementById("presetSelect");
+    if (presetSel) presetSel.value = MATRIX_PRESET;
+    const configSel = document.getElementById("matrixConfigSelect");
+    if (configSel && CURRENT_CONFIG_ID) configSel.value = CURRENT_CONFIG_ID;
+    if (d.panel_w && d.panel_h) {
+      PANEL_W = d.panel_w;
+      PANEL_H = d.panel_h;
+      resizeCanvas();
+    }
+    if (d.brightness !== undefined) {
+      BRIGHTNESS = d.brightness;
+      const pct = Math.round(d.brightness * 100);
+      document.getElementById("brightnessSlider").value = pct;
+      document.getElementById("brightnessVal").textContent = pct;
+    }
+    if (d.max_rows !== undefined) {
+      MAX_ROWS = d.max_rows;
+      document.getElementById("rowsSlider").value = d.max_rows;
+      document.getElementById("rowsVal").textContent = d.max_rows;
+    }
+    if (d.refresh_seconds !== undefined) {
+      REFRESH_S_SRV = d.refresh_seconds;
+      const sel = document.getElementById("refreshSelect");
+      const opt = [...sel.options].find(o => parseInt(o.value) === d.refresh_seconds);
+      if (opt) sel.value = String(d.refresh_seconds);
+    }
+    if (d.page_rotation_seconds !== undefined) {
+      PAGE_ROTATION_S = d.page_rotation_seconds;
+      const sel = document.getElementById("rotationSelect");
+      const opt = [...sel.options].find(o => parseInt(o.value) === d.page_rotation_seconds);
+      if (opt) sel.value = String(d.page_rotation_seconds);
+    }
+    if (d.animation_mode !== undefined || d.animation_enabled !== undefined) {
+      ANIMATION_MODE = d.animation_enabled === false ? "static" : (d.animation_mode || ANIMATION_MODE);
+      if (!["split_flap", "slide_left", "slide_right", "static"].includes(ANIMATION_MODE)) ANIMATION_MODE = "split_flap";
+      const sel = document.getElementById("animationModeSelect");
+      if (sel) sel.value = ANIMATION_MODE;
+      window.setAnimationMode(ANIMATION_MODE);
+    }
+    if (d.animation_speed !== undefined) {
+      ANIMATION_SPEED = Math.max(1, Math.min(5, parseInt(d.animation_speed) || 3));
+    }
+    if (d.status_animation_enabled !== undefined) {
+      STATUS_ANIMATION_ENABLED = Boolean(d.status_animation_enabled);
+    }
+    if (d.default_view !== undefined) {
+      VIEW = d.default_view;
+      document.getElementById("btnDep").classList.toggle("active", d.default_view === "departures");
+      document.getElementById("btnArr").classList.toggle("active", d.default_view === "arrivals");
+    }
+    fetchRows();
+  }
+
+  window.applyMatrixConfigSelection = function(id) {
+    const selected = MATRIX_CONFIGS.find(c => c.id === id);
+    if (selected) applyMatrixConfig(selected);
+  };
+
+  window.setMatrixPreset = function(id) {
+    MATRIX_PRESET = id || "classic_split_flap";
+    updateCfgBlock();
+  };
 
   // ── Save runtime config to server ──────────────────────────────────────
   window.saveMatrixConfig = async function() {
@@ -1471,8 +1690,31 @@ if __name__ == "__main__":
           refresh_seconds: REFRESH_S_SRV,
           page_rotation_seconds: PAGE_ROTATION_S,
           default_view:    VIEW,
+          animation_enabled: ANIMATION_MODE !== "static",
         }),
       });
+      if (CURRENT_CONFIG_ID) {
+        const v2 = await fetch(`/api/matrix/v2/configs/${CURRENT_CONFIG_ID}`, {
+          method: "PATCH",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({
+            name: (MATRIX_CONFIGS.find(c => c.id === CURRENT_CONFIG_ID)?.name) || "Matrix Config",
+            preset: MATRIX_PRESET,
+            panel_w: PANEL_W,
+            panel_h: PANEL_H,
+            brightness: BRIGHTNESS,
+            max_rows: MAX_ROWS,
+            refresh_seconds: REFRESH_S_SRV,
+            page_rotation_seconds: PAGE_ROTATION_S,
+            default_view: VIEW,
+            animation_enabled: ANIMATION_MODE !== "static",
+            animation_mode: ANIMATION_MODE,
+            animation_speed: ANIMATION_SPEED,
+            status_animation_enabled: STATUS_ANIMATION_ENABLED,
+          }),
+        });
+        if (!v2.ok) throw new Error(`HTTP ${v2.status}`);
+      }
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       msg.textContent = "Saved — board picks up within 5 min";
       msg.style.color = "#00e84a";

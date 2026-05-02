@@ -8,9 +8,11 @@ from __future__ import annotations
 import math
 import json
 import sys
+import traceback as traceback_module
 import webbrowser
 from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import datetime, timezone
+from html import escape as html_escape
 from importlib.metadata import PackageNotFoundError, version
 from typing import Any, Callable
 from urllib.parse import urlparse
@@ -44,6 +46,7 @@ from localflight.native.qt_compat import import_qt
 from localflight.storage.profiles import list_profiles
 
 _API_EXECUTOR = ThreadPoolExecutor(max_workers=4, thread_name_prefix="lf-native-api")
+COFFEE_URL = "https://buymeacoffee.com/localflight"
 
 
 def _native_ws_url(base_url: str) -> str:
@@ -51,6 +54,43 @@ def _native_ws_url(base_url: str) -> str:
     scheme = "wss" if parsed.scheme == "https" else "ws"
     host = parsed.netloc or parsed.path
     return f"{scheme}://{host}/ws"
+
+
+def _css_rgba(hex_color: str, alpha: float) -> str:
+    value = str(hex_color or "").lstrip("#")
+    if len(value) != 6:
+        return f"rgba(74,158,218,{alpha:.2f})"
+    try:
+        r = int(value[0:2], 16)
+        g = int(value[2:4], 16)
+        b = int(value[4:6], 16)
+    except ValueError:
+        return f"rgba(74,158,218,{alpha:.2f})"
+    return f"rgba({r},{g},{b},{alpha:.2f})"
+
+
+def _detail_css(colors: dict[str, str]) -> str:
+    """Theme-aware CSS for QTextEdit/QTextBrowser rich detail panels."""
+    is_light = str(colors.get("bg", "")).lower() == "#f4f7fb"
+    divider = "rgba(0,0,0,.08)" if is_light else "rgba(255,255,255,.045)"
+    card_bg = _css_rgba(colors.get("blue", "#4a9eda"), 0.10 if is_light else 0.08)
+    card_border = _css_rgba(colors.get("blue", "#4a9eda"), 0.28 if is_light else 0.22)
+    return (
+        "<style>"
+        f"body{{font-family:'Segoe UI','Helvetica Neue',sans-serif;color:{colors['text']};background:{colors['panel_2']};}}"
+        f".section{{margin:0 0 16px 0;padding:0 0 12px 0;border-bottom:1px solid {divider};}}"
+        f".label{{font:700 10px 'Consolas','Space Mono',monospace;letter-spacing:.12em;text-transform:uppercase;color:{colors['dim']};margin:0 0 9px 0;}}"
+        f".row{{display:flex;justify-content:space-between;gap:14px;padding:5px 0;border-bottom:1px solid {divider};}}"
+        ".row:last-child{border-bottom:0;}"
+        f".key{{color:{colors['muted']};}}"
+        f".val{{color:{colors['text']};font-weight:700;text-align:right;}}"
+        ".cards{display:grid;grid-template-columns:1fr 1fr;gap:8px;}"
+        f".card{{border:1px solid {card_border};background:{card_bg};border-radius:10px;padding:10px;}}"
+        ".card .key{font:700 10px 'Consolas','Space Mono',monospace;text-transform:uppercase;letter-spacing:.08em;}"
+        ".history{display:flex;justify-content:space-between;gap:12px;padding:6px 0;}"
+        f".good{{color:{colors['green']}}}.warn{{color:{colors['amber']}}}.bad{{color:{colors['red']}}}.muted{{color:{colors['muted']}}}"
+        "</style>"
+    )
 
 
 def main() -> None:
@@ -236,6 +276,88 @@ class _NativeEventBridge:  # pragma: no cover - exercised by Qt runtime
             self.on_event(payload)
 
 
+class _NativeCrashReporter:
+    """Route native UI exceptions through the same local feedback API as users."""
+
+    def __init__(self, base_url: str, *, screen_provider: Callable[[], str] | None = None) -> None:
+        self.base_url = base_url
+        self.screen_provider = screen_provider
+        self._installed = False
+        self._reporting = False
+
+    def install(self) -> None:
+        if self._installed:
+            return
+        self._installed = True
+
+        def _native_excepthook(exc_type: type[BaseException], exc_value: BaseException, exc_tb: Any) -> None:
+            self.report_exception(exc_type, exc_value, exc_tb, sync=True)
+            sys.__excepthook__(exc_type, exc_value, exc_tb)
+
+        sys.excepthook = _native_excepthook
+
+    def report_exception(
+        self,
+        exc_type: type[BaseException],
+        exc_value: BaseException,
+        exc_tb: Any,
+        *,
+        sync: bool = False,
+    ) -> None:
+        if issubclass(exc_type, (KeyboardInterrupt, SystemExit)) or self._reporting:
+            return
+        message = f"{exc_type.__name__}: {exc_value}"[:500]
+        traceback_str = "".join(traceback_module.format_exception(exc_type, exc_value, exc_tb))[-5000:]
+        if sync:
+            self._send(message, traceback_str)
+        else:
+            _API_EXECUTOR.submit(self._send, message, traceback_str)
+
+    def _screen(self) -> str:
+        try:
+            return (self.screen_provider() if self.screen_provider else "native") or "native"
+        except Exception:
+            return "native"
+
+    def _client_context(self, client: LocalApiClient) -> str:
+        parts = [
+            "native/gui",
+            f"screen={self._screen()}",
+            f"app_version={_app_version()}",
+            "route=/api/feedback/crash",
+            "owner=client",
+        ]
+        try:
+            cfg = client.get_json("/api/config")
+            if cfg.get("source"):
+                parts.append(f"source={cfg.get('source')}")
+            airport = cfg.get("airport_iata") or cfg.get("airport_icao")
+            if airport:
+                parts.append(f"airport={airport}")
+        except Exception:
+            pass
+        return "; ".join(parts)
+
+    def _send(self, message: str, traceback_str: str) -> None:
+        self._reporting = True
+        try:
+            client = LocalApiClient(base_url=self.base_url, timeout_s=6.0)
+            client.post_json(
+                "/api/feedback/crash",
+                {
+                    "message": message,
+                    "traceback": traceback_str,
+                    "context": "native/gui",
+                    "client_context": self._client_context(client),
+                },
+            )
+        except Exception:
+            # Reporting must never make a UI crash worse.
+            pass
+        finally:
+            self._reporting = False
+
+
 def launch_native_app(
     *,
     base_url: str,
@@ -253,6 +375,18 @@ def launch_native_app(
     app.processEvents()
 
     windows: dict[str, Any] = {}
+
+    def current_native_screen() -> str:
+        main_window = windows.get("main")
+        if main_window is not None:
+            return str(getattr(main_window, "current_screen_key", "native") or "native")
+        if windows.get("setup") is not None:
+            return "setup"
+        return "native"
+
+    crash_reporter = _NativeCrashReporter(base_url, screen_provider=current_native_screen)
+    crash_reporter.install()
+    windows["crash_reporter"] = crash_reporter
 
     def show_main_window() -> None:
         window = NativeMainWindow(QtCore, QtGui, QtWidgets, base_url=base_url, first_launch=False)
@@ -335,6 +469,7 @@ class NativeMainWindow:  # pragma: no cover - exercised with optional Qt
                 self._nav_buttons: dict[str, Any] = {}
                 self.screens: list[Any] = []
                 self.screen_keys: list[str] = []
+                self.current_screen_key = "display"
 
                 root = QtWidgets.QWidget()
                 shell = QtWidgets.QVBoxLayout(root)
@@ -394,7 +529,7 @@ class NativeMainWindow:  # pragma: no cover - exercised with optional Qt
                 nav.setObjectName("TopNav")
                 layout = QtWidgets.QHBoxLayout(nav)
                 layout.setContentsMargins(14, 7, 14, 7)
-                layout.setSpacing(8)
+                layout.setSpacing(10)
 
                 brand_mark = QtWidgets.QLabel()
                 brand_mark.setObjectName("BrandMark")
@@ -414,31 +549,39 @@ class NativeMainWindow:  # pragma: no cover - exercised with optional Qt
                 self.local_clock.setObjectName("ClockChip")
                 self.live_status = QtWidgets.QLabel("LIVE --")
                 self.live_status.setObjectName("ClockChip")
-                self.nav_group = QtWidgets.QWidget()
-                self.nav_layout = QtWidgets.QHBoxLayout(self.nav_group)
-                self.nav_layout.setContentsMargins(0, 0, 0, 0)
-                self.nav_layout.setSpacing(3)
-                self.nav_scroll = QtWidgets.QScrollArea()
-                self.nav_scroll.setObjectName("NavScroll")
-                self.nav_scroll.setWidgetResizable(False)
-                self.nav_scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
-                self.nav_scroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAsNeeded)
-                self.nav_scroll.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
-                self.nav_scroll.setMinimumHeight(40)
-                self.nav_scroll.setWidget(self.nav_group)
+
+                left_group = QtWidgets.QWidget()
+                left_layout = QtWidgets.QHBoxLayout(left_group)
+                left_layout.setContentsMargins(0, 0, 0, 0)
+                left_layout.setSpacing(8)
+                left_layout.addWidget(brand_mark)
+                left_layout.addWidget(brand)
+                left_layout.addWidget(ver)
+                left_layout.addSpacing(6)
+                left_layout.addWidget(self.utc_clock)
+                left_layout.addWidget(self.local_clock)
+
+                center_group = QtWidgets.QWidget()
+                self.primary_nav_layout = QtWidgets.QHBoxLayout(center_group)
+                self.primary_nav_layout.setContentsMargins(0, 0, 0, 0)
+                self.primary_nav_layout.setSpacing(4)
+
+                right_group = QtWidgets.QWidget()
+                self.utility_nav_layout = QtWidgets.QHBoxLayout(right_group)
+                self.utility_nav_layout.setContentsMargins(0, 0, 0, 0)
+                self.utility_nav_layout.setSpacing(4)
+
                 quit_btn = QtWidgets.QPushButton("Power")
                 quit_btn.setObjectName("Quiet")
                 quit_btn.setToolTip("Shut down Local Flight")
                 quit_btn.clicked.connect(self._quit_app)
 
-                layout.addWidget(brand_mark)
-                layout.addWidget(brand)
-                layout.addWidget(ver)
-                layout.addSpacing(8)
-                layout.addWidget(self.utc_clock)
-                layout.addWidget(self.local_clock)
+                layout.addWidget(left_group)
+                layout.addStretch(1)
+                layout.addWidget(center_group)
+                layout.addStretch(1)
                 layout.addWidget(self.live_status)
-                layout.addWidget(self.nav_scroll, 1)
+                layout.addWidget(right_group)
                 layout.addWidget(quit_btn)
                 return nav
 
@@ -455,13 +598,14 @@ class NativeMainWindow:  # pragma: no cover - exercised with optional Qt
                     button.setProperty("lf_key", key)
                     button.setProperty("lf_glyph", glyph)
                     button.clicked.connect(lambda _checked=False, k=key: self._show_page(k))
-                    self.nav_layout.addWidget(button)
-                    self.nav_group.adjustSize()
+                    target_layout = self.primary_nav_layout if key in {"display", "fids", "radar", "matrix"} else self.utility_nav_layout
+                    target_layout.addWidget(button)
                     self._nav_buttons[key] = button
 
             def _show_page(self, key: str) -> None:
                 if key not in self.screen_keys:
                     return
+                self.current_screen_key = key
                 index = self.screen_keys.index(key)
                 self.stack.setCurrentIndex(index)
                 for page_key, button in self._nav_buttons.items():
@@ -566,11 +710,12 @@ class NativeMainWindow:  # pragma: no cover - exercised with optional Qt
                 self.utc_clock.setVisible(not tiny)
                 self.local_clock.setVisible(not tiny)
                 self.live_status.setVisible(self.width() >= 640)
-                for button in self._nav_buttons.values():
+                for key, button in self._nav_buttons.items():
                     glyph = str(button.property("lf_glyph") or "")
                     text = str(button.property("lf_label") or "")
-                    button.setText(glyph if compact and glyph else f"{glyph} {text}".strip())
-                    button.setMinimumWidth(42 if compact else 72)
+                    core = key in {"display", "fids", "radar", "matrix"}
+                    button.setText(glyph if (compact and glyph and not core) else f"{glyph} {text}".strip())
+                    button.setMinimumWidth(42 if compact and not core else 72)
 
         return _Window()
 
@@ -1233,12 +1378,18 @@ class FidsScreen(_AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
 
     def refresh(self) -> None:
         view = self.view
+        had_rows = bool(self.rows)
         started = self._run_async(
             lambda: self._fetch_board(view),
             self._apply_board,
-            self._board_error,
+            lambda exc: self._board_error(exc, had_rows=had_rows),
         )
         if started:
+            if not had_rows:
+                self._set_info_banner(
+                    "Fetching schedule data. If Community Relay is warming this airport, it can take a moment.",
+                    True,
+                )
             self.status.setText(f"Loading {view} without blocking the UI...")
 
     def _fetch_board(self, view: str) -> dict[str, Any]:
@@ -1272,7 +1423,13 @@ class FidsScreen(_AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
         self.row_limit = max(5, int(cfg.get("web_row_limit") or 20))
         self.rotation_seconds = max(3, int(cfg.get("web_rotation_seconds") or 8))
         self.page_index = 0
-        self.info_banner.setVisible(not self.rows)
+        if self.rows:
+            self._set_info_banner("", False)
+        else:
+            self._set_info_banner(
+                "No rows yet. The relay may still be warming this airport, or the current window is quiet.",
+                True,
+            )
         self.last_updated.setText("LT " + datetime.now().astimezone().strftime("%H:%M:%S"))
         page_count = max(1, math.ceil(len(self.rows) / max(1, self.row_limit)))
         self.status.setText(f"{len(self.rows)} {view} loaded | source {source} | page 1/{page_count} | local API /api/fids")
@@ -1282,9 +1439,22 @@ class FidsScreen(_AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
             self.page_timer.stop()
         self._render_rows()
 
-    def _board_error(self, exc: Exception) -> None:
+    def _board_error(self, exc: Exception, *, had_rows: bool = False) -> None:
         self.error_banner.show()
+        self._set_banner_text(self.error_banner, f"Data fetch error: {exc}")
+        if not had_rows:
+            self._set_info_banner("Waiting for schedule data. Retrying shortly.", True)
         self.status.setText(f"Board offline: {exc}")
+
+    def _set_info_banner(self, text: str, visible: bool) -> None:
+        if text:
+            self._set_banner_text(self.info_banner, text)
+        self.info_banner.setVisible(visible)
+
+    def _set_banner_text(self, banner: Any, text: str) -> None:
+        label_widget = banner.findChild(self.QtWidgets.QLabel)
+        if label_widget is not None:
+            label_widget.setText(text)
 
     def _render_rows(self) -> None:
         self.table.clearContents()
@@ -1394,16 +1564,58 @@ class FidsScreen(_AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
         airline = detail.get("airline_display") or detail.get("airline_name") or ""
         self.detail_route.setText(f"{origin} -> {dest}" + (f" | {airline}" if airline else ""))
         mode = str(detail.get("detail_mode") or "real").strip().lower()
-        lines = self._virtual_detail_lines(detail) if mode == "virtual" else self._real_detail_lines(detail)
-        if history:
-            lines.append("")
-            lines.append("Recent history")
-            for item in history[:8]:
-                lines.append(
-                    f"- {item.get('date', '')}: {item.get('status', '')} "
-                    f"{format_value(item.get('delay_minutes'))} min"
-                )
-        self.detail_body.setPlainText("\n".join(lines))
+        self.detail_body.setHtml(self._detail_html(detail, history, virtual=(mode == "virtual")))
+
+    def _detail_html(self, detail: dict[str, Any], history: list[dict[str, Any]], *, virtual: bool) -> str:
+        title = "Virtual flight" if virtual else "Schedule"
+        sections = self._virtual_detail_sections(detail) if virtual else self._real_detail_sections(detail)
+        parts = [
+            _detail_css(self.colors),
+            f"<div class='section'><div class='label'>{self._h(title)}</div>",
+        ]
+        headline = detail.get("flight_display") or detail.get("flight_number") or detail.get("callsign") or ""
+        status = detail.get("status_display") or detail.get("status") or ""
+        if headline or status:
+            parts.append(f"<div class='row'><span class='key'>Flight</span><span class='val'>{self._h(headline)}</span></div>")
+            parts.append(f"<div class='row'><span class='key'>Status</span><span class='val'>{self._h(status)}</span></div>")
+        parts.append("</div>")
+        for heading, fields in sections:
+            rows = [(name, format_value(value)) for name, value in fields if format_value(value)]
+            if not rows:
+                continue
+            if heading.lower().startswith("source"):
+                parts.append("<div class='section'><div class='label'>Data Sources</div><div class='cards'>")
+                for name, value in rows:
+                    parts.append(f"<div class='card'><div class='key'>{self._h(name)}</div><div class='val'>{self._h(value)}</div></div>")
+                parts.append("</div></div>")
+                continue
+            parts.append(f"<div class='section'><div class='label'>{self._h(heading)}</div>")
+            for name, value in rows:
+                parts.append(f"<div class='row'><span class='key'>{self._h(name)}</span><span class='val'>{self._h(value)}</span></div>")
+            parts.append("</div>")
+        parts.append(self._history_html(history))
+        return "".join(parts)
+
+    def _history_html(self, history: list[dict[str, Any]]) -> str:
+        if not history:
+            return "<div class='section'><div class='label'>Recent History (7 days)</div><div class='muted'>No history yet.</div></div>"
+        parts = ["<div class='section'><div class='label'>Recent History (7 days)</div>"]
+        for item in history[:8]:
+            delay = item.get("delay_minutes")
+            try:
+                delay_i = int(delay)
+            except (TypeError, ValueError):
+                delay_i = 0
+            cls = "bad" if delay_i >= 15 else "warn" if delay_i >= 5 else "good" if delay_i <= 0 else "muted"
+            delay_text = "On time" if delay_i == 0 else f"{delay_i:+d} min"
+            date = item.get("date") or str(item.get("snapshot_ts") or "")[:10] or "-"
+            status = item.get("status") or "-"
+            parts.append(f"<div class='history'><span>{self._h(date)} · {self._h(status)}</span><span class='{cls}'>{self._h(delay_text)}</span></div>")
+        parts.append("</div>")
+        return "".join(parts)
+
+    def _h(self, value: Any) -> str:
+        return html_escape(format_value(value) or "-")
 
     def _real_detail_lines(self, detail: dict[str, Any]) -> list[str]:
         return self._section_lines(
@@ -1443,6 +1655,42 @@ class FidsScreen(_AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
             ]),
         )
 
+    def _real_detail_sections(self, detail: dict[str, Any]) -> list[tuple[str, list[tuple[str, Any]]]]:
+        return [
+            ("Times (UTC)", [
+                ("Scheduled", detail.get("sched_time")),
+                ("Estimated", detail.get("est_time")),
+                ("Actual", detail.get("actual_time")),
+                ("Delay", self._minutes(detail.get("delay_minutes"))),
+            ]),
+            ("Operations & Aircraft", [
+                ("Origin", self._airport_line(detail, "origin")),
+                ("Destination", self._airport_line(detail, "dest")),
+                ("Terminal", detail.get("terminal")),
+                ("Gate", detail.get("gate")),
+                ("Aircraft", detail.get("aircraft_type")),
+                ("Registration", detail.get("aircraft_registration")),
+                ("Callsign", detail.get("callsign")),
+                ("Airline", detail.get("airline_display") or detail.get("airline_name") or detail.get("airline_iata")),
+                ("Codeshares", ", ".join(detail.get("codeshares") or [])),
+            ]),
+            ("Source Confidence", [
+                ("Schedule", value_at(detail, "data_sources.schedule") or detail.get("source")),
+                ("Live Track", detail.get("enriched_by") or value_at(detail, "data_sources.enrichment") or "schedule only"),
+                ("Confidence", value_at(detail, "data_sources.confidence")),
+                ("Snapshot age", self._seconds(value_at(detail, "data_sources.snapshot_age_seconds"))),
+            ]),
+            ("Live Track", [
+                ("Latitude", value_at(detail, "position.lat")),
+                ("Longitude", value_at(detail, "position.lon")),
+                ("Altitude", self._altitude(value_at(detail, "position.altitude_m"))),
+                ("Ground speed", self._speed(value_at(detail, "position.speed_ms"))),
+                ("Heading", self._heading(value_at(detail, "position.heading"))),
+                ("On ground", value_at(detail, "position.on_ground")),
+                ("Squawk", value_at(detail, "position.squawk")),
+            ]),
+        ]
+
     def _virtual_detail_lines(self, detail: dict[str, Any]) -> list[str]:
         return self._section_lines(
             ("Virtual flight", [
@@ -1480,6 +1728,44 @@ class FidsScreen(_AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
                 ("Position age", self._seconds(value_at(detail, "data_sources.position_age_seconds"))),
             ]),
         )
+
+    def _virtual_detail_sections(self, detail: dict[str, Any]) -> list[tuple[str, list[tuple[str, Any]]]]:
+        return [
+            ("Virtual Flight", [
+                ("Callsign", detail.get("callsign")),
+                ("Flight", detail.get("flight_display") or detail.get("flight_number")),
+                ("Aircraft", detail.get("aircraft_type")),
+                ("Status", detail.get("status") or detail.get("status_display")),
+                ("Source", value_at(detail, "data_sources.schedule") or detail.get("source")),
+            ]),
+            ("Flight plan", [
+                ("Origin", self._airport_line(detail, "origin")),
+                ("Destination", self._airport_line(detail, "dest")),
+                ("Rules", value_at(detail, "flight_plan.flight_rules")),
+                ("Route", value_at(detail, "flight_plan.route")),
+                ("Cruise altitude", value_at(detail, "flight_plan.cruise_altitude")),
+                ("Cruise TAS", value_at(detail, "flight_plan.cruise_tas")),
+                ("Planned departure", value_at(detail, "flight_plan.planned_departure")),
+                ("Planned arrival", value_at(detail, "flight_plan.planned_arrival")),
+                ("Enroute", self._minutes(value_at(detail, "flight_plan.enroute_minutes"))),
+                ("Alternate", value_at(detail, "flight_plan.alternate_icao")),
+                ("Squawk", value_at(detail, "flight_plan.assigned_transponder") or value_at(detail, "position.squawk")),
+            ]),
+            ("Aircraft Track", [
+                ("Latitude", value_at(detail, "position.lat")),
+                ("Longitude", value_at(detail, "position.lon")),
+                ("Altitude", self._altitude(value_at(detail, "position.altitude_m"))),
+                ("Ground speed", self._speed(value_at(detail, "position.speed_ms"))),
+                ("Heading", self._heading(value_at(detail, "position.heading"))),
+                ("On ground", value_at(detail, "position.on_ground")),
+                ("Last contact", value_at(detail, "position.last_contact")),
+            ]),
+            ("VATSIM Data", [
+                ("Snapshot generated", value_at(detail, "data_sources.snapshot_generated_at")),
+                ("Snapshot age", self._seconds(value_at(detail, "data_sources.snapshot_age_seconds"))),
+                ("Position age", self._seconds(value_at(detail, "data_sources.position_age_seconds"))),
+            ]),
+        ]
 
     def _section_lines(self, *sections: tuple[str, list[tuple[str, Any]]]) -> list[str]:
         lines: list[str] = []
@@ -1693,6 +1979,15 @@ class RadarCanvas:  # pragma: no cover - optional Qt runtime
                         pass
                 if blip.get("distance_nm") is not None:
                     details.append(f"{format_value(blip.get('distance_nm'))}nm")
+                if str(blip.get("source") or "").lower() == "vatsim":
+                    if blip.get("flight_rules"):
+                        details.append(f"Rules {blip.get('flight_rules')}")
+                    if blip.get("planned_altitude"):
+                        details.append(f"Planned alt {blip.get('planned_altitude')}")
+                    if blip.get("cruise_tas"):
+                        details.append(f"TAS {blip.get('cruise_tas')}")
+                    if blip.get("route"):
+                        details.append(str(blip.get("route"))[:80])
                 source = blip.get("source")
                 if source:
                     details.append(str(source))
@@ -1836,7 +2131,7 @@ class RadarScreen(_AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
         layout.addWidget(self.weather)
         layout.addWidget(self.canvas, 1)
         layout.addWidget(self.status)
-        self.radius_nm = 5
+        self.radius_nm = 20
         self._sync_range_buttons()
 
     def __getattr__(self, name: str) -> Any:
@@ -1897,13 +2192,16 @@ class RadarScreen(_AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
         if isinstance(result.get("weather"), dict):
             self.weather.findChild(self.QtWidgets.QLabel).setText(_weather_line(result["weather"], raw=True))
         self.canvas.set_payload(payload)
-        hidden_airborne = int(payload.get("hidden_airborne_count") or 0)
-        hidden_ground = int(payload.get("hidden_ground_count") or 0)
+        hidden_airborne = int(payload.get("airborne_filtered") or payload.get("hidden_airborne_count") or 0)
+        hidden_ground = int(payload.get("ground_filtered") or payload.get("hidden_ground_count") or 0)
         hidden = f" | {hidden_airborne} airborne hidden" if hidden_airborne else (f" | {hidden_ground} ground hidden" if hidden_ground else "")
+        raw_provider_count = int(payload.get("raw_provider_count") or payload.get("count") or 0)
+        provider_radius = float(payload.get("provider_radius_nm") or payload.get("radius_nm") or self.radius_nm)
+        crop_note = f" | cropped from {raw_provider_count} @ {provider_radius:g}nm" if provider_radius > float(payload.get("radius_nm") or self.radius_nm) else ""
         surface_note = f" | surface unavailable: {result['surface_error']}" if result.get("surface_error") else ""
         self.status.setText(
             f"{payload.get('count', 0)} visible | mode {payload.get('radar_mode', 'airborne')} | "
-            f"source {payload.get('source', 'unknown')}{hidden}{surface_note}"
+            f"source {payload.get('source', 'unknown')}{hidden}{crop_note}{surface_note}"
         )
 
 
@@ -1994,6 +2292,8 @@ class DisplayScreen:  # pragma: no cover - optional Qt runtime
 class MatrixCanvas:  # pragma: no cover - optional Qt runtime
     def __new__(cls, QtCore: Any, QtGui: Any, QtWidgets: Any):
         class _Canvas(QtWidgets.QWidget):
+            FLAP_CHARS = " ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.:/-+()>"
+
             def __init__(self) -> None:
                 super().__init__()
                 self.setMinimumHeight(260)
@@ -2001,9 +2301,21 @@ class MatrixCanvas:  # pragma: no cover - optional Qt runtime
                 self.panel_w = 256
                 self.panel_h = 64
                 self.brightness = 0.8
-                self.zoom = 3
+                self.zoom = 4
                 self.animate = True
+                self.animation_mode = "split_flap"
+                self.animation_speed = 3
+                self.status_animation_enabled = True
+                self.preset = "classic_split_flap"
+                self.max_rows = 4
                 self.phase = 0
+                self.target_lines: list[str] = []
+                self.display_lines: list[str] = []
+                self.slide_source_lines: list[str] = []
+                self.slide_frame = 0
+                self.slide_frames = 1
+                self.row_statuses: list[str] = []
+                self.row_details: list[str] = []
                 self.colors = colors_for()
                 self.timer = QtCore.QTimer(self)
                 self.timer.timeout.connect(self._tick)
@@ -2023,20 +2335,146 @@ class MatrixCanvas:  # pragma: no cover - optional Qt runtime
 
             def set_rows(self, rows: list[dict[str, Any]]) -> None:
                 self.rows = rows
+                self._retarget_lines()
                 self.update()
 
-            def set_options(self, *, panel_w: int, panel_h: int, brightness: float, zoom: int, animate: bool) -> None:
+            def set_options(
+                self,
+                *,
+                panel_w: int,
+                panel_h: int,
+                brightness: float,
+                zoom: int,
+                animate: bool,
+                animation_mode: str = "split_flap",
+                animation_speed: int = 3,
+                status_animation_enabled: bool = True,
+                preset: str = "classic_split_flap",
+                max_rows: int = 4,
+            ) -> None:
+                old_mode = self.animation_mode
                 self.panel_w = panel_w
                 self.panel_h = panel_h
                 self.brightness = brightness
                 self.zoom = zoom
-                self.animate = animate
+                self.animation_mode = animation_mode if animation_mode in {"split_flap", "slide_left", "slide_right", "static"} else "split_flap"
+                self.animation_speed = max(1, min(5, int(animation_speed or 3)))
+                self.status_animation_enabled = bool(status_animation_enabled)
+                self.preset = preset or "classic_split_flap"
+                self.animate = animate and self.animation_mode != "static"
+                self.max_rows = max(1, min(8, int(max_rows or 4)))
+                self.setMinimumHeight(max(260, int(self.panel_h * max(2, self.zoom) + 96)))
+                if old_mode != self.animation_mode:
+                    self.display_lines = []
+                    self.slide_source_lines = []
+                self.timer.setInterval(max(35, 220 - self.animation_speed * 32))
+                self._retarget_lines(force=old_mode != self.animation_mode)
                 self.update()
 
             def _tick(self) -> None:
-                if self.animate:
-                    self.phase = (self.phase + 1) % 12
+                self.phase = (self.phase + 1) % 12
+                if not self.animate:
                     self.update()
+                    return
+                changed = False
+                if self.animation_mode in {"slide_left", "slide_right"}:
+                    if self.slide_frame < self.slide_frames:
+                        self.slide_frame += 1
+                        self.display_lines = [
+                            self._slide_line(old, target)
+                            for old, target in zip(self.slide_source_lines, self.target_lines)
+                        ]
+                        changed = True
+                    else:
+                        self.display_lines = list(self.target_lines)
+                else:
+                    next_lines: list[str] = []
+                    for current, target in zip(self.display_lines, self.target_lines):
+                        next_line, line_changed = self._advance_line(current, target)
+                        next_lines.append(next_line)
+                        changed = changed or line_changed
+                    if changed:
+                        self.display_lines = next_lines
+                self.update()
+
+            def _retarget_lines(self, *, force: bool = False) -> None:
+                source_rows = self.rows[: self.max_rows]
+                if not source_rows:
+                    source_rows = [
+                        {
+                            "display_time": "--:--",
+                            "flight_display": "LOCAL",
+                            "route_display": "WAITING",
+                            "status_display": "READY",
+                            "gate": "-",
+                        }
+                    ]
+                self.target_lines = [self._row_line(row) for row in source_rows]
+                self.row_statuses = [str(row.get("status_kind") or row.get("status_class") or row.get("status_display") or row.get("status") or "") for row in source_rows]
+                self.row_details = [self._detail_line(row) for row in source_rows]
+                if len(self.display_lines) != len(self.target_lines):
+                    self.display_lines = [" " * len(line) for line in self.target_lines]
+                    force = True
+                if self.animation_mode in {"slide_left", "slide_right"} and (force or self.display_lines != self.target_lines):
+                    self.slide_source_lines = [line.ljust(len(target))[:len(target)] for line, target in zip(self.display_lines, self.target_lines)]
+                    self.slide_frame = 0
+                    self.slide_frames = max(4, 16 - self.animation_speed * 2)
+                if not self.animate:
+                    self.display_lines = list(self.target_lines)
+
+            def _row_line(self, row: dict[str, Any]) -> str:
+                time_text = (format_value(row.get("display_time")) or format_value(row.get("time")) or "--:--")[:5].ljust(5)
+                flight = (format_value(row.get("flight_display")) or format_value(row.get("flight")) or format_value(row.get("flight_number")) or format_value(row.get("callsign")) or "-")[:8].ljust(8)
+                route = (format_value(row.get("route_display")) or format_value(row.get("route")) or format_value(row.get("destination_display")) or "-")[:12].ljust(12)
+                status = (format_value(row.get("status_display")) or format_value(row.get("status")) or "-")[:10].ljust(10)
+                gate = (format_value(row.get("gate")) or "-")[:4].ljust(4)
+                return f"{time_text} {flight} {route} {status} {gate}".upper()
+
+            def _detail_line(self, row: dict[str, Any]) -> str:
+                operator = format_value(row.get("operating_airline")) or format_value(row.get("operator")) or format_value(row.get("airline_display"))
+                sold_as = format_value(row.get("sold_as")) or format_value(row.get("codeshare")) or format_value(row.get("codeshare_display"))
+                aircraft = format_value(row.get("aircraft")) or format_value(row.get("aircraft_type"))
+                parts = []
+                if operator:
+                    parts.append(f"OP {operator}")
+                if sold_as:
+                    parts.append(f"SOLD {sold_as.replace('Also ', '')}")
+                if aircraft:
+                    parts.append(aircraft)
+                return " | ".join(parts).upper()
+
+            def _slide_line(self, old: str, target: str) -> str:
+                width = max(len(target), len(old), 1)
+                old = old.ljust(width)[:width]
+                target = target.ljust(width)[:width]
+                gap = "   "
+                progress = self.slide_frame / max(1, self.slide_frames)
+                span = width + len(gap)
+                offset = int(progress * span)
+                if self.animation_mode == "slide_right":
+                    canvas = target + gap + old
+                    return canvas[span - offset:span - offset + width].ljust(width)
+                canvas = old + gap + target
+                return canvas[offset:offset + width].ljust(width)
+
+            def _advance_line(self, current: str, target: str) -> tuple[str, bool]:
+                target = target.ljust(len(current))
+                chars = list(current.ljust(len(target)))
+                changed = False
+                for idx, target_char in enumerate(target):
+                    current_char = chars[idx]
+                    if current_char == target_char:
+                        continue
+                    changed = True
+                    cur_i = self.FLAP_CHARS.find(current_char)
+                    target_i = self.FLAP_CHARS.find(target_char)
+                    if cur_i < 0 or target_i < 0:
+                        chars[idx] = target_char
+                        continue
+                    chars[idx] = self.FLAP_CHARS[(cur_i + 1) % len(self.FLAP_CHARS)]
+                    if chars[idx] == target_char:
+                        chars[idx] = target_char
+                return "".join(chars), changed
 
             def paintEvent(self, _event: Any) -> None:
                 painter = QtGui.QPainter(self)
@@ -2062,19 +2500,61 @@ class MatrixCanvas:  # pragma: no cover - optional Qt runtime
                     painter.drawLine(int(left + x * scale), int(top), int(left + x * scale), int(top + board_h))
                 for y in range(0, self.panel_h + 1, 16):
                     painter.drawLine(int(left), int(top + y * scale), int(left + board_w), int(top + y * scale))
-                font = QtGui.QFont("Consolas", max(7, int(7 * scale)))
+                font = QtGui.QFont("Consolas", max(6, int(6.5 * scale)))
                 font.setBold(True)
                 painter.setFont(font)
-                row_h = board_h / max(1, min(4, len(self.rows) or 4))
+                header_h = max(10.0 * scale, 18.0)
+                row_h = (board_h - header_h) / max(1, self.max_rows)
                 text_color = QtGui.QColor(self.colors["cyan"])
                 text_color.setAlpha(max(90, int(255 * self.brightness)))
+                dim_color = QtGui.QColor(self.colors["dim"])
+                dim_color.setAlpha(max(80, int(180 * self.brightness)))
+                painter.setPen(dim_color)
+                header = f"{self.preset.replace('_', ' ').upper()}  {self.panel_w}x{self.panel_h}  {self.animation_mode.replace('_', ' ').upper()}"
+                painter.drawText(int(left + 10), int(top + header_h * 0.72), header[:52])
                 painter.setPen(text_color)
-                visible = self.rows[:4] or [{"display_time": "--:--", "flight_display": "LOCAL FLIGHT", "route_display": "Waiting for schedule", "status_display": "READY"}]
-                for idx, row in enumerate(visible):
-                    y = top + idx * row_h + row_h * 0.62
-                    shift = self.phase if self.animate and idx == 0 else 0
-                    text = f"{row.get('display_time') or '--:--'}  {row.get('flight_display') or '-'}  {row.get('route_display') or '-'}  {row.get('status_display') or '-'}"
-                    painter.drawText(int(left + 10 - shift), int(y), text[:58])
+                visible = self.display_lines or self.target_lines
+                for idx, text in enumerate(visible[: self.max_rows]):
+                    y = top + header_h + idx * row_h + row_h * 0.64
+                    status = self.row_statuses[idx] if idx < len(self.row_statuses) else ""
+                    status_color = self._status_color(QtGui, status)
+                    cancelled = "cancel" in status.lower()
+                    if cancelled:
+                        fill = QtGui.QColor(self.colors["red"])
+                        fill.setAlpha((90 if self.phase % 2 else 150) if self.status_animation_enabled else 120)
+                        painter.fillRect(QtCore.QRectF(left + 4, top + header_h + idx * row_h + 1, board_w - 8, max(8, row_h - 2)), fill)
+                    painter.setPen(text_color)
+                    painter.drawText(int(left + 10), int(y), text[:28])
+                    painter.setPen(status_color)
+                    painter.drawText(int(left + min(board_w - 120, 160 * scale)), int(y), text[28:40])
+                    painter.setPen(dim_color)
+                    painter.drawText(int(left + board_w - 46 * scale), int(y), text[41:45])
+                    if idx < len(self.row_details) and self.row_details[idx] and row_h > 22:
+                        detail_font = QtGui.QFont("Consolas", max(5, int(4.5 * scale)))
+                        painter.setFont(detail_font)
+                        painter.setPen(dim_color)
+                        painter.drawText(int(left + 10), int(y + min(row_h * 0.32, 14)), self.row_details[idx][:42])
+                        painter.setFont(font)
+
+            def _status_color(self, QtGui: Any, status: str) -> Any:
+                lowered = status.lower()
+                if "delay" in lowered:
+                    return QtGui.QColor(self.colors["amber"])
+                if "cancel" in lowered:
+                    if self.status_animation_enabled:
+                        return QtGui.QColor(self.colors["text"] if self.phase % 2 else self.colors["red"])
+                    return QtGui.QColor(self.colors["red"])
+                if "boarding" in lowered or "gate" in lowered or "ground" in lowered:
+                    if not self.status_animation_enabled:
+                        return QtGui.QColor(self.colors["amber"])
+                    return QtGui.QColor(self.colors["amber"] if self.phase % 3 else self.colors["green"])
+                if "depart" in lowered or "arriv" in lowered or "approach" in lowered:
+                    if not self.status_animation_enabled:
+                        return QtGui.QColor(self.colors["green"])
+                    return QtGui.QColor(self.colors["green"] if self.phase % 3 else self.colors["text"])
+                if "land" in lowered:
+                    return QtGui.QColor(self.colors["dim"])
+                return QtGui.QColor(self.colors["green"])
 
         return _Canvas()
 
@@ -2084,91 +2564,224 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
         self.QtWidgets = QtWidgets
         self.client = client
         QtCore, QtGui, QtWidgets2 = import_qt()
+        self._last_script = ""
+        self._v2_available = False
+        self.presets: list[dict[str, Any]] = []
+        self.configs: list[dict[str, Any]] = []
+        self.devices: list[dict[str, Any]] = []
+        self.default_config_id = "default"
         self.widget, layout = scroll_page(QtWidgets)
+
         header = QtWidgets.QHBoxLayout()
-        header.addWidget(label(QtWidgets, "Matrix Preview", "Title"))
+        header.addWidget(label(QtWidgets, "Matrix V2", "Title"))
         header.addStretch(1)
-        refresh = QtWidgets.QPushButton("Refresh preview")
-        save = QtWidgets.QPushButton("Save matrix config")
-        script = QtWidgets.QPushButton("Generate main.py")
-        refresh.clicked.connect(self.refresh)
-        save.clicked.connect(self.save_config)
-        script.clicked.connect(self.generate_script)
-        header.addWidget(refresh)
-        header.addWidget(save)
-        header.addWidget(script)
-        self.status = label(QtWidgets, "LED canvas preview, runtime config, and MicroPython export.", "Muted", wrap=True)
-        controls, form = panel(QtWidgets, "Matrix Controls")
-        self.panel_preset = QtWidgets.QComboBox()
-        for text, w, h in (("256 x 64 Interstate 75 W", 256, 64), ("128 x 64", 128, 64), ("512 x 64", 512, 64)):
-            self.panel_preset.addItem(text, (w, h))
-        self.zoom = QtWidgets.QSlider(QtCore.Qt.Horizontal)
-        self.zoom.setRange(1, 8)
-        self.zoom.setValue(3)
-        self.brightness = QtWidgets.QSlider(QtCore.Qt.Horizontal)
-        self.brightness.setRange(5, 100)
-        self.brightness.setValue(80)
-        self.view = QtWidgets.QComboBox()
-        self.view.addItems(["departures", "arrivals"])
-        self.refresh_seconds = QtWidgets.QSpinBox()
-        self.refresh_seconds.setRange(10, 3600)
-        self.refresh_seconds.setSuffix("s")
-        self.rotation_seconds = QtWidgets.QSpinBox()
-        self.rotation_seconds.setRange(3, 120)
-        self.rotation_seconds.setSuffix("s")
-        self.max_rows = QtWidgets.QSpinBox()
-        self.max_rows.setRange(1, 8)
-        self.animate = QtWidgets.QCheckBox("Split-flap animation")
-        self.animate.setChecked(True)
-        self.wifi_ssid = QtWidgets.QLineEdit()
-        self.wifi_ssid.setPlaceholderText("WiFi SSID")
-        self.wifi_password = QtWidgets.QLineEdit()
-        self.wifi_password.setPlaceholderText("WiFi password")
-        self.wifi_password.setEchoMode(QtWidgets.QLineEdit.Password)
-        self.api_host = QtWidgets.QLineEdit("localflight.local")
-        self.api_port = QtWidgets.QSpinBox()
-        self.api_port.setRange(1, 65535)
-        self.api_port.setValue(8000)
-        form_layout = QtWidgets.QFormLayout()
-        form_layout.addRow("Panel preset", self.panel_preset)
-        form_layout.addRow("Zoom", self.zoom)
-        form_layout.addRow("Brightness", self.brightness)
-        form_layout.addRow("Default view", self.view)
-        form_layout.addRow("Max rows", self.max_rows)
-        form_layout.addRow("Refresh", self.refresh_seconds)
-        form_layout.addRow("Page rotation", self.rotation_seconds)
-        form_layout.addRow("Animation", self.animate)
-        form_layout.addRow("WiFi SSID", self.wifi_ssid)
-        form_layout.addRow("WiFi password", self.wifi_password)
-        form_layout.addRow("Server host", self.api_host)
-        form_layout.addRow("Server port", self.api_port)
-        form.addLayout(form_layout)
-        self.panel_preset.currentIndexChanged.connect(self._sync_canvas_options)
-        self.zoom.valueChanged.connect(self._sync_canvas_options)
-        self.brightness.valueChanged.connect(self._sync_canvas_options)
-        self.animate.stateChanged.connect(self._sync_canvas_options)
-        self.view.currentTextChanged.connect(lambda _text: self.refresh())
-        self.canvas = MatrixCanvas(QtCore, QtGui, QtWidgets2)
-        self.script_preview = QtWidgets.QPlainTextEdit()
-        self.script_preview.setReadOnly(True)
-        self.script_preview.setPlaceholderText("Generated MicroPython main.py appears here.")
-        self.script_preview.setMaximumHeight(180)
+        for text, slot, quiet in (
+            ("Refresh", self.refresh, False),
+            ("Save config", self.save_config, False),
+            ("Generate main.py", self.generate_script, False),
+            ("Save main.py...", self.save_script_file, False),
+            ("Demo", self.trigger_demo, True),
+        ):
+            button = QtWidgets.QPushButton(text)
+            if quiet:
+                button.setObjectName("Quiet")
+            button.clicked.connect(slot)
+            header.addWidget(button)
+        self.status = label(QtWidgets, "Preset configs, device assignment, live preview, and i75W export.", "Muted", wrap=True)
+        self.board_status = label(QtWidgets, "I75W status: not checked yet.", "Muted", wrap=True)
+        self.tabs = QtWidgets.QTabWidget()
         layout.addLayout(header)
         layout.addWidget(self.status)
-        layout.addWidget(controls)
-        layout.addWidget(self.canvas, 1)
-        layout.addWidget(section_label(QtWidgets, "Generated Script Preview"))
-        layout.addWidget(self.script_preview)
+        layout.addWidget(self.board_status)
+        layout.addWidget(self.tabs, 1)
+
+        self._build_shared_controls(QtCore)
+        self._build_preview_tab(QtCore, QtGui, QtWidgets2)
+        self._build_configs_tab()
+        self._build_devices_tab()
+        self._build_flash_tab()
+        self._connect_shared_controls()
         self._sync_canvas_options()
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self.widget, name)
+
+    def _build_shared_controls(self, QtCore: Any) -> None:
+        self.config_select = self.QtWidgets.QComboBox()
+        self.preset_select = self.QtWidgets.QComboBox()
+        self.panel_preset = self.QtWidgets.QComboBox()
+        for text, w, h in (("256 x 64 Interstate 75 W", 256, 64), ("128 x 64", 128, 64), ("512 x 64", 512, 64)):
+            self.panel_preset.addItem(text, (w, h))
+        self.zoom = self.QtWidgets.QSlider(QtCore.Qt.Horizontal)
+        self.zoom.setRange(2, 12)
+        self.zoom.setValue(4)
+        self.zoom_value = label(self.QtWidgets, "4px", "Muted")
+        self.brightness = self.QtWidgets.QSlider(QtCore.Qt.Horizontal)
+        self.brightness.setRange(5, 100)
+        self.brightness.setValue(80)
+        self.brightness_value = label(self.QtWidgets, "80%", "Muted")
+        self.view = self.QtWidgets.QComboBox()
+        self.view.addItems(["departures", "arrivals"])
+        self.refresh_seconds = self.QtWidgets.QSpinBox()
+        self.refresh_seconds.setRange(10, 3600)
+        self.refresh_seconds.setSuffix("s")
+        self.rotation_seconds = self.QtWidgets.QSpinBox()
+        self.rotation_seconds.setRange(3, 120)
+        self.rotation_seconds.setSuffix("s")
+        self.max_rows = self.QtWidgets.QSpinBox()
+        self.max_rows.setRange(1, 8)
+        self.animation_speed = self.QtWidgets.QSpinBox()
+        self.animation_speed.setRange(1, 5)
+        self.palette = self.QtWidgets.QComboBox()
+        self.palette.addItems(["standard", "amber", "green", "white", "technical", "cyan", "neon", "crt"])
+        self.animation_mode = self.QtWidgets.QComboBox()
+        self.animation_mode.addItem("Split-flap animation", "split_flap")
+        self.animation_mode.addItem("Slide letters left", "slide_left")
+        self.animation_mode.addItem("Slide letters right", "slide_right")
+        self.animation_mode.addItem("Static rows", "static")
+        self.status_animation = self.QtWidgets.QCheckBox("Pulse active statuses")
+        self.status_animation.setChecked(True)
+
+    def _build_preview_tab(self, QtCore: Any, QtGui: Any, QtWidgets2: Any) -> None:
+        tab = self.QtWidgets.QWidget()
+        layout = self.QtWidgets.QVBoxLayout(tab)
+        controls, form = panel(self.QtWidgets, "Preview & Preset")
+        form_layout = self.QtWidgets.QFormLayout()
+        form_layout.addRow("Config", self.config_select)
+        form_layout.addRow("Preset", self.preset_select)
+        form_layout.addRow("Panel preset", self.panel_preset)
+        form_layout.addRow("Preview pixel size", self._slider_row(self.zoom, self.zoom_value))
+        form_layout.addRow("Brightness", self._slider_row(self.brightness, self.brightness_value))
+        form_layout.addRow("Default view", self.view)
+        form_layout.addRow("Max rows", self.max_rows)
+        form_layout.addRow("Refresh", self.refresh_seconds)
+        form_layout.addRow("Page rotation", self.rotation_seconds)
+        form_layout.addRow("Animation", self.animation_mode)
+        form_layout.addRow("Animation speed", self.animation_speed)
+        form_layout.addRow("Status motion", self.status_animation)
+        form_layout.addRow("Palette", self.palette)
+        form.addLayout(form_layout)
+        self.canvas = MatrixCanvas(QtCore, QtGui, QtWidgets2)
+        layout.addWidget(controls)
+        layout.addWidget(self.canvas, 1)
+        self.tabs.addTab(tab, "Preview")
+
+    def _build_configs_tab(self) -> None:
+        tab = self.QtWidgets.QWidget()
+        layout = self.QtWidgets.QVBoxLayout(tab)
+        row = self.QtWidgets.QHBoxLayout()
+        self.config_list = self.QtWidgets.QListWidget()
+        editor, editor_layout = panel(self.QtWidgets, "Config Details")
+        self.config_name = self.QtWidgets.QLineEdit()
+        self.config_preset_hint = label(self.QtWidgets, "Preset and visual controls live in the Preview tab.", "Muted", wrap=True)
+        details = self.QtWidgets.QFormLayout()
+        details.addRow("Name", self.config_name)
+        editor_layout.addLayout(details)
+        editor_layout.addWidget(self.config_preset_hint)
+        actions = self.QtWidgets.QHBoxLayout()
+        for text, slot in (
+            ("New", self.create_config),
+            ("Duplicate", self.duplicate_config),
+            ("Delete", self.delete_config),
+            ("Set default", self.set_default_config),
+        ):
+            button = self.QtWidgets.QPushButton(text)
+            button.clicked.connect(slot)
+            actions.addWidget(button)
+        actions.addStretch(1)
+        editor_layout.addLayout(actions)
+        row.addWidget(self.config_list, 1)
+        row.addWidget(editor, 2)
+        layout.addLayout(row)
+        self.tabs.addTab(tab, "Configs")
+
+    def _build_devices_tab(self) -> None:
+        tab = self.QtWidgets.QWidget()
+        layout = self.QtWidgets.QVBoxLayout(tab)
+        row = self.QtWidgets.QHBoxLayout()
+        self.device_list = self.QtWidgets.QListWidget()
+        editor, editor_layout = panel(self.QtWidgets, "Device Assignment")
+        self.device_label = self.QtWidgets.QLineEdit()
+        self.device_config = self.QtWidgets.QComboBox()
+        self.device_meta = label(self.QtWidgets, "No matrix device selected.", "Muted", wrap=True)
+        form = self.QtWidgets.QFormLayout()
+        form.addRow("Label", self.device_label)
+        form.addRow("Assigned config", self.device_config)
+        editor_layout.addLayout(form)
+        assign = self.QtWidgets.QPushButton("Save device assignment")
+        assign.clicked.connect(self.save_device_assignment)
+        editor_layout.addWidget(assign)
+        editor_layout.addWidget(self.device_meta)
+        row.addWidget(self.device_list, 1)
+        row.addWidget(editor, 2)
+        layout.addLayout(row)
+        self.tabs.addTab(tab, "Devices")
+
+    def _build_flash_tab(self) -> None:
+        tab = self.QtWidgets.QWidget()
+        layout = self.QtWidgets.QVBoxLayout(tab)
+        setup, setup_layout = panel(self.QtWidgets, "Flash Board Once")
+        self.wifi_ssid = self.QtWidgets.QLineEdit()
+        self.wifi_ssid.setPlaceholderText("WiFi SSID")
+        self.wifi_password = self.QtWidgets.QLineEdit()
+        self.wifi_password.setPlaceholderText("WiFi password")
+        self.wifi_password.setEchoMode(self.QtWidgets.QLineEdit.Password)
+        self.api_host = self.QtWidgets.QLineEdit("localflight.local")
+        self.api_port = self.QtWidgets.QSpinBox()
+        self.api_port.setRange(1, 65535)
+        self.api_port.setValue(8000)
+        flash_form = self.QtWidgets.QFormLayout()
+        flash_form.addRow("WiFi SSID", self.wifi_ssid)
+        flash_form.addRow("WiFi password", self.wifi_password)
+        flash_form.addRow("Server host", self.api_host)
+        flash_form.addRow("Server port", self.api_port)
+        setup_layout.addLayout(flash_form)
+        setup_layout.addWidget(label(self.QtWidgets, "The generated client auto-registers the board, then pulls its assigned V2 config and compact feed.", "Muted", wrap=True))
+        self.script_preview = self.QtWidgets.QPlainTextEdit()
+        self.script_preview.setReadOnly(True)
+        self.script_preview.setPlaceholderText("Generated MicroPython main.py appears here.")
+        layout.addWidget(setup)
+        layout.addWidget(self.script_preview, 1)
+        self.tabs.addTab(tab, "Flash")
+
+    def _connect_shared_controls(self) -> None:
+        self.config_select.currentIndexChanged.connect(self._select_config_from_combo)
+        self.config_list.currentRowChanged.connect(self._select_config_from_list)
+        self.device_list.currentRowChanged.connect(self._select_device_from_list)
+        for widget in (self.panel_preset, self.zoom, self.brightness, self.animation_mode, self.animation_speed, self.max_rows, self.preset_select, self.palette):
+            widget.currentIndexChanged.connect(self._sync_canvas_options) if hasattr(widget, "currentIndexChanged") else widget.valueChanged.connect(self._sync_canvas_options)
+        self.status_animation.toggled.connect(self._sync_canvas_options)
+        self.view.currentTextChanged.connect(lambda _text: self.refresh_feed_only())
 
     def apply_theme(self, theme: str, skin: str) -> None:
         if hasattr(self.canvas, "apply_theme"):
             self.canvas.apply_theme(theme, skin)
 
     def refresh(self) -> None:
+        try:
+            self._load_v2_state()
+            self._v2_available = bool(self.configs)
+        except NativeApiError:
+            self._v2_available = False
+        if not self._v2_available:
+            self._refresh_v1()
+            return
+        self._populate_v2_lists()
+        self.refresh_feed_only()
+        self.status.setText(f"Matrix V2 loaded: {len(self.configs)} configs, {len(self.devices)} devices.")
+
+    def _load_v2_state(self) -> None:
+        presets = self.client.get_json("/api/matrix/v2/presets")
+        configs = self.client.get_json("/api/matrix/v2/configs")
+        devices = self.client.get_json("/api/matrix/v2/devices")
+        self.presets = list_payload(presets, "presets")
+        self.configs = list_payload(configs, "configs")
+        self.devices = list_payload(devices, "devices")
+        self.default_config_id = str(configs.get("default_config_id") or "default")
+        if not self.presets or not self.configs:
+            raise NativeApiError("Matrix V2 APIs unavailable")
+
+    def _refresh_v1(self) -> None:
         try:
             cfg = self.client.get_json("/api/matrix/config")
             payload = self.client.get_any_json("/api/fids", params={"view": self.view.currentText(), "limit": 32})
@@ -2177,45 +2790,245 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
             return
         self._populate_config(cfg)
         rows = list_payload(payload)[: max(1, int(self.max_rows.value()))]
-        self.status.setText(f"{len(rows)} rows loaded | {self.view.currentText()} | canvas preview.")
         self.canvas.set_rows(rows)
         self._sync_canvas_options()
+        self.board_status.setText("Matrix V2 unavailable; using compatibility config.")
+
+    def refresh_feed_only(self) -> None:
+        if not self._v2_available:
+            return
+        device_id = self._selected_device_id()
+        try:
+            if device_id:
+                payload = self.client.get_json(f"/api/matrix/v2/devices/{device_id}/feed", params={"view": self.view.currentText()})
+                rows = list_payload(payload, "rows")
+            else:
+                payload = self.client.get_any_json("/api/fids", params={"view": self.view.currentText(), "limit": 32})
+                rows = list_payload(payload)
+        except NativeApiError:
+            rows = []
+        self.canvas.set_rows(rows[: max(1, int(self.max_rows.value()))])
+        self._sync_canvas_options()
+
+    def _populate_v2_lists(self) -> None:
+        for widget in (self.config_select, self.preset_select, self.device_config):
+            widget.blockSignals(True)
+            widget.clear()
+        for cfg in self.configs:
+            suffix = " *" if cfg.get("id") == self.default_config_id else ""
+            self.config_select.addItem(f"{cfg.get('name') or cfg.get('id')}{suffix}", cfg.get("id"))
+            self.device_config.addItem(str(cfg.get("name") or cfg.get("id")), cfg.get("id"))
+        for preset in self.presets:
+            self.preset_select.addItem(str(preset.get("label") or preset.get("id")), preset.get("id"))
+        for widget in (self.config_select, self.preset_select, self.device_config):
+            widget.blockSignals(False)
+        self.config_list.clear()
+        for cfg in self.configs:
+            self.config_list.addItem(f"{cfg.get('name') or cfg.get('id')} ({cfg.get('preset')})")
+        self.device_list.clear()
+        for device in self.devices:
+            self.device_list.addItem(f"{device.get('label') or device.get('device_id')} | {device.get('last_seen') or 'not seen'}")
+        if self.configs:
+            self.config_select.setCurrentIndex(0)
+            self.config_list.setCurrentRow(0)
+            self._populate_config(self.configs[0])
+        self._populate_device(0 if self.devices else -1)
+
+    def _select_config_from_combo(self, index: int) -> None:
+        if index >= 0 and index < len(self.configs):
+            self.config_list.setCurrentRow(index)
+            self._populate_config(self.configs[index])
+
+    def _select_config_from_list(self, row: int) -> None:
+        if row >= 0 and row < len(self.configs):
+            self.config_select.setCurrentIndex(row)
+            self._populate_config(self.configs[row])
+
+    def _select_device_from_list(self, row: int) -> None:
+        self._populate_device(row)
+
+    def _populate_device(self, row: int) -> None:
+        if row < 0 or row >= len(self.devices):
+            self.device_label.setText("")
+            self.device_meta.setText("No matrix device selected.")
+            return
+        device = self.devices[row]
+        self.device_label.setText(str(device.get("label") or device.get("device_id")))
+        assigned = str(device.get("assigned_config_id") or "")
+        idx = self.device_config.findData(assigned)
+        if idx >= 0:
+            self.device_config.setCurrentIndex(idx)
+        renderers = ", ".join(device.get("renderers") or [])
+        self.device_meta.setText(
+            f"{device.get('device_id')} | {device.get('panel_w')}x{device.get('panel_h')} | "
+            f"firmware {device.get('firmware') or '-'} | renderers {renderers or '-'}"
+        )
+        self.board_status.setText(f"Selected board: {device.get('label')} | last seen {device.get('last_seen') or 'never'}")
 
     def _populate_config(self, cfg: dict[str, Any]) -> None:
+        for widget in (self.brightness, self.max_rows, self.refresh_seconds, self.rotation_seconds, self.view, self.animation_mode, self.animation_speed, self.palette, self.preset_select, self.status_animation):
+            widget.blockSignals(True)
+        self.config_name.setText(str(cfg.get("name") or "Matrix Config"))
         self.brightness.setValue(int(float(cfg.get("brightness", 0.8)) * 100))
         self.max_rows.setValue(int(cfg.get("max_rows") or 4))
         self.refresh_seconds.setValue(int(cfg.get("refresh_seconds") or 60))
         self.rotation_seconds.setValue(int(cfg.get("page_rotation_seconds") or 10))
         self.view.setCurrentText(str(cfg.get("default_view") or "departures"))
+        animation_mode = str(cfg.get("animation_mode") or ("split_flap" if bool(cfg.get("animation_enabled", True)) else "static"))
+        mode_idx = self.animation_mode.findData(animation_mode)
+        self.animation_mode.setCurrentIndex(mode_idx if mode_idx >= 0 else 0)
+        self.animation_speed.setValue(int(cfg.get("animation_speed") or 3))
+        self.status_animation.setChecked(bool(cfg.get("status_animation_enabled", True)))
+        preset_idx = self.preset_select.findData(str(cfg.get("preset") or "classic_split_flap"))
+        if preset_idx >= 0:
+            self.preset_select.setCurrentIndex(preset_idx)
+        palette_idx = self.palette.findText(str(cfg.get("palette") or "standard"))
+        if palette_idx >= 0:
+            self.palette.setCurrentIndex(palette_idx)
+        panel = (int(cfg.get("panel_w") or 256), int(cfg.get("panel_h") or 64))
+        panel_idx = self.panel_preset.findData(panel)
+        if panel_idx >= 0:
+            self.panel_preset.setCurrentIndex(panel_idx)
+        for widget in (self.brightness, self.max_rows, self.refresh_seconds, self.rotation_seconds, self.view, self.animation_mode, self.animation_speed, self.palette, self.preset_select, self.status_animation):
+            widget.blockSignals(False)
+        self._sync_value_labels()
+        self._sync_canvas_options()
+
+    def _current_config_id(self) -> str | None:
+        data = self.config_select.currentData()
+        return str(data) if data else None
+
+    def _selected_device_id(self) -> str | None:
+        row = self.device_list.currentRow()
+        if row >= 0 and row < len(self.devices):
+            return str(self.devices[row].get("device_id"))
+        return None
 
     def _panel_size(self) -> tuple[int, int]:
         data = self.panel_preset.currentData()
         return data if isinstance(data, tuple) else (256, 64)
 
-    def _sync_canvas_options(self) -> None:
+    def _config_payload(self) -> dict[str, Any]:
         w, h = self._panel_size()
-        self.canvas.set_options(
-            panel_w=w,
-            panel_h=h,
-            brightness=self.brightness.value() / 100.0,
-            zoom=int(self.zoom.value()),
-            animate=bool(self.animate.isChecked()),
-        )
-
-    def save_config(self) -> None:
-        payload = {
+        return {
+            "name": self.config_name.text().strip() or "Matrix Config",
+            "preset": str(self.preset_select.currentData() or "classic_split_flap"),
+            "panel_w": w,
+            "panel_h": h,
             "brightness": self.brightness.value() / 100.0,
             "max_rows": int(self.max_rows.value()),
             "refresh_seconds": int(self.refresh_seconds.value()),
             "default_view": self.view.currentText(),
             "page_rotation_seconds": int(self.rotation_seconds.value()),
+            "animation_enabled": self.animation_mode.currentData() != "static",
+            "animation_mode": str(self.animation_mode.currentData() or "split_flap"),
+            "animation_speed": int(self.animation_speed.value()),
+            "status_animation_enabled": bool(self.status_animation.isChecked()),
+            "palette": self.palette.currentText(),
+            "options": {"palette": self.palette.currentText()},
         }
+
+    def _sync_canvas_options(self) -> None:
+        self._sync_value_labels()
+        w, h = self._panel_size()
+        mode = str(self.animation_mode.currentData() or "split_flap")
+        self.canvas.set_options(
+            panel_w=w,
+            panel_h=h,
+            brightness=self.brightness.value() / 100.0,
+            zoom=int(self.zoom.value()),
+            animate=mode != "static",
+            animation_mode=mode,
+            animation_speed=int(self.animation_speed.value()),
+            status_animation_enabled=bool(self.status_animation.isChecked()),
+            preset=str(self.preset_select.currentData() or "classic_split_flap"),
+            max_rows=int(self.max_rows.value()),
+        )
+        self.canvas.apply_theme("dark", self.palette.currentText())
+
+    def _sync_value_labels(self) -> None:
+        self.zoom_value.setText(f"{int(self.zoom.value())}px")
+        self.brightness_value.setText(f"{int(self.brightness.value())}%")
+
+    def _slider_row(self, slider: Any, value_label: Any) -> Any:
+        row = self.QtWidgets.QWidget()
+        row_layout = self.QtWidgets.QHBoxLayout(row)
+        row_layout.setContentsMargins(0, 0, 0, 0)
+        row_layout.addWidget(slider, 1)
+        row_layout.addWidget(value_label)
+        return row
+
+    def save_config(self) -> None:
+        payload = self._config_payload()
         try:
-            result = self.client.post_json("/api/matrix/config", payload)
+            if self._v2_available and self._current_config_id():
+                result = self.client.patch_json(f"/api/matrix/v2/configs/{self._current_config_id()}", payload)
+            else:
+                result = self.client.post_json("/api/matrix/config", {
+                    "brightness": payload["brightness"],
+                    "max_rows": payload["max_rows"],
+                    "refresh_seconds": payload["refresh_seconds"],
+                    "default_view": payload["default_view"],
+                    "page_rotation_seconds": payload["page_rotation_seconds"],
+                    "animation_enabled": payload["animation_enabled"],
+                })
         except NativeApiError as exc:
             self.status.setText(f"Matrix save failed: {exc}")
             return
         self.status.setText("Matrix config saved." if result.get("ok") else format_value(result))
+        self.refresh()
+
+    def create_config(self) -> None:
+        payload = {**self._config_payload(), "name": self.config_name.text().strip() or "New Matrix Config"}
+        try:
+            self.client.post_json("/api/matrix/v2/configs", payload)
+        except NativeApiError as exc:
+            self.status.setText(f"Create config failed: {exc}")
+            return
+        self.refresh()
+
+    def duplicate_config(self) -> None:
+        payload = {**self._config_payload(), "name": f"{self.config_name.text().strip() or 'Matrix Config'} Copy"}
+        try:
+            self.client.post_json("/api/matrix/v2/configs", payload)
+        except NativeApiError as exc:
+            self.status.setText(f"Duplicate config failed: {exc}")
+            return
+        self.refresh()
+
+    def delete_config(self) -> None:
+        config_id = self._current_config_id()
+        if not config_id:
+            return
+        try:
+            self.client.delete_json(f"/api/matrix/v2/configs/{config_id}")
+        except NativeApiError as exc:
+            self.status.setText(f"Delete config failed: {exc}")
+            return
+        self.refresh()
+
+    def set_default_config(self) -> None:
+        config_id = self._current_config_id()
+        if not config_id:
+            return
+        try:
+            self.client.post_json(f"/api/matrix/v2/configs/{config_id}/default", {})
+        except NativeApiError as exc:
+            self.status.setText(f"Set default failed: {exc}")
+            return
+        self.refresh()
+
+    def save_device_assignment(self) -> None:
+        device_id = self._selected_device_id()
+        if not device_id:
+            return
+        payload = {"label": self.device_label.text().strip(), "assigned_config_id": self.device_config.currentData()}
+        try:
+            self.client.patch_json(f"/api/matrix/v2/devices/{device_id}", payload)
+        except NativeApiError as exc:
+            self.status.setText(f"Device save failed: {exc}")
+            return
+        self.refresh()
 
     def generate_script(self) -> None:
         w, h = self._panel_size()
@@ -2224,6 +3037,7 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
             "wifi_password": self.wifi_password.text(),
             "api_host": self.api_host.text().strip() or "localflight.local",
             "api_port": int(self.api_port.value()),
+            "device_label": self.device_label.text().strip() or "Interstate 75 W",
             "panel_w": w,
             "panel_h": h,
             "max_rows": int(self.max_rows.value()),
@@ -2231,14 +3045,44 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
             "brightness": self.brightness.value() / 100.0,
             "default_view": self.view.currentText(),
             "page_rotation_seconds": int(self.rotation_seconds.value()),
+            "animation_enabled": self.animation_mode.currentData() != "static",
         }
         try:
             text = self.client.post_text("/api/matrix/script", payload)
         except NativeApiError as exc:
             self.status.setText(f"Script generation failed: {exc}")
             return
+        self._last_script = text
         self.script_preview.setPlainText(text)
-        self.status.setText("Generated matrix main.py preview. Copy it to the Pico when ready.")
+        self.tabs.setCurrentIndex(3)
+        self.status.setText("Generated V2 matrix main.py preview.")
+
+    def save_script_file(self) -> None:
+        if not self._last_script:
+            self.generate_script()
+        if not self._last_script:
+            return
+        path, _filter = self.QtWidgets.QFileDialog.getSaveFileName(self.widget, "Save Matrix main.py", "main.py", "Python files (*.py);;All files (*)")
+        if not path:
+            return
+        try:
+            with open(path, "w", encoding="utf-8", newline="\n") as handle:
+                handle.write(self._last_script)
+        except OSError as exc:
+            self.status.setText(f"Could not save main.py: {exc}")
+            return
+        self.status.setText(f"Saved matrix client to {path}")
+
+    def trigger_demo(self) -> None:
+        demo_rows = [
+            {"display_time": "09:10", "flight_display": "LX 1952", "route_display": "Barcelona", "status_display": "SCHEDULED", "status_kind": "scheduled", "gate": "A64", "airline_display": "Swiss", "codeshare_display": "Also UA 9724"},
+            {"display_time": "09:20", "flight_display": "LX 724", "route_display": "Amsterdam", "status_display": "BOARDING", "status_kind": "boarding", "gate": "B12", "airline_display": "Swiss"},
+            {"display_time": "09:35", "flight_display": "U2 8465", "route_display": "London", "status_display": "DELAYED", "status_kind": "delayed", "gate": "C03", "airline_display": "easyJet"},
+            {"display_time": "09:50", "flight_display": "QR 96", "route_display": "Doha", "status_display": "CANCELLED", "status_kind": "cancelled", "gate": "-", "airline_display": "Qatar Airways", "codeshare_display": "Also BA 7006"},
+        ]
+        self.canvas.set_rows(demo_rows[: int(self.max_rows.value())])
+        self._sync_canvas_options()
+        self.status.setText("Demo rows loaded locally.")
 
 
 class SettingsScreen:  # pragma: no cover - optional Qt runtime
@@ -2708,26 +3552,29 @@ class AdminSummaryScreen:  # pragma: no cover - optional Qt runtime
         self.client = client
         self.navigate = navigate
         self.widget, self.layout = scroll_page(QtWidgets)
+        self.layout.setContentsMargins(28, 22, 28, 22)
         head = QtWidgets.QHBoxLayout()
-        head.addWidget(label(QtWidgets, "System Overview", "Title"))
+        title_col = QtWidgets.QVBoxLayout()
+        title_col.addWidget(label(QtWidgets, "System Overview", "Title"))
+        self.header_subtitle = label(QtWidgets, "Local user-facing status, access, devices, weather, and quick tools.", "Muted", wrap=True)
+        title_col.addWidget(self.header_subtitle)
+        head.addLayout(title_col, 1)
         head.addStretch(1)
         refresh = QtWidgets.QPushButton("Refresh overview")
         refresh.clicked.connect(self.refresh)
         head.addWidget(refresh)
-        self.status = label(QtWidgets, "Status, access, devices, weather, and quick tools.", "Muted", wrap=True)
+        self.status = label(QtWidgets, "Ready.", "Muted", wrap=True)
         self.grid = QtWidgets.QGridLayout()
+        self.grid.setHorizontalSpacing(14)
+        self.grid.setVerticalSpacing(14)
         self.detail_layout = QtWidgets.QVBoxLayout()
-        self.quick = QtWidgets.QHBoxLayout()
-        for text, key in (("Open display", "display"), ("Open radar", "radar"), ("Open settings", "settings"), ("Traffic log", "requests"), ("Report a problem", "feedback")):
-            button = QtWidgets.QPushButton(text)
-            button.clicked.connect(lambda _checked=False, k=key: self.navigate(k))
-            self.quick.addWidget(button)
+        self.quick_grid = QtWidgets.QGridLayout()
         self.layout.addLayout(head)
-        self.layout.addWidget(self.status)
+        self.layout.addSpacing(4)
         self.layout.addLayout(self.grid)
         self.layout.addLayout(self.detail_layout)
-        self.layout.addWidget(section_label(QtWidgets, "Quick Tools"))
-        self.layout.addLayout(self.quick)
+        self.layout.addWidget(self._quick_tools_panel())
+        self.layout.addWidget(self.status)
         self.layout.addStretch(1)
 
     def __getattr__(self, name: str) -> Any:
@@ -2735,6 +3582,7 @@ class AdminSummaryScreen:  # pragma: no cover - optional Qt runtime
 
     def refresh(self) -> None:
         try:
+            cfg = self.client.get_json("/api/config")
             system = self.client.get_json("/api/admin/system")
             budget = self.client.get_json("/api/admin/budget")
             connections = self.client.get_json("/api/admin/connections")
@@ -2748,37 +3596,149 @@ class AdminSummaryScreen:  # pragma: no cover - optional Qt runtime
         clear_layout(self.grid)
         clear_layout(self.detail_layout)
         aviation = budget.get("aviationstack") if isinstance(budget.get("aviationstack"), dict) else {}
-        community = budget.get("community") if isinstance(budget.get("community"), dict) else {}
+        schedule_bucket = _active_schedule_budget(aviation)
+        active_mode = str(aviation.get("active_mode") or aviation.get("mode") or "unknown")
+        airport = f"{cfg.get('airport_iata') or scheduler.get('airport') or '-'} / {cfg.get('airport_icao') or '-'}"
+        display_name = cfg.get("display_name") or "Local Flight"
+        self.header_subtitle.setText(f"{display_name} | {airport} | local user-facing panel")
         cards = [
-            card(self.QtWidgets, "Flight Refresh", scheduler.get("state") or scheduler.get("status") or "unknown", scheduler.get("airport") or ""),
-            card(self.QtWidgets, "Schedule Access", _budget_label(aviation, community), _budget_detail(aviation, community)),
-            card(self.QtWidgets, "Connected Screens", connections.get("count", 0), f"{connections.get('companion_count', 0)} companions"),
-            card(self.QtWidgets, "Flight History", history.get("rows") or history.get("row_count") or 0, "Local 90-day database"),
-            card(self.QtWidgets, "App & Device", system.get("version") or _app_version(), system.get("platform") or ""),
-            card(self.QtWidgets, "Airport Weather", weather.get("weather_label") or weather.get("flight_cat") or "-", weather.get("decoded_summary") or ""),
-            card(self.QtWidgets, "Latest Release", updates.get("latest_version") or updates.get("status") or "-", updates.get("message") or ""),
+            self._stats_panel(
+                "Flight Refresh",
+                [
+                    ("Health", scheduler.get("state") or scheduler.get("status") or "unknown"),
+                    ("Airport", airport),
+                    ("Traffic source", cfg.get("source") or scheduler.get("source") or "-"),
+                    ("Last update", scheduler.get("last_success_utc") or scheduler.get("last_fetch") or "-"),
+                    ("Next update", scheduler.get("next_fetch_in") or scheduler.get("next_run") or "-"),
+                    ("Current issue", scheduler.get("last_error") or "No issues"),
+                ],
+            ),
+            self._budget_panel("Schedule Access", active_mode, schedule_bucket, aviation),
+            self._devices_panel(connections),
+            self._stats_panel(
+                "Flight History",
+                [
+                    ("Total rows", history.get("rows") or history.get("row_count") or 0),
+                    ("Oldest record", history.get("oldest") or history.get("oldest_record") or "-"),
+                    ("Newest record", history.get("newest") or history.get("newest_record") or "-"),
+                    ("Open history", "History tab"),
+                ],
+            ),
+            self._stats_panel(
+                "App & Device",
+                [
+                    ("Version", system.get("version") or _app_version()),
+                    ("Latest release", updates.get("latest_version") or updates.get("status") or "-"),
+                    ("Running since", system.get("uptime_human") or system.get("uptime") or "-"),
+                    ("This device", system.get("platform") or "-"),
+                    ("Support ID", system.get("install_fingerprint") or system.get("fingerprint") or "-"),
+                ],
+            ),
+            self._weather_panel(weather),
         ]
         for idx, widget in enumerate(cards):
             self.grid.addWidget(widget, idx // 3, idx % 3)
-        used = aviation.get("calls_this_month") or community.get("calls_this_month") or 0
-        limit = aviation.get("monthly_limit") or community.get("monthly_limit") or 0
-        self.detail_layout.addWidget(progress_card(self.QtWidgets, "Schedule Access Budget", used, limit, _budget_detail(aviation, community)))
-        device_rows = list_payload(connections, "devices") or list_payload(connections, "recent")
-        if device_rows:
-            self.detail_layout.addWidget(section_label(self.QtWidgets, "Connected Screens"))
-            self.detail_layout.addWidget(
-                table(
-                    self.QtWidgets,
-                    device_rows[:8],
-                    [("device", "Device"), ("client_type", "Type"), ("platform", "Platform"), ("last_seen", "Last seen")],
-                    min_height=140,
-                )
-            )
-        weather_detail = weather.get("decoded_summary") or weather.get("raw_text") or weather.get("raw") or ""
-        if weather_detail:
-            self.detail_layout.addWidget(section_label(self.QtWidgets, "Airport Weather"))
-            self.detail_layout.addWidget(pill(self.QtWidgets, f"{weather.get('weather_icon') or ''} {weather.get('flight_cat') or '-'} | {weather_detail}"))
-        self.status.setText("Overview refreshed from local user-facing admin APIs.")
+        self.detail_layout.addWidget(progress_card(self.QtWidgets, "Schedule Access Budget", schedule_bucket.get("calls_this_month"), schedule_bucket.get("monthly_limit"), _budget_detail(schedule_bucket)))
+        self.status.setText(f"Last refreshed {datetime.now().strftime('%H:%M:%S')} | local user-facing admin APIs.")
+
+    def _stats_panel(self, title: str, rows: list[tuple[str, Any]]) -> Any:
+        box, layout = panel(self.QtWidgets, title)
+        for key, value in rows:
+            layout.addWidget(self._stat_row(key, value))
+        return box
+
+    def _stat_row(self, key: str, value: Any) -> Any:
+        row = self.QtWidgets.QWidget()
+        row_layout = self.QtWidgets.QHBoxLayout(row)
+        row_layout.setContentsMargins(0, 0, 0, 0)
+        row_layout.setSpacing(10)
+        row_layout.addWidget(label(self.QtWidgets, key, "Muted"))
+        row_layout.addStretch(1)
+        val = label(self.QtWidgets, format_value(value) or "-", "Metric")
+        val.setStyleSheet("font-size: 13px;")
+        row_layout.addWidget(val)
+        return row
+
+    def _budget_panel(self, title: str, mode: str, bucket: dict[str, Any], aviation: dict[str, Any]) -> Any:
+        box, layout = panel(self.QtWidgets, title)
+        source_label = {
+            "community": "Hosted relay access",
+            "managed": "Managed relay access",
+            "byok": "Own AviationStack key",
+            "virtual": "Virtual source",
+        }.get(mode, mode or "unknown")
+        for key, value in [
+            ("Access source", source_label),
+            ("Used this window", _budget_label(bucket)),
+            ("Requests left", bucket.get("remaining")),
+            ("Access window", bucket.get("month") or bucket.get("period_days") or "-"),
+            ("Counter resets", bucket.get("period_end") or "-"),
+            ("Current note", aviation.get("cadence_warning") or value_at(bucket, "cost_estimate.cadence_warning") or "Shared relay separates this install's access counter from upstream pulls."),
+        ]:
+            layout.addWidget(self._stat_row(key, value))
+        layout.addWidget(progress_card(self.QtWidgets, "", bucket.get("calls_this_month"), bucket.get("monthly_limit")))
+        return box
+
+    def _devices_panel(self, connections: dict[str, Any]) -> Any:
+        box, layout = panel(self.QtWidgets, "Connected Screens")
+        count = connections.get("count", 0)
+        companions = connections.get("companion_count", 0)
+        layout.addWidget(card(self.QtWidgets, "Live viewers", count, f"{companions} companion clients"))
+        for name, seen in [
+            ("LED board", connections.get("matrix_last_seen")),
+            ("Mobile Companion", connections.get("companion_last_seen")),
+        ]:
+            layout.addWidget(self._stat_row(name, seen or "no check-in yet"))
+        return box
+
+    def _weather_panel(self, weather: dict[str, Any]) -> Any:
+        box, layout = panel(self.QtWidgets, "Airport Weather")
+        hero = self.QtWidgets.QFrame()
+        hero.setObjectName("WeatherStrip")
+        hero_layout = self.QtWidgets.QHBoxLayout(hero)
+        hero_layout.setContentsMargins(12, 10, 12, 10)
+        hero_layout.addWidget(label(self.QtWidgets, _weather_icon_glyph(weather.get("weather_icon")), "Metric"))
+        weather_text = self.QtWidgets.QVBoxLayout()
+        weather_text.addWidget(label(self.QtWidgets, weather.get("weather_label") or weather.get("flight_cat") or "-", "Metric"))
+        weather_text.addWidget(label(self.QtWidgets, weather.get("decoded_summary") or weather.get("raw_text") or "-", "Muted", wrap=True))
+        hero_layout.addLayout(weather_text, 1)
+        layout.addWidget(hero)
+        for key, value in [
+            ("Category", weather.get("flight_cat")),
+            ("Wind", weather.get("wind_display") or weather.get("wind")),
+            ("Visibility", weather.get("visibility")),
+            ("Ceiling / sky", weather.get("sky") or weather.get("ceiling")),
+            ("Temperature", weather.get("temperature_display") or weather.get("temperature_c")),
+            ("Raw report", weather.get("raw_text") or weather.get("raw")),
+        ]:
+            layout.addWidget(self._stat_row(key, value))
+        return box
+
+    def _quick_tools_panel(self) -> Any:
+        box, layout = panel(self.QtWidgets, "Quick Tools")
+        grid = self.QtWidgets.QGridLayout()
+        tools = [
+            ("Open display", "Show the split board with flights and radar.", "display"),
+            ("Open radar", "Watch nearby traffic around the selected airport.", "radar"),
+            ("Open settings", "Change airport, data source, skins, and timing.", "settings"),
+            ("Traffic log", "Open anonymized local request activity.", "requests"),
+            ("Report a problem", "Send a sanitized bug report with context.", "feedback"),
+            ("Buy me a coffee", "Support Local Flight and keep the boards glowing.", "coffee"),
+        ]
+        for idx, (text, hint, key) in enumerate(tools):
+            button = self.QtWidgets.QPushButton(f"{text}\n{hint}")
+            button.setMinimumHeight(56)
+            button.clicked.connect(lambda _checked=False, k=key: self._open_quick_tool(k))
+            grid.addWidget(button, idx // 3, idx % 3)
+        layout.addLayout(grid)
+        return box
+
+    def _open_quick_tool(self, key: str) -> None:
+        if key == "coffee":
+            webbrowser.open(COFFEE_URL)
+            self.status.setText(f"Opened support link: {COFFEE_URL}")
+            return
+        self.navigate(key)
 
 
 class RequestsScreen:  # pragma: no cover - optional Qt runtime
@@ -2858,6 +3818,7 @@ class HistoryScreen:  # pragma: no cover - optional Qt runtime
         self.client = client
         self.rows: list[dict[str, Any]] = []
         self.all_rows: list[dict[str, Any]] = []
+        self.colors = colors_for()
         self.widget = QtWidgets.QSplitter()
         body, layout = scroll_page(QtWidgets)
         header = QtWidgets.QHBoxLayout()
@@ -2889,7 +3850,7 @@ class HistoryScreen:  # pragma: no cover - optional Qt runtime
         header.addWidget(apply)
         self.status = label(QtWidgets, "90-day local database. Click any row for details.", "Muted", wrap=True)
         self.tabs = QtWidgets.QTabWidget()
-        self.table = QtWidgets.QTableWidget(0, 10)
+        self.table = QtWidgets.QTableWidget(0, 11)
         self.table.verticalHeader().setVisible(False)
         self.table.setAlternatingRowColors(True)
         self.table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)
@@ -2899,7 +3860,7 @@ class HistoryScreen:  # pragma: no cover - optional Qt runtime
         self.stats_body = QtWidgets.QWidget()
         self.stats_outer_layout = QtWidgets.QVBoxLayout(self.stats_body)
         self.stats_period = QtWidgets.QComboBox()
-        for value, text in ((6, "6 hours"), (24, "24 hours"), (168, "7 days"), (720, "30 days")):
+        for value, text in ((6, "6 hours"), (24, "24 hours"), (168, "7 days"), (720, "30 days"), (2160, "90 days")):
             self.stats_period.addItem(text, value)
         self.stats_period.currentIndexChanged.connect(lambda _idx: self._render_stats())
         self.stats_outer_layout.addWidget(self.stats_period)
@@ -2919,6 +3880,9 @@ class HistoryScreen:  # pragma: no cover - optional Qt runtime
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self.widget, name)
+
+    def apply_theme(self, theme: str, skin: str) -> None:
+        self.colors = colors_for(theme, skin)
 
     def _detail_panel(self) -> Any:
         detail = self.QtWidgets.QFrame()
@@ -2989,6 +3953,7 @@ class HistoryScreen:  # pragma: no cover - optional Qt runtime
             [
                 ("sched_time", "Scheduled"),
                 ("direction", "Dir"),
+                ("airline_iata", "Airline"),
                 ("flight_number", "Flight"),
                 ("callsign", "Callsign"),
                 ("origin_iata", "From"),
@@ -3009,25 +3974,104 @@ class HistoryScreen:  # pragma: no cover - optional Qt runtime
             return
         kpis = summary.get("kpis") if isinstance(summary.get("kpis"), dict) else summary
         grid = self.QtWidgets.QGridLayout()
-        for idx, (title, key) in enumerate((("Flights tracked", "total"), ("Departures", "departures"), ("Arrivals", "arrivals"), ("On time", "on_time"), ("Avg delay", "avg_delay_minutes"))):
-            grid.addWidget(card(self.QtWidgets, title, value_at(kpis, key) or summary.get(key)), idx // 3, idx % 3)
+        kpi_rows = [
+            ("Flights tracked", "total", ""),
+            ("Departures", "departures", ""),
+            ("Arrivals", "arrivals", ""),
+            ("On time", "on_time_pct", "%"),
+            ("Avg delay", "avg_delay_minutes", "m"),
+        ]
+        for idx, (title, key, suffix) in enumerate(kpi_rows):
+            value = value_at(kpis, key) or summary.get(key)
+            if value not in (None, "") and suffix:
+                value = f"{value}{suffix}"
+            grid.addWidget(card(self.QtWidgets, title, value), idx // 3, idx % 3)
         self.stats_layout.addLayout(grid)
-        for section in ("top_airlines", "top_destinations", "top_origins", "top_aircraft"):
-            rows = list_payload(summary, section)
+        bars = self.QtWidgets.QGridLayout()
+        specs = [
+            ("Top Airlines", "top_airlines", ("label", "code", "airline_iata")),
+            ("Top Destinations", "top_destinations", ("label", "code", "dest_iata")),
+            ("Top Origins", "top_origins", ("label", "code", "origin_iata")),
+            ("Top Aircraft Types", "top_aircraft", ("label", "aircraft_type", "code")),
+        ]
+        for idx, (title, section, keys) in enumerate(specs):
+            rows = self._normalize_stat_rows(list_payload(summary, section), keys)
+            box, box_layout = panel(self.QtWidgets, title)
             if rows:
-                self.stats_layout.addWidget(section_label(self.QtWidgets, section.replace("_", " ").title()))
-                self.stats_layout.addWidget(bar_summary(self.QtWidgets, rows))
-                self.stats_layout.addWidget(table(self.QtWidgets, rows, [("label", "Name"), ("count", "Count")], min_height=120))
+                box_layout.addWidget(bar_summary(self.QtWidgets, rows))
+            else:
+                box_layout.addWidget(label(self.QtWidgets, "No data yet.", "Muted"))
+            bars.addWidget(box, idx // 2, idx % 2)
+        self.stats_layout.addLayout(bars)
         self.stats_layout.addStretch(1)
+
+    def _normalize_stat_rows(self, rows: list[dict[str, Any]], keys: tuple[str, ...]) -> list[dict[str, Any]]:
+        normalized: list[dict[str, Any]] = []
+        for row in rows:
+            label_value = ""
+            for key in keys:
+                label_value = format_value(row.get(key))
+                if label_value:
+                    break
+            normalized.append({"label": label_value or "-", "count": row.get("count") or 0})
+        return normalized
 
     def _show_row_detail(self, row_idx: int, _col: int) -> None:
         if row_idx < 0 or row_idx >= len(self.rows):
             return
         row = self.rows[row_idx]
         self.detail_title.setText(str(row.get("flight_number") or row.get("callsign") or "Flight"))
-        lines = [f"{key}: {format_value(value)}" for key, value in row.items() if value not in (None, "")]
-        self.detail_text.setPlainText("\n".join(lines))
+        self.detail_text.setHtml(self._history_detail_html(row))
         self.detail.show()
+
+    def _history_detail_html(self, row: dict[str, Any]) -> str:
+        sections = [
+            ("Identity", [
+                ("Callsign", row.get("callsign")),
+                ("Flight No", row.get("flight_number")),
+                ("Airline", row.get("airline_iata")),
+                ("Direction", row.get("direction")),
+                ("Status", row.get("status")),
+            ]),
+            ("Route & Operations", [
+                ("From", row.get("origin_iata")),
+                ("To", row.get("dest_iata")),
+                ("Gate", row.get("gate")),
+                ("Terminal", row.get("terminal")),
+                ("Aircraft", row.get("aircraft_type")),
+            ]),
+            ("Timing", [
+                ("Scheduled", row.get("sched_time")),
+                ("Actual", row.get("actual_time")),
+                ("Delay", row.get("delay_minutes")),
+                ("Snapshot", row.get("snapshot_ts")),
+            ]),
+            ("Source", [
+                ("Source", row.get("source")),
+                ("Enriched by", row.get("enriched_by")),
+                ("Lat / Lon", f"{row.get('lat')}, {row.get('lon')}" if row.get("lat") is not None and row.get("lon") is not None else ""),
+                ("Altitude", self._altitude(row.get("altitude_m"))),
+            ]),
+        ]
+        parts = [
+            _detail_css(self.colors)
+        ]
+        for title, fields in sections:
+            rows = [(name, format_value(value)) for name, value in fields if format_value(value)]
+            if not rows:
+                continue
+            parts.append(f"<div class='section'><div class='label'>{html_escape(title)}</div>")
+            for name, value in rows:
+                parts.append(f"<div class='row'><span class='key'>{html_escape(name)}</span><span class='val'>{html_escape(value)}</span></div>")
+            parts.append("</div>")
+        return "".join(parts)
+
+    def _altitude(self, value: Any) -> str:
+        try:
+            meters = float(value)
+        except (TypeError, ValueError):
+            return ""
+        return f"{int(round(meters * 3.28084))} ft"
 
 
 class LogsScreen:  # pragma: no cover - optional Qt runtime
@@ -3114,6 +4158,9 @@ class FeedbackScreen:  # pragma: no cover - optional Qt runtime
     def __init__(self, QtWidgets: Any, client: LocalApiClient) -> None:
         self.client = client
         self.QtWidgets = QtWidgets
+        self._last_cfg: dict[str, Any] = {}
+        self._last_system: dict[str, Any] = {}
+        self._last_client_info: dict[str, Any] = {}
         self.widget, layout = scroll_page(QtWidgets)
         layout.addWidget(label(QtWidgets, "Report an Issue", "Title"))
         layout.addWidget(label(QtWidgets, "Your report is sanitized locally, forwarded through the hosted relay reporting gateway, and filed into the developer issue inbox.", "Muted", wrap=True))
@@ -3146,6 +4193,9 @@ class FeedbackScreen:  # pragma: no cover - optional Qt runtime
             client_info = self.client.get_json("/api/setup/client-info")
         except NativeApiError:
             return
+        self._last_cfg = cfg
+        self._last_system = sysinfo
+        self._last_client_info = client_info
         self.sysinfo.setPlainText(
             f"Airport: {cfg.get('airport_iata')}/{cfg.get('airport_icao')}\n"
             f"Source:  {cfg.get('source')}\n"
@@ -3174,15 +4224,50 @@ class FeedbackScreen:  # pragma: no cover - optional Qt runtime
                 {
                     "title": title,
                     "description": description,
-                    "client_context": "native/gui; screen=feedback",
+                    "client_context": self._client_context(),
                 },
             )
         except NativeApiError as exc:
             self.status.setText(f"Report failed: {exc}")
             self.send_button.setEnabled(True)
             return
-        self.status.setText(str(result.get("message") or "Report sent. Thank you."))
+        self.status.setText(self._status_message(result))
         self.send_button.setEnabled(True)
+
+    def _client_context(self) -> str:
+        cfg = self._last_cfg or {}
+        sysinfo = self._last_system or {}
+        client_info = self._last_client_info or {}
+        airport = cfg.get("airport_iata") or cfg.get("airport_icao") or "unknown"
+        parts = [
+            "native/gui",
+            "screen=feedback",
+            f"route=/api/feedback",
+            "owner=client",
+            f"app_version={sysinfo.get('version') or _app_version()}",
+            f"source={cfg.get('source') or 'unknown'}",
+            f"airport={airport}",
+            f"platform={sysinfo.get('platform') or 'unknown'}",
+        ]
+        if client_info.get("relay_url"):
+            parts.append("relay=configured")
+        if client_info.get("activation_token_present") or client_info.get("has_activation_token"):
+            parts.append("activation=present")
+        return "; ".join(parts)
+
+    def _status_message(self, result: dict[str, Any]) -> str:
+        message = str(result.get("message") or "").strip()
+        if not message:
+            if result.get("deduped"):
+                message = "Report already received recently; no duplicate Linear issue was created."
+            else:
+                message = "Report sent. Thank you."
+        extras: list[str] = []
+        if result.get("team"):
+            extras.append(f"queue {result.get('team')}")
+        if result.get("url"):
+            extras.append(str(result.get("url")))
+        return message if not extras else f"{message} ({' | '.join(extras)})"
 
 
 def _item(QtWidgets: Any, value: Any) -> Any:
@@ -3218,7 +4303,7 @@ def _banner(QtWidgets: Any, text: str, role: str) -> Any:
 
 
 def _weather_line(payload: dict[str, Any], *, raw: bool) -> str:
-    icon = payload.get("weather_icon") or ""
+    icon = _weather_icon_glyph(payload.get("weather_icon"))
     cat = payload.get("flight_cat") or "?"
     temp = payload.get("temperature_c")
     temp_text = f"{temp} C" if temp is not None else "-- C"
@@ -3227,16 +4312,46 @@ def _weather_line(payload: dict[str, Any], *, raw: bool) -> str:
     return f"{icon} {cat} | {temp_text} | {summary}" + (f" | {raw_text}" if raw and raw_text else "")
 
 
-def _budget_label(aviation: dict[str, Any], community: dict[str, Any]) -> str:
-    mode = str(aviation.get("active_mode") or aviation.get("mode") or community.get("mode") or "unknown")
-    used = aviation.get("calls_this_month") or community.get("calls_this_month") or 0
-    limit = aviation.get("monthly_limit") or community.get("monthly_limit") or 0
+def _weather_icon_glyph(icon_name: Any) -> str:
+    icon = str(icon_name or "unknown").strip().lower()
+    return {
+        "sun": chr(0x2600),
+        "partly": chr(0x26C5),
+        "cloud": chr(0x2601),
+        "rain": chr(0x2614),
+        "snow": chr(0x2744),
+        "fog": chr(0x224B),
+        "storm": chr(0x26A1),
+        "wind": chr(0x21C1),
+        "ice": chr(0x25C7),
+        "unknown": chr(0x2022),
+    }.get(icon, chr(0x2022))
+
+
+def _active_schedule_budget(aviation: dict[str, Any]) -> dict[str, Any]:
+    mode = str(aviation.get("active_mode") or aviation.get("mode") or "").strip().lower()
+    nested = aviation.get(mode)
+    if isinstance(nested, dict):
+        return nested
+    if mode == "community" and isinstance(aviation.get("community"), dict):
+        return aviation["community"]
+    if mode == "managed" and isinstance(aviation.get("managed"), dict):
+        return aviation["managed"]
+    if mode == "byok" and isinstance(aviation.get("byok"), dict):
+        return aviation["byok"]
+    return aviation
+
+
+def _budget_label(bucket: dict[str, Any]) -> str:
+    mode = str(bucket.get("active_mode") or bucket.get("mode") or "unknown")
+    used = bucket.get("calls_this_month") or 0
+    limit = bucket.get("monthly_limit") or 0
     return f"{used} / {limit}" if limit else mode
 
 
-def _budget_detail(aviation: dict[str, Any], community: dict[str, Any]) -> str:
-    remaining = aviation.get("remaining") or community.get("remaining")
-    reset = community.get("period_end") or aviation.get("period_end") or ""
+def _budget_detail(bucket: dict[str, Any]) -> str:
+    remaining = bucket.get("remaining")
+    reset = bucket.get("period_end") or ""
     parts = []
     if remaining is not None:
         parts.append(f"{remaining} requests left")
