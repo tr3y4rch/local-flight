@@ -23,16 +23,24 @@ def _version() -> str:
     return str(data["project"]["version"])
 
 
-def _tracked_files() -> list[Path]:
+def _release_files() -> list[Path]:
+    """
+    Build source bundles from tracked files plus non-ignored local additions.
+
+    The Pi bundle is often used for pre-release hardware tests before a commit
+    exists. Using only tracked files can silently omit new modules and produce a
+    broken install, while --exclude-standard still keeps secrets/build outputs
+    protected by .gitignore.
+    """
     try:
         raw = subprocess.check_output(
-            ["git", "ls-files", "-z"],
+            ["git", "ls-files", "--cached", "--others", "--exclude-standard", "-z"],
             cwd=ROOT,
         )
     except (FileNotFoundError, subprocess.CalledProcessError) as exc:
-        raise SystemExit(f"Could not list tracked files with git: {exc}") from exc
+        raise SystemExit(f"Could not list release files with git: {exc}") from exc
 
-    paths = [Path(item) for item in raw.decode("utf-8").split("\0") if item]
+    paths = sorted({Path(item) for item in raw.decode("utf-8").split("\0") if item})
     return [
         path
         for path in paths
@@ -56,7 +64,7 @@ def main() -> None:
     stage_dir.mkdir(parents=True, exist_ok=True)
     DIST_DIR.mkdir(parents=True, exist_ok=True)
 
-    for rel_path in _tracked_files():
+    for rel_path in _release_files():
         source = ROOT / rel_path
         target = stage_dir / rel_path
         target.parent.mkdir(parents=True, exist_ok=True)

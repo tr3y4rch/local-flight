@@ -19,6 +19,7 @@ if not exist "%ROOT%\src\localflight\__main__.py" (
     exit /b 1
 )
 
-cd /d "%ROOT%\src"
+if "%LOCALFLIGHT_GUI_MODE%"=="" set "LOCALFLIGHT_GUI_MODE=native"
+cd /d "%ROOT%"
 start "" "%PYTHON%" -m localflight
 exit /b 0

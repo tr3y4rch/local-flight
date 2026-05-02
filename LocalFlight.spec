@@ -23,12 +23,13 @@ uvi_d,      uvi_b,      uvi_h      = collect_all("uvicorn")
 fapi_d,     fapi_b,     fapi_h     = collect_all("fastapi")
 anyio_d,    anyio_b,    anyio_h    = collect_all("anyio")
 starlette_d,starlette_b,starlette_h= collect_all("starlette")
+qt_d,       qt_b,       qt_h       = collect_all("PySide6")
 
 a = Analysis(
     ["src/localflight/__main__.py"],
     pathex=["src"],
 
-    binaries=uvi_b + fapi_b + anyio_b + starlette_b,
+    binaries=uvi_b + fapi_b + anyio_b + starlette_b + qt_b,
 
     datas=[
         # App resources â€” must mirror the path that Path(__file__).parent resolves to
@@ -39,7 +40,7 @@ a = Analysis(
         ("CHANGELOG.md",                   "localflight/ui/docs"),
         ("src/localflight/decode/mappings", "localflight/decode/mappings"),
         ("src/localflight/storage/samples", "localflight/storage/samples"),
-    ] + uvi_d + fapi_d + anyio_d + starlette_d + collect_data_files("tzdata"),
+    ] + uvi_d + fapi_d + anyio_d + starlette_d + qt_d + collect_data_files("tzdata"),
 
     hiddenimports=[
         # â”€â”€ pystray + PIL: conditionally imported inside build_tray() â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -67,7 +68,16 @@ a = Analysis(
         "localflight.platform.detect",
         "localflight.platform.browser",
         "localflight.platform.tray",
-    ] + uvi_h + fapi_h + anyio_h + starlette_h,
+        "localflight.platform.gui_mode",
+        "localflight.native",
+        "localflight.native.api_client",
+        "localflight.native.app",
+        "localflight.native.network_admin",
+        "localflight.native.qt_compat",
+        "PySide6.QtCore",
+        "PySide6.QtGui",
+        "PySide6.QtWidgets",
+    ] + uvi_h + fapi_h + anyio_h + starlette_h + qt_h,
 
     excludes=["pytest", "httpx", "IPython", "matplotlib", "numpy", "tkinter"],
 

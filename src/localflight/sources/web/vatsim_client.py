@@ -4,6 +4,11 @@ localflight/sources/web/vatsim_client.py
 Fetches live VATSIM traffic from the public Data API v3 and normalises
 it into the flat record format consumed by decode/normalize.py.
 
+Privacy rule:
+  Local Flight intentionally keeps VATSIM flight/network information only.
+  Do not persist or expose pilot/controller names, CIDs, account IDs, or other
+  person-identifying fields from the VATSIM feed.
+
 VATSIM Data v3 endpoint (no auth required, ~15s update cycle):
   https://data.vatsim.net/v3/vatsim-data.json
 
@@ -89,6 +94,54 @@ def fetch_vatsim_data(*, timeout_s: int = _TIMEOUT_S) -> Dict[str, Any]:
 
     log.debug("VATSIM: fetched %d pilots", len(data.get("pilots") or []))
     return data
+
+
+def vatsim_metar_for_airport(payload: Dict[str, Any], *, airport_icao: str) -> Optional[str]:
+    """
+    Return only the raw METAR text embedded in VATSIM ATIS for an airport.
+
+    This intentionally drops ATC names, CIDs, frequencies, and free-text remarks
+    that are not part of the METAR line.
+    """
+    airport = (airport_icao or "").strip().upper()
+    if not airport:
+        return None
+
+    for atis in payload.get("atis") or []:
+        if not isinstance(atis, dict):
+            continue
+        callsign = str(atis.get("callsign") or "").strip().upper()
+        if callsign and not callsign.startswith(airport):
+            continue
+        raw = _extract_metar_from_atis_text(atis.get("text_atis"), airport)
+        if raw:
+            return raw
+    return None
+
+
+def _extract_metar_from_atis_text(value: Any, airport_icao: str) -> Optional[str]:
+    if value is None:
+        return None
+    lines = value if isinstance(value, list) else str(value).splitlines()
+    airport = airport_icao.upper()
+
+    for item in lines:
+        text = re.sub(r"\s+", " ", str(item or "").strip())
+        if not text:
+            continue
+        upper = text.upper()
+        if "METAR " in upper:
+            idx = upper.find("METAR ")
+            candidate = text[idx:].strip()
+        elif upper.startswith(f"{airport} "):
+            candidate = text.strip()
+        else:
+            continue
+
+        candidate = candidate.replace("=", "").strip()
+        if airport in candidate.upper() and re.search(r"\b\d{6}Z\b", candidate.upper()):
+            return candidate
+    return None
 
 
 def _extract_aircraft_type(raw: Optional[str]) -> Optional[str]:

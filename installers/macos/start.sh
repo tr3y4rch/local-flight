@@ -6,6 +6,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 VENV="$ROOT/.venv"
+REQUESTED_GUI_MODE="${LOCALFLIGHT_GUI_MODE:-}"
 
 echo ""
 echo " =========================================="
@@ -20,7 +21,11 @@ if [ ! -x "$VENV/bin/python" ]; then
 fi
 
 echo " Checking dependencies..."
-"$VENV/bin/python" -m pip install -e "$ROOT" -q
+"$VENV/bin/python" -m pip install -e "${ROOT}[native]" -q
+"$VENV/bin/python" - <<'PY'
+from PySide6 import QtCore
+print(f" PySide6/Qt OK: {QtCore.qVersion()}")
+PY
 echo " Dependencies OK"
 
 if [ -f "$ROOT/.env" ]; then
@@ -30,8 +35,13 @@ if [ -f "$ROOT/.env" ]; then
     set +a
     echo " Loaded .env"
 fi
+if [ -n "$REQUESTED_GUI_MODE" ]; then
+    export LOCALFLIGHT_GUI_MODE="$REQUESTED_GUI_MODE"
+elif [ -z "${LOCALFLIGHT_GUI_MODE:-}" ]; then
+    export LOCALFLIGHT_GUI_MODE="native"
+fi
 
-cd "$ROOT/src"
 echo " Launching Local Flight..."
+echo " GUI mode: ${LOCALFLIGHT_GUI_MODE:-auto}"
 echo ""
 exec "$VENV/bin/python" -m localflight

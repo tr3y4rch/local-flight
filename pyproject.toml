@@ -33,6 +33,10 @@ dev = [
   "httpx",
   "pytest",
   "pyinstaller>=6.0",
+  "PySide6>=6.7",
+]
+native = [
+  "PySide6>=6.7",
 ]
 
 [project.urls]
@@ -42,6 +46,8 @@ Issues    = "https://github.com/tr3y4rch/local-flight/issues"
 [project.scripts]
 localflight-ui        = "localflight.ui.server:app"
 localflight-scheduler = "localflight.scheduler.run_scheduler:main"
+localflight-native    = "localflight.native.app:main"
+localflight-network-admin = "localflight.native.network_admin:main"
 
 [tool.setuptools]
 package-dir = { "" = "src" }

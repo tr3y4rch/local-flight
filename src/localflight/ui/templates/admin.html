@@ -46,6 +46,31 @@
     gap: 8px;
   }
   .hub-card h2 .icon { font-size: 1rem; opacity: 1; }
+  .weather-hero {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin: 4px 0 12px;
+    padding: 12px;
+    border-radius: 12px;
+    border: 1px solid rgba(255,255,255,0.08);
+    background: linear-gradient(135deg, rgba(74,158,218,0.10), rgba(255,255,255,0.03));
+  }
+  [data-theme="light"] .weather-hero { border-color: rgba(0,0,0,0.08); background: linear-gradient(135deg, rgba(74,158,218,0.10), rgba(0,0,0,0.025)); }
+  .weather-hero.good { background: linear-gradient(135deg, rgba(0,192,64,0.14), rgba(255,255,255,0.03)); }
+  .weather-hero.caution { background: linear-gradient(135deg, rgba(240,180,41,0.15), rgba(255,255,255,0.03)); }
+  .weather-hero.bad { background: linear-gradient(135deg, rgba(255,64,64,0.16), rgba(255,255,255,0.03)); }
+  .weather-hero-icon {
+    width: 46px; height: 46px; border-radius: 16px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.45rem;
+    background: rgba(255,255,255,0.08);
+    border: 1px solid rgba(255,255,255,0.08);
+    flex-shrink: 0;
+  }
+  [data-theme="light"] .weather-hero-icon { background: rgba(0,0,0,0.05); border-color: rgba(0,0,0,0.08); }
+  .weather-hero-title { font-weight: 900; font-size: 1rem; }
+  .weather-hero-sub { margin-top: 3px; opacity: 0.65; font-size: 0.78rem; line-height: 1.35; }
   .stat-row {
     display: flex;
     justify-content: space-between;
@@ -234,6 +259,13 @@
 
     <div class="hub-card">
       <h2><span class="icon">🌤</span> Airport Weather</h2>
+      <div class="weather-hero" id="weatherHero">
+        <div class="weather-hero-icon" id="weatherIcon">&#8226;</div>
+        <div>
+          <div class="weather-hero-title" id="weatherLabel">Weather loading</div>
+          <div class="weather-hero-sub" id="weatherSummary">Waiting for METAR decode</div>
+        </div>
+      </div>
       <div class="stat-row"><span class="stat-label">Category</span><span class="stat-val" id="metarCat">—</span></div>
       <div class="stat-row"><span class="stat-label">Wind</span><span class="stat-val mono" id="metarWind">—</span></div>
       <div class="stat-row"><span class="stat-label">Visibility</span><span class="stat-val mono" id="metarVis">—</span></div>
@@ -282,6 +314,15 @@
 <script>
 (function () {
   function el(id) { return document.getElementById(id); }
+  const WEATHER_ICONS = {
+    sun: "&#9728;", partly: "&#9925;", cloud: "&#9729;", rain: "&#9748;",
+    snow: "&#10052;", fog: "&#8779;", storm: "&#9889;", wind: "&#8641;",
+    ice: "&#9671;", unknown: "&#8226;"
+  };
+  function weatherIcon(name) { return WEATHER_ICONS[name] || WEATHER_ICONS.unknown; }
+  function safeColor(value) {
+    return /^#[0-9a-f]{3,8}$/i.test(value || "") ? value : "#888";
+  }
   function statLabelFor(id) { return el(id)?.closest(".stat-row")?.querySelector(".stat-label"); }
   function setStatLabel(id, text) {
     const node = statLabelFor(id);
@@ -552,7 +593,16 @@
     try {
       const r = await fetch("/api/metar"); if (!r.ok) return;
       const m = await r.json();
-      const catColor = m.flight_cat_color || "#888";
+      const tone = ["good","neutral","caution","bad"].includes(m.weather_tone) ? m.weather_tone : "neutral";
+      const hero = el("weatherHero");
+      if (hero) {
+        hero.classList.remove("good","neutral","caution","bad");
+        hero.classList.add(tone);
+      }
+      el("weatherIcon").innerHTML = weatherIcon(m.weather_icon);
+      el("weatherLabel").textContent = m.weather_label || "Weather observed";
+      el("weatherSummary").textContent = m.weather_summary || m.decoded_summary || "METAR decoded locally";
+      const catColor = safeColor(m.flight_cat_color);
       el("metarCat").innerHTML = `<span style="background:${catColor};color:#000;padding:2px 8px;border-radius:4px;font-weight:800;font-size:0.72rem">${m.flight_cat||'?'}</span>`;
       el("metarWind").textContent = m.wind_dir_deg != null ? `${m.wind_dir_deg}° @ ${m.wind_speed_kt}kt${m.wind_gust_kt?` G${m.wind_gust_kt}kt`:""}` : "CALM";
       el("metarVis").textContent  = m.visibility_m != null ? (m.visibility_m >= 9999 ? "10km+" : `${Math.round(m.visibility_m/100)*100}m`) : "—";

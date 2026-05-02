@@ -140,6 +140,7 @@ def _write_launcher(macos_dir: Path, project_root: Path, venv: Path) -> None:
         #!/usr/bin/env bash
         ROOT="{project_root}"
         VENV="{venv}"
+        REQUESTED_GUI_MODE="${{LOCALFLIGHT_GUI_MODE:-}}"
 
         if [ ! -x "$VENV/bin/python" ]; then
             osascript -e 'display alert "Local Flight" message "Virtual environment not found.\\nRun installers/macos/install.sh first." as critical'
@@ -153,7 +154,12 @@ def _write_launcher(macos_dir: Path, project_root: Path, venv: Path) -> None:
             set +a
         fi
 
-        cd "$ROOT/src"
+        if [ -n "$REQUESTED_GUI_MODE" ]; then
+            export LOCALFLIGHT_GUI_MODE="$REQUESTED_GUI_MODE"
+        elif [ -z "${{LOCALFLIGHT_GUI_MODE:-}}" ]; then
+            export LOCALFLIGHT_GUI_MODE="native"
+        fi
+
         exec "$VENV/bin/python" -m localflight
     """)
     sh = macos_dir / "launcher.sh"

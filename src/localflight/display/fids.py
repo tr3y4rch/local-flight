@@ -24,6 +24,8 @@ class FIDSRow:
     gate:           str   # "A12" or "-"
     aircraft_type:  str   # "A320" or "-"
     callsign:       str = ""
+    airline_display: str = ""  # "SWISS"
+    codeshare_display: str = ""  # "Also UA 123 / AC 456"
 
 
 def _parse_dt(value: Optional[str]) -> Optional[datetime]:
@@ -148,6 +150,11 @@ def decoded_to_fids_row(decoded: dict[str, Any], *, view: FidsView) -> FIDSRow:
         scheduled=sched,
         estimated=est,
     )
+    status_class = status_display.lower().replace(" ", "-")
+    if status_class.startswith("delayed"):
+        status_class = "delayed"
+    elif status_class == "on-time":
+        status_class = "scheduled"
 
     aircraft_type = str(decoded.get("aircraft_type") or "").strip() or "-"
     flight_display = str(decoded.get("flight_display") or "").strip() or "-"
@@ -163,6 +170,7 @@ def decoded_to_fids_row(decoded: dict[str, Any], *, view: FidsView) -> FIDSRow:
         flight_display=flight_display,
         route_display=route_display,
         status_display=status_display,
+        status_class=status_class,
         gate=gate or "-",
         aircraft_type=aircraft_type,
     )

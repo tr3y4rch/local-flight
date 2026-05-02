@@ -9,6 +9,7 @@ from localflight.core.models import (
     AirlineRef,
     FlightTime,
 )
+from localflight.decode.mappings.airlines import normalize_airline
 
 
 def parse_time(value: str | None) -> datetime | None:
@@ -31,6 +32,27 @@ def _parse_optional_int(value: object) -> int | None:
         return int(float(text))
     except (TypeError, ValueError):
         return None
+
+
+def _parse_codeshares(value: object) -> tuple[str, ...]:
+    if value is None:
+        return ()
+    if isinstance(value, str):
+        items = [value]
+    elif isinstance(value, (list, tuple, set)):
+        items = list(value)
+    else:
+        return ()
+
+    out: list[str] = []
+    seen: set[str] = set()
+    for item in items:
+        text = str(item or "").strip().upper()
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        out.append(text)
+    return tuple(out)
 
 
 def normalize_flights(
@@ -71,17 +93,25 @@ def normalize_flights(
             estimated=parse_time(record.get("estimated")),
             actual=parse_time(record.get("actual")),
         )
+        airline = normalize_airline(
+            name=record.get("airline_name"),
+            iata=record.get("airline_iata"),
+            icao=record.get("airline_icao"),
+            callsign=callsign,
+            flight_number=record.get("flight_number"),
+        )
 
         flight = Flight(
             direction=direction,
             airport=airport,
             callsign=callsign,
             airline=AirlineRef(
-                name=record.get("airline_name"),
-                iata=record.get("airline_iata"),
-                icao=record.get("airline_icao"),
+                name=airline.get("name"),
+                iata=airline.get("iata"),
+                icao=airline.get("icao"),
             ),
             flight_number=record.get("flight_number"),
+            codeshares=_parse_codeshares(record.get("codeshares")),
             origin=AirportRef(
                 iata=record.get("origin_iata"),
                 icao=record.get("origin_icao"),

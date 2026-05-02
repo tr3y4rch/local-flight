@@ -6,6 +6,7 @@ from typing import Literal, Optional
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from localflight.core.models import Flight, FlightDirection, FlightStatus
+from localflight.decode.mappings.airlines import format_flight_identifier
 from localflight.decode.mappings.airports import format_airport
 from localflight.display.fids import FIDSRow, FidsView
 
@@ -42,21 +43,30 @@ def _route_display_from_code(code: str) -> str:
 
 
 def _format_flight_number(f: Flight) -> str:
-    fn = (f.flight_number or "").strip()
-    if fn:
-        if len(fn) > 2 and fn[:2].isalpha() and fn[2:].isdigit():
-            return f"{fn[:2]} {fn[2:]}"
-        if len(fn) > 3 and fn[:3].isalpha() and fn[3:].isdigit():
-            return f"{fn[:3]} {fn[3:]}"
-        return fn
-    cs = (f.callsign or "").strip()
-    if cs:
-        if len(cs) > 3 and cs[:3].isalpha() and cs[3:].isdigit():
-            return f"{cs[:3]} {cs[3:]}"
-        if len(cs) > 2 and cs[:2].isalpha() and cs[2:].isdigit():
-            return f"{cs[:2]} {cs[2:]}"
-        return cs
-    return "-"
+    return format_flight_identifier(
+        flight_number=f.flight_number,
+        callsign=f.callsign,
+        airline_iata=f.airline.iata if f.airline else None,
+        airline_icao=f.airline.icao if f.airline else None,
+    )
+
+
+def _airline_display(f: Flight) -> str:
+    if f.airline and f.airline.name:
+        return f.airline.name
+    if f.airline and f.airline.code():
+        return f.airline.code()
+    return ""
+
+
+def _codeshare_display(f: Flight) -> str:
+    values = [str(item or "").strip().upper() for item in f.codeshares]
+    values = [item for item in values if item]
+    if not values:
+        return ""
+    shown = values[:4]
+    suffix = f" +{len(values) - len(shown)}" if len(values) > len(shown) else ""
+    return "Also " + " / ".join(shown) + suffix
 
 
 def _nm_between(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -142,8 +152,9 @@ def flight_to_fids_row(
     view: FidsView,
     airport_lat: Optional[float] = None,
     airport_lon: Optional[float] = None,
+    display_tz: Optional[ZoneInfo] = None,
 ) -> FIDSRow:
-    tz = _resolve_tz(f)
+    tz = display_tz or _resolve_tz(f)
     t  = _best_time(f)
     display_time = _to_local_hhmm(t, tz) or "--:--"
 
@@ -153,6 +164,8 @@ def flight_to_fids_row(
         display_time = f"{display_time} ({sign}{abs(dly)})"
 
     flight_display = _format_flight_number(f)
+    airline_display = _airline_display(f)
+    codeshare_display = _codeshare_display(f)
 
     other = f.destination if view == "departures" else f.origin
     route_display = _route_display_from_code(other.code() if other else "")
@@ -168,6 +181,8 @@ def flight_to_fids_row(
         view=view,
         display_time=display_time,
         flight_display=flight_display,
+        airline_display=airline_display,
+        codeshare_display=codeshare_display,
         route_display=route_display,
         status_display=status_display,
         status_class=status_class,

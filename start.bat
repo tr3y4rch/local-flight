@@ -29,6 +29,7 @@ if "%PYTHON%"=="" (
     exit /b 1
 )
 echo  Python found (%PYTHON%)
+set "LF_REQUESTED_GUI_MODE=%LOCALFLIGHT_GUI_MODE%"
 
 :: -- Create venv if missing ----------------------------------------------------------
 if not exist "%~dp0.venv\Scripts\activate.bat" (
@@ -49,11 +50,30 @@ echo  Venv activated
 :: -- Install / update dependencies --------------------------------------------------
 echo  Checking dependencies...
 cd /d "%~dp0"
-python -m pip install -e . -q
+if "%LOCALFLIGHT_GUI_MODE%"=="" set "LOCALFLIGHT_GUI_MODE=native"
+echo  GUI mode: %LOCALFLIGHT_GUI_MODE%
+
+if /i "%LOCALFLIGHT_GUI_MODE%"=="native" (
+    echo  Installing native GUI dependencies...
+    python -m pip install -e ".[native]" -q
+) else (
+    python -m pip install -e . -q
+)
 if errorlevel 1 (
     echo  ERROR: Dependency installation failed.
+    echo  Native GUI mode needs PySide6. If you want the old browser fallback for dev only:
+    echo    set LOCALFLIGHT_GUI_MODE=browser
+    echo    start.bat
     pause
     exit /b 1
+)
+if /i "%LOCALFLIGHT_GUI_MODE%"=="native" (
+    python -c "from PySide6.QtCore import qVersion; print(' PySide6/Qt OK: Qt ' + qVersion())"
+    if errorlevel 1 (
+        echo  ERROR: PySide6/Qt is not importable after dependency installation.
+        pause
+        exit /b 1
+    )
 )
 echo  Dependencies OK
 
@@ -75,14 +95,16 @@ if exist "%~dp0.env" (
     echo  Copy .env.example to .env and fill in your keys.
     echo.
 )
-
-:: -- Move to src ---------------------------------------------------------------------
-cd /d "%~dp0src"
+if not "%LF_REQUESTED_GUI_MODE%"=="" set "LOCALFLIGHT_GUI_MODE=%LF_REQUESTED_GUI_MODE%"
+if "%LOCALFLIGHT_GUI_MODE%"=="" set "LOCALFLIGHT_GUI_MODE=native"
 
 :: -- Launch Local Flight -------------------------------------------------------------
 echo  Launching Local Flight...
-echo  Tray icon will appear in system tray.
-echo  Right-click tray icon to open UI or quit.
+if /i "%LOCALFLIGHT_GUI_MODE%"=="native" (
+    echo  Native Qt GUI will open. Local LAN web UI remains available at http://localhost:8000
+) else (
+    echo  Browser fallback will open. Right-click tray icon to open UI or quit.
+)
 echo.
 python -m localflight
 

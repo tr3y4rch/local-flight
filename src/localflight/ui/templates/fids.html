@@ -79,6 +79,26 @@
     transition: background 0.2s;
   }
   [data-theme="light"] .metar-bar { background: rgba(0,0,0,0.03); border-color: rgba(0,0,0,0.07); }
+  .metar-bar.weather-tone-good { border-color: rgba(0,192,64,0.22); background: linear-gradient(90deg, rgba(0,192,64,0.10), rgba(255,255,255,0.025)); }
+  .metar-bar.weather-tone-neutral { border-color: rgba(74,158,218,0.20); background: linear-gradient(90deg, rgba(74,158,218,0.10), rgba(255,255,255,0.025)); }
+  .metar-bar.weather-tone-caution { border-color: rgba(240,180,41,0.24); background: linear-gradient(90deg, rgba(240,180,41,0.11), rgba(255,255,255,0.025)); }
+  .metar-bar.weather-tone-bad { border-color: rgba(255,64,64,0.28); background: linear-gradient(90deg, rgba(255,64,64,0.12), rgba(255,255,255,0.025)); }
+  .weather-icon {
+    width: 28px; height: 28px; border-radius: 999px;
+    display: inline-flex; align-items: center; justify-content: center;
+    flex-shrink: 0; font-size: 1.05rem; line-height: 1;
+    background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.08);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.08);
+  }
+  [data-theme="light"] .weather-icon { background: rgba(0,0,0,0.05); border-color: rgba(0,0,0,0.08); }
+  .weather-temp {
+    font-weight: 900; font-size: 0.72rem; letter-spacing: 0.04em;
+    padding: 3px 8px; border-radius: 999px;
+    background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.08);
+    white-space: nowrap; flex-shrink: 0;
+  }
+  .weather-label { font-weight: 900; letter-spacing: 0.02em; white-space: nowrap; }
+  .weather-summary { opacity: 0.78; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .metar-cat {
     font-weight: 900; font-size: 0.68rem; padding: 3px 8px;
     border-radius: 5px; color: #000; flex-shrink: 0;
@@ -157,6 +177,17 @@
   .fids-flight {
     font-size: 0.92rem; font-weight: 700; letter-spacing: 0.02em;
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  }
+  .fids-flight-stack { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .fids-airline-name {
+    font-size: 0.66rem; font-weight: 800; letter-spacing: 0.04em;
+    color: var(--muted); text-transform: uppercase;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .fids-codeshares {
+    font-size: 0.62rem; font-weight: 700; letter-spacing: 0.03em;
+    color: var(--accent); opacity: 0.72;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
 
   /* Route cell */
@@ -380,6 +411,20 @@
   .fids-err-banner a { color: inherit; opacity: 0.8; text-decoration: underline; margin-left: auto; white-space: nowrap; }
   .fids-err-icon { flex-shrink: 0; }
   .fids-err-msg  { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  .fids-info-banner {
+    display: none; align-items: center; gap: 10px; flex-shrink: 0;
+    padding: 7px 12px; border-radius: 8px; margin-bottom: 8px;
+    background: rgba(74,158,218,0.10); border: 1px solid rgba(74,158,218,0.24);
+    font-size: 0.78rem; color: #7ab0d8;
+  }
+  .fids-info-banner.visible { display: flex; }
+  .fids-info-dot {
+    width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0;
+    background: #4a9eda; box-shadow: 0 0 8px rgba(74,158,218,0.55);
+    animation: lf-pulse 1.4s ease-in-out infinite;
+  }
+  .fids-info-msg { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 {% endblock %}
 
 {% block body %}
@@ -423,6 +468,13 @@
     <a href="/admin">Admin →</a>
   </div>
 
+  <div class="fids-info-banner{% if rows|length == 0 %} visible{% endif %}" id="fidsInfoBanner">
+    <span class="fids-info-dot"></span>
+    <span class="fids-info-msg" id="fidsInfoMsg">
+      Fetching schedule data. If Community Relay is warming this airport, it can take a moment.
+    </span>
+  </div>
+
   <!-- Flight table -->
   <div class="table-wrap">
     <table id="fidsTable">
@@ -432,7 +484,7 @@
       </colgroup>
       <thead>
         <tr>
-          <th>Time</th>
+          <th>Time (LT)</th>
           <th>Flight</th>
           <th>{{ "From" if view == "arrivals" else "To" }}</th>
           <th>Status</th>
@@ -448,7 +500,13 @@
             <span class="fids-hhmm">{{ tparts[0] }}</span>
             {% if tparts|length > 1 %}<span class="fids-delay-tag">{{ tparts[1][:-1] }}</span>{% endif %}
           </td>
-          <td><span class="fids-flight">{{ r.flight_display }}</span></td>
+          <td>
+            <div class="fids-flight-stack">
+              <span class="fids-flight">{{ r.flight_display }}</span>
+              {% if r.airline_display %}<span class="fids-airline-name">{{ r.airline_display }}</span>{% endif %}
+              {% if r.codeshare_display %}<span class="fids-codeshares">{{ r.codeshare_display }}</span>{% endif %}
+            </div>
+          </td>
           <td class="fids-route">{{ r.route_display }}</td>
           <td>
             <span class="fids-badge badge-{{ r.status_class }}">
@@ -533,9 +591,18 @@ const WEB_ROW_LIMIT = {{ cfg.web_row_limit }};
 const WEB_ROTATION_SECONDS = {{ cfg.web_rotation_seconds }};
 const DISPLAY_GRACE_MINUTES = {{ cfg.display_grace_minutes }};
 const DISPLAY_HORIZON_HOURS = {{ cfg.display_horizon_hours }};
+const INITIAL_ROW_COUNT = {{ rows|length }};
 let latestRows = [];
 let latestPageIndex = 0;
 let rotationTimer = null;
+
+function setFidsInfo(message, visible) {
+  const banner = document.getElementById("fidsInfoBanner");
+  const msg = document.getElementById("fidsInfoMsg");
+  if (!banner) return;
+  if (msg && message) msg.textContent = message;
+  banner.classList.toggle("visible", Boolean(visible));
+}
 
 function chunkRows(rows, pageSize) {
   const pages = [];
@@ -575,21 +642,40 @@ function scheduleRotation() {
 }
 
 /* ── Render helpers ──────────────────────────────────────────────────────── */
+function esc(v) {
+  return String(v ?? "").replace(/[&<>"']/g, c => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;"
+  }[c]));
+}
+
 function renderTime(s) {
   const m = s.match(/^(\d{2}:\d{2})(?:\s+\(([+-]?\d+)\))?$/);
-  if (!m) return `<span class="fids-hhmm">${s}</span>`;
+  if (!m) return `<span class="fids-hhmm">${esc(s)}</span>`;
   const delay = m[2] ? `<span class="fids-delay-tag">${m[2]}</span>` : "";
   return `<span class="fids-hhmm">${m[1]}</span>${delay}`;
 }
 
 function renderBadge(cls, text) {
-  return `<span class="fids-badge badge-${cls||'scheduled'}"><span class="fids-bdot"></span>${text}</span>`;
+  return `<span class="fids-badge badge-${esc(cls||'scheduled')}"><span class="fids-bdot"></span>${esc(text)}</span>`;
 }
 
 function renderGate(g) {
   return (g && g !== "-")
-    ? `<span class="fids-gate-val">${g}</span>`
+    ? `<span class="fids-gate-val">${esc(g)}</span>`
     : `<span class="fids-gate-empty">—</span>`;
+}
+
+function renderFlightCell(r) {
+  const airline = r.airline_display
+    ? `<span class="fids-airline-name">${esc(r.airline_display)}</span>`
+    : "";
+  const codeshares = r.codeshare_display
+    ? `<span class="fids-codeshares">${esc(r.codeshare_display)}</span>`
+    : "";
+  return `<div class="fids-flight-stack">
+    <span class="fids-flight">${esc(r.flight_display || r.callsign || "-")}</span>
+    ${airline}${codeshares}
+  </div>`;
 }
 
 function renderRows(rows) {
@@ -604,27 +690,47 @@ function renderRows(rows) {
       </div></td></tr>`;
   }
   return rows.map((r, i) => `
-    <tr class="fids-row fids-row-${r.status_class||'scheduled'}" data-callsign="${r.callsign||''}" style="animation-delay:${i*40}ms">
+    <tr class="fids-row fids-row-${esc(r.status_class||'scheduled')}" data-callsign="${esc(r.callsign||'')}" style="animation-delay:${i*40}ms">
       <td>${renderTime(r.display_time)}</td>
-      <td><span class="fids-flight">${r.flight_display}</span></td>
-      <td class="fids-route">${r.route_display}</td>
+      <td>${renderFlightCell(r)}</td>
+      <td class="fids-route">${esc(r.route_display)}</td>
       <td>${renderBadge(r.status_class, r.status_display)}</td>
       <td>${renderGate(r.gate)}</td>
-      <td><span class="fids-ac">${r.aircraft_type}</span></td>
+      <td><span class="fids-ac">${esc(r.aircraft_type)}</span></td>
     </tr>`).join("");
 }
 
 /* ── METAR ───────────────────────────────────────────────────────────────── */
 (function () {
   const bar = document.getElementById("metarBar");
+  const icons = {
+    sun: "&#9728;", partly: "&#9925;", cloud: "&#9729;", rain: "&#9748;",
+    snow: "&#10052;", fog: "&#8779;", storm: "&#9889;", wind: "&#8641;",
+    ice: "&#9671;", unknown: "&#8226;"
+  };
+  function weatherIcon(name) { return icons[name] || icons.unknown; }
+  function esc(v) {
+    return String(v ?? "").replace(/[&<>"']/g, c => ({
+      "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;"
+    }[c]));
+  }
+  function safeColor(value) {
+    return /^#[0-9a-f]{3,8}$/i.test(value || "") ? value : "#888";
+  }
   async function load() {
     try {
       const r = await fetch("/api/metar"); if (!r.ok) throw new Error();
       const m = await r.json();
+      const tone = ["good","neutral","caution","bad"].includes(m.weather_tone) ? m.weather_tone : "neutral";
+      bar.classList.remove("weather-tone-good","weather-tone-neutral","weather-tone-caution","weather-tone-bad");
+      bar.classList.add(`weather-tone-${tone}`);
+      const temp = Number.isFinite(Number(m.temp_c)) ? `${Math.round(Number(m.temp_c))}&deg;C` : "--&deg;C";
       bar.innerHTML =
-        `<span class="metar-cat" style="background:${m.flight_cat_color||'#888'}">${m.flight_cat||'?'}</span>` +
-        `<span class="metar-decoded">${m.decoded_summary||''}</span>`;
+        `<span class="weather-icon">${weatherIcon(m.weather_icon)}</span>` +
+        `<span class="weather-temp">${temp}</span>` +
+        `<span class="weather-summary">${esc(m.decoded_summary || m.weather_summary || "")}</span>`;
     } catch {
+      bar.classList.remove("weather-tone-good","weather-tone-neutral","weather-tone-caution","weather-tone-bad");
       bar.innerHTML = '<span class="metar-loading">Weather unavailable</span>';
     }
   }
@@ -655,16 +761,31 @@ async function checkSchedulerHealth() {
 
 /* ── FIDS refresh ────────────────────────────────────────────────────────── */
 async function refreshFIDS() {
+  const hadRows = latestRows.length > 0 || INITIAL_ROW_COUNT > 0;
+  if (!hadRows) {
+    setFidsInfo("Fetching schedule data. If Community Relay is warming this airport, it can take a moment.", true);
+  }
   try {
     const fetchLimit = Math.min(WEB_ROW_LIMIT * 4, 100);
     const r = await fetch(`/api/fids?view=${FIDS_VIEW}&limit=${fetchLimit}`);
-    if (!r.ok) return;
+    if (!r.ok) {
+      if (!hadRows) setFidsInfo("Waiting for schedule data. Retrying shortly.", true);
+      return;
+    }
     latestRows = await r.json();
     latestPageIndex = 0;
+    if (latestRows.length) {
+      setFidsInfo("", false);
+    } else {
+      setFidsInfo("No rows yet. The relay may still be warming this airport, or the current window is quiet.", true);
+    }
     renderActiveRows();
     scheduleRotation();
     checkSchedulerHealth();
-  } catch (e) { console.warn("FIDS refresh failed:", e); }
+  } catch (e) {
+    if (!hadRows) setFidsInfo("Waiting for schedule data. Retrying shortly.", true);
+    console.warn("FIDS refresh failed:", e);
+  }
 }
 
 /* ── Flight detail drawer ────────────────────────────────────────────────── */
@@ -745,17 +866,20 @@ async function refreshFIDS() {
     const virtual = isVirtualDetail(d);
     document.getElementById("fdOpsLabel").textContent = virtual ? "Virtual Flight" : "Operations & Aircraft";
     document.getElementById("fdDataLabel").textContent = virtual ? "VATSIM Data" : "Data Sources";
-    document.getElementById("fdPosLabel").textContent = virtual ? "Pilot Track" : "Live Track";
+    document.getElementById("fdPosLabel").textContent = virtual ? "Aircraft Track" : "Live Track";
 
     // Header
     document.getElementById("fdFlightNum").textContent =
-      d.flight_number ? d.flight_number.replace(/^([A-Z]{2,3})(\d)/, "$1 $2") : (d.callsign || "—");
+      d.flight_display || (d.flight_number ? d.flight_number.replace(/^([A-Z0-9]{2,3})(\d)/, "$1 $2") : (d.callsign || "—"));
 
     const origin = d.origin_name ? `${d.origin_name} (${d.origin_iata})` : (d.origin_iata || "?");
     const dest   = d.dest_name   ? `${d.dest_name} (${d.dest_iata})`     : (d.dest_iata   || "?");
     document.getElementById("fdRouteLine").textContent =
       d.direction === "DEP" ? `${origin} → ${dest}` : `${origin} → ${dest}`;
-    document.getElementById("fdAirline").textContent = d.airline || "";
+    const codeShareLine = Array.isArray(d.codeshares) && d.codeshares.length
+      ? ` · Also ${d.codeshares.slice(0, 5).join(" / ")}${d.codeshares.length > 5 ? ` +${d.codeshares.length - 5}` : ""}`
+      : "";
+    document.getElementById("fdAirline").textContent = `${d.airline || ""}${codeShareLine}`;
 
     // Status badge — reuse existing badge CSS
     const sc = (d.status || "").toLowerCase().replace(/[^a-z]/g, "-") || "scheduled";

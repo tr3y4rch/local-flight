@@ -95,6 +95,34 @@ def _normalize_status(flight_status: Optional[str], *, direction: str) -> str:
     return "unknown"
 
 
+def _codeshare_identifiers(flight: Dict[str, Any]) -> List[str]:
+    values: List[str] = []
+    blocks = flight.get("codeshared") or flight.get("codeshare") or []
+    if isinstance(blocks, dict):
+        blocks = [blocks]
+    if not isinstance(blocks, list):
+        return values
+
+    for block in blocks:
+        if not isinstance(block, dict):
+            continue
+        flight_iata = _pick(block.get("flight_iata"), block.get("iata"))
+        flight_icao = _pick(block.get("flight_icao"), block.get("icao"))
+        number = _pick(block.get("flight_number"), block.get("number"))
+        airline_iata = _pick(block.get("airline_iata"), block.get("iata_code"))
+        airline_icao = _pick(block.get("airline_icao"), block.get("icao_code"))
+        for candidate in (
+            flight_iata,
+            flight_icao,
+            (f"{airline_iata}{number}" if airline_iata and number else None),
+            (f"{airline_icao}{number}" if airline_icao and number else None),
+        ):
+            text = _s(candidate).replace(" ", "").upper()
+            if text and text not in values:
+                values.append(text)
+    return values
+
+
 def aviationstack_to_raw_records(
     payload: Dict[str, Any],
     *,
@@ -197,6 +225,7 @@ def aviationstack_to_raw_records(
             "airline_iata": airline_iata,
             "airline_icao": airline_icao,
             "flight_number": _pick(flight_iata, flight_icao),
+            "codeshares": _codeshare_identifiers(flight),
             "origin_iata": dep.get("iata"),
             "origin_icao": dep.get("icao"),
             "destination_iata": arr.get("iata"),

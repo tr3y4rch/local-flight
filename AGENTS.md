@@ -4,7 +4,7 @@
 
 A local-first, self-hosted **Flight Information Display System (FIDS)** that runs on Windows, macOS, and Raspberry Pi. Fetches real and simulated flight data, displays it as a proper airport-style departure/arrival board — in a browser kiosk window, on an LED matrix panel, or on a dedicated HDMI screen.
 
-Built with: Python 3.11+, FastAPI, uvicorn, SQLite, WebSocket, Jinja2, PIL. Mobile companion uses React Native / Expo. pystray on macOS only (Windows uses a ctypes taskbar window).
+Built with: Python 3.11+, FastAPI, uvicorn, SQLite, WebSocket, Jinja2, PIL. Optional native UI prototypes use PySide6/Qt. Mobile companion uses React Native / Expo. pystray on macOS only (Windows uses a ctypes taskbar window).
 
 **Repo:** https://github.com/tr3y4rch/local-flight  
 **Issues:** https://github.com/tr3y4rch/local-flight/issues
@@ -32,6 +32,7 @@ local-flight/
 │   │   └── models.py            # Flight, FlightPosition, FlightDirection, etc.
 │   ├── decode/
 │   │   ├── dedupe.py            # Codeshare deduplication
+│   │   ├── metar.py             # Local Flight semantic METAR mood/icon decorator
 │   │   ├── normalize.py         # Raw records → Flight objects
 │   │   ├── opensky.py           # OpenSky enrichment
 │   │   └── mappings/
@@ -51,6 +52,7 @@ local-flight/
 │   │   │   ├── aviationstack_mock.py
 │   │   │   ├── adsbexchange_client.py   # RapidAPI + relay radar proxy; primary position enrichment
 │   │   │   ├── opensky_radar.py         # fetch_radar_blips(), bounding_box()
+│   │   │   ├── airport_surface.py       # OSM/Overpass airport surface normalization + payload schema
 │   │   │   ├── vatsim_client.py         # VATSIM v3, aircraft type extraction
 │   │   │   ├── metar_client.py          # aviationweather.gov, 30min cache
 │   │   │   ├── linear_client.py         # Linear GraphQL API — file_error() (operator auto-filing)
@@ -84,7 +86,7 @@ local-flight/
 │           ├── _nav.html        # Shared nav macro — version badge, quit modal
 │           ├── base.html        # Base layout, clock, nav CSS
 │           ├── fids.html        # FIDS board — error banner, detail drawer, WebSocket
-│           ├── radar.html       # Radar canvas + sweep + METAR
+│           ├── radar.html       # Radar canvas + sweep + METAR + optional surface overlay
 │           ├── display.html     # Split-view FIDS+Radar, draggable divider
 │           ├── matrix_preview.html  # LED simulator + split-flap animation
 │           ├── settings.html    # Airport picker, skins, re-run setup button
@@ -129,8 +131,18 @@ local-flight/
 │       ├── localflight-kiosk.service  # Chromium kiosk systemd service
 │       └── lf.sh                # Management helper (start/stop/logs/update)
 │
-└── start.bat                    # Dev launcher (Windows, project root)
+├── start.bat                    # Native-first dev launcher (Windows, project root)
+└── start_network.bat            # Native operator Network Admin launcher
 ```
+
+Native/Chrome-free additions:
+- `src/localflight/platform/gui_mode.py` parses `LOCALFLIGHT_GUI_MODE=auto|native|browser|headless` with native as the blank/invalid default.
+- `src/localflight/platform/gui_launcher.py` makes the final platform launch decision from requested mode, platform, display availability, and PySide6/Qt availability.
+- `src/localflight/native/app.py` is the optional Qt user-shell prototype for FIDS/Radar/Display/Settings/Admin/Feedback.
+- `src/localflight/native/network_admin.py` is the separate operator-only Network Admin Qt prototype, pointed at redacted relay `/admin/api/*` JSON plus admin action endpoints.
+- `src/localflight/native/api_client.py` and `qt_compat.py` keep HTTP access and PySide6 imports lazy so non-native builds keep working.
+- `start.bat`, Windows/macOS source installers, macOS app-bundle launcher, and PyInstaller builds install/verify the `native` extra so PySide6/Qt is present before native launch.
+- `start_network.bat` opens the native operator console against the hosted relay by default.
 
 ---
 
@@ -138,9 +150,12 @@ local-flight/
 
 ### Platform model
 - `platform/detect.py` — `detect()` returns `Platform` enum, cached. `is_desktop()` / `is_headless()` helpers.
-- Desktop (Windows/macOS): kiosk browser window + system tray + full GUI
-- Headless (Pi/Linux): uvicorn + scheduler only, no window management. Chromium kiosk is a separate systemd service.
-- `__main__.py` dispatches to `_run_desktop()` or `_run_headless()` based on platform.
+- `LOCALFLIGHT_GUI_MODE=auto|native|browser|headless` is parsed by `gui_mode.py`; `gui_launcher.py` then resolves the actual launch shell. Blank or invalid values fall back to `native`.
+- Native is the product default: Windows/macOS open the PySide6/Qt shell when available, Pi/Linux with a display can open native fullscreen when Qt is installed, desktop falls back to browser only when Qt is unavailable, and display-less Pi/Linux remains headless.
+- Desktop browser mode (Windows/macOS): kiosk browser window + system tray + full GUI.
+- Native mode: starts the same local FastAPI backend, then opens the optional Qt shell instead of Chrome/Edge/Chromium. Browser UI remains reachable manually at `http://localhost:8000`.
+- Headless (Pi/Linux): uvicorn + scheduler only, no window management. Chromium kiosk is a separate systemd service; native Qt kiosk is explicit via `installers/pi/install.sh --native-kiosk`.
+- `__main__.py` logs the full `GuiLaunchDecision` and dispatches to `_run_native_gui()`, `_run_desktop()`, or `_run_headless()` based on the resolved platform launch layer.
 - Desktop launch and Pi kiosk first hit `/splash?next=/display`; first-run desktop uses `/splash?next=/setup`.
 
 ### Data enrichment chain (source=real)
@@ -184,7 +199,7 @@ Linear issue filed (deduplicated per 6h via ~/.localflight/linear_dedup.json)
 ### Linear issue tracker
 Two separate integrations — do not confuse them:
 - **Operator auto-filing** (`sources/web/linear_client.py`): `file_error()` called from `scheduler/runtime.py` on every cycle error. Uses `LINEAR_API_KEY` / `LINEAR_TEAM_ID` env vars pointing at the operator's own Linear workspace. Optional, completely silent, deduplicates per 6h.
-- **User/developer report gateway** (`sources/web/bug_reporter.py` + relay `POST /v1/reports`): local app sanitizes report payloads and forwards them to the hosted relay. The relay owns `LINEAR_REPORTER_API_KEY` plus per-platform team IDs as Fly secrets, applies rate limits/dedupe, then files into Linear. Manual reports are always available. Automatic crash diagnostics are gated by server `diagnostics_mode`; mobile auto-reporting additionally requires the mobile-local diagnostics choice.
+- **User/developer report gateway** (`sources/web/bug_reporter.py` + relay `POST /v1/reports`): local app sanitizes report payloads and forwards them to the hosted relay. The relay owns `LINEAR_REPORTER_API_KEY` plus per-platform team IDs as Fly secrets, applies rate limits/dedupe, then files into Linear. Manual reports are always available. Automatic crash diagnostics are gated by server `diagnostics_mode`; mobile auto-reporting additionally requires the mobile-local diagnostics choice. Local reports include requested/effective GUI shell context so native GUI, browser kiosk, and headless service runs stay distinguishable without creating new Linear routing paths.
 
 ### Version
 - Single source of truth: `version` field in `pyproject.toml`
@@ -220,6 +235,7 @@ Two separate integrations — do not confuse them:
 # Community relay / activation
 LOCALFLIGHT_ACTIVATION_TOKEN=
 LOCALFLIGHT_RELAY_URL=https://localflight-community-relay.fly.dev
+LOCALFLIGHT_GUI_MODE=native
 
 # BYOK AviationStack (leave blank to use community relay)
 AVIATIONSTACK_API_KEY=
@@ -234,7 +250,7 @@ RAPIDAPI_KEY=
 LOCALFLIGHT_RAPIDAPI_MONTHLY_LIMIT=10000
 ```
 
-Relay server env vars (relay/.env): `RELAY_ADMIN_PASSWORD`, `DB_PATH`, `RELAY_PUBLIC_HOST`, `RELAY_ADMIN_HOST`, `RELAY_COMMUNITY_SCHEDULE_LIMIT`, `RELAY_RADAR_MONTHLY_LIMIT`, `RELAY_MANAGED_SCHEDULE_LIMIT`, `RELAY_MANAGED_RADAR_LIMIT`, `RELAY_RADAR_CACHE_SECONDS`, `RELAY_AUTO_ACTIVATION_NETWORK_DAILY_LIMIT`, `RELAY_AUTO_ACTIVATION_NETWORK_INSTALLS_DAILY_LIMIT`, `LINEAR_REPORTER_API_KEY`, `LINEAR_TEAM_IOS_ID`, `LINEAR_TEAM_DESKTOP_ID`, `LINEAR_TEAM_SERVER_ID`, `LINEAR_TEAM_RELAY_ID`, `LINEAR_TEAM_DEFAULT_ID`
+Relay server env vars (relay/.env): `RELAY_ADMIN_PASSWORD`, `DB_PATH`, `RELAY_PUBLIC_HOST`, `RELAY_ADMIN_HOST`, `RELAY_COMMUNITY_SCHEDULE_LIMIT`, `RELAY_RADAR_MONTHLY_LIMIT`, `RELAY_MANAGED_SCHEDULE_LIMIT`, `RELAY_MANAGED_RADAR_LIMIT`, `RELAY_RADAR_CACHE_SECONDS`, `RELAY_AIRPORT_SURFACE_ENABLED`, `RELAY_AIRPORT_SURFACE_CACHE_HOURS`, `RELAY_AIRPORT_SURFACE_STALE_DAYS`, `RELAY_OVERPASS_URL`, `RELAY_AUTO_ACTIVATION_NETWORK_DAILY_LIMIT`, `RELAY_AUTO_ACTIVATION_NETWORK_INSTALLS_DAILY_LIMIT`, `LINEAR_REPORTER_API_KEY`, `LINEAR_TEAM_IOS_ID`, `LINEAR_TEAM_DESKTOP_ID`, `LINEAR_TEAM_SERVER_ID`, `LINEAR_TEAM_RELAY_ID`, `LINEAR_TEAM_DEFAULT_ID`
 
 ---
 
@@ -360,6 +376,7 @@ web_row_limit: int = 20
 web_rotation_seconds: int = 8
 display_grace_minutes: int = 30
 display_horizon_hours: int = 12
+radar_surface_enabled: bool = False
 ```
 
 Config lives at `~/.localflight/config.json`
@@ -375,7 +392,8 @@ Config lives at `~/.localflight/config.json`
 | `GET /api/fids` | JSON FIDS rows |
 | `GET /api/fids/detail` | Per-callsign detail — live position + 7-day history |
 | `GET /api/radar` | Aircraft positions |
-| `GET /api/metar` | Decoded + raw METAR |
+| `GET /api/radar/surface` | Airport surface geometry for the configured airport, capped to 1-5 NM; relay-cached OSM when available, labeled local estimate when not |
+| `GET /api/metar` | Decoded + raw METAR plus Local Flight semantic weather mood/icon fields |
 | `GET /api/history` | Recent flights from SQLite |
 | `GET /api/history/flight` | Callsign history |
 | `GET /api/history/stats` | DB size, row count |
@@ -403,6 +421,8 @@ Config lives at `~/.localflight/config.json`
 | `POST /api/quit` | Graceful shutdown (terminates browser proc + os._exit) |
 | `WS /ws` | WebSocket push endpoint |
 
+Internal relay admin JSON endpoints, Basic Auth and admin-surface gated only: `GET /admin/api/overview`, `/admin/api/usage`, `/admin/api/schedules`, `/admin/api/surfaces`, `/admin/api/activations`, `/admin/api/reports`. Read payloads must stay redacted: no raw provider keys, raw activation tokens, report contexts/log tails, or raw install IDs. Operator write endpoints live under `/admin/api/providers/*`, `/admin/api/activation/*`, `/admin/api/counters/*`, `/admin/api/install/access`, and `/admin/api/maintenance/clean-trial`; token/install actions use opaque `action_ref` values from the redacted read payloads while request actions use `request_id`, and the relay resolves private hashes/IDs server-side.
+
 ---
 
 ## Building (PyInstaller)
@@ -411,6 +431,8 @@ Config lives at `~/.localflight/config.json`
 python build.py           # generate icons + build + zip
 python build.py --clean   # wipe dist/ and build/ first
 ```
+
+Desktop release packaging now requires PySide6 and `LocalFlight.spec` explicitly collects PySide6 plus `localflight.native.*`, so Windows/macOS artifacts are native-GUI capable instead of depending on Chrome/Edge/Chromium.
 
 Output:
 - **Windows:** `dist/LocalFlight-windows.zip` + `.sha256` — unzip, double-click `LocalFlight.exe`
@@ -457,8 +479,11 @@ Swap `enrich_flights_with_adsbexchange` → `enrich_flights_with_adsb` in `jobs.
 ## Running locally
 
 ```bash
-# Windows
+# Windows native-first dev launcher
 .\start.bat
+
+# Windows operator Network Admin
+.\start_network.bat
 
 # macOS
 ./installers/macos/start.sh
@@ -480,21 +505,23 @@ npm run ios
 ## Current handoff for the dev machine
 
 - Active version is `0.2.5b4`: `pyproject.toml`, runtime fallbacks, mobile package metadata, Expo `extra.localFlightVersion`, and docs should all agree.
-- Community relay root is live at `https://localflight-community-relay.fly.dev`. The client derives `/v1/schedule`, `/v1/radar`, `/v1/reports`, and activation routes internally; `/v1/flights` is raw-provider debug only.
+- Community relay root is live at `https://localflight-community-relay.fly.dev`. The client derives `/v1/schedule`, `/v1/radar`, `/v1/airport-surface`, `/v1/reports`, and activation routes internally; `/v1/flights` is raw-provider debug only.
 - Relay admin panel: prefer Fly dashboard/CLI or `fly ssh console`. Public admin access is optional and must stay password-protected; do not publish operator-only entrypoints in public docs.
+- Chrome-free GUI foundation is now native-first by default: blank/invalid `LOCALFLIGHT_GUI_MODE` resolves to `native`, `platform/gui_launcher.py` verifies PySide6/Qt before native launch, display-attached Pi/Linux can use native fullscreen when installed through `--native-kiosk`, and browser/kiosk mode is retained only as a fallback/debug path when the custom GUI is unusable. Network Admin has a separate operator-only Qt prototype backed by styled `/admin/api/*` relay read/action endpoints.
 - Fly deployment: one warm machine in `fra`, one SQLite volume (`relay_data`), host-based public/admin gating in `relay/main.py`. Shared-schedule relay deploys now need the repo-root command `fly deploy --config relay/fly.toml --dockerfile relay/Dockerfile --remote-only` so the image includes `src/localflight`.
 - Live shared schedule planner is currently `fair-v3`: date-scoped fair paging, adaptive continuation, and an undated rescue fallback. Cold relay rebuilds may take longer, so relay-backed desktop fetches now allow `60s`.
 - `mobile/node_modules` is still absent on the Windows workspace, so Expo/TypeScript validation belongs on the Mac/Xcode side after `npm install` unless Node/npm are installed there.
 - Desktop resume on Windows: run `.\start.bat`, confirm Community setup preloads the hosted relay URL, then verify FIDS/radar/admin against the live relay contract.
 - Release resume: rebuild Windows, macOS, and Pi artifacts from the current `0.2.5b4` checkout before creating GitHub release `v0.2.5b4`; the previous `0.2.5b3` artifacts are no longer current.
-- `scripts/package_pi_source.py` now excludes internal handoff-only files (`AGENTS.md`, `CLAUDE.md`, `DEV_README.md`) from the Pi source zip even if they are tracked locally.
+- `scripts/package_pi_source.py` now excludes internal handoff-only files (`AGENTS.md`, `CLAUDE.md`, `DEV_README.md`) from the Pi source zip even if they are tracked locally, and includes non-ignored local additions so pre-release hardware bundles do not miss newly added modules before commit.
 - Settings now split install/relay state, flight setup, app controls, and diagnostics/resources into clearer sections; the community relay card now reports active relay usage truthfully, and the docs buttons open bundled local files through `/docs/readme`, `/docs/privacy`, and `/docs/changelog`.
 - macOS packaging is confirmed on this workspace: `python build.py --clean` produced `dist/LocalFlight.app`, `dist/LocalFlight-macos.zip`, and `dist/LocalFlight-macos.zip.sha256`, and the packaged app includes bundled README/privacy/changelog files plus the local doc viewer template. This artifact is unsigned Apple Silicon/ARM64; if Intel Mac support is needed later, build a separate Intel/universal artifact.
 - Mobile companion is now mid-`0.2.5-b2` pass on this workspace: independent mobile appearance, server-backed Matrix runtime editor, landscape split display, responsive radar, and pinch zoom are implemented in code.
 - Mobile companion polish pass is in progress on top of that: main nav is now FIDS/Radar/Settings only, History/Matrix/Admin/Docs are Settings-launched tools, the pinned-flight island is compact and theme-aware, Settings is sectioned, docs read inside the app, airport/profile saves request a scheduler restart, and flight details consume the expanded `/api/fids/detail` contract.
 - Desktop flight-detail enrichment pass started first: `/api/fids/detail` now returns richer stored snapshot metadata for live track/source coverage without new external calls, and the desktop FIDS drawer renders operations/aircraft, source confidence/freshness, and position fields more clearly.
 - VATSIM detail completeness pass keeps useful filed-plan fields in canonical snapshots: flight rules, planned route, cruise altitude/TAS, planned departure/arrival, enroute time, alternate, and assigned transponder. Intentionally does not store pilot names/CIDs.
-- Desktop FIDS detail drawer now has real vs virtual modes: real flights show airport operations/aircraft/source freshness, while VATSIM flights show virtual flight plan/network/pilot track labels and suppress real-world-only emphasis.
+- VATSIM privacy rule is explicit: use virtual-network data as flight information only. Do not store/display pilot names, controller names, CIDs/account IDs, server names, or other person-identifying VATSIM fields; callsign, aircraft, filed route/plan, airport/timing data, and aircraft position are okay.
+- Desktop FIDS detail drawer now has real vs virtual modes: real flights show airport operations/aircraft/source freshness, while VATSIM flights show virtual flight plan/network/aircraft track labels and suppress real-world-only emphasis.
 - Mobile detail communication stays server-mediated: the companion calls `/api/fids/detail` and does not call AviationStack, ADS-B Exchange, RapidAPI, or the hosted relay endpoints directly.
 - Mobile automatic diagnostics now includes critical detail communication failures (`5xx` or malformed JSON) through diagnostics-gated `/api/feedback/crash`; feature-specific reports keep companion identity, app version, device type, and server URL in the client context. Mobile also has its own SecureStore diagnostics choice, so auto-reporting requires both mobile and server consent.
 - Linear developer reporting now goes through relay `POST /v1/reports`; no developer Linear API key/team ID is shipped in the packaged desktop or companion app. Relay secrets required: `LINEAR_REPORTER_API_KEY`, `LINEAR_TEAM_IOS_ID`, `LINEAR_TEAM_DESKTOP_ID`, `LINEAR_TEAM_SERVER_ID`, `LINEAR_TEAM_RELAY_ID`, and `LINEAR_TEAM_DEFAULT_ID`.
@@ -504,7 +531,7 @@ npm run ios
 - Mobile resume on Mac/Xcode: resolve the Xcode/Expo SDK compatibility issue first, then run `npm run doctor` and `npm run ios`. Expo Go may reject SDK 55 depending on installed Expo Go; simulator/dev build is the safer path.
 - Windows-side AviationStack reliability pass is now documented in public/internal docs. Important: the local board/filter bug is fixed, but some live airports can still show sparse future departures because AviationStack itself does not return enough near-term rows even after fair paging plus undated rescue. Current observed example: `ZRH` on `2026-05-01`.
 - Sparse-board UX fallback is now active on the client: if a real-data lane has no rows inside the live window, the board shows the nearest available real flights instead of an empty departures page. Current live local check after the patch: `/api/fids?view=departures` returned `20` rows again.
-- Verification currently green on this Windows workspace: `.venv\Scripts\python.exe -m compileall -q src relay`, `.venv\Scripts\python.exe -m pytest tests` (`80 passed`), `python build.py --clean`, and Windows ZIP smoke test from `dist/LocalFlight-windows.zip`. Mac mobile validation remains: `npm run typecheck` passes, while `npm run doctor` is 17/18 because Expo SDK 55 requires a newer Xcode than the installed `16.3.0`.
+- Verification after the latest FIDS/radar/surface/weather/privacy plus responsive radar/nav patch is green on this Windows workspace: `.venv\Scripts\python.exe -m compileall -q src tests` and `.venv\Scripts\python.exe -m pytest tests` (`105 passed`). Windows and Pi pre-release artifacts from before the airline/weather/radar-surface filtering/responsive-layout pass are now stale; rebuild both before testing `0.2.5b4` again. Mac mobile validation remains: `npm run typecheck` passes, while `npm run doctor` is 17/18 because Expo SDK 55 requires a newer Xcode than the installed `16.3.0`.
 
 ## What was done in the latest session (v0.2.5b4)
 
@@ -513,6 +540,23 @@ npm run ios
 - ✅ Relay admin can now clean setup-trial clutter without wiping provider keys, managed tokens, blocked installs, or monthly usage counters. The cleanup clears transient request logs, activation-request rows, live client lanes, shared schedule snapshots, and report event/dedupe noise.
 - ✅ Relay admin live-lane crash fix remains included: snapshot stats tolerate missing counter fields and older relay DBs get migration-safe schedule snapshot counter columns.
 - ✅ Fly relay redeployed on image `deployment-01KQJM7HKYXMF8EDRKFY24A7S9`; live `/health` returned ok, live admin HTML rendered with the cleanup button, and the live setup-trial cleanup was run. Transient tables now read `0` rows each; monthly usage counters were preserved (`usage` count was `30` after cleanup).
+- ✅ FIDS row ordering now uses full airport-local datetimes instead of visible `HH:MM` text, so cross-midnight arrivals/departures stay in real chronological order during page rotation.
+- ✅ FIDS now labels the board column as `Time (LT)` and shows a neutral schedule-fetching/relay-warmup hint when the table is empty while data may still be loading.
+- ✅ Real-data radar now filters surface/ground aircraft from `/api/radar`; the radar status line reports how many ground blips were hidden. VATSIM still keeps virtual ground aircraft visible by design, but now uses exact circular range cropping.
+- ✅ Tiny real-data radar views now request the shortest practical ADS-B provider radius (`5 NM`) and crop locally for 1 / 2 / 3 NM display rings, avoiding empty provider responses while keeping the visual range tight.
+- ✅ VATSIM radar uses the same exact circular local range crop for 1 / 2 / 3 NM views. It still fetches the whole public VATSIM feed once and does not need a provider-radius funnel.
+- ✅ Ground radar surface overlay is staged but policy-safe by default: Settings exposes `radar_surface_enabled` defaulting off, local `/api/radar/surface` can serve cached OSM-derived geometry capped to 1-5 NM, relay `/v1/airport-surface` coalesces/caches Overpass requests only when `RELAY_AIRPORT_SURFACE_ENABLED=1`, and `radar.html` draws airport boundary/runways/taxiways/aprons/terminals plus selected terminal/hangar-style building outlines with visible OpenStreetMap attribution. The browser only calls the surface endpoint when the setting is enabled, and the visible radar now offers tight 1/2/3 NM ground ranges with skin-aware overlay colors. Clean first-run installs now get a clearly labeled `localflight-estimated` fallback surface if the relay cache is disabled/empty and no stale local OSM cache exists.
+- ✅ Standalone Radar now auto-fills the available viewport below the actual nav height instead of using fixed chrome math. The shared nav can horizontally scroll compact button groups on narrow screens, and the radar controls/weather strip compact for 7-10 inch Pi panels while still scaling up cleanly on wall displays.
+- ✅ METAR weather decoration now stays aviation-native: `metar_client.py` still fetches AviationWeather METAR, `decode/metar.py` derives Local Flight condition/icon/tone/summary/hazards/chips, and FIDS/Radar/Admin render the additive weather mood without touching the mobile companion yet.
+- ✅ `/api/metar` now uses VATSIM ATIS/METAR first when `source=virtual`, falls back to real AviationWeather METAR when unavailable, and only extracts the METAR line so controller names/CIDs are not exposed.
+- ✅ FIDS weather now renders icon + temperature + decoded summary only; Radar keeps icon/category/temperature/summary plus raw METAR for the scope view.
+- ✅ 1-5 NM radar views now behave as surface radar and hide airborne/overflying aircraft for both real ADS-B and VATSIM; wider real-data radar views still hide ground targets and focus airborne.
+- ✅ FIDS rows now decode common airline IATA/ICAO/callsign prefixes into readable airline names, format the public flight number consistently, and preserve deduped codeshare partners as `Also ...` rows/detail metadata.
+- ✅ New airline/codeshare helpers live in `src/localflight/decode/mappings/airlines.py`; the FIDS API now includes `airline_display`, `codeshare_display`, and detail-level `codeshares`.
+- ✅ VATSIM privacy guard is now tested/documented: virtual traffic ingestion drops person-identifying feed fields such as names, CIDs/account IDs, and server names; the desktop detail label now says “Aircraft Track” instead of “Pilot Track.”
+- ✅ Native GUI launch is now platform-layered: `gui_mode.py` parses the requested mode, `gui_launcher.py` resolves native/browser/headless from platform + display + PySide6/Qt availability, and `__main__.py` logs the resulting `GuiLaunchDecision` before dispatch.
+- ✅ Windows/macOS source launchers and PyInstaller builds now install/verify PySide6/Qt for native mode, while Pi stays headless by default and adds an explicit `installers/pi/install.sh --native-kiosk` path for experimental Qt HDMI kiosk testing.
+- ✅ Linear/reporting pass confirmed no new GUI/kiosk/headless routes are needed. `bug_reporter.py` now attaches GUI launch-shell context to reports; direct Linear smoke issues were created in `Local Flight Reports` (`LOC-42`) and `Local Flight Internals` (`MOB-1`). Live relay `/v1/reports` reached the server but returned `503 Linear reporting is not configured on the relay`, so Fly reporter secrets must be set before installed clients can file through the relay.
 
 ## What was done in session v0.2.5b3
 

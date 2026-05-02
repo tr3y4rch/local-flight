@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from typing import Iterable, List, Optional, Tuple
 
 from localflight.core.models import Flight, FlightDirection
+from localflight.decode.mappings.airlines import format_flight_identifier
 
 
 def _best_time(f: Flight) -> Optional[datetime]:
@@ -33,6 +35,43 @@ def _bucket_time(dt: Optional[datetime], minutes: int) -> Optional[datetime]:
     # round down to bucket
     discard = (dt.minute % minutes) * 60 + dt.second
     return dt.replace(second=0, microsecond=0) - timedelta(seconds=discard)
+
+
+def _marketing_identifier(f: Flight) -> str:
+    return format_flight_identifier(
+        flight_number=f.flight_number,
+        callsign=f.callsign,
+        airline_iata=f.airline.iata if f.airline else None,
+        airline_icao=f.airline.icao if f.airline else None,
+    ).strip().upper()
+
+
+def _format_codeshare_text(value: str) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    return format_flight_identifier(flight_number=raw).strip().upper()
+
+
+def _codeshares_for(primary: Flight, items: list[Flight]) -> tuple[str, ...]:
+    primary_id = _marketing_identifier(primary)
+    seen = {primary_id}
+    out: list[str] = []
+
+    for existing in primary.codeshares:
+        text = _format_codeshare_text(str(existing or "").strip())
+        if text and text not in seen:
+            seen.add(text)
+            out.append(text)
+
+    for item in items:
+        for candidate in [_marketing_identifier(item), *item.codeshares]:
+            text = _format_codeshare_text(str(candidate or "").strip())
+            if not text or text in seen:
+                continue
+            seen.add(text)
+            out.append(text)
+    return tuple(out)
 
 
 def dedupe_codeshares(
@@ -68,7 +107,7 @@ def dedupe_codeshares(
             return (pref, has_actual, has_est, x.callsign)
 
         primary = sorted(items, key=score, reverse=True)[0]
-        out.append(primary)
+        out.append(replace(primary, codeshares=_codeshares_for(primary, items)))
 
     # stable sort
     out.sort(key=lambda x: (_best_time(x) or datetime.min.replace(tzinfo=timezone.utc)))

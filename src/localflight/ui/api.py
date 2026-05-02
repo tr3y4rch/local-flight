@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os
 import re
 import time
@@ -15,6 +16,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
 
+import requests as _req
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, Field
@@ -37,6 +39,14 @@ from localflight.storage.config import (
 )
 from localflight.storage.flights_store import load_latest_snapshot_path, snapshot_store_root
 from localflight.storage.state import load_state
+from localflight.sources.web.airport_surface import (
+    AIRPORT_SURFACE_PROVIDER,
+    build_estimated_surface_payload,
+    build_surface_payload,
+    clamp_surface_radius_nm,
+    validate_surface_payload,
+)
+from localflight.sources.web.relay_defaults import default_public_relay_url, relay_airport_surface_url
 
 log = logging.getLogger(__name__)
 
@@ -56,6 +66,7 @@ _adsbx_radar_cache: Dict[str, tuple[float, List[Dict[str, Any]]]] = {}
 _opensky_radar_cache: Dict[str, tuple[float, List[Dict[str, Any]]]] = {}
 _DEFAULT_ADSBX_RADAR_CACHE_TTL_S = 300
 _OPENSKY_RADAR_CACHE_TTL_S = 60
+_MIN_PROVIDER_RADAR_RADIUS_NM = 5.0
 
 
 def _adsbx_radar_cache_ttl_s() -> int:
@@ -77,6 +88,54 @@ def _radar_refresh_after_s(source_used: str) -> int:
     if source_name == "snapshot_positions":
         return 60
     return 15
+
+
+def _provider_radar_radius_nm(radius_nm: float) -> float:
+    """Use the smallest upstream-supported radar circle, then crop locally."""
+    return max(_MIN_PROVIDER_RADAR_RADIUS_NM, float(math.ceil(float(radius_nm) / 5.0) * 5.0))
+
+
+def _distance_nm(center_lat: float, center_lon: float, lat: float, lon: float) -> float:
+    dlat = (lat - center_lat) * 60.0
+    dlon = (lon - center_lon) * 60.0 * math.cos(math.radians(center_lat))
+    return math.sqrt((dlat * dlat) + (dlon * dlon))
+
+
+def _float_or_none(value: Any) -> float | None:
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _is_ground_radar_blip(blip: Dict[str, Any]) -> bool:
+    if blip.get("on_ground") is True:
+        return True
+
+    altitude_m = _float_or_none(blip.get("altitude_m"))
+    speed_ms = _float_or_none(blip.get("speed_ms"))
+
+    if altitude_m is not None and speed_ms is not None:
+        return altitude_m < 75 and speed_ms < 25
+    if altitude_m is not None:
+        return altitude_m < 30
+    return False
+
+
+def _filter_airborne_radar_blips(blips: List[Dict[str, Any]]) -> tuple[List[Dict[str, Any]], int]:
+    airborne = [b for b in blips if not _is_ground_radar_blip(b)]
+    return airborne, len(blips) - len(airborne)
+
+
+def _filter_ground_radar_blips(blips: List[Dict[str, Any]]) -> tuple[List[Dict[str, Any]], int]:
+    ground = [b for b in blips if _is_ground_radar_blip(b)]
+    return ground, len(blips) - len(ground)
+
+
+def _surface_radar_mode(radius_nm: float) -> bool:
+    return float(radius_nm) <= 5.0
 
 
 def _companion_presence_path():
@@ -250,6 +309,22 @@ def _dict_to_flight(d: dict) -> Flight:
             return None
         return AirportRef(iata=x.get("iata"), icao=x.get("icao"), name=x.get("name"))
 
+    def _codeshares(value: Any) -> tuple[str, ...]:
+        if isinstance(value, str):
+            items = [value]
+        elif isinstance(value, (list, tuple, set)):
+            items = list(value)
+        else:
+            return ()
+        out: list[str] = []
+        seen: set[str] = set()
+        for item in items:
+            text = str(item or "").strip().upper()
+            if text and text not in seen:
+                seen.add(text)
+                out.append(text)
+        return tuple(out)
+
     direction = FlightDirection(d["direction"])
     try:
         status = FlightStatus(d.get("status", "Unknown"))
@@ -272,6 +347,7 @@ def _dict_to_flight(d: dict) -> Flight:
             icao=airline_d.get("icao"),
         ),
         flight_number=d.get("flight_number"),
+        codeshares=_codeshares(d.get("codeshares")),
         origin=_airport(d.get("origin")),
         destination=_airport(d.get("destination")),
         aircraft_type=d.get("aircraft_type"),
@@ -344,6 +420,7 @@ class ConfigPatch(BaseModel):
     web_rotation_seconds: Optional[int] = Field(None, ge=3, le=60)
     display_grace_minutes: Optional[int] = Field(None, ge=0, le=180)
     display_horizon_hours: Optional[int] = Field(None, ge=1, le=24)
+    radar_surface_enabled: Optional[bool] = None
 
 
 class FIDSRowOut(BaseModel):
@@ -351,6 +428,8 @@ class FIDSRowOut(BaseModel):
     view:           str
     display_time:   str
     flight_display: str
+    airline_display: str = ""
+    codeshare_display: str = ""
     route_display:  str
     status_display: str
     status_class:   str
@@ -432,12 +511,6 @@ def api_fids(
     direction = FlightDirection.DEPARTURE if view == "departures" else FlightDirection.ARRIVAL
     flights = [f for f in flights if f.direction == direction]
 
-    def _sort_key(f: Flight):
-        t = f.times.actual or f.times.estimated or f.times.scheduled
-        return t if t else datetime.min.replace(tzinfo=timezone.utc)
-
-    flights.sort(key=_sort_key)
-
     ctx = build_fids_context(
         cfg=cfg,
         view=view,
@@ -452,7 +525,8 @@ def api_fids(
     return [
         FIDSRowOut(
             id=r.id, view=r.view, display_time=r.display_time,
-            flight_display=r.flight_display, route_display=r.route_display,
+            flight_display=r.flight_display, airline_display=r.airline_display,
+            codeshare_display=r.codeshare_display, route_display=r.route_display,
             status_display=r.status_display, status_class=r.status_class,
             gate=r.gate, aircraft_type=r.aircraft_type,
             callsign=r.callsign,
@@ -464,6 +538,7 @@ def api_fids(
 @router.get("/api/fids/detail")
 def api_fids_detail(callsign: str = Query(..., min_length=1, max_length=20)) -> Dict[str, Any]:
     from localflight.storage.history import query_flight_history
+    from localflight.decode.mappings.airlines import format_flight_identifier
 
     cfg = load_config()
     flights, generated_at = _load_latest_flights(cfg.airport_iata)
@@ -497,8 +572,16 @@ def api_fids_detail(callsign: str = Query(..., min_length=1, max_length=20)) -> 
         detail = {
             "callsign":      flight.callsign,
             "flight_number": flight.flight_number,
+            "flight_display": format_flight_identifier(
+                flight_number=flight.flight_number,
+                callsign=flight.callsign,
+                airline_iata=flight.airline.iata if flight.airline else None,
+                airline_icao=flight.airline.icao if flight.airline else None,
+            ),
             "airline":       flight.airline.name if flight.airline else None,
             "airline_iata":  flight.airline.iata if flight.airline else None,
+            "airline_icao":  flight.airline.icao if flight.airline else None,
+            "codeshares":    list(flight.codeshares),
             "origin_iata":   flight.origin.iata        if flight.origin      else None,
             "origin_icao":   flight.origin.icao        if flight.origin      else None,
             "origin_name":   flight.origin.name        if flight.origin      else None,
@@ -571,9 +654,137 @@ def api_fids_detail(callsign: str = Query(..., min_length=1, max_length=20)) -> 
 
 # â”€â”€ Radar endpoint â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
+def _radar_surface_cache_path(cfg: AppConfig) -> Path:
+    from localflight.storage.config import config_path
+
+    code = (cfg.airport_icao or cfg.airport_iata or "airport").upper()
+    safe = re.sub(r"[^A-Z0-9_-]+", "_", code).strip("_") or "airport"
+    return config_path().parent / "storage" / "radar_surface" / f"{safe}.json"
+
+
+def _load_local_surface_cache(cfg: AppConfig) -> Optional[Dict[str, Any]]:
+    path = _radar_surface_cache_path(cfg)
+    if not path.exists():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    if isinstance(payload, dict) and validate_surface_payload(payload):
+        return payload
+    return None
+
+
+def _save_local_surface_cache(cfg: AppConfig, payload: Dict[str, Any]) -> None:
+    if not validate_surface_payload(payload):
+        return
+    if payload.get("provider") != AIRPORT_SURFACE_PROVIDER:
+        return
+    try:
+        path = _radar_surface_cache_path(cfg)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    except Exception as exc:
+        log.debug("Could not persist radar surface cache: %s", exc)
+
+
+def _surface_empty_payload(
+    *,
+    cfg: AppConfig,
+    center_lat: float,
+    center_lon: float,
+    radius_nm: float,
+    cache_state: str,
+    error: str = "",
+) -> Dict[str, Any]:
+    return build_surface_payload(
+        airport_iata=cfg.airport_iata,
+        airport_icao=cfg.airport_icao,
+        center_lat=center_lat,
+        center_lon=center_lon,
+        radius_nm=radius_nm,
+        features=[],
+        cache_state=cache_state,
+        error=error or None,
+        meta={"local_surface_enabled": bool(cfg.radar_surface_enabled)},
+    )
+
+
+@router.get("/api/radar/surface")
+def api_radar_surface(
+    radius_nm: float = Query(5.0, ge=1.0, le=5.0),
+) -> Dict[str, Any]:
+    cfg = load_config()
+    airport = lookup_airport(iata=cfg.airport_iata, icao=cfg.airport_icao)
+
+    if not airport or airport.lat is None or airport.lon is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No coordinates for {cfg.airport_iata}/{cfg.airport_icao}",
+        )
+
+    center_lat = float(airport.lat)
+    center_lon = float(airport.lon)
+    radius = clamp_surface_radius_nm(radius_nm)
+
+    if not cfg.radar_surface_enabled:
+        return _surface_empty_payload(
+            cfg=cfg,
+            center_lat=center_lat,
+            center_lon=center_lon,
+            radius_nm=radius,
+            cache_state="disabled",
+            error="Airport surface overlay disabled",
+        )
+
+    cached = _load_local_surface_cache(cfg)
+    relay_error = ""
+    try:
+        response = _req.get(
+            relay_airport_surface_url(default_public_relay_url()),
+            params={
+                "airport_iata": cfg.airport_iata,
+                "airport_icao": cfg.airport_icao,
+                "lat": center_lat,
+                "lon": center_lon,
+                "radius_nm": radius,
+            },
+            headers={"Accept": "application/json"},
+            timeout=12,
+        )
+        if response.status_code < 400:
+            payload = response.json()
+            if isinstance(payload, dict) and validate_surface_payload(payload):
+                _save_local_surface_cache(cfg, payload)
+                return payload
+            relay_error = "Relay returned invalid radar surface payload"
+        else:
+            relay_error = f"Relay surface HTTP {response.status_code}"
+    except Exception as exc:
+        relay_error = f"Relay surface unavailable: {exc}"
+
+    if cached:
+        stale = dict(cached)
+        stale["cache_state"] = "stale"
+        stale["error"] = relay_error
+        stale.setdefault("meta", {})
+        if isinstance(stale["meta"], dict):
+            stale["meta"]["served_via"] = "local-stale-cache"
+        return stale
+
+    return build_estimated_surface_payload(
+        airport_iata=cfg.airport_iata,
+        airport_icao=cfg.airport_icao,
+        center_lat=center_lat,
+        center_lon=center_lon,
+        radius_nm=radius,
+        error=relay_error or "No airport surface cache available",
+    )
+
+
 @router.get("/api/radar")
 def api_radar(
-    radius_nm: float = Query(20.0, ge=5.0, le=200.0),  # default 20nm
+    radius_nm: float = Query(20.0, ge=1.0, le=200.0),  # default 20nm
 ) -> Dict[str, Any]:
     """
     Returns aircraft positions for the radar display.
@@ -620,9 +831,16 @@ def api_radar(
                 plon = pilot.get("longitude")
                 if plat is None or plon is None:
                     continue
+                try:
+                    plat_f = float(plat)
+                    plon_f = float(plon)
+                except (TypeError, ValueError):
+                    continue
 
                 # â”€â”€ Filter: within bounding box â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-                if not (lamin <= plat <= lamax and lomin <= plon <= lomax):
+                if not (lamin <= plat_f <= lamax and lomin <= plon_f <= lomax):
+                    continue
+                if _distance_nm(center_lat, center_lon, plat_f, plon_f) > radius_nm:
                     continue
 
                 callsign = (pilot.get("callsign") or "").strip().upper()
@@ -635,8 +853,8 @@ def api_radar(
 
                 blips.append({
                     "callsign":   callsign,
-                    "lat":        float(plat),
-                    "lon":        float(plon),
+                    "lat":        plat_f,
+                    "lon":        plon_f,
                     "altitude_m": alt_ft * 0.3048 if alt_ft else None,
                     "heading":    float(hdg) if hdg is not None else None,
                     "speed_ms":   gs_kts * 0.514444 if gs_kts else None,
@@ -653,7 +871,9 @@ def api_radar(
     else:
         # Real source: ADS-B Exchange first, then local snapshot/OpenSky fallback.
         now_ts = time.monotonic()
-        adsbx_cache_key = f"{cfg.airport_iata}:{round(radius_nm, 1)}"
+        provider_radius_nm = _provider_radar_radius_nm(radius_nm)
+        adsbx_cache_key = f"{cfg.airport_iata}:{round(provider_radius_nm, 1)}"
+        adsbx_raw_count = 0
         try:
             from localflight.sources.web.adsbexchange_client import (
                 aircraft_to_blips,
@@ -665,24 +885,42 @@ def api_radar(
                 cached = _adsbx_radar_cache.get(adsbx_cache_key)
                 ttl_s = _adsbx_radar_cache_ttl_s()
                 if cached and (now_ts - cached[0]) < ttl_s:
-                    blips = cached[1]
-                    source_used = "adsbexchange_cached"
-                    log.debug("ADS-B Exchange radar: serving cached blips for %s", adsbx_cache_key)
-                else:
-                    source_used = "adsbexchange_live"
-                    aircraft = fetch_aircraft(
-                        lat=center_lat,
-                        lon=center_lon,
-                        radius_nm=radius_nm,
-                    )
+                    aircraft = cached[1]
+                    adsbx_raw_count = len(aircraft)
                     blips = aircraft_to_blips(
                         aircraft=aircraft,
                         center_lat=center_lat,
                         center_lon=center_lon,
                         radius_nm=radius_nm,
                     )
-                    _adsbx_radar_cache[adsbx_cache_key] = (now_ts, blips)
-                    log.info("ADS-B Exchange radar: fetched %d blips for %s", len(blips), adsbx_cache_key)
+                    source_used = "adsbexchange_cached"
+                    log.debug(
+                        "ADS-B Exchange radar: serving cached %dnm payload for %.1fnm view",
+                        provider_radius_nm,
+                        radius_nm,
+                    )
+                else:
+                    source_used = "adsbexchange_live"
+                    aircraft = fetch_aircraft(
+                        lat=center_lat,
+                        lon=center_lon,
+                        radius_nm=provider_radius_nm,
+                    )
+                    adsbx_raw_count = len(aircraft)
+                    blips = aircraft_to_blips(
+                        aircraft=aircraft,
+                        center_lat=center_lat,
+                        center_lon=center_lon,
+                        radius_nm=radius_nm,
+                    )
+                    _adsbx_radar_cache[adsbx_cache_key] = (now_ts, aircraft)
+                    log.info(
+                        "ADS-B Exchange radar: fetched %d raw aircraft at %.1fnm provider radius; %d visible at %.1fnm",
+                        adsbx_raw_count,
+                        provider_radius_nm,
+                        len(blips),
+                        radius_nm,
+                    )
         except Exception as exc:
             log.warning("ADS-B Exchange live radar unavailable, trying fallback: %s", exc)
 
@@ -735,12 +973,27 @@ def api_radar(
                     log.warning("OpenSky live radar fallback failed: %s", exc)
                     raise HTTPException(status_code=503, detail=f"Radar data unavailable: {exc}")
 
+    ground_filtered = 0
+    airborne_filtered = 0
+    radar_mode = "surface" if _surface_radar_mode(radius_nm) else "airborne"
+    if radar_mode == "surface":
+        blips, airborne_filtered = _filter_ground_radar_blips(blips)
+    elif cfg.source != "virtual":
+        blips, ground_filtered = _filter_airborne_radar_blips(blips)
+
+    adsb_source = source_used.startswith("adsbexchange")
+
     return {
         "center":    {"lat": center_lat, "lon": center_lon},
         "radius_nm": radius_nm,
         "source":    source_used,
         "refresh_after_s": _radar_refresh_after_s(source_used),
         "count":     len(blips),
+        "radar_mode": radar_mode,
+        "ground_filtered": ground_filtered,
+        "airborne_filtered": airborne_filtered,
+        "provider_radius_nm": provider_radius_nm if cfg.source != "virtual" and adsb_source else radius_nm,
+        "raw_provider_count": adsbx_raw_count if cfg.source != "virtual" and adsb_source else len(blips),
         "blips":     blips,
     }
 
@@ -850,13 +1103,27 @@ def api_metar(
       wind_dir_deg, wind_speed_kt, wind_gust_kt
       visibility_m, ceiling_ft
       temp_c, dewpoint_c, altimeter_hpa
+      weather_*      - Local Flight semantic weather mood/icon fields
     """
-    from localflight.sources.web.metar_client import fetch_metar
- 
+    from localflight.sources.web.metar_client import decode_raw_metar, fetch_metar
+
     cfg        = load_config()
-    icao_code  = (icao or cfg.airport_icao or "LSZH").upper().strip()
- 
-    data = fetch_metar(icao_code)
+    icao_param = icao if isinstance(icao, str) else None
+    icao_code  = (icao_param or cfg.airport_icao or "LSZH").upper().strip()
+
+    data = None
+    if not icao_param and (cfg.source or "").strip().lower() == "virtual":
+        try:
+            from localflight.sources.web.vatsim_client import fetch_vatsim_data, vatsim_metar_for_airport
+
+            raw_vatsim_metar = vatsim_metar_for_airport(fetch_vatsim_data(), airport_icao=icao_code)
+            if raw_vatsim_metar:
+                data = decode_raw_metar(icao_code, raw_vatsim_metar, source="vatsim")
+        except Exception as exc:
+            log.debug("VATSIM METAR/ATIS weather unavailable, falling back to real METAR: %s", exc)
+
+    if data is None:
+        data = fetch_metar(icao_code)
     if not data:
         raise HTTPException(
             status_code=503,

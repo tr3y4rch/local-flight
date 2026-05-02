@@ -194,6 +194,7 @@ def enrich_flights_with_opensky(
             callsign=flight.callsign,
             airline=flight.airline,
             flight_number=flight.flight_number,
+            codeshares=flight.codeshares,
             origin=flight.origin,
             destination=flight.destination,
             aircraft_type=flight.aircraft_type,

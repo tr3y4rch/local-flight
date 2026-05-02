@@ -31,15 +31,6 @@ def _fmt_mmss(seconds: int) -> str:
     return f"{mm:02d}:{ss:02d}"
 
 
-def _sort_key(display_time: str) -> tuple[int, str]:
-    if not display_time or display_time.startswith("--"):
-        return (1, "99:99")
-    hhmm = display_time[:5]
-    if len(hhmm) != 5 or hhmm[2] != ":":
-        return (1, "99:99")
-    return (0, hhmm)
-
-
 def _display_window(cfg: Any) -> tuple[int, int]:
     grace_minutes = getattr(cfg, "display_grace_minutes", DEFAULT_DISPLAY_GRACE_MINUTES)
     horizon_hours = getattr(cfg, "display_horizon_hours", DEFAULT_DISPLAY_HORIZON_HOURS)
@@ -64,6 +55,13 @@ def _best_time_for_display(flight: Flight) -> datetime | None:
     if value.tzinfo is None:
         value = value.replace(tzinfo=timezone.utc)
     return value
+
+
+def _flight_sort_key(flight: Flight, tz: ZoneInfo) -> tuple[int, datetime]:
+    stamp = _best_time_for_display(flight)
+    if stamp is None:
+        return (1, datetime.max.replace(tzinfo=timezone.utc))
+    return (0, stamp.astimezone(tz))
 
 
 def _filter_for_display(flights: list[Flight], now: datetime, *, cfg: Any) -> list[Flight]:
@@ -161,14 +159,22 @@ def build_fids_context(
         if fallback_flights:
             visible_flights = fallback_flights
             sparse_window_fallback = True
-    flights = visible_flights
+    flights = sorted(visible_flights, key=lambda f: _flight_sort_key(f, tz))
 
     ap = lookup_airport(iata=getattr(cfg, "airport_iata", None), icao=getattr(cfg, "airport_icao", None))
     airport_lat = ap.lat if ap else None
     airport_lon = ap.lon if ap else None
 
-    rows = [flight_to_fids_row(f, view=view_typed, airport_lat=airport_lat, airport_lon=airport_lon) for f in flights]
-    rows.sort(key=lambda r: _sort_key(r.display_time))
+    rows = [
+        flight_to_fids_row(
+            f,
+            view=view_typed,
+            airport_lat=airport_lat,
+            airport_lon=airport_lon,
+            display_tz=tz,
+        )
+        for f in flights
+    ]
 
     last = last_refreshed or now
 

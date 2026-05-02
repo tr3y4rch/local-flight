@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import types
@@ -9,6 +10,7 @@ from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 import relay.main as relay_main
+from localflight.sources.web.airport_surface import build_surface_payload
 
 
 def _use_temp_db(tmp_path: Path, monkeypatch) -> None:
@@ -50,6 +52,27 @@ def _shared_snapshot_payload(*, pages_fetched: int = 4) -> dict[str, object]:
             }
         ],
     }
+
+
+def _surface_snapshot_payload() -> dict[str, object]:
+    return build_surface_payload(
+        airport_iata="ZRH",
+        airport_icao="LSZH",
+        center_lat=47.45,
+        center_lon=8.55,
+        radius_nm=20,
+        cache_state="fresh",
+        features=[
+            {
+                "kind": "runway",
+                "id": "way:1",
+                "label": "16/34",
+                "closed": False,
+                "points": [[47.45, 8.55], [47.46, 8.56]],
+            }
+        ],
+        meta={"test": True},
+    )
 
 
 def _aviationstack_departure(number: str, scheduled: datetime) -> dict[str, object]:
@@ -384,6 +407,7 @@ def test_admin_clean_trial_state_keeps_tokens_and_usage_counters(tmp_path: Path,
             "request_log",
             "client_interests",
             "schedule_snapshots",
+            "airport_surface_snapshots",
             "activation_requests",
             "report_events",
             "report_dedupe",
@@ -395,6 +419,96 @@ def test_admin_clean_trial_state_keeps_tokens_and_usage_counters(tmp_path: Path,
     assert cleared_counts == {table: 0 for table in cleared_counts}
     assert usage_count is not None and int(usage_count["n"] or 0) == 1
     assert token_count is not None and int(token_count["n"] or 0) == 1
+
+
+def test_airport_surface_endpoint_fetches_once_then_serves_cache(tmp_path: Path, monkeypatch) -> None:
+    _use_temp_db(tmp_path, monkeypatch)
+    monkeypatch.setenv("RELAY_AIRPORT_SURFACE_ENABLED", "1")
+    client = TestClient(relay_main.app)
+    calls: list[dict[str, object]] = []
+
+    def _fake_fetch(**kwargs) -> dict[str, object]:
+        calls.append(kwargs)
+        return _surface_snapshot_payload()
+
+    monkeypatch.setattr(relay_main, "_fetch_airport_surface_from_osm", _fake_fetch)
+    params = {
+        "airport_iata": "ZRH",
+        "airport_icao": "LSZH",
+        "lat": 47.45,
+        "lon": 8.55,
+        "radius_nm": 5,
+    }
+
+    first = client.get("/v1/airport-surface", params=params)
+    second = client.get("/v1/airport-surface", params=params)
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert len(calls) == 1
+    assert first.json()["features"][0]["label"] == "16/34"
+    assert second.json()["cache_state"] == "fresh"
+    conn = relay_main._connect()
+    row = conn.execute("SELECT request_count, cache_hits, refresh_count FROM airport_surface_snapshots").fetchone()
+    conn.close()
+    assert row is not None
+    assert int(row["request_count"] or 0) == 2
+    assert int(row["cache_hits"] or 0) == 1
+    assert int(row["refresh_count"] or 0) == 1
+
+
+def test_airport_surface_endpoint_serves_stale_on_upstream_failure(tmp_path: Path, monkeypatch) -> None:
+    _use_temp_db(tmp_path, monkeypatch)
+    monkeypatch.setenv("RELAY_AIRPORT_SURFACE_ENABLED", "1")
+    client = TestClient(relay_main.app)
+    monkeypatch.setattr(relay_main, "_fetch_airport_surface_from_osm", lambda **kwargs: _surface_snapshot_payload())
+    params = {
+        "airport_iata": "ZRH",
+        "airport_icao": "LSZH",
+        "lat": 47.45,
+        "lon": 8.55,
+        "radius_nm": 5,
+    }
+
+    seeded = client.get("/v1/airport-surface", params=params)
+    assert seeded.status_code == 200
+
+    old = (datetime.now(timezone.utc) - timedelta(days=8)).isoformat()
+    conn = relay_main._connect()
+    conn.execute("UPDATE airport_surface_snapshots SET updated_at=?", (old,))
+    conn.commit()
+    conn.close()
+
+    def _boom(**kwargs) -> dict[str, object]:
+        raise HTTPException(status_code=502, detail="overpass down")
+
+    monkeypatch.setattr(relay_main, "_fetch_airport_surface_from_osm", _boom)
+    response = client.get("/v1/airport-surface", params=params)
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["cache_state"] == "stale"
+    assert "overpass down" in payload["error"]
+    assert payload["features"][0]["kind"] == "runway"
+
+
+def test_airport_surface_endpoint_is_disabled_unless_operator_enables_it(tmp_path: Path, monkeypatch) -> None:
+    _use_temp_db(tmp_path, monkeypatch)
+    client = TestClient(relay_main.app)
+
+    response = client.get(
+        "/v1/airport-surface",
+        params={
+            "airport_iata": "ZRH",
+            "airport_icao": "LSZH",
+            "lat": 47.45,
+            "lon": 8.55,
+            "radius_nm": 5,
+        },
+    )
+
+    assert response.status_code == 503
+    assert "disabled" in response.json()["detail"]
 
 
 def test_relay_client_ip_ignores_spoofable_forwarded_for() -> None:
@@ -416,8 +530,322 @@ def test_public_host_hides_admin_surface(tmp_path: Path, monkeypatch) -> None:
     client = TestClient(relay_main.app)
 
     response = client.get("/admin", headers={"host": "relay.localflight.app"})
+    api_response = client.get("/admin/api/overview", headers={"host": "relay.localflight.app"})
 
     assert response.status_code == 404
+    assert api_response.status_code == 404
+
+
+def test_admin_api_requires_auth_and_redacts_private_values(tmp_path: Path, monkeypatch) -> None:
+    _use_temp_db(tmp_path, monkeypatch)
+    monkeypatch.setenv("RELAY_ADMIN_PASSWORD", "correct-horse")
+    client = TestClient(relay_main.app)
+
+    aviationstack_key = "aviationstack-raw-secret-12345"
+    rapidapi_key = "rapidapi-raw-secret-67890"
+    install_id = "00000000-0000-0000-0000-000000000515"
+    conn = relay_main._connect()
+    relay_main._setting_set_conn(conn, relay_main._SETTING_AVIATIONSTACK_KEY, aviationstack_key)
+    relay_main._setting_set_conn(conn, relay_main._SETTING_RAPIDAPI_KEY, rapidapi_key)
+    conn.execute(
+        """
+        INSERT INTO report_events (
+            ts, install_fingerprint, network_tag, report_type, origin, context, team, status, dedupe_key
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            relay_main._utc_now(),
+            relay_main._install_fingerprint(install_id),
+            "net_private_test",
+            "manual",
+            "web",
+            "contains LINEAR_API_KEY=secret and private log tail",
+            "Desktop",
+            "filed",
+            "dedupe-private-value",
+        ),
+    )
+    conn.commit()
+    conn.close()
+
+    activate = client.post(
+        "/v1/activate",
+        json={
+            "install_id": install_id,
+            "install_fingerprint": relay_main._install_fingerprint(install_id),
+            "airport_iata": "ZRH",
+            "airport_icao": "LSZH",
+            "display_name": "Admin API privacy test",
+            "requested_mode": "community",
+            "app_version": "0.2.5b4",
+        },
+        headers={"host": "relay.localflight.app", "x-forwarded-for": "198.51.100.88"},
+    )
+    assert activate.status_code == 200
+    raw_token = activate.json()["activation_token"]
+
+    unauth = client.get("/admin/api/overview", headers={"host": "network.localflight.app"})
+    assert unauth.status_code == 401
+
+    responses = [
+        client.get(path, headers={"host": "network.localflight.app"}, auth=("admin", "correct-horse"))
+        for path in (
+            "/admin/api/overview",
+            "/admin/api/usage",
+            "/admin/api/schedules",
+            "/admin/api/surfaces",
+            "/admin/api/activations",
+            "/admin/api/reports",
+        )
+    ]
+
+    assert all(response.status_code == 200 for response in responses)
+    combined = json.dumps([response.json() for response in responses], sort_keys=True)
+    assert aviationstack_key not in combined
+    assert rapidapi_key not in combined
+    assert raw_token not in combined
+    assert install_id not in combined
+    assert "LINEAR_API_KEY=secret" not in combined
+    assert "private log tail" not in combined
+    assert "token_hash" not in combined
+    assert "issued_token" not in combined
+    assert "context" not in combined
+    assert responses[0].json()["providers"]["aviationstack"]["configured"] is True
+    assert responses[4].json()["tokens"][0]["token_prefix"] == raw_token[:10]
+    assert responses[4].json()["tokens"][0]["action_ref"].startswith("tok_")
+
+
+def test_admin_api_provider_and_token_actions(tmp_path: Path, monkeypatch) -> None:
+    _use_temp_db(tmp_path, monkeypatch)
+    monkeypatch.setenv("RELAY_ADMIN_PASSWORD", "correct-horse")
+    client = TestClient(relay_main.app)
+    headers = {"host": "network.localflight.app"}
+    auth = ("admin", "correct-horse")
+
+    save = client.post(
+        "/admin/api/providers/save",
+        headers=headers,
+        auth=auth,
+        json={"aviationstack_key": "stored-avi-test", "rapidapi_key": "stored-radar-test"},
+    )
+    assert save.status_code == 200
+    overview = client.get("/admin/api/overview", headers=headers, auth=auth).json()
+    assert overview["providers"]["aviationstack"]["configured"] is True
+    assert "stored-avi-test" not in json.dumps(overview)
+
+    clear = client.post(
+        "/admin/api/providers/clear",
+        headers=headers,
+        auth=auth,
+        json={"provider": "aviationstack"},
+    )
+    assert clear.status_code == 200
+
+    created = client.post(
+        "/admin/api/activation/create",
+        headers=headers,
+        auth=auth,
+        json={"label": "Qt operator test", "schedule_limit": 7, "radar_limit": 8},
+    )
+    assert created.status_code == 200
+    created_payload = created.json()
+    raw_token = created_payload["activation_token"]
+    prefix = created_payload["token_prefix"]
+    token_ref = created_payload["action_ref"]
+    assert raw_token.startswith("lfm_")
+    assert token_ref.startswith("tok_")
+
+    revoked = client.post(
+        "/admin/api/activation/token-action",
+        headers=headers,
+        auth=auth,
+        json={"token_ref": token_ref, "token_prefix": prefix, "action": "revoke"},
+    )
+    restored = client.post(
+        "/admin/api/activation/token-action",
+        headers=headers,
+        auth=auth,
+        json={"token_ref": token_ref, "token_prefix": prefix, "action": "reactivate"},
+    )
+    rotated = client.post(
+        "/admin/api/activation/token-action",
+        headers=headers,
+        auth=auth,
+        json={"token_ref": token_ref, "token_prefix": prefix, "action": "rotate"},
+    )
+
+    assert revoked.status_code == 200
+    assert restored.status_code == 200
+    assert rotated.status_code == 200
+    assert rotated.json()["activation_token"].startswith("lfm_")
+    assert rotated.json()["activation_token"] != raw_token
+    assert rotated.json()["action_ref"].startswith("tok_")
+
+
+def test_admin_api_activation_request_action_issues_token(tmp_path: Path, monkeypatch) -> None:
+    _use_temp_db(tmp_path, monkeypatch)
+    monkeypatch.setenv("RELAY_ADMIN_PASSWORD", "correct-horse")
+    client = TestClient(relay_main.app)
+    headers = {"host": "network.localflight.app"}
+    auth = ("admin", "correct-horse")
+    install_id = "00000000-0000-0000-0000-000000000616"
+    request_id = "req_manual_test"
+    now = relay_main._utc_now()
+    conn = relay_main._connect()
+    conn.execute(
+        """
+        INSERT INTO activation_requests (
+            request_id, install_id, install_fingerprint, network_tag, status, requested_mode,
+            created_at, updated_at, last_seen, app_version
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            request_id,
+            install_id,
+            relay_main._install_fingerprint(install_id),
+            "net_admin_api",
+            relay_main._REQUEST_STATUS_MANUAL_REVIEW,
+            "community",
+            now,
+            now,
+            now,
+            "test",
+        ),
+    )
+    conn.commit()
+    conn.close()
+
+    issued = client.post(
+        "/admin/api/activation/request-action",
+        headers=headers,
+        auth=auth,
+        json={"request_id": request_id, "action": "approve"},
+    )
+
+    assert issued.status_code == 200
+    payload = issued.json()
+    assert payload["activation_token"].startswith("lfm_")
+    assert payload["action_ref"].startswith("tok_")
+    status = client.get(
+        "/v1/client/status",
+        params={"install_id": install_id, "activation_token": payload["activation_token"]},
+        headers={"host": "relay.localflight.app"},
+    )
+    assert status.status_code == 200
+    assert status.json()["plan"] == "managed"
+
+
+def test_admin_api_write_actions_tolerate_blank_optional_text(tmp_path: Path, monkeypatch) -> None:
+    _use_temp_db(tmp_path, monkeypatch)
+    monkeypatch.setenv("RELAY_ADMIN_PASSWORD", "correct-horse")
+    client = TestClient(relay_main.app)
+    headers = {"host": "network.localflight.app"}
+    auth = ("admin", "correct-horse")
+
+    provider_save = client.post(
+        "/admin/api/providers/save",
+        headers=headers,
+        auth=auth,
+        json={"aviationstack_key": None, "rapidapi_key": None},
+    )
+    assert provider_save.status_code == 200
+
+    created = client.post(
+        "/admin/api/activation/create",
+        headers=headers,
+        auth=auth,
+        json={"label": None, "schedule_limit": 7, "radar_limit": 8},
+    )
+    assert created.status_code == 200
+    token_ref = created.json()["action_ref"]
+    assert token_ref.startswith("tok_")
+
+    reset_token = client.post(
+        "/admin/api/counters/reset",
+        headers=headers,
+        auth=auth,
+        json={"scope": "token", "service": None, "token_ref": token_ref, "install_fingerprint": None},
+    )
+    assert reset_token.status_code == 200
+
+    install_id = "00000000-0000-0000-0000-000000000617"
+    fingerprint = relay_main._install_fingerprint(install_id)
+    block = client.post(
+        "/admin/api/install/access",
+        headers=headers,
+        auth=auth,
+        json={"install_id": install_id, "install_fingerprint": None, "action": "block", "reason": None},
+    )
+    assert block.status_code == 200
+    blocked_payload = client.get("/admin/api/activations", headers=headers, auth=auth).json()
+    blocked_ref = blocked_payload["blocked_installs"][0]["action_ref"]
+    assert blocked_ref.startswith("inst_")
+    unblock_by_ref = client.post(
+        "/admin/api/install/access",
+        headers=headers,
+        auth=auth,
+        json={"install_ref": blocked_ref, "install_fingerprint": None, "action": "unblock", "reason": None},
+    )
+    assert unblock_by_ref.status_code == 200
+    block_again = client.post(
+        "/admin/api/install/access",
+        headers=headers,
+        auth=auth,
+        json={"install_id": install_id, "install_fingerprint": None, "action": "block", "reason": None},
+    )
+    legacy_unblock = client.post(
+        "/admin/api/install/access",
+        headers=headers,
+        auth=auth,
+        json={"install_id": None, "install_fingerprint": fingerprint, "action": "unblock", "reason": None},
+    )
+    assert block_again.status_code == 200
+    assert legacy_unblock.status_code == 200
+
+    request_id = "req_optional_text"
+    now = relay_main._utc_now()
+    conn = relay_main._connect()
+    conn.execute(
+        """
+        INSERT INTO activation_requests (
+            request_id, install_id, install_fingerprint, network_tag, status, requested_mode,
+            created_at, updated_at, last_seen, app_version
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            request_id,
+            install_id,
+            fingerprint,
+            "net_admin_api",
+            relay_main._REQUEST_STATUS_MANUAL_REVIEW,
+            "community",
+            now,
+            now,
+            now,
+            "test",
+        ),
+    )
+    conn.commit()
+    conn.close()
+
+    reject = client.post(
+        "/admin/api/activation/request-action",
+        headers=headers,
+        auth=auth,
+        json={"request_id": request_id, "action": "reject", "decision_note": None},
+    )
+    assert reject.status_code == 200
+
+    clean = client.post(
+        "/admin/api/maintenance/clean-trial",
+        headers=headers,
+        auth=auth,
+        json={},
+    )
+    assert clean.status_code == 200
 
 
 def test_admin_host_hides_public_api_surface(tmp_path: Path, monkeypatch) -> None:
@@ -1087,18 +1515,19 @@ def test_shared_schedule_invalid_timezones_share_normalized_cache_key(
 
 def test_shared_schedule_upstream_fetch_adds_adaptive_pages_for_busy_departures(monkeypatch) -> None:
     monkeypatch.setattr(relay_main, "_aviationstack_key", lambda: "relay-key-123")
-    start = datetime(2026, 5, 1, 0, 0, tzinfo=timezone.utc)
+    start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    flight_date = start.date().isoformat()
     captured: list[dict[str, object]] = []
 
     def fake_get(url, *, params, headers, timeout):
         captured.append(dict(params))
         limit = int(params.get("limit", 100) or 100)
         offset = int(params.get("offset", 0) or 0)
-        if params.get("dep_iata") == "ZRH" and params.get("flight_date") == "2026-05-01" and offset < 500:
+        if params.get("dep_iata") == "ZRH" and params.get("flight_date") == flight_date and offset < 500:
             rows = [
                 _aviationstack_departure(
                     str(1000 + offset + idx),
-                    start + timedelta(minutes=offset + idx),
+                    start + timedelta(seconds=offset + idx),
                 )
                 for idx in range(limit)
             ]
@@ -1118,11 +1547,13 @@ def test_shared_schedule_upstream_fetch_adds_adaptive_pages_for_busy_departures(
     meta = payload["meta"]
 
     assert meta["adaptive_extra_pages"] >= 1
-    assert meta["pages_by_scope"]["departures:2026-05-01"] >= 5
-    assert meta["pages_by_scope"]["arrivals:2026-05-01"] == 1
+    assert meta["pages_by_scope"][f"departures:{flight_date}"] >= 5
+    assert meta["pages_by_scope"][f"arrivals:{flight_date}"] == 1
     assert len(payload["records"]) == 500
     assert any(
-        params.get("dep_iata") == "ZRH" and int(params.get("offset", 0) or 0) == 400
+        params.get("dep_iata") == "ZRH"
+        and params.get("flight_date") == flight_date
+        and int(params.get("offset", 0) or 0) == 400
         for params in captured
     )
 

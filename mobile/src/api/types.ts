@@ -16,6 +16,7 @@ export type AppConfig = {
   web_rotation_seconds?: number;
   display_grace_minutes?: number;
   display_horizon_hours?: number;
+  radar_surface_enabled?: boolean;
 };
 
 export type AppState = {
@@ -258,6 +259,8 @@ export type FidsRow = {
   view: FlightView | string;
   display_time: string;
   flight_display: string;
+  airline_display?: string;
+  codeshare_display?: string;
   route_display: string;
   status_display: string;
   status_class: string;
@@ -269,8 +272,11 @@ export type FidsRow = {
 export type FlightDetail = {
   callsign?: string;
   flight_number?: string | null;
+  flight_display?: string | null;
   airline?: string | null;
   airline_iata?: string | null;
+  airline_icao?: string | null;
+  codeshares?: string[];
   origin_iata?: string | null;
   origin_icao?: string | null;
   origin_name?: string | null;
@@ -370,7 +376,9 @@ export type RadarResponse = {
   center: RadarCenter;
   radius_nm: number;
   source: string;
+  refresh_after_s?: number;
   count: number;
+  ground_filtered?: number;
   blips: RadarBlip[];
 };
 

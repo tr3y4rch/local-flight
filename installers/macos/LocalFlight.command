@@ -7,6 +7,7 @@ _SELF="$(readlink "$0" 2>/dev/null)"
 [ -z "$_SELF" ] && _SELF="$0"
 ROOT="$(cd "$(dirname "$_SELF")/../.." && pwd)"
 VENV="$ROOT/.venv"
+REQUESTED_GUI_MODE="${LOCALFLIGHT_GUI_MODE:-}"
 
 if [ ! -x "$VENV/bin/python" ]; then
     osascript -e 'display alert "Local Flight" message "Not installed. Run installers/macos/install.sh first." as critical'
@@ -19,6 +20,10 @@ if [ -f "$ROOT/.env" ]; then
     source "$ROOT/.env"
     set +a
 fi
+if [ -n "$REQUESTED_GUI_MODE" ]; then
+    export LOCALFLIGHT_GUI_MODE="$REQUESTED_GUI_MODE"
+elif [ -z "${LOCALFLIGHT_GUI_MODE:-}" ]; then
+    export LOCALFLIGHT_GUI_MODE="native"
+fi
 
-cd "$ROOT/src"
 exec "$VENV/bin/python" -m localflight

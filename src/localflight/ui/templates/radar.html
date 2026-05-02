@@ -6,40 +6,86 @@
 {% block title %}{{ cfg.display_name }} – Radar{% endblock %}
 
 {% block extra_style %}
-  body { margin: 0; overflow: hidden; }
-  :root { --lf-chrome: {{ '0px' if _embedded else '42px' }}; }
+  body {
+    margin: 0;
+    overflow: hidden;
+    display: grid;
+    grid-template-rows: {% if _embedded %}minmax(0, 1fr){% else %}auto minmax(0, 1fr){% endif %};
+    place-items: stretch;
+    min-height: 100vh;
+    height: 100vh;
+    height: 100dvh;
+  }
   .radar-wrap {
     display: flex; flex-direction: column;
-    height: calc(100vh - var(--lf-chrome));
-    padding: 10px 12px 12px; box-sizing: border-box; gap: 8px;
+    min-height: 0;
+    height: 100%;
+    padding: clamp(5px, 1.1vh, 12px) clamp(6px, 1.2vw, 14px) clamp(6px, 1.2vh, 14px);
+    box-sizing: border-box; gap: clamp(4px, 0.9vh, 8px);
   }
   .radar-subheader {
     display: flex; justify-content: space-between; align-items: center;
-    flex-shrink: 0; flex-wrap: wrap; gap: 8px;
-    font-size: 0.88rem; font-weight: 700;
+    flex-shrink: 0; flex-wrap: wrap; gap: clamp(5px, 0.9vw, 8px);
+    min-width: 0;
+    font-size: clamp(0.76rem, 1.2vw, 0.88rem); font-weight: 700;
+  }
+  .radar-airport-title {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .radar-subheader .radar-lt {
-    font-family: ui-monospace, monospace; font-size: 0.78rem;
+    font-family: ui-monospace, monospace; font-size: clamp(0.66rem, 1vw, 0.78rem);
     opacity: 0.6; font-variant-numeric: tabular-nums;
+    white-space: nowrap;
   }
 
   /* ── METAR bar ── */
   .metar-bar {
-    display: flex; align-items: center; gap: 8px; flex-shrink: 0;
-    padding: 5px 12px; border-radius: 6px;
+    display: flex; align-items: center; gap: clamp(5px, 0.9vw, 8px); flex-shrink: 0;
+    min-width: 0;
+    overflow: hidden;
+    padding: clamp(4px, 0.7vh, 5px) clamp(7px, 1vw, 12px); border-radius: 6px;
     background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08);
-    font-size: 0.8rem; font-family: ui-monospace, monospace; min-height: 28px;
+    font-size: clamp(0.68rem, 1.1vw, 0.8rem); font-family: ui-monospace, monospace; min-height: 28px;
   }
   [data-theme="light"] .metar-bar { background: rgba(0,0,0,0.04); border-color: rgba(0,0,0,0.08); }
+  .metar-bar.weather-tone-good { border-color: rgba(0,192,64,0.22); background: linear-gradient(90deg, rgba(0,192,64,0.09), rgba(255,255,255,0.03)); }
+  .metar-bar.weather-tone-neutral { border-color: rgba(74,158,218,0.20); background: linear-gradient(90deg, rgba(74,158,218,0.10), rgba(255,255,255,0.03)); }
+  .metar-bar.weather-tone-caution { border-color: rgba(240,180,41,0.25); background: linear-gradient(90deg, rgba(240,180,41,0.11), rgba(255,255,255,0.03)); }
+  .metar-bar.weather-tone-bad { border-color: rgba(255,64,64,0.30); background: linear-gradient(90deg, rgba(255,64,64,0.12), rgba(255,255,255,0.03)); }
+  .weather-icon {
+    width: clamp(22px, 3.5vw, 26px); height: clamp(22px, 3.5vw, 26px); border-radius: 999px; flex-shrink: 0;
+    display: inline-flex; align-items: center; justify-content: center;
+    background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.08);
+    font-size: clamp(0.84rem, 2vw, 1rem); line-height: 1;
+  }
+  [data-theme="light"] .weather-icon { background: rgba(0,0,0,0.05); border-color: rgba(0,0,0,0.08); }
+  .weather-temp {
+    font-weight: 900; font-size: 0.72rem; letter-spacing: 0.04em;
+    padding: 2px 8px; border-radius: 999px;
+    background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.08);
+    white-space: nowrap; flex-shrink: 0;
+  }
   .metar-cat { font-weight: 800; font-size: 0.72rem; padding: 2px 8px; border-radius: 4px; color: #000; flex-shrink: 0; letter-spacing: 0.04em; }
+  .weather-label { font-weight: 900; white-space: nowrap; }
   .metar-summary { opacity: 0.85; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .metar-raw { opacity: 0.4; font-size: 0.72rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 340px; flex-shrink: 1; }
   .metar-sep { opacity: 0.2; flex-shrink: 0; }
   .metar-loading { opacity: 0.4; font-style: italic; }
 
-  .radar-range-btns { display: flex; gap: 5px; }
+  .radar-range-btns {
+    display: flex; gap: 5px;
+    flex-wrap: wrap;
+    justify-content: center;
+    min-width: 0;
+  }
   .radar-range-btn {
-    padding: 3px 10px; border-radius: 4px; font-size: 0.75rem; font-weight: 700;
+    width: auto;
+    margin-top: 0;
+    flex: 0 0 auto;
+    padding: clamp(2px, 0.5vh, 3px) clamp(7px, 1.1vw, 10px); border-radius: 4px; font-size: clamp(0.66rem, 1vw, 0.75rem); font-weight: 700;
     border: 1px solid rgba(255,255,255,0.18); background: rgba(255,255,255,0.05);
     color: inherit; cursor: pointer; font-family: ui-monospace, monospace;
     transition: background 0.1s, border-color 0.1s;
@@ -49,9 +95,67 @@
   [data-theme="light"] .radar-range-btn.active { background: rgba(0,0,0,0.12); border-color: rgba(0,0,0,0.4); }
   .live-dot { width: 6px; height: 6px; border-radius: 50%; background: #00e84a; display: inline-block; animation: lf-pulse 1.4s ease-in-out infinite; }
   .live-dot.offline { background: #888; animation: none; }
-  .radar-canvas-wrap { flex: 1; display: flex; align-items: center; justify-content: center; min-height: 0; }
+  .radar-canvas-wrap { flex: 1 1 auto; display: flex; align-items: center; justify-content: center; min-height: 0; position: relative; overflow: hidden; }
   #radarCanvas { display: block; max-width: 100%; max-height: 100%; border-radius: 50%; }
-  .radar-status { font-size: 0.72rem; opacity: 0.45; text-align: center; flex-shrink: 0; font-family: ui-monospace, monospace; }
+  .osm-attribution {
+    display: none;
+    position: absolute;
+    right: 18px;
+    bottom: 12px;
+    padding: 3px 7px;
+    border-radius: 999px;
+    color: inherit;
+    text-decoration: none;
+    font-size: 0.62rem;
+    font-family: ui-monospace, monospace;
+    opacity: 0.62;
+    background: rgba(0,0,0,0.36);
+    border: 1px solid rgba(255,255,255,0.08);
+    pointer-events: auto;
+  }
+  [data-theme="light"] .osm-attribution { background: rgba(255,255,255,0.68); border-color: rgba(0,0,0,0.08); }
+  .osm-attribution.visible { display: block; }
+  .radar-status { font-size: clamp(0.62rem, 0.95vw, 0.72rem); opacity: 0.45; text-align: center; flex-shrink: 0; font-family: ui-monospace, monospace; }
+  @media (max-width: 760px), (max-height: 520px) {
+    .radar-wrap {
+      padding: 5px 6px 6px;
+      gap: 5px;
+    }
+    .radar-airport-title {
+      max-width: 44vw;
+    }
+    .metar-bar {
+      min-height: 24px;
+      padding: 4px 7px;
+    }
+    .weather-label,
+    .metar-sep,
+    .metar-raw {
+      display: none;
+    }
+    .metar-summary {
+      font-size: 0.7rem;
+    }
+    .osm-attribution {
+      right: 8px;
+      bottom: 8px;
+      font-size: 0.55rem;
+    }
+  }
+  @media (max-height: 460px) {
+    .radar-subheader .radar-lt {
+      display: none;
+    }
+    .metar-bar {
+      min-height: 22px;
+    }
+    .radar-range-btn {
+      padding: 2px 6px;
+    }
+    .radar-status {
+      line-height: 1.15;
+    }
+  }
 {% endblock %}
 
 {% block body %}
@@ -60,15 +164,18 @@
 
   <div class="radar-subheader">
     {% if not _embedded %}
-    <span>📡 {{ airport_label }} <span style="opacity:0.45; font-weight:500;">({{ cfg.airport_iata }}/{{ cfg.airport_icao }})</span></span>
+    <span class="radar-airport-title">📡 {{ airport_label }} <span style="opacity:0.45; font-weight:500;">({{ cfg.airport_iata }}/{{ cfg.airport_icao }})</span></span>
     {% else %}
-    <span style="opacity:0.55; font-size:0.78rem;">Radar range</span>
+    <span class="radar-airport-title" style="opacity:0.55; font-size:0.78rem;">Radar range</span>
     {% endif %}
     <div class="radar-range-btns" id="rangeButtons">
+      <button class="radar-range-btn" data-nm="1" onclick="setRadius(1)">1nm</button>
+      <button class="radar-range-btn" data-nm="2" onclick="setRadius(2)">2nm</button>
+      <button class="radar-range-btn" data-nm="3" onclick="setRadius(3)">3nm</button>
+      <button class="radar-range-btn" data-nm="5" onclick="setRadius(5)">5nm</button>
       <button class="radar-range-btn" data-nm="10" onclick="setRadius(10)">10nm</button>
       <button class="radar-range-btn" data-nm="20" onclick="setRadius(20)">20nm</button>
       <button class="radar-range-btn" data-nm="40" onclick="setRadius(40)">40nm</button>
-      <button class="radar-range-btn" data-nm="80" onclick="setRadius(80)">80nm</button>
     </div>
     {% if not _embedded %}
     <span class="radar-lt">LT <span class="clock-local-val">--:--:--</span></span>
@@ -83,6 +190,7 @@
 
   <div class="radar-canvas-wrap">
     <canvas id="radarCanvas"></canvas>
+    <a class="osm-attribution" id="osmAttribution" href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">&copy; OpenStreetMap contributors</a>
   </div>
 
   <div class="radar-status" id="radarStatus">
@@ -98,12 +206,15 @@
   const canvas = document.getElementById("radarCanvas");
   const ctx    = canvas.getContext("2d");
   const status = document.getElementById("radarStatus");
+  const osmAttribution = document.getElementById("osmAttribution");
 
   const CENTER_LAT = {{ center_lat }};
   const CENTER_LON = {{ center_lon }};
   let   RADIUS_NM  = {{ radius_nm }};
   const POLL_MS    = 15000;
   const METAR_POLL_MS = 30 * 60 * 1000;
+  const SURFACE_ENABLED = {{ 'true' if cfg.radar_surface_enabled else 'false' }};
+  const SURFACE_RADIUS_NM = 5;
 
   const skin  = document.documentElement.dataset.skin  || "standard";
   const theme = document.documentElement.dataset.theme || "dark";
@@ -116,6 +227,16 @@
     crt:       { bg:"#0a0600", ring:"rgba(255,170,0,0.18)",  text:"#ffaa00", blip:"#ffaa00", center:"#ffaa00", sweepLine:"rgba(255,170,0,0.8)"   },
   };
   const C = SKIN_COLORS[skin] || SKIN_COLORS.standard;
+  const SURFACE_BY_SKIN = {
+    standard: theme === "light"
+      ? { boundary:"rgba(18,76,126,0.28)", runway:"rgba(18,76,126,0.46)", runwayFill:"rgba(18,76,126,0.08)", taxiway:"rgba(18,76,126,0.20)", apron:"rgba(18,76,126,0.06)", terminal:"rgba(18,76,126,0.09)", building:"rgba(18,76,126,0.13)", label:"rgba(18,76,126,0.62)" }
+      : { boundary:"rgba(124,196,240,0.30)", runway:"rgba(124,196,240,0.52)", runwayFill:"rgba(124,196,240,0.10)", taxiway:"rgba(124,196,240,0.24)", apron:"rgba(124,196,240,0.07)", terminal:"rgba(124,196,240,0.10)", building:"rgba(124,196,240,0.15)", label:"rgba(170,220,255,0.66)" },
+    technical: { boundary:"rgba(74,158,218,0.30)", runway:"rgba(122,190,240,0.56)", runwayFill:"rgba(74,158,218,0.10)", taxiway:"rgba(74,158,218,0.25)", apron:"rgba(74,158,218,0.08)", terminal:"rgba(74,158,218,0.11)", building:"rgba(122,190,240,0.17)", label:"rgba(164,216,255,0.66)" },
+    neon:      { boundary:"rgba(0,255,80,0.28)", runway:"rgba(0,255,128,0.56)", runwayFill:"rgba(0,255,80,0.09)", taxiway:"rgba(0,255,80,0.22)", apron:"rgba(0,255,80,0.06)", terminal:"rgba(0,255,80,0.09)", building:"rgba(0,255,128,0.14)", label:"rgba(128,255,172,0.66)" },
+    cyan:      { boundary:"rgba(0,204,255,0.28)", runway:"rgba(70,225,255,0.56)", runwayFill:"rgba(0,204,255,0.09)", taxiway:"rgba(0,204,255,0.22)", apron:"rgba(0,204,255,0.06)", terminal:"rgba(0,204,255,0.09)", building:"rgba(70,225,255,0.14)", label:"rgba(150,238,255,0.66)" },
+    crt:       { boundary:"rgba(255,170,0,0.28)", runway:"rgba(255,196,66,0.56)", runwayFill:"rgba(255,170,0,0.09)", taxiway:"rgba(255,170,0,0.22)", apron:"rgba(255,170,0,0.06)", terminal:"rgba(255,170,0,0.09)", building:"rgba(255,196,66,0.14)", label:"rgba(255,213,128,0.66)" },
+  };
+  const SURFACE = SURFACE_BY_SKIN[skin] || SURFACE_BY_SKIN.standard;
 
   const NM_PER_DEG_LAT = 60.0;
   function latLonToNm(lat, lon) {
@@ -140,6 +261,7 @@
     const url = new URL(window.location.href);
     url.searchParams.set("radius_nm", String(nm));
     window.history.replaceState(null, "", url);
+    if (SURFACE_ENABLED) fetchSurface();
     fetchBlips();
   }
   window.setRadius = setRadius;
@@ -150,12 +272,20 @@
     });
   }
 
-  function resize(){ const w=canvas.parentElement, s=Math.min(w.clientWidth,w.clientHeight)-4; canvas.width=s; canvas.height=s; }
+  function resize(){
+    const w = canvas.parentElement;
+    const available = Math.min(w.clientWidth, w.clientHeight);
+    const s = Math.max(80, Math.floor(available - 4));
+    canvas.width = s;
+    canvas.height = s;
+  }
 
   let sweepAngle=0, lastSweepTime=performance.now();
   function updateSweep(now){ const e=(now-lastSweepTime)/1000; lastSweepTime=now; sweepAngle=(sweepAngle+e*30)%360; }
 
   let blips=[], hoveredBlip=null;
+  let surfaceFeatures = [];
+  let surfaceCacheState = "miss";
 
   let radarPollTimer = null;
 
@@ -180,7 +310,20 @@
       const r=await fetch(`/api/radar?radius_nm=${RADIUS_NM}`); if(!r.ok) throw new Error(`HTTP ${r.status}`);
       const data=await r.json(); blips=data.blips||[];
       const upd=new Date().toUTCString().slice(17,25);
-      status.innerHTML=`<span class="live-dot${ws&&ws.readyState===1?'':' offline'}" id="liveDot"></span> ${blips.length} aircraft · ${data.source||""} · ${upd} UTC`;
+      const hiddenGround = Number(data.ground_filtered || 0);
+      const hiddenAirborne = Number(data.airborne_filtered || 0);
+      const radarMode = data.radar_mode || (RADIUS_NM <= 5 ? "surface" : "airborne");
+      const providerRadius = Number(data.provider_radius_nm || RADIUS_NM);
+      const rawProviderCount = Number(data.raw_provider_count || blips.length);
+      const countLabel = radarMode === "surface"
+        ? (hiddenAirborne > 0 ? `${blips.length} surface (${hiddenAirborne} airborne hidden)` : `${blips.length} surface`)
+        : hiddenGround > 0
+        ? `${blips.length} airborne (${hiddenGround} ground hidden)`
+        : `${blips.length} aircraft`;
+      const croppedLabel = providerRadius > RADIUS_NM
+        ? ` · cropped from ${rawProviderCount} @ ${formatNm(providerRadius)}`
+        : "";
+      status.innerHTML=`<span class="live-dot${ws&&ws.readyState===1?'':' offline'}" id="liveDot"></span> ${countLabel} · ${data.source||""}${croppedLabel} · ${upd} UTC`;
       scheduleBlipFetch(nextPollDelayMs(data));
     } catch(e){
       status.innerHTML=`<span class="live-dot offline" id="liveDot"></span> Radar fetch failed: ${e.message}`;
@@ -188,16 +331,87 @@
     }
   }
 
+  async function fetchSurface() {
+    if (!SURFACE_ENABLED) {
+      surfaceFeatures = [];
+      surfaceCacheState = "disabled";
+      if (osmAttribution) osmAttribution.classList.remove("visible");
+      return;
+    }
+    try {
+      const r = await fetch(`/api/radar/surface?radius_nm=${SURFACE_RADIUS_NM}`);
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const data = await r.json();
+      surfaceFeatures = Array.isArray(data.features) ? data.features : [];
+      surfaceCacheState = data.cache_state || "miss";
+      const provider = String(data.provider || "");
+      const meta = data.meta || {};
+      const isEstimated = Boolean(meta.estimated_surface) || provider === "localflight-estimated";
+      if (osmAttribution && surfaceFeatures.length > 0) {
+        const attribution = data.attribution || {};
+        osmAttribution.textContent = attribution.text || (isEstimated ? "Estimated airport surface" : "© OpenStreetMap contributors");
+        if (isEstimated || !attribution.url) {
+          osmAttribution.removeAttribute("href");
+          osmAttribution.removeAttribute("target");
+        } else {
+          osmAttribution.href = attribution.url;
+          osmAttribution.target = "_blank";
+        }
+        osmAttribution.classList.add("visible");
+        osmAttribution.title = data.error
+          ? `Airport surface overlay (${surfaceCacheState}): ${data.error}`
+          : `Airport surface overlay (${surfaceCacheState})`;
+      } else if (osmAttribution && SURFACE_ENABLED && data.error) {
+        osmAttribution.textContent = "Surface unavailable";
+        osmAttribution.removeAttribute("href");
+        osmAttribution.removeAttribute("target");
+        osmAttribution.title = data.error;
+        osmAttribution.classList.add("visible");
+      } else if (osmAttribution) {
+        osmAttribution.classList.remove("visible");
+      }
+    } catch {
+      surfaceFeatures = [];
+      surfaceCacheState = "miss";
+      if (osmAttribution) {
+        osmAttribution.textContent = "Surface unavailable";
+        osmAttribution.removeAttribute("href");
+        osmAttribution.removeAttribute("target");
+        osmAttribution.title = "Airport surface overlay request failed";
+        osmAttribution.classList.add("visible");
+      }
+    }
+  }
+
   async function fetchMETAR() {
     const bar=document.getElementById("metarBar");
+    const icons = {
+      sun: "&#9728;", partly: "&#9925;", cloud: "&#9729;", rain: "&#9748;",
+      snow: "&#10052;", fog: "&#8779;", storm: "&#9889;", wind: "&#8641;",
+      ice: "&#9671;", unknown: "&#8226;"
+    };
+    const esc = value => String(value ?? "").replace(/[&<>"']/g, c => ({
+      "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;"
+    }[c]));
+    const safeColor = value => /^#[0-9a-f]{3,8}$/i.test(value || "") ? value : "#888";
     try {
       const r=await fetch("/api/metar"); if(!r.ok) throw new Error();
       const m=await r.json();
-      bar.innerHTML=`<span class="metar-cat" style="background:${m.flight_cat_color||'#888'}">${m.flight_cat||'?'}</span>
-        <span class="metar-summary">${m.decoded_summary||''}</span>
+      const tone = ["good","neutral","caution","bad"].includes(m.weather_tone) ? m.weather_tone : "neutral";
+      bar.classList.remove("weather-tone-good","weather-tone-neutral","weather-tone-caution","weather-tone-bad");
+      bar.classList.add(`weather-tone-${tone}`);
+      const temp = Number.isFinite(Number(m.temp_c)) ? `${Math.round(Number(m.temp_c))}&deg;C` : "--&deg;C";
+      bar.innerHTML=`<span class="weather-icon">${icons[m.weather_icon] || icons.unknown}</span>
+        <span class="metar-cat" style="background:${safeColor(m.flight_cat_color)}">${esc(m.flight_cat||'?')}</span>
+        <span class="weather-temp">${temp}</span>
+        <span class="weather-label">${esc(m.weather_label || "Weather")}</span>
+        <span class="metar-summary">${esc(m.weather_summary || m.decoded_summary || "")}</span>
         <span class="metar-sep">|</span>
-        <span class="metar-raw" title="${m.raw_text||''}">${m.raw_text||''}</span>`;
-    } catch { bar.innerHTML='<span class="metar-loading">Weather unavailable</span>'; }
+        <span class="metar-raw" title="${esc(m.raw_text||'')}">${esc(m.raw_text||'')}</span>`;
+    } catch {
+      bar.classList.remove("weather-tone-good","weather-tone-neutral","weather-tone-caution","weather-tone-bad");
+      bar.innerHTML='<span class="metar-loading">Weather unavailable</span>';
+    }
   }
 
   function draw() {
@@ -205,11 +419,12 @@
     ctx.clearRect(0,0,W,H);
     ctx.beginPath(); ctx.arc(cx,cy,R,0,Math.PI*2); ctx.fillStyle=C.bg; ctx.fill();
     ctx.save(); ctx.beginPath(); ctx.arc(cx,cy,R,0,Math.PI*2); ctx.clip();
+    drawSurface(R);
 
     [0.2,0.4,0.6,0.8,1.0].forEach(f=>{
       const rr=R*f; ctx.beginPath(); ctx.arc(cx,cy,rr,0,Math.PI*2); ctx.strokeStyle=C.ring; ctx.lineWidth=0.5; ctx.stroke();
       ctx.fillStyle=C.text; ctx.font=`${Math.max(9,W*0.018)}px ui-monospace,monospace`;
-      ctx.globalAlpha=0.35; ctx.fillText(`${Math.round(RADIUS_NM*f)}nm`,cx+rr+3,cy-3); ctx.globalAlpha=1;
+      ctx.globalAlpha=0.35; ctx.fillText(`${formatNm(RADIUS_NM*f)}`,cx+rr+3,cy-3); ctx.globalAlpha=1;
     });
 
     ctx.strokeStyle=C.ring; ctx.lineWidth=0.5; ctx.setLineDash([4,6]);
@@ -271,6 +486,123 @@
     ctx.restore();
   }
 
+  function surfaceAlpha() {
+    if (RADIUS_NM <= 5) return 1;
+    if (RADIUS_NM <= 10) return 0.78;
+    if (RADIUS_NM <= 20) return 0.55;
+    if (RADIUS_NM <= 40) return 0.28;
+    return 0.1;
+  }
+
+  function formatNm(value) {
+    const rounded = value < 1 ? Math.round(value * 10) / 10 : Math.round(value);
+    return `${rounded}nm`;
+  }
+
+  function pathForFeature(feature, R) {
+    const points = Array.isArray(feature.points) ? feature.points : [];
+    if (points.length < 2) return false;
+    let started = false;
+    for (const point of points) {
+      if (!Array.isArray(point) || point.length < 2) continue;
+      const nm = latLonToNm(Number(point[0]), Number(point[1]));
+      const pos = nmToCanvas(nm.x, nm.y, R);
+      if (!started) {
+        ctx.moveTo(pos.x, pos.y);
+        started = true;
+      } else {
+        ctx.lineTo(pos.x, pos.y);
+      }
+    }
+    if (!started) return false;
+    if (feature.closed) ctx.closePath();
+    return true;
+  }
+
+  function drawFeatureSet(kind, R, drawOne) {
+    surfaceFeatures.filter(f => f && f.kind === kind).forEach(feature => drawOne(feature, R));
+  }
+
+  function drawSurface(R) {
+    if (!surfaceFeatures.length) return;
+    const W = canvas.width;
+    const alpha = surfaceAlpha();
+    ctx.save();
+
+    drawFeatureSet("boundary", R, feature => {
+      ctx.beginPath();
+      if (!pathForFeature(feature, R)) return;
+      ctx.setLineDash([6, 8]);
+      ctx.strokeStyle = SURFACE.boundary;
+      ctx.globalAlpha = alpha * 0.75;
+      ctx.lineWidth = Math.max(0.8, W * 0.0018);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    });
+
+    ["apron", "terminal", "building"].forEach(kind => drawFeatureSet(kind, R, feature => {
+      ctx.beginPath();
+      if (!pathForFeature(feature, R)) return;
+      ctx.fillStyle = kind === "building" ? SURFACE.building : (kind === "terminal" ? SURFACE.terminal : SURFACE.apron);
+      ctx.globalAlpha = kind === "building" ? alpha * (RADIUS_NM <= 3 ? 1 : 0.35) : alpha;
+      if (feature.closed) ctx.fill();
+      ctx.strokeStyle = kind === "building" ? SURFACE.runway : (kind === "terminal" ? SURFACE.taxiway : SURFACE.apron);
+      ctx.lineWidth = Math.max(0.35, W * (kind === "building" ? 0.001 : 0.0008));
+      ctx.stroke();
+    }));
+
+    drawFeatureSet("taxiway", R, feature => {
+      ctx.beginPath();
+      if (!pathForFeature(feature, R)) return;
+      ctx.strokeStyle = SURFACE.taxiway;
+      ctx.globalAlpha = alpha * 0.9;
+      ctx.lineWidth = Math.max(0.55, W * 0.0012);
+      ctx.stroke();
+    });
+
+    drawFeatureSet("runway", R, feature => {
+      ctx.beginPath();
+      if (!pathForFeature(feature, R)) return;
+      ctx.strokeStyle = SURFACE.runway;
+      ctx.globalAlpha = alpha;
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      ctx.lineWidth = Math.max(1.8, W * 0.004);
+      ctx.stroke();
+      if (feature.closed) {
+        ctx.fillStyle = SURFACE.runwayFill;
+        ctx.fill();
+      }
+      if (feature.label && RADIUS_NM <= 10) drawRunwayLabel(feature, R, W);
+    });
+
+    ctx.restore();
+    ctx.globalAlpha = 1;
+    ctx.setLineDash([]);
+  }
+
+  function drawRunwayLabel(feature, R, W) {
+    const points = Array.isArray(feature.points) ? feature.points : [];
+    if (points.length < 2) return;
+    const first = points[0], last = points[points.length - 1];
+    const n1 = latLonToNm(Number(first[0]), Number(first[1]));
+    const n2 = latLonToNm(Number(last[0]), Number(last[1]));
+    const p1 = nmToCanvas(n1.x, n1.y, R);
+    const p2 = nmToCanvas(n2.x, n2.y, R);
+    const x = (p1.x + p2.x) / 2;
+    const y = (p1.y + p2.y) / 2;
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(Math.atan2(p2.y - p1.y, p2.x - p1.x));
+    ctx.fillStyle = SURFACE.label;
+    ctx.font = `${Math.max(8, W * 0.016)}px ui-monospace,monospace`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.globalAlpha = surfaceAlpha() * 0.95;
+    ctx.fillText(String(feature.label).slice(0, 12), 0, -Math.max(7, W * 0.012));
+    ctx.restore();
+  }
+
   canvas.addEventListener("mousemove", e=>{
     const rect=canvas.getBoundingClientRect();
     const mx=(e.clientX-rect.left)*(canvas.width/rect.width);
@@ -309,6 +641,9 @@
   resize();
   _initRangeButtons();
   window.addEventListener("resize", resize);
+  if ("ResizeObserver" in window) {
+    new ResizeObserver(resize).observe(canvas.parentElement);
+  }
   document.addEventListener("visibilitychange", () => {
     if (!document.hidden) {
       fetchBlips();
@@ -316,6 +651,7 @@
     }
     scheduleBlipFetch(120000);
   });
+  if (SURFACE_ENABLED) fetchSurface();
   fetchBlips(); fetchMETAR();
   setInterval(fetchMETAR, METAR_POLL_MS);
   requestAnimationFrame(loop);

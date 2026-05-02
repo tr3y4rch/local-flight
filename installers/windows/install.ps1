@@ -115,7 +115,8 @@ if not exist "%ROOT%\src\localflight\__main__.py" (
     exit /b 1
 )
 
-cd /d "%ROOT%\src"
+if "%LOCALFLIGHT_GUI_MODE%"=="" set "LOCALFLIGHT_GUI_MODE=native"
+cd /d "%ROOT%"
 start "" "%PYTHON%" -m localflight
 exit /b 0
 '@
@@ -160,12 +161,22 @@ if (-not (Test-Path $venvPython)) {
 if (-not $SkipDependencyInstall) {
     Write-Host " Installing Python dependencies..." -NoNewline
     Set-Location $ROOT
-    & $venvPython -m pip install -e "$ROOT" -q
+    & $venvPython -m pip install -e "${ROOT}[native]" -q
     if ($LASTEXITCODE -ne 0) {
         Write-Host " FAILED" -ForegroundColor Red
         Stop-Installer 1
     }
     Write-Host " Done" -ForegroundColor Green
+
+    Write-Host " Confirming PySide6/Qt..." -NoNewline
+    $qtVersion = & $venvPython -c "from PySide6.QtCore import qVersion; print(qVersion())" 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host " FAILED" -ForegroundColor Red
+        Write-Host ""
+        Write-Host $qtVersion -ForegroundColor Yellow
+        Stop-Installer 1
+    }
+    Write-Host " Qt $qtVersion" -ForegroundColor Green
 } else {
     Write-Host " Dependency install skipped by -SkipDependencyInstall" -ForegroundColor Yellow
 }
@@ -183,6 +194,7 @@ if (-not (Test-Path $envFile)) {
 
 LOCALFLIGHT_ACTIVATION_TOKEN=
 LOCALFLIGHT_RELAY_URL=https://localflight-community-relay.fly.dev
+LOCALFLIGHT_GUI_MODE=native
 
 AVIATIONSTACK_API_KEY=
 LOCALFLIGHT_AVIATIONSTACK_ENABLED=1

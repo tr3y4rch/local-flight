@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import json
 import sys
+import threading
 import types
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import pytest
 from fastapi.testclient import TestClient
@@ -14,7 +16,9 @@ import localflight.scheduler.runtime as runtime
 import localflight.__main__ as localflight_main
 import localflight.sources.web.adsbexchange_client as adsbexchange_client
 import localflight.sources.web.aviationstack_client as aviationstack_client
+import localflight.sources.web.airport_surface as airport_surface
 import localflight.sources.web.bug_reporter as bug_reporter
+import localflight.sources.web.metar_client as metar_client
 import localflight.sources.web.relay_defaults as relay_defaults
 import localflight.storage.config as storage_config
 import localflight.storage.flights_store as flights_store
@@ -23,6 +27,13 @@ import localflight.ui.api as ui_api
 import localflight.ui.server as ui_server
 import relay.main as relay_main
 from localflight.core.models import AirportRef, Flight, FlightDirection, FlightTime
+from localflight.decode.metar import decorate_metar
+from localflight.decode.dedupe import dedupe_codeshares
+from localflight.decode.normalize import normalize_flights
+from localflight.native.api_client import _normalize_relay_base_url
+from localflight.platform.detect import Platform
+from localflight.platform.gui_mode import resolve_gui_mode
+from localflight.render.fids import build_fids_context
 from localflight.storage.config import AppConfig
 from localflight.storage.state import AppState
 from localflight.ui.server import app
@@ -37,6 +48,228 @@ def _flight(callsign: str = "SWR184") -> Flight:
         times=FlightTime(scheduled=datetime(2026, 1, 2, 3, 4, 5, tzinfo=timezone.utc)),
         source="test",
     )
+
+
+def test_metar_decorator_turns_cavok_into_clear_weather_mood() -> None:
+    decorated = decorate_metar(
+        {
+            "raw_text": "METAR LSZH 011220Z 28008KT CAVOK 12/04 Q1018",
+            "flight_cat": "VFR",
+            "wind_dir_deg": 280,
+            "wind_speed_kt": 8,
+            "visibility_m": 10000,
+            "ceiling_ft": None,
+            "clouds": [],
+        }
+    )
+
+    assert decorated["weather_condition"] == "clear"
+    assert decorated["weather_icon"] == "sun"
+    assert decorated["weather_tone"] == "good"
+    assert "Clear" in decorated["weather_summary"]
+
+
+def test_metar_decorator_prioritizes_thunderstorm_over_sky_cover() -> None:
+    decorated = decorate_metar(
+        {
+            "raw_text": "METAR KDEN 011920Z 16022G34KT 3SM +TSRA BKN018CB 08/07 A2992",
+            "flight_cat": "IFR",
+            "wind_dir_deg": 160,
+            "wind_speed_kt": 22,
+            "wind_gust_kt": 34,
+            "visibility_m": 4828,
+            "ceiling_ft": 1800,
+            "clouds": [{"cover": "BKN", "base_ft": 1800}],
+            "wx_string": "+TSRA",
+        }
+    )
+
+    assert decorated["weather_condition"] == "thunderstorm"
+    assert decorated["weather_icon"] == "storm"
+    assert decorated["weather_tone"] == "bad"
+    assert any("Thunderstorm" in item for item in decorated["weather_hazards"])
+
+
+def test_metar_decorator_detects_low_visibility_fog() -> None:
+    decorated = decorate_metar(
+        {
+            "raw_text": "METAR EGLL 010650Z 00000KT 0300 FG VV002 03/03 Q1004",
+            "flight_cat": "LIFR",
+            "wind_speed_kt": 0,
+            "visibility_m": 300,
+            "ceiling_ft": 200,
+            "clouds": [{"cover": "VV", "base_ft": 200}],
+            "wx_string": "FG",
+        }
+    )
+
+    assert decorated["weather_condition"] == "fog"
+    assert decorated["weather_icon"] == "fog"
+    assert decorated["weather_tone"] == "bad"
+    assert "Very low visibility" in decorated["weather_hazards"]
+
+
+def test_metar_client_decode_includes_local_weather_fields() -> None:
+    decoded = metar_client._decode(
+        {
+            "station_id": "RJTT",
+            "raw_ob": "METAR RJTT 012100Z 03012KT 9999 -RA SCT020 BKN040 18/14 Q1012",
+            "obs_time": "2026-05-01T21:00:00Z",
+            "flight_cat": "VFR",
+            "temp": 18,
+            "dewp": 14,
+            "wind_dir": 30,
+            "wind_speed": 12,
+            "visibility": 6.21,
+            "clouds": [{"cover": "SCT", "base": 2000}, {"cover": "BKN", "base": 4000}],
+            "wx_string": "-RA",
+            "altim_in_hg": 29.88,
+        }
+    )
+
+    assert decoded["weather_condition"] == "rain"
+    assert decoded["weather_icon"] == "rain"
+    assert decoded["weather_label"] == "Light rain"
+    assert decoded["weather"]["source"] == "metar"
+
+
+def test_raw_metar_decoder_keeps_temperature_for_vatsim_weather() -> None:
+    decoded = metar_client.decode_raw_metar(
+        "LSZH",
+        "METAR LSZH 012000Z 28008KT CAVOK 12/M01 Q1018",
+        source="vatsim",
+    )
+
+    assert decoded["source"] == "vatsim"
+    assert decoded["temp_c"] == 12
+    assert decoded["dewpoint_c"] == -1
+    assert decoded["weather_icon"] == "sun"
+    assert "12/-1" in decoded["decoded_summary"]
+
+
+def test_api_metar_uses_vatsim_atis_without_identity_leak(monkeypatch) -> None:
+    import localflight.sources.web.vatsim_client as vatsim_client
+
+    monkeypatch.setattr(
+        ui_api,
+        "load_config",
+        lambda: AppConfig(airport_iata="ZRH", airport_icao="LSZH", source="virtual"),
+    )
+    monkeypatch.setattr(
+        vatsim_client,
+        "fetch_vatsim_data",
+        lambda: {
+            "atis": [
+                {
+                    "callsign": "LSZH_ATIS",
+                    "cid": 123456,
+                    "name": "Private Controller",
+                    "text_atis": [
+                        "Controller Private Controller CID 123456",
+                        "METAR LSZH 012000Z 28008KT CAVOK 10/04 Q1018",
+                    ],
+                }
+            ]
+        },
+    )
+    monkeypatch.setattr(
+        metar_client,
+        "fetch_metar",
+        lambda icao: (_ for _ in ()).throw(AssertionError("real METAR should be fallback only")),
+    )
+
+    decoded = ui_api.api_metar()
+
+    assert decoded["source"] == "vatsim"
+    assert decoded["temp_c"] == 10
+    assert "Private" not in decoded["raw_text"]
+    assert "CID" not in decoded["raw_text"]
+
+
+def test_fids_orders_by_full_airport_local_datetime_across_midnight() -> None:
+    tz = ZoneInfo("America/Denver")
+    cfg = AppConfig(
+        airport_iata="DEN",
+        airport_icao="KDEN",
+        timezone="America/Denver",
+        display_grace_minutes=30,
+        display_horizon_hours=12,
+    )
+    airport = AirportRef(iata="DEN", icao="KDEN")
+    flights = [
+        Flight(
+            direction=FlightDirection.ARRIVAL,
+            airport=airport,
+            callsign="DAL0008",
+            origin=AirportRef(iata="ATL", icao="KATL"),
+            times=FlightTime(scheduled=datetime(2026, 5, 2, 0, 8, tzinfo=tz)),
+            source="aviationstack",
+        ),
+        Flight(
+            direction=FlightDirection.ARRIVAL,
+            airport=airport,
+            callsign="UAL1745",
+            origin=AirportRef(iata="ORD", icao="KORD"),
+            times=FlightTime(scheduled=datetime(2026, 5, 1, 17, 45, tzinfo=tz)),
+            source="aviationstack",
+        ),
+    ]
+
+    ctx = build_fids_context(
+        cfg=cfg,
+        view="arrivals",
+        refresh_seconds=cfg.refresh_seconds,
+        flights=flights,
+        reference_now=datetime(2026, 5, 1, 14, 52, tzinfo=tz),
+    )
+
+    assert [row.callsign for row in ctx["rows"]] == ["UAL1745", "DAL0008"]
+    assert [row.display_time[:5] for row in ctx["rows"]] == ["17:45", "00:08"]
+
+
+def test_fids_decodes_airline_names_and_links_codeshares() -> None:
+    scheduled = datetime(2026, 5, 1, 12, 0, tzinfo=timezone.utc).isoformat()
+    records = [
+        {
+            "callsign": "SWR100",
+            "direction": "DEP",
+            "status": "scheduled",
+            "scheduled": scheduled,
+            "airline_icao": "SWR",
+            "flight_number": "SWR100",
+            "destination_iata": "JFK",
+        },
+        {
+            "callsign": "UAL100",
+            "direction": "DEP",
+            "status": "scheduled",
+            "scheduled": scheduled,
+            "airline_icao": "UAL",
+            "flight_number": "UAL100",
+            "destination_iata": "JFK",
+        },
+    ]
+
+    flights = normalize_flights(
+        records,
+        airport_iata="ZRH",
+        airport_icao="LSZH",
+        source_name="test",
+    )
+    deduped = dedupe_codeshares(flights, preferred_airline_iata=["LX"])
+    ctx = build_fids_context(
+        cfg=AppConfig(airport_iata="ZRH", airport_icao="LSZH", timezone="UTC"),
+        view="departures",
+        refresh_seconds=60,
+        flights=deduped,
+        reference_now=datetime(2026, 5, 1, 11, 55, tzinfo=timezone.utc),
+    )
+
+    assert len(ctx["rows"]) == 1
+    row = ctx["rows"][0]
+    assert row.flight_display == "LX 100"
+    assert row.airline_display == "SWISS"
+    assert row.codeshare_display == "Also UA 100"
 
 
 def test_save_snapshot_uses_canonical_user_storage(tmp_path: Path, monkeypatch) -> None:
@@ -196,6 +429,40 @@ def test_windowed_pyinstaller_stdio_fallback_is_writable(tmp_path: Path, monkeyp
             except Exception:
                 pass
     localflight_main._stdio_fallback_handles[:] = previous_handles
+
+
+def test_threading_crash_hook_uses_python_thread_traceback_field(monkeypatch) -> None:
+    previous_sys_hook = sys.excepthook
+    previous_threading_hook = threading.excepthook
+    submitted: list[tuple[str, str, str]] = []
+
+    monkeypatch.setattr(threading, "excepthook", lambda args: None)
+    monkeypatch.setattr(
+        bug_reporter,
+        "submit_crash",
+        lambda message, traceback_str="", context="", **kwargs: submitted.append(
+            (message, traceback_str, context)
+        )
+        or {"ok": True},
+    )
+
+    try:
+        localflight_main._install_crash_hooks()
+
+        class Args:
+            exc_type = RuntimeError
+            exc_value = RuntimeError("thread boom")
+            exc_traceback = None
+            thread = types.SimpleNamespace(name="uvicorn")
+
+        threading.excepthook(Args())
+    finally:
+        sys.excepthook = previous_sys_hook
+        threading.excepthook = previous_threading_hook
+
+    assert submitted
+    assert submitted[0][0] == "RuntimeError: thread boom"
+    assert submitted[0][2] == "thread/uvicorn"
 
 
 def test_aviationstack_usage_stats_report_separate_buckets(monkeypatch) -> None:
@@ -447,6 +714,54 @@ def test_api_radar_virtual_uses_vatsim_only(monkeypatch) -> None:
     assert result["blips"][0]["callsign"] == "SWR100"
 
 
+def test_api_radar_virtual_uses_exact_circular_range(monkeypatch) -> None:
+    monkeypatch.setattr(
+        ui_api,
+        "load_config",
+        lambda: AppConfig(airport_iata="ZRH", airport_icao="LSZH", source="virtual"),
+    )
+    monkeypatch.setattr(
+        ui_api,
+        "lookup_airport",
+        lambda **kwargs: types.SimpleNamespace(lat=47.45, lon=8.55, icao="LSZH"),
+    )
+
+    vatsim_module = types.ModuleType("localflight.sources.web.vatsim_client")
+    vatsim_module.fetch_vatsim_data = lambda: {
+        "pilots": [
+            {
+                "callsign": "INRING",
+                "latitude": 47.455,
+                "longitude": 8.55,
+                "altitude": 0,
+                "groundspeed": 8,
+                "heading": 140,
+                "flight_plan": {"departure": "LSZH", "arrival": "EGLL"},
+            },
+            {
+                "callsign": "CORNER",
+                "latitude": 47.465,
+                "longitude": 8.565,
+                "altitude": 0,
+                "groundspeed": 8,
+                "heading": 140,
+                "flight_plan": {"departure": "LSZH", "arrival": "EGLL"},
+            },
+        ]
+    }
+    monkeypatch.setitem(sys.modules, "localflight.sources.web.vatsim_client", vatsim_module)
+
+    opensky_module = types.ModuleType("localflight.sources.web.opensky_radar")
+    opensky_module.bounding_box = lambda lat, lon, radius_nm: (47.43, 8.52, 47.48, 8.58)
+    monkeypatch.setitem(sys.modules, "localflight.sources.web.opensky_radar", opensky_module)
+
+    result = ui_api.api_radar(1.0)
+
+    assert result["source"] == "vatsim"
+    assert result["radar_mode"] == "surface"
+    assert [b["callsign"] for b in result["blips"]] == ["INRING"]
+
+
 def test_vatsim_records_keep_dau_flight_plan_fields() -> None:
     from localflight.sources.web.vatsim_client import vatsim_to_raw_records
 
@@ -489,6 +804,45 @@ def test_vatsim_records_keep_dau_flight_plan_fields() -> None:
     assert record["planned_route"] == "DEGES Z1 BLM UL613 MID"
 
 
+def test_vatsim_records_drop_person_identifying_fields() -> None:
+    from localflight.sources.web.vatsim_client import vatsim_to_raw_records
+
+    records = vatsim_to_raw_records(
+        {
+            "pilots": [
+                {
+                    "cid": 1234567,
+                    "name": "Jane Pilot",
+                    "callsign": "BAW123",
+                    "altitude": 12000,
+                    "groundspeed": 250,
+                    "server": "EUROPE-C",
+                    "flight_plan": {
+                        "aircraft_icao": "B738",
+                        "departure": "EGLL",
+                        "arrival": "LSZH",
+                        "route": "LAM UL9 KONAN",
+                    },
+                }
+            ],
+            "controllers": [
+                {"cid": 7654321, "name": "John Controller", "callsign": "LSZH_TWR"}
+            ],
+        },
+        airport_icao="EGLL",
+    )
+
+    assert len(records) == 1
+    serialized = json.dumps(records[0])
+    assert "Jane Pilot" not in serialized
+    assert "John Controller" not in serialized
+    assert "1234567" not in serialized
+    assert "7654321" not in serialized
+    assert "EUROPE-C" not in serialized
+    assert records[0]["callsign"] == "BAW123"
+    assert records[0]["planned_route"] == "LAM UL9 KONAN"
+
+
 def test_api_admin_budget_hides_provider_side_totals(monkeypatch) -> None:
     monkeypatch.setattr(ui_api, "load_config", lambda: AppConfig(source="real"))
 
@@ -518,6 +872,184 @@ def test_adsbexchange_fetch_aircraft_uses_managed_relay_when_token_present(monke
 
     assert result == [{"hex": "abc123"}]
     assert calls == [(47.45, 8.55, 25, 9)]
+
+
+def test_overpass_surface_normalizer_handles_core_airport_geometry() -> None:
+    payload = {
+        "elements": [
+            {
+                "type": "way",
+                "id": 10,
+                "tags": {"aeroway": "runway", "ref": "16/34"},
+                "geometry": [
+                    {"lat": 47.451, "lon": 8.548},
+                    {"lat": 47.462, "lon": 8.563},
+                ],
+            },
+            {
+                "type": "way",
+                "id": 11,
+                "tags": {"aeroway": "apron"},
+                "geometry": [
+                    {"lat": 47.45, "lon": 8.55},
+                    {"lat": 47.451, "lon": 8.551},
+                    {"lat": 47.45, "lon": 8.55},
+                ],
+            },
+            {
+                "type": "way",
+                "id": 13,
+                "tags": {"building": "hangar", "name": "North Hangar"},
+                "geometry": [
+                    {"lat": 47.453, "lon": 8.552},
+                    {"lat": 47.454, "lon": 8.553},
+                    {"lat": 47.453, "lon": 8.552},
+                ],
+            },
+            {
+                "type": "way",
+                "id": 12,
+                "tags": {"aeroway": "parking_position"},
+                "geometry": [{"lat": 47.45, "lon": 8.55}, {"lat": 47.46, "lon": 8.56}],
+            },
+        ]
+    }
+
+    features = airport_surface.normalize_overpass_surface(payload)
+
+    runway = next(feature for feature in features if feature["kind"] == "runway")
+    apron = next(feature for feature in features if feature["kind"] == "apron")
+    building = next(feature for feature in features if feature["kind"] == "building")
+    assert runway["label"] == "16/34"
+    assert runway["closed"] is False
+    assert apron["closed"] is True
+    assert building["label"] == "North Hangar"
+    assert building["closed"] is True
+    assert all(feature["kind"] != "parking_position" for feature in features)
+
+
+def test_api_radar_surface_respects_disabled_config(monkeypatch) -> None:
+    monkeypatch.setattr(
+        ui_api,
+        "load_config",
+        lambda: AppConfig(
+            airport_iata="ZRH",
+            airport_icao="LSZH",
+            source="real",
+            radar_surface_enabled=False,
+        ),
+    )
+    monkeypatch.setattr(
+        ui_api,
+        "lookup_airport",
+        lambda **kwargs: types.SimpleNamespace(lat=47.45, lon=8.55, icao="LSZH"),
+    )
+
+    result = ui_api.api_radar_surface(20.0)
+
+    assert result["cache_state"] == "disabled"
+    assert result["features"] == []
+    assert result["provider"] == "openstreetmap"
+
+
+def test_radar_surface_defaults_to_disabled() -> None:
+    assert AppConfig().radar_surface_enabled is False
+
+
+def test_api_radar_surface_falls_back_to_local_stale_cache(monkeypatch) -> None:
+    cfg = AppConfig(airport_iata="ZRH", airport_icao="LSZH", radar_surface_enabled=True)
+    cached = airport_surface.build_surface_payload(
+        airport_iata="ZRH",
+        airport_icao="LSZH",
+        center_lat=47.45,
+        center_lon=8.55,
+        radius_nm=20,
+        cache_state="fresh",
+        features=[
+            {
+                "kind": "runway",
+                "id": "way:1",
+                "label": "16/34",
+                "closed": False,
+                "points": [[47.45, 8.55], [47.46, 8.56]],
+            }
+        ],
+    )
+
+    class _Response:
+        status_code = 503
+
+        def json(self) -> dict[str, object]:
+            return {"detail": "down"}
+
+    monkeypatch.setattr(ui_api, "load_config", lambda: cfg)
+    monkeypatch.setattr(
+        ui_api,
+        "lookup_airport",
+        lambda **kwargs: types.SimpleNamespace(lat=47.45, lon=8.55, icao="LSZH"),
+    )
+    monkeypatch.setattr(ui_api, "_load_local_surface_cache", lambda cfg: cached)
+    monkeypatch.setattr(ui_api, "_save_local_surface_cache", lambda cfg, payload: None)
+    monkeypatch.setattr(ui_api._req, "get", lambda *args, **kwargs: _Response())
+
+    result = ui_api.api_radar_surface(20.0)
+
+    assert result["cache_state"] == "stale"
+    assert "Relay surface HTTP 503" in result["error"]
+    assert result["features"][0]["label"] == "16/34"
+
+
+def test_api_radar_surface_returns_estimated_first_run_overlay(monkeypatch) -> None:
+    cfg = AppConfig(airport_iata="DEN", airport_icao="KDEN", radar_surface_enabled=True)
+
+    class _Response:
+        status_code = 503
+
+        def json(self) -> dict[str, object]:
+            return {"detail": "surface disabled"}
+
+    monkeypatch.setattr(ui_api, "load_config", lambda: cfg)
+    monkeypatch.setattr(
+        ui_api,
+        "lookup_airport",
+        lambda **kwargs: types.SimpleNamespace(lat=39.8617, lon=-104.6731, icao="KDEN"),
+    )
+    monkeypatch.setattr(ui_api, "_load_local_surface_cache", lambda cfg: None)
+    monkeypatch.setattr(ui_api, "_save_local_surface_cache", lambda cfg, payload: (_ for _ in ()).throw(AssertionError("estimated fallback must not be cached")))
+    monkeypatch.setattr(ui_api._req, "get", lambda *args, **kwargs: _Response())
+
+    result = ui_api.api_radar_surface(5.0)
+
+    assert result["cache_state"] == "estimated"
+    assert result["provider"] == "localflight-estimated"
+    assert result["meta"]["estimated_surface"] is True
+    assert "Relay surface HTTP 503" in result["error"]
+    assert {feature["kind"] for feature in result["features"]} >= {"boundary", "runway", "taxiway", "apron", "building"}
+
+
+def test_radar_template_loads_surface_layer_and_attribution(monkeypatch) -> None:
+    monkeypatch.setattr(ui_server, "_setup_complete", lambda: True)
+    monkeypatch.setattr(
+        ui_server,
+        "load_config",
+        lambda: AppConfig(airport_iata="ZRH", airport_icao="LSZH", source="real"),
+    )
+    monkeypatch.setattr(ui_server, "best_label", lambda **kwargs: "Zurich")
+
+    response = TestClient(app).get("/radar?radius_nm=1")
+
+    assert response.status_code == 200
+    assert "/api/radar/surface" in response.text
+    assert 'data-nm="1"' in response.text
+    assert "SURFACE_BY_SKIN" in response.text
+    assert "building" in response.text
+    assert "osmAttribution" in response.text
+    assert "OpenStreetMap contributors" in response.text
+    assert "Estimated airport surface" in response.text
+    assert "localflight-estimated" in response.text
+    assert "height: 100dvh" in response.text
+    assert "ResizeObserver" in response.text
+    assert "--lf-chrome" not in response.text
 
 
 def test_mobile_companion_checkin_is_exposed_in_connections(monkeypatch, tmp_path: Path) -> None:
@@ -720,6 +1252,100 @@ def test_api_radar_reports_refresh_hint_for_adsb_cache(monkeypatch) -> None:
     assert result["source"] == "adsbexchange_live"
     assert result["refresh_after_s"] >= 60
     assert result["count"] == 1
+
+
+def test_api_radar_tiny_views_reuse_minimum_adsb_provider_payload(monkeypatch) -> None:
+    ui_api._adsbx_radar_cache.clear()
+    ui_api._opensky_radar_cache.clear()
+    monkeypatch.setattr(
+        ui_api,
+        "load_config",
+        lambda: AppConfig(airport_iata="ZRH", airport_icao="LSZH", source="real"),
+    )
+    monkeypatch.setattr(
+        ui_api,
+        "lookup_airport",
+        lambda **kwargs: types.SimpleNamespace(lat=47.45, lon=8.55, icao="LSZH"),
+    )
+
+    calls: list[float] = []
+    radii_seen: list[float] = []
+    adsbx_module = types.ModuleType("localflight.sources.web.adsbexchange_client")
+    adsbx_module.is_available = lambda: True
+    adsbx_module.fetch_aircraft = lambda lat, lon, radius_nm, timeout_s=10: calls.append(radius_nm) or [
+        {"hex": "near"},
+        {"hex": "far"},
+    ]
+
+    def _to_blips(aircraft, center_lat, center_lon, radius_nm=50.0):
+        radii_seen.append(radius_nm)
+        return [
+            {
+                "callsign": "AIRBORNE",
+                "lat": 47.4501,
+                "lon": 8.5501,
+                "altitude_m": 1200,
+                "speed_ms": 115,
+                "on_ground": False,
+            },
+            {
+                "callsign": "SURFACE",
+                "lat": 47.4502,
+                "lon": 8.5502,
+                "altitude_m": 0,
+                "speed_ms": 2,
+                "on_ground": True,
+            }
+        ]
+
+    adsbx_module.aircraft_to_blips = _to_blips
+    monkeypatch.setitem(sys.modules, "localflight.sources.web.adsbexchange_client", adsbx_module)
+
+    first = ui_api.api_radar(1.0)
+    second = ui_api.api_radar(2.0)
+
+    assert calls == [5.0]
+    assert radii_seen == [1.0, 2.0]
+    assert first["provider_radius_nm"] == 5.0
+    assert second["provider_radius_nm"] == 5.0
+    assert first["raw_provider_count"] == 2
+    assert first["radar_mode"] == "surface"
+    assert first["count"] == 1
+    assert first["airborne_filtered"] == 1
+    assert first["blips"][0]["callsign"] == "SURFACE"
+    assert second["source"] == "adsbexchange_cached"
+
+
+def test_api_radar_filters_ground_blips_for_real_sources(monkeypatch) -> None:
+    ui_api._adsbx_radar_cache.clear()
+    ui_api._opensky_radar_cache.clear()
+    monkeypatch.setattr(
+        ui_api,
+        "load_config",
+        lambda: AppConfig(airport_iata="ZRH", airport_icao="LSZH", source="real"),
+    )
+    monkeypatch.setattr(
+        ui_api,
+        "lookup_airport",
+        lambda **kwargs: types.SimpleNamespace(lat=47.45, lon=8.55, icao="LSZH"),
+    )
+
+    adsbx_module = types.ModuleType("localflight.sources.web.adsbexchange_client")
+    adsbx_module.is_available = lambda: True
+    adsbx_module.fetch_aircraft = lambda lat, lon, radius_nm, timeout_s=10: [{"hex": "abc123"}]
+    adsbx_module.aircraft_to_blips = lambda aircraft, center_lat, center_lon, radius_nm=50.0: [
+        {"callsign": "AIRBORNE", "lat": 47.46, "lon": 8.56, "altitude_m": 1200, "speed_ms": 115, "on_ground": False},
+        {"callsign": "SURFACE1", "lat": 47.47, "lon": 8.57, "altitude_m": 0, "speed_ms": 0, "on_ground": True},
+        {"callsign": "SURFACE2", "lat": 47.48, "lon": 8.58, "altitude_m": 12, "speed_ms": 4},
+    ]
+    monkeypatch.setitem(sys.modules, "localflight.sources.web.adsbexchange_client", adsbx_module)
+
+    result = ui_api.api_radar(20.0)
+
+    assert result["source"] == "adsbexchange_live"
+    assert result["count"] == 1
+    assert result["ground_filtered"] == 2
+    assert result["blips"][0]["callsign"] == "AIRBORNE"
 
 
 def test_matrix_config_endpoint_round_trip(tmp_path: Path, monkeypatch) -> None:
@@ -1067,6 +1693,19 @@ def test_system_context_reports_schedule_mode_and_board_window(monkeypatch) -> N
         },
     )
     monkeypatch.setattr(storage_install, "get_install_fingerprint", lambda: "install-test")
+    monkeypatch.setattr(
+        bug_reporter,
+        "_gui_launch_context",
+        lambda: {
+            "requested": "native",
+            "effective": "native",
+            "platform": "windows",
+            "display": "yes",
+            "qt": "yes",
+            "fullscreen": "no",
+            "reason": "native requested and Qt available",
+        },
+    )
 
     context = bug_reporter._system_context("Reporter\tmobile")
 
@@ -1075,6 +1714,9 @@ def test_system_context_reports_schedule_mode_and_board_window(monkeypatch) -> N
     assert "- **Shared snapshot path:** yes" in context
     assert "- **Display window:** -45m / +16h" in context
     assert "- **Web board:** 24 rows, rotate 12s" in context
+    assert "- **GUI requested:** native" in context
+    assert "- **GUI effective shell:** native" in context
+    assert "- **GUI Qt available:** yes" in context
     assert "- **Relay URL:** https://relay.example.test/v1/flights" in context
     assert "**Reporter environment**" in context
 
@@ -1145,6 +1787,7 @@ def test_ui_route_contracts_cover_core_pages_and_api_surfaces() -> None:
         "/api/config",
         "/api/fids",
         "/api/radar",
+        "/api/radar/surface",
         "/api/metar",
         "/api/history",
         "/api/admin/system",
@@ -1170,8 +1813,24 @@ def test_relay_route_contracts_cover_public_and_admin_surfaces() -> None:
         "/",
         "/health",
         "/admin",
+        "/admin/api/overview",
+        "/admin/api/usage",
+        "/admin/api/schedules",
+        "/admin/api/surfaces",
+        "/admin/api/activations",
+        "/admin/api/reports",
+        "/admin/api/providers/save",
+        "/admin/api/providers/clear",
+        "/admin/api/activation/create",
+        "/admin/api/activation/token-action",
+        "/admin/api/activation/request-action",
+        "/admin/api/counters/reset",
+        "/admin/api/counters/correct-schedule",
+        "/admin/api/install/access",
+        "/admin/api/maintenance/clean-trial",
         "/v1/flights",
         "/v1/radar",
+        "/v1/airport-surface",
         "/v1/reports",
         "/v1/activate",
         "/v1/client/status",
@@ -1180,3 +1839,19 @@ def test_relay_route_contracts_cover_public_and_admin_surfaces() -> None:
     }
 
     assert expected.issubset(paths)
+
+
+def test_gui_mode_defaults_to_native_only_when_a_local_display_is_expected() -> None:
+    assert resolve_gui_mode(Platform.WINDOWS, {}) == "native"
+    assert resolve_gui_mode(Platform.MACOS, {}) == "native"
+    assert resolve_gui_mode(Platform.RASPBERRY_PI, {}) == "headless"
+    assert resolve_gui_mode(Platform.RASPBERRY_PI, {"DISPLAY": ":0"}) == "native"
+    assert resolve_gui_mode(Platform.LINUX, {"WAYLAND_DISPLAY": "wayland-0"}) == "native"
+    assert resolve_gui_mode(Platform.WINDOWS, {"LOCALFLIGHT_GUI_MODE": "browser"}) == "browser"
+    assert resolve_gui_mode(Platform.WINDOWS, {"LOCALFLIGHT_GUI_MODE": "nonsense"}) == "native"
+
+
+def test_network_admin_client_accepts_relay_root_or_admin_url() -> None:
+    assert _normalize_relay_base_url("https://localflight-community-relay.fly.dev") == "https://localflight-community-relay.fly.dev"
+    assert _normalize_relay_base_url("https://localflight-community-relay.fly.dev/admin") == "https://localflight-community-relay.fly.dev"
+    assert _normalize_relay_base_url("https://localflight-community-relay.fly.dev/admin/api") == "https://localflight-community-relay.fly.dev"

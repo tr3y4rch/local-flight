@@ -217,6 +217,15 @@ def _archive_macos_app(app: Path) -> Path:
     return Path(shutil.make_archive(str(zip_path.with_suffix("")), "zip", app.parent, app.name))
 
 
+def _ensure_importable(import_name: str, package_spec: str) -> None:
+    try:
+        __import__(import_name)
+        return
+    except ImportError:
+        print(f"Installing {package_spec} for release packaging...")
+    subprocess.run([sys.executable, "-m", "pip", "install", package_spec], check=True)
+
+
 def main() -> None:
     if "--clean" in sys.argv:
         for name in ("dist", "build"):
@@ -232,6 +241,10 @@ def main() -> None:
             [sys.executable, "-m", "pip", "install", "pyinstaller>=6.0"],
             check=True,
         )
+
+    # Packaged desktop clients are now native-first; fail early if Qt is not
+    # available instead of silently producing a browser-dependent artifact.
+    _ensure_importable("PySide6", "PySide6>=6.7")
 
     make_icons()
 

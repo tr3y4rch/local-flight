@@ -915,6 +915,7 @@ async def save_settings(
     web_rotation_seconds: int = Form(DEFAULT_WEB_ROTATION_SECONDS),
     display_grace_minutes: int = Form(DEFAULT_DISPLAY_GRACE_MINUTES),
     display_horizon_hours: int = Form(DEFAULT_DISPLAY_HORIZON_HOURS),
+    radar_surface_enabled: Optional[str] = Form(None),
 ) -> RedirectResponse:
     rs = int(refresh_seconds) if int(refresh_seconds) in ALLOWED_REFRESH_SECONDS else DEFAULT_REFRESH_SECONDS
 
@@ -933,6 +934,7 @@ async def save_settings(
     web_rotate = max(3, min(60, int(web_rotation_seconds)))
     grace_minutes = max(0, min(180, int(display_grace_minutes)))
     horizon_hours = max(1, min(24, int(display_horizon_hours)))
+    surface_enabled = str(radar_surface_enabled or "").strip().lower() in {"1", "true", "yes", "on"}
 
     form_data = await request.form()
     raw_outputs = form_data.getlist("display_outputs")
@@ -954,11 +956,12 @@ async def save_settings(
         web_rotation_seconds=web_rotate,
         display_grace_minutes=grace_minutes,
         display_horizon_hours=horizon_hours,
+        radar_surface_enabled=surface_enabled,
     )
     save_config(cfg)
 
     logger.info(
-        "UI save: %s/%s refresh=%ss source=%s skin=%s outputs=%s diagnostics=%s web_rows=%s web_rotate=%ss grace=%sm horizon=%sh",
+        "UI save: %s/%s refresh=%ss source=%s skin=%s outputs=%s diagnostics=%s web_rows=%s web_rotate=%ss grace=%sm horizon=%sh surface=%s",
         cfg.airport_iata,
         cfg.airport_icao,
         cfg.refresh_seconds,
@@ -970,6 +973,7 @@ async def save_settings(
         cfg.web_rotation_seconds,
         cfg.display_grace_minutes,
         cfg.display_horizon_hours,
+        cfg.radar_surface_enabled,
     )
 
     from localflight.ui.events import notify_config_updated, restart_scheduler_and_notify
@@ -1088,7 +1092,7 @@ def fids(request: Request, view: str = "arrivals", embedded: bool = Query(False)
 def radar(
     request:   Request,
     embedded:  bool  = Query(False),
-    radius_nm: int   = Query(20, ge=5, le=200),
+    radius_nm: int   = Query(20, ge=1, le=200),
 ) -> HTMLResponse:
     from localflight.core.airports import lookup_airport
 

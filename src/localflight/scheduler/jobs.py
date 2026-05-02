@@ -404,6 +404,7 @@ def _fetch_vatsim(cfg: AppConfig) -> List[Flight]:
             callsign=f.callsign,
             airline=f.airline,
             flight_number=f.flight_number,
+            codeshares=f.codeshares,
             origin=f.origin,
             destination=f.destination,
             aircraft_type=f.aircraft_type,

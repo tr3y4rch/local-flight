@@ -22,6 +22,24 @@ has_kiosk() {
     [ -f /etc/systemd/system/localflight-kiosk.service ]
 }
 
+uses_native_gui() {
+    if [ -f "$ROOT/.env" ] && grep -q '^LOCALFLIGHT_GUI_MODE=native' "$ROOT/.env"; then
+        return 0
+    fi
+    "$VENV/bin/python" -c "import PySide6" > /dev/null 2>&1
+}
+
+install_localflight_package() {
+    INSTALL_TARGET="$ROOT"
+    if uses_native_gui; then
+        INSTALL_TARGET="${ROOT}[native]"
+        echo "Installing updated package with native Qt support..."
+    else
+        echo "Installing updated package..."
+    fi
+    "$VENV/bin/python" -m pip install -e "$INSTALL_TARGET" -q > /dev/null 2>&1
+}
+
 case "$CMD" in
     start)
         sudo systemctl start localflight
@@ -65,8 +83,7 @@ case "$CMD" in
         }
         echo "Pulling latest code..."
         git -C "$ROOT" pull --ff-only
-        echo "Installing updated package..."
-        "$VENV/bin/python" -m pip install -e "$ROOT" -q > /dev/null 2>&1
+        install_localflight_package
         sudo systemctl restart localflight
         if has_kiosk; then
             sleep 2

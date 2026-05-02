@@ -12,7 +12,7 @@ This is a hobbyist/open-source project, not a legal document, but the app is des
 
 - Your config, API keys, snapshots, history, and logs stay on your own machine.
 - The mobile companion talks to your Local Flight server over your LAN. It does not call AviationStack, ADS-B Exchange, RapidAPI, OpenSky, VATSIM, or the hosted relay directly.
-- Community mode can use the hosted Local Flight relay for shared schedules and relay-backed radar. That relay stores operational metadata, not accounts or user profiles.
+- Community mode can use the hosted Local Flight relay for shared schedules and relay-backed radar. An airport-surface overlay can also use the relay cache, but it is opt-in and disabled by default. The relay stores operational metadata, not accounts or user profiles.
 - Manual reports are always your choice. Automatic crash diagnostics are off unless you allow them.
 - Mobile automatic diagnostics require two yeses: the mobile app's local diagnostics choice and the connected server's diagnostics mode.
 - Developer reporting credentials are kept on the hosted relay, not in the desktop package, mobile app, installers, or docs.
@@ -46,6 +46,7 @@ The relay stores the minimum metadata needed to run that shared service safely:
 - one-way anonymous network tags for abuse protection
 - short-lived "current interest" rows, such as airport and display window, so shared schedule snapshots can be reused
 - short-lived shared schedule snapshots containing Local Flight canonical schedule records and cache metadata
+- if the operator explicitly enables the optional surface overlay: short-lived airport-surface geometry cache entries derived from OpenStreetMap/Overpass so many installs looking at the same airport do not repeatedly query public map infrastructure
 
 The relay does **not** store:
 
@@ -64,6 +65,8 @@ If you choose **Bring your own keys**, your local app talks directly to the upst
 ### VATSIM
 
 If you choose **VATSIM**, the app uses virtual traffic data and does not need real-world schedule API keys.
+
+Local Flight fetches the public VATSIM network feed and keeps only flight-board-relevant fields such as callsign, filed route, aircraft type, airport codes, planned times, current aircraft position, and the raw METAR line when available from ATIS/METAR text. It intentionally does not store or display VATSIM pilot names, controller names, CIDs/account IDs, server names, or other person-identifying network fields.
 
 ---
 
@@ -151,7 +154,8 @@ When Local Flight fetches data, it may communicate with:
 | ADS-B Exchange via RapidAPI | Direct path: API key and radar search coordinates. Relay-backed path: the hosted relay makes the upstream request when relay access is available. | [rapidapi.com/privacy](https://rapidapi.com/privacy/) |
 | OpenSky Network | Radar search coordinates | [opensky-network.org/about/privacy](https://opensky-network.org/about/privacy) |
 | VATSIM | Virtual network data for the configured airport/source mode | [vatsim.net/privacy-policy](https://vatsim.net/privacy-policy) |
-| aviationweather.gov | ICAO code for METAR weather | Public government API |
+| aviationweather.gov | ICAO code for METAR weather. Local Flight decodes the returned METAR locally into weather mood/icon/temperature fields; no extra weather provider is contacted for that UI. VATSIM mode can use VATSIM ATIS/METAR first and falls back here when unavailable. | Public government API |
+| OpenStreetMap / Overpass | Only when the opt-in surface overlay and relay-side cache are enabled: airport code and airport coordinates for cached surface geometry; the local app receives only simplified airport geometry with attribution. | [openstreetmap.org/copyright](https://www.openstreetmap.org/copyright) |
 
 Local Flight does not embed tracking or advertising SDKs from any of these services.
 
@@ -183,3 +187,4 @@ Your local data is under your control. To wipe local app data, stop Local Flight
 | Flight history | Your machine | You |
 | Manual reports and automatic diagnostics | Hosted relay reporting gateway, then developer triage inbox | Developer |
 | Community relay usage metadata and short-lived shared schedule cache | Relay server | Relay operator |
+| Cached airport surface overlay geometry | Your machine and short-lived hosted relay cache, only if the optional overlay is enabled | You and relay operator |

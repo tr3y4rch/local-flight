@@ -81,6 +81,7 @@ class Flight:
 
     airline:      AirlineRef    = field(default_factory=AirlineRef)
     flight_number: Optional[str] = None
+    codeshares:   tuple[str, ...] = field(default_factory=tuple)
     origin:       Optional[AirportRef] = None
     destination:  Optional[AirportRef] = None
     aircraft_type: Optional[str] = None

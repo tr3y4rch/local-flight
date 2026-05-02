@@ -2,22 +2,23 @@
 localflight/__main__.py
 
 Main entry point for Local Flight.
-Platform-aware startup — behaviour differs by OS:
+Platform-aware startup:
 
-  Desktop (Windows / macOS):
+  Native-capable desktop (Windows / macOS):
     1. Load .env
     2. Start scheduler (if setup complete)
     3. Start uvicorn
-    4. Launch kiosk browser window (/setup or /display)
+    4. Launch native Qt shell when available
     5. Setup watcher if first launch
-    6. System tray icon (main thread — blocks until quit)
+    6. Browser fallback keeps the legacy tray/browser path when selected
 
   Headless (Raspberry Pi / Linux):
     1. Load .env
     2. Start scheduler (if setup complete)
     3. Start uvicorn
-    4. Block forever — systemd handles lifecycle
-       Chromium kiosk is a separate systemd service
+    4. Block forever; systemd handles lifecycle
+       Native Qt kiosk is explicit via --native-kiosk.
+       Legacy Chromium kiosk is a separate fallback service.
 
 Usage:
   python -m localflight         (from src/)
@@ -37,7 +38,8 @@ from pathlib import Path
 from typing import Optional
 from urllib.parse import quote
 
-from localflight.platform.detect import Platform, detect, is_desktop, is_headless
+from localflight.platform.detect import detect
+from localflight.platform.gui_launcher import GuiLaunchDecision, decide_gui_launch
 from localflight.platform.browser import launch_app_window
 
 HOST     = "0.0.0.0"
@@ -150,6 +152,16 @@ def _wait_for_server(timeout: float = 15.0) -> bool:
     return False
 
 
+def _server_start_timeout(default: float) -> float:
+    raw = os.getenv("LOCALFLIGHT_SERVER_START_TIMEOUT", "").strip()
+    if not raw:
+        return default
+    try:
+        return max(5.0, float(raw))
+    except ValueError:
+        return default
+
+
 def _start_scheduler() -> threading.Thread:
     from localflight.scheduler.control import start_scheduler_thread
     return start_scheduler_thread()
@@ -157,11 +169,15 @@ def _start_scheduler() -> threading.Thread:
 
 def _start_uvicorn() -> threading.Thread:
     def _run():
-        import uvicorn
-        uvicorn.run(
-            "localflight.ui.server:app",
-            host=HOST, port=PORT, log_level="warning",
-        )
+        try:
+            import uvicorn
+            uvicorn.run(
+                "localflight.ui.server:app",
+                host=HOST, port=PORT, log_level="warning",
+            )
+        except Exception as exc:
+            print(f"ERROR: uvicorn failed to start: {exc}", file=sys.stderr)
+            raise
     t = threading.Thread(target=_run, name="uvicorn", daemon=True)
     t.start()
     return t
@@ -172,6 +188,8 @@ def _start_uvicorn() -> threading.Thread:
 def _start_setup_watcher(
     scheduler_ref: list,
     browser_proc_ref: list,
+    *,
+    open_display: bool = True,
 ) -> threading.Thread:
     """
     Watches for setup_complete marker on first launch.
@@ -183,6 +201,9 @@ def _start_setup_watcher(
         _load_dotenv()
         print("Setup watcher: setup complete — starting scheduler")
         scheduler_ref[0] = _start_scheduler()
+        if not open_display:
+            print("Setup watcher: done - scheduler started")
+            return
         time.sleep(1.0)
         proc = launch_app_window(_splash_url("/display"))
         if proc:
@@ -217,7 +238,7 @@ def _run_headless() -> None:
     _start_uvicorn()
     print("Web server starting...")
 
-    if not _wait_for_server(timeout=15.0):
+    if not _wait_for_server(timeout=_server_start_timeout(60.0)):
         print("ERROR: Web server did not start in time.")
         sys.exit(1)
 
@@ -264,7 +285,7 @@ def _run_desktop() -> None:
     _start_uvicorn()
     print("Web server starting...")
 
-    if not _wait_for_server(timeout=15.0):
+    if not _wait_for_server(timeout=_server_start_timeout(20.0)):
         print("ERROR: Web server did not start in time.")
         sys.exit(1)
     print(f"Server ready at {BASE_URL}")
@@ -302,6 +323,48 @@ def _run_desktop() -> None:
     icon.run()
 
 
+def _run_native_gui(*, fullscreen: bool = False) -> None:
+    """
+    Native Qt runtime:
+    - Start scheduler (if setup complete)
+    - Start uvicorn for LAN/mobile/matrix clients
+    - Launch the native Qt shell instead of a browser/kiosk process
+
+    The web UI deliberately remains available at BASE_URL as a safe fallback.
+    """
+    print("Local Flight starting in native GUI mode...")
+
+    first_launch = _is_first_launch()
+    scheduler_ref: list[threading.Thread | None] = [None]
+    browser_proc_ref: list[None] = [None]
+
+    if first_launch:
+        print("First launch â€” native setup screen will open")
+    else:
+        scheduler_ref[0] = _start_scheduler()
+        print("Scheduler started")
+
+    _start_uvicorn()
+    print("Web server starting...")
+
+    if not _wait_for_server(timeout=_server_start_timeout(20.0)):
+        print("ERROR: Web server did not start in time.")
+        sys.exit(1)
+    print(f"Server ready at {BASE_URL}")
+
+    if first_launch:
+        _start_setup_watcher(scheduler_ref, browser_proc_ref, open_display=False)
+
+    from localflight.native.app import launch_native_app
+
+    exit_code = launch_native_app(
+        base_url=BASE_URL,
+        first_launch=first_launch,
+        fullscreen=fullscreen,
+    )
+    sys.exit(exit_code)
+
+
 # ── Entry point ────────────────────────────────────────────────────────────────
 
 def _install_crash_hooks() -> None:
@@ -333,11 +396,16 @@ def _install_crash_hooks() -> None:
     _orig_threading_hook = threading.excepthook
 
     def _threading_excepthook(args):
-        if args.exc_type and not issubclass(args.exc_type, (KeyboardInterrupt, SystemExit)):
-            tb_str = "".join(_tb.format_exception(args.exc_type, args.exc_value, args.exc_tb))
-            name = getattr(args.thread, "name", "unknown") if args.thread else "unknown"
-            _report(f"{args.exc_type.__name__}: {args.exc_value}", tb_str, f"thread/{name}")
-        _orig_threading_hook(args)
+        try:
+            if args.exc_type and not issubclass(args.exc_type, (KeyboardInterrupt, SystemExit)):
+                exc_traceback = getattr(args, "exc_traceback", None)
+                if exc_traceback is None:
+                    exc_traceback = getattr(args, "exc_tb", None)
+                tb_str = "".join(_tb.format_exception(args.exc_type, args.exc_value, exc_traceback))
+                name = getattr(args.thread, "name", "unknown") if args.thread else "unknown"
+                _report(f"{args.exc_type.__name__}: {args.exc_value}", tb_str, f"thread/{name}")
+        finally:
+            _orig_threading_hook(args)
 
     threading.excepthook = _threading_excepthook
 
@@ -347,10 +415,28 @@ def main() -> None:
     _load_dotenv()
     _install_crash_hooks()
 
-    if is_headless():
+    decision = decide_gui_launch(detect())
+    _print_gui_decision(decision)
+
+    if decision.is_headless:
         _run_headless()
+    elif decision.is_native:
+        _run_native_gui(fullscreen=decision.fullscreen)
     else:
         _run_desktop()
+
+
+def _print_gui_decision(decision: GuiLaunchDecision) -> None:
+    print(
+        "GUI launch decision: "
+        f"requested={decision.requested_mode} "
+        f"effective={decision.effective_mode} "
+        f"platform={decision.platform.value} "
+        f"display={decision.display_available} "
+        f"qt={decision.native_available} "
+        f"fullscreen={decision.fullscreen} "
+        f"reason={decision.reason}"
+    )
 
 
 if __name__ == "__main__":

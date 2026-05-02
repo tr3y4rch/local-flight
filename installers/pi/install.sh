@@ -1,50 +1,69 @@
 #!/usr/bin/env bash
-# Local Flight — Raspberry Pi installer
+# Local Flight - Raspberry Pi installer
 #
 # Usage:
-#   bash installers/pi/install.sh            # headless (default) — LED panels, LAN clients
-#   bash installers/pi/install.sh --kiosk    # headless + Chromium kiosk on HDMI
+#   bash installers/pi/install.sh                  # headless (default) - LED panels, LAN clients
+#   bash installers/pi/install.sh --kiosk          # headless + legacy Chromium fallback kiosk on HDMI
+#   bash installers/pi/install.sh --native-kiosk   # native Qt fullscreen kiosk on HDMI
 #
 # Run as the normal Pi user (not root). Requires: Pi OS Bookworm 64-bit, Python 3.11+.
 
 set -euo pipefail
 
-# ── Args ───────────────────────────────────────────────────────────────────────
+# Args -----------------------------------------------------------------------
 KIOSK=0
+NATIVE_KIOSK=0
 for arg in "$@"; do
     case "$arg" in
-        --kiosk)    KIOSK=1 ;;
-        --headless) KIOSK=0 ;;
+        --kiosk)
+            KIOSK=1
+            NATIVE_KIOSK=0
+            ;;
+        --native-kiosk)
+            KIOSK=0
+            NATIVE_KIOSK=1
+            ;;
+        --headless)
+            KIOSK=0
+            NATIVE_KIOSK=0
+            ;;
         --help|-h)
-            echo "Usage: bash installers/pi/install.sh [--kiosk|--headless]"
+            echo "Usage: bash installers/pi/install.sh [--native-kiosk|--kiosk|--headless]"
             echo "  (default is headless)"
-            exit 0 ;;
+            exit 0
+            ;;
     esac
 done
 
-# ── Paths ──────────────────────────────────────────────────────────────────────
+# Paths ----------------------------------------------------------------------
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 VENV="$ROOT/.venv"
 SERVICE_USER="$(whoami)"
 
-# ── Helpers ────────────────────────────────────────────────────────────────────
+# Helpers --------------------------------------------------------------------
 ok()   { echo "  [OK]  $*"; }
 step() { echo ""; echo "  -->  $*"; }
 fail() { echo ""; echo "  [ERR] $*"; exit 1; }
 
 echo ""
-echo "  ╔══════════════════════════════════════╗"
-echo "  ║   Local Flight — Pi Installer        ║"
-echo "  ╚══════════════════════════════════════╝"
+echo "  +--------------------------------------+"
+echo "  |   Local Flight - Pi Installer        |"
+echo "  +--------------------------------------+"
 echo ""
 echo "  Root:  $ROOT"
 echo "  User:  $SERVICE_USER"
-[ "$KIOSK" -eq 1 ] && echo "  Mode:  kiosk (Chromium on HDMI)" || echo "  Mode:  headless (no display)"
+if [ "$NATIVE_KIOSK" -eq 1 ]; then
+    echo "  Mode:  native kiosk (Qt on HDMI)"
+elif [ "$KIOSK" -eq 1 ]; then
+    echo "  Mode:  kiosk (Chromium on HDMI)"
+else
+    echo "  Mode:  headless (no display)"
+fi
 echo ""
 
-[ "${EUID:-$(id -u)}" -eq 0 ] && fail "Do not run as root. Run as your normal Pi user — sudo is used internally."
+[ "${EUID:-$(id -u)}" -eq 0 ] && fail "Do not run as root. Run as your normal Pi user - sudo is used internally."
 
-# ── 1. System packages ─────────────────────────────────────────────────────────
+# 1. System packages ---------------------------------------------------------
 step "Updating package lists..."
 sudo apt-get update -qq > /dev/null 2>&1
 ok "Package lists updated"
@@ -53,7 +72,28 @@ step "Installing Python and mDNS packages..."
 sudo apt-get install -y -qq python3 python3-venv python3-pip avahi-daemon > /dev/null 2>&1
 ok "python3, python3-venv, python3-pip, avahi-daemon installed"
 
-# ── 2. Chromium (kiosk only) ───────────────────────────────────────────────────
+if [ "$NATIVE_KIOSK" -eq 1 ]; then
+    step "Installing Qt runtime packages for native kiosk..."
+    sudo apt-get install -y -qq \
+        libegl1 \
+        libgl1 \
+        libfontconfig1 \
+        libdbus-1-3 \
+        libxkbcommon0 \
+        libxcb-cursor0 \
+        libxcb-icccm4 \
+        libxcb-image0 \
+        libxcb-keysyms1 \
+        libxcb-render-util0 \
+        libxcb-xinerama0 \
+        libxcb-xinput0 \
+        libxcb-xfixes0 \
+        libxcb-shape0 \
+        > /dev/null 2>&1
+    ok "Qt runtime packages installed"
+fi
+
+# 2. Chromium (legacy kiosk only) -------------------------------------------
 CHROMIUM_BIN=""
 if [ "$KIOSK" -eq 1 ]; then
     step "Installing Chromium for kiosk display..."
@@ -70,39 +110,54 @@ if [ "$KIOSK" -eq 1 ]; then
     if [ "$INSTALLED" -eq 1 ] && [ -n "$CHROMIUM_BIN" ]; then
         ok "Chromium installed: $CHROMIUM_BIN"
     else
-        echo "  [WARN] Chromium not available — kiosk service will be skipped"
+        echo "  [WARN] Chromium not available - kiosk service will be skipped"
         KIOSK=0
     fi
 fi
 
-# ── 3. Python venv ─────────────────────────────────────────────────────────────
+# 3. Python venv -------------------------------------------------------------
 if [ ! -x "$VENV/bin/python" ]; then
     step "Creating Python virtual environment..."
     python3 -m venv "$VENV"
     ok "Virtual environment created"
 else
     step "Upgrading existing virtual environment..."
-    ok "Already exists — will upgrade package"
+    ok "Already exists - will upgrade package"
 fi
 
 step "Installing Local Flight..."
 "$VENV/bin/python" -m pip install --upgrade pip -q > /dev/null 2>&1
-"$VENV/bin/python" -m pip install -e "$ROOT" -q > /dev/null 2>&1
+INSTALL_TARGET="$ROOT"
+if [ "$NATIVE_KIOSK" -eq 1 ]; then
+    INSTALL_TARGET="${ROOT}[native]"
+fi
+"$VENV/bin/python" -m pip install -e "$INSTALL_TARGET" -q > /dev/null 2>&1
 ok "Local Flight installed"
 
-# ── 4. Environment file ────────────────────────────────────────────────────────
+if [ "$NATIVE_KIOSK" -eq 1 ]; then
+    step "Confirming PySide6/Qt availability..."
+    QT_INFO="$("$VENV/bin/python" - <<'PY'
+from PySide6.QtCore import qVersion
+print(qVersion())
+PY
+)"
+    ok "PySide6/Qt available: Qt $QT_INFO"
+fi
+
+# 4. Environment file --------------------------------------------------------
 if [ ! -f "$ROOT/.env" ]; then
     step "Creating .env..."
     if [ -f "$ROOT/.env.example" ]; then
         cp "$ROOT/.env.example" "$ROOT/.env"
     else
         cat > "$ROOT/.env" <<'ENVEOF'
-# Local Flight — environment config
+# Local Flight - environment config
 # The setup wizard writes these on first launch.
 # Restart after any manual changes: sudo systemctl restart localflight
 
 LOCALFLIGHT_ACTIVATION_TOKEN=
 LOCALFLIGHT_RELAY_URL=https://localflight-community-relay.fly.dev
+LOCALFLIGHT_GUI_MODE=native
 
 AVIATIONSTACK_API_KEY=
 LOCALFLIGHT_AVIATIONSTACK_ENABLED=1
@@ -118,22 +173,48 @@ ENVEOF
     fi
     ok ".env created"
 else
-    ok ".env already exists — skipping"
+    ok ".env already exists - skipping"
 fi
 
-# ── 5. systemd: main service ───────────────────────────────────────────────────
+if [ "$NATIVE_KIOSK" -eq 1 ]; then
+    step "Setting native GUI mode in .env..."
+    if grep -q '^LOCALFLIGHT_GUI_MODE=' "$ROOT/.env"; then
+        sed -i 's/^LOCALFLIGHT_GUI_MODE=.*/LOCALFLIGHT_GUI_MODE=native/' "$ROOT/.env"
+    else
+        printf '\nLOCALFLIGHT_GUI_MODE=native\n' >> "$ROOT/.env"
+    fi
+    ok "LOCALFLIGHT_GUI_MODE=native"
+fi
+
+# 5. systemd: main service ---------------------------------------------------
 step "Installing localflight.service..."
+SERVICE_AFTER="network-online.target"
+SERVICE_WANTS="network-online.target"
+SERVICE_INSTALL_TARGET="multi-user.target"
+SERVICE_EXTRA_ENV=""
+
+if [ "$NATIVE_KIOSK" -eq 1 ]; then
+    SERVICE_AFTER="network-online.target graphical.target"
+    SERVICE_WANTS="network-online.target graphical.target"
+    SERVICE_INSTALL_TARGET="graphical.target"
+    SERVICE_EXTRA_ENV="Environment=LOCALFLIGHT_GUI_MODE=native
+Environment=DISPLAY=:0
+Environment=XAUTHORITY=/home/$SERVICE_USER/.Xauthority
+Environment=QT_QPA_PLATFORM=xcb"
+fi
+
 sudo tee /etc/systemd/system/localflight.service > /dev/null <<EOF
 [Unit]
 Description=Local Flight - Airport FIDS
-After=network-online.target
-Wants=network-online.target
+After=$SERVICE_AFTER
+Wants=$SERVICE_WANTS
 
 [Service]
 Type=simple
 User=$SERVICE_USER
 WorkingDirectory=$ROOT/src
 EnvironmentFile=$ROOT/.env
+$SERVICE_EXTRA_ENV
 ExecStart=$VENV/bin/python -m localflight
 Restart=on-failure
 RestartSec=5
@@ -142,11 +223,11 @@ StandardError=journal
 SyslogIdentifier=localflight
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=$SERVICE_INSTALL_TARGET
 EOF
 ok "localflight.service installed"
 
-# ── 6. systemd: kiosk service (optional) ──────────────────────────────────────
+# 6. systemd: browser kiosk service (optional legacy mode) -------------------
 if [ "$KIOSK" -eq 1 ] && [ -n "$CHROMIUM_BIN" ]; then
     step "Installing localflight-kiosk.service..."
 
@@ -184,16 +265,16 @@ EOF
     ok "localflight-kiosk.service installed"
 fi
 
-# Remove stale kiosk service if we're in headless mode
+# Remove stale Chromium service unless legacy browser kiosk is requested.
 if [ "$KIOSK" -eq 0 ] && [ -f /etc/systemd/system/localflight-kiosk.service ]; then
-    step "Removing stale kiosk service (headless mode)..."
+    step "Removing stale Chromium kiosk service..."
     sudo systemctl stop localflight-kiosk 2>/dev/null || true
     sudo systemctl disable localflight-kiosk 2>/dev/null || true
     sudo rm -f /etc/systemd/system/localflight-kiosk.service
-    ok "Kiosk service removed"
+    ok "Chromium kiosk service removed"
 fi
 
-# ── 7. mDNS hostname ──────────────────────────────────────────────────────────
+# 7. mDNS hostname -----------------------------------------------------------
 step "Configuring mDNS (localflight.local)..."
 sudo systemctl enable --now avahi-daemon > /dev/null 2>&1
 if [ "$(hostname)" != "localflight" ]; then
@@ -204,9 +285,9 @@ if [ "$(hostname)" != "localflight" ]; then
         echo "127.0.1.1 localflight" | sudo tee -a /etc/hosts > /dev/null
     fi
 fi
-ok "Hostname: localflight — accessible as localflight.local"
+ok "Hostname: localflight - accessible as localflight.local"
 
-# ── 8. lf command ─────────────────────────────────────────────────────────────
+# 8. lf command --------------------------------------------------------------
 step "Installing 'lf' management command..."
 sudo tee /usr/local/bin/lf > /dev/null <<EOF
 #!/usr/bin/env bash
@@ -215,7 +296,7 @@ EOF
 sudo chmod +x /usr/local/bin/lf
 ok "'lf' available system-wide"
 
-# ── 9. Enable and start ────────────────────────────────────────────────────────
+# 9. Enable and start --------------------------------------------------------
 step "Enabling and starting services..."
 sudo systemctl daemon-reload
 sudo systemctl enable localflight.service > /dev/null 2>&1
@@ -228,23 +309,27 @@ if [ "$KIOSK" -eq 1 ] && [ -f /etc/systemd/system/localflight-kiosk.service ]; t
 fi
 ok "Services started"
 
-# ── Summary ────────────────────────────────────────────────────────────────────
+# Summary --------------------------------------------------------------------
 PI_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
 
 echo ""
-echo "  ╔══════════════════════════════════════╗"
-echo "  ║   Installation complete              ║"
-echo "  ╚══════════════════════════════════════╝"
+echo "  +--------------------------------------+"
+echo "  |   Installation complete              |"
+echo "  +--------------------------------------+"
 echo ""
+if [ "$NATIVE_KIOSK" -eq 1 ]; then
+    echo "  Native Qt kiosk mode is enabled for the attached display."
+    echo ""
+fi
 echo "  Open in any browser on your network:"
 [ -n "$PI_IP" ] && echo "    http://$PI_IP:8000"
-echo "    http://localflight.local:8000  (mDNS — may take a minute)"
+echo "    http://localflight.local:8000  (mDNS - may take a minute)"
 echo ""
 echo "  Management:"
-echo "    lf status     — check if running"
-echo "    lf logs       — live log tail"
-echo "    lf restart    — restart after config changes"
-echo "    lf update     — pull latest code and restart"
+echo "    lf status     - check if running"
+echo "    lf logs       - live log tail"
+echo "    lf restart    - restart after config changes"
+echo "    lf update     - pull latest code and restart"
 echo ""
 echo "  To add API keys later:"
 echo "    nano $ROOT/.env"

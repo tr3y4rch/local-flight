@@ -16,6 +16,7 @@ limits, and cross-install dedupe.
 import hashlib
 import json
 import logging
+import os
 import platform
 import re
 import sys
@@ -52,6 +53,34 @@ def _redact_sensitive(text: str) -> str:
     for pattern, repl in _SECRET_PATTERNS:
         redacted = pattern.sub(repl, redacted)
     return redacted
+
+
+def _gui_launch_context() -> dict[str, str]:
+    """Best-effort GUI shell context for Linear reports."""
+    try:
+        from localflight.platform.detect import detect
+        from localflight.platform.gui_launcher import decide_gui_launch
+
+        decision = decide_gui_launch(detect())
+        return {
+            "requested": decision.requested_mode,
+            "effective": decision.effective_mode,
+            "platform": decision.platform.value,
+            "display": "yes" if decision.display_available else "no",
+            "qt": "yes" if decision.native_available else "no",
+            "fullscreen": "yes" if decision.fullscreen else "no",
+            "reason": decision.reason,
+        }
+    except Exception:
+        return {
+            "requested": (os.getenv("LOCALFLIGHT_GUI_MODE") or "auto").strip().lower() or "auto",
+            "effective": "unknown",
+            "platform": platform.system() or "unknown",
+            "display": "unknown",
+            "qt": "unknown",
+            "fullscreen": "unknown",
+            "reason": "launch decision unavailable",
+        }
 
 
 def _schedule_mode_context(source: str) -> dict[str, Any]:
@@ -142,6 +171,7 @@ def _system_context(client_context: str = "") -> str:
         install_id = "unknown"
 
     schedule_context = _schedule_mode_context(source)
+    gui_context = _gui_launch_context()
 
     text = (
         f"- **Version:** {_app_version()}\n"
@@ -158,6 +188,12 @@ def _system_context(client_context: str = "") -> str:
         f"- **Display window:** -{display_grace_minutes}m / +{display_horizon_hours}h\n"
         f"- **Web board:** {web_row_limit} rows, rotate {web_rotation_seconds}s\n"
         f"- **Diagnostics mode:** {diagnostics_mode}\n"
+        f"- **GUI requested:** {gui_context['requested']}\n"
+        f"- **GUI effective shell:** {gui_context['effective']}\n"
+        f"- **GUI display available:** {gui_context['display']}\n"
+        f"- **GUI Qt available:** {gui_context['qt']}\n"
+        f"- **GUI fullscreen:** {gui_context['fullscreen']}\n"
+        f"- **GUI decision:** {gui_context['reason']}\n"
     )
     relay_url = str(schedule_context.get("relay_url") or "").strip()
     if relay_url:

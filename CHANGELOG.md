@@ -11,13 +11,36 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Changed
 - Community setup and source installers now show the hosted relay root URL (`https://localflight-community-relay.fly.dev`) instead of the legacy compatibility path ending in `/v1/flights`. The app still derives `/v1/schedule`, `/v1/radar`, `/v1/reports`, and activation routes internally.
 - Relay auto-activation burst limits can now be tuned with Fly secrets for local lab reinstall testing without changing the default production safety rails.
+- FIDS rows now sort by the full airport-local timestamp, not just the visible `HH:MM`, and the table labels board times as `Time (LT)`.
+- Real-data radar responses now hide aircraft that are clearly on the surface, and the radar status line reports when ground blips were filtered.
+- Radar responses now switch into surface mode for 1 / 2 / 3 / 5 NM ranges, showing only aircraft that appear to be on the ground and hiding airborne/overflying blips for both real ADS-B and VATSIM.
+- Radar now includes tighter 1 / 2 / 3 / 5 NM ground-radar ranges for airport-surface inspection. Tiny aircraft views now reuse the shortest practical ADS-B provider fetch radius (`5 NM`) and crop locally, while the optional surface overlay itself stays capped to a 1-5 NM ground-scale request instead of following wider aircraft radar ranges.
+- Radar surface styling now follows dark/light theme and the active skin palette instead of using one generic overlay color.
+- Standalone Radar now fills the available viewport below the real navigation height instead of subtracting a fixed chrome value, and its controls/weather strip compact themselves for 7-10 inch Pi screens and large wall displays.
+- METAR weather is now decorated by Local Flight's own semantic decoder instead of adding another weather provider. `/api/metar` still returns the raw/decoded aviation fields, plus additive `weather_*` mood, icon, tone, summary, hazards, and chip fields for richer UI.
+- `/api/metar` now tries VATSIM ATIS/METAR first in virtual mode, extracts only the raw METAR line, and falls back to AviationWeather when VATSIM weather is unavailable.
+- FIDS weather now shows icon, temperature, and decoded summary only, while Radar keeps icon/category/temperature/summary plus raw METAR.
+- FIDS flight rows now decode common airline IATA/ICAO prefixes into readable airline names, format public flight numbers consistently, and preserve deduped codeshare partners in the row/detail metadata.
+- VATSIM radar now applies the same exact circular local range crop as real-data radar, so 1 / 2 / 3 NM virtual views do not show square-corner traffic outside the selected ring.
+- GUI launch now goes through a shared native-first platform decision layer. Blank or invalid `LOCALFLIGHT_GUI_MODE` values request the PySide6/Qt shell first, then fall back to browser/kiosk only when Qt or display support is unusable; display-less Pi/Linux still runs headless.
+- Windows and macOS source launchers now install/verify the native PySide6 extra before native launch; release packaging also fails early if PySide6/Qt is unavailable.
+- Bug reports now include requested/effective GUI shell, display availability, Qt availability, fullscreen state, and launch-decision reason so native GUI, browser kiosk, and headless service reports are distinguishable inside the same two-team Linear routing model.
 
 ### Fixed
 - Relay admin no longer crashes when a live client lane exists before a shared schedule snapshot has been created.
 - Schedule snapshot counter columns are now migration-safe for older relay databases.
+- Arrivals and departures that cross midnight no longer rotate into a confusing order such as tomorrow's `00:08` before today's `17:45`.
+- FIDS row times now use the active airport timezone passed into the board renderer instead of falling back to whatever timezone is currently stored in the global config.
+- Pi source pre-release bundles now include non-ignored local file additions as well as tracked files, preventing hardware test zips from silently missing newly added modules before a commit exists.
+- Radar surface overlay no longer appears broken on a clean first run when the relay surface cache is disabled or empty. If no cached OSM geometry is available yet, the radar now draws a clearly labeled local estimated airport surface instead of silently rendering nothing.
 
 ### Added
 - Hosted relay maintenance now has a clean setup-trial action that clears transient request logs, activation-review rows, live client lanes, shared schedule snapshots, and report-event clutter while keeping provider keys, managed tokens, blocked installs, and usage counters intact.
+- FIDS now shows a neutral schedule-fetching hint while an empty board may still be waiting on the relay/shared schedule warmup.
+- Radar now has a staged, opt-in airport surface overlay using relay-cached OpenStreetMap/Overpass geometry through `GET /api/radar/surface` and relay `GET /v1/airport-surface`. The overlay draws runways, taxiways, aprons, terminals, airport boundaries, selected terminal/hangar-style building outlines, and visible OSM attribution without using public raster tile servers. It is disabled by default locally and requires explicit relay operator enablement via `RELAY_AIRPORT_SURFACE_ENABLED=1`.
+- FIDS, Radar, and Admin now render the METAR-derived weather mood with compact weather-app-style icons, colored tone treatments, and local summaries while preserving raw METAR visibility.
+- Chrome-free native UI is now the default requested shell for desktop/source/release builds; `LOCALFLIGHT_GUI_MODE=browser` remains an explicit fallback/debug override.
+- Raspberry Pi installs still run headless without a display, keep legacy Chromium kiosk available through `--kiosk`, and add a `--native-kiosk` path that installs Qt runtime packages, verifies PySide6/Qt, and starts Local Flight as a fullscreen native shell on the attached display.
 
 ## [0.2.5b3] - 2026-05-01
 

@@ -80,3 +80,7 @@ def relay_radar_url(relay_url: str) -> str:
 
 def relay_schedule_url(relay_url: str) -> str:
     return relay_endpoint_url(relay_url, "/v1/schedule")
+
+
+def relay_airport_surface_url(relay_url: str) -> str:
+    return relay_endpoint_url(relay_url, "/v1/airport-surface")

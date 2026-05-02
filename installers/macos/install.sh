@@ -50,8 +50,14 @@ fi
 
 echo " Installing Local Flight dependencies..."
 "$VENV/bin/python" -m pip install --upgrade pip -q
-"$VENV/bin/python" -m pip install -e "$ROOT" -q
+"$VENV/bin/python" -m pip install -e "${ROOT}[native]" -q
 echo " Done"
+
+echo " Confirming native Qt availability..."
+"$VENV/bin/python" - <<'PY'
+from PySide6 import QtCore
+print(f" PySide6/Qt OK: {QtCore.qVersion()}")
+PY
 
 if [ ! -f "$ROOT/.env" ]; then
     echo " Creating .env..."
@@ -64,6 +70,7 @@ if [ ! -f "$ROOT/.env" ]; then
 
 LOCALFLIGHT_ACTIVATION_TOKEN=
 LOCALFLIGHT_RELAY_URL=https://localflight-community-relay.fly.dev
+LOCALFLIGHT_GUI_MODE=native
 
 AVIATIONSTACK_API_KEY=
 LOCALFLIGHT_AVIATIONSTACK_ENABLED=1

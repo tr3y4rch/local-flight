@@ -22,7 +22,7 @@ import uvicorn
 from fastapi import Depends, FastAPI, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 AVIATIONSTACK_URL = "https://api.aviationstack.com/v1/flights"
 ADSBX_URL = "https://adsbexchange-com1.p.rapidapi.com/v2"
@@ -50,9 +50,13 @@ _SHARED_SCHEDULE_PROVIDER = "aviationstack"
 _SHARED_SCHEDULE_PLANNER_VERSION = "fair-v3"
 _SHARED_SCHEDULE_SCHEMA_VERSION = "canonical-raw-v1"
 _SHARED_SCHEDULE_LOCK_WAIT_S = 4.0
+_AIRPORT_SURFACE_SCHEMA_VERSION = "osm-surface-v1"
+_AIRPORT_SURFACE_LOCK_WAIT_S = 4.0
 
 _schedule_refresh_locks: Dict[str, threading.Lock] = {}
 _schedule_refresh_locks_guard = threading.Lock()
+_airport_surface_locks: Dict[str, threading.Lock] = {}
+_airport_surface_locks_guard = threading.Lock()
 _admin_auth_failures: Dict[str, list[float]] = {}
 _admin_auth_failures_guard = threading.Lock()
 
@@ -234,6 +238,10 @@ def _radar_cache_seconds() -> int:
         return 300
 
 
+def _airport_surface_enabled() -> bool:
+    return _env("RELAY_AIRPORT_SURFACE_ENABLED", "").lower() in {"1", "true", "yes", "on"}
+
+
 def _admin_password() -> str:
     return _env("RELAY_ADMIN_PASSWORD", "changeme")
 
@@ -392,6 +400,30 @@ def _ensure_schema() -> None:
     )
     conn.execute(
         """
+        CREATE TABLE IF NOT EXISTS airport_surface_snapshots (
+            cache_key        TEXT PRIMARY KEY,
+            airport_iata     TEXT NOT NULL,
+            airport_icao     TEXT,
+            schema_version   TEXT NOT NULL,
+            provider         TEXT NOT NULL,
+            center_lat       REAL NOT NULL,
+            center_lon       REAL NOT NULL,
+            radius_nm        REAL NOT NULL,
+            generated_at     TEXT NOT NULL,
+            updated_at       TEXT NOT NULL,
+            features_json    TEXT NOT NULL,
+            meta_json        TEXT,
+            request_count    INTEGER DEFAULT 0,
+            cache_hits       INTEGER DEFAULT 0,
+            refresh_count    INTEGER DEFAULT 0,
+            stale_serves     INTEGER DEFAULT 0,
+            last_cache_state TEXT,
+            last_error       TEXT
+        )
+        """
+    )
+    conn.execute(
+        """
         CREATE TABLE IF NOT EXISTS report_events (
             id                  INTEGER PRIMARY KEY AUTOINCREMENT,
             ts                  TEXT NOT NULL,
@@ -441,6 +473,12 @@ def _ensure_schema() -> None:
     _ensure_column(conn, "schedule_snapshots", "stale_serves INTEGER DEFAULT 0")
     _ensure_column(conn, "schedule_snapshots", "last_cache_state TEXT")
     _ensure_column(conn, "schedule_snapshots", "last_error TEXT")
+    _ensure_column(conn, "airport_surface_snapshots", "request_count INTEGER DEFAULT 0")
+    _ensure_column(conn, "airport_surface_snapshots", "cache_hits INTEGER DEFAULT 0")
+    _ensure_column(conn, "airport_surface_snapshots", "refresh_count INTEGER DEFAULT 0")
+    _ensure_column(conn, "airport_surface_snapshots", "stale_serves INTEGER DEFAULT 0")
+    _ensure_column(conn, "airport_surface_snapshots", "last_cache_state TEXT")
+    _ensure_column(conn, "airport_surface_snapshots", "last_error TEXT")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_usage_month_service ON usage (month, service, calls DESC)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_activation_revoked ON activation_tokens (revoked_at)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_activation_requests_status ON activation_requests (status, created_at DESC)")
@@ -449,6 +487,7 @@ def _ensure_schema() -> None:
     conn.execute("CREATE INDEX IF NOT EXISTS idx_report_events_network ON report_events (network_tag, ts)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_report_dedupe_seen ON report_dedupe (last_seen)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_schedule_snapshots_airport ON schedule_snapshots (airport_iata, updated_at DESC)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_airport_surface_updated ON airport_surface_snapshots (airport_iata, updated_at DESC)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_client_interests_last_seen ON client_interests (last_seen DESC)")
     conn.commit()
     conn.close()
@@ -2165,6 +2204,224 @@ def _fetch_shared_schedule_from_upstream(
     }
 
 
+def _airport_surface_fresh_ttl_s() -> int:
+    try:
+        return max(3600, int(float(_env("RELAY_AIRPORT_SURFACE_CACHE_HOURS", "168")) * 3600))
+    except ValueError:
+        return 168 * 3600
+
+
+def _airport_surface_stale_ttl_s() -> int:
+    try:
+        return max(7 * 86400, int(float(_env("RELAY_AIRPORT_SURFACE_STALE_DAYS", "90")) * 86400))
+    except ValueError:
+        return 90 * 86400
+
+
+def _airport_surface_cache_key(airport_iata: str, airport_icao: str) -> str:
+    from localflight.sources.web.airport_surface import surface_cache_key
+
+    return surface_cache_key(airport_iata, airport_icao)
+
+
+def _get_airport_surface_lock(cache_key: str) -> threading.Lock:
+    with _airport_surface_locks_guard:
+        lock = _airport_surface_locks.get(cache_key)
+        if lock is None:
+            lock = threading.Lock()
+            _airport_surface_locks[cache_key] = lock
+        return lock
+
+
+def _load_airport_surface_snapshot_conn(conn: sqlite3.Connection, cache_key: str) -> Optional[sqlite3.Row]:
+    return conn.execute(
+        "SELECT * FROM airport_surface_snapshots WHERE cache_key=?",
+        (cache_key,),
+    ).fetchone()
+
+
+def _airport_surface_lifecycle_state(row: Optional[sqlite3.Row]) -> str:
+    if row is None:
+        return "miss"
+    updated_at = _parse_utc_dt(row["updated_at"])
+    if updated_at is None:
+        return "miss"
+    age_s = (datetime.now(timezone.utc) - updated_at).total_seconds()
+    if age_s <= _airport_surface_fresh_ttl_s():
+        return "fresh"
+    if age_s <= _airport_surface_stale_ttl_s():
+        return "stale"
+    return "miss"
+
+
+def _airport_surface_payload_from_row(
+    row: sqlite3.Row,
+    *,
+    cache_state: str,
+    requested_radius_nm: float,
+    error: str = "",
+) -> Dict[str, Any]:
+    from localflight.sources.web.airport_surface import build_surface_payload, clamp_surface_radius_nm
+
+    try:
+        features = json.loads(row["features_json"] or "[]")
+    except Exception:
+        features = []
+    if not isinstance(features, list):
+        features = []
+    try:
+        meta = json.loads(row["meta_json"] or "{}")
+    except Exception:
+        meta = {}
+    if not isinstance(meta, dict):
+        meta = {}
+    meta.update(
+        {
+            "request_count": int(row["request_count"] or 0),
+            "cache_hits": int(row["cache_hits"] or 0),
+            "refresh_count": int(row["refresh_count"] or 0),
+            "stale_serves": int(row["stale_serves"] or 0),
+        }
+    )
+    return build_surface_payload(
+        airport_iata=str(row["airport_iata"] or ""),
+        airport_icao=str(row["airport_icao"] or ""),
+        center_lat=float(row["center_lat"]),
+        center_lon=float(row["center_lon"]),
+        radius_nm=clamp_surface_radius_nm(requested_radius_nm),
+        features=features,
+        cache_state=cache_state,
+        generated_at=str(row["generated_at"] or row["updated_at"] or _utc_now()),
+        error=error or str(row["last_error"] or ""),
+        meta=meta,
+    )
+
+
+def _store_airport_surface_snapshot(cache_key: str, payload: Dict[str, Any]) -> None:
+    center = payload.get("center") if isinstance(payload.get("center"), dict) else {}
+    meta = payload.get("meta") if isinstance(payload.get("meta"), dict) else {}
+    now = _utc_now()
+    conn = _connect()
+    conn.execute(
+        """
+        INSERT INTO airport_surface_snapshots (
+            cache_key, airport_iata, airport_icao, schema_version, provider,
+            center_lat, center_lon, radius_nm, generated_at, updated_at,
+            features_json, meta_json, request_count, cache_hits, refresh_count,
+            stale_serves, last_cache_state, last_error
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 1, 0, ?, ?)
+        ON CONFLICT(cache_key) DO UPDATE SET
+            airport_iata=excluded.airport_iata,
+            airport_icao=excluded.airport_icao,
+            schema_version=excluded.schema_version,
+            provider=excluded.provider,
+            center_lat=excluded.center_lat,
+            center_lon=excluded.center_lon,
+            radius_nm=excluded.radius_nm,
+            generated_at=excluded.generated_at,
+            updated_at=excluded.updated_at,
+            features_json=excluded.features_json,
+            meta_json=excluded.meta_json,
+            refresh_count=airport_surface_snapshots.refresh_count + 1,
+            last_cache_state=excluded.last_cache_state,
+            last_error=excluded.last_error
+        """,
+        (
+            cache_key,
+            str(center.get("airport_iata") or "").upper(),
+            str(center.get("airport_icao") or "").upper(),
+            str(payload.get("schema_version") or _AIRPORT_SURFACE_SCHEMA_VERSION),
+            str(payload.get("provider") or "openstreetmap"),
+            float(center.get("lat") or 0.0),
+            float(center.get("lon") or 0.0),
+            float(payload.get("radius_nm") or 20.0),
+            str(payload.get("generated_at") or now),
+            now,
+            json.dumps(payload.get("features") or [], ensure_ascii=False),
+            json.dumps(meta, ensure_ascii=False),
+            str(payload.get("cache_state") or "fresh"),
+            str(payload.get("error") or ""),
+        ),
+    )
+    conn.commit()
+    conn.close()
+
+
+def _record_airport_surface_access(
+    *,
+    cache_key: str,
+    cache_state: str,
+    count_cache_hit: bool = False,
+    count_stale: bool = False,
+    error: str = "",
+) -> None:
+    conn = _connect()
+    conn.execute(
+        """
+        UPDATE airport_surface_snapshots
+        SET request_count = COALESCE(request_count, 0) + 1,
+            cache_hits = COALESCE(cache_hits, 0) + ?,
+            stale_serves = COALESCE(stale_serves, 0) + ?,
+            last_cache_state = ?,
+            last_error = ?
+        WHERE cache_key = ?
+        """,
+        (
+            1 if count_cache_hit else 0,
+            1 if count_stale else 0,
+            cache_state,
+            error[:300],
+            cache_key,
+        ),
+    )
+    conn.commit()
+    conn.close()
+
+
+def _fetch_airport_surface_from_osm(
+    *,
+    airport_iata: str,
+    airport_icao: str,
+    lat: float,
+    lon: float,
+    radius_nm: float,
+) -> Dict[str, Any]:
+    from localflight.sources.web.airport_surface import (
+        build_surface_payload,
+        clamp_surface_radius_m,
+        clamp_surface_radius_nm,
+        fetch_overpass_surface,
+        normalize_overpass_surface,
+    )
+
+    clamped_radius_nm = clamp_surface_radius_nm(radius_nm)
+    lookup_radius_m = clamp_surface_radius_m(clamped_radius_nm)
+    try:
+        raw = fetch_overpass_surface(
+            lat=lat,
+            lon=lon,
+            radius_m=lookup_radius_m,
+            overpass_url=_env("RELAY_OVERPASS_URL", "") or None,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Overpass surface fetch failed: {exc}")
+    features = normalize_overpass_surface(raw)
+    return build_surface_payload(
+        airport_iata=airport_iata,
+        airport_icao=airport_icao,
+        center_lat=lat,
+        center_lon=lon,
+        radius_nm=clamped_radius_nm,
+        features=features,
+        cache_state="fresh",
+        meta={
+            "lookup_radius_m": lookup_radius_m,
+            "feature_count": len(features),
+            "raw_elements": len(raw.get("elements") or []) if isinstance(raw, dict) else 0,
+        },
+    )
+
+
 _radar_cache: Dict[str, tuple[float, bytes]] = {}
 
 
@@ -2240,6 +2497,449 @@ def _require_admin(request: Request, creds: HTTPBasicCredentials = Depends(HTTPB
         raise HTTPException(status_code=401, detail="Unauthorized", headers={"WWW-Authenticate": "Basic"})
     _clear_admin_auth_failures(auth_key)
     return creds.username or "admin"
+
+
+def _admin_json_value(raw: str, fallback: Any) -> Any:
+    try:
+        return json.loads(raw or "")
+    except Exception:
+        return fallback
+
+
+def _admin_count(conn: sqlite3.Connection, query: str, params: tuple[Any, ...] = ()) -> int:
+    row = conn.execute(query, params).fetchone()
+    return int((row[0] if row else 0) or 0)
+
+
+def _public_install_id(value: str) -> str:
+    raw = (value or "").strip()
+    if not raw:
+        return ""
+    if re.fullmatch(r"[a-f0-9]{12}", raw, flags=re.IGNORECASE):
+        return raw.lower()
+    return _install_fingerprint(raw)
+
+
+def _public_subject(subject_key: str, install_id: str = "") -> Dict[str, str]:
+    install_fp = _public_install_id(install_id)
+    if install_fp:
+        return {"kind": "install", "fingerprint": install_fp}
+    raw = (subject_key or "").strip()
+    if not raw:
+        return {"kind": "unknown", "fingerprint": ""}
+    if raw.startswith("managed:"):
+        return {"kind": "managed-token", "fingerprint": hashlib.sha256(raw.encode("utf-8")).hexdigest()[:12]}
+    if raw.startswith("net_"):
+        return {"kind": "network", "tag": raw[:24]}
+    return {"kind": "install", "fingerprint": _public_install_id(raw)}
+
+
+def _admin_action_ref(conn: sqlite3.Connection, kind: str, value: str) -> str:
+    """Opaque operator-only reference for write actions without exposing raw IDs."""
+    clean_kind = re.sub(r"[^a-z0-9_-]", "", (kind or "").lower())[:16] or "ref"
+    secret = _setting_get_conn(conn, _SETTING_NETWORK_SECRET, "")
+    if not secret:
+        # Admin refs must survive across read->write requests, so persist the
+        # relay secret immediately when the first operator payload is rendered.
+        secret = secrets.token_hex(32)
+        _setting_set_conn(conn, _SETTING_NETWORK_SECRET, secret)
+        conn.commit()
+    digest = hmac.new(
+        secret.encode("utf-8"),
+        f"admin-action:{clean_kind}:{value or ''}".encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()[:24]
+    return f"{clean_kind}_{digest}"
+
+
+def _provider_admin_state(conn: sqlite3.Connection, setting_key: str, env_key: str) -> Dict[str, Any]:
+    value, source = _provider_status(setting_key, env_key, conn=conn)
+    return {
+        "configured": bool(value),
+        "source": source,
+        "masked": _mask_secret(value) if value else "missing",
+    }
+
+
+def _admin_usage_rows(conn: sqlite3.Connection, month: str) -> list[Dict[str, Any]]:
+    rows = conn.execute(
+        """
+        SELECT subject_key, service, month, calls, last_seen, plan, install_id
+        FROM usage
+        WHERE month=?
+        ORDER BY service ASC, calls DESC, last_seen DESC
+        LIMIT 250
+        """,
+        (month,),
+    ).fetchall()
+    return [
+        {
+            "subject": _public_subject(str(row["subject_key"] or ""), str(row["install_id"] or "")),
+            "service": str(row["service"] or ""),
+            "month": str(row["month"] or ""),
+            "calls": int(row["calls"] or 0),
+            "last_seen": str(row["last_seen"] or ""),
+            "plan": str(row["plan"] or ""),
+        }
+        for row in rows
+    ]
+
+
+def _admin_schedule_snapshot_rows(conn: sqlite3.Connection) -> list[Dict[str, Any]]:
+    rows = conn.execute(
+        """
+        SELECT airport_iata, timezone, display_grace_minutes, display_horizon_hours,
+               planner_version, schema_version, provider, generated_at, updated_at,
+               meta_json, client_accesses, upstream_pulls, refresh_count, cache_hits,
+               stale_serves, last_cache_state, last_error
+        FROM schedule_snapshots
+        ORDER BY updated_at DESC
+        LIMIT 120
+        """
+    ).fetchall()
+    payload: list[Dict[str, Any]] = []
+    for row in rows:
+        meta = _admin_json_value(str(row["meta_json"] or "{}"), {})
+        payload.append(
+            {
+                "airport_iata": str(row["airport_iata"] or ""),
+                "timezone": str(row["timezone"] or ""),
+                "display_grace_minutes": int(row["display_grace_minutes"] or 0),
+                "display_horizon_hours": int(row["display_horizon_hours"] or 0),
+                "planner_version": str(row["planner_version"] or ""),
+                "schema_version": str(row["schema_version"] or ""),
+                "provider": str(row["provider"] or ""),
+                "generated_at": str(row["generated_at"] or ""),
+                "updated_at": str(row["updated_at"] or ""),
+                "client_accesses": int(row["client_accesses"] or 0),
+                "upstream_pulls": int(row["upstream_pulls"] or 0),
+                "refresh_count": int(row["refresh_count"] or 0),
+                "cache_hits": int(row["cache_hits"] or 0),
+                "stale_serves": int(row["stale_serves"] or 0),
+                "last_cache_state": str(row["last_cache_state"] or ""),
+                "last_error": str(row["last_error"] or ""),
+                "meta": meta if isinstance(meta, dict) else {},
+            }
+        )
+    return payload
+
+
+def _admin_client_interest_rows(conn: sqlite3.Connection) -> list[Dict[str, Any]]:
+    rows = conn.execute(
+        """
+        SELECT install_id, plan, airport_iata, timezone, display_grace_minutes,
+               display_horizon_hours, refresh_seconds, last_seen
+        FROM client_interests
+        ORDER BY last_seen DESC
+        LIMIT 120
+        """
+    ).fetchall()
+    return [
+        {
+            "install_fingerprint": _public_install_id(str(row["install_id"] or "")),
+            "plan": str(row["plan"] or ""),
+            "airport_iata": str(row["airport_iata"] or ""),
+            "timezone": str(row["timezone"] or ""),
+            "display_grace_minutes": int(row["display_grace_minutes"] or 0),
+            "display_horizon_hours": int(row["display_horizon_hours"] or 0),
+            "refresh_seconds": int(row["refresh_seconds"] or 0),
+            "last_seen": str(row["last_seen"] or ""),
+        }
+        for row in rows
+    ]
+
+
+def _admin_surface_rows(conn: sqlite3.Connection) -> list[Dict[str, Any]]:
+    rows = conn.execute(
+        """
+        SELECT airport_iata, airport_icao, schema_version, provider, center_lat, center_lon,
+               radius_nm, generated_at, updated_at, features_json, meta_json, request_count,
+               cache_hits, refresh_count, stale_serves, last_cache_state, last_error
+        FROM airport_surface_snapshots
+        ORDER BY updated_at DESC
+        LIMIT 120
+        """
+    ).fetchall()
+    payload: list[Dict[str, Any]] = []
+    for row in rows:
+        features = _admin_json_value(str(row["features_json"] or "[]"), [])
+        meta = _admin_json_value(str(row["meta_json"] or "{}"), {})
+        payload.append(
+            {
+                "airport_iata": str(row["airport_iata"] or ""),
+                "airport_icao": str(row["airport_icao"] or ""),
+                "schema_version": str(row["schema_version"] or ""),
+                "provider": str(row["provider"] or ""),
+                "center": {"lat": float(row["center_lat"] or 0.0), "lon": float(row["center_lon"] or 0.0)},
+                "radius_nm": float(row["radius_nm"] or 0.0),
+                "generated_at": str(row["generated_at"] or ""),
+                "updated_at": str(row["updated_at"] or ""),
+                "feature_count": len(features) if isinstance(features, list) else 0,
+                "request_count": int(row["request_count"] or 0),
+                "cache_hits": int(row["cache_hits"] or 0),
+                "refresh_count": int(row["refresh_count"] or 0),
+                "stale_serves": int(row["stale_serves"] or 0),
+                "last_cache_state": str(row["last_cache_state"] or ""),
+                "last_error": str(row["last_error"] or ""),
+                "meta": meta if isinstance(meta, dict) else {},
+            }
+        )
+    return payload
+
+
+def _admin_activation_payload(conn: sqlite3.Connection) -> Dict[str, Any]:
+    token_rows = conn.execute(
+        """
+        SELECT token_hash, token_prefix, label, schedule_limit, radar_limit, created_at, created_by,
+               bound_install_id, last_seen, revoked_at
+        FROM activation_tokens
+        ORDER BY created_at DESC
+        LIMIT 150
+        """
+    ).fetchall()
+    request_rows = conn.execute(
+        """
+        SELECT request_id, install_fingerprint, network_tag, airport_iata, display_name,
+               requested_mode, app_version, status, created_at, updated_at, last_seen,
+               token_prefix, decision_source, decision_note, approved_at, delivered_at
+        FROM activation_requests
+        ORDER BY updated_at DESC
+        LIMIT 150
+        """
+    ).fetchall()
+    blocked_rows = conn.execute(
+        """
+        SELECT install_id, reason, created_at
+        FROM blocked_installs
+        ORDER BY created_at DESC
+        LIMIT 150
+        """
+    ).fetchall()
+    return {
+        "tokens": [
+            {
+                "token_prefix": str(row["token_prefix"] or ""),
+                "action_ref": _admin_action_ref(conn, "tok", str(row["token_hash"] or "")),
+                "label": str(row["label"] or ""),
+                "schedule_limit": int(row["schedule_limit"] or 0),
+                "radar_limit": int(row["radar_limit"] or 0),
+                "created_at": str(row["created_at"] or ""),
+                "created_by": str(row["created_by"] or ""),
+                "bound_install_fingerprint": _public_install_id(str(row["bound_install_id"] or "")),
+                "last_seen": str(row["last_seen"] or ""),
+                "revoked": bool(row["revoked_at"]),
+                "revoked_at": str(row["revoked_at"] or ""),
+            }
+            for row in token_rows
+        ],
+        "requests": [
+            {
+                "request_id": str(row["request_id"] or ""),
+                "action_ref": str(row["request_id"] or ""),
+                "install_fingerprint": str(row["install_fingerprint"] or ""),
+                "network_tag": str(row["network_tag"] or ""),
+                "airport_iata": str(row["airport_iata"] or ""),
+                "display_name": str(row["display_name"] or ""),
+                "requested_mode": str(row["requested_mode"] or ""),
+                "app_version": str(row["app_version"] or ""),
+                "status": str(row["status"] or ""),
+                "created_at": str(row["created_at"] or ""),
+                "updated_at": str(row["updated_at"] or ""),
+                "last_seen": str(row["last_seen"] or ""),
+                "token_prefix": str(row["token_prefix"] or ""),
+                "decision_source": str(row["decision_source"] or ""),
+                "decision_note": str(row["decision_note"] or ""),
+                "approved_at": str(row["approved_at"] or ""),
+                "delivered_at": str(row["delivered_at"] or ""),
+            }
+            for row in request_rows
+        ],
+        "blocked_installs": [
+            {
+                "install_fingerprint": _public_install_id(str(row["install_id"] or "")),
+                "action_ref": _admin_action_ref(conn, "inst", str(row["install_id"] or "")),
+                "reason": str(row["reason"] or ""),
+                "created_at": str(row["created_at"] or ""),
+            }
+            for row in blocked_rows
+        ],
+    }
+
+
+def _admin_report_payload(conn: sqlite3.Connection) -> Dict[str, Any]:
+    cutoff = _hours_ago(24)
+    summary_rows = conn.execute(
+        """
+        SELECT report_type, origin, team, status, COUNT(*) AS reports,
+               COUNT(DISTINCT install_fingerprint) AS installs, MAX(ts) AS last_seen
+        FROM report_events
+        WHERE ts >= ?
+        GROUP BY report_type, origin, team, status
+        ORDER BY reports DESC, last_seen DESC
+        LIMIT 80
+        """,
+        (cutoff,),
+    ).fetchall()
+    recent_rows = conn.execute(
+        """
+        SELECT ts, install_fingerprint, network_tag, report_type, origin, team, status, dedupe_key
+        FROM report_events
+        ORDER BY ts DESC
+        LIMIT 120
+        """
+    ).fetchall()
+    dedupe_rows = conn.execute(
+        """
+        SELECT team, report_type, origin, url, count, first_seen, last_seen
+        FROM report_dedupe
+        ORDER BY last_seen DESC
+        LIMIT 120
+        """
+    ).fetchall()
+    return {
+        "summary_24h": [
+            {
+                "report_type": str(row["report_type"] or ""),
+                "origin": str(row["origin"] or ""),
+                "team": str(row["team"] or ""),
+                "status": str(row["status"] or ""),
+                "reports": int(row["reports"] or 0),
+                "installs": int(row["installs"] or 0),
+                "last_seen": str(row["last_seen"] or ""),
+            }
+            for row in summary_rows
+        ],
+        "recent_events": [
+            {
+                "ts": str(row["ts"] or ""),
+                "install_fingerprint": str(row["install_fingerprint"] or ""),
+                "network_tag": str(row["network_tag"] or ""),
+                "report_type": str(row["report_type"] or ""),
+                "origin": str(row["origin"] or ""),
+                "team": str(row["team"] or ""),
+                "status": str(row["status"] or ""),
+                "dedupe_key": str(row["dedupe_key"] or "")[:20],
+            }
+            for row in recent_rows
+        ],
+        "dedupe": [
+            {
+                "team": str(row["team"] or ""),
+                "report_type": str(row["report_type"] or ""),
+                "origin": str(row["origin"] or ""),
+                "issue_url": str(row["url"] or ""),
+                "count": int(row["count"] or 0),
+                "first_seen": str(row["first_seen"] or ""),
+                "last_seen": str(row["last_seen"] or ""),
+            }
+            for row in dedupe_rows
+        ],
+    }
+
+
+def _admin_action_response(message: str, **extra: Any) -> Dict[str, Any]:
+    payload: Dict[str, Any] = {
+        "ok": True,
+        "message": message,
+        "generated_at": _utc_now(),
+    }
+    payload.update(extra)
+    return payload
+
+
+def _admin_token_hash_from_prefix(conn: sqlite3.Connection, token_prefix: str) -> str:
+    prefix = (token_prefix or "").strip()
+    rows = conn.execute(
+        "SELECT token_hash FROM activation_tokens WHERE token_prefix=?",
+        (prefix,),
+    ).fetchall()
+    if not rows:
+        raise HTTPException(status_code=404, detail="Activation token prefix not found")
+    if len(rows) > 1:
+        raise HTTPException(status_code=409, detail="Activation token prefix is not unique")
+    return str(rows[0]["token_hash"] or "")
+
+
+def _admin_token_hash_from_reference(
+    conn: sqlite3.Connection,
+    *,
+    token_ref: str = "",
+    token_prefix: str = "",
+) -> str:
+    ref = (token_ref or "").strip()
+    if not ref:
+        return _admin_token_hash_from_prefix(conn, token_prefix)
+    rows = conn.execute("SELECT token_hash, token_prefix FROM activation_tokens").fetchall()
+    matches = [
+        str(row["token_hash"] or "")
+        for row in rows
+        if ref == str(row["token_prefix"] or "") or ref == _admin_action_ref(conn, "tok", str(row["token_hash"] or ""))
+    ]
+    if not matches:
+        raise HTTPException(status_code=404, detail="Activation token reference not found")
+    if len(matches) > 1:
+        raise HTTPException(status_code=409, detail="Activation token reference is not unique")
+    return matches[0]
+
+
+def _admin_install_candidates(conn: sqlite3.Connection) -> set[str]:
+    candidates: set[str] = set()
+    for table, column in (
+        ("activation_requests", "install_id"),
+        ("client_interests", "install_id"),
+        ("usage", "install_id"),
+        ("blocked_installs", "install_id"),
+        ("activation_tokens", "bound_install_id"),
+    ):
+        try:
+            rows = conn.execute(
+                f"SELECT DISTINCT {column} AS install_id FROM {table} WHERE COALESCE({column}, '') <> '' LIMIT 500"
+            ).fetchall()
+        except sqlite3.Error:
+            continue
+        for row in rows:
+            install_id = str(row["install_id"] or "").strip()
+            if install_id:
+                candidates.add(install_id)
+    return candidates
+
+
+def _admin_install_id_from_reference(
+    conn: sqlite3.Connection,
+    *,
+    install_ref: str = "",
+    install_fingerprint: str = "",
+    install_id: str = "",
+) -> str:
+    clean_install_id = (install_id or "").strip()
+    if clean_install_id:
+        return _validate_install_id(clean_install_id)
+    ref = (install_ref or "").strip()
+    if not ref:
+        return _admin_install_id_from_fingerprint(conn, install_fingerprint)
+    matches = [
+        candidate
+        for candidate in _admin_install_candidates(conn)
+        if ref == _admin_action_ref(conn, "inst", candidate)
+    ]
+    if not matches:
+        legacy = _admin_install_id_from_fingerprint(conn, ref)
+        if legacy:
+            return legacy
+        raise HTTPException(status_code=404, detail="Install reference not found")
+    if len(matches) > 1:
+        raise HTTPException(status_code=409, detail="Install reference is not unique")
+    return matches[0]
+
+
+def _admin_install_id_from_fingerprint(conn: sqlite3.Connection, fingerprint: str) -> str:
+    target = (fingerprint or "").strip().lower()
+    if not target:
+        return ""
+    for install_id in _admin_install_candidates(conn):
+        if _install_fingerprint(install_id) == target:
+            return install_id
+    return ""
 
 
 def _post_form(action: str, fields: Dict[str, str], label: str, css: str = "") -> str:
@@ -4392,6 +5092,93 @@ class ReportIn(BaseModel):
     diagnostics_mode: str = Field("", max_length=40)
 
 
+def _admin_text(value: Any) -> str:
+    return "" if value is None else str(value)
+
+
+class AdminProviderKeysIn(BaseModel):
+    aviationstack_key: str = Field("", max_length=240)
+    rapidapi_key: str = Field("", max_length=240)
+
+    @field_validator("aviationstack_key", "rapidapi_key", mode="before")
+    @classmethod
+    def _coerce_optional_text(cls, value: Any) -> str:
+        return _admin_text(value)
+
+
+class AdminProviderClearIn(BaseModel):
+    provider: str = Field(..., min_length=1, max_length=40)
+
+    @field_validator("provider", mode="before")
+    @classmethod
+    def _coerce_required_text(cls, value: Any) -> str:
+        return _admin_text(value)
+
+
+class AdminActivationCreateIn(BaseModel):
+    label: str = Field("", max_length=160)
+    schedule_limit: int = Field(10000, ge=1, le=1_000_000)
+    radar_limit: int = Field(10000, ge=1, le=1_000_000)
+
+    @field_validator("label", mode="before")
+    @classmethod
+    def _coerce_optional_text(cls, value: Any) -> str:
+        return _admin_text(value)
+
+
+class AdminTokenActionIn(BaseModel):
+    token_prefix: str = Field("", max_length=32)
+    token_ref: str = Field("", max_length=120)
+    action: str = Field(..., min_length=1, max_length=40)
+
+    @field_validator("token_prefix", "token_ref", "action", mode="before")
+    @classmethod
+    def _coerce_required_text(cls, value: Any) -> str:
+        return _admin_text(value)
+
+
+class AdminActivationRequestActionIn(BaseModel):
+    request_id: str = Field(..., min_length=4, max_length=80)
+    action: str = Field(..., min_length=1, max_length=40)
+    decision_note: str = Field("dismissed", max_length=240)
+
+    @field_validator("request_id", "action", "decision_note", mode="before")
+    @classmethod
+    def _coerce_text(cls, value: Any) -> str:
+        return _admin_text(value)
+
+
+class AdminCounterResetIn(BaseModel):
+    scope: str = Field(..., min_length=1, max_length=40)
+    service: str = Field("", max_length=40)
+    token_prefix: str = Field("", max_length=32)
+    token_ref: str = Field("", max_length=120)
+    install_fingerprint: str = Field("", max_length=32)
+    install_ref: str = Field("", max_length=120)
+
+    @field_validator("scope", "service", "token_prefix", "token_ref", "install_fingerprint", "install_ref", mode="before")
+    @classmethod
+    def _coerce_text(cls, value: Any) -> str:
+        return _admin_text(value)
+
+
+class AdminCounterCorrectIn(BaseModel):
+    total: int = Field(..., ge=0, le=100_000_000)
+
+
+class AdminInstallAccessIn(BaseModel):
+    install_id: str = Field("", max_length=80)
+    install_fingerprint: str = Field("", max_length=32)
+    install_ref: str = Field("", max_length=120)
+    action: str = Field(..., min_length=1, max_length=40)
+    reason: str = Field("revoked by admin", max_length=240)
+
+    @field_validator("install_id", "install_fingerprint", "install_ref", "action", "reason", mode="before")
+    @classmethod
+    def _coerce_text(cls, value: Any) -> str:
+        return _admin_text(value)
+
+
 def _build_client_status(
     *,
     install_id: str,
@@ -5048,6 +5835,139 @@ def relay_flights(
     )
 
 
+@app.get("/v1/airport-surface")
+def relay_airport_surface(
+    request: Request,
+    airport_iata: str = Query(...),
+    airport_icao: str = Query(""),
+    lat: float = Query(...),
+    lon: float = Query(...),
+    radius_nm: float = Query(5.0, ge=1.0, le=5.0),
+) -> JSONResponse:
+    if not _airport_surface_enabled():
+        raise HTTPException(status_code=503, detail="Airport surface overlay is disabled on this relay")
+
+    airport_iata_clean = _clean_airport(airport_iata) or ""
+    airport_icao_clean = _clean_airport(airport_icao) if airport_icao else ""
+    cache_key = _airport_surface_cache_key(airport_iata_clean, airport_icao_clean or "")
+    lock = _get_airport_surface_lock(cache_key)
+    t0 = time.monotonic()
+
+    def _log(status: int) -> None:
+        _log_request(
+            install_id="",
+            scope=airport_iata_clean,
+            status=status,
+            latency_ms=int((time.monotonic() - t0) * 1000),
+            service="airport_surface",
+            plan="shared",
+        )
+
+    def _serve(
+        row: sqlite3.Row,
+        *,
+        cache_state: str,
+        count_cache_hit: bool = False,
+        count_stale: bool = False,
+        error: str = "",
+    ) -> JSONResponse:
+        _record_airport_surface_access(
+            cache_key=cache_key,
+            cache_state=cache_state,
+            count_cache_hit=count_cache_hit,
+            count_stale=count_stale,
+            error=error,
+        )
+        payload = _airport_surface_payload_from_row(
+            row,
+            cache_state=cache_state,
+            requested_radius_nm=radius_nm,
+            error=error,
+        )
+        payload.setdefault("meta", {})
+        if isinstance(payload["meta"], dict):
+            payload["meta"]["served_via"] = "surface-cache"
+        return JSONResponse(payload)
+
+    conn = _connect()
+    snapshot_row = _load_airport_surface_snapshot_conn(conn, cache_key)
+    state = _airport_surface_lifecycle_state(snapshot_row)
+    conn.close()
+
+    if snapshot_row is not None and state == "fresh":
+        _log(200)
+        return _serve(snapshot_row, cache_state="fresh", count_cache_hit=True)
+
+    acquired = lock.acquire(blocking=False)
+    if not acquired:
+        if snapshot_row is not None and state == "stale":
+            _log(200)
+            return _serve(snapshot_row, cache_state="stale", count_stale=True)
+
+        deadline = time.monotonic() + _AIRPORT_SURFACE_LOCK_WAIT_S
+        while time.monotonic() < deadline:
+            time.sleep(0.1)
+            conn = _connect()
+            waited_row = _load_airport_surface_snapshot_conn(conn, cache_key)
+            waited_state = _airport_surface_lifecycle_state(waited_row)
+            conn.close()
+            if waited_row is not None and waited_state in {"fresh", "stale"}:
+                _log(200)
+                return _serve(
+                    waited_row,
+                    cache_state=waited_state,
+                    count_cache_hit=(waited_state == "fresh"),
+                    count_stale=(waited_state == "stale"),
+                )
+
+        if snapshot_row is not None:
+            _log(200)
+            return _serve(snapshot_row, cache_state="stale", count_stale=True, error="Surface refresh still in progress")
+        _log(503)
+        raise HTTPException(status_code=503, detail="Airport surface refresh in progress")
+
+    try:
+        try:
+            payload = _fetch_airport_surface_from_osm(
+                airport_iata=airport_iata_clean,
+                airport_icao=airport_icao_clean or "",
+                lat=lat,
+                lon=lon,
+                radius_nm=radius_nm,
+            )
+            _store_airport_surface_snapshot(cache_key, payload)
+            _record_airport_surface_access(cache_key=cache_key, cache_state="fresh")
+            _log(200)
+            payload.setdefault("meta", {})
+            if isinstance(payload["meta"], dict):
+                payload["meta"]["served_via"] = "surface-refresh"
+            return JSONResponse(payload)
+        except HTTPException as exc:
+            error = str(exc.detail)
+            conn = _connect()
+            stale_row = _load_airport_surface_snapshot_conn(conn, cache_key)
+            stale_state = _airport_surface_lifecycle_state(stale_row)
+            conn.close()
+            if stale_row is not None and stale_state in {"fresh", "stale"}:
+                _log(200)
+                return _serve(stale_row, cache_state="stale", count_stale=True, error=error)
+            _log(exc.status_code)
+            raise
+        except Exception as exc:
+            error = f"Airport surface refresh failed: {exc}"
+            conn = _connect()
+            stale_row = _load_airport_surface_snapshot_conn(conn, cache_key)
+            stale_state = _airport_surface_lifecycle_state(stale_row)
+            conn.close()
+            if stale_row is not None and stale_state in {"fresh", "stale"}:
+                _log(200)
+                return _serve(stale_row, cache_state="stale", count_stale=True, error=error)
+            _log(502)
+            raise HTTPException(status_code=502, detail=error)
+    finally:
+        lock.release()
+
+
 @app.get("/v1/radar")
 def relay_radar(
     request: Request,
@@ -5113,6 +6033,581 @@ def relay_managed_config(
     if status.get("plan") != "managed":
         raise HTTPException(status_code=403, detail="Managed activation token required")
     return status
+
+
+@app.get("/admin/api/overview")
+def admin_api_overview(username: str = Depends(_require_admin)) -> Dict[str, Any]:
+    conn = _connect()
+    month = _month_key()
+    try:
+        aviationstack = _provider_admin_state(conn, _SETTING_AVIATIONSTACK_KEY, "AVIATIONSTACK_API_KEY")
+        rapidapi = _provider_admin_state(conn, _SETTING_RAPIDAPI_KEY, "RAPIDAPI_KEY")
+        snapshot_totals = conn.execute(
+            """
+            SELECT COALESCE(SUM(client_accesses), 0) AS client_accesses,
+                   COALESCE(SUM(upstream_pulls), 0) AS upstream_pulls,
+                   COALESCE(SUM(refresh_count), 0) AS refresh_count,
+                   COALESCE(SUM(cache_hits), 0) AS cache_hits,
+                   COALESCE(SUM(stale_serves), 0) AS stale_serves
+            FROM schedule_snapshots
+            """
+        ).fetchone()
+        surface_totals = conn.execute(
+            """
+            SELECT COALESCE(SUM(request_count), 0) AS request_count,
+                   COALESCE(SUM(cache_hits), 0) AS cache_hits,
+                   COALESCE(SUM(refresh_count), 0) AS refresh_count,
+                   COALESCE(SUM(stale_serves), 0) AS stale_serves
+            FROM airport_surface_snapshots
+            """
+        ).fetchone()
+        return {
+            "generated_at": _utc_now(),
+            "operator": username,
+            "month": month,
+            "provider_revision": _provider_revision(conn),
+            "providers": {
+                "aviationstack": aviationstack,
+                "rapidapi": rapidapi,
+            },
+            "limits": {
+                "community_schedule": _community_schedule_limit(),
+                "community_radar": _community_radar_limit(),
+                "managed_schedule_default": _managed_schedule_limit(),
+                "managed_radar_default": _managed_radar_limit(),
+            },
+            "features": {
+                "raw_provider_debug": _raw_provider_debug_enabled(),
+                "airport_surface_overlay": _airport_surface_enabled(),
+            },
+            "counts": {
+                "usage_rows": _admin_count(conn, "SELECT COUNT(*) FROM usage WHERE month=?", (month,)),
+                "requests_24h": _admin_count(conn, "SELECT COUNT(*) FROM request_log WHERE ts>=?", (_hours_ago(24),)),
+                "activation_tokens_active": _admin_count(
+                    conn,
+                    "SELECT COUNT(*) FROM activation_tokens WHERE revoked_at IS NULL",
+                ),
+                "activation_tokens_revoked": _admin_count(
+                    conn,
+                    "SELECT COUNT(*) FROM activation_tokens WHERE revoked_at IS NOT NULL",
+                ),
+                "activation_requests_pending": _admin_count(
+                    conn,
+                    "SELECT COUNT(*) FROM activation_requests WHERE status IN (?, ?)",
+                    (_REQUEST_STATUS_PENDING, _REQUEST_STATUS_MANUAL_REVIEW),
+                ),
+                "blocked_installs": _admin_count(conn, "SELECT COUNT(*) FROM blocked_installs"),
+                "schedule_snapshots": _admin_count(conn, "SELECT COUNT(*) FROM schedule_snapshots"),
+                "surface_snapshots": _admin_count(conn, "SELECT COUNT(*) FROM airport_surface_snapshots"),
+                "client_interests": _admin_count(conn, "SELECT COUNT(*) FROM client_interests"),
+                "reports_24h": _admin_count(conn, "SELECT COUNT(*) FROM report_events WHERE ts>=?", (_hours_ago(24),)),
+            },
+            "shared_schedule": {
+                "client_accesses": int(snapshot_totals["client_accesses"] or 0),
+                "upstream_pulls": int(snapshot_totals["upstream_pulls"] or 0),
+                "refresh_count": int(snapshot_totals["refresh_count"] or 0),
+                "cache_hits": int(snapshot_totals["cache_hits"] or 0),
+                "stale_serves": int(snapshot_totals["stale_serves"] or 0),
+            },
+            "surface_cache": {
+                "request_count": int(surface_totals["request_count"] or 0),
+                "refresh_count": int(surface_totals["refresh_count"] or 0),
+                "cache_hits": int(surface_totals["cache_hits"] or 0),
+                "stale_serves": int(surface_totals["stale_serves"] or 0),
+            },
+        }
+    finally:
+        conn.close()
+
+
+@app.get("/admin/api/usage")
+def admin_api_usage(username: str = Depends(_require_admin)) -> Dict[str, Any]:
+    conn = _connect()
+    month = _month_key()
+    try:
+        service_rows = conn.execute(
+            """
+            SELECT service, plan, COALESCE(SUM(calls), 0) AS calls,
+                   COUNT(DISTINCT COALESCE(NULLIF(install_id, ''), subject_key)) AS subjects,
+                   MAX(last_seen) AS last_seen
+            FROM usage
+            WHERE month=?
+            GROUP BY service, plan
+            ORDER BY service ASC, calls DESC
+            """,
+            (month,),
+        ).fetchall()
+        return {
+            "generated_at": _utc_now(),
+            "operator": username,
+            "month": month,
+            "summary": [
+                {
+                    "service": str(row["service"] or ""),
+                    "plan": str(row["plan"] or ""),
+                    "calls": int(row["calls"] or 0),
+                    "subjects": int(row["subjects"] or 0),
+                    "last_seen": str(row["last_seen"] or ""),
+                }
+                for row in service_rows
+            ],
+            "rows": _admin_usage_rows(conn, month),
+        }
+    finally:
+        conn.close()
+
+
+@app.get("/admin/api/schedules")
+def admin_api_schedules(username: str = Depends(_require_admin)) -> Dict[str, Any]:
+    conn = _connect()
+    try:
+        return {
+            "generated_at": _utc_now(),
+            "operator": username,
+            "snapshots": _admin_schedule_snapshot_rows(conn),
+            "client_interests": _admin_client_interest_rows(conn),
+        }
+    finally:
+        conn.close()
+
+
+@app.get("/admin/api/surfaces")
+def admin_api_surfaces(username: str = Depends(_require_admin)) -> Dict[str, Any]:
+    conn = _connect()
+    try:
+        return {
+            "generated_at": _utc_now(),
+            "operator": username,
+            "enabled": _airport_surface_enabled(),
+            "snapshots": _admin_surface_rows(conn),
+        }
+    finally:
+        conn.close()
+
+
+@app.get("/admin/api/activations")
+def admin_api_activations(username: str = Depends(_require_admin)) -> Dict[str, Any]:
+    conn = _connect()
+    try:
+        payload = _admin_activation_payload(conn)
+        payload["generated_at"] = _utc_now()
+        payload["operator"] = username
+        return payload
+    finally:
+        conn.close()
+
+
+@app.get("/admin/api/reports")
+def admin_api_reports(username: str = Depends(_require_admin)) -> Dict[str, Any]:
+    conn = _connect()
+    try:
+        payload = _admin_report_payload(conn)
+        payload["generated_at"] = _utc_now()
+        payload["operator"] = username
+        return payload
+    finally:
+        conn.close()
+
+
+@app.post("/admin/api/providers/save")
+def admin_api_save_provider_keys(
+    body: AdminProviderKeysIn,
+    username: str = Depends(_require_admin),
+) -> Dict[str, Any]:
+    conn = _connect()
+    changes: list[str] = []
+    try:
+        if body.aviationstack_key.strip():
+            _setting_set_conn(conn, _SETTING_AVIATIONSTACK_KEY, body.aviationstack_key.strip())
+            changes.append("AviationStack")
+        if body.rapidapi_key.strip():
+            _setting_set_conn(conn, _SETTING_RAPIDAPI_KEY, body.rapidapi_key.strip())
+            changes.append("RapidAPI ADS-B")
+        if not changes:
+            return _admin_action_response("No provider key changes submitted.", operator=username)
+        revision = _bump_provider_revision(conn)
+        conn.commit()
+        return _admin_action_response(
+            f"Updated provider key storage for {', '.join(changes)}.",
+            operator=username,
+            provider_revision=revision,
+        )
+    finally:
+        conn.close()
+
+
+@app.post("/admin/api/providers/clear")
+def admin_api_clear_provider_key(
+    body: AdminProviderClearIn,
+    username: str = Depends(_require_admin),
+) -> Dict[str, Any]:
+    mapping = {
+        "aviationstack": (_SETTING_AVIATIONSTACK_KEY, "AviationStack"),
+        "rapidapi": (_SETTING_RAPIDAPI_KEY, "RapidAPI ADS-B"),
+    }
+    provider = body.provider.strip().lower()
+    if provider not in mapping:
+        raise HTTPException(status_code=400, detail="Unknown provider")
+    setting_key, label = mapping[provider]
+    conn = _connect()
+    try:
+        _setting_delete_conn(conn, setting_key)
+        revision = _bump_provider_revision(conn)
+        conn.commit()
+        return _admin_action_response(
+            f"Cleared relay-stored {label} override.",
+            operator=username,
+            provider_revision=revision,
+        )
+    finally:
+        conn.close()
+
+
+@app.post("/admin/api/activation/create")
+def admin_api_activation_create(
+    body: AdminActivationCreateIn,
+    username: str = Depends(_require_admin),
+) -> Dict[str, Any]:
+    token = _new_activation_token()
+    conn = _connect()
+    try:
+        _store_activation_token(
+            conn,
+            token=token,
+            label=body.label,
+            schedule_limit=body.schedule_limit,
+            radar_limit=body.radar_limit,
+            created_by=username,
+        )
+        conn.commit()
+        return _admin_action_response(
+            "Activation token created. Copy it now; it is shown once.",
+            operator=username,
+            activation_token=token,
+            token_prefix=token[:10],
+            action_ref=_admin_action_ref(conn, "tok", _token_hash(token)),
+        )
+    finally:
+        conn.close()
+
+
+@app.post("/admin/api/activation/token-action")
+def admin_api_activation_token_action(
+    body: AdminTokenActionIn,
+    username: str = Depends(_require_admin),
+) -> Dict[str, Any]:
+    action = body.action.strip().lower()
+    conn = _connect()
+    try:
+        token_hash = _admin_token_hash_from_reference(
+            conn,
+            token_ref=body.token_ref,
+            token_prefix=body.token_prefix,
+        )
+        if action == "revoke":
+            conn.execute(
+                "UPDATE activation_tokens SET revoked_at=? WHERE token_hash=? AND revoked_at IS NULL",
+                (_utc_now(), token_hash),
+            )
+            message = "Activation token revoked."
+            extra: Dict[str, Any] = {}
+        elif action == "reactivate":
+            conn.execute("UPDATE activation_tokens SET revoked_at=NULL WHERE token_hash=?", (token_hash,))
+            message = "Activation token restored."
+            extra = {}
+        elif action == "unbind":
+            conn.execute(
+                "UPDATE activation_tokens SET bound_install_id=NULL, last_seen=NULL WHERE token_hash=?",
+                (token_hash,),
+            )
+            message = "Token binding cleared."
+            extra = {}
+        elif action == "delete":
+            conn.execute("DELETE FROM activation_tokens WHERE token_hash=?", (token_hash,))
+            message = "Activation token deleted."
+            extra = {}
+        elif action == "reset_counters":
+            conn.execute(
+                "DELETE FROM usage WHERE month=? AND subject_key=?",
+                (_month_key(), f"managed:{token_hash}"),
+            )
+            message = "Counters reset for the selected activation token."
+            extra = {}
+        elif action == "rotate":
+            row = conn.execute(
+                "SELECT label, schedule_limit, radar_limit FROM activation_tokens WHERE token_hash=?",
+                (token_hash,),
+            ).fetchone()
+            if not row:
+                raise HTTPException(status_code=404, detail="Activation token not found")
+            token = _new_activation_token()
+            new_hash = _token_hash(token)
+            conn.execute(
+                """
+                UPDATE activation_tokens
+                SET token_hash=?,
+                    token_prefix=?,
+                    bound_install_id=NULL,
+                    last_seen=NULL,
+                    revoked_at=NULL,
+                    created_by=?
+                WHERE token_hash=?
+                """,
+                (new_hash, token[:10], username, token_hash),
+            )
+            conn.execute(
+                "UPDATE usage SET subject_key=? WHERE subject_key=?",
+                (f"managed:{new_hash}", f"managed:{token_hash}"),
+            )
+            message = "Activation token reshuffled. Copy the new token now; it is shown once."
+            extra = {
+                "activation_token": token,
+                "token_prefix": token[:10],
+                "action_ref": _admin_action_ref(conn, "tok", new_hash),
+            }
+        else:
+            raise HTTPException(status_code=400, detail="Unknown token action")
+        conn.commit()
+        return _admin_action_response(message, operator=username, **extra)
+    finally:
+        conn.close()
+
+
+@app.post("/admin/api/activation/request-action")
+def admin_api_activation_request_action(
+    body: AdminActivationRequestActionIn,
+    username: str = Depends(_require_admin),
+) -> Dict[str, Any]:
+    action = body.action.strip().lower()
+    request_id = body.request_id.strip()
+    conn = _connect()
+    try:
+        row = conn.execute(
+            "SELECT * FROM activation_requests WHERE request_id=?",
+            (request_id,),
+        ).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Activation request not found")
+        if action == "approve":
+            if str(row["status"] or "") != _REQUEST_STATUS_MANUAL_REVIEW:
+                return _admin_action_response("Activation row is no longer waiting for manual review.", operator=username)
+            install_id = str(row["install_id"] or "").strip()
+            label = str(row["display_name"] or row["install_fingerprint"] or "Managed install")
+            token, token_prefix, _issuance = _issue_token_for_install(
+                conn,
+                install_id=install_id,
+                label=label,
+                created_by=username,
+            )
+            now = _utc_now()
+            conn.execute(
+                """
+                UPDATE activation_requests
+                SET status=?,
+                    updated_at=?,
+                    approved_at=?,
+                    last_seen=?,
+                    decision_source=?,
+                    decision_note=?,
+                    token_hash=?,
+                    token_prefix=?,
+                    issued_token=NULL
+                WHERE request_id=?
+                """,
+                (
+                    _REQUEST_STATUS_ISSUED,
+                    now,
+                    now,
+                    now,
+                    username,
+                    "manual issue completed",
+                    _token_hash(token),
+                    token_prefix,
+                    request_id,
+                ),
+            )
+            conn.commit()
+            return _admin_action_response(
+                "Managed access issued. Copy the token now; it is shown once.",
+                operator=username,
+                activation_token=token,
+                token_prefix=token_prefix,
+                action_ref=_admin_action_ref(conn, "tok", _token_hash(token)),
+            )
+        if action == "reject":
+            now = _utc_now()
+            conn.execute(
+                """
+                UPDATE activation_requests
+                SET status=?,
+                    updated_at=?,
+                    last_seen=?,
+                    decision_source=?,
+                    decision_note=?,
+                    issued_token=NULL
+                WHERE request_id=?
+                """,
+                (
+                    _REQUEST_STATUS_DISMISSED,
+                    now,
+                    now,
+                    username,
+                    body.decision_note.strip() or "dismissed",
+                    request_id,
+                ),
+            )
+            conn.commit()
+            return _admin_action_response("Activation row dismissed.", operator=username)
+        if action == "delete":
+            conn.execute("DELETE FROM activation_requests WHERE request_id=?", (request_id,))
+            conn.commit()
+            return _admin_action_response("Activation request deleted.", operator=username)
+        raise HTTPException(status_code=400, detail="Unknown activation request action")
+    finally:
+        conn.close()
+
+
+@app.post("/admin/api/counters/reset")
+def admin_api_reset_counters(
+    body: AdminCounterResetIn,
+    username: str = Depends(_require_admin),
+) -> Dict[str, Any]:
+    conn = _connect()
+    month = _month_key()
+    scope = body.scope.strip().lower()
+    try:
+        if scope == "all":
+            conn.execute("DELETE FROM usage WHERE month=?", (month,))
+            message = "Reset all monthly relay counters."
+        elif scope == "service":
+            service = body.service.strip().lower()
+            if service not in {"aviationstack", "radar"}:
+                raise HTTPException(status_code=400, detail="Unknown service")
+            conn.execute("DELETE FROM usage WHERE month=? AND service=?", (month, service))
+            message = f"Reset monthly counters for {service}."
+        elif scope == "token":
+            token_hash = _admin_token_hash_from_reference(
+                conn,
+                token_ref=body.token_ref,
+                token_prefix=body.token_prefix,
+            )
+            conn.execute(
+                "DELETE FROM usage WHERE month=? AND subject_key=?",
+                (month, f"managed:{token_hash}"),
+            )
+            message = "Reset counters for the selected activation token."
+        elif scope == "install":
+            install_id = _admin_install_id_from_reference(
+                conn,
+                install_ref=body.install_ref,
+                install_fingerprint=body.install_fingerprint,
+            )
+            if not install_id:
+                raise HTTPException(status_code=404, detail="Install fingerprint not found")
+            conn.execute("DELETE FROM usage WHERE month=? AND install_id=?", (month, install_id))
+            message = "Reset counters for the selected install."
+        elif scope == "logs":
+            conn.execute("DELETE FROM request_log")
+            message = "Cleared the network request log."
+        else:
+            raise HTTPException(status_code=400, detail="Unknown reset scope")
+        conn.commit()
+        return _admin_action_response(message, operator=username)
+    finally:
+        conn.close()
+
+
+@app.post("/admin/api/counters/correct-schedule")
+def admin_api_correct_schedule(
+    body: AdminCounterCorrectIn,
+    username: str = Depends(_require_admin),
+) -> Dict[str, Any]:
+    conn = _connect()
+    month = _month_key()
+    try:
+        db_count = conn.execute(
+            "SELECT COALESCE(SUM(calls), 0) FROM usage WHERE month=? AND service='aviationstack'",
+            (month,),
+        ).fetchone()[0] or 0
+        offset = max(0, body.total - db_count)
+        _setting_set_conn(conn, f"schedule_counter_offset:{month}", str(offset))
+        conn.commit()
+        return _admin_action_response(
+            f"Schedule total corrected to {body.total:,}.",
+            operator=username,
+            month=month,
+            offset=offset,
+        )
+    finally:
+        conn.close()
+
+
+@app.post("/admin/api/install/access")
+def admin_api_install_access(
+    body: AdminInstallAccessIn,
+    username: str = Depends(_require_admin),
+) -> Dict[str, Any]:
+    action = body.action.strip().lower()
+    conn = _connect()
+    try:
+        install_id = _admin_install_id_from_reference(
+            conn,
+            install_id=body.install_id,
+            install_ref=body.install_ref,
+            install_fingerprint=body.install_fingerprint,
+        )
+        if not install_id:
+            raise HTTPException(status_code=400, detail="install reference required")
+
+        if action == "block":
+            conn.execute(
+                """
+                INSERT INTO blocked_installs (install_id, reason, created_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(install_id) DO UPDATE SET
+                    reason = excluded.reason,
+                    created_at = excluded.created_at
+                """,
+                (install_id, body.reason.strip() or "revoked by admin", _utc_now()),
+            )
+            message = "Install access revoked."
+        elif action == "unblock":
+            conn.execute("DELETE FROM blocked_installs WHERE install_id=?", (install_id,))
+            message = "Install access restored."
+        else:
+            raise HTTPException(status_code=400, detail="Unknown install access action")
+        conn.commit()
+        return _admin_action_response(message, operator=username, install_fingerprint=_install_fingerprint(install_id))
+    finally:
+        conn.close()
+
+
+@app.post("/admin/api/maintenance/clean-trial")
+def admin_api_clean_trial_state(username: str = Depends(_require_admin)) -> Dict[str, Any]:
+    conn = _connect()
+    tables = (
+        "request_log",
+        "client_interests",
+        "schedule_snapshots",
+        "airport_surface_snapshots",
+        "activation_requests",
+        "report_events",
+        "report_dedupe",
+    )
+    deleted_total = 0
+    try:
+        for table in tables:
+            row = conn.execute(f"SELECT COUNT(*) AS n FROM {table}").fetchone()
+            deleted_total += int(row["n"] or 0) if row else 0
+            conn.execute(f"DELETE FROM {table}")
+        conn.commit()
+        return _admin_action_response(
+            "Cleaned transient setup-trial rows. Provider keys, tokens, blocked installs, and usage counters were kept.",
+            operator=username,
+            deleted_rows=deleted_total,
+        )
+    finally:
+        conn.close()
 
 
 @app.get("/admin", response_class=HTMLResponse)
@@ -5440,6 +6935,7 @@ def admin_clean_trial_state(username: str = Depends(_require_admin)) -> HTMLResp
         "request_log",
         "client_interests",
         "schedule_snapshots",
+        "airport_surface_snapshots",
         "activation_requests",
         "report_events",
         "report_dedupe",

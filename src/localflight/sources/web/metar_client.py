@@ -26,10 +26,13 @@ Decoded fields:
 from __future__ import annotations
 
 import logging
+import re
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 import requests
+
+from localflight.decode.metar import decorate_metar
 
 log = logging.getLogger(__name__)
 
@@ -148,7 +151,7 @@ def _decode(raw: Dict[str, Any]) -> Dict[str, Any]:
         except (ValueError, TypeError):
             pass
 
-    return {
+    decoded = {
         "icao":           raw.get("station_id", ""),
         "raw_text":       raw.get("raw_ob", raw.get("rawOb", "")),
         "obs_time":       raw.get("obs_time", raw.get("obsTime", "")),
@@ -168,6 +171,124 @@ def _decode(raw: Dict[str, Any]) -> Dict[str, Any]:
         "decoded_summary": _summary(raw, flight_cat, wind_dir, wind_spd,
                                      wind_gust, vis_m, ceiling_ft, altim_hpa),
     }
+    decoded.update(decorate_metar(decoded))
+    return decoded
+
+
+def decode_raw_metar(
+    icao: str,
+    raw_text: str,
+    *,
+    source: str = "metar",
+) -> Dict[str, Any]:
+    """Decode a raw METAR string from non-aviationweather sources."""
+    icao = icao.upper().strip()
+    raw_text = str(raw_text or "").strip().replace("\n", " ").replace("\r", " ")
+    raw_text = re.sub(r"\s+", " ", raw_text).strip()
+    tokens = raw_text.upper().replace("=", " ").split()
+
+    wind_dir: Any = None
+    wind_spd: Any = None
+    wind_gust: Any = None
+    for token in tokens:
+        match = re.match(r"^(VRB|\d{3})(\d{2,3})(?:G(\d{2,3}))?KT$", token)
+        if match:
+            wind_dir = None if match.group(1) == "VRB" else int(match.group(1))
+            wind_spd = int(match.group(2))
+            wind_gust = int(match.group(3)) if match.group(3) else None
+            break
+
+    vis_m: Optional[float] = None
+    vis_sm: Optional[float] = None
+    if "CAVOK" in tokens:
+        vis_m = 10000.0
+        vis_sm = round(vis_m / 1609.34, 1)
+    else:
+        for token in tokens:
+            if token == "9999":
+                vis_m = 10000.0
+                vis_sm = round(vis_m / 1609.34, 1)
+                break
+            if re.match(r"^\d{4}$", token):
+                vis_m = float(token)
+                vis_sm = round(vis_m / 1609.34, 1)
+                break
+            match = re.match(r"^(P?\d{1,2})(?:SM)$", token)
+            if match:
+                vis_sm = float(match.group(1).replace("P", ""))
+                vis_m = vis_sm * 1609.34
+                break
+
+    clouds: List[Dict[str, Any]] = []
+    for token in tokens:
+        match = re.match(r"^(FEW|SCT|BKN|OVC|VV)(\d{3})(?:CB|TCU)?$", token)
+        if match:
+            clouds.append({"cover": match.group(1), "base_ft": int(match.group(2)) * 100})
+        elif token in {"CLR", "SKC", "NSC", "NCD"}:
+            clouds.append({"cover": token, "base_ft": None})
+
+    ceiling_ft: Optional[int] = None
+    for layer in clouds:
+        if layer["cover"] in ("BKN", "OVC", "VV") and layer["base_ft"] is not None:
+            if ceiling_ft is None or layer["base_ft"] < ceiling_ft:
+                ceiling_ft = layer["base_ft"]
+
+    temp_c: Optional[int] = None
+    dewp_c: Optional[int] = None
+    for token in tokens:
+        match = re.match(r"^(M?\d{2}|//)/(M?\d{2}|//)$", token)
+        if match:
+            temp_c = _parse_signed_metar_temp(match.group(1))
+            dewp_c = _parse_signed_metar_temp(match.group(2))
+            break
+
+    altim_hpa: Optional[float] = None
+    for token in tokens:
+        if re.match(r"^Q\d{4}$", token):
+            altim_hpa = float(token[1:])
+            break
+        if re.match(r"^A\d{4}$", token):
+            inches = float(token[1:]) / 100.0
+            altim_hpa = round(inches * 33.8639, 1)
+            break
+
+    wx_tokens = [
+        token for token in tokens
+        if re.match(r"^(?:[-+]|VC)?(?:(?:MI|PR|BC|DR|BL|SH|TS|FZ){0,2})(?:DZ|RA|SN|SG|IC|PL|GR|GS|UP|BR|FG|FU|VA|DU|SA|HZ|PY|PO|SQ|FC|SS|DS)+$", token)
+    ]
+    flight_cat = _derive_flight_cat(vis_m=vis_m, ceiling_ft=ceiling_ft)
+    raw = {"temp": temp_c, "dewp": dewp_c, "wx_string": " ".join(wx_tokens)}
+
+    decoded = {
+        "icao": icao,
+        "raw_text": raw_text,
+        "obs_time": datetime.now(timezone.utc).isoformat(),
+        "flight_cat": flight_cat,
+        "temp_c": temp_c,
+        "dewpoint_c": dewp_c,
+        "wind_dir_deg": wind_dir,
+        "wind_speed_kt": wind_spd,
+        "wind_gust_kt": wind_gust,
+        "visibility_m": vis_m,
+        "visibility_sm": vis_sm,
+        "ceiling_ft": ceiling_ft,
+        "clouds": clouds,
+        "wx_string": " ".join(wx_tokens),
+        "altimeter_hpa": altim_hpa,
+        "flight_cat_color": _flight_cat_color(flight_cat),
+        "decoded_summary": _summary(raw, flight_cat, wind_dir, wind_spd, wind_gust, vis_m, ceiling_ft, altim_hpa),
+        "source": source,
+    }
+    decoded.update(decorate_metar(decoded))
+    return decoded
+
+
+def _parse_signed_metar_temp(value: str) -> Optional[int]:
+    if not value or value == "//":
+        return None
+    if value.startswith("M"):
+        return -int(value[1:])
+    return int(value)
 
 
 def _derive_flight_cat(

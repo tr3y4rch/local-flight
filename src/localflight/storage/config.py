@@ -23,6 +23,7 @@ DEFAULT_WEB_ROW_LIMIT = 20
 DEFAULT_WEB_ROTATION_SECONDS = 8
 DEFAULT_DISPLAY_GRACE_MINUTES = 30
 DEFAULT_DISPLAY_HORIZON_HOURS = 12
+DEFAULT_RADAR_SURFACE_ENABLED = False
 
 
 @dataclass(frozen=True)
@@ -41,6 +42,7 @@ class AppConfig:
     web_rotation_seconds: int  = DEFAULT_WEB_ROTATION_SECONDS
     display_grace_minutes: int = DEFAULT_DISPLAY_GRACE_MINUTES
     display_horizon_hours: int = DEFAULT_DISPLAY_HORIZON_HOURS
+    radar_surface_enabled: bool = DEFAULT_RADAR_SURFACE_ENABLED
 
 
 def config_path() -> Path:
@@ -54,6 +56,19 @@ def _to_int(value: Any, default: int) -> int:
         return int(value)
     except Exception:
         return default
+
+
+def _to_bool(value: Any, default: bool) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return default
+    clean = str(value).strip().lower()
+    if clean in {"1", "true", "yes", "on"}:
+        return True
+    if clean in {"0", "false", "no", "off"}:
+        return False
+    return default
 
 
 def load_config() -> AppConfig:
@@ -127,6 +142,11 @@ def load_config() -> AppConfig:
     )
     display_horizon_hours = max(1, min(24, display_horizon_hours))
 
+    radar_surface_enabled = _to_bool(
+        raw.get("radar_surface_enabled", DEFAULT_RADAR_SURFACE_ENABLED),
+        DEFAULT_RADAR_SURFACE_ENABLED,
+    )
+
     return AppConfig(
         airport_icao=airport_icao,
         airport_iata=airport_iata,
@@ -142,6 +162,7 @@ def load_config() -> AppConfig:
         web_rotation_seconds=web_rotation_seconds,
         display_grace_minutes=display_grace_minutes,
         display_horizon_hours=display_horizon_hours,
+        radar_surface_enabled=radar_surface_enabled,
     )
 
 
