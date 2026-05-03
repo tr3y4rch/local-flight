@@ -47,37 +47,8 @@ if not exist "%~dp0.venv\Scripts\activate.bat" (
 call "%~dp0.venv\Scripts\activate.bat"
 echo  Venv activated
 
-:: -- Install / update dependencies --------------------------------------------------
-echo  Checking dependencies...
+:: -- Load .env before dependency choice ---------------------------------------------
 cd /d "%~dp0"
-if "%LOCALFLIGHT_GUI_MODE%"=="" set "LOCALFLIGHT_GUI_MODE=native"
-echo  GUI mode: %LOCALFLIGHT_GUI_MODE%
-
-if /i "%LOCALFLIGHT_GUI_MODE%"=="native" (
-    echo  Installing native GUI dependencies...
-    python -m pip install -e ".[native]" -q
-) else (
-    python -m pip install -e . -q
-)
-if errorlevel 1 (
-    echo  ERROR: Dependency installation failed.
-    echo  Native GUI mode needs PySide6. If you want the old browser fallback for dev only:
-    echo    set LOCALFLIGHT_GUI_MODE=browser
-    echo    start.bat
-    pause
-    exit /b 1
-)
-if /i "%LOCALFLIGHT_GUI_MODE%"=="native" (
-    python -c "from PySide6.QtCore import qVersion; print(' PySide6/Qt OK: Qt ' + qVersion())"
-    if errorlevel 1 (
-        echo  ERROR: PySide6/Qt is not importable after dependency installation.
-        pause
-        exit /b 1
-    )
-)
-echo  Dependencies OK
-
-:: -- Load .env -----------------------------------------------------------------------
 if exist "%~dp0.env" (
     for /f "usebackq tokens=1,* delims==" %%A in ("%~dp0.env") do (
         set "lf_key=%%A"
@@ -98,12 +69,58 @@ if exist "%~dp0.env" (
 if not "%LF_REQUESTED_GUI_MODE%"=="" set "LOCALFLIGHT_GUI_MODE=%LF_REQUESTED_GUI_MODE%"
 if "%LOCALFLIGHT_GUI_MODE%"=="" set "LOCALFLIGHT_GUI_MODE=native"
 
+:: -- Install / update dependencies --------------------------------------------------
+echo  Checking dependencies...
+echo  GUI mode requested: %LOCALFLIGHT_GUI_MODE%
+set "LF_INSTALL_NATIVE=1"
+if /i "%LOCALFLIGHT_GUI_MODE%"=="browser" set "LF_INSTALL_NATIVE=0"
+if /i "%LOCALFLIGHT_GUI_MODE%"=="headless" set "LF_INSTALL_NATIVE=0"
+
+if "%LF_INSTALL_NATIVE%"=="1" (
+    echo  Installing native-capable GUI dependencies...
+    python -m pip install -e ".[native]" -q
+) else (
+    python -m pip install -e . -q
+)
+if errorlevel 1 (
+    echo  ERROR: Dependency installation failed.
+    echo  Native GUI mode needs PySide6. If you want the old browser fallback for dev only:
+    echo    set LOCALFLIGHT_GUI_MODE=browser
+    echo    start.bat
+    pause
+    exit /b 1
+)
+if "%LF_INSTALL_NATIVE%"=="1" (
+    python -c "from PySide6.QtCore import qVersion; print(' PySide6/Qt OK: Qt ' + qVersion())"
+    if errorlevel 1 (
+        echo  ERROR: PySide6/Qt is not importable after dependency installation.
+        pause
+        exit /b 1
+    )
+)
+echo  Dependencies OK
+
+:: -- Guard the dev server port only --------------------------------------------------
+echo  Checking dev server port...
+python "%~dp0scripts\dev_preflight.py"
+if errorlevel 2 (
+    echo.
+    echo  Start blocked to avoid launching the in-dev server on an occupied port.
+    pause
+    exit /b 2
+)
+
 :: -- Launch Local Flight -------------------------------------------------------------
 echo  Launching Local Flight...
-if /i "%LOCALFLIGHT_GUI_MODE%"=="native" (
-    echo  Native Qt GUI will open. Local LAN web UI remains available at http://localhost:8000
-) else (
+if /i "%LOCALFLIGHT_GUI_MODE%"=="browser" (
     echo  Browser fallback will open. Right-click tray icon to open UI or quit.
+)
+if /i "%LOCALFLIGHT_GUI_MODE%"=="headless" (
+    echo  Headless backend mode requested. Local LAN web UI remains available at http://localhost:8000
+)
+if "%LF_INSTALL_NATIVE%"=="1" (
+    echo  Native Qt GUI is prepared. On first run, setup opens before the main Display shell.
+    echo  Local LAN web UI remains available at http://localhost:8000
 )
 echo.
 python -m localflight

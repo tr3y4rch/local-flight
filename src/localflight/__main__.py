@@ -52,6 +52,32 @@ _browser_proc: Optional[subprocess.Popen] = None
 _stdio_fallback_handles: list[object] = []
 
 
+def _release_process_resources() -> None:
+    """Best-effort cleanup for handles that Windows otherwise keeps locked."""
+    try:
+        import logging
+
+        logging.shutdown()
+    except Exception:
+        pass
+    for handle in list(_stdio_fallback_handles):
+        try:
+            handle.flush()
+        except Exception:
+            pass
+        try:
+            handle.close()
+        except Exception:
+            pass
+    _stdio_fallback_handles.clear()
+
+
+def _hard_exit(code: int = 0) -> None:
+    """Terminate the integrated backend/UI process after releasing log handles."""
+    _release_process_resources()
+    os._exit(code)
+
+
 def _ensure_stdio() -> None:
     """
     PyInstaller windowed builds can start with stdio streams set to None.
@@ -309,7 +335,7 @@ def _run_desktop() -> None:
         if proc:
             try: proc.terminate()
             except Exception: pass
-        os._exit(0)
+        _hard_exit(0)
 
     def on_open_display():
         proc = launch_app_window(_splash_url("/display"))

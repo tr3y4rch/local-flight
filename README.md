@@ -159,13 +159,17 @@ It walks through:
    - **Community** - uses the hosted shared backend for schedules, limited to 50 relay schedule accesses per 30-day window per install
    - **Bring your own keys** - uses your own AviationStack key for schedules and optional RapidAPI / OpenSky keys for radar
    - **VATSIM** - uses virtual traffic only, with no real-data API key required
-3. Optional radar providers:
+3. Optional provider keys:
    - **ADS-B Exchange via RapidAPI** for live positions
    - **OpenSky Network** as a fallback or lower-cost path
+4. Diagnostics and reporting choice:
+   - **Manual reports only** - default, privacy-first mode
+   - **Automatic crash reports** - sends sanitized crash context if the app catches a serious error
+   - **Automatic crash reports + sanitized logs** - adds a short sanitized log excerpt for harder beta issues
 
 The scheduler only starts after setup completes. You can re-run the wizard any time from **Settings -> Re-run setup wizard**.
 
-If diagnostics mode has not been set yet, Local Flight asks once how you want diagnostics handled. Manual reports always stay available from the **Report** page. Reports are sanitized locally, forwarded through the hosted relay reporting gateway, deduplicated/rate-limited there, and then filed for developer triage. Developer reporting credentials are not shipped in the desktop or mobile app.
+During setup, Local Flight asks once how you want diagnostics handled and saves that choice in the local config. Manual reports always stay available from the **Report** page. Reports are sanitized locally, forwarded through the hosted relay reporting gateway, deduplicated/rate-limited there, and then filed for developer triage. Developer reporting credentials are not shipped in the desktop or mobile app.
 
 Community mode defaults to `https://localflight-community-relay.fly.dev`. Relay-backed community and managed installs share airport snapshots on the relay, so the per-install `50` limit applies to relay accesses rather than raw AviationStack pulls. The app derives its internal relay paths automatically; `/v1/schedule` is used for shared schedules, while `/v1/flights` is not a user-facing endpoint. Only change the relay URL if you are deliberately pointing the client at your own backend; custom or private relay URLs require explicit local opt-in environment flags.
 
@@ -371,7 +375,7 @@ Provides unlimited local ADS-B reception with no API key or monthly limits.
 
 Use the **Report** page from the nav bar anywhere in the app. Manual reports are always available from both the native GUI and browser fallback. Automatic diagnostics are an install-level choice you can keep off, enable for crash reports only, or enable with sanitized log excerpts.
 
-Native GUI interaction crashes use the same diagnostics-gated `/api/feedback/crash` route as the rest of the app. Reports are sanitized locally, forwarded through the hosted relay reporting gateway, deduplicated/rate-limited there, and then filed for developer triage. No account required.
+The first-run setup wizard asks for that choice explicitly and stores it locally. Native GUI interaction crashes use the same diagnostics-gated `/api/feedback/crash` route as the rest of the app. Reports are sanitized locally, forwarded through the hosted relay reporting gateway, deduplicated/rate-limited there, and then filed for developer triage. No account required.
 
 ---
 

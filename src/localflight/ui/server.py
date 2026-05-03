@@ -663,6 +663,9 @@ async def setup_complete(request: Request, background_tasks: BackgroundTasks) ->
         source = "real"
     if source not in ALLOWED_SOURCES:
         source = "real"
+    diagnostics_mode = str(data.get("diagnostics_mode") or DEFAULT_DIAGNOSTICS_MODE).strip().lower()
+    if diagnostics_mode not in ALLOWED_DIAGNOSTICS_MODES:
+        diagnostics_mode = DEFAULT_DIAGNOSTICS_MODE
 
     # â”€â”€ Find .env path â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     # __file__ is src/localflight/ui/server.py â†’ project root is 3 levels up
@@ -775,6 +778,7 @@ async def setup_complete(request: Request, background_tasks: BackgroundTasks) ->
         source=source,
         display_name=str(data.get("display_name") or "Local Flight").strip()[:40] or "Local Flight",
         refresh_seconds=28800 if source == "real" else 900,
+        diagnostics_mode=diagnostics_mode,
     )
     save_config(cfg)
     logger.info("Setup complete: %s/%s source=%s", airport_iata, airport_icao, source)
@@ -1294,11 +1298,11 @@ def api_setup_reset() -> dict:
 @app.post("/api/quit")
 def api_quit() -> dict:
     import threading
-    import os
 
     def _shutdown():
         import time
-        # Kill the browser process first
+        # Kill the browser process first, then end the integrated backend/UI
+        # process. This also releases Windows log handles before hard exit.
         try:
             import localflight.__main__ as _main
             proc = getattr(_main, "_browser_proc", None)
@@ -1308,7 +1312,12 @@ def api_quit() -> dict:
             pass
         time.sleep(0.5)  # brief pause then kill everything
         logger.info("Quit requested via UI")
-        os._exit(0)
+        try:
+            import localflight.__main__ as _main
+            _main._hard_exit(0)
+        except Exception:
+            import os
+            os._exit(0)
 
     threading.Thread(target=_shutdown, daemon=True).start()
     return {"ok": True}

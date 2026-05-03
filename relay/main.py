@@ -153,6 +153,8 @@ def _surface_allows_path(surface: str, path: str) -> bool:
     if surface == "public":
         if _admin_on_public() and (path == "/admin" or path.startswith("/admin/")):
             return True
+        if path == "/v1/flights":
+            return False
         return path in {"/", "/health"} or path.startswith("/v1/")
     return True
 

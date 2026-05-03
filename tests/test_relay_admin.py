@@ -1349,6 +1349,17 @@ def test_raw_provider_debug_route_stays_hidden_on_public_surface(tmp_path: Path,
     assert response.status_code == 404
 
 
+def test_raw_provider_debug_route_hidden_before_query_validation(tmp_path: Path, monkeypatch) -> None:
+    _use_temp_db(tmp_path, monkeypatch)
+    monkeypatch.setenv("RELAY_ALLOW_RAW_PROVIDER_DEBUG", "1")
+    client = TestClient(relay_main.app)
+
+    response = client.get("/v1/flights", headers={"host": "relay.localflight.app"})
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Not found"}
+
+
 def test_shared_schedule_route_coalesces_repeated_accesses_and_counts_upstream_separately(
     tmp_path: Path,
     monkeypatch,

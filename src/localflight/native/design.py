@@ -695,17 +695,36 @@ def table(QtWidgets: Any, rows: list[dict[str, Any]], columns: list[tuple[str, s
     return table_widget
 
 
-def set_table_rows(table_widget: Any, QtWidgets: Any, rows: list[dict[str, Any]], columns: list[tuple[str, str]]) -> None:
-    table_widget.setColumnCount(len(columns))
-    table_widget.setHorizontalHeaderLabels([title for _key, title in columns])
-    table_widget.setRowCount(len(rows))
-    for row_idx, row in enumerate(rows):
-        for col_idx, (key, _title) in enumerate(columns):
-            text = format_value(value_at(row, key))
-            item = QtWidgets.QTableWidgetItem(text)
-            item.setToolTip(text)
-            table_widget.setItem(row_idx, col_idx, item)
-    table_widget.resizeColumnsToContents()
+def set_table_rows(
+    table_widget: Any,
+    QtWidgets: Any,
+    rows: list[dict[str, Any]],
+    columns: list[tuple[str, str]],
+    *,
+    resize: bool = True,
+) -> None:
+    was_sorting = bool(table_widget.isSortingEnabled()) if hasattr(table_widget, "isSortingEnabled") else False
+    table_widget.setUpdatesEnabled(False)
+    table_widget.blockSignals(True)
+    if was_sorting:
+        table_widget.setSortingEnabled(False)
+    try:
+        table_widget.setColumnCount(len(columns))
+        table_widget.setHorizontalHeaderLabels([title for _key, title in columns])
+        table_widget.setRowCount(len(rows))
+        for row_idx, row in enumerate(rows):
+            for col_idx, (key, _title) in enumerate(columns):
+                text = format_value(value_at(row, key))
+                item = QtWidgets.QTableWidgetItem(text)
+                item.setToolTip(text)
+                table_widget.setItem(row_idx, col_idx, item)
+        if resize:
+            table_widget.resizeColumnsToContents()
+    finally:
+        if was_sorting:
+            table_widget.setSortingEnabled(True)
+        table_widget.blockSignals(False)
+        table_widget.setUpdatesEnabled(True)
 
 
 def list_payload(value: Any, key: str = "rows") -> list[dict[str, Any]]:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+import importlib
 
 import pytest
 
@@ -111,6 +112,17 @@ def test_native_first_falls_back_to_browser_when_qt_missing_on_desktop() -> None
     assert "Qt unavailable" in decision.reason
 
 
+def test_native_app_facade_keeps_legacy_shell_lazy() -> None:
+    sys.modules.pop("localflight.native.app", None)
+    sys.modules.pop("localflight.native._legacy_app", None)
+
+    native_app = importlib.import_module("localflight.native.app")
+
+    assert "localflight.native._legacy_app" not in sys.modules
+    native_app.is_native_available()
+    assert "localflight.native._legacy_app" not in sys.modules
+
+
 def test_display_screen_passes_real_qwidgets_to_splitter(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
     pytest.importorskip("PySide6")
@@ -174,6 +186,11 @@ def test_native_client_window_exposes_real_user_pages(monkeypatch: pytest.Monkey
         "Report",
     ]
     assert window.stack.count() == 10
+    assert window.screens[0] is not None
+    assert all(screen is None for screen in window.screens[1:])
+    window._show_page("settings")
+    assert window.screens[4] is not None
+    assert window.screens[1] is None
 
 
 def test_native_history_stats_render_code_labels(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -266,6 +283,176 @@ def test_native_first_launch_main_window_does_not_embed_setup(monkeypatch: pytes
     assert main_window.screen_keys[0] == "display"
 
 
+def test_native_custom_splash_can_close_without_qsplash_finish(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    pytest.importorskip("PySide6")
+    from PySide6 import QtWidgets
+    import localflight.native._legacy_app as legacy
+    from localflight.native.qt_compat import import_qt
+
+    QtCore, QtGui, QtWidgets2 = import_qt()
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    splash = legacy._build_splash(QtCore, QtGui, QtWidgets2)
+    target = QtWidgets.QWidget()
+
+    splash.show()
+    assert splash.isVisible()
+    legacy._finish_splash(splash, target)
+
+    assert app is not None
+    assert not splash.isVisible()
+
+
+def test_native_main_window_close_requests_backend_shutdown(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    pytest.importorskip("PySide6")
+    from PySide6 import QtWidgets
+    from localflight.native.qt_compat import import_qt
+    import localflight.native._legacy_app as legacy
+
+    class _Client:
+        def __init__(self) -> None:
+            self.posts: list[tuple[str, dict[str, object]]] = []
+
+        def get_json(self, path: str, *, params: dict[str, object] | None = None) -> dict[str, object]:
+            return {}
+
+        def get_any_json(self, path: str, *, params: dict[str, object] | None = None) -> list[object]:
+            return []
+
+        def post_json(self, path: str, payload: dict[str, object]) -> dict[str, object]:
+            self.posts.append((path, payload))
+            return {"ok": True}
+
+    class _CloseEvent:
+        accepted = False
+        ignored = False
+
+        def accept(self) -> None:
+            self.accepted = True
+
+        def ignore(self) -> None:
+            self.ignored = True
+
+    client = _Client()
+    monkeypatch.setattr(legacy, "LocalApiClient", lambda **_kwargs: client)
+
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    window = legacy.NativeMainWindow(*import_qt(), base_url="http://127.0.0.1:9", first_launch=False)
+    window._confirm_quit = lambda: True
+    event = _CloseEvent()
+
+    window.closeEvent(event)
+
+    assert app is not None
+    assert event.accepted is True
+    assert event.ignored is False
+    assert client.posts == [("/api/quit", {})]
+
+
+def test_native_setup_internal_close_does_not_shutdown_backend(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    pytest.importorskip("PySide6")
+    from PySide6 import QtWidgets
+    from localflight.native.qt_compat import import_qt
+    import localflight.native._legacy_app as legacy
+
+    class _Client:
+        def __init__(self) -> None:
+            self.posts: list[tuple[str, dict[str, object]]] = []
+
+        def get_json(self, path: str, *, params: dict[str, object] | None = None) -> dict[str, object]:
+            if path == "/api/setup/client-info":
+                return {"relay_url": "https://localflight-community-relay.fly.dev"}
+            return {}
+
+        def post_json(self, path: str, payload: dict[str, object]) -> dict[str, object]:
+            self.posts.append((path, payload))
+            return {"ok": True}
+
+    class _CloseEvent:
+        accepted = False
+
+        def accept(self) -> None:
+            self.accepted = True
+
+        def ignore(self) -> None:
+            pass
+
+    client = _Client()
+    monkeypatch.setattr(legacy, "LocalApiClient", lambda **_kwargs: client)
+
+    QtCore, QtGui, QtWidgets2 = import_qt()
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    setup_window = legacy.NativeSetupWindow(
+        QtCore,
+        QtGui,
+        QtWidgets2,
+        base_url="http://127.0.0.1:9",
+        on_setup_complete=lambda: None,
+    )
+    setup_window.allow_close_without_shutdown()
+    event = _CloseEvent()
+
+    setup_window.closeEvent(event)
+
+    assert app is not None
+    assert event.accepted is True
+    assert client.posts == []
+
+
+def test_native_display_refreshes_only_visible_child_panels(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    pytest.importorskip("PySide6")
+    from PySide6 import QtWidgets
+    from localflight.native.app import DisplayScreen
+    from localflight.native.qt_compat import import_qt
+
+    QtCore, QtGui, QtWidgets2 = import_qt()
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    screen = DisplayScreen(QtCore, QtGui, QtWidgets2, client=object())
+    calls = {"fids": 0, "radar": 0}
+    screen.fids.refresh = lambda: calls.update(fids=calls["fids"] + 1)
+    screen.radar.refresh = lambda: calls.update(radar=calls["radar"] + 1)
+
+    screen.set_mode("fids")
+    screen.refresh()
+    assert calls == {"fids": 1, "radar": 0}
+
+    screen.set_mode("radar")
+    screen.refresh()
+    assert calls == {"fids": 1, "radar": 1}
+
+    screen.set_mode("split")
+    screen.refresh()
+    assert calls == {"fids": 2, "radar": 2}
+    assert app is not None
+
+
+def test_native_main_window_constructs_pages_lazily(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    pytest.importorskip("PySide6")
+    from PySide6 import QtWidgets
+    from localflight.native.app import NativeMainWindow
+    from localflight.native.qt_compat import import_qt
+
+    sys.modules.pop("localflight.native.pages.settings", None)
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    window = NativeMainWindow(*import_qt(), base_url="http://127.0.0.1:9", first_launch=False)
+
+    assert app is not None
+    assert window.screens[0] is not None
+    assert all(screen is None for screen in window.screens[1:])
+    assert "localflight.native.pages.settings" not in sys.modules
+    window._show_page("history")
+    assert window.screens[6] is not None
+    assert window.screens[4] is None
+    assert "localflight.native.pages.settings" not in sys.modules
+    window._show_page("settings")
+    assert window.screens[4] is not None
+    assert "localflight.native.pages.settings" in sys.modules
+
+
 def test_native_parity_screens_construct_core_controls(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
     pytest.importorskip("PySide6")
@@ -290,8 +477,9 @@ def test_native_parity_screens_construct_core_controls(monkeypatch: pytest.Monke
     feedback = FeedbackScreen(QtWidgets2, client)
 
     assert app is not None
-    assert setup.tabs.count() == 4
+    assert setup.tabs.count() == 5
     assert setup.relay_url.text() == "https://localflight-community-relay.fly.dev"
+    assert setup.diagnostics_mode.currentData() == "manual"
     assert setup.finish_btn.isVisible() is False
     assert matrix.canvas is not None
     assert matrix.script_preview.isReadOnly()
@@ -369,6 +557,27 @@ def test_native_matrix_controls_drive_preview_and_script(monkeypatch: pytest.Mon
     assert "ANIMATION_ENABLED" in screen.script_preview.toPlainText()
 
 
+def test_native_matrix_canvas_timer_stops_when_screen_hidden(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    pytest.importorskip("PySide6")
+    from PySide6 import QtWidgets
+    from localflight.native.app import MatrixScreen
+    from localflight.native.qt_compat import import_qt
+
+    class _Client:
+        pass
+
+    _QtCore, _QtGui, QtWidgets2 = import_qt()
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    screen = MatrixScreen(QtWidgets2, _Client())
+
+    screen.set_active(True)
+    assert screen.canvas.timer.isActive()
+    screen.set_active(False)
+    assert not screen.canvas.timer.isActive()
+    assert app is not None
+
+
 def test_native_setup_reuses_stored_relay_token(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
     pytest.importorskip("PySide6")
@@ -394,6 +603,7 @@ def test_native_setup_reuses_stored_relay_token(monkeypatch: pytest.MonkeyPatch)
     assert setup.setup_mode.currentData() == "community"
     assert setup.relay_url.text() == "https://localflight-community-relay.fly.dev"
     assert "Stored token linked" in setup.activation_token.placeholderText()
+    assert setup.diagnostics_mode.currentData() == "manual"
 
 
 def test_native_setup_virtual_finish_sends_virtual_source(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -431,8 +641,45 @@ def test_native_setup_virtual_finish_sends_virtual_source(monkeypatch: pytest.Mo
     assert completed["value"] is True
     assert client.payload["setup_mode"] == "virtual"
     assert client.payload["source"] == "virtual"
+    assert client.payload["diagnostics_mode"] == "manual"
     assert client.payload["relay_url"] == ""
     assert client.payload["aviationstack_key"] == ""
+
+
+def test_native_setup_saves_selected_diagnostics_mode(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    pytest.importorskip("PySide6")
+    from PySide6 import QtWidgets
+    from localflight.native.app import SetupScreen
+    from localflight.native.qt_compat import import_qt
+
+    class _Client:
+        def __init__(self) -> None:
+            self.payload: dict[str, object] = {}
+
+        def get_json(self, path: str, *, params: dict[str, object] | None = None) -> dict[str, object]:
+            if path == "/api/setup/client-info":
+                return {"relay_url": "https://localflight-community-relay.fly.dev", "activation_token_present": False}
+            return {}
+
+        def post_json(self, path: str, payload: dict[str, object]) -> dict[str, object]:
+            assert path == "/api/setup/complete"
+            self.payload = payload
+            return {"ok": True}
+
+        def clear_cache(self) -> None:
+            pass
+
+    QtCore, _QtGui, QtWidgets2 = import_qt()
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    client = _Client()
+    setup = SetupScreen(QtCore, QtWidgets2, client, base_url="http://127.0.0.1:9")
+    setup._set_diagnostics_mode("auto_logs")
+    setup.finish_setup()
+
+    assert app is not None
+    assert client.payload["diagnostics_mode"] == "auto_logs"
+    assert "local logs" in setup.finish_summary.text()
 
 
 def test_native_radar_projects_lat_lon_blips(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -456,6 +703,31 @@ def test_native_radar_projects_lat_lon_blips(monkeypatch: pytest.MonkeyPatch) ->
     assert app is not None
     assert canvas.center == {"lat": 47.0, "lon": 8.0}
     assert canvas._blip_angle(canvas.blips[0]) == pytest.approx(0.0)
+
+
+def test_native_radar_surface_projection_is_cached(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    pytest.importorskip("PySide6")
+    from PySide6 import QtWidgets
+    from localflight.native.app import RadarCanvas
+    from localflight.native.qt_compat import import_qt
+
+    QtCore, QtGui, QtWidgets2 = import_qt()
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    canvas = RadarCanvas(QtCore, QtGui, QtWidgets2)
+    canvas.set_surface(
+        {
+            "center": {"lat": 47.0, "lon": 8.0},
+            "features": [{"kind": "runway", "label": "16/34", "points": [[47.0, 8.0], [47.01, 8.0]]}],
+        }
+    )
+
+    first = canvas._projected_surface(QtCore, 200.0, 200.0, 100.0)
+    second = canvas._projected_surface(QtCore, 200.0, 200.0, 100.0)
+
+    assert app is not None
+    assert first is second
+    assert first[0][0] == "runway"
 
 
 def test_native_radar_defaults_to_airborne_range_and_uses_current_hidden_counts(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -719,6 +991,7 @@ def test_native_settings_embeds_public_docs(monkeypatch: pytest.MonkeyPatch) -> 
 
 def test_native_network_admin_tabs_match_operator_surfaces(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    monkeypatch.delenv("LOCALFLIGHT_NETWORK_ADMIN_RAW", raising=False)
     pytest.importorskip("PySide6")
     from PySide6 import QtWidgets
     from localflight.native.network_admin import NetworkAdminWindow
@@ -737,8 +1010,115 @@ def test_native_network_admin_tabs_match_operator_surfaces(monkeypatch: pytest.M
         "Surfaces",
         "Activations",
         "Reports",
-        "Raw",
+        "Maintenance",
     ]
+    assert "Raw" not in window.pages
+    assert set(window.nav_buttons) == set(window.pages)
+
+
+def test_native_network_admin_raw_tab_is_explicit_debug_opt_in(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    monkeypatch.setenv("LOCALFLIGHT_NETWORK_ADMIN_RAW", "1")
+    pytest.importorskip("PySide6")
+    from PySide6 import QtWidgets
+    from localflight.native.network_admin import NetworkAdminWindow
+    from localflight.native.qt_compat import import_qt
+
+    QtCore, _QtGui, QtWidgets2 = import_qt()
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    window = NetworkAdminWindow(QtCore, QtWidgets2)
+
+    assert app is not None
+    assert [window.tabs.tabText(i) for i in range(window.tabs.count())][-1] == "Raw"
+    assert "raw" in window.pages
+
+
+def test_native_network_admin_visible_actions_are_route_declared(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    monkeypatch.delenv("LOCALFLIGHT_NETWORK_ADMIN_RAW", raising=False)
+    pytest.importorskip("PySide6")
+    from PySide6 import QtWidgets
+    from localflight.native.network_admin import NetworkAdminWindow
+    from localflight.native.qt_compat import import_qt
+    from localflight.native.routes import NETWORK_ADMIN_ROUTES
+
+    QtCore, _QtGui, QtWidgets2 = import_qt()
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    window = NetworkAdminWindow(QtCore, QtWidgets2)
+    window.payloads = {
+        "overview": {
+            "month": "2026-05",
+            "counts": {"usage_rows": 1, "schedule_snapshots": 1, "surface_snapshots": 1, "activation_requests_pending": 1, "reports_24h": 1},
+            "shared_schedule": {"cache_hits": 4, "upstream_pulls": 2, "client_accesses": 8},
+            "surface_cache": {"cache_hits": 3},
+            "providers": {
+                "aviationstack": {"configured": True, "source": "relay", "masked": "av..."},
+                "rapidapi": {"configured": False, "source": "unset", "masked": ""},
+            },
+        },
+        "usage": {"month": "2026-05", "summary": [], "rows": []},
+        "schedules": {"snapshots": [], "client_interests": []},
+        "surfaces": {"enabled": False, "snapshots": []},
+        "activations": {
+            "tokens": [{"token_prefix": "tok_1234567890", "action_ref": "tok_action_ref", "revoked": False}],
+            "requests": [{"request_id": "req_1234567890", "action_ref": "req_action_ref", "status": "pending"}],
+            "blocked_installs": [{"install_fingerprint": "abcdef1234567890", "action_ref": "inst_action_ref"}],
+        },
+        "reports": {"summary_24h": [], "recent_events": [], "dedupe": []},
+    }
+    window._render_all()
+
+    declared = {route.path for route in NETWORK_ADMIN_ROUTES}
+    action_buttons = [
+        button
+        for button in window.findChildren(QtWidgets.QPushButton)
+        if button.property("lf_action_path")
+    ]
+
+    assert app is not None
+    assert action_buttons
+    assert {str(button.property("lf_action_path")) for button in action_buttons}.issubset(declared)
+    assert "/admin/api/providers/save" in {str(button.property("lf_action_path")) for button in action_buttons}
+    assert "/admin/api/maintenance/clean-trial" in {str(button.property("lf_action_path")) for button in action_buttons}
+
+
+def test_native_network_admin_auto_refresh_keeps_credentials_and_active_tab(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    monkeypatch.delenv("LOCALFLIGHT_NETWORK_ADMIN_RAW", raising=False)
+    pytest.importorskip("PySide6")
+    from PySide6 import QtWidgets
+    import localflight.native.network_admin as network_admin
+    from localflight.native.network_admin import NetworkAdminWindow
+    from localflight.native.qt_compat import import_qt
+
+    calls: list[str] = []
+
+    class _Relay:
+        def __init__(self, *, base_url: str, username: str, password: str) -> None:
+            assert base_url.endswith("/admin")
+            assert username == "admin"
+            assert password == "secret"
+
+        def get_json(self, path: str) -> dict[str, object]:
+            calls.append(path)
+            if path == "/admin/api/overview":
+                return {"generated_at": "now", "counts": {}, "providers": {}, "shared_schedule": {}, "surface_cache": {}}
+            return {}
+
+    monkeypatch.setattr(network_admin, "RelayAdminClient", _Relay)
+    QtCore, _QtGui, QtWidgets2 = import_qt()
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    window = NetworkAdminWindow(QtCore, QtWidgets2)
+    window.password.setText("secret")
+    window.connect_relay()
+    window._show_page("reports")
+    calls.clear()
+    window._auto_refresh_tick()
+
+    assert app is not None
+    assert window.password.text() == "secret"
+    assert window._current_page_key() == "reports"
+    assert calls == ["/admin/api/reports"]
 
 
 def test_native_declared_routes_exist() -> None:
@@ -850,3 +1230,38 @@ def test_local_api_client_reuses_short_get_cache(monkeypatch: pytest.MonkeyPatch
 
     assert first == second
     assert calls["count"] == 1
+
+
+def test_local_api_client_parallel_gets_do_not_serialize_on_cache_lock(monkeypatch: pytest.MonkeyPatch) -> None:
+    import time
+    from concurrent.futures import ThreadPoolExecutor
+
+    import requests
+    from localflight.native.api_client import LocalApiClient
+
+    active = {"current": 0, "max": 0}
+    lock = __import__("threading").Lock()
+
+    class _Response:
+        status_code = 200
+        text = "{}"
+
+        def json(self) -> dict[str, bool]:
+            return {"ok": True}
+
+    def fake_get(*args, **kwargs) -> _Response:
+        with lock:
+            active["current"] += 1
+            active["max"] = max(active["max"], active["current"])
+        time.sleep(0.08)
+        with lock:
+            active["current"] -= 1
+        return _Response()
+
+    monkeypatch.setattr(requests.Session, "get", fake_get)
+    client = LocalApiClient(timeout_s=1)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        list(pool.map(lambda path: client.get_any_json(path), ["/uncached-a", "/uncached-b"]))
+
+    assert active["max"] == 2

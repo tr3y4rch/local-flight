@@ -15,7 +15,7 @@ This is a hobbyist/open-source project, not a legal document, but the app is des
 - Native mode avoids browser sync, extensions, cookies, browsing history, default-browser behavior, online fonts, and CDN assets for the main Local Flight window.
 - The mobile companion talks to your Local Flight server over your LAN. It does not call AviationStack, ADS-B Exchange, RapidAPI, OpenSky, VATSIM, or the hosted relay directly.
 - Community mode can use the hosted Local Flight relay for shared schedules and relay-backed radar. An airport-surface overlay can also use the relay cache, but it is opt-in and disabled by default. The relay stores operational metadata, not accounts or user profiles.
-- Manual reports are always your choice. Automatic crash diagnostics are off unless you allow them.
+- Manual reports are always your choice. First-run setup asks how diagnostics should work, saves that choice locally, and defaults to manual-only reporting.
 - Mobile automatic diagnostics require two yeses: the mobile app's local diagnostics choice and the connected server's diagnostics mode.
 - Developer reporting credentials are kept on the hosted relay, not in the desktop package, mobile app, installers, or docs.
 
@@ -92,13 +92,13 @@ Local Flight fetches the public VATSIM network feed and keeps only flight-board-
 
 Manual issue reports are always available from the in-app **Report** page. Automatic diagnostics are a separate install-level choice.
 
-If diagnostics mode has not been set yet, Local Flight asks you to choose one of these modes:
+During first-run setup, Local Flight asks you to choose one of these modes and saves the choice in your local config:
 
 - `Manual reports only`
 - `Automatic crash reports`
 - `Automatic crash reports + sanitized logs`
 
-You can change that choice later from **Settings**.
+You can change that choice later from **Settings** or by re-running setup.
 
 ### Manual Reports
 
