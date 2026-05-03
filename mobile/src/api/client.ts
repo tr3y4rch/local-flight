@@ -7,6 +7,7 @@ import type {
   AppState,
   Budget,
   ConfigPatch,
+  DocDocument,
   FidsDetailResponse,
   FidsRow,
   FlightHistoryResponse,
@@ -144,6 +145,10 @@ export function restartScheduler(serverUrl: string): Promise<SchedulerRestartRes
 
 export function getMetar(serverUrl: string): Promise<Metar> {
   return fetchJson<Metar>(serverUrl, "/api/metar");
+}
+
+export function getDoc(serverUrl: string, slug: string): Promise<DocDocument> {
+  return fetchJson<DocDocument>(serverUrl, `/api/docs/${encodeURIComponent(slug)}`);
 }
 
 export function getFids(

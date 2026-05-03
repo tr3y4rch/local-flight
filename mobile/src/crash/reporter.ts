@@ -25,20 +25,25 @@ function fingerprint(input: CrashInput): string {
   return `${input.context}|${input.message}|${input.traceback?.slice(0, 200) || ""}`;
 }
 
-function shouldSkipRecent(fp: string): boolean {
-  const now = Date.now();
-  const previous = RECENT_REPORTS.get(fp);
-  if (previous && now - previous < DEDUPE_WINDOW_MS) {
-    return true;
-  }
-  RECENT_REPORTS.set(fp, now);
-
+function pruneRecent(now: number): void {
   for (const [key, ts] of RECENT_REPORTS.entries()) {
     if (now - ts > DEDUPE_WINDOW_MS) {
       RECENT_REPORTS.delete(key);
     }
   }
-  return false;
+}
+
+function hasRecent(fp: string): boolean {
+  const now = Date.now();
+  pruneRecent(now);
+  const previous = RECENT_REPORTS.get(fp);
+  return Boolean(previous && now - previous < DEDUPE_WINDOW_MS);
+}
+
+function rememberRecent(fp: string): void {
+  const now = Date.now();
+  pruneRecent(now);
+  RECENT_REPORTS.set(fp, now);
 }
 
 async function mobileCrashContext(serverUrl: string, mobileDiagnosticsMode: string, extraContext = ""): Promise<string> {
@@ -61,7 +66,6 @@ async function postCrash(input: CrashInput): Promise<boolean> {
     if (!serverUrl) return false;
 
     const fp = fingerprint(input);
-    if (shouldSkipRecent(fp)) return false;
 
     const mobileDiagnosticsMode = await loadMobileDiagnosticsMode();
     if (!(mobileDiagnosticsMode === "auto" || mobileDiagnosticsMode === "auto_logs")) {
@@ -73,6 +77,9 @@ async function postCrash(input: CrashInput): Promise<boolean> {
     if (!(diagnosticsMode === "auto" || diagnosticsMode === "auto_logs")) {
       return false;
     }
+
+    if (hasRecent(fp)) return false;
+    rememberRecent(fp);
 
     await submitCrashReport(serverUrl, {
       ...input,

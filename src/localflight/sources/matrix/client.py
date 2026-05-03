@@ -59,21 +59,51 @@ try:
 except Exception:
     machine = None
     ubinascii = None
-from interstate75 import Interstate75, DISPLAY_INTERSTATE75_128X64
-from picographics import PicoGraphics, DISPLAY_INTERSTATE75_128X64 as DISPLAY
-from pimoroni import Button
+import interstate75 as interstate75_module
+from interstate75 import Interstate75
+try:
+    from picographics import PicoGraphics
+except Exception:
+    PicoGraphics = None
 
 # ── Display init ───────────────────────────────────────────────────────────────
-PANELS = max(1, PANEL_W // 128)
-i75 = Interstate75(display=DISPLAY_INTERSTATE75_128X64, panels=PANELS)
-graphics = PicoGraphics(display=DISPLAY, width=PANEL_W, height=PANEL_H)
+def _display_constant(name, fallback=None):
+    value = getattr(interstate75_module, name, None)
+    if value is None:
+        value = getattr(Interstate75, name, None)
+    return fallback if value is None else value
+
+def _display_for_size(width, height):
+    name = "DISPLAY_INTERSTATE75_{}X{}".format(int(width), int(height))
+    fallback = _display_constant("DISPLAY_INTERSTATE75_128X64")
+    return _display_constant(name, fallback)
+
+DISPLAY = _display_for_size(PANEL_W, PANEL_H)
+i75 = Interstate75(display=DISPLAY)
+graphics = getattr(i75, "display", None)
+if graphics is None:
+    if PicoGraphics is None:
+        raise RuntimeError("PicoGraphics display buffer is unavailable")
+    graphics = PicoGraphics(display=DISPLAY, width=PANEL_W, height=PANEL_H)
 graphics.set_font("bitmap8")
 
 WIDTH, HEIGHT = graphics.get_bounds()
 
+def update_display():
+    try:
+        i75.update(graphics)
+    except TypeError:
+        i75.update()
+
 # ── Buttons ────────────────────────────────────────────────────────────────────
-btn_a = Button(i75.SWITCH_A)
-btn_b = Button(i75.SWITCH_B)
+SWITCH_A = _display_constant("SWITCH_A", 0)
+SWITCH_B = _display_constant("SWITCH_B", 1)
+
+def switch_pressed(switch):
+    try:
+        return bool(i75.switch_pressed(switch))
+    except Exception:
+        return False
 
 # ── Colors ─────────────────────────────────────────────────────────────────────
 BLACK = graphics.create_pen(0, 0, 0)
@@ -474,7 +504,7 @@ def _draw_message(msg, color=WHITE):
     graphics.set_pen(color)
     graphics.set_font("bitmap8")
     graphics.text(msg, 2, HEIGHT // 2 - 4, WIDTH, 1)
-    i75.update(graphics)
+    update_display()
 
 def draw_header(view, connected=True):
     label = f"{_airport_iata} {'DEP' if view == 'departures' else 'ARR'}"
@@ -639,8 +669,8 @@ def main():
         now = time.time()
 
         # ── Button handling ────────────────────────────────────────────────────
-        a = btn_a.read()
-        b = btn_b.read()
+        a = switch_pressed(SWITCH_A)
+        b = switch_pressed(SWITCH_B)
 
         if a and b:
             # Both held — force refresh
@@ -726,7 +756,7 @@ def main():
         else:
             draw_classic_board(flap_rows, page_data, view)
 
-        i75.update(graphics)
+        update_display()
         time.sleep(0.08 if ANIMATION_SPEED <= 2 else 0.05 if ANIMATION_SPEED == 3 else 0.03)
 
 

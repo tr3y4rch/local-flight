@@ -308,6 +308,31 @@ def _resolve_doc_path(filename: str) -> Optional[Path]:
     return None
 
 
+def _doc_payload(slug: str) -> Dict[str, Any]:
+    doc_slug = (slug or "").strip().lower()
+    page = _DOC_PAGES.get(doc_slug)
+    if not page:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    path = _resolve_doc_path(page["filename"])
+    bundled = path is not None
+    content = (
+        path.read_text(encoding="utf-8", errors="replace")
+        if path is not None
+        else f"{page['filename']} is not bundled with this build."
+    )
+
+    return {
+        "slug": doc_slug,
+        "title": page["title"],
+        "summary": page["summary"],
+        "filename": page["filename"],
+        "github_url": page["github_url"],
+        "content": content,
+        "bundled": bundled,
+    }
+
+
 # â”€â”€ WebSocket connection manager â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 class ConnectionManager:
@@ -1221,15 +1246,7 @@ def feedback_page(request: Request) -> HTMLResponse:
 
 @app.get("/docs/{slug}", response_class=HTMLResponse)
 def docs_page(request: Request, slug: str) -> HTMLResponse:
-    page = _DOC_PAGES.get((slug or "").strip().lower())
-    if not page:
-        raise HTTPException(status_code=404, detail="Document not found")
-
-    path = _resolve_doc_path(page["filename"])
-    if path is None:
-        content = f"{page['filename']} is not bundled with this build."
-    else:
-        content = path.read_text(encoding="utf-8", errors="replace")
+    payload = _doc_payload(slug)
 
     cfg = load_config()
     return templates.TemplateResponse(
@@ -1238,15 +1255,20 @@ def docs_page(request: Request, slug: str) -> HTMLResponse:
         context={
             "cfg": cfg,
             "state": load_state(),
-            "doc_slug": slug,
-            "doc_title": page["title"],
-            "doc_summary": page["summary"],
-            "doc_filename": page["filename"],
-            "doc_text": content,
-            "doc_github_url": page["github_url"],
+            "doc_slug": payload["slug"],
+            "doc_title": payload["title"],
+            "doc_summary": payload["summary"],
+            "doc_filename": payload["filename"],
+            "doc_text": payload["content"],
+            "doc_github_url": payload["github_url"],
             "doc_pages": _DOC_PAGES,
         },
     )
+
+
+@app.get("/api/docs/{slug}")
+def api_docs_page(slug: str) -> Dict[str, Any]:
+    return _doc_payload(slug)
 
 
 # â”€â”€ History browser â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€

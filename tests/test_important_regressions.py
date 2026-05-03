@@ -1987,9 +1987,56 @@ def test_ui_route_contracts_cover_core_pages_and_api_surfaces() -> None:
         "/api/matrix/script",
         "/api/feedback",
         "/api/feedback/crash",
+        "/api/docs/{slug}",
     }
 
     assert expected.issubset(paths)
+
+
+def test_api_docs_serves_bundled_markdown(monkeypatch) -> None:
+    monkeypatch.setattr(ui_server, "_setup_complete", lambda: True)
+
+    response = TestClient(ui_server.app).get("/api/docs/readme")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["slug"] == "readme"
+    assert payload["title"] == "Project README"
+    assert payload["filename"] == "README.md"
+    assert payload["bundled"] is True
+    assert payload["content"].startswith("# Local Flight")
+    assert payload["github_url"].startswith("https://github.com/tr3y4rch/local-flight")
+
+
+def test_api_docs_rejects_unknown_slug(monkeypatch) -> None:
+    monkeypatch.setattr(ui_server, "_setup_complete", lambda: True)
+
+    response = TestClient(ui_server.app).get("/api/docs/nope")
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Document not found"
+
+
+def test_api_docs_returns_fallback_when_bundled_file_missing(monkeypatch) -> None:
+    monkeypatch.setattr(ui_server, "_setup_complete", lambda: True)
+    monkeypatch.setitem(
+        ui_server._DOC_PAGES,
+        "missing",
+        {
+            "title": "Missing Test Doc",
+            "filename": "MISSING_TEST_DOC.md",
+            "summary": "Fallback coverage",
+            "github_url": "https://github.com/tr3y4rch/local-flight/blob/main/MISSING_TEST_DOC.md",
+        },
+    )
+
+    response = TestClient(ui_server.app).get("/api/docs/missing")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["slug"] == "missing"
+    assert payload["bundled"] is False
+    assert payload["content"] == "MISSING_TEST_DOC.md is not bundled with this build."
 
 
 def test_relay_route_contracts_cover_public_and_admin_surfaces() -> None:

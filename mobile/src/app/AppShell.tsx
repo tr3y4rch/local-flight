@@ -748,6 +748,7 @@ export function AppShell() {
           {screen === "docs" ? (
             <DocsScreen
               slug={docsSlug}
+              serverUrl={serverUrl}
               onBackSettings={() => setScreen("settings")}
               contentPaddingBottom={screenContentPadding}
             />

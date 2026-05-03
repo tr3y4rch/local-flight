@@ -14,12 +14,13 @@ import {
 } from "react-native";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 
-import { patchConfig, searchAirports } from "../api/client";
+import { getDoc, patchConfig, searchAirports } from "../api/client";
 import type {
   AppConfig,
   AirportResult,
   ConfigPatch,
   DashboardSnapshot,
+  DocDocument,
   FidsRow,
   FlightDetail,
   FlightView,
@@ -75,25 +76,100 @@ import {
 type MaterialIconName = ComponentProps<typeof MaterialCommunityIcons>["name"];
 export type DocSlug = "readme" | "privacy" | "changelog";
 
-const DOC_SOURCES: Record<DocSlug, { title: string; detail: string; url: string }> = {
+const DOC_SOURCES: Record<DocSlug, { title: string; detail: string; githubUrl: string }> = {
   readme: {
     title: "README",
     detail: "Project overview, install notes, and operating model",
-    url: "https://raw.githubusercontent.com/tr3y4rch/local-flight/main/README.md"
+    githubUrl: "https://github.com/tr3y4rch/local-flight#readme"
   },
   privacy: {
     title: "Privacy",
     detail: "What stays local and what diagnostics can send",
-    url: "https://raw.githubusercontent.com/tr3y4rch/local-flight/main/PRIVACY.md"
+    githubUrl: "https://github.com/tr3y4rch/local-flight/blob/main/PRIVACY.md"
   },
   changelog: {
     title: "Changelog",
     detail: "Release history and beta notes",
-    url: "https://raw.githubusercontent.com/tr3y4rch/local-flight/main/CHANGELOG.md"
+    githubUrl: "https://github.com/tr3y4rch/local-flight/blob/main/CHANGELOG.md"
   }
 };
 
 type SettingsSection = "server" | "appearance" | "tools" | "about";
+
+function keyedPart(value: unknown): string {
+  return String(value ?? "")
+    .trim()
+    .replace(/\s+/g, "-")
+    .replace(/[^a-zA-Z0-9_.:-]/g, "")
+    || "missing";
+}
+
+function fidsRowKey(row: FidsRow, index: number): string {
+  return [
+    "fids",
+    keyedPart(row.view),
+    keyedPart(row.id),
+    keyedPart(row.callsign),
+    keyedPart(row.display_time),
+    index
+  ].join(":");
+}
+
+function historyRowKey(row: HistoryFlightRow, index: number): string {
+  return [
+    "history",
+    keyedPart(row.id),
+    keyedPart(row.callsign),
+    keyedPart(row.snapshot_ts),
+    keyedPart(row.sched_time),
+    index
+  ].join(":");
+}
+
+function radarBlipKey(row: RadarBlip, index: number): string {
+  return [
+    "radar",
+    keyedPart(row.callsign),
+    keyedPart(row.flight_number),
+    keyedPart(row.lat),
+    keyedPart(row.lon),
+    index
+  ].join(":");
+}
+
+function detailHistoryKey(
+  item: { date: string; status?: string | null; delay_minutes?: number | null; gate?: string | null },
+  index: number
+): string {
+  return [
+    "detail-history",
+    keyedPart(item.date),
+    keyedPart(item.status),
+    keyedPart(item.gate),
+    keyedPart(item.delay_minutes),
+    index
+  ].join(":");
+}
+
+function airportResultKey(row: AirportResult, index: number): string {
+  return [
+    "airport",
+    keyedPart(row.iata),
+    keyedPart(row.icao),
+    keyedPart(row.name),
+    index
+  ].join(":");
+}
+
+function profileKey(row: ConfigProfile, index: number): string {
+  return [
+    "profile",
+    keyedPart(row.id),
+    keyedPart(row.name),
+    keyedPart(row.iata),
+    index
+  ].join(":");
+}
 
 function metarAccentColor(category: string): string {
   switch (category.toUpperCase()) {
@@ -228,7 +304,7 @@ export function Header({
             contentContainerStyle={styles.metarChipRow}
           >
             {chips.map((chip, i) => (
-              <View key={i} style={styles.metarChip}>
+              <View key={`metar-${keyedPart(chip.label)}-${keyedPart(chip.value)}-${i}`} style={styles.metarChip}>
                 <Text style={styles.metarChipLabel}>{chip.label}</Text>
                 <Text style={styles.metarChipValue}>{chip.value}</Text>
               </View>
@@ -469,7 +545,7 @@ export function FidsScreen({
   return (
     <FlatList<FidsRow>
       data={displayRows}
-      keyExtractor={(row) => row.id}
+      keyExtractor={fidsRowKey}
       renderItem={({ item }) => (
         <View style={styles.fidsListItem}>
           <FidsRowView
@@ -562,7 +638,7 @@ export function HistoryScreen({
   return (
     <FlatList<HistoryFlightRow>
       data={flights}
-      keyExtractor={(row) => String(row.id)}
+      keyExtractor={historyRowKey}
       renderItem={({ item }) => (
         <HistoryRow row={item} onOpenDetail={onOpenDetail} />
       )}
@@ -653,7 +729,7 @@ export function RadarScreen({
   return (
     <FlatList<RadarBlip>
       data={blips}
-      keyExtractor={(row, index) => `${row.callsign}-${index}`}
+      keyExtractor={radarBlipKey}
       renderItem={({ item }) => (
         <RadarBlipRow blip={item} onOpenDetail={onOpenDetail} />
       )}
@@ -1170,7 +1246,7 @@ function RadarScope({
 
         {projected.map((item, index) => (
           <Pressable
-            key={`${item.blip.callsign}-${index}`}
+            key={`scope-${radarBlipKey(item.blip, index)}`}
             style={[styles.scopeDotWrap, { left: item.left, top: item.top }]}
             onPress={() => onOpenDetail(item.blip.callsign)}
           >
@@ -1230,6 +1306,11 @@ function formatVerticalRate(value: number | null | undefined): string {
   if (value == null || Number.isNaN(value)) return "-";
   const feetPerMinute = Math.round(value * 196.8504);
   return `${feetPerMinute} ft/min`;
+}
+
+function formatGroundState(value: boolean | null | undefined): string {
+  if (typeof value !== "boolean") return "-";
+  return value ? "YES" : "NO";
 }
 
 function isVirtualFlightDetail(detail: FlightDetail | null): boolean {
@@ -1398,7 +1479,7 @@ export function FlightDetailSheet({
                 </View>
                 <View style={styles.sheetMetricRow}>
                   <SheetMetric label="HEADING" value={formatHeading(detail.position?.heading)} />
-                  <SheetMetric label="GROUND" value={detail.position?.on_ground ? "YES" : "NO"} />
+                  <SheetMetric label="GROUND" value={formatGroundState(detail.position?.on_ground)} />
                 </View>
                 <View style={styles.sheetMetricRow}>
                   <SheetMetric label="LAT" value={formatCoordinate(detail.position?.lat, "N", "S")} />
@@ -1421,8 +1502,8 @@ export function FlightDetailSheet({
 
                 <SectionTitle label="7-DAY HISTORY" />
                 {history.length > 0 ? (
-                  history.map((item) => (
-                    <View key={`${item.date}-${item.status || "status"}`} style={styles.sheetHistoryRow}>
+                  history.map((item, index) => (
+                    <View key={detailHistoryKey(item, index)} style={styles.sheetHistoryRow}>
                       <Text style={styles.sheetHistoryDate}>{item.date}</Text>
                       <Text style={styles.sheetHistoryStatus}>{item.status || "Tracked"}</Text>
                       <Text style={styles.sheetHistoryMeta}>
@@ -1444,8 +1525,8 @@ export function FlightDetailSheet({
                 </Text>
                 <SectionTitle label="7-DAY HISTORY" />
                 {history.length > 0 ? (
-                  history.map((item) => (
-                    <View key={`${item.date}-${item.status || "status"}`} style={styles.sheetHistoryRow}>
+                  history.map((item, index) => (
+                    <View key={detailHistoryKey(item, index)} style={styles.sheetHistoryRow}>
                       <Text style={styles.sheetHistoryDate}>{item.date}</Text>
                       <Text style={styles.sheetHistoryStatus}>{item.status || "Tracked"}</Text>
                       <Text style={styles.sheetHistoryMeta}>
@@ -1979,37 +2060,40 @@ export function SettingsScreen({
 
 export function DocsScreen({
   slug,
+  serverUrl,
   onBackSettings,
   contentPaddingBottom
 }: {
   slug: DocSlug;
+  serverUrl: string;
   onBackSettings: () => void;
   contentPaddingBottom: number;
 }) {
   const source = DOC_SOURCES[slug];
-  const [content, setContent] = useState("");
+  const [document, setDocument] = useState<DocDocument | null>(null);
   const [loadingDoc, setLoadingDoc] = useState(true);
   const [docError, setDocError] = useState<string | null>(null);
 
   const loadDoc = useCallback(async () => {
     setLoadingDoc(true);
     setDocError(null);
+    setDocument(null);
     try {
-      const response = await fetch(source.url, { headers: { Accept: "text/plain" } });
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-      }
-      setContent(await response.text());
+      setDocument(await getDoc(serverUrl, slug));
     } catch (exc) {
       setDocError(exc instanceof Error ? exc.message : String(exc));
     } finally {
       setLoadingDoc(false);
     }
-  }, [source.url]);
+  }, [serverUrl, slug]);
 
   useEffect(() => {
     void loadDoc();
   }, [loadDoc]);
+
+  const title = document?.title || source.title;
+  const detail = document?.summary || source.detail;
+  const githubUrl = document?.github_url || source.githubUrl;
 
   return (
     <ScrollView
@@ -2021,8 +2105,8 @@ export function DocsScreen({
       <View style={styles.cardStack}>
         <HiddenToolHeader
           icon="book-open-variant"
-          title={source.title}
-          detail={source.detail}
+          title={title}
+          detail={detail}
           onBack={onBackSettings}
         />
 
@@ -2031,17 +2115,17 @@ export function DocsScreen({
           {!loadingDoc && docError ? (
             <>
               <Text style={styles.sheetEmpty}>
-                Could not load the GitHub document inside the app: {docError}
+                Could not load the bundled server document inside the app: {docError}
               </Text>
               <SettingsToolPill
                 icon="open-in-new"
                 label="Open in GitHub"
-                value="Fallback if the phone has no GitHub raw access"
-                onPress={() => void Linking.openURL(source.url.replace("raw.githubusercontent.com/tr3y4rch/local-flight/main", "github.com/tr3y4rch/local-flight/blob/main"))}
+                value="External fallback opened only when you tap"
+                onPress={() => void Linking.openURL(githubUrl)}
               />
             </>
           ) : null}
-          {!loadingDoc && !docError ? <MarkdownDocument content={content} /> : null}
+          {!loadingDoc && !docError ? <MarkdownDocument content={document?.content || ""} /> : null}
         </View>
       </View>
     </ScrollView>
@@ -2057,7 +2141,7 @@ function MarkdownDocument({ content }: { content: string }) {
   const flushCode = () => {
     if (!codeLines.length) return;
     nodes.push(
-      <View key={`code-${nodes.length}`} style={styles.docCodeBlock}>
+      <View key={`doc-code-${nodes.length}`} style={styles.docCodeBlock}>
         <Text style={styles.docCodeText}>{codeLines.join("\n")}</Text>
       </View>
     );
@@ -2084,21 +2168,21 @@ function MarkdownDocument({ content }: { content: string }) {
       return;
     }
     if (line.startsWith("# ")) {
-      nodes.push(<Text key={index} style={styles.docTitle}>{cleanMarkdownInline(line.replace(/^#\s+/, ""))}</Text>);
+      nodes.push(<Text key={`doc-title-${index}`} style={styles.docTitle}>{cleanMarkdownInline(line.replace(/^#\s+/, ""))}</Text>);
       return;
     }
     if (line.startsWith("## ")) {
-      nodes.push(<Text key={index} style={styles.docHeading}>{cleanMarkdownInline(line.replace(/^##\s+/, ""))}</Text>);
+      nodes.push(<Text key={`doc-heading-${index}`} style={styles.docHeading}>{cleanMarkdownInline(line.replace(/^##\s+/, ""))}</Text>);
       return;
     }
     if (line.startsWith("### ")) {
-      nodes.push(<Text key={index} style={styles.docSubheading}>{cleanMarkdownInline(line.replace(/^###\s+/, ""))}</Text>);
+      nodes.push(<Text key={`doc-subheading-${index}`} style={styles.docSubheading}>{cleanMarkdownInline(line.replace(/^###\s+/, ""))}</Text>);
       return;
     }
     const bullet = line.match(/^[-*]\s+(.*)$/);
     if (bullet) {
       nodes.push(
-        <View key={index} style={styles.docBulletRow}>
+        <View key={`doc-bullet-${index}`} style={styles.docBulletRow}>
           <Text style={styles.docBulletMark}>-</Text>
           <Text style={styles.docBody}>{cleanMarkdownInline(bullet[1] || "")}</Text>
         </View>
@@ -2108,14 +2192,14 @@ function MarkdownDocument({ content }: { content: string }) {
     const numbered = line.match(/^\d+\.\s+(.*)$/);
     if (numbered) {
       nodes.push(
-        <View key={index} style={styles.docBulletRow}>
+        <View key={`doc-numbered-${index}`} style={styles.docBulletRow}>
           <Text style={styles.docBulletMark}>#</Text>
           <Text style={styles.docBody}>{cleanMarkdownInline(numbered[1] || "")}</Text>
         </View>
       );
       return;
     }
-    nodes.push(<Text key={index} style={styles.docBody}>{cleanMarkdownInline(line)}</Text>);
+    nodes.push(<Text key={`doc-body-${index}`} style={styles.docBody}>{cleanMarkdownInline(line)}</Text>);
   });
 
   if (inCode) {
@@ -2419,9 +2503,9 @@ export function AirportConfigSheet({
             />
             {searchResults.length > 0 && (
               <View style={styles.configSearchResults}>
-                {searchResults.map((r) => (
+                {searchResults.map((r, index) => (
                   <Pressable
-                    key={r.iata}
+                    key={airportResultKey(r, index)}
                     style={[
                       styles.configSearchRow,
                       selectedAirport?.iata === r.iata && styles.configSearchRowSelected
@@ -2481,10 +2565,10 @@ export function AirportConfigSheet({
             <Text style={styles.configSectionLabel}>PROFILES</Text>
             {profiles.length > 0 && (
               <View style={styles.configProfileList}>
-                {profiles.map((p) => {
+                {profiles.map((p, index) => {
                   const isApplyingThis = applyingProfileId === p.id;
                   return (
-                    <View key={p.id} style={styles.configProfileRow}>
+                    <View key={profileKey(p, index)} style={styles.configProfileRow}>
                       <Pressable
                         style={styles.configProfileLoad}
                         onPress={() => void applyProfile(p)}

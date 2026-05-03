@@ -1,6 +1,16 @@
 export type FlightView = "departures" | "arrivals";
 export type HistoryDirection = "both" | "dep" | "arr";
 
+export type DocDocument = {
+  slug: "readme" | "privacy" | "changelog" | string;
+  title: string;
+  summary: string;
+  filename: string;
+  github_url: string;
+  content: string;
+  bundled?: boolean;
+};
+
 export type AppConfig = {
   airport_iata: string;
   airport_icao: string;
