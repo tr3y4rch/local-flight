@@ -1603,6 +1603,14 @@ def test_matrix_script_endpoint_uses_current_i75w_client_template() -> None:
     assert "/api/matrix/v2/devices/{device_id()}/feed?view={view}" in script
 
 
+def test_matrix_preview_download_payload_uses_defined_animation_state() -> None:
+    root = Path(__file__).resolve().parents[1]
+    template = (root / "src" / "localflight" / "ui" / "templates" / "matrix_preview.html").read_text(encoding="utf-8")
+
+    assert 'animation_enabled: ANIMATION_MODE !== "static"' in template
+    assert "animation_enabled: ANIMATION_ENABLED" not in template
+
+
 def test_matrix_script_endpoint_rejects_loopback_host(tmp_path: Path, monkeypatch) -> None:
     template = tmp_path / "client.py"
     template.write_text('API_HOST      = "localflight.local"', encoding="utf-8")
