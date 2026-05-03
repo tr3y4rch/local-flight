@@ -384,7 +384,8 @@ def _api_url(path):
 
 def _get_json(path, timeout=8):
     try:
-        resp = urequests.get(_api_url(path), timeout=timeout)
+        # Some Pimoroni MicroPython urequests builds do not accept timeout=.
+        resp = urequests.get(_api_url(path))
         if resp.status_code == 200:
             data = ujson.loads(resp.text)
             resp.close()
@@ -401,7 +402,6 @@ def _post_json(path, payload, timeout=8):
             _api_url(path),
             data=ujson.dumps(payload),
             headers={"Content-Type": "application/json"},
-            timeout=timeout,
         )
         if resp.status_code in (200, 201):
             data = ujson.loads(resp.text)
@@ -492,7 +492,7 @@ def ping_server():
         "renderers": SUPPORTED_RENDERERS,
     }, timeout=5)
     try:
-        resp = urequests.post(_api_url(f"/api/admin/ping?device=matrix&version={CLIENT_VER}"), timeout=5)
+        resp = urequests.post(_api_url(f"/api/admin/ping?device=matrix&version={CLIENT_VER}"))
         resp.close()
     except Exception:
         pass

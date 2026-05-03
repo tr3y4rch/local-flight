@@ -486,6 +486,7 @@ def test_native_parity_screens_construct_core_controls(monkeypatch: pytest.Monke
     assert matrix.zoom_value.text().endswith("px")
     assert matrix.brightness_value.text().endswith("%")
     assert matrix.animation_mode.currentData() == "split_flap"
+    assert any(button.text() == "Generate code" for button in matrix.widget.findChildren(QtWidgets.QPushButton))
     assert logs.file_combo is not None
     assert logs.live_tail.text() == "Live tail"
     assert requests.client_type.currentText() == "all clients"

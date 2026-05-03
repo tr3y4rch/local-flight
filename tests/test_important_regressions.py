@@ -1571,6 +1571,38 @@ def test_matrix_script_endpoint_renders_from_canonical_template(tmp_path: Path, 
     assert "ANIMATION_ENABLED = False" in response.text
 
 
+def test_matrix_script_endpoint_uses_current_i75w_client_template() -> None:
+    client = TestClient(ui_api.app)
+    response = client.post(
+        "/api/matrix/script",
+        json={
+            "wifi_ssid": "BoardNet",
+            "wifi_password": "",
+            "api_host": "localflight.local",
+            "api_port": 8000,
+            "panel_w": 256,
+            "panel_h": 64,
+            "max_rows": 4,
+            "refresh_seconds": 60,
+            "brightness": 0.8,
+            "default_view": "departures",
+            "animation_enabled": True,
+        },
+    )
+
+    assert response.status_code == 200
+    script = response.text
+    compile(script, "generated-main.py", "exec")
+    assert 'CLIENT_VER       = "2.0"' in script
+    assert "import interstate75 as interstate75_module" in script
+    assert "def update_display():" in script
+    assert "urequests.get(_api_url(path))" in script
+    assert "timeout=timeout" not in script
+    assert "/api/matrix/v2/devices/checkin" in script
+    assert "/api/matrix/v2/devices/{device_id()}/config" in script
+    assert "/api/matrix/v2/devices/{device_id()}/feed?view={view}" in script
+
+
 def test_matrix_script_endpoint_rejects_loopback_host(tmp_path: Path, monkeypatch) -> None:
     template = tmp_path / "client.py"
     template.write_text('API_HOST      = "localflight.local"', encoding="utf-8")
