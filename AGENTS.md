@@ -504,8 +504,32 @@ npm run ios
 
 ---
 
-## Current handoff for the dev machine
+## Current handoff for macOS / dev machine
 
+- **macOS handoff focus (2026-05-03):** pull the current repo state on the Mac, verify native Qt still launches cleanly, validate the iOS/mobile workspace, then rebuild macOS and Pi artifacts from the same `0.2.5b4` commit. Keep Windows release packaging on Windows unless deliberately cross-checking source only.
+- Start the Mac session with:
+  ```bash
+  git pull --ff-only
+  git status --short
+  python3 -m venv .venv
+  source .venv/bin/activate
+  python -m pip install -e ".[native]"
+  python -m compileall -q src relay tests
+  python -m pytest tests
+  ```
+- Native GUI is the intended primary desktop shell now. On macOS, test `LOCALFLIGHT_GUI_MODE=native python -m localflight` or `./installers/macos/start.sh`; browser mode is fallback/debug only via `LOCALFLIGHT_GUI_MODE=browser`. The native window title should be `Local Flight`, not `Local Flight Native`.
+- Native first-run setup is intentionally a standalone guided window before the main Display shell. It must keep the Diagnostics step, save `diagnostics_mode` through `/api/setup/complete`, preload the hosted relay root, and avoid exposing `/v1/flights` to users.
+- Latest Windows-side native polish to carry forward on Mac: setup now has tighter centered layout/brand treatment, FIDS uses airport-local time instead of the host computer clock, FIDS columns scale more safely, Client Admin is less crowded with Buy Me a Coffee moved to the footer area, History combines filters/stats/recent rows in one user-facing view, and Logs exposes retained local log files instead of only a live tail. Focused verification after this pass: `.venv\Scripts\python.exe -m pytest tests/test_gui_launcher.py -q` returned `50 passed`, and native compileall passed.
+- macOS packaging runbook:
+  ```bash
+  python build.py --clean
+  test -d dist/LocalFlight.app
+  test -f dist/LocalFlight-macos.zip
+  shasum -a 256 -c dist/LocalFlight-macos.zip.sha256
+  ```
+- Pi source release can be built on the Mac from the same commit with `python scripts/package_pi_source.py`; confirm `dist/LocalFlight-pi-source-0.2.5b4.zip` and matching `.sha256`. The Pi bundle intentionally excludes `AGENTS.md`, `CLAUDE.md`, and `DEV_README.md`.
+- Mobile companion validation belongs on the Mac/Xcode machine: `cd mobile`, `npm install`, `npx expo install --fix`, `npm run typecheck`, `npm run doctor`, then `npm run ios`. Use a LAN server URL such as `http://localflight.local:8000` or the desktop/Pi IP; do not use phone-local `localhost`.
+- Keep public/internal separation intact during the Mac pass: public docs may describe the native privacy-first GUI and user reporting, but should not expose operator Network Admin routes, Fly secrets, `DEV_README.md`, `AGENTS.md`, or raw relay admin paths.
 - Active version is `0.2.5b4`: `pyproject.toml`, runtime fallbacks, mobile package metadata, Expo `extra.localFlightVersion`, and docs should all agree.
 - Community relay root is live at `https://localflight-community-relay.fly.dev`. The client derives `/v1/schedule`, `/v1/radar`, `/v1/airport-surface`, `/v1/reports`, and activation routes internally; `/v1/flights` is raw-provider debug only.
 - Relay admin panel: prefer Fly dashboard/CLI or `fly ssh console`. Public admin access is optional and must stay password-protected; do not publish operator-only entrypoints in public docs.
@@ -560,6 +584,7 @@ npm run ios
 - ✅ Native GUI launch is now platform-layered: `gui_mode.py` parses the requested mode, `gui_launcher.py` resolves native/browser/headless from platform + display + PySide6/Qt availability, and `__main__.py` logs the resulting `GuiLaunchDecision` before dispatch.
 - ✅ Windows/macOS source launchers and PyInstaller builds now install/verify PySide6/Qt for native mode, while Pi stays headless by default and adds an explicit `installers/pi/install.sh --native-kiosk` path for experimental Qt HDMI kiosk testing.
 - ✅ Native Qt parity pass replaced the side-list/debug shell with a browser-like top nav, Display-first split/FIDS/Radar views, native setup wizard, Matrix canvas/runtime/script tooling, Logs file selector/live tail, traffic log tool, sectioned Settings/Admin/History/Feedback pages, shared native design tokens, and a route registry that validates every client/operator button path in tests. FIDS/Radar refreshes now run off the Qt UI thread so slow local API/provider calls do not freeze the native shell. Native Radar projects API `center` + `lat/lon` blips like the browser canvas and has a sweep animation; native Settings/Setup use `/api/airports/search` for the airport picker and fill IATA/ICAO/timezone instead of asking for manual entry. Native Qt uses PySide6 QtWebSockets for the same `/ws` live-push contract as the browser kiosk. The latest UI/UX parity refinement maps browser theme/skin choices into Qt, reloads styling from `/api/config`, applies skin palettes to FIDS/Radar/Matrix renderers, gives the top nav horizontal compact scrolling for small Pi-sized displays, caches duplicate-safe native GET calls briefly, dedupes repeated airport searches, pauses hidden Radar/Matrix animation timers, backs active refresh polling off to 30 seconds, and makes first-run diagnostics/reporting consent a saved setup step instead of a loose later prompt.
+- ✅ Native GUI polish for Mac handoff: main window title now reads `Local Flight`; the setup wizard has centered, narrower, branded pages instead of huge fullscreen-dependent fields; FIDS labels/updates airport-local time; FIDS columns adapt better to window width; Client Admin removed the crowded Quick Tools block and keeps the support link in a quiet footer; History now combines filters, callsign lookup, statistics, and capped recent rows in one user-facing view; Logs now highlights retained log-file browsing plus live-tail state.
 - ✅ Native History stats no longer clears the live period selector during refreshes, fixing a Qt lifecycle crash risk. Native `/api/logs` metadata now lets the Logs page match the web log selector without scraping HTML.
 - ✅ Linear/reporting pass confirmed no new GUI/kiosk/headless route families are needed. Native Qt manual reports now post to local `/api/feedback` with richer `native/gui` context, `_NativeCrashReporter` sends diagnostics-gated Qt/Python UI exceptions through local `/api/feedback/crash`, and both `bug_reporter.py` plus relay `main.py` normalize `native/gui` into the desktop/user report bucket. Live relay smoke on 2026-05-02 created `LOC-45` in `Local Flight Reports` and the repeat returned `deduped=true`.
 
@@ -608,7 +633,7 @@ npm run ios
 - ✅ Detail data model now preserves DAU-important aircraft/plan fields without overdoing it: aircraft registration for ADS-B/AviationStack when available, plus VATSIM filed flight rules, route, cruise altitude/TAS, planned times, enroute duration, alternate, and transponder.
 - ✅ `/api/fids/detail` includes `detail_mode` (`real` / `virtual`) plus origin/destination ICAO codes, allowing desktop and companion to render source-specific detail layouts.
 - ✅ Mobile detail sheet is aligned with the new server detail contract and guarded auto-reporting now catches critical detail endpoint failures without reporting normal offline/4xx cases.
-- ✅ `DEV_README.md` is not present in the current checkout; `AGENTS.md` is the single handoff file. Pi source releases now use `python scripts/package_pi_source.py`.
+- ✅ `DEV_README.md` is present again as the private operator/dev reference; keep it aligned with `AGENTS.md` and `CLAUDE.md` for AI handoff context. Pi source releases still use `python scripts/package_pi_source.py` and exclude internal handoff docs.
 
 ## What was done in session v0.2.3b2
 
