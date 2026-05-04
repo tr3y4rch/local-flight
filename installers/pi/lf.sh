@@ -78,6 +78,12 @@ case "$CMD" in
             echo "ERROR: No virtual environment at $VENV — run the installer first."
             exit 1
         }
+        [ -d "$ROOT/.git" ] || {
+            echo "ERROR: This folder is not a git checkout."
+            echo "If you installed from a Pi source zip, download/unzip the newer bundle and rerun:"
+            echo "  bash installers/pi/install.sh --headless"
+            exit 1
+        }
         echo "Pulling latest code..."
         git -C "$ROOT" pull --ff-only
         install_localflight_package

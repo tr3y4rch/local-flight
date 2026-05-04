@@ -6,7 +6,7 @@
 #   bash installers/pi/install.sh --kiosk          # headless + legacy Chromium fallback kiosk on HDMI
 #   bash installers/pi/install.sh --native-kiosk   # native Qt fullscreen kiosk on HDMI
 #
-# Run as the normal Pi user (not root). Requires: Pi OS Bookworm 64-bit, Python 3.11+.
+# Run as the normal Pi user (not root). Requires: Pi OS Bookworm/Trixie 64-bit, Python 3.11+.
 
 set -euo pipefail
 
@@ -84,9 +84,9 @@ step "Updating package lists..."
 sudo apt-get update -qq > /dev/null 2>&1
 ok "Package lists updated"
 
-step "Installing Python and mDNS packages..."
-sudo apt-get install -y -qq python3 python3-venv python3-pip avahi-daemon > /dev/null 2>&1
-ok "python3, python3-venv, python3-pip, avahi-daemon installed"
+step "Installing Python, git, and mDNS packages..."
+sudo apt-get install -y -qq python3 python3-venv python3-pip git avahi-daemon > /dev/null 2>&1
+ok "python3, python3-venv, python3-pip, git, avahi-daemon installed"
 
 if [ "$NATIVE_KIOSK" -eq 1 ]; then
     step "Installing Qt runtime packages for native kiosk..."
