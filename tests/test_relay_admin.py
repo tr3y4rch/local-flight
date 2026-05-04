@@ -153,7 +153,7 @@ def test_activate_auto_issues_and_client_status_verifies(tmp_path: Path, monkeyp
             "airport_icao": "LSZH",
             "display_name": "Test kiosk",
             "requested_mode": "community",
-            "app_version": "0.2.5b4",
+            "app_version": "0.2.5b5",
         },
         headers={"x-forwarded-for": "203.0.113.42"},
     )
@@ -169,7 +169,7 @@ def test_activate_auto_issues_and_client_status_verifies(tmp_path: Path, monkeyp
         params={
             "install_id": install_id,
             "activation_token": activate_data["activation_token"],
-            "app_version": "0.2.5b4",
+            "app_version": "0.2.5b5",
         },
     )
     assert status_resp.status_code == 200
@@ -578,7 +578,7 @@ def test_admin_api_requires_auth_and_redacts_private_values(tmp_path: Path, monk
             "airport_icao": "LSZH",
             "display_name": "Admin API privacy test",
             "requested_mode": "community",
-            "app_version": "0.2.5b4",
+            "app_version": "0.2.5b5",
         },
         headers={"host": "relay.localflight.app", "x-forwarded-for": "198.51.100.88"},
     )
@@ -906,7 +906,7 @@ def test_activation_requests_do_not_persist_airport_fields(tmp_path: Path, monke
             "airport_icao": "LSZH",
             "display_name": "Privacy test",
             "requested_mode": "community",
-            "app_version": "0.2.5b4",
+            "app_version": "0.2.5b5",
         },
         headers={"host": "relay.localflight.app", "x-forwarded-for": "203.0.113.55"},
     )
@@ -969,7 +969,7 @@ def _report_payload(
         "traceback": "stack",
         "context": context,
         "client_context": client_context,
-        "app_version": "0.2.5b4",
+        "app_version": "0.2.5b5",
         "platform": "Darwin",
         "os": "iOS 18.0",
         "arch": "arm64",

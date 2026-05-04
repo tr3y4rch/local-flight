@@ -6,6 +6,7 @@ JSON API layer for the FIDS system.
 from __future__ import annotations
 
 import json
+import importlib
 import logging
 import math
 import os
@@ -23,7 +24,7 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, Field
 
-from localflight.core.airports import _load_index, lookup_airport
+from localflight.core.airports import _load_index, best_label, lookup_airport
 from localflight.core.models import Flight, FlightDirection, FlightPosition
 from localflight.render.fids import build_fids_context
 from localflight.storage.config import (
@@ -90,6 +91,18 @@ def _radar_refresh_after_s(source_used: str) -> int:
     if source_name == "snapshot_positions":
         return 60
     return 15
+
+
+def _vatsim_client_module():
+    return importlib.import_module("localflight.sources.web.vatsim_client")
+
+
+def _fetch_vatsim_payload() -> Dict[str, Any]:
+    vatsim_client = _vatsim_client_module()
+    fetch_vatsim = getattr(vatsim_client, "fetch_vatsim_data_cached", None)
+    if fetch_vatsim is None:
+        fetch_vatsim = vatsim_client.fetch_vatsim_data
+    return fetch_vatsim()
 
 
 def _provider_radar_radius_nm(radius_nm: float) -> float:
@@ -440,6 +453,40 @@ class FIDSRowOut(BaseModel):
     callsign:       str = ""
 
 
+def _fids_rows_from_flights(
+    *,
+    cfg: AppConfig,
+    flights: List[Flight],
+    view: Literal["departures", "arrivals"],
+    limit: int,
+    last_refreshed: Optional[datetime],
+    source_status: Optional[str] = None,
+) -> List[FIDSRowOut]:
+    direction = FlightDirection.DEPARTURE if view == "departures" else FlightDirection.ARRIVAL
+    filtered = [f for f in flights if f.direction == direction]
+    ctx = build_fids_context(
+        cfg=cfg,
+        view=view,
+        refresh_seconds=cfg.refresh_seconds,
+        flights=filtered,
+        last_refreshed=last_refreshed,
+        reference_now=last_refreshed,
+        source_status=source_status or cfg.source,
+    )
+    rows = list(ctx["rows"])[:limit]
+    return [
+        FIDSRowOut(
+            id=r.id, view=r.view, display_time=r.display_time,
+            flight_display=r.flight_display, airline_display=r.airline_display,
+            codeshare_display=r.codeshare_display, route_display=r.route_display,
+            status_display=r.status_display, status_class=r.status_class,
+            gate=r.gate, aircraft_type=r.aircraft_type,
+            callsign=r.callsign,
+        )
+        for r in rows
+    ]
+
+
 # â”€â”€ Config endpoints â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @router.get("/api/health")
@@ -510,31 +557,14 @@ def api_fids(
 ) -> List[FIDSRowOut]:
     cfg = load_config()
     flights, last_refreshed = _load_latest_flights(cfg.airport_iata)
-    direction = FlightDirection.DEPARTURE if view == "departures" else FlightDirection.ARRIVAL
-    flights = [f for f in flights if f.direction == direction]
-
-    ctx = build_fids_context(
+    return _fids_rows_from_flights(
         cfg=cfg,
-        view=view,
-        refresh_seconds=cfg.refresh_seconds,
         flights=flights,
+        view=view,
+        limit=limit,
         last_refreshed=last_refreshed,
-        reference_now=last_refreshed,
         source_status=cfg.source,
     )
-    rows = list(ctx["rows"])[:limit]
-
-    return [
-        FIDSRowOut(
-            id=r.id, view=r.view, display_time=r.display_time,
-            flight_display=r.flight_display, airline_display=r.airline_display,
-            codeshare_display=r.codeshare_display, route_display=r.route_display,
-            status_display=r.status_display, status_class=r.status_class,
-            gate=r.gate, aircraft_type=r.aircraft_type,
-            callsign=r.callsign,
-        )
-        for r in rows
-    ]
 
 
 @router.get("/api/fids/detail")
@@ -813,10 +843,9 @@ def api_radar(
 
     if cfg.source == "virtual":
         try:
-            from localflight.sources.web.vatsim_client import fetch_vatsim_data
             from localflight.sources.web.opensky_radar import bounding_box
 
-            payload = fetch_vatsim_data()
+            payload = _fetch_vatsim_payload()
             pilots  = payload.get("pilots") or []
             lamin, lomin, lamax, lomax = bounding_box(center_lat, center_lon, radius_nm)
             source_used = "vatsim"
@@ -1139,9 +1168,8 @@ def api_metar(
     data = None
     if not icao_param and (cfg.source or "").strip().lower() == "virtual":
         try:
-            from localflight.sources.web.vatsim_client import fetch_vatsim_data, vatsim_metar_for_airport
-
-            raw_vatsim_metar = vatsim_metar_for_airport(fetch_vatsim_data(), airport_icao=icao_code)
+            vatsim_client = _vatsim_client_module()
+            raw_vatsim_metar = vatsim_client.vatsim_metar_for_airport(_fetch_vatsim_payload(), airport_icao=icao_code)
             if raw_vatsim_metar:
                 data = decode_raw_metar(icao_code, raw_vatsim_metar, source="vatsim")
         except Exception as exc:
@@ -1170,7 +1198,7 @@ def api_admin_system() -> Dict[str, Any]:
         from importlib.metadata import version as _pkg_version
         _ver = _pkg_version("localflight")
     except Exception:
-        _ver = "0.2.5b4"
+        _ver = "0.2.5b5"
 
     result: Dict[str, Any] = {
         "version":  _ver,
@@ -1500,7 +1528,7 @@ def api_admin_updates() -> Dict[str, Any]:
         from importlib.metadata import version as _pkg_version
         current = _pkg_version("localflight")
     except Exception:
-        current = "0.2.5b4"
+        current = "0.2.5b5"
 
     # Simple in-process cache to avoid hammering GitHub API
     cache = getattr(api_admin_updates, "_cache", None)
@@ -1607,39 +1635,11 @@ def api_submit_feedback_crash(body: FeedbackCrashIn) -> Dict[str, Any]:
 # Matrix config -------------------------------------------------------------
 
 _MATRIX_PRESETS: Dict[str, Dict[str, Any]] = {
-    "classic_split_flap": {
-        "id": "classic_split_flap",
-        "label": "Classic Split-Flap",
-        "renderer": "split_flap",
-        "description": "Mechanical station-board rhythm with staggered character flips.",
-        "options": {
-            "palette": ["amber", "green", "white"],
-            "animation_mode": ["split_flap", "slide_left", "slide_right", "static"],
-            "animation_speed": {"min": 1, "max": 5, "default": 3},
-            "row_stagger_ms": {"min": 0, "max": 800, "default": 120},
-            "show_clock": True,
-            "ticker": False,
-        },
-    },
-    "modern_airport_fids": {
-        "id": "modern_airport_fids",
-        "label": "Modern Airport FIDS",
+    "real_fids": {
+        "id": "real_fids",
+        "label": "Real FIDS",
         "renderer": "modern_fids",
-        "description": "Dark airport-screen layout with colored status accents.",
-        "options": {
-            "palette": ["standard", "technical", "cyan"],
-            "animation_mode": ["slide_left", "split_flap", "static"],
-            "animation_speed": {"min": 1, "max": 5, "default": 2},
-            "show_clock": True,
-            "show_metar": True,
-            "row_pulse": True,
-        },
-    },
-    "pax_airport_fids": {
-        "id": "pax_airport_fids",
-        "label": "Passenger Airport FIDS",
-        "renderer": "modern_fids",
-        "description": "Passenger-first board with compact weather, route-code preservation, glyphs, and readable small-panel rows.",
+        "description": "Real-world passenger FIDS board with compact weather, route-code preservation, glyphs, and readable small-panel rows.",
         "options": {
             "palette": ["standard", "cyan", "white"],
             "animation_mode": ["slide_left", "split_flap", "static"],
@@ -1651,26 +1651,11 @@ _MATRIX_PRESETS: Dict[str, Dict[str, Any]] = {
             "code_preserve": True,
         },
     },
-    "tower_fids": {
-        "id": "tower_fids",
-        "label": "Tower FIDS",
-        "renderer": "tower_fids",
-        "description": "Operational board emphasizing callsigns, aircraft type, status, and route codes.",
-        "options": {
-            "palette": ["technical", "green", "cyan"],
-            "animation_mode": ["slide_left", "static"],
-            "animation_speed": {"min": 1, "max": 5, "default": 2},
-            "show_clock": True,
-            "show_metar": True,
-            "show_glyphs": True,
-            "code_preserve": True,
-        },
-    },
-    "vatsim_ops": {
-        "id": "vatsim_ops",
-        "label": "VATSIM Ops",
-        "renderer": "vatsim_ops",
-        "description": "Virtual-network display for callsigns, aircraft, flight-plan route, and VATSIM METAR/ATIS context.",
+    "vatsim_pilot": {
+        "id": "vatsim_pilot",
+        "label": "VATSIM Pilot",
+        "renderer": "vatsim_pilot",
+        "description": "Pilot-facing virtual board with VATSIM callsigns, aircraft, route codes, and quiet page refresh.",
         "options": {
             "palette": ["technical", "cyan", "green"],
             "animation_mode": ["slide_left", "static"],
@@ -1680,42 +1665,43 @@ _MATRIX_PRESETS: Dict[str, Dict[str, Any]] = {
             "show_glyphs": True,
             "vatsim_labels": True,
             "code_preserve": True,
+            "requires_source": "virtual",
         },
     },
-    "terminal_minimal": {
-        "id": "terminal_minimal",
-        "label": "Terminal Minimal",
-        "renderer": "terminal_minimal",
-        "description": "Readable next-flight hero with a compact queue.",
-        "options": {
-            "palette": ["standard", "white", "cyan"],
-            "animation_mode": ["slide_left", "slide_right", "static"],
-            "hero_flight": True,
-            "queue_rows": {"min": 1, "max": 4, "default": 3},
-            "ticker": True,
-            "show_clock": True,
-        },
-    },
-    "radar_strip": {
-        "id": "radar_strip",
-        "label": "Radar Strip",
-        "renderer": "radar_strip",
-        "description": "Compact scope/status display for nearby traffic.",
+    "vatsim_atc": {
+        "id": "vatsim_atc",
+        "label": "VATSIM ATC",
+        "renderer": "vatsim_atc",
+        "description": "Controller-style VATSIM panel cycling departures, arrivals, and a decoded ATIS/METAR weather page.",
         "options": {
             "palette": ["technical", "green", "cyan"],
             "animation_mode": ["slide_left", "static"],
-            "range_nm": {"min": 1, "max": 40, "default": 5},
-            "sweep": True,
-            "show_labels": True,
-            "metar_footer": True,
+            "animation_speed": {"min": 1, "max": 5, "default": 2},
+            "show_clock": True,
+            "show_metar": True,
+            "show_glyphs": True,
+            "vatsim_labels": True,
+            "weather_page": True,
+            "page_cycle": ["departures", "arrivals", "weather"],
+            "requires_source": "virtual",
         },
     },
+}
+
+_MATRIX_PRESET_ALIASES = {
+    "classic_split_flap": "real_fids",
+    "modern_airport_fids": "real_fids",
+    "pax_airport_fids": "real_fids",
+    "tower_fids": "real_fids",
+    "terminal_minimal": "real_fids",
+    "radar_strip": "real_fids",
+    "vatsim_ops": "vatsim_pilot",
 }
 
 _MATRIX_CONFIG_DEFAULTS: Dict[str, Any] = {
     "id": "default",
     "name": "Default Board",
-    "preset": "classic_split_flap",
+    "preset": "real_fids",
     "panel_w": 256,
     "panel_h": 64,
     "brightness": 0.8,
@@ -1764,13 +1750,31 @@ def _matrix_clock_payload() -> Dict[str, Any]:
         local_now = now_utc
     offset = local_now.utcoffset()
     offset_minutes = int(offset.total_seconds() // 60) if offset else 0
+    airport_payload = _matrix_airport_payload(cfg)
     return {
-        "airport_iata": cfg.airport_iata,
+        **airport_payload,
         "timezone": timezone_name,
         "clock_utc_epoch": int(now_utc.timestamp()),
         "clock_utc": now_utc.strftime("%H:%M"),
         "clock_local": local_now.strftime("%H:%M"),
         "clock_local_offset_minutes": offset_minutes,
+    }
+
+
+def _matrix_airport_payload(cfg: AppConfig) -> Dict[str, Any]:
+    code = (cfg.airport_iata or cfg.airport_icao or "---").upper()
+    rec = lookup_airport(iata=cfg.airport_iata, icao=cfg.airport_icao)
+    city = (rec.city if rec else "") or ""
+    name = (rec.name if rec else "") or ""
+    label = best_label(iata=cfg.airport_iata, icao=cfg.airport_icao, prefer="city", include_code=False)
+    label = (label or city or name or code).strip()
+    return {
+        "airport_iata": cfg.airport_iata,
+        "airport_icao": cfg.airport_icao,
+        "airport_city": city,
+        "airport_name": name,
+        "airport_label": label,
+        "airport_display_name": label,
     }
 
 
@@ -1786,12 +1790,18 @@ def _matrix_default_config(overrides: Optional[Dict[str, Any]] = None) -> Dict[s
 
 def _normalize_matrix_config(raw: Dict[str, Any], *, fallback_id: str) -> Dict[str, Any]:
     preset = str(raw.get("preset") or _MATRIX_CONFIG_DEFAULTS["preset"])
+    preset = _MATRIX_PRESET_ALIASES.get(preset, preset)
     if preset not in _MATRIX_PRESETS:
         preset = _MATRIX_CONFIG_DEFAULTS["preset"]
     view = str(raw.get("default_view") or "departures").strip().lower()
     if view not in {"departures", "arrivals"}:
         view = "departures"
     options = raw.get("options") if isinstance(raw.get("options"), dict) else {}
+    preset_options = _MATRIX_PRESETS[preset].get("options", {})
+    if "show_metar" not in options and "show_weather" not in options:
+        options = {**options, "show_metar": bool(preset_options.get("show_metar", True))}
+    elif "show_weather" in options and "show_metar" not in options:
+        options = {**options, "show_metar": bool(options.get("show_weather"))}
     palette = str(raw.get("palette") or options.get("palette") or _MATRIX_CONFIG_DEFAULTS["palette"])
     animation_enabled = bool(raw.get("animation_enabled", True))
     animation_mode = str(raw.get("animation_mode") or options.get("animation_mode") or _MATRIX_CONFIG_DEFAULTS["animation_mode"])
@@ -2126,7 +2136,7 @@ def api_matrix_v2_device_patch(device_id: str, body: MatrixDevicePatchIn) -> Dic
 def _matrix_resolved_config(store: Dict[str, Any], device_id: Optional[str]) -> Dict[str, Any]:
     device = _matrix_device_by_id(store, _matrix_slug(device_id or "", "")) if device_id else None
     cfg = _matrix_config_by_id(store, device.get("assigned_config_id") if device else store.get("default_config_id"))
-    preset = _MATRIX_PRESETS.get(cfg["preset"], _MATRIX_PRESETS["classic_split_flap"])
+    preset = _MATRIX_PRESETS.get(cfg["preset"], _MATRIX_PRESETS["real_fids"])
     return {
         **cfg,
         **_matrix_clock_payload(),
@@ -2215,54 +2225,220 @@ def _matrix_row_payload(row: Any) -> Dict[str, Any]:
     }
 
 
+def _matrix_is_vatsim_preset(preset: Any) -> bool:
+    return str(preset or "").strip().lower().startswith("vatsim_")
+
+
+def _matrix_option_enabled(resolved: Dict[str, Any], key: str, default: bool = True) -> bool:
+    options = resolved.get("options") if isinstance(resolved.get("options"), dict) else {}
+    value = options.get(key, default)
+    if isinstance(value, str):
+        return value.strip().lower() not in {"0", "false", "no", "off"}
+    return bool(value)
+
+
+def _matrix_metar_payload(metar: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    if not isinstance(metar, dict):
+        return None
+    temp = metar.get("temperature_c", metar.get("temp_c"))
+    temp_display = metar.get("temperature_display") or (
+        f"{temp} C" if temp is not None else None
+    )
+    temp_short = str(temp_display or "").replace(" C", "C").replace(" ", "")
+    condition = (
+        metar.get("weather_label")
+        or metar.get("decoded_summary")
+        or metar.get("weather_summary")
+        or metar.get("wx_string")
+        or metar.get("flight_cat")
+    )
+    condition = str(condition or "").strip()
+    return {
+        "category": metar.get("flight_cat"),
+        "flight_cat": metar.get("flight_cat"),
+        "flight_cat_color": metar.get("flight_cat_color"),
+        "summary": metar.get("weather_label") or metar.get("decoded_summary"),
+        "condition_display": condition,
+        "weather_display": " ".join(part for part in (condition, temp_short) if part),
+        "weather_label": metar.get("weather_label"),
+        "weather_icon": metar.get("weather_icon"),
+        "raw": metar.get("raw_text"),
+        "raw_text": metar.get("raw_text"),
+        "wind": metar.get("wind_display") or metar.get("wind"),
+        "wind_display": metar.get("wind_display") or metar.get("wind"),
+        "temp_c": metar.get("temp_c", metar.get("temperature_c")),
+        "temperature_c": temp,
+        "temperature_display": temp_display,
+        "temperature_short": temp_short or None,
+        "dewpoint_c": metar.get("dewpoint_c"),
+        "visibility_m": metar.get("visibility_m"),
+        "visibility_sm": metar.get("visibility_sm"),
+        "ceiling_ft": metar.get("ceiling_ft"),
+        "clouds": metar.get("clouds") or [],
+        "wx_string": metar.get("wx_string"),
+        "altimeter_hpa": metar.get("altimeter_hpa"),
+        "source": metar.get("source"),
+    }
+
+
+def _matrix_weather_page(metar: Optional[Dict[str, Any]], *, airport_icao: str) -> Dict[str, Any]:
+    payload = _matrix_metar_payload(metar)
+    if not payload:
+        return {
+            "available": False,
+            "source": "vatsim",
+            "airport_icao": airport_icao,
+            "title": "NO VATSIM ATIS",
+            "lines": ["NO VATSIM ATIS", airport_icao or "----"],
+            "icons": ["unknown"],
+        }
+    clouds = payload.get("clouds") if isinstance(payload.get("clouds"), list) else []
+    cloud_line = "CLR"
+    if clouds:
+        parts = []
+        for cloud in clouds[:3]:
+            if not isinstance(cloud, dict):
+                continue
+            cover = str(cloud.get("cover") or "").upper()
+            base = cloud.get("base_ft")
+            parts.append(f"{cover}{base}" if base is not None else cover)
+        cloud_line = " ".join(part for part in parts if part) or cloud_line
+    visibility = payload.get("visibility_sm")
+    if visibility is None and payload.get("visibility_m") is not None:
+        try:
+            visibility = round(float(payload["visibility_m"]) / 1609.34, 1)
+        except Exception:
+            visibility = None
+    altimeter = payload.get("altimeter_hpa")
+    lines = [
+        f"{airport_icao} VATSIM WX".strip(),
+        " ".join(part for part in (payload.get("flight_cat"), payload.get("weather_label")) if part),
+        " ".join(part for part in (payload.get("temperature_display"), f"DP {payload.get('dewpoint_c')}C" if payload.get("dewpoint_c") is not None else "") if part),
+        f"WIND {payload.get('wind_display') or '-'}",
+        f"QNH {altimeter}" if altimeter is not None else "QNH -",
+        f"VIS {visibility}SM" if visibility is not None else "VIS -",
+        cloud_line,
+    ]
+    return {
+        "available": True,
+        "source": payload.get("source") or "vatsim",
+        "airport_icao": airport_icao,
+        "title": "VATSIM WX",
+        "lines": [str(line).upper() for line in lines if str(line or "").strip()],
+        "icons": ["sun", "cloud", "rain", "storm", "mist", "unknown"],
+        **payload,
+    }
+
+
+def _matrix_vatsim_weather(cfg: AppConfig) -> Optional[Dict[str, Any]]:
+    from localflight.sources.web.metar_client import decode_raw_metar
+    vatsim_client = _vatsim_client_module()
+
+    raw_metar = vatsim_client.vatsim_metar_for_airport(_fetch_vatsim_payload(), airport_icao=cfg.airport_icao)
+    if not raw_metar:
+        return None
+    return decode_raw_metar(cfg.airport_icao, raw_metar, source="vatsim")
+
+
+def _matrix_vatsim_rows(
+    *,
+    cfg: AppConfig,
+    view: Literal["departures", "arrivals"],
+    limit: int,
+) -> List[FIDSRowOut]:
+    from localflight.decode.normalize import normalize_flights
+    vatsim_client = _vatsim_client_module()
+
+    payload = _fetch_vatsim_payload()
+    records = vatsim_client.vatsim_to_raw_records(payload, airport_icao=cfg.airport_icao, mode="both")
+    flights = normalize_flights(
+        records,
+        airport_iata=cfg.airport_iata,
+        airport_icao=cfg.airport_icao,
+        source_name="vatsim",
+    )
+    flights = [flight for flight in flights if flight.source == "vatsim"]
+    return _fids_rows_from_flights(
+        cfg=cfg,
+        flights=flights,
+        view=view,
+        limit=limit,
+        last_refreshed=datetime.now(timezone.utc),
+        source_status="vatsim",
+    )
+
+
 @router.get("/api/matrix/v2/devices/{device_id}/feed")
 def api_matrix_v2_device_feed(device_id: str, view: Optional[str] = Query(None)) -> Dict[str, Any]:
     store = _load_matrix_store()
     resolved = _matrix_resolved_config(store, device_id)
     effective_view = view if view in {"departures", "arrivals"} else resolved["default_view"]
-    rows = api_fids(view=effective_view, limit=min(max(1, resolved["max_rows"]) * 4, 32))
+    cfg = load_config()
+    limit = min(max(1, resolved["max_rows"]) * 4, 32)
     payload: Dict[str, Any] = {
         "config_rev": resolved["config_rev"],
         "data_rev": int(time.time()),
         "view": effective_view,
         "generated_at": _utc_now_iso(),
-        "airport_iata": load_config().airport_iata,
-        "rows": [_matrix_row_payload(row) for row in rows],
+        **_matrix_airport_payload(cfg),
     }
-    try:
-        metar = api_metar()
-        payload["metar"] = {
-            "category": metar.get("flight_cat"),
-            "flight_cat": metar.get("flight_cat"),
-            "flight_cat_color": metar.get("flight_cat_color"),
-            "summary": metar.get("weather_label") or metar.get("decoded_summary"),
-            "weather_label": metar.get("weather_label"),
-            "weather_icon": metar.get("weather_icon"),
-            "raw": metar.get("raw_text"),
-            "raw_text": metar.get("raw_text"),
-            "wind": metar.get("wind_display") or metar.get("wind"),
-            "wind_display": metar.get("wind_display") or metar.get("wind"),
-            "temp_c": metar.get("temp_c", metar.get("temperature_c")),
-            "temperature_c": metar.get("temperature_c", metar.get("temp_c")),
-            "temperature_display": metar.get("temperature_display") or (
-                f"{metar.get('temperature_c', metar.get('temp_c'))} C"
-                if metar.get("temperature_c", metar.get("temp_c")) is not None else None
-            ),
-            "source": metar.get("source"),
+    show_metar = _matrix_option_enabled(resolved, "show_metar", True)
+    if _matrix_is_vatsim_preset(resolved["preset"]) and (cfg.source or "").strip().lower() != "virtual":
+        message = "SET SOURCE TO VATSIM"
+        return {
+            **payload,
+            "source_required": "virtual",
+            "message": message,
+            "rows": [],
+            "metar": None,
+            "weather_page": {
+                "available": False,
+                "source": "vatsim",
+                "airport_icao": cfg.airport_icao,
+                "title": message,
+                "lines": [message, "SETTINGS SOURCE VIRTUAL"],
+                "icons": ["unknown"],
+            },
         }
-    except Exception:
-        payload["metar"] = None
-    if resolved["preset"] == "radar_strip":
-        try:
-            radar = api_radar(float(resolved.get("options", {}).get("range_nm") or 5.0))
-            payload["radar"] = {
-                "range_nm": resolved.get("options", {}).get("range_nm") or 5,
-                "count": radar.get("count"),
-                "source": radar.get("source"),
-                "blips": list(radar.get("blips") or [])[:12],
+
+    if _matrix_is_vatsim_preset(resolved["preset"]):
+        dep_rows = [_matrix_row_payload(row) for row in _matrix_vatsim_rows(cfg=cfg, view="departures", limit=limit)]
+        arr_rows = [_matrix_row_payload(row) for row in _matrix_vatsim_rows(cfg=cfg, view="arrivals", limit=limit)]
+        rows = dep_rows if effective_view == "departures" else arr_rows
+        metar_payload = None
+        weather_page = None
+        if show_metar:
+            try:
+                metar = _matrix_vatsim_weather(cfg)
+            except Exception as exc:
+                log.debug("VATSIM matrix weather unavailable: %s", exc)
+                metar = None
+            metar_payload = _matrix_metar_payload(metar)
+            weather_page = _matrix_weather_page(metar, airport_icao=cfg.airport_icao)
+        payload.update({
+            "rows": rows,
+            "metar": metar_payload,
+            "weather_page": weather_page,
+        })
+        if resolved["preset"] == "vatsim_atc":
+            pages = {
+                "departures": dep_rows,
+                "arrivals": arr_rows,
             }
+            if show_metar and weather_page:
+                pages["weather"] = weather_page
+            payload["pages"] = pages
+        return payload
+
+    rows = api_fids(view=effective_view, limit=limit)
+    payload["rows"] = [_matrix_row_payload(row) for row in rows]
+    if show_metar:
+        try:
+            payload["metar"] = _matrix_metar_payload(api_metar())
         except Exception:
-            payload["radar"] = {"range_nm": resolved.get("options", {}).get("range_nm") or 5, "count": 0, "blips": []}
+            payload["metar"] = None
+    else:
+        payload["metar"] = None
     return payload
 
 

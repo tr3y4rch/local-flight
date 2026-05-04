@@ -354,10 +354,10 @@ def _fetch_real(cfg: AppConfig) -> List[Flight]:
 # ── VATSIM (virtual) ───────────────────────────────────────────────────────────
 
 def _fetch_vatsim(cfg: AppConfig) -> List[Flight]:
-    from localflight.sources.web.vatsim_client import fetch_vatsim_data, vatsim_to_raw_records
+    from localflight.sources.web.vatsim_client import fetch_vatsim_data_cached, vatsim_to_raw_records
     from localflight.core.models import FlightPosition
 
-    payload = fetch_vatsim_data()
+    payload = fetch_vatsim_data_cached()
     pilots  = payload.get("pilots") or []
 
     records = vatsim_to_raw_records(payload, airport_icao=cfg.airport_icao, mode="both")

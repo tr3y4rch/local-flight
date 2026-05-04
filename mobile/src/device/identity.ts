@@ -14,7 +14,7 @@ const APP_CONFIG = require("../../app.json") as {
 const COMPANION_APP_VERSION = String(
   APP_CONFIG?.expo?.extra?.localFlightVersion ||
   APP_CONFIG?.expo?.version ||
-  "0.2.5b4"
+  "0.2.5b5"
 );
 
 export type CompanionIdentity = {

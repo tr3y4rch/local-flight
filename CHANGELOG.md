@@ -6,6 +6,33 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.2.5b5] - 2026-05-04
+
+### Added
+- Matrix V2 now has explicit public presets for exactly three operator-facing profiles: `real_fids`, `vatsim_pilot`, and `vatsim_atc`. Legacy preset names remain accepted as compatibility aliases, but the user-facing preset list is intentionally cleaned up.
+- Matrix device check-in, config assignment, page-aware feeds, and generated `main.py` are now aligned across the web kiosk and native Qt Matrix tools, including the native **Generate main.py** path.
+- `vatsim_pilot` and `vatsim_atc` are VATSIM-only matrix profiles. They require app source `virtual`, return a clear "set source to VATSIM" state when source is still real, and do not silently fetch real FIDS or real METAR fallback data.
+- `vatsim_atc` can rotate local departures, arrivals, and a decoded VATSIM ATIS/METAR weather page without making extra HTTP requests for each page flip.
+- Matrix row payloads now include display-safe route fields (`route_city`, `route_code`, `route_matrix_label`) so small panels can preserve airport codes instead of permanently truncating passenger-critical destinations.
+- Matrix weather payloads now expose decoded display fields (`condition_display`, `temperature_short`, `weather_display`) for icon-led weather strips instead of raw `WX VFR 30C...` text.
+- Matrix config now includes a weather toggle (`options.show_metar` / `show_weather`) used by the web preview, native preview, generated MicroPython client, and VATSIM ATC page rotation.
+
+### Changed
+- The MicroPython client now renders modern passenger FIDS rows as a real branch instead of falling through to classic fixed-width rows.
+- Matrix layouts are now small-panel aware. Narrow or square panels such as `128x64` and `128x128` rotate/cycle route, status, and codeshare chunks instead of relying on one fixed slice.
+- The board header now prefers the passenger-readable airport city label, such as `Singapore`, instead of showing only IATA codes such as `SIN`.
+- Compact weather strips now draw pixel glyphs for the weather condition and a thermometer-style temperature marker, while hiding weather cleanly when it is disabled or unavailable.
+- The generated Interstate 75 W client now supports scalable rectangular HUB75 combinations, including side-by-side and stacked `128x64` modules, plus wider custom logical sizes where the firmware display mode supports them.
+- Status and row polish now includes breathing active-state coloring, cancellation warning treatment, codeshare flight-number cycling, route-code preservation, and local page rotation driven by the server matrix config.
+- Matrix VATSIM, radar virtual mode, and scheduler VATSIM paths now share cached VATSIM payload access where practical to avoid duplicate upstream VATSIM requests.
+
+### Fixed
+- Generated `main.py` no longer crashes when route/status values arrive as non-string JSON values; text fields are normalized before fitting or cycling.
+- The board no longer shows uptime as clock data. Matrix feeds/config responses include server-synced UTC/local clock payloads for the MicroPython client.
+- Web and native Matrix generators now produce the same current client template and runtime assumptions, reducing drift between the kiosk and native GUI.
+- Matrix preview scaling now treats base HUB75 modules as rectangles instead of square panels, so custom sizes such as `128x128` and `256x64` preview with the correct logical proportions.
+- VATSIM matrix weather no longer falls back to real-world weather when the VATSIM presets are selected.
+
 ## [0.2.5b4] - 2026-05-01
 
 ### Changed

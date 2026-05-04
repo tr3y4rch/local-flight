@@ -35,25 +35,30 @@ ANIMATION_ENABLED = True
 ANIMATION_MODE   = "split_flap"
 ANIMATION_SPEED  = 3
 STATUS_ANIMATION_ENABLED = True
-PRESET           = "classic_split_flap"
-RENDERER         = "split_flap"
+SHOW_WEATHER    = True
+PRESET           = "real_fids"
+RENDERER         = "modern_fids"
 MATRIX_CONFIG_REV = 0
 
 CONFIG_REFRESH_S = 300   # re-read server config every 5 min
 PING_S           = 600   # ping server every 10 min
 CLIENT_VER       = "2.0"
-SUPPORTED_RENDERERS = ["split_flap", "modern_fids", "tower_fids", "vatsim_ops", "terminal_minimal", "radar_strip"]
+SUPPORTED_RENDERERS = ["modern_fids", "vatsim_pilot", "vatsim_atc"]
 SUPPORTED_ANIMATIONS = ["split_flap", "slide_left", "slide_right", "static"]
 # ──────────────────────────────────────────────────────────────────────────────
 
 # Airport is read from the server — no hardcoding needed
 _airport_iata = "---"
+_airport_label = "LOCAL"
 _device_id = None
 _clock_utc_epoch = None
 _clock_sync_ticks = 0
 _clock_offset_minutes = 0
 _clock_timezone = "UTC"
 _matrix_metar = None
+_matrix_pages = None
+_matrix_weather_page = None
+_matrix_message = ""
 
 import time
 import network
@@ -173,6 +178,7 @@ _GLYPHS = {
     "rain": ["01110", "11111", "00000", "01010", "10100"],
     "storm": ["01110", "11111", "00100", "01000", "10000"],
     "mist": ["00000", "11110", "00000", "01111", "00000"],
+    "temp": ["00100", "01010", "01010", "10001", "01110"],
     "unknown": ["11111", "10001", "00110", "00000", "00100"],
 }
 
@@ -561,6 +567,32 @@ def _normalize_airport_iata(value):
     return "---"
 
 
+def _normalize_airport_label(data):
+    if not isinstance(data, dict):
+        return _airport_iata
+    label = (
+        data.get("airport_label")
+        or data.get("airport_display_name")
+        or data.get("airport_city")
+        or data.get("airport_name")
+        or data.get("airport_iata")
+        or _airport_iata
+    )
+    text = _upper_text(label).strip()
+    return text or _airport_iata
+
+
+def _truthy(value, fallback=True):
+    if value is None:
+        return fallback
+    text = str(value).strip().lower()
+    if text in ("0", "false", "no", "off"):
+        return False
+    if text in ("1", "true", "yes", "on"):
+        return True
+    return bool(value)
+
+
 def _sync_clock_from_config(data):
     global _clock_utc_epoch, _clock_sync_ticks, _clock_offset_minutes, _clock_timezone
     if not isinstance(data, dict) or data.get("clock_utc_epoch") is None:
@@ -645,11 +677,12 @@ def _post_json(path, payload, timeout=8):
 
 # ── API helpers ────────────────────────────────────────────────────────────────
 def fetch_config():
-    global _airport_iata
+    global _airport_iata, _airport_label
     data = _get_json("/api/config", timeout=8)
     if not isinstance(data, dict):
         return False
     _airport_iata = _normalize_airport_iata(data.get("airport_iata"))
+    _airport_label = _normalize_airport_label(data)
     _sync_clock_from_config(data)
     return True
 
@@ -670,12 +703,14 @@ def checkin_matrix_device():
 def fetch_matrix_config():
     global MAX_ROWS, REFRESH_S, PAGE_ROTATION_S, BRIGHTNESS, DEFAULT_VIEW
     global ANIMATION_ENABLED, ANIMATION_MODE, ANIMATION_SPEED, STATUS_ANIMATION_ENABLED
-    global PRESET, RENDERER, MATRIX_CONFIG_REV
+    global SHOW_WEATHER, PRESET, RENDERER, MATRIX_CONFIG_REV, _airport_iata, _airport_label
     data = _get_json(f"/api/matrix/v2/devices/{device_id()}/config", timeout=8)
     if not isinstance(data, dict):
         data = _get_json("/api/matrix/config", timeout=8)
     if not isinstance(data, dict):
         return False
+    _airport_iata = _normalize_airport_iata(data.get("airport_iata", _airport_iata))
+    _airport_label = _normalize_airport_label(data)
     _sync_clock_from_config(data)
     MAX_ROWS     = _clamp_int(data.get("max_rows", MAX_ROWS), 1, 8, MAX_ROWS)
     REFRESH_S    = _clamp_int(data.get("refresh_seconds", REFRESH_S), 10, 3600, REFRESH_S)
@@ -690,6 +725,8 @@ def fetch_matrix_config():
         ANIMATION_MODE = "static"
     ANIMATION_SPEED = _clamp_int(data.get("animation_speed", ANIMATION_SPEED), 1, 5, ANIMATION_SPEED)
     STATUS_ANIMATION_ENABLED = bool(data.get("status_animation_enabled", STATUS_ANIMATION_ENABLED))
+    options = data.get("options") if isinstance(data.get("options"), dict) else {}
+    SHOW_WEATHER = _truthy(options.get("show_metar", options.get("show_weather")), SHOW_WEATHER)
     PRESET = data.get("preset", PRESET)
     RENDERER = data.get("renderer", RENDERER)
     if RENDERER not in SUPPORTED_RENDERERS:
@@ -706,16 +743,24 @@ def fetch_matrix_config():
 
 
 def fetch_fids(view="departures", limit=4):
-    global _matrix_metar
+    global _matrix_metar, _matrix_pages, _matrix_weather_page, _matrix_message, _airport_iata, _airport_label
     view = _normalize_view(view, "departures")
     limit = _clamp_int(limit, 1, 32, max(MAX_ROWS, limit))
     data = _get_json(f"/api/matrix/v2/devices/{device_id()}/feed?view={view}", timeout=10)
     if isinstance(data, dict) and isinstance(data.get("rows"), list):
+        _airport_iata = _normalize_airport_iata(data.get("airport_iata", _airport_iata))
+        _airport_label = _normalize_airport_label(data)
         _matrix_metar = data.get("metar") if isinstance(data.get("metar"), dict) else None
+        _matrix_pages = data.get("pages") if isinstance(data.get("pages"), dict) else None
+        _matrix_weather_page = data.get("weather_page") if isinstance(data.get("weather_page"), dict) else None
+        _matrix_message = _upper_text(data.get("message") or "")
         return data.get("rows") or []
     data = _get_json(f"/api/fids?view={view}&limit={limit}", timeout=10)
     if isinstance(data, list):
         _matrix_metar = None
+        _matrix_pages = None
+        _matrix_weather_page = None
+        _matrix_message = ""
         return data
     return []
 
@@ -742,7 +787,12 @@ def _draw_message(msg, color=WHITE):
 def _weather_glyph_name():
     if not isinstance(_matrix_metar, dict):
         return "unknown"
-    icon = _upper_text(_matrix_metar.get("weather_icon") or _matrix_metar.get("summary")).lower()
+    icon = _upper_text(
+        _matrix_metar.get("weather_icon")
+        or _matrix_metar.get("condition_display")
+        or _matrix_metar.get("weather_label")
+        or _matrix_metar.get("summary")
+    ).lower()
     if "storm" in icon or "thunder" in icon:
         return "storm"
     if "rain" in icon or "shower" in icon:
@@ -756,19 +806,78 @@ def _weather_glyph_name():
     return "unknown"
 
 def _weather_line(chars=18):
+    if not SHOW_WEATHER:
+        return ""
     if not isinstance(_matrix_metar, dict):
         return ""
-    cat = _upper_text(_matrix_metar.get("flight_cat") or _matrix_metar.get("category"))
-    temp = _matrix_metar.get("temperature_display") or _matrix_metar.get("temp_c") or _matrix_metar.get("temperature_c")
-    if temp is None:
-        temp_s = ""
-    else:
-        temp_s = str(temp).replace(" C", "C").replace(" ", "")
-        if temp_s and not temp_s.upper().endswith("C"):
+    condition = _upper_text(
+        _matrix_metar.get("condition_display")
+        or _matrix_metar.get("weather_label")
+        or _matrix_metar.get("summary")
+        or _matrix_metar.get("weather_display")
+    )
+    temp = (
+        _matrix_metar.get("temperature_short")
+        or _matrix_metar.get("temperature_display")
+        or _matrix_metar.get("temp_c")
+        or _matrix_metar.get("temperature_c")
+    )
+    temp_s = ""
+    if temp is not None:
+        temp_s = str(temp).replace(" C", "C").replace(" ", "").upper()
+        if temp_s and not temp_s.endswith("C"):
             temp_s += "C"
-    wind = _upper_text(_matrix_metar.get("wind_display") or _matrix_metar.get("wind"))
-    text = "WX " + " ".join(part for part in (cat, temp_s, wind) if part)
+    text = " ".join(part for part in (condition, temp_s) if part)
     return marquee(text, chars).rstrip() if len(text) > chars else text[:chars]
+
+def draw_weather_compact(x, y, max_width):
+    if not SHOW_WEATHER or not isinstance(_matrix_metar, dict):
+        return 0
+    glyph = _weather_glyph_name()
+    condition = _upper_text(
+        _matrix_metar.get("condition_display")
+        or _matrix_metar.get("weather_label")
+        or _matrix_metar.get("summary")
+    )
+    temp = (
+        _matrix_metar.get("temperature_short")
+        or _matrix_metar.get("temperature_display")
+        or _matrix_metar.get("temp_c")
+        or _matrix_metar.get("temperature_c")
+    )
+    temp_s = ""
+    if temp is not None:
+        temp_s = str(temp).replace(" C", "C").replace(" ", "").upper()
+        if temp_s and not temp_s.endswith("C"):
+            temp_s += "C"
+    draw_glyph(glyph, x, y + 1, AMBER if glyph in ("sun", "storm") else DIM)
+    cursor = x + 7
+    chars = max(3, (max_width - 14) // 8)
+    if temp_s:
+        chars = max(3, chars - len(temp_s) - 1)
+    label = marquee(condition, chars).rstrip() if len(condition) > chars else condition[:chars]
+    graphics.set_pen(DIM)
+    graphics.text(label, cursor, y, max_width, 1)
+    cursor += len(label) * 8 + 2
+    if temp_s and cursor + 13 < x + max_width:
+        draw_glyph("temp", cursor, y + 1, AMBER)
+        graphics.set_pen(AMBER)
+        graphics.text(temp_s, cursor + 6, y, max_width, 1)
+    return cursor - x
+
+def _weather_page_lines(chars):
+    page = _matrix_weather_page if isinstance(_matrix_weather_page, dict) else None
+    lines = page.get("lines") if page else None
+    if not isinstance(lines, list) or not lines:
+        lines = ["NO VATSIM ATIS"] if RENDERER == "vatsim_atc" else [_weather_line(chars)]
+    clean = []
+    for line in lines:
+        text = _upper_text(line)
+        if text:
+            clean.append(text)
+    if not clean:
+        clean = ["NO WX"]
+    return [marquee(line, chars).rstrip() if len(line) > chars else line[:chars] for line in clean]
 
 def _header_height():
     if HEIGHT >= 96 and _weather_line(8):
@@ -780,8 +889,64 @@ def _visible_rows():
         return max(1, min(MAX_ROWS, (HEIGHT - _header_height()) // 27))
     return MAX_ROWS
 
+def draw_source_message():
+    graphics.set_pen(BLACK)
+    graphics.clear()
+    graphics.set_font("bitmap8")
+    msg = _matrix_message or "NO DATA"
+    chars = max(8, WIDTH // 8)
+    lines = cycle_chunks(msg, chars).split("|") if "|" in msg else [cycle_chunks(msg, chars)]
+    graphics.set_pen(AMBER)
+    graphics.text(lines[0], 2, max(0, HEIGHT // 2 - 8), WIDTH, 1)
+    if HEIGHT >= 32:
+        graphics.set_pen(DIM)
+        graphics.text("CHECK SETTINGS", 2, HEIGHT // 2 + 2, WIDTH, 1)
+
+def draw_vatsim_weather_page():
+    graphics.set_pen(BLACK)
+    graphics.clear()
+    graphics.set_font("bitmap8")
+    chars = max(8, WIDTH // 8 - 1)
+    title = "VATSIM WX"
+    if isinstance(_matrix_weather_page, dict):
+        title = _upper_text(_matrix_weather_page.get("title") or title)
+    graphics.set_pen(GREEN)
+    graphics.text(f"{_airport_label} {title}"[:chars], 0, 0, WIDTH, 1)
+    graphics.set_pen(DIM)
+    graphics.line(0, 9, WIDTH, 9)
+    y = 12
+    glyph = _weather_glyph_name()
+    draw_glyph(glyph, 0, y + 1, AMBER if glyph in ("sun", "storm") else DIM)
+    lines = _weather_page_lines(chars)
+    line_h = 9
+    max_lines = max(1, (HEIGHT - y) // line_h)
+    start = 0
+    if len(lines) > max_lines:
+        try:
+            start = int(time.time() // 3) % len(lines)
+        except Exception:
+            start = 0
+    for idx in range(max_lines):
+        line = lines[(start + idx) % len(lines)]
+        graphics.set_pen(WHITE if idx == 0 else DIM)
+        graphics.text(line, 8 if idx == 0 else 0, y + idx * line_h, WIDTH, 1)
+
+def _vatsim_atc_page():
+    pages = ("departures", "arrivals")
+    if SHOW_WEATHER and isinstance(_matrix_weather_page, dict):
+        pages = ("departures", "arrivals", "weather")
+    try:
+        slot = int(time.time() // max(3, PAGE_ROTATION_S)) % len(pages)
+    except Exception:
+        slot = 0
+    return pages[slot]
+
 def draw_header(view, connected=True):
-    label = f"{_airport_iata} {'DEP' if view == 'departures' else 'ARR'}"
+    header_name = _airport_label or _airport_iata
+    label = f"{header_name} {'DEP' if view == 'departures' else 'ARR'}"
+    if len(label) * 8 > WIDTH // 2 and len(header_name) > 10:
+        view_label = "DEP" if view == "departures" else "ARR"
+        label = "{} {}".format(marquee(header_name, max(6, WIDTH // 16)).rstrip(), view_label)
     graphics.set_pen(GREEN)
     graphics.set_font("bitmap8")
     graphics.text(label, 0, 0, WIDTH, 1)
@@ -794,13 +959,15 @@ def draw_header(view, connected=True):
     clock = weather if (show_weather and WIDTH >= 200) else "UTC{} LT{}".format(utc_ts, local_ts) if WIDTH >= 200 else "LT{}".format(local_ts)
     clock_x = WIDTH - len(clock) * 8 - 2
     if clock_x > len(label) * 8 + 6:
-        graphics.set_pen(DIM)
-        graphics.text(clock, clock_x, 0, WIDTH, 1)
+        if show_weather and WIDTH >= 200:
+            draw_weather_compact(clock_x, 0, WIDTH - clock_x)
+        else:
+            graphics.set_pen(DIM)
+            graphics.text(clock, clock_x, 0, WIDTH, 1)
 
     if HEIGHT >= 96 and weather:
-        draw_glyph(_weather_glyph_name(), 0, 11, AMBER if _weather_glyph_name() in ("sun", "storm") else DIM)
+        draw_weather_compact(0, 10, WIDTH)
         graphics.set_pen(DIM)
-        graphics.text(weather, 8, 10, WIDTH - 8, 1)
         graphics.line(0, 19, WIDTH, 19)
 
     # Separator
@@ -915,7 +1082,7 @@ def draw_modern_fids(flap_rows, page_data, view):
         row = page_data[i] if i < len(page_data) else None
         if not row:
             continue
-        text = flap_rows[i].get_text()
+        text = flap_rows[i].get_text() if flap_rows else build_row_text(row)
         cancelled = is_cancelled(row)
         if cancelled and _blink_fast():
             graphics.set_pen(RED)
@@ -931,7 +1098,7 @@ def draw_modern_fids(flap_rows, page_data, view):
         if row_h >= 17:
             graphics.set_pen(status_color(row))
             status = _status_chunk(row, max(8, WIDTH // 8 - 2))
-            if RENDERER in ("tower_fids", "vatsim_ops"):
+            if RENDERER in ("vatsim_pilot", "vatsim_atc"):
                 ac = _upper_text(row.get("aircraft_type") or row.get("aircraft") or "")
                 cs = _upper_text(row.get("callsign") or "")
                 status = " ".join(part for part in (status, ac or cs) if part)
@@ -942,6 +1109,17 @@ def draw_modern_fids(flap_rows, page_data, view):
         if i < MAX_ROWS - 1:
             graphics.set_pen(DIMBG)
             graphics.line(0, y + row_h - 1, WIDTH, y + row_h - 1)
+
+
+def draw_vatsim_atc(flap_rows, fallback_rows, fallback_view):
+    page = _vatsim_atc_page()
+    if page == "weather":
+        draw_vatsim_weather_page()
+        return
+    rows = fallback_rows
+    if isinstance(_matrix_pages, dict) and isinstance(_matrix_pages.get(page), list):
+        rows = _matrix_pages.get(page) or []
+    draw_modern_fids(None, rows, page)
 
 
 def draw_radar_strip(page_rows):
@@ -1116,11 +1294,11 @@ def main():
         graphics.set_pen(BLACK)
         graphics.clear()
 
-        if RENDERER == "terminal_minimal":
-            draw_terminal_minimal(page_data)
-        elif RENDERER == "radar_strip":
-            draw_radar_strip(page_data)
-        elif RENDERER in ("modern_fids", "tower_fids", "vatsim_ops"):
+        if _matrix_message:
+            draw_source_message()
+        elif RENDERER == "vatsim_atc":
+            draw_vatsim_atc(flap_rows, page_data, view)
+        elif RENDERER in ("modern_fids", "vatsim_pilot"):
             draw_modern_fids(flap_rows, page_data, view)
         else:
             draw_classic_board(flap_rows, page_data, view)

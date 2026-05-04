@@ -349,7 +349,7 @@
 <main class="card">
   <div class="preview-header">
     <div>
-      <h1>Matrix Preview — {{ cfg.airport_iata }}</h1>
+      <h1>Matrix Preview — {{ airport_label }}</h1>
       <div class="sub" id="panelSubtitle">{{ panel_w }}×{{ panel_h }} · Interstate 75 W · skin: {{ cfg.skin }}</div>
     </div>
   </div>
@@ -430,13 +430,9 @@
     <div class="ctrl-group">
       <label>Preset</label>
       <select id="presetSelect" onchange="setMatrixPreset(this.value)">
-        <option value="classic_split_flap">Classic split-flap</option>
-        <option value="modern_airport_fids">Modern airport FIDS</option>
-        <option value="pax_airport_fids">Passenger airport FIDS</option>
-        <option value="tower_fids">Tower FIDS</option>
-        <option value="vatsim_ops">VATSIM ops</option>
-        <option value="terminal_minimal">Terminal minimal</option>
-        <option value="radar_strip">Radar strip</option>
+        <option value="real_fids">Real FIDS</option>
+        <option value="vatsim_pilot">VATSIM pilot</option>
+        <option value="vatsim_atc">VATSIM ATC</option>
       </select>
     </div>
 
@@ -461,6 +457,7 @@
       </select>
      </div>
 
+    <button class="toggle-btn active" id="weatherToggle" onclick="toggleWeather()">Weather</button>
     <button class="toggle-btn" onclick="triggerDemo()">Demo</button>
   </div>
 
@@ -546,6 +543,7 @@
   // ── Server config ──────────────────────────────────────────────────────────
   const CFG = {
     airport_iata: "{{ cfg.airport_iata }}",
+    airport_label: "{{ airport_label }}",
     timezone:     "{{ cfg.timezone }}",
   };
 
@@ -559,14 +557,18 @@
   let BRIGHTNESS    = 0.8;
   let REFRESH_S_SRV = 60;   // device refresh interval saved to server
   let PAGE_ROTATION_S = 10;
-  let MATRIX_PRESET = "classic_split_flap";
+  let MATRIX_PRESET = "real_fids";
   let ANIMATION_MODE = "split_flap";
   let ANIMATION_SPEED = 3;
   let STATUS_ANIMATION_ENABLED = true;
+  let SHOW_WEATHER = true;
   let MATRIX_CONFIGS = [];
   let MATRIX_PRESETS = [];
   let CURRENT_CONFIG_ID = "";
   let MATRIX_METAR = null;
+  let MATRIX_PAGES = null;
+  let MATRIX_WEATHER_PAGE = null;
+  let MATRIX_MESSAGE = "";
   const POLL_MS     = 15000;
   const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "::1", "[::1]"]);
   const DEFAULT_SERVER_HOST = LOOPBACK_HOSTS.has(window.location.hostname)
@@ -707,6 +709,7 @@
     rain: ["01110","11111","00000","01010","10100"],
     storm: ["01110","11111","00100","01000","10000"],
     mist: ["00000","11110","00000","01111","00000"],
+    temp: ["00100","01010","01010","10001","01110"],
     unknown: ["11111","10001","00110","00000","00100"],
   };
 
@@ -955,7 +958,13 @@
   }
 
   function weatherGlyphName() {
-    const text = String(MATRIX_METAR?.weather_icon || MATRIX_METAR?.summary || "").toLowerCase();
+    const text = String(
+      MATRIX_METAR?.weather_icon ||
+      MATRIX_METAR?.condition_display ||
+      MATRIX_METAR?.weather_label ||
+      MATRIX_METAR?.summary ||
+      ""
+    ).toLowerCase();
     if (text.includes("storm") || text.includes("thunder")) return "storm";
     if (text.includes("rain") || text.includes("shower")) return "rain";
     if (text.includes("mist") || text.includes("fog") || text.includes("haze")) return "mist";
@@ -965,13 +974,45 @@
   }
 
   function weatherLine(chars = 18) {
-    if (!MATRIX_METAR) return "";
-    const cat = String(MATRIX_METAR.flight_cat || MATRIX_METAR.category || "").toUpperCase();
-    const rawTemp = MATRIX_METAR.temperature_display || MATRIX_METAR.temp_c || MATRIX_METAR.temperature_c || "";
+    if (!SHOW_WEATHER || !MATRIX_METAR) return "";
+    const condition = String(
+      MATRIX_METAR.condition_display ||
+      MATRIX_METAR.weather_label ||
+      MATRIX_METAR.summary ||
+      MATRIX_METAR.weather_display ||
+      ""
+    ).toUpperCase();
+    const rawTemp = MATRIX_METAR.temperature_short || MATRIX_METAR.temperature_display || MATRIX_METAR.temp_c || MATRIX_METAR.temperature_c || "";
     const temp = rawTemp === "" ? "" : String(rawTemp).replace(" C", "C").replace(/\s+/g, "").toUpperCase().replace(/([^C])$/, "$1C");
-    const wind = String(MATRIX_METAR.wind_display || MATRIX_METAR.wind || "").toUpperCase();
-    const text = `WX ${[cat, temp, wind].filter(Boolean).join(" ")}`.trim();
+    const text = [condition, temp].filter(Boolean).join(" ").trim();
     return text.length > chars ? marquee(text, chars).trim() : text.slice(0, chars);
+  }
+
+  function drawWeatherCompact(x, y, maxW) {
+    if (!SHOW_WEATHER || !MATRIX_METAR) return;
+    const glyph = weatherGlyphName();
+    drawGlyph(glyph, x, y + 1, glyph === "sun" || glyph === "storm" ? C.amber : C.dim);
+    const rawTemp = MATRIX_METAR.temperature_short || MATRIX_METAR.temperature_display || MATRIX_METAR.temp_c || MATRIX_METAR.temperature_c || "";
+    const temp = rawTemp === "" ? "" : String(rawTemp).replace(" C", "C").replace(/\s+/g, "").toUpperCase().replace(/([^C])$/, "$1C");
+    const condition = String(MATRIX_METAR.condition_display || MATRIX_METAR.weather_label || MATRIX_METAR.summary || "").toUpperCase();
+    let chars = Math.max(3, Math.floor((maxW - 14) / 6));
+    if (temp) chars = Math.max(3, chars - temp.length - 1);
+    const label = condition.length > chars ? marquee(condition, chars).trim() : condition.slice(0, chars);
+    drawString(label, x + 8, y, C.dim, maxW - 8);
+    const tempX = x + 8 + label.length * 6 + 3;
+    if (temp && tempX + 6 + temp.length * 6 < x + maxW) {
+      drawGlyph("temp", tempX, y + 1, C.amber);
+      drawString(temp, tempX + 7, y, C.amber, maxW - (tempX - x) - 7);
+    }
+  }
+
+  function weatherPageLines(chars) {
+    let lines = Array.isArray(MATRIX_WEATHER_PAGE?.lines) ? MATRIX_WEATHER_PAGE.lines : [];
+    if (!lines.length) lines = MATRIX_PRESET === "vatsim_atc" ? ["NO VATSIM ATIS"] : [weatherLine(chars)];
+    return lines
+      .map(line => String(line || "").toUpperCase().trim())
+      .filter(Boolean)
+      .map(line => line.length > chars ? marquee(line, chars).trim() : line.slice(0, chars));
   }
 
   function headerHeight() {
@@ -981,6 +1022,38 @@
   function visibleRows() {
     if (PANEL_W < 180) return Math.max(1, Math.min(MAX_ROWS, Math.floor((PANEL_H - headerHeight()) / 27)));
     return MAX_ROWS;
+  }
+
+  function vatsimAtcPage() {
+    const period = Math.max(3, PAGE_ROTATION_S);
+    const pages = SHOW_WEATHER && MATRIX_WEATHER_PAGE
+      ? ["departures", "arrivals", "weather"]
+      : ["departures", "arrivals"];
+    return pages[Math.floor(Date.now() / (period * 1000)) % pages.length];
+  }
+
+  function drawSourceMessage() {
+    const chars = Math.max(8, Math.floor(PANEL_W / 6));
+    drawString(cycleChunks(MATRIX_MESSAGE || "NO DATA", chars).trim(), 2, Math.max(0, Math.floor(PANEL_H / 2) - 8), C.amber, PANEL_W);
+    if (PANEL_H >= 32) drawString("CHECK SETTINGS", 2, Math.floor(PANEL_H / 2) + 2, C.dim, PANEL_W);
+  }
+
+  function drawVatsimWeatherPage() {
+    const chars = Math.max(8, Math.floor(PANEL_W / 6) - 1);
+    const title = String(MATRIX_WEATHER_PAGE?.title || "VATSIM WX").toUpperCase();
+    drawString(`${CFG.airport_label || CFG.airport_iata} ${title}`.slice(0, chars), 0, 0, C.green, PANEL_W);
+    for (let x=0; x<PANEL_W; x++) drawPixel(x, 9, C.dim);
+    const glyph = weatherGlyphName();
+    drawGlyph(glyph, 0, 13, glyph === "sun" || glyph === "storm" ? C.amber : C.dim);
+    const lines = weatherPageLines(chars);
+    const y = 12;
+    const lineH = 9;
+    const maxLines = Math.max(1, Math.floor((PANEL_H - y) / lineH));
+    const start = lines.length > maxLines ? Math.floor(Date.now() / 3000) % lines.length : 0;
+    for (let i = 0; i < Math.min(maxLines, lines.length); i++) {
+      const line = lines[(start + i) % lines.length];
+      drawString(line, i === 0 ? 8 : 0, y + i * lineH, i === 0 ? C.white : C.dim, PANEL_W);
+    }
   }
 
   // ── Draw the full frame ────────────────────────────────────────────────────
@@ -1003,7 +1076,22 @@
     }
 
     // ── Header ──────────────────────────────────────────────────────────────
-    const headerLabel = `${CFG.airport_iata} ${VIEW==="departures"?"DEP":"ARR"}`;
+    if (MATRIX_MESSAGE) {
+      drawSourceMessage();
+      return;
+    }
+    const atcPage = MATRIX_PRESET === "vatsim_atc" ? vatsimAtcPage() : "";
+    if (atcPage === "weather") {
+      drawVatsimWeatherPage();
+      return;
+    }
+    const renderRows = atcPage && MATRIX_PAGES && Array.isArray(MATRIX_PAGES[atcPage])
+      ? MATRIX_PAGES[atcPage]
+      : flightData;
+    const renderView = atcPage || VIEW;
+    const headerBase = CFG.airport_label || CFG.airport_iata;
+    const headerView = renderView==="arrivals"?"ARR":"DEP";
+    const headerLabel = `${headerBase.length > 10 && PANEL_W < 200 ? marquee(headerBase.toUpperCase(), Math.max(6, Math.floor(PANEL_W / 12))).trim() : headerBase} ${headerView}`.toUpperCase();
     drawString(headerLabel, 0, 0, C.green);
 
    // UTC + LT clocks top right
@@ -1021,11 +1109,14 @@
     const clockLine = showWeather && PANEL_W >= 200 ? wx : `UTC${utcStr} LT${ltStr}`;
     const clockX    = PANEL_W - clockLine.length*6 - 1;
     if (clockX > headerLabel.length*6 + 6) {
-      drawString(clockLine, clockX, 0, showWeather ? C.amber : C.dim);
+      if (showWeather && PANEL_W >= 200) {
+        drawWeatherCompact(clockX, 0, PANEL_W - clockX);
+      } else {
+        drawString(clockLine, clockX, 0, C.dim);
+      }
     }
     if (PANEL_H >= 96 && wx) {
-      drawGlyph(weatherGlyphName(), 0, 11, weatherGlyphName() === "sun" || weatherGlyphName() === "storm" ? C.amber : C.dim);
-      drawString(wx, 8, 10, C.dim, PANEL_W - 8);
+      drawWeatherCompact(0, 10, PANEL_W);
       for (let x=0; x<PANEL_W; x++) drawPixel(x, 19, C.dim);
     }
 
@@ -1041,8 +1132,8 @@
     for (let ri=0; ri<rowsToDraw; ri++) {
       const y   = dataY + ri*rowH;
       if (y+7 > PANEL_H) break;
-      const txt = getRowText(ri);
-      const row = flightData[ri] || null;
+      const row = renderRows[ri] || null;
+      const txt = atcPage ? buildRowText(row || {}) : getRowText(ri);
       const cancelled = statusKey(row).includes("cancel");
       const compact = PANEL_W < 180;
       if (cancelled) {
@@ -1055,7 +1146,7 @@
 
       if (compact) {
         const chars = Math.max(8, Math.floor(PANEL_W / 6));
-        drawGlyph(cancelled ? "warn" : (VIEW === "arrivals" ? "arr" : "dep"), 0, y + 1, cancelled ? C.red : C.dim);
+        drawGlyph(cancelled ? "warn" : (renderView === "arrivals" ? "arr" : "dep"), 0, y + 1, cancelled ? C.red : C.dim);
         drawString(txt.slice(0,5), 8, y, cancelled ? C.white : C.green);
         drawString(txt.slice(6,14), 50, y, C.white);
 
@@ -1107,7 +1198,7 @@
     }
 
     // No data
-    if (flightData.length === 0) {
+    if (renderRows.length === 0) {
       drawString("NO DATA - WAITING", 4, PANEL_H/2-4|0, C.amber);
     }
   }
@@ -1177,12 +1268,22 @@
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       let payload = await r.json();
       let data = Array.isArray(payload) ? payload : (payload.rows || []);
+      if (payload && !Array.isArray(payload)) {
+        CFG.airport_iata = payload.airport_iata || CFG.airport_iata;
+        CFG.airport_label = payload.airport_label || payload.airport_display_name || payload.airport_city || CFG.airport_label || CFG.airport_iata;
+      }
       MATRIX_METAR = payload && !Array.isArray(payload) ? (payload.metar || null) : null;
+      MATRIX_PAGES = payload && !Array.isArray(payload) ? (payload.pages || null) : null;
+      MATRIX_WEATHER_PAGE = payload && !Array.isArray(payload) ? (payload.weather_page || null) : null;
+      MATRIX_MESSAGE = payload && !Array.isArray(payload) ? String(payload.message || "") : "";
       if (!Array.isArray(data)) {
         r = await fetch(`/api/fids?view=${VIEW}&limit=${fetchLimit}`);
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         data = await r.json();
         MATRIX_METAR = null;
+        MATRIX_PAGES = null;
+        MATRIX_WEATHER_PAGE = null;
+        MATRIX_MESSAGE = "";
       }
       if (data.length === 0) {
         applyFlightData([]);
@@ -1391,6 +1492,7 @@ BRIGHTNESS    = ${BRIGHTNESS.toFixed(2)}
 DEFAULT_VIEW  = "${VIEW}"
 PRESET        = "${MATRIX_PRESET}"
 ANIMATION_MODE = "${ANIMATION_MODE}"
+SHOW_WEATHER = ${SHOW_WEATHER ? "True" : "False"}
 CLIENT_VER    = "2.0"
 
 Board reads: /api/config -> /api/matrix/v2/devices/{id}/config -> /api/matrix/v2/devices/{id}/feed`;
@@ -1582,6 +1684,11 @@ Board reads: /api/config -> /api/matrix/v2/devices/{id}/config -> /api/matrix/v2
     if (d.status_animation_enabled !== undefined) {
       STATUS_ANIMATION_ENABLED = Boolean(d.status_animation_enabled);
     }
+    const options = d.options && typeof d.options === "object" ? d.options : {};
+    if (options.show_metar !== undefined || options.show_weather !== undefined) {
+      SHOW_WEATHER = options.show_metar !== undefined ? Boolean(options.show_metar) : Boolean(options.show_weather);
+      document.getElementById("weatherToggle")?.classList.toggle("active", SHOW_WEATHER);
+    }
     if (d.default_view !== undefined) {
       VIEW = d.default_view;
       document.getElementById("btnDep").classList.toggle("active", d.default_view === "departures");
@@ -1596,7 +1703,13 @@ Board reads: /api/config -> /api/matrix/v2/devices/{id}/config -> /api/matrix/v2
   };
 
   window.setMatrixPreset = function(id) {
-    MATRIX_PRESET = id || "classic_split_flap";
+    MATRIX_PRESET = id || "real_fids";
+    updateCfgBlock();
+  };
+
+  window.toggleWeather = function() {
+    SHOW_WEATHER = !SHOW_WEATHER;
+    document.getElementById("weatherToggle")?.classList.toggle("active", SHOW_WEATHER);
     updateCfgBlock();
   };
 
@@ -1637,6 +1750,10 @@ Board reads: /api/config -> /api/matrix/v2/devices/{id}/config -> /api/matrix/v2
             animation_mode: ANIMATION_MODE,
             animation_speed: ANIMATION_SPEED,
             status_animation_enabled: STATUS_ANIMATION_ENABLED,
+            options: {
+              show_metar: SHOW_WEATHER,
+              show_weather: SHOW_WEATHER,
+            },
           }),
         });
         if (!v2.ok) throw new Error(`HTTP ${v2.status}`);

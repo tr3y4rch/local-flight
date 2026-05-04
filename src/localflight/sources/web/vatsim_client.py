@@ -51,6 +51,8 @@ log = logging.getLogger(__name__)
 
 VATSIM_DATA_URL = "https://data.vatsim.net/v3/vatsim-data.json"
 _TIMEOUT_S = 15
+_CACHE_TTL_S = 60
+_CACHE: Dict[str, Any] = {"fetched_at": None, "payload": None, "fetch_func_id": None}
 
 _GS_AIRBORNE  = 80    # knots above which we consider aircraft airborne
 _ALT_AIRBORNE = 3000  # feet above which we consider aircraft airborne
@@ -94,6 +96,38 @@ def fetch_vatsim_data(*, timeout_s: int = _TIMEOUT_S) -> Dict[str, Any]:
 
     log.debug("VATSIM: fetched %d pilots", len(data.get("pilots") or []))
     return data
+
+
+def fetch_vatsim_data_cached(
+    *,
+    timeout_s: int = _TIMEOUT_S,
+    ttl_s: int = _CACHE_TTL_S,
+) -> Dict[str, Any]:
+    """
+    Fetch VATSIM data with a short process-local cache.
+
+    Matrix previews, physical boards, radar, and VATSIM weather can all poll at
+    human UI rates. The public VATSIM data feed already updates on its own
+    cadence, so sharing one payload per minute keeps Local Flight lively without
+    turning every panel/page into its own upstream request.
+    """
+    now = datetime.now(timezone.utc)
+    fetched_at = _CACHE.get("fetched_at")
+    payload = _CACHE.get("payload")
+    fetch_func_id = id(fetch_vatsim_data)
+    if isinstance(payload, dict) and isinstance(fetched_at, datetime):
+        age = (now - fetched_at).total_seconds()
+        if age < max(1, int(ttl_s)) and _CACHE.get("fetch_func_id") == fetch_func_id:
+            return payload
+
+    try:
+        payload = fetch_vatsim_data(timeout_s=timeout_s)
+    except TypeError:
+        payload = fetch_vatsim_data()
+    _CACHE["payload"] = payload
+    _CACHE["fetched_at"] = now
+    _CACHE["fetch_func_id"] = fetch_func_id
+    return payload
 
 
 def vatsim_metar_for_airport(payload: Dict[str, Any], *, airport_icao: str) -> Optional[str]:

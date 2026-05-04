@@ -1126,7 +1126,7 @@ def test_mobile_companion_checkin_is_exposed_in_connections(monkeypatch, tmp_pat
         json={
             "companion_id": "lfc_test_mobile_001",
             "client_name": "Local Flight Companion",
-            "app_version": "0.2.5b4",
+            "app_version": "0.2.5b5",
             "mobile_os": "iOS 18.5 (phone)",
             "device_type": "phone",
         },
@@ -1507,7 +1507,7 @@ def test_matrix_v2_migrates_flat_config_and_registers_device(tmp_path: Path, mon
 
     presets = client.get("/api/matrix/v2/presets").json()["presets"]
     preset_ids = {item["id"] for item in presets}
-    assert {"classic_split_flap", "pax_airport_fids", "tower_fids", "vatsim_ops", "radar_strip"} <= preset_ids
+    assert preset_ids == {"real_fids", "vatsim_pilot", "vatsim_atc"}
 
     response = client.post(
         "/api/matrix/v2/devices/checkin",
@@ -1528,8 +1528,34 @@ def test_matrix_v2_migrates_flat_config_and_registers_device(tmp_path: Path, mon
     response = client.get("/api/matrix/v2/devices/i75w-test/config")
     assert response.status_code == 200
     resolved = response.json()
-    assert resolved["renderer"] == "split_flap"
+    assert resolved["renderer"] == "modern_fids"
     assert resolved["device_id"] == "i75w-test"
+
+
+def test_matrix_v2_legacy_presets_normalize_to_three_public_profiles(tmp_path: Path, monkeypatch) -> None:
+    matrix_config = tmp_path / "matrix_config.json"
+    matrix_config.write_text(
+        json.dumps(
+            {
+                "schema_version": 2,
+                "default_config_id": "old",
+                "configs": [
+                    {**ui_api._MATRIX_CONFIG_DEFAULTS, "id": "old", "preset": "classic_split_flap"},
+                    {**ui_api._MATRIX_CONFIG_DEFAULTS, "id": "ops", "preset": "vatsim_ops"},
+                    {**ui_api._MATRIX_CONFIG_DEFAULTS, "id": "radar", "preset": "radar_strip"},
+                ],
+                "devices": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(ui_api, "_matrix_config_path", lambda: matrix_config)
+    monkeypatch.setattr(ui_api, "load_config", lambda: AppConfig(airport_iata="ZRH", airport_icao="LSZH"))
+
+    payload = TestClient(ui_api.app).get("/api/matrix/v2/configs").json()
+
+    presets = {cfg["id"]: cfg["preset"] for cfg in payload["configs"]}
+    assert presets == {"old": "real_fids", "ops": "vatsim_pilot", "radar": "real_fids"}
 
 
 def test_matrix_v2_feed_adds_route_safe_fields_and_metar(tmp_path: Path, monkeypatch) -> None:
@@ -1587,6 +1613,133 @@ def test_matrix_v2_feed_adds_route_safe_fields_and_metar(tmp_path: Path, monkeyp
     assert row["callsign"] == "AAL100"
     assert payload["metar"]["weather_icon"] == "sun"
     assert payload["metar"]["temperature_display"] == "29 C"
+
+
+def test_matrix_vatsim_preset_requires_virtual_source_without_real_fallback(tmp_path: Path, monkeypatch) -> None:
+    matrix_config = tmp_path / "matrix_config.json"
+    matrix_config.write_text(
+        json.dumps(
+            {
+                "schema_version": 2,
+                "default_config_id": "default",
+                "configs": [{**ui_api._MATRIX_CONFIG_DEFAULTS, "id": "default", "preset": "vatsim_pilot"}],
+                "devices": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(ui_api, "_matrix_config_path", lambda: matrix_config)
+    monkeypatch.setattr(ui_api, "load_config", lambda: AppConfig(airport_iata="ZRH", airport_icao="LSZH", source="real"))
+    monkeypatch.setattr(ui_api, "api_fids", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("real FIDS must not be fetched")))
+    monkeypatch.setattr(ui_api, "api_metar", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("real METAR must not be fetched")))
+
+    response = TestClient(ui_api.app).get("/api/matrix/v2/devices/preview/feed?view=departures")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["source_required"] == "virtual"
+    assert payload["message"] == "SET SOURCE TO VATSIM"
+    assert payload["rows"] == []
+    assert payload["metar"] is None
+    assert payload["weather_page"]["source"] == "vatsim"
+
+
+def test_matrix_vatsim_atc_feed_pages_and_weather_are_vatsim_only(tmp_path: Path, monkeypatch) -> None:
+    matrix_config = tmp_path / "matrix_config.json"
+    matrix_config.write_text(
+        json.dumps(
+            {
+                "schema_version": 2,
+                "default_config_id": "default",
+                "configs": [{**ui_api._MATRIX_CONFIG_DEFAULTS, "id": "default", "preset": "vatsim_atc"}],
+                "devices": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(ui_api, "_matrix_config_path", lambda: matrix_config)
+    monkeypatch.setattr(ui_api, "load_config", lambda: AppConfig(airport_iata="ZRH", airport_icao="LSZH", source="virtual"))
+    monkeypatch.setattr(ui_api, "api_fids", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("real/snapshot FIDS must not be fetched")))
+    monkeypatch.setattr(ui_api, "api_metar", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("real METAR fallback must not be fetched")))
+
+    def vatsim_rows(*, cfg, view, limit):
+        route = "London Heathrow (EGLL)" if view == "departures" else "Zurich (LSZH)"
+        return [
+            {
+                "id": f"vatsim-{view}",
+                "display_time": "12:00",
+                "flight_display": "SWR100",
+                "route_display": route,
+                "status_display": "SCHEDULED",
+                "status_class": "scheduled",
+                "gate": "-",
+                "aircraft_type": "A320",
+                "callsign": "SWR100",
+            }
+        ]
+
+    monkeypatch.setattr(ui_api, "_matrix_vatsim_rows", vatsim_rows)
+    monkeypatch.setattr(
+        ui_api,
+        "_matrix_vatsim_weather",
+        lambda cfg: {
+            "flight_cat": "VFR",
+            "flight_cat_color": "#00c040",
+            "weather_icon": "sun",
+            "weather_label": "Clear",
+            "raw_text": "METAR LSZH 011200Z 28008KT CAVOK 12/04 Q1018",
+            "wind_display": "280/08",
+            "temperature_c": 12,
+            "dewpoint_c": 4,
+            "altimeter_hpa": 1018,
+            "visibility_sm": 6.2,
+            "clouds": [],
+            "source": "vatsim",
+        },
+    )
+
+    response = TestClient(ui_api.app).get("/api/matrix/v2/devices/preview/feed?view=arrivals")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["rows"][0]["route_code"] == "LSZH"
+    assert payload["rows"][0]["gate"] == "-"
+    assert set(payload["pages"]) == {"departures", "arrivals", "weather"}
+    assert payload["pages"]["departures"][0]["route_code"] == "EGLL"
+    assert payload["pages"]["arrivals"][0]["gate"] == "-"
+    assert payload["metar"]["source"] == "vatsim"
+    assert payload["weather_page"]["available"] is True
+    assert "LSZH VATSIM WX" in payload["weather_page"]["lines"]
+
+
+def test_matrix_vatsim_weather_does_not_use_real_metar_fallback(monkeypatch) -> None:
+    import localflight.sources.web.metar_client as metar_client_module
+    import localflight.sources.web.vatsim_client as vatsim_client_module
+
+    monkeypatch.setattr(
+        vatsim_client_module,
+        "fetch_vatsim_data_cached",
+        lambda: {
+            "pilots": [],
+            "atis": [
+                {
+                    "callsign": "LSZH_ATIS",
+                    "text_atis": ["Controller Name CID 123456", "METAR LSZH 011200Z 28008KT CAVOK 12/04 Q1018"],
+                }
+            ],
+        },
+    )
+    monkeypatch.setattr(
+        metar_client_module,
+        "fetch_metar",
+        lambda icao: (_ for _ in ()).throw(AssertionError("real METAR must not be fetched")),
+    )
+
+    metar = ui_api._matrix_vatsim_weather(AppConfig(airport_iata="ZRH", airport_icao="LSZH", source="virtual"))
+
+    assert metar["source"] == "vatsim"
+    assert metar["temp_c"] == 12
+    assert "Controller" not in metar["raw_text"]
 
 
 def test_matrix_route_fields_preserve_icao_only_codes() -> None:
@@ -1695,8 +1848,15 @@ def test_matrix_script_endpoint_uses_current_i75w_client_template() -> None:
     assert "def draw_glyph(name, x, y, color):" in script
     assert "route_matrix_label" in script
     assert "def _weather_line(chars=18):" in script
-    assert "\"tower_fids\"" in script
-    assert "\"vatsim_ops\"" in script
+    assert "SHOW_WEATHER" in script
+    assert "_airport_label" in script
+    assert '"temp": ["00100", "01010", "01010", "10001", "01110"]' in script
+    assert '"WX "' not in script
+    assert "def draw_vatsim_weather_page():" in script
+    assert "def draw_vatsim_atc(flap_rows, fallback_rows, fallback_view):" in script
+    assert "\"real_fids\"" in script
+    assert "\"vatsim_pilot\"" in script
+    assert "\"vatsim_atc\"" in script
     assert ".ljust(" not in script
     assert "DISPLAY, DISPLAY_PANELS = _display_for_size(PANEL_W, PANEL_H)" in script
     assert "Unsupported Interstate 75 display size" in script
@@ -1713,12 +1873,35 @@ def test_matrix_script_endpoint_uses_current_i75w_client_template() -> None:
     assert "/api/matrix/v2/devices/{device_id()}/feed?view={view}" in script
 
 
+def test_matrix_payloads_use_city_label_and_decoded_weather_display() -> None:
+    cfg = AppConfig(airport_iata="SIN", airport_icao="WSSS", timezone="Asia/Singapore")
+    airport = ui_api._matrix_airport_payload(cfg)
+    assert airport["airport_display_name"] == "Singapore"
+    assert airport["airport_label"] == "Singapore"
+
+    metar = ui_api._matrix_metar_payload({
+        "flight_cat": "VFR",
+        "weather_label": "Clear",
+        "weather_icon": "sun",
+        "temperature_c": 30,
+        "wind_display": "090/08",
+    })
+    assert metar is not None
+    assert metar["condition_display"] == "Clear"
+    assert metar["temperature_short"] == "30C"
+    assert metar["weather_display"] == "Clear 30C"
+
+
 def test_matrix_preview_download_payload_uses_defined_animation_state() -> None:
     root = Path(__file__).resolve().parents[1]
     template = (root / "src" / "localflight" / "ui" / "templates" / "matrix_preview.html").read_text(encoding="utf-8")
 
     assert 'animation_enabled: ANIMATION_MODE !== "static"' in template
     assert "animation_enabled: ANIMATION_ENABLED" not in template
+    assert "SHOW_WEATHER" in template
+    assert "weatherToggle" in template
+    assert "condition_display" in template
+    assert 'WX ${' not in template
 
 
 def test_matrix_preview_panel_geometry_stays_in_sync() -> None:
@@ -1743,8 +1926,11 @@ def test_matrix_preview_panel_geometry_stays_in_sync() -> None:
     assert "function routeChunk(row, chars)" in template
     assert "function visibleRows()" in template
     assert "function drawGlyph(name, x, y, color)" in template
-    assert "Passenger airport FIDS" in template
-    assert "VATSIM ops" in template
+    assert "Real FIDS" in template
+    assert "VATSIM pilot" in template
+    assert "VATSIM ATC" in template
+    assert "function drawVatsimWeatherPage()" in template
+    assert "function vatsimAtcPage()" in template
     assert "lastCodeshareCycle" in template
     assert "const fetchLimit = Math.min(visibleRows() * 4, 32)" in template
     assert "canvas.style.width" in template
@@ -1778,6 +1964,9 @@ def test_native_matrix_panel_geometry_matches_web_controls() -> None:
     assert "def code_preserve" in source
     assert "def _route_chunk" in source
     assert "def _visible_rows" in source
+    assert "def _weather_page_lines" in source
+    assert "def _vatsim_atc_page" in source
+    assert "set_matrix_payload" in source
     assert "/api/matrix/v2/devices/preview/feed" in source
 
 

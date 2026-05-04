@@ -233,7 +233,7 @@ try:
     from importlib.metadata import version as _pkg_version
     _APP_VERSION = _pkg_version("localflight")
 except Exception:
-    _APP_VERSION = "0.2.5b4"
+    _APP_VERSION = "0.2.5b5"
 
 templates.env.globals["app_version"] = _APP_VERSION
 
@@ -1208,6 +1208,7 @@ def matrix_preview(
         context={
             "cfg": cfg,
             "state": load_state(),
+            "airport_label": best_label(iata=cfg.airport_iata, icao=cfg.airport_icao) or cfg.airport_iata,
             "panel_w": panel_w,
             "panel_h": panel_h,
             "pixel_size": pixel_size,

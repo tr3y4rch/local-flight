@@ -80,7 +80,7 @@ bash installers/macos/install.sh
 
 ### Raspberry Pi
 
-You can either clone the repo on the Pi or download the versioned Pi source bundle from the [latest release](https://github.com/tr3y4rch/local-flight/releases), for example `LocalFlight-pi-source-0.2.5b4.zip`.
+You can either clone the repo on the Pi or download the versioned Pi source bundle from the [latest release](https://github.com/tr3y4rch/local-flight/releases), for example `LocalFlight-pi-source-0.2.5b5.zip`.
 
 Unzip or clone on the Pi, then run the installer from the project folder. The installer creates the venv, `.env`, systemd app service, and mDNS hostname. Add `--native-kiosk` during install if you want the Qt fullscreen HDMI shell; use `--kiosk` only for the legacy Chromium fallback when the native GUI is not usable on that display.
 
@@ -342,7 +342,7 @@ Scheduler restarts and config changes do not burn a new schedule call while the 
 | Windows PC | Full desktop app - native Qt shell with browser fallback |
 | macOS | Full desktop app - native Qt shell with browser fallback |
 | Raspberry Pi 5 | Headless server by default - systemd services, optional Chromium or native Qt HDMI kiosk, mDNS (`localflight.local`) |
-| Pimoroni Interstate 75 W | LED matrix display (64x32 up to 384x64) - MicroPython client |
+| Pimoroni Interstate 75 W | LED matrix display with rectangular HUB75 layouts such as 128x64, 256x64, 128x128, and supported custom sizes - MicroPython client |
 | RTL-SDR USB dongle | Local ADS-B receiver on Pi - no API key or rate limits |
 | 7-10" HDMI screen | Secondary display via native Qt kiosk where supported, with legacy Chromium kiosk as fallback |
 
@@ -351,12 +351,18 @@ Scheduler restarts and config changes do not burn a new schedule call while the 
 The board connects to your WiFi independently, reads runtime settings from Local Flight, and polls the FIDS API on its own schedule:
 
 - Classic split-flap letter animation
+- Three matrix presets: real passenger FIDS, VATSIM pilot board, and VATSIM ATC board
+- Passenger-friendly airport city headers, route-code preservation, codeshare cycling, and small-panel route/status chunk rotation
+- Pixel glyphs for flight direction/status/weather plus decoded weather condition and temperature markers
+- Optional weather strip/page toggle in Matrix config
 - Button A = departures, Button B = arrivals, A+B = force refresh
 - RGB status LED: green = ok, blue = fetching, amber = no data, red = no WiFi
 - Matrix setup surfaces with:
-  - server-generated `main.py` download from the canonical board client
-  - server-side matrix runtime config (`/api/matrix/config`) for rows, brightness, refresh, and default view
+  - server-generated `main.py` download from the canonical board client in both web and native GUI
+  - server-side matrix runtime config (`/api/matrix/config` and Matrix V2 config/device APIs) for rows, brightness, refresh, default view, preset, animation, weather, and assigned devices
   - host validation so the board is pointed at a LAN host such as `localflight.local`, not `localhost`
+
+VATSIM matrix presets intentionally require the app source to be `virtual`. `vatsim_pilot` shows arrivals/departures only; `vatsim_atc` rotates departures, arrivals, and VATSIM-only decoded ATIS/METAR weather when the weather toggle is enabled.
 
 For the cleanest path, open `/matrix-preview`, enter the board WiFi details plus the Local Flight server host, download `main.py`, and save it to the MicroPython device with Thonny.
 
@@ -407,6 +413,12 @@ The first-run setup wizard asks for that choice explicitly and stores it locally
 | `/api/admin/scheduler/restart` | POST | Restart scheduler and run a fresh fetch cycle |
 | `/api/admin/ping` | POST | Device ping (LED matrix client) |
 | `/api/matrix/config` | GET / POST | Read or update LED matrix runtime settings |
+| `/api/matrix/v2/presets` | GET | List public Matrix V2 presets (`real_fids`, `vatsim_pilot`, `vatsim_atc`) |
+| `/api/matrix/v2/configs` | GET / POST | Manage Matrix V2 configs |
+| `/api/matrix/v2/devices` | GET | List checked-in matrix devices |
+| `/api/matrix/v2/devices/checkin` | POST | Register/update a matrix board and its assigned config |
+| `/api/matrix/v2/devices/{device_id}/config` | GET | Resolve the config assigned to a matrix board |
+| `/api/matrix/v2/devices/{device_id}/feed` | GET | Page-aware matrix feed with rows, decoded weather, and VATSIM pages where applicable |
 | `/api/matrix/script` | POST | Generate a ready-to-flash Interstate 75 W `main.py` |
 | `/api/feedback` | POST | Submit a sanitized manual report (`{title, description, client_context}`) through the reporting gateway; returns safe queue/dedupe status when available |
 | `/api/feedback/crash` | POST | Submit a diagnostics-gated crash report with deduplication, used by native GUI, server, and companion crash reporters when allowed |

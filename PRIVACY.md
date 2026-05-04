@@ -28,6 +28,8 @@ This is a hobbyist/open-source project, not a legal document, but the app is des
 - The native GUI, browser fallback, LAN clients, and matrix board all talk to your local Local Flight server first. Native mode does not fetch online fonts, CDN assets, or a webview shell for the main UI.
 - The optional local traffic log at `~/.localflight/requests.db` is visible only on your own Local Flight instance and is only enabled for explicit local network diagnostics.
 - The Interstate 75 W board talks to your Local Flight server over your LAN. Its runtime settings live in `~/.localflight/matrix_config.json`.
+- Matrix V2 device check-ins store only board identity, label, size, renderer support, assigned config, and last-seen time locally so the admin page can show whether the board is alive.
+- VATSIM-specific matrix presets require source `virtual` and use VATSIM-backed rows/weather only; they do not quietly fall back to real-world FIDS or real METAR data.
 
 When you use the Matrix page to download a ready-to-flash `main.py`, the Wi-Fi details and server host are sent to your own Local Flight instance only long enough to render that file. They are not stored in `matrix_config.json`, the hosted relay, or crash reports.
 
