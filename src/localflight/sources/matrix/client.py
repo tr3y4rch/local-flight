@@ -28,6 +28,7 @@ PANEL_H          = 64    # total physical pixel height
 MAX_ROWS         = 4     # flight rows to display
 REFRESH_S        = 60    # flight data fetch interval in seconds
 PAGE_ROTATION_S  = 10    # rotate to the next local board page when overflow exists
+CODE_SHARE_ROTATION_S = 4 # rotate codeshare flight numbers in the flight column
 BRIGHTNESS       = 0.8   # 0.0 – 1.0
 DEFAULT_VIEW     = "departures"
 ANIMATION_ENABLED = True
@@ -48,6 +49,10 @@ SUPPORTED_ANIMATIONS = ["split_flap", "slide_left", "slide_right", "static"]
 # Airport is read from the server — no hardcoding needed
 _airport_iata = "---"
 _device_id = None
+_clock_utc_epoch = None
+_clock_sync_ticks = 0
+_clock_offset_minutes = 0
+_clock_timezone = "UTC"
 
 import time
 import network
@@ -140,14 +145,19 @@ _SKIN_PALETTES = {
 }
 _active_skin = "standard"
 
+def _scaled_rgb(rgb, scale):
+    return tuple(max(0, min(255, int(part * scale))) for part in rgb)
+
 def apply_skin(name):
-    global GREEN, WHITE, DIM, AMBER, RED, _active_skin
+    global GREEN, WHITE, DIM, AMBER, RED, ACTIVE_BREATH, AMBER_BREATH, _active_skin
     p = _SKIN_PALETTES.get(name, _SKIN_PALETTES["standard"])
     GREEN = graphics.create_pen(*p[0])
     WHITE = graphics.create_pen(*p[1])
     DIM   = graphics.create_pen(*p[2])
     AMBER = graphics.create_pen(*p[3])
     RED   = graphics.create_pen(*p[4])
+    ACTIVE_BREATH = [graphics.create_pen(*_scaled_rgb(p[0], s)) for s in (0.42, 0.58, 0.76, 0.94, 1.0, 0.94, 0.76, 0.58)]
+    AMBER_BREATH = [graphics.create_pen(*_scaled_rgb(p[3], s)) for s in (0.38, 0.56, 0.74, 0.92, 1.0, 0.92, 0.74, 0.56)]
     _active_skin = name
 
 apply_skin("standard")
@@ -290,9 +300,55 @@ def _text_field(value, fallback=""):
     except Exception:
         return str(fallback)
 
+def _clean_flight_number(value):
+    text = _text_field(value).replace("Also ", "").replace("ALSO ", "").strip()
+    text = text.replace(",", " ").replace("|", " ").replace("  ", " ")
+    if not text or text.startswith("+"):
+        return ""
+    parts = text.split()
+    if not parts:
+        return ""
+    if len(parts) >= 2:
+        return (parts[0] + " " + parts[1]).strip()
+    return parts[0]
+
+def _codeshare_flights(row):
+    values = []
+    for key in ("codeshares", "codeshare_display", "codeshare", "sold_as"):
+        raw = row.get(key)
+        if not raw:
+            continue
+        if isinstance(raw, list):
+            parts = raw
+        else:
+            parts = str(raw).replace("Also ", "").replace("ALSO ", "").split("/")
+        for part in parts:
+            code = _clean_flight_number(part)
+            if code and code not in values:
+                values.append(code)
+    return values
+
+def _flight_cycle_display(row):
+    primary = _clean_flight_number(row.get("flight_display") or row.get("flight") or row.get("flight_number") or row.get("callsign")) or "-"
+    codeshares = [code for code in _codeshare_flights(row) if code != primary]
+    choices = [primary] + codeshares
+    if len(choices) <= 1:
+        return primary
+    try:
+        slot = int(time.time() // max(1, CODE_SHARE_ROTATION_S))
+    except Exception:
+        slot = 0
+    return choices[slot % len(choices)]
+
+def _page_has_codeshares(rows):
+    for row in rows or []:
+        if isinstance(row, dict) and _codeshare_flights(row):
+            return True
+    return False
+
 def build_row_text(row):
     time_s   = fit_text(_text_field(row.get("display_time") or row.get("time"), "--:--"), 5)
-    flight_s = fit_text(_text_field(row.get("flight_display") or row.get("flight") or row.get("flight_number")), 8)
+    flight_s = fit_text(_flight_cycle_display(row), 8)
     dest_s   = fit_text(_text_field(row.get("route_display") or row.get("route")), 12)
     status_s = fit_text(_text_field(row.get("status_display") or row.get("status")), 10)
     gate_s   = fit_text(_text_field(row.get("gate"), "-"), 4)
@@ -328,12 +384,20 @@ def _pulse_on():
         return True
     return int(time.time() * 3) % 3 != 0
 
+def _breath_index():
+    if not STATUS_ANIMATION_ENABLED:
+        return 4
+    try:
+        return int(time.time() * 5) % len(ACTIVE_BREATH)
+    except Exception:
+        return 4
+
 def status_color(row_or_status):
     s = _status_key(row_or_status)
     if "delay" in s:               return AMBER
     if "cancel" in s:              return RED
-    if "boarding" in s or "gate" in s: return AMBER if _pulse_on() else GREEN
-    if "depart" in s or "arriv" in s or "approach" in s: return GREEN if _pulse_on() else WHITE
+    if "boarding" in s or "gate" in s or "ground" in s: return AMBER_BREATH[_breath_index()]
+    if "depart" in s or "arriv" in s or "approach" in s: return ACTIVE_BREATH[_breath_index()]
     if "land" in s: return DIM
     return GREEN
 
@@ -395,6 +459,39 @@ def _normalize_airport_iata(value):
     return "---"
 
 
+def _sync_clock_from_config(data):
+    global _clock_utc_epoch, _clock_sync_ticks, _clock_offset_minutes, _clock_timezone
+    if not isinstance(data, dict) or data.get("clock_utc_epoch") is None:
+        return
+    try:
+        _clock_utc_epoch = int(data.get("clock_utc_epoch"))
+        _clock_sync_ticks = time.time()
+        _clock_offset_minutes = _clamp_int(data.get("clock_local_offset_minutes", 0), -720, 840, 0)
+        _clock_timezone = str(data.get("timezone") or "UTC")
+    except Exception as e:
+        print(f"Clock sync error: {e}")
+
+
+def _clock_epoch_now():
+    if _clock_utc_epoch is None:
+        return None
+    try:
+        return int(_clock_utc_epoch + (time.time() - _clock_sync_ticks))
+    except Exception:
+        return _clock_utc_epoch
+
+
+def _clock_hhmm(offset_minutes=0):
+    epoch = _clock_epoch_now()
+    if epoch is None:
+        return "--:--"
+    try:
+        t = time.gmtime(epoch + int(offset_minutes) * 60)
+        return "{:02d}:{:02d}".format(t[3], t[4])
+    except Exception:
+        return "--:--"
+
+
 def device_id():
     global _device_id
     if _device_id:
@@ -451,6 +548,7 @@ def fetch_config():
     if not isinstance(data, dict):
         return False
     _airport_iata = _normalize_airport_iata(data.get("airport_iata"))
+    _sync_clock_from_config(data)
     return True
 
 
@@ -476,6 +574,7 @@ def fetch_matrix_config():
         data = _get_json("/api/matrix/config", timeout=8)
     if not isinstance(data, dict):
         return False
+    _sync_clock_from_config(data)
     MAX_ROWS     = _clamp_int(data.get("max_rows", MAX_ROWS), 1, 8, MAX_ROWS)
     REFRESH_S    = _clamp_int(data.get("refresh_seconds", REFRESH_S), 10, 3600, REFRESH_S)
     PAGE_ROTATION_S = _clamp_int(data.get("page_rotation_seconds", PAGE_ROTATION_S), 3, 120, PAGE_ROTATION_S)
@@ -539,29 +638,52 @@ def draw_header(view, connected=True):
     graphics.set_font("bitmap8")
     graphics.text(label, 0, 0, WIDTH, 1)
 
-    # UTC time top right
-    try:
-        import utime
-        t = utime.gmtime()
-        ts = f"{t[3]:02d}:{t[4]:02d}"
+    # Server-synced clock. The board RTC may report uptime before NTP exists.
+    utc_ts = _clock_hhmm(0)
+    local_ts = _clock_hhmm(_clock_offset_minutes)
+    clock = "UTC{} LT{}".format(utc_ts, local_ts) if WIDTH >= 200 else "LT{}".format(local_ts)
+    clock_x = WIDTH - len(clock) * 8 - 2
+    if clock_x > len(label) * 8 + 6:
         graphics.set_pen(DIM)
-        tw = len(ts) * 8
-        graphics.text(ts, WIDTH - tw - 2, 0, WIDTH, 1)
-    except Exception:
-        pass
+        graphics.text(clock, clock_x, 0, WIDTH, 1)
 
     # Separator
     graphics.set_pen(DIM)
     graphics.line(0, 9, WIDTH, 9)
 
-def draw_row(flap_row, row_data, y):
+def draw_row(flap_row, row_data, y, row_h):
     text    = flap_row.get_text()
     s_color = status_color(row_data or "")
     cancelled = bool(row_data and is_cancelled(row_data))
     cancel_flash = cancelled and _blink_fast()
+    compact = WIDTH < 180
     if cancel_flash:
         graphics.set_pen(RED)
-        graphics.rectangle(0, y - 1, WIDTH, 9)
+        graphics.rectangle(0, y - 1, WIDTH, max(9, row_h - 1))
+
+    if compact:
+        # Narrow/tall boards such as 128x128 use vertical space instead of
+        # squeezing a 42-character airport row into 128 pixels.
+        graphics.set_font("bitmap8")
+        graphics.set_pen(WHITE if cancel_flash else GREEN)
+        graphics.text(text[0:5], 0, y, 42, 1)
+        graphics.set_pen(WHITE)
+        graphics.text(text[6:14], 42, y, 62, 1)
+        if WIDTH >= 112:
+            graphics.set_pen(DIM)
+            graphics.text(text[39:43], WIDTH - 25, y, 25, 1)
+
+        if row_h >= 18:
+            graphics.set_pen(WHITE)
+            graphics.text(text[15:27], 0, y + 8, WIDTH, 1)
+            status_y = y + 16
+        else:
+            status_y = y + 8
+
+        if status_y + 7 <= y + row_h:
+            graphics.set_pen(WHITE if cancel_flash else s_color)
+            graphics.text(text[28:38], 0, status_y, WIDTH, 1)
+        return
 
     # Time (chars 0-4) — green
     graphics.set_pen(GREEN)
@@ -581,6 +703,9 @@ def draw_row(flap_row, row_data, y):
     graphics.set_pen(WHITE if cancel_flash else s_color)
     sx = 116 if PANEL_W < 200 else 212
     graphics.text(text[28:38], sx, y, 80, 1)
+    if WIDTH >= 245:
+        graphics.set_pen(DIM)
+        graphics.text(text[39:43], WIDTH - 28, y, 28, 1)
 
 
 def draw_terminal_minimal(page_rows):
@@ -645,7 +770,7 @@ def draw_classic_board(flap_rows, page_data, view):
     for i in range(MAX_ROWS):
         y        = data_start + i * row_h
         row_data = page_data[i] if i < len(page_data) else None
-        draw_row(flap_rows[i], row_data, y)
+        draw_row(flap_rows[i], row_data, y, row_h)
         if i < MAX_ROWS - 1:
             graphics.set_pen(DIMBG)
             graphics.line(0, y + row_h - 1, WIDTH, y + row_h - 1)
@@ -658,6 +783,7 @@ def main():
     last_ping        = 0
     last_config      = 0
     last_page_rotate = 0
+    last_codeshare_rotate = 0
     force_fetch      = True
 
     i75.set_led(0, 100, 0)  # green LED = running
@@ -741,7 +867,7 @@ def main():
             _draw_message("Fetching flights...", GREEN)
 
             if ensure_wifi():
-                data = fetch_fids(view=view, limit=MAX_ROWS)
+                data = fetch_fids(view=view, limit=min(MAX_ROWS * 4, 32))
                 if data:
                     flight_data = data
                     pages = _chunk_pages(flight_data)
@@ -770,6 +896,10 @@ def main():
                 page_data = pages[(page_idx + 1) % len(pages)]
                 _apply_visible_page(page_data)
                 last_page_rotate = now
+
+        if page_data and _page_has_codeshares(page_data) and (now - last_codeshare_rotate) >= CODE_SHARE_ROTATION_S:
+            _apply_visible_page(page_data)
+            last_codeshare_rotate = now
 
         # ── Animate ───────────────────────────────────────────────────────────
         for flap in flap_rows:

@@ -11,6 +11,7 @@ from __future__ import annotations
 import math
 import json
 import sys
+import time
 import traceback as traceback_module
 import webbrowser
 from concurrent.futures import Future
@@ -2745,6 +2746,7 @@ class MatrixCanvas:  # pragma: no cover - optional Qt runtime
                 self.slide_frames = 1
                 self.row_statuses: list[str] = []
                 self.row_details: list[str] = []
+                self.codeshare_cycle = -1
                 self.colors = colors_for()
                 self.timer = QtCore.QTimer(self)
                 self.timer.timeout.connect(self._tick)
@@ -2801,7 +2803,11 @@ class MatrixCanvas:  # pragma: no cover - optional Qt runtime
                 self.update()
 
             def _tick(self) -> None:
-                self.phase = (self.phase + 1) % 12
+                self.phase = (self.phase + 1) % 24
+                next_codeshare_cycle = int(time.monotonic() // 4)
+                if next_codeshare_cycle != self.codeshare_cycle and self._page_has_codeshares():
+                    self.codeshare_cycle = next_codeshare_cycle
+                    self._retarget_lines(force=True)
                 if not self.animate:
                     self.update()
                     return
@@ -2851,9 +2857,43 @@ class MatrixCanvas:  # pragma: no cover - optional Qt runtime
                 if not self.animate:
                     self.display_lines = list(self.target_lines)
 
+            def _clean_flight_number(self, value: Any) -> str:
+                text = (format_value(value) or "").replace("Also ", "").replace("ALSO ", "").replace(",", " ").replace("|", " ").strip()
+                if not text or text.startswith("+"):
+                    return ""
+                parts = text.split()
+                if len(parts) >= 2:
+                    return f"{parts[0]} {parts[1]}"
+                return parts[0] if parts else ""
+
+            def _codeshare_flights(self, row: dict[str, Any]) -> list[str]:
+                values: list[str] = []
+                for key in ("codeshares", "codeshare_display", "codeshare", "sold_as"):
+                    raw = row.get(key)
+                    if not raw:
+                        continue
+                    parts = raw if isinstance(raw, list) else str(raw).replace("Also ", "").replace("ALSO ", "").split("/")
+                    for part in parts:
+                        code = self._clean_flight_number(part)
+                        if code and code not in values:
+                            values.append(code)
+                return values
+
+            def _page_has_codeshares(self) -> bool:
+                return any(self._codeshare_flights(row) for row in self.rows[: self.max_rows])
+
+            def _flight_cycle_display(self, row: dict[str, Any]) -> str:
+                primary = self._clean_flight_number(row.get("flight_display") or row.get("flight") or row.get("flight_number") or row.get("callsign")) or "-"
+                codeshares = [code for code in self._codeshare_flights(row) if code != primary]
+                choices = [primary] + codeshares
+                if len(choices) <= 1:
+                    return primary
+                slot = max(0, self.codeshare_cycle)
+                return choices[slot % len(choices)]
+
             def _row_line(self, row: dict[str, Any]) -> str:
                 time_text = (format_value(row.get("display_time")) or format_value(row.get("time")) or "--:--")[:5].ljust(5)
-                flight = (format_value(row.get("flight_display")) or format_value(row.get("flight")) or format_value(row.get("flight_number")) or format_value(row.get("callsign")) or "-")[:8].ljust(8)
+                flight = self._flight_cycle_display(row)[:8].ljust(8)
                 route = (format_value(row.get("route_display")) or format_value(row.get("route")) or format_value(row.get("destination_display")) or "-")[:12].ljust(12)
                 status = (format_value(row.get("status_display")) or format_value(row.get("status")) or "-")[:10].ljust(10)
                 gate = (format_value(row.get("gate")) or "-")[:4].ljust(4)
@@ -2945,6 +2985,7 @@ class MatrixCanvas:  # pragma: no cover - optional Qt runtime
                 visible = self.display_lines or self.target_lines
                 for idx, text in enumerate(visible[: self.max_rows]):
                     y = top + header_h + idx * row_h + row_h * 0.64
+                    row_top = top + header_h + idx * row_h
                     status = self.row_statuses[idx] if idx < len(self.row_statuses) else ""
                     status_color = self._status_color(QtGui, status)
                     cancelled = "cancel" in status.lower()
@@ -2952,18 +2993,54 @@ class MatrixCanvas:  # pragma: no cover - optional Qt runtime
                         fill = QtGui.QColor(self.colors["red"])
                         fill.setAlpha((90 if self.phase % 2 else 150) if self.status_animation_enabled else 120)
                         painter.fillRect(QtCore.QRectF(left + 4, top + header_h + idx * row_h + 1, board_w - 8, max(8, row_h - 2)), fill)
+                    if self.panel_w < 180:
+                        painter.setPen(text_color if cancelled else QtGui.QColor(self.colors["green"]))
+                        painter.drawText(int(left + 4), int(row_top + 8 * scale), text[:5])
+                        painter.setPen(text_color)
+                        painter.drawText(int(left + 42 * scale), int(row_top + 8 * scale), text[6:14])
+                        if self.panel_w >= 112:
+                            painter.setPen(dim_color)
+                            painter.drawText(int(left + board_w - 28 * scale), int(row_top + 8 * scale), text[39:43])
+                        painter.setPen(text_color)
+                        if row_h >= 18 * scale:
+                            painter.drawText(int(left + 4), int(row_top + 16 * scale), text[15:27])
+                            status_y = row_top + 24 * scale
+                        else:
+                            status_y = row_top + 16 * scale
+                        if status_y < row_top + row_h:
+                            painter.setPen(text_color if cancelled else status_color)
+                            painter.drawText(int(left + 4), int(status_y), text[28:38])
+                        if idx < len(self.row_details) and self.row_details[idx] and row_h >= 34 * scale:
+                            detail_font = QtGui.QFont("Consolas", max(5, int(4.5 * scale)))
+                            painter.setFont(detail_font)
+                            painter.setPen(dim_color)
+                            painter.drawText(int(left + 4), int(row_top + 32 * scale), self.row_details[idx][:20])
+                            painter.setFont(font)
+                        continue
                     painter.setPen(text_color)
                     painter.drawText(int(left + 10), int(y), text[:28])
                     painter.setPen(status_color)
                     painter.drawText(int(left + min(board_w - 120, 160 * scale)), int(y), text[28:40])
                     painter.setPen(dim_color)
-                    painter.drawText(int(left + board_w - 46 * scale), int(y), text[41:45])
+                    painter.drawText(int(left + board_w - 46 * scale), int(y), text[39:43])
                     if idx < len(self.row_details) and self.row_details[idx] and row_h > 22:
                         detail_font = QtGui.QFont("Consolas", max(5, int(4.5 * scale)))
                         painter.setFont(detail_font)
                         painter.setPen(dim_color)
                         painter.drawText(int(left + 10), int(y + min(row_h * 0.32, 14)), self.row_details[idx][:42])
                         painter.setFont(font)
+
+            def _breath_color(self, QtGui: Any, color: str, floor: float = 0.38) -> Any:
+                base = QtGui.QColor(color)
+                if not self.status_animation_enabled:
+                    return base
+                wave = 0.5 + 0.5 * math.sin((self.phase / 24.0) * math.pi * 2)
+                amount = floor + wave * (1.0 - floor)
+                return QtGui.QColor(
+                    int(base.red() * amount),
+                    int(base.green() * amount),
+                    int(base.blue() * amount),
+                )
 
             def _status_color(self, QtGui: Any, status: str) -> Any:
                 lowered = status.lower()
@@ -2974,13 +3051,9 @@ class MatrixCanvas:  # pragma: no cover - optional Qt runtime
                         return QtGui.QColor(self.colors["text"] if self.phase % 2 else self.colors["red"])
                     return QtGui.QColor(self.colors["red"])
                 if "boarding" in lowered or "gate" in lowered or "ground" in lowered:
-                    if not self.status_animation_enabled:
-                        return QtGui.QColor(self.colors["amber"])
-                    return QtGui.QColor(self.colors["amber"] if self.phase % 3 else self.colors["green"])
+                    return self._breath_color(QtGui, self.colors["amber"])
                 if "depart" in lowered or "arriv" in lowered or "approach" in lowered:
-                    if not self.status_animation_enabled:
-                        return QtGui.QColor(self.colors["green"])
-                    return QtGui.QColor(self.colors["green"] if self.phase % 3 else self.colors["text"])
+                    return self._breath_color(QtGui, self.colors["green"])
                 if "land" in lowered:
                     return QtGui.QColor(self.colors["dim"])
                 return QtGui.QColor(self.colors["green"])

@@ -776,9 +776,42 @@
   }
 
   // ── Row text builder ───────────────────────────────────────────────────────
+  function cleanFlightNumber(value) {
+    const text = String(value || "").replace(/^Also\s+/i, "").replace(/[|,]/g, " ").trim();
+    if (!text || text.startsWith("+")) return "";
+    const parts = text.split(/\s+/).filter(Boolean);
+    return parts.length >= 2 ? `${parts[0]} ${parts[1]}` : (parts[0] || "");
+  }
+
+  function codeshareFlightNumbers(row) {
+    const values = [];
+    for (const key of ["codeshares", "codeshare_display", "codeshare", "sold_as"]) {
+      const raw = row[key];
+      if (!raw) continue;
+      const parts = Array.isArray(raw) ? raw : String(raw).replace(/^Also\s+/i, "").split("/");
+      for (const part of parts) {
+        const code = cleanFlightNumber(part);
+        if (code && !values.includes(code)) values.push(code);
+      }
+    }
+    return values;
+  }
+
+  function flightCycleDisplay(row) {
+    const primary = cleanFlightNumber(row.flight_display || row.flight || row.flight_number || row.callsign) || "-";
+    const choices = [primary, ...codeshareFlightNumbers(row).filter(code => code !== primary)];
+    if (choices.length <= 1) return primary;
+    const slot = Math.floor(Date.now() / 4000);
+    return choices[slot % choices.length];
+  }
+
+  function pageHasCodeshares(rows) {
+    return (rows || []).some(row => codeshareFlightNumbers(row).length > 0);
+  }
+
   function buildRowText(row) {
     const t  = ((row.display_time || row.time || "--:--")+"     ").slice(0,5);
-    const fn = ((row.flight_display || row.flight || row.flight_number || row.callsign || "")+"        ").slice(0,8);
+    const fn = ((flightCycleDisplay(row))+"        ").slice(0,8);
     const rt = ((row.route_display || row.route || "")+"            ").slice(0,14);
     const st = ((row.status_display || row.status || "")+"          ").slice(0,10);
     const gt = ((row.gate || "-")+"    ").slice(0,4);
@@ -803,12 +836,34 @@
     return String(rowOrStatus || "").toLowerCase();
   }
 
+  function hexToRgb(hex) {
+    const clean = String(hex || "#000000").replace("#", "");
+    const value = parseInt(clean.length === 3 ? clean.split("").map(ch => ch + ch).join("") : clean, 16);
+    return { r: (value >> 16) & 255, g: (value >> 8) & 255, b: value & 255 };
+  }
+
+  function rgbToHex({r, g, b}) {
+    const parts = [r, g, b].map(v => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, "0"));
+    return `#${parts.join("")}`;
+  }
+
+  function scaleColor(hex, amount) {
+    const rgb = hexToRgb(hex);
+    return rgbToHex({ r: rgb.r * amount, g: rgb.g * amount, b: rgb.b * amount });
+  }
+
+  function breathAmount(periodMs = 1800) {
+    if (!STATUS_ANIMATION_ENABLED) return 1;
+    const wave = 0.5 + 0.5 * Math.sin((performance.now() / periodMs) * Math.PI * 2);
+    return 0.38 + wave * 0.62;
+  }
+
   function statusColor(rowOrStatus) {
     const s = statusKey(rowOrStatus);
     if (s.includes("delay"))                    return C.amber;
     if (s.includes("cancel"))                   return C.red;
-    if (s.includes("boarding") || s.includes("gate") || s.includes("ground")) return (STATUS_ANIMATION_ENABLED && Math.floor(performance.now()/280)%2) ? C.amber : C.green;
-    if (s.includes("depart") || s.includes("arriv") || s.includes("approach")) return (STATUS_ANIMATION_ENABLED && Math.floor(performance.now()/240)%2) ? C.white : C.green;
+    if (s.includes("boarding") || s.includes("gate") || s.includes("ground")) return scaleColor(C.amber, breathAmount(1700));
+    if (s.includes("depart") || s.includes("arriv") || s.includes("approach")) return scaleColor(C.green, breathAmount(1900));
     if (s.includes("land")) return C.dim;
     return C.green;
   }
@@ -869,6 +924,7 @@
       const txt = getRowText(ri);
       const row = flightData[ri] || null;
       const cancelled = statusKey(row).includes("cancel");
+      const compact = PANEL_W < 180;
       if (cancelled) {
         ctx.save();
         ctx.globalAlpha = STATUS_ANIMATION_ENABLED && Math.floor(performance.now()/350)%2 ? 0.52 : 0.28;
@@ -877,6 +933,24 @@
         ctx.restore();
       }
 
+      if (compact) {
+        drawString(txt.slice(0,5), 0, y, cancelled ? C.white : C.green);
+        drawString(txt.slice(6,14), 42, y, C.white);
+        if (PANEL_W >= 112) drawString(txt.slice(39,43), PANEL_W - 25, y, C.dim);
+
+        const sc = row ? statusColor(row) : (flightColors[ri] || C.green);
+        let statusY = y + 8;
+        if (rowH >= 18) {
+          drawString(txt.slice(15,27), 0, y + 8, C.white, PANEL_W);
+          statusY = y + 16;
+        }
+        if (statusY + 7 <= y + rowH) {
+          drawString(txt.slice(28,38), 0, statusY, cancelled ? C.white : sc, PANEL_W);
+        }
+        if (flightDetails[ri] && rowH >= 34) {
+          drawString(flightDetails[ri].slice(0, 20), 0, y + 24, C.dim, PANEL_W);
+        }
+      } else {
       // Time (0-4) green
       drawString(txt.slice(0,5), 0, y, cancelled ? C.white : C.green);
 
@@ -892,9 +966,10 @@
       drawString(txt.slice(30,40), sx, y, sc);
 
       // Gate dim right (only if enough room)
-      if (PANEL_W >= 220) drawString(txt.slice(41,45), PANEL_W - 25, y, C.dim);
+      if (PANEL_W >= 220) drawString(txt.slice(39,43), PANEL_W - 25, y, C.dim);
       if (flightDetails[ri] && rowH >= 17 && PANEL_W >= 180) {
         drawString(flightDetails[ri].slice(0, 34), 36, y + 8, C.dim, PANEL_W - 42);
+      }
       }
 
       // Row separator
@@ -917,6 +992,7 @@
   let flightPages = [];
   let flightPageIndex = 0;
   let lastRotationTs = 0;
+  let lastCodeshareCycle = -1;
 
   function chunkFlightPages(data) {
     const pages = [];
@@ -995,6 +1071,11 @@
         flightPageIndex = (flightPageIndex + 1) % flightPages.length;
         applyVisiblePage(flightPages[flightPageIndex] || []);
         lastRotationTs = ts;
+      }
+      const codeshareCycle = Math.floor(Date.now() / 4000);
+      if (flightData.length && codeshareCycle !== lastCodeshareCycle && pageHasCodeshares(flightData)) {
+        lastCodeshareCycle = codeshareCycle;
+        applyVisiblePage(flightData);
       }
       stepAllFlap();
       drawFrame();
@@ -1204,6 +1285,8 @@ Board reads: /api/config -> /api/matrix/v2/devices/{id}/config -> /api/matrix/v2
       "/api/matrix/v2/devices/{device_id()}/config",
       "/api/matrix/v2/devices/{device_id()}/feed?view={view}",
       "def fit_text(value, length):",
+      "def _clock_hhmm(offset_minutes=0):",
+      "ACTIVE_BREATH",
     ];
     const missing = required.filter((marker) => !content.includes(marker));
     if (missing.length) {

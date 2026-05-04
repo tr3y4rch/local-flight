@@ -1421,7 +1421,19 @@ def test_matrix_config_endpoint_round_trip(tmp_path: Path, monkeypatch) -> None:
 
     response = client.get("/api/matrix/config")
     assert response.status_code == 200
-    assert response.json() == {
+    payload = response.json()
+    assert {
+        key: payload[key]
+        for key in (
+            "brightness",
+            "max_rows",
+            "refresh_seconds",
+            "default_view",
+            "page_rotation_seconds",
+            "animation_enabled",
+            "skin",
+        )
+    } == {
         "brightness": 0.8,
         "max_rows": 4,
         "refresh_seconds": 60,
@@ -1430,6 +1442,10 @@ def test_matrix_config_endpoint_round_trip(tmp_path: Path, monkeypatch) -> None:
         "animation_enabled": True,
         "skin": "technical",
     }
+    assert isinstance(payload["clock_utc_epoch"], int)
+    assert payload["clock_utc"]
+    assert payload["clock_local"]
+    assert "clock_local_offset_minutes" in payload
 
     response = client.post(
         "/api/matrix/config",
@@ -1598,9 +1614,19 @@ def test_matrix_script_endpoint_uses_current_i75w_client_template() -> None:
     assert "def update_display():" in script
     assert "def fit_text(value, length):" in script
     assert "def _text_field(value, fallback=\"\"):" in script
+    assert "def _clock_hhmm(offset_minutes=0):" in script
+    assert "clock_utc_epoch" in script
+    assert "ACTIVE_BREATH" in script
+    assert "AMBER_BREATH" in script
     assert ".ljust(" not in script
     assert "DISPLAY, DISPLAY_PANELS = _display_for_size(PANEL_W, PANEL_H)" in script
     assert "Unsupported Interstate 75 display size" in script
+    assert "compact = WIDTH < 180" in script
+    assert "draw_row(flap_rows[i], row_data, y, row_h)" in script
+    assert "text[39:43]" in script
+    assert "CODE_SHARE_ROTATION_S = 4" in script
+    assert "def _flight_cycle_display(row):" in script
+    assert "limit=min(MAX_ROWS * 4, 32)" in script
     assert "urequests.get(_api_url(path))" in script
     assert "timeout=timeout" not in script
     assert "/api/matrix/v2/devices/checkin" in script
@@ -1626,6 +1652,15 @@ def test_matrix_preview_panel_geometry_stays_in_sync() -> None:
     assert "window.setCustomPanelSize" in template
     assert 'value="128x128"' in template
     assert 'value="256x128"' in template
+    assert "const compact = PANEL_W < 180" in template
+    assert "if (compact)" in template
+    assert "txt.slice(39,43)" in template
+    assert "function flightCycleDisplay(row)" in template
+    assert "function codeshareFlightNumbers(row)" in template
+    assert "function breathAmount(periodMs = 1800)" in template
+    assert "Math.floor(performance.now()/240)" not in template
+    assert "lastCodeshareCycle" in template
+    assert "const fetchLimit = Math.min(MAX_ROWS * 4, 32)" in template
     assert "canvas.style.width" in template
     assert "canvas.style.height" in template
     assert "let RENDER_PIXEL_SIZE = PIXEL_SIZE" in template
@@ -1647,6 +1682,12 @@ def test_native_matrix_panel_geometry_matches_web_controls() -> None:
     assert "self.panel_h = self.QtWidgets.QSpinBox()" in source
     assert 'form_layout.addRow("Panel size", self._panel_size_row())' in source
     assert "def _panel_dimensions_changed" in source
+    assert "if self.panel_w < 180:" in source
+    assert "text[39:43]" in source
+    assert "def _flight_cycle_display" in source
+    assert "def _codeshare_flights" in source
+    assert "def _breath_color" in source
+    assert "math.sin((self.phase / 24.0)" in source
 
 
 def test_matrix_script_endpoint_rejects_loopback_host(tmp_path: Path, monkeypatch) -> None:

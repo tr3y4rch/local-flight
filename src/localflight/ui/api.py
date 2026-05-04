@@ -16,6 +16,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
 from uuid import uuid4
+from zoneinfo import ZoneInfo
 
 import requests as _req
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
@@ -1705,6 +1706,27 @@ def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _matrix_clock_payload() -> Dict[str, Any]:
+    cfg = load_config()
+    now_utc = datetime.now(timezone.utc)
+    timezone_name = cfg.timezone or "UTC"
+    try:
+        local_now = now_utc.astimezone(ZoneInfo(timezone_name))
+    except Exception:
+        timezone_name = "UTC"
+        local_now = now_utc
+    offset = local_now.utcoffset()
+    offset_minutes = int(offset.total_seconds() // 60) if offset else 0
+    return {
+        "airport_iata": cfg.airport_iata,
+        "timezone": timezone_name,
+        "clock_utc_epoch": int(now_utc.timestamp()),
+        "clock_utc": now_utc.strftime("%H:%M"),
+        "clock_local": local_now.strftime("%H:%M"),
+        "clock_local_offset_minutes": offset_minutes,
+    }
+
+
 def _matrix_slug(value: str, fallback: str = "matrix") -> str:
     clean = re.sub(r"[^a-z0-9_-]+", "-", str(value or "").strip().lower()).strip("-")
     return clean[:48] or fallback
@@ -1901,7 +1923,7 @@ def api_matrix_config_get() -> Dict[str, Any]:
         skin = load_config().skin
     except Exception:
         skin = "standard"
-    return {**_load_matrix_config(), "skin": skin}
+    return {**_load_matrix_config(), "skin": skin, **_matrix_clock_payload()}
 
 
 @router.post("/api/matrix/config")
@@ -2060,6 +2082,7 @@ def _matrix_resolved_config(store: Dict[str, Any], device_id: Optional[str]) -> 
     preset = _MATRIX_PRESETS.get(cfg["preset"], _MATRIX_PRESETS["classic_split_flap"])
     return {
         **cfg,
+        **_matrix_clock_payload(),
         "config_rev": int(Path(_matrix_config_path()).stat().st_mtime) if Path(_matrix_config_path()).exists() else 0,
         "renderer": preset["renderer"],
         "preset_label": preset["label"],
