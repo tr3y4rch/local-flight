@@ -1426,6 +1426,124 @@ def test_shared_schedule_route_coalesces_repeated_accesses_and_counts_upstream_s
     assert int(snapshot_row["upstream_pulls"] or 0) == 8
 
 
+def test_shared_schedule_ttls_have_public_relay_floor(monkeypatch) -> None:
+    monkeypatch.delenv("RELAY_SHARED_SCHEDULE_MIN_FRESH_TTL_SECONDS", raising=False)
+    assert relay_main._schedule_ttls(60)[0] == 900
+    assert relay_main._schedule_ttls(3600)[0] == 900
+    assert relay_main._schedule_ttls(900, min_fresh_ttl_s=3600)[0] == 3600
+
+    monkeypatch.setenv("RELAY_SHARED_SCHEDULE_MIN_FRESH_TTL_SECONDS", "180")
+    assert relay_main._schedule_ttls(60)[0] == 180
+
+    monkeypatch.setenv("RELAY_SHARED_SCHEDULE_MIN_FRESH_TTL_SECONDS", "not-a-number")
+    assert relay_main._schedule_ttls(60)[0] == 900
+
+
+def test_community_shared_schedule_enforces_hourly_upstream_cadence(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    _use_temp_db(tmp_path, monkeypatch)
+    client = TestClient(relay_main.app)
+    upstream_calls: list[dict[str, object]] = []
+
+    def fake_shared_fetch(**kwargs):
+        upstream_calls.append(dict(kwargs))
+        return _shared_snapshot_payload(pages_fetched=2)
+
+    monkeypatch.setattr(relay_main, "_fetch_shared_schedule_from_upstream", fake_shared_fetch)
+    params = {
+        "airport_iata": "EGLL",
+        "timezone": "Europe/London",
+        "display_grace_minutes": 30,
+        "display_horizon_hours": 12,
+        "refresh_seconds": 900,
+        "install_id": "00000000-0000-0000-0000-000000000427",
+    }
+
+    seed = client.get("/v1/schedule", params=params)
+    assert seed.status_code == 200
+    assert seed.json()["cache_state"] == "miss"
+
+    conn = relay_main._connect()
+    thirty_minutes_ago = (relay_main.datetime.now(relay_main.timezone.utc) - relay_main.timedelta(minutes=30)).isoformat()
+    conn.execute(
+        "UPDATE schedule_snapshots SET generated_at=?, updated_at=?",
+        (thirty_minutes_ago, relay_main._utc_now()),
+    )
+    conn.commit()
+    conn.close()
+
+    response = client.get("/v1/schedule", params=params)
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["cache_state"] == "fresh"
+    assert payload["meta"]["served_via"] == "cache-hit"
+    assert payload["meta"]["requested_refresh_seconds"] == 900
+    assert payload["meta"]["effective_min_fresh_ttl_seconds"] == 3600
+    assert "once per hour" in payload["meta"]["relay_policy"]
+    assert len(upstream_calls) == 1
+
+    conn = relay_main._connect()
+    row = conn.execute("SELECT refresh_seconds FROM client_interests WHERE install_id=?", (params["install_id"],)).fetchone()
+    conn.close()
+    assert row is not None
+    assert int(row["refresh_seconds"] or 0) == 3600
+
+
+def test_shared_schedule_rechecks_cache_after_winning_refresh_lock(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    _use_temp_db(tmp_path, monkeypatch)
+    client = TestClient(relay_main.app)
+    cache_key = relay_main._schedule_cache_key(
+        airport_iata="EGLL",
+        timezone_name="Europe/London",
+        display_grace_minutes=30,
+        display_horizon_hours=12,
+    )
+    relay_main._store_schedule_snapshot(
+        cache_key=cache_key,
+        airport_iata="EGLL",
+        timezone_name="Europe/London",
+        display_grace_minutes=30,
+        display_horizon_hours=12,
+        payload=_shared_snapshot_payload(pages_fetched=1),
+        pages_fetched=1,
+    )
+    lifecycle_calls: list[str] = []
+
+    def fake_lifecycle(row, *, refresh_seconds, min_fresh_ttl_s=None):
+        lifecycle_calls.append("called")
+        return "stale" if len(lifecycle_calls) == 1 else "fresh"
+
+    def fail_fetch(**kwargs):
+        raise AssertionError("shared schedule should use the refreshed cache row")
+
+    monkeypatch.setattr(relay_main, "_snapshot_lifecycle_state", fake_lifecycle)
+    monkeypatch.setattr(relay_main, "_fetch_shared_schedule_from_upstream", fail_fetch)
+
+    response = client.get(
+        "/v1/schedule",
+        params={
+            "airport_iata": "EGLL",
+            "timezone": "Europe/London",
+            "display_grace_minutes": 30,
+            "display_horizon_hours": 12,
+            "refresh_seconds": 3600,
+            "install_id": "00000000-0000-0000-0000-000000000426",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["cache_state"] == "fresh"
+    assert payload["meta"]["served_via"] == "coalesced-refresh"
+    assert len(lifecycle_calls) == 2
+
+
 def test_shared_schedule_network_daily_limit_blocks_rotating_install_ids(
     tmp_path: Path,
     monkeypatch,
@@ -1670,7 +1788,7 @@ def test_shared_schedule_serves_stale_snapshot_when_refresh_fails(tmp_path: Path
     assert seed.status_code == 200
 
     conn = relay_main._connect()
-    stale_at = (relay_main.datetime.now(relay_main.timezone.utc) - relay_main.timedelta(minutes=30)).isoformat()
+    stale_at = (relay_main.datetime.now(relay_main.timezone.utc) - relay_main.timedelta(minutes=70)).isoformat()
     conn.execute(
         "UPDATE schedule_snapshots SET generated_at=?, updated_at=?",
         (stale_at, relay_main._utc_now()),

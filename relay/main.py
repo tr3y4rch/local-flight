@@ -50,6 +50,8 @@ _SHARED_SCHEDULE_PROVIDER = "aviationstack"
 _SHARED_SCHEDULE_PLANNER_VERSION = "fair-v3"
 _SHARED_SCHEDULE_SCHEMA_VERSION = "canonical-raw-v1"
 _SHARED_SCHEDULE_LOCK_WAIT_S = 4.0
+_SHARED_SCHEDULE_MIN_FRESH_TTL_S = 900
+_COMMUNITY_SCHEDULE_MIN_FRESH_TTL_S = 3600
 _AIRPORT_SURFACE_SCHEMA_VERSION = "osm-surface-v1"
 _AIRPORT_SURFACE_LOCK_WAIT_S = 4.0
 
@@ -238,6 +240,44 @@ def _radar_cache_seconds() -> int:
         return max(30, int(_env("RELAY_RADAR_CACHE_SECONDS", "300")))
     except ValueError:
         return 300
+
+
+def _shared_schedule_min_fresh_ttl_seconds() -> int:
+    try:
+        return max(
+            180,
+            int(
+                _env(
+                    "RELAY_SHARED_SCHEDULE_MIN_FRESH_TTL_SECONDS",
+                    str(_SHARED_SCHEDULE_MIN_FRESH_TTL_S),
+                )
+            ),
+        )
+    except ValueError:
+        return _SHARED_SCHEDULE_MIN_FRESH_TTL_S
+
+
+def _community_schedule_min_fresh_ttl_seconds() -> int:
+    try:
+        return max(
+            _shared_schedule_min_fresh_ttl_seconds(),
+            int(
+                _env(
+                    "RELAY_COMMUNITY_SCHEDULE_MIN_FRESH_TTL_SECONDS",
+                    str(_COMMUNITY_SCHEDULE_MIN_FRESH_TTL_S),
+                )
+            ),
+        )
+    except ValueError:
+        return max(_shared_schedule_min_fresh_ttl_seconds(), _COMMUNITY_SCHEDULE_MIN_FRESH_TTL_S)
+
+
+def _schedule_min_fresh_ttl_seconds_for_plan(plan: Any) -> int:
+    return (
+        _community_schedule_min_fresh_ttl_seconds()
+        if str(plan or "community").lower() == "community"
+        else _shared_schedule_min_fresh_ttl_seconds()
+    )
 
 
 def _airport_surface_enabled() -> bool:
@@ -1411,12 +1451,14 @@ def _parse_utc_dt(value: Any) -> Optional[datetime]:
     return dt.astimezone(timezone.utc)
 
 
-def _schedule_ttls(refresh_seconds: int) -> tuple[int, int]:
+def _schedule_ttls(refresh_seconds: int, *, min_fresh_ttl_s: Optional[int] = None) -> tuple[int, int]:
     try:
         refresh = max(60, int(refresh_seconds))
     except Exception:
         refresh = 3600
-    fresh_ttl_s = max(180, min(900, refresh // 4))
+    if min_fresh_ttl_s is None:
+        min_fresh_ttl_s = _shared_schedule_min_fresh_ttl_seconds()
+    fresh_ttl_s = max(int(min_fresh_ttl_s), min(900, refresh // 4))
     stale_ttl_s = max(fresh_ttl_s * 4, 1800)
     return fresh_ttl_s, stale_ttl_s
 
@@ -1485,13 +1527,18 @@ def _snapshot_payload_from_row(row: sqlite3.Row, *, cache_state: Optional[str] =
     }
 
 
-def _snapshot_lifecycle_state(row: Optional[sqlite3.Row], *, refresh_seconds: int) -> str:
+def _snapshot_lifecycle_state(
+    row: Optional[sqlite3.Row],
+    *,
+    refresh_seconds: int,
+    min_fresh_ttl_s: Optional[int] = None,
+) -> str:
     if row is None:
         return "miss"
     age_s = _snapshot_age_seconds(str(row["generated_at"] or ""))
     if age_s is None:
         return "miss"
-    fresh_ttl_s, stale_ttl_s = _schedule_ttls(refresh_seconds)
+    fresh_ttl_s, stale_ttl_s = _schedule_ttls(refresh_seconds, min_fresh_ttl_s=min_fresh_ttl_s)
     if age_s <= fresh_ttl_s:
         return "fresh"
     if age_s <= stale_ttl_s:
@@ -5520,7 +5567,9 @@ def relay_schedule(
     timezone_name = _normalize_timezone_name(timezone)
 
     access = _resolve_access(install_id=install_id, activation_token=activation_token, service="aviationstack")
-    if access["plan"] == "community":
+    plan = str(access["plan"] or "community")
+    min_fresh_ttl_s = _schedule_min_fresh_ttl_seconds_for_plan(plan)
+    if plan == "community":
         _check_and_increment_community_daily_limit(
             service="aviationstack",
             network_tag=_network_tag(_client_ip(request)),
@@ -5532,7 +5581,7 @@ def relay_schedule(
         timezone_name=timezone_name,
         display_grace_minutes=display_grace_minutes,
         display_horizon_hours=display_horizon_hours,
-        refresh_seconds=refresh_seconds,
+        refresh_seconds=max(refresh_seconds, min_fresh_ttl_s),
     )
 
     month = _month_key()
@@ -5574,6 +5623,10 @@ def relay_schedule(
     ) -> JSONResponse:
         payload = _snapshot_payload_from_row(row, cache_state=cache_state)
         payload["meta"]["served_via"] = served_via
+        payload["meta"]["requested_refresh_seconds"] = int(refresh_seconds)
+        payload["meta"]["effective_min_fresh_ttl_seconds"] = int(min_fresh_ttl_s)
+        if plan == "community":
+            payload["meta"]["relay_policy"] = "community schedule snapshots refresh at most once per hour"
         _record_schedule_access(
             cache_key=cache_key,
             cache_state=cache_state,
@@ -5592,7 +5645,11 @@ def relay_schedule(
 
     conn = _connect()
     snapshot_row = _load_schedule_snapshot_conn(conn, cache_key)
-    state = _snapshot_lifecycle_state(snapshot_row, refresh_seconds=refresh_seconds)
+    state = _snapshot_lifecycle_state(
+        snapshot_row,
+        refresh_seconds=refresh_seconds,
+        min_fresh_ttl_s=min_fresh_ttl_s,
+    )
     conn.close()
 
     if snapshot_row is not None and state == "fresh":
@@ -5636,7 +5693,11 @@ def relay_schedule(
             lock.release()
         conn = _connect()
         latest = _load_schedule_snapshot_conn(conn, cache_key)
-        latest_state = _snapshot_lifecycle_state(latest, refresh_seconds=refresh_seconds)
+        latest_state = _snapshot_lifecycle_state(
+            latest,
+            refresh_seconds=refresh_seconds,
+            min_fresh_ttl_s=min_fresh_ttl_s,
+        )
         conn.close()
         if latest is not None and latest_state in {"fresh", "stale"}:
             _log_request(
@@ -5659,6 +5720,31 @@ def relay_schedule(
 
     t0 = time.monotonic()
     try:
+        conn = _connect()
+        latest = _load_schedule_snapshot_conn(conn, cache_key)
+        latest_state = _snapshot_lifecycle_state(
+            latest,
+            refresh_seconds=refresh_seconds,
+            min_fresh_ttl_s=min_fresh_ttl_s,
+        )
+        conn.close()
+        if latest is not None and latest_state == "fresh":
+            _log_request(
+                install_id=install_id,
+                scope="shared_schedule",
+                status=200,
+                latency_ms=0,
+                service="aviationstack",
+                plan=access["plan"],
+            )
+            return _serve_snapshot(
+                latest,
+                cache_state="fresh",
+                served_via="coalesced-refresh",
+                count_cache_hit=True,
+                used_count=used,
+            )
+
         snapshot = _fetch_shared_schedule_from_upstream(
             airport_iata=airport_iata,
             timezone_name=timezone_name,

@@ -35,9 +35,10 @@ These are lightweight illustrative previews with sample data, not live telemetry
 Open [docs/previews/index.html](docs/previews/index.html) locally for the standalone HTML gallery.
 
 <p align="center">
-  <img src="docs/previews/fids-preview.svg" alt="Local Flight FIDS preview" width="32%">
-  <img src="docs/previews/radar-preview.svg" alt="Local Flight radar preview" width="32%">
-  <img src="docs/previews/settings-preview.svg" alt="Local Flight settings preview" width="32%">
+  <img src="docs/previews/fids-preview.svg" alt="Local Flight FIDS preview" width="24%">
+  <img src="docs/previews/radar-preview.svg" alt="Local Flight radar preview" width="24%">
+  <img src="docs/previews/matrix-preview.svg" alt="Local Flight LED matrix preview" width="24%">
+  <img src="docs/previews/settings-preview.svg" alt="Local Flight settings preview" width="24%">
 </p>
 
 <p align="center">
@@ -171,7 +172,7 @@ The scheduler only starts after setup completes. You can re-run the wizard any t
 
 During setup, Local Flight asks once how you want diagnostics handled and saves that choice in the local config. Manual reports always stay available from the **Report** page. Reports are sanitized locally, forwarded through the hosted relay reporting gateway, deduplicated/rate-limited there, and then filed for developer triage. Developer reporting credentials are not shipped in the desktop or mobile app.
 
-Community mode defaults to `https://localflight-community-relay.fly.dev`. Relay-backed community and managed installs share airport snapshots on the relay, so the per-install `50` limit applies to relay accesses rather than raw AviationStack pulls. The app derives its internal relay paths automatically; `/v1/schedule` is used for shared schedules, while `/v1/flights` is not a user-facing endpoint. Only change the relay URL if you are deliberately pointing the client at your own backend; custom or private relay URLs require explicit local opt-in environment flags.
+Community mode defaults to `https://localflight-community-relay.fly.dev`. Relay-backed community and managed installs share airport snapshots on the relay, so the per-install `50` limit applies to relay accesses rather than raw AviationStack pulls. For public safety, the community relay can reuse an already-cached airport snapshot for about one hour even if your local display checks more often. That keeps busy shared airports such as London Heathrow from causing repeated upstream requests when many installs watch the same board. The app derives its internal relay paths automatically; `/v1/schedule` is used for shared schedules, while `/v1/flights` is not a user-facing endpoint. Only change the relay URL if you are deliberately pointing the client at your own backend; custom or private relay URLs require explicit local opt-in environment flags.
 
 For real schedules, Local Flight now tries the same stronger fetch policy across BYOK and relay-backed modes: airport-local date windows, per-date pagination, and an extra rescue pass when the visible board would otherwise be empty. If the provider still only returns older real flights for a lane, Local Flight now falls back to showing the nearest available rows instead of a dead-empty board. Some airports can still look sparse if AviationStack itself does not return near-term schedule rows for that lane.
 
@@ -270,7 +271,7 @@ Runtime data is also kept outside the source tree:
 |---|---|---|
 | `airport_iata` | `ZRH` | 3-letter IATA code |
 | `airport_icao` | `LSZH` | 4-letter ICAO code |
-| `refresh_seconds` | `3600` | Fetch interval (min 900 s) |
+| `refresh_seconds` | `3600` | Fetch interval. Settings offers 15, 30, 45, 60 minutes, then 2, 4, 8, 12, and 24 hours. |
 | `source` | `real` | `real` (AviationStack) or `virtual` (VATSIM) |
 | `timezone` | `Europe/Zurich` | IANA timezone for local time display |
 | `theme` | `dark` | `dark` or `light` |
@@ -330,6 +331,7 @@ AviationStack and RapidAPI usage is tracked locally in `~/.localflight/api_usage
 - ADS-B Exchange / RapidAPI default: 10,000 calls/month
 - BYOK and local direct community-key mode use the fair AviationStack planner, so real upstream usage depends on airport traffic, date window coverage, and pagination
 - Relay-backed community and managed installs usually spend one relay schedule access per refresh cycle locally, while the relay may satisfy that from a shared cache or trigger a shared upstream refresh for many installs at once
+- Community relay snapshots have an upstream refresh floor of about one hour per cached airport/window. Local settings still offer 15, 30, 45, 60 minutes and longer choices, but the hosted relay protects shared provider usage when many users watch the same airport.
 
 Scheduler restarts and config changes do not burn a new schedule call while the current snapshot is still fresh.
 

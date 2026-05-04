@@ -2561,6 +2561,9 @@ export function AirportConfigSheet({
                 </Pressable>
               ))}
             </View>
+            <Text style={styles.configPolicyText}>
+              Choices are 15, 30, 45, and 60 minutes, then 2, 4, 8, 12, or 24 hours. Shorter values keep local displays fresh; longer values are kinder to schedule providers. Community Relay may reuse an already-cached airport snapshot for about one hour even when this client checks more often.
+            </Text>
 
             <Text style={styles.configSectionLabel}>PROFILES</Text>
             {profiles.length > 0 && (

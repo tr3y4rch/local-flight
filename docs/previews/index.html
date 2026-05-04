@@ -78,6 +78,9 @@
       grid-template-columns: repeat(3, minmax(0, 1fr));
       gap: 18px;
     }
+    .grid.desktop {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
     .section-title {
       margin: 30px 0 14px;
       color: var(--text);
@@ -110,7 +113,7 @@
     @media (max-width: 900px) {
       header { display: block; }
       .badge { margin-top: 16px; }
-      .grid { grid-template-columns: 1fr; }
+      .grid, .grid.desktop { grid-template-columns: 1fr; }
     }
   </style>
 </head>
@@ -130,7 +133,7 @@
     </header>
 
     <h2 class="section-title">Desktop and kiosk</h2>
-    <section class="grid" aria-label="Local Flight preview images">
+    <section class="grid desktop" aria-label="Local Flight preview images">
       <article class="card">
         <img src="fids-preview.svg" alt="Local Flight FIDS preview">
         <div class="caption"><strong>FIDS</strong><span>Airport board</span></div>
@@ -138,6 +141,10 @@
       <article class="card">
         <img src="radar-preview.svg" alt="Local Flight radar preview">
         <div class="caption"><strong>Radar</strong><span>Live traffic view</span></div>
+      </article>
+      <article class="card">
+        <img src="matrix-preview.svg" alt="Local Flight LED matrix preview">
+        <div class="caption"><strong>Matrix</strong><span>LED board tools</span></div>
       </article>
       <article class="card">
         <img src="settings-preview.svg" alt="Local Flight settings preview">

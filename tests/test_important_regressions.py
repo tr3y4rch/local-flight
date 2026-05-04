@@ -4,6 +4,7 @@ import json
 import sys
 import threading
 import types
+import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -2479,6 +2480,30 @@ def test_default_public_relay_url_matches_live_installer_default(monkeypatch) ->
     monkeypatch.delenv("LOCALFLIGHT_RELAY_URL", raising=False)
 
     assert relay_defaults.default_public_relay_url() == "https://localflight-community-relay.fly.dev"
+
+
+def test_client_settings_explain_refresh_cadence_and_relay_policy() -> None:
+    root = Path(__file__).resolve().parents[1]
+    web_settings = (root / "src" / "localflight" / "ui" / "templates" / "settings.html").read_text(encoding="utf-8")
+    native_settings = (root / "src" / "localflight" / "native" / "_legacy_app.py").read_text(encoding="utf-8")
+    mobile_settings = (root / "mobile" / "src" / "screens" / "AppScreens.tsx").read_text(encoding="utf-8")
+
+    for text in (web_settings, native_settings, mobile_settings):
+        assert "15, 30, 45, and 60 minutes" in text
+        assert "Community Relay" in text
+        assert "one hour" in text or "hourly" in text
+
+
+def test_public_preview_gallery_includes_matrix_artwork() -> None:
+    root = Path(__file__).resolve().parents[1]
+    readme = (root / "README.md").read_text(encoding="utf-8")
+    gallery = (root / "docs" / "previews" / "index.html").read_text(encoding="utf-8")
+    matrix_preview = root / "docs" / "previews" / "matrix-preview.svg"
+
+    assert "docs/previews/matrix-preview.svg" in readme
+    assert "matrix-preview.svg" in gallery
+    assert matrix_preview.exists()
+    ET.parse(matrix_preview)
 
 
 def test_setup_relay_url_validation_blocks_untrusted_roots(monkeypatch) -> None:

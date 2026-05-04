@@ -2725,6 +2725,12 @@ function createStyles() {
     color: palette.blue2,
     fontWeight: "700"
   },
+  configPolicyText: {
+    color: palette.textMuted,
+    fontSize: 11,
+    lineHeight: 16,
+    marginTop: 8
+  },
   configProfileList: {
     borderRadius: 10,
     borderWidth: 1,

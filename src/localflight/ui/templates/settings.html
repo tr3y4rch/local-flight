@@ -69,12 +69,23 @@
     text-transform: uppercase;
     letter-spacing: 0.03em;
   }
-  .panel-intro {
+      .panel-intro {
     margin: -4px 0 14px 0;
     font-size: 0.84rem;
     line-height: 1.5;
     opacity: 0.68;
   }
+  .cadence-help {
+    margin-top: 8px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08);
+    font-size: 0.8rem;
+    line-height: 1.45;
+    opacity: 0.78;
+  }
+  .cadence-help strong { opacity: 0.95; }
   .resource-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
@@ -261,6 +272,12 @@
             <option value="{{ val }}" {% if cfg.refresh_seconds == val %}selected{% endif %}>{{ label }}</option>
           {% endfor %}
         </select>
+        <div class="cadence-help">
+          <strong>Available choices:</strong> 15, 30, 45, and 60 minutes, then 2, 4, 8, 12, or 24 hours.
+          Short intervals keep local displays feeling fresh. Longer intervals are gentler on shared schedule providers.
+          Community Relay protects already-cached airports with an hourly upstream refresh floor, so 15 or 30 minute
+          local polling can still reuse the shared snapshot instead of forcing new provider calls.
+        </div>
       </label>
 
       <label>

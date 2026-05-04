@@ -9,7 +9,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [0.2.5b5] - 2026-05-04
 
 ### Added
-- Matrix V2 now has explicit public presets for exactly three operator-facing profiles: `real_fids`, `vatsim_pilot`, and `vatsim_atc`. Legacy preset names remain accepted as compatibility aliases, but the user-facing preset list is intentionally cleaned up.
+- Matrix V2 now has explicit public presets for exactly three operator-facing profiles: `real_fids`, `vatsim_pilot`, and `vatsim_atc`. Legacy matrix preset names are no longer shown on the user-facing preset list.
 - Matrix device check-in, config assignment, page-aware feeds, and generated `main.py` are now aligned across the web kiosk and native Qt Matrix tools, including the native **Generate main.py** path.
 - `vatsim_pilot` and `vatsim_atc` are VATSIM-only matrix profiles. They require app source `virtual`, return a clear "set source to VATSIM" state when source is still real, and do not silently fetch real FIDS or real METAR fallback data.
 - `vatsim_atc` can rotate local departures, arrivals, and a decoded VATSIM ATIS/METAR weather page without making extra HTTP requests for each page flip.
@@ -25,6 +25,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - The generated Interstate 75 W client now supports scalable rectangular HUB75 combinations, including side-by-side and stacked `128x64` modules, plus wider custom logical sizes where the firmware display mode supports them.
 - Status and row polish now includes breathing active-state coloring, cancellation warning treatment, codeshare flight-number cycling, route-code preservation, and local page rotation driven by the server matrix config.
 - Matrix VATSIM, radar virtual mode, and scheduler VATSIM paths now share cached VATSIM payload access where practical to avoid duplicate upstream VATSIM requests.
+- Community relay shared airport snapshots now have a relay-enforced upstream refresh floor of about one hour per cached airport/window. Client-side refresh settings can still poll the local app more often, but they cannot force the hosted community relay to make repeated upstream provider requests.
+- Client settings in web, native Qt, and mobile now explain the available refresh choices and why Community Relay may reuse cached airport snapshots for public safety.
+- README preview graphics now include the Matrix page and LED board tooling alongside FIDS, Radar, Settings, and companion previews.
+- Public docs now describe relay cadence in end-user terms, while `DEV_README.md` keeps the operator-facing env names and writing-style reminder.
 
 ### Fixed
 - Generated `main.py` no longer crashes when route/status values arrive as non-string JSON values; text fields are normalized before fitting or cycling.

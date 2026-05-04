@@ -78,6 +78,8 @@ The relay does **not** store:
 
 Community relay traffic has per-install quotas plus network/global safety caps. Duplicate reports are deduplicated before routing, so one noisy install should not spam every triage area.
 
+For public safety, the community relay also controls how often a shared airport snapshot can trigger a new upstream schedule fetch. If an airport/window is already cached, the relay can reuse that snapshot for about one hour even when a local display checks every 15 or 30 minutes. This keeps the public relay usable when many people watch the same busy airport at the same time.
+
 ### Bring Your Own Keys
 
 If you choose **Bring your own keys**, your local app talks directly to the upstream providers you configured. Your provider keys stay in your local `.env` and are not sent to the Local Flight relay reporting gateway.

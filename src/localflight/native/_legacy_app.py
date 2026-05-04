@@ -3972,6 +3972,14 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
         form.addRow("Flight source", self.source)
         form.addRow("Refresh cadence", self.refresh_seconds)
         layout.addLayout(form)
+        layout.addWidget(
+            label(
+                self.QtWidgets,
+                "Refresh choices are 15, 30, 45, and 60 minutes, then 2, 4, 8, 12, or 24 hours. Shorter values keep local displays fresh; longer values are kinder to schedule providers. Community Relay may reuse an already-cached airport snapshot for about one hour even when the client polls more often.",
+                "Muted",
+                wrap=True,
+            )
+        )
         self.layout.addWidget(box)
 
     def _build_display_section(self) -> None:

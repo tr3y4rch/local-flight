@@ -56,6 +56,7 @@ Do not use `localhost` on a physical iPhone. `localhost` means the phone itself,
 - Dashboard data from `/api/admin/system`, `/api/config`, `/api/health`, `/api/admin/budget`, `/api/admin/connections`, `/api/admin/updates`, and `/api/metar`
 - Native FIDS list from `/api/fids`
 - Flight details from `/api/fids/detail`, including real vs VATSIM detail modes when the server has that data
+- Airport, source, and refresh interval editing. The server offers 15, 30, 45, and 60 minute choices plus longer 2, 4, 8, 12, and 24 hour choices. Community Relay may still reuse already-cached airport snapshots for about one hour to protect shared upstream schedule access.
 - Pinned flight island with pin/unpin and tap-for-detail behavior
 - WebSocket listener for `/ws` `snapshot_updated`, `config_updated`, and `scheduler_restarted` events
 - Independent mobile appearance with dark/light theme plus `standard`, `technical`, `neon`, `cyan`, and `crt` skins
