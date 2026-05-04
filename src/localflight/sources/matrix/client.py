@@ -1249,7 +1249,14 @@ def main():
             if ensure_wifi():
                 fetch_config()
                 old_mode = ANIMATION_MODE
+                old_view = view
                 fetch_matrix_config()
+                if DEFAULT_VIEW != old_view:
+                    view = DEFAULT_VIEW
+                    flight_data = []
+                    page_data = []
+                    force_fetch = True
+                    last_page_rotate = now
                 # Resize flap_rows if MAX_ROWS changed
                 if len(flap_rows) != MAX_ROWS:
                     flap_rows = [FlapRow(ROW_LEN) for _ in range(MAX_ROWS)]

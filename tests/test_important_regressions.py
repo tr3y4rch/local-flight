@@ -1938,6 +1938,8 @@ def test_matrix_script_endpoint_uses_current_i75w_client_template() -> None:
     assert 'HARDWARE_NAME  = "Pimoroni Interstate 75 W"' in script
     assert '"hardware_name": HARDWARE_NAME' in script
     assert "CONFIG_REFRESH_S = 60" in script
+    assert "old_view = view" in script
+    assert "if DEFAULT_VIEW != old_view:" in script
     assert '"pax_blue"' in script
     assert '"solari_amber"' in script
     assert '"tower_scope"' in script
