@@ -3481,7 +3481,7 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
     def generate_script(self) -> None:
         w, h = self._panel_size()
         payload = {
-            "wifi_ssid": self.wifi_ssid.text().strip() or "Your WiFi",
+            "wifi_ssid": self.wifi_ssid.text().strip() or "your_wifi_name",
             "wifi_password": self.wifi_password.text(),
             "api_host": self.api_host.text().strip() or "localflight.local",
             "api_port": int(self.api_port.value()),

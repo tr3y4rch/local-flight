@@ -473,12 +473,12 @@ def fetch_matrix_config():
 def fetch_fids(view="departures", limit=4):
     view = _normalize_view(view, "departures")
     limit = _clamp_int(limit, 1, 32, max(MAX_ROWS, limit))
-    data = _get_json(f"/api/matrix/v2/devices/{device_id()}/feed?view={view}", timeout=10)
-    if isinstance(data, dict) and isinstance(data.get("rows"), list):
-        return data.get("rows") or []
     data = _get_json(f"/api/fids?view={view}&limit={limit}", timeout=10)
     if isinstance(data, list):
         return data
+    data = _get_json(f"/api/matrix/v2/devices/{device_id()}/feed?view={view}", timeout=10)
+    if isinstance(data, dict) and isinstance(data.get("rows"), list):
+        return data.get("rows") or []
     return []
 
 
@@ -491,11 +491,6 @@ def ping_server():
         "firmware": CLIENT_VER,
         "renderers": SUPPORTED_RENDERERS,
     }, timeout=5)
-    try:
-        resp = urequests.post(_api_url(f"/api/admin/ping?device=matrix&version={CLIENT_VER}"))
-        resp.close()
-    except Exception:
-        pass
 
 # ── Drawing helpers ────────────────────────────────────────────────────────────
 def _draw_message(msg, color=WHITE):
@@ -640,10 +635,14 @@ def main():
         _draw_message("No WiFi. Retrying...", RED)
         time.sleep(5)
     else:
+        _draw_message("WiFi OK", GREEN)
+        time.sleep(0.2)
+        _draw_message("Loading config...", GREEN)
         fetch_config()
         checkin_matrix_device()
         fetch_matrix_config()
         last_config = time.time()
+        _draw_message("Checking in...", GREEN)
         ping_server()
         last_ping = time.time()
 
