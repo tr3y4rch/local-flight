@@ -258,12 +258,20 @@ class FlapRow:
 # TIME(5) SP FLIGHT(8) SP DEST(12) SP STATUS(10) SP GATE(4) = 42 chars
 ROW_LEN = 42
 
+def _text_field(value, fallback=""):
+    if value is None:
+        value = fallback
+    try:
+        return str(value)
+    except Exception:
+        return str(fallback)
+
 def build_row_text(row):
-    time_s   = str(row.get("display_time") or row.get("time") or "--:--")[:5].ljust(5)
-    flight_s = str(row.get("flight_display") or row.get("flight") or row.get("flight_number") or "")[:8].ljust(8)
-    dest_s   = str(row.get("route_display") or row.get("route") or "")[:12].ljust(12)
-    status_s = str(row.get("status_display") or row.get("status") or "")[:10].ljust(10)
-    gate_s   = str(row.get("gate") or "-")[:4].ljust(4)
+    time_s   = _text_field(row.get("display_time") or row.get("time"), "--:--")[:5].ljust(5)
+    flight_s = _text_field(row.get("flight_display") or row.get("flight") or row.get("flight_number"))[:8].ljust(8)
+    dest_s   = _text_field(row.get("route_display") or row.get("route"))[:12].ljust(12)
+    status_s = _text_field(row.get("status_display") or row.get("status"))[:10].ljust(10)
+    gate_s   = _text_field(row.get("gate"), "-")[:4].ljust(4)
     return f"{time_s} {flight_s} {dest_s} {status_s} {gate_s}"
 
 def build_detail_text(row):

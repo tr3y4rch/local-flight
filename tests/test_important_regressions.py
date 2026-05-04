@@ -1596,6 +1596,7 @@ def test_matrix_script_endpoint_uses_current_i75w_client_template() -> None:
     assert 'CLIENT_VER       = "2.0"' in script
     assert "import interstate75 as interstate75_module" in script
     assert "def update_display():" in script
+    assert "def _text_field(value, fallback=\"\"):" in script
     assert "urequests.get(_api_url(path))" in script
     assert "timeout=timeout" not in script
     assert "/api/matrix/v2/devices/checkin" in script
