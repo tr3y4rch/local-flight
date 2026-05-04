@@ -432,6 +432,9 @@
       <select id="presetSelect" onchange="setMatrixPreset(this.value)">
         <option value="classic_split_flap">Classic split-flap</option>
         <option value="modern_airport_fids">Modern airport FIDS</option>
+        <option value="pax_airport_fids">Passenger airport FIDS</option>
+        <option value="tower_fids">Tower FIDS</option>
+        <option value="vatsim_ops">VATSIM ops</option>
         <option value="terminal_minimal">Terminal minimal</option>
         <option value="radar_strip">Radar strip</option>
       </select>
@@ -563,6 +566,7 @@
   let MATRIX_CONFIGS = [];
   let MATRIX_PRESETS = [];
   let CURRENT_CONFIG_ID = "";
+  let MATRIX_METAR = null;
   const POLL_MS     = 15000;
   const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "::1", "[::1]"]);
   const DEFAULT_SERVER_HOST = LOOPBACK_HOSTS.has(window.location.hostname)
@@ -693,6 +697,26 @@
     }
   }
 
+  const GLYPHS = {
+    dep: ["00100","01110","10101","00100","01010"],
+    arr: ["01010","00100","10101","01110","00100"],
+    plane: ["00100","10101","11111","00100","01010"],
+    warn: ["00100","01110","01110","00000","00100"],
+    sun: ["10101","01110","11111","01110","10101"],
+    cloud: ["00000","01110","11111","11110","00000"],
+    rain: ["01110","11111","00000","01010","10100"],
+    storm: ["01110","11111","00100","01000","10000"],
+    mist: ["00000","11110","00000","01111","00000"],
+    unknown: ["11111","10001","00110","00000","00100"],
+  };
+
+  function drawGlyph(name, x, y, color) {
+    const mask = GLYPHS[name] || GLYPHS.unknown;
+    mask.forEach((row, yy) => [...row].forEach((bit, xx) => {
+      if (bit === "1") drawPixel(x + xx, y + yy, color);
+    }));
+  }
+
   // Per-row flap cells — 44 chars wide
   const ROW_LEN = 44;
   let flapRows  = Array.from({length:8}, () =>
@@ -809,10 +833,72 @@
     return (rows || []).some(row => codeshareFlightNumbers(row).length > 0);
   }
 
+  function fit(value, length) {
+    return String(value || "").toUpperCase().padEnd(length, " ").slice(0, length);
+  }
+
+  function marquee(value, width, step = Math.floor(Date.now() / 330)) {
+    const text = String(value || "").trim().toUpperCase();
+    if (text.length <= width) return text.padEnd(width, " ");
+    const canvas = `${text}   `;
+    const start = step % canvas.length;
+    return (canvas + canvas).slice(start, start + width);
+  }
+
+  function codePreserve(value, code, width) {
+    const text = String(value || "").trim().toUpperCase();
+    code = String(code || "").trim().toUpperCase();
+    if (!code || text.slice(0, width).includes(code) || text.length <= width) return text.padEnd(width, " ").slice(0, width);
+    if (code.length >= width) return code.slice(0, width);
+    return `${text.slice(0, Math.max(0, width - code.length - 1)).trim()} ${code}`.trim().padEnd(width, " ").slice(0, width);
+  }
+
+  function cycleChunks(value, width, code = "") {
+    const text = String(value || "").replace(/[()]/g, " ").trim().toUpperCase();
+    code = String(code || "").trim().toUpperCase();
+    if (!text) return (code || "-").padEnd(width, " ").slice(0, width);
+    if (text.length <= width) return codePreserve(text, code, width);
+    const chunks = [];
+    let current = "";
+    for (const raw of text.split(/\s+/).filter(Boolean)) {
+      const word = raw.length > width ? raw.slice(0, width) : raw;
+      if (!current) current = word;
+      else if (current.length + 1 + word.length <= width) current += ` ${word}`;
+      else { chunks.push(current); current = word; }
+    }
+    if (current) chunks.push(current);
+    if (code && !chunks.some(chunk => chunk.includes(code))) chunks.push(code.slice(0, width));
+    const slot = Math.floor(Date.now() / 3000) % Math.max(1, chunks.length);
+    return codePreserve(chunks[slot], slot === chunks.length - 1 ? code : "", width);
+  }
+
+  function routeFields(row) {
+    const text = String(row.route_matrix_label || row.route_display || row.route || "-").trim();
+    let code = String(row.route_code || "").trim().toUpperCase();
+    let city = String(row.route_city || "").trim();
+    const match = text.toUpperCase().match(/\(([A-Z0-9]{3,4})\)\s*$/);
+    if (!code && match) code = match[1];
+    if (!city && match) city = text.replace(/\s*\([A-Za-z0-9]{3,4}\)\s*$/, "").trim();
+    const label = String(row.route_matrix_label || [city || text.replace(/\s*\([A-Za-z0-9]{3,4}\)\s*$/, ""), code].filter(Boolean).join(" ") || text).toUpperCase();
+    return { label, code };
+  }
+
+  function routeChunk(row, chars) {
+    const { label, code } = routeFields(row || {});
+    return cycleChunks(label, chars, code).trim();
+  }
+
+  function statusChunk(row, chars) {
+    return cycleChunks(row?.status_display || row?.status || "-", chars).trim();
+  }
+
+  const cycle_chunks = cycleChunks;
+  const code_preserve = codePreserve;
+
   function buildRowText(row) {
     const t  = ((row.display_time || row.time || "--:--")+"     ").slice(0,5);
     const fn = ((flightCycleDisplay(row))+"        ").slice(0,8);
-    const rt = ((row.route_display || row.route || "")+"            ").slice(0,14);
+    const rt = fit(routeFields(row).label, 14);
     const st = ((row.status_display || row.status || "")+"          ").slice(0,10);
     const gt = ((row.gate || "-")+"    ").slice(0,4);
     return `${t} ${fn} ${rt} ${st} ${gt}`;
@@ -868,6 +954,35 @@
     return C.green;
   }
 
+  function weatherGlyphName() {
+    const text = String(MATRIX_METAR?.weather_icon || MATRIX_METAR?.summary || "").toLowerCase();
+    if (text.includes("storm") || text.includes("thunder")) return "storm";
+    if (text.includes("rain") || text.includes("shower")) return "rain";
+    if (text.includes("mist") || text.includes("fog") || text.includes("haze")) return "mist";
+    if (text.includes("cloud") || text.includes("overcast")) return "cloud";
+    if (text.includes("sun") || text.includes("clear") || text.includes("vfr")) return "sun";
+    return "unknown";
+  }
+
+  function weatherLine(chars = 18) {
+    if (!MATRIX_METAR) return "";
+    const cat = String(MATRIX_METAR.flight_cat || MATRIX_METAR.category || "").toUpperCase();
+    const rawTemp = MATRIX_METAR.temperature_display || MATRIX_METAR.temp_c || MATRIX_METAR.temperature_c || "";
+    const temp = rawTemp === "" ? "" : String(rawTemp).replace(" C", "C").replace(/\s+/g, "").toUpperCase().replace(/([^C])$/, "$1C");
+    const wind = String(MATRIX_METAR.wind_display || MATRIX_METAR.wind || "").toUpperCase();
+    const text = `WX ${[cat, temp, wind].filter(Boolean).join(" ")}`.trim();
+    return text.length > chars ? marquee(text, chars).trim() : text.slice(0, chars);
+  }
+
+  function headerHeight() {
+    return PANEL_H >= 96 && weatherLine(8) ? 20 : 11;
+  }
+
+  function visibleRows() {
+    if (PANEL_W < 180) return Math.max(1, Math.min(MAX_ROWS, Math.floor((PANEL_H - headerHeight()) / 27)));
+    return MAX_ROWS;
+  }
+
   // ── Draw the full frame ────────────────────────────────────────────────────
   function drawFrame() {
     // Background
@@ -901,24 +1016,29 @@
         });
       } catch { return utcStr; }
     })();
-    const clockLine = `UTC${utcStr} LT${ltStr}`;
+    const wx = weatherLine(Math.max(8, Math.floor(PANEL_W / 6) - 1));
+    const showWeather = wx && (PANEL_H >= 96 || Math.floor(Date.now() / 8000) % 2 === 1);
+    const clockLine = showWeather && PANEL_W >= 200 ? wx : `UTC${utcStr} LT${ltStr}`;
     const clockX    = PANEL_W - clockLine.length*6 - 1;
     if (clockX > headerLabel.length*6 + 6) {
-      drawString(`UTC`, clockX, 0, C.dim);
-      drawString(utcStr, clockX+18, 0, C.green);
-      drawString(`LT`, clockX+48, 0, C.dim);
-      drawString(ltStr, clockX+60, 0, C.cyan);
+      drawString(clockLine, clockX, 0, showWeather ? C.amber : C.dim);
+    }
+    if (PANEL_H >= 96 && wx) {
+      drawGlyph(weatherGlyphName(), 0, 11, weatherGlyphName() === "sun" || weatherGlyphName() === "storm" ? C.amber : C.dim);
+      drawString(wx, 8, 10, C.dim, PANEL_W - 8);
+      for (let x=0; x<PANEL_W; x++) drawPixel(x, 19, C.dim);
     }
 
     // Separator line
-    for (let x=0; x<PANEL_W; x++) drawPixel(x, 9, C.dim);
+    for (let x=0; x<PANEL_W; x++) drawPixel(x, headerHeight() - 2, C.dim);
 
     // ── Flight rows ─────────────────────────────────────────────────────────
-    const dataY  = 11;
+    const dataY  = headerHeight();
     const dataH  = PANEL_H - dataY;
-    const rowH   = Math.max(9, Math.floor(dataH / MAX_ROWS));
+    const rowsToDraw = visibleRows();
+    const rowH   = Math.max(9, Math.floor(dataH / rowsToDraw));
 
-    for (let ri=0; ri<MAX_ROWS; ri++) {
+    for (let ri=0; ri<rowsToDraw; ri++) {
       const y   = dataY + ri*rowH;
       if (y+7 > PANEL_H) break;
       const txt = getRowText(ri);
@@ -934,18 +1054,26 @@
       }
 
       if (compact) {
-        drawString(txt.slice(0,5), 0, y, cancelled ? C.white : C.green);
-        drawString(txt.slice(6,14), 42, y, C.white);
-        if (PANEL_W >= 112) drawString(txt.slice(39,43), PANEL_W - 25, y, C.dim);
+        const chars = Math.max(8, Math.floor(PANEL_W / 6));
+        drawGlyph(cancelled ? "warn" : (VIEW === "arrivals" ? "arr" : "dep"), 0, y + 1, cancelled ? C.red : C.dim);
+        drawString(txt.slice(0,5), 8, y, cancelled ? C.white : C.green);
+        drawString(txt.slice(6,14), 50, y, C.white);
 
         const sc = row ? statusColor(row) : (flightColors[ri] || C.green);
         let statusY = y + 8;
         if (rowH >= 18) {
-          drawString(txt.slice(15,27), 0, y + 8, C.white, PANEL_W);
+          drawString(row ? routeChunk(row, chars) : txt.slice(15,27), 0, y + 8, C.white, PANEL_W);
           statusY = y + 16;
         }
         if (statusY + 7 <= y + rowH) {
-          drawString(txt.slice(28,38), 0, statusY, cancelled ? C.white : sc, PANEL_W);
+          let statusText = row ? statusChunk(row, chars) : txt.slice(28,38);
+          const gate = String(row?.gate || "").toUpperCase();
+          const aircraft = String(row?.aircraft_type || row?.aircraft || "").toUpperCase();
+          if (rowH >= 27 && ((gate && gate !== "-") || aircraft)) {
+            const extra = gate && gate !== "-" ? gate : aircraft;
+            statusText = `${statusText.slice(0, Math.max(1, chars - 5)).trim()} ${extra.slice(0,4)}`.trim();
+          }
+          drawString(statusText, 0, statusY, cancelled ? C.white : sc, PANEL_W);
         }
         if (flightDetails[ri] && rowH >= 34) {
           drawString(flightDetails[ri].slice(0, 20), 0, y + 24, C.dim, PANEL_W);
@@ -996,8 +1124,9 @@
 
   function chunkFlightPages(data) {
     const pages = [];
-    for (let i = 0; i < data.length; i += MAX_ROWS) {
-      pages.push(data.slice(i, i + MAX_ROWS));
+    const step = visibleRows();
+    for (let i = 0; i < data.length; i += step) {
+      pages.push(data.slice(i, i + step));
     }
     return pages.length ? pages : [[]];
   }
@@ -1043,10 +1172,18 @@
   // ── Fetch ──────────────────────────────────────────────────────────────────
   async function fetchRows() {
     try {
-      const fetchLimit = Math.min(MAX_ROWS * 4, 32);
-      const r = await fetch(`/api/fids?view=${VIEW}&limit=${fetchLimit}`);
+      const fetchLimit = Math.min(visibleRows() * 4, 32);
+      let r = await fetch(`/api/matrix/v2/devices/preview/feed?view=${VIEW}`);
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      const data = await r.json();
+      let payload = await r.json();
+      let data = Array.isArray(payload) ? payload : (payload.rows || []);
+      MATRIX_METAR = payload && !Array.isArray(payload) ? (payload.metar || null) : null;
+      if (!Array.isArray(data)) {
+        r = await fetch(`/api/fids?view=${VIEW}&limit=${fetchLimit}`);
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        data = await r.json();
+        MATRIX_METAR = null;
+      }
       if (data.length === 0) {
         applyFlightData([]);
         status.textContent = "No flight data available — click Demo to preview animation";

@@ -1505,6 +1505,10 @@ def test_matrix_v2_migrates_flat_config_and_registers_device(tmp_path: Path, mon
     assert payload["configs"][0]["brightness"] == 0.44
     assert payload["configs"][0]["animation_enabled"] is False
 
+    presets = client.get("/api/matrix/v2/presets").json()["presets"]
+    preset_ids = {item["id"] for item in presets}
+    assert {"classic_split_flap", "pax_airport_fids", "tower_fids", "vatsim_ops", "radar_strip"} <= preset_ids
+
     response = client.post(
         "/api/matrix/v2/devices/checkin",
         json={
@@ -1526,6 +1530,73 @@ def test_matrix_v2_migrates_flat_config_and_registers_device(tmp_path: Path, mon
     resolved = response.json()
     assert resolved["renderer"] == "split_flap"
     assert resolved["device_id"] == "i75w-test"
+
+
+def test_matrix_v2_feed_adds_route_safe_fields_and_metar(tmp_path: Path, monkeypatch) -> None:
+    matrix_config = tmp_path / "matrix_config.json"
+    monkeypatch.setattr(ui_api, "_matrix_config_path", lambda: matrix_config)
+    monkeypatch.setattr(
+        ui_api,
+        "load_config",
+        lambda: AppConfig(airport_iata="DFW", airport_icao="KDFW", timezone="America/Chicago"),
+    )
+    monkeypatch.setattr(
+        ui_api,
+        "api_fids",
+        lambda view, limit: [
+            {
+                "id": "flight-1",
+                "display_time": "10:35",
+                "flight_display": "AA 100",
+                "route_display": "Dallas-Fort Worth (KDFW)",
+                "status_display": "SCHEDULED",
+                "status_class": "scheduled",
+                "gate": "-",
+                "aircraft_type": "A321",
+                "callsign": "AAL100",
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        ui_api,
+        "api_metar",
+        lambda: {
+            "flight_cat": "VFR",
+            "flight_cat_color": "#00ff00",
+            "weather_icon": "sun",
+            "weather_label": "Clear",
+            "raw_text": "METAR KDFW TEST",
+            "wind_display": "180/08",
+            "temperature_c": 29,
+            "source": "test",
+        },
+    )
+
+    client = TestClient(ui_api.app)
+    response = client.get("/api/matrix/v2/devices/preview/feed?view=departures")
+
+    assert response.status_code == 200
+    payload = response.json()
+    row = payload["rows"][0]
+    assert row["route_display"] == "Dallas-Fort Worth (KDFW)"
+    assert row["route_city"] == "Dallas-Fort Worth"
+    assert row["route_code"] == "KDFW"
+    assert row["route_matrix_label"] == "DALLAS-FORT WORTH KDFW"
+    assert row["gate"] == "-"
+    assert row["aircraft_type"] == "A321"
+    assert row["callsign"] == "AAL100"
+    assert payload["metar"]["weather_icon"] == "sun"
+    assert payload["metar"]["temperature_display"] == "29 C"
+
+
+def test_matrix_route_fields_preserve_icao_only_codes() -> None:
+    fields = ui_api._matrix_route_fields("KJFK")
+
+    assert fields == {
+        "route_city": "",
+        "route_code": "KJFK",
+        "route_matrix_label": "KJFK",
+    }
 
 
 def test_matrix_script_endpoint_renders_from_canonical_template(tmp_path: Path, monkeypatch) -> None:
@@ -1618,6 +1689,14 @@ def test_matrix_script_endpoint_uses_current_i75w_client_template() -> None:
     assert "clock_utc_epoch" in script
     assert "ACTIVE_BREATH" in script
     assert "AMBER_BREATH" in script
+    assert "def cycle_chunks(value, width, code=\"\"):" in script
+    assert "def code_preserve(value, code, width):" in script
+    assert "def marquee(value, width, step=None):" in script
+    assert "def draw_glyph(name, x, y, color):" in script
+    assert "route_matrix_label" in script
+    assert "def _weather_line(chars=18):" in script
+    assert "\"tower_fids\"" in script
+    assert "\"vatsim_ops\"" in script
     assert ".ljust(" not in script
     assert "DISPLAY, DISPLAY_PANELS = _display_for_size(PANEL_W, PANEL_H)" in script
     assert "Unsupported Interstate 75 display size" in script
@@ -1626,7 +1705,7 @@ def test_matrix_script_endpoint_uses_current_i75w_client_template() -> None:
     assert "text[39:43]" in script
     assert "CODE_SHARE_ROTATION_S = 4" in script
     assert "def _flight_cycle_display(row):" in script
-    assert "limit=min(MAX_ROWS * 4, 32)" in script
+    assert "limit=min(_visible_rows() * 4, 32)" in script
     assert "urequests.get(_api_url(path))" in script
     assert "timeout=timeout" not in script
     assert "/api/matrix/v2/devices/checkin" in script
@@ -1659,8 +1738,15 @@ def test_matrix_preview_panel_geometry_stays_in_sync() -> None:
     assert "function codeshareFlightNumbers(row)" in template
     assert "function breathAmount(periodMs = 1800)" in template
     assert "Math.floor(performance.now()/240)" not in template
+    assert "function cycleChunks(value, width, code = \"\")" in template
+    assert "const code_preserve = codePreserve" in template
+    assert "function routeChunk(row, chars)" in template
+    assert "function visibleRows()" in template
+    assert "function drawGlyph(name, x, y, color)" in template
+    assert "Passenger airport FIDS" in template
+    assert "VATSIM ops" in template
     assert "lastCodeshareCycle" in template
-    assert "const fetchLimit = Math.min(MAX_ROWS * 4, 32)" in template
+    assert "const fetchLimit = Math.min(visibleRows() * 4, 32)" in template
     assert "canvas.style.width" in template
     assert "canvas.style.height" in template
     assert "let RENDER_PIXEL_SIZE = PIXEL_SIZE" in template
@@ -1688,6 +1774,11 @@ def test_native_matrix_panel_geometry_matches_web_controls() -> None:
     assert "def _codeshare_flights" in source
     assert "def _breath_color" in source
     assert "math.sin((self.phase / 24.0)" in source
+    assert "def cycle_chunks" in source
+    assert "def code_preserve" in source
+    assert "def _route_chunk" in source
+    assert "def _visible_rows" in source
+    assert "/api/matrix/v2/devices/preview/feed" in source
 
 
 def test_matrix_script_endpoint_rejects_loopback_host(tmp_path: Path, monkeypatch) -> None:

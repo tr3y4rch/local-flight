@@ -1635,6 +1635,53 @@ _MATRIX_PRESETS: Dict[str, Dict[str, Any]] = {
             "row_pulse": True,
         },
     },
+    "pax_airport_fids": {
+        "id": "pax_airport_fids",
+        "label": "Passenger Airport FIDS",
+        "renderer": "modern_fids",
+        "description": "Passenger-first board with compact weather, route-code preservation, glyphs, and readable small-panel rows.",
+        "options": {
+            "palette": ["standard", "cyan", "white"],
+            "animation_mode": ["slide_left", "split_flap", "static"],
+            "animation_speed": {"min": 1, "max": 5, "default": 3},
+            "show_clock": True,
+            "show_metar": True,
+            "show_glyphs": True,
+            "weather_strip": True,
+            "code_preserve": True,
+        },
+    },
+    "tower_fids": {
+        "id": "tower_fids",
+        "label": "Tower FIDS",
+        "renderer": "tower_fids",
+        "description": "Operational board emphasizing callsigns, aircraft type, status, and route codes.",
+        "options": {
+            "palette": ["technical", "green", "cyan"],
+            "animation_mode": ["slide_left", "static"],
+            "animation_speed": {"min": 1, "max": 5, "default": 2},
+            "show_clock": True,
+            "show_metar": True,
+            "show_glyphs": True,
+            "code_preserve": True,
+        },
+    },
+    "vatsim_ops": {
+        "id": "vatsim_ops",
+        "label": "VATSIM Ops",
+        "renderer": "vatsim_ops",
+        "description": "Virtual-network display for callsigns, aircraft, flight-plan route, and VATSIM METAR/ATIS context.",
+        "options": {
+            "palette": ["technical", "cyan", "green"],
+            "animation_mode": ["slide_left", "static"],
+            "animation_speed": {"min": 1, "max": 5, "default": 2},
+            "show_clock": True,
+            "show_metar": True,
+            "show_glyphs": True,
+            "vatsim_labels": True,
+            "code_preserve": True,
+        },
+    },
     "terminal_minimal": {
         "id": "terminal_minimal",
         "label": "Terminal Minimal",
@@ -2096,6 +2143,32 @@ def api_matrix_v2_device_config(device_id: str) -> Dict[str, Any]:
     return _matrix_resolved_config(store, device_id)
 
 
+def _matrix_route_fields(route_display: Any) -> Dict[str, str]:
+    text = str(route_display or "-").strip()
+    if not text or text == "-":
+        return {"route_city": "", "route_code": "", "route_matrix_label": "-"}
+    code = ""
+    city = text
+    match = re.search(r"\(([A-Z0-9]{3,4})\)\s*$", text.upper())
+    if match:
+        code = match.group(1)
+        city = re.sub(r"\s*\([A-Za-z0-9]{3,4}\)\s*$", "", text).strip()
+    elif re.fullmatch(r"[A-Z0-9]{3,4}", text.upper()):
+        code = text.upper()
+        city = ""
+    else:
+        tail = re.search(r"\b([A-Z0-9]{3,4})\s*$", text.upper())
+        if tail and text.upper().endswith(tail.group(1)):
+            code = tail.group(1)
+            city = text[: -len(tail.group(1))].strip(" -/()")
+    label = " ".join(part for part in (city, code) if part).strip() or text
+    return {
+        "route_city": city,
+        "route_code": code,
+        "route_matrix_label": label.upper(),
+    }
+
+
 def _matrix_row_payload(row: Any) -> Dict[str, Any]:
     data = row.model_dump() if hasattr(row, "model_dump") else row.dict() if hasattr(row, "dict") else dict(row)
     status = str(data.get("status_display") or "")
@@ -2113,6 +2186,8 @@ def _matrix_row_payload(row: Any) -> Dict[str, Any]:
     flight = data.get("flight_display") or data.get("callsign") or "-"
     operator = data.get("airline_display") or ""
     codeshare = data.get("codeshare_display") or ""
+    route_display = data.get("route_display") or "-"
+    route_fields = _matrix_route_fields(route_display)
     return {
         "id": data.get("id"),
         "time": data.get("display_time") or "--:--",
@@ -2120,8 +2195,9 @@ def _matrix_row_payload(row: Any) -> Dict[str, Any]:
         "flight": flight,
         "flight_display": flight,
         "flight_number": flight,
-        "route": data.get("route_display") or "-",
-        "route_display": data.get("route_display") or "-",
+        "route": route_display,
+        "route_display": route_display,
+        **route_fields,
         "status": status or "-",
         "status_display": status or "-",
         "gate": data.get("gate") or "-",
@@ -2157,9 +2233,22 @@ def api_matrix_v2_device_feed(device_id: str, view: Optional[str] = Query(None))
         metar = api_metar()
         payload["metar"] = {
             "category": metar.get("flight_cat"),
+            "flight_cat": metar.get("flight_cat"),
+            "flight_cat_color": metar.get("flight_cat_color"),
             "summary": metar.get("weather_label") or metar.get("decoded_summary"),
+            "weather_label": metar.get("weather_label"),
+            "weather_icon": metar.get("weather_icon"),
             "raw": metar.get("raw_text"),
+            "raw_text": metar.get("raw_text"),
             "wind": metar.get("wind_display") or metar.get("wind"),
+            "wind_display": metar.get("wind_display") or metar.get("wind"),
+            "temp_c": metar.get("temp_c", metar.get("temperature_c")),
+            "temperature_c": metar.get("temperature_c", metar.get("temp_c")),
+            "temperature_display": metar.get("temperature_display") or (
+                f"{metar.get('temperature_c', metar.get('temp_c'))} C"
+                if metar.get("temperature_c", metar.get("temp_c")) is not None else None
+            ),
+            "source": metar.get("source"),
         }
     except Exception:
         payload["metar"] = None

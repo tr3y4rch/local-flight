@@ -42,7 +42,7 @@ MATRIX_CONFIG_REV = 0
 CONFIG_REFRESH_S = 300   # re-read server config every 5 min
 PING_S           = 600   # ping server every 10 min
 CLIENT_VER       = "2.0"
-SUPPORTED_RENDERERS = ["split_flap", "modern_fids", "terminal_minimal", "radar_strip"]
+SUPPORTED_RENDERERS = ["split_flap", "modern_fids", "tower_fids", "vatsim_ops", "terminal_minimal", "radar_strip"]
 SUPPORTED_ANIMATIONS = ["split_flap", "slide_left", "slide_right", "static"]
 # ──────────────────────────────────────────────────────────────────────────────
 
@@ -53,6 +53,7 @@ _clock_utc_epoch = None
 _clock_sync_ticks = 0
 _clock_offset_minutes = 0
 _clock_timezone = "UTC"
+_matrix_metar = None
 
 import time
 import network
@@ -162,6 +163,30 @@ def apply_skin(name):
 
 apply_skin("standard")
 
+_GLYPHS = {
+    "dep": ["00100", "01110", "10101", "00100", "01010"],
+    "arr": ["01010", "00100", "10101", "01110", "00100"],
+    "plane": ["00100", "10101", "11111", "00100", "01010"],
+    "warn": ["00100", "01110", "01110", "00000", "00100"],
+    "sun": ["10101", "01110", "11111", "01110", "10101"],
+    "cloud": ["00000", "01110", "11111", "11110", "00000"],
+    "rain": ["01110", "11111", "00000", "01010", "10100"],
+    "storm": ["01110", "11111", "00100", "01000", "10000"],
+    "mist": ["00000", "11110", "00000", "01111", "00000"],
+    "unknown": ["11111", "10001", "00110", "00000", "00100"],
+}
+
+def draw_glyph(name, x, y, color):
+    mask = _GLYPHS.get(name, _GLYPHS["unknown"])
+    graphics.set_pen(color)
+    for yy, row in enumerate(mask):
+        for xx, bit in enumerate(row):
+            if bit == "1":
+                try:
+                    graphics.pixel(int(x + xx), int(y + yy))
+                except Exception:
+                    graphics.rectangle(int(x + xx), int(y + yy), 1, 1)
+
 # ── Split-flap animation ───────────────────────────────────────────────────────
 FLAP_CHARS = " ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.:/-+"
 
@@ -170,6 +195,70 @@ def fit_text(value, length):
     if len(text) > length:
         return text[:length]
     return text + (" " * (length - len(text)))
+
+def fit(value, length):
+    return fit_text(value, length)
+
+def _upper_text(value):
+    try:
+        return str(value or "").strip().upper()
+    except Exception:
+        return ""
+
+def marquee(value, width, step=None):
+    text = _upper_text(value)
+    width = max(1, int(width))
+    if len(text) <= width:
+        return fit_text(text, width)
+    if step is None:
+        try:
+            step = int(time.time() * 3)
+        except Exception:
+            step = 0
+    canvas = text + "   "
+    start = int(step) % len(canvas)
+    return (canvas + canvas)[start:start + width]
+
+def code_preserve(value, code, width):
+    text = _upper_text(value)
+    code = _upper_text(code)
+    width = max(1, int(width))
+    if not code or code in text[:width] or len(text) <= width:
+        return fit_text(text, width)
+    if len(code) >= width:
+        return code[:width]
+    prefix_len = max(0, width - len(code) - 1)
+    prefix = text[:prefix_len].rstrip()
+    return fit_text((prefix + " " + code).strip(), width)
+
+def cycle_chunks(value, width, code=""):
+    text = _upper_text(value)
+    code = _upper_text(code)
+    width = max(1, int(width))
+    if not text:
+        return fit_text(code or "-", width)
+    if len(text) <= width:
+        return code_preserve(text, code, width)
+    words = text.replace("(", " ").replace(")", " ").split()
+    chunks = []
+    current = ""
+    for word in words:
+        if not current:
+            current = word[:width] if len(word) > width else word
+        elif len(current) + 1 + len(word) <= width:
+            current += " " + word
+        else:
+            chunks.append(current)
+            current = word[:width] if len(word) > width else word
+    if current:
+        chunks.append(current)
+    if code and not any(code in chunk for chunk in chunks):
+        chunks.append(code[:width])
+    try:
+        slot = int(time.time() // 3)
+    except Exception:
+        slot = 0
+    return code_preserve(chunks[slot % max(1, len(chunks))], code if slot % max(1, len(chunks)) == len(chunks) - 1 else "", width)
 
 class FlapChar:
     def __init__(self, char=" "):
@@ -346,10 +435,23 @@ def _page_has_codeshares(rows):
             return True
     return False
 
+def _route_code(row):
+    return _upper_text(row.get("route_code") or "")
+
+def _route_label(row):
+    return _upper_text(row.get("route_matrix_label") or row.get("route_display") or row.get("route") or "-")
+
+def _route_chunk(row, chars):
+    return cycle_chunks(_route_label(row), chars, _route_code(row)).rstrip()
+
+def _status_chunk(row, chars):
+    status = row.get("status_display") or row.get("status") or "-"
+    return cycle_chunks(status, chars).rstrip()
+
 def build_row_text(row):
     time_s   = fit_text(_text_field(row.get("display_time") or row.get("time"), "--:--"), 5)
     flight_s = fit_text(_flight_cycle_display(row), 8)
-    dest_s   = fit_text(_text_field(row.get("route_display") or row.get("route")), 12)
+    dest_s   = fit_text(_route_label(row), 12)
     status_s = fit_text(_text_field(row.get("status_display") or row.get("status")), 10)
     gate_s   = fit_text(_text_field(row.get("gate"), "-"), 4)
     return f"{time_s} {flight_s} {dest_s} {status_s} {gate_s}"
@@ -590,6 +692,8 @@ def fetch_matrix_config():
     STATUS_ANIMATION_ENABLED = bool(data.get("status_animation_enabled", STATUS_ANIMATION_ENABLED))
     PRESET = data.get("preset", PRESET)
     RENDERER = data.get("renderer", RENDERER)
+    if RENDERER not in SUPPORTED_RENDERERS:
+        RENDERER = "split_flap"
     MATRIX_CONFIG_REV = data.get("config_rev", MATRIX_CONFIG_REV)
     skin = data.get("palette") or data.get("skin") or "standard"
     if skin != _active_skin:
@@ -602,14 +706,17 @@ def fetch_matrix_config():
 
 
 def fetch_fids(view="departures", limit=4):
+    global _matrix_metar
     view = _normalize_view(view, "departures")
     limit = _clamp_int(limit, 1, 32, max(MAX_ROWS, limit))
-    data = _get_json(f"/api/fids?view={view}&limit={limit}", timeout=10)
-    if isinstance(data, list):
-        return data
     data = _get_json(f"/api/matrix/v2/devices/{device_id()}/feed?view={view}", timeout=10)
     if isinstance(data, dict) and isinstance(data.get("rows"), list):
+        _matrix_metar = data.get("metar") if isinstance(data.get("metar"), dict) else None
         return data.get("rows") or []
+    data = _get_json(f"/api/fids?view={view}&limit={limit}", timeout=10)
+    if isinstance(data, list):
+        _matrix_metar = None
+        return data
     return []
 
 
@@ -632,6 +739,47 @@ def _draw_message(msg, color=WHITE):
     graphics.text(msg, 2, HEIGHT // 2 - 4, WIDTH, 1)
     update_display()
 
+def _weather_glyph_name():
+    if not isinstance(_matrix_metar, dict):
+        return "unknown"
+    icon = _upper_text(_matrix_metar.get("weather_icon") or _matrix_metar.get("summary")).lower()
+    if "storm" in icon or "thunder" in icon:
+        return "storm"
+    if "rain" in icon or "shower" in icon:
+        return "rain"
+    if "mist" in icon or "fog" in icon or "haze" in icon:
+        return "mist"
+    if "cloud" in icon or "overcast" in icon:
+        return "cloud"
+    if "sun" in icon or "clear" in icon or "vfr" in icon:
+        return "sun"
+    return "unknown"
+
+def _weather_line(chars=18):
+    if not isinstance(_matrix_metar, dict):
+        return ""
+    cat = _upper_text(_matrix_metar.get("flight_cat") or _matrix_metar.get("category"))
+    temp = _matrix_metar.get("temperature_display") or _matrix_metar.get("temp_c") or _matrix_metar.get("temperature_c")
+    if temp is None:
+        temp_s = ""
+    else:
+        temp_s = str(temp).replace(" C", "C").replace(" ", "")
+        if temp_s and not temp_s.upper().endswith("C"):
+            temp_s += "C"
+    wind = _upper_text(_matrix_metar.get("wind_display") or _matrix_metar.get("wind"))
+    text = "WX " + " ".join(part for part in (cat, temp_s, wind) if part)
+    return marquee(text, chars).rstrip() if len(text) > chars else text[:chars]
+
+def _header_height():
+    if HEIGHT >= 96 and _weather_line(8):
+        return 20
+    return 11
+
+def _visible_rows():
+    if WIDTH < 180:
+        return max(1, min(MAX_ROWS, (HEIGHT - _header_height()) // 27))
+    return MAX_ROWS
+
 def draw_header(view, connected=True):
     label = f"{_airport_iata} {'DEP' if view == 'departures' else 'ARR'}"
     graphics.set_pen(GREEN)
@@ -641,15 +789,23 @@ def draw_header(view, connected=True):
     # Server-synced clock. The board RTC may report uptime before NTP exists.
     utc_ts = _clock_hhmm(0)
     local_ts = _clock_hhmm(_clock_offset_minutes)
-    clock = "UTC{} LT{}".format(utc_ts, local_ts) if WIDTH >= 200 else "LT{}".format(local_ts)
+    weather = _weather_line(max(8, WIDTH // 8 - 1))
+    show_weather = bool(weather) and (HEIGHT >= 96 or int(time.time() // 8) % 2 == 1)
+    clock = weather if (show_weather and WIDTH >= 200) else "UTC{} LT{}".format(utc_ts, local_ts) if WIDTH >= 200 else "LT{}".format(local_ts)
     clock_x = WIDTH - len(clock) * 8 - 2
     if clock_x > len(label) * 8 + 6:
         graphics.set_pen(DIM)
         graphics.text(clock, clock_x, 0, WIDTH, 1)
 
+    if HEIGHT >= 96 and weather:
+        draw_glyph(_weather_glyph_name(), 0, 11, AMBER if _weather_glyph_name() in ("sun", "storm") else DIM)
+        graphics.set_pen(DIM)
+        graphics.text(weather, 8, 10, WIDTH - 8, 1)
+        graphics.line(0, 19, WIDTH, 19)
+
     # Separator
     graphics.set_pen(DIM)
-    graphics.line(0, 9, WIDTH, 9)
+    graphics.line(0, _header_height() - 2, WIDTH, _header_height() - 2)
 
 def draw_row(flap_row, row_data, y, row_h):
     text    = flap_row.get_text()
@@ -664,25 +820,33 @@ def draw_row(flap_row, row_data, y, row_h):
     if compact:
         # Narrow/tall boards such as 128x128 use vertical space instead of
         # squeezing a 42-character airport row into 128 pixels.
+        row_data = row_data or {}
+        chars = max(8, WIDTH // 8)
         graphics.set_font("bitmap8")
+        glyph = "arr" if DEFAULT_VIEW == "arrivals" else "dep"
+        draw_glyph("warn" if cancelled else glyph, 0, y + 1, RED if cancelled else DIM)
         graphics.set_pen(WHITE if cancel_flash else GREEN)
-        graphics.text(text[0:5], 0, y, 42, 1)
+        graphics.text(text[0:5], 8, y, 42, 1)
         graphics.set_pen(WHITE)
-        graphics.text(text[6:14], 42, y, 62, 1)
-        if WIDTH >= 112:
-            graphics.set_pen(DIM)
-            graphics.text(text[39:43], WIDTH - 25, y, 25, 1)
+        graphics.text(text[6:14], 50, y, 62, 1)
 
         if row_h >= 18:
             graphics.set_pen(WHITE)
-            graphics.text(text[15:27], 0, y + 8, WIDTH, 1)
+            graphics.text(_route_chunk(row_data, chars), 0, y + 8, WIDTH, 1)
             status_y = y + 16
         else:
             status_y = y + 8
 
         if status_y + 7 <= y + row_h:
             graphics.set_pen(WHITE if cancel_flash else s_color)
-            graphics.text(text[28:38], 0, status_y, WIDTH, 1)
+            status_text = _status_chunk(row_data, chars)
+            gate = _upper_text(row_data.get("gate") or "")
+            aircraft = _upper_text(row_data.get("aircraft_type") or row_data.get("aircraft") or "")
+            if row_h >= 27 and (gate and gate != "-" or aircraft):
+                status_text = fit_text(status_text, max(1, chars - 5)).rstrip()
+                extra = gate if gate and gate != "-" else aircraft
+                status_text = (status_text + " " + extra[:4]).strip()
+            graphics.text(status_text, 0, status_y, WIDTH, 1)
         return
 
     # Time (chars 0-4) — green
@@ -717,7 +881,7 @@ def draw_terminal_minimal(page_rows):
     hero = page_rows[0]
     time_s = (hero.get("time") or hero.get("display_time") or "--:--")[:5]
     flight_s = (hero.get("flight") or hero.get("flight_display") or "-")[:9]
-    route_s = (hero.get("route") or hero.get("route_display") or "-")[:16]
+    route_s = _route_chunk(hero, max(8, WIDTH // 8))
     status_s = (hero.get("status") or hero.get("status_display") or "-")[:12]
     detail_s = build_detail_text(hero)[:28]
     if is_cancelled(hero) and _blink_fast():
@@ -737,6 +901,47 @@ def draw_terminal_minimal(page_rows):
         graphics.set_pen(DIM)
         graphics.text(build_row_text(row)[:34], 2, y, WIDTH, 1)
         y += 9
+
+
+def draw_modern_fids(flap_rows, page_data, view):
+    draw_header(view)
+    data_start = _header_height()
+    rows = _visible_rows()
+    row_h = max(14, (HEIGHT - data_start) // rows)
+    for i in range(rows):
+        y = data_start + i * row_h
+        if y + 7 > HEIGHT:
+            break
+        row = page_data[i] if i < len(page_data) else None
+        if not row:
+            continue
+        text = flap_rows[i].get_text()
+        cancelled = is_cancelled(row)
+        if cancelled and _blink_fast():
+            graphics.set_pen(RED)
+            graphics.rectangle(0, y - 1, WIDTH, max(9, row_h - 1))
+        draw_glyph("arr" if view == "arrivals" else "dep", 0, y + 1, DIM)
+        graphics.set_pen(GREEN if not cancelled else WHITE)
+        graphics.text(text[0:5], 8, y, 44, 1)
+        graphics.set_pen(WHITE)
+        graphics.text(text[6:14], 52, y, 64, 1)
+        route_chars = max(8, (WIDTH - 118) // 8)
+        if WIDTH >= 190:
+            graphics.text(_route_chunk(row, route_chars), 116, y, max(40, WIDTH - 196), 1)
+        if row_h >= 17:
+            graphics.set_pen(status_color(row))
+            status = _status_chunk(row, max(8, WIDTH // 8 - 2))
+            if RENDERER in ("tower_fids", "vatsim_ops"):
+                ac = _upper_text(row.get("aircraft_type") or row.get("aircraft") or "")
+                cs = _upper_text(row.get("callsign") or "")
+                status = " ".join(part for part in (status, ac or cs) if part)
+            graphics.text(status[:max(8, WIDTH // 8)], 8, y + 8, WIDTH - 8, 1)
+        else:
+            graphics.set_pen(status_color(row))
+            graphics.text(text[28:38], max(116, WIDTH - 76), y, 76, 1)
+        if i < MAX_ROWS - 1:
+            graphics.set_pen(DIMBG)
+            graphics.line(0, y + row_h - 1, WIDTH, y + row_h - 1)
 
 
 def draw_radar_strip(page_rows):
@@ -765,9 +970,10 @@ def draw_radar_strip(page_rows):
 
 def draw_classic_board(flap_rows, page_data, view):
     draw_header(view)
-    row_h      = (HEIGHT - 11) // MAX_ROWS
-    data_start = 11
-    for i in range(MAX_ROWS):
+    data_start = _header_height()
+    rows = _visible_rows()
+    row_h      = max(9, (HEIGHT - data_start) // rows)
+    for i in range(rows):
         y        = data_start + i * row_h
         row_data = page_data[i] if i < len(page_data) else None
         draw_row(flap_rows[i], row_data, y, row_h)
@@ -807,7 +1013,7 @@ def main():
 
     def _chunk_pages(rows):
         pages = []
-        step = max(1, MAX_ROWS)
+        step = max(1, _visible_rows())
         for idx in range(0, len(rows), step):
             pages.append(rows[idx:idx + step])
         return pages or [[]]
@@ -815,9 +1021,10 @@ def main():
     def _apply_visible_page(rows):
         for flap in flap_rows:
             flap.set_mode(ANIMATION_MODE)
-        for i, row in enumerate(rows[:MAX_ROWS]):
+        visible_rows = _visible_rows()
+        for i, row in enumerate(rows[:visible_rows]):
             flap_rows[i].set_text(build_row_text(row))
-        for i in range(len(rows), MAX_ROWS):
+        for i in range(min(len(rows), visible_rows), MAX_ROWS):
             flap_rows[i].set_text(" " * ROW_LEN)
 
     while True:
@@ -867,7 +1074,7 @@ def main():
             _draw_message("Fetching flights...", GREEN)
 
             if ensure_wifi():
-                data = fetch_fids(view=view, limit=min(MAX_ROWS * 4, 32))
+                data = fetch_fids(view=view, limit=min(_visible_rows() * 4, 32))
                 if data:
                     flight_data = data
                     pages = _chunk_pages(flight_data)
@@ -913,6 +1120,8 @@ def main():
             draw_terminal_minimal(page_data)
         elif RENDERER == "radar_strip":
             draw_radar_strip(page_data)
+        elif RENDERER in ("modern_fids", "tower_fids", "vatsim_ops"):
+            draw_modern_fids(flap_rows, page_data, view)
         else:
             draw_classic_board(flap_rows, page_data, view)
 

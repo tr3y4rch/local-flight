@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import math
 import json
+import re
 import sys
 import time
 import traceback as traceback_module
@@ -2747,6 +2748,7 @@ class MatrixCanvas:  # pragma: no cover - optional Qt runtime
                 self.row_statuses: list[str] = []
                 self.row_details: list[str] = []
                 self.codeshare_cycle = -1
+                self.metar: dict[str, Any] | None = None
                 self.colors = colors_for()
                 self.timer = QtCore.QTimer(self)
                 self.timer.timeout.connect(self._tick)
@@ -2767,6 +2769,10 @@ class MatrixCanvas:  # pragma: no cover - optional Qt runtime
             def set_rows(self, rows: list[dict[str, Any]]) -> None:
                 self.rows = rows
                 self._retarget_lines()
+                self.update()
+
+            def set_metar(self, metar: dict[str, Any] | None) -> None:
+                self.metar = metar if isinstance(metar, dict) else None
                 self.update()
 
             def set_options(
@@ -2833,7 +2839,7 @@ class MatrixCanvas:  # pragma: no cover - optional Qt runtime
                 self.update()
 
             def _retarget_lines(self, *, force: bool = False) -> None:
-                source_rows = self.rows[: self.max_rows]
+                source_rows = self.rows[: self._visible_rows()]
                 if not source_rows:
                     source_rows = [
                         {
@@ -2882,6 +2888,11 @@ class MatrixCanvas:  # pragma: no cover - optional Qt runtime
             def _page_has_codeshares(self) -> bool:
                 return any(self._codeshare_flights(row) for row in self.rows[: self.max_rows])
 
+            def _visible_rows(self) -> int:
+                if self.panel_w < 180:
+                    return max(1, min(self.max_rows, (self.panel_h - 11) // 27))
+                return self.max_rows
+
             def _flight_cycle_display(self, row: dict[str, Any]) -> str:
                 primary = self._clean_flight_number(row.get("flight_display") or row.get("flight") or row.get("flight_number") or row.get("callsign")) or "-"
                 codeshares = [code for code in self._codeshare_flights(row) if code != primary]
@@ -2891,10 +2902,72 @@ class MatrixCanvas:  # pragma: no cover - optional Qt runtime
                 slot = max(0, self.codeshare_cycle)
                 return choices[slot % len(choices)]
 
+            def fit(self, value: Any, length: int) -> str:
+                return (format_value(value) or "").upper().ljust(length)[:length]
+
+            def marquee(self, value: Any, width: int) -> str:
+                text = (format_value(value) or "").upper()
+                if len(text) <= width:
+                    return text.ljust(width)
+                canvas = text + "   "
+                start = int(time.monotonic() * 3) % len(canvas)
+                return (canvas + canvas)[start:start + width]
+
+            def code_preserve(self, value: Any, code: Any, width: int) -> str:
+                text = (format_value(value) or "").upper()
+                code_text = (format_value(code) or "").upper()
+                if not code_text or code_text in text[:width] or len(text) <= width:
+                    return text.ljust(width)[:width]
+                if len(code_text) >= width:
+                    return code_text[:width]
+                return f"{text[: max(0, width - len(code_text) - 1)].strip()} {code_text}".strip().ljust(width)[:width]
+
+            def cycle_chunks(self, value: Any, width: int, code: Any = "") -> str:
+                text = (format_value(value) or "").replace("(", " ").replace(")", " ").upper().strip()
+                code_text = (format_value(code) or "").upper().strip()
+                if not text:
+                    return (code_text or "-").ljust(width)[:width]
+                if len(text) <= width:
+                    return self.code_preserve(text, code_text, width)
+                chunks: list[str] = []
+                current = ""
+                for raw in text.split():
+                    word = raw[:width] if len(raw) > width else raw
+                    if not current:
+                        current = word
+                    elif len(current) + 1 + len(word) <= width:
+                        current += f" {word}"
+                    else:
+                        chunks.append(current)
+                        current = word
+                if current:
+                    chunks.append(current)
+                if code_text and not any(code_text in chunk for chunk in chunks):
+                    chunks.append(code_text[:width])
+                slot = int(time.monotonic() // 3) % max(1, len(chunks))
+                return self.code_preserve(chunks[slot], code_text if slot == len(chunks) - 1 else "", width)
+
+            def _route_fields(self, row: dict[str, Any]) -> tuple[str, str]:
+                label = format_value(row.get("route_matrix_label")) or format_value(row.get("route_display")) or format_value(row.get("route")) or "-"
+                code = format_value(row.get("route_code")) or ""
+                if not code:
+                    match = re.search(r"\(([A-Z0-9]{3,4})\)\s*$", label.upper())
+                    if match:
+                        code = match.group(1)
+                        label = re.sub(r"\s*\([A-Za-z0-9]{3,4}\)\s*$", "", label).strip() + f" {code}"
+                return label.upper(), code.upper()
+
+            def _route_chunk(self, row: dict[str, Any], chars: int) -> str:
+                label_text, code_text = self._route_fields(row)
+                return self.cycle_chunks(label_text, chars, code_text).strip()
+
+            def _status_chunk(self, row: dict[str, Any], chars: int) -> str:
+                return self.cycle_chunks(row.get("status_display") or row.get("status") or "-", chars).strip()
+
             def _row_line(self, row: dict[str, Any]) -> str:
                 time_text = (format_value(row.get("display_time")) or format_value(row.get("time")) or "--:--")[:5].ljust(5)
                 flight = self._flight_cycle_display(row)[:8].ljust(8)
-                route = (format_value(row.get("route_display")) or format_value(row.get("route")) or format_value(row.get("destination_display")) or "-")[:12].ljust(12)
+                route = self.fit(self._route_fields(row)[0], 12)
                 status = (format_value(row.get("status_display")) or format_value(row.get("status")) or "-")[:10].ljust(10)
                 gate = (format_value(row.get("gate")) or "-")[:4].ljust(4)
                 return f"{time_text} {flight} {route} {status} {gate}".upper()
@@ -2973,7 +3046,8 @@ class MatrixCanvas:  # pragma: no cover - optional Qt runtime
                 font.setBold(True)
                 painter.setFont(font)
                 header_h = max(10.0 * scale, 18.0)
-                row_h = (board_h - header_h) / max(1, self.max_rows)
+                rows_to_draw = self._visible_rows()
+                row_h = (board_h - header_h) / max(1, rows_to_draw)
                 text_color = QtGui.QColor(self.colors["cyan"])
                 text_color.setAlpha(max(90, int(255 * self.brightness)))
                 dim_color = QtGui.QColor(self.colors["dim"])
@@ -2983,7 +3057,8 @@ class MatrixCanvas:  # pragma: no cover - optional Qt runtime
                 painter.drawText(int(left + 10), int(top + header_h * 0.72), header[:52])
                 painter.setPen(text_color)
                 visible = self.display_lines or self.target_lines
-                for idx, text in enumerate(visible[: self.max_rows]):
+                for idx, text in enumerate(visible[: rows_to_draw]):
+                    row_data = self.rows[idx] if idx < len(self.rows) else {}
                     y = top + header_h + idx * row_h + row_h * 0.64
                     row_top = top + header_h + idx * row_h
                     status = self.row_statuses[idx] if idx < len(self.row_statuses) else ""
@@ -2994,22 +3069,26 @@ class MatrixCanvas:  # pragma: no cover - optional Qt runtime
                         fill.setAlpha((90 if self.phase % 2 else 150) if self.status_animation_enabled else 120)
                         painter.fillRect(QtCore.QRectF(left + 4, top + header_h + idx * row_h + 1, board_w - 8, max(8, row_h - 2)), fill)
                     if self.panel_w < 180:
+                        chars = max(8, int(self.panel_w / 6))
                         painter.setPen(text_color if cancelled else QtGui.QColor(self.colors["green"]))
-                        painter.drawText(int(left + 4), int(row_top + 8 * scale), text[:5])
+                        painter.drawText(int(left + 4 + 8 * scale), int(row_top + 8 * scale), text[:5])
                         painter.setPen(text_color)
-                        painter.drawText(int(left + 42 * scale), int(row_top + 8 * scale), text[6:14])
-                        if self.panel_w >= 112:
-                            painter.setPen(dim_color)
-                            painter.drawText(int(left + board_w - 28 * scale), int(row_top + 8 * scale), text[39:43])
+                        painter.drawText(int(left + 50 * scale), int(row_top + 8 * scale), text[6:14])
                         painter.setPen(text_color)
                         if row_h >= 18 * scale:
-                            painter.drawText(int(left + 4), int(row_top + 16 * scale), text[15:27])
+                            painter.drawText(int(left + 4), int(row_top + 16 * scale), self._route_chunk(row_data, chars))
                             status_y = row_top + 24 * scale
                         else:
                             status_y = row_top + 16 * scale
                         if status_y < row_top + row_h:
                             painter.setPen(text_color if cancelled else status_color)
-                            painter.drawText(int(left + 4), int(status_y), text[28:38])
+                            status_text = self._status_chunk(row_data, chars)
+                            gate = (format_value(row_data.get("gate")) or "").upper()
+                            aircraft = (format_value(row_data.get("aircraft_type")) or format_value(row_data.get("aircraft")) or "").upper()
+                            if row_h >= 27 * scale and ((gate and gate != "-") or aircraft):
+                                extra = gate if gate and gate != "-" else aircraft
+                                status_text = f"{status_text[: max(1, chars - 5)].strip()} {extra[:4]}".strip()
+                            painter.drawText(int(left + 4), int(status_y), status_text)
                         if idx < len(self.row_details) and self.row_details[idx] and row_h >= 34 * scale:
                             detail_font = QtGui.QFont("Consolas", max(5, int(4.5 * scale)))
                             painter.setFont(detail_font)
@@ -3350,12 +3429,17 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
             if device_id:
                 payload = self.client.get_json(f"/api/matrix/v2/devices/{device_id}/feed", params={"view": self.view.currentText()})
                 rows = list_payload(payload, "rows")
+                metar = payload.get("metar") if isinstance(payload, dict) else None
             else:
-                payload = self.client.get_any_json("/api/fids", params={"view": self.view.currentText(), "limit": 32})
-                rows = list_payload(payload)
+                payload = self.client.get_json("/api/matrix/v2/devices/preview/feed", params={"view": self.view.currentText()})
+                rows = list_payload(payload, "rows")
+                metar = payload.get("metar") if isinstance(payload, dict) else None
         except NativeApiError:
             rows = []
+            metar = None
         self.canvas.set_rows(rows[: max(1, int(self.max_rows.value()))])
+        if hasattr(self.canvas, "set_metar"):
+            self.canvas.set_metar(metar)
         self._sync_canvas_options()
 
     def _populate_v2_lists(self) -> None:
