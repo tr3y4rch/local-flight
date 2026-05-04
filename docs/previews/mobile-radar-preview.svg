@@ -28,10 +28,8 @@
   </defs>
 
   <rect width="960" height="540" rx="28" fill="url(#bg)"/>
-  <text x="54" y="72" class="sans text" font-size="34" font-weight="800">Companion Preview</text>
-  <text x="54" y="102" class="mono muted" font-size="14">Illustrative mobile radar board for README usage</text>
 
-  <g transform="translate(336 42)" filter="url(#shadow)">
+  <g transform="translate(322 20) scale(1.1)" filter="url(#shadow)">
     <rect x="0" y="0" width="288" height="456" rx="42" fill="#03070c"/>
     <rect x="10" y="10" width="268" height="436" rx="34" fill="#0d141c" stroke="#223242"/>
     <rect x="102" y="18" width="84" height="12" rx="6" fill="#111923"/>
@@ -73,6 +71,4 @@
       <text x="164" y="380" class="mono text" font-size="12" font-weight="800">40 NM</text>
     </g>
   </g>
-
-  <text x="54" y="500" class="mono muted tiny">README preview - sample companion UI, not a live device capture</text>
 </svg>
