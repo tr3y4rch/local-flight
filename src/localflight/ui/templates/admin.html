@@ -225,9 +225,10 @@
       <div style="margin-top:14px;">
         <div class="device-row">
           <div class="device-dot unknown" id="matrixDot"></div>
-          <span class="device-name">💡 LED board</span>
+          <span class="device-name">💡 LED hardware</span>
           <span class="device-meta" id="matrixSeen">no board check-in yet</span>
         </div>
+        <div id="matrixDeviceList" class="device-meta" style="padding:4px 0 8px 18px;line-height:1.45;"></div>
         <div class="device-row">
           <div class="device-dot unknown" id="companionDot"></div>
           <span class="device-name">📱 Mobile Companion</span>
@@ -438,7 +439,7 @@
     const wsSub = document.querySelector(".ws-sub");
     if (wsSub) wsSub.textContent = "Live viewers open right now";
     const matrixName = el("matrixSeen")?.closest(".device-row")?.querySelector(".device-name");
-    if (matrixName) matrixName.textContent = "LED board";
+    if (matrixName) matrixName.textContent = "LED hardware";
     const refreshChip = el("refreshChip");
     if (refreshChip) refreshChip.textContent = "Overview refreshes every 10s";
   }
@@ -451,6 +452,16 @@
     if (s < 60)   return `${s}s ago`;
     if (s < 3600) return `${Math.floor(s/60)}m ago`;
     return `${Math.floor(s/3600)}h ${Math.floor((s%3600)/60)}m ago`;
+  }
+
+  function escapeHtml(value) {
+    return String(value || "").replace(/[&<>"']/g, ch => ({
+      "&": "&amp;",
+      "<": "&lt;",
+      ">": "&gt;",
+      '"': "&quot;",
+      "'": "&#39;",
+    }[ch]));
   }
 
   async function loadHealth() {
@@ -546,10 +557,32 @@
       const r = await fetch("/api/admin/connections"); if (!r.ok) return;
       const d = await r.json();
       el("wsCount").textContent = d.count ?? "—";
-      if (d.matrix_last_seen) {
-        const age = Math.floor((Date.now() - new Date(d.matrix_last_seen)) / 1000);
-        el("matrixSeen").textContent = fmtRel(d.matrix_last_seen);
-        el("matrixDot").className    = `device-dot ${age < 300 ? "online" : "offline"}`;
+      const matrixDevices = Array.isArray(d.matrix_devices) ? d.matrix_devices : [];
+      const displayCount = Number(d.matrix_device_count || matrixDevices.length || 0);
+      const onlineDisplays = Number(d.matrix_online_count || 0);
+      if (d.matrix_last_seen || displayCount > 0) {
+        const latest = d.matrix_last_seen ? fmtRel(d.matrix_last_seen) : "not seen yet";
+        const age = d.matrix_last_seen ? Math.floor((Date.now() - new Date(d.matrix_last_seen)) / 1000) : 999999;
+        const hardware = d.matrix_hardware_counts && typeof d.matrix_hardware_counts === "object"
+          ? Object.entries(d.matrix_hardware_counts).map(([name, count]) => `${name} x${count}`).join(", ")
+          : "";
+        el("matrixSeen").textContent = `${onlineDisplays}/${displayCount || 1} online | ${latest}${hardware ? " | " + hardware : ""}`;
+        el("matrixDot").className    = `device-dot ${onlineDisplays > 0 && age < 900 ? "online" : "offline"}`;
+        const list = el("matrixDeviceList");
+        if (list) {
+          list.innerHTML = matrixDevices.slice(0, 4).map(device => {
+            const size = device.panel_w && device.panel_h ? `${device.panel_w}x${device.panel_h}` : "size unknown";
+            const name = device.hardware_name || device.model || device.label || "LED matrix";
+            const fw = device.firmware ? ` fw ${device.firmware}` : "";
+            const seen = device.last_seen ? fmtRel(device.last_seen) : "not seen yet";
+            return `<div>${escapeHtml(name)} | ${size}${fw} | ${seen}</div>`;
+          }).join("");
+        }
+      } else {
+        el("matrixSeen").textContent = "no board check-in yet";
+        el("matrixDot").className = "device-dot unknown";
+        const list = el("matrixDeviceList");
+        if (list) list.textContent = "";
       }
       if (d.companion_last_seen) {
         const age = Math.floor((Date.now() - new Date(d.companion_last_seen)) / 1000);

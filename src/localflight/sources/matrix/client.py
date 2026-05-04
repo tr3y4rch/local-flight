@@ -20,6 +20,9 @@ WIFI_PASSWORD = "your_wifi_password"
 API_HOST      = "localflight.local"   # LAN name or IP of the machine running Local Flight
 API_PORT      = 8000
 DEVICE_LABEL = "Interstate 75 W"
+HARDWARE_BRAND = "Pimoroni"
+HARDWARE_MODEL = "Interstate 75 W"
+HARDWARE_NAME  = "Pimoroni Interstate 75 W"
 
 PANEL_W          = 256   # total physical pixel width
 PANEL_H          = 64    # total physical pixel height
@@ -40,7 +43,7 @@ PRESET           = "real_fids"
 RENDERER         = "modern_fids"
 MATRIX_CONFIG_REV = 0
 
-CONFIG_REFRESH_S = 300   # re-read server config every 5 min
+CONFIG_REFRESH_S = 60    # re-read server config every minute
 PING_S           = 600   # ping server every 10 min
 CLIENT_VER       = "2.0"
 SUPPORTED_RENDERERS = ["modern_fids", "vatsim_pilot", "vatsim_atc"]
@@ -140,14 +143,21 @@ DIMBG = graphics.create_pen(10, 10, 10)
 
 # Skin palettes: primary, text, dim, warning, danger
 _SKIN_PALETTES = {
-    "standard":  [(0,220,60),   (220,240,220), (0,80,20),   (255,160,0),  (220,30,30)],
-    "technical": [(74,158,218), (200,216,232), (26,58,90),  (212,160,32), (192,64,64)],
-    "neon":      [(0,255,80),   (0,255,80),    (0,122,40),  (170,255,0),  (255,64,64)],
-    "cyan":      [(0,204,255),  (0,255,204),   (0,102,136), (255,204,0),  (255,64,96)],
-    "crt":       [(255,170,0),  (255,204,68),  (122,80,0),  (255,221,0),  (255,64,32)],
-    "amber":     [(255,170,0),  (255,210,92),  (110,70,0),  (255,221,0),  (255,64,32)],
-    "green":     [(0,255,80),   (210,255,220), (0,80,24),   (255,180,0),  (255,48,48)],
-    "white":     [(210,235,255), (240,248,255), (80,92,104), (255,200,0),  (255,60,60)],
+    "standard":        [(47,140,255),  (242,247,255), (49,89,130),  (255,176,46),  (255,74,74)],
+    "pax_blue":        [(29,140,255),  (246,251,255), (44,95,146),  (255,189,69),  (255,77,95)],
+    "solari_amber":    [(255,173,47),  (255,230,168), (140,90,18),  (255,225,92),  (255,85,56)],
+    "tower_scope":     [(56,255,117),  (217,255,230), (27,122,60),  (255,216,74),  (255,76,76)],
+    "vatsim_scope":    [(116,255,95),  (216,255,208), (43,122,47),  (255,224,102), (255,91,91)],
+    "night_ops":       [(75,184,255),  (216,247,255), (39,80,110),  (244,201,93),  (255,93,122)],
+    "sunset_terminal": [(255,122,61),  (255,242,230), (142,63,85),  (255,209,102), (255,56,100)],
+    "ice_white":       [(189,233,255), (255,255,255), (106,129,149), (255,211,90),  (255,82,82)],
+    "technical":       [(123,183,255), (219,231,245), (53,84,112),  (231,185,80),  (217,106,106)],
+    "cyan":            [(0,215,255),   (200,255,242), (8,117,143),  (255,212,71),  (255,79,123)],
+    "crt":             [(255,177,59),  (255,215,121), (131,88,25),  (255,230,109), (255,87,61)],
+    "neon":            [(0,255,122),   (215,255,233), (0,138,72),   (216,255,74),  (255,61,102)],
+    "amber":           [(255,174,46),  (255,226,161), (125,84,20),  (255,223,85),  (255,87,56)],
+    "green":           [(40,247,110),  (221,255,232), (23,115,56),  (255,201,74),  (255,77,77)],
+    "white":           [(216,241,255), (255,255,255), (119,136,153), (255,211,90),  (255,87,87)],
 }
 _active_skin = "standard"
 
@@ -691,6 +701,11 @@ def checkin_matrix_device():
     payload = {
         "device_id": device_id(),
         "label": DEVICE_LABEL,
+        "kind": "led_matrix",
+        "brand": HARDWARE_BRAND,
+        "model": HARDWARE_MODEL,
+        "hardware": HARDWARE_NAME,
+        "hardware_name": HARDWARE_NAME,
         "panel_w": PANEL_W,
         "panel_h": PANEL_H,
         "firmware": CLIENT_VER,
@@ -769,6 +784,11 @@ def ping_server():
     _post_json("/api/matrix/v2/devices/checkin", {
         "device_id": device_id(),
         "label": DEVICE_LABEL,
+        "kind": "led_matrix",
+        "brand": HARDWARE_BRAND,
+        "model": HARDWARE_MODEL,
+        "hardware": HARDWARE_NAME,
+        "hardware_name": HARDWARE_NAME,
         "panel_w": PANEL_W,
         "panel_h": PANEL_H,
         "firmware": CLIENT_VER,

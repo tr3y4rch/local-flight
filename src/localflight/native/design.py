@@ -67,10 +67,20 @@ THEME_TOKENS: dict[str, ThemeTokens] = {
 
 SKIN_TOKENS: dict[str, SkinTokens] = {
     "standard": SkinTokens("#4a9eda", "#7ce7ff", "#00c040", "#f0b429", "#ff6060", "#4a9eda"),
+    "pax_blue": SkinTokens("#1d8cff", "#65e7ff", "#1d8cff", "#ffbd45", "#ff4d5f", "#65e7ff"),
+    "solari_amber": SkinTokens("#ffad2f", "#ffd06c", "#ffad2f", "#ffe15c", "#ff5538", "#ffd06c"),
+    "tower_scope": SkinTokens("#38ff75", "#4deaff", "#38ff75", "#ffd84a", "#ff4c4c", "#38ff75"),
+    "vatsim_scope": SkinTokens("#74ff5f", "#6bdcff", "#74ff5f", "#ffe066", "#ff5b5b", "#74ff5f"),
+    "night_ops": SkinTokens("#4bb8ff", "#49f0c8", "#4bb8ff", "#f4c95d", "#ff5d7a", "#49f0c8"),
+    "sunset_terminal": SkinTokens("#ff7a3d", "#ff4fd8", "#ff7a3d", "#ffd166", "#ff3864", "#ff4fd8"),
+    "ice_white": SkinTokens("#bde9ff", "#66d9ff", "#bde9ff", "#ffd35a", "#ff5252", "#66d9ff"),
     "technical": SkinTokens("#7ab0d8", "#9cd6f4", "#8ce99a", "#ffd166", "#ff6b6b", "#9cd6f4"),
-    "neon": SkinTokens("#00f5ff", "#ff4dff", "#39ff14", "#ffd60a", "#ff3864", "#00f5ff"),
     "cyan": SkinTokens("#3ddcff", "#b9f8ff", "#00d084", "#ffbd2e", "#ff5d73", "#3ddcff"),
     "crt": SkinTokens("#9aff6b", "#d5ff9b", "#7dff5b", "#ffd166", "#ff6b6b", "#9aff6b"),
+    "neon": SkinTokens("#00f5ff", "#ff4dff", "#39ff14", "#ffd60a", "#ff3864", "#00f5ff"),
+    "amber": SkinTokens("#ffae2e", "#ffc56b", "#ffae2e", "#ffdf55", "#ff5738", "#ffc56b"),
+    "green": SkinTokens("#28f76e", "#55e7ff", "#28f76e", "#ffc94a", "#ff4d4d", "#28f76e"),
+    "white": SkinTokens("#d8f1ff", "#8fdcff", "#d8f1ff", "#ffd35a", "#ff5757", "#8fdcff"),
 }
 
 

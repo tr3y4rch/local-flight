@@ -1145,6 +1145,52 @@ def test_mobile_companion_checkin_is_exposed_in_connections(monkeypatch, tmp_pat
     assert payload["companions"][0]["platform_pair"].endswith("/ iOS 18.5 (phone)")
 
 
+def test_matrix_device_checkin_is_exposed_as_hardware_inventory(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(ui_server, "_setup_complete", lambda: True)
+    monkeypatch.setattr(ui_api, "_matrix_config_path", lambda: tmp_path / "matrix_config.json")
+
+    client = TestClient(app)
+    response = client.post(
+        "/api/matrix/v2/devices/checkin",
+        json={
+            "device_id": "i75w-test",
+            "label": "Desk Matrix",
+            "kind": "led_matrix",
+            "brand": "Pimoroni",
+            "model": "Interstate 75 W",
+            "hardware": "Pimoroni Interstate 75 W",
+            "hardware_name": "Pimoroni Interstate 75 W",
+            "panel_w": 256,
+            "panel_h": 64,
+            "firmware": "2.0",
+            "renderers": ["modern_fids", "vatsim_atc"],
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["ok"] is True
+
+    connections = client.get("/api/admin/connections")
+    assert connections.status_code == 200
+    payload = connections.json()
+    assert payload["matrix_device_count"] == 1
+    assert payload["matrix_online_count"] == 1
+    assert payload["matrix_hardware_counts"] == {"Pimoroni Interstate 75 W": 1}
+    assert payload["matrix_last_seen"]
+
+    device = payload["matrix_devices"][0]
+    assert device["device_id"] == "i75w-test"
+    assert device["label"] == "Desk Matrix"
+    assert device["kind"] == "led_matrix"
+    assert device["brand"] == "Pimoroni"
+    assert device["model"] == "Interstate 75 W"
+    assert device["hardware_name"] == "Pimoroni Interstate 75 W"
+    assert device["panel_w"] == 256
+    assert device["panel_h"] == 64
+    assert device["firmware"] == "2.0"
+    assert device["online"] is True
+
+
 def test_fids_page_keeps_recent_departures_inside_grace_window(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setattr(ui_server, "_setup_complete", lambda: True)
     monkeypatch.setattr(
@@ -1431,6 +1477,7 @@ def test_matrix_config_endpoint_round_trip(tmp_path: Path, monkeypatch) -> None:
             "default_view",
             "page_rotation_seconds",
             "animation_enabled",
+            "palette",
             "skin",
         )
     } == {
@@ -1440,6 +1487,7 @@ def test_matrix_config_endpoint_round_trip(tmp_path: Path, monkeypatch) -> None:
         "default_view": "departures",
         "page_rotation_seconds": 10,
         "animation_enabled": True,
+        "palette": "pax_blue",
         "skin": "technical",
     }
     assert isinstance(payload["clock_utc_epoch"], int)
@@ -1467,6 +1515,15 @@ def test_matrix_config_endpoint_round_trip(tmp_path: Path, monkeypatch) -> None:
         "page_rotation_seconds": 12,
         "default_view": "arrivals",
         "animation_enabled": False,
+        "animation_mode": "static",
+        "animation_speed": 3,
+        "status_animation_enabled": True,
+        "palette": "pax_blue",
+        "options": {
+            "animation_mode": "static",
+            "palette": "pax_blue",
+            "show_metar": True,
+        },
     }
     saved = json.loads(matrix_config.read_text(encoding="utf-8"))
     assert saved["schema_version"] == 2
@@ -1477,6 +1534,8 @@ def test_matrix_config_endpoint_round_trip(tmp_path: Path, monkeypatch) -> None:
     assert default["page_rotation_seconds"] == 12
     assert default["default_view"] == "arrivals"
     assert default["animation_enabled"] is False
+    assert default["animation_mode"] == "static"
+    assert default["palette"] == "pax_blue"
 
 
 def test_matrix_v2_migrates_flat_config_and_registers_device(tmp_path: Path, monkeypatch) -> None:
@@ -1505,9 +1564,12 @@ def test_matrix_v2_migrates_flat_config_and_registers_device(tmp_path: Path, mon
     assert payload["configs"][0]["brightness"] == 0.44
     assert payload["configs"][0]["animation_enabled"] is False
 
-    presets = client.get("/api/matrix/v2/presets").json()["presets"]
+    preset_payload = client.get("/api/matrix/v2/presets").json()
+    presets = preset_payload["presets"]
     preset_ids = {item["id"] for item in presets}
     assert preset_ids == {"real_fids", "vatsim_pilot", "vatsim_atc"}
+    palette_ids = {item["id"] for item in preset_payload["palettes"]}
+    assert {"pax_blue", "solari_amber", "tower_scope", "vatsim_scope", "night_ops", "ice_white"} <= palette_ids
 
     response = client.post(
         "/api/matrix/v2/devices/checkin",
@@ -1871,6 +1933,17 @@ def test_matrix_script_endpoint_uses_current_i75w_client_template() -> None:
     assert "/api/matrix/v2/devices/checkin" in script
     assert "/api/matrix/v2/devices/{device_id()}/config" in script
     assert "/api/matrix/v2/devices/{device_id()}/feed?view={view}" in script
+    assert 'HARDWARE_BRAND = "Pimoroni"' in script
+    assert 'HARDWARE_MODEL = "Interstate 75 W"' in script
+    assert 'HARDWARE_NAME  = "Pimoroni Interstate 75 W"' in script
+    assert '"hardware_name": HARDWARE_NAME' in script
+    assert "CONFIG_REFRESH_S = 60" in script
+    assert '"pax_blue"' in script
+    assert '"solari_amber"' in script
+    assert '"tower_scope"' in script
+    assert '"vatsim_scope"' in script
+    assert '"night_ops"' in script
+    assert '"ice_white"' in script
 
 
 def test_matrix_payloads_use_city_label_and_decoded_weather_display() -> None:
@@ -1900,6 +1973,16 @@ def test_matrix_preview_download_payload_uses_defined_animation_state() -> None:
     assert "animation_enabled: ANIMATION_ENABLED" not in template
     assert "SHOW_WEATHER" in template
     assert "weatherToggle" in template
+    assert 'id="paletteSelect"' in template
+    assert 'id="animationSpeedSelect"' in template
+    assert 'id="statusMotionToggle"' in template
+    assert "Toggle without reflashing" in template
+    assert "Reflash when these change" in template
+    assert "Apply to board" in template
+    assert "about 60 seconds" in template
+    assert "function setPreviewPalette(name)" in template
+    assert "MATRIX_PALETTE_OPTIONS" in template
+    assert "palette: MATRIX_PALETTE" in template
     assert "condition_display" in template
     assert 'WX ${' not in template
 
@@ -1968,6 +2051,9 @@ def test_native_matrix_panel_geometry_matches_web_controls() -> None:
     assert "def _vatsim_atc_page" in source
     assert "set_matrix_payload" in source
     assert "/api/matrix/v2/devices/preview/feed" in source
+    assert '"pax_blue"' in source
+    assert '"tower_scope"' in source
+    assert '"night_ops"' in source
 
 
 def test_matrix_script_endpoint_rejects_loopback_host(tmp_path: Path, monkeypatch) -> None:

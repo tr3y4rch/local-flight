@@ -114,6 +114,21 @@
     color: #00e84a;
   }
 
+  .palette-strip {
+    display: inline-flex;
+    gap: 3px;
+    align-items: center;
+    min-width: 64px;
+  }
+
+  .palette-dot {
+    width: 11px;
+    height: 11px;
+    border-radius: 2px;
+    border: 1px solid rgba(255,255,255,0.22);
+    box-shadow: 0 0 8px rgba(255,255,255,0.08);
+  }
+
   /* ── Panel container ── */
   .panel-wrap {
     background: #000;
@@ -341,6 +356,29 @@
   .setup-note strong {
     color: #e0e4ec;
   }
+
+  .guide-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 8px;
+    margin-top: 10px;
+  }
+
+  .guide-pill {
+    border: 1px solid #232937;
+    background: #101319;
+    border-radius: 8px;
+    padding: 9px 10px;
+    color: #aeb7c2;
+    font-size: 0.76rem;
+    line-height: 1.45;
+  }
+
+  .guide-pill strong {
+    color: #e0e4ec;
+    display: block;
+    margin-bottom: 3px;
+  }
 {% endblock %}
 
 {% block body %}
@@ -350,11 +388,14 @@
   <div class="preview-header">
     <div>
       <h1>Matrix Preview — {{ airport_label }}</h1>
-      <div class="sub" id="panelSubtitle">{{ panel_w }}×{{ panel_h }} · Interstate 75 W · skin: {{ cfg.skin }}</div>
+      <div class="sub" id="panelSubtitle">{{ panel_w }}×{{ panel_h }} · Interstate 75 W · style: pax_blue</div>
     </div>
   </div>
 
   <!-- ── Controls ── -->
+  <div class="setup-hint" style="margin: -4px 0 10px 0;">
+    Live board settings. Press <strong>Apply to board</strong>; a flashed v2 board picks them up over Wi-Fi in about 60 seconds.
+  </div>
   <div class="controls">
     <div class="ctrl-group">
       <label>Pixel size</label>
@@ -365,7 +406,7 @@
     </div>
 
     <div class="ctrl-group">
-      <label>Panel</label>
+      <label>Panel file</label>
       <select id="panelPreset" onchange="applyPreset(this.value)">
         <option value="custom">Custom size</option>
         <optgroup label="128x64 rectangular modules">
@@ -428,7 +469,7 @@
     </div>
 
     <div class="ctrl-group">
-      <label>Preset</label>
+      <label>Board mode</label>
       <select id="presetSelect" onchange="setMatrixPreset(this.value)">
         <option value="real_fids">Real FIDS</option>
         <option value="vatsim_pilot">VATSIM pilot</option>
@@ -437,12 +478,35 @@
     </div>
 
     <div class="ctrl-group">
-      <label>Animation</label>
+      <label>Board style</label>
+      <select id="paletteSelect" onchange="setMatrixPalette(this.value)">
+        <option value="pax_blue">PAX Blue</option>
+        <option value="solari_amber">Solari Amber</option>
+        <option value="tower_scope">Tower Scope</option>
+        <option value="night_ops">Night Ops</option>
+        <option value="ice_white">Ice White</option>
+      </select>
+      <span class="palette-strip" id="paletteStrip"></span>
+    </div>
+
+    <div class="ctrl-group">
+      <label>Motion</label>
       <select id="animationModeSelect" onchange="setAnimationMode(this.value)">
         <option value="split_flap" selected>Split-flap</option>
         <option value="slide_left">Slide left</option>
         <option value="slide_right">Slide right</option>
         <option value="static">Static</option>
+      </select>
+    </div>
+
+    <div class="ctrl-group">
+      <label>Motion speed</label>
+      <select id="animationSpeedSelect" onchange="setAnimationSpeed(this.value)">
+        <option value="1">Gentle</option>
+        <option value="2">Easy</option>
+        <option value="3" selected>Normal</option>
+        <option value="4">Snappy</option>
+        <option value="5">Fast</option>
       </select>
     </div>
 
@@ -458,6 +522,7 @@
      </div>
 
     <button class="toggle-btn active" id="weatherToggle" onclick="toggleWeather()">Weather</button>
+    <button class="toggle-btn active" id="statusMotionToggle" onclick="toggleStatusMotion()">Status motion</button>
     <button class="toggle-btn" onclick="triggerDemo()">Demo</button>
   </div>
 
@@ -473,30 +538,40 @@
   <!-- ── Setup section ── -->
   <div class="setup-section">
     <div class="setup-intro">
-      <p>This board only needs one local path: flash it once with Wi-Fi and the Local Flight server address, then let it read schedules and matrix settings over your LAN.</p>
+      <p>Flash once with Wi-Fi and the Local Flight server address. After that, normal board changes are saved here and pulled by the board over your LAN.</p>
       <div class="setup-checklist">
         <div class="setup-step">
-          <strong>1. Point it at the server</strong>
-          Use the Pi or desktop LAN name or IP. <code>localflight.local</code> is the safest default on a Pi install.
+          <strong>1. Download main.py</strong>
+          The file stores Wi-Fi, server host, and physical panel size for the MicroPython board.
         </div>
         <div class="setup-step">
-          <strong>2. Flash once</strong>
-          Save the downloaded file to the MicroPython device as <code>main.py</code>.
+          <strong>2. Save in Thonny</strong>
+          Open Thonny, connect the board, then save the file to the device as <code>main.py</code>.
         </div>
         <div class="setup-step">
-          <strong>3. Tune from the web app</strong>
-          Rows, rotation, brightness, refresh, default view, and skin stay adjustable here without reflashing.
+          <strong>3. Tune live</strong>
+          Style, rows, brightness, mode, motion, weather, and rotation update from this page after saving.
+        </div>
+      </div>
+      <div class="guide-grid">
+        <div class="guide-pill">
+          <strong>Toggle without reflashing</strong>
+          Board mode, style, brightness, rows, refresh, DEP/ARR, rotation, weather, status motion, and animation mode/speed.
+        </div>
+        <div class="guide-pill">
+          <strong>Reflash when these change</strong>
+          Wi-Fi name/password, server host/port, physical panel size/wiring, or a new board client feature.
         </div>
       </div>
       <div class="setup-note">
-        <strong>Board data path:</strong> the Interstate 75 W reads <code>/api/config</code>, checks in through <code>/api/matrix/v2/devices/checkin</code>, then pulls its assigned matrix config and flight feed. No Wi-Fi details are written back to the server.
+        <strong>What it talks to:</strong> the board checks in at <code>/api/matrix/v2/devices/checkin</code>, reads settings from <code>/api/matrix/v2/devices/{id}/config</code>, then fetches display rows from <code>/api/matrix/v2/devices/{id}/feed</code>. Wi-Fi details stay only inside the downloaded file.
       </div>
     </div>
 
     <div class="setup-row">
       <div class="setup-col">
-        <div class="setup-label">Flash the board once</div>
-        <div class="setup-hint">Enter WiFi credentials, download, open in Thonny — File → Save as → MicroPython device → <code>main.py</code></div>
+        <div class="setup-label">Create the board file</div>
+        <div class="setup-hint">Enter Wi-Fi and server details, download, then save it in Thonny as <code>main.py</code> on the MicroPython device.</div>
         <div class="wifi-row">
           <div class="wifi-field">
             <label>Network name</label>
@@ -523,10 +598,10 @@
       <div class="setup-divider"></div>
 
       <div class="setup-col">
-        <div class="setup-label">Tune without reflashing</div>
-        <div class="setup-hint">Brightness, rows, refresh, default view and skin are pushed to the board within 5 minutes — no cable needed.</div>
+        <div class="setup-label">Apply live settings</div>
+        <div class="setup-hint">The saved board pulls these settings about once a minute. Use this for color, motion, rows, weather, brightness, refresh, and board mode.</div>
         <div style="margin-top:12px; display:flex; align-items:center; gap:12px; flex-wrap:wrap">
-          <button class="toggle-btn active" id="saveConfigBtn" onclick="saveMatrixConfig()">Save config to server</button>
+          <button class="toggle-btn active" id="saveConfigBtn" onclick="saveMatrixConfig()">Apply to board</button>
           <span id="saveConfigMsg" class="save-msg"></span>
         </div>
       </div>
@@ -562,8 +637,10 @@
   let ANIMATION_SPEED = 3;
   let STATUS_ANIMATION_ENABLED = true;
   let SHOW_WEATHER = true;
+  let MATRIX_PALETTE = "pax_blue";
   let MATRIX_CONFIGS = [];
   let MATRIX_PRESETS = [];
+  let MATRIX_PALETTE_OPTIONS = [];
   let CURRENT_CONFIG_ID = "";
   let MATRIX_METAR = null;
   let MATRIX_PAGES = null;
@@ -584,15 +661,38 @@
   const downloadHint = document.getElementById("downloadHint");
 
   // ── Skin-aware LED palettes ────────────────────────────────────────────────
-  // Each entry: [off, primary, text, dim, warning, danger]
+  // Each entry maps to the MicroPython palette: off, primary, text, dim, warning, danger, accent.
   const SKIN_PALETTES = {
-    standard:  { off:"#060806", green:"#00dc3c", white:"#dcffe0", dim:"#005012", amber:"#ffa000", red:"#dc1e1e", cyan:"#00ccff" },
-    technical: { off:"#040608", green:"#4a9eda", white:"#c8d8e8", dim:"#1a3a5a", amber:"#d4a020", red:"#c04040", cyan:"#4a9eda" },
-    neon:      { off:"#000d00", green:"#00ff50", white:"#00ff50", dim:"#007a28", amber:"#aaff00", red:"#ff4040", cyan:"#00ff50" },
-    cyan:      { off:"#00080f", green:"#00ccff", white:"#00ffcc", dim:"#006688", amber:"#ffcc00", red:"#ff4060", cyan:"#00ccff" },
-    crt:       { off:"#060400", green:"#ffaa00", white:"#ffcc44", dim:"#7a5000", amber:"#ffdd00", red:"#ff4020", cyan:"#ffaa00" },
+    standard:        { off:"#050911", green:"#2f8cff", white:"#f2f7ff", dim:"#315982", amber:"#ffb02e", red:"#ff4a4a", cyan:"#43e0ff" },
+    pax_blue:        { off:"#040a12", green:"#1d8cff", white:"#f6fbff", dim:"#2c5f92", amber:"#ffbd45", red:"#ff4d5f", cyan:"#65e7ff" },
+    solari_amber:    { off:"#0b0600", green:"#ffad2f", white:"#ffe6a8", dim:"#8c5a12", amber:"#ffe15c", red:"#ff5538", cyan:"#ffd06c" },
+    tower_scope:     { off:"#001006", green:"#38ff75", white:"#d9ffe6", dim:"#1b7a3c", amber:"#ffd84a", red:"#ff4c4c", cyan:"#4deaff" },
+    vatsim_scope:    { off:"#031006", green:"#74ff5f", white:"#d8ffd0", dim:"#2b7a2f", amber:"#ffe066", red:"#ff5b5b", cyan:"#6bdcff" },
+    night_ops:       { off:"#020812", green:"#4bb8ff", white:"#d8f7ff", dim:"#27506e", amber:"#f4c95d", red:"#ff5d7a", cyan:"#49f0c8" },
+    sunset_terminal: { off:"#12040b", green:"#ff7a3d", white:"#fff2e6", dim:"#8e3f55", amber:"#ffd166", red:"#ff3864", cyan:"#ff4fd8" },
+    ice_white:       { off:"#060a0f", green:"#bde9ff", white:"#ffffff", dim:"#6a8195", amber:"#ffd35a", red:"#ff5252", cyan:"#66d9ff" },
+    technical:       { off:"#040608", green:"#7bb7ff", white:"#dbe7f5", dim:"#355470", amber:"#e7b950", red:"#d96a6a", cyan:"#85d8ff" },
+    cyan:            { off:"#00080f", green:"#00d7ff", white:"#c8fff2", dim:"#08758f", amber:"#ffd447", red:"#ff4f7b", cyan:"#52ffe0" },
+    crt:             { off:"#080500", green:"#ffb13b", white:"#ffd779", dim:"#835819", amber:"#ffe66d", red:"#ff573d", cyan:"#ffcf5c" },
+    neon:            { off:"#001008", green:"#00ff7a", white:"#d7ffe9", dim:"#008a48", amber:"#d8ff4a", red:"#ff3d66", cyan:"#00e5ff" },
+    amber:           { off:"#0b0600", green:"#ffae2e", white:"#ffe2a1", dim:"#7d5414", amber:"#ffdf55", red:"#ff5738", cyan:"#ffc56b" },
+    green:           { off:"#001006", green:"#28f76e", white:"#ddffe8", dim:"#177338", amber:"#ffc94a", red:"#ff4d4d", cyan:"#55e7ff" },
+    white:           { off:"#06090d", green:"#d8f1ff", white:"#ffffff", dim:"#778899", amber:"#ffd35a", red:"#ff5757", cyan:"#8fdcff" },
   };
-  const C = { ...( SKIN_PALETTES["{{ cfg.skin }}"] || SKIN_PALETTES.standard ) };
+  let C = { ...( SKIN_PALETTES[MATRIX_PALETTE] || SKIN_PALETTES.standard ) };
+
+  function setPreviewPalette(name) {
+    MATRIX_PALETTE = SKIN_PALETTES[name] ? name : "pax_blue";
+    C = { ...( SKIN_PALETTES[MATRIX_PALETTE] || SKIN_PALETTES.standard ) };
+    const strip = document.getElementById("paletteStrip");
+    if (strip) {
+      strip.innerHTML = [C.green, C.white, C.cyan, C.amber, C.red]
+        .map(color => `<span class="palette-dot" style="background:${color}"></span>`)
+        .join("");
+    }
+    const sub = document.getElementById("panelSubtitle");
+    if (sub) sub.textContent = `${PANEL_W}x${PANEL_H} · Interstate 75 W · style: ${MATRIX_PALETTE}`;
+  }
 
   // ── Bitmap 5x7 font ────────────────────────────────────────────────────────
   const FONT = {
@@ -1351,7 +1451,7 @@
     if (widthInput && parseInt(widthInput.value, 10) !== PANEL_W) widthInput.value = PANEL_W;
     if (heightInput && parseInt(heightInput.value, 10) !== PANEL_H) heightInput.value = PANEL_H;
     const sub = document.getElementById("panelSubtitle");
-    if (sub) sub.textContent = `${PANEL_W}x${PANEL_H} · Interstate 75 W · skin: {{ cfg.skin }}`;
+    if (sub) sub.textContent = `${PANEL_W}x${PANEL_H} · Interstate 75 W · style: ${MATRIX_PALETTE}`;
   }
 
   // ── Controls ───────────────────────────────────────────────────────────────
@@ -1399,6 +1499,20 @@
       frames: 1,
     }));
     applyVisiblePage(flightData);
+    updateCfgBlock();
+  };
+
+  window.setAnimationSpeed = function(v) {
+    ANIMATION_SPEED = Math.max(1, Math.min(5, parseInt(v, 10) || 3));
+    const sel = document.getElementById("animationSpeedSelect");
+    if (sel) sel.value = String(ANIMATION_SPEED);
+    updateCfgBlock();
+  };
+
+  window.setMatrixPalette = function(v) {
+    setPreviewPalette(v || "pax_blue");
+    const sel = document.getElementById("paletteSelect");
+    if (sel) sel.value = MATRIX_PALETTE;
     updateCfgBlock();
   };
 
@@ -1491,7 +1605,10 @@ PAGE_ROTATION_S = ${PAGE_ROTATION_S}
 BRIGHTNESS    = ${BRIGHTNESS.toFixed(2)}
 DEFAULT_VIEW  = "${VIEW}"
 PRESET        = "${MATRIX_PRESET}"
+PALETTE       = "${MATRIX_PALETTE}"
 ANIMATION_MODE = "${ANIMATION_MODE}"
+ANIMATION_SPEED = ${ANIMATION_SPEED}
+STATUS_MOTION = ${STATUS_ANIMATION_ENABLED ? "True" : "False"}
 SHOW_WEATHER = ${SHOW_WEATHER ? "True" : "False"}
 CLIENT_VER    = "2.0"
 
@@ -1526,6 +1643,8 @@ Board reads: /api/config -> /api/matrix/v2/devices/{id}/config -> /api/matrix/v2
       "def fit_text(value, length):",
       "def _clock_hhmm(offset_minutes=0):",
       "ACTIVE_BREATH",
+      '"pax_blue"',
+      '"tower_scope"',
     ];
     const missing = required.filter((marker) => !content.includes(marker));
     if (missing.length) {
@@ -1603,6 +1722,7 @@ Board reads: /api/config -> /api/matrix/v2/devices/{id}/config -> /api/matrix/v2
         const presetPayload = await presetRes.json();
         const configPayload = await configRes.json();
         MATRIX_PRESETS = Array.isArray(presetPayload.presets) ? presetPayload.presets : [];
+        MATRIX_PALETTE_OPTIONS = Array.isArray(presetPayload.palettes) ? presetPayload.palettes : [];
         MATRIX_CONFIGS = Array.isArray(configPayload.configs) ? configPayload.configs : [];
         CURRENT_CONFIG_ID = configPayload.default_config_id || (MATRIX_CONFIGS[0] && MATRIX_CONFIGS[0].id) || "";
         populateMatrixV2Selectors();
@@ -1624,6 +1744,7 @@ Board reads: /api/config -> /api/matrix/v2/devices/{id}/config -> /api/matrix/v2
   function populateMatrixV2Selectors() {
     const configSel = document.getElementById("matrixConfigSelect");
     const presetSel = document.getElementById("presetSelect");
+    const paletteSel = document.getElementById("paletteSelect");
     if (configSel && MATRIX_CONFIGS.length) {
       configSel.innerHTML = MATRIX_CONFIGS.map(c =>
         `<option value="${c.id}">${c.name || c.id}</option>`
@@ -1634,6 +1755,12 @@ Board reads: /api/config -> /api/matrix/v2/devices/{id}/config -> /api/matrix/v2
       presetSel.innerHTML = MATRIX_PRESETS.map(p =>
         `<option value="${p.id}">${p.label || p.id}</option>`
       ).join("");
+    }
+    if (paletteSel && MATRIX_PALETTE_OPTIONS.length) {
+      paletteSel.innerHTML = MATRIX_PALETTE_OPTIONS.map(p =>
+        `<option value="${p.id}">${p.label || p.id}</option>`
+      ).join("");
+      paletteSel.value = MATRIX_PALETTE;
     }
   }
 
@@ -1680,11 +1807,19 @@ Board reads: /api/config -> /api/matrix/v2/devices/{id}/config -> /api/matrix/v2
     }
     if (d.animation_speed !== undefined) {
       ANIMATION_SPEED = Math.max(1, Math.min(5, parseInt(d.animation_speed) || 3));
+      const sel = document.getElementById("animationSpeedSelect");
+      if (sel) sel.value = String(ANIMATION_SPEED);
     }
     if (d.status_animation_enabled !== undefined) {
       STATUS_ANIMATION_ENABLED = Boolean(d.status_animation_enabled);
+      document.getElementById("statusMotionToggle")?.classList.toggle("active", STATUS_ANIMATION_ENABLED);
     }
     const options = d.options && typeof d.options === "object" ? d.options : {};
+    if (d.palette !== undefined || options.palette !== undefined) {
+      setPreviewPalette(d.palette || options.palette || MATRIX_PALETTE);
+      const sel = document.getElementById("paletteSelect");
+      if (sel) sel.value = MATRIX_PALETTE;
+    }
     if (options.show_metar !== undefined || options.show_weather !== undefined) {
       SHOW_WEATHER = options.show_metar !== undefined ? Boolean(options.show_metar) : Boolean(options.show_weather);
       document.getElementById("weatherToggle")?.classList.toggle("active", SHOW_WEATHER);
@@ -1704,12 +1839,23 @@ Board reads: /api/config -> /api/matrix/v2/devices/{id}/config -> /api/matrix/v2
 
   window.setMatrixPreset = function(id) {
     MATRIX_PRESET = id || "real_fids";
+    const preset = MATRIX_PRESETS.find(p => p.id === MATRIX_PRESET);
+    const suggested = preset?.options?.palette;
+    if (Array.isArray(suggested) && suggested.length && !suggested.includes(MATRIX_PALETTE)) {
+      window.setMatrixPalette(suggested[0]);
+    }
     updateCfgBlock();
   };
 
   window.toggleWeather = function() {
     SHOW_WEATHER = !SHOW_WEATHER;
     document.getElementById("weatherToggle")?.classList.toggle("active", SHOW_WEATHER);
+    updateCfgBlock();
+  };
+
+  window.toggleStatusMotion = function() {
+    STATUS_ANIMATION_ENABLED = !STATUS_ANIMATION_ENABLED;
+    document.getElementById("statusMotionToggle")?.classList.toggle("active", STATUS_ANIMATION_ENABLED);
     updateCfgBlock();
   };
 
@@ -1730,6 +1876,15 @@ Board reads: /api/config -> /api/matrix/v2/devices/{id}/config -> /api/matrix/v2
           page_rotation_seconds: PAGE_ROTATION_S,
           default_view:    VIEW,
           animation_enabled: ANIMATION_MODE !== "static",
+          animation_mode: ANIMATION_MODE,
+          animation_speed: ANIMATION_SPEED,
+          status_animation_enabled: STATUS_ANIMATION_ENABLED,
+          palette: MATRIX_PALETTE,
+          options: {
+            palette: MATRIX_PALETTE,
+            show_metar: SHOW_WEATHER,
+            show_weather: SHOW_WEATHER,
+          },
         }),
       });
       if (CURRENT_CONFIG_ID) {
@@ -1750,7 +1905,9 @@ Board reads: /api/config -> /api/matrix/v2/devices/{id}/config -> /api/matrix/v2
             animation_mode: ANIMATION_MODE,
             animation_speed: ANIMATION_SPEED,
             status_animation_enabled: STATUS_ANIMATION_ENABLED,
+            palette: MATRIX_PALETTE,
             options: {
+              palette: MATRIX_PALETTE,
               show_metar: SHOW_WEATHER,
               show_weather: SHOW_WEATHER,
             },
@@ -1759,14 +1916,14 @@ Board reads: /api/config -> /api/matrix/v2/devices/{id}/config -> /api/matrix/v2
         if (!v2.ok) throw new Error(`HTTP ${v2.status}`);
       }
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      msg.textContent = "Saved — board picks up within 5 min";
+      msg.textContent = "Saved — board picks up in about 60 seconds";
       msg.style.color = "#00e84a";
     } catch (e) {
       msg.textContent = `Failed: ${e.message}`;
       msg.style.color = "#ff6060";
     }
     btn.disabled = false;
-    btn.textContent = "Save config to server";
+    btn.textContent = "Apply to board";
     setTimeout(() => { msg.textContent = ""; msg.style.color = ""; }, 5000);
   };
 
@@ -1774,6 +1931,7 @@ Board reads: /api/config -> /api/matrix/v2/devices/{id}/config -> /api/matrix/v2
   if (serverHostInput && !serverHostInput.value) serverHostInput.value = DEFAULT_SERVER_HOST;
   if (serverPortInput && !serverPortInput.value) serverPortInput.value = DEFAULT_SERVER_PORT;
   resizeCanvas();
+  setPreviewPalette(MATRIX_PALETTE);
   updateCfgBlock();
 
   // Start demo animation immediately so there's something to see

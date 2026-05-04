@@ -3304,7 +3304,23 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
         self.animation_speed = self.QtWidgets.QSpinBox()
         self.animation_speed.setRange(1, 5)
         self.palette = self.QtWidgets.QComboBox()
-        self.palette.addItems(["standard", "amber", "green", "white", "technical", "cyan", "neon", "crt"])
+        self.palette.addItems([
+            "pax_blue",
+            "solari_amber",
+            "tower_scope",
+            "vatsim_scope",
+            "night_ops",
+            "sunset_terminal",
+            "ice_white",
+            "standard",
+            "technical",
+            "cyan",
+            "crt",
+            "neon",
+            "amber",
+            "green",
+            "white",
+        ])
         self.animation_mode = self.QtWidgets.QComboBox()
         self.animation_mode.addItem("Split-flap animation", "split_flap")
         self.animation_mode.addItem("Slide letters left", "slide_left")
@@ -4427,9 +4443,25 @@ class AdminSummaryScreen:  # pragma: no cover - optional Qt runtime
         box, layout = panel(self.QtWidgets, "Connected Screens")
         count = connections.get("count", 0)
         companions = connections.get("companion_count", 0)
-        layout.addWidget(card(self.QtWidgets, "Live viewers", count, f"{companions} companion clients"))
+        matrix_count = int(connections.get("matrix_device_count") or 0)
+        matrix_online = int(connections.get("matrix_online_count") or 0)
+        layout.addWidget(card(self.QtWidgets, "Live viewers", count, f"{companions} companion clients | {matrix_online}/{matrix_count} LED online"))
+        devices = connections.get("matrix_devices") if isinstance(connections.get("matrix_devices"), list) else []
+        if devices:
+            hardware_counts = connections.get("matrix_hardware_counts") if isinstance(connections.get("matrix_hardware_counts"), dict) else {}
+            summary = ", ".join(f"{name} x{value}" for name, value in hardware_counts.items()) or f"{matrix_count} LED display(s)"
+            layout.addWidget(self._stat_row("LED hardware", summary))
+            for device in devices[:4]:
+                if not isinstance(device, dict):
+                    continue
+                size = f"{device.get('panel_w')}x{device.get('panel_h')}" if device.get("panel_w") and device.get("panel_h") else "size unknown"
+                name = device.get("hardware_name") or device.get("model") or device.get("label") or "LED matrix"
+                firmware = f" fw {device.get('firmware')}" if device.get("firmware") else ""
+                seen = device.get("last_seen") or "not seen yet"
+                layout.addWidget(self._stat_row(str(name), f"{size}{firmware} | {seen}"))
+        else:
+            layout.addWidget(self._stat_row("LED hardware", connections.get("matrix_last_seen") or "no check-in yet"))
         for name, seen in [
-            ("LED board", connections.get("matrix_last_seen")),
             ("Mobile Companion", connections.get("companion_last_seen")),
         ]:
             layout.addWidget(self._stat_row(name, seen or "no check-in yet"))

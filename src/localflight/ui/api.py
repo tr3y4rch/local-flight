@@ -1323,6 +1323,77 @@ def api_admin_connections() -> Dict[str, Any]:
     except Exception:
         pass
 
+    matrix_devices: List[Dict[str, Any]] = []
+    matrix_last_seen_v2 = None
+    try:
+        from datetime import timedelta
+
+        store = _load_matrix_store()
+        now = datetime.now(timezone.utc)
+        online_cutoff = now - timedelta(minutes=15)
+        latest_dt = None
+        for raw_device in store.get("devices", []):
+            if not isinstance(raw_device, dict):
+                continue
+            last_seen = str(raw_device.get("last_seen") or "")
+            last_dt = None
+            try:
+                last_dt = datetime.fromisoformat(last_seen)
+                if last_dt.tzinfo is None:
+                    last_dt = last_dt.replace(tzinfo=timezone.utc)
+            except Exception:
+                last_dt = None
+            if last_dt and (latest_dt is None or last_dt > latest_dt):
+                latest_dt = last_dt
+                matrix_last_seen_v2 = last_seen
+            brand = str(raw_device.get("brand") or raw_device.get("vendor") or "").strip()
+            model = str(raw_device.get("model") or raw_device.get("hardware") or raw_device.get("label") or "LED matrix").strip()
+            hardware_name = str(raw_device.get("hardware_name") or " ".join(part for part in (brand, model) if part) or model).strip()
+            renderers = raw_device.get("renderers") if isinstance(raw_device.get("renderers"), list) else []
+            matrix_devices.append(
+                {
+                    "device_id": str(raw_device.get("device_id") or ""),
+                    "label": str(raw_device.get("label") or hardware_name),
+                    "kind": str(raw_device.get("kind") or "led_matrix"),
+                    "brand": brand,
+                    "model": model,
+                    "hardware_name": hardware_name,
+                    "panel_w": int(raw_device.get("panel_w") or 0),
+                    "panel_h": int(raw_device.get("panel_h") or 0),
+                    "firmware": str(raw_device.get("firmware") or ""),
+                    "renderers": [str(item) for item in renderers],
+                    "assigned_config_id": str(raw_device.get("assigned_config_id") or ""),
+                    "last_seen": last_seen,
+                    "online": bool(last_dt and last_dt >= online_cutoff),
+                }
+            )
+        matrix_devices.sort(key=lambda item: str(item.get("last_seen") or ""), reverse=True)
+    except Exception:
+        matrix_devices = []
+
+    if matrix_last_seen_v2:
+        if matrix_last_seen:
+            try:
+                old_dt = datetime.fromisoformat(str(matrix_last_seen))
+                new_dt = datetime.fromisoformat(str(matrix_last_seen_v2))
+                if old_dt.tzinfo is None:
+                    old_dt = old_dt.replace(tzinfo=timezone.utc)
+                if new_dt.tzinfo is None:
+                    new_dt = new_dt.replace(tzinfo=timezone.utc)
+                if new_dt > old_dt:
+                    matrix_last_seen = matrix_last_seen_v2
+            except Exception:
+                matrix_last_seen = matrix_last_seen_v2
+        else:
+            matrix_last_seen = matrix_last_seen_v2
+
+    matrix_hardware_counts: Dict[str, int] = {}
+    for device in matrix_devices:
+        name = str(device.get("hardware_name") or device.get("model") or "LED matrix")
+        matrix_hardware_counts[name] = matrix_hardware_counts.get(name, 0) + 1
+    matrix_online_count = sum(1 for device in matrix_devices if device.get("online"))
+    matrix_device_count = len(matrix_devices)
+
     companions: List[Dict[str, Any]] = []
     companion_last_seen = None
     try:
@@ -1375,6 +1446,10 @@ def api_admin_connections() -> Dict[str, Any]:
     return {
         "count":            count,
         "matrix_last_seen": matrix_last_seen,
+        "matrix_device_count": matrix_device_count,
+        "matrix_online_count": matrix_online_count,
+        "matrix_devices": matrix_devices[:10],
+        "matrix_hardware_counts": matrix_hardware_counts,
         "companion_last_seen": companion_last_seen,
         "companion_count": len(companions),
         "companions": companions[:10],
@@ -1442,7 +1517,7 @@ def api_admin_ping(
         ping_path.write_text(_json.dumps(pings, indent=2))
     except Exception:
         pass
- 
+
     log.info("Device ping: %s v%s", device, version)
     return {"ok": True, "device": device, "recorded_at": pings[device]}
 
@@ -1634,6 +1709,99 @@ def api_submit_feedback_crash(body: FeedbackCrashIn) -> Dict[str, Any]:
 
 # Matrix config -------------------------------------------------------------
 
+_MATRIX_PALETTES: Dict[str, Dict[str, Any]] = {
+    "standard": {
+        "id": "standard",
+        "label": "Passenger Blue",
+        "description": "Airport terminal blue, warm white copy, amber attention states.",
+        "colors": {"primary": "#2f8cff", "text": "#f2f7ff", "dim": "#315982", "warning": "#ffb02e", "danger": "#ff4a4a", "accent": "#43e0ff"},
+    },
+    "pax_blue": {
+        "id": "pax_blue",
+        "label": "PAX Blue",
+        "description": "Crisp passenger FIDS with blue headers, white routes, and soft cyan icons.",
+        "colors": {"primary": "#1d8cff", "text": "#f6fbff", "dim": "#2c5f92", "warning": "#ffbd45", "danger": "#ff4d5f", "accent": "#65e7ff"},
+    },
+    "solari_amber": {
+        "id": "solari_amber",
+        "label": "Solari Amber",
+        "description": "Warm split-flap amber with cream text and red disruption states.",
+        "colors": {"primary": "#ffad2f", "text": "#ffe6a8", "dim": "#8c5a12", "warning": "#ffe15c", "danger": "#ff5538", "accent": "#ffd06c"},
+    },
+    "tower_scope": {
+        "id": "tower_scope",
+        "label": "Tower Scope",
+        "description": "Controller-room green with cyan aircraft hints and amber advisories.",
+        "colors": {"primary": "#38ff75", "text": "#d9ffe6", "dim": "#1b7a3c", "warning": "#ffd84a", "danger": "#ff4c4c", "accent": "#4deaff"},
+    },
+    "vatsim_scope": {
+        "id": "vatsim_scope",
+        "label": "VATSIM Scope",
+        "description": "Virtual ops palette with radar green, phosphor text, and blue route details.",
+        "colors": {"primary": "#74ff5f", "text": "#d8ffd0", "dim": "#2b7a2f", "warning": "#ffe066", "danger": "#ff5b5b", "accent": "#6bdcff"},
+    },
+    "night_ops": {
+        "id": "night_ops",
+        "label": "Night Ops",
+        "description": "Dim ramp-room blue, teal text, and restrained gold highlights.",
+        "colors": {"primary": "#4bb8ff", "text": "#d8f7ff", "dim": "#27506e", "warning": "#f4c95d", "danger": "#ff5d7a", "accent": "#49f0c8"},
+    },
+    "sunset_terminal": {
+        "id": "sunset_terminal",
+        "label": "Sunset Terminal",
+        "description": "Punchy magenta-orange board for a warmer, showier installation.",
+        "colors": {"primary": "#ff7a3d", "text": "#fff2e6", "dim": "#8e3f55", "warning": "#ffd166", "danger": "#ff3864", "accent": "#ff4fd8"},
+    },
+    "ice_white": {
+        "id": "ice_white",
+        "label": "Ice White",
+        "description": "Bright white airport signage with blue accents and strong disruption color.",
+        "colors": {"primary": "#bde9ff", "text": "#ffffff", "dim": "#6a8195", "warning": "#ffd35a", "danger": "#ff5252", "accent": "#66d9ff"},
+    },
+    "technical": {
+        "id": "technical",
+        "label": "Technical Slate",
+        "description": "Quiet engineering palette with blue status lines and soft gray copy.",
+        "colors": {"primary": "#7bb7ff", "text": "#dbe7f5", "dim": "#355470", "warning": "#e7b950", "danger": "#d96a6a", "accent": "#85d8ff"},
+    },
+    "cyan": {
+        "id": "cyan",
+        "label": "Cyan Terminal",
+        "description": "Aqua-forward LED look with greenish-white text and amber alerts.",
+        "colors": {"primary": "#00d7ff", "text": "#c8fff2", "dim": "#08758f", "warning": "#ffd447", "danger": "#ff4f7b", "accent": "#52ffe0"},
+    },
+    "crt": {
+        "id": "crt",
+        "label": "CRT Amber",
+        "description": "Low-glow vintage monitor palette with orange phosphor and soft yellow text.",
+        "colors": {"primary": "#ffb13b", "text": "#ffd779", "dim": "#835819", "warning": "#ffe66d", "danger": "#ff573d", "accent": "#ffcf5c"},
+    },
+    "neon": {
+        "id": "neon",
+        "label": "Neon Gate",
+        "description": "High-energy green and cyan for demos, parties, and tiny boards that need punch.",
+        "colors": {"primary": "#00ff7a", "text": "#d7ffe9", "dim": "#008a48", "warning": "#d8ff4a", "danger": "#ff3d66", "accent": "#00e5ff"},
+    },
+    "amber": {
+        "id": "amber",
+        "label": "Amber Classic",
+        "description": "Classic LED amber with readable cream text.",
+        "colors": {"primary": "#ffae2e", "text": "#ffe2a1", "dim": "#7d5414", "warning": "#ffdf55", "danger": "#ff5738", "accent": "#ffc56b"},
+    },
+    "green": {
+        "id": "green",
+        "label": "Green Board",
+        "description": "Traditional green airport-board look with white text and amber warnings.",
+        "colors": {"primary": "#28f76e", "text": "#ddffe8", "dim": "#177338", "warning": "#ffc94a", "danger": "#ff4d4d", "accent": "#55e7ff"},
+    },
+    "white": {
+        "id": "white",
+        "label": "White Signage",
+        "description": "Clean white LED typography with soft blue details.",
+        "colors": {"primary": "#d8f1ff", "text": "#ffffff", "dim": "#778899", "warning": "#ffd35a", "danger": "#ff5757", "accent": "#8fdcff"},
+    },
+}
+
 _MATRIX_PRESETS: Dict[str, Dict[str, Any]] = {
     "real_fids": {
         "id": "real_fids",
@@ -1641,7 +1809,7 @@ _MATRIX_PRESETS: Dict[str, Dict[str, Any]] = {
         "renderer": "modern_fids",
         "description": "Real-world passenger FIDS board with compact weather, route-code preservation, glyphs, and readable small-panel rows.",
         "options": {
-            "palette": ["standard", "cyan", "white"],
+            "palette": ["pax_blue", "standard", "solari_amber", "ice_white", "sunset_terminal"],
             "animation_mode": ["slide_left", "split_flap", "static"],
             "animation_speed": {"min": 1, "max": 5, "default": 3},
             "show_clock": True,
@@ -1657,7 +1825,7 @@ _MATRIX_PRESETS: Dict[str, Dict[str, Any]] = {
         "renderer": "vatsim_pilot",
         "description": "Pilot-facing virtual board with VATSIM callsigns, aircraft, route codes, and quiet page refresh.",
         "options": {
-            "palette": ["technical", "cyan", "green"],
+            "palette": ["vatsim_scope", "tower_scope", "night_ops", "technical", "cyan"],
             "animation_mode": ["slide_left", "static"],
             "animation_speed": {"min": 1, "max": 5, "default": 2},
             "show_clock": True,
@@ -1674,7 +1842,7 @@ _MATRIX_PRESETS: Dict[str, Dict[str, Any]] = {
         "renderer": "vatsim_atc",
         "description": "Controller-style VATSIM panel cycling departures, arrivals, and a decoded ATIS/METAR weather page.",
         "options": {
-            "palette": ["technical", "green", "cyan"],
+            "palette": ["tower_scope", "vatsim_scope", "night_ops", "technical", "green"],
             "animation_mode": ["slide_left", "static"],
             "animation_speed": {"min": 1, "max": 5, "default": 2},
             "show_clock": True,
@@ -1713,7 +1881,7 @@ _MATRIX_CONFIG_DEFAULTS: Dict[str, Any] = {
     "animation_mode": "split_flap",
     "animation_speed": 3,
     "status_animation_enabled": True,
-    "palette": "standard",
+    "palette": "pax_blue",
     "options": {},
 }
 
@@ -1724,6 +1892,11 @@ _MATRIX_V1_FIELDS = {
     "default_view",
     "page_rotation_seconds",
     "animation_enabled",
+    "animation_mode",
+    "animation_speed",
+    "status_animation_enabled",
+    "palette",
+    "options",
 }
 
 _MATRIX_ANIMATION_MODES = {"split_flap", "slide_left", "slide_right", "static"}
@@ -1802,7 +1975,9 @@ def _normalize_matrix_config(raw: Dict[str, Any], *, fallback_id: str) -> Dict[s
         options = {**options, "show_metar": bool(preset_options.get("show_metar", True))}
     elif "show_weather" in options and "show_metar" not in options:
         options = {**options, "show_metar": bool(options.get("show_weather"))}
-    palette = str(raw.get("palette") or options.get("palette") or _MATRIX_CONFIG_DEFAULTS["palette"])
+    palette = str(raw.get("palette") or options.get("palette") or _MATRIX_CONFIG_DEFAULTS["palette"]).strip().lower()
+    if palette not in _MATRIX_PALETTES:
+        palette = _MATRIX_CONFIG_DEFAULTS["palette"]
     animation_enabled = bool(raw.get("animation_enabled", True))
     animation_mode = str(raw.get("animation_mode") or options.get("animation_mode") or _MATRIX_CONFIG_DEFAULTS["animation_mode"])
     if animation_mode not in _MATRIX_ANIMATION_MODES:
@@ -1824,8 +1999,8 @@ def _normalize_matrix_config(raw: Dict[str, Any], *, fallback_id: str) -> Dict[s
         "animation_mode": animation_mode,
         "animation_speed": max(1, min(5, int(raw.get("animation_speed") or 3))),
         "status_animation_enabled": bool(raw.get("status_animation_enabled", True)),
-        "palette": palette[:32],
-        "options": {**options, "palette": palette[:32], "animation_mode": animation_mode},
+        "palette": palette,
+        "options": {**options, "palette": palette, "animation_mode": animation_mode},
     }
 
 
@@ -1880,6 +2055,11 @@ def _normalize_matrix_store(data: Dict[str, Any]) -> Dict[str, Any]:
         devices.append({
             "device_id": device_id,
             "label": str(item.get("label") or device_id)[:80],
+            "kind": str(item.get("kind") or "led_matrix")[:40],
+            "brand": str(item.get("brand") or item.get("vendor") or "")[:60],
+            "model": str(item.get("model") or "")[:80],
+            "hardware": str(item.get("hardware") or "")[:100],
+            "hardware_name": str(item.get("hardware_name") or "")[:120],
             "panel_w": max(32, min(4096, int(item.get("panel_w") or 256))),
             "panel_h": max(16, min(512, int(item.get("panel_h") or 64))),
             "firmware": str(item.get("firmware") or "")[:32],
@@ -1939,6 +2119,11 @@ class MatrixConfigIn(BaseModel):
     default_view: str = Field("departures")
     page_rotation_seconds: int = Field(10, ge=3, le=120)
     animation_enabled: bool = True
+    animation_mode: str = "split_flap"
+    animation_speed: int = Field(3, ge=1, le=5)
+    status_animation_enabled: bool = True
+    palette: str = "pax_blue"
+    options: Dict[str, Any] = Field(default_factory=dict)
 
 
 class MatrixV2ConfigIn(BaseModel):
@@ -1963,6 +2148,11 @@ class MatrixV2ConfigIn(BaseModel):
 class MatrixDeviceCheckIn(BaseModel):
     device_id: Optional[str] = Field(None, max_length=80)
     label: Optional[str] = Field(None, max_length=80)
+    kind: str = Field("led_matrix", max_length=40)
+    brand: str = Field("", max_length=60)
+    model: str = Field("", max_length=80)
+    hardware: str = Field("", max_length=100)
+    hardware_name: str = Field("", max_length=120)
     panel_w: int = Field(256, ge=32, le=4096)
     panel_h: int = Field(64, ge=16, le=512)
     firmware: str = Field("", max_length=32)
@@ -1994,6 +2184,11 @@ def api_matrix_config_post(body: MatrixConfigIn) -> Dict[str, Any]:
         "default_view": body.default_view if body.default_view in ("departures", "arrivals") else "departures",
         "page_rotation_seconds": int(body.page_rotation_seconds),
         "animation_enabled": bool(body.animation_enabled),
+        "animation_mode": body.animation_mode,
+        "animation_speed": int(body.animation_speed),
+        "status_animation_enabled": bool(body.status_animation_enabled),
+        "palette": body.palette,
+        "options": body.options,
     }
     merged = _normalize_matrix_config({**cfg, **updates}, fallback_id=cfg["id"])
     store["configs"] = [merged if item["id"] == cfg["id"] else item for item in store["configs"]]
@@ -2006,7 +2201,10 @@ def api_matrix_config_post(body: MatrixConfigIn) -> Dict[str, Any]:
 
 @router.get("/api/matrix/v2/presets")
 def api_matrix_v2_presets() -> Dict[str, Any]:
-    return {"presets": list(_MATRIX_PRESETS.values())}
+    return {
+        "presets": list(_MATRIX_PRESETS.values()),
+        "palettes": list(_MATRIX_PALETTES.values()),
+    }
 
 
 @router.get("/api/matrix/v2/configs")
@@ -2107,6 +2305,11 @@ def api_matrix_v2_device_checkin(body: MatrixDeviceCheckIn) -> Dict[str, Any]:
         }
         store["devices"].append(device)
     device.update({
+        "kind": (body.kind or "led_matrix")[:40],
+        "brand": body.brand[:60],
+        "model": body.model[:80],
+        "hardware": body.hardware[:100],
+        "hardware_name": body.hardware_name[:120] or " ".join(part for part in (body.brand.strip(), body.model.strip()) if part)[:120],
         "panel_w": int(body.panel_w),
         "panel_h": int(body.panel_h),
         "firmware": body.firmware[:32],
