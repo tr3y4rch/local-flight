@@ -1596,7 +1596,11 @@ def test_matrix_script_endpoint_uses_current_i75w_client_template() -> None:
     assert 'CLIENT_VER       = "2.0"' in script
     assert "import interstate75 as interstate75_module" in script
     assert "def update_display():" in script
+    assert "def fit_text(value, length):" in script
     assert "def _text_field(value, fallback=\"\"):" in script
+    assert ".ljust(" not in script
+    assert "DISPLAY, DISPLAY_PANELS = _display_for_size(PANEL_W, PANEL_H)" in script
+    assert "Unsupported Interstate 75 display size" in script
     assert "urequests.get(_api_url(path))" in script
     assert "timeout=timeout" not in script
     assert "/api/matrix/v2/devices/checkin" in script
@@ -1610,6 +1614,39 @@ def test_matrix_preview_download_payload_uses_defined_animation_state() -> None:
 
     assert 'animation_enabled: ANIMATION_MODE !== "static"' in template
     assert "animation_enabled: ANIMATION_ENABLED" not in template
+
+
+def test_matrix_preview_panel_geometry_stays_in_sync() -> None:
+    root = Path(__file__).resolve().parents[1]
+    template = (root / "src" / "localflight" / "ui" / "templates" / "matrix_preview.html").read_text(encoding="utf-8")
+
+    assert "function syncPanelGeometry(w, h)" in template
+    assert 'id="panelWidthInput"' in template
+    assert 'id="panelHeightInput"' in template
+    assert "window.setCustomPanelSize" in template
+    assert 'value="128x128"' in template
+    assert 'value="256x128"' in template
+    assert "canvas.style.width" in template
+    assert "canvas.style.height" in template
+    assert "let RENDER_PIXEL_SIZE = PIXEL_SIZE" in template
+    assert "PANEL_W * PANEL_H <= 180000" in template
+    assert "syncPanelGeometry(w, h);" in template
+    assert "syncPanelGeometry(d.panel_w, d.panel_h);" in template
+    assert "64px-tall HUB75 chains only" not in template
+
+
+def test_native_matrix_panel_geometry_matches_web_controls() -> None:
+    root = Path(__file__).resolve().parents[1]
+    source = (root / "src" / "localflight" / "native" / "_legacy_app.py").read_text(encoding="utf-8")
+
+    assert '("128 x 64 - 1 rectangular module", 128, 64)' in source
+    assert '("256 x 64 - 2 across", 256, 64)' in source
+    assert '("128 x 128 - 2 stacked", 128, 128)' in source
+    assert '("256 x 128 - 2 by 2", 256, 128)' in source
+    assert "self.panel_w = self.QtWidgets.QSpinBox()" in source
+    assert "self.panel_h = self.QtWidgets.QSpinBox()" in source
+    assert 'form_layout.addRow("Panel size", self._panel_size_row())' in source
+    assert "def _panel_dimensions_changed" in source
 
 
 def test_matrix_script_endpoint_rejects_loopback_host(tmp_path: Path, monkeypatch) -> None:

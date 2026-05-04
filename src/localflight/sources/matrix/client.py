@@ -5,7 +5,7 @@
 # Pimoroni MicroPython firmware required:
 #   https://github.com/pimoroni/pimoroni-pico/releases
 #
-# Hardware: Interstate 75 W + 2x 128x64 HUB75 panels (256x64 total)
+# Hardware default: Interstate 75 W + 2x 128x64 HUB75 panels side-by-side (256x64)
 #
 # Controls:
 #   Button A     → show departures
@@ -21,8 +21,8 @@ API_HOST      = "localflight.local"   # LAN name or IP of the machine running Lo
 API_PORT      = 8000
 DEVICE_LABEL = "Interstate 75 W"
 
-PANEL_W          = 256   # total width  — must match physical panel chain
-PANEL_H          = 64    # panel height — must match physical panel height
+PANEL_W          = 256   # total physical pixel width
+PANEL_H          = 64    # total physical pixel height
 
 # Runtime defaults — overwritten by /api/matrix/config on boot
 MAX_ROWS         = 4     # flight rows to display
@@ -74,12 +74,30 @@ def _display_constant(name, fallback=None):
     return fallback if value is None else value
 
 def _display_for_size(width, height):
-    name = "DISPLAY_INTERSTATE75_{}X{}".format(int(width), int(height))
-    fallback = _display_constant("DISPLAY_INTERSTATE75_128X64")
-    return _display_constant(name, fallback)
+    width = int(width)
+    height = int(height)
+    name = "DISPLAY_INTERSTATE75_{}X{}".format(width, height)
+    display = _display_constant(name)
+    if display is not None:
+        return display, None
+    if height == 64 and width % 128 == 0:
+        base = _display_constant("DISPLAY_INTERSTATE75_128X64")
+        if base is not None:
+            return base, max(1, width // 128)
+    if height == 32 and width % 64 == 0:
+        base = _display_constant("DISPLAY_INTERSTATE75_64X32")
+        if base is not None:
+            return base, max(1, width // 64)
+    raise RuntimeError("Unsupported Interstate 75 display size: {}x{}".format(width, height))
 
-DISPLAY = _display_for_size(PANEL_W, PANEL_H)
-i75 = Interstate75(display=DISPLAY)
+DISPLAY, DISPLAY_PANELS = _display_for_size(PANEL_W, PANEL_H)
+try:
+    if DISPLAY_PANELS is None:
+        i75 = Interstate75(display=DISPLAY)
+    else:
+        i75 = Interstate75(display=DISPLAY, panels=DISPLAY_PANELS)
+except TypeError:
+    i75 = Interstate75(display=DISPLAY)
 graphics = getattr(i75, "display", None)
 if graphics is None:
     if PicoGraphics is None:
@@ -136,6 +154,12 @@ apply_skin("standard")
 
 # ── Split-flap animation ───────────────────────────────────────────────────────
 FLAP_CHARS = " ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.:/-+"
+
+def fit_text(value, length):
+    text = str(value or "")
+    if len(text) > length:
+        return text[:length]
+    return text + (" " * (length - len(text)))
 
 class FlapChar:
     def __init__(self, char=" "):
@@ -195,7 +219,7 @@ class FlapRow:
         self.mode = mode if mode in SUPPORTED_ANIMATIONS else "split_flap"
 
     def set_text(self, text):
-        text = (text or "").upper().ljust(self.length)[:self.length]
+        text = fit_text(text, self.length).upper()
         if self.mode == "static" or not ANIMATION_ENABLED:
             self.current_text = text
             self.target_text = text
@@ -242,9 +266,9 @@ class FlapRow:
             offset = int(progress * span)
             if self.mode == "slide_left":
                 canvas = self.source_text + gap + self.target_text
-                return canvas[offset:offset + self.length].ljust(self.length)
+                return fit_text(canvas[offset:offset + self.length], self.length)
             canvas = self.target_text + gap + self.source_text
-            return canvas[span - offset:span - offset + self.length].ljust(self.length)
+            return fit_text(canvas[span - offset:span - offset + self.length], self.length)
         if self.mode in ("slide_left", "slide_right", "static"):
             return self.current_text
         return "".join(c.current for c in self.cells)
@@ -267,11 +291,11 @@ def _text_field(value, fallback=""):
         return str(fallback)
 
 def build_row_text(row):
-    time_s   = _text_field(row.get("display_time") or row.get("time"), "--:--")[:5].ljust(5)
-    flight_s = _text_field(row.get("flight_display") or row.get("flight") or row.get("flight_number"))[:8].ljust(8)
-    dest_s   = _text_field(row.get("route_display") or row.get("route"))[:12].ljust(12)
-    status_s = _text_field(row.get("status_display") or row.get("status"))[:10].ljust(10)
-    gate_s   = _text_field(row.get("gate"), "-")[:4].ljust(4)
+    time_s   = fit_text(_text_field(row.get("display_time") or row.get("time"), "--:--"), 5)
+    flight_s = fit_text(_text_field(row.get("flight_display") or row.get("flight") or row.get("flight_number")), 8)
+    dest_s   = fit_text(_text_field(row.get("route_display") or row.get("route")), 12)
+    status_s = fit_text(_text_field(row.get("status_display") or row.get("status")), 10)
+    gate_s   = fit_text(_text_field(row.get("gate"), "-"), 4)
     return f"{time_s} {flight_s} {dest_s} {status_s} {gate_s}"
 
 def build_detail_text(row):
@@ -650,8 +674,6 @@ def main():
         checkin_matrix_device()
         fetch_matrix_config()
         last_config = time.time()
-        _draw_message("Checking in...", GREEN)
-        ping_server()
         last_ping = time.time()
 
     view      = DEFAULT_VIEW
@@ -716,9 +738,10 @@ def main():
         if force_fetch or (now - last_fetch >= REFRESH_S):
             force_fetch = False
             i75.set_led(0, 0, 100)  # blue = fetching
+            _draw_message("Fetching flights...", GREEN)
 
             if ensure_wifi():
-                data = fetch_fids(view=view, limit=min(MAX_ROWS * 4, 32))
+                data = fetch_fids(view=view, limit=MAX_ROWS)
                 if data:
                     flight_data = data
                     pages = _chunk_pages(flight_data)

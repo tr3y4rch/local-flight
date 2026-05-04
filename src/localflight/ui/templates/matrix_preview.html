@@ -69,7 +69,8 @@
     cursor: pointer;
   }
 
-  .ctrl-group select {
+  .ctrl-group select,
+  .ctrl-group input[type=number] {
     background: #2c3040;
     border: none;
     color: #e0e4ec;
@@ -77,6 +78,13 @@
     padding: 0;
     outline: none;
     cursor: pointer;
+  }
+
+  .ctrl-group input[type=number] {
+    width: 76px;
+    border: 1px solid #3a4054;
+    border-radius: 4px;
+    padding: 5px 6px;
   }
 
   .ctrl-val {
@@ -359,22 +367,27 @@
     <div class="ctrl-group">
       <label>Panel</label>
       <select id="panelPreset" onchange="applyPreset(this.value)">
-        <optgroup label="── 32px tall strips ──">
-          <option value="64x32"  {% if panel_w==64  and panel_h==32 %}selected{% endif %}>64×32 · 1 module</option>
-          <option value="128x32" {% if panel_w==128 and panel_h==32 %}selected{% endif %}>128×32 · 2 modules</option>
-          <option value="192x32" {% if panel_w==192 and panel_h==32 %}selected{% endif %}>192×32 · 3 modules</option>
-          <option value="256x32" {% if panel_w==256 and panel_h==32 %}selected{% endif %}>256×32 · 4 modules</option>
-          <option value="384x32" {% if panel_w==384 and panel_h==32 %}selected{% endif %}>384×32 · 6 modules wide</option>
+        <option value="custom">Custom size</option>
+        <optgroup label="128x64 rectangular modules">
+          <option value="128x64"  {% if panel_w==128 and panel_h==64 %}selected{% endif %}>128x64 - 1 module</option>
+          <option value="256x64"  {% if panel_w==256 and panel_h==64 %}selected{% endif %}>256x64 - 2 across</option>
+          <option value="128x128" {% if panel_w==128 and panel_h==128 %}selected{% endif %}>128x128 - 2 stacked</option>
+          <option value="256x128" {% if panel_w==256 and panel_h==128 %}selected{% endif %}>256x128 - 2 by 2</option>
+          <option value="384x64"  {% if panel_w==384 and panel_h==64 %}selected{% endif %}>384x64 - 3 across</option>
+          <option value="512x64"  {% if panel_w==512 and panel_h==64 %}selected{% endif %}>512x64 - 4 across</option>
+          <option value="384x128" {% if panel_w==384 and panel_h==128 %}selected{% endif %}>384x128 - 3 by 2</option>
+          <option value="512x128" {% if panel_w==512 and panel_h==128 %}selected{% endif %}>512x128 - 4 by 2</option>
         </optgroup>
-        <optgroup label="── 64px tall panels ──">
-          <option value="64x64"  {% if panel_w==64  and panel_h==64 %}selected{% endif %}>64×64 · single square</option>
-          <option value="128x64" {% if panel_w==128 and panel_h==64 %}selected{% endif %}>128×64 · 2-panel</option>
-          <option value="192x64" {% if panel_w==192 and panel_h==64 %}selected{% endif %}>192×64 · 3-panel</option>
-          <option value="256x64" {% if panel_w==256 and panel_h==64 %}selected{% endif %}>256×64 · 4-panel (Starter kit)</option>
-          <option value="320x64" {% if panel_w==320 and panel_h==64 %}selected{% endif %}>320×64 · 5-panel</option>
-          <option value="384x64" {% if panel_w==384 and panel_h==64 %}selected{% endif %}>384×64 · 6-panel wide</option>
+        <optgroup label="Other common HUB75 sizes">
+          <option value="64x32"   {% if panel_w==64  and panel_h==32 %}selected{% endif %}>64x32</option>
+          <option value="128x32"  {% if panel_w==128 and panel_h==32 %}selected{% endif %}>128x32</option>
+          <option value="256x32"  {% if panel_w==256 and panel_h==32 %}selected{% endif %}>256x32</option>
+          <option value="64x64"   {% if panel_w==64  and panel_h==64 %}selected{% endif %}>64x64</option>
         </optgroup>
       </select>
+      <input id="panelWidthInput" type="number" min="32" max="4096" value="{{ panel_w }}" onchange="setCustomPanelSize()" />
+      <span class="dim">x</span>
+      <input id="panelHeightInput" type="number" min="16" max="512" value="{{ panel_h }}" onchange="setCustomPanelSize()" />
     </div>
 
     <div class="ctrl-group">
@@ -476,7 +489,7 @@
         </div>
       </div>
       <div class="setup-note">
-        <strong>Board data path:</strong> the Interstate 75 W reads <code>/api/config</code>, <code>/api/matrix/config</code>, and <code>/api/fids</code>, then sends a lightweight <code>/api/admin/ping</code> heartbeat. No Wi-Fi details are written back to the server.
+        <strong>Board data path:</strong> the Interstate 75 W reads <code>/api/config</code>, checks in through <code>/api/matrix/v2/devices/checkin</code>, then pulls its assigned matrix config and flight feed. No Wi-Fi details are written back to the server.
       </div>
     </div>
 
@@ -537,6 +550,7 @@
   let PANEL_W       = {{ panel_w }};
   let PANEL_H       = {{ panel_h }};
   let PIXEL_SIZE    = {{ pixel_size }};
+  let RENDER_PIXEL_SIZE = PIXEL_SIZE;
   let VIEW          = "{{ view }}";
   let MAX_ROWS      = {{ rows }};
   let BRIGHTNESS    = 0.8;
@@ -604,17 +618,17 @@
   // ── Draw primitives ────────────────────────────────────────────────────────
   function drawPixel(x, y, color) {
     if (x < 0 || x >= PANEL_W || y < 0 || y >= PANEL_H) return;
-    const px = x * PIXEL_SIZE;
-    const py = y * PIXEL_SIZE;
-    const r  = PIXEL_SIZE * 0.42;
+    const px = x * RENDER_PIXEL_SIZE;
+    const py = y * RENDER_PIXEL_SIZE;
+    const r  = Math.max(0.28, RENDER_PIXEL_SIZE * 0.42);
 
     ctx.beginPath();
-    ctx.arc(px + PIXEL_SIZE/2, py + PIXEL_SIZE/2, r, 0, Math.PI*2);
+    ctx.arc(px + RENDER_PIXEL_SIZE/2, py + RENDER_PIXEL_SIZE/2, r, 0, Math.PI*2);
     ctx.fillStyle = color;
     ctx.fill();
 
     if (color !== C.off) {
-      ctx.shadowBlur  = PIXEL_SIZE * 1.8;
+      ctx.shadowBlur  = RENDER_PIXEL_SIZE * 1.8;
       ctx.shadowColor = color;
       ctx.fill();
       ctx.shadowBlur  = 0;
@@ -805,11 +819,17 @@
     ctx.fillStyle = "#000";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    // Off-pixel grid
-    for (let y=0; y<PANEL_H; y++) {
-      for (let x=0; x<PANEL_W; x++) {
-        drawPixel(x, y, C.off);
+    // Off-pixel grid. Very large custom panels skip individual dark LEDs so the
+    // preview stays responsive while preserving the same logical coordinates.
+    if (PANEL_W * PANEL_H <= 180000) {
+      for (let y=0; y<PANEL_H; y++) {
+        for (let x=0; x<PANEL_W; x++) {
+          drawPixel(x, y, C.off);
+        }
       }
+    } else {
+      ctx.fillStyle = C.off;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
     }
 
     // ── Header ──────────────────────────────────────────────────────────────
@@ -853,7 +873,7 @@
         ctx.save();
         ctx.globalAlpha = STATUS_ANIMATION_ENABLED && Math.floor(performance.now()/350)%2 ? 0.52 : 0.28;
         ctx.fillStyle = C.red;
-        ctx.fillRect(0, y * PIXEL_SIZE, PANEL_W * PIXEL_SIZE, Math.max(8, rowH - 1) * PIXEL_SIZE);
+        ctx.fillRect(0, y * RENDER_PIXEL_SIZE, PANEL_W * RENDER_PIXEL_SIZE, Math.max(8, rowH - 1) * RENDER_PIXEL_SIZE);
         ctx.restore();
       }
 
@@ -984,8 +1004,35 @@
 
   // ── Canvas resize ──────────────────────────────────────────────────────────
   function resizeCanvas() {
-    canvas.width  = PANEL_W * PIXEL_SIZE;
-    canvas.height = PANEL_H * PIXEL_SIZE;
+    RENDER_PIXEL_SIZE = Math.min(PIXEL_SIZE, 1600 / Math.max(1, PANEL_W), 720 / Math.max(1, PANEL_H));
+    RENDER_PIXEL_SIZE = Math.max(0.35, RENDER_PIXEL_SIZE);
+    canvas.width  = Math.ceil(PANEL_W * RENDER_PIXEL_SIZE);
+    canvas.height = Math.ceil(PANEL_H * RENDER_PIXEL_SIZE);
+    canvas.style.width = `${canvas.width}px`;
+    canvas.style.height = `${canvas.height}px`;
+  }
+
+  function clampPanelValue(value, minimum, maximum, fallback) {
+    const parsed = parseInt(value, 10);
+    if (!Number.isFinite(parsed)) return fallback;
+    return Math.max(minimum, Math.min(maximum, parsed));
+  }
+
+  function syncPanelGeometry(w, h) {
+    PANEL_W = clampPanelValue(w, 32, 4096, PANEL_W);
+    PANEL_H = clampPanelValue(h, 16, 512, PANEL_H);
+    resizeCanvas();
+    const preset = document.getElementById("panelPreset");
+    if (preset) {
+      const wanted = `${PANEL_W}x${PANEL_H}`;
+      preset.value = [...preset.options].some(o => o.value === wanted) ? wanted : "custom";
+    }
+    const widthInput = document.getElementById("panelWidthInput");
+    const heightInput = document.getElementById("panelHeightInput");
+    if (widthInput && parseInt(widthInput.value, 10) !== PANEL_W) widthInput.value = PANEL_W;
+    if (heightInput && parseInt(heightInput.value, 10) !== PANEL_H) heightInput.value = PANEL_H;
+    const sub = document.getElementById("panelSubtitle");
+    if (sub) sub.textContent = `${PANEL_W}x${PANEL_H} · Interstate 75 W · skin: {{ cfg.skin }}`;
   }
 
   // ── Controls ───────────────────────────────────────────────────────────────
@@ -1048,12 +1095,18 @@
   };
 
   window.applyPreset = function(v) {
+    if (!v || v === "custom") return;
     const [w,h] = v.split("x").map(Number);
-    PANEL_W = w; PANEL_H = h;
-    resizeCanvas();
+    syncPanelGeometry(w, h);
     fetchRows();
-    const sub = document.getElementById("panelSubtitle");
-    if (sub) sub.textContent = `${w}×${h} · Interstate 75 W · skin: {{ cfg.skin }}`;
+    updateCfgBlock();
+  };
+
+  window.setCustomPanelSize = function() {
+    const widthInput = document.getElementById("panelWidthInput");
+    const heightInput = document.getElementById("panelHeightInput");
+    syncPanelGeometry(widthInput?.value, heightInput?.value);
+    fetchRows();
     updateCfgBlock();
   };
 
@@ -1082,10 +1135,10 @@
     if (!/^[a-z0-9.-]+$/.test(host)) {
       return { ok: false, message: "Use only a LAN IP or mDNS host such as localflight.local." };
     }
-    if (PANEL_H !== 64) {
-      return { ok: false, message: "Board downloads are currently validated for 64px-tall HUB75 chains only." };
+    if (PANEL_W < 32 || PANEL_W > 4096 || PANEL_H < 16 || PANEL_H > 512) {
+      return { ok: false, message: "Choose a panel size between 32x16 and 4096x512." };
     }
-    return { ok: true, message: "Board file is ready to download." };
+    return { ok: true, message: `Board file is ready to download for ${PANEL_W}x${PANEL_H}.` };
   }
 
   function updateDownloadState() {
@@ -1150,6 +1203,7 @@ Board reads: /api/config -> /api/matrix/v2/devices/{id}/config -> /api/matrix/v2
       "/api/matrix/v2/devices/checkin",
       "/api/matrix/v2/devices/{device_id()}/config",
       "/api/matrix/v2/devices/{device_id()}/feed?view={view}",
+      "def fit_text(value, length):",
     ];
     const missing = required.filter((marker) => !content.includes(marker));
     if (missing.length) {
@@ -1270,9 +1324,7 @@ Board reads: /api/config -> /api/matrix/v2/devices/{id}/config -> /api/matrix/v2
     const configSel = document.getElementById("matrixConfigSelect");
     if (configSel && CURRENT_CONFIG_ID) configSel.value = CURRENT_CONFIG_ID;
     if (d.panel_w && d.panel_h) {
-      PANEL_W = d.panel_w;
-      PANEL_H = d.panel_h;
-      resizeCanvas();
+      syncPanelGeometry(d.panel_w, d.panel_h);
     }
     if (d.brightness !== undefined) {
       BRIGHTNESS = d.brightness;

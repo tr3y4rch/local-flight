@@ -1734,8 +1734,8 @@ def _normalize_matrix_config(raw: Dict[str, Any], *, fallback_id: str) -> Dict[s
         "id": _matrix_slug(str(raw.get("id") or fallback_id), fallback_id),
         "name": str(raw.get("name") or "Matrix Config").strip()[:80] or "Matrix Config",
         "preset": preset,
-        "panel_w": max(64, min(512, int(raw.get("panel_w") or 256))),
-        "panel_h": max(16, min(128, int(raw.get("panel_h") or 64))),
+        "panel_w": max(32, min(4096, int(raw.get("panel_w") or 256))),
+        "panel_h": max(16, min(512, int(raw.get("panel_h") or 64))),
         "brightness": round(max(0.05, min(1.0, float(raw.get("brightness", 0.8)))), 2),
         "max_rows": max(1, min(8, int(raw.get("max_rows") or 4))),
         "refresh_seconds": max(10, min(3600, int(raw.get("refresh_seconds") or 60))),
@@ -1801,8 +1801,8 @@ def _normalize_matrix_store(data: Dict[str, Any]) -> Dict[str, Any]:
         devices.append({
             "device_id": device_id,
             "label": str(item.get("label") or device_id)[:80],
-            "panel_w": max(64, min(512, int(item.get("panel_w") or 256))),
-            "panel_h": max(16, min(128, int(item.get("panel_h") or 64))),
+            "panel_w": max(32, min(4096, int(item.get("panel_w") or 256))),
+            "panel_h": max(16, min(512, int(item.get("panel_h") or 64))),
             "firmware": str(item.get("firmware") or "")[:32],
             "renderers": [str(v)[:40] for v in (item.get("renderers") or []) if isinstance(v, str)],
             "assigned_config_id": assigned,
@@ -1866,8 +1866,8 @@ class MatrixV2ConfigIn(BaseModel):
     id: Optional[str] = Field(None, max_length=80)
     name: Optional[str] = Field(None, max_length=80)
     preset: Optional[str] = None
-    panel_w: Optional[int] = Field(None, ge=64, le=512)
-    panel_h: Optional[int] = Field(None, ge=16, le=128)
+    panel_w: Optional[int] = Field(None, ge=32, le=4096)
+    panel_h: Optional[int] = Field(None, ge=16, le=512)
     brightness: Optional[float] = Field(None, ge=0.05, le=1.0)
     max_rows: Optional[int] = Field(None, ge=1, le=8)
     refresh_seconds: Optional[int] = Field(None, ge=10, le=3600)
@@ -1884,8 +1884,8 @@ class MatrixV2ConfigIn(BaseModel):
 class MatrixDeviceCheckIn(BaseModel):
     device_id: Optional[str] = Field(None, max_length=80)
     label: Optional[str] = Field(None, max_length=80)
-    panel_w: int = Field(256, ge=64, le=512)
-    panel_h: int = Field(64, ge=16, le=128)
+    panel_w: int = Field(256, ge=32, le=4096)
+    panel_h: int = Field(64, ge=16, le=512)
     firmware: str = Field("", max_length=32)
     renderers: List[str] = Field(default_factory=list)
 
@@ -2160,8 +2160,8 @@ class MatrixScriptIn(BaseModel):
     api_host: str = Field(..., min_length=1, max_length=253)
     api_port: int = Field(8000, ge=1, le=65535)
     device_label: str = Field("Interstate 75 W", max_length=80)
-    panel_w: int = Field(256, ge=64, le=512)
-    panel_h: int = Field(64, ge=16, le=128)
+    panel_w: int = Field(256, ge=32, le=4096)
+    panel_h: int = Field(64, ge=16, le=512)
     max_rows: int = Field(4, ge=1, le=8)
     refresh_seconds: int = Field(60, ge=10, le=3600)
     brightness: float = Field(0.8, ge=0.05, le=1.0)
@@ -2194,12 +2194,6 @@ def _matrix_assignment_line(name: str, value: str) -> str:
 
 
 def _render_matrix_client_script(body: MatrixScriptIn) -> str:
-    if body.panel_h != 64:
-        raise HTTPException(
-            status_code=422,
-            detail="The generated board file is currently validated for 64px-tall HUB75 chains only.",
-        )
-
     default_view = body.default_view if body.default_view in {"departures", "arrivals"} else "departures"
     host = _normalize_matrix_api_host(body.api_host)
     text = _matrix_client_template_path().read_text(encoding="utf-8")

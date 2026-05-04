@@ -3049,8 +3049,31 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
         self.config_select = self.QtWidgets.QComboBox()
         self.preset_select = self.QtWidgets.QComboBox()
         self.panel_preset = self.QtWidgets.QComboBox()
-        for text, w, h in (("256 x 64 Interstate 75 W", 256, 64), ("128 x 64", 128, 64), ("512 x 64", 512, 64)):
+        self._panel_presets = (
+            ("128 x 64 - 1 rectangular module", 128, 64),
+            ("256 x 64 - 2 across", 256, 64),
+            ("128 x 128 - 2 stacked", 128, 128),
+            ("256 x 128 - 2 by 2", 256, 128),
+            ("384 x 64 - 3 across", 384, 64),
+            ("512 x 64 - 4 across", 512, 64),
+            ("384 x 128 - 3 by 2", 384, 128),
+            ("512 x 128 - 4 by 2", 512, 128),
+            ("64 x 32", 64, 32),
+            ("128 x 32", 128, 32),
+            ("256 x 32", 256, 32),
+            ("64 x 64", 64, 64),
+        )
+        self.panel_preset.addItem("Custom size", "custom")
+        for text, w, h in self._panel_presets:
             self.panel_preset.addItem(text, (w, h))
+        self.panel_w = self.QtWidgets.QSpinBox()
+        self.panel_w.setRange(32, 4096)
+        self.panel_w.setSuffix(" px")
+        self.panel_w.setValue(256)
+        self.panel_h = self.QtWidgets.QSpinBox()
+        self.panel_h.setRange(16, 512)
+        self.panel_h.setSuffix(" px")
+        self.panel_h.setValue(64)
         self.zoom = self.QtWidgets.QSlider(QtCore.Qt.Horizontal)
         self.zoom.setRange(2, 12)
         self.zoom.setValue(4)
@@ -3089,6 +3112,7 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
         form_layout.addRow("Config", self.config_select)
         form_layout.addRow("Preset", self.preset_select)
         form_layout.addRow("Panel preset", self.panel_preset)
+        form_layout.addRow("Panel size", self._panel_size_row())
         form_layout.addRow("Preview pixel size", self._slider_row(self.zoom, self.zoom_value))
         form_layout.addRow("Brightness", self._slider_row(self.brightness, self.brightness_value))
         form_layout.addRow("Default view", self.view)
@@ -3196,7 +3220,10 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
         self.config_select.currentIndexChanged.connect(self._select_config_from_combo)
         self.config_list.currentRowChanged.connect(self._select_config_from_list)
         self.device_list.currentRowChanged.connect(self._select_device_from_list)
-        for widget in (self.panel_preset, self.zoom, self.brightness, self.animation_mode, self.animation_speed, self.max_rows, self.preset_select, self.palette):
+        self.panel_preset.currentIndexChanged.connect(self._apply_panel_preset_index)
+        self.panel_w.valueChanged.connect(self._panel_dimensions_changed)
+        self.panel_h.valueChanged.connect(self._panel_dimensions_changed)
+        for widget in (self.zoom, self.brightness, self.animation_mode, self.animation_speed, self.max_rows, self.preset_select, self.palette):
             widget.currentIndexChanged.connect(self._sync_canvas_options) if hasattr(widget, "currentIndexChanged") else widget.valueChanged.connect(self._sync_canvas_options)
         self.status_animation.toggled.connect(self._sync_canvas_options)
         self.view.currentTextChanged.connect(lambda _text: self.refresh_feed_only())
@@ -3314,7 +3341,7 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
         self.board_status.setText(f"Selected board: {device.get('label')} | last seen {device.get('last_seen') or 'never'}")
 
     def _populate_config(self, cfg: dict[str, Any]) -> None:
-        for widget in (self.brightness, self.max_rows, self.refresh_seconds, self.rotation_seconds, self.view, self.animation_mode, self.animation_speed, self.palette, self.preset_select, self.status_animation):
+        for widget in (self.brightness, self.max_rows, self.refresh_seconds, self.rotation_seconds, self.view, self.animation_mode, self.animation_speed, self.palette, self.preset_select, self.status_animation, self.panel_preset, self.panel_w, self.panel_h):
             widget.blockSignals(True)
         self.config_name.setText(str(cfg.get("name") or "Matrix Config"))
         self.brightness.setValue(int(float(cfg.get("brightness", 0.8)) * 100))
@@ -3334,10 +3361,8 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
         if palette_idx >= 0:
             self.palette.setCurrentIndex(palette_idx)
         panel = (int(cfg.get("panel_w") or 256), int(cfg.get("panel_h") or 64))
-        panel_idx = self.panel_preset.findData(panel)
-        if panel_idx >= 0:
-            self.panel_preset.setCurrentIndex(panel_idx)
-        for widget in (self.brightness, self.max_rows, self.refresh_seconds, self.rotation_seconds, self.view, self.animation_mode, self.animation_speed, self.palette, self.preset_select, self.status_animation):
+        self._set_panel_size(*panel, sync=False)
+        for widget in (self.brightness, self.max_rows, self.refresh_seconds, self.rotation_seconds, self.view, self.animation_mode, self.animation_speed, self.palette, self.preset_select, self.status_animation, self.panel_preset, self.panel_w, self.panel_h):
             widget.blockSignals(False)
         self._sync_value_labels()
         self._sync_canvas_options()
@@ -3353,8 +3378,42 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
         return None
 
     def _panel_size(self) -> tuple[int, int]:
-        data = self.panel_preset.currentData()
-        return data if isinstance(data, tuple) else (256, 64)
+        return int(self.panel_w.value()), int(self.panel_h.value())
+
+    def _set_panel_size(self, width: int, height: int, *, sync: bool = True) -> None:
+        width = max(32, min(4096, int(width or 256)))
+        height = max(16, min(512, int(height or 64)))
+        widgets = (self.panel_preset, self.panel_w, self.panel_h)
+        states = [widget.blockSignals(True) for widget in widgets]
+        try:
+            self.panel_w.setValue(width)
+            self.panel_h.setValue(height)
+            preset_idx = self.panel_preset.findData((width, height))
+            if preset_idx < 0:
+                preset_idx = self.panel_preset.findData("custom")
+            if preset_idx >= 0:
+                self.panel_preset.setCurrentIndex(preset_idx)
+        finally:
+            for widget, was_blocked in zip(widgets, states):
+                widget.blockSignals(was_blocked)
+        if sync:
+            self._sync_canvas_options()
+
+    def _apply_panel_preset_index(self, index: int) -> None:
+        data = self.panel_preset.itemData(index)
+        if isinstance(data, tuple):
+            self._set_panel_size(int(data[0]), int(data[1]))
+
+    def _panel_dimensions_changed(self, *_args: Any) -> None:
+        width, height = self._panel_size()
+        idx = self.panel_preset.findData((width, height))
+        if idx < 0:
+            idx = self.panel_preset.findData("custom")
+        if idx >= 0 and idx != self.panel_preset.currentIndex():
+            old = self.panel_preset.blockSignals(True)
+            self.panel_preset.setCurrentIndex(idx)
+            self.panel_preset.blockSignals(old)
+        self._sync_canvas_options()
 
     def _config_payload(self) -> dict[str, Any]:
         w, h = self._panel_size()
@@ -3376,7 +3435,7 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
             "options": {"palette": self.palette.currentText()},
         }
 
-    def _sync_canvas_options(self) -> None:
+    def _sync_canvas_options(self, *_args: Any) -> None:
         self._sync_value_labels()
         w, h = self._panel_size()
         mode = str(self.animation_mode.currentData() or "split_flap")
@@ -3404,6 +3463,16 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
         row_layout.setContentsMargins(0, 0, 0, 0)
         row_layout.addWidget(slider, 1)
         row_layout.addWidget(value_label)
+        return row
+
+    def _panel_size_row(self) -> Any:
+        row = self.QtWidgets.QWidget()
+        row_layout = self.QtWidgets.QHBoxLayout(row)
+        row_layout.setContentsMargins(0, 0, 0, 0)
+        row_layout.addWidget(self.panel_w)
+        row_layout.addWidget(label(self.QtWidgets, "x", "Muted"))
+        row_layout.addWidget(self.panel_h)
+        row_layout.addStretch(1)
         return row
 
     def save_config(self) -> None:
