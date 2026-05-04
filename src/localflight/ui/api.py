@@ -12,6 +12,7 @@ import math
 import os
 import re
 import time
+import unicodedata
 from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -1710,12 +1711,6 @@ def api_submit_feedback_crash(body: FeedbackCrashIn) -> Dict[str, Any]:
 # Matrix config -------------------------------------------------------------
 
 _MATRIX_PALETTES: Dict[str, Dict[str, Any]] = {
-    "standard": {
-        "id": "standard",
-        "label": "Passenger Blue",
-        "description": "Airport terminal blue, warm white copy, amber attention states.",
-        "colors": {"primary": "#2f8cff", "text": "#f2f7ff", "dim": "#315982", "warning": "#ffb02e", "danger": "#ff4a4a", "accent": "#43e0ff"},
-    },
     "pax_blue": {
         "id": "pax_blue",
         "label": "PAX Blue",
@@ -1758,48 +1753,6 @@ _MATRIX_PALETTES: Dict[str, Dict[str, Any]] = {
         "description": "Bright white airport signage with blue accents and strong disruption color.",
         "colors": {"primary": "#bde9ff", "text": "#ffffff", "dim": "#6a8195", "warning": "#ffd35a", "danger": "#ff5252", "accent": "#66d9ff"},
     },
-    "technical": {
-        "id": "technical",
-        "label": "Technical Slate",
-        "description": "Quiet engineering palette with blue status lines and soft gray copy.",
-        "colors": {"primary": "#7bb7ff", "text": "#dbe7f5", "dim": "#355470", "warning": "#e7b950", "danger": "#d96a6a", "accent": "#85d8ff"},
-    },
-    "cyan": {
-        "id": "cyan",
-        "label": "Cyan Terminal",
-        "description": "Aqua-forward LED look with greenish-white text and amber alerts.",
-        "colors": {"primary": "#00d7ff", "text": "#c8fff2", "dim": "#08758f", "warning": "#ffd447", "danger": "#ff4f7b", "accent": "#52ffe0"},
-    },
-    "crt": {
-        "id": "crt",
-        "label": "CRT Amber",
-        "description": "Low-glow vintage monitor palette with orange phosphor and soft yellow text.",
-        "colors": {"primary": "#ffb13b", "text": "#ffd779", "dim": "#835819", "warning": "#ffe66d", "danger": "#ff573d", "accent": "#ffcf5c"},
-    },
-    "neon": {
-        "id": "neon",
-        "label": "Neon Gate",
-        "description": "High-energy green and cyan for demos, parties, and tiny boards that need punch.",
-        "colors": {"primary": "#00ff7a", "text": "#d7ffe9", "dim": "#008a48", "warning": "#d8ff4a", "danger": "#ff3d66", "accent": "#00e5ff"},
-    },
-    "amber": {
-        "id": "amber",
-        "label": "Amber Classic",
-        "description": "Classic LED amber with readable cream text.",
-        "colors": {"primary": "#ffae2e", "text": "#ffe2a1", "dim": "#7d5414", "warning": "#ffdf55", "danger": "#ff5738", "accent": "#ffc56b"},
-    },
-    "green": {
-        "id": "green",
-        "label": "Green Board",
-        "description": "Traditional green airport-board look with white text and amber warnings.",
-        "colors": {"primary": "#28f76e", "text": "#ddffe8", "dim": "#177338", "warning": "#ffc94a", "danger": "#ff4d4d", "accent": "#55e7ff"},
-    },
-    "white": {
-        "id": "white",
-        "label": "White Signage",
-        "description": "Clean white LED typography with soft blue details.",
-        "colors": {"primary": "#d8f1ff", "text": "#ffffff", "dim": "#778899", "warning": "#ffd35a", "danger": "#ff5757", "accent": "#8fdcff"},
-    },
 }
 
 _MATRIX_PRESETS: Dict[str, Dict[str, Any]] = {
@@ -1809,7 +1762,7 @@ _MATRIX_PRESETS: Dict[str, Dict[str, Any]] = {
         "renderer": "modern_fids",
         "description": "Real-world passenger FIDS board with compact weather, route-code preservation, glyphs, and readable small-panel rows.",
         "options": {
-            "palette": ["pax_blue", "standard", "solari_amber", "ice_white", "sunset_terminal"],
+            "palette": ["pax_blue", "solari_amber", "ice_white", "sunset_terminal"],
             "animation_mode": ["slide_left", "split_flap", "static"],
             "animation_speed": {"min": 1, "max": 5, "default": 3},
             "show_clock": True,
@@ -1825,7 +1778,7 @@ _MATRIX_PRESETS: Dict[str, Dict[str, Any]] = {
         "renderer": "vatsim_pilot",
         "description": "Pilot-facing virtual board with VATSIM callsigns, aircraft, route codes, and quiet page refresh.",
         "options": {
-            "palette": ["vatsim_scope", "tower_scope", "night_ops", "technical", "cyan"],
+            "palette": ["vatsim_scope", "tower_scope", "night_ops"],
             "animation_mode": ["slide_left", "static"],
             "animation_speed": {"min": 1, "max": 5, "default": 2},
             "show_clock": True,
@@ -1842,7 +1795,7 @@ _MATRIX_PRESETS: Dict[str, Dict[str, Any]] = {
         "renderer": "vatsim_atc",
         "description": "Controller-style VATSIM panel cycling departures, arrivals, and a decoded ATIS/METAR weather page.",
         "options": {
-            "palette": ["tower_scope", "vatsim_scope", "night_ops", "technical", "green"],
+            "palette": ["tower_scope", "vatsim_scope", "night_ops"],
             "animation_mode": ["slide_left", "static"],
             "animation_speed": {"min": 1, "max": 5, "default": 2},
             "show_clock": True,
@@ -1856,15 +1809,7 @@ _MATRIX_PRESETS: Dict[str, Dict[str, Any]] = {
     },
 }
 
-_MATRIX_PRESET_ALIASES = {
-    "classic_split_flap": "real_fids",
-    "modern_airport_fids": "real_fids",
-    "pax_airport_fids": "real_fids",
-    "tower_fids": "real_fids",
-    "terminal_minimal": "real_fids",
-    "radar_strip": "real_fids",
-    "vatsim_ops": "vatsim_pilot",
-}
+_MATRIX_PRESET_ALIASES: Dict[str, str] = {}
 
 _MATRIX_CONFIG_DEFAULTS: Dict[str, Any] = {
     "id": "default",
@@ -2374,12 +2319,24 @@ def _matrix_route_fields(route_display: Any) -> Dict[str, str]:
         if tail and text.upper().endswith(tail.group(1)):
             code = tail.group(1)
             city = text[: -len(tail.group(1))].strip(" -/()")
-    label = " ".join(part for part in (city, code) if part).strip() or text
+    safe_city = _matrix_ascii(city)
+    label = " ".join(part for part in (safe_city, code) if part).strip() or _matrix_ascii(text)
     return {
-        "route_city": city,
+        "route_city": safe_city,
         "route_code": code,
         "route_matrix_label": label.upper(),
     }
+
+
+def _matrix_ascii(value: Any) -> str:
+    text = str(value or "")
+    replacements = {
+        "\u00c4": "AE", "\u00d6": "OE", "\u00dc": "UE", "\u00e4": "ae", "\u00f6": "oe", "\u00fc": "ue",
+        "\u00df": "ss", "\u00c6": "AE", "\u00e6": "ae", "\u0152": "OE", "\u0153": "oe",
+        "\u00d8": "O", "\u00f8": "o", "\u0110": "D", "\u0111": "d", "\u0141": "L", "\u0142": "l",
+    }
+    text = "".join(replacements.get(ch, ch) for ch in text)
+    return unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode("ascii").strip()
 
 
 def _matrix_row_payload(row: Any) -> Dict[str, Any]:
@@ -2575,7 +2532,8 @@ def _matrix_vatsim_rows(
 def api_matrix_v2_device_feed(device_id: str, view: Optional[str] = Query(None)) -> Dict[str, Any]:
     store = _load_matrix_store()
     resolved = _matrix_resolved_config(store, device_id)
-    effective_view = view if view in {"departures", "arrivals"} else resolved["default_view"]
+    requested_view = view if view in {"departures", "arrivals"} else resolved["default_view"]
+    effective_view = requested_view
     cfg = load_config()
     limit = min(max(1, resolved["max_rows"]) * 4, 32)
     payload: Dict[str, Any] = {
@@ -2608,6 +2566,15 @@ def api_matrix_v2_device_feed(device_id: str, view: Optional[str] = Query(None))
         dep_rows = [_matrix_row_payload(row) for row in _matrix_vatsim_rows(cfg=cfg, view="departures", limit=limit)]
         arr_rows = [_matrix_row_payload(row) for row in _matrix_vatsim_rows(cfg=cfg, view="arrivals", limit=limit)]
         rows = dep_rows if effective_view == "departures" else arr_rows
+        if not rows:
+            alternate_view = "arrivals" if effective_view == "departures" else "departures"
+            alternate_rows = arr_rows if alternate_view == "arrivals" else dep_rows
+            if alternate_rows:
+                effective_view = alternate_view
+                rows = alternate_rows
+                payload["view"] = effective_view
+                payload["requested_view"] = requested_view
+                payload["fallback_view"] = True
         metar_payload = None
         weather_page = None
         if show_metar:
@@ -2634,6 +2601,15 @@ def api_matrix_v2_device_feed(device_id: str, view: Optional[str] = Query(None))
         return payload
 
     rows = api_fids(view=effective_view, limit=limit)
+    if not rows:
+        alternate_view = "arrivals" if effective_view == "departures" else "departures"
+        alternate_rows = api_fids(view=alternate_view, limit=limit)
+        if alternate_rows:
+            effective_view = alternate_view
+            rows = alternate_rows
+            payload["view"] = effective_view
+            payload["requested_view"] = requested_view
+            payload["fallback_view"] = True
     payload["rows"] = [_matrix_row_payload(row) for row in rows]
     if show_metar:
         try:

@@ -143,7 +143,6 @@ DIMBG = graphics.create_pen(10, 10, 10)
 
 # Skin palettes: primary, text, dim, warning, danger
 _SKIN_PALETTES = {
-    "standard":        [(47,140,255),  (242,247,255), (49,89,130),  (255,176,46),  (255,74,74)],
     "pax_blue":        [(29,140,255),  (246,251,255), (44,95,146),  (255,189,69),  (255,77,95)],
     "solari_amber":    [(255,173,47),  (255,230,168), (140,90,18),  (255,225,92),  (255,85,56)],
     "tower_scope":     [(56,255,117),  (217,255,230), (27,122,60),  (255,216,74),  (255,76,76)],
@@ -151,22 +150,15 @@ _SKIN_PALETTES = {
     "night_ops":       [(75,184,255),  (216,247,255), (39,80,110),  (244,201,93),  (255,93,122)],
     "sunset_terminal": [(255,122,61),  (255,242,230), (142,63,85),  (255,209,102), (255,56,100)],
     "ice_white":       [(189,233,255), (255,255,255), (106,129,149), (255,211,90),  (255,82,82)],
-    "technical":       [(123,183,255), (219,231,245), (53,84,112),  (231,185,80),  (217,106,106)],
-    "cyan":            [(0,215,255),   (200,255,242), (8,117,143),  (255,212,71),  (255,79,123)],
-    "crt":             [(255,177,59),  (255,215,121), (131,88,25),  (255,230,109), (255,87,61)],
-    "neon":            [(0,255,122),   (215,255,233), (0,138,72),   (216,255,74),  (255,61,102)],
-    "amber":           [(255,174,46),  (255,226,161), (125,84,20),  (255,223,85),  (255,87,56)],
-    "green":           [(40,247,110),  (221,255,232), (23,115,56),  (255,201,74),  (255,77,77)],
-    "white":           [(216,241,255), (255,255,255), (119,136,153), (255,211,90),  (255,87,87)],
 }
-_active_skin = "standard"
+_active_skin = "pax_blue"
 
 def _scaled_rgb(rgb, scale):
     return tuple(max(0, min(255, int(part * scale))) for part in rgb)
 
 def apply_skin(name):
     global GREEN, WHITE, DIM, AMBER, RED, ACTIVE_BREATH, AMBER_BREATH, _active_skin
-    p = _SKIN_PALETTES.get(name, _SKIN_PALETTES["standard"])
+    p = _SKIN_PALETTES.get(name, _SKIN_PALETTES["pax_blue"])
     GREEN = graphics.create_pen(*p[0])
     WHITE = graphics.create_pen(*p[1])
     DIM   = graphics.create_pen(*p[2])
@@ -176,7 +168,7 @@ def apply_skin(name):
     AMBER_BREATH = [graphics.create_pen(*_scaled_rgb(p[3], s)) for s in (0.38, 0.56, 0.74, 0.92, 1.0, 0.92, 0.74, 0.56)]
     _active_skin = name
 
-apply_skin("standard")
+apply_skin("pax_blue")
 
 _GLYPHS = {
     "dep": ["00100", "01110", "10101", "00100", "01010"],
@@ -206,8 +198,36 @@ def draw_glyph(name, x, y, color):
 # ── Split-flap animation ───────────────────────────────────────────────────────
 FLAP_CHARS = " ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.:/-+"
 
-def fit_text(value, length):
+_ASCII_REPLACEMENTS = {
+    "\u00c4": "AE", "\u00d6": "OE", "\u00dc": "UE", "\u00e4": "AE", "\u00f6": "OE", "\u00fc": "UE",
+    "\u00c0": "A", "\u00c1": "A", "\u00c2": "A", "\u00c3": "A", "\u00c5": "A", "\u00c6": "AE",
+    "\u00e0": "A", "\u00e1": "A", "\u00e2": "A", "\u00e3": "A", "\u00e5": "A", "\u00e6": "AE",
+    "\u00c7": "C", "\u00e7": "C", "\u00c8": "E", "\u00c9": "E", "\u00ca": "E", "\u00cb": "E",
+    "\u00e8": "E", "\u00e9": "E", "\u00ea": "E", "\u00eb": "E", "\u00cc": "I", "\u00cd": "I",
+    "\u00ce": "I", "\u00cf": "I", "\u00ec": "I", "\u00ed": "I", "\u00ee": "I", "\u00ef": "I",
+    "\u00d1": "N", "\u00f1": "N", "\u00d2": "O", "\u00d3": "O", "\u00d4": "O", "\u00d5": "O",
+    "\u00d8": "O", "\u0152": "OE", "\u00f2": "O", "\u00f3": "O", "\u00f4": "O", "\u00f5": "O",
+    "\u00f8": "O", "\u0153": "OE", "\u00d9": "U", "\u00da": "U", "\u00db": "U", "\u00f9": "U",
+    "\u00fa": "U", "\u00fb": "U", "\u00dd": "Y", "\u0178": "Y", "\u00fd": "Y", "\u00ff": "Y",
+    "\u00df": "SS", "\u0160": "S", "\u0161": "S", "\u017d": "Z", "\u017e": "Z",
+    "\u2019": "'", "\u2018": "'", "\u201c": '"', "\u201d": '"', "\u2013": "-", "\u2014": "-",
+}
+
+def _ascii_text(value):
     text = str(value or "")
+    out = ""
+    for ch in text:
+        repl = _ASCII_REPLACEMENTS.get(ch)
+        if repl is not None:
+            out += repl
+        elif 32 <= ord(ch) <= 126:
+            out += ch
+        else:
+            out += " "
+    return out
+
+def fit_text(value, length):
+    text = _ascii_text(value)
     if len(text) > length:
         return text[:length]
     return text + (" " * (length - len(text)))
@@ -217,7 +237,7 @@ def fit(value, length):
 
 def _upper_text(value):
     try:
-        return str(value or "").strip().upper()
+        return _ascii_text(value).strip().upper()
     except Exception:
         return ""
 
@@ -745,9 +765,9 @@ def fetch_matrix_config():
     PRESET = data.get("preset", PRESET)
     RENDERER = data.get("renderer", RENDERER)
     if RENDERER not in SUPPORTED_RENDERERS:
-        RENDERER = "split_flap"
+        RENDERER = "modern_fids"
     MATRIX_CONFIG_REV = data.get("config_rev", MATRIX_CONFIG_REV)
-    skin = data.get("palette") or data.get("skin") or "standard"
+    skin = data.get("palette") or data.get("skin") or "pax_blue"
     if skin != _active_skin:
         apply_skin(skin)
     try:
@@ -758,11 +778,12 @@ def fetch_matrix_config():
 
 
 def fetch_fids(view="departures", limit=4):
-    global _matrix_metar, _matrix_pages, _matrix_weather_page, _matrix_message, _airport_iata, _airport_label
+    global DEFAULT_VIEW, _matrix_metar, _matrix_pages, _matrix_weather_page, _matrix_message, _airport_iata, _airport_label
     view = _normalize_view(view, "departures")
     limit = _clamp_int(limit, 1, 32, max(MAX_ROWS, limit))
     data = _get_json(f"/api/matrix/v2/devices/{device_id()}/feed?view={view}", timeout=10)
     if isinstance(data, dict) and isinstance(data.get("rows"), list):
+        DEFAULT_VIEW = _normalize_view(data.get("view", DEFAULT_VIEW), DEFAULT_VIEW)
         _airport_iata = _normalize_airport_iata(data.get("airport_iata", _airport_iata))
         _airport_label = _normalize_airport_label(data)
         _matrix_metar = data.get("metar") if isinstance(data.get("metar"), dict) else None
@@ -899,7 +920,16 @@ def _weather_page_lines(chars):
         clean = ["NO WX"]
     return [marquee(line, chars).rstrip() if len(line) > chars else line[:chars] for line in clean]
 
+def _clock_label(compact=False):
+    utc_ts = _clock_hhmm(0)
+    local_ts = _clock_hhmm(_clock_offset_minutes)
+    if compact:
+        return "U{} L{}".format(utc_ts, local_ts)
+    return "UTC{} LT{}".format(utc_ts, local_ts)
+
 def _header_height():
+    if WIDTH < 200:
+        return 20
     if HEIGHT >= 96 and _weather_line(8):
         return 20
     return 11
@@ -913,6 +943,8 @@ def draw_source_message():
     graphics.set_pen(BLACK)
     graphics.clear()
     graphics.set_font("bitmap8")
+    graphics.set_pen(DIM)
+    graphics.text(_clock_label(compact=WIDTH < 200)[:max(8, WIDTH // 8)], 0, 0, WIDTH, 1)
     msg = _matrix_message or "NO DATA"
     chars = max(8, WIDTH // 8)
     lines = cycle_chunks(msg, chars).split("|") if "|" in msg else [cycle_chunks(msg, chars)]
@@ -931,10 +963,20 @@ def draw_vatsim_weather_page():
     if isinstance(_matrix_weather_page, dict):
         title = _upper_text(_matrix_weather_page.get("title") or title)
     graphics.set_pen(GREEN)
-    graphics.text(f"{_airport_label} {title}"[:chars], 0, 0, WIDTH, 1)
+    title_text = f"{_airport_label} {title}"[:chars]
+    graphics.text(title_text, 0, 0, WIDTH, 1)
+    clock = _clock_label(compact=WIDTH < 200)
+    if WIDTH >= 200:
+        clock_x = WIDTH - len(clock) * 8 - 2
+        if clock_x > len(title_text) * 8 + 4:
+            graphics.set_pen(DIM)
+            graphics.text(clock, clock_x, 0, WIDTH, 1)
+    else:
+        graphics.set_pen(DIM)
+        graphics.text(clock[:chars], 0, 10, WIDTH, 1)
     graphics.set_pen(DIM)
-    graphics.line(0, 9, WIDTH, 9)
-    y = 12
+    graphics.line(0, _header_height() - 2, WIDTH, _header_height() - 2)
+    y = _header_height() + 1
     glyph = _weather_glyph_name()
     draw_glyph(glyph, 0, y + 1, AMBER if glyph in ("sun", "storm") else DIM)
     lines = _weather_page_lines(chars)
@@ -964,7 +1006,9 @@ def _vatsim_atc_page():
 def draw_header(view, connected=True):
     header_name = _airport_label or _airport_iata
     label = f"{header_name} {'DEP' if view == 'departures' else 'ARR'}"
-    if len(label) * 8 > WIDTH // 2 and len(header_name) > 10:
+    if WIDTH < 200:
+        label = "{} {}".format(marquee(header_name, max(6, WIDTH // 8 - 4)).rstrip(), "DEP" if view == "departures" else "ARR")
+    elif len(label) * 8 > WIDTH // 2 and len(header_name) > 10:
         view_label = "DEP" if view == "departures" else "ARR"
         label = "{} {}".format(marquee(header_name, max(6, WIDTH // 16)).rstrip(), view_label)
     graphics.set_pen(GREEN)
@@ -972,20 +1016,22 @@ def draw_header(view, connected=True):
     graphics.text(label, 0, 0, WIDTH, 1)
 
     # Server-synced clock. The board RTC may report uptime before NTP exists.
-    utc_ts = _clock_hhmm(0)
-    local_ts = _clock_hhmm(_clock_offset_minutes)
     weather = _weather_line(max(8, WIDTH // 8 - 1))
     show_weather = bool(weather) and (HEIGHT >= 96 or int(time.time() // 8) % 2 == 1)
-    clock = weather if (show_weather and WIDTH >= 200) else "UTC{} LT{}".format(utc_ts, local_ts) if WIDTH >= 200 else "LT{}".format(local_ts)
-    clock_x = WIDTH - len(clock) * 8 - 2
-    if clock_x > len(label) * 8 + 6:
-        if show_weather and WIDTH >= 200:
-            draw_weather_compact(clock_x, 0, WIDTH - clock_x)
-        else:
-            graphics.set_pen(DIM)
-            graphics.text(clock, clock_x, 0, WIDTH, 1)
+    if WIDTH < 200:
+        graphics.set_pen(DIM)
+        graphics.text(_clock_label(compact=True)[:max(8, WIDTH // 8)], 0, 10, WIDTH, 1)
+    else:
+        clock = weather if show_weather else _clock_label()
+        clock_x = WIDTH - len(clock) * 8 - 2
+        if clock_x > len(label) * 8 + 6:
+            if show_weather:
+                draw_weather_compact(clock_x, 0, WIDTH - clock_x)
+            else:
+                graphics.set_pen(DIM)
+                graphics.text(clock, clock_x, 0, WIDTH, 1)
 
-    if HEIGHT >= 96 and weather:
+    if WIDTH >= 200 and HEIGHT >= 96 and weather:
         draw_weather_compact(0, 10, WIDTH)
         graphics.set_pen(DIM)
         graphics.line(0, 19, WIDTH, 19)
@@ -1059,42 +1105,12 @@ def draw_row(flap_row, row_data, y, row_h):
         graphics.text(text[39:43], WIDTH - 28, y, 28, 1)
 
 
-def draw_terminal_minimal(page_rows):
-    draw_header(DEFAULT_VIEW)
-    if not page_rows:
-        graphics.set_pen(AMBER)
-        graphics.text("NO FLIGHTS", 4, 24, WIDTH, 2)
-        return
-    hero = page_rows[0]
-    time_s = (hero.get("time") or hero.get("display_time") or "--:--")[:5]
-    flight_s = (hero.get("flight") or hero.get("flight_display") or "-")[:9]
-    route_s = _route_chunk(hero, max(8, WIDTH // 8))
-    status_s = (hero.get("status") or hero.get("status_display") or "-")[:12]
-    detail_s = build_detail_text(hero)[:28]
-    if is_cancelled(hero) and _blink_fast():
-        graphics.set_pen(RED)
-        graphics.rectangle(0, 12, WIDTH, 42)
-    graphics.set_pen(WHITE)
-    graphics.text(f"{time_s} {flight_s}", 2, 14, WIDTH, 2)
-    graphics.set_pen(GREEN)
-    graphics.text(route_s, 2, 32, WIDTH, 1)
-    graphics.set_pen(status_color(hero))
-    graphics.text(status_s, 2, 44, WIDTH, 1)
-    if detail_s:
-        graphics.set_pen(DIM)
-        graphics.text(detail_s, 70, 44, WIDTH - 70, 1)
-    y = 54
-    for row in page_rows[1:3]:
-        graphics.set_pen(DIM)
-        graphics.text(build_row_text(row)[:34], 2, y, WIDTH, 1)
-        y += 9
-
-
 def draw_modern_fids(flap_rows, page_data, view):
     draw_header(view)
     data_start = _header_height()
     rows = _visible_rows()
     row_h = max(14, (HEIGHT - data_start) // rows)
+    compact = WIDTH < 190
     for i in range(rows):
         y = data_start + i * row_h
         if y + 7 > HEIGHT:
@@ -1112,20 +1128,29 @@ def draw_modern_fids(flap_rows, page_data, view):
         graphics.text(text[0:5], 8, y, 44, 1)
         graphics.set_pen(WHITE)
         graphics.text(text[6:14], 52, y, 64, 1)
-        route_chars = max(8, (WIDTH - 118) // 8)
-        if WIDTH >= 190:
-            graphics.text(_route_chunk(row, route_chars), 116, y, max(40, WIDTH - 196), 1)
-        if row_h >= 17:
-            graphics.set_pen(status_color(row))
-            status = _status_chunk(row, max(8, WIDTH // 8 - 2))
-            if RENDERER in ("vatsim_pilot", "vatsim_atc"):
-                ac = _upper_text(row.get("aircraft_type") or row.get("aircraft") or "")
-                cs = _upper_text(row.get("callsign") or "")
-                status = " ".join(part for part in (status, ac or cs) if part)
-            graphics.text(status[:max(8, WIDTH // 8)], 8, y + 8, WIDTH - 8, 1)
+        if compact:
+            route_y = y + 8
+            status_y = y + 16
+            graphics.set_pen(WHITE)
+            graphics.text(_route_chunk(row, max(8, WIDTH // 8)), 0, route_y, WIDTH, 1)
+            if row_h >= 25 and status_y + 7 <= y + row_h:
+                graphics.set_pen(status_color(row))
+                status = _status_chunk(row, max(8, WIDTH // 8))
+                graphics.text(status, 0, status_y, WIDTH, 1)
         else:
-            graphics.set_pen(status_color(row))
-            graphics.text(text[28:38], max(116, WIDTH - 76), y, 76, 1)
+            route_chars = max(8, (WIDTH - 118) // 8)
+            graphics.text(_route_chunk(row, route_chars), 116, y, max(40, WIDTH - 196), 1)
+            if row_h >= 17:
+                graphics.set_pen(status_color(row))
+                status = _status_chunk(row, max(8, WIDTH // 8 - 2))
+                if RENDERER in ("vatsim_pilot", "vatsim_atc"):
+                    ac = _upper_text(row.get("aircraft_type") or row.get("aircraft") or "")
+                    cs = _upper_text(row.get("callsign") or "")
+                    status = " ".join(part for part in (status, ac or cs) if part)
+                graphics.text(status[:max(8, WIDTH // 8)], 8, y + 8, WIDTH - 8, 1)
+            else:
+                graphics.set_pen(status_color(row))
+                graphics.text(text[28:38], max(116, WIDTH - 76), y, 76, 1)
         if i < MAX_ROWS - 1:
             graphics.set_pen(DIMBG)
             graphics.line(0, y + row_h - 1, WIDTH, y + row_h - 1)
@@ -1140,30 +1165,6 @@ def draw_vatsim_atc(flap_rows, fallback_rows, fallback_view):
     if isinstance(_matrix_pages, dict) and isinstance(_matrix_pages.get(page), list):
         rows = _matrix_pages.get(page) or []
     draw_modern_fids(None, rows, page)
-
-
-def draw_radar_strip(page_rows):
-    graphics.set_pen(BLACK)
-    graphics.clear()
-    graphics.set_pen(GREEN)
-    graphics.text(f"{_airport_iata} RADAR {DEFAULT_VIEW[:3].upper()}", 0, 0, WIDTH, 1)
-    cx = WIDTH // 2
-    cy = HEIGHT // 2 + 4
-    radius = min(WIDTH, HEIGHT) // 2 - 6
-    graphics.set_pen(DIM)
-    for r in (radius, radius * 2 // 3, radius // 3):
-        graphics.circle(cx, cy, r)
-    graphics.line(cx - radius, cy, cx + radius, cy)
-    graphics.line(cx, cy - radius, cx, cy + radius)
-    graphics.set_pen(GREEN)
-    graphics.circle(cx, cy, 2)
-    y = HEIGHT - 10
-    label = "NO TRAFFIC"
-    if page_rows:
-        first = page_rows[0]
-        label = (first.get("flight") or first.get("flight_display") or first.get("callsign") or "TRAFFIC")[:14]
-    graphics.set_pen(WHITE)
-    graphics.text(label, 2, y, WIDTH, 1)
 
 
 def draw_classic_board(flap_rows, page_data, view):
@@ -1280,6 +1281,7 @@ def main():
 
             if ensure_wifi():
                 data = fetch_fids(view=view, limit=min(_visible_rows() * 4, 32))
+                view = DEFAULT_VIEW
                 if data:
                     flight_data = data
                     pages = _chunk_pages(flight_data)

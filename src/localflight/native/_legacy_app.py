@@ -14,6 +14,7 @@ import re
 import sys
 import time
 import traceback as traceback_module
+import unicodedata
 import webbrowser
 from concurrent.futures import Future
 from datetime import datetime, timezone
@@ -2753,6 +2754,9 @@ class MatrixCanvas:  # pragma: no cover - optional Qt runtime
                 self.pages: dict[str, Any] | None = None
                 self.weather_page: dict[str, Any] | None = None
                 self.message = ""
+                self.clock_utc_epoch: int | None = None
+                self.clock_sync_monotonic = time.monotonic()
+                self.clock_offset_minutes = 0
                 self.colors = colors_for()
                 self.timer = QtCore.QTimer(self)
                 self.timer.timeout.connect(self._tick)
@@ -2785,6 +2789,13 @@ class MatrixCanvas:  # pragma: no cover - optional Qt runtime
                 self.pages = payload.get("pages") if isinstance(payload.get("pages"), dict) else None
                 self.weather_page = payload.get("weather_page") if isinstance(payload.get("weather_page"), dict) else None
                 self.message = str(payload.get("message") or "").upper()
+                try:
+                    if payload.get("clock_utc_epoch") is not None:
+                        self.clock_utc_epoch = int(payload.get("clock_utc_epoch"))
+                        self.clock_sync_monotonic = time.monotonic()
+                        self.clock_offset_minutes = int(payload.get("clock_local_offset_minutes") or 0)
+                except Exception:
+                    pass
                 self.update()
 
             def set_options(
@@ -2904,7 +2915,7 @@ class MatrixCanvas:  # pragma: no cover - optional Qt runtime
 
             def _visible_rows(self) -> int:
                 if self.panel_w < 180:
-                    return max(1, min(self.max_rows, (self.panel_h - 11) // 27))
+                    return max(1, min(self.max_rows, (self.panel_h - self._header_height()) // 27))
                 return self.max_rows
 
             def _flight_cycle_display(self, row: dict[str, Any]) -> str:
@@ -2917,10 +2928,10 @@ class MatrixCanvas:  # pragma: no cover - optional Qt runtime
                 return choices[slot % len(choices)]
 
             def fit(self, value: Any, length: int) -> str:
-                return (format_value(value) or "").upper().ljust(length)[:length]
+                return self._ascii(value).upper().ljust(length)[:length]
 
             def marquee(self, value: Any, width: int) -> str:
-                text = (format_value(value) or "").upper()
+                text = self._ascii(value).upper()
                 if len(text) <= width:
                     return text.ljust(width)
                 canvas = text + "   "
@@ -2928,8 +2939,8 @@ class MatrixCanvas:  # pragma: no cover - optional Qt runtime
                 return (canvas + canvas)[start:start + width]
 
             def code_preserve(self, value: Any, code: Any, width: int) -> str:
-                text = (format_value(value) or "").upper()
-                code_text = (format_value(code) or "").upper()
+                text = self._ascii(value).upper()
+                code_text = self._ascii(code).upper()
                 if not code_text or code_text in text[:width] or len(text) <= width:
                     return text.ljust(width)[:width]
                 if len(code_text) >= width:
@@ -2937,8 +2948,8 @@ class MatrixCanvas:  # pragma: no cover - optional Qt runtime
                 return f"{text[: max(0, width - len(code_text) - 1)].strip()} {code_text}".strip().ljust(width)[:width]
 
             def cycle_chunks(self, value: Any, width: int, code: Any = "") -> str:
-                text = (format_value(value) or "").replace("(", " ").replace(")", " ").upper().strip()
-                code_text = (format_value(code) or "").upper().strip()
+                text = self._ascii(value).replace("(", " ").replace(")", " ").upper().strip()
+                code_text = self._ascii(code).upper().strip()
                 if not text:
                     return (code_text or "-").ljust(width)[:width]
                 if len(text) <= width:
@@ -2962,14 +2973,39 @@ class MatrixCanvas:  # pragma: no cover - optional Qt runtime
                 return self.code_preserve(chunks[slot], code_text if slot == len(chunks) - 1 else "", width)
 
             def _route_fields(self, row: dict[str, Any]) -> tuple[str, str]:
-                label = format_value(row.get("route_matrix_label")) or format_value(row.get("route_display")) or format_value(row.get("route")) or "-"
-                code = format_value(row.get("route_code")) or ""
+                label = self._ascii(row.get("route_matrix_label") or row.get("route_display") or row.get("route") or "-")
+                code = self._ascii(row.get("route_code") or "")
                 if not code:
                     match = re.search(r"\(([A-Z0-9]{3,4})\)\s*$", label.upper())
                     if match:
                         code = match.group(1)
                         label = re.sub(r"\s*\([A-Za-z0-9]{3,4}\)\s*$", "", label).strip() + f" {code}"
                 return label.upper(), code.upper()
+
+            def _ascii(self, value: Any) -> str:
+                text = format_value(value) or ""
+                replacements = {
+                    "\u00c4": "AE", "\u00d6": "OE", "\u00dc": "UE", "\u00e4": "AE", "\u00f6": "OE", "\u00fc": "UE",
+                    "\u00df": "SS", "\u00c6": "AE", "\u00e6": "AE", "\u0152": "OE", "\u0153": "OE", "\u00d8": "O", "\u00f8": "O",
+                }
+                text = "".join(replacements.get(ch, ch) for ch in text)
+                return unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode("ascii")
+
+            def _clock_text(self, compact: bool = False) -> str:
+                if self.clock_utc_epoch is None:
+                    now_utc = datetime.now(timezone.utc)
+                else:
+                    elapsed = max(0, time.monotonic() - self.clock_sync_monotonic)
+                    now_utc = datetime.fromtimestamp(self.clock_utc_epoch + elapsed, timezone.utc)
+                local = datetime.fromtimestamp(now_utc.timestamp() + self.clock_offset_minutes * 60, timezone.utc)
+                if compact:
+                    return f"U{now_utc:%H:%M} L{local:%H:%M}"
+                return f"UTC{now_utc:%H:%M} LT{local:%H:%M}"
+
+            def _header_height(self) -> int:
+                if self.panel_w < 200:
+                    return 20
+                return 20 if self.panel_h >= 96 and self.show_weather and self.metar else 11
 
             def _route_chunk(self, row: dict[str, Any], chars: int) -> str:
                 label_text, code_text = self._route_fields(row)
@@ -3081,6 +3117,8 @@ class MatrixCanvas:  # pragma: no cover - optional Qt runtime
                 dim_color = QtGui.QColor(self.colors["dim"])
                 dim_color.setAlpha(max(80, int(180 * self.brightness)))
                 if self.message:
+                    painter.setPen(dim_color)
+                    painter.drawText(int(left + 10), int(top + 14 * scale), self._clock_text(self.panel_w < 200))
                     painter.setPen(QtGui.QColor(self.colors["amber"]))
                     painter.drawText(int(left + 10), int(top + board_h * 0.48), self.message[:32])
                     painter.setPen(dim_color)
@@ -3092,17 +3130,27 @@ class MatrixCanvas:  # pragma: no cover - optional Qt runtime
                     painter.setPen(QtGui.QColor(self.colors["green"]))
                     painter.drawText(int(left + 10), int(top + 14 * scale), title[:chars])
                     painter.setPen(dim_color)
-                    y = top + 28 * scale
-                    for line in self._weather_page_lines(chars)[: max(1, int((self.panel_h - 16) / 9))]:
+                    if self.panel_w < 200:
+                        painter.drawText(int(left + 10), int(top + 24 * scale), self._clock_text(True)[:chars])
+                    else:
+                        painter.drawText(int(left + max(10, board_w - 104 * scale)), int(top + 14 * scale), self._clock_text(False))
+                    y = top + (self._header_height() + 8) * scale
+                    for line in self._weather_page_lines(chars)[: max(1, int((self.panel_h - self._header_height()) / 9))]:
                         painter.drawText(int(left + 10), int(y), line)
                         y += 9 * scale
                     return
-                header_h = max(10.0 * scale, 18.0)
+                header_h = max(float(self._header_height()) * scale, 18.0)
                 rows_to_draw = self._visible_rows()
                 row_h = (board_h - header_h) / max(1, rows_to_draw)
                 painter.setPen(dim_color)
                 header = f"{self.preset.replace('_', ' ').upper()}  {self.panel_w}x{self.panel_h}  {self.animation_mode.replace('_', ' ').upper()}"
                 painter.drawText(int(left + 10), int(top + header_h * 0.72), header[:52])
+                clock = self._clock_text(self.panel_w < 200)
+                painter.setPen(dim_color)
+                if self.panel_w < 200:
+                    painter.drawText(int(left + 10), int(top + min(header_h - 3, 20 * scale)), clock)
+                else:
+                    painter.drawText(int(left + max(10, board_w - 104 * scale)), int(top + header_h * 0.72), clock)
                 painter.setPen(text_color)
                 paint_rows = self.rows
                 if self.preset == "vatsim_atc":
@@ -3291,8 +3339,7 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
         self.brightness.setRange(5, 100)
         self.brightness.setValue(80)
         self.brightness_value = label(self.QtWidgets, "80%", "Muted")
-        self.view = self.QtWidgets.QComboBox()
-        self.view.addItems(["departures", "arrivals"])
+        self.feed_view = "departures"
         self.refresh_seconds = self.QtWidgets.QSpinBox()
         self.refresh_seconds.setRange(10, 3600)
         self.refresh_seconds.setSuffix("s")
@@ -3312,14 +3359,6 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
             "night_ops",
             "sunset_terminal",
             "ice_white",
-            "standard",
-            "technical",
-            "cyan",
-            "crt",
-            "neon",
-            "amber",
-            "green",
-            "white",
         ])
         self.animation_mode = self.QtWidgets.QComboBox()
         self.animation_mode.addItem("Split-flap animation", "split_flap")
@@ -3342,7 +3381,6 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
         form_layout.addRow("Panel size", self._panel_size_row())
         form_layout.addRow("Preview pixel size", self._slider_row(self.zoom, self.zoom_value))
         form_layout.addRow("Brightness", self._slider_row(self.brightness, self.brightness_value))
-        form_layout.addRow("Default view", self.view)
         form_layout.addRow("Max rows", self.max_rows)
         form_layout.addRow("Refresh", self.refresh_seconds)
         form_layout.addRow("Page rotation", self.rotation_seconds)
@@ -3455,7 +3493,6 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
             widget.currentIndexChanged.connect(self._sync_canvas_options) if hasattr(widget, "currentIndexChanged") else widget.valueChanged.connect(self._sync_canvas_options)
         self.status_animation.toggled.connect(self._sync_canvas_options)
         self.weather_toggle.toggled.connect(self._sync_canvas_options)
-        self.view.currentTextChanged.connect(lambda _text: self.refresh_feed_only())
 
     def apply_theme(self, theme: str, skin: str) -> None:
         if hasattr(self.canvas, "apply_theme"):
@@ -3488,11 +3525,11 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
     def _refresh_v1(self) -> None:
         try:
             cfg = self.client.get_json("/api/matrix/config")
-            payload = self.client.get_any_json("/api/fids", params={"view": self.view.currentText(), "limit": 32})
+            self._populate_config(cfg)
+            payload = self.client.get_any_json("/api/fids", params={"view": self.feed_view, "limit": 32})
         except NativeApiError as exc:
             self.status.setText(f"Matrix preview offline: {exc}")
             return
-        self._populate_config(cfg)
         rows = list_payload(payload)[: max(1, int(self.max_rows.value()))]
         self.canvas.set_rows(rows)
         self._sync_canvas_options()
@@ -3504,10 +3541,10 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
         device_id = self._selected_device_id()
         try:
             if device_id:
-                payload = self.client.get_json(f"/api/matrix/v2/devices/{device_id}/feed", params={"view": self.view.currentText()})
+                payload = self.client.get_json(f"/api/matrix/v2/devices/{device_id}/feed")
                 rows = list_payload(payload, "rows")
             else:
-                payload = self.client.get_json("/api/matrix/v2/devices/preview/feed", params={"view": self.view.currentText()})
+                payload = self.client.get_json("/api/matrix/v2/devices/preview/feed")
                 rows = list_payload(payload, "rows")
         except NativeApiError:
             payload = {}
@@ -3573,14 +3610,15 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
         self.board_status.setText(f"Selected board: {device.get('label')} | last seen {device.get('last_seen') or 'never'}")
 
     def _populate_config(self, cfg: dict[str, Any]) -> None:
-        for widget in (self.brightness, self.max_rows, self.refresh_seconds, self.rotation_seconds, self.view, self.animation_mode, self.animation_speed, self.palette, self.preset_select, self.status_animation, self.weather_toggle, self.panel_preset, self.panel_w, self.panel_h):
+        for widget in (self.brightness, self.max_rows, self.refresh_seconds, self.rotation_seconds, self.animation_mode, self.animation_speed, self.palette, self.preset_select, self.status_animation, self.weather_toggle, self.panel_preset, self.panel_w, self.panel_h):
             widget.blockSignals(True)
         self.config_name.setText(str(cfg.get("name") or "Matrix Config"))
         self.brightness.setValue(int(float(cfg.get("brightness", 0.8)) * 100))
         self.max_rows.setValue(int(cfg.get("max_rows") or 4))
         self.refresh_seconds.setValue(int(cfg.get("refresh_seconds") or 60))
         self.rotation_seconds.setValue(int(cfg.get("page_rotation_seconds") or 10))
-        self.view.setCurrentText(str(cfg.get("default_view") or "departures"))
+        feed_view = str(cfg.get("default_view") or "departures")
+        self.feed_view = feed_view if feed_view in {"departures", "arrivals"} else "departures"
         animation_mode = str(cfg.get("animation_mode") or ("split_flap" if bool(cfg.get("animation_enabled", True)) else "static"))
         mode_idx = self.animation_mode.findData(animation_mode)
         self.animation_mode.setCurrentIndex(mode_idx if mode_idx >= 0 else 0)
@@ -3591,12 +3629,14 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
         preset_idx = self.preset_select.findData(str(cfg.get("preset") or "real_fids"))
         if preset_idx >= 0:
             self.preset_select.setCurrentIndex(preset_idx)
-        palette_idx = self.palette.findText(str(cfg.get("palette") or "standard"))
+        palette_idx = self.palette.findText(str(cfg.get("palette") or "pax_blue"))
+        if palette_idx < 0:
+            palette_idx = self.palette.findText("pax_blue")
         if palette_idx >= 0:
             self.palette.setCurrentIndex(palette_idx)
         panel = (int(cfg.get("panel_w") or 256), int(cfg.get("panel_h") or 64))
         self._set_panel_size(*panel, sync=False)
-        for widget in (self.brightness, self.max_rows, self.refresh_seconds, self.rotation_seconds, self.view, self.animation_mode, self.animation_speed, self.palette, self.preset_select, self.status_animation, self.weather_toggle, self.panel_preset, self.panel_w, self.panel_h):
+        for widget in (self.brightness, self.max_rows, self.refresh_seconds, self.rotation_seconds, self.animation_mode, self.animation_speed, self.palette, self.preset_select, self.status_animation, self.weather_toggle, self.panel_preset, self.panel_w, self.panel_h):
             widget.blockSignals(False)
         self._sync_value_labels()
         self._sync_canvas_options()
@@ -3659,7 +3699,6 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
             "brightness": self.brightness.value() / 100.0,
             "max_rows": int(self.max_rows.value()),
             "refresh_seconds": int(self.refresh_seconds.value()),
-            "default_view": self.view.currentText(),
             "page_rotation_seconds": int(self.rotation_seconds.value()),
             "animation_enabled": self.animation_mode.currentData() != "static",
             "animation_mode": str(self.animation_mode.currentData() or "split_flap"),
@@ -3724,7 +3763,6 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
                     "brightness": payload["brightness"],
                     "max_rows": payload["max_rows"],
                     "refresh_seconds": payload["refresh_seconds"],
-                    "default_view": payload["default_view"],
                     "page_rotation_seconds": payload["page_rotation_seconds"],
                     "animation_enabled": payload["animation_enabled"],
                 })
@@ -3799,7 +3837,6 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
             "max_rows": int(self.max_rows.value()),
             "refresh_seconds": int(self.refresh_seconds.value()),
             "brightness": self.brightness.value() / 100.0,
-            "default_view": self.view.currentText(),
             "page_rotation_seconds": int(self.rotation_seconds.value()),
             "animation_enabled": self.animation_mode.currentData() != "static",
         }

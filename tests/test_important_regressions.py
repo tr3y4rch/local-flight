@@ -1569,7 +1569,8 @@ def test_matrix_v2_migrates_flat_config_and_registers_device(tmp_path: Path, mon
     preset_ids = {item["id"] for item in presets}
     assert preset_ids == {"real_fids", "vatsim_pilot", "vatsim_atc"}
     palette_ids = {item["id"] for item in preset_payload["palettes"]}
-    assert {"pax_blue", "solari_amber", "tower_scope", "vatsim_scope", "night_ops", "ice_white"} <= palette_ids
+    assert palette_ids == {"pax_blue", "solari_amber", "tower_scope", "vatsim_scope", "night_ops", "sunset_terminal", "ice_white"}
+    assert not ({"standard", "technical", "cyan", "crt", "neon", "amber", "green", "white"} & palette_ids)
 
     response = client.post(
         "/api/matrix/v2/devices/checkin",
@@ -1594,7 +1595,7 @@ def test_matrix_v2_migrates_flat_config_and_registers_device(tmp_path: Path, mon
     assert resolved["device_id"] == "i75w-test"
 
 
-def test_matrix_v2_legacy_presets_normalize_to_three_public_profiles(tmp_path: Path, monkeypatch) -> None:
+def test_matrix_v2_legacy_presets_are_removed_from_public_profiles(tmp_path: Path, monkeypatch) -> None:
     matrix_config = tmp_path / "matrix_config.json"
     matrix_config.write_text(
         json.dumps(
@@ -1617,7 +1618,7 @@ def test_matrix_v2_legacy_presets_normalize_to_three_public_profiles(tmp_path: P
     payload = TestClient(ui_api.app).get("/api/matrix/v2/configs").json()
 
     presets = {cfg["id"]: cfg["preset"] for cfg in payload["configs"]}
-    assert presets == {"old": "real_fids", "ops": "vatsim_pilot", "radar": "real_fids"}
+    assert presets == {"old": "real_fids", "ops": "real_fids", "radar": "real_fids"}
 
 
 def test_matrix_v2_feed_adds_route_safe_fields_and_metar(tmp_path: Path, monkeypatch) -> None:
@@ -1675,6 +1676,43 @@ def test_matrix_v2_feed_adds_route_safe_fields_and_metar(tmp_path: Path, monkeyp
     assert row["callsign"] == "AAL100"
     assert payload["metar"]["weather_icon"] == "sun"
     assert payload["metar"]["temperature_display"] == "29 C"
+
+
+def test_matrix_v2_feed_falls_back_to_lane_with_rows(tmp_path: Path, monkeypatch) -> None:
+    matrix_config = tmp_path / "matrix_config.json"
+    monkeypatch.setattr(ui_api, "_matrix_config_path", lambda: matrix_config)
+    monkeypatch.setattr(
+        ui_api,
+        "load_config",
+        lambda: AppConfig(airport_iata="SIN", airport_icao="WSSS", timezone="Asia/Singapore"),
+    )
+
+    def fake_fids(view: str, limit: int) -> list[dict[str, str]]:
+        if view == "departures":
+            return []
+        return [
+            {
+                "id": "arrival-1",
+                "display_time": "13:20",
+                "flight_display": "SQ 12",
+                "route_display": "Tokyo Haneda (RJTT)",
+                "status_display": "ARRIVING",
+                "status_class": "active",
+                "gate": "-",
+            }
+        ]
+
+    monkeypatch.setattr(ui_api, "api_fids", fake_fids)
+    monkeypatch.setattr(ui_api, "api_metar", lambda: {})
+
+    response = TestClient(ui_api.app).get("/api/matrix/v2/devices/preview/feed?view=departures")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["requested_view"] == "departures"
+    assert payload["view"] == "arrivals"
+    assert payload["fallback_view"] is True
+    assert payload["rows"][0]["flight_display"] == "SQ 12"
 
 
 def test_matrix_vatsim_preset_requires_virtual_source_without_real_fallback(tmp_path: Path, monkeypatch) -> None:
@@ -1814,6 +1852,14 @@ def test_matrix_route_fields_preserve_icao_only_codes() -> None:
     }
 
 
+def test_matrix_route_fields_fold_accents_for_led_clients() -> None:
+    fields = ui_api._matrix_route_fields("D\u00fcsseldorf (EDDL)")
+
+    assert fields["route_city"] == "Duesseldorf"
+    assert fields["route_code"] == "EDDL"
+    assert fields["route_matrix_label"] == "DUESSELDORF EDDL"
+
+
 def test_matrix_script_endpoint_renders_from_canonical_template(tmp_path: Path, monkeypatch) -> None:
     template = tmp_path / "client.py"
     template.write_text(
@@ -1899,8 +1945,11 @@ def test_matrix_script_endpoint_uses_current_i75w_client_template() -> None:
     assert "import interstate75 as interstate75_module" in script
     assert "def update_display():" in script
     assert "def fit_text(value, length):" in script
+    assert "def _ascii_text(value):" in script
     assert "def _text_field(value, fallback=\"\"):" in script
     assert "def _clock_hhmm(offset_minutes=0):" in script
+    assert "def _clock_label(compact=False):" in script
+    assert '"U{} L{}"' in script
     assert "clock_utc_epoch" in script
     assert "ACTIVE_BREATH" in script
     assert "AMBER_BREATH" in script
@@ -1923,6 +1972,8 @@ def test_matrix_script_endpoint_uses_current_i75w_client_template() -> None:
     assert "DISPLAY, DISPLAY_PANELS = _display_for_size(PANEL_W, PANEL_H)" in script
     assert "Unsupported Interstate 75 display size" in script
     assert "compact = WIDTH < 180" in script
+    assert "compact = WIDTH < 190" in script
+    assert "if WIDTH < 200:" in script
     assert "draw_row(flap_rows[i], row_data, y, row_h)" in script
     assert "text[39:43]" in script
     assert "CODE_SHARE_ROTATION_S = 4" in script
@@ -1932,7 +1983,7 @@ def test_matrix_script_endpoint_uses_current_i75w_client_template() -> None:
     assert "timeout=timeout" not in script
     assert "/api/matrix/v2/devices/checkin" in script
     assert "/api/matrix/v2/devices/{device_id()}/config" in script
-    assert "/api/matrix/v2/devices/{device_id()}/feed?view={view}" in script
+    assert "/api/matrix/v2/devices/{device_id()}/feed" in script
     assert 'HARDWARE_BRAND = "Pimoroni"' in script
     assert 'HARDWARE_MODEL = "Interstate 75 W"' in script
     assert 'HARDWARE_NAME  = "Pimoroni Interstate 75 W"' in script
@@ -1945,7 +1996,10 @@ def test_matrix_script_endpoint_uses_current_i75w_client_template() -> None:
     assert '"tower_scope"' in script
     assert '"vatsim_scope"' in script
     assert '"night_ops"' in script
+    assert '"sunset_terminal"' in script
     assert '"ice_white"' in script
+    for legacy in ('"standard"', '"technical"', '"cyan"', '"crt"', '"neon"', '"green"', '"white"', '"classic_split_flap"', '"vatsim_ops"', '"radar_strip"'):
+        assert legacy not in script
 
 
 def test_matrix_payloads_use_city_label_and_decoded_weather_display() -> None:
@@ -1987,6 +2041,15 @@ def test_matrix_preview_download_payload_uses_defined_animation_state() -> None:
     assert "palette: MATRIX_PALETTE" in template
     assert "condition_display" in template
     assert 'WX ${' not in template
+    assert "function asciiText" in template
+    assert "function clockLabel" in template
+    assert "PANEL_W < 200" in template
+    assert 'id="btnDep"' not in template
+    assert 'id="btnArr"' not in template
+    assert "setView" not in template
+    assert "default_view: VIEW" not in template
+    for legacy in ('value="standard"', 'value="technical"', 'value="cyan"', 'value="crt"', 'value="neon"', 'value="green"', 'value="white"'):
+        assert legacy not in template
 
 
 def test_matrix_preview_panel_geometry_stays_in_sync() -> None:
@@ -2056,6 +2119,10 @@ def test_native_matrix_panel_geometry_matches_web_controls() -> None:
     assert '"pax_blue"' in source
     assert '"tower_scope"' in source
     assert '"night_ops"' in source
+    assert '"sunset_terminal"' in source
+    assert '"ice_white"' in source
+    for legacy in ('            "standard",', '            "technical",', '            "cyan",', '            "crt",', '            "neon",', '            "green",', '            "white",'):
+        assert legacy not in source
 
 
 def test_matrix_script_endpoint_rejects_loopback_host(tmp_path: Path, monkeypatch) -> None:

@@ -446,11 +446,6 @@
       <span class="dim">%</span>
     </div>
 
-    <button class="toggle-btn {% if view=='departures' %}active{% endif %}"
-      id="btnDep" onclick="setView('departures')">DEP</button>
-    <button class="toggle-btn {% if view=='arrivals' %}active{% endif %}"
-      id="btnArr" onclick="setView('arrivals')">ARR</button>
-
     <div class="ctrl-group">
       <label>Refresh</label>
       <select id="refreshSelect" onchange="setRefresh(this.value)">
@@ -483,7 +478,9 @@
         <option value="pax_blue">PAX Blue</option>
         <option value="solari_amber">Solari Amber</option>
         <option value="tower_scope">Tower Scope</option>
+        <option value="vatsim_scope">VATSIM Scope</option>
         <option value="night_ops">Night Ops</option>
+        <option value="sunset_terminal">Sunset Terminal</option>
         <option value="ice_white">Ice White</option>
       </select>
       <span class="palette-strip" id="paletteStrip"></span>
@@ -556,7 +553,7 @@
       <div class="guide-grid">
         <div class="guide-pill">
           <strong>Toggle without reflashing</strong>
-          Board mode, style, brightness, rows, refresh, DEP/ARR, rotation, weather, status motion, and animation mode/speed.
+          Board mode, style, brightness, rows, refresh, rotation, weather, status motion, and animation mode/speed.
         </div>
         <div class="guide-pill">
           <strong>Reflash when these change</strong>
@@ -663,7 +660,6 @@
   // ── Skin-aware LED palettes ────────────────────────────────────────────────
   // Each entry maps to the MicroPython palette: off, primary, text, dim, warning, danger, accent.
   const SKIN_PALETTES = {
-    standard:        { off:"#050911", green:"#2f8cff", white:"#f2f7ff", dim:"#315982", amber:"#ffb02e", red:"#ff4a4a", cyan:"#43e0ff" },
     pax_blue:        { off:"#040a12", green:"#1d8cff", white:"#f6fbff", dim:"#2c5f92", amber:"#ffbd45", red:"#ff4d5f", cyan:"#65e7ff" },
     solari_amber:    { off:"#0b0600", green:"#ffad2f", white:"#ffe6a8", dim:"#8c5a12", amber:"#ffe15c", red:"#ff5538", cyan:"#ffd06c" },
     tower_scope:     { off:"#001006", green:"#38ff75", white:"#d9ffe6", dim:"#1b7a3c", amber:"#ffd84a", red:"#ff4c4c", cyan:"#4deaff" },
@@ -671,19 +667,12 @@
     night_ops:       { off:"#020812", green:"#4bb8ff", white:"#d8f7ff", dim:"#27506e", amber:"#f4c95d", red:"#ff5d7a", cyan:"#49f0c8" },
     sunset_terminal: { off:"#12040b", green:"#ff7a3d", white:"#fff2e6", dim:"#8e3f55", amber:"#ffd166", red:"#ff3864", cyan:"#ff4fd8" },
     ice_white:       { off:"#060a0f", green:"#bde9ff", white:"#ffffff", dim:"#6a8195", amber:"#ffd35a", red:"#ff5252", cyan:"#66d9ff" },
-    technical:       { off:"#040608", green:"#7bb7ff", white:"#dbe7f5", dim:"#355470", amber:"#e7b950", red:"#d96a6a", cyan:"#85d8ff" },
-    cyan:            { off:"#00080f", green:"#00d7ff", white:"#c8fff2", dim:"#08758f", amber:"#ffd447", red:"#ff4f7b", cyan:"#52ffe0" },
-    crt:             { off:"#080500", green:"#ffb13b", white:"#ffd779", dim:"#835819", amber:"#ffe66d", red:"#ff573d", cyan:"#ffcf5c" },
-    neon:            { off:"#001008", green:"#00ff7a", white:"#d7ffe9", dim:"#008a48", amber:"#d8ff4a", red:"#ff3d66", cyan:"#00e5ff" },
-    amber:           { off:"#0b0600", green:"#ffae2e", white:"#ffe2a1", dim:"#7d5414", amber:"#ffdf55", red:"#ff5738", cyan:"#ffc56b" },
-    green:           { off:"#001006", green:"#28f76e", white:"#ddffe8", dim:"#177338", amber:"#ffc94a", red:"#ff4d4d", cyan:"#55e7ff" },
-    white:           { off:"#06090d", green:"#d8f1ff", white:"#ffffff", dim:"#778899", amber:"#ffd35a", red:"#ff5757", cyan:"#8fdcff" },
   };
-  let C = { ...( SKIN_PALETTES[MATRIX_PALETTE] || SKIN_PALETTES.standard ) };
+  let C = { ...( SKIN_PALETTES[MATRIX_PALETTE] || SKIN_PALETTES.pax_blue ) };
 
   function setPreviewPalette(name) {
     MATRIX_PALETTE = SKIN_PALETTES[name] ? name : "pax_blue";
-    C = { ...( SKIN_PALETTES[MATRIX_PALETTE] || SKIN_PALETTES.standard ) };
+    C = { ...( SKIN_PALETTES[MATRIX_PALETTE] || SKIN_PALETTES.pax_blue ) };
     const strip = document.getElementById("paletteStrip");
     if (strip) {
       strip.innerHTML = [C.green, C.white, C.cyan, C.amber, C.red]
@@ -936,12 +925,20 @@
     return (rows || []).some(row => codeshareFlightNumbers(row).length > 0);
   }
 
+  function asciiText(value) {
+    return String(value || "")
+      .replace(/[\u00C4\u00E4]/g, "AE").replace(/[\u00D6\u00F6]/g, "OE").replace(/[\u00DC\u00FC]/g, "UE")
+      .replace(/\u00DF/g, "SS")
+      .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^\x20-\x7E]/g, " ");
+  }
+
   function fit(value, length) {
-    return String(value || "").toUpperCase().padEnd(length, " ").slice(0, length);
+    return asciiText(value).toUpperCase().padEnd(length, " ").slice(0, length);
   }
 
   function marquee(value, width, step = Math.floor(Date.now() / 330)) {
-    const text = String(value || "").trim().toUpperCase();
+    const text = asciiText(value).trim().toUpperCase();
     if (text.length <= width) return text.padEnd(width, " ");
     const canvas = `${text}   `;
     const start = step % canvas.length;
@@ -949,16 +946,16 @@
   }
 
   function codePreserve(value, code, width) {
-    const text = String(value || "").trim().toUpperCase();
-    code = String(code || "").trim().toUpperCase();
+    const text = asciiText(value).trim().toUpperCase();
+    code = asciiText(code).trim().toUpperCase();
     if (!code || text.slice(0, width).includes(code) || text.length <= width) return text.padEnd(width, " ").slice(0, width);
     if (code.length >= width) return code.slice(0, width);
     return `${text.slice(0, Math.max(0, width - code.length - 1)).trim()} ${code}`.trim().padEnd(width, " ").slice(0, width);
   }
 
   function cycleChunks(value, width, code = "") {
-    const text = String(value || "").replace(/[()]/g, " ").trim().toUpperCase();
-    code = String(code || "").trim().toUpperCase();
+    const text = asciiText(value).replace(/[()]/g, " ").trim().toUpperCase();
+    code = asciiText(code).trim().toUpperCase();
     if (!text) return (code || "-").padEnd(width, " ").slice(0, width);
     if (text.length <= width) return codePreserve(text, code, width);
     const chunks = [];
@@ -976,9 +973,9 @@
   }
 
   function routeFields(row) {
-    const text = String(row.route_matrix_label || row.route_display || row.route || "-").trim();
-    let code = String(row.route_code || "").trim().toUpperCase();
-    let city = String(row.route_city || "").trim();
+    const text = asciiText(row.route_matrix_label || row.route_display || row.route || "-").trim();
+    let code = asciiText(row.route_code || "").trim().toUpperCase();
+    let city = asciiText(row.route_city || "").trim();
     const match = text.toUpperCase().match(/\(([A-Z0-9]{3,4})\)\s*$/);
     if (!code && match) code = match[1];
     if (!city && match) city = text.replace(/\s*\([A-Za-z0-9]{3,4}\)\s*$/, "").trim();
@@ -1116,6 +1113,7 @@
   }
 
   function headerHeight() {
+    if (PANEL_W < 200) return 20;
     return PANEL_H >= 96 && weatherLine(8) ? 20 : 11;
   }
 
@@ -1134,19 +1132,46 @@
 
   function drawSourceMessage() {
     const chars = Math.max(8, Math.floor(PANEL_W / 6));
+    drawString(clockLabel(PANEL_W < 200).slice(0, chars), 0, 0, C.dim, PANEL_W);
     drawString(cycleChunks(MATRIX_MESSAGE || "NO DATA", chars).trim(), 2, Math.max(0, Math.floor(PANEL_H / 2) - 8), C.amber, PANEL_W);
     if (PANEL_H >= 32) drawString("CHECK SETTINGS", 2, Math.floor(PANEL_H / 2) + 2, C.dim, PANEL_W);
+  }
+
+  function clockValues() {
+    const now = new Date();
+    const utcStr = now.toUTCString().slice(17,22);
+    const ltStr  = (() => {
+      try {
+        return now.toLocaleTimeString("en-GB", {
+          timeZone: CFG.timezone, hour:"2-digit", minute:"2-digit", hour12:false
+        });
+      } catch { return utcStr; }
+    })();
+    return { utcStr, ltStr };
+  }
+
+  function clockLabel(compact = false) {
+    const { utcStr, ltStr } = clockValues();
+    return compact ? `U${utcStr} L${ltStr}` : `UTC${utcStr} LT${ltStr}`;
   }
 
   function drawVatsimWeatherPage() {
     const chars = Math.max(8, Math.floor(PANEL_W / 6) - 1);
     const title = String(MATRIX_WEATHER_PAGE?.title || "VATSIM WX").toUpperCase();
-    drawString(`${CFG.airport_label || CFG.airport_iata} ${title}`.slice(0, chars), 0, 0, C.green, PANEL_W);
-    for (let x=0; x<PANEL_W; x++) drawPixel(x, 9, C.dim);
+    const titleText = `${asciiText(CFG.airport_label || CFG.airport_iata)} ${title}`.slice(0, chars);
+    drawString(titleText, 0, 0, C.green, PANEL_W);
+    if (PANEL_W < 200) {
+      drawString(clockLabel(true).slice(0, chars), 0, 10, C.dim, PANEL_W);
+    } else {
+      const clock = clockLabel();
+      const clockX = PANEL_W - clock.length * 6 - 1;
+      if (clockX > titleText.length * 6 + 4) drawString(clock, clockX, 0, C.dim, PANEL_W - clockX);
+    }
+    for (let x=0; x<PANEL_W; x++) drawPixel(x, headerHeight() - 2, C.dim);
     const glyph = weatherGlyphName();
-    drawGlyph(glyph, 0, 13, glyph === "sun" || glyph === "storm" ? C.amber : C.dim);
+    const y = headerHeight() + 1;
+    drawGlyph(glyph, 0, y + 1, glyph === "sun" || glyph === "storm" ? C.amber : C.dim);
     const lines = weatherPageLines(chars);
-    const y = 12;
     const lineH = 9;
     const maxLines = Math.max(1, Math.floor((PANEL_H - y) / lineH));
     const start = lines.length > maxLines ? Math.floor(Date.now() / 3000) % lines.length : 0;
@@ -1189,33 +1214,28 @@
       ? MATRIX_PAGES[atcPage]
       : flightData;
     const renderView = atcPage || VIEW;
-    const headerBase = CFG.airport_label || CFG.airport_iata;
+    const headerBase = asciiText(CFG.airport_label || CFG.airport_iata);
     const headerView = renderView==="arrivals"?"ARR":"DEP";
-    const headerLabel = `${headerBase.length > 10 && PANEL_W < 200 ? marquee(headerBase.toUpperCase(), Math.max(6, Math.floor(PANEL_W / 12))).trim() : headerBase} ${headerView}`.toUpperCase();
+    const headerLabel = `${PANEL_W < 200 ? marquee(headerBase, Math.max(6, Math.floor(PANEL_W / 6) - 4)).trim() : headerBase.length > 10 ? marquee(headerBase, Math.max(6, Math.floor(PANEL_W / 12))).trim() : headerBase} ${headerView}`.toUpperCase();
     drawString(headerLabel, 0, 0, C.green);
 
    // UTC + LT clocks top right
-    const now    = new Date();
-    const utcStr = now.toUTCString().slice(17,22);
-    const ltStr  = (() => {
-      try {
-        return now.toLocaleTimeString("en-GB", {
-          timeZone: CFG.timezone, hour:"2-digit", minute:"2-digit", hour12:false
-        });
-      } catch { return utcStr; }
-    })();
     const wx = weatherLine(Math.max(8, Math.floor(PANEL_W / 6) - 1));
     const showWeather = wx && (PANEL_H >= 96 || Math.floor(Date.now() / 8000) % 2 === 1);
-    const clockLine = showWeather && PANEL_W >= 200 ? wx : `UTC${utcStr} LT${ltStr}`;
-    const clockX    = PANEL_W - clockLine.length*6 - 1;
-    if (clockX > headerLabel.length*6 + 6) {
-      if (showWeather && PANEL_W >= 200) {
-        drawWeatherCompact(clockX, 0, PANEL_W - clockX);
-      } else {
-        drawString(clockLine, clockX, 0, C.dim);
+    if (PANEL_W < 200) {
+      drawString(clockLabel(true).slice(0, Math.max(8, Math.floor(PANEL_W / 6))), 0, 10, C.dim, PANEL_W);
+    } else {
+      const clockLine = showWeather ? wx : clockLabel();
+      const clockX    = PANEL_W - clockLine.length*6 - 1;
+      if (clockX > headerLabel.length*6 + 6) {
+        if (showWeather) {
+          drawWeatherCompact(clockX, 0, PANEL_W - clockX);
+        } else {
+          drawString(clockLine, clockX, 0, C.dim);
+        }
       }
     }
-    if (PANEL_H >= 96 && wx) {
+    if (PANEL_W >= 200 && PANEL_H >= 96 && wx) {
       drawWeatherCompact(0, 10, PANEL_W);
       for (let x=0; x<PANEL_W; x++) drawPixel(x, 19, C.dim);
     }
@@ -1364,11 +1384,12 @@
   async function fetchRows() {
     try {
       const fetchLimit = Math.min(visibleRows() * 4, 32);
-      let r = await fetch(`/api/matrix/v2/devices/preview/feed?view=${VIEW}`);
+      let r = await fetch(`/api/matrix/v2/devices/preview/feed`);
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       let payload = await r.json();
       let data = Array.isArray(payload) ? payload : (payload.rows || []);
       if (payload && !Array.isArray(payload)) {
+        VIEW = payload.view || VIEW;
         CFG.airport_iata = payload.airport_iata || CFG.airport_iata;
         CFG.airport_label = payload.airport_label || payload.airport_display_name || payload.airport_city || CFG.airport_label || CFG.airport_iata;
       }
@@ -1466,14 +1487,6 @@
     document.getElementById("rowsVal").textContent = v;
     updateCfgBlock();
     applyFlightData(allFlightData);
-    fetchRows();
-  };
-
-  window.setView = function(v) {
-    VIEW = v;
-    document.getElementById("btnDep").classList.toggle("active", v==="departures");
-    document.getElementById("btnArr").classList.toggle("active", v==="arrivals");
-    updateCfgBlock();
     fetchRows();
   };
 
@@ -1603,7 +1616,7 @@ MAX_ROWS      = ${MAX_ROWS}
 REFRESH_S     = ${REFRESH_S_SRV}
 PAGE_ROTATION_S = ${PAGE_ROTATION_S}
 BRIGHTNESS    = ${BRIGHTNESS.toFixed(2)}
-DEFAULT_VIEW  = "${VIEW}"
+FEED_VIEW     = "auto (${VIEW})"
 PRESET        = "${MATRIX_PRESET}"
 PALETTE       = "${MATRIX_PALETTE}"
 ANIMATION_MODE = "${ANIMATION_MODE}"
@@ -1629,7 +1642,6 @@ Board reads: /api/config -> /api/matrix/v2/devices/{id}/config -> /api/matrix/v2
       refresh_seconds: REFRESH_S_SRV,
       page_rotation_seconds: PAGE_ROTATION_S,
       brightness: BRIGHTNESS,
-      default_view: VIEW,
       animation_enabled: ANIMATION_MODE !== "static",
     };
   }
@@ -1639,7 +1651,7 @@ Board reads: /api/config -> /api/matrix/v2/devices/{id}/config -> /api/matrix/v2
       'CLIENT_VER       = "2.0"',
       "/api/matrix/v2/devices/checkin",
       "/api/matrix/v2/devices/{device_id()}/config",
-      "/api/matrix/v2/devices/{device_id()}/feed?view={view}",
+      "/api/matrix/v2/devices/{device_id()}/feed",
       "def fit_text(value, length):",
       "def _clock_hhmm(offset_minutes=0):",
       "ACTIVE_BREATH",
@@ -1826,8 +1838,6 @@ Board reads: /api/config -> /api/matrix/v2/devices/{id}/config -> /api/matrix/v2
     }
     if (d.default_view !== undefined) {
       VIEW = d.default_view;
-      document.getElementById("btnDep").classList.toggle("active", d.default_view === "departures");
-      document.getElementById("btnArr").classList.toggle("active", d.default_view === "arrivals");
     }
     fetchRows();
   }
@@ -1874,7 +1884,6 @@ Board reads: /api/config -> /api/matrix/v2/devices/{id}/config -> /api/matrix/v2
           max_rows:        MAX_ROWS,
           refresh_seconds: REFRESH_S_SRV,
           page_rotation_seconds: PAGE_ROTATION_S,
-          default_view:    VIEW,
           animation_enabled: ANIMATION_MODE !== "static",
           animation_mode: ANIMATION_MODE,
           animation_speed: ANIMATION_SPEED,
@@ -1900,7 +1909,6 @@ Board reads: /api/config -> /api/matrix/v2/devices/{id}/config -> /api/matrix/v2
             max_rows: MAX_ROWS,
             refresh_seconds: REFRESH_S_SRV,
             page_rotation_seconds: PAGE_ROTATION_S,
-            default_view: VIEW,
             animation_enabled: ANIMATION_MODE !== "static",
             animation_mode: ANIMATION_MODE,
             animation_speed: ANIMATION_SPEED,
