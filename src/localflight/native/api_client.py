@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 import json
+import platform
 import time
 from dataclasses import dataclass, field
+from importlib.metadata import PackageNotFoundError, version
 from threading import RLock, local
 from typing import Any, Optional
 from urllib.parse import urljoin
@@ -24,6 +26,7 @@ class LocalApiClient:
     _lock: RLock = field(default_factory=RLock, init=False, repr=False)
     _cache_hits: int = field(default=0, init=False, repr=False)
     _cache_misses: int = field(default=0, init=False, repr=False)
+    _install_id: str = field(default="", init=False, repr=False)
 
     def _url(self, path: str) -> str:
         return urljoin(self.base_url.rstrip("/") + "/", path.lstrip("/"))
@@ -32,8 +35,34 @@ class LocalApiClient:
         session = getattr(self._thread_local, "session", None)
         if session is None:
             session = requests.Session()
+            session.headers.update(self._headers())
             self._thread_local.session = session
         return session
+
+    def _headers(self) -> dict[str, str]:
+        return {
+            "User-Agent": f"LocalFlight Native/{self._app_version()}",
+            "X-LocalFlight-Client-Type": "native",
+            "X-LocalFlight-Client-Platform": platform.system() or "desktop",
+            "X-LocalFlight-Companion-Id": self._client_id(),
+        }
+
+    def _app_version(self) -> str:
+        try:
+            return version("localflight")
+        except PackageNotFoundError:
+            return "0.2.5b5"
+
+    def _client_id(self) -> str:
+        if self._install_id:
+            return self._install_id
+        try:
+            from localflight.storage.install import get_install_id
+
+            self._install_id = str(get_install_id() or "")
+        except Exception:
+            self._install_id = ""
+        return self._install_id or "native-local"
 
     def _cache_key(self, path: str, params: Optional[dict[str, Any]]) -> tuple[str, str]:
         normalized = json.dumps(params or {}, sort_keys=True, default=str, separators=(",", ":"))
@@ -42,6 +71,8 @@ class LocalApiClient:
     def _cache_ttl(self, path: str) -> float:
         """Short local cache to avoid hammering the same backend routes from Qt pages."""
         if path in {"/api/config", "/api/setup/client-info", "/api/matrix/config"}:
+            return 2.0
+        if path == "/api/health":
             return 2.0
         if path.startswith("/api/matrix/v2/"):
             return 2.0

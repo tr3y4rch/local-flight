@@ -12,7 +12,7 @@ import sys
 from typing import Any, Callable
 
 from localflight.native.api_client import NativeApiError, RelayAdminClient
-from localflight.native.design import icon_from_media, native_stylesheet
+from localflight.native.design import apply_app_font_defaults, icon_from_media, native_stylesheet
 from localflight.native.qt_compat import import_qt
 from localflight.native.routes import NETWORK_ADMIN_ROUTES
 
@@ -33,6 +33,7 @@ def main() -> None:
         QtCore, QtGui, QtWidgets = import_qt()
         app = QtWidgets.QApplication.instance() or QtWidgets.QApplication(sys.argv[:1])
         app.setApplicationName("Local Flight Network Admin")
+        apply_app_font_defaults(QtGui, app)
         app_icon = icon_from_media(QtGui, "assets", "icon_square.svg")
         if not app_icon.isNull():
             app.setWindowIcon(app_icon)

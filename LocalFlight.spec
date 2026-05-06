@@ -40,6 +40,7 @@ a = Analysis(
         ("README.md",                       "localflight/ui/docs"),
         ("PRIVACY.md",                     "localflight/ui/docs"),
         ("CHANGELOG.md",                   "localflight/ui/docs"),
+        ("THIRD_PARTY_NOTICES.md",         "localflight/ui/docs"),
         ("src/localflight/decode/mappings", "localflight/decode/mappings"),
         ("src/localflight/storage/samples", "localflight/storage/samples"),
     ] + uvi_d + fapi_d + anyio_d + starlette_d + qt_d + collect_data_files("tzdata"),

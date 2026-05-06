@@ -58,8 +58,8 @@
 
   /* ── Live pill ── */
   .fids-sub-right { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
-  .fids-lt { font-family: ui-monospace, monospace; font-size: 0.78rem; opacity: 0.6; font-variant-numeric: tabular-nums; }
-  .fids-live-pill { font-size: 0.75rem; opacity: 0.65; font-family: ui-monospace, monospace; display: flex; align-items: center; gap: 4px; }
+  .fids-lt { font-family: var(--font-board); font-size: 0.78rem; opacity: 0.6; font-variant-numeric: tabular-nums; }
+  .fids-live-pill { font-size: 0.75rem; opacity: 0.65; font-family: var(--font-board); display: flex; align-items: center; gap: 4px; }
   .live-dot {
     width: 6px; height: 6px; border-radius: 50%;
     background: #00e84a; display: inline-block;
@@ -75,7 +75,7 @@
     background: rgba(255,255,255,0.03);
     border: 1px solid rgba(255,255,255,0.07);
     margin-bottom: 10px; font-size: 0.78rem;
-    font-family: ui-monospace, monospace; min-height: 30px;
+    font-family: var(--font-board); min-height: 30px;
     transition: background 0.2s;
   }
   [data-theme="light"] .metar-bar { background: rgba(0,0,0,0.03); border-color: rgba(0,0,0,0.07); }
@@ -118,8 +118,8 @@
   col.col-time  { width: 110px; }
   col.col-flt   { width: 100px; }
   col.col-route { width: auto; }
+  col.col-gate  { width: 86px; }
   col.col-stat  { width: 170px; }
-  col.col-gate  { width: 68px; }
   col.col-ac    { width: 58px; }
 
   /* Header */
@@ -150,7 +150,10 @@
   /* Row accent strip (left border via first-cell shadow) */
   .fids-row-boarding   td:first-child { box-shadow: inset 3px 0 0 #22c55e; }
   .fids-row-approaching td:first-child { box-shadow: inset 3px 0 0 #f59e0b; }
+  .fids-row-delayed-warn td:first-child { box-shadow: inset 3px 0 0 #f59e0b; }
+  .fids-row-delayed-bad td:first-child,
   .fids-row-delayed    td:first-child { box-shadow: inset 3px 0 0 #ef4444; }
+  .fids-row-early      td:first-child { box-shadow: inset 3px 0 0 #22c55e; }
   .fids-row-diverted   td:first-child { box-shadow: inset 3px 0 0 #f97316; }
 
   /* Dim completed / cancelled rows */
@@ -161,22 +164,30 @@
   /* Time cell */
   .fids-hhmm {
     font-size: 1.18rem; font-weight: 700; letter-spacing: -0.02em;
-    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-family: var(--font-board);
     font-variant-numeric: tabular-nums;
   }
   .fids-delay-tag {
     display: inline-block; margin-left: 5px;
     font-size: 0.68rem; font-weight: 800;
-    color: #ef4444; background: rgba(239,68,68,0.12);
     padding: 1px 5px; border-radius: 4px;
-    font-family: ui-monospace, monospace;
+    font-family: var(--font-board);
     vertical-align: middle;
+  }
+  .fids-delay-tag.delay-warn {
+    color: #f59e0b; background: rgba(245,158,11,0.12);
+  }
+  .fids-delay-tag.delay-bad {
+    color: #ef4444; background: rgba(239,68,68,0.12);
+  }
+  .fids-delay-tag.delay-early {
+    color: #22c55e; background: rgba(34,197,94,0.12);
   }
 
   /* Flight cell */
   .fids-flight {
     font-size: 0.92rem; font-weight: 700; letter-spacing: 0.02em;
-    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-family: var(--font-board);
   }
   .fids-flight-stack { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
   .fids-airline-name {
@@ -192,6 +203,9 @@
 
   /* Route cell */
   .fids-route { font-size: 0.88rem; overflow: hidden; text-overflow: ellipsis; }
+  .fids-route-code {
+    font-family: var(--font-board); font-size: 0.72rem; opacity: 0.58;
+  }
 
   /* Status badge */
   .fids-badge {
@@ -221,11 +235,22 @@
     background: #f59e0b;
     animation: lf-pulse 1.2s ease-in-out infinite;
   }
-  .badge-delayed {
+  .badge-delayed-warn {
+    background: rgba(245,158,11,0.1); color: #f59e0b;
+    border-color: rgba(245,158,11,0.22);
+  }
+  .badge-delayed-warn .fids-bdot { background: #f59e0b; }
+  .badge-delayed-bad, .badge-delayed {
     background: rgba(239,68,68,0.1); color: #ef4444;
     border-color: rgba(239,68,68,0.22);
   }
+  .badge-delayed-bad .fids-bdot,
   .badge-delayed .fids-bdot { background: #ef4444; }
+  .badge-early {
+    background: rgba(34,197,94,0.1); color: #22c55e;
+    border-color: rgba(34,197,94,0.22);
+  }
+  .badge-early .fids-bdot { background: #22c55e; box-shadow: 0 0 5px #22c55e; }
   .badge-diverted {
     background: rgba(249,115,22,0.1); color: #f97316;
     border-color: rgba(249,115,22,0.22);
@@ -254,14 +279,15 @@
 
   /* Gate cell */
   .fids-gate-val {
-    font-family: ui-monospace, monospace; font-size: 0.82rem; font-weight: 700;
-    background: rgba(255,255,255,0.09); padding: 2px 8px; border-radius: 5px;
+    font-family: var(--font-board); font-size: 0.88rem; font-weight: 800;
+    background: rgba(74,158,218,0.18); border: 1px solid rgba(74,158,218,0.38);
+    padding: 3px 9px; border-radius: 6px;
   }
   [data-theme="light"] .fids-gate-val { background: rgba(0,0,0,0.07); }
-  .fids-gate-empty { opacity: 0.2; font-family: ui-monospace, monospace; }
+  .fids-gate-empty { opacity: 0.2; font-family: var(--font-board); }
 
   /* A/C cell */
-  .fids-ac { font-family: ui-monospace, monospace; font-size: 0.8rem; opacity: 0.45; }
+  .fids-ac { font-family: var(--font-board); font-size: 0.8rem; opacity: 0.45; }
 
   /* Empty state */
   .fids-empty-row td { border: none; padding: 70px 10px; }
@@ -271,7 +297,7 @@
   }
   .fids-empty-icon { font-size: 2.4rem; }
   .fids-empty-title { font-size: 0.95rem; font-weight: 700; }
-  .fids-empty-sub { font-size: 0.72rem; opacity: 0.7; margin-top: 5px; font-family: ui-monospace, monospace; }
+  .fids-empty-sub { font-size: 0.72rem; opacity: 0.7; margin-top: 5px; font-family: var(--font-board); }
 
   /* ── Flight detail drawer ── */
   @keyframes fd-slide-in { from { transform: translateX(100%); } to { transform: translateX(0); } }
@@ -303,7 +329,7 @@
   [data-theme="light"] .fd-panel-head { border-bottom-color: rgba(0,0,0,0.07); }
   .fd-flight-num {
     font-size: 1.35rem; font-weight: 800; letter-spacing: -0.02em;
-    font-family: ui-monospace, monospace;
+    font-family: var(--font-board);
   }
   .fd-route-line { font-size: 0.82rem; opacity: 0.7; margin-top: 3px; }
   .fd-airline    { font-size: 0.75rem; opacity: 0.45; margin-top: 2px; }
@@ -332,7 +358,7 @@
   [data-theme="light"] .fd-row { border-bottom-color: rgba(0,0,0,0.04); }
   .fd-row:last-child { border-bottom: none; }
   .fd-lbl { opacity: 0.4; min-width: 72px; font-size: 0.72rem; flex-shrink: 0; }
-  .fd-val { font-weight: 600; font-family: ui-monospace, monospace; }
+  .fd-val { font-weight: 600; font-family: var(--font-board); }
   .fd-val-text { font-weight: 500; }
   .fd-val-dim { opacity: 0.38; }
 
@@ -353,7 +379,7 @@
     text-transform: uppercase; opacity: 0.35;
   }
   .fd-source-value {
-    margin-top: 4px; font-family: ui-monospace, monospace;
+    margin-top: 4px; font-family: var(--font-board);
     font-size: 0.76rem; font-weight: 800; overflow: hidden; text-overflow: ellipsis;
     white-space: nowrap;
   }
@@ -362,7 +388,7 @@
     display: block; margin-top: 6px; padding: 9px 10px;
     border-radius: 9px; background: rgba(255,255,255,0.035);
     border: 1px solid rgba(255,255,255,0.055);
-    font-family: ui-monospace, monospace; font-size: 0.72rem; line-height: 1.45;
+    font-family: var(--font-board); font-size: 0.72rem; line-height: 1.45;
     white-space: normal; word-break: break-word;
   }
   [data-theme="light"] .fd-plan-route {
@@ -377,7 +403,7 @@
   .fd-time-lbl { font-size: 0.6rem; opacity: 0.35; letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 4px; }
   .fd-time-val {
     font-size: 1.05rem; font-weight: 700; letter-spacing: -0.01em;
-    font-family: ui-monospace, monospace; font-variant-numeric: tabular-nums;
+    font-family: var(--font-board); font-variant-numeric: tabular-nums;
   }
   .fd-time-val.fd-dim { opacity: 0.25; }
 
@@ -388,9 +414,9 @@
   }
   [data-theme="light"] .fd-hist-row { border-bottom-color: rgba(0,0,0,0.04); }
   .fd-hist-row:last-child { border-bottom: none; }
-  .fd-hist-date  { opacity: 0.4; font-family: ui-monospace, monospace; min-width: 56px; }
+  .fd-hist-date  { opacity: 0.4; font-family: var(--font-board); min-width: 56px; }
   .fd-hist-status { opacity: 0.6; flex: 1; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; }
-  .fd-hist-delay { font-weight: 700; font-family: ui-monospace, monospace; font-size: 0.78rem; }
+  .fd-hist-delay { font-weight: 700; font-family: var(--font-board); font-size: 0.78rem; }
   .fd-delay-ok   { color: #22c55e; }
   .fd-delay-warn { color: #f59e0b; }
   .fd-delay-bad  { color: #ef4444; }
@@ -480,25 +506,26 @@
     <table id="fidsTable">
       <colgroup>
         <col class="col-time"><col class="col-flt"><col class="col-route">
-        <col class="col-stat"><col class="col-gate"><col class="col-ac">
+        <col class="col-gate"><col class="col-stat"><col class="col-ac">
       </colgroup>
       <thead>
         <tr>
           <th>Time (LT)</th>
           <th>Flight</th>
           <th>{{ "From" if view == "arrivals" else "To" }}</th>
-          <th>Status</th>
           <th>Gate</th>
+          <th>Status</th>
           <th>A/C</th>
         </tr>
       </thead>
       <tbody id="fidsBody">
         {% for r in rows %}
-        {% set tparts = r.display_time.split(' (') %}
+        {% set time_primary = r.time_primary or r.display_time.split(' (')[0] %}
+        {% set time_delta = r.time_delta_label or (r.display_time.split(' (')[1][:-1] if ' (' in r.display_time else '') %}
         <tr class="fids-row fids-row-{{ r.status_class }}" data-callsign="{{ r.callsign }}" style="animation-delay:{{ loop.index0 * 40 }}ms">
           <td>
-            <span class="fids-hhmm">{{ tparts[0] }}</span>
-            {% if tparts|length > 1 %}<span class="fids-delay-tag">{{ tparts[1][:-1] }}</span>{% endif %}
+            <span class="fids-hhmm">{{ time_primary }}</span>
+            {% if time_delta %}<span class="fids-delay-tag delay-{{ r.delay_kind if r.delay_kind != 'none' else (r.delay_class or 'warn') }}">{{ time_delta }}</span>{% endif %}
           </td>
           <td>
             <div class="fids-flight-stack">
@@ -507,15 +534,15 @@
               {% if r.codeshare_display %}<span class="fids-codeshares">{{ r.codeshare_display }}</span>{% endif %}
             </div>
           </td>
-          <td class="fids-route">{{ r.route_display }}</td>
+          <td class="fids-route">{{ r.route_primary or r.route_display }}{% if r.route_caption and r.route_caption not in (r.route_primary or r.route_display) %} <span class="fids-route-code">{{ r.route_caption }}</span>{% endif %}</td>
+          <td>
+            {% if r.gate_display or (r.gate and r.gate != '-') %}<span class="fids-gate-val">{{ r.terminal_gate_display or r.gate_display or r.gate }}</span>
+            {% else %}<span class="fids-gate-empty">—</span>{% endif %}
+          </td>
           <td>
             <span class="fids-badge badge-{{ r.status_class }}">
               <span class="fids-bdot"></span>{{ r.status_display }}
             </span>
-          </td>
-          <td>
-            {% if r.gate and r.gate != '-' %}<span class="fids-gate-val">{{ r.gate }}</span>
-            {% else %}<span class="fids-gate-empty">—</span>{% endif %}
           </td>
           <td><span class="fids-ac">{{ r.aircraft_type }}</span></td>
         </tr>
@@ -648,10 +675,32 @@ function esc(v) {
   }[c]));
 }
 
-function renderTime(s) {
-  const m = s.match(/^(\d{2}:\d{2})(?:\s+\(([+-]?\d+)\))?$/);
-  if (!m) return `<span class="fids-hhmm">${esc(s)}</span>`;
-  const delay = m[2] ? `<span class="fids-delay-tag">${m[2]}</span>` : "";
+function delayClass(minutes) {
+  if (typeof minutes !== "number" || Math.abs(minutes) < 5) return "";
+  if (minutes < 0) return "early";
+  if (minutes > 15) return "bad";
+  return "warn";
+}
+
+function delayClassFromRow(row) {
+  if (row && row.delay_class) return row.delay_class;
+  if (typeof row?.delay_minutes === "number") return delayClass(row.delay_minutes);
+  const match = String(row?.display_time || "").match(/\(([+-]?\d+)\)/);
+  return match ? delayClass(Number(match[1])) : "";
+}
+
+function renderTime(s, tone="") {
+  const raw = (typeof s === "object" && s) ? (s.display_time || s.time || "--:--") : (s || "--:--");
+  const primary = (typeof s === "object" && s) ? (s.time_primary || raw) : raw;
+  const explicitDelta = (typeof s === "object" && s) ? (s.time_delta_label || "") : "";
+  if (explicitDelta) {
+    const explicitTone = (typeof s === "object" && s) ? (s.delay_kind || tone || "warn") : (tone || "warn");
+    return `<span class="fids-hhmm">${esc(primary)}</span><span class="fids-delay-tag delay-${esc(explicitTone)}">${esc(explicitDelta)}</span>`;
+  }
+  const m = String(raw).match(/^(\d{2}:\d{2})(?:\s+\(([+-]?\d+)\))?$/);
+  if (!m) return `<span class="fids-hhmm">${esc(raw)}</span>`;
+  const delayTone = tone || (m[2] ? delayClass(Number(m[2])) : "");
+  const delay = m[2] ? `<span class="fids-delay-tag delay-${esc(delayTone || 'warn')}">${m[2]}</span>` : "";
   return `<span class="fids-hhmm">${m[1]}</span>${delay}`;
 }
 
@@ -659,7 +708,8 @@ function renderBadge(cls, text) {
   return `<span class="fids-badge badge-${esc(cls||'scheduled')}"><span class="fids-bdot"></span>${esc(text)}</span>`;
 }
 
-function renderGate(g) {
+function renderGate(r) {
+  const g = r?.terminal_gate_display || r?.gate_display || r?.gate || "";
   return (g && g !== "-")
     ? `<span class="fids-gate-val">${esc(g)}</span>`
     : `<span class="fids-gate-empty">—</span>`;
@@ -678,6 +728,14 @@ function renderFlightCell(r) {
   </div>`;
 }
 
+function renderRouteCell(r) {
+  const primary = r.route_primary || r.route_display || "-";
+  const code = r.route_caption && !String(primary).includes(r.route_caption)
+    ? ` <span class="fids-route-code">${esc(r.route_caption)}</span>`
+    : "";
+  return `${esc(primary)}${code}`;
+}
+
 function renderRows(rows) {
   if (!rows.length) {
     return `<tr class="fids-empty-row"><td colspan="6">
@@ -691,11 +749,11 @@ function renderRows(rows) {
   }
   return rows.map((r, i) => `
     <tr class="fids-row fids-row-${esc(r.status_class||'scheduled')}" data-callsign="${esc(r.callsign||'')}" style="animation-delay:${i*40}ms">
-      <td>${renderTime(r.display_time)}</td>
+      <td>${renderTime(r, delayClassFromRow(r))}</td>
       <td>${renderFlightCell(r)}</td>
-      <td class="fids-route">${esc(r.route_display)}</td>
+      <td class="fids-route">${renderRouteCell(r)}</td>
+      <td>${renderGate(r)}</td>
       <td>${renderBadge(r.status_class, r.status_display)}</td>
-      <td>${renderGate(r.gate)}</td>
       <td><span class="fids-ac">${esc(r.aircraft_type)}</span></td>
     </tr>`).join("");
 }
@@ -915,8 +973,9 @@ async function refreshFIDS() {
     const delayEl = document.getElementById("fdDelay");
     if (typeof d.delay_minutes === "number" && Math.abs(d.delay_minutes) >= 5) {
       const sign = d.delay_minutes > 0 ? "+" : "";
-      const cls  = d.delay_minutes >= 15 ? "fd-delay-bad" : "fd-delay-warn";
-      delayEl.innerHTML = `<div class="fd-row" style="margin-top:6px"><span class="fd-lbl">Delay</span>` +
+      const cls  = d.delay_minutes < 0 ? "fd-delay-ok" : d.delay_minutes > 15 ? "fd-delay-bad" : "fd-delay-warn";
+      const label = d.delay_minutes < 0 ? "Early" : "Delay";
+      delayEl.innerHTML = `<div class="fd-row" style="margin-top:6px"><span class="fd-lbl">${label}</span>` +
         `<span class="fd-val ${cls}">${esc(sign + d.delay_minutes + " min")}</span></div>`;
     } else {
       delayEl.innerHTML = "";
@@ -1044,7 +1103,7 @@ async function refreshFIDS() {
         const dly = h.delay_minutes;
         let delayCls = "", delayTxt = "On time";
         if (typeof dly === "number") {
-          if      (dly >= 15) { delayCls = "fd-delay-bad";  delayTxt = `+${dly}m`; }
+          if      (dly > 15)  { delayCls = "fd-delay-bad";  delayTxt = `+${dly}m`; }
           else if (dly >= 5)  { delayCls = "fd-delay-warn"; delayTxt = `+${dly}m`; }
           else if (dly <= -5) { delayCls = "fd-delay-ok";   delayTxt = `${dly}m`;  }
           else                { delayCls = "fd-delay-ok";   delayTxt = "On time";  }

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+import re
 from typing import Any, Literal, Optional
 from zoneinfo import ZoneInfo
 
@@ -26,6 +27,22 @@ class FIDSRow:
     callsign:       str = ""
     airline_display: str = ""  # "SWISS"
     codeshare_display: str = ""  # "Also UA 123 / AC 456"
+    delay_minutes: Optional[int] = None
+    delay_class: str = ""  # early | warn | bad
+    time_primary: str = ""
+    time_delta_label: str = ""
+    time_delta_text: str = ""
+    delay_kind: str = "none"  # none | early | warn | bad
+    status_kind: str = "scheduled"
+    tone: str = "neutral"  # neutral | green | amber | red | orange | dim
+    gate_display: str = ""
+    terminal_display: str = ""
+    terminal_gate_display: str = ""
+    route_primary: str = ""
+    route_code: str = ""
+    route_caption: str = ""
+    source_hint: str = ""
+    live_hint: str = ""
 
 
 def _parse_dt(value: Optional[str]) -> Optional[datetime]:
@@ -57,6 +74,152 @@ def _delay_minutes(scheduled: Optional[datetime], estimated: Optional[datetime])
     e = e.astimezone(_ZRH_TZ)
 
     return int(round((e - s).total_seconds() / 60.0))
+
+
+def _delay_class(minutes: int) -> str:
+    if abs(minutes) < 5:
+        return ""
+    if minutes < 0:
+        return "early"
+    if minutes > 15:
+        return "bad"
+    return "warn"
+
+
+def delay_kind_from_minutes(minutes: Optional[int]) -> str:
+    if not isinstance(minutes, int) or abs(minutes) < 5:
+        return "none"
+    if minutes < 0:
+        return "early"
+    if minutes > 15:
+        return "bad"
+    return "warn"
+
+
+def split_display_time(value: Any, delay_minutes: Optional[int] = None) -> tuple[str, str, str]:
+    text = str(value or "").strip()
+    match = re.match(r"^(.+?)\s*\(([+-]?\d+)\)\s*$", text)
+    if match:
+        primary = match.group(1).strip()
+        label = match.group(2).strip()
+    else:
+        primary = text or "--:--"
+        label = ""
+    if not label and isinstance(delay_minutes, int) and abs(delay_minutes) >= 5:
+        sign = "+" if delay_minutes > 0 else "-"
+        label = f"{sign}{abs(delay_minutes)}"
+    delta_text = ""
+    if label:
+        try:
+            minutes = int(label)
+        except ValueError:
+            minutes = delay_minutes
+        if isinstance(minutes, int):
+            delta_text = f"{abs(minutes)} min early" if minutes < 0 else f"{minutes} min late"
+    return primary, label, delta_text
+
+
+def split_route_display(value: Any) -> tuple[str, str, str]:
+    text = str(value or "").strip()
+    if not text or text == "-":
+        return "-", "", ""
+    match = re.search(r"\(([A-Z0-9]{3,4})\)\s*$", text.upper())
+    if match:
+        code = match.group(1)
+        primary = re.sub(r"\s*\([A-Za-z0-9]{3,4}\)\s*$", "", text).strip() or code
+        return primary, code, code
+    upper = text.upper()
+    if re.fullmatch(r"[A-Z0-9]{3,4}", upper):
+        return upper, upper, ""
+    tail = re.search(r"\b([A-Z0-9]{3,4})$", upper)
+    code = tail.group(1) if tail else ""
+    return text, code, code
+
+
+def gate_fields(gate: Any, terminal: Any = "") -> tuple[str, str, str]:
+    gate_text = str(gate or "").strip()
+    if gate_text in {"", "-", "None", "none"}:
+        gate_text = ""
+    terminal_text = str(terminal or "").strip()
+    if terminal_text in {"", "-", "None", "none"}:
+        terminal_text = ""
+    if gate_text and terminal_text:
+        terminal_gate = f"{terminal_text} {gate_text}"
+    else:
+        terminal_gate = gate_text or terminal_text
+    return gate_text, terminal_text, terminal_gate
+
+
+def normalize_status_kind(status_class: Any = "", status_display: Any = "", delay_kind: str = "none") -> str:
+    raw = str(status_class or status_display or "scheduled")
+    normalized = raw.strip().lower().replace("_", "-").replace(" ", "-")
+    if normalized in {"delayed-warn", "delayed"} or delay_kind == "warn":
+        return "delayed_warn"
+    if normalized == "delayed-bad" or delay_kind == "bad":
+        return "delayed_bad"
+    if "cancel" in normalized:
+        return "cancelled"
+    if "divert" in normalized:
+        return "diverted"
+    if "board" in normalized:
+        return "boarding"
+    if "approach" in normalized or normalized.startswith("appr"):
+        return "approaching"
+    if "depart" in normalized:
+        return "departed"
+    if "land" in normalized or normalized == "arrived":
+        return "landed"
+    if "ground" in normalized:
+        return "on_ground"
+    return "scheduled"
+
+
+def tone_for_status(status_kind: str, delay_kind: str = "none") -> str:
+    if status_kind == "cancelled" or delay_kind == "bad" or status_kind == "delayed_bad":
+        return "red"
+    if status_kind == "diverted":
+        return "orange"
+    if status_kind in {"departed", "landed"}:
+        return "dim"
+    if delay_kind == "early" or status_kind == "boarding":
+        return "green"
+    if status_kind in {"approaching", "on_ground", "delayed_warn"} or delay_kind == "warn":
+        return "amber"
+    return "neutral"
+
+
+def enrich_presentation_fields(row: dict[str, Any]) -> dict[str, Any]:
+    shaped = dict(row)
+    delay_minutes = shaped.get("delay_minutes")
+    try:
+        delay_i = int(delay_minutes) if delay_minutes is not None else None
+    except (TypeError, ValueError):
+        delay_i = None
+    delay_kind = str(shaped.get("delay_kind") or delay_kind_from_minutes(delay_i))
+    if delay_kind == "none" and shaped.get("delay_class"):
+        delay_kind = {"early": "early", "warn": "warn", "bad": "bad"}.get(str(shaped.get("delay_class")).lower(), "none")
+    time_primary, delta_label, delta_text = split_display_time(shaped.get("display_time"), delay_i)
+    route_primary, route_code, route_caption = split_route_display(shaped.get("route_display"))
+    gate_display, terminal_display, terminal_gate_display = gate_fields(shaped.get("gate"), shaped.get("terminal"))
+    status_kind = normalize_status_kind(shaped.get("status_class"), shaped.get("status_display"), delay_kind)
+    tone = tone_for_status(status_kind, delay_kind)
+    shaped.update(
+        {
+            "time_primary": shaped.get("time_primary") or time_primary,
+            "time_delta_label": shaped.get("time_delta_label") or delta_label,
+            "time_delta_text": shaped.get("time_delta_text") or delta_text,
+            "delay_kind": delay_kind,
+            "status_kind": shaped.get("status_kind") or status_kind,
+            "tone": shaped.get("tone") or tone,
+            "gate_display": shaped.get("gate_display") or gate_display,
+            "terminal_display": shaped.get("terminal_display") or terminal_display,
+            "terminal_gate_display": shaped.get("terminal_gate_display") or terminal_gate_display,
+            "route_primary": shaped.get("route_primary") or route_primary,
+            "route_code": shaped.get("route_code") or route_code,
+            "route_caption": shaped.get("route_caption") or route_caption,
+        }
+    )
+    return shaped
 
 
 def _status_display(
@@ -152,7 +315,9 @@ def decoded_to_fids_row(decoded: dict[str, Any], *, view: FidsView) -> FIDSRow:
     )
     status_class = status_display.lower().replace(" ", "-")
     if status_class.startswith("delayed"):
-        status_class = "delayed"
+        status_class = f"delayed-{_delay_class(mins) or 'warn'}"
+    elif status_class.startswith("early"):
+        status_class = "early"
     elif status_class == "on-time":
         status_class = "scheduled"
 
@@ -160,6 +325,13 @@ def decoded_to_fids_row(decoded: dict[str, Any], *, view: FidsView) -> FIDSRow:
     flight_display = str(decoded.get("flight_display") or "").strip() or "-"
     flight_date = str(decoded.get("flight_date") or "").strip() or "unknown"
     flight_key = str(decoded.get("flight_key") or "").strip() or flight_display.replace(" ", "")
+    terminal = str((dep if view == "departures" else arr).get("terminal") or "").strip()
+    delay_kind = delay_kind_from_minutes(mins)
+    time_primary, time_delta_label, time_delta_text = split_display_time(display_time, mins)
+    route_primary, route_code, route_caption = split_route_display(route_display)
+    gate_display, terminal_display, terminal_gate_display = gate_fields(gate, terminal)
+    status_kind = normalize_status_kind(status_class, status_display, delay_kind)
+    tone = tone_for_status(status_kind, delay_kind)
 
     fid = f"decoded:{flight_date}:{flight_key}"
 
@@ -173,4 +345,18 @@ def decoded_to_fids_row(decoded: dict[str, Any], *, view: FidsView) -> FIDSRow:
         status_class=status_class,
         gate=gate or "-",
         aircraft_type=aircraft_type,
+        delay_minutes=mins,
+        delay_class=_delay_class(mins),
+        time_primary=time_primary,
+        time_delta_label=time_delta_label,
+        time_delta_text=time_delta_text,
+        delay_kind=delay_kind,
+        status_kind=status_kind,
+        tone=tone,
+        gate_display=gate_display,
+        terminal_display=terminal_display,
+        terminal_gate_display=terminal_gate_display,
+        route_primary=route_primary,
+        route_code=route_code,
+        route_caption=route_caption,
     )

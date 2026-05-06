@@ -27,6 +27,7 @@ from pydantic import BaseModel, Field
 
 from localflight.core.airports import _load_index, best_label, lookup_airport
 from localflight.core.models import Flight, FlightDirection, FlightPosition
+from localflight.display.fids import enrich_presentation_fields
 from localflight.render.fids import build_fids_context
 from localflight.storage.config import (
     ALLOWED_REFRESH_SECONDS,
@@ -50,6 +51,7 @@ from localflight.sources.web.airport_surface import (
     clamp_surface_radius_nm,
     validate_surface_payload,
 )
+from localflight.radar import annotate_blips, build_radar_map, enrich_blip_display_fields
 from localflight.sources.web.relay_defaults import default_public_relay_url, relay_airport_surface_url
 
 log = logging.getLogger(__name__)
@@ -68,8 +70,10 @@ def _network_tools_enabled() -> bool:
 # prevent each browser tab or mobile companion from spending one API call.
 _adsbx_radar_cache: Dict[str, tuple[float, List[Dict[str, Any]]]] = {}
 _opensky_radar_cache: Dict[str, tuple[float, List[Dict[str, Any]]]] = {}
+_radar_map_cache: Dict[str, tuple[float, Dict[str, Any]]] = {}
 _DEFAULT_ADSBX_RADAR_CACHE_TTL_S = 300
 _OPENSKY_RADAR_CACHE_TTL_S = 60
+_RADAR_MAP_CACHE_TTL_S = 300
 _MIN_PROVIDER_RADAR_RADIUS_NM = 5.0
 
 
@@ -152,6 +156,90 @@ def _filter_ground_radar_blips(blips: List[Dict[str, Any]]) -> tuple[List[Dict[s
 
 def _surface_radar_mode(radius_nm: float) -> bool:
     return float(radius_nm) <= 5.0
+
+
+def _radar_blip_phase(blip: Dict[str, Any], *, airport_icao: str) -> Dict[str, str]:
+    airport_code = (airport_icao or "").strip().upper()
+    dep = str(blip.get("departure_icao") or "").strip().upper()
+    arr = str(blip.get("arrival_icao") or "").strip().upper()
+    distance_nm = _float_or_none(blip.get("distance_nm"))
+    altitude_m = _float_or_none(blip.get("altitude_m"))
+    speed_ms = _float_or_none(blip.get("speed_ms"))
+    vertical_rate = _float_or_none(blip.get("vertical_rate"))
+    on_ground = _is_ground_radar_blip(blip)
+
+    is_arrival = bool(airport_code and arr == airport_code)
+    is_departure = bool(airport_code and dep == airport_code)
+    low_near = distance_nm is not None and distance_nm <= 5.0 and (altitude_m is None or altitude_m <= 900)
+    approach_near = distance_nm is not None and distance_nm <= 15.0 and (altitude_m is None or altitude_m <= 2500)
+
+    if on_ground:
+        phase = "ground"
+        label = "On ground"
+    elif is_arrival and low_near and (speed_ms is None or speed_ms >= 35):
+        phase = "final"
+        label = "On final"
+    elif is_arrival and approach_near:
+        phase = "approach"
+        label = "On approach"
+    elif vertical_rate is not None and vertical_rate < -0.75:
+        phase = "descending"
+        label = "Descending"
+    elif is_departure and distance_nm is not None and distance_nm <= 15.0:
+        phase = "departure"
+        label = "Departing"
+    elif vertical_rate is not None and vertical_rate > 0.75:
+        phase = "climbing"
+        label = "Climbing"
+    else:
+        phase = "enroute"
+        label = "Enroute"
+
+    return {"radar_phase": phase, "radar_status": phase, "radar_status_label": label}
+
+
+def _annotate_radar_blips(
+    blips: List[Dict[str, Any]],
+    *,
+    airport_icao: str,
+    runways: list[dict[str, Any]] | None = None,
+) -> List[Dict[str, Any]]:
+    return annotate_blips(blips, airport_icao=airport_icao, runways=runways or [])
+
+
+def _filter_radar_blips_for_view(
+    blips: list[dict[str, Any]],
+    *,
+    traffic: str = "all",
+    min_alt_ft: float | None = None,
+    max_alt_ft: float | None = None,
+) -> list[dict[str, Any]]:
+    requested = (traffic or "all").strip().lower()
+    filtered: list[dict[str, Any]] = []
+    for blip in blips:
+        role = str(blip.get("traffic_role") or "").lower()
+        phase = str(blip.get("radar_phase") or blip.get("radar_status") or "").lower()
+        on_ground = _is_ground_radar_blip(blip)
+        altitude_ft = _float_or_none(blip.get("altitude_ft"))
+        if altitude_ft is None:
+            altitude_m = _float_or_none(blip.get("altitude_m"))
+            altitude_ft = altitude_m * 3.28084 if altitude_m is not None else None
+        if min_alt_ft is not None and altitude_ft is not None and altitude_ft < min_alt_ft:
+            continue
+        if max_alt_ft is not None and altitude_ft is not None and altitude_ft > max_alt_ft:
+            continue
+        if requested in {"arrival", "arrivals"} and role != "arrival":
+            continue
+        if requested in {"departure", "departures"} and role != "departure":
+            continue
+        if requested == "final" and phase != "final":
+            continue
+        if requested == "ground" and not on_ground:
+            continue
+        if requested == "airborne" and on_ground:
+            continue
+        filtered.append(blip)
+    return filtered
 
 
 def _companion_presence_path():
@@ -452,6 +540,22 @@ class FIDSRowOut(BaseModel):
     gate:           str
     aircraft_type:  str
     callsign:       str = ""
+    delay_minutes: Optional[int] = None
+    delay_class: str = ""
+    time_primary: str = ""
+    time_delta_label: str = ""
+    time_delta_text: str = ""
+    delay_kind: str = "none"
+    status_kind: str = "scheduled"
+    tone: str = "neutral"
+    gate_display: str = ""
+    terminal_display: str = ""
+    terminal_gate_display: str = ""
+    route_primary: str = ""
+    route_code: str = ""
+    route_caption: str = ""
+    source_hint: str = ""
+    live_hint: str = ""
 
 
 def _fids_rows_from_flights(
@@ -483,6 +587,22 @@ def _fids_rows_from_flights(
             status_display=r.status_display, status_class=r.status_class,
             gate=r.gate, aircraft_type=r.aircraft_type,
             callsign=r.callsign,
+            delay_minutes=r.delay_minutes,
+            delay_class=r.delay_class,
+            time_primary=r.time_primary,
+            time_delta_label=r.time_delta_label,
+            time_delta_text=r.time_delta_text,
+            delay_kind=r.delay_kind,
+            status_kind=r.status_kind,
+            tone=r.tone,
+            gate_display=r.gate_display,
+            terminal_display=r.terminal_display,
+            terminal_gate_display=r.terminal_gate_display,
+            route_primary=r.route_primary,
+            route_code=r.route_code,
+            route_caption=r.route_caption,
+            source_hint=r.source_hint,
+            live_hint=r.live_hint,
         )
         for r in rows
     ]
@@ -743,6 +863,103 @@ def _surface_empty_payload(
     )
 
 
+def _surface_runway_heading(points: list[Any]) -> float | None:
+    if len(points) < 2:
+        return None
+    first = points[0]
+    last = points[-1]
+    if not isinstance(first, list | tuple) or not isinstance(last, list | tuple) or len(first) < 2 or len(last) < 2:
+        return None
+    try:
+        lat1, lon1 = float(first[0]), float(first[1])
+        lat2, lon2 = float(last[0]), float(last[1])
+    except (TypeError, ValueError):
+        return None
+    y_nm = (lat2 - lat1) * 60.0
+    x_nm = (lon2 - lon1) * 60.0 * math.cos(math.radians((lat1 + lat2) / 2.0))
+    if abs(x_nm) < 0.00001 and abs(y_nm) < 0.00001:
+        return None
+    return round((math.degrees(math.atan2(x_nm, y_nm)) + 360.0) % 360.0, 1)
+
+
+def _surface_feature_center(points: list[Any]) -> tuple[float, float] | None:
+    coords: list[tuple[float, float]] = []
+    for point in points:
+        if not isinstance(point, list | tuple) or len(point) < 2:
+            continue
+        try:
+            coords.append((float(point[0]), float(point[1])))
+        except (TypeError, ValueError):
+            continue
+    if not coords:
+        return None
+    return sum(lat for lat, _lon in coords) / len(coords), sum(lon for _lat, lon in coords) / len(coords)
+
+
+def _with_surface_validation(cfg: AppConfig, payload: Dict[str, Any], airport: Any) -> Dict[str, Any]:
+    if not isinstance(payload, dict):
+        return payload
+    center = payload.get("center") if isinstance(payload.get("center"), dict) else {}
+    center_lat = _float_or_none(center.get("lat")) or _float_or_none(getattr(airport, "lat", None))
+    center_lon = _float_or_none(center.get("lon")) or _float_or_none(getattr(airport, "lon", None))
+    if center_lat is None or center_lon is None:
+        return payload
+
+    source = str(payload.get("provider") or "").strip()
+    validated_by = ["ourairports-center"]
+    if source == AIRPORT_SURFACE_PROVIDER:
+        validated_by.insert(0, "openstreetmap")
+    elif source:
+        validated_by.insert(0, source)
+
+    features = []
+    runway_count = 0
+    building_count = 0
+    max_distance = 0.0
+    for feature in payload.get("features") or []:
+        if not isinstance(feature, dict):
+            continue
+        item = dict(feature)
+        kind = str(item.get("kind") or "").lower()
+        points = item.get("points") if isinstance(item.get("points"), list) else []
+        midpoint = _surface_feature_center(points)
+        distance = None
+        if midpoint is not None:
+            distance = round(_distance_nm(center_lat, center_lon, midpoint[0], midpoint[1]), 2)
+            max_distance = max(max_distance, distance)
+        if kind == "runway":
+            runway_count += 1
+            heading = _surface_runway_heading(points)
+            item["validation"] = {
+                "validated_by": validated_by,
+                "airport_center_distance_nm": distance,
+                "heading_deg": heading,
+                "confidence": "osm+ourairports" if source == AIRPORT_SURFACE_PROVIDER else "estimated",
+            }
+        elif kind in {"building", "terminal", "hangar"}:
+            building_count += 1
+        features.append(item)
+
+    enriched = dict(payload)
+    enriched["features"] = features
+    meta = dict(enriched.get("meta") if isinstance(enriched.get("meta"), dict) else {})
+    meta.update(
+        {
+            "validation": {
+                "validated_by": validated_by,
+                "airport_iata": cfg.airport_iata,
+                "airport_icao": cfg.airport_icao,
+                "runway_count": runway_count,
+                "building_count": building_count,
+                "max_feature_distance_nm": round(max_distance, 2),
+                "note": "Runway geometry comes from OSM when available and is sanity-checked against the OurAirports airport center.",
+            }
+        }
+    )
+    enriched["meta"] = meta
+    return enriched
+
+
 @router.get("/api/radar/surface")
 def api_radar_surface(
     radius_nm: float = Query(5.0, ge=1.0, le=5.0),
@@ -789,7 +1006,7 @@ def api_radar_surface(
             payload = response.json()
             if isinstance(payload, dict) and validate_surface_payload(payload):
                 _save_local_surface_cache(cfg, payload)
-                return payload
+                return _with_surface_validation(cfg, payload, airport)
             relay_error = "Relay returned invalid radar surface payload"
         else:
             relay_error = f"Relay surface HTTP {response.status_code}"
@@ -803,21 +1020,123 @@ def api_radar_surface(
         stale.setdefault("meta", {})
         if isinstance(stale["meta"], dict):
             stale["meta"]["served_via"] = "local-stale-cache"
-        return stale
+        return _with_surface_validation(cfg, stale, airport)
 
-    return build_estimated_surface_payload(
+    return _with_surface_validation(cfg, build_estimated_surface_payload(
         airport_iata=cfg.airport_iata,
         airport_icao=cfg.airport_icao,
         center_lat=center_lat,
         center_lon=center_lon,
         radius_nm=radius,
         error=relay_error or "No airport surface cache available",
+    ), airport)
+
+
+def _radar_surface_payload_for_map(cfg: AppConfig, airport: Any, *, radius_nm: float) -> Dict[str, Any]:
+    center_lat = float(airport.lat)
+    center_lon = float(airport.lon)
+    surface_radius = clamp_surface_radius_nm(min(5.0, radius_nm))
+    if cfg.radar_surface_enabled:
+        try:
+            return api_radar_surface(surface_radius)
+        except Exception as exc:
+            log.debug("Radar map surface lookup failed, using cache/estimate: %s", exc)
+    cached = _load_local_surface_cache(cfg)
+    if cached:
+        payload = dict(cached)
+        payload["cache_state"] = "stale"
+        return _with_surface_validation(cfg, payload, airport)
+    return _with_surface_validation(
+        cfg,
+        build_estimated_surface_payload(
+            airport_iata=cfg.airport_iata,
+            airport_icao=cfg.airport_icao,
+            center_lat=center_lat,
+            center_lon=center_lon,
+            radius_nm=surface_radius,
+            error="No runway/surface cache available",
+        ),
+        airport,
+    )
+
+
+def _radar_map_cache_key(cfg: AppConfig, airport: Any, *, radius_nm: float, terrain: bool) -> str:
+    try:
+        cfg_sig = json.dumps(asdict(cfg), sort_keys=True, default=str)
+    except Exception:
+        cfg_sig = repr(cfg)
+    return "|".join(
+        [
+            str(cfg_sig),
+            str(getattr(airport, "icao", "") or cfg.airport_icao or ""),
+            f"{float(getattr(airport, 'lat', 0.0) or 0.0):.6f}",
+            f"{float(getattr(airport, 'lon', 0.0) or 0.0):.6f}",
+            f"{float(radius_nm):.2f}",
+            "terrain" if terrain else "no-terrain",
+            str(id(_radar_surface_payload_for_map)),
+        ]
+    )
+
+
+def _radar_map_payload_for_request(
+    cfg: AppConfig,
+    airport: Any,
+    *,
+    radius_nm: float,
+    terrain: bool = False,
+    refresh_runways: bool = False,
+) -> Dict[str, Any]:
+    cache_key = _radar_map_cache_key(cfg, airport, radius_nm=radius_nm, terrain=terrain)
+    now_ts = time.monotonic()
+    if not refresh_runways:
+        cached = _radar_map_cache.get(cache_key)
+        if cached and (now_ts - cached[0]) < _RADAR_MAP_CACHE_TTL_S:
+            return dict(cached[1])
+    surface = _radar_surface_payload_for_map(cfg, airport, radius_nm=radius_nm)
+    payload = build_radar_map(
+        airport_iata=cfg.airport_iata,
+        airport_icao=(airport.icao or cfg.airport_icao or "").upper(),
+        center_lat=float(airport.lat),
+        center_lon=float(airport.lon),
+        radius_nm=radius_nm,
+        surface_payload=surface,
+        terrain_enabled=terrain,
+        refresh_runways=bool(refresh_runways),
+    )
+    _radar_map_cache[cache_key] = (now_ts, dict(payload))
+    return payload
+
+
+@router.get("/api/radar/map")
+def api_radar_map(
+    radius_nm: float = Query(20.0, ge=1.0, le=200.0),
+    terrain: bool = Query(False),
+    refresh_runways: bool = Query(False),
+) -> Dict[str, Any]:
+    terrain_enabled = terrain if isinstance(terrain, bool) else False
+    refresh_requested = refresh_runways if isinstance(refresh_runways, bool) else False
+    cfg = load_config()
+    airport = lookup_airport(iata=cfg.airport_iata, icao=cfg.airport_icao)
+    if not airport or airport.lat is None or airport.lon is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No coordinates for {cfg.airport_iata}/{cfg.airport_icao}",
+        )
+    return _radar_map_payload_for_request(
+        cfg,
+        airport,
+        radius_nm=radius_nm,
+        terrain=terrain_enabled,
+        refresh_runways=refresh_requested,
     )
 
 
 @router.get("/api/radar")
 def api_radar(
     radius_nm: float = Query(20.0, ge=1.0, le=200.0),  # default 20nm
+    traffic: Literal["all", "arrivals", "departures", "final", "ground", "airborne"] = Query("all"),
+    min_alt_ft: Optional[float] = Query(None),
+    max_alt_ft: Optional[float] = Query(None),
 ) -> Dict[str, Any]:
     """
     Returns aircraft positions for the radar display.
@@ -827,6 +1146,9 @@ def api_radar(
                         Falls back to snapshot positions, then live OpenSky.
     For source=virtual: live VATSIM, filtered to dep/arr at configured airport only.
     """
+    traffic = traffic if isinstance(traffic, str) else "all"
+    min_alt_ft = _float_or_none(min_alt_ft)
+    max_alt_ft = _float_or_none(max_alt_ft)
     cfg     = load_config()
     airport = lookup_airport(iata=cfg.airport_iata, icao=cfg.airport_icao)
 
@@ -890,18 +1212,22 @@ def api_radar(
                     or None
                 )
 
-                blips.append({
+                blips.append(enrich_blip_display_fields({
                     "callsign":   callsign,
                     "lat":        plat_f,
                     "lon":        plon_f,
                     "altitude_m": alt_ft * 0.3048 if alt_ft else None,
+                    "altitude_ft": round(alt_ft) if alt_ft else None,
                     "heading":    float(hdg) if hdg is not None else None,
+                    "track_deg":   float(hdg) if hdg is not None else None,
                     "speed_ms":   gs_kts * 0.514444 if gs_kts else None,
+                    "speed_kt":   round(gs_kts) if gs_kts else None,
                     "on_ground":  (alt_ft < 100 and gs_kts < 50),
                     "icao24":     None,
                     "squawk":     pilot.get("transponder") or fp.get("assigned_transponder"),
                     "enriched":   False,
                     "source":     "vatsim",
+                    "source_quality": "vatsim-flight-plan" if fp else "vatsim-position",
                     "aircraft_type": aircraft_type,
                     "departure_icao": dep or None,
                     "arrival_icao": arr or None,
@@ -910,7 +1236,7 @@ def api_radar(
                     "planned_altitude": fp.get("altitude"),
                     "cruise_tas": fp.get("cruise_tas"),
                     "distance_nm": round(distance_nm, 2),
-                })
+                }))
 
         except Exception as exc:
             log.warning("VATSIM radar fetch failed: %s", exc)
@@ -979,13 +1305,15 @@ def api_radar(
 
         for f in flights:
             if f.position and f.position.lat is not None:
-                blips.append({
+                blips.append(enrich_blip_display_fields({
                     "callsign":      f.callsign,
                     "lat":           f.position.lat,
                     "lon":           f.position.lon,
                     "altitude_m":    f.position.altitude_baro,
                     "heading":       f.position.heading,
+                    "track_deg":     f.position.heading,
                     "speed_ms":      f.position.speed_ms,
+                    "vertical_rate": f.position.vertical_rate,
                     "on_ground":     f.position.on_ground,
                     "icao24":        f.position.icao24,
                     "squawk":        f.position.squawk,
@@ -996,8 +1324,9 @@ def api_radar(
                     "departure_icao": f.origin.icao if f.origin else None,
                     "arrival_icao": f.destination.icao if f.destination else None,
                     "distance_nm": round(_distance_nm(center_lat, center_lon, f.position.lat, f.position.lon), 2),
+                    "source_quality": "snapshot-position",
                     "enriched":      True,
-                })
+                }))
 
         # Fallback to live OpenSky if snapshot has no positions.
         # Cached per airport for 60 s so that multiple tabs/mobile polling
@@ -1020,7 +1349,9 @@ def api_radar(
                     )
                     for b in raw_blips:
                         b["enriched"] = False
-                    blips = raw_blips
+                        b["source"] = b.get("source") or "opensky"
+                        b["source_quality"] = "opensky-state-vector"
+                    blips = [enrich_blip_display_fields(b) for b in raw_blips]
                     _opensky_radar_cache[cache_key] = (now_ts, blips)
                 except Exception as exc:
                     log.warning("OpenSky live radar fallback failed: %s", exc)
@@ -1033,6 +1364,20 @@ def api_radar(
         blips, airborne_filtered = _filter_ground_radar_blips(blips)
     else:
         blips, ground_filtered = _filter_airborne_radar_blips(blips)
+    try:
+        map_payload = _radar_map_payload_for_request(cfg, airport, radius_nm=radius_nm, terrain=False)
+        runways = map_payload.get("runways") if isinstance(map_payload.get("runways"), list) else []
+    except Exception as exc:
+        log.debug("Radar classification runway map unavailable: %s", exc)
+        runways = []
+    blips = _annotate_radar_blips(blips, airport_icao=airport_icao, runways=runways)
+    before_user_filter_count = len(blips)
+    blips = _filter_radar_blips_for_view(
+        blips,
+        traffic=traffic,
+        min_alt_ft=min_alt_ft,
+        max_alt_ft=max_alt_ft,
+    )
 
     adsb_source = source_used.startswith("adsbexchange")
 
@@ -1047,6 +1392,9 @@ def api_radar(
         "airborne_filtered": airborne_filtered,
         "hidden_ground_count": ground_filtered,
         "hidden_airborne_count": airborne_filtered,
+        "traffic_filter": traffic,
+        "altitude_filter": {"min_alt_ft": min_alt_ft, "max_alt_ft": max_alt_ft},
+        "user_filtered_count": before_user_filter_count - len(blips),
         "provider_radius_nm": provider_radius_nm if cfg.source != "virtual" and adsb_source else radius_nm,
         "raw_provider_count": adsbx_raw_count if cfg.source != "virtual" and adsb_source else len(blips),
         "blips":     blips,
@@ -2341,9 +2689,12 @@ def _matrix_ascii(value: Any) -> str:
 
 def _matrix_row_payload(row: Any) -> Dict[str, Any]:
     data = row.model_dump() if hasattr(row, "model_dump") else row.dict() if hasattr(row, "dict") else dict(row)
+    data = enrich_presentation_fields(data)
     status = str(data.get("status_display") or "")
     lowered = status.lower()
-    kind = (
+    kind = str(data.get("status_kind") or "").strip()
+    if not kind:
+        kind = (
         "delayed" if "delay" in lowered else
         "cancelled" if "cancel" in lowered else
         "boarding" if "board" in lowered else
@@ -2352,12 +2703,15 @@ def _matrix_row_payload(row: Any) -> Dict[str, Any]:
         "departing" if "depart" in lowered else
         "landed" if "land" in lowered else
         "scheduled"
-    )
+        )
     flight = data.get("flight_display") or data.get("callsign") or "-"
     operator = data.get("airline_display") or ""
     codeshare = data.get("codeshare_display") or ""
     route_display = data.get("route_display") or "-"
     route_fields = _matrix_route_fields(route_display)
+    gate_value = data.get("gate_display") or data.get("gate") or ""
+    if str(gate_value).strip() == "-":
+        gate_value = ""
     return {
         "id": data.get("id"),
         "time": data.get("display_time") or "--:--",
@@ -2370,7 +2724,15 @@ def _matrix_row_payload(row: Any) -> Dict[str, Any]:
         **route_fields,
         "status": status or "-",
         "status_display": status or "-",
-        "gate": data.get("gate") or "-",
+        "time_primary": data.get("time_primary") or "",
+        "time_delta_label": data.get("time_delta_label") or "",
+        "time_delta_text": data.get("time_delta_text") or "",
+        "delay_kind": data.get("delay_kind") or "none",
+        "tone": data.get("tone") or "neutral",
+        "gate": gate_value,
+        "gate_display": data.get("gate_display") or "",
+        "terminal_display": data.get("terminal_display") or "",
+        "terminal_gate_display": data.get("terminal_gate_display") or "",
         "aircraft": data.get("aircraft_type") or "",
         "aircraft_type": data.get("aircraft_type") or "",
         "callsign": data.get("callsign") or "",
@@ -2381,7 +2743,9 @@ def _matrix_row_payload(row: Any) -> Dict[str, Any]:
         "codeshare_display": codeshare,
         "sold_as": codeshare,
         "status_class": data.get("status_class") or kind,
-        "status_kind": data.get("status_class") or kind,
+        "status_kind": data.get("status_kind") or kind,
+        "source_hint": data.get("source_hint") or "",
+        "live_hint": data.get("live_hint") or "",
     }
 
 

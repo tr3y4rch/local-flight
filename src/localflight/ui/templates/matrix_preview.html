@@ -158,7 +158,7 @@
     margin-top: 10px;
     font-size: 0.72rem;
     color: #667080;
-    font-family: ui-monospace, monospace;
+    font-family: var(--font-board);
     padding: 4px 0;
   }
 
@@ -200,7 +200,7 @@
     border-radius: 8px;
     padding: 12px 14px;
     margin-top: 10px;
-    font-family: ui-monospace, monospace;
+    font-family: var(--font-board);
     font-size: 0.78rem;
     white-space: pre;
     overflow-x: auto;
@@ -1046,6 +1046,12 @@
 
   function statusColor(rowOrStatus) {
     const s = statusKey(rowOrStatus);
+    const delay = typeof rowOrStatus === "object" && rowOrStatus ? Number(rowOrStatus.delay_minutes) : NaN;
+    if (Number.isFinite(delay) && delay <= -5)  return C.green;
+    if (Number.isFinite(delay) && delay > 15)   return C.red;
+    if (Number.isFinite(delay) && delay >= 5)   return C.amber;
+    if (s.includes("early"))                    return C.green;
+    if (s.includes("delay") && s.includes("bad")) return C.red;
     if (s.includes("delay"))                    return C.amber;
     if (s.includes("cancel"))                   return C.red;
     if (s.includes("boarding") || s.includes("gate") || s.includes("ground")) return scaleColor(C.amber, breathAmount(1700));

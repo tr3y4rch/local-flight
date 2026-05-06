@@ -8,7 +8,16 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from localflight.core.models import Flight, FlightDirection, FlightStatus
 from localflight.decode.mappings.airlines import format_flight_identifier
 from localflight.decode.mappings.airports import format_airport
-from localflight.display.fids import FIDSRow, FidsView
+from localflight.display.fids import (
+    FIDSRow,
+    FidsView,
+    delay_kind_from_minutes,
+    gate_fields,
+    normalize_status_kind,
+    split_display_time,
+    split_route_display,
+    tone_for_status,
+)
 
 
 def _resolve_tz(f: Flight) -> ZoneInfo:
@@ -69,6 +78,16 @@ def _codeshare_display(f: Flight) -> str:
     return "Also " + " / ".join(shown) + suffix
 
 
+def _delay_class(delay_minutes: Optional[int]) -> str:
+    if not isinstance(delay_minutes, int) or abs(delay_minutes) < 5:
+        return ""
+    if delay_minutes < 0:
+        return "early"
+    if delay_minutes > 15:
+        return "bad"
+    return "warn"
+
+
 def _nm_between(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     """Haversine distance in nautical miles."""
     R = 3440.065
@@ -121,16 +140,22 @@ def _compute_status(
         if nm <= 50:
             return f"APPR {int(nm)}NM", "approaching"
 
-    # 2. On ground
+    # 2. Delay/early (only meaningful when we have schedule data)
+    # Keep this before completed/on-ground so early landings stay visible green.
+    dly = f.delay_minutes
+    delay_cls = _delay_class(dly)
+    if delay_cls == "early":
+        return f"EARLY {abs(dly)}M", "early"
+    if delay_cls == "warn":
+        return f"DELAYED +{dly}M", "delayed-warn"
+    if delay_cls == "bad":
+        return f"DELAYED +{dly}M", "delayed-bad"
+
+    # 3. On ground
     if on_ground:
         if f.direction == FlightDirection.ARRIVAL:
             return "LANDED", "landed"
         return "ON GROUND", "on-ground"
-
-    # 3. Delayed (only meaningful when we have schedule data)
-    dly = f.delay_minutes
-    if isinstance(dly, int) and dly >= 15:
-        return f"DELAYED +{dly}M", "delayed"
 
     # 4. Source-authoritative status
     _MAP: dict[FlightStatus, tuple[str, str]] = {
@@ -139,7 +164,7 @@ def _compute_status(
         FlightStatus.ARRIVED:   ("ARRIVED",   "landed"),
         FlightStatus.CANCELLED: ("CANCELLED", "cancelled"),
         FlightStatus.DIVERTED:  ("DIVERTED",  "diverted"),
-        FlightStatus.DELAYED:   ("DELAYED",   "delayed"),
+        FlightStatus.DELAYED:   ("DELAYED",   "delayed-warn"),
         FlightStatus.SCHEDULED: ("SCHEDULED", "scheduled"),
         FlightStatus.UNKNOWN:   ("SCHEDULED", "scheduled"),
     }
@@ -159,6 +184,7 @@ def flight_to_fids_row(
     display_time = _to_local_hhmm(t, tz) or "--:--"
 
     dly = getattr(f, "delay_minutes", None)
+    delay_class = _delay_class(dly)
     if isinstance(dly, int) and abs(dly) >= 5 and display_time != "--:--":
         sign = "+" if dly > 0 else "-"
         display_time = f"{display_time} ({sign}{abs(dly)})"
@@ -175,6 +201,17 @@ def flight_to_fids_row(
     fid = f"{f.source or 'src'}:{f.callsign}:{t.isoformat() if t else 'notime'}"
 
     status_display, status_class = _compute_status(f, airport_lat, airport_lon)
+    time_primary, time_delta_label, time_delta_text = split_display_time(display_time, dly if isinstance(dly, int) else None)
+    delay_kind = delay_kind_from_minutes(dly if isinstance(dly, int) else None)
+    route_primary, route_code, route_caption = split_route_display(route_display)
+    gate_display, terminal_display, terminal_gate_display = gate_fields(gate, f.terminal)
+    status_kind = normalize_status_kind(status_class, status_display, delay_kind)
+    tone = tone_for_status(status_kind, delay_kind)
+    live_hint = ""
+    if status_class == "approaching":
+        live_hint = status_display.replace("APPR", "Approaching").replace("NM", " NM")
+    source_parts = [str(part) for part in (f.source, f.enriched_by) if part]
+    source_hint = " + ".join(source_parts)
 
     return FIDSRow(
         id=fid,
@@ -189,4 +226,20 @@ def flight_to_fids_row(
         gate=gate,
         aircraft_type=aircraft_type,
         callsign=f.callsign or "",
+        delay_minutes=dly if isinstance(dly, int) else None,
+        delay_class=delay_class,
+        time_primary=time_primary,
+        time_delta_label=time_delta_label,
+        time_delta_text=time_delta_text,
+        delay_kind=delay_kind,
+        status_kind=status_kind,
+        tone=tone,
+        gate_display=gate_display,
+        terminal_display=terminal_display,
+        terminal_gate_display=terminal_gate_display,
+        route_primary=route_primary,
+        route_code=route_code,
+        route_caption=route_caption,
+        source_hint=source_hint,
+        live_hint=live_hint,
     )

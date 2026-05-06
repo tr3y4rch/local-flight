@@ -59,7 +59,7 @@
   .stat-row:last-child { border-bottom: none; }
   .stat-label { opacity: 0.6; white-space: nowrap; }
   .stat-val { font-weight: 600; text-align: right; font-variant-numeric: tabular-nums; }
-  .stat-val.mono { font-family: ui-monospace, monospace; font-size: 0.8rem; }
+  .stat-val.mono { font-family: var(--font-board); font-size: 0.8rem; }
 
   /* Big count */
   .big-num { font-size: 2.4rem; font-weight: 800; line-height: 1; margin: 4px 0; }
@@ -139,7 +139,7 @@
     border-radius: 4px;
     font-size: 0.68rem;
     font-weight: 700;
-    font-family: ui-monospace, monospace;
+    font-family: var(--font-board);
     letter-spacing: 0.02em;
   }
   .method-GET  { background: rgba(0,192,64,0.15);  color: #00c040; }
@@ -166,12 +166,12 @@
   .client-api     { background: rgba(239,68,68,0.12);  border-color: rgba(239,68,68,0.25);  color: #f87171; }
   .client-unknown { background: rgba(255,255,255,0.05); border-color: rgba(255,255,255,0.1); color: #888; }
 
-  .path-cell { font-family: ui-monospace, monospace; max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .ip-cell   { font-family: ui-monospace, monospace; opacity: 0.5; font-size: 0.75rem; }
-  .ms-cell   { font-family: ui-monospace, monospace; opacity: 0.7; font-size: 0.75rem; }
+  .path-cell { font-family: var(--font-board); max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ip-cell   { font-family: var(--font-board); opacity: 0.5; font-size: 0.75rem; }
+  .ms-cell   { font-family: var(--font-board); opacity: 0.7; font-size: 0.75rem; }
   .time-cell { opacity: 0.5; font-size: 0.75rem; white-space: nowrap; }
 
-  .refresh-chip { font-size: 0.7rem; opacity: 0.35; font-family: ui-monospace, monospace; margin-top: 14px; text-align: center; }
+  .refresh-chip { font-size: 0.7rem; opacity: 0.35; font-family: var(--font-board); margin-top: 14px; text-align: center; }
   .empty-row td { text-align: center; opacity: 0.4; padding: 32px 0; font-style: italic; }
 {% endblock %}
 
@@ -309,7 +309,7 @@
       const pct = Math.round(p.count / max * 100);
       return `<div style="margin-bottom:6px;">
         <div style="display:flex;justify-content:space-between;font-size:0.75rem;margin-bottom:2px;">
-          <span style="font-family:ui-monospace,monospace;opacity:0.8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:200px;" title="${esc(p.path)}">${esc(p.path)}</span>
+          <span style="font-family: var(--font-board);opacity:0.8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:200px;" title="${esc(p.path)}">${esc(p.path)}</span>
           <span style="opacity:0.5;margin-left:8px;flex-shrink:0;">${esc(p.count)}</span>
         </div>
         <div style="background:rgba(255,255,255,0.06);border-radius:2px;height:3px;">

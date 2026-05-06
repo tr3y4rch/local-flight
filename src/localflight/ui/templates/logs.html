@@ -25,7 +25,7 @@
   .ctrl-btn.active { background: rgba(0,255,80,0.1); border-color: rgba(0,255,80,0.4); color: #00e84a; }
   [data-theme="light"] .ctrl-btn { border-color: rgba(0,0,0,0.15); background: rgba(0,0,0,0.04); }
   .log-meta {
-    font-size: 0.72rem; opacity: 0.5; font-family: ui-monospace, monospace;
+    font-size: 0.72rem; opacity: 0.5; font-family: var(--font-board);
     margin-bottom: 8px; display: flex; gap: 16px; flex-wrap: wrap; align-items: center;
   }
   .live-badge { display: inline-flex; align-items: center; gap: 5px; font-size: 0.7rem; color: #00e84a; font-weight: 600; }
@@ -36,7 +36,7 @@
     border: 1px solid var(--panel-border); background: var(--panel-bg);
     overflow: auto; height: 60vh; font-size: 0.72rem; line-height: 1.5;
     white-space: pre-wrap; word-break: break-all;
-    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-family: var(--font-board);
     scroll-behavior: smooth;
   }
   .log-line { display: block; padding: 1px 0; }

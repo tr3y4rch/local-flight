@@ -252,55 +252,14 @@ def aircraft_to_blips(
     center_lon: float,
     radius_nm: float = 50.0,
 ) -> List[Dict[str, Any]]:
-    blips: List[Dict[str, Any]] = []
-    nm_per_deg = 60.0
+    from localflight.radar.normalize import adsbx_aircraft_to_blips
 
-    for ac in aircraft:
-        lat = ac.get("lat")
-        lon = ac.get("lon")
-        if lat is None or lon is None:
-            continue
-
-        dlat = (lat - center_lat) * nm_per_deg
-        dlon = (lon - center_lon) * nm_per_deg * math.cos(math.radians(center_lat))
-        dist = math.sqrt(dlat**2 + dlon**2)
-        if dist > radius_nm:
-            continue
-
-        callsign = (ac.get("flight") or "").strip().upper() or (ac.get("hex") or "").upper()
-        alt_baro = ac.get("alt_baro")
-        gs_kts = ac.get("gs")
-        hdg = ac.get("track")
-
-        on_ground = alt_baro == "ground"
-        alt_m = None
-        if not on_ground and alt_baro is not None:
-            try:
-                alt_m = float(alt_baro) * 0.3048
-            except (ValueError, TypeError):
-                alt_m = None
-
-        blips.append(
-            {
-                "callsign": callsign,
-                "lat": float(lat),
-                "lon": float(lon),
-                "altitude_m": alt_m,
-                "heading": float(hdg) if hdg is not None else None,
-                "speed_ms": float(gs_kts) * 0.514444 if gs_kts is not None else None,
-                "vertical_rate": float(ac["baro_rate"]) * 0.00508 if ac.get("baro_rate") else None,
-                "on_ground": on_ground,
-                "icao24": (ac.get("hex") or "").upper(),
-                "squawk": ac.get("squawk"),
-                "aircraft_type": ac.get("t"),
-                "registration": ac.get("r"),
-                "source": "adsbexchange",
-                "enriched": True,
-                "distance_nm": round(dist, 1),
-            }
-        )
-
-    return blips
+    return adsbx_aircraft_to_blips(
+        aircraft=aircraft,
+        center_lat=center_lat,
+        center_lon=center_lon,
+        radius_nm=radius_nm,
+    )
 
 
 def enrich_flights_with_adsbexchange(

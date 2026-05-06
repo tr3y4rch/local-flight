@@ -27,7 +27,7 @@ import localflight.storage.install as storage_install
 import localflight.ui.api as ui_api
 import localflight.ui.server as ui_server
 import relay.main as relay_main
-from localflight.core.models import AirportRef, Flight, FlightDirection, FlightTime
+from localflight.core.models import AirportRef, Flight, FlightDirection, FlightPosition, FlightTime
 from localflight.decode.metar import decorate_metar
 from localflight.decode.dedupe import dedupe_codeshares
 from localflight.decode.normalize import normalize_flights
@@ -271,6 +271,64 @@ def test_fids_decodes_airline_names_and_links_codeshares() -> None:
     assert row.flight_display == "LX 100"
     assert row.airline_display == "SWISS"
     assert row.codeshare_display == "Also UA 100"
+
+
+def test_fids_delay_visual_thresholds_and_early_arrivals() -> None:
+    tz = ZoneInfo("Europe/Zurich")
+    airport = AirportRef(iata="ZRH", icao="LSZH")
+    flights = [
+        Flight(
+            direction=FlightDirection.ARRIVAL,
+            airport=airport,
+            callsign="WARN15",
+            origin=AirportRef(iata="FRA", icao="EDDF"),
+            times=FlightTime(scheduled=datetime(2026, 5, 1, 12, 0, tzinfo=tz)),
+            delay_minutes=15,
+            source="test",
+        ),
+        Flight(
+            direction=FlightDirection.ARRIVAL,
+            airport=airport,
+            callsign="BAD16",
+            origin=AirportRef(iata="LHR", icao="EGLL"),
+            times=FlightTime(scheduled=datetime(2026, 5, 1, 12, 5, tzinfo=tz)),
+            delay_minutes=16,
+            source="test",
+        ),
+        Flight(
+            direction=FlightDirection.ARRIVAL,
+            airport=airport,
+            callsign="EARLY8",
+            origin=AirportRef(iata="AMS", icao="EHAM"),
+            times=FlightTime(scheduled=datetime(2026, 5, 1, 12, 10, tzinfo=tz)),
+            delay_minutes=-8,
+            position=FlightPosition(on_ground=True),
+            source="test",
+        ),
+    ]
+
+    ctx = build_fids_context(
+        cfg=AppConfig(airport_iata="ZRH", airport_icao="LSZH", timezone="Europe/Zurich"),
+        view="arrivals",
+        refresh_seconds=60,
+        flights=flights,
+        reference_now=datetime(2026, 5, 1, 11, 55, tzinfo=tz),
+    )
+    by_callsign = {row.callsign: row for row in ctx["rows"]}
+
+    assert by_callsign["WARN15"].status_class == "delayed-warn"
+    assert by_callsign["WARN15"].delay_class == "warn"
+    assert by_callsign["WARN15"].delay_kind == "warn"
+    assert by_callsign["WARN15"].tone == "amber"
+    assert by_callsign["WARN15"].time_delta_label == "+15"
+    assert by_callsign["BAD16"].status_class == "delayed-bad"
+    assert by_callsign["BAD16"].delay_class == "bad"
+    assert by_callsign["BAD16"].status_kind == "delayed_bad"
+    assert by_callsign["BAD16"].tone == "red"
+    assert by_callsign["EARLY8"].status_class == "early"
+    assert by_callsign["EARLY8"].delay_class == "early"
+    assert by_callsign["EARLY8"].delay_kind == "early"
+    assert by_callsign["EARLY8"].tone == "green"
 
 
 def test_save_snapshot_uses_canonical_user_storage(tmp_path: Path, monkeypatch) -> None:
@@ -727,6 +785,8 @@ def test_api_radar_virtual_uses_vatsim_only(monkeypatch) -> None:
     assert result["blips"][0]["arrival_icao"] == "EGLL"
     assert result["blips"][0]["aircraft_type"] == "A320"
     assert result["blips"][0]["route"] == "DCT TEST"
+    assert result["blips"][0]["radar_phase"] == "departure"
+    assert result["blips"][0]["radar_status_label"] == "Departing"
     assert "name" not in result["blips"][0]
     assert "cid" not in result["blips"][0]
 
@@ -1062,6 +1122,9 @@ def test_api_radar_surface_falls_back_to_local_stale_cache(monkeypatch) -> None:
     assert result["cache_state"] == "stale"
     assert "Relay surface HTTP 503" in result["error"]
     assert result["features"][0]["label"] == "16/34"
+    assert result["features"][0]["validation"]["validated_by"] == ["openstreetmap", "ourairports-center"]
+    assert result["features"][0]["validation"]["heading_deg"] is not None
+    assert result["meta"]["validation"]["runway_count"] == 1
 
 
 def test_api_radar_surface_returns_estimated_first_run_overlay(monkeypatch) -> None:
@@ -1088,8 +1151,74 @@ def test_api_radar_surface_returns_estimated_first_run_overlay(monkeypatch) -> N
     assert result["cache_state"] == "estimated"
     assert result["provider"] == "localflight-estimated"
     assert result["meta"]["estimated_surface"] is True
+    assert result["meta"]["validation"]["validated_by"] == ["localflight-estimated", "ourairports-center"]
+    assert result["meta"]["validation"]["runway_count"] >= 1
     assert "Relay surface HTTP 503" in result["error"]
     assert {feature["kind"] for feature in result["features"]} >= {"boundary", "runway", "taxiway", "apron", "building"}
+
+
+def test_api_radar_map_returns_runways_and_simplified_surface(monkeypatch) -> None:
+    monkeypatch.setattr(
+        ui_api,
+        "load_config",
+        lambda: AppConfig(airport_iata="ZRH", airport_icao="LSZH", source="real"),
+    )
+    monkeypatch.setattr(
+        ui_api,
+        "lookup_airport",
+        lambda **kwargs: types.SimpleNamespace(lat=47.45, lon=8.55, icao="LSZH"),
+    )
+    monkeypatch.setattr(
+        ui_api,
+        "_radar_surface_payload_for_map",
+        lambda cfg, airport, radius_nm: {
+            "provider": "openstreetmap",
+            "cache_state": "fresh",
+            "attribution": {"text": "OSM", "url": "https://www.openstreetmap.org/copyright"},
+            "features": [
+                {"kind": "runway", "label": "16/34", "points": [[47.47, 8.53], [47.43, 8.57]]},
+                {"kind": "taxiway", "label": "A", "points": [[47.46, 8.54], [47.44, 8.56]]},
+                {"kind": "terminal", "label": "Terminal", "closed": True, "points": [[47.45, 8.55], [47.451, 8.55], [47.451, 8.551], [47.45, 8.55]]},
+            ],
+        },
+    )
+
+    response = TestClient(app).get("/api/radar/map?radius_nm=40")
+    payload = response.json()
+
+    assert response.status_code == 200
+    assert payload["schema_version"] == "radar-map-v1"
+    assert payload["runways"][0]["label"] == "16/34"
+    assert [feature["kind"] for feature in payload["surface_features"]] == ["terminal"]
+    assert payload["attribution"][0]["text"] == "OSM"
+
+
+def test_api_radar_map_reuses_internal_surface_cache(monkeypatch) -> None:
+    cfg = AppConfig(airport_iata="ZRH", airport_icao="LSZH", source="real")
+    airport = types.SimpleNamespace(lat=47.45, lon=8.55, icao="LSZH")
+    calls = {"surface": 0}
+
+    ui_api._radar_map_cache.clear()
+    monkeypatch.setattr(ui_api, "load_config", lambda: cfg)
+    monkeypatch.setattr(ui_api, "lookup_airport", lambda **kwargs: airport)
+
+    def surface_payload(_cfg, _airport, *, radius_nm):
+        calls["surface"] += 1
+        return {
+            "provider": "openstreetmap",
+            "cache_state": "fresh",
+            "attribution": {"text": "OSM", "url": "https://www.openstreetmap.org/copyright"},
+            "features": [{"kind": "runway", "label": "16/34", "points": [[47.47, 8.53], [47.43, 8.57]]}],
+        }
+
+    monkeypatch.setattr(ui_api, "_radar_surface_payload_for_map", surface_payload)
+
+    first = ui_api.api_radar_map(radius_nm=20.0, terrain=False)
+    second = ui_api.api_radar_map(radius_nm=20.0, terrain=False)
+
+    assert first["runways"][0]["label"] == "16/34"
+    assert second["runways"][0]["label"] == "16/34"
+    assert calls["surface"] == 1
 
 
 def test_radar_template_loads_surface_layer_and_attribution(monkeypatch) -> None:
@@ -1114,6 +1243,8 @@ def test_radar_template_loads_surface_layer_and_attribution(monkeypatch) -> None
     assert "localflight-estimated" in response.text
     assert "height: 100dvh" in response.text
     assert "ResizeObserver" in response.text
+    assert "trackHistory" in response.text
+    assert "shouldDrawLabel" in response.text
     assert "--lf-chrome" not in response.text
 
 
@@ -1672,9 +1803,12 @@ def test_matrix_v2_feed_adds_route_safe_fields_and_metar(tmp_path: Path, monkeyp
     assert row["route_city"] == "Dallas-Fort Worth"
     assert row["route_code"] == "KDFW"
     assert row["route_matrix_label"] == "DALLAS-FORT WORTH KDFW"
-    assert row["gate"] == "-"
+    assert row["gate"] == ""
+    assert row["gate_display"] == ""
     assert row["aircraft_type"] == "A321"
     assert row["callsign"] == "AAL100"
+    assert row["status_kind"] == "scheduled"
+    assert row["tone"] == "neutral"
     assert payload["metar"]["weather_icon"] == "sun"
     assert payload["metar"]["temperature_display"] == "29 C"
 
@@ -1804,10 +1938,10 @@ def test_matrix_vatsim_atc_feed_pages_and_weather_are_vatsim_only(tmp_path: Path
     assert response.status_code == 200
     payload = response.json()
     assert payload["rows"][0]["route_code"] == "LSZH"
-    assert payload["rows"][0]["gate"] == "-"
+    assert payload["rows"][0]["gate"] == ""
     assert set(payload["pages"]) == {"departures", "arrivals", "weather"}
     assert payload["pages"]["departures"][0]["route_code"] == "EGLL"
-    assert payload["pages"]["arrivals"][0]["gate"] == "-"
+    assert payload["pages"]["arrivals"][0]["gate"] == ""
     assert payload["metar"]["source"] == "vatsim"
     assert payload["weather_page"]["available"] is True
     assert "LSZH VATSIM WX" in payload["weather_page"]["lines"]
@@ -2554,6 +2688,7 @@ def test_ui_route_contracts_cover_core_pages_and_api_surfaces() -> None:
         "/api/config",
         "/api/fids",
         "/api/radar",
+        "/api/radar/map",
         "/api/radar/surface",
         "/api/metar",
         "/api/history",

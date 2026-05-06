@@ -481,15 +481,18 @@ def _route_chunk(row, chars):
     return cycle_chunks(_route_label(row), chars, _route_code(row)).rstrip()
 
 def _status_chunk(row, chars):
+    delta = row.get("time_delta_label") or ""
     status = row.get("status_display") or row.get("status") or "-"
+    if delta and "delay" not in str(status).lower() and "early" not in str(status).lower():
+        status = "{} {}".format(status, delta)
     return cycle_chunks(status, chars).rstrip()
 
 def build_row_text(row):
-    time_s   = fit_text(_text_field(row.get("display_time") or row.get("time"), "--:--"), 5)
+    time_s   = fit_text(_text_field(row.get("time_primary") or row.get("display_time") or row.get("time"), "--:--"), 5)
     flight_s = fit_text(_flight_cycle_display(row), 8)
     dest_s   = fit_text(_route_label(row), 12)
     status_s = fit_text(_text_field(row.get("status_display") or row.get("status")), 10)
-    gate_s   = fit_text(_text_field(row.get("gate"), "-"), 4)
+    gate_s   = fit_text(_text_field(row.get("gate_display") or row.get("gate"), ""), 4)
     return f"{time_s} {flight_s} {dest_s} {status_s} {gate_s}"
 
 def build_detail_text(row):
@@ -532,6 +535,14 @@ def _breath_index():
 
 def status_color(row_or_status):
     s = _status_key(row_or_status)
+    if isinstance(row_or_status, dict):
+        tone = _upper_text(row_or_status.get("tone") or "").lower()
+        delay_kind = _upper_text(row_or_status.get("delay_kind") or "").lower()
+        if tone == "red" or delay_kind == "bad": return RED
+        if tone == "amber" or delay_kind == "warn": return AMBER
+        if tone == ("gr" + "een") or delay_kind == "early": return GREEN
+        if tone == "dim": return DIM
+    if "delayed_bad" in s or "cancel" in s: return RED
     if "delay" in s:               return AMBER
     if "cancel" in s:              return RED
     if "boarding" in s or "gate" in s or "ground" in s: return AMBER_BREATH[_breath_index()]

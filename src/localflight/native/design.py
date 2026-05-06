@@ -12,6 +12,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+UI_FONT_FAMILY = "DM Sans"
+BOARD_FONT_FAMILY = "Space Mono"
+UI_FONT_STACK = f'"{UI_FONT_FAMILY}", "Segoe UI", "Helvetica Neue", sans-serif'
+BOARD_FONT_STACK = f'"{BOARD_FONT_FAMILY}", Consolas, monospace'
+
 
 @dataclass(frozen=True)
 class ThemeTokens:
@@ -136,6 +141,11 @@ DOC_PAGES = {
         "filename": "CHANGELOG.md",
         "summary": "Version history and recent release changes.",
     },
+    "third-party": {
+        "title": "Third-Party Notices",
+        "filename": "THIRD_PARTY_NOTICES.md",
+        "summary": "Bundled font licenses and source attribution for local app assets.",
+    },
 }
 
 NAV_GLYPHS = {
@@ -182,7 +192,7 @@ def native_stylesheet(
 QWidget {{
   background: {colors["bg"]};
   color: {colors["text"]};
-  font-family: "DM Sans", "Segoe UI", "Helvetica Neue", sans-serif;
+  font-family: {UI_FONT_STACK};
   font-size: 13px;
 }}
 QMainWindow {{
@@ -209,6 +219,18 @@ QFrame#WeatherStrip {{
   background: {subtle_surface};
   border: 1px solid {_rgba(accent, 0.22)};
   border-radius: 10px;
+}}
+QFrame#WeatherStrip[tone="good"] {{
+  background: {_rgba(colors["green"], 0.10)};
+  border-color: {_rgba(colors["green"], 0.28)};
+}}
+QFrame#WeatherStrip[tone="caution"] {{
+  background: {_rgba(colors["amber"], 0.11)};
+  border-color: {_rgba(colors["amber"], 0.30)};
+}}
+QFrame#WeatherStrip[tone="bad"] {{
+  background: {_rgba(colors["red"], 0.11)};
+  border-color: {_rgba(colors["red"], 0.34)};
 }}
 QFrame#InfoBanner {{
   background: {_rgba(accent, 0.10)};
@@ -267,7 +289,7 @@ QLabel#BrandMark {{
 }}
 QLabel#Version {{
   color: {colors["dim"]};
-  font-family: "Space Mono", Consolas, monospace;
+  font-family: {BOARD_FONT_STACK};
   font-size: 10px;
 }}
 QLabel#ClockChip {{
@@ -276,7 +298,7 @@ QLabel#ClockChip {{
   border-radius: 8px;
   padding: 4px 8px;
   color: {colors["muted"]};
-  font-family: "Space Mono", Consolas, monospace;
+  font-family: {BOARD_FONT_STACK};
 }}
 QLabel#ClockChip[connected="true"] {{
   color: {colors["green"]};
@@ -289,7 +311,7 @@ QLabel#Title {{
   color: {colors["text"]};
 }}
 QLabel#AirportCode {{
-  font-family: "Space Mono", Consolas, monospace;
+  font-family: {BOARD_FONT_STACK};
   font-size: 34px;
   font-weight: 900;
   letter-spacing: 0.12em;
@@ -303,7 +325,7 @@ QLabel#Dim {{
 }}
 QLabel#Kicker, QLabel#Section {{
   color: {colors["dim"]};
-  font-family: "Space Mono", Consolas, monospace;
+  font-family: {BOARD_FONT_STACK};
   font-size: 10px;
   font-weight: 800;
   letter-spacing: 0.12em;
@@ -355,7 +377,7 @@ QPushButton#SegmentButton {{
   border: 1px solid {soft_surface};
   border-radius: 7px;
   padding: 6px 10px;
-  font-family: "Space Mono", Consolas, monospace;
+  font-family: {BOARD_FONT_STACK};
   font-size: 11px;
 }}
 QPushButton#Danger {{
@@ -363,26 +385,26 @@ QPushButton#Danger {{
   border-color: rgba(239,68,68,0.45);
   color: {danger_text};
 }}
-QPushButton#Quiet {{
+QPushButton#Quiet, QToolButton#Quiet {{
   background: transparent;
   border-color: {strong_surface};
   color: {colors["muted"]};
 }}
-QLineEdit, QPlainTextEdit, QTextEdit, QSpinBox, QComboBox, QTableWidget, QListWidget, QTabWidget::pane {{
+QLineEdit, QPlainTextEdit, QTextEdit, QSpinBox, QComboBox, QTableWidget, QTableView, QListWidget, QTabWidget::pane {{
   background: {colors["input_bg"]};
   border: 1px solid {colors["line"]};
   border-radius: 8px;
   color: {colors["text"]};
 }}
 QPlainTextEdit, QTextEdit {{
-  font-family: Consolas, "Space Mono", monospace;
+  font-family: {BOARD_FONT_STACK};
 }}
 QHeaderView::section {{
   background: {colors["panel_2"]};
   color: {table_header_text};
   border: none;
   padding: 8px;
-  font-family: "Space Mono", Consolas, monospace;
+  font-family: {BOARD_FONT_STACK};
   font-size: 11px;
 }}
 QTableWidget {{
@@ -395,7 +417,18 @@ QTableWidget#FidsTable {{
   border: 1px solid {colors["line"]};
   border-radius: 12px;
 }}
+QTableView#FidsTable {{
+  background: {colors["panel_2"]};
+  border: 1px solid {colors["line"]};
+  border-radius: 12px;
+  alternate-background-color: {colors["panel"]};
+  gridline-color: {colors["line_soft"]};
+  selection-background-color: {accent_soft};
+}}
 QTableWidget::item {{
+  padding: 7px;
+}}
+QTableView::item {{
   padding: 7px;
 }}
 QProgressBar {{
@@ -493,6 +526,63 @@ def resolve_media_path(*parts: str) -> Path | None:
         if candidate.exists():
             return candidate
     return None
+
+
+FONT_FILES = (
+    ("DMSans.ttf", UI_FONT_FAMILY),
+    ("SpaceMono-Regular.ttf", BOARD_FONT_FAMILY),
+    ("SpaceMono-Bold.ttf", BOARD_FONT_FAMILY),
+)
+
+_LOADED_FONT_FAMILIES: list[str] | None = None
+
+
+def load_app_fonts(QtGui: Any) -> list[str]:
+    """Register bundled OFL fonts with Qt before stylesheets request them."""
+    global _LOADED_FONT_FAMILIES
+    if _LOADED_FONT_FAMILIES is not None:
+        return list(_LOADED_FONT_FAMILIES)
+    loaded: list[str] = []
+    font_db = getattr(QtGui, "QFontDatabase", None)
+    if font_db is None:
+        return loaded
+    for filename, fallback_family in FONT_FILES:
+        path = resolve_media_path("ui", "static", "fonts", filename)
+        if path is None:
+            continue
+        try:
+            font_id = font_db.addApplicationFont(str(path))
+        except Exception:
+            continue
+        if font_id < 0:
+            continue
+        try:
+            families = [str(family) for family in font_db.applicationFontFamilies(font_id)]
+        except Exception:
+            families = [fallback_family]
+        loaded.extend(families or [fallback_family])
+    if loaded:
+        _LOADED_FONT_FAMILIES = sorted(set(loaded))
+        return list(_LOADED_FONT_FAMILIES)
+    return []
+
+
+def apply_app_font_defaults(QtGui: Any, app: Any, *, point_size: int = 10) -> list[str]:
+    """Load bundled fonts and make DM Sans the Qt default family.
+
+    QSS handles normal widgets, but custom delegates and painters sometimes
+    create bare ``QFont()`` instances. Setting the QApplication font keeps those
+    native-only paths visually aligned with the web kiosk's DM Sans baseline.
+    """
+    loaded = load_app_fonts(QtGui)
+    try:
+        font = QtGui.QFont(UI_FONT_FAMILY)
+        if point_size > 0:
+            font.setPointSize(point_size)
+        app.setFont(font)
+    except Exception:
+        pass
+    return loaded
 
 
 def icon_from_media(QtGui: Any, *parts: str) -> Any:

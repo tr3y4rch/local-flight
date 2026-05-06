@@ -21,7 +21,6 @@ from datetime import datetime, timezone
 from html import escape as html_escape
 from importlib.metadata import PackageNotFoundError, version
 from typing import Any, Callable
-from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
 
 from localflight.native.api_client import LocalApiClient, NativeApiError
@@ -40,6 +39,7 @@ from localflight.native.design import (
     icon_from_media,
     label,
     list_payload,
+    apply_app_font_defaults,
     native_stylesheet,
     panel,
     pill,
@@ -53,17 +53,17 @@ from localflight.native.design import (
     value_at,
 )
 from localflight.native.loader import lazy_symbol
+from localflight.native.live import LiveStatus, NativeLiveBus, native_ws_url
 from localflight.native.qt_compat import import_qt
+from localflight.native.registry import PAGE_SPECS, NativePageSpec, fallback_refresh_page_keys
+from localflight.native.service import NativeApiService
 from localflight.storage.profiles import list_profiles
 
 COFFEE_URL = "https://buymeacoffee.com/localflight"
 
 
 def _native_ws_url(base_url: str) -> str:
-    parsed = urlparse(base_url)
-    scheme = "wss" if parsed.scheme == "https" else "ws"
-    host = parsed.netloc or parsed.path
-    return f"{scheme}://{host}/ws"
+    return native_ws_url(base_url)
 
 
 def _css_rgba(hex_color: str, alpha: float) -> str:
@@ -87,16 +87,16 @@ def _detail_css(colors: dict[str, str]) -> str:
     card_border = _css_rgba(colors.get("blue", "#4a9eda"), 0.28 if is_light else 0.22)
     return (
         "<style>"
-        f"body{{font-family:'Segoe UI','Helvetica Neue',sans-serif;color:{colors['text']};background:{colors['panel_2']};}}"
+        f"body{{font-family:'DM Sans','Segoe UI','Helvetica Neue',sans-serif;color:{colors['text']};background:{colors['panel_2']};}}"
         f".section{{margin:0 0 16px 0;padding:0 0 12px 0;border-bottom:1px solid {divider};}}"
-        f".label{{font:700 10px 'Consolas','Space Mono',monospace;letter-spacing:.12em;text-transform:uppercase;color:{colors['dim']};margin:0 0 9px 0;}}"
+        f".label{{font:700 10px 'Space Mono','Consolas',monospace;letter-spacing:.12em;text-transform:uppercase;color:{colors['dim']};margin:0 0 9px 0;}}"
         f".row{{display:flex;justify-content:space-between;gap:14px;padding:5px 0;border-bottom:1px solid {divider};}}"
         ".row:last-child{border-bottom:0;}"
         f".key{{color:{colors['muted']};}}"
         f".val{{color:{colors['text']};font-weight:700;text-align:right;}}"
         ".cards{display:grid;grid-template-columns:1fr 1fr;gap:8px;}"
         f".card{{border:1px solid {card_border};background:{card_bg};border-radius:10px;padding:10px;}}"
-        ".card .key{font:700 10px 'Consolas','Space Mono',monospace;text-transform:uppercase;letter-spacing:.08em;}"
+        ".card .key{font:700 10px 'Space Mono','Consolas',monospace;text-transform:uppercase;letter-spacing:.08em;}"
         ".history{display:flex;justify-content:space-between;gap:12px;padding:6px 0;}"
         f".good{{color:{colors['green']}}}.warn{{color:{colors['amber']}}}.bad{{color:{colors['red']}}}.muted{{color:{colors['muted']}}}"
         "</style>"
@@ -355,6 +355,7 @@ def launch_native_app(
     QtCore, QtGui, QtWidgets = import_qt()
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication(sys.argv[:1])
     app.setApplicationName("Local Flight")
+    apply_app_font_defaults(QtGui, app)
     app_icon = icon_from_media(QtGui, "assets", "icon_circle.svg")
     if not app_icon.isNull():
         app.setWindowIcon(app_icon)
@@ -430,6 +431,7 @@ class NativeSetupWindow:  # pragma: no cover - exercised with optional Qt
             def __init__(self) -> None:
                 super().__init__()
                 self.client = LocalApiClient(base_url=base_url)
+                self.service = NativeApiService(self.client)
                 self._allow_close_without_backend_shutdown = False
                 self._shutdown_started = False
                 self.setWindowTitle("Local Flight Setup")
@@ -455,7 +457,7 @@ class NativeSetupWindow:  # pragma: no cover - exercised with optional Qt
                 if not self._shutdown_started:
                     self._shutdown_started = True
                     try:
-                        self.client.post_json("/api/quit", {})
+                        self.service.quit_app()
                     except NativeApiError:
                         pass
                 event.accept()
@@ -472,6 +474,7 @@ class NativeMainWindow:  # pragma: no cover - exercised with optional Qt
                 self.QtGui = QtGui
                 self.QtWidgets = QtWidgets
                 self.client = LocalApiClient(base_url=base_url)
+                self.service = NativeApiService(self.client)
                 self._shutdown_started = False
                 self.setWindowTitle("Local Flight")
                 self.theme = "dark"
@@ -484,7 +487,7 @@ class NativeMainWindow:  # pragma: no cover - exercised with optional Qt
                 self._screen_factories: dict[str, Callable[[], Any]] = {}
                 self._constructed_keys: set[str] = set()
                 self._dirty_screens: set[str] = set()
-                self._fallback_refresh_keys = {"display", "fids", "radar"}
+                self._fallback_refresh_keys = fallback_refresh_page_keys()
                 self.current_screen_key = "display"
 
                 root = QtWidgets.QWidget()
@@ -498,77 +501,14 @@ class NativeMainWindow:  # pragma: no cover - exercised with optional Qt
                 self.setCentralWidget(root)
 
                 self.first_launch = first_launch
-                self._add_screen(
-                    "display",
-                    "Display",
-                    lambda: lazy_symbol("localflight.native.pages.display", "DisplayScreen")(
-                        QtCore, QtGui, QtWidgets, self.client
-                    ),
-                    nav=True,
-                    eager=True,
-                )
-                self._add_screen(
-                    "fids",
-                    "FIDS",
-                    lambda: lazy_symbol("localflight.native.pages.fids", "FidsScreen")(
-                        QtCore, QtGui, QtWidgets, self.client
-                    ),
-                    nav=True,
-                )
-                self._add_screen(
-                    "radar",
-                    "Radar",
-                    lambda: lazy_symbol("localflight.native.pages.radar", "RadarScreen")(
-                        QtCore, QtGui, QtWidgets, self.client
-                    ),
-                    nav=True,
-                )
-                self._add_screen(
-                    "matrix",
-                    "Matrix",
-                    lambda: lazy_symbol("localflight.native.pages.matrix", "MatrixScreen")(QtWidgets, self.client),
-                    nav=True,
-                )
-                self._add_screen(
-                    "settings",
-                    "Settings",
-                    lambda: lazy_symbol("localflight.native.pages.settings", "SettingsScreen")(
-                        QtCore, QtGui, QtWidgets, self.client, base_url
-                    ),
-                    nav=True,
-                )
-                self._add_screen(
-                    "admin",
-                    "Admin",
-                    lambda: lazy_symbol("localflight.native.pages.admin", "AdminSummaryScreen")(
-                        QtWidgets, self.client, navigate=self._show_page
-                    ),
-                    nav=True,
-                )
-                self._add_screen(
-                    "history",
-                    "History",
-                    lambda: lazy_symbol("localflight.native.pages.history", "HistoryScreen")(QtWidgets, self.client),
-                    nav=True,
-                )
-                self._add_screen(
-                    "logs",
-                    "Logs",
-                    lambda: lazy_symbol("localflight.native.pages.logs", "LogsScreen")(QtWidgets, self.client),
-                    nav=True,
-                )
-                self._add_screen(
-                    "requests",
-                    "Requests",
-                    lambda: lazy_symbol("localflight.native.pages.requests", "RequestsScreen")(QtWidgets, self.client),
-                    nav=False,
-                )
-                self._add_screen(
-                    "feedback",
-                    "Report",
-                    lambda: lazy_symbol("localflight.native.pages.feedback", "FeedbackScreen")(QtWidgets, self.client),
-                    nav=True,
-                )
+                for spec in PAGE_SPECS:
+                    self._add_screen(
+                        spec.key,
+                        spec.title,
+                        self._factory_for_spec(spec, base_url),
+                        nav=spec.nav_visible,
+                        eager=spec.eager,
+                    )
 
                 self._load_design_from_config()
                 self._show_page("display", force_refresh=True)
@@ -587,7 +527,7 @@ class NativeMainWindow:  # pragma: no cover - exercised with optional Qt
                 try:
                     from PySide6 import QtWebSockets
 
-                    self._ws_bridge = _NativeEventBridge(
+                    self._ws_bridge = NativeLiveBus(
                         QtCore,
                         QtWebSockets,
                         self,
@@ -595,8 +535,27 @@ class NativeMainWindow:  # pragma: no cover - exercised with optional Qt
                         on_event=self._handle_live_event,
                         on_status=self._set_live_status,
                     )
+                    self._ws_bridge.start()
                 except Exception:
                     self._set_live_status("live push unavailable", False)
+
+            def _factory_for_spec(self, spec: NativePageSpec, base_url: str) -> Callable[[], Any]:
+                def _factory() -> Any:
+                    page_cls = lazy_symbol(spec.module, spec.symbol)
+                    if spec.key == "display":
+                        return page_cls(QtCore, QtGui, QtWidgets, self.client)
+                    if spec.key in {"fids", "radar"}:
+                        return page_cls(QtCore, QtGui, QtWidgets, self.client)
+                    if spec.key == "matrix":
+                        return page_cls(QtWidgets, self.client)
+                    if spec.key == "settings":
+                        return page_cls(QtCore, QtGui, QtWidgets, self.client, base_url)
+                    if spec.key == "admin":
+                        return page_cls(QtWidgets, self.client, navigate=self._show_page)
+                    return page_cls(QtWidgets, self.client)
+
+                return _factory
+
             def _build_top_nav(self) -> Any:
                 nav = QtWidgets.QFrame()
                 nav.setObjectName("TopNav")
@@ -692,7 +651,11 @@ class NativeMainWindow:  # pragma: no cover - exercised with optional Qt
                     button.setProperty("lf_key", key)
                     button.setProperty("lf_glyph", glyph)
                     button.clicked.connect(lambda _checked=False, k=key: self._show_page(k))
-                    target_layout = self.primary_nav_layout if key in {"display", "fids", "radar", "matrix"} else self.utility_nav_layout
+                    try:
+                        nav_group = next(spec.nav_group for spec in PAGE_SPECS if spec.key == key)
+                    except StopIteration:
+                        nav_group = "utility"
+                    target_layout = self.primary_nav_layout if nav_group == "primary" else self.utility_nav_layout
                     target_layout.addWidget(button)
                     self._nav_buttons[key] = button
 
@@ -743,7 +706,7 @@ class NativeMainWindow:  # pragma: no cover - exercised with optional Qt
 
             def _load_design_from_config(self) -> None:
                 try:
-                    cfg = self.client.get_json("/api/config")
+                    cfg = self.service.config()
                 except NativeApiError:
                     cfg = {}
                 self._apply_design_from_config(cfg)
@@ -804,9 +767,15 @@ class NativeMainWindow:  # pragma: no cover - exercised with optional Qt
                     ",".join(pending_fetches) or "-",
                 )
 
-            def _set_live_status(self, text: str, connected: bool) -> None:
-                self.live_status.setText(("LIVE" if connected else "SYNC") + " " + text.replace("live push ", ""))
-                self.live_status.setProperty("connected", connected)
+            def _set_live_status(self, status: LiveStatus | str, connected: bool | None = None) -> None:
+                if isinstance(status, LiveStatus):
+                    text = status.text
+                    connected_value = status.connected
+                else:
+                    text = status
+                    connected_value = bool(connected)
+                self.live_status.setText(("LIVE" if connected_value else "SYNC") + " " + text.replace("live push ", ""))
+                self.live_status.setProperty("connected", connected_value)
                 self.live_status.style().unpolish(self.live_status)
                 self.live_status.style().polish(self.live_status)
 
@@ -815,7 +784,7 @@ class NativeMainWindow:  # pragma: no cover - exercised with optional Qt
                 if not event_type:
                     return
                 if event_type == "config_updated":
-                    self.client.clear_cache()
+                    self.service.clear_cache()
                     self._load_design_from_config()
                     for key in self.screen_keys:
                         if key != self.current_screen_key:
@@ -879,7 +848,7 @@ class NativeMainWindow:  # pragma: no cover - exercised with optional Qt
                     return
                 self._shutdown_started = True
                 try:
-                    self.client.post_json("/api/quit", {})
+                    self.service.quit_app()
                 except NativeApiError:
                     pass
 
@@ -925,6 +894,7 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
         self.QtGui = QtGui
         self.QtWidgets = QtWidgets
         self.client = client
+        self.service = NativeApiService(client)
         self.base_url = base_url.rstrip("/")
         self.on_setup_complete = on_setup_complete
         self._airport_search_future: Future[Any] | None = None
@@ -1378,7 +1348,7 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
 
     def refresh(self) -> None:
         try:
-            info = self.client.get_json("/api/setup/client-info")
+            info = self.service.setup_client_info()
         except NativeApiError as exc:
             self.status.setText(f"Setup info unavailable: {exc}")
             self._set_mode("virtual")
@@ -1420,7 +1390,7 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
         self.airport_results.clear()
         self.airport_results.addItem("Searching airports...")
         self._airport_search_future = _API_EXECUTOR.submit(
-            lambda: self.client.get_any_json("/api/airports/search", params={"q": query, "limit": 12})
+            lambda: self.service.airport_search(query, limit=12)
         )
         self.search_poll_timer.start()
 
@@ -1472,7 +1442,7 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
 
     def request_activation(self) -> None:
         try:
-            result = self.client.post_json("/api/setup/activate", self._activation_payload())
+            result = self.service.setup_activate(self._activation_payload())
         except NativeApiError as exc:
             self.status.setText(f"Activation request failed: {exc}")
             return
@@ -1486,7 +1456,7 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
 
     def check_activation_status(self) -> None:
         try:
-            result = self.client.post_json("/api/setup/client-status", self._activation_payload())
+            result = self.service.setup_client_status(self._activation_payload())
         except NativeApiError as exc:
             self.status.setText(f"Status check failed: {exc}")
             return
@@ -1494,7 +1464,7 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
 
     def test_activation(self) -> None:
         try:
-            result = self.client.post_json("/api/setup/test-activation", self._activation_payload())
+            result = self.service.setup_test_activation(self._activation_payload())
         except NativeApiError as exc:
             self.status.setText(f"Token test failed: {exc}")
             return
@@ -1516,7 +1486,7 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
 
     def _test_key(self, path: str, key: str, label_text: str) -> None:
         try:
-            result = self.client.post_json(path, {"key": key})
+            result = self.service.setup_test_provider_key(path, key)
         except NativeApiError as exc:
             self.status.setText(f"{label_text} test failed: {exc}")
             return
@@ -1540,673 +1510,18 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
             "opensky_secret": self.opensky_secret.text().strip() if mode == "byok" else "",
         }
         try:
-            result = self.client.post_json("/api/setup/complete", payload)
+            result = self.service.setup_complete(payload)
         except NativeApiError as exc:
             self.status.setText(f"Setup failed: {exc}")
             return
         self.status.setText("Setup complete. Opening the native display..." if result.get("ok", True) else format_value(result))
         if result.get("ok", True):
             try:
-                self.client.clear_cache()
+                self.service.clear_cache()
             except Exception:
                 pass
             if self.on_setup_complete:
                 self.on_setup_complete()
-
-
-class FidsScreen(_AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
-    def __init__(self, QtCore: Any, QtGui: Any, QtWidgets: Any, client: LocalApiClient, *, embedded: bool = False) -> None:
-        self.QtCore = QtCore
-        self.QtGui = QtGui
-        self.QtWidgets = QtWidgets
-        self.client = client
-        self.embedded = embedded
-        self.view = "departures"
-        self.rows: list[dict[str, Any]] = []
-        self.row_limit = 20
-        self.rotation_seconds = 8
-        self.page_index = 0
-        self._active = False
-        self.airport_tz_name = "UTC"
-        self.airport_tz = timezone.utc
-        self.colors = colors_for()
-
-        self.widget = QtWidgets.QSplitter()
-        self._init_async(QtCore, self.widget)
-        self.escape_shortcut = QtGui.QShortcut(QtGui.QKeySequence("Escape"), self.widget)
-        self.escape_shortcut.activated.connect(lambda: self.drawer.hide())
-        self.page_timer = QtCore.QTimer(self.widget)
-        self.page_timer.timeout.connect(self._advance_page)
-        self.widget.setChildrenCollapsible(False)
-        board = QtWidgets.QFrame()
-        board.setObjectName("Page")
-        board_layout = QtWidgets.QVBoxLayout(board)
-        board_layout.setContentsMargins(18, 18, 18, 18)
-        board_layout.setSpacing(10)
-
-        header = QtWidgets.QHBoxLayout()
-        title_box = QtWidgets.QVBoxLayout()
-        self.airport = QtWidgets.QLabel("LOCAL")
-        self.airport.setObjectName("AirportCode")
-        self.title = QtWidgets.QLabel("Departures")
-        self.title.setObjectName("Title")
-        if embedded:
-            self.airport.hide()
-            self.title.hide()
-        title_box.addWidget(self.airport)
-        title_box.addWidget(self.title)
-        header.addLayout(title_box)
-        if not embedded:
-            header.addStretch(1)
-        self.arr_btn = self._segment_button("ARR", "arrivals")
-        self.dep_btn = self._segment_button("DEP", "departures")
-        self.dep_btn.setChecked(True)
-        refresh = QtWidgets.QPushButton("Refresh board")
-        refresh.clicked.connect(self.refresh)
-        self.live_dot = label(QtWidgets, chr(9679), "LiveDot")
-        self.last_updated = label(QtWidgets, "Airport LT --:--:--", "Muted")
-        header.addWidget(self.live_dot)
-        header.addWidget(self.last_updated)
-        header.addWidget(self.arr_btn)
-        header.addWidget(self.dep_btn)
-        header.addWidget(refresh)
-        if embedded:
-            header.addStretch(1)
-
-        self.weather = _strip(QtWidgets, "Weather loading...")
-        self.error_banner = _banner(QtWidgets, "Data fetch error", "ErrorBanner")
-        self.info_banner = _banner(
-            QtWidgets,
-            "Fetching schedule data. If Community Relay is warming this airport, it can take a moment.",
-            "InfoBanner",
-        )
-        self.status = label(QtWidgets, "Waiting for first board refresh...", "Muted")
-
-        self.table = QtWidgets.QTableWidget(0, 6)
-        self.table.setObjectName("FidsTable")
-        self.table.setHorizontalHeaderLabels(["Time (Airport LT)", "Flight", "To", "Status", "Gate", "A/C"])
-        self.table.horizontalHeader().setStretchLastSection(True)
-        self.table.verticalHeader().setVisible(False)
-        self.table.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
-        self.table.setAlternatingRowColors(True)
-        self.table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)
-        self.table.cellClicked.connect(self._show_detail_for_row)
-        self.table.setWordWrap(True)
-        self.table.setShowGrid(False)
-        self.table.setVerticalScrollMode(QtWidgets.QAbstractItemView.ScrollPerPixel)
-        self.table.horizontalHeader().setDefaultAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter)
-        self.table.horizontalHeader().setMinimumSectionSize(64)
-
-        board_layout.addLayout(header)
-        board_layout.addWidget(self.weather)
-        board_layout.addWidget(self.error_banner)
-        board_layout.addWidget(self.info_banner)
-        board_layout.addWidget(self.status)
-        board_layout.addWidget(self.table, 1)
-
-        self.drawer = self._build_detail_drawer()
-        self.drawer.hide()
-        self.widget.addWidget(board)
-        self.widget.addWidget(self.drawer)
-        self.widget.setSizes([940, 340])
-
-    def __getattr__(self, name: str) -> Any:
-        return getattr(self.widget, name)
-
-    def apply_theme(self, theme: str, skin: str) -> None:
-        self.colors = colors_for(theme, skin)
-        self._render_rows()
-
-    def _segment_button(self, text: str, view: str) -> Any:
-        button = self.QtWidgets.QPushButton(text)
-        button.setObjectName("SegmentButton")
-        button.setCheckable(True)
-        button.clicked.connect(lambda _checked=False, v=view: self.set_view(v))
-        return button
-
-    def _build_detail_drawer(self) -> Any:
-        drawer = self.QtWidgets.QFrame()
-        drawer.setObjectName("Drawer")
-        drawer.setMinimumWidth(330)
-        drawer.setMaximumWidth(430)
-        layout = self.QtWidgets.QVBoxLayout(drawer)
-        layout.setContentsMargins(16, 16, 16, 16)
-        head = self.QtWidgets.QHBoxLayout()
-        self.detail_title = label(self.QtWidgets, "Flight detail", "Title")
-        close = self.QtWidgets.QPushButton("Close")
-        close.setObjectName("Quiet")
-        close.clicked.connect(drawer.hide)
-        head.addWidget(self.detail_title)
-        head.addStretch(1)
-        head.addWidget(close)
-        self.detail_route = label(self.QtWidgets, "", "Muted", wrap=True)
-        self.detail_body = self.QtWidgets.QTextEdit()
-        self.detail_body.setReadOnly(True)
-        layout.addLayout(head)
-        layout.addWidget(self.detail_route)
-        layout.addWidget(self.detail_body, 1)
-        return drawer
-
-    def set_view(self, view: str) -> None:
-        self.view = view
-        self.arr_btn.setChecked(view == "arrivals")
-        self.dep_btn.setChecked(view == "departures")
-        self.refresh()
-
-    def handle_live_event(self, payload: dict[str, Any]) -> None:
-        event_type = str(payload.get("type") or "")
-        if event_type in {"snapshot_updated", "config_updated"}:
-            self.refresh()
-        elif event_type == "scheduler_restarted":
-            self.status.setText("Scheduler restarted. Refreshing board...")
-            self.refresh()
-
-    def set_active(self, active: bool) -> None:
-        self._active = active
-        if not active:
-            self.page_timer.stop()
-        elif len(self.rows) > self.row_limit:
-            self.page_timer.start(self.rotation_seconds * 1000)
-
-    def refresh(self) -> None:
-        view = self.view
-        had_rows = bool(self.rows)
-        started = self._run_async(
-            lambda: self._fetch_board(view),
-            self._apply_board,
-            lambda exc: self._board_error(exc, had_rows=had_rows),
-            label=f"fids.{view}",
-        )
-        if started:
-            if not had_rows:
-                self._set_info_banner(
-                    "Fetching schedule data. If Community Relay is warming this airport, it can take a moment.",
-                    True,
-                )
-            self.status.setText(f"Loading {view} without blocking the UI...")
-
-    def _fetch_board(self, view: str) -> dict[str, Any]:
-        cfg = self.client.get_json("/api/config")
-        payload = self.client.get_any_json("/api/fids", params={"view": view, "limit": 80})
-        weather: dict[str, Any] | None = None
-        weather_error = ""
-        try:
-            weather = self.client.get_json("/api/metar")
-        except NativeApiError as exc:
-            weather_error = str(exc)
-        return {"view": view, "cfg": cfg, "payload": payload, "weather": weather, "weather_error": weather_error}
-
-    def _apply_board(self, result: dict[str, Any]) -> None:
-        cfg = result["cfg"]
-        view = str(result["view"])
-        self.error_banner.hide()
-        weather = result.get("weather")
-        if isinstance(weather, dict):
-            self.weather.findChild(self.QtWidgets.QLabel).setText(_weather_line(weather, raw=False))
-        else:
-            self.weather.findChild(self.QtWidgets.QLabel).setText(f"Weather unavailable: {result.get('weather_error') or 'offline'}")
-
-        airport = str(cfg.get("airport_iata") or cfg.get("airport_icao") or "LOCAL").upper()
-        source = str(cfg.get("source") or "real").upper()
-        self._set_airport_timezone(str(cfg.get("timezone") or "UTC"))
-        self.airport.setText(airport)
-        if not self.embedded:
-            self.title.setText("Arrivals" if view == "arrivals" else "Departures")
-        self.table.setHorizontalHeaderLabels([f"Time ({airport} LT)", "Flight", "From" if view == "arrivals" else "To", "Status", "Gate", "A/C"])
-        self.rows = list_payload(result.get("payload"))
-        self.row_limit = max(5, int(cfg.get("web_row_limit") or 20))
-        self.rotation_seconds = max(3, int(cfg.get("web_rotation_seconds") or 8))
-        self.page_index = 0
-        if self.rows:
-            self._set_info_banner("", False)
-        else:
-            self._set_info_banner(
-                "No rows yet. The relay may still be warming this airport, or the current window is quiet.",
-                True,
-            )
-        self.last_updated.setText(f"{airport} LT " + datetime.now(self.airport_tz).strftime("%H:%M:%S"))
-        page_count = max(1, math.ceil(len(self.rows) / max(1, self.row_limit)))
-        self.status.setText(f"{len(self.rows)} {view} loaded | source {source} | airport-local time | page 1/{page_count} | local API /api/fids")
-        if len(self.rows) > self.row_limit and self._active:
-            self.page_timer.start(self.rotation_seconds * 1000)
-        else:
-            self.page_timer.stop()
-        self._render_rows()
-
-    def _board_error(self, exc: Exception, *, had_rows: bool = False) -> None:
-        self.error_banner.show()
-        self._set_banner_text(self.error_banner, f"Data fetch error: {exc}")
-        if not had_rows:
-            self._set_info_banner("Waiting for schedule data. Retrying shortly.", True)
-        self.status.setText(f"Board offline: {exc}")
-
-    def _set_info_banner(self, text: str, visible: bool) -> None:
-        if text:
-            self._set_banner_text(self.info_banner, text)
-        self.info_banner.setVisible(visible)
-
-    def _set_banner_text(self, banner: Any, text: str) -> None:
-        label_widget = banner.findChild(self.QtWidgets.QLabel)
-        if label_widget is not None:
-            label_widget.setText(text)
-
-    def _set_airport_timezone(self, timezone_name: str) -> None:
-        self.airport_tz_name = timezone_name or "UTC"
-        try:
-            self.airport_tz = ZoneInfo(self.airport_tz_name)
-        except Exception:
-            self.airport_tz = timezone.utc
-            self.airport_tz_name = "UTC"
-
-    def _row_display_time(self, row: dict[str, Any]) -> str:
-        for key in ("sched_time", "estimated_time", "est_time", "actual_time", "time"):
-            value = row.get(key)
-            if not value:
-                continue
-            parsed = self._parse_time(value)
-            if parsed is not None:
-                return parsed.astimezone(self.airport_tz).strftime("%H:%M")
-        return format_value(row.get("display_time")) or "-"
-
-    def _parse_time(self, value: Any) -> datetime | None:
-        if isinstance(value, datetime):
-            return value if value.tzinfo else value.replace(tzinfo=self.airport_tz)
-        text = str(value or "").strip()
-        if not text or len(text) <= 5:
-            return None
-        try:
-            return datetime.fromisoformat(text.replace("Z", "+00:00"))
-        except ValueError:
-            return None
-
-    def _render_rows(self) -> None:
-        self.table.setUpdatesEnabled(False)
-        self.table.blockSignals(True)
-        try:
-            self.table.clearContents()
-            self.table.clearSpans()
-            if not self.rows:
-                self.table.setRowCount(1)
-                item = self.QtWidgets.QTableWidgetItem("No flights in window - schedule data may still be warming.")
-                self.table.setSpan(0, 0, 1, 6)
-                self.table.setItem(0, 0, item)
-                return
-            start = self.page_index * self.row_limit
-            visible = self.rows[start : start + self.row_limit] or self.rows[: self.row_limit]
-            self.table.setRowCount(len(visible))
-            for row_idx, row in enumerate(visible):
-                self.table.setItem(row_idx, 0, _item(self.QtWidgets, self._row_display_time(row)))
-                time_item = self.table.item(row_idx, 0)
-                if time_item is not None:
-                    font = time_item.font()
-                    font.setBold(True)
-                    time_item.setFont(font)
-                flight_text = str(row.get("flight_display") or row.get("callsign") or "-")
-                airline = str(row.get("airline_display") or "")
-                codeshares = str(row.get("codeshare_display") or "")
-                flight_lines = [flight_text]
-                if airline:
-                    flight_lines.append(airline)
-                if codeshares:
-                    flight_lines.append(codeshares)
-                flight_item = _item(self.QtWidgets, "\n".join(flight_lines))
-                flight_item.setToolTip("\n".join(flight_lines))
-                flight_font = flight_item.font()
-                flight_font.setBold(True)
-                flight_item.setFont(flight_font)
-                self.table.setItem(row_idx, 1, flight_item)
-                route_item = _item(self.QtWidgets, row.get("route_display") or "-")
-                route_item.setForeground(self.QtGui.QColor(self.colors["text"]))
-                self.table.setItem(row_idx, 2, route_item)
-                status_item = _item(self.QtWidgets, row.get("status_display") or "-")
-                self._style_status_item(status_item, str(row.get("status_class") or row.get("status_display") or ""))
-                self.table.setItem(row_idx, 3, status_item)
-                gate_item = _item(self.QtWidgets, row.get("gate") or "-")
-                gate_item.setForeground(self.QtGui.QColor(self.colors["muted"]))
-                self.table.setItem(row_idx, 4, gate_item)
-                ac_item = _item(self.QtWidgets, row.get("aircraft_type") or "-")
-                ac_item.setForeground(self.QtGui.QColor(self.colors["muted"]))
-                self.table.setItem(row_idx, 5, ac_item)
-                self.table.setRowHeight(row_idx, 58 if airline or codeshares else 42)
-            available = max(720, self.table.viewport().width() - 18)
-            time_w = 104
-            status_w = 126
-            gate_w = 72
-            ac_w = 78
-            route_w = max(190, int(available * 0.31))
-            flight_w = max(160, available - time_w - status_w - gate_w - ac_w - route_w)
-            self.table.setColumnWidth(0, time_w)
-            self.table.setColumnWidth(1, flight_w)
-            self.table.setColumnWidth(2, route_w)
-            self.table.setColumnWidth(3, status_w)
-            self.table.setColumnWidth(4, gate_w)
-            self.table.horizontalHeader().setStretchLastSection(True)
-        finally:
-            self.table.blockSignals(False)
-            self.table.setUpdatesEnabled(True)
-
-    def _style_status_item(self, item: Any, status: str) -> None:
-        status_l = status.lower()
-        if any(part in status_l for part in ("delay", "late")):
-            color = self.QtGui.QColor(self.colors["amber"])
-        elif any(part in status_l for part in ("board", "land", "arriv")):
-            color = self.QtGui.QColor(self.colors["green"])
-        elif any(part in status_l for part in ("cancel", "divert")):
-            color = self.QtGui.QColor(self.colors["red"])
-        elif any(part in status_l for part in ("depart", "past")):
-            color = self.QtGui.QColor(self.colors["dim"])
-        else:
-            color = self.QtGui.QColor(self.colors["blue"])
-        bg = self.QtGui.QColor(color)
-        bg.setAlpha(34)
-        font = item.font()
-        font.setBold(True)
-        item.setFont(font)
-        item.setForeground(color)
-        item.setBackground(bg)
-
-    def _advance_page(self) -> None:
-        if len(self.rows) <= self.row_limit:
-            return
-        page_count = max(1, math.ceil(len(self.rows) / max(1, self.row_limit)))
-        self.page_index = (self.page_index + 1) % page_count
-        self.status.setText(f"{len(self.rows)} {self.view} loaded | page {self.page_index + 1}/{page_count} | rotating every {self.rotation_seconds}s")
-        self._render_rows()
-
-    def _show_detail_for_row(self, row_idx: int, _col: int) -> None:
-        actual_idx = self.page_index * self.row_limit + row_idx
-        if actual_idx < 0 or actual_idx >= len(self.rows):
-            return
-        callsign = str(self.rows[actual_idx].get("callsign") or "").strip()
-        if not callsign:
-            return
-        self.drawer.show()
-        self.detail_title.setText(self.rows[actual_idx].get("flight_display") or callsign)
-        self.detail_route.setText("Loading detail...")
-        self.detail_body.setPlainText("")
-        started = self._run_async(
-            lambda: self.client.get_json("/api/fids/detail", params={"callsign": callsign}),
-            self._apply_detail,
-            lambda exc: self.detail_route.setText(f"Detail unavailable: {exc}"),
-            label="fids.detail",
-            debounce_ms=0,
-        )
-        if not started:
-            self.detail_route.setText("Board refresh is still running. Try the row again in a moment.")
-
-    def _apply_detail(self, payload: dict[str, Any]) -> None:
-        detail = payload.get("detail") if isinstance(payload.get("detail"), dict) else payload
-        history = payload.get("history") if isinstance(payload.get("history"), list) else []
-        origin = detail.get("origin_iata") or "-"
-        dest = detail.get("dest_iata") or "-"
-        airline = detail.get("airline_display") or detail.get("airline_name") or ""
-        self.detail_route.setText(f"{origin} -> {dest}" + (f" | {airline}" if airline else ""))
-        mode = str(detail.get("detail_mode") or "real").strip().lower()
-        self.detail_body.setHtml(self._detail_html(detail, history, virtual=(mode == "virtual")))
-
-    def _detail_html(self, detail: dict[str, Any], history: list[dict[str, Any]], *, virtual: bool) -> str:
-        title = "Virtual flight" if virtual else "Schedule"
-        sections = self._virtual_detail_sections(detail) if virtual else self._real_detail_sections(detail)
-        parts = [
-            _detail_css(self.colors),
-            f"<div class='section'><div class='label'>{self._h(title)}</div>",
-        ]
-        headline = detail.get("flight_display") or detail.get("flight_number") or detail.get("callsign") or ""
-        status = detail.get("status_display") or detail.get("status") or ""
-        if headline or status:
-            parts.append(f"<div class='row'><span class='key'>Flight</span><span class='val'>{self._h(headline)}</span></div>")
-            parts.append(f"<div class='row'><span class='key'>Status</span><span class='val'>{self._h(status)}</span></div>")
-        parts.append("</div>")
-        for heading, fields in sections:
-            rows = [(name, format_value(value)) for name, value in fields if format_value(value)]
-            if not rows:
-                continue
-            if heading.lower().startswith("source"):
-                parts.append("<div class='section'><div class='label'>Data Sources</div><div class='cards'>")
-                for name, value in rows:
-                    parts.append(f"<div class='card'><div class='key'>{self._h(name)}</div><div class='val'>{self._h(value)}</div></div>")
-                parts.append("</div></div>")
-                continue
-            parts.append(f"<div class='section'><div class='label'>{self._h(heading)}</div>")
-            for name, value in rows:
-                parts.append(f"<div class='row'><span class='key'>{self._h(name)}</span><span class='val'>{self._h(value)}</span></div>")
-            parts.append("</div>")
-        parts.append(self._history_html(history))
-        return "".join(parts)
-
-    def _history_html(self, history: list[dict[str, Any]]) -> str:
-        if not history:
-            return "<div class='section'><div class='label'>Recent History (7 days)</div><div class='muted'>No history yet.</div></div>"
-        parts = ["<div class='section'><div class='label'>Recent History (7 days)</div>"]
-        for item in history[:8]:
-            delay = item.get("delay_minutes")
-            try:
-                delay_i = int(delay)
-            except (TypeError, ValueError):
-                delay_i = 0
-            cls = "bad" if delay_i >= 15 else "warn" if delay_i >= 5 else "good" if delay_i <= 0 else "muted"
-            delay_text = "On time" if delay_i == 0 else f"{delay_i:+d} min"
-            date = item.get("date") or str(item.get("snapshot_ts") or "")[:10] or "-"
-            status = item.get("status") or "-"
-            parts.append(f"<div class='history'><span>{self._h(date)} · {self._h(status)}</span><span class='{cls}'>{self._h(delay_text)}</span></div>")
-        parts.append("</div>")
-        return "".join(parts)
-
-    def _h(self, value: Any) -> str:
-        return html_escape(format_value(value) or "-")
-
-    def _real_detail_lines(self, detail: dict[str, Any]) -> list[str]:
-        return self._section_lines(
-            ("Schedule", [
-                ("Status", detail.get("status") or detail.get("status_display")),
-                ("Scheduled", detail.get("sched_time")),
-                ("Estimated", detail.get("est_time")),
-                ("Actual", detail.get("actual_time")),
-                ("Delay", self._minutes(detail.get("delay_minutes"))),
-            ]),
-            ("Airport operations", [
-                ("Origin", self._airport_line(detail, "origin")),
-                ("Destination", self._airport_line(detail, "dest")),
-                ("Terminal", detail.get("terminal")),
-                ("Gate", detail.get("gate")),
-            ]),
-            ("Aircraft", [
-                ("Type", detail.get("aircraft_type")),
-                ("Registration", detail.get("aircraft_registration")),
-                ("Flight", detail.get("flight_display") or detail.get("callsign")),
-                ("Codeshares", ", ".join(detail.get("codeshares") or [])),
-            ]),
-            ("Source confidence", [
-                ("Schedule source", value_at(detail, "data_sources.schedule") or detail.get("source")),
-                ("Live enrichment", detail.get("enriched_by") or value_at(detail, "data_sources.enrichment")),
-                ("Confidence", value_at(detail, "data_sources.confidence")),
-                ("Snapshot age", self._seconds(value_at(detail, "data_sources.snapshot_age_seconds"))),
-            ]),
-            ("Live track", [
-                ("Latitude", value_at(detail, "position.lat")),
-                ("Longitude", value_at(detail, "position.lon")),
-                ("Altitude", self._altitude(value_at(detail, "position.altitude_m"))),
-                ("Ground speed", self._speed(value_at(detail, "position.speed_ms"))),
-                ("Heading", self._heading(value_at(detail, "position.heading"))),
-                ("On ground", value_at(detail, "position.on_ground")),
-                ("Squawk", value_at(detail, "position.squawk")),
-            ]),
-        )
-
-    def _real_detail_sections(self, detail: dict[str, Any]) -> list[tuple[str, list[tuple[str, Any]]]]:
-        return [
-            ("Times (UTC)", [
-                ("Scheduled", detail.get("sched_time")),
-                ("Estimated", detail.get("est_time")),
-                ("Actual", detail.get("actual_time")),
-                ("Delay", self._minutes(detail.get("delay_minutes"))),
-            ]),
-            ("Operations & Aircraft", [
-                ("Origin", self._airport_line(detail, "origin")),
-                ("Destination", self._airport_line(detail, "dest")),
-                ("Terminal", detail.get("terminal")),
-                ("Gate", detail.get("gate")),
-                ("Aircraft", detail.get("aircraft_type")),
-                ("Registration", detail.get("aircraft_registration")),
-                ("Callsign", detail.get("callsign")),
-                ("Airline", detail.get("airline_display") or detail.get("airline_name") or detail.get("airline_iata")),
-                ("Codeshares", ", ".join(detail.get("codeshares") or [])),
-            ]),
-            ("Source Confidence", [
-                ("Schedule", value_at(detail, "data_sources.schedule") or detail.get("source")),
-                ("Live Track", detail.get("enriched_by") or value_at(detail, "data_sources.enrichment") or "schedule only"),
-                ("Confidence", value_at(detail, "data_sources.confidence")),
-                ("Snapshot age", self._seconds(value_at(detail, "data_sources.snapshot_age_seconds"))),
-            ]),
-            ("Live Track", [
-                ("Latitude", value_at(detail, "position.lat")),
-                ("Longitude", value_at(detail, "position.lon")),
-                ("Altitude", self._altitude(value_at(detail, "position.altitude_m"))),
-                ("Ground speed", self._speed(value_at(detail, "position.speed_ms"))),
-                ("Heading", self._heading(value_at(detail, "position.heading"))),
-                ("On ground", value_at(detail, "position.on_ground")),
-                ("Squawk", value_at(detail, "position.squawk")),
-            ]),
-        ]
-
-    def _virtual_detail_lines(self, detail: dict[str, Any]) -> list[str]:
-        return self._section_lines(
-            ("Virtual flight", [
-                ("Callsign", detail.get("callsign")),
-                ("Flight", detail.get("flight_display") or detail.get("flight_number")),
-                ("Aircraft", detail.get("aircraft_type")),
-                ("Status", detail.get("status") or detail.get("status_display")),
-                ("Source", value_at(detail, "data_sources.schedule") or detail.get("source")),
-            ]),
-            ("Flight plan", [
-                ("Origin", self._airport_line(detail, "origin")),
-                ("Destination", self._airport_line(detail, "dest")),
-                ("Rules", value_at(detail, "flight_plan.flight_rules")),
-                ("Route", value_at(detail, "flight_plan.route")),
-                ("Cruise altitude", value_at(detail, "flight_plan.cruise_altitude")),
-                ("Cruise TAS", value_at(detail, "flight_plan.cruise_tas")),
-                ("Planned departure", value_at(detail, "flight_plan.planned_departure")),
-                ("Planned arrival", value_at(detail, "flight_plan.planned_arrival")),
-                ("Enroute", self._minutes(value_at(detail, "flight_plan.enroute_minutes"))),
-                ("Alternate", value_at(detail, "flight_plan.alternate_icao")),
-                ("Squawk", value_at(detail, "flight_plan.assigned_transponder") or value_at(detail, "position.squawk")),
-            ]),
-            ("Network position", [
-                ("Latitude", value_at(detail, "position.lat")),
-                ("Longitude", value_at(detail, "position.lon")),
-                ("Altitude", self._altitude(value_at(detail, "position.altitude_m"))),
-                ("Ground speed", self._speed(value_at(detail, "position.speed_ms"))),
-                ("Heading", self._heading(value_at(detail, "position.heading"))),
-                ("On ground", value_at(detail, "position.on_ground")),
-                ("Last contact", value_at(detail, "position.last_contact")),
-            ]),
-            ("Freshness", [
-                ("Snapshot generated", value_at(detail, "data_sources.snapshot_generated_at")),
-                ("Snapshot age", self._seconds(value_at(detail, "data_sources.snapshot_age_seconds"))),
-                ("Position age", self._seconds(value_at(detail, "data_sources.position_age_seconds"))),
-            ]),
-        )
-
-    def _virtual_detail_sections(self, detail: dict[str, Any]) -> list[tuple[str, list[tuple[str, Any]]]]:
-        return [
-            ("Virtual Flight", [
-                ("Callsign", detail.get("callsign")),
-                ("Flight", detail.get("flight_display") or detail.get("flight_number")),
-                ("Aircraft", detail.get("aircraft_type")),
-                ("Status", detail.get("status") or detail.get("status_display")),
-                ("Source", value_at(detail, "data_sources.schedule") or detail.get("source")),
-            ]),
-            ("Flight plan", [
-                ("Origin", self._airport_line(detail, "origin")),
-                ("Destination", self._airport_line(detail, "dest")),
-                ("Rules", value_at(detail, "flight_plan.flight_rules")),
-                ("Route", value_at(detail, "flight_plan.route")),
-                ("Cruise altitude", value_at(detail, "flight_plan.cruise_altitude")),
-                ("Cruise TAS", value_at(detail, "flight_plan.cruise_tas")),
-                ("Planned departure", value_at(detail, "flight_plan.planned_departure")),
-                ("Planned arrival", value_at(detail, "flight_plan.planned_arrival")),
-                ("Enroute", self._minutes(value_at(detail, "flight_plan.enroute_minutes"))),
-                ("Alternate", value_at(detail, "flight_plan.alternate_icao")),
-                ("Squawk", value_at(detail, "flight_plan.assigned_transponder") or value_at(detail, "position.squawk")),
-            ]),
-            ("Aircraft Track", [
-                ("Latitude", value_at(detail, "position.lat")),
-                ("Longitude", value_at(detail, "position.lon")),
-                ("Altitude", self._altitude(value_at(detail, "position.altitude_m"))),
-                ("Ground speed", self._speed(value_at(detail, "position.speed_ms"))),
-                ("Heading", self._heading(value_at(detail, "position.heading"))),
-                ("On ground", value_at(detail, "position.on_ground")),
-                ("Last contact", value_at(detail, "position.last_contact")),
-            ]),
-            ("VATSIM Data", [
-                ("Snapshot generated", value_at(detail, "data_sources.snapshot_generated_at")),
-                ("Snapshot age", self._seconds(value_at(detail, "data_sources.snapshot_age_seconds"))),
-                ("Position age", self._seconds(value_at(detail, "data_sources.position_age_seconds"))),
-            ]),
-        ]
-
-    def _section_lines(self, *sections: tuple[str, list[tuple[str, Any]]]) -> list[str]:
-        lines: list[str] = []
-        for title, fields in sections:
-            visible = [(name, value) for name, value in fields if format_value(value)]
-            if not visible:
-                continue
-            if lines:
-                lines.append("")
-            lines.append(title)
-            lines.append("-" * len(title))
-            for name, value in visible:
-                lines.append(f"{name}: {format_value(value)}")
-        return lines or ["No detail fields available for this flight yet."]
-
-    def _airport_line(self, detail: dict[str, Any], prefix: str) -> str:
-        iata = detail.get(f"{prefix}_iata")
-        icao = detail.get(f"{prefix}_icao")
-        name = detail.get(f"{prefix}_name")
-        codes = " / ".join(str(v) for v in (iata, icao) if v)
-        return (codes + (f" - {name}" if name else "")).strip()
-
-    def _altitude(self, value: Any) -> str:
-        try:
-            meters = float(value)
-        except (TypeError, ValueError):
-            return ""
-        return f"{int(round(meters * 3.28084))} ft"
-
-    def _speed(self, value: Any) -> str:
-        try:
-            meters_s = float(value)
-        except (TypeError, ValueError):
-            return ""
-        return f"{int(round(meters_s * 1.94384))} kt"
-
-    def _heading(self, value: Any) -> str:
-        try:
-            return f"{int(round(float(value))) % 360} deg"
-        except (TypeError, ValueError):
-            return ""
-
-    def _minutes(self, value: Any) -> str:
-        try:
-            minutes = int(value)
-        except (TypeError, ValueError):
-            return ""
-        if minutes == 0:
-            return "0 min"
-        hours, mins = divmod(abs(minutes), 60)
-        sign = "-" if minutes < 0 else ""
-        if hours:
-            return f"{sign}{hours}h {mins}m"
-        return f"{sign}{mins} min"
-
-    def _seconds(self, value: Any) -> str:
-        try:
-            seconds = int(value)
-        except (TypeError, ValueError):
-            return ""
-        if seconds < 90:
-            return f"{seconds}s"
-        return self._minutes(round(seconds / 60))
 
 
 class RadarCanvas:  # pragma: no cover - optional Qt runtime
@@ -2515,6 +1830,7 @@ class RadarScreen(_AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
         self.QtWidgets = QtWidgets
         self.embedded = embedded
         self.client = client
+        self.service = NativeApiService(client)
         self.widget = QtWidgets.QFrame()
         self._init_async(QtCore, self.widget)
         self.widget.setObjectName("Page")
@@ -2589,24 +1905,13 @@ class RadarScreen(_AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
             timer.stop()
 
     def _fetch_radar(self, radius: int) -> dict[str, Any]:
-        surface: dict[str, Any] | None = None
-        surface_error = ""
-        try:
-            cfg = self.client.get_json("/api/config")
-            if cfg.get("radar_surface_enabled"):
-                try:
-                    surface = self.client.get_json("/api/radar/surface", params={"radius_nm": min(5, radius)})
-                except NativeApiError as exc:
-                    surface_error = str(exc)
-        except NativeApiError:
-            pass
-        payload = self.client.get_json("/api/radar", params={"radius_nm": float(radius)})
-        weather: dict[str, Any] | None = None
-        try:
-            weather = self.client.get_json("/api/metar")
-        except NativeApiError:
-            pass
-        return {"payload": payload, "surface": surface, "surface_error": surface_error, "weather": weather}
+        radar = self.service.radar(radius_nm=float(radius), include_surface=True)
+        return {
+            "payload": radar.payload,
+            "surface": radar.surface,
+            "surface_error": radar.surface_error,
+            "weather": radar.weather,
+        }
 
     def _apply_radar(self, result: dict[str, Any]) -> None:
         payload = result["payload"]
@@ -3109,7 +2414,7 @@ class MatrixCanvas:  # pragma: no cover - optional Qt runtime
                     painter.drawLine(int(left + x * scale), int(top), int(left + x * scale), int(top + board_h))
                 for y in range(0, self.panel_h + 1, 16):
                     painter.drawLine(int(left), int(top + y * scale), int(left + board_w), int(top + y * scale))
-                font = QtGui.QFont("Consolas", max(6, int(6.5 * scale)))
+                font = QtGui.QFont("Space Mono", max(6, int(6.5 * scale)))
                 font.setBold(True)
                 painter.setFont(font)
                 text_color = QtGui.QColor(self.colors["cyan"])
@@ -3195,7 +2500,7 @@ class MatrixCanvas:  # pragma: no cover - optional Qt runtime
                                 status_text = f"{status_text[: max(1, chars - 5)].strip()} {extra[:4]}".strip()
                             painter.drawText(int(left + 4), int(status_y), status_text)
                         if idx < len(self.row_details) and self.row_details[idx] and row_h >= 34 * scale:
-                            detail_font = QtGui.QFont("Consolas", max(5, int(4.5 * scale)))
+                            detail_font = QtGui.QFont("Space Mono", max(5, int(4.5 * scale)))
                             painter.setFont(detail_font)
                             painter.setPen(dim_color)
                             painter.drawText(int(left + 4), int(row_top + 32 * scale), self.row_details[idx][:20])
@@ -3208,7 +2513,7 @@ class MatrixCanvas:  # pragma: no cover - optional Qt runtime
                     painter.setPen(dim_color)
                     painter.drawText(int(left + board_w - 46 * scale), int(y), text[39:43])
                     if idx < len(self.row_details) and self.row_details[idx] and row_h > 22:
-                        detail_font = QtGui.QFont("Consolas", max(5, int(4.5 * scale)))
+                        detail_font = QtGui.QFont("Space Mono", max(5, int(4.5 * scale)))
                         painter.setFont(detail_font)
                         painter.setPen(dim_color)
                         painter.drawText(int(left + 10), int(y + min(row_h * 0.32, 14)), self.row_details[idx][:42])
@@ -3228,7 +2533,11 @@ class MatrixCanvas:  # pragma: no cover - optional Qt runtime
 
             def _status_color(self, QtGui: Any, status: str) -> Any:
                 lowered = status.lower()
+                if "early" in lowered:
+                    return QtGui.QColor(self.colors["green"])
                 if "delay" in lowered:
+                    if "bad" in lowered:
+                        return QtGui.QColor(self.colors["red"])
                     return QtGui.QColor(self.colors["amber"])
                 if "cancel" in lowered:
                     if self.status_animation_enabled:
@@ -3249,6 +2558,7 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
     def __init__(self, QtWidgets: Any, client: LocalApiClient) -> None:
         self.QtWidgets = QtWidgets
         self.client = client
+        self.service = NativeApiService(client)
         QtCore, QtGui, QtWidgets2 = import_qt()
         self._last_script = ""
         self._v2_available = False
@@ -3512,25 +2822,23 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
         self.status.setText(f"Matrix V2 loaded: {len(self.configs)} configs, {len(self.devices)} devices.")
 
     def _load_v2_state(self) -> None:
-        presets = self.client.get_json("/api/matrix/v2/presets")
-        configs = self.client.get_json("/api/matrix/v2/configs")
-        devices = self.client.get_json("/api/matrix/v2/devices")
-        self.presets = list_payload(presets, "presets")
-        self.configs = list_payload(configs, "configs")
-        self.devices = list_payload(devices, "devices")
-        self.default_config_id = str(configs.get("default_config_id") or "default")
+        state = self.service.matrix_state()
+        self.presets = state.presets
+        self.configs = state.configs
+        self.devices = state.devices
+        self.default_config_id = state.default_config_id
         if not self.presets or not self.configs:
             raise NativeApiError("Matrix V2 APIs unavailable")
 
     def _refresh_v1(self) -> None:
         try:
-            cfg = self.client.get_json("/api/matrix/config")
+            cfg = self.service.matrix_compat_config()
             self._populate_config(cfg)
-            payload = self.client.get_any_json("/api/fids", params={"view": self.feed_view, "limit": 32})
+            rows = self.service.matrix_compat_rows(view=self.feed_view, limit=32)
         except NativeApiError as exc:
             self.status.setText(f"Matrix preview offline: {exc}")
             return
-        rows = list_payload(payload)[: max(1, int(self.max_rows.value()))]
+        rows = rows[: max(1, int(self.max_rows.value()))]
         self.canvas.set_rows(rows)
         self._sync_canvas_options()
         self.board_status.setText("Matrix V2 unavailable; using compatibility config.")
@@ -3540,12 +2848,8 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
             return
         device_id = self._selected_device_id()
         try:
-            if device_id:
-                payload = self.client.get_json(f"/api/matrix/v2/devices/{device_id}/feed")
-                rows = list_payload(payload, "rows")
-            else:
-                payload = self.client.get_json("/api/matrix/v2/devices/preview/feed")
-                rows = list_payload(payload, "rows")
+            # Service keeps the browser-parity preview route: /api/matrix/v2/devices/preview/feed
+            payload, rows = self.service.matrix_feed(device_id=device_id)
         except NativeApiError:
             payload = {}
             rows = []
@@ -3756,16 +3060,11 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
     def save_config(self) -> None:
         payload = self._config_payload()
         try:
-            if self._v2_available and self._current_config_id():
-                result = self.client.patch_json(f"/api/matrix/v2/configs/{self._current_config_id()}", payload)
-            else:
-                result = self.client.post_json("/api/matrix/config", {
-                    "brightness": payload["brightness"],
-                    "max_rows": payload["max_rows"],
-                    "refresh_seconds": payload["refresh_seconds"],
-                    "page_rotation_seconds": payload["page_rotation_seconds"],
-                    "animation_enabled": payload["animation_enabled"],
-                })
+            result = self.service.matrix_save_config(
+                config_id=self._current_config_id(),
+                payload=payload,
+                v2_available=self._v2_available,
+            )
         except NativeApiError as exc:
             self.status.setText(f"Matrix save failed: {exc}")
             return
@@ -3775,7 +3074,7 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
     def create_config(self) -> None:
         payload = {**self._config_payload(), "name": self.config_name.text().strip() or "New Matrix Config"}
         try:
-            self.client.post_json("/api/matrix/v2/configs", payload)
+            self.service.matrix_create_config(payload)
         except NativeApiError as exc:
             self.status.setText(f"Create config failed: {exc}")
             return
@@ -3784,7 +3083,7 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
     def duplicate_config(self) -> None:
         payload = {**self._config_payload(), "name": f"{self.config_name.text().strip() or 'Matrix Config'} Copy"}
         try:
-            self.client.post_json("/api/matrix/v2/configs", payload)
+            self.service.matrix_create_config(payload)
         except NativeApiError as exc:
             self.status.setText(f"Duplicate config failed: {exc}")
             return
@@ -3795,7 +3094,7 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
         if not config_id:
             return
         try:
-            self.client.delete_json(f"/api/matrix/v2/configs/{config_id}")
+            self.service.matrix_delete_config(config_id)
         except NativeApiError as exc:
             self.status.setText(f"Delete config failed: {exc}")
             return
@@ -3806,7 +3105,7 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
         if not config_id:
             return
         try:
-            self.client.post_json(f"/api/matrix/v2/configs/{config_id}/default", {})
+            self.service.matrix_set_default_config(config_id)
         except NativeApiError as exc:
             self.status.setText(f"Set default failed: {exc}")
             return
@@ -3818,7 +3117,7 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
             return
         payload = {"label": self.device_label.text().strip(), "assigned_config_id": self.device_config.currentData()}
         try:
-            self.client.patch_json(f"/api/matrix/v2/devices/{device_id}", payload)
+            self.service.matrix_save_device_assignment(device_id, payload)
         except NativeApiError as exc:
             self.status.setText(f"Device save failed: {exc}")
             return
@@ -3841,7 +3140,7 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
             "animation_enabled": self.animation_mode.currentData() != "static",
         }
         try:
-            text = self.client.post_text("/api/matrix/script", payload)
+            text = self.service.matrix_generate_script(payload)
         except NativeApiError as exc:
             self.status.setText(f"Script generation failed: {exc}")
             return
@@ -3884,6 +3183,7 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
         self.QtCore = QtCore
         self.QtGui = QtGui
         self.client = client
+        self.service = NativeApiService(client)
         self.base_url = base_url.rstrip("/")
         self.current_doc_slug = "readme"
         self._airport_search_future: Future[Any] | None = None
@@ -4079,7 +3379,12 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
 
         docs = self.QtWidgets.QHBoxLayout()
         self.doc_buttons: dict[str, Any] = {}
-        for title, slug in (("Project README", "readme"), ("Privacy & diagnostics", "privacy"), ("Release notes", "changelog")):
+        for title, slug in (
+            ("Project README", "readme"),
+            ("Privacy & diagnostics", "privacy"),
+            ("Release notes", "changelog"),
+            ("Third-party notices", "third-party"),
+        ):
             button = self.QtWidgets.QPushButton(title)
             button.setCheckable(True)
             button.clicked.connect(lambda _checked=False, s=slug: self.open_doc(s))
@@ -4116,7 +3421,7 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
 
     def refresh(self) -> None:
         try:
-            cfg = self.client.get_json("/api/config")
+            cfg = self.service.config()
         except NativeApiError as exc:
             self.status.setText(f"Settings offline: {exc}")
             return
@@ -4168,7 +3473,7 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
         self.airport_results.addItem("Searching airports...")
         self.airport_results.show()
         self._airport_search_future = _API_EXECUTOR.submit(
-            lambda: self.client.get_any_json("/api/airports/search", params={"q": query, "limit": 10})
+            lambda: self.service.airport_search(query, limit=10)
         )
         self.search_poll_timer.start()
 
@@ -4234,7 +3539,7 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
         clear_layout(self.install_layout)
         self.install_layout.addWidget(section_label(self.QtWidgets, "Install & Relay"))
         try:
-            info = self.client.get_json("/api/setup/client-info")
+            info = self.service.setup_client_info()
         except NativeApiError as exc:
             self.install_layout.addWidget(label(self.QtWidgets, f"Install info unavailable: {exc}", "Muted", wrap=True))
             return
@@ -4283,7 +3588,7 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
 
     def save(self) -> None:
         try:
-            self.client.patch_json("/api/config", self._config_payload())
+            self.service.save_config(self._config_payload())
         except NativeApiError as exc:
             self.status.setText(f"Save failed: {exc}")
             return
@@ -4291,7 +3596,7 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
 
     def restart_scheduler(self) -> None:
         try:
-            result = self.client.post_json("/api/admin/scheduler/restart", {})
+            result = self.service.restart_scheduler()
         except NativeApiError as exc:
             self.status.setText(f"Restart failed: {exc}")
             return
@@ -4301,7 +3606,7 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
         if self.QtWidgets.QMessageBox.question(self.widget, "Re-run setup", "Clear setup marker and restart the setup wizard?") != self.QtWidgets.QMessageBox.Yes:
             return
         try:
-            self.client.post_json("/api/setup/reset", {})
+            self.service.setup_reset()
         except NativeApiError as exc:
             self.status.setText(f"Setup reset failed: {exc}")
             return
@@ -4313,7 +3618,7 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
             self.status.setText("Enter a profile name first.")
             return
         try:
-            self.client.post_form("/profiles/save", {"profile_name": name})
+            self.service.save_profile(name)
         except NativeApiError as exc:
             self.status.setText(f"Profile save failed: {exc}")
             return
@@ -4326,7 +3631,7 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
             self.status.setText("No profile selected.")
             return
         try:
-            self.client.post_form("/profiles/load", {"profile_name": name})
+            self.service.load_profile(name)
         except NativeApiError as exc:
             self.status.setText(f"Profile load failed: {exc}")
             return
@@ -4339,7 +3644,7 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
             self.status.setText("No profile selected.")
             return
         try:
-            self.client.post_form("/profiles/delete", {"profile_name": name})
+            self.service.delete_profile(name)
         except NativeApiError as exc:
             self.status.setText(f"Profile delete failed: {exc}")
             return
@@ -4353,6 +3658,7 @@ class AdminSummaryScreen:  # pragma: no cover - optional Qt runtime
         QtCore, _QtGui, _QtWidgets = import_qt()
         self.QtCore = QtCore
         self.client = client
+        self.service = NativeApiService(client)
         self.navigate = navigate
         self.widget, self.layout = scroll_page(QtWidgets)
         self.layout.setContentsMargins(28, 22, 28, 22)
@@ -4386,14 +3692,15 @@ class AdminSummaryScreen:  # pragma: no cover - optional Qt runtime
 
     def refresh(self) -> None:
         try:
-            cfg = self.client.get_json("/api/config")
-            system = self.client.get_json("/api/admin/system")
-            budget = self.client.get_json("/api/admin/budget")
-            connections = self.client.get_json("/api/admin/connections")
-            scheduler = self.client.get_json("/api/admin/scheduler")
-            updates = self.client.get_json("/api/admin/updates")
-            weather = self.client.get_json("/api/metar")
-            history = self.client.get_json("/api/history/stats")
+            summary = self.service.admin_summary()
+            cfg = summary.config
+            system = summary.system
+            budget = summary.budget
+            connections = summary.connections
+            scheduler = summary.scheduler
+            updates = summary.updates
+            weather = summary.weather or {}
+            history = summary.history_stats
         except NativeApiError as exc:
             self.status.setText(f"Admin offline: {exc}")
             return
@@ -4566,6 +3873,7 @@ class RequestsScreen:  # pragma: no cover - optional Qt runtime
     def __init__(self, QtWidgets: Any, client: LocalApiClient) -> None:
         self.QtWidgets = QtWidgets
         self.client = client
+        self.service = NativeApiService(client)
         self.widget, self.layout = scroll_page(QtWidgets)
         head = QtWidgets.QHBoxLayout()
         head.addWidget(label(QtWidgets, "Traffic Log", "Title"))
@@ -4596,25 +3904,26 @@ class RequestsScreen:  # pragma: no cover - optional Qt runtime
         return getattr(self.widget, name)
 
     def refresh(self) -> None:
-        params = {"hours": int(self.hours.currentData()), "limit": 300}
         selected_client_type = str(self.client_type.currentData() or "all")
-        if selected_client_type != "all":
-            params["client_type"] = selected_client_type
         try:
-            payload = self.client.get_json("/api/admin/requests", params=params)
+            request_log = self.service.request_log(
+                hours=int(self.hours.currentData()),
+                limit=300,
+                client_type=selected_client_type,
+            )
         except NativeApiError as exc:
             self.status.setText(f"Traffic log unavailable: {exc}")
             return
         clear_layout(self.summary_grid)
-        summary = payload.get("summary") if isinstance(payload.get("summary"), dict) else {}
+        summary = request_log.summary
         cards = [
-            card(self.QtWidgets, "Requests", summary.get("total_requests") or summary.get("total") or len(list_payload(payload, "requests"))),
+            card(self.QtWidgets, "Requests", summary.get("total_requests") or summary.get("total") or len(request_log.rows)),
             card(self.QtWidgets, "Clients", summary.get("clients") or summary.get("client_count") or "-"),
             card(self.QtWidgets, "Errors", summary.get("errors") or summary.get("error_count") or 0),
         ]
         for idx, widget in enumerate(cards):
             self.summary_grid.addWidget(widget, 0, idx)
-        rows = list_payload(payload, "requests")
+        rows = request_log.rows
         set_table_rows(
             self.table,
             self.QtWidgets,
@@ -4637,6 +3946,7 @@ class HistoryScreen:  # pragma: no cover - optional Qt runtime
     def __init__(self, QtWidgets: Any, client: LocalApiClient) -> None:
         self.QtWidgets = QtWidgets
         self.client = client
+        self.service = NativeApiService(client)
         self.rows: list[dict[str, Any]] = []
         self.all_rows: list[dict[str, Any]] = []
         self.colors = colors_for()
@@ -4737,9 +4047,10 @@ class HistoryScreen:  # pragma: no cover - optional Qt runtime
 
     def refresh(self) -> None:
         try:
-            payload = self.client.get_json(
-                "/api/history",
-                params={"hours": int(self.hours.currentData()), "direction": self.direction.currentText(), "limit": 500},
+            payload = self.service.history_payload(
+                hours=int(self.hours.currentData()),
+                direction=self.direction.currentText(),
+                limit=500,
             )
         except NativeApiError as exc:
             self.status.setText(f"History offline: {exc}")
@@ -4756,7 +4067,7 @@ class HistoryScreen:  # pragma: no cover - optional Qt runtime
             self.refresh()
             return
         try:
-            payload = self.client.get_json("/api/history/flight", params={"callsign": callsign, "days": 30})
+            payload = self.service.history_flight(callsign, days=30)
         except NativeApiError as exc:
             self.status.setText(f"Callsign search failed: {exc}")
             return
@@ -4807,7 +4118,7 @@ class HistoryScreen:  # pragma: no cover - optional Qt runtime
     def _render_stats(self) -> None:
         clear_layout(self.stats_layout)
         try:
-            summary = self.client.get_json("/api/history/summary", params={"hours": int(self.stats_period.currentData())})
+            summary = self.service.history_summary(hours=int(self.stats_period.currentData()))
         except NativeApiError as exc:
             self.stats_layout.addWidget(label(self.QtWidgets, f"Stats unavailable: {exc}", "Muted", wrap=True))
             return
@@ -4917,6 +4228,7 @@ class LogsScreen:  # pragma: no cover - optional Qt runtime
     def __init__(self, QtWidgets: Any, client: LocalApiClient) -> None:
         self.client = client
         self.QtWidgets = QtWidgets
+        self.service = NativeApiService(client)
         QtCore, _QtGui, _QtWidgets = import_qt()
         self._known_files: list[str] = []
         self.widget, layout = scroll_page(QtWidgets)
@@ -4962,18 +4274,17 @@ class LogsScreen:  # pragma: no cover - optional Qt runtime
     def refresh(self) -> None:
         try:
             selected = self.file_combo.currentText().strip() or None
-            meta = self.client.get_json("/api/logs", params={"file": selected} if selected else None)
-            self._sync_file_combo(list_payload(meta, "files"), str(meta.get("selected") or ""))
-            selected = self.file_combo.currentText().strip() or meta.get("selected") or None
-            payload = self.client.get_json("/logs/tail", params={"file": selected, "after": 0} if selected else {"after": 0})
+            tail = self.service.log_tail(selected=selected)
+            self._sync_file_combo(tail.files, tail.selected)
+            selected = self.file_combo.currentText().strip() or tail.selected or None
         except NativeApiError as exc:
             self.status.setText(f"Logs unavailable: {exc}")
             return
-        lines = payload.get("lines") if isinstance(payload.get("lines"), list) else []
+        lines = tail.lines
         self.text.setPlainText("\n".join(str(line) for line in lines[-500:]))
         if self.auto_scroll.isChecked():
             self.text.verticalScrollBar().setValue(self.text.verticalScrollBar().maximum())
-        total = int(payload.get("total") or len(lines))
+        total = tail.total
         shown = min(len(lines), 500)
         clear_layout(self.summary_grid)
         self.summary_grid.addWidget(card(self.QtWidgets, "Selected file", selected or "default"), 0, 0)
@@ -5008,6 +4319,7 @@ class FeedbackScreen:  # pragma: no cover - optional Qt runtime
     def __init__(self, QtWidgets: Any, client: LocalApiClient) -> None:
         self.client = client
         self.QtWidgets = QtWidgets
+        self.service = NativeApiService(client)
         self._last_cfg: dict[str, Any] = {}
         self._last_system: dict[str, Any] = {}
         self._last_client_info: dict[str, Any] = {}
@@ -5038,9 +4350,7 @@ class FeedbackScreen:  # pragma: no cover - optional Qt runtime
 
     def refresh(self) -> None:
         try:
-            cfg = self.client.get_json("/api/config")
-            sysinfo = self.client.get_json("/api/admin/system")
-            client_info = self.client.get_json("/api/setup/client-info")
+            cfg, sysinfo, client_info = self.service.feedback_context()
         except NativeApiError:
             return
         self._last_cfg = cfg
@@ -5069,13 +4379,12 @@ class FeedbackScreen:  # pragma: no cover - optional Qt runtime
         self.send_button.setEnabled(False)
         self.status.setText("Sending sanitized report...")
         try:
-            result = self.client.post_json(
-                "/api/feedback",
+            result = self.service.send_feedback(
                 {
                     "title": title,
                     "description": description,
                     "client_context": self._client_context(),
-                },
+                }
             )
         except NativeApiError as exc:
             self.status.setText(f"Report failed: {exc}")

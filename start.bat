@@ -9,6 +9,13 @@ echo   LOCAL FLIGHT - starting up
 echo  =========================================
 echo.
 
+set "LF_FONT_DEVTEST=0"
+set "LF_FONT_SMOKE=0"
+if /i "%~1"=="--font-test" set "LF_FONT_DEVTEST=1"
+if /i "%~1"=="fonttest" set "LF_FONT_DEVTEST=1"
+if /i "%~1"=="fonts" set "LF_FONT_DEVTEST=1"
+if /i "%~1"=="--font-smoke" set "LF_FONT_SMOKE=1"
+
 :: Prefer stable Python versions (3.13, 3.12, 3.11) over pre-release 3.14
 set "PYTHON="
 py -3.13 --version >nul 2>&1
@@ -99,6 +106,29 @@ if "%LF_INSTALL_NATIVE%"=="1" (
     )
 )
 echo  Dependencies OK
+
+if "%LF_FONT_SMOKE%"=="1" (
+    echo  Running bundled font smoke test...
+    python "%~dp0scripts\font_devtest.py" --smoke
+    set "LF_FONT_RESULT=!ERRORLEVEL!"
+    if not "!LF_FONT_RESULT!"=="0" (
+        echo  ERROR: Bundled font smoke test failed.
+        pause
+    )
+    exit /b !LF_FONT_RESULT!
+)
+
+if "%LF_FONT_DEVTEST%"=="1" (
+    echo  Opening bundled font devtest window...
+    echo  This does not start the backend.
+    python "%~dp0scripts\font_devtest.py"
+    set "LF_FONT_RESULT=!ERRORLEVEL!"
+    if not "!LF_FONT_RESULT!"=="0" (
+        echo  ERROR: Bundled font devtest failed.
+        pause
+    )
+    exit /b !LF_FONT_RESULT!
+)
 
 :: -- Guard the dev server port only --------------------------------------------------
 echo  Checking dev server port...

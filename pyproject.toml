@@ -59,6 +59,7 @@ where = ["src"]
 localflight = [
   "ui/templates/*.html",
   "ui/static/*",
+  "ui/static/fonts/*",
   "decode/mappings/*.json",
   "decode/mappings/*.gz",
   "storage/samples/*.json",

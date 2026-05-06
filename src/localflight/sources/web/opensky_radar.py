@@ -166,6 +166,7 @@ def fetch_radar_blips(
             "altitude_m": float(sv[7]) if sv[7] is not None else None,
             "heading":    float(sv[10]) if sv[10] is not None else None,
             "speed_ms":   float(sv[9])  if sv[9]  is not None else None,
+            "vertical_rate": float(sv[11]) if sv[11] is not None else None,
             "on_ground":  bool(sv[8]),
         })
 

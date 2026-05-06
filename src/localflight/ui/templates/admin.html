@@ -87,7 +87,7 @@
   .stat-val.ok   { color: #00c040; }
   .stat-val.warn { color: #ffaa00; }
   .stat-val.bad  { color: #ff4040; }
-  .stat-val.mono { font-family: ui-monospace, monospace; font-size: 0.8rem; }
+  .stat-val.mono { font-family: var(--font-board); font-size: 0.8rem; }
   .budget-bar-wrap {
     margin-top: 10px;
     background: rgba(255,255,255,0.06);
@@ -112,14 +112,14 @@
   .device-dot.offline { background: #888; }
   .device-dot.unknown { background: #ffaa00; }
   .device-name { font-weight: 600; flex: 1; }
-  .device-meta { opacity: 0.5; font-size: 0.78rem; font-family: ui-monospace, monospace; }
+  .device-meta { opacity: 0.5; font-size: 0.78rem; font-family: var(--font-board); }
   .mini-log {
     background: var(--code-bg);
     border: 1px solid var(--code-border);
     border-radius: 8px;
     padding: 10px 12px;
     font-size: 0.7rem;
-    font-family: ui-monospace, monospace;
+    font-family: var(--font-board);
     line-height: 1.5;
     overflow-y: auto;
     max-height: 180px;
@@ -133,7 +133,7 @@
   .log-DEBUG   { opacity: 0.4; }
   .refresh-chip {
     font-size: 0.7rem; opacity: 0.4;
-    font-family: ui-monospace, monospace;
+    font-family: var(--font-board);
     margin-top: 14px; text-align: center;
   }
   .bmc-strip {

@@ -36,7 +36,7 @@
     white-space: nowrap;
   }
   .radar-subheader .radar-lt {
-    font-family: ui-monospace, monospace; font-size: clamp(0.66rem, 1vw, 0.78rem);
+    font-family: var(--font-board); font-size: clamp(0.66rem, 1vw, 0.78rem);
     opacity: 0.6; font-variant-numeric: tabular-nums;
     white-space: nowrap;
   }
@@ -48,7 +48,7 @@
     overflow: hidden;
     padding: clamp(4px, 0.7vh, 5px) clamp(7px, 1vw, 12px); border-radius: 6px;
     background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08);
-    font-size: clamp(0.68rem, 1.1vw, 0.8rem); font-family: ui-monospace, monospace; min-height: 28px;
+    font-size: clamp(0.68rem, 1.1vw, 0.8rem); font-family: var(--font-board); min-height: 28px;
   }
   [data-theme="light"] .metar-bar { background: rgba(0,0,0,0.04); border-color: rgba(0,0,0,0.08); }
   .metar-bar.weather-tone-good { border-color: rgba(0,192,64,0.22); background: linear-gradient(90deg, rgba(0,192,64,0.09), rgba(255,255,255,0.03)); }
@@ -87,7 +87,7 @@
     flex: 0 0 auto;
     padding: clamp(2px, 0.5vh, 3px) clamp(7px, 1.1vw, 10px); border-radius: 4px; font-size: clamp(0.66rem, 1vw, 0.75rem); font-weight: 700;
     border: 1px solid rgba(255,255,255,0.18); background: rgba(255,255,255,0.05);
-    color: inherit; cursor: pointer; font-family: ui-monospace, monospace;
+    color: inherit; cursor: pointer; font-family: var(--font-board);
     transition: background 0.1s, border-color 0.1s;
   }
   [data-theme="light"] .radar-range-btn { border-color: rgba(0,0,0,0.18); background: rgba(0,0,0,0.04); }
@@ -107,7 +107,7 @@
     color: inherit;
     text-decoration: none;
     font-size: 0.62rem;
-    font-family: ui-monospace, monospace;
+    font-family: var(--font-board);
     opacity: 0.62;
     background: rgba(0,0,0,0.36);
     border: 1px solid rgba(255,255,255,0.08);
@@ -115,7 +115,7 @@
   }
   [data-theme="light"] .osm-attribution { background: rgba(255,255,255,0.68); border-color: rgba(0,0,0,0.08); }
   .osm-attribution.visible { display: block; }
-  .radar-status { font-size: clamp(0.62rem, 0.95vw, 0.72rem); opacity: 0.45; text-align: center; flex-shrink: 0; font-family: ui-monospace, monospace; }
+  .radar-status { font-size: clamp(0.62rem, 0.95vw, 0.72rem); opacity: 0.45; text-align: center; flex-shrink: 0; font-family: var(--font-board); }
   @media (max-width: 760px), (max-height: 520px) {
     .radar-wrap {
       padding: 5px 6px 6px;
@@ -237,6 +237,8 @@
     crt:       { boundary:"rgba(255,170,0,0.28)", runway:"rgba(255,196,66,0.56)", runwayFill:"rgba(255,170,0,0.09)", taxiway:"rgba(255,170,0,0.22)", apron:"rgba(255,170,0,0.06)", terminal:"rgba(255,170,0,0.09)", building:"rgba(255,196,66,0.14)", label:"rgba(255,213,128,0.66)" },
   };
   const SURFACE = SURFACE_BY_SKIN[skin] || SURFACE_BY_SKIN.standard;
+  const BOARD_FONT = getComputedStyle(document.documentElement).getPropertyValue("--font-board-canvas").trim()
+    || '"Space Mono", ui-monospace, monospace';
 
   const NM_PER_DEG_LAT = 60.0;
   function latLonToNm(lat, lon) {
@@ -284,6 +286,7 @@
   function updateSweep(now){ const e=(now-lastSweepTime)/1000; lastSweepTime=now; sweepAngle=(sweepAngle+e*30)%360; }
 
   let blips=[], hoveredBlip=null;
+  const trackHistory = new Map();
   let surfaceFeatures = [];
   let surfaceCacheState = "miss";
 
@@ -309,6 +312,7 @@
     try {
       const r=await fetch(`/api/radar?radius_nm=${RADIUS_NM}`); if(!r.ok) throw new Error(`HTTP ${r.status}`);
       const data=await r.json(); blips=data.blips||[];
+      updateTrackHistory(blips);
       const upd=new Date().toUTCString().slice(17,25);
       const hiddenGround = Number(data.ground_filtered || 0);
       const hiddenAirborne = Number(data.airborne_filtered || 0);
@@ -423,7 +427,7 @@
 
     [0.2,0.4,0.6,0.8,1.0].forEach(f=>{
       const rr=R*f; ctx.beginPath(); ctx.arc(cx,cy,rr,0,Math.PI*2); ctx.strokeStyle=C.ring; ctx.lineWidth=0.5; ctx.stroke();
-      ctx.fillStyle=C.text; ctx.font=`${Math.max(9,W*0.018)}px ui-monospace,monospace`;
+      ctx.fillStyle=C.text; ctx.font=`${Math.max(9,W*0.018)}px ${BOARD_FONT}`;
       ctx.globalAlpha=0.35; ctx.fillText(`${formatNm(RADIUS_NM*f)}`,cx+rr+3,cy-3); ctx.globalAlpha=1;
     });
 
@@ -431,7 +435,7 @@
     [[cx,cy-R,cx,cy+R],[cx-R,cy,cx+R,cy]].forEach(([x1,y1,x2,y2])=>{ctx.beginPath();ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);ctx.stroke();});
     ctx.setLineDash([]);
 
-    ctx.fillStyle=C.text; ctx.globalAlpha=0.55; ctx.font=`${Math.max(10,W*0.022)}px ui-monospace,monospace`;
+    ctx.fillStyle=C.text; ctx.globalAlpha=0.55; ctx.font=`${Math.max(10,W*0.022)}px ${BOARD_FONT}`;
     ctx.textAlign="center"; ctx.fillText("N",cx,cy-R+14); ctx.fillText("S",cx,cy+R-6);
     ctx.textAlign="left"; ctx.fillText("E",cx+R-18,cy+4);
     ctx.textAlign="right"; ctx.fillText("W",cx-R+18,cy+4);
@@ -450,6 +454,8 @@
     ctx.beginPath(); ctx.arc(cx,cy,4,0,Math.PI*2); ctx.fillStyle=C.center; ctx.fill();
     ctx.beginPath(); ctx.arc(cx,cy,8,0,Math.PI*2); ctx.strokeStyle=C.center; ctx.globalAlpha=0.4; ctx.lineWidth=1; ctx.stroke(); ctx.globalAlpha=1;
 
+    drawGhostTracks(R);
+
     const blipR=Math.max(3,W*0.006), fs=Math.max(9,W*0.02);
     blips.forEach(b=>{
       const nm=latLonToNm(b.lat,b.lon);
@@ -458,16 +464,21 @@
       if(pos.x<0||pos.x>W||pos.y<0||pos.y>H) return;
       const bDeg=blipAngle(nm.x,nm.y), alpha=blipAlpha(bDeg,sweepAngle,b.on_ground);
       const age=angleSinceSweep(bDeg,sweepAngle), flash=age<15||age>350, dotR=flash?blipR*1.6:blipR;
-      if(b.heading!=null&&b.speed_ms>5){
-        const hr=(b.heading-90)*Math.PI/180;
+      const heading = Number.isFinite(Number(b.track_deg)) ? Number(b.track_deg)
+        : Number.isFinite(Number(b.heading)) ? Number(b.heading)
+        : headingFromTrackHistory(b);
+      if(heading!=null&&((b.speed_ms||0)>5 || (b.speed_kt||0)>8)){
+        const hr=(heading-90)*Math.PI/180;
         ctx.beginPath(); ctx.moveTo(pos.x,pos.y); ctx.lineTo(pos.x+Math.cos(hr)*blipR*5,pos.y+Math.sin(hr)*blipR*5);
         ctx.strokeStyle=C.blip; ctx.globalAlpha=alpha*0.5; ctx.lineWidth=1; ctx.stroke();
       }
       ctx.beginPath(); ctx.arc(pos.x,pos.y,dotR,0,Math.PI*2); ctx.fillStyle=C.blip; ctx.globalAlpha=alpha; ctx.fill();
       if(flash&&!b.on_ground){ ctx.beginPath(); ctx.arc(pos.x,pos.y,dotR*2.5,0,Math.PI*2); ctx.fillStyle=C.blip; ctx.globalAlpha=0.15; ctx.fill(); }
       ctx.globalAlpha=1;
-      ctx.fillStyle=C.text; ctx.font=`${fs}px ui-monospace,monospace`;
-      ctx.globalAlpha=alpha*0.9; ctx.fillText(b.callsign,pos.x+blipR+3,pos.y-2); ctx.globalAlpha=1;
+      if (shouldDrawLabel(b)) {
+        ctx.fillStyle=C.text; ctx.font=`${fs}px ${BOARD_FONT}`;
+        ctx.globalAlpha=alpha*0.9; ctx.fillText(b.callsign,pos.x+blipR+3,pos.y-2); ctx.globalAlpha=1;
+      }
     });
 
     if(hoveredBlip){
@@ -480,9 +491,80 @@
       if(tx+bw>W) tx=pos.x-bw-6; if(ty<0) ty=4; if(ty+bh>H) ty=H-bh-4;
       ctx.fillStyle=C.bg; ctx.strokeStyle=C.blip; ctx.lineWidth=1; ctx.globalAlpha=0.93;
       ctx.beginPath(); ctx.roundRect(tx,ty,bw,bh,4); ctx.fill(); ctx.stroke(); ctx.globalAlpha=1;
-      ctx.fillStyle=C.text; ctx.font=`${fs}px ui-monospace,monospace`;
+      ctx.fillStyle=C.text; ctx.font=`${fs}px ${BOARD_FONT}`;
       lines.forEach((l,i)=>ctx.fillText(l,tx+pad,ty+pad+fs+i*lh));
     }
+    ctx.restore();
+  }
+
+  function blipIdentity(b) {
+    return String(b?.callsign || b?.icao24 || b?.hex || `${b?.lat}:${b?.lon}`).toUpperCase();
+  }
+
+  function updateTrackHistory(nextBlips) {
+    const seen = new Set();
+    nextBlips.forEach(b => {
+      const key = blipIdentity(b);
+      const lat = Number(b.lat), lon = Number(b.lon);
+      if (!key || !Number.isFinite(lat) || !Number.isFinite(lon)) return;
+      seen.add(key);
+      const history = trackHistory.get(key) || [];
+      const last = history[history.length - 1];
+      if (!last || Math.abs(last[0] - lat) > 0.00001 || Math.abs(last[1] - lon) > 0.00001) {
+        history.push([lat, lon]);
+      }
+      trackHistory.set(key, history.slice(-4));
+    });
+    for (const key of Array.from(trackHistory.keys())) {
+      if (!seen.has(key)) trackHistory.delete(key);
+    }
+  }
+
+  function headingFromTrackHistory(b) {
+    const history = trackHistory.get(blipIdentity(b)) || [];
+    if (history.length < 2) return null;
+    const [lat1, lon1] = history[history.length - 2];
+    const [lat2, lon2] = history[history.length - 1];
+    const y = (lat2 - lat1) * 60.0;
+    const x = (lon2 - lon1) * 60.0 * Math.cos(((lat1 + lat2) / 2) * Math.PI / 180);
+    if (Math.abs(x) < 0.000001 && Math.abs(y) < 0.000001) return null;
+    return (Math.atan2(x, y) * 180 / Math.PI + 360) % 360;
+  }
+
+  function shouldDrawLabel(b) {
+    if (hoveredBlip && blipIdentity(hoveredBlip) === blipIdentity(b)) return true;
+    const phase = String(b.radar_phase || b.radar_status || "").toLowerCase();
+    if (RADIUS_NM <= 10) return true;
+    if (RADIUS_NM <= 20) return blips.length <= 30 || ["approach", "final", "departing"].includes(phase);
+    return blips.length <= 8 && ["approach", "final", "departing"].includes(phase) && !b.on_ground;
+  }
+
+  function drawGhostTracks(R) {
+    if (!trackHistory.size) return;
+    ctx.save();
+    blips.forEach(b => {
+      const history = trackHistory.get(blipIdentity(b)) || [];
+      if (history.length < 2) return;
+      const points = history.slice(-4).map(([lat, lon]) => {
+        const nm = latLonToNm(lat, lon);
+        return Math.hypot(nm.x, nm.y) <= RADIUS_NM ? nmToCanvas(nm.x, nm.y, R) : null;
+      }).filter(Boolean);
+      if (points.length < 2) return;
+      ctx.strokeStyle = C.blip;
+      ctx.globalAlpha = RADIUS_NM <= 20 ? 0.14 : 0.08;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      points.forEach((point, idx) => idx ? ctx.lineTo(point.x, point.y) : ctx.moveTo(point.x, point.y));
+      ctx.stroke();
+      points.slice(0, -1).forEach((point, idx) => {
+        ctx.beginPath();
+        ctx.globalAlpha = 0.08 + idx * 0.03;
+        ctx.arc(point.x, point.y, Math.max(2, canvas.width * 0.004), 0, Math.PI * 2);
+        ctx.fillStyle = C.blip;
+        ctx.fill();
+      });
+    });
+    ctx.globalAlpha = 1;
     ctx.restore();
   }
 
@@ -595,7 +677,7 @@
     ctx.translate(x, y);
     ctx.rotate(Math.atan2(p2.y - p1.y, p2.x - p1.x));
     ctx.fillStyle = SURFACE.label;
-    ctx.font = `${Math.max(8, W * 0.016)}px ui-monospace,monospace`;
+    ctx.font = `${Math.max(8, W * 0.016)}px ${BOARD_FONT}`;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.globalAlpha = surfaceAlpha() * 0.95;

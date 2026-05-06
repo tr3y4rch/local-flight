@@ -10,6 +10,7 @@
     {% if refresh_seconds is defined and refresh_seconds %}
       <meta http-equiv="refresh" content="{{ refresh_seconds }}" />
     {% endif %}
+    <link rel="stylesheet" href="/static/fonts.css" />
     <link rel="stylesheet" href="/static/app.css" />
     <link rel="stylesheet" href="/static/skins.css" />
     <style>
@@ -19,7 +20,7 @@
         gap: 24px;
         align-items: center;
         font-variant-numeric: tabular-nums;
-        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+        font-family: var(--font-board);
         font-size: 0.9rem;
         opacity: 0.9;
       }
@@ -183,7 +184,7 @@
       }
       .lf-nav-brand:hover { opacity: 1; }
       .lf-nav-brand-name  { opacity: 0.7; font-weight: 600; }
-      .lf-nav-ver         { opacity: 0.3; font-size: 0.62rem; font-weight: 500; margin-left: 4px; font-family: ui-monospace, monospace; }
+      .lf-nav-ver         { opacity: 0.3; font-size: 0.62rem; font-weight: 500; margin-left: 4px; font-family: var(--font-board); }
       .lf-nav-group {
         display: flex;
         align-items: center;
@@ -228,7 +229,7 @@
         display: flex;
         align-items: baseline;
         gap: 4px;
-        font-family: ui-monospace, monospace;
+        font-family: var(--font-board);
         font-size: 0.78rem;
         font-variant-numeric: tabular-nums;
         opacity: 0.6;
@@ -346,7 +347,7 @@
         border-radius: 999px;
         background: rgba(255,255,255,0.04);
         border: 1px solid rgba(255,255,255,0.06);
-        font-family: ui-monospace, monospace;
+        font-family: var(--font-board);
         font-size: 0.76rem;
         font-variant-numeric: tabular-nums;
         white-space: nowrap;

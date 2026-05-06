@@ -293,6 +293,12 @@ _DOC_PAGES: Dict[str, Dict[str, str]] = {
         "summary": "Version history and recent release changes.",
         "github_url": "https://github.com/tr3y4rch/local-flight/blob/main/CHANGELOG.md",
     },
+    "third-party": {
+        "title": "Third-Party Notices",
+        "filename": "THIRD_PARTY_NOTICES.md",
+        "summary": "Bundled font licenses and source attribution for local app assets.",
+        "github_url": "https://github.com/tr3y4rch/local-flight/blob/main/THIRD_PARTY_NOTICES.md",
+    },
 }
 
 

@@ -19,13 +19,13 @@
   --skin-ok:        #3a9a6a;
   --skin-warn:      #d4a020;
   --skin-bad:       #c04040;
-  --skin-mono:      "JetBrains Mono", "Fira Code", ui-monospace, monospace;
+  --skin-mono:      var(--font-board);
 }
 
 [data-skin="technical"] body {
   background: var(--skin-bg);
   color: var(--skin-text);
-  font-family: var(--skin-mono);
+  font-family: var(--font-board);
 }
 
 [data-skin="technical"] table th,
@@ -54,7 +54,7 @@
 [data-skin="neon"] body {
   background: var(--skin-bg);
   color: var(--skin-text);
-  font-family: "Courier New", Courier, monospace;
+  font-family: var(--font-board);
 }
 
 [data-skin="neon"] h1,
@@ -88,7 +88,7 @@
 [data-skin="cyan"] body {
   background: var(--skin-bg);
   color: var(--skin-text);
-  font-family: "Courier New", Courier, monospace;
+  font-family: var(--font-board);
 }
 
 [data-skin="cyan"] h1,
@@ -119,7 +119,7 @@
 [data-skin="crt"] body {
   background: var(--skin-bg);
   color: var(--skin-text);
-  font-family: "Courier New", Courier, monospace;
+  font-family: var(--font-board);
   letter-spacing: 0.04em;
 }
 
@@ -136,9 +136,23 @@
 
 /* ── Shared status color overrides for all non-standard skins ── */
 [data-skin="neon"] .status-delayed,
+[data-skin="neon"] .status-delayed-warn,
 [data-skin="cyan"] .status-delayed,
+[data-skin="cyan"] .status-delayed-warn,
 [data-skin="crt"]  .status-delayed,
-[data-skin="technical"] .status-delayed { color: var(--skin-warn); }
+[data-skin="crt"]  .status-delayed-warn,
+[data-skin="technical"] .status-delayed,
+[data-skin="technical"] .status-delayed-warn { color: var(--skin-warn); }
+
+[data-skin="neon"] .status-delayed-bad,
+[data-skin="cyan"] .status-delayed-bad,
+[data-skin="crt"]  .status-delayed-bad,
+[data-skin="technical"] .status-delayed-bad { color: var(--skin-bad); }
+
+[data-skin="neon"] .status-early,
+[data-skin="cyan"] .status-early,
+[data-skin="crt"]  .status-early,
+[data-skin="technical"] .status-early { color: var(--skin-ok); }
 
 [data-skin="neon"] .status-cancelled,
 [data-skin="cyan"] .status-cancelled,

@@ -3452,8 +3452,12 @@ def _render_admin_legacy(username: str, *, created_token: str = "", message: str
 <meta charset="utf-8">
 <title>Local Flight Network Admin</title>
 <style>
+  :root {{
+    --font-ui: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --font-board: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  }}
   * {{ box-sizing: border-box; }}
-  body {{ margin: 0; font-family: system-ui, sans-serif; background: #0c1117; color: #e7edf3; line-height: 1.45; }}
+  body {{ margin: 0; font-family: var(--font-ui); background: #0c1117; color: #e7edf3; line-height: 1.45; }}
   .wrap {{ max-width: 1480px; margin: 0 auto; padding: 28px; }}
   h1 {{ margin: 0 0 4px; font-size: 1.45rem; }}
   .sub {{ opacity: .6; margin-bottom: 18px; }}
@@ -3467,7 +3471,7 @@ def _render_admin_legacy(username: str, *, created_token: str = "", message: str
   .stack {{ display: grid; gap: 14px; }}
   .soft {{ opacity: .62; }}
   .muted {{ opacity: .45; padding: 18px 10px; }}
-  .mono {{ font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }}
+  .mono {{ font-family: var(--font-board); }}
   form {{ display: grid; gap: 10px; }}
   .inline {{ display: inline-block; margin: 0 6px 6px 0; }}
   .inline input {{ display: none; }}

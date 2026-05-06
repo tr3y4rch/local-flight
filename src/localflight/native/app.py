@@ -14,22 +14,27 @@ from typing import Any
 
 from localflight.native.api_client import LocalApiClient
 from localflight.native.async_tools import API_EXECUTOR
+from localflight.native.live import NativeLiveBus, event_refresh_targets, native_ws_url
+from localflight.native.models import FlightBoardModel, HistoryModel, RequestLogModel
+from localflight.native.canvas.radar import RadarCanvas
+from localflight.native.pages.fids import FidsScreen
+from localflight.native.pages.radar import RadarScreen
 from localflight.native.qt_compat import import_qt
+from localflight.native.registry import PAGE_SPECS, SETUP_PAGE_SPEC, NativePageSpec
+from localflight.native.service import NativeApiService
+from localflight.native.widgets import AirportSearchBox, DetailDrawer, StatusCard, WeatherStrip
 
 _LEGACY_EXPORTS = {
     "AdminSummaryScreen",
     "COFFEE_URL",
     "DisplayScreen",
     "FeedbackScreen",
-    "FidsScreen",
     "HistoryScreen",
     "LogsScreen",
     "MatrixCanvas",
     "MatrixScreen",
     "NativeMainWindow",
     "NativeSetupWindow",
-    "RadarCanvas",
-    "RadarScreen",
     "RequestsScreen",
     "SetupScreen",
     "SettingsScreen",
@@ -44,6 +49,23 @@ _LEGACY_EXPORTS = {
 
 __all__ = [
     "LocalApiClient",
+    "NativeApiService",
+    "NativeLiveBus",
+    "NativePageSpec",
+    "PAGE_SPECS",
+    "SETUP_PAGE_SPEC",
+    "FlightBoardModel",
+    "FidsScreen",
+    "RadarCanvas",
+    "RadarScreen",
+    "HistoryModel",
+    "RequestLogModel",
+    "StatusCard",
+    "WeatherStrip",
+    "DetailDrawer",
+    "AirportSearchBox",
+    "event_refresh_targets",
+    "native_ws_url",
     "is_native_available",
     "launch_native_app",
     "main",
