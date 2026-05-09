@@ -176,6 +176,44 @@ def _build_splash(QtCore: Any, QtGui: Any, QtWidgets: Any) -> Any:
     return splash
 
 
+def _screen_available_geometry(QtWidgets: Any, window: Any | None = None) -> Any | None:
+    qapplication = getattr(QtWidgets, "QApplication", None)
+    app = qapplication.instance() if qapplication is not None else None
+    screen = None
+    if window is not None and hasattr(window, "screen"):
+        try:
+            screen = window.screen()
+        except Exception:
+            screen = None
+    if screen is None and app is not None:
+        screen = app.primaryScreen()
+    if screen is None:
+        return None
+    try:
+        return screen.availableGeometry()
+    except Exception:
+        return None
+
+
+def _fit_window_to_screen(QtWidgets: Any, window: Any, preferred_width: int, preferred_height: int) -> None:
+    """Set a comfortable first-launch size without overflowing small displays."""
+    geometry = _screen_available_geometry(QtWidgets, window)
+    if geometry is None:
+        window.resize(preferred_width, preferred_height)
+        return
+
+    max_width = max(1, int(geometry.width() * 0.92))
+    max_height = max(1, int(geometry.height() * 0.92))
+    width = min(preferred_width, max_width)
+    height = min(preferred_height, max_height)
+    window.resize(width, height)
+
+    frame = getattr(window, "frameGeometry", lambda: None)()
+    if frame is not None:
+        frame.moveCenter(geometry.center())
+        window.move(frame.topLeft())
+
+
 def _finish_splash(splash: Any, window: Any) -> None:
     """Close either a real QSplashScreen or our lightweight splash widget."""
     if splash is None:
@@ -361,6 +399,10 @@ def launch_native_app(
     QtCore, QtGui, QtWidgets = import_qt()
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication(sys.argv[:1])
     app.setApplicationName("Local Flight")
+    if hasattr(app, "setApplicationDisplayName"):
+        app.setApplicationDisplayName("Local Flight")
+    app.setOrganizationName("Local Flight")
+    app.setOrganizationDomain("localflight.app")
     apply_app_font_defaults(QtGui, app)
     app_icon = icon_from_media(QtGui, "assets", "icon_circle.svg")
     if not app_icon.isNull():
@@ -390,7 +432,7 @@ def launch_native_app(
         if fullscreen:
             window.showFullScreen()
         else:
-            window.resize(1280, 820)
+            _fit_window_to_screen(QtWidgets, window, 1280, 820)
             window.show()
         _finish_splash(splash, window)
         windows["main"] = window
@@ -414,7 +456,7 @@ def launch_native_app(
         )
         if not app_icon.isNull():
             setup_window.setWindowIcon(app_icon)
-        setup_window.resize(980, 720)
+        _fit_window_to_screen(QtWidgets, setup_window, 980, 720)
         setup_window.show()
         _finish_splash(splash, setup_window)
         windows["setup"] = setup_window

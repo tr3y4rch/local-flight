@@ -46,12 +46,26 @@ def make_icons() -> None:
     ASSETS.mkdir(exist_ok=True)
 
     is_win   = sys.platform == "win32"
-    svg_file = ASSETS / ("icon_square.svg" if is_win else "icon_circle.svg")
-    png_candidates = [
-        ASSETS / ("icon_square.png" if is_win else "icon_circle.png"),
-        ASSETS / "icon_circle.png",
-        ASSETS / "icon.png",
-    ]
+    is_mac   = sys.platform == "darwin"
+    if is_mac:
+        svg_file = ASSETS / "icon_macos.svg"
+        png_candidates = [
+            ASSETS / "icon_macos.png",
+            ASSETS / "icon_square.png",
+        ]
+    elif is_win:
+        svg_file = ASSETS / "icon_square.svg"
+        png_candidates = [
+            ASSETS / "icon_square.png",
+            ASSETS / "icon_circle.png",
+            ASSETS / "icon.png",
+        ]
+    else:
+        svg_file = ASSETS / "icon_circle.svg"
+        png_candidates = [
+            ASSETS / "icon_circle.png",
+            ASSETS / "icon.png",
+        ]
 
     img = None
     if svg_file.exists():
@@ -68,6 +82,12 @@ def make_icons() -> None:
                 img = Image.open(png_file).convert("RGBA")
                 print(f"Loaded icon from {png_file.name}")
                 break
+    if img is None:
+        if is_mac:
+            from scripts.macos_icon import draw_macos_icon
+
+            img = draw_macos_icon(1024)
+            print("Generated macOS icon via Pillow fallback")
     if img is None:
         img = _make_placeholder()
         print("Using placeholder icon (install cairosvg or pre-render SVG to PNG)")

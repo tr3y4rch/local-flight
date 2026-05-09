@@ -3,7 +3,7 @@
 # PyInstaller spec for Local Flight â€” Windows (.exe) and macOS (.app).
 #
 # Build with:   python build.py
-# Or directly:  pyinstaller LocalFlight.spec --noconfirm
+# Direct PyInstaller assumes build.py already generated platform icon assets.
 
 import sys
 import re
@@ -169,7 +169,10 @@ if is_mac:
         bundle_identifier="com.localflight.app",
         info_plist={
             "NSHighResolutionCapable": True,
-            "LSUIElement": True,               # Tray-only â€” suppress Dock icon
+            "LSApplicationCategoryType": "public.app-category.utilities",
+            "LSMinimumSystemVersion": "12.0",
+            "NSAppTransportSecurity": {"NSAllowsLocalNetworking": True},
+            "CFBundleVersion": _VERSION,
             "CFBundleShortVersionString": _VERSION,
             "CFBundleName": "Local Flight",
             "CFBundleDisplayName": "Local Flight",

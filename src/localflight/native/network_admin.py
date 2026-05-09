@@ -33,6 +33,10 @@ def main() -> None:
         QtCore, QtGui, QtWidgets = import_qt()
         app = QtWidgets.QApplication.instance() or QtWidgets.QApplication(sys.argv[:1])
         app.setApplicationName("Local Flight Network Admin")
+        if hasattr(app, "setApplicationDisplayName"):
+            app.setApplicationDisplayName("Local Flight Network Admin")
+        app.setOrganizationName("Local Flight")
+        app.setOrganizationDomain("localflight.app")
         apply_app_font_defaults(QtGui, app)
         app_icon = icon_from_media(QtGui, "assets", "icon_square.svg")
         if not app_icon.isNull():
@@ -40,7 +44,17 @@ def main() -> None:
         window = NetworkAdminWindow(QtCore, QtWidgets)
         if not app_icon.isNull():
             window.setWindowIcon(app_icon)
-        window.resize(1280, 820)
+        geometry = app.primaryScreen().availableGeometry() if app.primaryScreen() is not None else None
+        if geometry is None:
+            window.resize(1280, 820)
+        else:
+            window.resize(
+                min(1280, max(1, int(geometry.width() * 0.92))),
+                min(820, max(1, int(geometry.height() * 0.92))),
+            )
+            frame = window.frameGeometry()
+            frame.moveCenter(geometry.center())
+            window.move(frame.topLeft())
         window.show()
         raise SystemExit(int(app.exec()))
     except Exception as exc:

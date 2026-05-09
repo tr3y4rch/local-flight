@@ -326,6 +326,74 @@ def test_native_custom_splash_can_close_without_qsplash_finish(monkeypatch: pyte
     assert not splash.isVisible()
 
 
+def test_native_initial_window_size_fits_available_screen() -> None:
+    import localflight.native._legacy_app as legacy
+
+    class _Point:
+        pass
+
+    class _Geometry:
+        def __init__(self, width: int, height: int) -> None:
+            self._width = width
+            self._height = height
+
+        def width(self) -> int:
+            return self._width
+
+        def height(self) -> int:
+            return self._height
+
+        def center(self) -> _Point:
+            return _Point()
+
+    class _Frame:
+        def __init__(self) -> None:
+            self.centered = False
+
+        def moveCenter(self, _point: _Point) -> None:
+            self.centered = True
+
+        def topLeft(self) -> tuple[int, int]:
+            return (12, 34)
+
+    class _Screen:
+        def __init__(self, geometry: _Geometry) -> None:
+            self._geometry = geometry
+
+        def availableGeometry(self) -> _Geometry:
+            return self._geometry
+
+    class _Window:
+        def __init__(self, geometry: _Geometry) -> None:
+            self._screen = _Screen(geometry)
+            self.frame = _Frame()
+            self.size: tuple[int, int] | None = None
+            self.position: tuple[int, int] | None = None
+
+        def screen(self) -> _Screen:
+            return self._screen
+
+        def resize(self, width: int, height: int) -> None:
+            self.size = (width, height)
+
+        def frameGeometry(self) -> _Frame:
+            return self.frame
+
+        def move(self, position: tuple[int, int]) -> None:
+            self.position = position
+
+    small_window = _Window(_Geometry(1000, 700))
+    large_window = _Window(_Geometry(3000, 2000))
+
+    legacy._fit_window_to_screen(object(), small_window, 1280, 820)
+    legacy._fit_window_to_screen(object(), large_window, 1280, 820)
+
+    assert small_window.size == (920, 644)
+    assert small_window.frame.centered is True
+    assert small_window.position == (12, 34)
+    assert large_window.size == (1280, 820)
+
+
 def test_native_main_window_close_requests_backend_shutdown(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
     pytest.importorskip("PySide6")

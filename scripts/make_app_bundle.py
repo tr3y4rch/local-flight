@@ -22,6 +22,10 @@ import sys
 import textwrap
 from pathlib import Path
 
+ROOT_DIR = Path(__file__).resolve().parents[1]
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+
 
 def _load_version(root: Path) -> str:
     try:
@@ -36,44 +40,47 @@ def _load_version(root: Path) -> str:
 
 
 def _make_icns(root: Path, iconset_dir: Path) -> Path:
-    """Render icon_circle.svg/png -> iconset -> .icns. Returns .icns path."""
+    """Render the macOS app icon source -> iconset -> .icns. Returns .icns path."""
     assets = root / "assets"
     icns_out = assets / "icon.icns"
 
     img = None
 
     # 1. Try cairosvg
-    svg = assets / "icon_circle.svg"
-    if svg.exists():
+    svg_candidates = [
+        assets / "icon_macos.svg",
+        assets / "icon_square.svg",
+        assets / "icon_circle.svg",
+    ]
+    svg = next((candidate for candidate in svg_candidates if candidate.exists()), None)
+    if svg is not None:
         try:
             import cairosvg
             from PIL import Image
             data = cairosvg.svg2png(url=str(svg), output_width=1024, output_height=1024)
             img = Image.open(io.BytesIO(data)).convert("RGBA")
-            print("  Icon: rendered from SVG (cairosvg)")
+            print(f"  Icon: rendered from {svg.name} (cairosvg)")
         except ImportError:
             pass
 
     # 2. Fall back to pre-rendered PNG
     if img is None:
-        png = assets / "icon_circle.png"
-        if png.exists():
+        png_candidates = [
+            assets / "icon_macos.png",
+            assets / "icon_square.png",
+        ]
+        png = next((candidate for candidate in png_candidates if candidate.exists()), None)
+        if png is not None:
             from PIL import Image
             img = Image.open(png).convert("RGBA")
-            print("  Icon: loaded from icon_circle.png")
+            print(f"  Icon: loaded from {png.name}")
 
     # 3. PIL placeholder
     if img is None:
-        from PIL import Image, ImageDraw
-        print("  Icon: using placeholder (no SVG renderer or icon_circle.png found)")
-        size = 1024
-        img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-        d = ImageDraw.Draw(img)
-        d.ellipse([4, 4, size - 4, size - 4], fill="#1D9E75")
-        cx, cy = size // 2, size // 2
-        d.polygon([(cx, cy-320), (cx+72, cy+40), (cx, cy-40), (cx-72, cy+40)], fill="white")
-        d.polygon([(cx-280, cy+80), (cx+280, cy+80), (cx, cy-40)], fill="white")
-        d.polygon([(cx-112, cy+200), (cx+112, cy+200), (cx, cy+40)], fill="white")
+        from scripts.macos_icon import draw_macos_icon
+
+        print("  Icon: generated macOS icon via Pillow fallback")
+        img = draw_macos_icon(1024)
 
     from PIL import Image
     try:
@@ -119,6 +126,8 @@ def _write_info_plist(contents: Path, version: str) -> None:
     <string>AppIcon</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
+    <key>LSApplicationCategoryType</key>
+    <string>public.app-category.utilities</string>
     <key>LSMinimumSystemVersion</key>
     <string>12.0</string>
     <key>NSHighResolutionCapable</key>
