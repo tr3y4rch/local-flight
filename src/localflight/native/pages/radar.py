@@ -73,6 +73,7 @@ class RadarScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
         advanced_layout.setSpacing(8)
         self.layer_toggles: dict[str, Any] = {}
         for layer, text, checked in (
+            ("map", "Map", True),
             ("runways", "Runways", True),
             ("surface", "Surface", True),
             ("terrain", "Terrain", False),
@@ -115,6 +116,8 @@ class RadarScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
         if embedded:
             self.canvas.setMinimumSize(300, 300)
         self.canvas.hoverChanged.connect(self._show_blip_info)
+        if hasattr(self.canvas, "blipClicked"):
+            self.canvas.blipClicked.connect(self._show_selected_blip_info)
         source_row = QtWidgets.QHBoxLayout()
         source_row.setSpacing(8)
         self.source_info = label(QtWidgets, "Radar source preparing...", "Muted", wrap=True)
@@ -135,18 +138,28 @@ class RadarScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
         self.blip_info.hide()
         self.status = label(QtWidgets, "Preparing radar...", "Muted")
         self._last_status_text = "Preparing radar..."
+        self.loading_indicator = QtWidgets.QProgressBar()
+        self.loading_indicator.setObjectName("LoadingProgress")
+        self.loading_indicator.setRange(0, 0)
+        self.loading_indicator.setTextVisible(False)
+        self.loading_indicator.setFixedHeight(7)
+        self.loading_indicator.hide()
         layout.addLayout(top)
         layout.addWidget(self.weather)
         layout.addLayout(source_row)
         layout.addWidget(self.advanced_panel)
         layout.addWidget(self.canvas, 1)
         layout.addWidget(self.blip_info)
+        layout.addWidget(self.loading_indicator)
         layout.addWidget(self.status)
         self.radius_nm = 20
         self.config: dict[str, Any] = {}
         self._last_payload: dict[str, Any] = {}
         self._last_surface: dict[str, Any] = {}
+        if hasattr(self.canvas, "set_radius_nm"):
+            self.canvas.set_radius_nm(self.radius_nm)
         self._sync_range_buttons()
+        self._sync_ground_filter_for_radius()
         self._apply_layer_toggles()
 
     def __getattr__(self, name: str) -> Any:
@@ -158,7 +171,10 @@ class RadarScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
 
     def set_radius(self, radius: int) -> None:
         self.radius_nm = radius
+        if hasattr(self.canvas, "set_radius_nm"):
+            self.canvas.set_radius_nm(radius)
         self._sync_range_buttons()
+        self._sync_ground_filter_for_radius()
         self.refresh()
 
     def _sync_range_buttons(self) -> None:
@@ -171,6 +187,19 @@ class RadarScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
                 self.range_combo.setCurrentIndex(idx)
         self._syncing_range = False
 
+    def _sync_ground_filter_for_radius(self) -> None:
+        ground_idx = self.traffic_filter.findData("ground")
+        if ground_idx < 0:
+            return
+        enabled = self.radius_nm <= 5
+        item = self.traffic_filter.model().item(ground_idx)
+        if item is not None:
+            item.setEnabled(enabled)
+        if not enabled and str(self.traffic_filter.currentData() or "") == "ground":
+            all_idx = self.traffic_filter.findData("all")
+            if all_idx >= 0:
+                self.traffic_filter.setCurrentIndex(all_idx)
+
     def _range_combo_changed(self, _idx: int = 0) -> None:
         if self._syncing_range or self.range_combo is None:
             return
@@ -182,6 +211,8 @@ class RadarScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
 
     def _toggle_layer(self, _layer: str) -> None:
         self._apply_layer_toggles()
+        if _layer == "terrain":
+            self.refresh()
 
     def _toggle_options_panel(self, checked: bool = False) -> None:
         self.advanced_panel.setVisible(bool(checked))
@@ -204,7 +235,7 @@ class RadarScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
         )
         if started:
             mode = "surface view" if radius <= 5 else "aircraft view"
-            self._set_status(f"Updating {radius}nm radar {mode}...")
+            self._set_status(f"Updating {radius}nm radar {mode}...", busy=True)
 
     def handle_live_event(self, payload: dict[str, Any]) -> None:
         event_type = str(payload.get("type") or "")
@@ -245,6 +276,7 @@ class RadarScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
         }
 
     def _apply_radar(self, result: dict[str, Any]) -> None:
+        self._set_busy(False)
         payload = result["payload"]
         if isinstance(result.get("radar_map"), dict):
             payload = dict(payload)
@@ -255,11 +287,14 @@ class RadarScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
         self._last_payload = dict(payload)
         if isinstance(result.get("radar_map"), dict):
             self._last_surface = _surface_from_map(result["radar_map"], payload)
+            self.canvas.set_map({"features": result["radar_map"].get("map_features") or []})
             self.canvas.set_surface(self._last_surface)
         elif isinstance(result.get("surface"), dict):
+            self.canvas.set_map([])
             self._last_surface = dict(result["surface"])
             self.canvas.set_surface(self._last_surface)
         elif not cfg.get("radar_surface_enabled"):
+            self.canvas.set_map([])
             self._last_surface = {"features": [], "center": payload.get("center") or {}}
             self.canvas.set_surface(self._last_surface)
         if isinstance(result.get("weather"), dict):
@@ -288,7 +323,7 @@ class RadarScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
     def _status_line(self, payload: dict[str, Any], *, surface_error: str = "") -> str:
         count = int(payload.get("count") or 0)
         mode = str(payload.get("radar_mode") or ("surface" if self.radius_nm <= 5 else "airborne"))
-        visible_label = "surface targets" if mode == "surface" else "aircraft"
+        visible_label = "targets" if mode == "surface" else "aircraft"
         if count == 0:
             base = "No aircraft visible in this range right now."
         else:
@@ -314,8 +349,9 @@ class RadarScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
     def _source_line(self, payload: dict[str, Any], surface: dict[str, Any], *, surface_error: str = "") -> str:
         source = _source_label(payload.get("source"))
         mode = str(payload.get("radar_mode") or ("surface" if self.radius_nm <= 5 else "airborne"))
-        surface_label = _surface_source_label(surface, surface_error=surface_error)
         layers = []
+        if self.layer_toggles["map"].isChecked():
+            layers.append("map")
         if self.layer_toggles["runways"].isChecked():
             layers.append("runways")
         if self.layer_toggles["surface"].isChecked():
@@ -327,26 +363,91 @@ class RadarScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
         if self.layer_toggles["terrain"].isChecked():
             layers.append("terrain")
         layer_text = ", ".join(layers) if layers else "simple view"
-        return f"{source} {mode} view | {surface_label} | overlays: {layer_text}"
+        parts = [f"{source} {mode} view"]
+        radar_map = payload.get("radar_map") if isinstance(payload.get("radar_map"), dict) else {}
+        if self.layer_toggles["map"].isChecked() and isinstance(radar_map, dict):
+            map_count = len(radar_map.get("map_features") or [])
+            map_state = str((radar_map.get("sources") or {}).get("map_cache_state") or "").strip()
+            parts.append(f"map {map_count} features" + (f" ({map_state})" if map_state else ""))
+        if self.layer_toggles["terrain"].isChecked() and isinstance(radar_map, dict):
+            terrain = radar_map.get("terrain") if isinstance(radar_map.get("terrain"), dict) else {}
+            terrain_count = len(terrain.get("features") or [])
+            terrain_state = str((radar_map.get("sources") or {}).get("terrain_cache_state") or "").strip()
+            parts.append(f"terrain {terrain_count} features" + (f" ({terrain_state})" if terrain_state else ""))
+        if self.layer_toggles["runways"].isChecked() or self.layer_toggles["surface"].isChecked():
+            parts.append(_surface_source_label(surface, surface_error=surface_error))
+        parts.append(f"overlays: {layer_text}")
+        return " | ".join(part for part in parts if part)
 
     def _radar_error(self, exc: Exception) -> None:
-        self._set_status(f"Radar is temporarily unavailable. Keeping the screen ready and trying again soon. Details: /api/radar {self.radius_nm}nm")
+        self._set_status(
+            f"Radar is temporarily unavailable. Keeping the screen ready and trying again soon. Details: /api/radar {self.radius_nm}nm",
+            role="StatusBad",
+            busy=False,
+        )
 
-    def _set_status(self, text: str) -> None:
+    def _set_status(self, text: str, *, role: str = "Muted", busy: bool = False) -> None:
         self._last_status_text = text
         self.status.setText(text)
+        self.status.setObjectName(role)
+        try:
+            self.status.style().unpolish(self.status)
+            self.status.style().polish(self.status)
+        except Exception:
+            pass
+        self._set_busy(busy)
+
+    def _set_busy(self, busy: bool) -> None:
+        self.loading_indicator.setVisible(bool(busy))
 
     def _show_blip_info(self, blip: Any) -> None:
         if not isinstance(blip, dict) or not blip:
-            self.blip_info.hide()
             self.status.setText(self._last_status_text)
             return
         summary = _blip_summary(blip)
+        self.status.setText(f"{summary['title']} under pointer. Click for flight details.")
+
+    def _show_selected_blip_info(self, blip: Any) -> None:
+        if not isinstance(blip, dict) or not blip:
+            return
+        summary = _blip_summary(blip)
+        self._apply_selected_summary(summary)
+        callsign = str(blip.get("callsign") or blip.get("flight_number") or "").strip().upper()
+        if not callsign:
+            return
+        self._run_async(
+            lambda: self.service.fids_detail(callsign),
+            lambda payload: self._apply_selected_detail(summary, payload),
+            lambda exc: self._apply_selected_detail_error(summary, exc),
+            label=f"radar.detail.{callsign}",
+            debounce_ms=0,
+        )
+
+    def _apply_selected_summary(self, summary: dict[str, str]) -> None:
         self.blip_title.setText(summary["title"])
         self.blip_route.setText(summary["route"])
         self.blip_detail.setText(summary["detail"])
         self.blip_info.show()
-        self.status.setText(f"Hovering {summary['title']}. Details: radar target from {_source_label(blip.get('source'))}")
+        self.status.setText(f"Selected {summary['title']}. Fetching linked FIDS detail...")
+
+    def _apply_selected_detail(self, summary: dict[str, str], payload: Any) -> None:
+        detail = _extract_detail_payload(payload)
+        if not detail:
+            self.status.setText(f"Selected {summary['title']}. No matching FIDS detail is available yet.")
+            return
+        route = _detail_route(detail) or summary["route"]
+        chips = [part for part in (
+            _detail_status(detail),
+            _detail_gate(detail),
+            _detail_aircraft(detail),
+            _detail_source(detail),
+        ) if part]
+        self.blip_route.setText(route)
+        self.blip_detail.setText(" | ".join(chips + ([summary["detail"]] if summary["detail"] else [])))
+        self.status.setText(f"Selected {summary['title']}. Details: /api/fids/detail")
+
+    def _apply_selected_detail_error(self, summary: dict[str, str], _exc: Exception) -> None:
+        self.status.setText(f"Selected {summary['title']}. Flight details are temporarily unavailable.")
 
     def _refresh_optional_layers(self) -> None:
         payload = self._last_payload if isinstance(self._last_payload, dict) else {}
@@ -442,6 +543,59 @@ def _blip_summary(blip: dict[str, Any]) -> dict[str, str]:
     }
 
 
+def _extract_detail_payload(payload: Any) -> dict[str, Any]:
+    if not isinstance(payload, dict):
+        return {}
+    detail = payload.get("detail")
+    return detail if isinstance(detail, dict) else {}
+
+
+def _detail_route(detail: dict[str, Any]) -> str:
+    origin = str(detail.get("origin_iata") or detail.get("origin_icao") or "").strip().upper()
+    dest = str(detail.get("dest_iata") or detail.get("dest_icao") or "").strip().upper()
+    if origin and dest:
+        return f"{origin} -> {dest}"
+    return ""
+
+
+def _detail_status(detail: dict[str, Any]) -> str:
+    status = str(detail.get("status") or "").strip().replace("_", " ").upper()
+    delay = detail.get("delay_minutes")
+    try:
+        delay_value = int(delay)
+    except (TypeError, ValueError):
+        delay_value = 0
+    if delay_value:
+        suffix = f"{delay_value:+d}m"
+        return f"{status} {suffix}".strip()
+    return status
+
+
+def _detail_gate(detail: dict[str, Any]) -> str:
+    terminal = str(detail.get("terminal") or "").strip()
+    gate = str(detail.get("gate") or "").strip()
+    if terminal and gate:
+        return f"Terminal {terminal} Gate {gate}"
+    if gate:
+        return f"Gate {gate}"
+    if terminal:
+        return f"Terminal {terminal}"
+    return ""
+
+
+def _detail_aircraft(detail: dict[str, Any]) -> str:
+    aircraft = str(detail.get("aircraft_type") or "").strip().upper()
+    registration = str(detail.get("aircraft_registration") or "").strip().upper()
+    return " ".join(part for part in (aircraft, registration) if part)
+
+
+def _detail_source(detail: dict[str, Any]) -> str:
+    sources = detail.get("data_sources") if isinstance(detail.get("data_sources"), dict) else {}
+    confidence = str(sources.get("confidence") or "").strip().replace("_", " ")
+    mode = str(detail.get("detail_mode") or detail.get("source") or "").strip()
+    return " | ".join(part for part in (mode, confidence) if part)
+
+
 def _surface_from_map(radar_map: dict[str, Any], radar_payload: dict[str, Any]) -> dict[str, Any]:
     center = radar_map.get("center") if isinstance(radar_map.get("center"), dict) else radar_payload.get("center")
     runways = radar_map.get("runways") if isinstance(radar_map.get("runways"), list) else []
@@ -468,8 +622,17 @@ def _surface_source_label(surface: dict[str, Any], *, surface_error: str = "") -
     meta = surface.get("meta") if isinstance(surface.get("meta"), dict) else {}
     validation = meta.get("validation") if isinstance(meta.get("validation"), dict) else {}
     runway_count = validation.get("runway_count")
+    if cache_state == "disabled":
+        return "surface overlay off in Settings"
     if not features:
-        return "surface off"
+        return "surface enabled, waiting for runway data"
+    runway_confidences = {
+        str(feature.get("confidence") or "").strip().lower()
+        for feature in features
+        if isinstance(feature, dict) and str(feature.get("kind") or "").strip().lower() == "runway"
+    }
+    if provider == "localflight-estimated" and any(conf in {"ourairports", "ourairports+osm"} for conf in runway_confidences):
+        return "OurAirports runways with estimated surface"
     if provider == "openstreetmap":
         suffix = f", {runway_count} runway features" if runway_count else ""
         return f"OSM surface checked against airport center{suffix}"

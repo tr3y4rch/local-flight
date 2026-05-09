@@ -27,3 +27,28 @@ from a CDN at runtime.
 The bundled font files are not modified. If either family is modified later,
 review the SIL Open Font License reserved-font-name requirements before
 redistributing the changed files.
+
+## Public Data Sources
+
+Local Flight can optionally fetch or cache public aviation/map data for the
+radar display. These sources are not bundled as executable code, but their
+attribution and license terms matter when their data is shown or cached.
+
+### OurAirports
+
+- Used for: airport and runway reference metadata when locally cached or bundled
+- Source: https://ourairports.com/data/
+- License: public domain, per OurAirports data page
+
+### OpenStreetMap / Overpass
+
+- Used for: optional simplified airport surface and map geometry
+- Source: https://www.openstreetmap.org/
+- Attribution: (C) OpenStreetMap contributors
+- License: https://www.openstreetmap.org/copyright
+
+### Terrain Tiles on AWS
+
+- Used for: optional low-detail radar terrain/relief layer
+- Source: https://registry.opendata.aws/terrain-tiles/
+- Attribution: Terrain Tiles on AWS

@@ -82,7 +82,7 @@ class LocalApiClient:
             return 30.0
         if path == "/api/airports/search":
             return 30.0
-        if path == "/api/radar/surface":
+        if path in {"/api/radar/map", "/api/radar/surface"}:
             return 300.0
         if path.startswith("/api/admin/") or path.startswith("/api/history"):
             return 5.0

@@ -143,6 +143,15 @@ Browser templates to treat as source specs:
 
 ## Current Status
 
+Current beta snapshot as of 2026-05-09:
+
+- Native FIDS, Radar, Settings, Setup, Matrix, History, Logs, Admin, Feedback, and Display are no longer treated as throwaway placeholders. The active direction is native-first hardening with the browser kiosk kept as fallback/spec reference.
+- FIDS has moved from a table-like visual target toward a custom passenger-board surface, with operating-flight priority, codeshare rotation, status/gate chips, loading feedback, and a restyled flight-detail drawer.
+- Radar has moved through the staged runway/map/blip-state/native-polish plan. It now has a radar domain layer, `/api/radar/map`, runway/surface/map/terrain toggles, local ghost trails, conservative blip states, compact hover/click details, and contrast-safe layer drawing.
+- Settings has been extracted and redesigned around primary user controls, an explicit apply action, collapsed help/diagnostics/advanced drawers, profile controls, and radar-surface feedback.
+- Setup has been extracted and redesigned as a guided six-step first-run flow with Community Relay as the beginner default, BYOK/VATSIM alternatives, provider links, diagnostics choice, and clear relay/key test feedback.
+- Secret hygiene remains a release gate: public GUI pages must not expose raw provider payloads, activation tokens, install IDs, pilot identities, private relay internals, or operator-only action refs.
+
 Foundation slice has been implemented.
 
 Added:
@@ -304,23 +313,29 @@ Radar inventory checkpoint:
   - Wide-range labels are quieter, runway confidence text is limited to close ranges, and browser fallback picked up only low-risk label thinning plus local ghost/direction hints.
   - Native API access now prefers `/api/radar/map` for surface/runway data and calls `/api/radar/surface` only when map loading fails. Server-side radar map building has a small internal cache reused by `/api/radar/map` and `/api/radar` classification.
   - Verified: `python -m compileall -q src tests`, `.venv\Scripts\python.exe -m pytest tests/test_gui_launcher.py -q -k "radar or native_service_prefers"` -> `15 passed`, `.venv\Scripts\python.exe -m pytest tests/test_important_regressions.py -q -k "radar_map or radar_template or api_radar"` -> `12 passed`, `.venv\Scripts\python.exe -m pytest tests -q` -> `228 passed` with the known Windows pytest temp cleanup warning after success.
+- Radar map/terrain visibility checkpoint:
+  - Native `RadarCanvas` now uses a contrast-safe radar palette separate from generic theme colors so runways, map context, terrain, blips, labels, and range rings remain distinguishable in dark and light modes.
+  - Static layer order is explicit: background, surface, map, terrain, grid, runways, procedures, then dynamic sweep/blips/trails/hover/footer.
+  - The grid painter now forces `NoBrush`, fixing the regression where filled range rings could repaint over otherwise-loaded map and terrain features.
+  - OSM map points arriving as `"lat lon"` strings are parsed as well as numeric coordinate arrays, so cached map geometry can draw reliably.
+  - Runway labels and confidence text are limited to close ranges to avoid runway text clutter at 5/10/20/40 NM.
+  - Verified: `python -m compileall -q src/localflight/native/canvas/radar.py src/localflight/radar`, `.venv\Scripts\python.exe -m pytest tests/test_important_regressions.py -q -k "radar_map or native_service_prefers or api_radar"` -> `15 passed`, `.venv\Scripts\python.exe -m pytest tests -q` -> `271 passed`.
 
 ## What To Do Next
 
-Continue with Radar, then Display split composition.
+Continue from the current native beta state, not from the old shell foundation.
 
 Recommended next slice:
 
-1. Review extracted Radar visually in the native app against `radar.html`.
-2. Tighten remaining Radar native body/visual behavior:
-   - responsive canvas framing in standalone and embedded Display mode.
-   - surface unavailable/estimated attribution state.
-   - weather unavailable state.
-   - no aircraft state.
-   - source/fallback status copy.
-   - native overlay toggle ergonomics in fullscreen/kiosk mode.
-3. Add a small visual QA checklist for native Radar ranges: 1/2/3/5nm surface, 10/20/40nm airborne, hover, sweep, weather, and disabled surface overlay.
-4. After FIDS and Radar work alone, adapt Display to compose the extracted pages cleanly.
+1. Run visual QA for Radar overlays across at least ZRH and LAX:
+   - 1/2/3/5 NM surface mode.
+   - 10/20/40 NM airborne mode.
+   - map on/off, terrain on/off, runways on/off, surface on/off.
+   - dark/light theme contrast.
+   - no OSM cache, stale cache, and estimated fallback states.
+2. Tighten Display split composition now that FIDS and Radar have standalone native surfaces.
+3. Continue full native extraction/polish for Matrix, History, Logs, Requests, Admin, and Feedback until each page has native tests and browser-parity checklists.
+4. Keep browser fallback available until native acceptance passes for every human-facing page and at least one release cycle keeps fallback as recovery.
 
 ## Page-by-Page Feedback Map
 
@@ -329,7 +344,7 @@ Use this when migrating or polishing each page:
 | Page | User-facing message style | Traceable support context |
 |---|---|---|
 | FIDS | Board updating, no flights in this window, provider key needs attention, connection retrying. | `/api/fids`, `/api/fids/detail`, `/api/metar`, scheduler health state, timestamp, view, airport. |
-| Radar | Radar updating, no aircraft currently visible, surface map unavailable, range adjusted. | `/api/radar`, `/api/radar/surface`, `/api/metar`, radius, airport, surface enabled flag. |
+| Radar | Radar updating, no aircraft currently visible, surface/map/terrain unavailable, range adjusted. | `/api/radar`, `/api/radar/map`, `/api/radar/surface`, `/api/metar`, radius, airport, layer toggles, surface enabled flag. |
 | Display split | Screen layout saved, one side temporarily unavailable, fullscreen/window state. | composed page ids, splitter mode, active routes, refresh event. |
 | Setup | Plain setup choices, key/activation tests as pass/fail with next step, diagnostics choice explained. | `/api/setup/*` action, provider test result status, diagnostics mode, no raw keys/tokens. |
 | Settings | Saved, restart queued, profile loaded, setup reset confirmation. | changed config keys, scheduler restart route, profile name, timestamp. |

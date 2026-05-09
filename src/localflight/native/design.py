@@ -202,6 +202,10 @@ QFrame#TopNav {{
   background: {nav_bg};
   border-bottom: 1px solid {nav_border};
 }}
+QFrame#AppFooter {{
+  background: {nav_bg};
+  border-top: 1px solid {nav_border};
+}}
 QScrollArea#NavScroll {{
   background: transparent;
   border: none;
@@ -260,6 +264,24 @@ QFrame#StatusPill {{
   background: {accent_soft};
   border: 1px solid {accent_border};
   border-radius: 8px;
+}}
+QGroupBox {{
+  background: {colors["panel"]};
+  border: 1px solid {colors["line"]};
+  border-radius: 12px;
+  margin-top: 10px;
+  padding: 10px;
+  font-family: {BOARD_FONT_STACK};
+  font-size: 11px;
+  font-weight: 800;
+  color: {colors["text"]};
+}}
+QGroupBox::title {{
+  subcontrol-origin: margin;
+  subcontrol-position: top left;
+  padding: 0 8px;
+  left: 10px;
+  color: {colors["muted"]};
 }}
 QFrame#BudgetBar {{
   background: {subtle_surface};

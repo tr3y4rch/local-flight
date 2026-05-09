@@ -19,6 +19,8 @@ from localflight.native.models import FlightBoardModel, HistoryModel, RequestLog
 from localflight.native.canvas.radar import RadarCanvas
 from localflight.native.pages.fids import FidsScreen
 from localflight.native.pages.radar import RadarScreen
+from localflight.native.pages.setup import NativeSetupWindow, SetupScreen
+from localflight.native.pages.settings import SettingsScreen
 from localflight.native.qt_compat import import_qt
 from localflight.native.registry import PAGE_SPECS, SETUP_PAGE_SPEC, NativePageSpec
 from localflight.native.service import NativeApiService
@@ -29,15 +31,13 @@ _LEGACY_EXPORTS = {
     "COFFEE_URL",
     "DisplayScreen",
     "FeedbackScreen",
+    "GITHUB_URL",
     "HistoryScreen",
     "LogsScreen",
     "MatrixCanvas",
     "MatrixScreen",
     "NativeMainWindow",
-    "NativeSetupWindow",
     "RequestsScreen",
-    "SetupScreen",
-    "SettingsScreen",
     "_NativeCrashReporter",
     "_active_schedule_budget",
     "_budget_detail",
@@ -58,6 +58,9 @@ __all__ = [
     "FidsScreen",
     "RadarCanvas",
     "RadarScreen",
+    "SettingsScreen",
+    "NativeSetupWindow",
+    "SetupScreen",
     "HistoryModel",
     "RequestLogModel",
     "StatusCard",

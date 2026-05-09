@@ -13,9 +13,11 @@ import os
 import re
 import time
 import unicodedata
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
+from threading import Lock
 from typing import Any, Dict, List, Literal, Optional
 from uuid import uuid4
 from zoneinfo import ZoneInfo
@@ -51,6 +53,17 @@ from localflight.sources.web.airport_surface import (
     clamp_surface_radius_nm,
     validate_surface_payload,
 )
+from localflight.sources.web.airport_map_context import (
+    build_map_context_payload,
+    fetch_overpass_map_context,
+    normalize_overpass_map_context,
+    validate_map_context_payload,
+)
+from localflight.sources.web.terrain_context import (
+    build_terrain_payload,
+    fetch_terrain_context,
+    validate_terrain_payload,
+)
 from localflight.radar import annotate_blips, build_radar_map, enrich_blip_display_fields
 from localflight.sources.web.relay_defaults import default_public_relay_url, relay_airport_surface_url
 
@@ -75,6 +88,18 @@ _DEFAULT_ADSBX_RADAR_CACHE_TTL_S = 300
 _OPENSKY_RADAR_CACHE_TTL_S = 60
 _RADAR_MAP_CACHE_TTL_S = 300
 _MIN_PROVIDER_RADAR_RADIUS_NM = 5.0
+_SURFACE_RELAY_TIMEOUT_S = 3.0
+_MAP_CONTEXT_TIMEOUT_S = 8.0
+_MAP_CONTEXT_CACHE_TTL_S = 60 * 60 * 24 * 14
+_MAP_CONTEXT_MISS_TTL_S = 60 * 2
+_map_context_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="lf-map-context")
+_map_context_refreshing: set[str] = set()
+_map_context_refresh_lock = Lock()
+_terrain_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="lf-terrain")
+_terrain_refreshing: set[str] = set()
+_terrain_refresh_lock = Lock()
+_TERRAIN_CACHE_TTL_S = 60 * 60 * 24 * 30
+_TERRAIN_MISS_TTL_S = 60 * 60
 
 
 def _adsbx_radar_cache_ttl_s() -> int:
@@ -815,6 +840,22 @@ def _radar_surface_cache_path(cfg: AppConfig) -> Path:
     return config_path().parent / "storage" / "radar_surface" / f"{safe}.json"
 
 
+def _radar_map_context_cache_path(cfg: AppConfig) -> Path:
+    from localflight.storage.config import config_path
+
+    code = (cfg.airport_icao or cfg.airport_iata or "airport").upper()
+    safe = re.sub(r"[^A-Z0-9_-]+", "_", code).strip("_") or "airport"
+    return config_path().parent / "storage" / "radar_map" / f"{safe}.json"
+
+
+def _radar_terrain_cache_path(cfg: AppConfig) -> Path:
+    from localflight.storage.config import config_path
+
+    code = (cfg.airport_icao or cfg.airport_iata or "airport").upper()
+    safe = re.sub(r"[^A-Z0-9_-]+", "_", code).strip("_") or "airport"
+    return config_path().parent / "storage" / "radar_terrain" / f"{safe}.json"
+
+
 def _load_local_surface_cache(cfg: AppConfig) -> Optional[Dict[str, Any]]:
     path = _radar_surface_cache_path(cfg)
     if not path.exists():
@@ -824,6 +865,32 @@ def _load_local_surface_cache(cfg: AppConfig) -> Optional[Dict[str, Any]]:
     except Exception:
         return None
     if isinstance(payload, dict) and validate_surface_payload(payload):
+        return payload
+    return None
+
+
+def _load_local_map_context_cache(cfg: AppConfig) -> Optional[Dict[str, Any]]:
+    path = _radar_map_context_cache_path(cfg)
+    if not path.exists():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    if isinstance(payload, dict) and validate_map_context_payload(payload):
+        return payload
+    return None
+
+
+def _load_local_terrain_cache(cfg: AppConfig) -> Optional[Dict[str, Any]]:
+    path = _radar_terrain_cache_path(cfg)
+    if not path.exists():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    if isinstance(payload, dict) and validate_terrain_payload(payload):
         return payload
     return None
 
@@ -839,6 +906,200 @@ def _save_local_surface_cache(cfg: AppConfig, payload: Dict[str, Any]) -> None:
         path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
     except Exception as exc:
         log.debug("Could not persist radar surface cache: %s", exc)
+
+
+def _save_local_map_context_cache(cfg: AppConfig, payload: Dict[str, Any]) -> None:
+    if not validate_map_context_payload(payload):
+        return
+    try:
+        path = _radar_map_context_cache_path(cfg)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    except Exception as exc:
+        log.debug("Could not persist radar map context cache: %s", exc)
+
+
+def _save_local_terrain_cache(cfg: AppConfig, payload: Dict[str, Any]) -> None:
+    if not validate_terrain_payload(payload):
+        return
+    try:
+        path = _radar_terrain_cache_path(cfg)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    except Exception as exc:
+        log.debug("Could not persist radar terrain cache: %s", exc)
+
+
+def _map_context_cache_fresh(payload: Dict[str, Any]) -> bool:
+    generated = str(payload.get("generated_at") or "")
+    if not generated:
+        return False
+    try:
+        generated_dt = datetime.fromisoformat(generated.replace("Z", "+00:00"))
+        if generated_dt.tzinfo is None:
+            generated_dt = generated_dt.replace(tzinfo=timezone.utc)
+    except ValueError:
+        return False
+    age_s = (datetime.now(timezone.utc) - generated_dt).total_seconds()
+    if str(payload.get("cache_state") or "").strip().lower() == "miss":
+        return age_s <= _MAP_CONTEXT_MISS_TTL_S
+    return age_s <= _MAP_CONTEXT_CACHE_TTL_S
+
+
+def _timed_cache_fresh(payload: Dict[str, Any], *, ttl_s: int, miss_ttl_s: int) -> bool:
+    generated = str(payload.get("generated_at") or "")
+    if not generated:
+        return False
+    try:
+        generated_dt = datetime.fromisoformat(generated.replace("Z", "+00:00"))
+        if generated_dt.tzinfo is None:
+            generated_dt = generated_dt.replace(tzinfo=timezone.utc)
+    except ValueError:
+        return False
+    age_s = (datetime.now(timezone.utc) - generated_dt).total_seconds()
+    if str(payload.get("cache_state") or "").strip().lower() == "miss":
+        return age_s <= miss_ttl_s
+    return age_s <= ttl_s
+
+
+def _map_context_miss_payload(
+    cfg: AppConfig,
+    airport: Any,
+    *,
+    radius_nm: float,
+    error: str = "OSM map context is loading in the background",
+) -> Dict[str, Any]:
+    return build_map_context_payload(
+        airport_iata=cfg.airport_iata,
+        airport_icao=cfg.airport_icao,
+        center_lat=float(airport.lat),
+        center_lon=float(airport.lon),
+        radius_nm=clamp_surface_radius_nm(min(5.0, radius_nm)),
+        features=[],
+        cache_state="miss",
+        error=error,
+    )
+
+
+def _terrain_miss_payload(
+    cfg: AppConfig,
+    airport: Any,
+    *,
+    radius_nm: float,
+    error: str = "Terrain relief is loading in the background",
+) -> Dict[str, Any]:
+    return build_terrain_payload(
+        airport_iata=cfg.airport_iata,
+        airport_icao=cfg.airport_icao,
+        center_lat=float(airport.lat),
+        center_lon=float(airport.lon),
+        radius_nm=clamp_surface_radius_nm(min(5.0, radius_nm)),
+        features=[],
+        cache_state="miss",
+        error=error,
+    )
+
+
+def _fetch_and_save_map_context(cfg: AppConfig, airport: Any, *, radius_nm: float) -> Dict[str, Any]:
+    center_lat = float(airport.lat)
+    center_lon = float(airport.lon)
+    context_radius = clamp_surface_radius_nm(min(5.0, radius_nm))
+    raw = fetch_overpass_map_context(
+        lat=center_lat,
+        lon=center_lon,
+        radius_nm=context_radius,
+        timeout_s=_MAP_CONTEXT_TIMEOUT_S,
+    )
+    features = normalize_overpass_map_context(raw)
+    payload = build_map_context_payload(
+        airport_iata=cfg.airport_iata,
+        airport_icao=cfg.airport_icao,
+        center_lat=center_lat,
+        center_lon=center_lon,
+        radius_nm=context_radius,
+        features=features,
+        cache_state="fresh",
+    )
+    _save_local_map_context_cache(cfg, payload)
+    return payload
+
+
+def _fetch_and_save_terrain_context(cfg: AppConfig, airport: Any, *, radius_nm: float) -> Dict[str, Any]:
+    payload = fetch_terrain_context(
+        airport_iata=cfg.airport_iata,
+        airport_icao=cfg.airport_icao,
+        center_lat=float(airport.lat),
+        center_lon=float(airport.lon),
+        radius_nm=radius_nm,
+    )
+    _save_local_terrain_cache(cfg, payload)
+    return payload
+
+
+def _schedule_map_context_refresh(cfg: AppConfig, airport: Any, *, radius_nm: float) -> None:
+    cache_key = str(_radar_map_context_cache_path(cfg))
+    with _map_context_refresh_lock:
+        if cache_key in _map_context_refreshing:
+            return
+        _map_context_refreshing.add(cache_key)
+
+    def _task() -> None:
+        try:
+            _fetch_and_save_map_context(cfg, airport, radius_nm=radius_nm)
+        except Exception as exc:
+            log.debug("OSM map context refresh failed: %s", exc)
+            try:
+                cached = _load_local_map_context_cache(cfg)
+                if cached and cached.get("features"):
+                    log.debug("Keeping existing OSM map context cache after refresh failure")
+                else:
+                    _save_local_map_context_cache(
+                        cfg,
+                        _map_context_miss_payload(
+                            cfg,
+                            airport,
+                            radius_nm=radius_nm,
+                            error=f"OSM map context unavailable: {exc}",
+                        ),
+                    )
+            except Exception:
+                pass
+        finally:
+            with _map_context_refresh_lock:
+                _map_context_refreshing.discard(cache_key)
+
+    _map_context_executor.submit(_task)
+
+
+def _schedule_terrain_refresh(cfg: AppConfig, airport: Any, *, radius_nm: float) -> None:
+    cache_key = str(_radar_terrain_cache_path(cfg))
+    with _terrain_refresh_lock:
+        if cache_key in _terrain_refreshing:
+            return
+        _terrain_refreshing.add(cache_key)
+
+    def _task() -> None:
+        try:
+            _fetch_and_save_terrain_context(cfg, airport, radius_nm=radius_nm)
+        except Exception as exc:
+            log.debug("Terrain relief refresh failed: %s", exc)
+            try:
+                _save_local_terrain_cache(
+                    cfg,
+                    _terrain_miss_payload(
+                        cfg,
+                        airport,
+                        radius_nm=radius_nm,
+                        error=f"Terrain relief unavailable: {exc}",
+                    ),
+                )
+            except Exception:
+                pass
+        finally:
+            with _terrain_refresh_lock:
+                _terrain_refreshing.discard(cache_key)
+
+    _terrain_executor.submit(_task)
 
 
 def _surface_empty_payload(
@@ -1000,7 +1261,7 @@ def api_radar_surface(
                 "radius_nm": radius,
             },
             headers={"Accept": "application/json"},
-            timeout=12,
+            timeout=_SURFACE_RELAY_TIMEOUT_S,
         )
         if response.status_code < 400:
             payload = response.json()
@@ -1060,7 +1321,37 @@ def _radar_surface_payload_for_map(cfg: AppConfig, airport: Any, *, radius_nm: f
     )
 
 
-def _radar_map_cache_key(cfg: AppConfig, airport: Any, *, radius_nm: float, terrain: bool) -> str:
+def _radar_map_context_payload_for_map(cfg: AppConfig, airport: Any, *, radius_nm: float) -> Dict[str, Any]:
+    cached = _load_local_map_context_cache(cfg)
+    if cached and _map_context_cache_fresh(cached):
+        return dict(cached)
+    _schedule_map_context_refresh(cfg, airport, radius_nm=radius_nm)
+    if cached:
+        stale = dict(cached)
+        stale["cache_state"] = "stale"
+        stale["error"] = "OSM map context is refreshing in the background"
+        return stale
+    miss = _map_context_miss_payload(cfg, airport, radius_nm=radius_nm)
+    _save_local_map_context_cache(cfg, miss)
+    return miss
+
+
+def _radar_terrain_payload_for_map(cfg: AppConfig, airport: Any, *, radius_nm: float) -> Dict[str, Any]:
+    cached = _load_local_terrain_cache(cfg)
+    if cached and _timed_cache_fresh(cached, ttl_s=_TERRAIN_CACHE_TTL_S, miss_ttl_s=_TERRAIN_MISS_TTL_S):
+        return dict(cached)
+    _schedule_terrain_refresh(cfg, airport, radius_nm=radius_nm)
+    if cached:
+        stale = dict(cached)
+        stale["cache_state"] = "stale"
+        stale["error"] = "Terrain relief is refreshing in the background"
+        return stale
+    miss = _terrain_miss_payload(cfg, airport, radius_nm=radius_nm)
+    _save_local_terrain_cache(cfg, miss)
+    return miss
+
+
+def _radar_map_cache_key(cfg: AppConfig, airport: Any, *, radius_nm: float, terrain: bool, include_map_context: bool) -> str:
     try:
         cfg_sig = json.dumps(asdict(cfg), sort_keys=True, default=str)
     except Exception:
@@ -1073,7 +1364,10 @@ def _radar_map_cache_key(cfg: AppConfig, airport: Any, *, radius_nm: float, terr
             f"{float(getattr(airport, 'lon', 0.0) or 0.0):.6f}",
             f"{float(radius_nm):.2f}",
             "terrain" if terrain else "no-terrain",
+            "map-context" if include_map_context else "no-map-context",
             str(id(_radar_surface_payload_for_map)),
+            str(id(_radar_map_context_payload_for_map)),
+            str(id(_radar_terrain_payload_for_map)),
         ]
     )
 
@@ -1085,14 +1379,17 @@ def _radar_map_payload_for_request(
     radius_nm: float,
     terrain: bool = False,
     refresh_runways: bool = False,
+    include_map_context: bool = True,
 ) -> Dict[str, Any]:
-    cache_key = _radar_map_cache_key(cfg, airport, radius_nm=radius_nm, terrain=terrain)
+    cache_key = _radar_map_cache_key(cfg, airport, radius_nm=radius_nm, terrain=terrain, include_map_context=include_map_context)
     now_ts = time.monotonic()
     if not refresh_runways:
         cached = _radar_map_cache.get(cache_key)
         if cached and (now_ts - cached[0]) < _RADAR_MAP_CACHE_TTL_S:
             return dict(cached[1])
     surface = _radar_surface_payload_for_map(cfg, airport, radius_nm=radius_nm)
+    map_context = _radar_map_context_payload_for_map(cfg, airport, radius_nm=radius_nm) if include_map_context else None
+    terrain_context = _radar_terrain_payload_for_map(cfg, airport, radius_nm=radius_nm) if terrain else None
     payload = build_radar_map(
         airport_iata=cfg.airport_iata,
         airport_icao=(airport.icao or cfg.airport_icao or "").upper(),
@@ -1100,10 +1397,15 @@ def _radar_map_payload_for_request(
         center_lon=float(airport.lon),
         radius_nm=radius_nm,
         surface_payload=surface,
+        map_payload=map_context,
+        terrain_payload=terrain_context,
         terrain_enabled=terrain,
         refresh_runways=bool(refresh_runways),
     )
-    _radar_map_cache[cache_key] = (now_ts, dict(payload))
+    map_state = str((map_context or {}).get("cache_state") or "").strip().lower()
+    terrain_state = str((terrain_context or {}).get("cache_state") or "").strip().lower()
+    if map_state not in {"miss", "stale"} and terrain_state not in {"miss", "stale"}:
+        _radar_map_cache[cache_key] = (now_ts, dict(payload))
     return payload
 
 
@@ -1360,12 +1662,10 @@ def api_radar(
     ground_filtered = 0
     airborne_filtered = 0
     radar_mode = "surface" if _surface_radar_mode(radius_nm) else "airborne"
-    if radar_mode == "surface":
-        blips, airborne_filtered = _filter_ground_radar_blips(blips)
-    else:
+    if radar_mode != "surface":
         blips, ground_filtered = _filter_airborne_radar_blips(blips)
     try:
-        map_payload = _radar_map_payload_for_request(cfg, airport, radius_nm=radius_nm, terrain=False)
+        map_payload = _radar_map_payload_for_request(cfg, airport, radius_nm=radius_nm, terrain=False, include_map_context=False)
         runways = map_payload.get("runways") if isinstance(map_payload.get("runways"), list) else []
     except Exception as exc:
         log.debug("Radar classification runway map unavailable: %s", exc)

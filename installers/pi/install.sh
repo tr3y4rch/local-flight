@@ -2,7 +2,8 @@
 # Local Flight - Raspberry Pi installer
 #
 # Usage:
-#   bash installers/pi/install.sh                  # headless (default) - LED panels, LAN clients
+#   bash installers/pi/install.sh                  # guided display choice (Enter = headless)
+#   bash installers/pi/install.sh --headless       # backend only - LED panels, LAN clients
 #   bash installers/pi/install.sh --kiosk          # headless + legacy Chromium fallback kiosk on HDMI
 #   bash installers/pi/install.sh --native-kiosk   # native Qt fullscreen kiosk on HDMI
 #
@@ -13,42 +14,92 @@ set -euo pipefail
 # Args -----------------------------------------------------------------------
 KIOSK=0
 NATIVE_KIOSK=0
+REQUESTED_DISPLAY_MODE=""
 for arg in "$@"; do
     case "$arg" in
         --kiosk)
-            KIOSK=1
-            NATIVE_KIOSK=0
+            REQUESTED_DISPLAY_MODE="chromium-kiosk"
             ;;
         --native-kiosk)
-            KIOSK=0
-            NATIVE_KIOSK=1
+            REQUESTED_DISPLAY_MODE="native-kiosk"
             ;;
         --headless)
-            KIOSK=0
-            NATIVE_KIOSK=0
+            REQUESTED_DISPLAY_MODE="headless"
             ;;
         --help|-h)
             echo "Usage: bash installers/pi/install.sh [--native-kiosk|--kiosk|--headless]"
-            echo "  (default is headless)"
+            echo "  no flag opens a small menu when run interactively; Enter defaults to headless"
             exit 0
+            ;;
+        *)
+            echo "Unknown argument: $arg"
+            echo "Usage: bash installers/pi/install.sh [--native-kiosk|--kiosk|--headless]"
+            exit 1
             ;;
     esac
 done
-
-PI_GUI_MODE="headless"
-if [ "$NATIVE_KIOSK" -eq 1 ]; then
-    PI_GUI_MODE="native"
-fi
 
 # Paths ----------------------------------------------------------------------
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 VENV="$ROOT/.venv"
 SERVICE_USER="$(whoami)"
+USER_SYSTEMD_DIR="$HOME/.config/systemd/user"
+NATIVE_GUI_SERVICE="$USER_SYSTEMD_DIR/localflight-native-kiosk.service"
+NATIVE_GUI_WRAPPER="$HOME/.localflight/bin/localflight-native-kiosk.sh"
 
 # Helpers --------------------------------------------------------------------
 ok()   { echo "  [OK]  $*"; }
 step() { echo ""; echo "  -->  $*"; }
 fail() { echo ""; echo "  [ERR] $*"; exit 1; }
+warn() { echo "  [WARN] $*"; }
+
+choose_display_mode() {
+    if [ -n "$REQUESTED_DISPLAY_MODE" ]; then
+        printf '%s\n' "$REQUESTED_DISPLAY_MODE"
+        return
+    fi
+    if [ -t 0 ]; then
+        echo "  Choose how this Pi should run Local Flight:" >&2
+        echo "    1) Headless server        - recommended over SSH; LAN/mobile/matrix access" >&2
+        echo "    2) Native Qt kiosk        - attached HDMI display, Chrome-free fullscreen GUI" >&2
+        echo "    3) Chromium kiosk fallback - attached HDMI display when Qt is not usable" >&2
+        printf "  Select 1/2/3, or press Enter for Headless: " >&2
+        read -r choice
+        case "$choice" in
+            2) printf '%s\n' "native-kiosk" ;;
+            3) printf '%s\n' "chromium-kiosk" ;;
+            *) printf '%s\n' "headless" ;;
+        esac
+        return
+    fi
+    printf '%s\n' "headless"
+}
+
+PI_DISPLAY_MODE="$(choose_display_mode)"
+case "$PI_DISPLAY_MODE" in
+    headless)
+        KIOSK=0
+        NATIVE_KIOSK=0
+        PI_GUI_MODE="headless"
+        ;;
+    native-kiosk)
+        KIOSK=0
+        NATIVE_KIOSK=1
+        PI_GUI_MODE="native"
+        ;;
+    chromium-kiosk)
+        KIOSK=1
+        NATIVE_KIOSK=0
+        PI_GUI_MODE="headless"
+        ;;
+    *)
+        fail "Invalid display mode: $PI_DISPLAY_MODE"
+        ;;
+esac
+
+user_systemctl() {
+    XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}" systemctl --user "$@"
+}
 
 set_env_value() {
     local key="$1"
@@ -69,7 +120,7 @@ echo ""
 echo "  Root:  $ROOT"
 echo "  User:  $SERVICE_USER"
 if [ "$NATIVE_KIOSK" -eq 1 ]; then
-    echo "  Mode:  native kiosk (Qt on HDMI)"
+    echo "  Mode:  native kiosk (Qt on HDMI, split backend + user GUI)"
 elif [ "$KIOSK" -eq 1 ]; then
     echo "  Mode:  kiosk (Chromium on HDMI)"
 else
@@ -200,13 +251,9 @@ SERVICE_INSTALL_TARGET="multi-user.target"
 SERVICE_EXTRA_ENV=""
 
 if [ "$NATIVE_KIOSK" -eq 1 ]; then
-    SERVICE_AFTER="network-online.target graphical.target"
-    SERVICE_WANTS="network-online.target graphical.target"
-    SERVICE_INSTALL_TARGET="graphical.target"
-    SERVICE_EXTRA_ENV="Environment=LOCALFLIGHT_GUI_MODE=native
-Environment=DISPLAY=:0
-Environment=XAUTHORITY=/home/$SERVICE_USER/.Xauthority
-Environment=QT_QPA_PLATFORM=xcb"
+    # The backend service stays headless. A separate user-session service owns
+    # the Qt fullscreen shell so display permissions/session state stay sane.
+    SERVICE_EXTRA_ENV="Environment=LOCALFLIGHT_GUI_MODE=headless"
 fi
 
 sudo tee /etc/systemd/system/localflight.service > /dev/null <<EOF
@@ -280,7 +327,88 @@ if [ "$KIOSK" -eq 0 ] && [ -f /etc/systemd/system/localflight-kiosk.service ]; t
     ok "Chromium kiosk service removed"
 fi
 
-# 7. mDNS hostname -----------------------------------------------------------
+# 7. Native Qt user-session kiosk service ------------------------------------
+if [ "$NATIVE_KIOSK" -eq 1 ]; then
+    step "Installing native Qt user-session kiosk service..."
+    mkdir -p "$(dirname "$NATIVE_GUI_WRAPPER")" "$USER_SYSTEMD_DIR"
+    cat > "$NATIVE_GUI_WRAPPER" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$ROOT"
+VENV="$VENV"
+BASE_URL="\${LOCALFLIGHT_NATIVE_BASE_URL:-http://127.0.0.1:8000}"
+
+cd "\$ROOT/src"
+
+ready=0
+for _i in \$(seq 1 60); do
+    if "\$VENV/bin/python" - <<'PY'
+import os
+import urllib.request
+
+url = os.environ.get("LOCALFLIGHT_NATIVE_BASE_URL", "http://127.0.0.1:8000").rstrip("/") + "/health"
+with urllib.request.urlopen(url, timeout=1) as response:
+    raise SystemExit(0 if response.status < 500 else 1)
+PY
+    then
+        ready=1
+        break
+    fi
+    sleep 1
+done
+
+if [ "\$ready" -ne 1 ]; then
+    echo "Local Flight backend did not become ready at \$BASE_URL" >&2
+    exit 1
+fi
+
+exec "\$VENV/bin/python" -m localflight.native.app
+EOF
+    chmod +x "$NATIVE_GUI_WRAPPER"
+
+    cat > "$NATIVE_GUI_SERVICE" <<EOF
+[Unit]
+Description=Local Flight - Native Qt Kiosk
+After=graphical-session.target
+
+[Service]
+Type=simple
+WorkingDirectory=$ROOT/src
+EnvironmentFile=$ROOT/.env
+Environment=LOCALFLIGHT_GUI_MODE=native
+Environment=LOCALFLIGHT_NATIVE_FULLSCREEN=1
+Environment=LOCALFLIGHT_NATIVE_UI_ONLY=1
+Environment=DISPLAY=:0
+Environment=XAUTHORITY=/home/$SERVICE_USER/.Xauthority
+Environment=QT_QPA_PLATFORM=xcb
+ExecStart=$NATIVE_GUI_WRAPPER
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target
+EOF
+
+    sudo loginctl enable-linger "$SERVICE_USER" >/dev/null 2>&1 || warn "Could not enable lingering; native GUI may require a logged-in desktop session"
+    if user_systemctl daemon-reload >/dev/null 2>&1 && user_systemctl enable localflight-native-kiosk.service >/dev/null 2>&1; then
+        ok "native Qt user service installed"
+    else
+        warn "Native Qt user service written, but systemctl --user could not enable it from this shell"
+        warn "After logging into the Pi desktop, run: systemctl --user enable --now localflight-native-kiosk.service"
+    fi
+elif [ -f "$NATIVE_GUI_SERVICE" ]; then
+    step "Removing stale native Qt user-session kiosk service..."
+    user_systemctl stop localflight-native-kiosk.service >/dev/null 2>&1 || true
+    user_systemctl disable localflight-native-kiosk.service >/dev/null 2>&1 || true
+    rm -f "$NATIVE_GUI_SERVICE" "$NATIVE_GUI_WRAPPER"
+    user_systemctl daemon-reload >/dev/null 2>&1 || true
+    ok "native Qt user service removed"
+fi
+
+# 8. mDNS hostname -----------------------------------------------------------
 step "Configuring mDNS (localflight.local)..."
 sudo systemctl enable --now avahi-daemon > /dev/null 2>&1
 if [ "$(hostname)" != "localflight" ]; then
@@ -293,7 +421,7 @@ if [ "$(hostname)" != "localflight" ]; then
 fi
 ok "Hostname: localflight - accessible as localflight.local"
 
-# 8. lf command --------------------------------------------------------------
+# 9. lf command --------------------------------------------------------------
 step "Installing 'lf' management command..."
 sudo tee /usr/local/bin/lf > /dev/null <<EOF
 #!/usr/bin/env bash
@@ -302,11 +430,16 @@ EOF
 sudo chmod +x /usr/local/bin/lf
 ok "'lf' available system-wide"
 
-# 9. Enable and start --------------------------------------------------------
+# 10. Enable and start -------------------------------------------------------
 step "Enabling and starting services..."
 sudo systemctl daemon-reload
 sudo systemctl enable localflight.service > /dev/null 2>&1
 sudo systemctl restart localflight.service
+
+if [ "$NATIVE_KIOSK" -eq 1 ] && [ -f "$NATIVE_GUI_SERVICE" ]; then
+    sleep 3
+    user_systemctl restart localflight-native-kiosk.service >/dev/null 2>&1 || warn "Native Qt user service did not start from this shell; log into the Pi desktop or run: systemctl --user restart localflight-native-kiosk.service"
+fi
 
 if [ "$KIOSK" -eq 1 ] && [ -f /etc/systemd/system/localflight-kiosk.service ]; then
     sudo systemctl enable localflight-kiosk.service > /dev/null 2>&1
@@ -325,6 +458,8 @@ echo "  +--------------------------------------+"
 echo ""
 if [ "$NATIVE_KIOSK" -eq 1 ]; then
     echo "  Native Qt kiosk mode is enabled for the attached display."
+    echo "  Backend: localflight.service (headless)"
+    echo "  Display: user service localflight-native-kiosk.service"
     echo ""
 fi
 echo "  Open in any browser on your network:"

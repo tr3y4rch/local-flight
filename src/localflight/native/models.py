@@ -18,6 +18,7 @@ class _TableModelFactory:
         class _Model(QtCore.QAbstractTableModel):
             def __init__(self, initial_rows: list[dict[str, Any]] | None = None) -> None:
                 super().__init__()
+                self.columns = columns
                 self._rows = list(initial_rows or [])
 
             def rowCount(self, _parent: Any = None) -> int:
@@ -62,8 +63,8 @@ class FlightBoardModel:
         ("display_time", "Time"),
         ("flight_cell", "Flight"),
         ("route_display", "Route"),
-        ("gate", "Gate"),
         ("status_display", "Status"),
+        ("gate", "Gate"),
         ("aircraft_type", "A/C"),
     )
 
@@ -81,6 +82,7 @@ class FlightBoardModel:
         class _Model(QtCore.QAbstractTableModel):
             def __init__(self, initial_rows: list[dict[str, Any]] | None = None) -> None:
                 super().__init__()
+                self.columns = columns
                 self._rows = list(initial_rows or [])
                 self._route_label = route_label
                 self._colors = dict(colors or {})
@@ -206,26 +208,6 @@ class FlightBoardModel:
                 return text
 
             def _background(self, row: dict[str, Any], key: str) -> Any:
-                if QtGui is None:
-                    return None
-                row = enrich_presentation_fields(row)
-                cls = self._status_class(row)
-                if cls in {"delayed", "delayed-warn", "delayed-bad", "early"}:
-                    color = QtGui.QColor(self._status_color(row))
-                    color.setAlpha(42 if key != "display_time" else 78)
-                    return color
-                if key == "display_time" and cls in {"boarding", "approaching", "diverted", "cancelled"}:
-                    color = QtGui.QColor(self._status_color(row))
-                    color.setAlpha(62)
-                    return color
-                if row.get("_fresh"):
-                    color = QtGui.QColor(self._color("blue", "#4a9eda"))
-                    color.setAlpha(22)
-                    return color
-                if cls in {"cancelled", "departed", "landed", "arrived"}:
-                    color = QtGui.QColor(self._color("panel_2", "#151923"))
-                    color.setAlpha(96)
-                    return color
                 return None
 
             def _font(self, row: dict[str, Any], key: str) -> Any:

@@ -6,7 +6,30 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [0.2.5b5] - 2026-05-04
+## [0.2.5b5] - 2026-05-09 (temporary change notes)
+
+> Temporary beta notes while the native GUI parity and hardening work is still moving. This section will be consolidated before the next tagged release.
+
+### Native GUI
+- Native FIDS now uses a custom passenger-board surface instead of a visible spreadsheet-style table: composed rows, stronger time/flight/route hierarchy, gate/status chips, codeshare cycling, subtle scan/loading motion, and a restyled flight-detail drawer.
+- Native Radar now has the staged final-form foundation: dedicated canvas layers, compact range controls, ADS-B/VATSIM modes, hover/click flight details, local ghost trails, direction ticks, traffic/altitude filters, and conservative climb/descent/approach/final labels with confidence/reason hints.
+- Native Radar map handling now separates runways, airport surface, map context, terrain/relief, grid, blips, trails, hover, and footer into explicit drawing layers so optional overlays can be enabled without turning the scope into a noisy map app.
+- Native Settings has been extracted into a standalone page with a quieter control-room layout, an explicit **Apply settings** action, status chips, collapsed Help/Diagnostics/Advanced sections, profile controls, radar-surface feedback, and the global GitHub / Buy Me a Coffee footer.
+- Native first-run setup has been extracted into a guided onboarding flow with Welcome, Airport, Data Access, Provider Keys, Diagnostics, and Finish steps; Community Relay is the default beginner path, while BYOK and VATSIM stay available without exposing raw secrets or install identifiers.
+- Native setup and settings now show clearer user-facing progress for relay activation checks, provider key tests, save/apply actions, profile loading, scheduler restarts, and radar surface/map loading.
+- The native shell continues to use the same local FastAPI APIs, WebSocket events, docs, config, diagnostics, and browser fallback rather than forking a separate desktop-only backend.
+
+### Radar, Map, And Surface Layers
+- `/api/radar/map` now carries the native/mobile map-layer contract: runway features, simplified surface/map context, optional terrain availability, attribution, and source confidence metadata while keeping `/api/radar` and `/api/radar/surface` backward compatible.
+- Runway drawing now uses a local-first OurAirports path when data is present, merges it with OSM/Overpass geometry when available, and falls back to estimated runway/surface geometry instead of leaving the native radar blank.
+- Radar source normalization preserves useful ADS-B fields for display and classification, including altitude, speed, track, vertical rate, selected/nav altitude, nav heading, emergency/squawk, category, position age, and source-quality hints without exposing raw provider payloads.
+- Ground traffic is intentionally limited to the 1 / 2 / 3 / 5 NM surface ranges. Wider ranges stay focused on airborne traffic, while the short ranges crop from the shortest practical provider fetch instead of requesting impossible ADS-B Exchange radii.
+- Optional map and terrain overlays are deliberately subtle, attributed, cached, and visual-only. They are not presented as certified navigation, terrain-awareness, or controller-grade data.
+
+### FIDS And Matrix Presentation
+- FIDS rows now share richer presentation fields for time deltas, status/delay tones, gate/terminal labels, route labels, operating flight priority, codeshare/sold-as rotation, and safe source hints.
+- FIDS status color meaning is centralized around neutral/green/amber/red/orange/dim semantics, with color localized to chips, rails, and indicators instead of full-row rainbow fills.
+- Matrix feeds can consume the compact version of the enriched FIDS presentation shape while keeping the LED board small-panel friendly and old-client safe.
 
 ### Added
 - Matrix V2 now has explicit public presets for exactly three operator-facing profiles: `real_fids`, `vatsim_pilot`, and `vatsim_atc`. Legacy matrix preset names are no longer shown on the user-facing preset list.
@@ -31,6 +54,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Public docs now describe relay cadence in end-user terms, while `DEV_README.md` keeps the operator-facing env names and writing-style reminder.
 
 ### Fixed
+- Native Radar map and terrain overlays no longer disappear behind the radar grid; the grid painter now uses an explicit no-fill brush so the range rings cannot repaint over static map layers.
+- Native Radar now parses OSM map points that arrive as string coordinates as well as numeric coordinate arrays, fixing a class of valid cached map features that previously loaded but did not draw.
+- Runway labels and confidence text are suppressed more aggressively at wider ranges so close-runway detail stays useful without filling the 5/10/20/40 NM scopes with overlapping text.
+- Radar map refresh/cache handling now keeps last-good map context available more reliably when an optional map or terrain source is slow, empty, or temporarily unavailable.
+- Native Settings radar-surface controls now save through the same config payload as the rest of the page and give clearer feedback when surface/map preparation is still running.
 - Generated `main.py` no longer crashes when route/status values arrive as non-string JSON values; text fields are normalized before fitting or cycling.
 - The board no longer shows uptime as clock data. Matrix feeds/config responses include server-synced UTC/local clock payloads for the MicroPython client.
 - Web and native Matrix generators now produce the same current client template and runtime assumptions, reducing drift between the kiosk and native GUI.

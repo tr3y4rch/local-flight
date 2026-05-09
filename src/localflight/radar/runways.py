@@ -14,7 +14,7 @@ from .geo import bearing_deg, distance_nm, float_or_none, heading_delta_deg, poi
 
 OURAIRPORTS_RUNWAYS_URL = "https://davidmegginson.github.io/ourairports-data/runways.csv"
 _RUNWAY_CACHE_MAX_AGE_DAYS = 30
-_RUNWAY_DOWNLOAD_TIMEOUT_S = 15
+_RUNWAY_DOWNLOAD_TIMEOUT_S = 2.5
 
 
 def _runway_data_path() -> Path:
@@ -102,6 +102,9 @@ def _load_ourairports_runways_cached() -> dict[str, list[dict[str, Any]]]:
             "endpoints": endpoints,
             "points": [[round(endpoints[0]["lat"], 7), round(endpoints[0]["lon"], 7)], [round(endpoints[1]["lat"], 7), round(endpoints[1]["lon"], 7)]],
             "confidence": "ourairports",
+            "data_source": "ourairports",
+            "source_url": OURAIRPORTS_RUNWAYS_URL,
+            "geometry_precision": "endpoint",
         }
         index.setdefault(ident, []).append(item)
     return index
@@ -117,7 +120,7 @@ def _cache_is_fresh(path: Path, *, max_age_days: int = _RUNWAY_CACHE_MAX_AGE_DAY
     return age <= timedelta(days=max(1, int(max_age_days)))
 
 
-def refresh_ourairports_runway_cache(*, force: bool = False, timeout_s: int = _RUNWAY_DOWNLOAD_TIMEOUT_S) -> dict[str, Any]:
+def refresh_ourairports_runway_cache(*, force: bool = False, timeout_s: float = _RUNWAY_DOWNLOAD_TIMEOUT_S) -> dict[str, Any]:
     """Download the public-domain OurAirports runway CSV into the user cache.
 
     The native radar can use this opportunistically, but a failed refresh should
@@ -303,6 +306,9 @@ def merge_runways(
                     "lighted": match.get("lighted"),
                     "closed": bool(item.get("closed")) or bool(match.get("closed")),
                     "endpoints": endpoints,
+                    "data_source": "openstreetmap+ourairports",
+                    "source_url": OURAIRPORTS_RUNWAYS_URL,
+                    "geometry_precision": "osm-polyline",
                 }
             )
             if heading is not None and endpoints:
@@ -314,12 +320,17 @@ def merge_runways(
             }
         else:
             item["confidence"] = "osm"
+            item["data_source"] = "openstreetmap"
+            item["geometry_precision"] = "osm-polyline"
             item["validation"] = {"validated_by": ["openstreetmap"], "label_match": False}
         merged.append(item)
 
     for oa in oa_runways:
         if str(oa.get("id")) not in used_oa:
             item = dict(oa)
+            item.setdefault("data_source", "ourairports")
+            item.setdefault("source_url", OURAIRPORTS_RUNWAYS_URL)
+            item.setdefault("geometry_precision", "endpoint")
             item["validation"] = {"validated_by": ["ourairports-runways"], "label_match": True}
             merged.append(item)
 
@@ -334,4 +345,13 @@ def merge_runways(
             )
         )
 
+    priority = {"ourairports+osm": 0, "ourairports": 1, "osm": 2, "estimated": 3}
+    merged.sort(
+        key=lambda item: (
+            priority.get(str(item.get("confidence") or "").lower(), 9),
+            bool(item.get("closed")),
+            str(item.get("label") or ""),
+            str(item.get("id") or ""),
+        )
+    )
     return merged[:24]

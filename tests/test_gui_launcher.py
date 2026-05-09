@@ -193,6 +193,28 @@ def test_native_client_window_exposes_real_user_pages(monkeypatch: pytest.Monkey
     assert window.screens[1] is None
 
 
+def test_native_client_window_footer_links(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    pytest.importorskip("PySide6")
+    from PySide6 import QtWidgets
+    import localflight.native._legacy_app as legacy_app
+    from localflight.native.app import NativeMainWindow
+    from localflight.native.qt_compat import import_qt
+
+    opened: list[str] = []
+    monkeypatch.setattr(legacy_app.webbrowser, "open", lambda url: opened.append(url))
+
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    window = NativeMainWindow(*import_qt(), base_url="http://127.0.0.1:9", first_launch=False)
+    window.footer_github_button.click()
+    window.footer_coffee_button.click()
+
+    assert app is not None
+    assert window.footer_github_button.text() == "GitHub"
+    assert window.footer_coffee_button.text() == "Buy Me a Coffee"
+    assert opened == [legacy_app.GITHUB_URL, legacy_app.COFFEE_URL]
+
+
 def test_native_history_stats_render_code_labels(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
     pytest.importorskip("PySide6")
@@ -254,6 +276,7 @@ def test_native_admin_exposes_buy_me_a_coffee_link(monkeypatch: pytest.MonkeyPat
     screen._open_quick_tool("coffee")
 
     assert app is not None
+    assert screen.loading_indicator.isVisible() is False
     assert opened == [COFFEE_URL]
     assert COFFEE_URL in screen.status.text()
 
@@ -477,11 +500,16 @@ def test_native_parity_screens_construct_core_controls(monkeypatch: pytest.Monke
     feedback = FeedbackScreen(QtWidgets2, client)
 
     assert app is not None
-    assert setup.tabs.count() == 5
+    assert setup.tabs.count() == 6
+    assert setup.step_names[0] == "Welcome"
     assert setup.relay_url.text() == "https://localflight-community-relay.fly.dev"
+    assert setup.loading_indicator.isVisible() is False
+    assert setup.provider_action_status.text()
+    assert setup.setup_mode.currentData() == "community"
     assert setup.diagnostics_mode.currentData() == "manual"
     assert setup.finish_btn.isVisible() is False
     assert matrix.canvas is not None
+    assert matrix.loading_indicator.isVisible() is False
     assert matrix.script_preview.isReadOnly()
     assert matrix.zoom_value.text().endswith("px")
     assert matrix.brightness_value.text().endswith("%")
@@ -489,8 +517,11 @@ def test_native_parity_screens_construct_core_controls(monkeypatch: pytest.Monke
     assert any(button.text() == "Generate code" for button in matrix.widget.findChildren(QtWidgets.QPushButton))
     assert logs.file_combo is not None
     assert logs.live_tail.text() == "Live tail"
+    assert logs.loading_indicator.isVisible() is False
     assert requests.client_type.currentText() == "all clients"
+    assert requests.loading_indicator.isVisible() is False
     assert feedback.sysinfo.isReadOnly()
+    assert feedback.loading_indicator.isVisible() is False
 
 
 def test_native_matrix_controls_drive_preview_and_script(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -607,6 +638,230 @@ def test_native_setup_reuses_stored_relay_token(monkeypatch: pytest.MonkeyPatch)
     assert setup.diagnostics_mode.currentData() == "manual"
 
 
+def test_native_setup_is_extracted_from_legacy_module() -> None:
+    import localflight.native.pages.setup as setup_page
+
+    assert setup_page.SetupScreen.__module__ == "localflight.native.pages.setup"
+    assert setup_page.NativeSetupWindow.__module__ == "localflight.native.pages.setup"
+
+
+def test_native_setup_defaults_to_community_without_token(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    pytest.importorskip("PySide6")
+    from PySide6 import QtWidgets
+    from localflight.native.app import SetupScreen
+    from localflight.native.qt_compat import import_qt
+
+    class _Client:
+        def get_json(self, path: str, *, params: dict[str, object] | None = None) -> dict[str, object]:
+            if path == "/api/setup/client-info":
+                return {"relay_url": "https://localflight-community-relay.fly.dev", "activation_token_present": False}
+            return {}
+
+    QtCore, _QtGui, QtWidgets2 = import_qt()
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    setup = SetupScreen(QtCore, QtWidgets2, _Client(), base_url="http://127.0.0.1:9")
+
+    assert app is not None
+    assert setup.tabs.count() == 6
+    assert setup.setup_mode.currentData() == "community"
+    assert "not linked" in setup.relay_status.text().lower()
+    assert setup.logo_label.minimumHeight() >= 120
+
+
+def test_native_setup_airport_selection_updates_finish_summary(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    pytest.importorskip("PySide6")
+    from PySide6 import QtWidgets
+    from localflight.native.app import SetupScreen
+    from localflight.native.qt_compat import import_qt
+
+    class _Client:
+        def get_json(self, path: str, *, params: dict[str, object] | None = None) -> dict[str, object]:
+            if path == "/api/setup/client-info":
+                return {"relay_url": "https://localflight-community-relay.fly.dev"}
+            return {}
+
+    QtCore, _QtGui, QtWidgets2 = import_qt()
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    setup = SetupScreen(QtCore, QtWidgets2, _Client(), base_url="http://127.0.0.1:9")
+    item = QtWidgets2.QListWidgetItem("SIN / WSSS Singapore Changi")
+    item.setData(
+        QtCore.Qt.UserRole,
+        {"iata": "SIN", "icao": "WSSS", "name": "Singapore Changi", "city": "Singapore", "timezone": "Asia/Singapore"},
+    )
+
+    setup._select_airport_item(item)
+
+    assert app is not None
+    assert setup.airport_iata.text() == "SIN"
+    assert setup.airport_icao.text() == "WSSS"
+    assert setup.timezone.text() == "Asia/Singapore"
+    assert "SIN / WSSS" in setup.finish_summary.text()
+
+
+def test_native_setup_provider_links_open_public_urls(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    pytest.importorskip("PySide6")
+    from PySide6 import QtWidgets
+    from localflight.native.app import SetupScreen
+    from localflight.native.pages.setup import PROVIDER_LINKS
+    from localflight.native.qt_compat import import_qt
+
+    class _Client:
+        def get_json(self, path: str, *, params: dict[str, object] | None = None) -> dict[str, object]:
+            if path == "/api/setup/client-info":
+                return {"relay_url": "https://localflight-community-relay.fly.dev"}
+            return {}
+
+    opened: list[str] = []
+    monkeypatch.setattr("localflight.native.pages.setup.webbrowser.open", lambda url: opened.append(url))
+    QtCore, _QtGui, QtWidgets2 = import_qt()
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    setup = SetupScreen(QtCore, QtWidgets2, _Client(), base_url="http://127.0.0.1:9")
+
+    for text, _url in PROVIDER_LINKS:
+        setup.provider_link_buttons[text].click()
+    setup.web_fallback_btn.click()
+
+    assert app is not None
+    assert opened[:-1] == [url for _text, url in PROVIDER_LINKS]
+    assert opened[-1] == "http://127.0.0.1:9/setup"
+
+
+def test_native_setup_relay_actions_show_local_status(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    pytest.importorskip("PySide6")
+    from PySide6 import QtWidgets
+    from localflight.native.app import SetupScreen
+    from localflight.native.qt_compat import import_qt
+
+    class _Client:
+        def get_json(self, path: str, *, params: dict[str, object] | None = None) -> dict[str, object]:
+            if path == "/api/setup/client-info":
+                return {"relay_url": "https://localflight-community-relay.fly.dev"}
+            return {}
+
+    class _Service:
+        def setup_client_info(self) -> dict[str, object]:
+            return {"relay_url": "https://localflight-community-relay.fly.dev"}
+
+        def setup_activate(self, payload: dict[str, object]) -> dict[str, object]:
+            return {"ok": True, "activation_token_prefix": "tok-prefix"}
+
+        def setup_client_status(self, payload: dict[str, object]) -> dict[str, object]:
+            return {"ok": True, "status": "active"}
+
+        def setup_test_activation(self, payload: dict[str, object]) -> dict[str, object]:
+            return {"ok": True}
+
+    QtCore, _QtGui, QtWidgets2 = import_qt()
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    setup = SetupScreen(QtCore, QtWidgets2, _Client(), base_url="http://127.0.0.1:9")
+    setup.service = _Service()
+
+    setup.request_activation()
+    assert app is not None
+    assert setup.relay_action_status.objectName() == "StatusGood"
+    assert "connected" in setup.relay_action_status.text().lower()
+    assert setup.request_activation_btn.isEnabled()
+
+    setup.check_activation_status()
+    assert setup.relay_action_status.objectName() == "StatusGood"
+    assert "active" in setup.relay_action_status.text().lower()
+    assert setup.check_relay_status_btn.isEnabled()
+
+    setup.test_activation()
+    assert setup.relay_action_status.objectName() == "StatusGood"
+    assert "token works" in setup.relay_action_status.text().lower()
+    assert setup.test_token_btn.isEnabled()
+
+
+def test_native_setup_provider_key_actions_show_feedback(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    pytest.importorskip("PySide6")
+    from PySide6 import QtWidgets
+    from localflight.native.app import SetupScreen
+    from localflight.native.qt_compat import import_qt
+
+    class _Client:
+        def get_json(self, path: str, *, params: dict[str, object] | None = None) -> dict[str, object]:
+            if path == "/api/setup/client-info":
+                return {"relay_url": "https://localflight-community-relay.fly.dev"}
+            return {}
+
+    class _Service:
+        def setup_client_info(self) -> dict[str, object]:
+            return {"relay_url": "https://localflight-community-relay.fly.dev"}
+
+        def setup_test_provider_key(self, path: str, key: str) -> dict[str, object]:
+            assert key == "secret-test-key"
+            assert path in {"/api/setup/test-aviationstack", "/api/setup/test-rapidapi"}
+            return {"ok": True}
+
+    QtCore, _QtGui, QtWidgets2 = import_qt()
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    setup = SetupScreen(QtCore, QtWidgets2, _Client(), base_url="http://127.0.0.1:9")
+    setup.service = _Service()
+
+    setup.test_aviationstack()
+    assert app is not None
+    assert setup.provider_action_status.objectName() == "StatusWarn"
+    assert "paste" in setup.provider_action_status.text().lower()
+
+    setup.aviationstack_key.setText("secret-test-key")
+    setup.test_aviationstack()
+    assert setup.provider_action_status.objectName() == "StatusGood"
+    assert "works" in setup.provider_action_status.text().lower()
+    assert setup.test_as_btn.isEnabled()
+    assert setup.loading_indicator.isVisible() is False
+
+
+def test_native_setup_byok_finish_sends_keys_only_for_byok(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    pytest.importorskip("PySide6")
+    from PySide6 import QtWidgets
+    from localflight.native.app import SetupScreen
+    from localflight.native.qt_compat import import_qt
+
+    class _Client:
+        def __init__(self) -> None:
+            self.payload: dict[str, object] = {}
+
+        def get_json(self, path: str, *, params: dict[str, object] | None = None) -> dict[str, object]:
+            if path == "/api/setup/client-info":
+                return {"relay_url": "https://localflight-community-relay.fly.dev"}
+            return {}
+
+        def post_json(self, path: str, payload: dict[str, object]) -> dict[str, object]:
+            assert path == "/api/setup/complete"
+            self.payload = payload
+            return {"ok": True}
+
+        def clear_cache(self) -> None:
+            pass
+
+    QtCore, _QtGui, QtWidgets2 = import_qt()
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    client = _Client()
+    setup = SetupScreen(QtCore, QtWidgets2, client, base_url="http://127.0.0.1:9")
+    setup._set_mode("byok")
+    setup.aviationstack_key.setText("as-key")
+    setup.rapidapi_key.setText("rapid-key")
+    setup.opensky_id.setText("opensky-id")
+    setup.opensky_secret.setText("opensky-secret")
+    setup.finish_setup()
+
+    assert app is not None
+    assert client.payload["setup_mode"] == "byok"
+    assert client.payload["source"] == "real"
+    assert client.payload["relay_url"] == ""
+    assert client.payload["aviationstack_key"] == "as-key"
+    assert client.payload["rapidapi_key"] == "rapid-key"
+    assert client.payload["opensky_id"] == "opensky-id"
+    assert client.payload["opensky_secret"] == "opensky-secret"
+
+
 def test_native_setup_virtual_finish_sends_virtual_source(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
     pytest.importorskip("PySide6")
@@ -706,6 +961,35 @@ def test_native_radar_projects_lat_lon_blips(monkeypatch: pytest.MonkeyPatch) ->
     assert canvas._blip_angle(canvas.blips[0]) == pytest.approx(0.0)
 
 
+def test_native_radar_projects_surface_points_from_lon_lat_or_lat_lon(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    pytest.importorskip("PySide6")
+    from PySide6 import QtWidgets
+    from localflight.native.app import RadarCanvas
+    from localflight.native.qt_compat import import_qt
+
+    QtCore, QtGui, QtWidgets2 = import_qt()
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    canvas = RadarCanvas(QtCore, QtGui, QtWidgets2)
+    canvas.resize(500, 500)
+    canvas.set_payload({"center": {"lat": 47.0, "lon": 8.0}, "radius_nm": 5, "blips": []})
+    canvas.set_surface(
+        {
+            "center": {"lat": 47.0, "lon": 8.0},
+            "features": [
+                {"kind": "runway", "label": "lat-lon", "points": [[47.0, 8.0], [47.01, 8.0]]},
+                {"kind": "runway", "label": "lon-lat", "points": [[8.0, 47.0], [8.0, 47.01]]},
+            ],
+        }
+    )
+    viewport = canvas._viewport(canvas.rect())
+    projected = canvas._projected_surface(QtCore, viewport)
+
+    assert app is not None
+    assert len(projected) == 2
+    assert all(len(poly) == 2 for _kind, _label, poly, _closed, _feature in projected)
+
+
 def test_native_radar_canvas_keeps_light_local_track_history(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
     pytest.importorskip("PySide6")
@@ -754,6 +1038,32 @@ def test_native_radar_canvas_reduces_labels_at_wide_range(monkeypatch: pytest.Mo
     assert canvas._should_draw_callsign(canvas.blips[0], viewport) is True
 
 
+def test_native_radar_blips_light_on_sweep_bar_then_fade(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    pytest.importorskip("PySide6")
+    from PySide6 import QtWidgets
+    from localflight.native.app import RadarCanvas
+    from localflight.native.qt_compat import import_qt
+
+    QtCore, QtGui, QtWidgets2 = import_qt()
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    canvas = RadarCanvas(QtCore, QtGui, QtWidgets2)
+    blip = {"callsign": "TST1", "lat": 47.01, "lon": 8.0}
+    canvas.set_payload({"center": {"lat": 47.0, "lon": 8.0}, "radius_nm": 5, "blips": [blip]})
+
+    canvas.sweep_angle = 0
+    bright = canvas._blip_alpha(blip)
+    canvas.sweep_angle = 45
+    fading = canvas._blip_alpha(blip)
+    canvas.sweep_angle = 120
+    gone = canvas._blip_alpha(blip)
+
+    assert app is not None
+    assert bright == 255
+    assert 0 < fading < bright
+    assert gone == 0
+
+
 def test_native_radar_embedded_layout_stays_narrow(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
     pytest.importorskip("PySide6")
@@ -768,9 +1078,34 @@ def test_native_radar_embedded_layout_stays_narrow(monkeypatch: pytest.MonkeyPat
     assert app is not None
     assert screen.range_combo is not None
     assert not screen.range_buttons
+    assert screen.loading_indicator.isVisible() is False
     assert screen.canvas.minimumWidth() <= 320
     assert screen.widget.minimumSizeHint().width() <= 520
     assert screen.advanced_panel.isHidden()
+
+
+def test_native_radar_ground_filter_only_available_in_surface_ranges(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    pytest.importorskip("PySide6")
+    from PySide6 import QtWidgets
+    from localflight.native.app import RadarScreen
+    from localflight.native.qt_compat import import_qt
+
+    QtCore, QtGui, QtWidgets2 = import_qt()
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    screen = RadarScreen(QtCore, QtGui, QtWidgets2, object())
+    screen.refresh = lambda: None
+    ground_idx = screen.traffic_filter.findData("ground")
+
+    screen.set_radius(5)
+    assert app is not None
+    assert screen.traffic_filter.model().item(ground_idx).isEnabled() is True
+    screen.traffic_filter.setCurrentIndex(ground_idx)
+    assert screen.traffic_filter.currentData() == "ground"
+
+    screen.set_radius(10)
+    assert screen.traffic_filter.model().item(ground_idx).isEnabled() is False
+    assert screen.traffic_filter.currentData() == "all"
 
 
 def test_native_radar_static_layer_cache_invalidates_for_layers(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -801,6 +1136,64 @@ def test_native_radar_static_layer_cache_invalidates_for_layers(monkeypatch: pyt
     assert canvas._static_cache_key is None
     canvas._static_layer_pixmap(QtCore, QtGui, canvas.rect(), viewport)
     assert canvas._static_cache_key != key
+
+
+def test_native_radar_static_layer_order_is_explicit_for_map_terrain_surface(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    pytest.importorskip("PySide6")
+    from PySide6 import QtWidgets
+    from localflight.native.app import RadarCanvas
+    from localflight.native.canvas.radar import STATIC_RADAR_LAYER_ORDER
+    from localflight.native.qt_compat import import_qt
+
+    QtCore, QtGui, QtWidgets2 = import_qt()
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    canvas = RadarCanvas(QtCore, QtGui, QtWidgets2)
+    canvas.resize(420, 420)
+    viewport = canvas._viewport(canvas.rect())
+    image = QtGui.QImage(420, 420, QtGui.QImage.Format_ARGB32)
+    image.fill(QtGui.QColor("black"))
+    painter = QtGui.QPainter(image)
+    calls: list[str] = []
+
+    canvas._draw_background = lambda *args, **kwargs: calls.append("background")
+    canvas._draw_static_layer = lambda layer, *args, **kwargs: calls.append(layer)
+
+    canvas._draw_static_layers(painter, QtCore, QtGui, canvas.rect(), viewport)
+    painter.end()
+
+    assert app is not None
+    assert calls == list(STATIC_RADAR_LAYER_ORDER)
+    assert calls.index("surface") < calls.index("map") < calls.index("terrain") < calls.index("grid") < calls.index("runways")
+    assert calls.index("runways") < calls.index("procedures")
+
+
+def test_native_radar_uses_contrast_safe_palette_in_light_and_dark(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    pytest.importorskip("PySide6")
+    from PySide6 import QtWidgets
+    from localflight.native.app import RadarCanvas
+    from localflight.native.qt_compat import import_qt
+
+    _QtCore, QtGui, QtWidgets2 = import_qt()
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    canvas = RadarCanvas(_QtCore, QtGui, QtWidgets2)
+
+    dark_blip = canvas._radar_color(QtGui, "blip").name()
+    dark_runway = canvas._radar_color(QtGui, "runway").name()
+    dark_road = canvas._radar_color(QtGui, "map_road").name()
+
+    canvas.apply_theme("light", "standard")
+    light_blip = canvas._radar_color(QtGui, "blip").name()
+    light_runway = canvas._radar_color(QtGui, "runway").name()
+    light_road = canvas._radar_color(QtGui, "map_road").name()
+
+    assert app is not None
+    assert canvas._is_light_mode() is True
+    assert len({dark_blip, dark_runway, dark_road}) == 3
+    assert len({light_blip, light_runway, light_road}) == 3
+    assert dark_blip != light_blip
+    assert dark_runway != light_runway
 
 
 def test_native_radar_heavy_render_smoke_uses_cached_static_layer(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -894,6 +1287,7 @@ def test_native_radar_canvas_keeps_surface_and_future_layers_separate(monkeypatc
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     canvas = RadarCanvas(QtCore, QtGui, QtWidgets2)
     canvas.resize(400, 400)
+    canvas.set_map({"features": [{"kind": "road", "label": "service", "points": [[47.01, 8.02], [47.02, 8.03]]}]})
     canvas.set_surface(
         {
             "center": {"lat": 47.0, "lon": 8.0},
@@ -906,11 +1300,14 @@ def test_native_radar_canvas_keeps_surface_and_future_layers_separate(monkeypatc
     canvas.set_terrain({"features": [{"kind": "ridge", "label": "terrain", "points": [[47.02, 8.02], [47.03, 8.03]]}]})
 
     viewport = canvas._viewport(canvas.rect())
+    map_layer = canvas._projected_map(QtCore, viewport)
     surface = canvas._projected_surface(QtCore, viewport)
     procedures = canvas._projected_procedures(QtCore, viewport)
     terrain = canvas._projected_terrain(QtCore, viewport)
 
     assert app is not None
+    assert map_layer[0][0] == "road"
+    assert map_layer[0][1] == "service"
     assert surface[0][0] == "runway"
     assert surface[0][1] == "16/34"
     assert surface[0][3] is True
@@ -920,6 +1317,65 @@ def test_native_radar_canvas_keeps_surface_and_future_layers_separate(monkeypatc
     assert canvas._surface_alpha() == 0.55
     canvas.radius_nm = 3
     assert canvas._surface_alpha() == 1.0
+
+
+def test_native_radar_canvas_accepts_string_encoded_map_points(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    pytest.importorskip("PySide6")
+    from PySide6 import QtWidgets
+    from localflight.native.app import RadarCanvas
+    from localflight.native.qt_compat import import_qt
+
+    QtCore, QtGui, QtWidgets2 = import_qt()
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    canvas = RadarCanvas(QtCore, QtGui, QtWidgets2)
+    canvas.resize(400, 400)
+    canvas.set_payload({"center": {"lat": 47.0, "lon": 8.0}, "radius_nm": 5, "blips": []})
+    canvas.set_map({"features": [{"kind": "road", "points": ["47.0000 8.0000", "47.0100 8.0100"]}]})
+
+    projected = canvas._projected_map(QtCore, canvas._viewport(canvas.rect()))
+
+    assert app is not None
+    assert projected[0][0] == "road"
+    assert len(projected[0][2]) == 2
+
+
+def test_native_radar_grid_does_not_paint_over_map_layer(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    pytest.importorskip("PySide6")
+    from PySide6 import QtWidgets
+    from localflight.native.app import RadarCanvas
+    from localflight.native.qt_compat import import_qt
+
+    QtCore, QtGui, QtWidgets2 = import_qt()
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    canvas = RadarCanvas(QtCore, QtGui, QtWidgets2)
+    canvas.resize(400, 400)
+    canvas.set_radius_nm(5)
+    canvas.set_payload({"center": {"lat": 47.0, "lon": 8.0}, "radius_nm": 5, "blips": []})
+    canvas.set_map({"features": [{"kind": "road", "points": [[46.995, 7.995], [47.005, 8.005]]}]})
+
+    with_map = QtGui.QImage(400, 400, QtGui.QImage.Format_ARGB32)
+    with_map.fill(QtCore.Qt.transparent)
+    painter = QtGui.QPainter(with_map)
+    canvas.render(painter, QtCore.QPoint(0, 0))
+    painter.end()
+
+    canvas.set_map([])
+    without_map = QtGui.QImage(400, 400, QtGui.QImage.Format_ARGB32)
+    without_map.fill(QtCore.Qt.transparent)
+    painter = QtGui.QPainter(without_map)
+    canvas.render(painter, QtCore.QPoint(0, 0))
+    painter.end()
+
+    changed_pixels = 0
+    for y in range(with_map.height()):
+        for x in range(with_map.width()):
+            if with_map.pixel(x, y) != without_map.pixel(x, y):
+                changed_pixels += 1
+
+    assert app is not None
+    assert changed_pixels > 20
 
 
 def test_native_radar_screen_toggles_optional_intelligence_layers(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -961,6 +1417,14 @@ def test_native_radar_screen_toggles_optional_intelligence_layers(monkeypatch: p
                 "features": [{"kind": "runway", "label": "16/34", "points": [[47.0, 8.0], [47.01, 8.0]]}],
                 "meta": {"validation": {"runway_count": 1}},
             },
+            "radar_map": {
+                "center": {"lat": 47.0, "lon": 8.0},
+                "runways": [{"kind": "runway", "label": "16/34", "points": [[47.0, 8.0], [47.01, 8.0]]}],
+                "surface_features": [],
+                "map_features": [{"kind": "road", "label": "", "points": [[47.0, 8.0], [47.02, 8.02]]}],
+                "terrain": {"features": [{"kind": "relief", "points": [[47.0, 8.0], [47.02, 8.02]]}]},
+                "sources": {"surface": "openstreetmap", "surface_cache_state": "fresh", "map": "openstreetmap", "map_cache_state": "fresh", "terrain_cache_state": "fresh"},
+            },
             "surface_error": "",
             "weather": {},
         }
@@ -970,9 +1434,13 @@ def test_native_radar_screen_toggles_optional_intelligence_layers(monkeypatch: p
     assert screen.advanced_panel.isHidden()
     screen._toggle_options_panel(True)
     assert not screen.advanced_panel.isHidden()
+    assert screen.layer_toggles["map"].isChecked() is True
     assert screen.layer_toggles["surface"].isChecked() is True
     assert screen.layer_toggles["traffic_status"].isChecked() is False
     assert "OSM surface checked" in screen.source_info.text()
+    assert screen.canvas.map_features[0]["kind"] == "road"
+    assert "map" in screen.source_info.text()
+    assert "map 1 features" in screen.source_info.text()
     assert "status labels" not in screen.source_info.text()
     screen.layer_toggles["traffic_status"].setChecked(True)
     assert "status labels" in screen.source_info.text()
@@ -982,6 +1450,7 @@ def test_native_radar_screen_toggles_optional_intelligence_layers(monkeypatch: p
     assert screen.canvas.layers["terrain"] is True
     assert screen.canvas.procedure_paths[0]["kind"] == "approach"
     assert screen.canvas.terrain_features
+    assert "terrain 1 features" in screen.source_info.text()
     assert "labels" in screen.filter_summary.text()
 
 
@@ -1094,7 +1563,32 @@ def test_native_radar_canvas_emits_hovered_blip(monkeypatch: pytest.MonkeyPatch)
     assert seen[-1] is None
 
 
-def test_native_radar_hover_panel_shows_safe_basic_info(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_native_radar_callsign_label_is_click_target(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    pytest.importorskip("PySide6")
+    from PySide6 import QtWidgets
+    from localflight.native.app import RadarCanvas
+    from localflight.native.qt_compat import import_qt
+
+    QtCore, QtGui, QtWidgets2 = import_qt()
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    canvas = RadarCanvas(QtCore, QtGui, QtWidgets2)
+    canvas.resize(500, 500)
+    canvas.set_payload(
+        {
+            "center": {"lat": 47.0, "lon": 8.0},
+            "radius_nm": 5,
+            "blips": [{"callsign": "TST123", "lat": 47.01, "lon": 8.0}],
+        }
+    )
+    viewport = canvas._viewport(canvas.rect())
+    x, y = canvas._blip_pos(canvas.blips[0], viewport)
+
+    assert app is not None
+    assert canvas._hit_blip(x + 34, y - 10, viewport)["callsign"] == "TST123"
+
+
+def test_native_radar_hover_status_shows_safe_basic_info_without_bottom_panel(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
     pytest.importorskip("PySide6")
     from PySide6 import QtWidgets
@@ -1125,14 +1619,54 @@ def test_native_radar_hover_panel_shows_safe_basic_info(monkeypatch: pytest.Monk
     )
 
     assert app is not None
+    assert screen.blip_info.isHidden()
+    assert "SWR123 under pointer" in screen.status.text()
+
+
+def test_native_radar_selected_panel_shows_safe_fids_detail(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    pytest.importorskip("PySide6")
+    from PySide6 import QtWidgets
+    from localflight.native.app import RadarScreen
+    from localflight.native.qt_compat import import_qt
+
+    QtCore, QtGui, QtWidgets2 = import_qt()
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    screen = RadarScreen(QtCore, QtGui, QtWidgets2, object())
+    summary = {
+        "title": "SWR123",
+        "route": "LSZH -> EGLL",
+        "detail": "On final | A320 | 9843 ft | -591 fpm | 233 kt",
+    }
+    screen._apply_selected_summary(summary)
+    screen._apply_selected_detail(
+        summary,
+        {
+            "detail": {
+                "status": "delayed",
+                "delay_minutes": 12,
+                "gate": "A42",
+                "terminal": "1",
+                "aircraft_type": "A320",
+                "aircraft_registration": "HB-JXX",
+                "origin_iata": "ZRH",
+                "dest_iata": "LHR",
+                "detail_mode": "real",
+                "data_sources": {"confidence": "live_position_matched"},
+                "pilot_name": "Do Not Show",
+                "cid": 123456,
+            }
+        },
+    )
+
+    assert app is not None
     assert not screen.blip_info.isHidden()
     assert screen.blip_title.text() == "SWR123"
-    assert screen.blip_route.text() == "LSZH -> EGLL"
-    assert "On final" in screen.blip_detail.text()
-    assert "A320" in screen.blip_detail.text()
-    assert "9843 ft" in screen.blip_detail.text()
-    assert "-591 fpm" in screen.blip_detail.text()
-    assert "233 kt" in screen.blip_detail.text()
+    assert screen.blip_route.text() == "ZRH -> LHR"
+    assert "DELAYED +12m" in screen.blip_detail.text()
+    assert "Terminal 1 Gate A42" in screen.blip_detail.text()
+    assert "A320 HB-JXX" in screen.blip_detail.text()
+    assert "live position matched" in screen.blip_detail.text()
     assert "Do Not Show" not in screen.blip_detail.text()
     assert "123456" not in screen.blip_detail.text()
 
@@ -1185,13 +1719,99 @@ def test_native_fids_detail_splits_real_and_virtual(monkeypatch: pytest.MonkeyPa
     )
 
     text = screen.detail_body.toPlainText()
+    html = screen._detail_html(
+        {
+            "detail_mode": "virtual",
+            "callsign": "VIR42",
+            "origin_icao": "EGLL",
+            "dest_icao": "KJFK",
+            "aircraft_type": "A35K",
+            "flight_plan": {"route": "DCT TEST"},
+            "position": {"altitude_m": 3000, "speed_ms": 100, "heading": 270},
+            "data_sources": {"schedule": "vatsim", "snapshot_age_seconds": 12},
+            "pilot_name": "Private Person",
+            "cid": 123456,
+        },
+        [],
+        virtual=True,
+    )
 
     assert app is not None
     assert "Virtual flight" in text
-    assert "Flight plan" in text
+    assert "Flight Plan" in text
     assert "DCT TEST" in text
+    assert "detail-hero" in html
+    assert "hero-chips" in html
+    assert "detail-card wide" in html
+    assert "history-card" in html
     assert "Private Person" not in text
     assert "123456" not in text
+    assert "Private Person" not in html
+    assert "123456" not in html
+
+
+def test_native_fids_real_detail_uses_passenger_board_cards_and_safe_placeholders(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    pytest.importorskip("PySide6")
+    from PySide6 import QtWidgets
+    from localflight.native.app import FidsScreen
+    from localflight.native.qt_compat import import_qt
+
+    QtCore, QtGui, QtWidgets2 = import_qt()
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    screen = FidsScreen(QtCore, QtGui, QtWidgets2, client=object())
+    detail = {
+        "detail_mode": "real",
+        "flight_display": "LX 100",
+        "status_display": "DELAYED +18M",
+        "delay_minutes": 18,
+        "origin_iata": "ZRH",
+        "origin_icao": "LSZH",
+        "origin_name": "Zurich",
+        "dest_iata": "LHR",
+        "dest_icao": "EGLL",
+        "dest_name": "Heathrow",
+        "sched_time": "2026-05-07T10:00:00+00:00",
+        "est_time": "2026-05-07T10:18:00+00:00",
+        "terminal": "",
+        "gate": "",
+        "aircraft_type": "",
+        "aircraft_registration": "",
+        "callsign": "SWR100",
+        "airline_display": "Swiss",
+        "data_sources": {"schedule": "aviationstack", "confidence": "schedule_only"},
+        "pilot_name": "Do Not Render",
+        "cid": 999999,
+        "raw": {"provider": "hidden"},
+    }
+    history = [
+        {"date": "2026-05-06", "status": "landed", "delay_minutes": -4},
+        {"date": "2026-05-05", "status": "delayed", "delay_minutes": 21},
+    ]
+
+    html = screen._detail_html(detail, history, virtual=False)
+    screen.detail_body.setHtml(html)
+    text = screen.detail_body.toPlainText()
+
+    assert app is not None
+    assert "LX 100" in text
+    assert "ZRH / LSZH - Zurich" in text
+    assert "LHR / EGLL - Heathrow" in text
+    assert "Gate pending" in text
+    assert "Aircraft pending" in text
+    assert "Recent History" in text
+    assert "detail-hero" in html
+    assert "time-strip" in html
+    assert "route-card" in html
+    assert "status bad" in html
+    assert "delay-chip good" in html
+    assert "delay-chip bad" in html
+    assert "Do Not Render" not in text
+    assert "999999" not in text
+    assert "hidden" not in text
+    assert "Do Not Render" not in html
+    assert "999999" not in html
+    assert "hidden" not in html
 
 
 def test_native_fids_empty_board_shows_user_focused_waiting_message(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1421,8 +2041,72 @@ def test_native_fids_derives_delay_visuals_from_delay_minutes(monkeypatch: pytes
     assert screen.delegate._status_color(warn, screen.colors) == screen.colors["amber"]
     assert early["status_class"] == "early"
     assert screen.delegate._status_color(early, screen.colors) == screen.colors["green"]
-    assert model.data(model.index(0, 4), QtCore.Qt.DisplayRole) == "DELAYED +25M"
-    assert model.data(model.index(0, 4), QtCore.Qt.ForegroundRole).color().name() == screen.colors["red"]
+    assert model.data(model.index(0, 3), QtCore.Qt.DisplayRole) == "DELAYED +25M"
+    assert model.data(model.index(0, 3), QtCore.Qt.ForegroundRole).color().name() == screen.colors["red"]
+    assert model.data(model.index(0, 3), QtCore.Qt.BackgroundRole) is None
+
+
+def test_native_fids_status_then_gate_column_widths(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    pytest.importorskip("PySide6")
+    from PySide6 import QtWidgets
+    from localflight.native.app import FidsScreen
+    from localflight.native.qt_compat import import_qt
+
+    QtCore, QtGui, QtWidgets2 = import_qt()
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    screen = FidsScreen(QtCore, QtGui, QtWidgets2, client=object())
+    screen.board.resize(1200, 500)
+    screen.visible_rows = [
+        {
+            "display_time": "12:00",
+            "flight_display": "LX 100",
+            "route_display": "London",
+            "status_display": "DELAYED +25M",
+            "gate": "A42",
+        }
+    ]
+    screen.model.set_rows(screen.visible_rows)
+    screen._fit_columns()
+    columns = screen.board._column_rects(screen.board.viewport().rect())
+
+    assert app is not None
+    assert screen.model.headerData(3, QtCore.Qt.Horizontal, QtCore.Qt.DisplayRole) == "Status"
+    assert screen.model.headerData(4, QtCore.Qt.Horizontal, QtCore.Qt.DisplayRole) == "Gate"
+    assert tuple(screen.board.column_keys) == (
+        "display_time",
+        "flight_cell",
+        "route_display",
+        "status_display",
+        "gate",
+        "aircraft_type",
+    )
+    assert columns["status_display"].left() < columns["gate"].left()
+    assert columns["status_display"].width() > columns["gate"].width()
+    assert screen.board._row_at_y(screen.board.padding + screen.board.header_h + 4) == 0
+
+
+def test_native_fids_board_animation_pauses_when_inactive(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    pytest.importorskip("PySide6")
+    from PySide6 import QtWidgets
+    from localflight.native.app import FidsScreen
+    from localflight.native.qt_compat import import_qt
+
+    QtCore, QtGui, QtWidgets2 = import_qt()
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    screen = FidsScreen(QtCore, QtGui, QtWidgets2, client=object())
+
+    screen.set_active(True)
+    screen._set_info_banner("Updating arrivals. First refreshes can take a moment.", True, busy=True)
+    assert app is not None
+    assert screen.board_animation_timer.isActive()
+    screen._advance_board_animation()
+    assert "SCAN" in screen.scan_indicator.text()
+
+    screen.set_active(False)
+    assert not screen.board_animation_timer.isActive()
+    assert screen.scan_indicator.text() == ""
 
 
 def test_native_fids_plain_model_rotates_one_codeshare_frame(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1522,8 +2206,182 @@ def test_native_settings_has_airport_search_picker(monkeypatch: pytest.MonkeyPat
     assert screen.airport_iata.isReadOnly()
     assert screen.airport_icao.isReadOnly()
     assert screen.timezone.isReadOnly()
+    assert screen.loading_indicator.isVisible() is False
+    assert screen.apply_surface_button.text() == "Apply radar overlay"
+    assert "Surface overlay" in screen.surface_status.text()
+    assert screen.surface_progress.isVisible() is False
+    assert screen.help_docs_group.isChecked() is False
+    assert screen.help_docs_body.isVisible() is False
+    assert screen.maintenance_group.isChecked() is False
+    assert screen.maintenance_body.isVisible() is False
     assert screen.advanced_display_group.isChecked() is False
     assert screen.advanced_display_body.isVisible() is False
+
+
+def test_native_settings_is_extracted_from_legacy_module() -> None:
+    import localflight.native.pages.settings as settings_page
+
+    assert settings_page.SettingsScreen.__module__ == "localflight.native.pages.settings"
+
+
+def test_native_settings_config_payload_preserves_fields(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    pytest.importorskip("PySide6")
+    from PySide6 import QtWidgets
+    from localflight.native.app import SettingsScreen
+    from localflight.native.qt_compat import import_qt
+
+    QtCore, QtGui, QtWidgets2 = import_qt()
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    screen = SettingsScreen(QtCore, QtGui, QtWidgets2, client=object(), base_url="http://127.0.0.1:9")
+    screen._populate_config(
+        {
+            "airport_iata": "sin",
+            "airport_icao": "wsss",
+            "timezone": "Asia/Singapore",
+            "display_name": "Terminal Board",
+            "source": "virtual",
+            "refresh_seconds": 1800,
+            "theme": "light",
+            "skin": "night_ops",
+            "diagnostics_mode": "manual",
+            "web_row_limit": 32,
+            "web_rotation_seconds": 12,
+            "display_grace_minutes": 45,
+            "display_horizon_hours": 18,
+            "radar_surface_enabled": True,
+            "display_outputs": [],
+        }
+    )
+    screen.output_web.setChecked(False)
+    screen.output_matrix.setChecked(False)
+    screen.output_hdmi.setChecked(False)
+
+    payload = screen._config_payload()
+
+    assert app is not None
+    assert set(payload) == {
+        "airport_iata",
+        "airport_icao",
+        "timezone",
+        "display_name",
+        "source",
+        "refresh_seconds",
+        "theme",
+        "skin",
+        "diagnostics_mode",
+        "web_row_limit",
+        "web_rotation_seconds",
+        "display_grace_minutes",
+        "display_horizon_hours",
+        "radar_surface_enabled",
+        "display_outputs",
+    }
+    assert payload["airport_iata"] == "SIN"
+    assert payload["airport_icao"] == "WSSS"
+    assert payload["refresh_seconds"] == 1800
+    assert payload["display_outputs"] == ["web"]
+
+
+def test_native_settings_actions_use_native_service(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    pytest.importorskip("PySide6")
+    from PySide6 import QtWidgets
+    from localflight.native.app import SettingsScreen
+    from localflight.native.qt_compat import import_qt
+
+    class _Service:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, object]] = []
+
+        def save_config(self, payload: dict[str, object]) -> dict[str, object]:
+            self.calls.append(("save_config", payload))
+            return {"ok": True}
+
+        def restart_scheduler(self) -> dict[str, object]:
+            self.calls.append(("restart_scheduler", None))
+            return {"message": "Scheduler restart requested."}
+
+        def setup_reset(self) -> dict[str, object]:
+            self.calls.append(("setup_reset", None))
+            return {"ok": True}
+
+        def save_profile(self, name: str) -> dict[str, object]:
+            self.calls.append(("save_profile", name))
+            return {"ok": True}
+
+        def load_profile(self, name: str) -> dict[str, object]:
+            self.calls.append(("load_profile", name))
+            return {"ok": True}
+
+        def delete_profile(self, name: str) -> dict[str, object]:
+            self.calls.append(("delete_profile", name))
+            return {"ok": True}
+
+        def config(self) -> dict[str, object]:
+            self.calls.append(("config", None))
+            return {"airport_iata": "ZRH", "airport_icao": "LSZH", "display_outputs": ["web"]}
+
+        def setup_client_info(self) -> dict[str, object]:
+            self.calls.append(("setup_client_info", None))
+            return {"relay_url": "https://relay.example", "has_activation_token": False}
+
+    QtCore, QtGui, QtWidgets2 = import_qt()
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    screen = SettingsScreen(QtCore, QtGui, QtWidgets2, client=object(), base_url="http://127.0.0.1:9")
+    service = _Service()
+    screen.service = service
+    monkeypatch.setattr("localflight.native.pages.settings.list_profiles", lambda: ["home"])
+    monkeypatch.setattr(QtWidgets2.QMessageBox, "question", lambda *_args, **_kwargs: QtWidgets2.QMessageBox.Yes)
+
+    screen.profile_name.setText("home")
+    screen.save()
+    screen.restart_scheduler()
+    screen.reset_setup()
+    screen.save_profile()
+    screen.profile_combo.clear()
+    screen.profile_combo.addItem("home")
+    screen.load_profile()
+    screen.profile_combo.clear()
+    screen.profile_combo.addItem("home")
+    screen.delete_profile()
+
+    assert app is not None
+    assert [call[0] for call in service.calls] == [
+        "save_config",
+        "restart_scheduler",
+        "setup_reset",
+        "save_profile",
+        "load_profile",
+        "config",
+        "setup_client_info",
+        "delete_profile",
+    ]
+
+
+def test_native_settings_surface_check_feedback(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    pytest.importorskip("PySide6")
+    from PySide6 import QtWidgets
+    from localflight.native.app import SettingsScreen
+    from localflight.native.qt_compat import import_qt
+
+    QtCore, QtGui, QtWidgets2 = import_qt()
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    screen = SettingsScreen(QtCore, QtGui, QtWidgets2, client=object(), base_url="http://127.0.0.1:9")
+
+    screen._apply_surface_check_result(
+        {
+            "runways": [{"label": "25L/07R"}],
+            "surface_features": [{"kind": "terminal"}],
+            "sources": {"surface": "localflight-estimated", "surface_cache_state": "estimated"},
+        }
+    )
+
+    assert app is not None
+    assert "Surface data ready" in screen.surface_status.text()
+    assert "1 runway" in screen.surface_status.text()
+    assert "online map check timed out" in screen._surface_error_message(RuntimeError("HTTPConnectionPool read timed out"))
 
 
 def test_native_media_and_docs_are_resolvable() -> None:
@@ -1812,8 +2670,19 @@ def test_native_page_registry_tracks_browser_parity_templates() -> None:
     ]
     assert browser_parity_templates().issubset(template_names)
     assert SETUP_PAGE_SPEC.browser_template == "setup.html"
+    assert "/api/setup/client-status" in SETUP_PAGE_SPEC.required_routes
     assert fids_fetch_routes.issubset(page_spec("fids").required_routes)
     assert "/ws" in page_spec("fids").required_routes
+    assert {
+        "/api/config",
+        "/api/setup/client-info",
+        "/api/airports/search",
+        "/profiles/save",
+        "/profiles/load",
+        "/profiles/delete",
+        "/api/setup/reset",
+        "/api/admin/scheduler/restart",
+    }.issubset(page_spec("settings").required_routes)
     assert {"/api/feedback", "/api/feedback/crash", "/api/setup/client-info"}.issubset(
         page_spec("feedback").required_routes
     )
@@ -1909,6 +2778,23 @@ def test_native_service_prefers_radar_map_over_surface_fallback() -> None:
 
     assert radar.radar_map == {"runways": [{"kind": "runway"}], "surface_features": []}
     assert "/api/radar/surface" not in client.paths
+
+
+def test_native_radar_surface_label_distinguishes_runway_truth_from_estimate() -> None:
+    from localflight.native.pages.radar import _surface_source_label
+
+    label = _surface_source_label(
+        {
+            "provider": "localflight-estimated",
+            "cache_state": "estimated",
+            "features": [
+                {"kind": "boundary", "label": "Estimated airport"},
+                {"kind": "runway", "label": "7L/25R", "confidence": "ourairports"},
+            ],
+        }
+    )
+
+    assert label == "OurAirports runways with estimated surface"
 
 
 def test_native_service_adapters_cover_kiosk_parity_reads() -> None:
@@ -2063,11 +2949,12 @@ def test_native_table_models_expose_common_rows(monkeypatch: pytest.MonkeyPatch)
 
     assert app is not None
     assert model.rowCount() == 1
+    assert [label for _key, label in model.columns] == ["Time", "Flight", "Route", "Status", "Gate", "A/C"]
     assert model.headerData(1, QtCore.Qt.Horizontal, QtCore.Qt.DisplayRole) == "Flight"
     assert model.data(model.index(0, 1), QtCore.Qt.DisplayRole) == "LX 1"
-    assert styled.headerData(3, QtCore.Qt.Horizontal, QtCore.Qt.DisplayRole) == "Gate"
-    assert styled.headerData(4, QtCore.Qt.Horizontal, QtCore.Qt.DisplayRole) == "Status"
-    assert styled.data(styled.index(0, 4), QtCore.Qt.DisplayRole) == "BOARDING"
+    assert styled.headerData(3, QtCore.Qt.Horizontal, QtCore.Qt.DisplayRole) == "Status"
+    assert styled.headerData(4, QtCore.Qt.Horizontal, QtCore.Qt.DisplayRole) == "Gate"
+    assert styled.data(styled.index(0, 3), QtCore.Qt.DisplayRole) == "BOARDING"
     assert "UA 9000 / AC 7000" in styled.data(styled.index(0, 1), QtCore.Qt.DisplayRole)
     assert history.headerData(3, QtCore.Qt.Horizontal, QtCore.Qt.DisplayRole) == "Callsign"
     assert requests.data(requests.index(0, 1), QtCore.Qt.DisplayRole) == "GET"

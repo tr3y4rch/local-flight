@@ -5,6 +5,14 @@ from localflight.radar.map_layers import build_radar_map
 from localflight.radar.normalize import adsbx_aircraft_to_blips
 from localflight.radar import runways as runway_domain
 from localflight.radar.runways import merge_runways
+from localflight.sources.web.airport_map_context import fetch_overpass_map_context, normalize_overpass_map_context
+from localflight.sources.web.terrain_context import (
+    build_terrain_payload,
+    decode_terrarium_rgb,
+    latlon_to_tile,
+    terrain_features_from_tile,
+)
+from PIL import Image
 
 
 def test_adsbx_normalizer_preserves_navigation_and_quality_fields() -> None:
@@ -78,6 +86,8 @@ def test_runway_merge_uses_osm_geometry_and_ourairports_metadata(monkeypatch) ->
     assert runways[0]["confidence"] == "ourairports+osm"
     assert runways[0]["length_ft"] == 12139
     assert runways[0]["lighted"] is True
+    assert runways[0]["data_source"] == "openstreetmap+ourairports"
+    assert runways[0]["geometry_precision"] == "osm-polyline"
     assert runways[0]["validation"]["validated_by"] == ["openstreetmap", "ourairports-runways"]
 
 
@@ -221,6 +231,343 @@ def test_radar_map_omits_clutter_but_keeps_runways(monkeypatch) -> None:
     assert [feature["kind"] for feature in payload["surface_features"]] == ["boundary"]
 
 
+def test_osm_map_context_normalizer_keeps_quiet_background_features() -> None:
+    features = normalize_overpass_map_context(
+        {
+            "elements": [
+                {
+                    "type": "way",
+                    "id": 1,
+                    "tags": {"highway": "service", "name": "Airport Way"},
+                    "geometry": [{"lat": 47.0, "lon": 8.0}, {"lat": 47.01, "lon": 8.01}],
+                },
+                {
+                    "type": "way",
+                    "id": 2,
+                    "tags": {"natural": "water", "name": "Lake"},
+                    "geometry": [{"lat": 47.0, "lon": 8.0}, {"lat": 47.0, "lon": 8.02}, {"lat": 47.01, "lon": 8.02}, {"lat": 47.0, "lon": 8.0}],
+                },
+                {
+                    "type": "way",
+                    "id": 3,
+                    "tags": {"amenity": "cafe", "name": "Noisy POI"},
+                    "geometry": [{"lat": 47.0, "lon": 8.0}, {"lat": 47.01, "lon": 8.01}],
+                },
+            ]
+        }
+    )
+
+    assert [feature["kind"] for feature in features] == ["water", "road"]
+    assert features[0]["closed"] is True
+
+
+def test_osm_map_context_prefers_larger_readable_features() -> None:
+    features = normalize_overpass_map_context(
+        {
+            "elements": [
+                {
+                    "type": "way",
+                    "id": 1,
+                    "tags": {"highway": "primary", "name": "Short"},
+                    "geometry": [{"lat": 47.0, "lon": 8.0}, {"lat": 47.0001, "lon": 8.0001}],
+                },
+                {
+                    "type": "way",
+                    "id": 2,
+                    "tags": {"highway": "primary", "name": "Long"},
+                    "geometry": [{"lat": 47.0, "lon": 8.0}, {"lat": 47.03, "lon": 8.05}],
+                },
+            ]
+        }
+    )
+
+    assert [feature["label"] for feature in features] == ["Long", "Short"]
+
+
+def test_radar_map_includes_label_free_map_context_below_operational_layers(monkeypatch) -> None:
+    monkeypatch.setattr("localflight.radar.runways.ourairports_runways_for", lambda airport_icao, **kwargs: [])
+    payload = build_radar_map(
+        airport_iata="ZRH",
+        airport_icao="LSZH",
+        center_lat=47.45,
+        center_lon=8.55,
+        radius_nm=5,
+        surface_payload=None,
+        map_payload={
+            "provider": "openstreetmap",
+            "cache_state": "fresh",
+            "features": [
+                {"kind": "road", "label": "Airport road", "points": [[47.44, 8.54], [47.45, 8.55]]},
+                {"kind": "water", "label": "Lake", "closed": True, "points": [[47.43, 8.53], [47.44, 8.53], [47.44, 8.54], [47.43, 8.53]]},
+            ],
+        },
+    )
+
+    assert [feature["kind"] for feature in payload["map_features"]] == ["road", "water"]
+    assert {feature["label"] for feature in payload["map_features"]} == {""}
+    assert payload["sources"]["map"] == "openstreetmap"
+    assert payload["confidence"]["map_feature_count"] == 2
+
+
+def test_radar_map_thins_context_at_wide_ranges(monkeypatch) -> None:
+    monkeypatch.setattr("localflight.radar.runways.ourairports_runways_for", lambda airport_icao, **kwargs: [])
+    payload = build_radar_map(
+        airport_iata="ZRH",
+        airport_icao="LSZH",
+        center_lat=47.45,
+        center_lon=8.55,
+        radius_nm=40,
+        surface_payload=None,
+        map_payload={
+            "provider": "openstreetmap",
+            "cache_state": "fresh",
+            "features": [
+                {"kind": "road", "points": [[47.44, 8.54], [47.45, 8.55]]},
+                {"kind": "rail", "points": [[47.44, 8.54], [47.45, 8.55]]},
+                {"kind": "water", "points": [[47.43, 8.53], [47.44, 8.53]]},
+            ],
+        },
+    )
+
+    assert [feature["kind"] for feature in payload["map_features"]] == ["water"]
+
+
+def test_radar_map_keeps_balanced_context_at_twenty_nm(monkeypatch) -> None:
+    monkeypatch.setattr("localflight.radar.runways.ourairports_runways_for", lambda airport_icao, **kwargs: [])
+    features = [{"kind": "water", "points": [[47.43, 8.53], [47.44, 8.53]]} for _ in range(40)]
+    features += [
+        {"kind": "road", "points": [[47.44, 8.54], [47.45, 8.55]]},
+        {"kind": "rail", "points": [[47.44, 8.55], [47.45, 8.56]]},
+        {"kind": "landuse", "closed": True, "points": [[47.43, 8.53], [47.44, 8.53], [47.44, 8.54], [47.43, 8.53]]},
+    ]
+
+    payload = build_radar_map(
+        airport_iata="ZRH",
+        airport_icao="LSZH",
+        center_lat=47.45,
+        center_lon=8.55,
+        radius_nm=20,
+        surface_payload=None,
+        map_payload={"provider": "openstreetmap", "cache_state": "fresh", "features": features},
+    )
+
+    kinds = {feature["kind"] for feature in payload["map_features"]}
+    assert {"water", "road", "rail", "landuse"}.issubset(kinds)
+    assert sum(1 for feature in payload["map_features"] if feature["kind"] == "water") == 14
+
+
+def test_osm_map_context_fetch_tries_fallback_endpoint(monkeypatch) -> None:
+    calls: list[str] = []
+
+    class Response:
+        def __init__(self, payload: dict[str, object]) -> None:
+            self._payload = payload
+
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict[str, object]:
+            return self._payload
+
+    def post(url: str, **kwargs: object) -> Response:
+        calls.append(url)
+        if len(calls) == 1:
+            raise TimeoutError("slow overpass")
+        return Response({"elements": []})
+
+    monkeypatch.setattr("localflight.sources.web.airport_map_context.requests.post", post)
+
+    payload = fetch_overpass_map_context(lat=47.45, lon=8.55, radius_nm=5.0, timeout_s=0.1)
+
+    assert payload == {"elements": []}
+    assert calls[:2] == [
+        "https://overpass-api.de/api/interpreter",
+        "https://overpass.private.coffee/api/interpreter",
+    ]
+
+
+def test_terrain_context_decodes_terrarium_and_builds_quiet_relief() -> None:
+    image = Image.new("RGB", (256, 256))
+    for y in range(256):
+        for x in range(256):
+            elevation_m = 120 + y * 2 + x * 0.3
+            encoded = elevation_m + 32768
+            r = int(encoded // 256)
+            g = int(encoded % 256)
+            b = int((encoded - int(encoded)) * 256)
+            image.putpixel((x, y), (r, g, b))
+
+    tile_x, tile_y = latlon_to_tile(33.942501, -118.407997, 10)
+    features = terrain_features_from_tile(
+        image,
+        tile_x=tile_x,
+        tile_y=tile_y,
+        zoom=10,
+        center_lat=33.942501,
+        center_lon=-118.407997,
+        radius_nm=5,
+    )
+
+    assert round(decode_terrarium_rgb((128, 0, 0))) == 0
+    assert features
+    assert {feature["kind"] for feature in features} == {"relief"}
+    assert all(not feature["label"] for feature in features)
+
+
+def test_radar_map_includes_terrain_only_when_enabled(monkeypatch) -> None:
+    monkeypatch.setattr("localflight.radar.runways.ourairports_runways_for", lambda airport_icao, **kwargs: [])
+    terrain_payload = build_terrain_payload(
+        airport_iata="ZRH",
+        airport_icao="LSZH",
+        center_lat=47.45,
+        center_lon=8.55,
+        radius_nm=5,
+        cache_state="fresh",
+        features=[{"kind": "relief", "label": "", "elevation_ft": 1800, "points": [[47.44, 8.54], [47.45, 8.55]]}],
+    )
+
+    off = build_radar_map(
+        airport_iata="ZRH",
+        airport_icao="LSZH",
+        center_lat=47.45,
+        center_lon=8.55,
+        radius_nm=5,
+        surface_payload=None,
+        terrain_payload=terrain_payload,
+        terrain_enabled=False,
+    )
+    on = build_radar_map(
+        airport_iata="ZRH",
+        airport_icao="LSZH",
+        center_lat=47.45,
+        center_lon=8.55,
+        radius_nm=5,
+        surface_payload=None,
+        terrain_payload=terrain_payload,
+        terrain_enabled=True,
+    )
+
+    assert off["terrain"]["features"] == []
+    assert on["terrain"]["features"][0]["kind"] == "relief"
+    assert on["sources"]["terrain"] == "aws-terrain-tiles"
+    assert on["confidence"]["terrain_feature_count"] == 1
+
+
+def test_radar_map_does_not_promote_estimated_runways_to_osm(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "localflight.radar.runways.ourairports_runways_for",
+        lambda airport_icao, **kwargs: [
+            {
+                "kind": "runway",
+                "id": "ourairports:KLAX:7L-25R",
+                "label": "7L/25R",
+                "closed": False,
+                "length_ft": 12894,
+                "width_ft": 150,
+                "endpoints": [
+                    {"ident": "7L", "lat": 33.935556, "lon": -118.422089, "heading_deg": 83},
+                    {"ident": "25R", "lat": 33.939881, "lon": -118.379794, "heading_deg": 263},
+                ],
+                "points": [[33.935556, -118.422089], [33.939881, -118.379794]],
+                "confidence": "ourairports",
+            }
+        ],
+    )
+    payload = build_radar_map(
+        airport_iata="LAX",
+        airport_icao="KLAX",
+        center_lat=33.942501,
+        center_lon=-118.407997,
+        radius_nm=2,
+        surface_payload={
+            "provider": "localflight-estimated",
+            "cache_state": "estimated",
+            "features": [
+                {"kind": "boundary", "label": "Estimated airport", "points": [[33.93, -118.42], [33.95, -118.40]]},
+                {"kind": "runway", "label": "EST RWY", "points": [[33.93, -118.40], [33.95, -118.42]]},
+            ],
+        },
+    )
+
+    assert [runway["label"] for runway in payload["runways"]] == ["7L/25R"]
+    assert payload["runways"][0]["confidence"] == "ourairports"
+    assert payload["sources"]["runways"] == ["ourairports"]
+    assert payload["sources"]["runway_geometry_precision"] == ["endpoint"]
+    assert payload["confidence"]["has_provider_runways"] is True
+    assert payload["confidence"]["runway_endpoint_count"] == 1
+
+
+def test_radar_map_uses_ourairports_runways_when_surface_is_missing(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "localflight.radar.runways.ourairports_runways_for",
+        lambda airport_icao, **kwargs: [
+            {
+                "kind": "runway",
+                "id": "ourairports:KLAX:7L-25R",
+                "label": "7L/25R",
+                "closed": False,
+                "width_ft": 150,
+                "points": [[33.935556, -118.422089], [33.939881, -118.379794]],
+                "confidence": "ourairports",
+                "data_source": "ourairports",
+                "geometry_precision": "endpoint",
+            }
+        ],
+    )
+
+    payload = build_radar_map(
+        airport_iata="LAX",
+        airport_icao="KLAX",
+        center_lat=33.942501,
+        center_lon=-118.407997,
+        radius_nm=2,
+        surface_payload=None,
+    )
+
+    assert [runway["label"] for runway in payload["runways"]] == ["7L/25R"]
+    assert payload["sources"]["surface"] == "none"
+    assert payload["sources"]["runways"] == ["ourairports"]
+    assert payload["sources"]["runway_geometry_precision"] == ["endpoint"]
+    assert payload["confidence"]["runway_exact_count"] == 1
+
+
+def test_radar_map_retries_ourairports_before_estimated_fallback(monkeypatch) -> None:
+    calls: list[bool] = []
+
+    def _runways(_airport_icao: str, **kwargs):
+        auto_refresh = bool(kwargs.get("auto_refresh"))
+        calls.append(auto_refresh)
+        if not auto_refresh:
+            return []
+        return [
+            {
+                "kind": "runway",
+                "id": "ourairports:KLAX:6L-24R",
+                "label": "6L/24R",
+                "closed": False,
+                "points": [[33.949119, -118.431187], [33.952112, -118.401954]],
+                "confidence": "ourairports",
+                "data_source": "ourairports",
+                "geometry_precision": "endpoint",
+            }
+        ]
+
+    monkeypatch.setattr("localflight.radar.runways.ourairports_runways_for", _runways)
+
+    payload = build_radar_map(
+        airport_iata="LAX",
+        airport_icao="KLAX",
+        center_lat=33.942501,
+        center_lon=-118.407997,
+        radius_nm=2,
+        surface_payload=None,
+    )
+
+    assert calls == [False, True]
+    assert [runway["label"] for runway in payload["runways"]] == ["6L/24R"]
+    assert payload["confidence"]["has_provider_runways"] is True
+
+
 def test_ourairports_runway_cache_refresh_loads_public_csv(tmp_path, monkeypatch) -> None:
     class _Response:
         text = (
@@ -243,3 +590,5 @@ def test_ourairports_runway_cache_refresh_loads_public_csv(tmp_path, monkeypatch
     assert result["ok"] is True
     assert loaded[0]["label"] == "16/34"
     assert loaded[0]["length_ft"] == 12139
+    assert loaded[0]["data_source"] == "ourairports"
+    assert loaded[0]["geometry_precision"] == "endpoint"

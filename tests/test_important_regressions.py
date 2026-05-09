@@ -1157,7 +1157,35 @@ def test_api_radar_surface_returns_estimated_first_run_overlay(monkeypatch) -> N
     assert {feature["kind"] for feature in result["features"]} >= {"boundary", "runway", "taxiway", "apron", "building"}
 
 
+def test_api_radar_surface_timeout_returns_estimate_before_native_timeout(monkeypatch) -> None:
+    cfg = AppConfig(airport_iata="DEN", airport_icao="KDEN", radar_surface_enabled=True)
+    captured: dict[str, object] = {}
+
+    def _timeout(*args, **kwargs):
+        captured["timeout"] = kwargs.get("timeout")
+        raise ui_api._req.Timeout("surface relay timed out")
+
+    monkeypatch.setattr(ui_api, "load_config", lambda: cfg)
+    monkeypatch.setattr(
+        ui_api,
+        "lookup_airport",
+        lambda **kwargs: types.SimpleNamespace(lat=39.8617, lon=-104.6731, icao="KDEN"),
+    )
+    monkeypatch.setattr(ui_api, "_load_local_surface_cache", lambda cfg: None)
+    monkeypatch.setattr(ui_api, "_save_local_surface_cache", lambda cfg, payload: None)
+    monkeypatch.setattr(ui_api._req, "get", _timeout)
+
+    result = ui_api.api_radar_surface(5.0)
+
+    assert captured["timeout"] < 10
+    assert result["cache_state"] == "estimated"
+    assert result["provider"] == "localflight-estimated"
+    assert "timed out" in result["error"]
+    assert {feature["kind"] for feature in result["features"]} >= {"boundary", "runway"}
+
+
 def test_api_radar_map_returns_runways_and_simplified_surface(monkeypatch) -> None:
+    monkeypatch.setattr(ui_server, "_setup_complete", lambda: True)
     monkeypatch.setattr(
         ui_api,
         "load_config",
@@ -1182,6 +1210,19 @@ def test_api_radar_map_returns_runways_and_simplified_surface(monkeypatch) -> No
             ],
         },
     )
+    monkeypatch.setattr(
+        ui_api,
+        "_radar_map_context_payload_for_map",
+        lambda cfg, airport, radius_nm: {
+            "provider": "openstreetmap",
+            "cache_state": "fresh",
+            "attribution": {"text": "OSM", "url": "https://www.openstreetmap.org/copyright"},
+            "features": [
+                {"kind": "water", "label": "water", "closed": True, "points": [[47.44, 8.54], [47.45, 8.54], [47.45, 8.55], [47.44, 8.54]]},
+                {"kind": "road", "label": "road", "points": [[47.44, 8.53], [47.46, 8.56]]},
+            ],
+        },
+    )
 
     response = TestClient(app).get("/api/radar/map?radius_nm=40")
     payload = response.json()
@@ -1190,6 +1231,8 @@ def test_api_radar_map_returns_runways_and_simplified_surface(monkeypatch) -> No
     assert payload["schema_version"] == "radar-map-v1"
     assert payload["runways"][0]["label"] == "16/34"
     assert [feature["kind"] for feature in payload["surface_features"]] == ["terminal"]
+    assert [feature["kind"] for feature in payload["map_features"]] == ["water"]
+    assert payload["map_features"][0]["label"] == ""
     assert payload["attribution"][0]["text"] == "OSM"
 
 
@@ -1212,6 +1255,11 @@ def test_api_radar_map_reuses_internal_surface_cache(monkeypatch) -> None:
         }
 
     monkeypatch.setattr(ui_api, "_radar_surface_payload_for_map", surface_payload)
+    monkeypatch.setattr(
+        ui_api,
+        "_radar_map_context_payload_for_map",
+        lambda cfg, airport, radius_nm: {"provider": "openstreetmap", "cache_state": "fresh", "features": []},
+    )
 
     first = ui_api.api_radar_map(radius_nm=20.0, terrain=False)
     second = ui_api.api_radar_map(radius_nm=20.0, terrain=False)
@@ -1219,6 +1267,156 @@ def test_api_radar_map_reuses_internal_surface_cache(monkeypatch) -> None:
     assert first["runways"][0]["label"] == "16/34"
     assert second["runways"][0]["label"] == "16/34"
     assert calls["surface"] == 1
+
+
+def test_radar_map_context_miss_is_cached_briefly(tmp_path: Path, monkeypatch) -> None:
+    cfg = AppConfig(airport_iata="ZRH", airport_icao="LSZH", source="real")
+    airport = types.SimpleNamespace(lat=47.45, lon=8.55, icao="LSZH")
+    calls = {"refresh": 0}
+
+    monkeypatch.setattr(ui_api, "_radar_map_context_cache_path", lambda _cfg: tmp_path / "LSZH.json")
+    monkeypatch.setattr(ui_api, "_schedule_map_context_refresh", lambda *_args, **_kwargs: calls.__setitem__("refresh", calls["refresh"] + 1))
+
+    first = ui_api._radar_map_context_payload_for_map(cfg, airport, radius_nm=5.0)
+    second = ui_api._radar_map_context_payload_for_map(cfg, airport, radius_nm=5.0)
+
+    assert first["cache_state"] == "miss"
+    assert second["cache_state"] == "miss"
+    assert calls["refresh"] == 1
+
+
+def test_radar_map_payload_does_not_memory_cache_loading_map_context(monkeypatch) -> None:
+    cfg = AppConfig(airport_iata="ZRH", airport_icao="LSZH", source="real")
+    airport = types.SimpleNamespace(lat=47.45, lon=8.55, icao="LSZH")
+    calls = {"map": 0}
+
+    ui_api._radar_map_cache.clear()
+    monkeypatch.setattr(
+        ui_api,
+        "_radar_surface_payload_for_map",
+        lambda cfg, airport, radius_nm: {"provider": "openstreetmap", "cache_state": "fresh", "features": []},
+    )
+
+    def map_context(_cfg, _airport, *, radius_nm):
+        calls["map"] += 1
+        return {"provider": "openstreetmap", "cache_state": "miss", "features": []}
+
+    monkeypatch.setattr(ui_api, "_radar_map_context_payload_for_map", map_context)
+
+    first = ui_api._radar_map_payload_for_request(cfg, airport, radius_nm=5.0)
+    second = ui_api._radar_map_payload_for_request(cfg, airport, radius_nm=5.0)
+
+    assert first["map_features"] == []
+    assert second["map_features"] == []
+    assert calls["map"] == 2
+
+
+def test_radar_map_context_returns_stale_cache_while_refreshing(tmp_path: Path, monkeypatch) -> None:
+    cfg = AppConfig(airport_iata="ZRH", airport_icao="LSZH", source="real")
+    airport = types.SimpleNamespace(lat=47.45, lon=8.55, icao="LSZH")
+    old = datetime(2020, 1, 1, tzinfo=timezone.utc).isoformat()
+    path = tmp_path / "LSZH.json"
+    path.write_text(
+        json.dumps(
+            {
+                "generated_at": old,
+                "cache_state": "fresh",
+                "provider": "openstreetmap",
+                "schema_version": "osm-map-context-v1",
+                "attribution": {"text": "OSM", "url": ""},
+                "center": {"lat": 47.45, "lon": 8.55, "airport_iata": "ZRH", "airport_icao": "LSZH"},
+                "radius_nm": 5,
+                "features": [{"kind": "water", "points": [[47.4, 8.5], [47.5, 8.6]]}],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(ui_api, "_radar_map_context_cache_path", lambda _cfg: path)
+    monkeypatch.setattr(ui_api, "_schedule_map_context_refresh", lambda *_args, **_kwargs: None)
+
+    payload = ui_api._radar_map_context_payload_for_map(cfg, airport, radius_nm=5.0)
+
+    assert payload["cache_state"] == "stale"
+    assert payload["features"][0]["kind"] == "water"
+    assert "refreshing" in payload["error"]
+
+
+def test_radar_map_context_refresh_failure_preserves_existing_cache(tmp_path: Path, monkeypatch) -> None:
+    cfg = AppConfig(airport_iata="ZRH", airport_icao="LSZH", source="real")
+    airport = types.SimpleNamespace(lat=47.45, lon=8.55, icao="LSZH")
+    path = tmp_path / "LSZH.json"
+    existing = {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "cache_state": "fresh",
+        "provider": "openstreetmap",
+        "schema_version": "osm-map-context-v1",
+        "attribution": {"text": "OSM", "url": ""},
+        "center": {"lat": 47.45, "lon": 8.55, "airport_iata": "ZRH", "airport_icao": "LSZH"},
+        "radius_nm": 5,
+        "features": [{"kind": "road", "points": [[47.4, 8.5], [47.5, 8.6]]}],
+    }
+    path.write_text(json.dumps(existing), encoding="utf-8")
+
+    class ImmediateExecutor:
+        def submit(self, fn):
+            fn()
+
+    monkeypatch.setattr(ui_api, "_radar_map_context_cache_path", lambda _cfg: path)
+    monkeypatch.setattr(ui_api, "_map_context_executor", ImmediateExecutor())
+    monkeypatch.setattr(ui_api, "_fetch_and_save_map_context", lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("offline")))
+
+    ui_api._schedule_map_context_refresh(cfg, airport, radius_nm=5.0)
+
+    saved = json.loads(path.read_text(encoding="utf-8"))
+    assert saved["cache_state"] == "fresh"
+    assert saved["features"][0]["kind"] == "road"
+
+
+def test_radar_terrain_miss_is_cached_and_refreshed_in_background(tmp_path: Path, monkeypatch) -> None:
+    cfg = AppConfig(airport_iata="ZRH", airport_icao="LSZH", source="real")
+    airport = types.SimpleNamespace(lat=47.45, lon=8.55, icao="LSZH")
+    calls = {"refresh": 0}
+
+    monkeypatch.setattr(ui_api, "_radar_terrain_cache_path", lambda _cfg: tmp_path / "LSZH.json")
+    monkeypatch.setattr(ui_api, "_schedule_terrain_refresh", lambda *_args, **_kwargs: calls.__setitem__("refresh", calls["refresh"] + 1))
+
+    first = ui_api._radar_terrain_payload_for_map(cfg, airport, radius_nm=5.0)
+    second = ui_api._radar_terrain_payload_for_map(cfg, airport, radius_nm=5.0)
+
+    assert first["cache_state"] == "miss"
+    assert second["cache_state"] == "miss"
+    assert first["features"] == []
+    assert calls["refresh"] == 1
+
+
+def test_radar_map_requests_terrain_only_when_enabled(monkeypatch) -> None:
+    cfg = AppConfig(airport_iata="ZRH", airport_icao="LSZH", source="real")
+    airport = types.SimpleNamespace(lat=47.45, lon=8.55, icao="LSZH")
+    calls = {"terrain": 0}
+
+    ui_api._radar_map_cache.clear()
+    monkeypatch.setattr(ui_api, "load_config", lambda: cfg)
+    monkeypatch.setattr(ui_api, "lookup_airport", lambda **kwargs: airport)
+    monkeypatch.setattr(ui_api, "_radar_surface_payload_for_map", lambda cfg, airport, radius_nm: {"provider": "openstreetmap", "cache_state": "fresh", "features": []})
+    monkeypatch.setattr(ui_api, "_radar_map_context_payload_for_map", lambda cfg, airport, radius_nm: {"provider": "openstreetmap", "cache_state": "fresh", "features": []})
+
+    def _terrain(_cfg, _airport, *, radius_nm):
+        calls["terrain"] += 1
+        return {
+            "provider": "aws-terrain-tiles",
+            "cache_state": "fresh",
+            "features": [{"kind": "relief", "points": [[47.44, 8.54], [47.45, 8.55]]}],
+        }
+
+    monkeypatch.setattr(ui_api, "_radar_terrain_payload_for_map", _terrain)
+
+    off = ui_api._radar_map_payload_for_request(cfg, airport, radius_nm=5.0, terrain=False)
+    on = ui_api._radar_map_payload_for_request(cfg, airport, radius_nm=5.0, terrain=True)
+
+    assert calls["terrain"] == 1
+    assert off["terrain"]["features"] == []
+    assert on["terrain"]["features"][0]["kind"] == "relief"
 
 
 def test_radar_template_loads_surface_layer_and_attribution(monkeypatch) -> None:
@@ -1552,9 +1750,10 @@ def test_api_radar_tiny_views_reuse_minimum_adsb_provider_payload(monkeypatch) -
     assert second["provider_radius_nm"] == 5.0
     assert first["raw_provider_count"] == 2
     assert first["radar_mode"] == "surface"
-    assert first["count"] == 1
-    assert first["airborne_filtered"] == 1
-    assert first["blips"][0]["callsign"] == "SURFACE"
+    assert first["count"] == 2
+    assert first["airborne_filtered"] == 0
+    assert first["ground_filtered"] == 0
+    assert {blip["callsign"] for blip in first["blips"]} == {"AIRBORNE", "SURFACE"}
     assert second["source"] == "adsbexchange_cached"
 
 
@@ -2804,14 +3003,24 @@ def test_release_installers_keep_pi_headless_default_and_windows_native() -> Non
     pi_install = Path("installers/pi/install.sh").read_text(encoding="utf-8")
     pi_helper = Path("installers/pi/lf.sh").read_text(encoding="utf-8")
     win_install = Path("installers/windows/install.ps1").read_text(encoding="utf-8")
+    mac_install = Path("installers/macos/install.sh").read_text(encoding="utf-8")
 
     assert 'PI_GUI_MODE="headless"' in pi_install
     assert "LOCALFLIGHT_GUI_MODE=headless" in pi_install
     assert 'PI_GUI_MODE="native"' in pi_install
+    assert "localflight-native-kiosk.service" in pi_install
+    assert "LOCALFLIGHT_NATIVE_UI_ONLY=1" in pi_install
+    assert "LOCALFLIGHT_NATIVE_FULLSCREEN=1" in pi_install
     assert "grep -Eq" in pi_helper
+    assert "has_native_kiosk" in pi_helper
     assert "import PySide6" not in pi_helper
-    assert "LOCALFLIGHT_GUI_MODE=native" in win_install
+    assert "-DisplayMode Native" in win_install
+    assert "Resolve-DisplayMode" in win_install
+    assert "LOCALFLIGHT_GUI_MODE=$GuiMode" in win_install
     assert ".env.example" not in win_install
+    assert "--display native" in mac_install
+    assert "DISPLAY_MODE=\"native\"" in mac_install
+    assert "LOCALFLIGHT_GUI_MODE=native" in mac_install
 
 
 def test_network_admin_client_accepts_relay_root_or_admin_url() -> None:

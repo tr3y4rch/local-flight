@@ -22,8 +22,20 @@ has_kiosk() {
     [ -f /etc/systemd/system/localflight-kiosk.service ]
 }
 
+has_native_kiosk() {
+    [ -f "$HOME/.config/systemd/user/localflight-native-kiosk.service" ]
+}
+
 uses_native_gui() {
     [ -f "$ROOT/.env" ] && grep -Eq '^LOCALFLIGHT_GUI_MODE="?native"?$' "$ROOT/.env"
+}
+
+user_systemctl() {
+    XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}" systemctl --user "$@"
+}
+
+user_journalctl() {
+    XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}" journalctl --user "$@"
 }
 
 install_localflight_package() {
@@ -40,18 +52,26 @@ install_localflight_package() {
 case "$CMD" in
     start)
         sudo systemctl start localflight
+        if has_native_kiosk; then
+            user_systemctl start localflight-native-kiosk 2>/dev/null || echo "WARN: native kiosk user service could not be started from this shell."
+        fi
         has_kiosk && sudo systemctl start localflight-kiosk || true
         echo "Started."
         ;;
 
     stop)
         has_kiosk && sudo systemctl stop localflight-kiosk 2>/dev/null || true
+        has_native_kiosk && user_systemctl stop localflight-native-kiosk 2>/dev/null || true
         sudo systemctl stop localflight
         echo "Stopped."
         ;;
 
     restart)
         sudo systemctl restart localflight
+        if has_native_kiosk; then
+            sleep 2
+            user_systemctl restart localflight-native-kiosk 2>/dev/null || echo "WARN: native kiosk user service could not be restarted from this shell."
+        fi
         if has_kiosk; then
             sleep 2
             sudo systemctl restart localflight-kiosk
@@ -67,10 +87,19 @@ case "$CMD" in
             echo "=== localflight-kiosk ==="
             sudo systemctl status localflight-kiosk --no-pager -l
         fi
+        if has_native_kiosk; then
+            echo ""
+            echo "=== localflight-native-kiosk (user service) ==="
+            user_systemctl status localflight-native-kiosk --no-pager -l || true
+        fi
         ;;
 
     logs)
-        sudo journalctl -u localflight -f --no-pager
+        if has_native_kiosk && [ "${2:-}" = "gui" ]; then
+            user_journalctl -u localflight-native-kiosk -f --no-pager
+        else
+            sudo journalctl -u localflight -f --no-pager
+        fi
         ;;
 
     update)
@@ -88,6 +117,10 @@ case "$CMD" in
         git -C "$ROOT" pull --ff-only
         install_localflight_package
         sudo systemctl restart localflight
+        if has_native_kiosk; then
+            sleep 2
+            user_systemctl restart localflight-native-kiosk 2>/dev/null || echo "WARN: native kiosk user service could not be restarted from this shell."
+        fi
         if has_kiosk; then
             sleep 2
             sudo systemctl restart localflight-kiosk
@@ -96,7 +129,7 @@ case "$CMD" in
         ;;
 
     *)
-        echo "Usage: lf [start|stop|restart|status|logs|update]"
+        echo "Usage: lf [start|stop|restart|status|logs [gui]|update]"
         exit 1
         ;;
 esac

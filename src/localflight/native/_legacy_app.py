@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import math
 import json
+import os
 import re
 import sys
 import time
@@ -60,6 +61,11 @@ from localflight.native.service import NativeApiService
 from localflight.storage.profiles import list_profiles
 
 COFFEE_URL = "https://buymeacoffee.com/localflight"
+GITHUB_URL = "https://github.com/tr3y4rch/local-flight"
+
+
+def _env_truthy(name: str) -> bool:
+    return os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _native_ws_url(base_url: str) -> str:
@@ -398,7 +404,8 @@ def launch_native_app(
             setup_window.close()
 
     if first_launch:
-        setup_window = NativeSetupWindow(
+        setup_window_cls = lazy_symbol("localflight.native.pages.setup", "NativeSetupWindow")
+        setup_window = setup_window_cls(
             QtCore,
             QtGui,
             QtWidgets,
@@ -434,6 +441,7 @@ class NativeSetupWindow:  # pragma: no cover - exercised with optional Qt
                 self.service = NativeApiService(self.client)
                 self._allow_close_without_backend_shutdown = False
                 self._shutdown_started = False
+                self._ui_only = _env_truthy("LOCALFLIGHT_NATIVE_UI_ONLY")
                 self.setWindowTitle("Local Flight Setup")
                 self.setStyleSheet(native_stylesheet())
                 setup_cls = lazy_symbol("localflight.native.pages.setup", "SetupScreen")
@@ -451,7 +459,7 @@ class NativeSetupWindow:  # pragma: no cover - exercised with optional Qt
                 self._allow_close_without_backend_shutdown = True
 
             def closeEvent(self, event: Any) -> None:
-                if self._allow_close_without_backend_shutdown:
+                if self._allow_close_without_backend_shutdown or self._ui_only:
                     event.accept()
                     return
                 if not self._shutdown_started:
@@ -476,6 +484,7 @@ class NativeMainWindow:  # pragma: no cover - exercised with optional Qt
                 self.client = LocalApiClient(base_url=base_url)
                 self.service = NativeApiService(self.client)
                 self._shutdown_started = False
+                self._ui_only = _env_truthy("LOCALFLIGHT_NATIVE_UI_ONLY")
                 self.setWindowTitle("Local Flight")
                 self.theme = "dark"
                 self.skin = "standard"
@@ -498,6 +507,7 @@ class NativeMainWindow:  # pragma: no cover - exercised with optional Qt
 
                 self.stack = QtWidgets.QStackedWidget()
                 shell.addWidget(self.stack, 1)
+                shell.addWidget(self._build_footer())
                 self.setCentralWidget(root)
 
                 self.first_launch = first_launch
@@ -616,6 +626,30 @@ class NativeMainWindow:  # pragma: no cover - exercised with optional Qt
                 layout.addWidget(right_group)
                 layout.addWidget(quit_btn)
                 return nav
+
+            def _build_footer(self) -> Any:
+                footer = QtWidgets.QFrame()
+                footer.setObjectName("AppFooter")
+                layout = QtWidgets.QHBoxLayout(footer)
+                layout.setContentsMargins(14, 5, 14, 6)
+                layout.setSpacing(8)
+                tagline = QtWidgets.QLabel("Built local-first, fueled by runway snacks.")
+                tagline.setObjectName("Dim")
+                github = QtWidgets.QPushButton("GitHub")
+                github.setObjectName("Quiet")
+                github.setToolTip("Open the Local Flight project on GitHub")
+                github.clicked.connect(lambda: webbrowser.open(GITHUB_URL))
+                coffee = QtWidgets.QPushButton("Buy Me a Coffee")
+                coffee.setObjectName("Quiet")
+                coffee.setToolTip("Optional support for Local Flight")
+                coffee.clicked.connect(lambda: webbrowser.open(COFFEE_URL))
+                self.footer_github_button = github
+                self.footer_coffee_button = coffee
+                layout.addWidget(tagline)
+                layout.addStretch(1)
+                layout.addWidget(github)
+                layout.addWidget(coffee)
+                return footer
 
             def _placeholder(self, label_text: str) -> Any:
                 frame = self.QtWidgets.QFrame()
@@ -825,7 +859,11 @@ class NativeMainWindow:  # pragma: no cover - exercised with optional Qt
                 layout.addWidget(
                     label(
                         self.QtWidgets,
-                        "This closes the native shell and asks the local backend to stop cleanly.",
+                        (
+                            "This closes the native display shell. The backend service will keep running."
+                            if self._ui_only
+                            else "This closes the native shell and asks the local backend to stop cleanly."
+                        ),
                         "Muted",
                         wrap=True,
                     )
@@ -847,6 +885,8 @@ class NativeMainWindow:  # pragma: no cover - exercised with optional Qt
                 if self._shutdown_started:
                     return
                 self._shutdown_started = True
+                if self._ui_only:
+                    return
                 try:
                     self.service.quit_app()
                 except NativeApiError:
@@ -2584,9 +2624,11 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
             button.clicked.connect(slot)
             header.addWidget(button)
         self.status = label(QtWidgets, "Preset configs, device assignment, live preview, and i75W export.", "Muted", wrap=True)
+        self.loading_indicator = _loading_indicator(QtWidgets)
         self.board_status = label(QtWidgets, "I75W status: not checked yet.", "Muted", wrap=True)
         self.tabs = QtWidgets.QTabWidget()
         layout.addLayout(header)
+        layout.addWidget(self.loading_indicator)
         layout.addWidget(self.status)
         layout.addWidget(self.board_status)
         layout.addWidget(self.tabs, 1)
@@ -2809,6 +2851,7 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
             self.canvas.apply_theme(theme, skin)
 
     def refresh(self) -> None:
+        _set_native_feedback(self, "Loading matrix configuration and feed...", busy=True)
         try:
             self._load_v2_state()
             self._v2_available = bool(self.configs)
@@ -2819,7 +2862,7 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
             return
         self._populate_v2_lists()
         self.refresh_feed_only()
-        self.status.setText(f"Matrix V2 loaded: {len(self.configs)} configs, {len(self.devices)} devices.")
+        _set_native_feedback(self, f"Matrix V2 loaded: {len(self.configs)} configs, {len(self.devices)} devices.", "StatusGood")
 
     def _load_v2_state(self) -> None:
         state = self.service.matrix_state()
@@ -2836,12 +2879,13 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
             self._populate_config(cfg)
             rows = self.service.matrix_compat_rows(view=self.feed_view, limit=32)
         except NativeApiError as exc:
-            self.status.setText(f"Matrix preview offline: {exc}")
+            _set_native_feedback(self, f"Matrix preview offline: {exc}", "StatusBad")
             return
         rows = rows[: max(1, int(self.max_rows.value()))]
         self.canvas.set_rows(rows)
         self._sync_canvas_options()
         self.board_status.setText("Matrix V2 unavailable; using compatibility config.")
+        _set_native_feedback(self, "Matrix compatibility preview loaded.", "StatusWarn")
 
     def refresh_feed_only(self) -> None:
         if not self._v2_available:
@@ -3059,6 +3103,7 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
 
     def save_config(self) -> None:
         payload = self._config_payload()
+        _set_native_feedback(self, "Saving matrix configuration...", busy=True)
         try:
             result = self.service.matrix_save_config(
                 config_id=self._current_config_id(),
@@ -3066,26 +3111,28 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
                 v2_available=self._v2_available,
             )
         except NativeApiError as exc:
-            self.status.setText(f"Matrix save failed: {exc}")
+            _set_native_feedback(self, f"Matrix save failed: {exc}", "StatusBad")
             return
-        self.status.setText("Matrix config saved." if result.get("ok") else format_value(result))
+        _set_native_feedback(self, "Matrix config saved." if result.get("ok") else format_value(result), "StatusGood" if result.get("ok") else "StatusWarn")
         self.refresh()
 
     def create_config(self) -> None:
         payload = {**self._config_payload(), "name": self.config_name.text().strip() or "New Matrix Config"}
+        _set_native_feedback(self, "Creating matrix configuration...", busy=True)
         try:
             self.service.matrix_create_config(payload)
         except NativeApiError as exc:
-            self.status.setText(f"Create config failed: {exc}")
+            _set_native_feedback(self, f"Create config failed: {exc}", "StatusBad")
             return
         self.refresh()
 
     def duplicate_config(self) -> None:
         payload = {**self._config_payload(), "name": f"{self.config_name.text().strip() or 'Matrix Config'} Copy"}
+        _set_native_feedback(self, "Duplicating matrix configuration...", busy=True)
         try:
             self.service.matrix_create_config(payload)
         except NativeApiError as exc:
-            self.status.setText(f"Duplicate config failed: {exc}")
+            _set_native_feedback(self, f"Duplicate config failed: {exc}", "StatusBad")
             return
         self.refresh()
 
@@ -3093,10 +3140,11 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
         config_id = self._current_config_id()
         if not config_id:
             return
+        _set_native_feedback(self, "Deleting matrix configuration...", busy=True)
         try:
             self.service.matrix_delete_config(config_id)
         except NativeApiError as exc:
-            self.status.setText(f"Delete config failed: {exc}")
+            _set_native_feedback(self, f"Delete config failed: {exc}", "StatusBad")
             return
         self.refresh()
 
@@ -3104,10 +3152,11 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
         config_id = self._current_config_id()
         if not config_id:
             return
+        _set_native_feedback(self, "Setting default matrix configuration...", busy=True)
         try:
             self.service.matrix_set_default_config(config_id)
         except NativeApiError as exc:
-            self.status.setText(f"Set default failed: {exc}")
+            _set_native_feedback(self, f"Set default failed: {exc}", "StatusBad")
             return
         self.refresh()
 
@@ -3116,10 +3165,11 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
         if not device_id:
             return
         payload = {"label": self.device_label.text().strip(), "assigned_config_id": self.device_config.currentData()}
+        _set_native_feedback(self, "Saving matrix device assignment...", busy=True)
         try:
             self.service.matrix_save_device_assignment(device_id, payload)
         except NativeApiError as exc:
-            self.status.setText(f"Device save failed: {exc}")
+            _set_native_feedback(self, f"Device save failed: {exc}", "StatusBad")
             return
         self.refresh()
 
@@ -3139,15 +3189,16 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
             "page_rotation_seconds": int(self.rotation_seconds.value()),
             "animation_enabled": self.animation_mode.currentData() != "static",
         }
+        _set_native_feedback(self, "Generating Matrix main.py preview...", busy=True)
         try:
             text = self.service.matrix_generate_script(payload)
         except NativeApiError as exc:
-            self.status.setText(f"Script generation failed: {exc}")
+            _set_native_feedback(self, f"Script generation failed: {exc}", "StatusBad")
             return
         self._last_script = text
         self.script_preview.setPlainText(text)
         self.tabs.setCurrentIndex(3)
-        self.status.setText("Generated V2 matrix main.py preview.")
+        _set_native_feedback(self, "Generated V2 matrix main.py preview.", "StatusGood")
 
     def save_script_file(self) -> None:
         if not self._last_script:
@@ -3161,9 +3212,9 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
             with open(path, "w", encoding="utf-8", newline="\n") as handle:
                 handle.write(self._last_script)
         except OSError as exc:
-            self.status.setText(f"Could not save main.py: {exc}")
+            _set_native_feedback(self, f"Could not save main.py: {exc}", "StatusBad")
             return
-        self.status.setText(f"Saved matrix client to {path}")
+        _set_native_feedback(self, f"Saved matrix client to {path}", "StatusGood")
 
     def trigger_demo(self) -> None:
         demo_rows = [
@@ -3174,7 +3225,7 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
         ]
         self.canvas.set_rows(demo_rows[: int(self.max_rows.value())])
         self._sync_canvas_options()
-        self.status.setText("Demo rows loaded locally.")
+        _set_native_feedback(self, "Demo rows loaded locally.", "StatusGood")
 
 
 class SettingsScreen:  # pragma: no cover - optional Qt runtime
@@ -3673,6 +3724,7 @@ class AdminSummaryScreen:  # pragma: no cover - optional Qt runtime
         refresh.clicked.connect(self.refresh)
         head.addWidget(refresh)
         self.status = label(QtWidgets, "Ready.", "Muted", wrap=True)
+        self.loading_indicator = _loading_indicator(QtWidgets)
         self.grid = QtWidgets.QGridLayout()
         self.grid.setHorizontalSpacing(14)
         self.grid.setVerticalSpacing(14)
@@ -3683,6 +3735,7 @@ class AdminSummaryScreen:  # pragma: no cover - optional Qt runtime
         self.layout.addSpacing(4)
         self.layout.addLayout(self.grid)
         self.layout.addLayout(self.detail_layout)
+        self.layout.addWidget(self.loading_indicator)
         self.layout.addWidget(self.status)
         self.layout.addWidget(self.footer)
         self.layout.addStretch(1)
@@ -3691,6 +3744,7 @@ class AdminSummaryScreen:  # pragma: no cover - optional Qt runtime
         return getattr(self.widget, name)
 
     def refresh(self) -> None:
+        _set_native_feedback(self, "Loading admin overview...", busy=True)
         try:
             summary = self.service.admin_summary()
             cfg = summary.config
@@ -3702,7 +3756,7 @@ class AdminSummaryScreen:  # pragma: no cover - optional Qt runtime
             weather = summary.weather or {}
             history = summary.history_stats
         except NativeApiError as exc:
-            self.status.setText(f"Admin offline: {exc}")
+            _set_native_feedback(self, f"Admin offline: {exc}", "StatusBad")
             return
         clear_layout(self.grid)
         clear_layout(self.detail_layout)
@@ -3750,7 +3804,7 @@ class AdminSummaryScreen:  # pragma: no cover - optional Qt runtime
         for idx, widget in enumerate(cards):
             self.grid.addWidget(widget, idx // 3, idx % 3)
         self.detail_layout.addWidget(progress_card(self.QtWidgets, "Schedule Access Budget", schedule_bucket.get("calls_this_month"), schedule_bucket.get("monthly_limit"), _budget_detail(schedule_bucket)))
-        self.status.setText(f"Last refreshed {datetime.now().strftime('%H:%M:%S')} | local user-facing admin APIs.")
+        _set_native_feedback(self, f"Last refreshed {datetime.now().strftime('%H:%M:%S')} | local user-facing admin APIs.", "StatusGood")
         self.footer.setText(f"Local Flight is free. If this little airport gremlin helps, coffee lives here: {COFFEE_URL}")
 
     def _stats_panel(self, title: str, rows: list[tuple[str, Any]]) -> Any:
@@ -3890,12 +3944,14 @@ class RequestsScreen:  # pragma: no cover - optional Qt runtime
         head.addWidget(self.client_type)
         head.addWidget(refresh)
         self.status = label(QtWidgets, "Local anonymized request log. Hidden unless network tools are enabled.", "Muted", wrap=True)
+        self.loading_indicator = _loading_indicator(QtWidgets)
         self.summary_grid = QtWidgets.QGridLayout()
         self.table = QtWidgets.QTableWidget(0, 8)
         self.table.verticalHeader().setVisible(False)
         self.table.setAlternatingRowColors(True)
         self.table.horizontalHeader().setStretchLastSection(True)
         self.layout.addLayout(head)
+        self.layout.addWidget(self.loading_indicator)
         self.layout.addWidget(self.status)
         self.layout.addLayout(self.summary_grid)
         self.layout.addWidget(self.table, 1)
@@ -3905,6 +3961,7 @@ class RequestsScreen:  # pragma: no cover - optional Qt runtime
 
     def refresh(self) -> None:
         selected_client_type = str(self.client_type.currentData() or "all")
+        _set_native_feedback(self, "Loading anonymized local request log...", busy=True)
         try:
             request_log = self.service.request_log(
                 hours=int(self.hours.currentData()),
@@ -3912,7 +3969,7 @@ class RequestsScreen:  # pragma: no cover - optional Qt runtime
                 client_type=selected_client_type,
             )
         except NativeApiError as exc:
-            self.status.setText(f"Traffic log unavailable: {exc}")
+            _set_native_feedback(self, f"Traffic log unavailable: {exc}", "StatusBad")
             return
         clear_layout(self.summary_grid)
         summary = request_log.summary
@@ -3939,7 +3996,7 @@ class RequestsScreen:  # pragma: no cover - optional Qt runtime
                 ("client_id", "Client"),
             ],
         )
-        self.status.setText(f"{len(rows)} anonymized local request rows loaded.")
+        _set_native_feedback(self, f"{len(rows)} anonymized local request rows loaded.", "StatusGood")
 
 
 class HistoryScreen:  # pragma: no cover - optional Qt runtime
@@ -3984,6 +4041,7 @@ class HistoryScreen:  # pragma: no cover - optional Qt runtime
         header.addWidget(self.status_filter)
         header.addWidget(apply)
         self.status = label(QtWidgets, "90-day local database. Click any row for details.", "Muted", wrap=True)
+        self.loading_indicator = _loading_indicator(QtWidgets)
         self.tabs = QtWidgets.QTabWidget()
         self.tabs.hide()
         self.table = QtWidgets.QTableWidget(0, 11)
@@ -4011,6 +4069,7 @@ class HistoryScreen:  # pragma: no cover - optional Qt runtime
         self.tabs.addTab(self.table, "Browse")
         self.tabs.addTab(self.stats_body, "Stats")
         layout.addLayout(header)
+        layout.addWidget(self.loading_indicator)
         layout.addWidget(self.status)
         layout.addWidget(self.stats_body)
         layout.addWidget(section_label(QtWidgets, "Recent matching flights"))
@@ -4046,6 +4105,7 @@ class HistoryScreen:  # pragma: no cover - optional Qt runtime
         return detail
 
     def refresh(self) -> None:
+        _set_native_feedback(self, "Loading local flight history...", busy=True)
         try:
             payload = self.service.history_payload(
                 hours=int(self.hours.currentData()),
@@ -4053,11 +4113,11 @@ class HistoryScreen:  # pragma: no cover - optional Qt runtime
                 limit=500,
             )
         except NativeApiError as exc:
-            self.status.setText(f"History offline: {exc}")
+            _set_native_feedback(self, f"History offline: {exc}", "StatusBad")
             return
         self.all_rows = list_payload(payload, "flights")
         self._apply_local_filters(render=False)
-        self.status.setText(f"{payload.get('count', len(self.rows))} records in this filter | {payload.get('airport_iata', 'airport')}")
+        _set_native_feedback(self, f"{payload.get('count', len(self.rows))} records in this filter | {payload.get('airport_iata', 'airport')}", "StatusGood")
         self._render_table()
         self._render_stats()
 
@@ -4066,14 +4126,15 @@ class HistoryScreen:  # pragma: no cover - optional Qt runtime
         if not callsign:
             self.refresh()
             return
+        _set_native_feedback(self, f"Searching local history for {callsign}...", busy=True)
         try:
             payload = self.service.history_flight(callsign, days=30)
         except NativeApiError as exc:
-            self.status.setText(f"Callsign search failed: {exc}")
+            _set_native_feedback(self, f"Callsign search failed: {exc}", "StatusBad")
             return
         self.all_rows = list_payload(payload, "flights")
         self._apply_local_filters(render=False)
-        self.status.setText(f"{len(self.rows)} records for {callsign}")
+        _set_native_feedback(self, f"{len(self.rows)} records for {callsign}", "StatusGood")
         self._render_table()
 
     def clear_search(self) -> None:
@@ -4254,6 +4315,7 @@ class LogsScreen:  # pragma: no cover - optional Qt runtime
         head.addWidget(self.auto_scroll)
         head.addWidget(refresh)
         self.status = label(QtWidgets, "Choose any retained Local Flight log. Nothing leaves this device unless you send a report.", "Muted", wrap=True)
+        self.loading_indicator = _loading_indicator(QtWidgets)
         self.meta = label(QtWidgets, "No log metadata loaded yet.", "Muted")
         self.text = QtWidgets.QPlainTextEdit()
         self.text.setReadOnly(True)
@@ -4262,6 +4324,7 @@ class LogsScreen:  # pragma: no cover - optional Qt runtime
         self.timer.setInterval(2500)
         self.timer.timeout.connect(self.refresh)
         layout.addLayout(head)
+        layout.addWidget(self.loading_indicator)
         layout.addWidget(self.status)
         self.summary_grid = QtWidgets.QGridLayout()
         layout.addLayout(self.summary_grid)
@@ -4272,13 +4335,14 @@ class LogsScreen:  # pragma: no cover - optional Qt runtime
         return getattr(self.widget, name)
 
     def refresh(self) -> None:
+        _set_native_feedback(self, "Loading retained local logs...", busy=True)
         try:
             selected = self.file_combo.currentText().strip() or None
             tail = self.service.log_tail(selected=selected)
             self._sync_file_combo(tail.files, tail.selected)
             selected = self.file_combo.currentText().strip() or tail.selected or None
         except NativeApiError as exc:
-            self.status.setText(f"Logs unavailable: {exc}")
+            _set_native_feedback(self, f"Logs unavailable: {exc}", "StatusBad")
             return
         lines = tail.lines
         self.text.setPlainText("\n".join(str(line) for line in lines[-500:]))
@@ -4290,7 +4354,7 @@ class LogsScreen:  # pragma: no cover - optional Qt runtime
         self.summary_grid.addWidget(card(self.QtWidgets, "Selected file", selected or "default"), 0, 0)
         self.summary_grid.addWidget(card(self.QtWidgets, "Lines shown", shown, f"{total} retained"), 0, 1)
         self.summary_grid.addWidget(card(self.QtWidgets, "Live tail", "on" if self.live_tail.isChecked() else "off"), 0, 2)
-        self.status.setText(f"{selected or 'default log'} | {total} lines available | showing last {shown}")
+        _set_native_feedback(self, f"{selected or 'default log'} | {total} lines available | showing last {shown}", "StatusGood")
         self.meta.setText(f"Updated {datetime.now().strftime('%H:%M:%S')} | files retained locally | live tail {'on' if self.live_tail.isChecked() else 'off'}")
 
     def _sync_file_combo(self, files: list[Any], selected: str) -> None:
@@ -4334,6 +4398,7 @@ class FeedbackScreen:  # pragma: no cover - optional Qt runtime
         self.sysinfo.setReadOnly(True)
         self.sysinfo.setMaximumHeight(210)
         self.status = label(QtWidgets, "Manual reports are always available.", "Muted", wrap=True)
+        self.loading_indicator = _loading_indicator(QtWidgets)
         self.send_button = QtWidgets.QPushButton("Send Report")
         self.send_button.clicked.connect(self.send)
         layout.addWidget(section_label(QtWidgets, "What went wrong?"))
@@ -4343,15 +4408,18 @@ class FeedbackScreen:  # pragma: no cover - optional Qt runtime
         layout.addWidget(section_label(QtWidgets, "Attached automatically"))
         layout.addWidget(self.sysinfo)
         layout.addWidget(self.send_button)
+        layout.addWidget(self.loading_indicator)
         layout.addWidget(self.status)
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self.widget, name)
 
     def refresh(self) -> None:
+        _set_native_feedback(self, "Loading local report context...", busy=True)
         try:
             cfg, sysinfo, client_info = self.service.feedback_context()
         except NativeApiError:
+            _set_native_feedback(self, "Report context is unavailable. You can still type a manual report.", "StatusWarn")
             return
         self._last_cfg = cfg
         self._last_system = sysinfo
@@ -4366,18 +4434,19 @@ class FeedbackScreen:  # pragma: no cover - optional Qt runtime
             f"Relay: {client_info.get('relay_url') or 'not configured'}\n"
             f"Activation: {'present' if (client_info.get('activation_token_present') or client_info.get('has_activation_token')) else 'not stored'}"
         )
+        _set_native_feedback(self, "Report context loaded. Review it before sending.", "StatusGood")
 
     def send(self) -> None:
         title = self.summary.text().strip()
         if not title:
-            self.status.setText("Add a short summary first.")
+            _set_native_feedback(self, "Add a short summary first.", "StatusWarn")
             return
         description = self.body.toPlainText().strip()
         if len(description) < 12:
-            self.status.setText("Add a few details so the report is useful.")
+            _set_native_feedback(self, "Add a few details so the report is useful.", "StatusWarn")
             return
         self.send_button.setEnabled(False)
-        self.status.setText("Sending sanitized report...")
+        _set_native_feedback(self, "Sending sanitized report...", busy=True)
         try:
             result = self.service.send_feedback(
                 {
@@ -4387,10 +4456,10 @@ class FeedbackScreen:  # pragma: no cover - optional Qt runtime
                 }
             )
         except NativeApiError as exc:
-            self.status.setText(f"Report failed: {exc}")
+            _set_native_feedback(self, f"Report failed: {exc}", "StatusBad")
             self.send_button.setEnabled(True)
             return
-        self.status.setText(self._status_message(result))
+        _set_native_feedback(self, self._status_message(result), "StatusGood" if result.get("ok", True) else "StatusWarn")
         self.send_button.setEnabled(True)
 
     def _client_context(self) -> str:
@@ -4449,6 +4518,36 @@ def _strip(QtWidgets: Any, text: str) -> Any:
     layout.setContentsMargins(10, 7, 10, 7)
     layout.addWidget(label(QtWidgets, text, "Muted", wrap=True))
     return box
+
+
+def _loading_indicator(QtWidgets: Any) -> Any:
+    progress = QtWidgets.QProgressBar()
+    progress.setObjectName("LoadingProgress")
+    progress.setRange(0, 0)
+    progress.setTextVisible(False)
+    progress.setFixedHeight(7)
+    progress.hide()
+    return progress
+
+
+def _set_native_feedback(screen: Any, text: str, role: str = "Muted", *, busy: bool = False) -> None:
+    status = getattr(screen, "status", None)
+    if status is not None:
+        status.setText(text)
+        status.setObjectName(role)
+        try:
+            status.style().unpolish(status)
+            status.style().polish(status)
+        except Exception:
+            pass
+    loading = getattr(screen, "loading_indicator", None)
+    if loading is not None:
+        loading.setVisible(bool(busy))
+    if busy:
+        try:
+            screen.QtWidgets.QApplication.processEvents()
+        except Exception:
+            pass
 
 
 def _banner(QtWidgets: Any, text: str, role: str) -> Any:

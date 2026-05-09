@@ -15,8 +15,8 @@ The primary desktop UI is now a Chrome-free native Qt shell. That choice is deli
 
 - Three clear setup paths: **Community**, **Bring your own keys**, or **VATSIM**
 - **Native Qt desktop shell** with Display, FIDS, Radar, Matrix, Settings, Admin, History, Logs, and Report views, plus browser fallback when native Qt is not available
-- Airport-style **FIDS departures / arrivals board** with airport-local time ordering, decoded airline names, codeshare grouping, live WebSocket refresh, flight detail drawer, history, and UTC/local clock
-- **Radar view** with ADS-B Exchange enrichment, OpenSky fallback, METAR-derived weather mood/icons/temperature, responsive standalone scaling for Pi screens and wall displays, airborne-vs-surface filtering, tight ground-radar ranges that crop from the shortest practical provider fetch, and an optional opt-in airport-surface overlay
+- Airport-style **FIDS departures / arrivals board** with airport-local time ordering, decoded airline names, operating-flight priority, codeshare grouping, live WebSocket refresh, passenger-board native styling, flight detail drawer, history, and UTC/local clock
+- **Radar view** with ADS-B Exchange enrichment, OpenSky fallback, VATSIM mode, METAR-derived weather mood/icons/temperature, responsive native canvas scaling, airborne-vs-surface filtering, tight ground-radar ranges, hover/click details, and optional runway/surface/map/terrain layers
 - **Split display** mode for FIDS + radar on one screen, plus native-first desktop and kiosk-ready Pi flows
 - Real-data schedule fetching that tries **date-aware fair paging first** and a **rescue fallback** before giving up on a sparse board
 - Configurable **board window and page rotation** so web and matrix displays stay readable at busier airports
@@ -64,6 +64,14 @@ Open [docs/previews/index.html](docs/previews/index.html) locally for the standa
 
 The Windows release zip is self-contained. It bundles Python and the app dependencies, so `installers/windows/install.ps1` is only for running Local Flight from a source checkout.
 
+For source checkouts, the installer lets you choose the display style while keeping scripted flags available:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File installers\windows\install.ps1 -DisplayMode Native
+powershell -ExecutionPolicy Bypass -File installers\windows\install.ps1 -DisplayMode Browser
+powershell -ExecutionPolicy Bypass -File installers\windows\install.ps1 -DisplayMode Headless
+```
+
 Release builds also produce `LocalFlight-windows.zip.sha256` so the downloaded zip can be verified before running.
 
 ### macOS
@@ -78,29 +86,38 @@ Release builds also produce `LocalFlight-macos.zip.sha256` so the downloaded zip
 The macOS source installer is only for running Local Flight from a source checkout:
 
 ```bash
-bash installers/macos/install.sh
+bash installers/macos/install.sh --display native
+# Optional fallback/source-server modes:
+bash installers/macos/install.sh --display browser
+bash installers/macos/install.sh --display headless
 ```
 
 ### Raspberry Pi
 
 You can either clone the repo on the Pi or download the versioned Pi source bundle from the [latest release](https://github.com/tr3y4rch/local-flight/releases), for example `LocalFlight-pi-source-0.2.5b5.zip`.
 
-Unzip or clone on the Pi, then run the installer from the project folder. The installer creates the venv, `.env`, systemd app service, and mDNS hostname. Add `--native-kiosk` during install if you want the Qt fullscreen HDMI shell; use `--kiosk` only for the legacy Chromium fallback when the native GUI is not usable on that display.
+Unzip or clone on the Pi, then run the installer from the project folder. The installer creates the venv, `.env`, systemd app service, and mDNS hostname. With no flag it asks how you want to use the Pi and defaults to headless when you press Enter.
 
 ```bash
-# One-time setup
+# Guided one-time setup
 bash installers/pi/install.sh
+
+# Explicit modes
+bash installers/pi/install.sh --headless       # backend only for LAN/mobile/matrix
+bash installers/pi/install.sh --native-kiosk   # Chrome-free Qt fullscreen HDMI display
+bash installers/pi/install.sh --kiosk          # legacy Chromium fallback HDMI display
 
 # Management
 lf start    # start
 lf stop     # stop
 lf logs     # tail logs
+lf logs gui # tail native Qt kiosk user-service logs
 lf update   # pull latest + restart
 ```
 
 Release builds also produce `LocalFlight-pi-source-<version>.zip.sha256` so the downloaded Pi source bundle can be verified before running.
 
-The Pi runs headless by default - access the UI from any device on your network at `http://localflight.local:8000`.
+The Pi runs headless by default - access the UI from any device on your network at `http://localflight.local:8000`. Native Pi kiosk mode uses a split runtime: `localflight.service` keeps the backend headless and a user-session `localflight-native-kiosk.service` owns the fullscreen Qt display.
 
 ---
 
@@ -154,21 +171,24 @@ Android support is planned later; the current companion testing flow is still iO
 
 ## First-run setup
 
-On first launch Local Flight briefly shows a versioned splash screen, then opens a guided setup wizard. In native mode this is a standalone setup window; in browser fallback mode it is available at `http://localhost:8000/setup`.
+On first launch Local Flight briefly shows a versioned splash screen, then opens a guided setup wizard. In native mode this is a standalone beginner-safe setup window; in browser fallback mode it is available at `http://localhost:8000/setup`.
 
 It walks through:
-1. Airport selection (IATA / ICAO search)
-2. How you want to run it:
+1. Welcome and local-first overview
+2. Airport selection (IATA / ICAO search)
+3. How you want to run it:
    - **Community** - uses the hosted shared backend for schedules, limited to 50 relay schedule accesses per 30-day window per install
    - **Bring your own keys** - uses your own AviationStack key for schedules and optional RapidAPI / OpenSky keys for radar
    - **VATSIM** - uses virtual traffic only, with no real-data API key required
-3. Optional provider keys:
+4. Optional provider keys:
    - **ADS-B Exchange via RapidAPI** for live positions
    - **OpenSky Network** as a fallback or lower-cost path
-4. Diagnostics and reporting choice:
+   - direct public links to provider signup/status pages for users who want BYOK
+5. Diagnostics and reporting choice:
    - **Manual reports only** - default, privacy-first mode
    - **Automatic crash reports** - sends sanitized crash context if the app catches a serious error
    - **Automatic crash reports + sanitized logs** - adds a short sanitized log excerpt for harder beta issues
+6. Finish summary with the airport, data path, diagnostics mode, and relay/key status that will be saved
 
 The scheduler only starts after setup completes. You can re-run the wizard any time from **Settings -> Re-run setup wizard**.
 
@@ -187,10 +207,10 @@ The Windows and macOS app launch the native Qt shell by default. The Pi installe
 Native mode is not a separate backend. It uses the same local routes, WebSocket events, config, history, docs, reporting, and matrix tooling as the browser UI:
 
 - Display: split FIDS/radar board with live status and fullscreen-friendly scaling
-- FIDS: arrivals/departures, weather strip, row rotation, airline/codeshare display, and detail drawer
-- Radar: native canvas with range chips, surface/airborne filtering, weather, and optional surface overlay
+- FIDS: custom passenger-board rows, arrivals/departures, weather strip, row rotation, airline/codeshare display, status/gate chips, loading feedback, and detail drawer
+- Radar: native canvas with range chips, ADS-B/VATSIM modes, surface/airborne filtering, weather, hover/click details, runway drawing, optional surface/map/terrain layers, and contrast-safe dark/light styling
 - Matrix: LED preview, runtime settings, brightness/zoom controls, and `main.py` generator
-- Settings/Admin/History/Logs/Report: user-facing controls backed by the same local APIs
+- Settings/Admin/History/Logs/Report: user-facing controls backed by the same local APIs, with local docs/help still bundled in the app
 
 The LAN browser UI remains available at `http://localhost:8000` for phones, tablets, troubleshooting, and fallback use. Set `LOCALFLIGHT_GUI_MODE=browser` only when you intentionally want the legacy browser shell.
 
@@ -220,7 +240,9 @@ This does not remove every network call. Real schedules, radar, VATSIM, METAR, u
 | OpenSky Network | Optional (`OPENSKY_CLIENT_ID` / `SECRET`) | Position fallback (anonymous works, lower rate limits) |
 | VATSIM | No | Full data source for flight sim / virtual mode |
 | aviationweather.gov | No | METAR weather - free, no key needed. Local Flight decodes the METAR into its own weather mood/icon/temperature fields for the UI. In VATSIM mode, VATSIM ATIS/METAR is tried first and AviationWeather remains the fallback. |
-| OpenStreetMap / Overpass | No | Optional airport boundary, runway, taxiway, apron, and terminal geometry for the opt-in radar surface overlay. This is disabled by default and only used through the hosted relay cache when the relay operator enables it. If no cached geometry is available, Local Flight shows a clearly labeled local estimated surface instead of querying OSM directly from each install. |
+| OurAirports | No | Runway metadata, runway IDs, headings, dimensions, and airport reference data used by the native radar runway layer when bundled or locally cached. |
+| OpenStreetMap / Overpass | No | Optional airport surface and map context for runway/surface/map overlays. Local Flight uses simplified, cached geometry with attribution and falls back to clearly labeled estimated surface geometry when no reliable OSM cache is available. |
+| AWS Terrain Tiles | No | Optional low-detail terrain/cartographic relief for the native radar. This is cached locally, subtle by design, and visual-only. |
 
 VATSIM privacy note: Local Flight treats virtual-network data as flight information only. It does not store or display pilot names, controller names, CIDs/account IDs, server names, or other person-identifying VATSIM fields.
 
@@ -284,7 +306,7 @@ Runtime data is also kept outside the source tree:
 | `display_horizon_hours` | `12` | How far ahead the board window reaches when filtering upcoming flights |
 | `web_row_limit` | `20` | Visible rows per web FIDS page before local rotation kicks in |
 | `web_rotation_seconds` | `8` | Seconds between rotated web FIDS pages when overflow exists |
-| `radar_surface_enabled` | `false` | Enables the airport-surface overlay on the radar canvas. Real OSM geometry is served from the shared relay cache when available; otherwise the radar shows a labeled local estimated surface. |
+| `radar_surface_enabled` | `false` | Enables radar runway/surface/map preparation. Reliable cached OSM/OurAirports geometry is preferred; otherwise the radar shows labeled estimated surface geometry rather than silently drawing nothing. |
 
 ---
 
@@ -298,7 +320,7 @@ These web routes remain available for browser fallback and LAN clients even when
 | `/setup` | First-run setup wizard with Community / BYOK / VATSIM paths |
 | `/display` | Split-view FIDS + Radar with draggable divider (default on launch) |
 | `/fids` | FIDS board standalone (`?view=arrivals\|departures`) |
-| `/radar` | Responsive standalone radar with optional cached airport-surface overlay |
+| `/radar` | Responsive standalone radar with optional cached runway, surface, map, and terrain layers |
 | `/matrix-preview` | Browser LED matrix simulator, board-file helper, and runtime config surface |
 | `/` | Settings - airport, skin, outputs |
 | `/admin` | Admin hub - scheduler status, API budgets, connected clients, system info |
@@ -395,8 +417,9 @@ The first-run setup wizard asks for that choice explicitly and stores it locally
 |---|---|---|
 | `/api/fids` | GET | FIDS rows (`?view=arrivals\|departures&limit=20`) |
 | `/api/fids/detail` | GET | Callsign detail with live position + 7-day history |
-| `/api/radar` | GET | Aircraft positions (`?radius_nm=20`) |
-| `/api/radar/surface` | GET | Airport surface geometry for the current airport (`?radius_nm=5`, 1-5 NM only); returns relay-cached OSM geometry when available or a labeled local estimate as fallback |
+| `/api/radar` | GET | Aircraft positions (`?radius_nm=20`) plus backward-compatible optional traffic/altitude filters and safe derived display fields |
+| `/api/radar/map` | GET | Native/mobile radar map layer: runways, simplified surface/map features, terrain availability, attribution, and confidence metadata |
+| `/api/radar/surface` | GET | Compatibility airport surface geometry for the current airport (`?radius_nm=5`, 1-5 NM only); returns cached OSM geometry when available or a labeled local estimate as fallback |
 | `/api/metar` | GET | Decoded + raw METAR plus Local Flight weather mood/icon/temperature fields |
 | `/api/flights` | GET | Raw flight list from latest snapshot |
 | `/api/history` | GET | Recent flights (`?hours=24&direction=dep`) |

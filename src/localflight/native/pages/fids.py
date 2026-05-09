@@ -30,6 +30,16 @@ class _FidsBoardDelegate:  # pragma: no cover - visual Qt delegate
 
     def __new__(cls, QtCore: Any, QtGui: Any, QtWidgets: Any, colors_provider: Any):
         class _Delegate(QtWidgets.QStyledItemDelegate):
+            def __init__(self) -> None:
+                super().__init__()
+                self.animation_phase = 0.0
+
+            def set_animation_phase(self, phase: float) -> None:
+                try:
+                    self.animation_phase = float(phase) % 1.0
+                except (TypeError, ValueError):
+                    self.animation_phase = 0.0
+
             def paint(self, painter: Any, option: Any, index: Any) -> None:
                 model = index.model()
                 row = model.row_at(index.row()) if hasattr(model, "row_at") else {}
@@ -51,6 +61,8 @@ class _FidsBoardDelegate:  # pragma: no cover - visual Qt delegate
                     self._paint_time(painter, rect, row, colors)
                 elif key == "route_display":
                     self._paint_route(painter, rect, row, colors)
+                elif key == "aircraft_type":
+                    self._paint_aircraft(painter, rect, row, colors)
                 else:
                     self._paint_plain(painter, rect, index.data() or "-", colors)
                 painter.restore()
@@ -67,31 +79,33 @@ class _FidsBoardDelegate:  # pragma: no cover - visual Qt delegate
                 return QtCore.QSize(option.rect.width(), height)
 
             def _paint_background(self, painter: Any, rect: Any, option: Any, row: dict[str, Any], colors: dict[str, str], key: str) -> None:
-                panel = QtGui.QColor(colors.get("panel_2", "#0b1118"))
+                row_index = int(row.get("_source_row_index") or 0)
+                base_hex = colors.get("panel_2", "#0b1118")
+                panel = QtGui.QColor(base_hex)
+                if row_index % 2:
+                    panel = _blend_qcolor(QtGui, panel, QtGui.QColor(colors.get("panel", "#111927")), 0.22)
                 selected = bool(option.state & QtWidgets.QStyle.State_Selected)
+                painter.fillRect(rect, panel)
                 if selected:
                     selected_color = QtGui.QColor(colors.get("blue", "#4a9eda"))
-                    selected_color.setAlpha(66)
+                    selected_color.setAlpha(38)
                     painter.fillRect(rect, selected_color)
-                else:
-                    painter.fillRect(rect, panel)
                 alpha = int(row.get("_fresh_alpha") or 0)
                 if alpha > 0:
-                    flash = QtGui.QColor(colors.get("blue", "#4a9eda"))
-                    flash.setAlpha(alpha)
-                    painter.fillRect(rect, flash)
+                    shimmer = QtGui.QColor(colors.get("blue", "#4a9eda"))
+                    shimmer.setAlpha(max(0, min(42, alpha)))
+                    if key == "display_time":
+                        painter.fillRect(rect.adjusted(0, 3, -rect.width() + 5, -3), shimmer)
+                    painter.fillRect(rect.adjusted(0, 0, 0, -rect.height() + 2), shimmer)
                 status_cls = self._status_class(row)
-                if status_cls in {"boarding", "approaching", "delayed", "delayed-warn", "delayed-bad", "early", "diverted", "cancelled"}:
+                if key == "display_time" and status_cls not in {"scheduled", ""}:
                     accent = QtGui.QColor(self._status_color(row, colors))
-                    tint = QtGui.QColor(accent)
-                    tint.setAlpha(34 if status_cls in {"delayed", "delayed-warn", "delayed-bad", "early"} else 18)
-                    painter.fillRect(rect, tint)
-                if key == "display_time" and status_cls in {"boarding", "approaching", "delayed", "delayed-warn", "delayed-bad", "early", "diverted", "cancelled"}:
-                    accent = QtGui.QColor(self._status_color(row, colors))
+                    accent.setAlpha(185 if status_cls in {"delayed-bad", "cancelled", "diverted"} else 145)
                     painter.setPen(QtCore.Qt.NoPen)
                     painter.setBrush(accent)
-                    painter.drawRoundedRect(rect.adjusted(0, 4, -rect.width() + 7, -4), 3, 3)
+                    painter.drawRoundedRect(rect.adjusted(0, 5, -rect.width() + 5, -5), 2, 2)
                 line = QtGui.QColor(colors.get("line_soft", "#202a38"))
+                line.setAlpha(125)
                 painter.setPen(line)
                 painter.drawLine(rect.bottomLeft(), rect.bottomRight())
 
@@ -99,20 +113,22 @@ class _FidsBoardDelegate:  # pragma: no cover - visual Qt delegate
                 row = enrich_presentation_fields(row)
                 time_text = str(row.get("time_primary") or "-")
                 delay_text = str(row.get("time_delta_label") or "")
+                icon_rect = QtCore.QRectF(rect.left() + 14, rect.center().y() - 8, 16, 16)
+                self._draw_icon(painter, icon_rect, "clock", QtGui.QColor(colors.get("muted", "#9aa3b2")))
                 painter.setPen(QtGui.QColor(self._text_color(row, colors)))
                 font = QtGui.QFont("Space Mono")
-                font.setPointSize(15)
+                font.setPointSize(17)
                 font.setBold(True)
                 painter.setFont(font)
-                painter.drawText(rect.adjusted(14, 0, -8, -10 if delay_text else 0), QtCore.Qt.AlignVCenter | QtCore.Qt.AlignLeft, time_text)
+                painter.drawText(rect.adjusted(36, 0, -8, -12 if delay_text else 0), QtCore.Qt.AlignVCenter | QtCore.Qt.AlignLeft, time_text)
                 if delay_text:
-                    tag_rect = QtCore.QRect(rect.left() + 14, rect.center().y() + 8, 52, 17)
+                    tag_rect = QtCore.QRect(rect.left() + 36, rect.center().y() + 9, 58, 18)
                     delay_color = QtGui.QColor(self._delay_color(row, colors))
                     bg = QtGui.QColor(delay_color)
-                    bg.setAlpha(42)
+                    bg.setAlpha(30)
                     painter.setPen(QtGui.QPen(delay_color, 1))
                     painter.setBrush(bg)
-                    painter.drawRoundedRect(tag_rect, 4, 4)
+                    painter.drawRoundedRect(tag_rect, 9, 9)
                     tag_font = QtGui.QFont("Space Mono")
                     tag_font.setPointSize(8)
                     tag_font.setBold(True)
@@ -122,17 +138,22 @@ class _FidsBoardDelegate:  # pragma: no cover - visual Qt delegate
 
             def _paint_flight(self, painter: Any, rect: Any, row: dict[str, Any], colors: dict[str, str]) -> None:
                 row = enrich_presentation_fields(row)
-                left = rect.left() + 8
+                left = rect.left() + 12
                 top = rect.top() + 7
                 text = QtGui.QColor(self._text_color(row, colors))
                 muted = QtGui.QColor(colors.get("muted", "#9aa3b2"))
                 accent = QtGui.QColor(colors.get("blue", "#4a9eda"))
+                icon_rect = QtCore.QRectF(left, top + 1, 17, 17)
+                raw_direction = str(row.get("direction") or "").upper()
+                route_label = str(getattr(self, "route_label", "") or "")
+                direction = "arrival" if raw_direction.startswith("ARR") or route_label.lower().startswith("from") else "departure"
+                self._draw_icon(painter, icon_rect, direction, accent)
                 flight_font = QtGui.QFont("Space Mono")
-                flight_font.setPointSize(11)
+                flight_font.setPointSize(12)
                 flight_font.setBold(True)
                 painter.setFont(flight_font)
-                painter.setPen(accent)
-                painter.drawText(QtCore.QRect(left, top, rect.width() - 14, 18), QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter, str(row.get("flight_display") or row.get("callsign") or "-"))
+                painter.setPen(text)
+                painter.drawText(QtCore.QRect(left + 24, top, rect.width() - 34, 20), QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter, str(row.get("flight_display") or row.get("callsign") or "-"))
                 sub_font = QtGui.QFont()
                 sub_font.setPointSize(8)
                 sub_font.setBold(True)
@@ -141,7 +162,7 @@ class _FidsBoardDelegate:  # pragma: no cover - visual Qt delegate
                 codeshare = self._codeshare_frame(row)
                 if airline:
                     painter.setPen(muted)
-                    painter.drawText(QtCore.QRect(left, top + 19, rect.width() - 14, 14), QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter, airline.upper())
+                    painter.drawText(QtCore.QRect(left + 24, top + 21, rect.width() - 34, 14), QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter, airline.upper())
                 if codeshare:
                     code_font = QtGui.QFont("Space Mono")
                     code_font.setPointSize(8)
@@ -149,51 +170,55 @@ class _FidsBoardDelegate:  # pragma: no cover - visual Qt delegate
                     painter.setFont(code_font)
                     fm = painter.fontMetrics()
                     y = top + 39 if airline else top + 25
-                    width = min(rect.width() - 14, max(74, fm.horizontalAdvance(codeshare) + 18))
-                    pill = QtCore.QRect(left, y, width, 18)
+                    width = min(rect.width() - 38, max(84, fm.horizontalAdvance(codeshare) + 28))
+                    pill = QtCore.QRect(left + 24, y, width, 18)
                     bg = QtGui.QColor(accent)
-                    bg.setAlpha(44)
+                    bg.setAlpha(22)
                     painter.setPen(QtGui.QPen(accent, 1))
                     painter.setBrush(bg)
-                    painter.drawRoundedRect(pill, 4, 4)
+                    painter.drawRoundedRect(pill, 9, 9)
+                    self._draw_icon(painter, QtCore.QRectF(pill.left() + 7, pill.top() + 4, 10, 10), "codeshare", accent)
                     painter.setPen(accent)
-                    painter.drawText(pill.adjusted(8, 0, -8, 0), QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter, codeshare)
+                    painter.drawText(pill.adjusted(22, 0, -8, 0), QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter, codeshare)
 
             def _paint_route(self, painter: Any, rect: Any, row: dict[str, Any], colors: dict[str, str]) -> None:
                 row = enrich_presentation_fields(row)
                 primary = str(row.get("route_primary") or row.get("route_display") or "-")
                 code = str(row.get("route_caption") or "")
                 source_hint = str(row.get("live_hint") or row.get("source_hint") or "")
-                left = rect.left() + 10
+                left = rect.left() + 12
                 top = rect.top() + 8
+                route_color = QtGui.QColor(colors.get("muted", "#9aa3b2"))
+                self._draw_icon(painter, QtCore.QRectF(left, top + 3, 15, 15), "route", route_color)
                 primary_font = QtGui.QFont()
-                primary_font.setPointSize(10)
+                primary_font.setPointSize(11)
                 primary_font.setBold(True)
                 painter.setFont(primary_font)
                 painter.setPen(QtGui.QColor(colors.get("text", "#e6edf5")))
-                painter.drawText(QtCore.QRect(left, top, rect.width() - 18, 21), QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter, primary)
+                painter.drawText(QtCore.QRect(left + 23, top, rect.width() - 34, 23), QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter, primary)
                 sub = " | ".join(part for part in (code, source_hint) if part and part not in primary)
                 if sub:
                     sub_font = QtGui.QFont("Space Mono")
                     sub_font.setPointSize(8)
                     painter.setFont(sub_font)
                     painter.setPen(QtGui.QColor(colors.get("muted", "#9aa3b2")))
-                    painter.drawText(QtCore.QRect(left, top + 24, rect.width() - 18, 16), QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter, sub.upper())
+                    painter.drawText(QtCore.QRect(left + 23, top + 25, rect.width() - 34, 16), QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter, sub.upper())
 
             def _paint_status(self, painter: Any, rect: Any, row: dict[str, Any], colors: dict[str, str]) -> None:
                 row = enrich_presentation_fields(row)
                 label_text = str(row.get("status_display") or row.get("status") or "Scheduled").upper()
                 color = QtGui.QColor(self._status_color(row, colors))
                 bg = QtGui.QColor(color)
-                bg.setAlpha(72)
-                pill = rect.adjusted(8, 11, -8, -11)
-                painter.setPen(QtGui.QPen(color, 2))
+                bg.setAlpha(self._status_bg_alpha(row))
+                pill = rect.adjusted(8, 13, -8, -13)
+                painter.setPen(QtGui.QPen(color, 1.4))
                 painter.setBrush(bg)
                 painter.drawRoundedRect(pill, pill.height() / 2, pill.height() / 2)
                 painter.setPen(QtCore.Qt.NoPen)
                 painter.setBrush(color)
-                dot_size = 7
-                painter.drawEllipse(QtCore.QRectF(pill.left() + 10, pill.center().y() - dot_size / 2, dot_size, dot_size))
+                dot_size = 6
+                dot_pulse = 1.8 if self._status_should_breathe(row) else 0.0
+                painter.drawEllipse(QtCore.QRectF(pill.left() + 10, pill.center().y() - (dot_size + dot_pulse) / 2, dot_size + dot_pulse, dot_size + dot_pulse))
                 font = QtGui.QFont("Space Mono")
                 font.setPointSize(8)
                 font.setBold(True)
@@ -205,28 +230,105 @@ class _FidsBoardDelegate:  # pragma: no cover - visual Qt delegate
                 row = enrich_presentation_fields(row)
                 value = str(row.get("terminal_gate_display") or row.get("gate_display") or "").strip()
                 if not value:
-                    self._paint_plain(painter, rect, value, colors, muted=True)
+                    self._paint_plain(painter, rect, "-", colors, muted=True, align_center=True)
                     return
-                pill = rect.adjusted(8, 11, -8, -11)
+                pill = rect.adjusted(9, 12, -9, -12)
                 accent = QtGui.QColor(colors.get("blue", "#4a9eda"))
                 bg = QtGui.QColor(accent)
-                bg.setAlpha(58)
+                bg.setAlpha(20)
                 painter.setPen(QtGui.QPen(accent, 1))
                 painter.setBrush(bg)
-                painter.drawRoundedRect(pill, 7, 7)
+                painter.drawRoundedRect(pill, 8, 8)
+                self._draw_icon(painter, QtCore.QRectF(pill.left() + 8, pill.center().y() - 6, 12, 12), "gate", accent)
                 font = QtGui.QFont("Space Mono")
                 font.setPointSize(10)
                 font.setBold(True)
                 painter.setFont(font)
                 painter.setPen(QtGui.QColor(colors.get("text", "#e6edf5")))
-                painter.drawText(pill, QtCore.Qt.AlignCenter, value)
+                painter.drawText(pill.adjusted(24, 0, -8, 0), QtCore.Qt.AlignVCenter | QtCore.Qt.AlignLeft, value)
 
-            def _paint_plain(self, painter: Any, rect: Any, text: Any, colors: dict[str, str], *, muted: bool = False) -> None:
+            def _paint_aircraft(self, painter: Any, rect: Any, row: dict[str, Any], colors: dict[str, str]) -> None:
+                value = str(row.get("aircraft_type") or "").strip().upper()
+                if not value:
+                    self._paint_plain(painter, rect, "-", colors, muted=True, align_center=True)
+                    return
+                muted = QtGui.QColor(colors.get("muted", "#9aa3b2"))
+                self._draw_icon(painter, QtCore.QRectF(rect.left() + 11, rect.center().y() - 7, 14, 14), "aircraft", muted)
+                font = QtGui.QFont("Space Mono")
+                font.setPointSize(9)
+                font.setBold(True)
+                painter.setFont(font)
+                painter.setPen(QtGui.QColor(colors.get("text", "#e6edf5")))
+                painter.drawText(rect.adjusted(30, 0, -8, 0), QtCore.Qt.AlignVCenter | QtCore.Qt.AlignLeft, value)
+
+            def _paint_plain(self, painter: Any, rect: Any, text: Any, colors: dict[str, str], *, muted: bool = False, align_center: bool = False) -> None:
                 font = QtGui.QFont()
                 font.setPointSize(10)
                 painter.setFont(font)
                 painter.setPen(QtGui.QColor(colors.get("muted" if muted else "text", "#e6edf5")))
-                painter.drawText(rect.adjusted(8, 0, -8, 0), QtCore.Qt.AlignVCenter | QtCore.Qt.AlignLeft, str(text))
+                alignment = QtCore.Qt.AlignCenter if align_center else QtCore.Qt.AlignVCenter | QtCore.Qt.AlignLeft
+                painter.drawText(rect.adjusted(8, 0, -8, 0), alignment, str(text))
+
+            def _status_should_breathe(self, row: dict[str, Any]) -> bool:
+                return self._status_class(row) in {"boarding", "approaching", "delayed-warn", "delayed-bad", "cancelled", "diverted"}
+
+            def _status_bg_alpha(self, row: dict[str, Any]) -> int:
+                base = 28
+                if self._status_class(row) in {"scheduled", "departed", "landed", "on-ground"}:
+                    return 18
+                if not self._status_should_breathe(row):
+                    return 34
+                pulse = (math.sin(self.animation_phase * math.tau) + 1.0) / 2.0
+                return int(base + pulse * 28)
+
+            def _draw_icon(self, painter: Any, rect: Any, kind: str, color: Any) -> None:
+                painter.save()
+                icon_color = QtGui.QColor(color)
+                icon_color.setAlpha(max(90, icon_color.alpha()))
+                painter.setPen(QtGui.QPen(icon_color, 1.4))
+                painter.setBrush(QtCore.Qt.NoBrush)
+                cx = rect.center().x()
+                cy = rect.center().y()
+                w = rect.width()
+                h = rect.height()
+                if kind in {"arrival", "departure"}:
+                    painter.drawLine(QtCore.QPointF(rect.left() + w * 0.10, cy), QtCore.QPointF(rect.right() - w * 0.10, cy))
+                    painter.drawLine(QtCore.QPointF(cx, rect.top() + h * 0.12), QtCore.QPointF(cx, rect.bottom() - h * 0.12))
+                    if kind == "arrival":
+                        painter.drawLine(QtCore.QPointF(rect.left() + w * 0.20, rect.bottom() - h * 0.18), QtCore.QPointF(rect.right() - w * 0.16, rect.top() + h * 0.20))
+                    else:
+                        painter.drawLine(QtCore.QPointF(rect.left() + w * 0.20, rect.top() + h * 0.18), QtCore.QPointF(rect.right() - w * 0.16, rect.bottom() - h * 0.20))
+                elif kind == "clock":
+                    painter.drawEllipse(rect.adjusted(1.5, 1.5, -1.5, -1.5))
+                    painter.drawLine(QtCore.QPointF(cx, cy), QtCore.QPointF(cx, rect.top() + h * 0.26))
+                    painter.drawLine(QtCore.QPointF(cx, cy), QtCore.QPointF(rect.right() - w * 0.26, cy))
+                elif kind == "route":
+                    painter.drawEllipse(QtCore.QRectF(rect.left() + 1, cy - 3, 6, 6))
+                    painter.drawEllipse(QtCore.QRectF(rect.right() - 7, cy - 3, 6, 6))
+                    painter.drawLine(QtCore.QPointF(rect.left() + 7, cy), QtCore.QPointF(rect.right() - 7, cy))
+                elif kind == "gate":
+                    painter.drawRoundedRect(rect.adjusted(1, 1, -1, -1), 2, 2)
+                    painter.drawLine(QtCore.QPointF(cx, rect.top() + 3), QtCore.QPointF(cx, rect.bottom() - 3))
+                elif kind == "codeshare":
+                    painter.drawEllipse(rect.adjusted(1, 1, -1, -1))
+                    painter.drawLine(QtCore.QPointF(rect.left() + 3, cy), QtCore.QPointF(rect.right() - 3, cy))
+                elif kind == "aircraft":
+                    path = QtGui.QPainterPath(QtCore.QPointF(cx, rect.top() + 1))
+                    path.lineTo(QtCore.QPointF(cx + w * 0.18, cy + h * 0.10))
+                    path.lineTo(QtCore.QPointF(rect.right() - 1, cy + h * 0.05))
+                    path.lineTo(QtCore.QPointF(cx + w * 0.16, cy + h * 0.22))
+                    path.lineTo(QtCore.QPointF(cx + w * 0.08, rect.bottom() - 1))
+                    path.lineTo(QtCore.QPointF(cx, cy + h * 0.30))
+                    path.lineTo(QtCore.QPointF(cx - w * 0.08, rect.bottom() - 1))
+                    path.lineTo(QtCore.QPointF(cx - w * 0.16, cy + h * 0.22))
+                    path.lineTo(QtCore.QPointF(rect.left() + 1, cy + h * 0.05))
+                    path.lineTo(QtCore.QPointF(cx - w * 0.18, cy + h * 0.10))
+                    path.closeSubpath()
+                    fill = QtGui.QColor(icon_color)
+                    fill.setAlpha(80)
+                    painter.setBrush(fill)
+                    painter.drawPath(path)
+                painter.restore()
 
             def _status_class(self, row: dict[str, Any]) -> str:
                 return _row_status_class(row)
@@ -290,6 +392,462 @@ class _FidsBoardDelegate:  # pragma: no cover - visual Qt delegate
         return _Delegate()
 
 
+class FidsBoardView:  # pragma: no cover - optional Qt runtime
+    """Custom passenger-board surface for native FIDS rows."""
+
+    def __new__(cls, QtCore: Any, QtGui: Any, QtWidgets: Any, colors_provider: Any):
+        class _Board(QtWidgets.QAbstractScrollArea):
+            rowActivated = QtCore.Signal(int)
+            column_keys = ("display_time", "flight_cell", "route_display", "status_display", "gate", "aircraft_type")
+
+            def __init__(self) -> None:
+                super().__init__()
+                self.setObjectName("FidsBoardView")
+                self.setMouseTracking(True)
+                self.setFrameShape(QtWidgets.QFrame.NoFrame)
+                self.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+                self.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAsNeeded)
+                self.rows: list[dict[str, Any]] = []
+                self.route_label = "Route"
+                self.animation_phase = 0.0
+                self.hover_row = -1
+                self.colors = colors_provider() or {}
+                self.header_h = 38
+                self.row_gap = 8
+                self.row_h = 76
+                self.padding = 10
+
+            def minimumSizeHint(self) -> Any:
+                return QtCore.QSize(640, 320)
+
+            def set_rows(self, rows: list[dict[str, Any]], *, route_label: str = "Route") -> None:
+                self.rows = list(rows or [])
+                self.route_label = route_label or "Route"
+                self._sync_scroll()
+                self.viewport().update()
+
+            def set_colors(self, colors: dict[str, str]) -> None:
+                self.colors = dict(colors or {})
+                self.viewport().update()
+
+            def set_animation_phase(self, phase: float) -> None:
+                try:
+                    self.animation_phase = float(phase) % 1.0
+                except (TypeError, ValueError):
+                    self.animation_phase = 0.0
+                self.viewport().update()
+
+            def resizeEvent(self, event: Any) -> None:
+                super().resizeEvent(event)
+                self._sync_scroll()
+
+            def mouseMoveEvent(self, event: Any) -> None:
+                row = self._row_at_y(event.position().y())
+                if row != self.hover_row:
+                    self.hover_row = row
+                    self.viewport().update()
+                self.setCursor(QtCore.Qt.PointingHandCursor if row >= 0 else QtCore.Qt.ArrowCursor)
+
+            def leaveEvent(self, event: Any) -> None:
+                super().leaveEvent(event)
+                if self.hover_row != -1:
+                    self.hover_row = -1
+                    self.viewport().update()
+                self.unsetCursor()
+
+            def mousePressEvent(self, event: Any) -> None:
+                row = self._row_at_y(event.position().y())
+                if row >= 0:
+                    self.rowActivated.emit(row)
+                    return
+                super().mousePressEvent(event)
+
+            def paintEvent(self, _event: Any) -> None:
+                painter = QtGui.QPainter(self.viewport())
+                painter.setRenderHint(QtGui.QPainter.Antialiasing, True)
+                rect = self.viewport().rect()
+                colors = colors_provider() or self.colors or {}
+                self.colors = colors
+                painter.fillRect(rect, QtGui.QColor(colors.get("panel_2", "#08111b")))
+                self._draw_board_background(painter, QtCore, QtGui, rect, colors)
+                columns = self._column_rects(rect)
+                self._draw_header(painter, QtCore, QtGui, columns, colors)
+                scroll = self.verticalScrollBar().value()
+                y = self.padding + self.header_h - scroll
+                for idx, row in enumerate(self.rows):
+                    row_rect = QtCore.QRectF(self.padding, y, max(1, rect.width() - self.padding * 2), self.row_h)
+                    if row_rect.bottom() >= 0 and row_rect.top() <= rect.height():
+                        self._draw_row(painter, QtCore, QtGui, row_rect, columns, row, idx, colors)
+                    y += self.row_h + self.row_gap
+                painter.end()
+
+            def _sync_scroll(self) -> None:
+                content = self.padding * 2 + self.header_h + len(self.rows) * self.row_h + max(0, len(self.rows) - 1) * self.row_gap
+                maximum = max(0, content - self.viewport().height())
+                self.verticalScrollBar().setRange(0, maximum)
+                self.verticalScrollBar().setPageStep(max(1, self.viewport().height()))
+
+            def _row_at_y(self, y_pos: float) -> int:
+                y = float(y_pos) + self.verticalScrollBar().value() - self.padding - self.header_h
+                step = self.row_h + self.row_gap
+                if y < 0:
+                    return -1
+                idx = int(y // step)
+                if 0 <= idx < len(self.rows) and (y % step) <= self.row_h:
+                    return idx
+                return -1
+
+            def _column_rects(self, rect: Any) -> dict[str, Any]:
+                width = max(1, rect.width() - self.padding * 2)
+                compact = width < 760
+                ac_w = 0 if compact else 92
+                time_w = 130 if compact else 160
+                status_w = 136 if compact else 176
+                gate_w = 86 if compact else 118
+                route_w = max(190, int(width * (0.31 if compact else 0.34)))
+                flight_w = max(170, width - time_w - status_w - gate_w - ac_w - route_w)
+                x = self.padding
+                columns: dict[str, Any] = {}
+                for key, col_w in (
+                    ("display_time", time_w),
+                    ("flight_cell", flight_w),
+                    ("route_display", route_w),
+                    ("status_display", status_w),
+                    ("gate", gate_w),
+                    ("aircraft_type", ac_w),
+                ):
+                    columns[key] = QtCore.QRectF(x, 0, max(0, col_w), 1)
+                    x += col_w
+                return columns
+
+            def _draw_board_background(self, painter: Any, QtCore: Any, QtGui: Any, rect: Any, colors: dict[str, str]) -> None:
+                line = QtGui.QColor(colors.get("blue", "#4a9eda"))
+                line.setAlpha(22)
+                painter.setPen(QtGui.QPen(line, 1))
+                base_y = rect.height() - 34
+                painter.drawLine(24, base_y, rect.width() - 24, base_y)
+                for offset in range(0, max(1, rect.width()), 120):
+                    painter.drawLine(offset + 30, base_y, offset + 82, base_y - 16)
+                glow = QtGui.QColor(colors.get("blue", "#4a9eda"))
+                glow.setAlpha(12)
+                painter.setBrush(glow)
+                painter.setPen(QtCore.Qt.NoPen)
+                painter.drawEllipse(QtCore.QPointF(rect.width() - 90, 36), 110, 28)
+
+            def _draw_header(self, painter: Any, QtCore: Any, QtGui: Any, columns: dict[str, Any], colors: dict[str, str]) -> None:
+                top = self.padding
+                label_color = QtGui.QColor(colors.get("muted", "#79a7c8"))
+                label_color.setAlpha(170)
+                font = QtGui.QFont("Space Mono")
+                font.setPointSize(8)
+                font.setBold(True)
+                painter.setFont(font)
+                painter.setPen(label_color)
+                labels = {
+                    "display_time": "TIME",
+                    "flight_cell": "FLIGHT",
+                    "route_display": self.route_label.upper(),
+                    "status_display": "STATUS",
+                    "gate": "GATE",
+                    "aircraft_type": "A/C",
+                }
+                for key, label_text in labels.items():
+                    col = columns.get(key)
+                    if col is None or col.width() <= 0:
+                        continue
+                    painter.drawText(QtCore.QRectF(col.left() + 12, top + 4, col.width() - 16, 20), QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter, label_text)
+                accent = QtGui.QColor(colors.get("blue", "#4a9eda"))
+                accent.setAlpha(45)
+                painter.setPen(QtGui.QPen(accent, 1))
+                painter.drawLine(self.padding, top + self.header_h - 5, self.viewport().width() - self.padding, top + self.header_h - 5)
+
+            def _draw_row(self, painter: Any, QtCore: Any, QtGui: Any, rect: Any, columns: dict[str, Any], row: dict[str, Any], idx: int, colors: dict[str, str]) -> None:
+                shaped = enrich_presentation_fields(row)
+                status_cls = _row_status_class(shaped)
+                status_color = QtGui.QColor(self._status_color(shaped, colors))
+                base = QtGui.QColor(colors.get("panel", "#0d1520"))
+                if idx % 2:
+                    base = _blend_qcolor(QtGui, base, QtGui.QColor(colors.get("panel_2", "#0a121c")), 0.35)
+                if idx == self.hover_row:
+                    base = _blend_qcolor(QtGui, base, QtGui.QColor(colors.get("blue", "#4a9eda")), 0.10)
+                border = QtGui.QColor(colors.get("line_soft", "#17324d"))
+                border.setAlpha(155 if idx == self.hover_row else 95)
+                painter.setPen(QtGui.QPen(border, 1))
+                painter.setBrush(base)
+                painter.drawRoundedRect(rect.adjusted(0.5, 0.5, -0.5, -0.5), 10, 10)
+                rail = QtCore.QRectF(rect.left(), rect.top() + 8, 5, rect.height() - 16)
+                status_color.setAlpha(210 if status_cls not in {"scheduled", "departed", "landed"} else 120)
+                painter.setPen(QtCore.Qt.NoPen)
+                painter.setBrush(status_color)
+                painter.drawRoundedRect(rail, 2, 2)
+                fresh = int(shaped.get("_fresh_alpha") or 0)
+                if fresh:
+                    shimmer = QtGui.QColor(colors.get("cyan", "#7ce7ff"))
+                    shimmer.setAlpha(min(60, fresh + 12))
+                    x = rect.left() + rect.width() * self.animation_phase
+                    painter.setBrush(shimmer)
+                    painter.drawRoundedRect(QtCore.QRectF(max(rect.left(), x - 80), rect.top(), 110, 2.5), 2, 2)
+                if status_cls in {"boarding", "approaching", "delayed-warn", "delayed-bad", "cancelled", "diverted"}:
+                    pulse = (math.sin(self.animation_phase * math.tau) + 1.0) / 2.0
+                    halo = QtGui.QColor(status_color)
+                    halo.setAlpha(int(26 + pulse * 32))
+                    painter.setBrush(halo)
+                    painter.drawRoundedRect(QtCore.QRectF(rect.left() + 5, rect.top() + 8, 5, rect.height() - 16), 2, 2)
+                self._draw_time(painter, QtCore, QtGui, self._cell_rect(rect, columns, "display_time"), shaped, colors)
+                self._draw_flight(painter, QtCore, QtGui, self._cell_rect(rect, columns, "flight_cell"), shaped, colors)
+                self._draw_route(painter, QtCore, QtGui, self._cell_rect(rect, columns, "route_display"), shaped, colors)
+                self._draw_status(painter, QtCore, QtGui, self._cell_rect(rect, columns, "status_display"), shaped, colors)
+                self._draw_gate(painter, QtCore, QtGui, self._cell_rect(rect, columns, "gate"), shaped, colors)
+                ac_rect = self._cell_rect(rect, columns, "aircraft_type")
+                if ac_rect.width() > 0:
+                    self._draw_aircraft(painter, QtCore, QtGui, ac_rect, shaped, colors)
+
+            def _cell_rect(self, row_rect: Any, columns: dict[str, Any], key: str) -> Any:
+                col = columns[key]
+                return row_rect.__class__(col.left(), row_rect.top(), col.width(), row_rect.height())
+
+            def _draw_time(self, painter: Any, QtCore: Any, QtGui: Any, rect: Any, row: dict[str, Any], colors: dict[str, str]) -> None:
+                time_text = str(row.get("time_primary") or _split_display_delay(str(row.get("display_time") or ""))[0] or "-")
+                delta = str(row.get("time_delta_label") or row.get("_delay_suffix") or "")
+                muted = QtGui.QColor(colors.get("muted", "#79a7c8"))
+                self._draw_icon(painter, QtCore, QtGui, QtCore.QRectF(rect.left() + 16, rect.center().y() - 8, 16, 16), "clock", muted)
+                font = QtGui.QFont("Space Mono")
+                font.setPointSize(20)
+                font.setBold(True)
+                painter.setFont(font)
+                painter.setPen(QtGui.QColor(self._text_color(row, colors)))
+                painter.drawText(QtCore.QRectF(rect.left() + 42, rect.top() + 10, rect.width() - 46, 32), QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter, time_text)
+                if delta:
+                    color = QtGui.QColor(self._delay_color(row, colors))
+                    bg = QtGui.QColor(color)
+                    bg.setAlpha(34)
+                    chip = QtCore.QRectF(rect.left() + 43, rect.top() + 46, 62, 20)
+                    painter.setPen(QtGui.QPen(color, 1))
+                    painter.setBrush(bg)
+                    painter.drawRoundedRect(chip, 10, 10)
+                    small = QtGui.QFont("Space Mono")
+                    small.setPointSize(8)
+                    small.setBold(True)
+                    painter.setFont(small)
+                    painter.setPen(color)
+                    painter.drawText(chip, QtCore.Qt.AlignCenter, delta)
+
+            def _draw_flight(self, painter: Any, QtCore: Any, QtGui: Any, rect: Any, row: dict[str, Any], colors: dict[str, str]) -> None:
+                accent = QtGui.QColor(colors.get("blue", "#4a9eda"))
+                direction = "arrival" if str(row.get("direction") or "").upper().startswith("ARR") else "departure"
+                self._draw_icon(painter, QtCore, QtGui, QtCore.QRectF(rect.left() + 12, rect.top() + 16, 20, 20), direction, accent)
+                font = QtGui.QFont("Space Mono")
+                font.setPointSize(13)
+                font.setBold(True)
+                painter.setFont(font)
+                painter.setPen(QtGui.QColor(self._text_color(row, colors)))
+                painter.drawText(QtCore.QRectF(rect.left() + 42, rect.top() + 9, rect.width() - 50, 26), QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter, str(row.get("flight_display") or row.get("callsign") or "-"))
+                airline_font = QtGui.QFont()
+                airline_font.setPointSize(8)
+                airline_font.setBold(True)
+                painter.setFont(airline_font)
+                painter.setPen(QtGui.QColor(colors.get("muted", "#79a7c8")))
+                painter.drawText(QtCore.QRectF(rect.left() + 42, rect.top() + 34, rect.width() - 50, 18), QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter, str(row.get("airline_display") or "").upper())
+                codeshare = self._codeshare_frame(row)
+                if codeshare:
+                    chip = QtCore.QRectF(rect.left() + 42, rect.top() + 52, min(rect.width() - 50, 116), 18)
+                    bg = QtGui.QColor(accent)
+                    bg.setAlpha(26)
+                    painter.setPen(QtGui.QPen(accent, 1))
+                    painter.setBrush(bg)
+                    painter.drawRoundedRect(chip, 9, 9)
+                    self._draw_icon(painter, QtCore, QtGui, QtCore.QRectF(chip.left() + 7, chip.top() + 4, 10, 10), "codeshare", accent)
+                    small = QtGui.QFont("Space Mono")
+                    small.setPointSize(8)
+                    small.setBold(True)
+                    painter.setFont(small)
+                    painter.setPen(accent)
+                    painter.drawText(chip.adjusted(22, 0, -6, 0), QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter, codeshare)
+
+            def _draw_route(self, painter: Any, QtCore: Any, QtGui: Any, rect: Any, row: dict[str, Any], colors: dict[str, str]) -> None:
+                muted = QtGui.QColor(colors.get("muted", "#79a7c8"))
+                self._draw_icon(painter, QtCore, QtGui, QtCore.QRectF(rect.left() + 12, rect.top() + 18, 18, 18), "route", muted)
+                pulse = (math.sin(self.animation_phase * math.tau) + 1.0) / 2.0
+                dot = QtGui.QColor(colors.get("cyan", "#7ce7ff"))
+                dot.setAlpha(int(100 + pulse * 110))
+                painter.setPen(QtCore.Qt.NoPen)
+                painter.setBrush(dot)
+                painter.drawEllipse(QtCore.QPointF(rect.left() + 21 + pulse * 24, rect.top() + 58), 2.5, 2.5)
+                primary = str(row.get("route_primary") or row.get("route_display") or "-")
+                code = str(row.get("route_caption") or "")
+                font = QtGui.QFont()
+                font.setPointSize(11)
+                font.setBold(True)
+                painter.setFont(font)
+                painter.setPen(QtGui.QColor(colors.get("text", "#e8f0fe")))
+                painter.drawText(QtCore.QRectF(rect.left() + 42, rect.top() + 12, rect.width() - 48, 25), QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter, primary)
+                source = str(row.get("source_hint") or row.get("live_hint") or "")
+                sub = " | ".join(part for part in (code, source) if part and part not in primary)
+                small = QtGui.QFont("Space Mono")
+                small.setPointSize(8)
+                painter.setFont(small)
+                painter.setPen(muted)
+                painter.drawText(QtCore.QRectF(rect.left() + 42, rect.top() + 40, rect.width() - 48, 18), QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter, sub.upper())
+
+            def _draw_status(self, painter: Any, QtCore: Any, QtGui: Any, rect: Any, row: dict[str, Any], colors: dict[str, str]) -> None:
+                label_text = str(row.get("status_display") or row.get("status") or "Scheduled").upper()
+                color = QtGui.QColor(self._status_color(row, colors))
+                bg = QtGui.QColor(color)
+                status_cls = _row_status_class(row)
+                pulse = (math.sin(self.animation_phase * math.tau) + 1.0) / 2.0
+                bg.setAlpha(28 if status_cls in {"scheduled", "departed", "landed"} else int(42 + pulse * 38))
+                pill = QtCore.QRectF(rect.left() + 9, rect.center().y() - 19, max(20, rect.width() - 18), 38)
+                painter.setPen(QtGui.QPen(color, 1.5))
+                painter.setBrush(bg)
+                painter.drawRoundedRect(pill, 19, 19)
+                painter.setPen(QtCore.Qt.NoPen)
+                painter.setBrush(color)
+                painter.drawEllipse(QtCore.QPointF(pill.left() + 14, pill.center().y()), 3.3 + pulse * 1.5, 3.3 + pulse * 1.5)
+                font = QtGui.QFont("Space Mono")
+                font.setPointSize(8)
+                font.setBold(True)
+                painter.setFont(font)
+                painter.setPen(color)
+                painter.drawText(pill.adjusted(28, 0, -8, 0), QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter, label_text)
+
+            def _draw_gate(self, painter: Any, QtCore: Any, QtGui: Any, rect: Any, row: dict[str, Any], colors: dict[str, str]) -> None:
+                gate = str(row.get("terminal_gate_display") or row.get("gate_display") or row.get("gate") or "").strip()
+                if not gate:
+                    self._draw_center_text(painter, QtCore, QtGui, rect, "-", colors, muted=True)
+                    return
+                accent = QtGui.QColor(colors.get("blue", "#4a9eda"))
+                bg = QtGui.QColor(accent)
+                bg.setAlpha(26)
+                badge = QtCore.QRectF(rect.left() + 8, rect.center().y() - 21, max(20, rect.width() - 16), 42)
+                painter.setPen(QtGui.QPen(accent, 1.3))
+                painter.setBrush(bg)
+                painter.drawRoundedRect(badge, 9, 9)
+                self._draw_icon(painter, QtCore, QtGui, QtCore.QRectF(badge.left() + 9, badge.center().y() - 7, 14, 14), "gate", accent)
+                font = QtGui.QFont("Space Mono")
+                font.setPointSize(10)
+                font.setBold(True)
+                painter.setFont(font)
+                painter.setPen(QtGui.QColor(colors.get("text", "#e8f0fe")))
+                painter.drawText(badge.adjusted(30, 0, -6, 0), QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter, gate)
+
+            def _draw_aircraft(self, painter: Any, QtCore: Any, QtGui: Any, rect: Any, row: dict[str, Any], colors: dict[str, str]) -> None:
+                value = str(row.get("aircraft_type") or "").strip().upper()
+                if not value:
+                    self._draw_center_text(painter, QtCore, QtGui, rect, "-", colors, muted=True)
+                    return
+                muted = QtGui.QColor(colors.get("muted", "#79a7c8"))
+                self._draw_icon(painter, QtCore, QtGui, QtCore.QRectF(rect.left() + 11, rect.center().y() - 8, 16, 16), "aircraft", muted)
+                font = QtGui.QFont("Space Mono")
+                font.setPointSize(9)
+                font.setBold(True)
+                painter.setFont(font)
+                painter.setPen(QtGui.QColor(colors.get("text", "#e8f0fe")))
+                painter.drawText(QtCore.QRectF(rect.left() + 32, rect.top(), rect.width() - 34, rect.height()), QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter, value)
+
+            def _draw_center_text(self, painter: Any, QtCore: Any, QtGui: Any, rect: Any, text: str, colors: dict[str, str], *, muted: bool = False) -> None:
+                font = QtGui.QFont("Space Mono")
+                font.setPointSize(9)
+                painter.setFont(font)
+                painter.setPen(QtGui.QColor(colors.get("muted" if muted else "text", "#e8f0fe")))
+                painter.drawText(rect, QtCore.Qt.AlignCenter, text)
+
+            def _codeshare_frame(self, row: dict[str, Any]) -> str:
+                frames = row.get("_codeshare_frames")
+                if isinstance(frames, list) and frames:
+                    idx = int(row.get("_codeshare_frame_index") or 0) % len(frames)
+                    return str(frames[idx])
+                return ""
+
+            def _status_color(self, row: dict[str, Any], colors: dict[str, str]) -> str:
+                tone = str(row.get("tone") or tone_for_status(str(row.get("status_kind") or ""), str(row.get("delay_kind") or "none")))
+                if tone == "green":
+                    return colors.get("green", "#22c55e")
+                if tone == "amber":
+                    return colors.get("amber", "#f59e0b")
+                if tone == "red":
+                    return colors.get("red", "#ef4444")
+                if tone == "orange":
+                    return "#f97316"
+                if tone == "dim":
+                    return colors.get("dim", "#7b8494")
+                cls = _row_status_class(row)
+                if cls in {"boarding", "landed", "early"}:
+                    return colors.get("green", "#22c55e")
+                if cls in {"approaching", "delayed-warn"}:
+                    return colors.get("amber", "#f59e0b")
+                if cls in {"delayed", "delayed-bad", "cancelled"}:
+                    return colors.get("red", "#ef4444")
+                if cls == "diverted":
+                    return "#f97316"
+                if cls in {"departed", "on-ground"}:
+                    return colors.get("dim", "#7b8494")
+                return colors.get("blue", "#4a9eda")
+
+            def _delay_color(self, row: dict[str, Any], colors: dict[str, str]) -> str:
+                delay_cls = _delay_visual_class(row)
+                if delay_cls == "early":
+                    return colors.get("green", "#22c55e")
+                if delay_cls == "warn":
+                    return colors.get("amber", "#f59e0b")
+                if delay_cls == "bad":
+                    return colors.get("red", "#ef4444")
+                return self._status_color(row, colors)
+
+            def _text_color(self, row: dict[str, Any], colors: dict[str, str]) -> str:
+                if _row_status_class(row) in {"cancelled", "departed", "landed"}:
+                    return colors.get("dim", "#7b8494")
+                return colors.get("text", "#e8f0fe")
+
+            def _draw_icon(self, painter: Any, QtCore: Any, QtGui: Any, rect: Any, kind: str, color: Any) -> None:
+                painter.save()
+                icon_color = QtGui.QColor(color)
+                icon_color.setAlpha(max(100, icon_color.alpha()))
+                painter.setPen(QtGui.QPen(icon_color, 1.5))
+                painter.setBrush(QtCore.Qt.NoBrush)
+                cx = rect.center().x()
+                cy = rect.center().y()
+                w = rect.width()
+                h = rect.height()
+                if kind in {"arrival", "departure"}:
+                    painter.drawLine(QtCore.QPointF(rect.left() + w * 0.10, cy), QtCore.QPointF(rect.right() - w * 0.10, cy))
+                    painter.drawLine(QtCore.QPointF(cx, rect.top() + h * 0.12), QtCore.QPointF(cx, rect.bottom() - h * 0.12))
+                    if kind == "arrival":
+                        painter.drawLine(QtCore.QPointF(rect.left() + w * 0.18, rect.bottom() - h * 0.16), QtCore.QPointF(rect.right() - w * 0.12, rect.top() + h * 0.18))
+                    else:
+                        painter.drawLine(QtCore.QPointF(rect.left() + w * 0.18, rect.top() + h * 0.16), QtCore.QPointF(rect.right() - w * 0.12, rect.bottom() - h * 0.18))
+                elif kind == "clock":
+                    painter.drawEllipse(rect.adjusted(1.5, 1.5, -1.5, -1.5))
+                    painter.drawLine(QtCore.QPointF(cx, cy), QtCore.QPointF(cx, rect.top() + h * 0.26))
+                    painter.drawLine(QtCore.QPointF(cx, cy), QtCore.QPointF(rect.right() - w * 0.26, cy))
+                elif kind == "route":
+                    painter.drawEllipse(QtCore.QRectF(rect.left() + 1, cy - 3, 6, 6))
+                    painter.drawEllipse(QtCore.QRectF(rect.right() - 7, cy - 3, 6, 6))
+                    painter.drawLine(QtCore.QPointF(rect.left() + 7, cy), QtCore.QPointF(rect.right() - 7, cy))
+                elif kind == "gate":
+                    painter.drawRoundedRect(rect.adjusted(1, 1, -1, -1), 2, 2)
+                    painter.drawLine(QtCore.QPointF(cx, rect.top() + 3), QtCore.QPointF(cx, rect.bottom() - 3))
+                elif kind == "codeshare":
+                    painter.drawEllipse(rect.adjusted(1, 1, -1, -1))
+                    painter.drawLine(QtCore.QPointF(rect.left() + 3, cy), QtCore.QPointF(rect.right() - 3, cy))
+                elif kind == "aircraft":
+                    path = QtGui.QPainterPath(QtCore.QPointF(cx, rect.top() + 1))
+                    path.lineTo(QtCore.QPointF(rect.right() - 1, cy + h * 0.05))
+                    path.lineTo(QtCore.QPointF(cx + w * 0.14, cy + h * 0.22))
+                    path.lineTo(QtCore.QPointF(cx + w * 0.07, rect.bottom() - 1))
+                    path.lineTo(QtCore.QPointF(cx, cy + h * 0.30))
+                    path.lineTo(QtCore.QPointF(cx - w * 0.07, rect.bottom() - 1))
+                    path.lineTo(QtCore.QPointF(cx - w * 0.14, cy + h * 0.22))
+                    path.lineTo(QtCore.QPointF(rect.left() + 1, cy + h * 0.05))
+                    path.closeSubpath()
+                    fill = QtGui.QColor(icon_color)
+                    fill.setAlpha(86)
+                    painter.setBrush(fill)
+                    painter.drawPath(path)
+                painter.restore()
+
+        return _Board()
+
+
 class FidsScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
     def __init__(self, QtCore: Any, QtGui: Any, QtWidgets: Any, client: LocalApiClient, *, embedded: bool = False) -> None:
         self.QtCore = QtCore
@@ -305,6 +863,9 @@ class FidsScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
         self.rotation_seconds = 8
         self.page_index = 0
         self._active = False
+        self._loading_busy = False
+        self._board_animation_phase = 0.0
+        self._board_animation_tick = 0
         self.airport_tz_name = "UTC"
         self.airport_tz = timezone.utc
         self.colors = colors_for()
@@ -330,13 +891,13 @@ class FidsScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
         self.airport = QtWidgets.QLabel("LOCAL")
         self.airport.setObjectName("FidsAirportCode")
         airport_font = QtGui.QFont("Space Mono")
-        airport_font.setPointSize(24 if not embedded else 14)
+        airport_font.setPointSize(20 if not embedded else 14)
         airport_font.setBold(True)
         self.airport.setFont(airport_font)
         self.title = QtWidgets.QLabel("Departures")
         self.title.setObjectName("FidsTitle")
         title_font = QtGui.QFont()
-        title_font.setPointSize(13)
+        title_font.setPointSize(11)
         title_font.setBold(True)
         self.title.setFont(title_font)
         if embedded:
@@ -354,8 +915,10 @@ class FidsScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
         refresh.clicked.connect(self.refresh)
         self.live_dot = label(QtWidgets, chr(9679), "LiveDot")
         self.last_updated = label(QtWidgets, "Airport LT --:--:--", "Muted")
+        self.scan_indicator = label(QtWidgets, "", "Dim")
         header.addWidget(self.live_dot)
         header.addWidget(self.last_updated)
+        header.addWidget(self.scan_indicator)
         header.addWidget(self.arr_btn)
         header.addWidget(self.dep_btn)
         header.addWidget(refresh)
@@ -363,6 +926,7 @@ class FidsScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
             header.addStretch(1)
 
         self.weather = WeatherStrip(QtWidgets, "Weather loading...")
+        self.weather.setMaximumHeight(48 if not embedded else 42)
         self.error_banner = _banner(QtWidgets, "Data fetch error", "ErrorBanner")
         self.info_banner = _banner(
             QtWidgets,
@@ -372,27 +936,13 @@ class FidsScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
         self.status = label(QtWidgets, "Waiting for first board refresh...", "Muted")
 
         self.model = FlightBoardModel(QtCore, [], QtGui=QtGui, route_label="To", colors=self.colors)
-        self.table = QtWidgets.QTableView()
-        self.table.setObjectName("FidsTable")
-        self.table.setModel(self.model)
-        self.table.setMouseTracking(True)
-        self.table.verticalHeader().setVisible(False)
-        self.table.verticalHeader().setDefaultSectionSize(52)
-        self.table.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
-        self.table.setAlternatingRowColors(False)
-        self.table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)
-        self.table.setSelectionMode(QtWidgets.QAbstractItemView.SingleSelection)
-        self.table.clicked.connect(self._show_detail_for_index)
-        self.table.setWordWrap(True)
-        self.table.setShowGrid(False)
-        self.table.setVerticalScrollMode(QtWidgets.QAbstractItemView.ScrollPerPixel)
-        self.table.horizontalHeader().setDefaultAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter)
-        self.table.horizontalHeader().setMinimumSectionSize(64)
-        self.table.horizontalHeader().setStretchLastSection(True)
-        self.table.setStyleSheet(self._table_stylesheet())
         self.delegate = _FidsBoardDelegate(QtCore, QtGui, QtWidgets, lambda: self.colors)
-        self.table.setItemDelegate(self.delegate)
+        self.board = FidsBoardView(QtCore, QtGui, QtWidgets, lambda: self.colors)
+        self.board.rowActivated.connect(lambda row_idx: self._show_detail_for_row(row_idx, 0))
 
+        self.board_animation_timer = QtCore.QTimer(self.widget)
+        self.board_animation_timer.setInterval(50)
+        self.board_animation_timer.timeout.connect(self._advance_board_animation)
         self.flash_timer = QtCore.QTimer(self.widget)
         self.flash_timer.setInterval(33)
         self.flash_timer.timeout.connect(self._advance_row_flash)
@@ -408,7 +958,7 @@ class FidsScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
         board_layout.addWidget(self.error_banner)
         board_layout.addWidget(self.info_banner)
         board_layout.addWidget(self.status)
-        board_layout.addWidget(self.table, 1)
+        board_layout.addWidget(self.board, 1)
 
         self.drawer = self._build_detail_drawer()
         self.drawer.hide()
@@ -423,43 +973,27 @@ class FidsScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
         self.colors = colors_for(theme, skin)
         if hasattr(self.model, "set_theme"):
             self.model.set_theme(self.colors)
-        self.table.setStyleSheet(self._table_stylesheet())
+        if hasattr(self, "board"):
+            self.board.set_colors(self.colors)
+        if hasattr(self, "detail_body"):
+            self._style_detail_body()
         self._render_rows()
 
-    def _table_stylesheet(self) -> str:
+    def _style_detail_body(self) -> None:
+        panel = self.colors.get("panel_2", "#08111b")
+        text = self.colors.get("text", "#e8f0fe")
         line = self.colors.get("line", "#263244")
-        panel = self.colors.get("panel_2", "#151923")
-        text = self.colors.get("text", "#e6edf5")
-        muted = self.colors.get("muted", "#9aa3b2")
-        blue = self.colors.get("blue", "#4a9eda")
-        return f"""
-QTableView#FidsTable {{
-  background: {panel};
-  alternate-background-color: {panel};
-  border: 1px solid {line};
-  border-radius: 12px;
-  selection-background-color: {_css_rgba(blue, 0.24)};
-  selection-color: {text};
-  outline: 0;
-}}
-QTableView#FidsTable::item {{
-  padding: 7px 10px;
-  border-bottom: 1px solid {_css_rgba(line, 0.68)};
-}}
-QTableView#FidsTable::item:hover {{
-  background: {_css_rgba(blue, 0.10)};
-}}
-QHeaderView::section {{
-  background: {panel};
-  color: {muted};
-  border: none;
-  border-bottom: 1px solid {line};
-  padding: 8px 10px;
-  font-family: "Space Mono", Consolas, monospace;
-  font-size: 10px;
-  font-weight: 800;
-}}
-"""
+        selection = _css_rgba(self.colors.get("blue", "#4a9eda"), 0.28)
+        self.detail_body.setStyleSheet(
+            "QTextEdit {"
+            f"background: {panel};"
+            f"color: {text};"
+            f"border: 1px solid {line};"
+            "border-radius: 10px;"
+            "padding: 8px;"
+            "}"
+            f"QTextEdit::selection {{ background: {selection}; }}"
+        )
 
     def _segment_button(self, text: str, view: str) -> Any:
         button = self.QtWidgets.QPushButton(text)
@@ -473,6 +1007,7 @@ QHeaderView::section {{
         self.detail_title = drawer.title_label
         self.detail_route = label(self.QtWidgets, "", "Muted", wrap=True)
         self.detail_body = drawer.body
+        self._style_detail_body()
         layout = drawer.layout()
         if layout is not None:
             layout.insertWidget(1, self.detail_route)
@@ -497,11 +1032,15 @@ QHeaderView::section {{
         if not active:
             self.page_timer.stop()
             self.codeshare_timer.stop()
+            self.board_animation_timer.stop()
+            self.scan_indicator.setText("")
         elif len(self.rows) > self.row_limit:
             self.page_timer.start(self.rotation_seconds * 1000)
             self._sync_codeshare_animation()
+            self._sync_board_animation()
         else:
             self._sync_codeshare_animation()
+            self._sync_board_animation()
 
     def refresh(self) -> None:
         view = self.view
@@ -520,6 +1059,7 @@ QHeaderView::section {{
                     busy=True,
                 )
             self.status.setText(f"Updating {view}...")
+            self._sync_board_animation()
 
     def _fetch_board(self, view: str) -> dict[str, Any]:
         board = self.service.fids_board(view=view, limit=80)
@@ -611,10 +1151,12 @@ QHeaderView::section {{
     def _set_info_banner(self, text: str, visible: bool, *, busy: bool = False) -> None:
         if text:
             self._set_banner_text(self.info_banner, text)
+        self._loading_busy = bool(busy and visible)
         progress = self.info_banner.findChild(self.QtWidgets.QProgressBar, "LoadingProgress")
         if progress is not None:
             progress.setVisible(bool(busy and visible))
         self.info_banner.setVisible(visible)
+        self._sync_board_animation()
 
     def _set_banner_text(self, banner: Any, text: str) -> None:
         label_widget = banner.findChild(self.QtWidgets.QLabel)
@@ -695,7 +1237,10 @@ QHeaderView::section {{
         source_rows = self.rows[start : start + self.row_limit] or self.rows[: self.row_limit]
         self.visible_rows = [self._model_row(row, start + idx) for idx, row in enumerate(source_rows)]
         self.model.set_rows(self.visible_rows)
+        if hasattr(self, "board"):
+            self.board.set_rows(self.visible_rows, route_label="From" if self.view == "arrivals" else "To")
         self._fit_columns()
+        self._sync_board_animation()
 
     def _model_row(self, row: dict[str, Any], source_index: int) -> dict[str, Any]:
         shaped = enrich_presentation_fields(dict(row))
@@ -726,31 +1271,8 @@ QHeaderView::section {{
         return shaped
 
     def _fit_columns(self) -> None:
-        available = max(640, self.table.viewport().width() - 18)
-        compact = available < 760
-        time_w = 98 if compact else 112
-        gate_w = 82 if compact else 104
-        status_w = 118 if compact else 146
-        ac_w = 0 if compact else 74
-        route_w = max(170, int(available * (0.34 if compact else 0.32)))
-        flight_w = max(150, available - time_w - gate_w - status_w - ac_w - route_w)
-        self.table.setColumnWidth(0, time_w)
-        self.table.setColumnWidth(1, flight_w)
-        self.table.setColumnWidth(2, route_w)
-        self.table.setColumnWidth(3, gate_w)
-        self.table.setColumnWidth(4, status_w)
-        self.table.setColumnHidden(5, compact)
-        if not compact:
-            self.table.setColumnWidth(5, ac_w)
-        self.table.horizontalHeader().setStretchLastSection(True)
-        for row_idx, row in enumerate(self.visible_rows):
-            if row.get("_codeshare_frames"):
-                height = 70
-            elif row.get("airline_display"):
-                height = 62
-            else:
-                height = 48
-            self.table.setRowHeight(row_idx, height)
+        if hasattr(self, "board"):
+            self.board.set_rows(self.visible_rows, route_label="From" if self.view == "arrivals" else "To")
         self._sync_codeshare_animation()
 
     def _mark_rows_fresh(self) -> None:
@@ -760,6 +1282,7 @@ QHeaderView::section {{
             row["_fresh_alpha"] = 34
         self._render_rows()
         self.flash_timer.start()
+        self._sync_board_animation()
 
     def _advance_row_flash(self) -> None:
         elapsed = time.monotonic() - self._flash_started
@@ -778,6 +1301,34 @@ QHeaderView::section {{
             self._render_rows()
         if progress >= 1.0:
             self.flash_timer.stop()
+            self._sync_board_animation()
+
+    def _advance_board_animation(self) -> None:
+        self._board_animation_tick += 1
+        self._board_animation_phase = (self._board_animation_phase + 0.018) % 1.0
+        if hasattr(self.delegate, "set_animation_phase"):
+            self.delegate.set_animation_phase(self._board_animation_phase)
+        if hasattr(self, "board"):
+            self.board.set_animation_phase(self._board_animation_phase)
+        if self._loading_busy:
+            dots = "." * ((self._board_animation_tick % 4) + 1)
+            self.scan_indicator.setText(f"SCAN {dots:<4}")
+        else:
+            self.scan_indicator.setText("")
+        if hasattr(self, "board"):
+            self.board.viewport().update()
+        self._sync_board_animation()
+
+    def _sync_board_animation(self) -> None:
+        if not hasattr(self, "board_animation_timer"):
+            return
+        has_attention = any(_row_status_class(row) in {"boarding", "approaching", "delayed-warn", "delayed-bad", "cancelled", "diverted"} for row in self.visible_rows)
+        should_run = bool(self._active and (self._loading_busy or has_attention or self.flash_timer.isActive()))
+        if should_run and not self.board_animation_timer.isActive():
+            self.board_animation_timer.start()
+        elif not should_run and self.board_animation_timer.isActive():
+            self.board_animation_timer.stop()
+            self.scan_indicator.setText("")
 
     def _advance_page(self) -> None:
         if len(self.rows) <= self.row_limit:
@@ -841,38 +1392,80 @@ QHeaderView::section {{
 
     def _detail_html(self, detail: dict[str, Any], history: list[dict[str, Any]], *, virtual: bool) -> str:
         title = "Virtual flight" if virtual else "Schedule"
-        sections = self._virtual_detail_sections(detail) if virtual else self._real_detail_sections(detail)
+        headline = detail.get("flight_display") or detail.get("flight_number") or detail.get("callsign") or "Flight"
+        airline = detail.get("airline_display") or detail.get("airline_name") or detail.get("airline_iata") or ""
+        status = detail.get("status_display") or detail.get("status") or "Scheduled"
+        status_class = self._detail_tone_class(detail)
+        route = self._detail_route_points(detail)
+        gate = self._terminal_gate_line(detail) or "Gate pending"
+        aircraft = self._aircraft_line(detail) or "Aircraft pending"
+        source = value_at(detail, "data_sources.schedule") or detail.get("source") or ("vatsim" if virtual else "schedule")
         parts = [
             _detail_css(self.colors),
-            f"<div class='section'><div class='label'>{self._h(title)}</div>",
+            "<div class='detail-shell'>",
+            "<div class='detail-hero'>",
+            "<div class='hero-rail'></div>",
+            f"<div class='hero-kicker'>&#9992; {self._h(title)}</div>",
+            f"<div class='hero-flight'>{self._h(headline)}</div>",
+            f"<div class='hero-sub'>{self._h(airline or source)}</div>",
+            f"<div class='hero-route'><span>{self._h(route[0])}</span><b>&#8594;</b><span>{self._h(route[1])}</span></div>",
+            f"<div class='hero-chips'><span class='chip status {status_class}'>{self._h(status)}</span><span class='chip gate'>&#9635; {self._h(gate)}</span><span class='chip aircraft'>&#9992; {self._h(aircraft)}</span></div>",
+            "</div>",
         ]
-        headline = detail.get("flight_display") or detail.get("flight_number") or detail.get("callsign") or ""
-        status = detail.get("status_display") or detail.get("status") or ""
-        if headline or status:
-            parts.append(f"<div class='row'><span class='key'>Flight</span><span class='val'>{self._h(headline)}</span></div>")
-            parts.append(f"<div class='row'><span class='key'>Status</span><span class='val'>{self._h(status)}</span></div>")
-        parts.append("</div>")
-        for heading, fields in sections:
-            rows = [(name, format_value(value)) for name, value in fields if format_value(value)]
-            if not rows:
-                continue
-            if heading.lower().startswith("source"):
-                parts.append("<div class='section'><div class='label'>Data Sources</div><div class='cards'>")
-                for name, value in rows:
-                    parts.append(f"<div class='card'><div class='key'>{self._h(name)}</div><div class='val'>{self._h(value)}</div></div>")
-                parts.append("</div></div>")
-                continue
-            parts.append(f"<div class='section'><div class='label'>{self._h(heading)}</div>")
-            for name, value in rows:
-                parts.append(f"<div class='row'><span class='key'>{self._h(name)}</span><span class='val'>{self._h(value)}</span></div>")
-            parts.append("</div>")
+        if virtual:
+            parts.append(self._detail_card_html("Virtual Flight", "&#9992;", [
+                ("Callsign", detail.get("callsign")),
+                ("Flight", detail.get("flight_display") or detail.get("flight_number")),
+                ("Aircraft", detail.get("aircraft_type")),
+                ("Status", detail.get("status") or detail.get("status_display")),
+                ("Source", source),
+            ]))
+            parts.append(self._detail_card_html("Flight Plan", "&#8644;", [
+                ("Origin", self._airport_line(detail, "origin")),
+                ("Destination", self._airport_line(detail, "dest")),
+                ("Rules", value_at(detail, "flight_plan.flight_rules")),
+                ("Route", value_at(detail, "flight_plan.route")),
+                ("Cruise altitude", value_at(detail, "flight_plan.cruise_altitude")),
+                ("Cruise TAS", value_at(detail, "flight_plan.cruise_tas")),
+                ("Planned departure", value_at(detail, "flight_plan.planned_departure")),
+                ("Planned arrival", value_at(detail, "flight_plan.planned_arrival")),
+                ("Enroute", self._minutes(value_at(detail, "flight_plan.enroute_minutes"))),
+                ("Alternate", value_at(detail, "flight_plan.alternate_icao")),
+                ("Squawk", value_at(detail, "flight_plan.assigned_transponder") or value_at(detail, "position.squawk")),
+            ], wide=True))
+            parts.append(self._track_card_html(detail, "Aircraft Track"))
+            parts.append(self._detail_card_html("VATSIM Data", "&#9679;", [
+                ("Snapshot generated", value_at(detail, "data_sources.snapshot_generated_at")),
+                ("Snapshot age", self._seconds(value_at(detail, "data_sources.snapshot_age_seconds"))),
+                ("Position age", self._seconds(value_at(detail, "data_sources.position_age_seconds"))),
+            ], quiet=True))
+        else:
+            parts.append(self._time_strip_html(detail))
+            parts.append(self._route_card_html(detail))
+            parts.append(self._detail_card_html("Operations & Aircraft", "&#9635;", [
+                ("Terminal", detail.get("terminal")),
+                ("Gate", detail.get("gate")),
+                ("Aircraft", detail.get("aircraft_type")),
+                ("Registration", detail.get("aircraft_registration")),
+                ("Callsign", detail.get("callsign")),
+                ("Airline", airline),
+                ("Codeshares", ", ".join(detail.get("codeshares") or [])),
+            ]))
+            parts.append(self._detail_card_html("Source Confidence", "&#9679;", [
+                ("Schedule", source),
+                ("Live Track", detail.get("enriched_by") or value_at(detail, "data_sources.enrichment") or "schedule only"),
+                ("Confidence", value_at(detail, "data_sources.confidence")),
+                ("Snapshot age", self._seconds(value_at(detail, "data_sources.snapshot_age_seconds"))),
+            ], quiet=True))
+            parts.append(self._track_card_html(detail, "Live Track"))
         parts.append(self._history_html(history))
+        parts.append("</div>")
         return "".join(parts)
 
     def _history_html(self, history: list[dict[str, Any]]) -> str:
         if not history:
-            return "<div class='section'><div class='label'>Recent History (7 days)</div><div class='muted'>No history yet.</div></div>"
-        parts = ["<div class='section'><div class='label'>Recent History (7 days)</div>"]
+            return "<div class='detail-card history-card'><div class='card-title'>&#9719; Recent History (7 days)</div><div class='muted empty'>No history yet.</div></div>"
+        parts = ["<div class='detail-card history-card'><div class='card-title'>&#9719; Recent History (7 days)</div><table class='detail-table' width='100%' cellspacing='0' cellpadding='0'>"]
         for item in history[:8]:
             delay = item.get("delay_minutes")
             try:
@@ -883,9 +1476,98 @@ QHeaderView::section {{
             delay_text = "On time" if delay_i == 0 else f"{delay_i:+d} min"
             date = item.get("date") or str(item.get("snapshot_ts") or "")[:10] or "-"
             status = item.get("status") or "-"
-            parts.append(f"<div class='history'><span>{self._h(date)} - {self._h(status)}</span><span class='{cls}'>{self._h(delay_text)}</span></div>")
-        parts.append("</div>")
+            parts.append(f"<tr class='history'><td>{self._h(date)} - {self._h(status)}</td><td align='right'><span class='delay-chip {cls}'>{self._h(delay_text)}</span></td></tr>")
+        parts.append("</table></div>")
         return "".join(parts)
+
+    def _time_strip_html(self, detail: dict[str, Any]) -> str:
+        items = [
+            ("Scheduled", detail.get("sched_time")),
+            ("Estimated", detail.get("est_time")),
+            ("Actual", detail.get("actual_time")),
+            ("Delay", self._minutes(detail.get("delay_minutes"))),
+        ]
+        parts = ["<div class='time-strip'><div class='strip-label'>&#9716; Times (UTC)</div><table class='time-table' width='100%' cellspacing='0' cellpadding='0'>"]
+        for name, value in items:
+            parts.append(f"<tr><td class='time-key'>{self._h(name)}</td><td class='time-val' align='right'>{self._h(value)}</td></tr>")
+        parts.append("</table></div>")
+        return "".join(parts)
+
+    def _route_card_html(self, detail: dict[str, Any]) -> str:
+        origin, dest = self._detail_route_points(detail)
+        return (
+            "<div class='detail-card route-card'>"
+            "<div class='card-title'>&#8644; Route</div>"
+            "<table class='route-line' width='100%' cellspacing='0' cellpadding='0'>"
+            f"<tr><td><span>Origin</span><b>{self._h(origin)}</b></td><td class='route-arrow' align='center'>&#8594;</td><td align='right'><span>Destination</span><b>{self._h(dest)}</b></td></tr>"
+            "</table>"
+            "</div>"
+        )
+
+    def _track_card_html(self, detail: dict[str, Any], title: str) -> str:
+        rows = [
+            ("Latitude", value_at(detail, "position.lat")),
+            ("Longitude", value_at(detail, "position.lon")),
+            ("Altitude", self._altitude(value_at(detail, "position.altitude_m"))),
+            ("Ground speed", self._speed(value_at(detail, "position.speed_ms"))),
+            ("Heading", self._heading(value_at(detail, "position.heading"))),
+            ("On ground", value_at(detail, "position.on_ground")),
+            ("Squawk", value_at(detail, "position.squawk")),
+            ("Last contact", value_at(detail, "position.last_contact")),
+        ]
+        if not any(format_value(value) for _name, value in rows):
+            return ""
+        return self._detail_card_html(title, "&#8982;", rows)
+
+    def _detail_card_html(self, title: str, icon: str, fields: list[tuple[str, Any]], *, quiet: bool = False, wide: bool = False) -> str:
+        rows = [(name, format_value(value)) for name, value in fields if format_value(value)]
+        if not rows:
+            return ""
+        class_name = "detail-card"
+        if quiet:
+            class_name += " quiet"
+        if wide:
+            class_name += " wide"
+        parts = [f"<div class='{class_name}'><div class='card-title'>{icon} {self._h(title)}</div><table class='detail-table' width='100%' cellspacing='0' cellpadding='0'>"]
+        for name, value in rows:
+            parts.append(f"<tr class='detail-row'><td>{self._h(name)}</td><td align='right'><b>{self._h(value)}</b></td></tr>")
+        parts.append("</table></div>")
+        return "".join(parts)
+
+    def _detail_route_points(self, detail: dict[str, Any]) -> tuple[str, str]:
+        origin = self._airport_line(detail, "origin") or detail.get("origin_iata") or detail.get("origin_icao") or "-"
+        dest = self._airport_line(detail, "dest") or detail.get("dest_iata") or detail.get("dest_icao") or "-"
+        return (format_value(origin) or "-", format_value(dest) or "-")
+
+    def _terminal_gate_line(self, detail: dict[str, Any]) -> str:
+        terminal = format_value(detail.get("terminal"))
+        gate = format_value(detail.get("gate"))
+        if terminal and gate:
+            return f"Terminal {terminal} Gate {gate}"
+        if gate:
+            return f"Gate {gate}"
+        if terminal:
+            return f"Terminal {terminal}"
+        return ""
+
+    def _aircraft_line(self, detail: dict[str, Any]) -> str:
+        aircraft = format_value(detail.get("aircraft_type"))
+        registration = format_value(detail.get("aircraft_registration"))
+        return " ".join(part for part in (aircraft, registration) if part)
+
+    def _detail_tone_class(self, detail: dict[str, Any]) -> str:
+        cls = _row_status_class(detail)
+        if cls in {"boarding", "landed", "early"}:
+            return "good"
+        if cls in {"approaching", "delayed-warn"}:
+            return "warn"
+        if cls in {"delayed", "delayed-bad", "cancelled"}:
+            return "bad"
+        if cls == "diverted":
+            return "orange"
+        if cls in {"departed", "on-ground"}:
+            return "dim"
+        return "neutral"
 
     def _h(self, value: Any) -> str:
         return html_escape(format_value(value) or "-")
@@ -1034,6 +1716,16 @@ def _banner(QtWidgets: Any, text: str, role: str) -> Any:
         layout.addWidget(progress)
     box.hide()
     return box
+
+
+def _blend_qcolor(QtGui: Any, first: Any, second: Any, amount: float) -> Any:
+    ratio = min(1.0, max(0.0, float(amount)))
+    return QtGui.QColor(
+        int(first.red() * (1.0 - ratio) + second.red() * ratio),
+        int(first.green() * (1.0 - ratio) + second.green() * ratio),
+        int(first.blue() * (1.0 - ratio) + second.blue() * ratio),
+        int(first.alpha() * (1.0 - ratio) + second.alpha() * ratio),
+    )
 
 
 def _weather_line(payload: dict[str, Any], *, raw: bool) -> str:
@@ -1187,23 +1879,56 @@ def _is_completed_status(row: dict[str, Any]) -> bool:
 
 def _detail_css(colors: dict[str, str]) -> str:
     is_light = str(colors.get("bg", "")).lower() == "#f4f7fb"
-    divider = "rgba(0,0,0,.08)" if is_light else "rgba(255,255,255,.045)"
-    card_bg = _css_rgba(colors.get("blue", "#4a9eda"), 0.10 if is_light else 0.08)
-    card_border = _css_rgba(colors.get("blue", "#4a9eda"), 0.28 if is_light else 0.22)
+    divider = "rgba(0,0,0,.10)" if is_light else "rgba(255,255,255,.06)"
+    blue = colors.get("blue", "#4a9eda")
+    panel = colors.get("panel", "#0d1520")
+    panel_2 = colors.get("panel_2", "#08111b")
+    text = colors.get("text", "#e8f0fe")
+    muted = colors.get("muted", "#79a7c8")
+    dim = colors.get("dim", "#7b8494")
+    green = colors.get("green", "#22c55e")
+    amber = colors.get("amber", "#f59e0b")
+    red = colors.get("red", "#ef4444")
+    orange = "#f97316"
+    card_bg = _css_rgba(blue, 0.08 if is_light else 0.06)
+    card_border = _css_rgba(blue, 0.28 if is_light else 0.20)
+    chip_bg = _css_rgba(blue, 0.13 if is_light else 0.10)
     return (
         "<style>"
-        f"body{{font-family:'DM Sans','Segoe UI','Helvetica Neue',sans-serif;color:{colors['text']};background:{colors['panel_2']};}}"
-        f".section{{margin:0 0 16px 0;padding:0 0 12px 0;border-bottom:1px solid {divider};}}"
-        f".label{{font:700 10px 'Space Mono','Consolas',monospace;letter-spacing:.12em;text-transform:uppercase;color:{colors['dim']};margin:0 0 9px 0;}}"
-        f".row{{display:flex;justify-content:space-between;gap:14px;padding:5px 0;border-bottom:1px solid {divider};}}"
-        ".row:last-child{border-bottom:0;}"
-        f".key{{color:{colors['muted']};}}"
-        f".val{{color:{colors['text']};font-weight:700;text-align:right;}}"
-        ".cards{display:grid;grid-template-columns:1fr 1fr;gap:8px;}"
-        f".card{{border:1px solid {card_border};background:{card_bg};border-radius:10px;padding:10px;}}"
-        ".card .key{font:700 10px 'Space Mono','Consolas',monospace;text-transform:uppercase;letter-spacing:.08em;}"
-        ".history{display:flex;justify-content:space-between;gap:12px;padding:6px 0;}"
-        f".good{{color:{colors['green']}}}.warn{{color:{colors['amber']}}}.bad{{color:{colors['red']}}}.muted{{color:{colors['muted']}}}"
+        f"body{{font-family:'DM Sans','Segoe UI','Helvetica Neue',sans-serif;color:{text};background:{panel_2};margin:0;}}"
+        ".detail-shell{padding:2px 0 8px 0;}"
+        f".detail-hero{{position:relative;border:1px solid {card_border};background:{_css_rgba(blue, 0.09 if is_light else 0.07)};border-radius:12px;padding:13px 13px 12px 17px;margin:0 0 12px 0;}}"
+        f".hero-rail{{position:absolute;left:0;top:10px;bottom:10px;width:4px;background:{blue};border-radius:3px;}}"
+        f".hero-kicker,.strip-label,.card-title{{font:700 10px 'Space Mono','Consolas',monospace;letter-spacing:.10em;text-transform:uppercase;color:{dim};margin:0 0 8px 0;}}"
+        ".hero-flight{font:800 24px 'Space Mono','Consolas',monospace;margin:0 0 2px 0;}"
+        f".hero-sub{{font-weight:700;color:{muted};margin:0 0 10px 0;text-transform:uppercase;}}"
+        f".hero-route{{color:{text};font-weight:800;margin:0 0 10px 0;}}"
+        f".hero-route b{{color:{blue};font-family:'Space Mono','Consolas',monospace;}}"
+        ".hero-chips{margin-top:6px;}"
+        f".chip,.delay-chip{{border:1px solid {card_border};background:{chip_bg};color:{blue};border-radius:999px;padding:4px 8px;margin-right:5px;font:800 10px 'Space Mono','Consolas',monospace;text-transform:uppercase;}}"
+        f".chip.gate,.chip.aircraft{{color:{text};background:{_css_rgba(blue, 0.10)};}}"
+        f".status.good,.delay-chip.good{{border-color:{_css_rgba(green, 0.55)};background:{_css_rgba(green, 0.14)};color:{green};}}"
+        f".status.warn,.delay-chip.warn{{border-color:{_css_rgba(amber, 0.60)};background:{_css_rgba(amber, 0.15)};color:{amber};}}"
+        f".status.bad,.delay-chip.bad{{border-color:{_css_rgba(red, 0.60)};background:{_css_rgba(red, 0.15)};color:{red};}}"
+        f".status.orange{{border-color:{_css_rgba(orange, 0.60)};background:{_css_rgba(orange, 0.15)};color:{orange};}}"
+        f".status.dim,.delay-chip.muted{{border-color:{_css_rgba(dim, 0.45)};background:{_css_rgba(dim, 0.10)};color:{dim};}}"
+        f".status.neutral{{border-color:{card_border};background:{chip_bg};color:{blue};}}"
+        f".time-strip{{border:1px solid {divider};background:{panel};border-radius:10px;padding:10px 10px 6px 10px;margin:0 0 12px 0;}}"
+        f".time-key,.detail-row td:first-child,.route-line span{{color:{muted};font:700 9px 'Space Mono','Consolas',monospace;text-transform:uppercase;letter-spacing:.08em;}}"
+        f".time-val,.detail-row b,.route-line b{{color:{text};font-weight:800;}}"
+        f".detail-card{{border:1px solid {divider};background:{panel};border-radius:10px;padding:11px;margin:0 0 12px 0;}}"
+        f".detail-card.quiet{{background:{card_bg};border-color:{card_border};}}"
+        ".detail-card.wide .detail-row b{font-size:11px;}"
+        f".detail-row td,.time-table td{{padding:6px 0;border-bottom:1px solid {divider};}}"
+        ".detail-row:last-child td,.time-table tr:last-child td{border-bottom:0;}"
+        f".route-card{{background:{_css_rgba(blue, 0.07)};border-color:{card_border};}}"
+        ".route-line td{vertical-align:middle;}"
+        f".route-arrow{{color:{blue};font:900 18px 'Space Mono','Consolas',monospace;}}"
+        ".history-card{padding-bottom:8px;}"
+        f".history td{{padding:7px 0;border-bottom:1px solid {divider};}}"
+        ".history:last-child td{border-bottom:0;}"
+        f".muted{{color:{muted};}}.empty{{padding:4px 0 2px 0;}}"
+        f".good{{color:{green};}}.warn{{color:{amber};}}.bad{{color:{red};}}.orange{{color:{orange};}}"
         "</style>"
     )
 

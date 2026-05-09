@@ -12,6 +12,10 @@ from typing import Any
 from localflight.native.design import colors_for, format_value
 
 
+STATIC_RADAR_LAYER_ORDER = ("background", "surface", "map", "terrain", "grid", "runways", "procedures")
+DYNAMIC_RADAR_LAYER_ORDER = ("track_ghosts", "sweep", "blips", "hover")
+
+
 @dataclass(frozen=True)
 class RadarViewport:
     """Projection state shared by every radar drawing layer."""
@@ -39,6 +43,7 @@ class RadarCanvas:  # pragma: no cover - optional Qt runtime
     def __new__(cls, QtCore: Any, QtGui: Any, QtWidgets: Any):
         class _Canvas(QtWidgets.QWidget):
             hoverChanged = QtCore.Signal(object)
+            blipClicked = QtCore.Signal(object)
 
             def __init__(self) -> None:
                 super().__init__()
@@ -48,10 +53,12 @@ class RadarCanvas:  # pragma: no cover - optional Qt runtime
                 self.track_history: dict[str, list[tuple[float, float]]] = {}
                 self._track_absent_counts: dict[str, int] = {}
                 self._max_track_points = 4
+                self.map_features: list[dict[str, Any]] = []
                 self.surface: list[dict[str, Any]] = []
                 self.procedure_paths: list[dict[str, Any]] = []
                 self.terrain_features: list[dict[str, Any]] = []
                 self.layers = {
+                    "map": True,
                     "surface": True,
                     "runways": True,
                     "traffic_status": False,
@@ -64,6 +71,11 @@ class RadarCanvas:  # pragma: no cover - optional Qt runtime
                 self.attribution = ""
                 self.sweep_angle = 0.0
                 self.colors = colors_for()
+                self._theme = "dark"
+                self._skin = "standard"
+                self._map_version = 0
+                self._map_projection_key: tuple[Any, ...] | None = None
+                self._map_projection: list[tuple[str, str, list[Any], bool, dict[str, Any]]] = []
                 self._surface_version = 0
                 self._surface_projection_key: tuple[Any, ...] | None = None
                 self._surface_projection: list[tuple[str, str, list[Any], bool, dict[str, Any]]] = []
@@ -92,6 +104,25 @@ class RadarCanvas:  # pragma: no cover - optional Qt runtime
 
             def apply_theme(self, theme: str, skin: str) -> None:
                 self.colors = colors_for(theme, skin)
+                self._theme = (theme or "dark").strip().lower()
+                self._skin = (skin or "standard").strip().lower()
+                self._invalidate_static_layer()
+                self.update()
+
+            def set_radius_nm(self, radius_nm: float) -> None:
+                """Update the visible range immediately, independent of API refresh."""
+                try:
+                    radius = float(radius_nm)
+                except (TypeError, ValueError):
+                    return
+                radius = max(1.0, min(200.0, radius))
+                if math.isclose(radius, float(self.radius_nm), rel_tol=0.0, abs_tol=0.001):
+                    return
+                self.radius_nm = radius
+                self._surface_projection_key = None
+                self._map_projection_key = None
+                self._terrain_projection_key = None
+                self._procedure_projection_key = None
                 self._invalidate_static_layer()
                 self.update()
 
@@ -108,6 +139,7 @@ class RadarCanvas:  # pragma: no cover - optional Qt runtime
                 new_key = (self.radius_nm, self.center.get("lat"), self.center.get("lon"))
                 if new_key != old_key:
                     self._surface_projection_key = None
+                    self._map_projection_key = None
                     self._invalidate_static_layer()
                     if old_key[1] not in {None, 0.0} and old_key[2] not in {None, 0.0}:
                         self.track_history.clear()
@@ -128,6 +160,18 @@ class RadarCanvas:  # pragma: no cover - optional Qt runtime
                 self.attribution = str(attribution.get("text") or ("Estimated airport surface" if self.surface else ""))
                 self._surface_version += 1
                 self._surface_projection_key = None
+                self._invalidate_static_layer()
+                self.update()
+
+            def set_map(self, payload: dict[str, Any] | list[Any] | None) -> None:
+                """Install optional cartographic inlay features below radar layers."""
+                if isinstance(payload, dict):
+                    raw = payload.get("features") or payload.get("map_features") or payload.get("ways") or []
+                else:
+                    raw = payload or []
+                self.map_features = [f for f in raw if isinstance(f, dict)]
+                self._map_version += 1
+                self._map_projection_key = None
                 self._invalidate_static_layer()
                 self.update()
 
@@ -159,7 +203,7 @@ class RadarCanvas:  # pragma: no cover - optional Qt runtime
                 if layer not in self.layers:
                     return
                 self.layers[layer] = bool(enabled)
-                if layer in {"surface", "runways", "procedures", "terrain"}:
+                if layer in {"map", "surface", "runways", "procedures", "terrain"}:
                     self._invalidate_static_layer()
                 self.update()
 
@@ -177,10 +221,7 @@ class RadarCanvas:  # pragma: no cover - optional Qt runtime
                 path = QtGui.QPainterPath()
                 path.addEllipse(QtCore.QPointF(viewport.cx, viewport.cy), viewport.radius, viewport.radius)
                 painter.setClipPath(path)
-                self._draw_sweep(painter, QtCore, QtGui, viewport)
-                self._draw_track_ghosts(painter, QtCore, QtGui, viewport)
-                self._draw_blips(painter, QtCore, QtGui, viewport)
-                self._draw_hover(painter, QtCore, QtGui, viewport)
+                self._draw_dynamic_layers(painter, QtCore, QtGui, viewport)
                 painter.restore()
                 self._draw_footer(painter, QtGui, rect)
 
@@ -196,6 +237,13 @@ class RadarCanvas:  # pragma: no cover - optional Qt runtime
                 self._set_hover_blip(None)
                 self.setToolTip("")
                 self.unsetCursor()
+
+            def mousePressEvent(self, event: Any) -> None:
+                viewport = self._viewport(self.rect())
+                hit = self._hit_blip(event.position().x(), event.position().y(), viewport)
+                if hit:
+                    self.blipClicked.emit(dict(hit))
+                super().mousePressEvent(event)
 
             def _viewport(self, rect: Any) -> RadarViewport:
                 size = min(rect.width(), rect.height()) - 18
@@ -217,9 +265,11 @@ class RadarCanvas:  # pragma: no cover - optional Qt runtime
             def _static_layer_key(self, viewport: RadarViewport) -> tuple[Any, ...]:
                 return (
                     self._projection_key(viewport),
+                    self._map_version,
                     self._surface_version,
                     self._terrain_version,
                     self._procedure_version,
+                    bool(self.layers.get("map", True)),
                     bool(self.layers.get("surface", True)),
                     bool(self.layers.get("runways", True)),
                     bool(self.layers.get("terrain", False)),
@@ -236,24 +286,56 @@ class RadarCanvas:  # pragma: no cover - optional Qt runtime
                 static_painter = QtGui.QPainter(pixmap)
                 static_painter.setRenderHint(QtGui.QPainter.Antialiasing)
                 try:
-                    self._draw_background(static_painter, QtGui, rect, viewport)
-                    static_painter.save()
-                    path = QtGui.QPainterPath()
-                    path.addEllipse(QtCore.QPointF(viewport.cx, viewport.cy), viewport.radius, viewport.radius)
-                    static_painter.setClipPath(path)
-                    if self.layers.get("terrain", False):
-                        self._draw_terrain(static_painter, QtCore, QtGui, viewport)
-                    if self.layers.get("surface", True) or self.layers.get("runways", True):
-                        self._draw_surface(static_painter, QtCore, QtGui, viewport)
-                    self._draw_grid(static_painter, QtCore, QtGui, viewport)
-                    if self.layers.get("procedures", False):
-                        self._draw_procedures(static_painter, QtCore, QtGui, viewport)
-                    static_painter.restore()
+                    self._draw_static_layers(static_painter, QtCore, QtGui, rect, viewport)
                 finally:
                     static_painter.end()
                 self._static_cache_key = key
                 self._static_cache_pixmap = pixmap
                 return pixmap
+
+            def _draw_static_layers(self, painter: Any, QtCore: Any, QtGui: Any, rect: Any, viewport: RadarViewport) -> None:
+                self._draw_background(painter, QtGui, rect, viewport)
+                painter.save()
+                path = QtGui.QPainterPath()
+                path.addEllipse(QtCore.QPointF(viewport.cx, viewport.cy), viewport.radius, viewport.radius)
+                painter.setClipPath(path)
+                try:
+                    for layer in STATIC_RADAR_LAYER_ORDER:
+                        if layer == "background":
+                            continue
+                        self._draw_static_layer(layer, painter, QtCore, QtGui, viewport)
+                finally:
+                    painter.restore()
+
+            def _draw_static_layer(self, layer: str, painter: Any, QtCore: Any, QtGui: Any, viewport: RadarViewport) -> None:
+                if layer == "map":
+                    if self.layers.get("map", True):
+                        self._draw_map_inlay(painter, QtCore, QtGui, viewport)
+                elif layer == "terrain":
+                    if self.layers.get("terrain", False):
+                        self._draw_terrain(painter, QtCore, QtGui, viewport)
+                elif layer == "surface":
+                    if self.layers.get("surface", True) or self.layers.get("runways", True):
+                        self._draw_surface(painter, QtCore, QtGui, viewport, surface_only=True)
+                elif layer == "grid":
+                    self._draw_grid(painter, QtCore, QtGui, viewport)
+                elif layer == "runways":
+                    if self.layers.get("surface", True) or self.layers.get("runways", True):
+                        self._draw_surface(painter, QtCore, QtGui, viewport, runway_only=True)
+                elif layer == "procedures":
+                    if self.layers.get("procedures", False):
+                        self._draw_procedures(painter, QtCore, QtGui, viewport)
+
+            def _draw_dynamic_layers(self, painter: Any, QtCore: Any, QtGui: Any, viewport: RadarViewport) -> None:
+                for layer in DYNAMIC_RADAR_LAYER_ORDER:
+                    if layer == "track_ghosts":
+                        self._draw_track_ghosts(painter, QtCore, QtGui, viewport)
+                    elif layer == "sweep":
+                        self._draw_sweep(painter, QtCore, QtGui, viewport)
+                    elif layer == "blips":
+                        self._draw_blips(painter, QtCore, QtGui, viewport)
+                    elif layer == "hover":
+                        self._draw_hover(painter, QtCore, QtGui, viewport)
 
             def _draw_background(self, painter: Any, QtGui: Any, rect: Any, viewport: RadarViewport) -> None:
                 painter.fillRect(rect, QtGui.QColor(self.colors["panel_2"]))
@@ -262,33 +344,73 @@ class RadarCanvas:  # pragma: no cover - optional Qt runtime
                 painter.setPen(QtCore.Qt.NoPen)
                 painter.drawEllipse(QtCore.QPointF(viewport.cx, viewport.cy), viewport.radius, viewport.radius)
 
+            def _radar_color(self, QtGui: Any, role: str, alpha: int = 255) -> Any:
+                dark = not self._is_light_mode()
+                palette = {
+                    "grid": "#2f7db7" if dark else "#2b6797",
+                    "grid_label": "#9ed1ff" if dark else "#244e72",
+                    "blip": "#8cf6ff" if dark else "#006f85",
+                    "blip_text": "#f5fbff" if dark else "#082338",
+                    "runway": "#ffe17a" if dark else "#8a5200",
+                    "runway_glow": "#ffb84d" if dark else "#d07a00",
+                    "taxiway": "#55a8ff" if dark else "#376f9f",
+                    "surface": "#3f7fae" if dark else "#9fb7ca",
+                    "terminal": "#ffbf65" if dark else "#b56300",
+                    "map_water": "#3f9cff" if dark else "#2b86c5",
+                    "map_park": "#54d684" if dark else "#347e43",
+                    "map_land": "#a9b8c8" if dark else "#7c8792",
+                    "map_road": "#d7e8ff" if dark else "#40576b",
+                    "map_rail": "#ffffff" if dark else "#5a315f",
+                    "map_coast": "#78ddff" if dark else "#116b97",
+                    "terrain": "#ffcf6b" if dark else "#935f00",
+                    "hover": "#ffd166" if dark else "#a55c00",
+                }
+                color = QtGui.QColor(palette.get(role, self.colors.get("text", "#ffffff")))
+                color.setAlpha(max(0, min(255, int(alpha))))
+                return color
+
+            def _is_light_mode(self) -> bool:
+                if self._theme == "light":
+                    return True
+                color = self.colors.get("panel_2") or "#000000"
+                try:
+                    raw = color.lstrip("#")
+                    if len(raw) >= 6:
+                        r = int(raw[0:2], 16)
+                        g = int(raw[2:4], 16)
+                        b = int(raw[4:6], 16)
+                        return (0.2126 * r + 0.7152 * g + 0.0722 * b) > 150
+                except Exception:
+                    return False
+                return False
+
             def _draw_grid(self, painter: Any, QtCore: Any, QtGui: Any, viewport: RadarViewport) -> None:
-                grid = QtGui.QColor(self.colors["blue"])
-                grid.setAlpha(110 if viewport.radius_nm >= 20 else 130)
+                painter.setBrush(QtCore.Qt.NoBrush)
+                grid = self._radar_color(QtGui, "grid", 110 if viewport.radius_nm >= 20 else 145)
                 painter.setPen(QtGui.QPen(grid, 1))
-                label_fractions = {0.2, 0.4, 0.6, 0.8, 1.0}
+                ring_values = self._ring_values(viewport.radius_nm)
+                label_values = set(ring_values)
                 if viewport.radius_nm >= 40:
-                    label_fractions = {0.4, 0.8, 1.0}
+                    label_values = {20.0, 40.0}
                 elif viewport.radius_nm >= 20:
-                    label_fractions = {0.2, 0.6, 1.0}
-                for frac in (0.2, 0.4, 0.6, 0.8, 1.0):
+                    label_values = {5.0, 10.0, 20.0}
+                for ring_nm in ring_values:
+                    frac = ring_nm / viewport.radius_nm
                     r = viewport.radius * frac
                     painter.drawEllipse(QtCore.QPointF(viewport.cx, viewport.cy), r, r)
-                    if frac in label_fractions:
-                        label_color = QtGui.QColor(self.colors["muted"])
-                        label_color.setAlpha(110 if viewport.radius_nm >= 20 else 150)
+                    if ring_nm in label_values:
+                        label_color = self._radar_color(QtGui, "grid_label", 150 if viewport.radius_nm >= 20 else 190)
                         painter.setPen(label_color)
-                        painter.drawText(int(viewport.cx + r + 5), int(viewport.cy - 4), f"{self.radius_nm * frac:.0f}nm")
+                        painter.drawText(int(viewport.cx + r + 5), int(viewport.cy - 4), f"{ring_nm:g}nm")
                         painter.setPen(QtGui.QPen(grid, 1))
                 painter.drawLine(viewport.cx - viewport.radius, viewport.cy, viewport.cx + viewport.radius, viewport.cy)
                 painter.drawLine(viewport.cx, viewport.cy - viewport.radius, viewport.cx, viewport.cy + viewport.radius)
-                painter.setPen(QtGui.QColor(self.colors["muted"]))
+                painter.setPen(self._radar_color(QtGui, "grid_label", 185))
                 painter.drawText(int(viewport.cx - 4), int(viewport.cy - viewport.radius + 18), "N")
                 painter.drawText(int(viewport.cx + viewport.radius - 18), int(viewport.cy + 4), "E")
                 painter.drawText(int(viewport.cx - 4), int(viewport.cy + viewport.radius - 8), "S")
                 painter.drawText(int(viewport.cx - viewport.radius + 8), int(viewport.cy + 4), "W")
-                center = QtGui.QColor(self.colors["muted"])
-                center.setAlpha(150)
+                center = self._radar_color(QtGui, "grid_label", 160)
                 painter.setPen(QtGui.QPen(center, 1))
                 painter.setBrush(center)
                 painter.drawEllipse(QtCore.QPointF(viewport.cx, viewport.cy), 3.5, 3.5)
@@ -301,28 +423,32 @@ class RadarCanvas:  # pragma: no cover - optional Qt runtime
                         continue
                     pos = self._blip_pos(blip, viewport)
                     alpha = self._blip_alpha(blip)
-                    flash = alpha >= 245 and not blip.get("on_ground")
+                    is_hovered = self._blip_identity(blip) == self._hover_key
+                    if alpha <= 4 and not is_hovered:
+                        continue
+                    if is_hovered:
+                        alpha = max(alpha, 220)
+                    flash = alpha >= 235
                     if flash:
-                        bloom = QtGui.QColor(self.colors["cyan"])
-                        bloom.setAlpha(38)
+                        bloom = self._radar_color(QtGui, "blip", 58)
                         painter.setPen(QtCore.Qt.NoPen)
                         painter.setBrush(bloom)
-                        painter.drawEllipse(QtCore.QPointF(pos[0], pos[1]), 12, 12)
-                    color = QtGui.QColor(self.colors["cyan"])
-                    color.setAlpha(alpha)
-                    painter.setPen(QtGui.QPen(color, 2))
+                        painter.drawEllipse(QtCore.QPointF(pos[0], pos[1]), 13, 13)
+                    color = self._radar_color(QtGui, "blip", max(alpha, 135))
+                    painter.setPen(QtGui.QPen(color, 2.2))
                     painter.setBrush(color)
-                    painter.drawEllipse(QtCore.QPointF(pos[0], pos[1]), 5.0 if flash else 4.0, 5.0 if flash else 4.0)
+                    painter.drawEllipse(QtCore.QPointF(pos[0], pos[1]), 5.2 if flash else 4.4, 5.2 if flash else 4.4)
                     callsign = str(blip.get("callsign") or "").strip()
                     if callsign and self._should_draw_callsign(blip, viewport):
-                        painter.setPen(QtGui.QColor(self.colors["text"]))
+                        painter.setPen(self._radar_color(QtGui, "blip_text", 245))
                         painter.drawText(int(pos[0] + 8), int(pos[1] - 6), callsign[:10])
                     status_label = self._blip_status_label(blip)
                     if self.layers.get("traffic_status", True) and status_label and viewport.radius_nm <= 20:
                         status_color = self._status_color(QtGui, status_label)
+                        status_color.setAlpha(max(70, min(255, alpha)))
                         painter.setPen(status_color)
                         painter.drawText(int(pos[0] + 8), int(pos[1] + 12), status_label[:12])
-                    self._draw_direction_indicator(painter, QtCore, QtGui, blip, pos, viewport)
+                    self._draw_direction_indicator(painter, QtCore, QtGui, blip, pos, viewport, alpha)
                     painter.setBrush(QtCore.Qt.NoBrush)
 
             def _draw_track_ghosts(self, painter: Any, QtCore: Any, QtGui: Any, viewport: RadarViewport) -> None:
@@ -342,8 +468,7 @@ class RadarCanvas:  # pragma: no cover - optional Qt runtime
                             continue
                         x, y = viewport.nm_to_canvas(x_nm, y_nm)
                         alpha = max(26, 78 - (len(ghost_points) - idx - 1) * 18)
-                        color = QtGui.QColor(self.colors["cyan"])
-                        color.setAlpha(alpha)
+                        color = self._radar_color(QtGui, "blip", alpha)
                         painter.setPen(QtCore.Qt.NoPen)
                         painter.setBrush(color)
                         size = 3.6 + idx * 0.6
@@ -356,14 +481,13 @@ class RadarCanvas:  # pragma: no cover - optional Qt runtime
                                 x, y = viewport.nm_to_canvas(x_nm, y_nm)
                                 projected.append(QtCore.QPointF(x, y))
                         if len(projected) >= 2:
-                            line = QtGui.QColor(self.colors["cyan"])
-                            line.setAlpha(45)
+                            line = self._radar_color(QtGui, "blip", 58)
                             painter.setPen(QtGui.QPen(line, 1))
                             for idx in range(1, len(projected)):
                                 painter.drawLine(projected[idx - 1], projected[idx])
                 painter.restore()
 
-            def _draw_direction_indicator(self, painter: Any, QtCore: Any, QtGui: Any, blip: dict[str, Any], pos: tuple[float, float], viewport: RadarViewport) -> None:
+            def _draw_direction_indicator(self, painter: Any, QtCore: Any, QtGui: Any, blip: dict[str, Any], pos: tuple[float, float], viewport: RadarViewport, alpha: int = 175) -> None:
                 heading = self._direction_heading(blip)
                 speed = _safe_float(blip.get("speed_kt"))
                 if speed is None:
@@ -375,8 +499,7 @@ class RadarCanvas:  # pragma: no cover - optional Qt runtime
                 hr = math.radians(float(heading) - 90.0)
                 tip = QtCore.QPointF(pos[0] + math.cos(hr) * length, pos[1] + math.sin(hr) * length)
                 tail = QtCore.QPointF(pos[0] + math.cos(hr) * 5, pos[1] + math.sin(hr) * 5)
-                color = QtGui.QColor(self.colors["cyan"])
-                color.setAlpha(175)
+                color = self._radar_color(QtGui, "blip", max(55, min(205, alpha)))
                 painter.setPen(QtGui.QPen(color, 1.4))
                 painter.drawLine(tail, tip)
                 wing = 4.5
@@ -388,17 +511,63 @@ class RadarCanvas:  # pragma: no cover - optional Qt runtime
             def _draw_hover(self, painter: Any, QtCore: Any, QtGui: Any, viewport: RadarViewport) -> None:
                 if self.hovered_blip:
                     hx, hy = self._blip_pos(self.hovered_blip, viewport)
-                    halo = QtGui.QColor(self.colors["amber"])
-                    halo.setAlpha(180)
+                    halo = self._radar_color(QtGui, "hover", 220)
                     painter.setPen(QtGui.QPen(halo, 2))
                     painter.setBrush(QtCore.Qt.NoBrush)
                     painter.drawEllipse(QtCore.QPointF(hx, hy), 11, 11)
+                    self._draw_hover_popup(painter, QtCore, QtGui, viewport, hx, hy)
+
+            def _draw_hover_popup(self, painter: Any, QtCore: Any, QtGui: Any, viewport: RadarViewport, hx: float, hy: float) -> None:
+                if not self.hovered_blip:
+                    return
+                lines = self._hover_popup_lines(self.hovered_blip)
+                if not lines:
+                    return
+                metrics = painter.fontMetrics()
+                width = min(210, max(metrics.horizontalAdvance(line) for line in lines) + 18)
+                height = len(lines) * (metrics.height() + 1) + 12
+                x = hx + 14
+                y = hy - height - 12
+                if x + width > viewport.width - 10:
+                    x = hx - width - 14
+                if y < 10:
+                    y = hy + 16
+                rect = QtCore.QRectF(x, y, width, height)
+                panel = QtGui.QColor(self.colors["panel"])
+                panel.setAlpha(235)
+                border = self._radar_color(QtGui, "grid", 210)
+                painter.setPen(QtGui.QPen(border, 1))
+                painter.setBrush(panel)
+                painter.drawRoundedRect(rect, 6, 6)
+                painter.setPen(self._radar_color(QtGui, "blip_text", 255))
+                cursor_y = y + 8 + metrics.ascent()
+                for idx, line in enumerate(lines):
+                    if idx:
+                        painter.setPen(self._radar_color(QtGui, "grid_label", 210))
+                    painter.drawText(QtCore.QPointF(x + 9, cursor_y), line)
+                    cursor_y += metrics.height() + 1
 
             def _draw_footer(self, painter: Any, QtGui: Any, rect: Any) -> None:
-                painter.setPen(QtGui.QColor(self.colors["muted"]))
+                painter.setPen(self._radar_color(QtGui, "grid_label", 190))
                 painter.drawText(14, rect.height() - 14, self.status)
-                if self.attribution:
+                if self.attribution and (self.layers.get("surface", True) or self.layers.get("runways", True)):
                     painter.drawText(rect.width() - 320, rect.height() - 14, self.attribution[:48])
+
+            def _ring_values(self, radius_nm: float) -> tuple[float, ...]:
+                radius = float(radius_nm or 1.0)
+                if radius <= 1:
+                    return (0.25, 0.5, 0.75, 1.0)
+                if radius <= 2:
+                    return (0.5, 1.0, 1.5, 2.0)
+                if radius <= 3:
+                    return (1.0, 2.0, 3.0)
+                if radius <= 5:
+                    return (1.0, 2.0, 3.0, 4.0, 5.0)
+                if radius <= 10:
+                    return (2.0, 5.0, 10.0)
+                if radius <= 20:
+                    return (5.0, 10.0, 20.0)
+                return (10.0, 20.0, 40.0)
 
             def _hit_blip(self, x_pos: float, y_pos: float, viewport: RadarViewport) -> dict[str, Any] | None:
                 hit_radius = 11.0
@@ -408,6 +577,11 @@ class RadarCanvas:  # pragma: no cover - optional Qt runtime
                     x, y = self._blip_pos(blip, viewport)
                     if math.hypot(x_pos - x, y_pos - y) <= hit_radius:
                         return blip
+                    callsign = str(blip.get("callsign") or "").strip()
+                    if callsign and self._should_draw_callsign(blip, viewport):
+                        label_width = min(86.0, 7.5 * len(callsign[:10]) + 12.0)
+                        if x + 6 <= x_pos <= x + 8 + label_width and y - 22 <= y_pos <= y + 4:
+                            return blip
                 return None
 
             def _set_hover_blip(self, blip: dict[str, Any] | None) -> None:
@@ -481,12 +655,12 @@ class RadarCanvas:  # pragma: no cover - optional Qt runtime
             def _status_color(self, QtGui: Any, status_label: str) -> Any:
                 clean = status_label.lower()
                 if "final" in clean or "approach" in clean:
-                    return QtGui.QColor(self.colors["amber"])
+                    return self._radar_color(QtGui, "terrain", 230)
                 if "descend" in clean or "descent" in clean:
-                    return QtGui.QColor(self.colors["blue"])
+                    return self._radar_color(QtGui, "grid", 230)
                 if "depart" in clean or "climb" in clean:
-                    return QtGui.QColor(self.colors["cyan"])
-                return QtGui.QColor(self.colors["muted"])
+                    return self._radar_color(QtGui, "blip", 230)
+                return self._radar_color(QtGui, "grid_label", 210)
 
             def _should_draw_callsign(self, blip: dict[str, Any], viewport: RadarViewport) -> bool:
                 if self._blip_identity(blip) == self._hover_key:
@@ -541,6 +715,16 @@ class RadarCanvas:  # pragma: no cover - optional Qt runtime
                     details.append(str(source))
                 return " | ".join(details)
 
+            def _hover_popup_lines(self, blip: dict[str, Any]) -> list[str]:
+                callsign = str(blip.get("callsign") or blip.get("flight_number") or blip.get("hex") or "Aircraft").strip().upper()
+                route = " -> ".join(str(v).strip().upper() for v in (blip.get("departure_icao"), blip.get("arrival_icao")) if str(v or "").strip())
+                altitude = self._tooltip_altitude_ft(blip.get("altitude_ft")) if blip.get("altitude_ft") is not None else self._tooltip_altitude(blip.get("altitude_m"))
+                speed = self._tooltip_speed_kt(blip.get("speed_kt")) if blip.get("speed_kt") is not None else self._tooltip_speed(blip.get("speed_ms"))
+                status = self._blip_status_label(blip)
+                second = " | ".join(part for part in (route, status) if part)
+                third = " | ".join(part for part in (altitude, speed) if part)
+                return [line for line in (callsign, second, third) if line][:3]
+
             def _tooltip_altitude(self, value: Any) -> str:
                 try:
                     meters = float(value)
@@ -594,41 +778,107 @@ class RadarCanvas:  # pragma: no cover - optional Qt runtime
                 return float(blip.get("bearing_deg") or 0.0) % 360.0
 
             def _blip_alpha(self, blip: dict[str, Any]) -> int:
-                if blip.get("on_ground"):
-                    return 150
                 age = (self.sweep_angle - self._blip_angle(blip) + 360.0) % 360.0
-                if age > 350 or age < 30:
+                if age >= 356 or age <= 5:
                     return 255
-                return max(45, int(255 - ((age - 30.0) / 310.0) * 210))
+                if age <= 75:
+                    return max(0, int(255 - ((age - 5.0) / 70.0) * 230))
+                return 0
 
             def _draw_sweep(self, painter: Any, QtCore: Any, QtGui: Any, viewport: RadarViewport) -> None:
                 painter.save()
                 painter.translate(viewport.cx, viewport.cy)
                 painter.rotate(self.sweep_angle)
-                for idx in range(18):
-                    color = QtGui.QColor(self.colors["sweep"])
-                    color.setAlpha(max(0, int((1 - idx / 18) * 28)))
+                for idx in range(16):
+                    color = QtGui.QColor(self.colors["panel_2"])
+                    color.setAlpha(max(0, int((1 - idx / 16) * (32 if self._is_light_mode() else 42))))
                     painter.setBrush(color)
                     painter.setPen(QtCore.Qt.NoPen)
                     path = QtGui.QPainterPath()
                     path.moveTo(0, 0)
-                    path.arcTo(-viewport.radius, -viewport.radius, viewport.radius * 2, viewport.radius * 2, -idx * 4, -4)
+                    path.arcTo(-viewport.radius, -viewport.radius, viewport.radius * 2, viewport.radius * 2, -idx * 4.5, -4.5)
                     path.closeSubpath()
                     painter.drawPath(path)
-                line = QtGui.QColor(self.colors["sweep"])
-                line.setAlpha(180)
+                line = self._radar_color(QtGui, "blip", 145 if self._is_light_mode() else 120)
                 painter.setBrush(QtCore.Qt.NoBrush)
                 painter.setPen(QtGui.QPen(line, 1.5))
                 painter.drawLine(0, 0, 0, -viewport.radius)
                 painter.restore()
 
+            def _draw_map_inlay(self, painter: Any, QtCore: Any, QtGui: Any, viewport: RadarViewport) -> None:
+                if not self.map_features:
+                    return
+                colors = {
+                    "water": self._radar_color(QtGui, "map_water", 115),
+                    "park": self._radar_color(QtGui, "map_park", 86),
+                    "landuse": self._radar_color(QtGui, "map_land", 72),
+                    "road": self._radar_color(QtGui, "map_road", 175),
+                    "rail": self._radar_color(QtGui, "map_rail", 160),
+                    "boundary": self._radar_color(QtGui, "map_water", 90),
+                    "coastline": self._radar_color(QtGui, "map_coast", 190),
+                }
+                widths = {
+                    "water": 1.2,
+                    "park": 1.0,
+                    "landuse": 0.9,
+                    "road": 2.4 if viewport.radius_nm <= 20 else 1.6,
+                    "rail": 2.0 if viewport.radius_nm <= 20 else 1.3,
+                    "coastline": 2.8 if viewport.radius_nm <= 20 else 1.8,
+                }
+                painter.save()
+                for kind, _label, poly, closed, _feature in self._projected_map(QtCore, viewport):
+                    if len(poly) < 2:
+                        continue
+                    color = colors.get(kind, colors["landuse"])
+                    pen = QtGui.QPen(color, widths.get(kind, 1.0))
+                    if kind == "rail":
+                        pen.setDashPattern([4, 5])
+                    painter.setPen(pen)
+                    if closed and len(poly) >= 3 and kind in {"water", "park", "landuse"}:
+                        fill = QtGui.QColor(color)
+                        fill.setAlpha(max(34, int(color.alpha() * 0.58)))
+                        painter.setBrush(fill)
+                        painter.drawPolygon(poly)
+                        painter.setBrush(QtCore.Qt.NoBrush)
+                        if kind in {"water", "park"}:
+                            painter.drawPolygon(poly)
+                    else:
+                        for idx in range(1, len(poly)):
+                            painter.drawLine(poly[idx - 1], poly[idx])
+                    if self._feature_pixel_span(poly) < 5.0:
+                        self._draw_map_micro_marker(painter, QtCore, QtGui, poly, color, kind, viewport)
+                painter.restore()
+
+            def _feature_pixel_span(self, poly: list[Any]) -> float:
+                if not poly:
+                    return 0.0
+                min_x = min(point.x() for point in poly)
+                max_x = max(point.x() for point in poly)
+                min_y = min(point.y() for point in poly)
+                max_y = max(point.y() for point in poly)
+                return max(max_x - min_x, max_y - min_y)
+
+            def _draw_map_micro_marker(self, painter: Any, QtCore: Any, QtGui: Any, poly: list[Any], color: Any, kind: str, viewport: RadarViewport) -> None:
+                if viewport.radius_nm > 20 or not poly:
+                    return
+                cx = sum(point.x() for point in poly) / len(poly)
+                cy = sum(point.y() for point in poly) / len(poly)
+                marker = QtGui.QColor(color)
+                marker.setAlpha(max(marker.alpha(), 150))
+                painter.setPen(QtCore.Qt.NoPen)
+                painter.setBrush(marker)
+                size = 2.3 if kind in {"road", "rail", "coastline"} else 1.7
+                painter.drawEllipse(QtCore.QPointF(cx, cy), size, size)
+                painter.setBrush(QtCore.Qt.NoBrush)
+
             def _draw_terrain(self, painter: Any, QtCore: Any, QtGui: Any, viewport: RadarViewport) -> None:
                 if not self.terrain_features:
                     return
                 painter.save()
-                terrain = QtGui.QColor(self.colors["amber"])
-                terrain.setAlpha(40 if viewport.radius_nm <= 20 else 24)
-                painter.setPen(QtGui.QPen(terrain, 1))
+                terrain = self._radar_color(QtGui, "terrain", 180 if viewport.radius_nm <= 20 else 108)
+                pen = QtGui.QPen(terrain, 1.9 if viewport.radius_nm <= 20 else 1.2)
+                pen.setDashPattern([9, 7])
+                painter.setPen(pen)
                 painter.setBrush(QtCore.Qt.NoBrush)
                 for _kind, _label, poly in self._projected_terrain(QtCore, viewport):
                     if len(poly) >= 3:
@@ -642,9 +892,9 @@ class RadarCanvas:  # pragma: no cover - optional Qt runtime
                 if not self.procedure_paths:
                     return
                 colors = {
-                    "approach": _qcolor_alpha(QtGui, self.colors["amber"], 145),
-                    "departure": _qcolor_alpha(QtGui, self.colors["cyan"], 145),
-                    "transition": _qcolor_alpha(QtGui, self.colors["blue"], 120),
+                    "approach": self._radar_color(QtGui, "terrain", 185),
+                    "departure": self._radar_color(QtGui, "blip", 185),
+                    "transition": self._radar_color(QtGui, "grid", 165),
                 }
                 painter.save()
                 for kind, label_text, poly in self._projected_procedures(QtCore, viewport):
@@ -656,37 +906,52 @@ class RadarCanvas:  # pragma: no cover - optional Qt runtime
                     for idx in range(1, len(poly)):
                         painter.drawLine(poly[idx - 1], poly[idx])
                     if label_text and viewport.radius_nm <= 20:
-                        painter.setPen(QtGui.QColor(self.colors["muted"]))
+                        painter.setPen(self._radar_color(QtGui, "grid_label", 220))
                         painter.drawText(poly[-1], label_text[:18])
                 painter.restore()
 
-            def _draw_surface(self, painter: Any, QtCore: Any, QtGui: Any, viewport: RadarViewport) -> None:
+            def _draw_surface(
+                self,
+                painter: Any,
+                QtCore: Any,
+                QtGui: Any,
+                viewport: RadarViewport,
+                *,
+                runway_only: bool = False,
+                surface_only: bool = False,
+            ) -> None:
                 if not self.surface:
                     return
                 colors = {
-                    "boundary": _qcolor_alpha(QtGui, self.colors["blue"], 110),
-                    "runway": _qcolor_alpha(QtGui, self.colors["cyan"], 180),
-                    "taxiway": _qcolor_alpha(QtGui, self.colors["blue"], 120),
-                    "apron": _qcolor_alpha(QtGui, self.colors["blue"], 45),
-                    "terminal": _qcolor_alpha(QtGui, self.colors["amber"], 55),
-                    "building": _qcolor_alpha(QtGui, self.colors["amber"], 65),
+                    "boundary": self._radar_color(QtGui, "surface", 120),
+                    "runway": self._radar_color(QtGui, "runway", 250),
+                    "taxiway": self._radar_color(QtGui, "taxiway", 135),
+                    "apron": self._radar_color(QtGui, "surface", 54),
+                    "terminal": self._radar_color(QtGui, "terminal", 88),
+                    "building": self._radar_color(QtGui, "terminal", 102),
                 }
                 painter.save()
                 painter.setOpacity(self._surface_alpha())
                 for kind, runway_label, poly, closed, feature in self._projected_surface(QtCore, viewport):
                     if len(poly) < 2:
                         continue
+                    if runway_only and kind != "runway":
+                        continue
+                    if surface_only and kind == "runway":
+                        continue
                     if kind == "runway" and not self.layers.get("runways", True):
                         continue
                     if kind != "runway" and not self.layers.get("surface", True):
                         continue
+                    if kind == "runway":
+                        self._draw_runway_backdrop(painter, QtCore, QtGui, feature, poly, viewport)
                     pen_width = self._runway_pen_width(feature, viewport) if kind == "runway" else 1
                     pen = QtGui.QPen(colors.get(kind, colors["taxiway"]), pen_width)
                     if kind == "runway" and str(feature.get("confidence") or "").lower() == "estimated":
                         pen.setStyle(QtCore.Qt.DashLine)
                     if kind == "runway" and feature.get("closed"):
-                        closed_color = QtGui.QColor(self.colors["red"])
-                        closed_color.setAlpha(150)
+                        closed_color = QtGui.QColor("#ff4d4d" if not self._is_light_mode() else "#9d1f1f")
+                        closed_color.setAlpha(185)
                         pen.setColor(closed_color)
                     if kind == "boundary":
                         pen.setDashPattern([6, 8])
@@ -699,12 +964,11 @@ class RadarCanvas:  # pragma: no cover - optional Qt runtime
                         for idx in range(1, len(poly)):
                             painter.drawLine(poly[idx - 1], poly[idx])
                     if kind == "runway" and closed and len(poly) >= 3:
-                        fill = QtGui.QColor(self.colors["cyan"])
-                        fill.setAlpha(26)
+                        fill = self._radar_color(QtGui, "runway", 42)
                         painter.setBrush(fill)
                         painter.drawPolygon(poly)
                         painter.setBrush(QtCore.Qt.NoBrush)
-                    if kind == "runway" and runway_label and len(poly) >= 2 and viewport.radius_nm <= 10:
+                    if kind == "runway" and runway_label and len(poly) >= 2 and viewport.radius_nm <= 3:
                         self._draw_runway_label(painter, QtGui, runway_label, poly)
                     if kind == "runway" and len(poly) >= 2 and viewport.radius_nm <= 20:
                         self._draw_runway_thresholds(painter, QtCore, QtGui, feature, poly, viewport)
@@ -713,10 +977,23 @@ class RadarCanvas:  # pragma: no cover - optional Qt runtime
             def _runway_pen_width(self, feature: dict[str, Any], viewport: RadarViewport) -> float:
                 width_ft = _safe_float(feature.get("width_ft"))
                 if width_ft is None:
-                    return 3.2 if viewport.radius_nm <= 10 else 2.4
+                    return 4.2 if viewport.radius_nm <= 5 else 3.4 if viewport.radius_nm <= 10 else 2.6
                 width_nm = max(0.01, width_ft / 6076.12)
                 pixels = width_nm * (viewport.radius / max(0.1, viewport.radius_nm))
-                return max(2.2, min(8.0, pixels))
+                floor = 4.0 if viewport.radius_nm <= 5 else 3.0 if viewport.radius_nm <= 10 else 2.2
+                return max(floor, min(9.0, pixels))
+
+            def _draw_runway_backdrop(self, painter: Any, QtCore: Any, QtGui: Any, feature: dict[str, Any], poly: list[Any], viewport: RadarViewport) -> None:
+                if len(poly) < 2:
+                    return
+                confidence = str(feature.get("confidence") or "").strip().lower()
+                glow = self._radar_color(QtGui, "runway_glow", 92 if confidence in {"ourairports", "ourairports+osm"} else 52)
+                width = self._runway_pen_width(feature, viewport) + (5.5 if viewport.radius_nm <= 5 else 3.5)
+                painter.save()
+                painter.setPen(QtGui.QPen(glow, width, QtCore.Qt.SolidLine, QtCore.Qt.RoundCap, QtCore.Qt.RoundJoin))
+                for idx in range(1, len(poly)):
+                    painter.drawLine(poly[idx - 1], poly[idx])
+                painter.restore()
 
             def _draw_runway_label(self, painter: Any, QtGui: Any, label_text: str, poly: list[Any]) -> None:
                 p1 = poly[0]
@@ -726,7 +1003,7 @@ class RadarCanvas:  # pragma: no cover - optional Qt runtime
                 painter.save()
                 painter.translate(x, y)
                 painter.rotate(math.degrees(math.atan2(p2.y() - p1.y(), p2.x() - p1.x())))
-                painter.setPen(QtGui.QColor(self.colors["text"]))
+                painter.setPen(self._radar_color(QtGui, "runway", 255))
                 painter.drawText(-32, -8, str(label_text)[:12])
                 painter.restore()
 
@@ -748,18 +1025,15 @@ class RadarCanvas:  # pragma: no cover - optional Qt runtime
                     parts = [part.strip() for part in label.replace("-", "/").split("/") if part.strip()]
                     end_labels = (parts + ["", ""])[:2]
                 painter.save()
-                threshold_pen = QtGui.QPen(QtGui.QColor(self.colors["text"]), 1)
+                threshold_pen = QtGui.QPen(self._radar_color(QtGui, "runway", 255), 1.2)
                 painter.setPen(threshold_pen)
                 for point, text, sign in ((p1, end_labels[0], -1), (p2, end_labels[1], 1)):
                     painter.drawLine(
                         QtCore.QPointF(point.x() - nx * tick, point.y() - ny * tick),
                         QtCore.QPointF(point.x() + nx * tick, point.y() + ny * tick),
                     )
-                    if text and viewport.radius_nm <= 10:
+                    if text and viewport.radius_nm <= 3:
                         painter.drawText(QtCore.QPointF(point.x() + nx * tick * sign, point.y() + ny * tick * sign), text[:4])
-                if str(feature.get("confidence") or "").lower() in {"ourairports", "ourairports+osm"} and viewport.radius_nm <= 10:
-                    painter.setPen(QtGui.QColor(self.colors["muted"]))
-                    painter.drawText(QtCore.QPointF((p1.x() + p2.x()) / 2 + 8, (p1.y() + p2.y()) / 2 + 14), str(feature.get("confidence"))[:16])
                 painter.restore()
 
             def _surface_alpha(self) -> float:
@@ -783,6 +1057,15 @@ class RadarCanvas:  # pragma: no cover - optional Qt runtime
                 projected = self._project_features(QtCore, self.surface, viewport, include_closed=True)
                 self._surface_projection_key = key
                 self._surface_projection = projected
+                return projected
+
+            def _projected_map(self, QtCore: Any, viewport: RadarViewport) -> list[tuple[str, str, list[Any], bool, dict[str, Any]]]:
+                key = (self._map_version, self._projection_key(viewport))
+                if key == self._map_projection_key:
+                    return self._map_projection
+                projected = self._project_features(QtCore, self.map_features, viewport, include_closed=True)
+                self._map_projection_key = key
+                self._map_projection = projected
                 return projected
 
             def _projected_terrain(self, QtCore: Any, viewport: RadarViewport) -> list[tuple[str, str, list[Any]]]:
@@ -829,17 +1112,53 @@ class RadarCanvas:  # pragma: no cover - optional Qt runtime
                     kind = str(feature.get("kind") or feature.get("type") or "path").strip().lower()
                     poly = []
                     for point in points:
-                        if not isinstance(point, list | tuple) or len(point) < 2:
+                        lat_lon = self._feature_point_lat_lon(point, viewport)
+                        if lat_lon is None:
                             continue
-                        try:
-                            x_nm, y_nm = viewport.latlon_to_nm(float(point[0]), float(point[1]))
-                        except (TypeError, ValueError):
-                            continue
+                        x_nm, y_nm = viewport.latlon_to_nm(lat_lon[0], lat_lon[1])
                         x, y = viewport.nm_to_canvas(x_nm, y_nm)
                         poly.append(QtCore.QPointF(x, y))
                     if len(poly) >= 2:
                         projected.append((kind, str(feature.get("label") or feature.get("name") or ""), poly, bool(feature.get("closed")) if include_closed else False, feature))
                 return projected
+
+            def _feature_point_lat_lon(self, point: Any, viewport: RadarViewport) -> tuple[float, float] | None:
+                if isinstance(point, dict):
+                    lat = _safe_float(point.get("lat", point.get("latitude")))
+                    lon = _safe_float(point.get("lon", point.get("lng", point.get("longitude"))))
+                    return (lat, lon) if lat is not None and lon is not None else None
+                if isinstance(point, str):
+                    cleaned = point.strip().replace(",", " ")
+                    parts = [part for part in cleaned.split() if part]
+                    if len(parts) < 2:
+                        return None
+                    first = _safe_float(parts[0])
+                    second = _safe_float(parts[1])
+                    if first is None or second is None:
+                        return None
+                    return self._choose_lat_lon_pair(first, second, viewport)
+                if not isinstance(point, list | tuple) or len(point) < 2:
+                    return None
+                first = _safe_float(point[0])
+                second = _safe_float(point[1])
+                if first is None or second is None:
+                    return None
+                return self._choose_lat_lon_pair(first, second, viewport)
+
+            def _choose_lat_lon_pair(self, first: float, second: float, viewport: RadarViewport) -> tuple[float, float] | None:
+                candidates = []
+                if abs(first) <= 90 and abs(second) <= 180:
+                    candidates.append((first, second))
+                if abs(second) <= 90 and abs(first) <= 180:
+                    candidates.append((second, first))
+                if not candidates:
+                    return None
+                if len(candidates) == 1:
+                    return candidates[0]
+                return min(
+                    candidates,
+                    key=lambda candidate: abs(candidate[0] - viewport.center_lat) + abs(candidate[1] - viewport.center_lon),
+                )
 
             def _latlon_to_nm(self, lat: float, lon: float) -> tuple[float, float]:
                 lat0 = float(self.center.get("lat") or 0.0)

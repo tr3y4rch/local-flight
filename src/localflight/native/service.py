@@ -94,6 +94,12 @@ class NativeApiService:
     def save_config(self, payload: dict[str, Any]) -> dict[str, Any]:
         return self.client.patch_json("/api/config", payload)
 
+    def radar_map(self, *, radius_nm: float = 5.0, terrain: bool = False, refresh_runways: bool = False) -> dict[str, Any]:
+        return self.client.get_json(
+            "/api/radar/map",
+            params={"radius_nm": float(radius_nm), "terrain": bool(terrain), "refresh_runways": bool(refresh_runways)},
+        )
+
     def setup_client_info(self) -> dict[str, Any]:
         return self.client.get_json("/api/setup/client-info")
 

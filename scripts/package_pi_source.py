@@ -81,7 +81,7 @@ def main() -> None:
     print(f"Pi source bundle: {zip_path}")
     print(f"Checksum: {checksum_path}")
     print("Install on Pi: unzip, cd into the folder, then run bash installers/pi/install.sh")
-    print("Display options: default is headless; add --native-kiosk for Qt HDMI or --kiosk for legacy Chromium.")
+    print("Display options: guided menu by default; use --headless, --native-kiosk, or --kiosk for scripted installs.")
 
 
 if __name__ == "__main__":

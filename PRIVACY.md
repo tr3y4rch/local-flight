@@ -14,7 +14,7 @@ This is a hobbyist/open-source project, not a legal document, but the app is des
 - The desktop native GUI is a real Qt shell, not a webview. The primary client does not launch Chrome, Edge, Chromium, QWebEngine, or a browser profile.
 - Native mode avoids browser sync, extensions, cookies, browsing history, default-browser behavior, online fonts, and CDN assets for the main Local Flight window.
 - The mobile companion talks to your Local Flight server over your LAN. It does not call AviationStack, ADS-B Exchange, RapidAPI, OpenSky, VATSIM, or the hosted relay directly.
-- Community mode can use the hosted Local Flight relay for shared schedules and relay-backed radar. An airport-surface overlay can also use the relay cache, but it is opt-in and disabled by default. The relay stores operational metadata, not accounts or user profiles.
+- Community mode can use the hosted Local Flight relay for shared schedules and relay-backed radar. Optional radar runway/surface/map/terrain layers use cached public data where available, stay opt-in/visual-only, and do not create Local Flight accounts or user profiles.
 - Manual reports are always your choice. First-run setup asks how diagnostics should work, saves that choice locally, and defaults to manual-only reporting.
 - Mobile automatic diagnostics require two yeses: the mobile app's local diagnostics choice and the connected server's diagnostics mode.
 - Developer reporting credentials are kept on the hosted relay, not in the desktop package, mobile app, installers, or docs.
@@ -27,6 +27,7 @@ This is a hobbyist/open-source project, not a legal document, but the app is des
 - Your airport settings, display preferences, and personal API keys stay in your local config and `.env`.
 - The native GUI, browser fallback, LAN clients, and matrix board all talk to your local Local Flight server first. Native mode does not fetch online fonts, CDN assets, or a webview shell for the main UI.
 - The optional local traffic log at `~/.localflight/requests.db` is visible only on your own Local Flight instance and is only enabled for explicit local network diagnostics.
+- Optional radar map data is simplified and cached locally for display use. It is not stored as raw provider payloads in reports or ordinary UI surfaces.
 - The Interstate 75 W board talks to your Local Flight server over your LAN. Its runtime settings live in `~/.localflight/matrix_config.json`.
 - Matrix V2 device check-ins store only board identity, label, size, renderer support, assigned config, and last-seen time locally so the admin page can show whether the board is alive.
 - VATSIM-specific matrix presets require source `virtual` and use VATSIM-backed rows/weather only; they do not quietly fall back to real-world FIDS or real METAR data.
@@ -66,7 +67,7 @@ The relay stores the minimum metadata needed to run that shared service safely:
 - one-way anonymous network tags for abuse protection
 - short-lived "current interest" rows, such as airport and display window, so shared schedule snapshots can be reused
 - short-lived shared schedule snapshots containing Local Flight canonical schedule records and cache metadata
-- if the operator explicitly enables the optional surface overlay: short-lived airport-surface geometry cache entries derived from OpenStreetMap/Overpass so many installs looking at the same airport do not repeatedly query public map infrastructure
+- if the operator explicitly enables the optional surface/map overlay path: short-lived airport-surface and map-geometry cache entries derived from OpenStreetMap/Overpass so many installs looking at the same airport do not repeatedly query public map infrastructure
 
 The relay does **not** store:
 
@@ -180,7 +181,9 @@ When Local Flight fetches data, it may communicate with:
 | OpenSky Network | Radar search coordinates | [opensky-network.org/about/privacy](https://opensky-network.org/about/privacy) |
 | VATSIM | Virtual network data for the configured airport/source mode | [vatsim.net/privacy-policy](https://vatsim.net/privacy-policy) |
 | aviationweather.gov | ICAO code for METAR weather. Local Flight decodes the returned METAR locally into weather mood/icon/temperature fields; no extra weather provider is contacted for that UI. VATSIM mode can use VATSIM ATIS/METAR first and falls back here when unavailable. | Public government API |
-| OpenStreetMap / Overpass | Only when the opt-in surface overlay and relay-side cache are enabled: airport code and airport coordinates for cached surface geometry; the local app receives only simplified airport geometry with attribution. | [openstreetmap.org/copyright](https://www.openstreetmap.org/copyright) |
+| OurAirports | Public airport/runway CSV data may be bundled or refreshed/cached locally for runway IDs, headings, dimensions, and reference geometry. No account or user identifier is required. | [ourairports.com/data](https://ourairports.com/data/) |
+| OpenStreetMap / Overpass | Only when optional radar surface/map layers are enabled or prepared: airport code/coordinates and bounded airport-area geometry requests. Local Flight stores simplified display geometry with attribution, not raw personal data. | [openstreetmap.org/copyright](https://www.openstreetmap.org/copyright) |
+| AWS Terrain Tiles | Optional radar terrain/relief layer requests public terrain tile data for the displayed airport area/range. It is cached locally and used only as a subtle visual layer. | [registry.opendata.aws/terrain-tiles](https://registry.opendata.aws/terrain-tiles/) |
 
 Local Flight does not embed tracking or advertising SDKs from any of these services.
 
@@ -213,4 +216,4 @@ Your local data is under your control. To wipe local app data, stop Local Flight
 | Flight history | Your machine | You |
 | Manual reports and automatic diagnostics | Hosted relay reporting gateway, then developer triage inbox | Developer |
 | Community relay usage metadata and short-lived shared schedule cache | Relay server | Relay operator |
-| Cached airport surface overlay geometry | Your machine and short-lived hosted relay cache, only if the optional overlay is enabled | You and relay operator |
+| Cached radar surface/map/terrain geometry | Your machine and, for relay-backed surface/map data, short-lived hosted relay cache when optional overlays are enabled | You and relay operator |
