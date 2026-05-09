@@ -506,22 +506,32 @@ npm run ios
 
 ## Current handoff for macOS / dev machine
 
-- **macOS handoff focus (2026-05-04):** pull the current repo state on the Mac, verify native Qt still launches cleanly, validate the iOS/mobile workspace, then rebuild macOS and Pi artifacts from the same `0.2.5b5` commit. Keep Windows release packaging on Windows unless deliberately cross-checking source only.
+- **macOS handoff focus (2026-05-09):** get the Mac onto the exact same source state as this Windows workspace before running the installer or packaging. If the Windows workspace still has uncommitted/unpushed native FIDS, radar, Settings, installer, or docs changes, `git pull` on macOS will not see them. Push the branch/commit first, or transfer an explicit patch bundle; otherwise the Mac installer can rebuild an old app with missing FIDS updates, missing radar ground drawings, and stale Settings screens.
+- **Stale Mac artifact warning:** do not trust an existing `~/Applications/LocalFlight.app`, old `.venv`, old `dist/LocalFlight.app`, or a previous editable install when validating current UI. If the Mac shows old FIDS behavior, no radar ground/context drawing, or old Settings layout, stop and confirm the Mac `git rev-parse --short HEAD` matches the expected Windows/current branch before debugging UI code.
 - Start the Mac session with:
   ```bash
   git pull --ff-only
+  git rev-parse --short HEAD
   git status --short
+  rm -rf dist build ~/Applications/LocalFlight.app
   python3 -m venv .venv
   source .venv/bin/activate
+  python -m pip install --upgrade pip
   python -m pip install -e ".[native]"
   python -m compileall -q src relay tests
   python -m pytest tests
   ```
 - Native GUI is the intended primary desktop shell now. On macOS, test `LOCALFLIGHT_GUI_MODE=native python -m localflight` or `./installers/macos/start.sh`; browser mode is fallback/debug only via `LOCALFLIGHT_GUI_MODE=browser`. The native window title should be `Local Flight`, not `Local Flight Native`.
 - Native first-run setup is intentionally a standalone guided window before the main Display shell. It must keep the Diagnostics step, save `diagnostics_mode` through `/api/setup/complete`, preload the hosted relay root, and avoid exposing `/v1/flights` to users.
-- Latest Windows-side native polish to carry forward on Mac: setup now has tighter centered layout/brand treatment, FIDS uses airport-local time instead of the host computer clock, FIDS columns scale more safely, Client Admin is less crowded with Buy Me a Coffee moved to the footer area, History combines filters/stats/recent rows in one user-facing view, and Logs exposes retained local log files instead of only a live tail. Focused verification after this pass: `.venv\Scripts\python.exe -m pytest tests/test_gui_launcher.py -q` returned `50 passed`, and native compileall passed.
+- Latest Windows-side native polish to carry forward on Mac: setup now has tighter centered layout/brand treatment, FIDS uses airport-local time instead of the host computer clock, FIDS columns scale more safely, Client Admin is less crowded with Buy Me a Coffee moved to the footer area, History combines filters/stats/recent rows in one user-facing view, Logs exposes retained local log files instead of only a live tail, radar has the current ground/context drawing layer, and Settings reflects the display-mode/native-first installer choices. Focused verification after this pass: `.venv\Scripts\python.exe -m pytest tests/test_gui_launcher.py -q` returned `50 passed`, and native compileall passed.
+- Native UI freshness checks on Mac after install/build:
+  - FIDS must show airport-local time labels and the current styled/detail behavior, not the old host-clock/debug-table layout.
+  - Radar must expose the current ground/context drawing path and surface-aware rendering; if the canvas lacks the current ground layer entirely, the Mac app is stale.
+  - Settings must show the current native-first/user-facing sections and display-mode wording; if it looks like the old crowded/dev Settings page, the Mac app is stale.
+  - The macOS source installer should be run as `bash installers/macos/install.sh --display native` after the source is verified current; release users should use the rebuilt `LocalFlight.app`/zip, not an older source-built app in `~/Applications`.
 - macOS packaging runbook:
   ```bash
+  bash installers/macos/install.sh --display native
   python build.py --clean
   test -d dist/LocalFlight.app
   test -f dist/LocalFlight-macos.zip
