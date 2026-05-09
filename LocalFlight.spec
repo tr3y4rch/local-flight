@@ -23,13 +23,12 @@ uvi_d,      uvi_b,      uvi_h      = collect_all("uvicorn")
 fapi_d,     fapi_b,     fapi_h     = collect_all("fastapi")
 anyio_d,    anyio_b,    anyio_h    = collect_all("anyio")
 starlette_d,starlette_b,starlette_h= collect_all("starlette")
-qt_d,       qt_b,       qt_h       = collect_all("PySide6")
 
 a = Analysis(
     ["src/localflight/__main__.py"],
     pathex=["src"],
 
-    binaries=uvi_b + fapi_b + anyio_b + starlette_b + qt_b,
+    binaries=uvi_b + fapi_b + anyio_b + starlette_b,
 
     datas=[
         # App resources â€” must mirror the path that Path(__file__).parent resolves to
@@ -43,7 +42,7 @@ a = Analysis(
         ("THIRD_PARTY_NOTICES.md",         "localflight/ui/docs"),
         ("src/localflight/decode/mappings", "localflight/decode/mappings"),
         ("src/localflight/storage/samples", "localflight/storage/samples"),
-    ] + uvi_d + fapi_d + anyio_d + starlette_d + qt_d + collect_data_files("tzdata"),
+    ] + uvi_d + fapi_d + anyio_d + starlette_d + collect_data_files("tzdata"),
 
     hiddenimports=[
         # â”€â”€ pystray + PIL: conditionally imported inside build_tray() â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -82,7 +81,9 @@ a = Analysis(
         "localflight.native.canvas.matrix",
         "localflight.native.canvas.radar",
         "localflight.native.design",
+        "localflight.native.live",
         "localflight.native.loader",
+        "localflight.native.models",
         "localflight.native.network_admin",
         "localflight.native.pages",
         "localflight.native.pages.admin",
@@ -97,14 +98,30 @@ a = Analysis(
         "localflight.native.pages.settings",
         "localflight.native.pages.setup",
         "localflight.native.qt_compat",
+        "localflight.native.registry",
         "localflight.native.routes",
+        "localflight.native.service",
         "localflight.native.shell",
+        "localflight.native.widgets",
+        "localflight.radar",
+        "localflight.radar.classify",
+        "localflight.radar.geo",
+        "localflight.radar.map_layers",
+        "localflight.radar.normalize",
+        "localflight.radar.runways",
+        # The native GUI only needs the core widget stack plus WebSockets for
+        # live push and SVG support for bundled marks/icons. Do not collect all
+        # of PySide6: that pulls optional helper apps, WebEngine, QML designer
+        # tools, and database drivers into the release bundle.
+        "PySide6",
+        "shiboken6",
         "PySide6.QtCore",
         "PySide6.QtGui",
+        "PySide6.QtNetwork",
         "PySide6.QtSvg",
         "PySide6.QtWebSockets",
         "PySide6.QtWidgets",
-    ] + uvi_h + fapi_h + anyio_h + starlette_h + qt_h,
+    ] + uvi_h + fapi_h + anyio_h + starlette_h,
 
     excludes=["pytest", "httpx", "IPython", "matplotlib", "numpy", "tkinter"],
 

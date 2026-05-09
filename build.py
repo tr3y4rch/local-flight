@@ -16,6 +16,7 @@ import subprocess
 import sys
 import shutil
 import hashlib
+import json
 import os
 from pathlib import Path
 
@@ -226,6 +227,45 @@ def _ensure_importable(import_name: str, package_spec: str) -> None:
     subprocess.run([sys.executable, "-m", "pip", "install", package_spec], check=True)
 
 
+def _project_version() -> str:
+    import tomllib
+
+    data = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    return str(data["project"]["version"])
+
+
+def _ensure_project_metadata() -> None:
+    """Keep editable package metadata in sync before PyInstaller freezes it."""
+    expected = _project_version()
+    reinstall_reason = ""
+    try:
+        from importlib.metadata import distribution, version
+
+        installed = version("localflight")
+        dist = distribution("localflight")
+        direct_url = dist.read_text("direct_url.json") or ""
+        try:
+            direct = json.loads(direct_url)
+        except json.JSONDecodeError:
+            direct = {}
+        source_url = str(direct.get("url") or "")
+        root_marker = ROOT.resolve().as_posix()
+        points_here = root_marker in source_url.replace("\\", "/")
+        if installed != expected:
+            reinstall_reason = f"metadata version is {installed}, expected {expected}"
+        elif not points_here:
+            reinstall_reason = "editable install does not point at this checkout"
+    except Exception as exc:
+        reinstall_reason = f"localflight metadata unavailable ({exc})"
+
+    if not reinstall_reason:
+        print(f"Local Flight package metadata OK ({expected})")
+        return
+
+    print(f"Refreshing Local Flight editable install: {reinstall_reason}")
+    subprocess.run([sys.executable, "-m", "pip", "install", "-e", f"{ROOT}[native]"], check=True)
+
+
 def main() -> None:
     if "--clean" in sys.argv:
         for name in ("dist", "build"):
@@ -244,6 +284,7 @@ def main() -> None:
 
     # Packaged desktop clients are now native-first; fail early if Qt is not
     # available instead of silently producing a browser-dependent artifact.
+    _ensure_project_metadata()
     _ensure_importable("PySide6", "PySide6>=6.7")
 
     make_icons()

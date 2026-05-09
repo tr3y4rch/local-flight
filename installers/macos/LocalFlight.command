@@ -14,6 +14,8 @@ if [ ! -x "$VENV/bin/python" ]; then
     exit 1
 fi
 
+"$VENV/bin/python" -m pip install -e "${ROOT}[native]" -q
+
 if [ -f "$ROOT/.env" ]; then
     set -a
     # shellcheck disable=SC1091
