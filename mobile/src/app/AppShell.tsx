@@ -16,7 +16,7 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 
 import { BottomNav } from "../components/BottomNav";
 import { LaunchOverlay } from "../components/LaunchOverlay";
-import { AdminScreen, AirportConfigSheet, CompanionSetupScreen, ConnectPrompt, DocsScreen, FidsScreen, FlightActionSheet, FlightDetailSheet, FullscreenFidsDisplay, Header, HistoryScreen, MatrixScreen, RadarScreen, ScreenError, SettingsScreen, type DocSlug } from "../screens/AppScreens";
+import { AdminScreen, AirportConfigSheet, CompanionSetupScreen, ConnectPrompt, DocsScreen, FidsScreen, FlightActionSheet, FlightDetailSheet, FullscreenFidsDisplay, Header, HistoryScreen, MatrixScreen, RadarScreen, ScreenActivity, ScreenError, SettingsScreen, type ActivityStatus, type DocSlug } from "../screens/AppScreens";
 import {
   getAdminSystem,
   getBudget,
@@ -30,6 +30,7 @@ import {
   getRadarGround,
   getUpdates,
   normalizeServerUrl,
+  resolveAirport,
   restartScheduler,
   sendCompanionCheckin,
   submitFeedback,
@@ -38,6 +39,7 @@ import {
 } from "../api/client";
 import type {
   AppConfig,
+  AirportResolved,
   DashboardSnapshot,
   FidsRow,
   FlightView,
@@ -76,12 +78,15 @@ import {
   completeMobileSetupState,
   incompleteMobileSetupState,
   isMobileSetupComplete,
+  loadWeatherDisplayMode,
   type MobileDiagnosticsMode,
   type MobileSetupState,
+  type MobileWeatherDisplayMode,
   saveMobileDiagnosticsMode,
   saveMobileSetupState,
   savePinnedFlight,
-  saveServerUrl
+  saveServerUrl,
+  saveWeatherDisplayMode
 } from "../storage/settings";
 import { useMobileTheme } from "../theme/runtime";
 import { setStyleBridge } from "../theme/styleBridge";
@@ -102,6 +107,43 @@ SplashScreen.setOptions({
   fade: true
 });
 
+function refreshActivityForTarget(target: Screen, landscapeFidsActive: boolean): ActivityStatus {
+  if (landscapeFidsActive || target === "fids") {
+    return {
+      label: "Refreshing FIDS",
+      detail: "Asking the Local Flight server for the latest board rows."
+    };
+  }
+  if (target === "radar") {
+    return {
+      label: "Loading radar traffic",
+      detail: "Asking the Local Flight server for nearby aircraft and surface data."
+    };
+  }
+  if (target === "history") {
+    return {
+      label: "Reading history",
+      detail: "Asking the Local Flight server for recent local flight records."
+    };
+  }
+  if (target === "matrix") {
+    return {
+      label: "Syncing Matrix board",
+      detail: "Reading the server Matrix runtime and preview rows."
+    };
+  }
+  if (target === "admin") {
+    return {
+      label: "Checking server status",
+      detail: "Refreshing Admin health, budget, update, and connection data."
+    };
+  }
+  return {
+    label: "Talking to Local Flight",
+    detail: "Checking the connected server over your LAN."
+  };
+}
+
 export function AppShell() {
   const { appearance, themeMode, skin, setThemeMode, setSkin } = useMobileTheme();
   const layout = useResponsiveLayout();
@@ -117,12 +159,14 @@ export function AppShell() {
   const [connected, setConnected] = useState(false);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [activity, setActivity] = useState<ActivityStatus | null>(null);
   const [schedulerRestarting, setSchedulerRestarting] = useState(false);
   const [schedulerMessage, setSchedulerMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [utcTime, setUtcTime] = useState(formatUtc());
   const [localTime, setLocalTime] = useState(formatLocalTime());
   const [snapshot, setSnapshot] = useState<DashboardSnapshot>(EMPTY_SNAPSHOT);
+  const [airportDetail, setAirportDetail] = useState<AirportResolved | null>(null);
   const [rows, setRows] = useState<FidsRow[]>([]);
   const [historyData, setHistoryData] = useState<HistoryResponse | null>(null);
   const [radarData, setRadarData] = useState<RadarResponse | null>(null);
@@ -141,6 +185,7 @@ export function AppShell() {
   const [profiles, setProfiles] = useState<ConfigProfile[]>([]);
   const [companionIdentity, setCompanionIdentity] = useState<CompanionIdentity | null>(null);
   const [mobileDiagnosticsMode, setMobileDiagnosticsMode] = useState<MobileDiagnosticsMode>("unset");
+  const [weatherDisplayMode, setWeatherDisplayMode] = useState<MobileWeatherDisplayMode>("friendly");
   const [mobileSetupState, setMobileSetupState] = useState<MobileSetupState>(() => incompleteMobileSetupState());
   const [launchHydrated, setLaunchHydrated] = useState(false);
 
@@ -245,6 +290,23 @@ export function AppShell() {
     }
   }, [serverUrl]);
 
+  useEffect(() => {
+    let alive = true;
+    void loadWeatherDisplayMode().then((mode) => {
+      if (alive) {
+        setWeatherDisplayMode(mode);
+      }
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const chooseWeatherDisplayMode = useCallback(async (mode: MobileWeatherDisplayMode) => {
+    await saveWeatherDisplayMode(mode);
+    setWeatherDisplayMode(mode);
+  }, []);
+
   const fetchDashboard = useCallback(async (normalized: string) => {
     const [state, config, system, connections, updates, budget] = await Promise.all([
       getHealth(normalized),
@@ -262,6 +324,17 @@ export function AppShell() {
       metar = null;
     }
 
+    let resolvedAirport: AirportResolved | null = null;
+    const airportQuery = config.airport_iata || config.airport_icao;
+    if (airportQuery) {
+      try {
+        resolvedAirport = await resolveAirport(normalized, airportQuery);
+      } catch {
+        resolvedAirport = null;
+      }
+    }
+
+    setAirportDetail(resolvedAirport);
     setSnapshot({ state, config, system, connections, updates, budget, metar });
     setConnected(true);
   }, []);
@@ -292,6 +365,10 @@ export function AppShell() {
     nextRadius: RadarRadius,
     forceGround = false
   ) => {
+    setActivity({
+      label: "Loading radar traffic",
+      detail: `Asking the Local Flight server for tracks inside ${nextRadius} NM.`
+    });
     const data = await getRadar(normalized, nextRadius);
     setRadarData(data);
 
@@ -309,6 +386,10 @@ export function AppShell() {
     }
 
     try {
+      setActivity({
+        label: "Loading airport ground layer",
+        detail: "Fetching runway and surface geometry through the Local Flight server."
+      });
       const ground = await getRadarGround(normalized, nextRadius);
       radarGroundCacheRef.current.set(cacheKey, ground);
       setRadarGroundData(ground);
@@ -336,6 +417,10 @@ export function AppShell() {
       }
 
       setRefreshing(true);
+      setActivity({
+        label: "Talking to Local Flight",
+        detail: "Checking server health, config, budget, and live connections."
+      });
       setError(null);
 
       try {
@@ -344,10 +429,12 @@ export function AppShell() {
         setConnected(false);
         setError(errorMessage(exc));
         setRefreshing(false);
+        setActivity(null);
         return;
       }
 
       try {
+        setActivity(refreshActivityForTarget(target, landscapeFidsActive));
         if (landscapeFidsActive) {
           await fetchFidsData(normalized, nextView);
         } else if (target === "fids") {
@@ -366,6 +453,7 @@ export function AppShell() {
         setError(errorMessage(exc));
       } finally {
         setRefreshing(false);
+        setActivity(null);
       }
     },
     [
@@ -390,6 +478,10 @@ export function AppShell() {
   const connect = useCallback(async () => {
     const normalized = normalizeServerUrl(draftUrl);
     setLoading(true);
+    setActivity({
+      label: "Testing server URL",
+      detail: "Asking the Local Flight server to confirm companion access."
+    });
     setError(null);
 
     try {
@@ -408,6 +500,7 @@ export function AppShell() {
       setError(errorMessage(exc));
     } finally {
       setLoading(false);
+      setActivity(null);
     }
   }, [draftUrl, mobileDiagnosticsMode]);
 
@@ -457,6 +550,10 @@ export function AppShell() {
 
     setSchedulerRestarting(true);
     setSchedulerMessage("Restarting scheduler...");
+    setActivity({
+      label: "Restarting server fetch",
+      detail: "Asking the Local Flight server scheduler for a fresh cycle."
+    });
     setError(null);
 
     try {
@@ -469,6 +566,7 @@ export function AppShell() {
       setSchedulerMessage(errorMessage(exc));
     } finally {
       setSchedulerRestarting(false);
+      setActivity(null);
     }
   }, [refreshScreen, screen, serverUrl]);
 
@@ -611,7 +709,15 @@ export function AppShell() {
   const cfg = snapshot.config;
   const state = snapshot.state;
   const airportCode = cfg?.airport_iata || "---";
-  const airportName = cfg?.airport_icao ? `${cfg.airport_icao} Local Flight` : "Connect your server";
+  const airportIcao = cfg?.airport_icao || "";
+  const fallbackDisplayName =
+    cfg?.display_name && cfg.display_name !== "Local Flight"
+      ? cfg.display_name
+      : cfg?.airport_icao
+        ? `${cfg.airport_icao} Local Flight`
+        : "Connect your server";
+  const airportName = airportDetail?.name || fallbackDisplayName;
+  const airportLocation = [airportDetail?.city, airportDetail?.country].filter(Boolean).join(" · ");
   const sourceLabel = state?.source_name || cfg?.source || "VATSIM";
   const isLive = connected && state?.ok !== false;
   const syncIntervalMs = companionSyncMs(cfg?.refresh_seconds);
@@ -721,14 +827,15 @@ export function AppShell() {
       <View style={[styles.appFrame, { maxWidth: contentWidth }]}>
         <Header
           airportCode={airportCode}
-          airportIcao={cfg?.airport_icao || ""}
+          airportIcao={airportIcao}
           airportName={airportName}
+          airportLocation={airportLocation}
           live={isLive}
           sourceLabel={sourceLabel}
           utcTime={utcTime}
           localTime={localTime}
-          metarCategory={snapshot.metar?.flight_category || snapshot.metar?.category || "--"}
-          metarText={snapshot.metar?.decoded_summary || snapshot.metar?.raw_text || "METAR unavailable"}
+          metar={snapshot.metar}
+          weatherDisplayMode={weatherDisplayMode}
           rowCount={rows.length}
           view={view}
           pinnedRow={islandRow}
@@ -754,6 +861,7 @@ export function AppShell() {
               view={view}
               loading={refreshing}
               refreshing={refreshing}
+              activity={activity}
               error={error}
               showConnectPrompt={!serverUrl}
               onOpenSettings={() => setScreen("settings")}
@@ -773,6 +881,7 @@ export function AppShell() {
               hours={historyHours}
               loading={refreshing}
               refreshing={refreshing}
+              activity={activity}
               error={error}
               showConnectPrompt={!serverUrl}
               onOpenSettings={() => setScreen("settings")}
@@ -789,9 +898,12 @@ export function AppShell() {
               data={radarData}
               groundData={radarGroundData}
               groundError={radarGroundError}
+              metar={snapshot.metar}
+              weatherDisplayMode={weatherDisplayMode}
               radiusNm={radarRadius}
               loading={refreshing}
               refreshing={refreshing}
+              activity={activity}
               error={error}
               showConnectPrompt={!serverUrl}
               onOpenSettings={() => setScreen("settings")}
@@ -823,6 +935,7 @@ export function AppShell() {
               saveMessage={matrixSaveMessage}
               saveTone={matrixSaveTone}
               refreshing={refreshing}
+              activity={activity}
               error={error}
               showConnectPrompt={!serverUrl}
               onOpenSettings={() => setScreen("settings")}
@@ -878,6 +991,8 @@ export function AppShell() {
                 <ConnectPrompt onSettings={() => setScreen("settings")} />
               ) : null}
 
+              <ScreenActivity activity={activity} />
+
               {error ? <ScreenError message={error} /> : null}
 
               {screen === "admin" ? (
@@ -911,6 +1026,7 @@ export function AppShell() {
                   isLandscape={layout.isLandscape}
                   themeMode={themeMode}
                   skin={skin}
+                  weatherDisplayMode={weatherDisplayMode}
                   mobileDiagnosticsMode={mobileDiagnosticsMode}
                   outputs={snapshot.config?.display_outputs || []}
                   refreshSeconds={snapshot.config?.refresh_seconds ?? null}
@@ -918,6 +1034,7 @@ export function AppShell() {
                   schedulerMessage={schedulerMessage}
                   onThemeModeChange={setThemeMode}
                   onSkinChange={setSkin}
+                  onWeatherDisplayModeChange={chooseWeatherDisplayMode}
                   onMobileDiagnosticsModeChange={chooseMobileDiagnosticsMode}
                   onOpenHistory={() => setScreen("history")}
                   onOpenAdmin={() => setScreen("admin")}
@@ -1093,20 +1210,76 @@ function createStyles() {
     flexGrow: 1,
     alignItems: "center",
     justifyContent: "center",
-    padding: 18
+    paddingHorizontal: 18,
+    paddingTop: 18,
+    paddingBottom: 24,
+    overflow: "hidden"
   },
-  companionSetupCard: {
+  companionSetupGlowA: {
+    position: "absolute",
+    top: -120,
+    right: -120,
+    width: 310,
+    height: 310,
+    borderRadius: 999,
+    backgroundColor: accent12
+  },
+  companionSetupGlowB: {
+    position: "absolute",
+    bottom: -150,
+    left: -110,
+    width: 340,
+    height: 340,
+    borderRadius: 999,
+    backgroundColor: success08
+  },
+  companionSetupShell: {
     width: "100%",
-    maxWidth: 520,
-    padding: 22,
+    maxWidth: 760,
+    gap: 16
+  },
+  companionSetupHero: {
+    alignItems: "center",
+    paddingHorizontal: 18,
+    paddingTop: 18,
+    paddingBottom: 16,
     borderRadius: 28,
     borderWidth: 1,
-    borderColor: accent18,
-    backgroundColor: palette.rowAlt,
+    borderColor: accent16,
+    backgroundColor: "rgba(255,255,255,0.045)",
     shadowColor: "#000",
-    shadowOpacity: 0.22,
+    shadowOpacity: 0.18,
     shadowRadius: 24,
     shadowOffset: { width: 0, height: 14 }
+  },
+  companionSetupLogoWrap: {
+    width: 116,
+    height: 116,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 14
+  },
+  companionSetupLogoRing: {
+    position: "absolute",
+    width: 108,
+    height: 108,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: accent30
+  },
+  companionSetupLogoRingOuter: {
+    position: "absolute",
+    width: 132,
+    height: 132,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.08)",
+    borderTopColor: success25,
+    borderRightColor: warn24
+  },
+  companionSetupLogoMark: {
+    width: 86,
+    height: 86
   },
   companionSetupEyebrow: {
     fontFamily: mono,
@@ -1120,7 +1293,7 @@ function createStyles() {
     marginTop: 8,
     fontFamily: mono,
     color: palette.text,
-    fontSize: 28,
+    fontSize: 30,
     fontWeight: "800",
     letterSpacing: 1.2,
     textAlign: "center"
@@ -1132,32 +1305,109 @@ function createStyles() {
     lineHeight: 20,
     textAlign: "center"
   },
-  companionSetupSteps: {
+  companionSetupRoute: {
     flexDirection: "row",
+    alignItems: "flex-start",
     justifyContent: "center",
-    gap: 7,
+    gap: 10,
     marginTop: 20,
-    marginBottom: 18
+    width: "100%"
+  },
+  companionSetupRouteItem: {
+    flex: 1,
+    alignItems: "center",
+    gap: 6
   },
   companionSetupStepDot: {
-    width: 8,
-    height: 8,
+    width: 28,
+    height: 28,
     borderRadius: 999,
-    backgroundColor: "rgba(255,255,255,0.13)"
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.10)",
+    backgroundColor: "rgba(255,255,255,0.06)"
   },
   companionSetupStepDotActive: {
-    backgroundColor: palette.green
+    borderColor: success25,
+    backgroundColor: success12
+  },
+  companionSetupStepNumber: {
+    fontFamily: mono,
+    color: palette.textDim,
+    fontSize: 10,
+    fontWeight: "900",
+    textAlign: "center",
+    includeFontPadding: false
+  },
+  companionSetupStepNumberActive: {
+    color: palette.green
+  },
+  companionSetupStepLabel: {
+    fontFamily: mono,
+    color: palette.textDim,
+    fontSize: 8,
+    fontWeight: "800",
+    letterSpacing: 0.8,
+    textAlign: "center",
+    textTransform: "uppercase",
+    includeFontPadding: false
+  },
+  companionSetupStepLabelActive: {
+    color: palette.text
   },
   companionSetupPanel: {
-    gap: 12
+    gap: 12,
+    padding: 18,
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: accent16,
+    backgroundColor: palette.rowAlt
   },
   companionSetupPanelTitle: {
     fontFamily: mono,
     color: palette.text,
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: "800",
     letterSpacing: 0.9,
     textAlign: "center"
+  },
+  companionSetupChecklist: {
+    gap: 8,
+    marginTop: 4
+  },
+  companionSetupChecklistItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    padding: 12,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: accent14,
+    backgroundColor: accent06
+  },
+  companionSetupChecklistIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 999,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: accent10
+  },
+  companionSetupChecklistCopy: {
+    flex: 1,
+    minWidth: 0
+  },
+  companionSetupChecklistTitle: {
+    color: palette.text,
+    fontSize: 13,
+    fontWeight: "800"
+  },
+  companionSetupChecklistBody: {
+    marginTop: 2,
+    color: palette.textMuted,
+    fontSize: 11,
+    lineHeight: 16
   },
   companionSetupInfoGrid: {
     flexDirection: "row",
@@ -1188,6 +1438,28 @@ function createStyles() {
     fontSize: 12,
     fontWeight: "800"
   },
+  companionSetupExampleBox: {
+    padding: 12,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: accent14,
+    backgroundColor: "rgba(0,0,0,0.16)"
+  },
+  companionSetupExampleLabel: {
+    fontFamily: mono,
+    color: palette.textDim,
+    fontSize: 8,
+    fontWeight: "900",
+    letterSpacing: 1.3,
+    includeFontPadding: false
+  },
+  companionSetupExampleText: {
+    marginTop: 6,
+    fontFamily: mono,
+    color: palette.blue2,
+    fontSize: 12,
+    fontWeight: "800"
+  },
   companionSetupInput: {
     minHeight: 48,
     paddingHorizontal: 14,
@@ -1201,8 +1473,11 @@ function createStyles() {
   },
   companionSetupPrimary: {
     minHeight: 48,
+    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
+    gap: 8,
+    paddingHorizontal: 16,
     borderRadius: 999,
     backgroundColor: palette.green
   },
@@ -1211,12 +1486,17 @@ function createStyles() {
     color: "#051009",
     fontSize: 12,
     fontWeight: "900",
-    letterSpacing: 1.2
+    letterSpacing: 1.2,
+    textAlign: "center",
+    includeFontPadding: false,
+    lineHeight: 14
   },
   companionSetupSecondary: {
     minHeight: 38,
+    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
+    paddingHorizontal: 14,
     borderRadius: 999,
     borderWidth: 1,
     borderColor: accent14,
@@ -1227,7 +1507,65 @@ function createStyles() {
     color: palette.blue2,
     fontSize: 10,
     fontWeight: "800",
-    letterSpacing: 1.1
+    letterSpacing: 1.1,
+    textAlign: "center",
+    includeFontPadding: false,
+    lineHeight: 12
+  },
+  companionSetupProgressRail: {
+    gap: 10,
+    padding: 12,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.08)",
+    backgroundColor: "rgba(255,255,255,0.035)"
+  },
+  companionSetupProgressRailActive: {
+    borderColor: accent30,
+    backgroundColor: accent08
+  },
+  companionSetupProgressHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 9
+  },
+  companionSetupProgressText: {
+    flex: 1,
+    color: palette.textMuted,
+    fontSize: 12,
+    lineHeight: 17
+  },
+  companionSetupProgressSteps: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8
+  },
+  companionSetupProgressStep: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 9,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: "rgba(255,255,255,0.045)"
+  },
+  companionSetupProgressDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 999,
+    backgroundColor: "rgba(255,255,255,0.22)"
+  },
+  companionSetupProgressDotActive: {
+    backgroundColor: palette.green
+  },
+  companionSetupProgressStepText: {
+    fontFamily: mono,
+    color: palette.textDim,
+    fontSize: 8,
+    fontWeight: "800",
+    letterSpacing: 0.7,
+    textTransform: "uppercase",
+    includeFontPadding: false
   },
   companionSetupOptionStack: {
     gap: 8,
@@ -1244,10 +1582,24 @@ function createStyles() {
     borderColor: success25,
     backgroundColor: success08
   },
+  companionSetupOptionTop: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10
+  },
   companionSetupOptionTitle: {
     color: palette.text,
     fontSize: 13,
     fontWeight: "800"
+  },
+  companionSetupRecommended: {
+    fontFamily: mono,
+    color: palette.green,
+    fontSize: 8,
+    fontWeight: "900",
+    letterSpacing: 1,
+    includeFontPadding: false
   },
   companionSetupOptionBody: {
     marginTop: 5,
@@ -1283,6 +1635,57 @@ function createStyles() {
     fontSize: 12,
     lineHeight: 18
   },
+  activityPill: {
+    marginHorizontal: 12,
+    marginBottom: 12,
+    minHeight: 58,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingHorizontal: 13,
+    paddingVertical: 11,
+    borderRadius: 18,
+    borderWidth: 1
+  },
+  activityPillSync: {
+    borderColor: accent18,
+    backgroundColor: accent08
+  },
+  activityPillWarn: {
+    borderColor: warn24,
+    backgroundColor: warn08
+  },
+  activityPillOk: {
+    borderColor: success25,
+    backgroundColor: success08
+  },
+  activitySpinnerWrap: {
+    width: 34,
+    height: 34,
+    borderRadius: 999,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(0,0,0,0.14)"
+  },
+  activityCopy: {
+    flex: 1,
+    minWidth: 0
+  },
+  activityLabel: {
+    fontFamily: mono,
+    color: palette.text,
+    fontSize: 11,
+    fontWeight: "900",
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
+    includeFontPadding: false
+  },
+  activityDetail: {
+    marginTop: 3,
+    color: palette.textMuted,
+    fontSize: 11,
+    lineHeight: 16
+  },
   appFrame: {
     flex: 1,
     width: "100%",
@@ -1294,20 +1697,33 @@ function createStyles() {
   launchOverlay: {
     zIndex: 40,
     alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: palette.bg
+    justifyContent: "space-between",
+    paddingHorizontal: 22,
+    paddingTop: 54,
+    paddingBottom: 26,
+    backgroundColor: palette.bg,
+    overflow: "hidden"
+  },
+  launchSkyGrid: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: "space-evenly",
+    opacity: 0.32
+  },
+  launchGridLine: {
+    height: 1,
+    backgroundColor: "rgba(255,255,255,0.045)"
   },
   launchHalo: {
     position: "absolute",
-    width: 360,
-    height: 360,
     borderRadius: 999,
-    backgroundColor: accent14
+    backgroundColor: accent12
   },
   launchHaloInner: {
     position: "absolute",
-    width: 238,
-    height: 238,
     borderRadius: 999,
     borderWidth: 1,
     borderColor: "rgba(122,176,216,0.24)",
@@ -1315,42 +1731,128 @@ function createStyles() {
     borderRightColor: warn38,
     backgroundColor: "rgba(255,255,255,0.018)"
   },
-  launchPanel: {
-    minWidth: 250,
-    paddingHorizontal: 28,
-    paddingVertical: 30,
-    borderRadius: 28,
-    borderWidth: 1,
-    borderColor: accent16,
-    backgroundColor: palette.rowAlt,
-    alignItems: "center"
+  launchRunwayField: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: -30,
+    height: 230,
+    alignItems: "center",
+    justifyContent: "flex-end",
+    opacity: 0.8
   },
-  launchMarkWrap: {
-    width: 126,
-    height: 126,
+  launchRunwayFieldCompact: {
+    opacity: 0.48
+  },
+  launchRunwayPerspective: {
+    width: "74%",
+    maxWidth: 620,
+    height: 210,
+    flexDirection: "row",
+    justifyContent: "center",
+    gap: 24,
+    transform: [{ perspective: 650 }, { rotateX: "58deg" }]
+  },
+  launchRunwayEdge: {
+    width: 2,
+    height: "100%",
+    backgroundColor: accent18
+  },
+  launchRunwayCenter: {
+    width: 6,
+    height: "100%",
+    borderRadius: 999,
+    backgroundColor: warn22
+  },
+  launchStage: {
+    flex: 1,
+    width: "100%",
+    maxWidth: 520,
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 18
+    gap: 16,
+    paddingVertical: 20
+  },
+  launchStageCompact: {
+    gap: 10,
+    paddingVertical: 10
+  },
+  launchTopBar: {
+    width: "100%",
+    maxWidth: 560,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 2
+  },
+  launchTopCode: {
+    fontFamily: mono,
+    color: palette.textDim,
+    fontSize: 10,
+    fontWeight: "900",
+    letterSpacing: 2.2,
+    includeFontPadding: false
+  },
+  launchTopVersion: {
+    paddingHorizontal: 11,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: accent18,
+    backgroundColor: "rgba(0,0,0,0.22)",
+    fontFamily: mono,
+    color: palette.textMuted,
+    fontSize: 10,
+    fontWeight: "800",
+    letterSpacing: 0.8,
+    includeFontPadding: false
+  },
+  launchHeroCard: {
+    width: "100%",
+    alignItems: "center",
+    gap: 16,
+    paddingHorizontal: 18,
+    paddingVertical: 22,
+    borderRadius: 28,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.08)",
+    backgroundColor: "rgba(0,0,0,0.18)"
+  },
+  launchMarkWrap: {
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 2
   },
   launchRadarRing: {
     position: "absolute",
-    width: 122,
-    height: 122,
     borderRadius: 999,
     borderWidth: 1,
     borderColor: "rgba(122,176,216,0.24)"
   },
+  launchRadarRingOuter: {
+    position: "absolute",
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.08)",
+    borderLeftColor: accent30,
+    borderBottomColor: success25
+  },
   launchSweep: {
     position: "absolute",
     width: 2,
-    height: 58,
-    top: 6,
     borderRadius: 999,
     backgroundColor: "rgba(41,226,135,0.72)"
   },
   launchMark: {
-    width: 96,
-    height: 96
+    shadowColor: palette.blue,
+    shadowOpacity: 0.18,
+    shadowRadius: 24,
+    shadowOffset: { width: 0, height: 10 }
+  },
+  launchCopy: {
+    width: "100%",
+    maxWidth: 390,
+    alignItems: "center"
   },
   launchEyebrow: {
     fontFamily: mono,
@@ -1362,9 +1864,20 @@ function createStyles() {
   launchTitle: {
     marginTop: 8,
     color: palette.text,
-    fontSize: 24,
-    fontWeight: "800",
-    letterSpacing: 1.6
+    fontSize: 34,
+    fontWeight: "900",
+    letterSpacing: 2.2,
+    textAlign: "center"
+  },
+  launchTitleCompact: {
+    fontSize: 28
+  },
+  launchSubtitle: {
+    marginTop: 8,
+    color: palette.textMuted,
+    fontSize: 13,
+    lineHeight: 18,
+    textAlign: "center"
   },
   launchVersion: {
     marginTop: 10,
@@ -1382,18 +1895,19 @@ function createStyles() {
   },
   launchBoard: {
     width: "100%",
-    marginTop: 18,
-    padding: 10,
-    borderRadius: 14,
+    maxWidth: 430,
+    marginTop: 0,
+    padding: 12,
+    borderRadius: 18,
     borderWidth: 1,
-    borderColor: accent14,
-    backgroundColor: palette.row
+    borderColor: accent18,
+    backgroundColor: "rgba(0,0,0,0.26)"
   },
   launchBoardRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
-    paddingVertical: 4
+    paddingVertical: 6
   },
   launchBoardTime: {
     width: 34,
@@ -1411,28 +1925,27 @@ function createStyles() {
     fontWeight: "700",
     letterSpacing: 1
   },
-  launchRunway: {
-    width: "100%",
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    marginTop: 14
-  },
-  launchRunwayLine: {
-    flex: 1,
-    height: 1,
-    backgroundColor: accent18
-  },
-  launchRunwayDash: {
-    width: 42,
-    height: 3,
+  launchBoardLed: {
+    width: 7,
+    height: 7,
     borderRadius: 999,
+    backgroundColor: palette.green
+  },
+  launchBoardLedAmber: {
     backgroundColor: palette.amber
+  },
+  launchStatusDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 999,
+    backgroundColor: palette.green
   },
   launchStatusRow: {
     width: "100%",
-    marginTop: 16,
-    alignItems: "center"
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8
   },
   launchStatus: {
     fontFamily: mono,
@@ -1455,10 +1968,73 @@ function createStyles() {
     borderRadius: 999,
     backgroundColor: palette.green
   },
+  launchFooterCodes: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "center",
+    gap: 8,
+    marginTop: 14
+  },
+  launchFooterCode: {
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.08)",
+    fontFamily: mono,
+    color: palette.textDim,
+    fontSize: 8,
+    fontWeight: "800",
+    letterSpacing: 0.8
+  },
+  launchStatusPanel: {
+    width: "100%",
+    maxWidth: 520,
+    padding: 14,
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.08)",
+    backgroundColor: "rgba(0,0,0,0.24)"
+  },
+  launchBottomBoard: {
+    position: "absolute",
+    left: 16,
+    right: 16,
+    bottom: 18,
+    flexDirection: "row",
+    gap: 8
+  },
+  launchBottomCell: {
+    flex: 1,
+    minHeight: 48,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.08)",
+    backgroundColor: "rgba(0,0,0,0.22)"
+  },
+  launchBottomLabel: {
+    fontFamily: mono,
+    color: palette.textDim,
+    fontSize: 8,
+    fontWeight: "900",
+    letterSpacing: 1,
+    includeFontPadding: false
+  },
+  launchBottomValue: {
+    marginTop: 4,
+    fontFamily: mono,
+    color: palette.blue2,
+    fontSize: 9,
+    fontWeight: "900",
+    letterSpacing: 0.8,
+    includeFontPadding: false
+  },
   header: {
     paddingTop: 10,
-    paddingHorizontal: 22,
-    paddingBottom: 16,
+    paddingHorizontal: 18,
+    paddingBottom: 12,
     backgroundColor: palette.header,
     borderBottomWidth: 1,
     borderBottomColor: palette.lineSoft
@@ -1467,12 +2043,12 @@ function createStyles() {
     flex: 1
   },
   islandShell: {
-    alignSelf: "center",
+    alignSelf: "flex-start",
     width: "100%",
-    maxWidth: 368,
-    minHeight: 52,
-    marginBottom: 14,
-    borderRadius: 22,
+    maxWidth: 520,
+    minHeight: 46,
+    marginTop: 12,
+    borderRadius: 18,
     borderWidth: 1,
     borderColor: palette.lineSoft,
     backgroundColor: palette.rowAlt,
@@ -1490,9 +2066,9 @@ function createStyles() {
   },
   islandPressable: {
     flex: 1,
-    paddingHorizontal: 14,
-    paddingTop: 9,
-    paddingBottom: 8
+    paddingHorizontal: 12,
+    paddingTop: 8,
+    paddingBottom: 7
   },
   islandCompactRow: {
     flexDirection: "row",
@@ -1513,14 +2089,14 @@ function createStyles() {
   islandFlight: {
     fontFamily: mono,
     color: palette.text,
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: "700",
     letterSpacing: 0.8
   },
   islandMeta: {
     marginTop: 2,
     color: palette.textMuted,
-    fontSize: 11
+    fontSize: 10
   },
   islandTrail: {
     alignItems: "flex-end",
@@ -1696,6 +2272,62 @@ function createStyles() {
     borderTopRightRadius: 2,
     borderBottomRightRadius: 2
   },
+  airportHeroRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 12
+  },
+  airportHeroPressable: {
+    flex: 1,
+    minWidth: 0
+  },
+  airportHeroTopline: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8
+  },
+  airportHeroKicker: {
+    fontFamily: mono,
+    color: palette.textDim,
+    fontSize: 9,
+    fontWeight: "800",
+    letterSpacing: 1.3,
+    includeFontPadding: false
+  },
+  airportCodeBadges: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    flexShrink: 0
+  },
+  airportCodeBadge: {
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: accent18,
+    fontFamily: mono,
+    color: palette.blue2,
+    fontSize: 9,
+    fontWeight: "900",
+    letterSpacing: 0.8,
+    includeFontPadding: false
+  },
+  airportHeroName: {
+    marginTop: 7,
+    fontSize: 25,
+    lineHeight: 29,
+    fontWeight: "900",
+    letterSpacing: 0.2
+  },
+  airportHeroLocation: {
+    marginTop: 4,
+    color: palette.textMuted,
+    fontSize: 12,
+    lineHeight: 17
+  },
   identityBand: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -1725,6 +2357,11 @@ function createStyles() {
     gap: 6,
     paddingLeft: 10
   },
+  headerWeatherRail: {
+    width: 136,
+    alignItems: "flex-end",
+    gap: 6
+  },
   utcSuffix: {
     fontFamily: mono,
     color: palette.textDim,
@@ -1746,11 +2383,43 @@ function createStyles() {
     fontSize: 11,
     fontWeight: "700"
   },
+  weatherCompact: {
+    width: "100%",
+    minHeight: 58,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 16,
+    borderWidth: 1
+  },
+  weatherCompactCopy: {
+    flex: 1,
+    minWidth: 0
+  },
+  weatherCompactTemp: {
+    fontFamily: mono,
+    color: palette.text,
+    fontSize: 15,
+    fontWeight: "900",
+    includeFontPadding: false
+  },
+  weatherCompactMeta: {
+    marginTop: 3,
+    fontFamily: mono,
+    color: palette.textMuted,
+    fontSize: 8,
+    fontWeight: "800",
+    letterSpacing: 0.5,
+    includeFontPadding: false,
+    textTransform: "uppercase"
+  },
   telemetryStrip: {
     flexDirection: "row",
     alignItems: "center",
     gap: 7,
-    marginBottom: 10,
+    marginTop: 9,
     flexWrap: "wrap"
   },
   countPill: {
@@ -1794,6 +2463,85 @@ function createStyles() {
     fontSize: 12,
     fontWeight: "700",
     color: palette.text
+  },
+  radarWeatherCard: {
+    marginHorizontal: 12,
+    marginTop: 8,
+    marginBottom: 12,
+    padding: 13,
+    borderRadius: 18,
+    borderWidth: 1,
+    backgroundColor: palette.rowAlt
+  },
+  radarWeatherHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 11
+  },
+  radarWeatherIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 15,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center"
+  },
+  radarWeatherTitleWrap: {
+    flex: 1,
+    minWidth: 0
+  },
+  radarWeatherTitle: {
+    fontFamily: mono,
+    color: palette.blue2,
+    fontSize: 9,
+    fontWeight: "900",
+    letterSpacing: 1.2,
+    includeFontPadding: false
+  },
+  radarWeatherBody: {
+    marginTop: 4,
+    color: palette.text,
+    fontSize: 12,
+    lineHeight: 17
+  },
+  radarWeatherCategory: {
+    minWidth: 58,
+    alignItems: "center",
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    borderRadius: 13,
+    borderWidth: 1
+  },
+  radarWeatherCategoryText: {
+    fontFamily: mono,
+    fontSize: 10,
+    fontWeight: "900",
+    letterSpacing: 0.8,
+    includeFontPadding: false
+  },
+  radarWeatherTemp: {
+    marginTop: 4,
+    fontFamily: mono,
+    color: palette.text,
+    fontSize: 12,
+    fontWeight: "900",
+    includeFontPadding: false
+  },
+  radarWeatherRaw: {
+    marginTop: 12,
+    padding: 10,
+    borderRadius: 12,
+    backgroundColor: "rgba(0,0,0,0.22)",
+    fontFamily: mono,
+    color: palette.textMuted,
+    fontSize: 10,
+    lineHeight: 15
+  },
+  radarWeatherChips: {
+    marginTop: 12,
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 7
   },
   screenScroll: {
     flex: 1
@@ -1849,12 +2597,14 @@ function createStyles() {
   },
   optionChip: {
     minWidth: 82,
+    minHeight: 52,
     paddingHorizontal: 12,
     paddingVertical: 10,
     borderRadius: 10,
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.08)",
-    backgroundColor: "rgba(255,255,255,0.03)"
+    backgroundColor: "rgba(255,255,255,0.03)",
+    justifyContent: "center"
   },
   optionChipActive: {
     borderColor: accent40,
@@ -1883,7 +2633,10 @@ function createStyles() {
     fontFamily: mono,
     color: palette.text,
     fontSize: 11,
-    fontWeight: "700"
+    fontWeight: "700",
+    textAlign: "center",
+    includeFontPadding: false,
+    lineHeight: 13
   },
   optionChipLabelActive: {
     color: palette.blue
@@ -1891,7 +2644,10 @@ function createStyles() {
   optionChipMeta: {
     marginTop: 3,
     color: palette.textDim,
-    fontSize: 10
+    fontSize: 10,
+    textAlign: "center",
+    includeFontPadding: false,
+    lineHeight: 12
   },
   optionChipMetaActive: {
     color: palette.textMuted
@@ -1906,8 +2662,11 @@ function createStyles() {
   },
   dirButton: {
     flex: 1,
+    minHeight: 34,
+    paddingHorizontal: 8,
     paddingVertical: 8,
     alignItems: "center",
+    justifyContent: "center",
     borderRadius: 6,
     borderWidth: 1,
     borderColor: "transparent"
@@ -1921,7 +2680,10 @@ function createStyles() {
     color: palette.textDim,
     fontSize: 10,
     fontWeight: "700",
-    letterSpacing: 1
+    letterSpacing: 1,
+    textAlign: "center",
+    includeFontPadding: false,
+    lineHeight: 12
   },
   dirButtonTextActive: {
     color: palette.blue
@@ -2137,17 +2899,40 @@ function createStyles() {
   },
   fidsHeader: {
     flexDirection: "row",
-    paddingHorizontal: 22,
+    alignItems: "center",
+    marginHorizontal: 12,
+    paddingHorizontal: 10,
     paddingBottom: 6,
-    gap: 4
+    gap: 5
   },
   fidsHeaderText: {
     fontFamily: mono,
-    flex: 1,
     color: palette.line,
     fontSize: 8,
     fontWeight: "700",
     letterSpacing: 1
+  },
+  fidsColTime: {
+    width: 54
+  },
+  fidsColFlight: {
+    width: 78
+  },
+  fidsColRoute: {
+    flex: 1,
+    minWidth: 0
+  },
+  fidsColStatus: {
+    width: 86,
+    alignItems: "center"
+  },
+  fidsColStatusText: {
+    width: 86,
+    textAlign: "center"
+  },
+  fidsColAircraft: {
+    width: 24,
+    textAlign: "right"
   },
   alignRight: {
     textAlign: "right",
@@ -2159,7 +2944,7 @@ function createStyles() {
   fidsRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 4,
+    gap: 5,
     minHeight: 55,
     paddingHorizontal: 10,
     paddingVertical: 9,
@@ -2174,14 +2959,12 @@ function createStyles() {
     backgroundColor: warn07
   },
   fidsTime: {
-    width: 52,
     fontFamily: mono,
     color: palette.text,
     fontSize: 12,
     fontWeight: "700"
   },
   fidsFlightWrap: {
-    width: 70,
     flexDirection: "row",
     alignItems: "center",
     gap: 4
@@ -2207,7 +2990,6 @@ function createStyles() {
     fontSize: 9
   },
   fidsAircraft: {
-    width: 34,
     textAlign: "right",
     fontFamily: mono,
     color: "#2a4a6a",
@@ -2492,8 +3274,10 @@ function createStyles() {
   },
   settingsCompactButton: {
     minHeight: 38,
+    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
+    gap: 8,
     paddingHorizontal: 12,
     borderRadius: 999,
     borderWidth: 1,
@@ -2505,7 +3289,10 @@ function createStyles() {
     color: palette.blue2,
     fontSize: 10,
     fontWeight: "800",
-    letterSpacing: 0.9
+    letterSpacing: 0.9,
+    textAlign: "center",
+    includeFontPadding: false,
+    lineHeight: 12
   },
   settingsQuickGrid: {
     flexDirection: "row",
@@ -2687,8 +3474,11 @@ function createStyles() {
   connectButton: {
     marginTop: 10,
     minHeight: 44,
+    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
+    gap: 8,
+    paddingHorizontal: 14,
     borderRadius: 8,
     backgroundColor: palette.green
   },
@@ -2703,7 +3493,10 @@ function createStyles() {
     color: "#000",
     fontWeight: "700",
     fontSize: 11,
-    letterSpacing: 1
+    letterSpacing: 1,
+    textAlign: "center",
+    includeFontPadding: false,
+    lineHeight: 13
   },
   errorText: {
     marginTop: 10,
@@ -3037,12 +3830,17 @@ function createStyles() {
   },
   sheetActions: {
     flexDirection: "row",
-    alignItems: "flex-start",
+    alignItems: "center",
     gap: 8
   },
   sheetAction: {
+    minHeight: 34,
+    minWidth: 66,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
     paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingVertical: 7,
     borderRadius: 999,
     borderWidth: 1,
     borderColor: accent18,
@@ -3053,7 +3851,10 @@ function createStyles() {
     color: palette.blue2,
     fontSize: 10,
     fontWeight: "700",
-    letterSpacing: 1
+    letterSpacing: 1,
+    textAlign: "center",
+    includeFontPadding: false,
+    lineHeight: 12
   },
   sheetScroll: {
     flex: 1
@@ -3267,8 +4068,10 @@ function createStyles() {
   },
   configSegOption: {
     flex: 1,
+    minHeight: 42,
     paddingVertical: 10,
     alignItems: "center",
+    justifyContent: "center",
     backgroundColor: "rgba(255,255,255,0.03)"
   },
   configSegOptionActive: {
@@ -3279,7 +4082,10 @@ function createStyles() {
     fontSize: 11,
     color: palette.textMuted,
     fontWeight: "700",
-    letterSpacing: 0.6
+    letterSpacing: 0.6,
+    textAlign: "center",
+    includeFontPadding: false,
+    lineHeight: 13
   },
   configSegTextActive: {
     color: palette.blue2
@@ -3290,6 +4096,9 @@ function createStyles() {
     gap: 8
   },
   configIntervalCell: {
+    minHeight: 38,
+    alignItems: "center",
+    justifyContent: "center",
     paddingHorizontal: 14,
     paddingVertical: 8,
     borderRadius: 8,
@@ -3304,7 +4113,10 @@ function createStyles() {
   configIntervalText: {
     fontFamily: mono,
     fontSize: 12,
-    color: palette.textMuted
+    color: palette.textMuted,
+    textAlign: "center",
+    includeFontPadding: false,
+    lineHeight: 14
   },
   configIntervalTextActive: {
     color: palette.blue2,
@@ -3366,6 +4178,9 @@ function createStyles() {
     fontSize: 13
   },
   configSaveBtn: {
+    minHeight: 42,
+    alignItems: "center",
+    justifyContent: "center",
     paddingHorizontal: 16,
     paddingVertical: 10,
     borderRadius: 10,
@@ -3381,7 +4196,10 @@ function createStyles() {
     color: palette.blue2,
     fontSize: 12,
     fontWeight: "700",
-    letterSpacing: 0.6
+    letterSpacing: 0.6,
+    textAlign: "center",
+    includeFontPadding: false,
+    lineHeight: 14
   },
   configErrorText: {
     color: palette.red,
@@ -3391,6 +4209,8 @@ function createStyles() {
   },
   configApplyBtn: {
     marginTop: 16,
+    minHeight: 50,
+    flexDirection: "row",
     paddingVertical: 14,
     borderRadius: 12,
     backgroundColor: palette.blue,
@@ -3405,7 +4225,10 @@ function createStyles() {
     color: palette.bg,
     fontSize: 13,
     fontWeight: "800",
-    letterSpacing: 1.2
+    letterSpacing: 1.2,
+    textAlign: "center",
+    includeFontPadding: false,
+    lineHeight: 15
   },
   scopeFooter: {
     marginTop: 12,
@@ -3462,8 +4285,10 @@ function createStyles() {
   matrixActionButton: {
     minHeight: 44,
     flex: 1,
+    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
+    gap: 8,
     borderRadius: 10,
     paddingHorizontal: 12,
     borderWidth: 1
@@ -3481,14 +4306,20 @@ function createStyles() {
     color: palette.bg,
     fontSize: 11,
     fontWeight: "700",
-    letterSpacing: 0.8
+    letterSpacing: 0.8,
+    textAlign: "center",
+    includeFontPadding: false,
+    lineHeight: 13
   },
   matrixActionSecondaryText: {
     fontFamily: mono,
     color: palette.blue2,
     fontSize: 11,
     fontWeight: "700",
-    letterSpacing: 0.8
+    letterSpacing: 0.8,
+    textAlign: "center",
+    includeFontPadding: false,
+    lineHeight: 13
   },
   diagnosticsBackdrop: {
     flex: 1,

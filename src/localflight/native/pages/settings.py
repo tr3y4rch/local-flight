@@ -46,6 +46,8 @@ SKIN_CHOICES = (
 
 DOC_CHOICES = (
     ("README", "readme"),
+    ("Install guide", "install"),
+    ("Display modes", "display-modes"),
     ("Privacy", "privacy"),
     ("Release notes", "changelog"),
     ("Third-party notices", "third-party"),
@@ -275,7 +277,7 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
         layout.addWidget(
             label(
                 self.QtWidgets,
-                "Search by airport name, city, IATA, or ICAO. Selecting a result fills the local identity used by FIDS, Radar, Matrix, and the browser fallback.",
+                "Search by airport name, city, IATA, or ICAO. Selecting a result fills the local identity used by FIDS, Radar, Matrix, and the LAN browser UI.",
                 "Muted",
                 wrap=True,
             )
@@ -345,7 +347,7 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
             self._skin_buttons[skin] = button
             swatches.addWidget(button, index // 4, index % 4)
         self.skin.currentTextChanged.connect(self._sync_skin_buttons)
-        layout.addWidget(label(self.QtWidgets, "Skins affect native, browser fallback, and board surfaces without changing flight data.", "Muted", wrap=True))
+        layout.addWidget(label(self.QtWidgets, "Skins affect native, LAN browser, and board surfaces without changing flight data.", "Muted", wrap=True))
         layout.addLayout(swatches)
         return box
 
@@ -378,7 +380,7 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
         layout.addLayout(surface_row)
         layout.addWidget(self.surface_progress)
         outputs = self.QtWidgets.QHBoxLayout()
-        self.output_web = self.QtWidgets.QCheckBox("Browser fallback")
+        self.output_web = self.QtWidgets.QCheckBox("LAN browser UI")
         self.output_matrix = self.QtWidgets.QCheckBox("Matrix panel")
         self.output_hdmi = self.QtWidgets.QCheckBox("HDMI display")
         outputs.addWidget(self.output_web)

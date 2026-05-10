@@ -1,10 +1,10 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="960" height="540" viewBox="0 0 960 540" role="img" aria-labelledby="title desc">
-  <title id="title">Local Flight settings preview</title>
-  <desc id="desc">Illustrative preview of the Local Flight desktop settings page.</desc>
+  <title id="title">Local Flight native settings preview</title>
+  <desc id="desc">Illustrative preview of the current Local Flight native settings control-room page.</desc>
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#0b0d10"/>
-      <stop offset="1" stop-color="#111821"/>
+      <stop offset="0" stop-color="#090d12"/>
+      <stop offset="1" stop-color="#111923"/>
     </linearGradient>
     <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
       <feDropShadow dx="0" dy="16" stdDeviation="18" flood-color="#000000" flood-opacity="0.38"/>
@@ -12,79 +12,75 @@
     <style>
       .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
       .sans { font-family: Inter, Segoe UI, Helvetica, Arial, sans-serif; }
-      .muted { fill: #78899d; }
-      .text { fill: #e7edf3; }
-      .tiny { font-size: 11px; letter-spacing: 1px; }
-      .label { fill: #dfe8f2; font-size: 13px; font-weight: 800; }
-      .hint { fill: #74869b; font-size: 12px; }
+      .text { fill: #e8f0f8; }
+      .muted { fill: #7890aa; }
+      .blue { fill: #62b7f6; }
+      .tiny { font-size: 11px; letter-spacing: 1.1px; }
+      .label { fill: #e8f0f8; font-size: 13px; font-weight: 900; }
+      .hint { fill: #7890aa; font-size: 12px; }
     </style>
   </defs>
 
   <rect width="960" height="540" rx="28" fill="url(#bg)"/>
-  <rect x="18" y="18" width="924" height="504" rx="22" fill="#0d1218" stroke="#233041"/>
+  <rect x="18" y="18" width="924" height="504" rx="22" fill="#0d1218" stroke="#27364a"/>
 
-  <rect x="18" y="18" width="924" height="44" rx="22" fill="#0b1017"/>
-  <rect x="18" y="40" width="924" height="22" fill="#0b1017"/>
-  <text x="42" y="47" class="sans text" font-size="16" font-weight="800">Local Flight</text>
-  <text x="137" y="47" class="mono muted tiny">v0.2.5b5</text>
-  <text x="574" y="46" class="mono muted tiny">FIDS</text>
-  <text x="646" y="46" class="mono muted tiny">RADAR</text>
-  <text x="724" y="46" class="mono muted tiny">HISTORY</text>
-  <rect x="804" y="29" width="86" height="24" rx="12" fill="#1f2d3d"/>
-  <text x="821" y="46" class="mono text tiny" font-weight="800">SETTINGS</text>
+  <rect x="18" y="18" width="924" height="46" rx="22" fill="#070c12"/>
+  <rect x="18" y="42" width="924" height="22" fill="#070c12"/>
+  <text x="42" y="47" class="sans text" font-size="16" font-weight="900">Local Flight</text>
+  <text x="138" y="47" class="mono muted tiny">v0.2.5</text>
+  <text x="548" y="46" class="mono muted tiny">FIDS</text>
+  <text x="620" y="46" class="mono muted tiny">RADAR</text>
+  <text x="696" y="46" class="mono muted tiny">MATRIX</text>
+  <rect x="784" y="29" width="92" height="24" rx="12" fill="#1e3449" stroke="#31516e"/>
+  <text x="805" y="46" class="mono text tiny" font-weight="900">SETTINGS</text>
 
-  <g transform="translate(150 86)" filter="url(#shadow)">
-    <rect x="0" y="0" width="660" height="398" rx="20" fill="#121923" stroke="#263445"/>
-    <text x="26" y="42" class="sans text" font-size="25" font-weight="800">Local Flight</text>
-    <text x="26" y="65" class="mono muted" font-size="13">ZRH / LSZH - real - standard</text>
+  <g transform="translate(66 86)" filter="url(#shadow)">
+    <rect x="0" y="0" width="828" height="398" rx="22" fill="#101721" stroke="#26384d"/>
+    <text x="26" y="42" class="sans text" font-size="27" font-weight="900">Settings</text>
+    <text x="26" y="66" class="mono muted" font-size="13">Control room - apply changes when ready</text>
+    <rect x="650" y="24" width="146" height="38" rx="14" fill="#1f6f3a" stroke="#2ea85c"/>
+    <text x="678" y="48" class="mono" fill="#071009" font-size="12" font-weight="900">APPLY SETTINGS</text>
 
-    <g transform="translate(24 92)">
-      <rect x="0" y="0" width="612" height="104" rx="16" fill="#0f151d" stroke="#253142"/>
-      <text x="18" y="27" class="sans text" font-size="16" font-weight="800">Current</text>
-      <g class="sans" font-size="13">
-        <text x="18" y="57" class="label">Airport</text>
-        <text x="18" y="78" class="muted">ZRH / LSZH</text>
-        <text x="142" y="57" class="label">Refresh</text>
-        <text x="142" y="78" class="muted">3600s</text>
-        <text x="268" y="57" class="label">Source</text>
-        <text x="268" y="78" class="muted">Configured: real</text>
-        <text x="414" y="57" class="label">Connection</text>
-        <text x="414" y="78" fill="#22c55e" font-weight="900">OK</text>
-      </g>
-      <rect x="478" y="28" width="112" height="38" rx="12" fill="#1a2431" stroke="#34475d"/>
-      <text x="496" y="52" class="sans text" font-size="13" font-weight="800">Restart</text>
+    <g transform="translate(26 96)">
+      <rect x="0" y="0" width="370" height="126" rx="18" fill="#0d141d" stroke="#25364a"/>
+      <text x="18" y="29" class="mono blue tiny" font-weight="900">CURRENT AIRPORT</text>
+      <text x="18" y="60" class="sans text" font-size="21" font-weight="900">Noi Bai International</text>
+      <text x="18" y="84" class="mono muted" font-size="13">HAN / VVNB - source real - standard skin</text>
+      <rect x="18" y="98" width="82" height="20" rx="10" fill="#07351f"/>
+      <text x="37" y="112" class="mono" fill="#22c55e" font-size="10" font-weight="900">ONLINE</text>
+      <rect x="110" y="98" width="122" height="20" rx="10" fill="#13283a"/>
+      <text x="128" y="112" class="mono blue" font-size="10" font-weight="900">60 MIN LOCAL</text>
+
+      <rect x="392" y="0" width="384" height="126" rx="18" fill="#0d141d" stroke="#25364a"/>
+      <text x="410" y="29" class="mono blue tiny" font-weight="900">PROFILE CONTROLS</text>
+      <rect x="410" y="46" width="154" height="34" rx="11" fill="#111c27" stroke="#2c4259"/>
+      <text x="426" y="68" class="mono muted" font-size="12">HAN-evening</text>
+      <rect x="574" y="46" width="72" height="34" rx="11" fill="#17283a" stroke="#31516e"/>
+      <text x="596" y="68" class="mono text" font-size="12" font-weight="900">LOAD</text>
+      <rect x="656" y="46" width="100" height="34" rx="11" fill="#17283a" stroke="#31516e"/>
+      <text x="677" y="68" class="mono text" font-size="12" font-weight="900">SAVE NEW</text>
+      <text x="410" y="105" class="sans hint">Profiles switch airports without hiding what will be applied.</text>
     </g>
 
-    <g transform="translate(24 214)">
-      <rect x="0" y="0" width="238" height="144" rx="16" fill="#0f151d" stroke="#253142"/>
-      <text x="18" y="28" class="sans text" font-size="16" font-weight="800">Profiles</text>
-      <rect x="18" y="46" width="132" height="32" rx="10" fill="#111b26" stroke="#2c3d51"/>
-      <text x="31" y="67" class="mono muted" font-size="12">LSZH_day</text>
-      <rect x="160" y="46" width="56" height="32" rx="10" fill="#1a2431" stroke="#34475d"/>
-      <text x="175" y="67" class="sans text" font-size="12" font-weight="800">Load</text>
-      <rect x="18" y="94" width="198" height="32" rx="10" fill="#111b26" stroke="#2c3d51"/>
-      <text x="31" y="115" class="mono muted" font-size="12">Save current profile</text>
+    <g transform="translate(26 246)">
+      <rect x="0" y="0" width="248" height="102" rx="18" fill="#0d141d" stroke="#25364a"/>
+      <text x="18" y="29" class="mono blue tiny" font-weight="900">DATA ACCESS</text>
+      <text x="18" y="58" class="sans label">Community relay</text>
+      <text x="18" y="80" class="sans hint">Shared snapshot cadence explained.</text>
+
+      <rect x="264" y="0" width="248" height="102" rx="18" fill="#0d141d" stroke="#25364a"/>
+      <text x="282" y="29" class="mono blue tiny" font-weight="900">RADAR SURFACE</text>
+      <text x="282" y="58" class="sans label">Runways + surface on</text>
+      <text x="282" y="80" class="sans hint">Map prep feedback stays visible.</text>
+
+      <rect x="528" y="0" width="248" height="102" rx="18" fill="#0d141d" stroke="#25364a"/>
+      <text x="546" y="29" class="mono blue tiny" font-weight="900">COLLAPSED HELP</text>
+      <text x="546" y="58" class="sans label">Diagnostics + advanced</text>
+      <text x="546" y="80" class="sans hint">Low-frequency controls stay tucked away.</text>
     </g>
 
-    <g transform="translate(282 214)">
-      <rect x="0" y="0" width="354" height="144" rx="16" fill="#0f151d" stroke="#253142"/>
-      <text x="18" y="28" class="sans text" font-size="16" font-weight="800">Settings</text>
-      <text x="18" y="56" class="label sans">Airport</text>
-      <rect x="88" y="38" width="238" height="30" rx="10" fill="#111b26" stroke="#2c3d51"/>
-      <text x="102" y="58" class="mono muted" font-size="12">Zurich, ZRH, LSZH</text>
-      <text x="18" y="93" class="label sans">Source</text>
-      <rect x="88" y="75" width="96" height="30" rx="10" fill="#111b26" stroke="#2c3d51"/>
-      <text x="105" y="95" class="mono muted" font-size="12">real</text>
-      <text x="202" y="93" class="label sans">Update</text>
-      <rect x="262" y="75" width="64" height="30" rx="10" fill="#111b26" stroke="#2c3d51"/>
-      <text x="274" y="95" class="mono muted" font-size="12">60m</text>
-      <rect x="18" y="114" width="58" height="18" rx="9" fill="#1a1d22" stroke="#e7edf3" opacity="0.9"/>
-      <rect x="84" y="114" width="58" height="18" rx="9" fill="#0a0e14" stroke="#4a9eda"/>
-      <rect x="150" y="114" width="58" height="18" rx="9" fill="#000d00" stroke="#00ff50"/>
-      <rect x="216" y="114" width="58" height="18" rx="9" fill="#00080f" stroke="#00ccff"/>
-      <rect x="282" y="114" width="44" height="18" rx="9" fill="#0a0600" stroke="#ffaa00"/>
-    </g>
+    <text x="26" y="376" class="mono muted tiny">GitHub - Buy Me a Coffee - Re-run setup wizard - local docs bundled in app</text>
   </g>
 
-  <text x="42" y="499" class="mono muted tiny">README preview - illustrative sample data, not live telemetry</text>
+  <text x="42" y="501" class="mono muted tiny">Illustrative sample data - native settings uses explicit apply/save feedback</text>
 </svg>

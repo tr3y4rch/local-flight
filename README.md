@@ -1,30 +1,59 @@
 # Local Flight
 
-A **local-first Flight Information Display System (FIDS)** that runs on Windows, macOS, or a Raspberry Pi.
-Fetches real and simulated flight data and renders it as a proper airport-style departure/arrival board - in the native desktop shell, in a browser fallback, on an LED matrix panel, or on a dedicated HDMI screen.
+Local Flight is a local-first Flight Information Display System (FIDS) for Windows, macOS, Raspberry Pi, mobile companion screens, HDMI displays, LAN browsers, and LED matrix boards.
 
-No accounts. No signup wall. Community mode can use the hosted relay, but it stays install-scoped instead of account-scoped.
+It fetches real or virtual flight data, keeps a local history, and renders airport-style departures, arrivals, radar, weather, and Matrix feeds without accounts or a signup wall.
 
-The primary desktop UI is now a Chrome-free native Qt shell. That choice is deliberate: the main app window no longer needs a Chrome, Edge, Chromium, WebView, browser profile, online font, CDN, extension, sync, cookie, or browsing-history surface just to show your local FIDS. Local Flight still starts the same local FastAPI server underneath, so the LAN browser UI, mobile companion, matrix board, and API integrations keep working from the same source of truth.
+The recommended desktop client is now the native Qt app. The LAN browser UI, Pi display modes, mobile companion, Matrix board, and local APIs all use the same local server underneath, so you can pick the display style that fits your setup without splitting the app into different products.
 
 **Source:** [github.com/tr3y4rch/local-flight](https://github.com/tr3y4rch/local-flight)
 
 ---
 
-## What it does
+## Status
 
-- Three clear setup paths: **Community**, **Bring your own keys**, or **VATSIM**
-- **Native Qt desktop shell** with Display, FIDS, Radar, Matrix, Settings, Admin, History, Logs, and Report views, plus browser fallback when native Qt is not available
-- Airport-style **FIDS departures / arrivals board** with airport-local time ordering, decoded airline names, operating-flight priority, codeshare grouping, live WebSocket refresh, passenger-board native styling, flight detail drawer, history, and UTC/local clock
-- **Radar view** with ADS-B Exchange enrichment, OpenSky fallback, VATSIM mode, METAR-derived weather mood/icons/temperature, responsive native canvas scaling, airborne-vs-surface filtering, tight ground-radar ranges, hover/click details, and optional runway/surface/map/terrain layers
-- **Split display** mode for FIDS + radar on one screen, plus native-first desktop and kiosk-ready Pi flows
-- Real-data schedule fetching that tries **date-aware fair paging first** and a **rescue fallback** before giving up on a sparse board
-- Configurable **board window and page rotation** so web and matrix displays stay readable at busier airports
-- **Admin hub** for scheduler status, install-local API budgets, connected clients, updates, and diagnostics
-- **Diagnostics choice** so each install can stay on manual reports only, automatic crash reports, or automatic crash reports with sanitized logs
-- **Profiles** for saving and switching airport presets quickly
-- **Mobile companion** beta for LAN viewing and light control from iPhone, iPad, and simulator
-- **Interstate 75 W LED matrix support** with native/browser preview tooling, safe board-file download, and server-side runtime config
+`0.2.5` is still beta, but this pass treats Local Flight as a working multi-client app:
+
+- Native desktop app for Windows and macOS
+- LAN browser UI for remote viewing, headless installs, and browser-mode displays
+- Raspberry Pi headless server, native Qt HDMI kiosk, or Chromium HDMI kiosk
+- iOS-first mobile companion developer preview
+- Interstate 75 W / HUB75 Matrix client and preview tools
+
+Package/dependency upgrades are intentionally not part of this docs/copy sweep.
+
+---
+
+## Which Path Should I Choose?
+
+| If you want... | Use this |
+|---|---|
+| The normal desktop app | Native Qt app on Windows or macOS |
+| A small always-on home server | Raspberry Pi headless |
+| A Pi plugged into an HDMI display | Native Qt kiosk or Chromium kiosk |
+| Viewing from another device | LAN browser UI at `http://localflight.local:8000` |
+| iPhone/iPad companion controls | Mobile companion from `mobile/` |
+| A small LED board | Matrix page + Interstate 75 W client |
+
+Read the detailed guides:
+
+- [Install Guide](docs/install.md)
+- [Display Modes](docs/display-modes.md)
+- [Privacy & Diagnostics](PRIVACY.md)
+- [Release Notes](CHANGELOG.md)
+
+---
+
+## What It Does
+
+- Guided setup with **Community Relay**, **Bring your own keys**, and **VATSIM** paths
+- Passenger-style FIDS boards with arrivals/departures, airport-local time, status/gate chips, codeshare grouping, pinned flights, and live refresh
+- Radar with real/VATSIM traffic, METAR weather, mobile/native range controls, and optional runway/surface/map/terrain context
+- Native Qt desktop shell with Display, FIDS, Radar, Matrix, Settings, Admin, History, Logs, Report, and local docs
+- LAN browser UI for headless installs, remote screens, tablets, and browser-mode displays
+- Mobile companion with first-launch pairing, FIDS, Radar, History, guided Settings, Matrix/Admin entry points, server-mediated docs, and diagnostics consent
+- Matrix tooling for Interstate 75 W / HUB75 boards, including runtime settings and generated MicroPython `main.py`
+- Local history, local logs, local settings, and install-scoped diagnostics
 
 ---
 
@@ -40,437 +69,111 @@ Open [docs/previews/index.html](docs/previews/index.html) locally for the standa
 </p>
 
 <p align="center">
+  <img src="docs/previews/settings-preview.svg" alt="Local Flight native settings preview" width="48%">
   <img src="docs/previews/matrix-preview.svg" alt="Local Flight LED matrix preview" width="48%">
-  <img src="docs/previews/mobile-fids-preview.svg" alt="Local Flight companion FIDS preview" width="48%">
 </p>
 
 <p align="center">
+  <img src="docs/previews/mobile-fids-preview.svg" alt="Local Flight companion FIDS preview" width="48%">
   <img src="docs/previews/mobile-radar-preview.svg" alt="Local Flight companion radar preview" width="48%">
+</p>
+
+<p align="center">
   <img src="docs/previews/mobile-settings-preview.svg" alt="Local Flight companion settings preview" width="48%">
 </p>
 
 ---
 
-## Install
+## Quick Install
 
 ### Windows
 
-1. Download `LocalFlight-windows.zip` from the [latest release](https://github.com/tr3y4rch/local-flight/releases)
-2. Unzip to any folder
-3. Double-click `LocalFlight.exe`
-4. Complete the setup wizard
-
-> Windows SmartScreen may warn "Unknown publisher" - click **More info -> Run anyway**.
-
-The Windows release zip is self-contained. It bundles Python and the app dependencies, so `installers/windows/install.ps1` is only for running Local Flight from a source checkout.
-
-For source checkouts, the installer lets you choose the display style while keeping scripted flags available:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File installers\windows\install.ps1 -DisplayMode Native
-powershell -ExecutionPolicy Bypass -File installers\windows\install.ps1 -DisplayMode Browser
-powershell -ExecutionPolicy Bypass -File installers\windows\install.ps1 -DisplayMode Headless
-```
-
-Release builds also produce `LocalFlight-windows.zip.sha256` so the downloaded zip can be verified before running.
+Download `LocalFlight-windows.zip`, unzip it, and run `LocalFlight.exe`.
 
 ### macOS
 
-1. Download `LocalFlight-macos.zip` from the [latest release](https://github.com/tr3y4rch/local-flight/releases)
-2. Unzip it
-3. Drag `LocalFlight.app` to Applications
-4. Right-click -> Open on first launch if macOS Gatekeeper warns about an unsigned app
-
-Release builds also produce `LocalFlight-macos.zip.sha256` so the downloaded zip can be verified before running.
-
-The macOS source installer is only for running Local Flight from a source checkout:
-
-```bash
-bash installers/macos/install.sh --display native
-# Optional fallback/source-server modes:
-bash installers/macos/install.sh --display browser
-bash installers/macos/install.sh --display headless
-```
+Download `LocalFlight-macos.zip`, unzip it, drag `LocalFlight.app` to Applications, then right-click **Open** the first time if Gatekeeper warns.
 
 ### Raspberry Pi
 
-You can either clone the repo on the Pi or download the versioned Pi source bundle from the [latest release](https://github.com/tr3y4rch/local-flight/releases), for example `LocalFlight-pi-source-0.2.5b5.zip`.
-
-Unzip or clone on the Pi, then run the installer from the project folder. The installer creates the venv, `.env`, systemd app service, and mDNS hostname. With no flag it asks how you want to use the Pi and defaults to headless when you press Enter.
+Download the Pi source bundle or clone the repo, then run:
 
 ```bash
-# Guided one-time setup
 bash installers/pi/install.sh
-
-# Explicit modes
-bash installers/pi/install.sh --headless       # backend only for LAN/mobile/matrix
-bash installers/pi/install.sh --native-kiosk   # Chrome-free Qt fullscreen HDMI display
-bash installers/pi/install.sh --kiosk          # legacy Chromium fallback HDMI display
-
-# Management
-lf start    # start
-lf stop     # stop
-lf logs     # tail logs
-lf logs gui # tail native Qt kiosk user-service logs
-lf update   # pull latest + restart
 ```
 
-Release builds also produce `LocalFlight-pi-source-<version>.zip.sha256` so the downloaded Pi source bundle can be verified before running.
+The Pi installer asks how the Pi should run and defaults to headless.
 
-The Pi runs headless by default - access the UI from any device on your network at `http://localflight.local:8000`. Native Pi kiosk mode uses a split runtime: `localflight.service` keeps the backend headless and a user-session `localflight-native-kiosk.service` owns the fullscreen Qt display.
-
----
-
-## Mobile companion
-
-The mobile companion is an **iOS-first beta companion** for Local Flight. It is optional, and there is still no App Store, TestFlight, Play Store, or APK release yet.
-
-It runs from the `mobile/` folder with React Native / Expo and connects to the Local Flight desktop or Pi server over your local network. If you only want the main FIDS display, skip this section.
-
-### What works now
-
-- FIDS, radar, and settings as the main companion screens, with history, docs, matrix, and admin tools opened from Settings
-- WebSocket live sync with fallback polling
-- Pinned flights and the Flight Island focus card
-- Longer branded launch overlay and diagnostics that follow both the phone's local choice and the connected server's diagnostics mode
-- Airport, source, and refresh interval changes against the local server
-- Server-backed Matrix runtime editor, local panel preview helper, admin summary, feedback tools, and companion identity reporting
-- Relay-aware admin/budget payloads, including shared snapshot status for community and managed installs
-- Companion-specific ID and platform reporting for cleaner diagnostics
-- Independent mobile appearance settings and an in-app document reader for README, Privacy, and Changelog
-
-### Requirements
-
-- macOS with Xcode for iOS simulator/device testing
-- Node.js 20 LTS or newer
-- Local Flight already running on the same WiFi/LAN
-- The LAN URL of your Local Flight server, for example `http://192.168.1.42:8000`
-
-### Run the companion
+### Mobile Companion
 
 ```bash
 cd mobile
 npm install
 npx expo install --fix
-npm run doctor
+npm run verify
 npm run ios
 ```
 
-For a physical iPhone or iPad:
+For full setup details, see [docs/install.md](docs/install.md).
+
+---
+
+## First Launch
+
+First launch opens setup before the normal app.
+
+Setup asks for:
+
+1. Airport
+2. Data access path
+3. Optional provider keys
+4. Diagnostics choice
+5. Finish confirmation
+
+Community Relay is the recommended first path. BYOK is for users who already have provider keys. VATSIM is the no-key virtual traffic path.
+
+---
+
+## Local Data And Privacy
+
+Local Flight stores runtime data under `~/.localflight/`:
+
+- Config
+- Snapshots
+- History database
+- Logs
+- API usage counters
+
+Manual reports are always user-triggered. Automatic diagnostics require consent and are sanitized before leaving the machine. The mobile companion requires both the phone-local diagnostics choice and the connected server diagnostics mode to allow automatic reports.
+
+See [PRIVACY.md](PRIVACY.md) for the detailed privacy model.
+
+---
+
+## Source Checkout
+
+For development or source testing:
 
 ```bash
-cd mobile
-npm run ios:device
+python -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -e ".[native]"
+cd src
+python -m localflight
 ```
 
-In the app settings, enter the Local Flight server's LAN address. Do **not** use `localhost` on a phone; `localhost` means the phone itself, not your Mac or Windows machine.
-
-Android support is planned later; the current companion testing flow is still iOS-first.
+Windows, macOS, and Pi source installers are documented in [docs/install.md](docs/install.md).
 
 ---
 
-## First-run setup
-
-On first launch Local Flight briefly shows a versioned splash screen, then opens a guided setup wizard. In native mode this is a standalone beginner-safe setup window; in browser fallback mode it is available at `http://localhost:8000/setup`.
-
-It walks through:
-1. Welcome and local-first overview
-2. Airport selection (IATA / ICAO search)
-3. How you want to run it:
-   - **Community** - uses the hosted shared backend for schedules, limited to 50 relay schedule accesses per 30-day window per install
-   - **Bring your own keys** - uses your own AviationStack key for schedules and optional RapidAPI / OpenSky keys for radar
-   - **VATSIM** - uses virtual traffic only, with no real-data API key required
-4. Optional provider keys:
-   - **ADS-B Exchange via RapidAPI** for live positions
-   - **OpenSky Network** as a fallback or lower-cost path
-   - direct public links to provider signup/status pages for users who want BYOK
-5. Diagnostics and reporting choice:
-   - **Manual reports only** - default, privacy-first mode
-   - **Automatic crash reports** - sends sanitized crash context if the app catches a serious error
-   - **Automatic crash reports + sanitized logs** - adds a short sanitized log excerpt for harder beta issues
-6. Finish summary with the airport, data path, diagnostics mode, and relay/key status that will be saved
-
-The scheduler only starts after setup completes. You can re-run the wizard any time from **Settings -> Re-run setup wizard**.
-
-During setup, Local Flight asks once how you want diagnostics handled and saves that choice in the local config. Manual reports always stay available from the **Report** page. Reports are sanitized locally, forwarded through the hosted relay reporting gateway, deduplicated/rate-limited there, and then filed for developer triage. Developer reporting credentials are not shipped in the desktop or mobile app.
-
-Community mode defaults to `https://localflight-community-relay.fly.dev`. Relay-backed community and managed installs share airport snapshots on the relay, so the per-install `50` limit applies to relay accesses rather than raw AviationStack pulls. For public safety, the community relay can reuse an already-cached airport snapshot for about one hour even if your local display checks more often. That keeps busy shared airports such as London Heathrow from causing repeated upstream requests when many installs watch the same board. The app derives its internal relay paths automatically; `/v1/schedule` is used for shared schedules, while `/v1/flights` is not a user-facing endpoint. Only change the relay URL if you are deliberately pointing the client at your own backend; custom or private relay URLs require explicit local opt-in environment flags.
-
-For real schedules, Local Flight now tries the same stronger fetch policy across BYOK and relay-backed modes: airport-local date windows, per-date pagination, and an extra rescue pass when the visible board would otherwise be empty. If the provider still only returns older real flights for a lane, Local Flight now falls back to showing the nearest available rows instead of a dead-empty board. Some airports can still look sparse if AviationStack itself does not return near-term schedule rows for that lane.
-
----
-
-## Native GUI and browser fallback
-
-The Windows and macOS app launch the native Qt shell by default. The Pi installer stays headless unless you explicitly install a display mode, with `--native-kiosk` for the Qt fullscreen HDMI shell and `--kiosk` only for the legacy Chromium fallback.
-
-Native mode is not a separate backend. It uses the same local routes, WebSocket events, config, history, docs, reporting, and matrix tooling as the browser UI:
-
-- Display: split FIDS/radar board with live status and fullscreen-friendly scaling
-- FIDS: custom passenger-board rows, arrivals/departures, weather strip, row rotation, airline/codeshare display, status/gate chips, loading feedback, and detail drawer
-- Radar: native canvas with range chips, ADS-B/VATSIM modes, surface/airborne filtering, weather, hover/click details, runway drawing, optional surface/map/terrain layers, and contrast-safe dark/light styling
-- Matrix: LED preview, runtime settings, brightness/zoom controls, and `main.py` generator
-- Settings/Admin/History/Logs/Report: user-facing controls backed by the same local APIs, with local docs/help still bundled in the app
-
-The LAN browser UI remains available at `http://localhost:8000` for phones, tablets, troubleshooting, and fallback use. Set `LOCALFLIGHT_GUI_MODE=browser` only when you intentionally want the legacy browser shell.
-
-### Why native instead of a browser kiosk?
-
-The original browser kiosk was useful because it made Local Flight quick to build and easy to test. The long-term privacy goal is stricter: the normal desktop/display client should not depend on a general-purpose browser process when all it needs is a local control surface.
-
-The native Qt shell keeps the app local-first in a more literal way:
-
-- No automatic Chrome/Edge/Chromium launch for the primary client
-- No browser sync, extensions, profile cookies, browsing history, or default-browser behavior involved in the main UI
-- No webview wrapper or QWebEngine shortcut for the main window
-- No online font/CDN asset fetches for the primary client shell
-- Same local backend, same local storage, same setup choices, same reporting controls
-- Browser fallback still exists for LAN access, compatibility, and recovery when native GUI support is not available
-
-This does not remove every network call. Real schedules, radar, VATSIM, METAR, update checks, community relay access, and manual/automatic reports still contact their configured services when those features are enabled. The point is separation and minimization: the display shell itself should not add an extra browser-vendor data surface on top of the aviation data sources you deliberately chose.
-
----
-
-## Data sources
-
-| Source | Key required | Used for |
-|---|---|---|
-| AviationStack | Optional (`AVIATIONSTACK_API_KEY`) | Flight schedules, gates, status; without a key Local Flight uses the hosted relay's shared airport snapshots and per-install relay access quota. Local Flight tries fair date-window paging plus a rescue fallback before treating a board as empty, but upstream coverage can still vary by airport and time. |
-| ADS-B Exchange | Optional (`RAPIDAPI_KEY`) | Live positions, aircraft type, registration |
-| OpenSky Network | Optional (`OPENSKY_CLIENT_ID` / `SECRET`) | Position fallback (anonymous works, lower rate limits) |
-| VATSIM | No | Full data source for flight sim / virtual mode |
-| aviationweather.gov | No | METAR weather - free, no key needed. Local Flight decodes the METAR into its own weather mood/icon/temperature fields for the UI. In VATSIM mode, VATSIM ATIS/METAR is tried first and AviationWeather remains the fallback. |
-| OurAirports | No | Runway metadata, runway IDs, headings, dimensions, and airport reference data used by the native radar runway layer when bundled or locally cached. |
-| OpenStreetMap / Overpass | No | Optional airport surface and map context for runway/surface/map overlays. Local Flight uses simplified, cached geometry with attribution and falls back to clearly labeled estimated surface geometry when no reliable OSM cache is available. |
-| AWS Terrain Tiles | No | Optional low-detail terrain/cartographic relief for the native radar. This is cached locally, subtle by design, and visual-only. |
-
-VATSIM privacy note: Local Flight treats virtual-network data as flight information only. It does not store or display pilot names, controller names, CIDs/account IDs, server names, or other person-identifying VATSIM fields.
-
----
-
-## Environment variables (`.env`)
-
-The setup wizard writes these for you. You can also edit `.env` directly — changes take effect on the next fetch without restart.
-
-```
-# Community relay / activation
-LOCALFLIGHT_ACTIVATION_TOKEN=
-LOCALFLIGHT_RELAY_URL=https://localflight-community-relay.fly.dev
-
-# BYOK AviationStack - leave blank to use the community relay instead
-AVIATIONSTACK_API_KEY=<your-aviationstack-key>
-LOCALFLIGHT_AVIATIONSTACK_ENABLED=1
-LOCALFLIGHT_AVIATIONSTACK_MONTHLY_LIMIT=90
-# Counts relay schedule accesses per install, not raw upstream pulls.
-LOCALFLIGHT_RELAY_MONTHLY_LIMIT=50
-
-# ADS-B Exchange via RapidAPI - live aircraft positions
-RAPIDAPI_KEY=<your-rapidapi-key>
-LOCALFLIGHT_RAPIDAPI_MONTHLY_LIMIT=10000
-
-# OpenSky Network - position fallback (optional)
-OPENSKY_CLIENT_ID=<your-opensky-client-id>
-OPENSKY_CLIENT_SECRET=<your-opensky-client-secret>
-
-# Advanced: only needed if you intentionally run your own relay.
-# Keep these unset for normal users.
-LOCALFLIGHT_ALLOW_CUSTOM_RELAY_URL=
-LOCALFLIGHT_ALLOW_PRIVATE_RELAY_URL=
-```
-
----
-
-## Configuration
-
-Config lives at `~/.localflight/config.json` and is managed via the **Settings** page at `http://localhost:8000`.
-
-Runtime data is also kept outside the source tree:
-
-- Snapshots: `~/.localflight/storage/data/<IATA>/snapshots`
-- History DB: `~/.localflight/history.db`
-- Logs: `~/.localflight/logs`
-- API usage: `~/.localflight/api_usage.json`
-
-| Field | Default | Description |
-|---|---|---|
-| `airport_iata` | `ZRH` | 3-letter IATA code |
-| `airport_icao` | `LSZH` | 4-letter ICAO code |
-| `refresh_seconds` | `3600` | Fetch interval. Settings offers 15, 30, 45, 60 minutes, then 2, 4, 8, 12, and 24 hours. |
-| `source` | `real` | `real` (AviationStack) or `virtual` (VATSIM) |
-| `timezone` | `Europe/Zurich` | IANA timezone for local time display |
-| `theme` | `dark` | `dark` or `light` |
-| `skin` | `standard` | `standard`, `technical`, `neon`, `cyan`, `crt` |
-| `display_name` | `Local Flight` | Shown in the UI header |
-| `display_outputs` | `["web"]` | `web`, `matrix`, `hdmi` |
-| `display_grace_minutes` | `30` | How long recently departed/arrived flights stay visible on the boards |
-| `display_horizon_hours` | `12` | How far ahead the board window reaches when filtering upcoming flights |
-| `web_row_limit` | `20` | Visible rows per web FIDS page before local rotation kicks in |
-| `web_rotation_seconds` | `8` | Seconds between rotated web FIDS pages when overflow exists |
-| `radar_surface_enabled` | `false` | Enables radar runway/surface/map preparation. Reliable cached OSM/OurAirports geometry is preferred; otherwise the radar shows labeled estimated surface geometry rather than silently drawing nothing. |
-
----
-
-## Pages
-
-These web routes remain available for browser fallback and LAN clients even when the native GUI is the primary shell.
-
-| URL | Description |
-|---|---|
-| `/splash` | Short launch splash screen with version badge, then redirects to setup/display |
-| `/setup` | First-run setup wizard with Community / BYOK / VATSIM paths |
-| `/display` | Split-view FIDS + Radar with draggable divider (default on launch) |
-| `/fids` | FIDS board standalone (`?view=arrivals\|departures`) |
-| `/radar` | Responsive standalone radar with optional cached runway, surface, map, and terrain layers |
-| `/matrix-preview` | Browser LED matrix simulator, board-file helper, and runtime config surface |
-| `/` | Settings - airport, skin, outputs |
-| `/admin` | Admin hub - scheduler status, API budgets, connected clients, system info |
-| `/admin/requests` | Traffic log - local, anonymized request counters by endpoint/client type (only when network tools are explicitly enabled) |
-| `/history` | Flight history - filterable table + aggregate stats |
-| `/logs` | Live log viewer |
-| `/feedback` | Report a problem - sanitized locally, then forwarded through the hosted reporting gateway |
-| `/docs/readme` | In-app README viewer |
-| `/docs/privacy` | In-app privacy viewer |
-| `/docs/changelog` | In-app changelog viewer |
-
----
-
-## Skins
-
-| Skin | Style |
-|---|---|
-| `standard` | Dark/light neutral with pictogram aircraft silhouettes |
-| `technical` | Cool blue monospace, radar-style vector icons |
-| `neon` | Green phosphor CRT |
-| `cyan` | Ops-centre blue |
-| `crt` | Amber split-flap |
-
----
-
-## API call budgets
-
-AviationStack and RapidAPI usage is tracked locally in `~/.localflight/api_usage.json` and resets monthly.
-
-- AviationStack BYOK default: 90 calls/month
-- Community relay default: 50 relay schedule accesses/month per install (enforced relay-side, rolling 30-day window)
-- ADS-B Exchange / RapidAPI default: 10,000 calls/month
-- BYOK and local direct community-key mode use the fair AviationStack planner, so real upstream usage depends on airport traffic, date window coverage, and pagination
-- Relay-backed community and managed installs usually spend one relay schedule access per refresh cycle locally, while the relay may satisfy that from a shared cache or trigger a shared upstream refresh for many installs at once
-- Community relay snapshots have an upstream refresh floor of about one hour per cached airport/window. Local settings still offer 15, 30, 45, 60 minutes and longer choices, but the hosted relay protects shared provider usage when many users watch the same airport.
-
-Scheduler restarts and config changes do not burn a new schedule call while the current snapshot is still fresh.
-
----
-
-## Supported hardware
-
-| Device | Role |
-|---|---|
-| Windows PC | Full desktop app - native Qt shell with browser fallback |
-| macOS | Full desktop app - native Qt shell with browser fallback |
-| Raspberry Pi 5 | Headless server by default - systemd services, optional Chromium or native Qt HDMI kiosk, mDNS (`localflight.local`) |
-| Pimoroni Interstate 75 W | LED matrix display with rectangular HUB75 layouts such as 128x64, 256x64, 128x128, and supported custom sizes - MicroPython client |
-| RTL-SDR USB dongle | Local ADS-B receiver on Pi - no API key or rate limits |
-| 7-10" HDMI screen | Secondary display via native Qt kiosk where supported, with legacy Chromium kiosk as fallback |
-
-### LED matrix (Interstate 75 W)
-
-The board connects to your WiFi independently, reads runtime settings from Local Flight, and polls the FIDS API on its own schedule:
-
-- Classic split-flap letter animation
-- Three matrix presets: real passenger FIDS, VATSIM pilot board, and VATSIM ATC board
-- Passenger-friendly airport city headers, route-code preservation, codeshare cycling, and small-panel route/status chunk rotation
-- Pixel glyphs for flight direction/status/weather plus decoded weather condition and temperature markers
-- Optional weather strip/page toggle in Matrix config
-- Button A = departures, Button B = arrivals, A+B = force refresh
-- RGB status LED: green = ok, blue = fetching, amber = no data, red = no WiFi
-- Matrix setup surfaces with:
-  - server-generated `main.py` download from the canonical board client in both web and native GUI
-  - server-side matrix runtime config (`/api/matrix/config` and Matrix V2 config/device APIs) for rows, brightness, refresh, default view, preset, animation, weather, and assigned devices
-  - host validation so the board is pointed at a LAN host such as `localflight.local`, not `localhost`
-
-VATSIM matrix presets intentionally require the app source to be `virtual`. `vatsim_pilot` shows arrivals/departures only; `vatsim_atc` rotates departures, arrivals, and VATSIM-only decoded ATIS/METAR weather when the weather toggle is enabled.
-
-For the cleanest path, open `/matrix-preview`, enter the board WiFi details plus the Local Flight server host, download `main.py`, and save it to the MicroPython device with Thonny.
-
-### RTL-SDR / ADS-B on Pi
-
-```bash
-sudo apt install dump1090-fa
-sudo systemctl enable --now dump1090-fa
-```
-
-Provides unlimited local ADS-B reception with no API key or monthly limits.
-
----
-
-## Reporting issues
-
-Use the **Report** page from the nav bar anywhere in the app. Manual reports are always available from both the native GUI and browser fallback. Automatic diagnostics are an install-level choice you can keep off, enable for crash reports only, or enable with sanitized log excerpts.
-
-The first-run setup wizard asks for that choice explicitly and stores it locally. Native GUI interaction crashes use the same diagnostics-gated `/api/feedback/crash` route as the rest of the app. Reports are sanitized locally, forwarded through the hosted relay reporting gateway, deduplicated/rate-limited there, and then filed for developer triage. No account required.
-
----
-
-## API reference
-
-| Endpoint | Method | Description |
-|---|---|---|
-| `/api/fids` | GET | FIDS rows (`?view=arrivals\|departures&limit=20`) |
-| `/api/fids/detail` | GET | Callsign detail with live position + 7-day history |
-| `/api/radar` | GET | Aircraft positions (`?radius_nm=20`) plus backward-compatible optional traffic/altitude filters and safe derived display fields |
-| `/api/radar/map` | GET | Native/mobile radar map layer: runways, simplified surface/map features, terrain availability, attribution, and confidence metadata |
-| `/api/radar/surface` | GET | Compatibility airport surface geometry for the current airport (`?radius_nm=5`, 1-5 NM only); returns cached OSM geometry when available or a labeled local estimate as fallback |
-| `/api/metar` | GET | Decoded + raw METAR plus Local Flight weather mood/icon/temperature fields |
-| `/api/flights` | GET | Raw flight list from latest snapshot |
-| `/api/history` | GET | Recent flights (`?hours=24&direction=dep`) |
-| `/api/history/flight` | GET | Callsign history (`?callsign=SWR184&days=7`) |
-| `/api/history/stats` | GET | DB row count, size, oldest/newest |
-| `/api/history/summary` | GET | Top airlines, routes, aircraft, on-time rate |
-| `/api/config` | GET / PATCH | Read or update config |
-| `/api/health` | GET | Scheduler state - last fetch, errors, latency |
-| `/api/airports/search` | GET | Airport search (`?q=zurich`) |
-| `/api/airports/resolve` | GET | Resolve IATA/ICAO to full record |
-| `/api/admin/system` | GET | Uptime, memory, CPU, version |
-| `/api/admin/budget` | GET | API call budgets and usage |
-| `/api/admin/requests` | GET | Anonymized local request log summary (only when network tools are explicitly enabled) |
-| `/api/admin/connections` | GET | WebSocket client count + device pings |
-| `/api/admin/companion/checkin` | POST | Mobile companion presence check-in |
-| `/api/admin/updates` | GET | Latest GitHub release check |
-| `/api/admin/scheduler` | GET | Scheduler thread status |
-| `/api/admin/scheduler/restart` | POST | Restart scheduler and run a fresh fetch cycle |
-| `/api/admin/ping` | POST | Device ping (LED matrix client) |
-| `/api/matrix/config` | GET / POST | Read or update LED matrix runtime settings |
-| `/api/matrix/v2/presets` | GET | List public Matrix V2 presets (`real_fids`, `vatsim_pilot`, `vatsim_atc`) |
-| `/api/matrix/v2/configs` | GET / POST | Manage Matrix V2 configs |
-| `/api/matrix/v2/devices` | GET | List checked-in matrix devices |
-| `/api/matrix/v2/devices/checkin` | POST | Register/update a matrix board and its assigned config |
-| `/api/matrix/v2/devices/{device_id}/config` | GET | Resolve the config assigned to a matrix board |
-| `/api/matrix/v2/devices/{device_id}/feed` | GET | Page-aware matrix feed with rows, decoded weather, and VATSIM pages where applicable |
-| `/api/matrix/script` | POST | Generate a ready-to-flash Interstate 75 W `main.py` |
-| `/api/feedback` | POST | Submit a sanitized manual report (`{title, description, client_context}`) through the reporting gateway; returns safe queue/dedupe status when available |
-| `/api/feedback/crash` | POST | Submit a diagnostics-gated crash report with deduplication, used by native GUI, server, and companion crash reporters when allowed |
-| `/api/setup/complete` | POST | Save setup, write `.env`, mark complete |
-| `/api/setup/reset` | POST | Re-run setup wizard |
-| `/api/setup/client-info` | GET | Install fingerprint, relay URL, token status, and managed status hint |
-| `/api/setup/activate` | POST | Save a managed activation token |
-| `/api/setup/client-status` | POST | Check the relay status for this install/token |
-| `/api/setup/request-activation` | POST | Request relay activation |
-| `/api/setup/request-activation/status` | POST | Poll activation-request status |
-| `/api/setup/test-activation` | POST | Test an activation token without saving |
-| `/api/setup/test-aviationstack` | POST | Validate an API key without saving |
-| `/api/setup/test-rapidapi` | POST | Validate an ADS-B Exchange RapidAPI key without saving |
-| `/api/quit` | POST | Graceful shutdown |
-| `/ws` | WS | WebSocket push - broadcasts snapshot, config, and scheduler events |
-
----
-
-## Philosophy
-
-- **Local first** - flight data, history, config, and logs live on your own machine.
-- **Private by design** - no accounts, no email, no analytics SDK, no tracking. See [PRIVACY.md](PRIVACY.md).
-- **Chrome-free first** - native Qt is the intended desktop/display shell so the main UI does not need browser profiles, sync, extensions, cookies, webviews, or CDN assets; browser mode stays as a fallback and LAN access path.
-- **Trusted LAN by default** - the app is meant for your own network, not the open internet. Browser drive-by mutations are blocked, but full per-device pairing is still planned.
-- **Simple stack** - standard Python, clear modules, predictable behavior.
-- **Pi-ready** - nothing in the stack needs a GPU or big hardware.
-- **Graceful fallback** - if one enrichment source fails, the next one takes over.
-- **Budget-aware** - AviationStack, relay, and RapidAPI counters are enforced in code.
+## Project Philosophy
+
+- **Local first:** your config, snapshots, history, and logs live on your machine.
+- **No accounts:** Local Flight does not require a login or email address.
+- **Native by default on desktop:** the main desktop app does not need a browser profile, webview, online font, CDN, extension, or sync surface.
+- **LAN browser UI stays supported:** useful for headless installs, remote viewing, kiosk displays, and recovery.
+- **Server-mediated companions:** mobile and Matrix talk through your Local Flight server.
+- **Budget-aware:** provider and relay usage is tracked and guarded.
+
+For display-choice philosophy, see [docs/display-modes.md](docs/display-modes.md).

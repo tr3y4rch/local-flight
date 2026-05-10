@@ -31,7 +31,7 @@ if "%PYTHON%"=="" if not errorlevel 1 set "PYTHON=python"
 
 if "%PYTHON%"=="" (
     echo  ERROR: Python 3.11 or newer not found.
-    echo  Install Python 3.13 from https://www.python.org/downloads/
+    echo  Install Python 3.11 or newer from https://www.python.org/downloads/
     pause
     exit /b 1
 )
@@ -91,7 +91,7 @@ if "%LF_INSTALL_NATIVE%"=="1" (
 )
 if errorlevel 1 (
     echo  ERROR: Dependency installation failed.
-    echo  Native GUI mode needs PySide6. If you want the old browser fallback for dev only:
+    echo  Native GUI mode needs PySide6. If you want browser mode for dev only:
     echo    set LOCALFLIGHT_GUI_MODE=browser
     echo    start.bat
     pause
@@ -143,7 +143,7 @@ if errorlevel 2 (
 :: -- Launch Local Flight -------------------------------------------------------------
 echo  Launching Local Flight...
 if /i "%LOCALFLIGHT_GUI_MODE%"=="browser" (
-    echo  Browser fallback will open. Right-click tray icon to open UI or quit.
+    echo  Browser/LAN UI mode will open. Right-click tray icon to open UI or quit.
 )
 if /i "%LOCALFLIGHT_GUI_MODE%"=="headless" (
     echo  Headless backend mode requested. Local LAN web UI remains available at http://localhost:8000

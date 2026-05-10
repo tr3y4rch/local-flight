@@ -406,7 +406,7 @@ def fetch_overpass_surface(
         overpass_url or DEFAULT_OVERPASS_URL,
         data={"data": query},
         headers={
-            "User-Agent": "localflight-relay/0.2.5b5 (+https://github.com/tr3y4rch/local-flight)",
+            "User-Agent": "localflight-relay/0.2.5 (+https://github.com/tr3y4rch/local-flight)",
             "Accept": "application/json",
         },
         timeout=timeout_s,

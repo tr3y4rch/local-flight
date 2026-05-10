@@ -131,7 +131,7 @@ def _app_version() -> str:
     try:
         return version("localflight")
     except PackageNotFoundError:
-        return "0.2.5b5"
+        return "0.2.5"
 
 
 def _as_widget(screen: Any) -> Any:
@@ -1104,7 +1104,7 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
         self.back_btn.setObjectName("Quiet")
         self.next_btn = QtWidgets.QPushButton("Next")
         self.finish_btn = QtWidgets.QPushButton("Finish setup")
-        self.web_fallback_btn = QtWidgets.QPushButton("Open web setup fallback")
+        self.web_fallback_btn = QtWidgets.QPushButton("Open browser setup")
         self.web_fallback_btn.setObjectName("Quiet")
         self.back_btn.clicked.connect(self._previous_step)
         self.next_btn.clicked.connect(self._next_step)
@@ -1184,7 +1184,7 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
         cards.setVerticalSpacing(10)
         for col, (mode, title, body, glyph) in enumerate(
             (
-                ("community", "Community Relay", "Shared airport snapshots through the hosted beta relay.", NAV_GLYPHS.get("radar", "")),
+                ("community", "Community Relay", "Shared airport snapshots through the hosted community relay.", NAV_GLYPHS.get("radar", "")),
                 ("byok", "BYOK AviationStack", "Use your own API key and keep provider calls local.", NAV_GLYPHS.get("settings", "")),
                 ("virtual", "Virtual / VATSIM", "No paid schedule key. Uses live VATSIM flight-network data.", NAV_GLYPHS.get("fids", "")),
             )
@@ -3518,6 +3518,8 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
         self.doc_buttons: dict[str, Any] = {}
         for title, slug in (
             ("Project README", "readme"),
+            ("Install guide", "install"),
+            ("Display modes", "display-modes"),
             ("Privacy & diagnostics", "privacy"),
             ("Release notes", "changelog"),
             ("Third-party notices", "third-party"),
@@ -3747,7 +3749,7 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
         except NativeApiError as exc:
             self.status.setText(f"Setup reset failed: {exc}")
             return
-        self.status.setText("Setup marker removed. Open setup on next launch or via browser fallback.")
+        self.status.setText("Setup marker removed. Open setup on next launch or from the browser setup page.")
 
     def save_profile(self) -> None:
         name = self.profile_name.text().strip()

@@ -196,7 +196,7 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
         nav_wrap.setMaximumWidth(self.setup_max_width)
         nav = self.QtWidgets.QHBoxLayout(nav_wrap)
         nav.setContentsMargins(0, 0, 0, 0)
-        self.web_fallback_btn = self.QtWidgets.QPushButton("Web setup fallback")
+        self.web_fallback_btn = self.QtWidgets.QPushButton("Open browser setup")
         self.web_fallback_btn.setObjectName("Quiet")
         self.back_btn = self.QtWidgets.QPushButton("Back")
         self.back_btn.setObjectName("Quiet")
@@ -318,7 +318,7 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
     def _build_source_page(self) -> None:
         _page, layout = self._page(
             "Choose Data Access",
-            "Community Relay is the guided default. BYOK is for direct provider accounts. VATSIM is the no-key virtual fallback.",
+            "Community Relay is the guided default. BYOK is for direct provider accounts. VATSIM is the no-key virtual path.",
         )
         self.setup_mode = self.QtWidgets.QComboBox()
         for label_text, mode in (
@@ -334,7 +334,7 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
         cards.setVerticalSpacing(10)
         for col, (mode, title, body) in enumerate(
             (
-                ("community", "Community Relay", "Recommended. Real-flight snapshots through the hosted beta relay."),
+                ("community", "Community Relay", "Recommended. Real-flight snapshots through the hosted community relay."),
                 ("byok", "Use My Own Keys", "For users who already have AviationStack and optional enrichment keys."),
                 ("virtual", "VATSIM", "No schedule key. Uses virtual network data and is safe for quick testing."),
             )
@@ -556,7 +556,7 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
         mode = self._current_mode()
         self.relay_box.setVisible(mode == "community")
         if mode == "community":
-            self.mode_help.setText("Recommended first path. Uses the hosted relay when this install has access. If it is not connected yet, VATSIM is the no-key fallback.")
+            self.mode_help.setText("Recommended first path. Uses hosted community snapshots when this install has access. VATSIM remains available as the no-key virtual path.")
             self.keys_hint.setText("Community Relay mode skips provider keys. You can add your own keys later in Settings.")
         elif mode == "byok":
             self.mode_help.setText("Direct provider mode. Use this when you want AviationStack calls from this device and you own the provider quota.")

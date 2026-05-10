@@ -102,14 +102,14 @@ def _app_version() -> str:
     try:
         return version("localflight")
     except PackageNotFoundError:
-        return "0.2.5b5"
+        return "0.2.5"
 
 
 class _NativeCrashReporter:
     """Route native UI exceptions through the local feedback API.
 
-    This facade copy keeps test and monkeypatch compatibility while the legacy
-    launch path is being split behind ``bootstrap``.
+    This facade copy keeps test and monkeypatch compatibility while the
+    compatibility launch path is being split behind ``bootstrap``.
     """
 
     def __init__(self, base_url: str, *, screen_provider: Any | None = None) -> None:
@@ -190,11 +190,11 @@ class _NativeCrashReporter:
             self._reporting = False
 
 
-def _legacy() -> Any:
+def _compat_module() -> Any:
     return import_module("localflight.native._legacy_app")
 
 
 def __getattr__(name: str) -> Any:
     if name in _LEGACY_EXPORTS:
-        return getattr(_legacy(), name)
+        return getattr(_compat_module(), name)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

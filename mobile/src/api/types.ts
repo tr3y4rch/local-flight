@@ -2,7 +2,7 @@ export type FlightView = "departures" | "arrivals";
 export type HistoryDirection = "both" | "dep" | "arr";
 
 export type DocDocument = {
-  slug: "readme" | "privacy" | "changelog" | string;
+  slug: "readme" | "install" | "display-modes" | "privacy" | "changelog" | string;
   title: string;
   summary: string;
   filename: string;
@@ -503,6 +503,18 @@ export type AirportResult = {
   country: string;
   type: string;
   timezone?: string;
+};
+
+export type AirportResolved = {
+  iata: string;
+  icao: string;
+  name: string;
+  city: string;
+  country: string;
+  timezone?: string;
+  type?: string;
+  lat?: number | null;
+  lon?: number | null;
 };
 
 export type AirportDetail = {

@@ -2,6 +2,7 @@ import type {
   AdminConnections,
   AdminSystem,
   AdminUpdates,
+  AirportResolved,
   AirportResult,
   AppConfig,
   AppState,
@@ -359,6 +360,13 @@ export function searchAirports(serverUrl: string, q: string, limit = 8): Promise
   return fetchJson<AirportResult[]>(
     serverUrl,
     `/api/airports/search?q=${encodeURIComponent(q)}&limit=${limit}`
+  );
+}
+
+export function resolveAirport(serverUrl: string, q: string): Promise<AirportResolved> {
+  return fetchJson<AirportResolved>(
+    serverUrl,
+    `/api/airports/resolve?q=${encodeURIComponent(q)}`
   );
 }
 

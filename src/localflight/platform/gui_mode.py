@@ -39,7 +39,7 @@ def resolve_gui_mode(
     env: Optional[Mapping[str, str]] = None,
 ) -> str:
     """
-    Resolve the legacy env-only GUI mode.
+    Resolve the environment-requested GUI mode.
 
     Prefer localflight.platform.gui_launcher.decide_gui_launch() for startup
     decisions because it also checks whether PySide6/Qt is importable.

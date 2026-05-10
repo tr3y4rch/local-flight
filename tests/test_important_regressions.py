@@ -1456,7 +1456,7 @@ def test_mobile_companion_checkin_is_exposed_in_connections(monkeypatch, tmp_pat
         json={
             "companion_id": "lfc_test_mobile_001",
             "client_name": "Local Flight Companion",
-            "app_version": "0.2.5b5",
+            "app_version": "0.2.5",
             "mobile_os": "iOS 18.5 (phone)",
             "device_type": "phone",
         },
@@ -2835,8 +2835,8 @@ def test_public_preview_gallery_includes_matrix_artwork() -> None:
 
     assert "docs/previews/matrix-preview.svg" in readme
     assert "matrix-preview.svg" in gallery
-    assert readme.count("<img src=\"docs/previews/") == 6
-    assert gallery.count("<article class=\"card\">") == 6
+    assert readme.count("<img src=\"docs/previews/") == 7
+    assert gallery.count("<article class=\"card\">") == 7
     assert matrix_preview.exists()
     ET.parse(matrix_preview)
 
@@ -2921,6 +2921,33 @@ def test_api_docs_serves_bundled_markdown(monkeypatch) -> None:
     assert payload["bundled"] is True
     assert payload["content"].startswith("# Local Flight")
     assert payload["github_url"].startswith("https://github.com/tr3y4rch/local-flight")
+
+    install_response = TestClient(ui_server.app).get("/api/docs/install")
+    display_response = TestClient(ui_server.app).get("/api/docs/display-modes")
+
+    assert install_response.status_code == 200
+    assert install_response.json()["filename"] == "install.md"
+    assert install_response.json()["bundled"] is True
+    assert "Install Guide" in install_response.json()["title"]
+
+    assert display_response.status_code == 200
+    assert display_response.json()["filename"] == "display-modes.md"
+    assert display_response.json()["bundled"] is True
+    assert "Display Modes" in display_response.json()["title"]
+
+
+def test_docs_html_pages_expose_bundled_documents(monkeypatch) -> None:
+    monkeypatch.setattr(ui_server, "_setup_complete", lambda: True)
+    client = TestClient(ui_server.app)
+
+    for slug in ("readme", "install", "display-modes", "privacy", "changelog", "third-party"):
+        response = client.get(f"/docs/{slug}")
+        assert response.status_code == 200
+        assert "Local Flight" in response.text or "Third-Party" in response.text
+        assert f"/docs/{slug}" in response.text
+
+    response = client.get("/docs/nope")
+    assert response.status_code == 404
 
 
 def test_api_docs_rejects_unknown_slug(monkeypatch) -> None:

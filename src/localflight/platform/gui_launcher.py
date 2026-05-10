@@ -81,7 +81,7 @@ def decide_gui_launch(
     if native_ok and (has_display or _desktop_without_display_ok(plat)):
         return _decision(requested, "native", plat, native_ok, has_display, "auto selected native Qt")
     if has_display or plat in {Platform.WINDOWS, Platform.MACOS}:
-        return _decision(requested, "browser", plat, native_ok, has_display, "auto selected browser fallback")
+        return _decision(requested, "browser", plat, native_ok, has_display, "auto selected browser UI")
     return _decision(requested, "headless", plat, native_ok, has_display, "auto selected headless")
 
 

@@ -15,7 +15,17 @@ The Python/FastAPI desktop or Pi app remains the server of record. The mobile ap
 - iPhone/iPad connected for device builds, or an iOS simulator
 - Local Flight already running on the same WiFi/LAN
 
-Expo SDK 55 targets React Native 0.83 and React 19.2. Run `npm run doctor` after install on the Mac to confirm the active Xcode and package versions are compatible. At the moment, `npm run doctor` can fail only because the installed Xcode is too old for Expo SDK 55; that is an environment issue, not a Local Flight code issue.
+Expo SDK 55 targets React Native 0.83 and React 19.2. Run `npm run doctor` after install on the Mac to confirm the active Xcode, CocoaPods, and package versions are compatible.
+
+If Xcode was freshly installed or upgraded, accept the Apple SDK license first:
+
+```bash
+sudo xcodebuild -license accept
+sudo xcode-select --reset
+sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+```
+
+If `expo run:ios` exits with a destination/runtime error, open Xcode -> Settings -> Components and install the matching iOS simulator runtime.
 
 ---
 
@@ -25,9 +35,29 @@ Expo SDK 55 targets React Native 0.83 and React 19.2. Run `npm run doctor` after
 cd mobile
 npm install
 npx expo install --fix
-npm run doctor
+npm run verify
 npm run ios
 ```
+
+For the normal development loop, keep it fast:
+
+```bash
+cd mobile
+npm run verify
+npm run ios
+```
+
+`npm run verify` runs TypeScript plus Expo Doctor. Use the running simulator or device for visual checks instead of the screenshot matrix during regular feature work.
+
+To retest the forced first-launch setup and diagnostics consent on a simulator:
+
+```bash
+cd mobile
+xcrun simctl uninstall booted com.localflight.companion || true
+npm run ios
+```
+
+This removes the simulator app data so the setup gate appears again. On a physical iPhone or iPad, delete the app from the device before reinstalling.
 
 For a physical iPhone or iPad:
 
@@ -43,6 +73,15 @@ http://192.168.1.42:8000
 ```
 
 Do not use `localhost` on a physical iPhone. `localhost` means the phone itself, not your Mac, Windows PC, or Raspberry Pi.
+
+Deep geometry QA is optional and intentionally slow:
+
+```bash
+cd mobile
+npm run layout:ios -- --runtime latest --only iphone-standard
+```
+
+The screenshot script builds a self-contained simulator app and captures portrait/landscape PNGs under `mobile/.layout-smoke/`. Use it only before a release or when debugging a specific layout regression. Add `--skip-build` to reuse the previous bundled simulator app, `--fresh-devices` to force clean temporary simulators, or `--runtime all` for the full installed iOS runtime matrix. iPad simulators are listed under iOS runtimes in `simctl`, which is how Apple exposes iPadOS geometry for this workflow.
 
 ---
 
@@ -61,7 +100,8 @@ Do not use `localhost` on a physical iPhone. `localhost` means the phone itself,
 - WebSocket listener for `/ws` `snapshot_updated`, `config_updated`, and `scheduler_restarted` events
 - Independent mobile appearance with dark/light theme plus `standard`, `technical`, `neon`, `cyan`, and `crt` skins
 - Server-backed Matrix runtime editor using `/api/matrix/config`, with local-only panel preview presets
-- Landscape split display for FIDS/Radar and responsive radar pinch zoom
+- Fullscreen landscape FIDS from any screen, with normal portrait state restored when rotating back
+- Mobile-owned radar radius controls with server-mediated runway and airport-surface drawing
 - In-app Markdown reader for README, Privacy, and Changelog
 - Feedback and crash reporting through the connected Local Flight server
 
@@ -108,4 +148,4 @@ The companion ID is install-scoped. It is there so reports and connection logs c
 - Android test pass after the iOS companion stabilizes
 - Real navigation stack once screen history/deep links justify it
 - iPad keep-awake/display-mode polish
-- Native radar rendering with `react-native-svg`
+- Native radar rendering polish around labels, density, and tablet geometry

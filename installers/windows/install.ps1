@@ -114,7 +114,7 @@ function Resolve-DisplayMode {
     if ([Environment]::UserInteractive -and -not $NoPause) {
         Write-Host " Choose how this source install should open:" -ForegroundColor Cyan
         Write-Host "   1) Native Qt GUI   - recommended Chrome-free desktop shell"
-        Write-Host "   2) Browser fallback - legacy browser shell, LAN UI still available"
+        Write-Host "   2) Browser/LAN UI  - open the supported local browser interface"
         Write-Host "   3) Headless server - backend only for LAN/mobile/matrix"
         $choice = Read-Host " Select 1/2/3, or press Enter for Native"
         switch ($choice.Trim()) {
@@ -222,7 +222,7 @@ Write-Section "LOCAL FLIGHT - Source Installer"
 
 Write-Host " Source root: $ROOT" -ForegroundColor Gray
 Write-Host " Release zip: unzip LocalFlight-windows.zip and run LocalFlight.exe; no installer needed." -ForegroundColor Gray
-Write-Host " GUI default: native Qt shell; browser fallback stays at http://localhost:8000." -ForegroundColor Gray
+Write-Host " GUI default: native Qt shell; LAN browser UI stays at http://localhost:8000." -ForegroundColor Gray
 Write-Host ""
 
 $resolvedDisplayMode = Resolve-DisplayMode -RequestedMode $DisplayMode

@@ -1,7 +1,7 @@
 """Qt-native radar canvas.
 
 The browser radar remains the behavior checklist, but this module owns the
-native QPainter implementation so Radar can evolve outside the legacy shell.
+native QPainter implementation so Radar can evolve outside the compatibility shell.
 """
 from __future__ import annotations
 

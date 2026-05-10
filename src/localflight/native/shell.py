@@ -1,6 +1,6 @@
 """Native shell compatibility boundary.
 
-The full shell still lives in ``_legacy_app`` during the first extraction pass.
+The full shell still lives in the compatibility module during the first extraction pass.
 Keeping this module gives future work a stable place to move ``NativeMainWindow``
 without changing launchers or tests again.
 """

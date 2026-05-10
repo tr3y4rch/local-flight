@@ -331,9 +331,9 @@
       <label>
         <span>Display outputs</span>
         {% set outputs = [
-          ("web",    "Web",    "Edge app window on this machine"),
+          ("web",    "Web",    "LAN browser UI on this machine"),
           ("matrix", "Matrix", "Interstate 75 W LED panel over WiFi"),
-          ("hdmi",   "HDMI",   "Chromium kiosk on connected screen"),
+          ("hdmi",   "HDMI",   "Chromium browser kiosk on connected screen"),
         ] %}
         <div style="display:flex; flex-direction:column; gap:8px; margin-top:6px;">
           {% for out_id, out_label, out_desc in outputs %}
@@ -433,7 +433,15 @@
         </a>
         <a class="resource-card" href="/docs/readme">
           <strong>Project README</strong>
-          <span>Install notes, setup paths, source overview, and current usage guidance.</span>
+          <span>Friendly overview, quick path chooser, previews, and links to deeper docs.</span>
+        </a>
+        <a class="resource-card" href="/docs/install">
+          <strong>Install guide</strong>
+          <span>Windows, macOS, Raspberry Pi, source checkout, and mobile testing steps.</span>
+        </a>
+        <a class="resource-card" href="/docs/display-modes">
+          <strong>Display modes</strong>
+          <span>Choose native desktop, LAN browser UI, Pi kiosk, mobile companion, or Matrix.</span>
         </a>
         <a class="resource-card" href="/docs/privacy">
           <strong>Privacy &amp; diagnostics</strong>

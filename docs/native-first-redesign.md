@@ -1,21 +1,26 @@
-# Native-First PySide6 Redesign Tracker
+# Internal Native-First PySide6 Redesign Tracker
 
-This note preserves the PySide6 native-first redesign plan so future work can keep the direction intact while the browser kiosk remains the feature/spec source during hardening.
+This is an internal engineering/handoff note, not end-user install guidance. It preserves the PySide6 native-first redesign plan so future work can keep the direction intact while the browser/LAN UI remains a supported display surface and parity reference during hardening.
+
+For user-facing install and display-choice guidance, use:
+
+- [Install Guide](install.md)
+- [Display Modes](display-modes.md)
 
 ## Goal
 
-Redesign the PySide6 app as the future primary, eventually lone, Local Flight GUI.
+Redesign the PySide6 app as the recommended primary desktop GUI while keeping the browser/LAN UI as a permanent supported access and display surface.
 
 - Keep FastAPI as the local backend and source of truth.
-- Use the browser kiosk as the parity checklist, not as a layout to copy.
-- Keep browser pages as fallback during hardening.
-- Retire human-facing browser routes only after native parity is proven.
+- Use the browser/LAN UI as the parity checklist, not as a layout to copy.
+- Keep browser pages supported for LAN access, headless installs, display kiosks, and recovery.
+- Do not plan to remove human-facing browser routes; keep them aligned with the supported local API contract.
 - Keep Operator Network Admin separate from the public client GUI.
 
 ## Chosen Direction
 
 - Approach: Native Redesign Now.
-- Browser end state: Fallback Then Retire.
+- Browser/LAN role: Supported access and display surface.
 - Public APIs: preserve existing local HTTP/WebSocket contracts first.
 - Native implementation style: Qt-native widgets, models, canvases, dialogs, and shell behavior rather than HTML mimicry.
 - Public client GUI audience: hobbyist/end-user first. The native app should explain problems in plain language, give a simple next step, and keep enough technical trace context available for support without making server internals the main visible message.
@@ -67,7 +72,7 @@ Power boundaries:
 | Surface | Allowed power | Not allowed |
 |---|---|---|
 | Native client GUI | Local display, local settings, local feedback, local scheduler controls. | Relay admin operations, developer secrets, raw provider/admin credentials. |
-| Browser fallback/LAN UI | Same public/local client capabilities as native during fallback. | Hidden privileged routes or admin-only relay controls. |
+| Browser/LAN UI | Same public/local client capabilities as native for LAN access, headless installs, and browser-mode displays. | Hidden privileged routes or admin-only relay controls. |
 | Mobile companion | LAN client display/settings subset and diagnostics by consent. | Admin mutations beyond explicitly trusted local-owner actions. |
 | Matrix client/script | Read display feed, identify device, ping/check in. | Provider keys, relay secrets, admin actions. |
 | Operator Network Admin | Relay/admin inspection and actions with supplied operator credentials. | Shipping or deriving credentials from the public app. |
@@ -106,7 +111,7 @@ Acceptance gate for every page/release:
 6. Matrix V2 tooling.
 7. History + Logs + Requests.
 8. Admin summary + Feedback/crash diagnostics.
-9. Browser fallback retirement pass.
+9. Browser/LAN parity and wording cleanup pass.
 
 ## Browser Parity Checklist Per Page
 
@@ -145,7 +150,7 @@ Browser templates to treat as source specs:
 
 Current beta snapshot as of 2026-05-09:
 
-- Native FIDS, Radar, Settings, Setup, Matrix, History, Logs, Admin, Feedback, and Display are no longer treated as throwaway placeholders. The active direction is native-first hardening with the browser kiosk kept as fallback/spec reference.
+- Native FIDS, Radar, Settings, Setup, Matrix, History, Logs, Admin, Feedback, and Display are no longer treated as throwaway placeholders. The active direction is native-first hardening with the browser/LAN UI kept as a supported display surface and spec reference.
 - FIDS has moved from a table-like visual target toward a custom passenger-board surface, with operating-flight priority, codeshare rotation, status/gate chips, loading feedback, and a restyled flight-detail drawer.
 - Radar has moved through the staged runway/map/blip-state/native-polish plan. It now has a radar domain layer, `/api/radar/map`, runway/surface/map/terrain toggles, local ghost trails, conservative blip states, compact hover/click details, and contrast-safe layer drawing.
 - Settings has been extracted and redesigned around primary user controls, an explicit apply action, collapsed help/diagnostics/advanced drawers, profile controls, and radar-surface feedback.
@@ -203,12 +208,12 @@ Then moved remaining native mutating actions behind `NativeApiService`:
 - Settings save, scheduler restart, and profile save/load/delete.
 - Feedback submit and app quit.
 
-Important: this slice intentionally keeps page layout/rendering mostly unchanged. The browser kiosk remains the visual and behavior checklist while the service layer becomes the shared native plumbing.
+Important: this slice intentionally keeps page layout/rendering mostly unchanged. The browser/LAN UI remains the visual and behavior checklist while the service layer becomes the shared native plumbing.
 
 FIDS function/parity routing checkpoint:
 
 - `fids.html` currently depends on `/api/metar`, `/api/health`, `/api/fids`, `/api/fids/detail`, and `/ws`; the native FIDS page registry now tracks those routes explicitly.
-- `NativeApiService.fids_board()` now fetches scheduler health alongside config, board rows, and METAR so native FIDS can show the same scheduler/API-key error banner behavior as the browser kiosk.
+- `NativeApiService.fids_board()` now fetches scheduler health alongside config, board rows, and METAR so native FIDS can show the same scheduler/API-key error banner behavior as the browser UI.
 - `LocalApiClient` now identifies native requests with local request-log headers:
   - `X-LocalFlight-Client-Type: native`
   - `X-LocalFlight-Client-Platform`
@@ -217,9 +222,9 @@ FIDS function/parity routing checkpoint:
 
 FIDS extraction checkpoint:
 
-- `FidsScreen` has moved out of `_legacy_app.py` into `src/localflight/native/pages/fids.py`.
+- `FidsScreen` has moved out of the compatibility module into `src/localflight/native/pages/fids.py`.
 - `localflight.native.app` exports the extracted page directly.
-- The legacy display/split view now composes FIDS via the page module boundary.
+- The compatibility display/split view now composes FIDS via the page module boundary.
 - The board is backed by `FlightBoardModel` and shown through `QTableView` instead of direct `QTableWidget` item construction.
 - FIDS uses the shared `WeatherStrip` and `DetailDrawer` primitives while preserving page-specific route/status text.
 - Row click detail fetch is preserved and tested against paged/rotated visible rows, so clicking a visible flight still fetches the correct `/api/fids/detail` callsign.
@@ -230,7 +235,7 @@ FIDS visual polish checkpoint:
 - `FlightBoardModel` now carries native visual roles for status dots, status color, dimmed completed/cancelled rows, strong time/flight typography, strikeout cancellation, row tooltips, and accent backgrounds.
 - `FidsScreen` now installs a real `QStyledItemDelegate` painter for the board, so status pills, colored dots, gate pills, left accent bars, and stacked flight/airline/codeshare rows are drawn as Qt graphics instead of depending only on text.
 - The plain model fallback is also visual now: if Qt does not take the custom delegate path, delayed rows still get red foreground/background roles, clean status text, and one rotating codeshare frame in the Flight cell.
-- Delayed rows now use the same red family as the web kiosk, including a stronger full-row tint, a left status rail, and a painted red delay tag. Native row shaping preserves the API's `HH:MM (+N)` suffix and can derive it from `delay_minutes` when raw schedule times are present.
+- Delayed rows now use the same red family as the browser UI, including a stronger full-row tint, a left status rail, and a painted red delay tag. Native row shaping preserves the API's `HH:MM (+N)` suffix and can derive it from `delay_minutes` when raw schedule times are present.
 - Codeshare/add-on flight info now falls back across `codeshare_display`, `codeshare`, `sold_as`, and `codeshares[]`, so rows with only the raw list still show the shortened shared flight numbers.
 - Operating/actually-flying airline remains the primary accented flight number. Codeshare/sold-as values are normalized to short IATA-style flight numbers (`UA 9000`, `AC 7000`) and cycle as a compact accent pill in the flight info field instead of rendering as a static prose line.
 - The native board cache now keeps the configured visible row count filled from the cached payload by promoting active chronological rows ahead of completed rows. Departed/landed/cancelled flights remain in the cache, but slide behind active rows so new upcoming flights replace them on the first board page.
@@ -246,7 +251,7 @@ Radar inventory checkpoint:
 - Browser source spec: `src/localflight/ui/templates/radar.html`.
 - Native page boundary is now standalone: `src/localflight/native/pages/radar.py` owns `RadarScreen`.
 - Native canvas boundary is now standalone: `src/localflight/native/canvas/radar.py` owns `RadarCanvas`.
-- `localflight.native.app` exports `RadarScreen` and `RadarCanvas` directly instead of forwarding those names through `_legacy_app.py`.
+- `localflight.native.app` exports `RadarScreen` and `RadarCanvas` directly instead of forwarding those names through the compatibility module.
 - Required native routes are already declared in the page registry: `/api/config`, `/api/radar`, `/api/radar/surface`, and `/api/metar`.
 - `/api/radar` source behavior:
   - Real mode first tries ADS-B Exchange via direct RapidAPI or managed radar relay when available.
@@ -310,7 +315,7 @@ Radar inventory checkpoint:
 - Radar regression/polish checkpoint:
   - Embedded native Radar now uses a compact range selector and a smaller canvas minimum so Display split mode does not inherit the wide standalone range-button row.
   - Native `RadarCanvas` now caches static map/grid/surface/procedure layers and repaints only sweep, blips, trails, hover, and footer each animation tick.
-  - Wide-range labels are quieter, runway confidence text is limited to close ranges, and browser fallback picked up only low-risk label thinning plus local ghost/direction hints.
+  - Wide-range labels are quieter, runway confidence text is limited to close ranges, and the browser UI picked up only low-risk label thinning plus local ghost/direction hints.
   - Native API access now prefers `/api/radar/map` for surface/runway data and calls `/api/radar/surface` only when map loading fails. Server-side radar map building has a small internal cache reused by `/api/radar/map` and `/api/radar` classification.
   - Verified: `python -m compileall -q src tests`, `.venv\Scripts\python.exe -m pytest tests/test_gui_launcher.py -q -k "radar or native_service_prefers"` -> `15 passed`, `.venv\Scripts\python.exe -m pytest tests/test_important_regressions.py -q -k "radar_map or radar_template or api_radar"` -> `12 passed`, `.venv\Scripts\python.exe -m pytest tests -q` -> `228 passed` with the known Windows pytest temp cleanup warning after success.
 - Radar map/terrain visibility checkpoint:
@@ -323,7 +328,7 @@ Radar inventory checkpoint:
 
 ## What To Do Next
 
-Continue from the current native beta state, not from the old shell foundation.
+Continue from the current native beta state, not from the earlier shell foundation.
 
 Recommended next slice:
 
@@ -335,7 +340,7 @@ Recommended next slice:
    - no OSM cache, stale cache, and estimated fallback states.
 2. Tighten Display split composition now that FIDS and Radar have standalone native surfaces.
 3. Continue full native extraction/polish for Matrix, History, Logs, Requests, Admin, and Feedback until each page has native tests and browser-parity checklists.
-4. Keep browser fallback available until native acceptance passes for every human-facing page and at least one release cycle keeps fallback as recovery.
+4. Keep browser/LAN parity checks running as native acceptance passes, because both surfaces remain supported.
 
 ## Page-by-Page Feedback Map
 
@@ -367,13 +372,13 @@ When working on any native page:
 - Preserve current tests, then add focused parity tests for the page.
 - Avoid browser layout mimicry when a Qt-native control is clearer.
 
-## Retirement Gate
+## Browser/LAN Support Gate
 
-Do not remove browser fallback until:
+Do not regress or remove browser/LAN UI support. Before release, confirm:
 
-- Every human-facing browser page has a native equivalent.
+- Human-facing browser pages still load through the local FastAPI server.
 - Native setup works first-run on Windows and macOS.
-- Pi native fullscreen path is validated or explicitly deferred.
+- Pi headless and Chromium kiosk paths still expose the LAN UI at `http://localflight.local:8000`.
 - Mobile and Matrix clients remain unaffected.
 - Local API routes still serve non-GUI clients.
-- One release cycle has shipped with browser fallback still available.
+- Native and browser wording presents the browser/LAN UI as a supported path.

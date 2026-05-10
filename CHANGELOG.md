@@ -6,69 +6,66 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [0.2.5b5] - 2026-05-09 (temporary change notes)
+## [0.2.5] - 2026-05-10
 
-> Temporary beta notes while the native GUI parity and hardening work is still moving. This section will be consolidated before the next tagged release.
+> Still beta, but now treated as the working multi-client release for native desktop, LAN browser UI, Pi/headless/kiosk, mobile companion, and Matrix.
 
 ### Native GUI
-- Native FIDS now uses a custom passenger-board surface instead of a visible spreadsheet-style table: composed rows, stronger time/flight/route hierarchy, gate/status chips, codeshare cycling, subtle scan/loading motion, and a restyled flight-detail drawer.
-- Native Radar now has the staged final-form foundation: dedicated canvas layers, compact range controls, ADS-B/VATSIM modes, hover/click flight details, local ghost trails, direction ticks, traffic/altitude filters, and conservative climb/descent/approach/final labels with confidence/reason hints.
-- Native Radar map handling now separates runways, airport surface, map context, terrain/relief, grid, blips, trails, hover, and footer into explicit drawing layers so optional overlays can be enabled without turning the scope into a noisy map app.
-- Native Settings has been extracted into a standalone page with a quieter control-room layout, an explicit **Apply settings** action, status chips, collapsed Help/Diagnostics/Advanced sections, profile controls, radar-surface feedback, and the global GitHub / Buy Me a Coffee footer.
-- Native first-run setup has been extracted into a guided onboarding flow with Welcome, Airport, Data Access, Provider Keys, Diagnostics, and Finish steps; Community Relay is the default beginner path, while BYOK and VATSIM stay available without exposing raw secrets or install identifiers.
-- Native setup and settings now show clearer user-facing progress for relay activation checks, provider key tests, save/apply actions, profile loading, scheduler restarts, and radar surface/map loading.
-- The native shell continues to use the same local FastAPI APIs, WebSocket events, docs, config, diagnostics, and browser fallback rather than forking a separate desktop-only backend.
+- Native Qt is now the recommended Windows/macOS desktop shell, backed by the same local FastAPI routes, WebSocket events, docs, config, diagnostics, and reporting controls as the LAN browser UI.
+- Native FIDS now uses a composed passenger-board surface with stronger time/flight/route hierarchy, status/gate chips, codeshare rotation, loading motion, and a restyled flight-detail drawer.
+- Native Radar now uses explicit drawing layers for runways, airport surface, map context, terrain/relief, grid, blips, trails, hover, and footer details.
+- Native Settings now has a quieter control-room layout with explicit apply/save feedback, profile controls, radar surface status, collapsible help/diagnostics sections, and bundled local docs.
+- Native first-run setup now guides users through Welcome, Airport, Data Access, Provider Keys, Diagnostics, and Finish before opening the main shell.
 
-### Radar, Map, And Surface Layers
-- `/api/radar/map` now carries the native/mobile map-layer contract: runway features, simplified surface/map context, optional terrain availability, attribution, and source confidence metadata while keeping `/api/radar` and `/api/radar/surface` backward compatible.
-- Runway drawing now uses a local-first OurAirports path when data is present, merges it with OSM/Overpass geometry when available, and falls back to estimated runway/surface geometry instead of leaving the native radar blank.
-- Radar source normalization preserves useful ADS-B fields for display and classification, including altitude, speed, track, vertical rate, selected/nav altitude, nav heading, emergency/squawk, category, position age, and source-quality hints without exposing raw provider payloads.
-- Ground traffic is intentionally limited to the 1 / 2 / 3 / 5 NM surface ranges. Wider ranges stay focused on airborne traffic, while the short ranges crop from the shortest practical provider fetch instead of requesting impossible ADS-B Exchange radii.
-- Optional map and terrain overlays are deliberately subtle, attributed, cached, and visual-only. They are not presented as certified navigation, terrain-awareness, or controller-grade data.
+### Mobile Companion
+- Mobile now has a forced first-launch companion setup gate for LAN pairing and diagnostics consent before normal FIDS/Radar/Settings access.
+- Companion setup tests the Local Flight server URL, rejects phone-local `localhost`, explains LAN pairing, saves mobile diagnostics choice, and auto-migrates existing installs when possible.
+- Mobile Settings is now a guided hub with connection status first and focused entry points for Mobile Look, Matrix Board, Admin & Reports, History, Docs, Privacy, resources, and setup rerun.
+- Landscape rotation opens a display-only fullscreen FIDS board from any companion screen, hides chrome/actions/modals, disables screen sleep while active, and restores the previous portrait screen on rotation back.
+- Mobile Radar now consumes server-mediated runway/surface geometry through `/api/radar/map` with `/api/radar/surface` compatibility behavior, while range rings and radius chips remain mobile-owned.
+- Mobile docs now load bundled Markdown through the Local Flight server, not raw GitHub content from the phone.
+- Mobile FIDS now has an airport-first hero header, compact passenger weather on FIDS, richer METAR/weather display on Radar, persistent weather wording preferences, and tablet-safe row/header alignment.
+- Mobile crash-report dedupe now records fingerprints only after both the phone and connected server allow automatic diagnostics.
 
-### FIDS And Matrix Presentation
-- FIDS rows now share richer presentation fields for time deltas, status/delay tones, gate/terminal labels, route labels, operating flight priority, codeshare/sold-as rotation, and safe source hints.
-- FIDS status color meaning is centralized around neutral/green/amber/red/orange/dim semantics, with color localized to chips, rails, and indicators instead of full-row rainbow fills.
-- Matrix feeds can consume the compact version of the enriched FIDS presentation shape while keeping the LED board small-panel friendly and old-client safe.
+### Browser/LAN UI And Pi
+- The LAN browser UI is documented and treated as a supported access/display surface for headless installs, remote viewing, tablets, browser-mode displays, and recovery.
+- Raspberry Pi installs support three clear paths: headless server, native Qt HDMI kiosk, and Chromium HDMI kiosk.
+- Source installers explain display-mode choices in user-facing terms instead of treating browser or kiosk paths as leftovers.
+- Browser Settings now groups diagnostics, documents, and display-output copy around the current install/display model.
 
-### Added
-- Matrix V2 now has explicit public presets for exactly three operator-facing profiles: `real_fids`, `vatsim_pilot`, and `vatsim_atc`. Legacy matrix preset names are no longer shown on the user-facing preset list.
-- Matrix device check-in, config assignment, page-aware feeds, and generated `main.py` are now aligned across the web kiosk and native Qt Matrix tools, including the native **Generate main.py** path.
-- `vatsim_pilot` and `vatsim_atc` are VATSIM-only matrix profiles. They require app source `virtual`, return a clear "set source to VATSIM" state when source is still real, and do not silently fetch real FIDS or real METAR fallback data.
-- `vatsim_atc` can rotate local departures, arrivals, and a decoded VATSIM ATIS/METAR weather page without making extra HTTP requests for each page flip.
-- Matrix row payloads now include display-safe route fields (`route_city`, `route_code`, `route_matrix_label`) so small panels can preserve airport codes instead of permanently truncating passenger-critical destinations.
-- Matrix weather payloads now expose decoded display fields (`condition_display`, `temperature_short`, `weather_display`) for icon-led weather strips instead of raw `WX VFR 30C...` text.
-- Matrix config now includes a weather toggle (`options.show_metar` / `show_weather`) used by the web preview, native preview, generated MicroPython client, and VATSIM ATC page rotation.
+### Matrix
+- Matrix V2 exposes three public presets: `real_fids`, `vatsim_pilot`, and `vatsim_atc`.
+- Matrix runtime, preview, generated `main.py`, and device check-in are aligned across native Qt and LAN browser UI.
+- Matrix rows now preserve display-safe route/codeshare/status fields for small panels, while weather payloads expose decoded condition and temperature fields.
+- The generated Interstate 75 W client supports rectangular HUB75 layouts, small-panel rotation, weather toggles, and VATSIM ATC page rotation.
 
-### Changed
-- The MicroPython client now renders modern passenger FIDS rows as a real branch instead of falling through to classic fixed-width rows.
-- Matrix layouts are now small-panel aware. Narrow or square panels such as `128x64` and `128x128` rotate/cycle route, status, and codeshare chunks instead of relying on one fixed slice.
-- The board header now prefers the passenger-readable airport city label, such as `Singapore`, instead of showing only IATA codes such as `SIN`.
-- Compact weather strips now draw pixel glyphs for the weather condition and a thermometer-style temperature marker, while hiding weather cleanly when it is disabled or unavailable.
-- The generated Interstate 75 W client now supports scalable rectangular HUB75 combinations, including side-by-side and stacked `128x64` modules, plus wider custom logical sizes where the firmware display mode supports them.
-- Status and row polish now includes breathing active-state coloring, cancellation warning treatment, codeshare flight-number cycling, route-code preservation, and local page rotation driven by the server matrix config.
-- Matrix VATSIM, radar virtual mode, and scheduler VATSIM paths now share cached VATSIM payload access where practical to avoid duplicate upstream VATSIM requests.
-- Community relay shared airport snapshots now have a relay-enforced upstream refresh floor of about one hour per cached airport/window. Client-side refresh settings can still poll the local app more often, but they cannot force the hosted community relay to make repeated upstream provider requests.
-- Client settings in web, native Qt, and mobile now explain the available refresh choices and why Community Relay may reuse cached airport snapshots for public safety.
-- README preview graphics now include the Matrix page and LED board tooling alongside FIDS, Radar, Settings, and companion previews.
-- Public docs now describe relay cadence in end-user terms, while `DEV_README.md` keeps the operator-facing env names and writing-style reminder.
+### Radar And FIDS Contracts
+- `/api/radar/map` now carries runway, simplified surface/map context, optional terrain availability, attribution, and source confidence metadata while preserving `/api/radar` and `/api/radar/surface` compatibility.
+- Runway drawing uses local OurAirports data when available, merges OSM/Overpass geometry when available, and uses clearly labeled estimated geometry when no reliable cache exists.
+- Radar source normalization preserves useful ADS-B fields for display and classification without exposing raw provider payloads.
+- FIDS rows share richer presentation fields for deltas, tones, gates, terminals, route labels, operating-flight priority, codeshares, and safe source hints.
+- Schedule rendering can show nearest available real rows when a live board window would otherwise be empty, instead of presenting a dead-empty board.
+
+### Docs And Installers
+- README is now the friendly front door, with detailed install and display-mode guidance moved into focused public docs.
+- In-app docs are server-mediated and bundled for native, browser, and mobile clients.
+- Public copy now frames native Qt, LAN browser UI, Pi headless, native kiosk, Chromium kiosk, mobile companion, and Matrix as supported client/display choices.
+- Preview illustrations now reflect the current native GUI, Matrix tooling, and mobile companion surfaces.
 
 ### Fixed
-- Native Radar map and terrain overlays no longer disappear behind the radar grid; the grid painter now uses an explicit no-fill brush so the range rings cannot repaint over static map layers.
-- Native Radar now parses OSM map points that arrive as string coordinates as well as numeric coordinate arrays, fixing a class of valid cached map features that previously loaded but did not draw.
-- Runway labels and confidence text are suppressed more aggressively at wider ranges so close-runway detail stays useful without filling the 5/10/20/40 NM scopes with overlapping text.
-- Radar map refresh/cache handling now keeps last-good map context available more reliably when an optional map or terrain source is slow, empty, or temporarily unavailable.
-- Native Settings radar-surface controls now save through the same config payload as the rest of the page and give clearer feedback when surface/map preparation is still running.
-- Generated `main.py` no longer crashes when route/status values arrive as non-string JSON values; text fields are normalized before fitting or cycling.
-- The board no longer shows uptime as clock data. Matrix feeds/config responses include server-synced UTC/local clock payloads for the MicroPython client.
-- Web and native Matrix generators now produce the same current client template and runtime assumptions, reducing drift between the kiosk and native GUI.
-- Matrix preview scaling now treats base HUB75 modules as rectangles instead of square panels, so custom sizes such as `128x128` and `256x64` preview with the correct logical proportions.
-- VATSIM matrix weather no longer falls back to real-world weather when the VATSIM presets are selected.
+- Native Radar map and terrain overlays no longer disappear behind the grid.
+- Native Radar handles OSM map points with string coordinates as well as numeric coordinate arrays.
+- Runway labels and confidence text are suppressed at wider ranges to avoid clutter.
+- Radar map refresh/cache handling keeps last-good context available when optional geometry sources are slow or unavailable.
+- Native Settings radar-surface controls save through the same config payload as the rest of the page.
+- Generated `main.py` no longer crashes when route/status values arrive as non-string JSON values.
+- Matrix preview scaling now treats base HUB75 modules as rectangles, so `128x128` and `256x64` preview correctly.
+- VATSIM matrix weather no longer uses real-world weather when VATSIM presets are selected.
 
 ## [0.2.5b4] - 2026-05-01
 
 ### Changed
-- Community setup and source installers now show the hosted relay root URL (`https://localflight-community-relay.fly.dev`) instead of the legacy compatibility path ending in `/v1/flights`. The app still derives `/v1/schedule`, `/v1/radar`, `/v1/reports`, and activation routes internally.
+- Community setup and source installers now show the hosted relay root URL (`https://localflight-community-relay.fly.dev`) instead of the older compatibility path ending in `/v1/flights`. The app still derives `/v1/schedule`, `/v1/radar`, `/v1/reports`, and activation routes internally.
 - Relay auto-activation burst limits can now be tuned with Fly secrets for local lab reinstall testing without changing the default production safety rails.
 - FIDS rows now sort by the full airport-local timestamp, not just the visible `HH:MM`, and the table labels board times as `Time (LT)`.
 - Real-data radar responses now hide aircraft that are clearly on the surface, and the radar status line reports when ground blips were filtered.
@@ -83,16 +80,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - VATSIM radar now applies the same exact circular local range crop as real-data radar, so 1 / 2 / 3 NM virtual views do not show square-corner traffic outside the selected ring.
 - GUI launch now goes through a shared native-first platform decision layer. Blank or invalid `LOCALFLIGHT_GUI_MODE` values request the PySide6/Qt shell first, then fall back to browser/kiosk only when Qt or display support is unusable; display-less Pi/Linux still runs headless.
 - Windows and macOS source launchers now install/verify the native PySide6 extra before native launch; release packaging also fails early if PySide6/Qt is unavailable.
-- Bug reports now include requested/effective GUI shell, display availability, Qt availability, fullscreen state, and launch-decision reason so native GUI, browser kiosk, and headless service reports are distinguishable inside the same two-team Linear routing model.
-- Native Qt now follows the web kiosk structure more closely: top navigation, version/clocks, Display/FIDS/Radar/Matrix/Settings/Admin/History/Logs/Report pages, responsive nav labels, and a quit confirmation replace the earlier side-nav prototype.
-- Native FIDS, Radar, Display, Settings, Admin, History, Logs, Matrix, Setup, and Feedback now use the same local API contracts as the web kiosk instead of debug JSON-only placeholders.
-- Native Qt now connects directly to the local `/ws` live-push endpoint and reacts to `snapshot_updated`, `config_updated`, and `scheduler_restarted` events like the web kiosk instead of relying only on fallback polling.
+- Bug reports now include requested/effective GUI shell, display availability, Qt availability, fullscreen state, and launch-decision reason so native GUI, browser/LAN UI, and headless service reports are distinguishable inside the same two-team Linear routing model.
+- Native Qt now follows the browser UI structure more closely: top navigation, version/clocks, Display/FIDS/Radar/Matrix/Settings/Admin/History/Logs/Report pages, responsive nav labels, and a quit confirmation replace the earlier side-nav prototype.
+- Native FIDS, Radar, Display, Settings, Admin, History, Logs, Matrix, Setup, and Feedback now use the same local API contracts as the browser UI instead of debug JSON-only placeholders.
+- Native Qt now connects directly to the local `/ws` live-push endpoint and reacts to `snapshot_updated`, `config_updated`, and `scheduler_restarted` events like the browser UI instead of relying only on fallback polling.
 - Native Qt now has a browser-parity design-token layer for dark/light theme plus standard/technical/neon/cyan/crt skins. The shell reloads styling from `/api/config`, the top nav scrolls compactly on smaller displays, and FIDS/Radar/Matrix renderers use the active skin palette instead of one hardcoded cyan-dark look.
 - Native Qt now reuses short-lived local GET results for high-frequency routes such as config, FIDS, radar, METAR, airport search, admin summaries, logs, and surface geometry. Mutating actions clear the cache immediately, reducing duplicate local API/database work without changing backend contracts.
 - Native Qt manual reports now carry richer `native/gui` context, and diagnostics-gated native UI crashes use the same local `/api/feedback/crash` and relay `/v1/reports` path as the browser, server, and mobile reporters.
 - Native first-run setup now includes a dedicated Diagnostics step, saves `diagnostics_mode` through `/api/setup/complete`, and keeps manual reports as the privacy-first default instead of leaving reporting consent unset.
-- README and Privacy now describe the native Qt shell as the primary privacy-first UI while keeping the LAN browser UI as a fallback/access path.
-- README and Privacy now explain why native Qt replaced browser kiosk as the preferred client shell: fewer browser-vendor surfaces, no webview dependency for the main window, no browser profile/sync/extensions/cookies, and clearer separation between the local display shell and intentional aviation/network data sources.
+- README and Privacy now describe the native Qt shell as the recommended privacy-first desktop UI while keeping the LAN browser UI as a permanent supported access/display path.
+- README and Privacy now explain why native Qt is preferred for the default desktop shell: fewer browser-vendor surfaces, no webview dependency for the main window, no browser profile/sync/extensions/cookies, and clearer separation between the local display shell and intentional aviation/network data sources.
 - Windows source installer now writes a client-only native `.env`, while the Pi installer writes a client-only `.env` and keeps `LOCALFLIGHT_GUI_MODE=headless` unless `--native-kiosk` is explicitly selected.
 
 ### Fixed
@@ -115,8 +112,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - FIDS now shows a neutral schedule-fetching hint while an empty board may still be waiting on the relay/shared schedule warmup.
 - Radar now has a staged, opt-in airport surface overlay using relay-cached OpenStreetMap/Overpass geometry through `GET /api/radar/surface` and relay `GET /v1/airport-surface`. The overlay draws runways, taxiways, aprons, terminals, airport boundaries, selected terminal/hangar-style building outlines, and visible OSM attribution without using public raster tile servers. It is disabled by default locally and requires explicit relay operator enablement via `RELAY_AIRPORT_SURFACE_ENABLED=1`.
 - FIDS, Radar, and Admin now render the METAR-derived weather mood with compact weather-app-style icons, colored tone treatments, and local summaries while preserving raw METAR visibility.
-- Chrome-free native UI is now the default requested shell for desktop/source/release builds; `LOCALFLIGHT_GUI_MODE=browser` remains an explicit fallback/debug override.
-- Raspberry Pi installs still run headless without a display, keep legacy Chromium kiosk available through `--kiosk`, and add a `--native-kiosk` path that installs Qt runtime packages, verifies PySide6/Qt, and starts Local Flight as a fullscreen native shell on the attached display.
+- Chrome-free native UI is now the default requested shell for desktop/source/release builds; `LOCALFLIGHT_GUI_MODE=browser` remains an explicit supported browser-display/debug override.
+- Raspberry Pi installs still run headless without a display, keep the Chromium kiosk display available through `--kiosk`, and add a `--native-kiosk` path that installs Qt runtime packages, verifies PySide6/Qt, and starts Local Flight as a fullscreen native shell on the attached display.
 - Native first-run setup now has a real wizard for airport search, community/BYOK/managed/virtual source selection, relay activation checks, API key tests, and setup completion without opening a browser.
 - Native Matrix now has a LED-style canvas preview, panel/zoom/brightness/runtime controls, config save, and MicroPython script generation.
 - Native Logs now has log-file selection, refresh, live tail, scroll-to-bottom, line counts, and last-update metadata. Native Admin can open the local anonymized traffic log as a user-facing tool.
@@ -168,7 +165,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Mobile support for the existing `/api/matrix/config` runtime contract. The Matrix screen now loads server config, edits a local draft, saves explicitly, and can reset unsaved edits back to the server state.
 - Mobile landscape display mode for FIDS and Radar. Rotating while on either screen opens a side-by-side display, with FIDS-primary or Radar-primary focus preserved.
 - Responsive mobile radar scope with pinch-to-zoom range changes that snap across the desktop-aligned 10 / 20 / 40 / 80 NM ranges, plus compact fallback range chips.
-- In-app mobile document reader for README, Privacy, and Changelog, with formatted Markdown rendering and browser fallback.
+- In-app mobile document reader for README, Privacy, and Changelog, with formatted Markdown rendering and an external-browser escape hatch.
 - Mobile settings/admin support for the refined desktop relay and diagnostics surfaces, keeping the companion aligned with the latest server controls.
 
 ### Changed
@@ -393,7 +390,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 - Desktop launchers and Pi kiosk now open through the splash screen.
-- Runtime snapshots now live in the user data directory, while legacy source-tree snapshots remain readable.
+- Runtime snapshots now live in the user data directory, while older source-tree snapshots remain readable.
 - Installer docs now distinguish source-checkout installers from packaged release artifacts.
 - README rewritten from an end-user perspective.
 - Installer layout reorganized by platform.
@@ -404,7 +401,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Snapshot pruning now runs during snapshot jobs.
 - Failed fetch cycles preserve the previous successful fetch timestamp.
 - Duplicate config route registration removed.
-- Local AviationStack file loading now checks current and legacy snapshot locations consistently.
+- Local AviationStack file loading now checks current and older snapshot locations consistently.
 - Example environment files no longer include private operator Linear variables.
 - Windows source installer detects Python more reliably and supports additional install flags.
 - Windows launcher UTF-8 comment issue fixed.

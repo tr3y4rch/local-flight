@@ -3,7 +3,7 @@
 The browser kiosk remains the feature-spec source during the native redesign.
 This registry records the native page inventory, the browser page it must cover,
 and the local routes each page depends on.  The current shell can use the same
-metadata while page implementations continue to move out of the legacy module.
+metadata while page implementations continue to move out of the compatibility module.
 """
 from __future__ import annotations
 

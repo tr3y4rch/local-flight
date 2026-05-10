@@ -4,7 +4,7 @@
 # Usage:
 #   bash installers/pi/install.sh                  # guided display choice (Enter = headless)
 #   bash installers/pi/install.sh --headless       # backend only - LED panels, LAN clients
-#   bash installers/pi/install.sh --kiosk          # headless + legacy Chromium fallback kiosk on HDMI
+#   bash installers/pi/install.sh --kiosk          # headless + Chromium browser kiosk on HDMI
 #   bash installers/pi/install.sh --native-kiosk   # native Qt fullscreen kiosk on HDMI
 #
 # Run as the normal Pi user (not root). Requires: Pi OS Bookworm/Trixie 64-bit, Python 3.11+.
@@ -62,7 +62,7 @@ choose_display_mode() {
         echo "  Choose how this Pi should run Local Flight:" >&2
         echo "    1) Headless server        - recommended over SSH; LAN/mobile/matrix access" >&2
         echo "    2) Native Qt kiosk        - attached HDMI display, Chrome-free fullscreen GUI" >&2
-        echo "    3) Chromium kiosk fallback - attached HDMI display when Qt is not usable" >&2
+        echo "    3) Chromium kiosk display - attached HDMI display through the LAN browser UI" >&2
         printf "  Select 1/2/3, or press Enter for Headless: " >&2
         read -r choice
         case "$choice" in
@@ -160,7 +160,7 @@ if [ "$NATIVE_KIOSK" -eq 1 ]; then
     ok "Qt runtime packages installed"
 fi
 
-# 2. Chromium (legacy kiosk only) -------------------------------------------
+# 2. Chromium (optional browser kiosk) ---------------------------------------
 CHROMIUM_BIN=""
 if [ "$KIOSK" -eq 1 ]; then
     step "Installing Chromium for kiosk display..."
@@ -280,7 +280,7 @@ WantedBy=$SERVICE_INSTALL_TARGET
 EOF
 ok "localflight.service installed"
 
-# 6. systemd: browser kiosk service (optional legacy mode) -------------------
+# 6. systemd: browser kiosk service (optional display mode) ------------------
 if [ "$KIOSK" -eq 1 ] && [ -n "$CHROMIUM_BIN" ]; then
     step "Installing localflight-kiosk.service..."
 
@@ -318,7 +318,7 @@ EOF
     ok "localflight-kiosk.service installed"
 fi
 
-# Remove stale Chromium service unless legacy browser kiosk is requested.
+# Remove stale Chromium service unless browser kiosk mode is requested.
 if [ "$KIOSK" -eq 0 ] && [ -f /etc/systemd/system/localflight-kiosk.service ]; then
     step "Removing stale Chromium kiosk service..."
     sudo systemctl stop localflight-kiosk 2>/dev/null || true

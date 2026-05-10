@@ -55,6 +55,7 @@ dist/
 mobile/node_modules/
 mobile/.expo/
 mobile/.expo-shared/
+mobile/.layout-smoke/
 mobile/ios/
 mobile/android/
 mobile/npm-debug.log*

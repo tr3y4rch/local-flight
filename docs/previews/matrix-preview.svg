@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="960" height="540" viewBox="0 0 960 540" role="img" aria-labelledby="title desc">
   <title id="title">Local Flight Matrix preview</title>
-  <desc id="desc">Illustrative preview of the Local Flight LED matrix configuration and passenger FIDS simulator.</desc>
+  <desc id="desc">Illustrative preview of the current Local Flight Matrix board runtime and LED passenger display tooling.</desc>
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0" stop-color="#090d12"/>
@@ -11,91 +11,93 @@
       <stop offset="0" stop-color="#141b24"/>
       <stop offset="1" stop-color="#0d1117"/>
     </linearGradient>
-    <filter id="softShadow" x="-20%" y="-20%" width="140%" height="140%">
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
       <feDropShadow dx="0" dy="18" stdDeviation="18" flood-color="#000000" flood-opacity="0.45"/>
     </filter>
     <style>
       .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
       .sans { font-family: Inter, Segoe UI, Helvetica, Arial, sans-serif; }
-      .muted { fill: #6f8195; }
-      .text { fill: #e7edf3; }
-      .line { stroke: rgba(255,255,255,0.08); }
-      .tiny { font-size: 11px; letter-spacing: 1px; }
-      .label { fill: #7f8fa3; font-size: 12px; font-weight: 800; letter-spacing: 1.4px; }
+      .text { fill: #e8f0f8; }
+      .muted { fill: #7890aa; }
+      .green { fill: #45d483; }
+      .amber { fill: #f8c15c; }
+      .blue { fill: #62b7f6; }
+      .tiny { font-size: 11px; letter-spacing: 1.1px; }
+      .label { fill: #7890aa; font-size: 12px; font-weight: 900; letter-spacing: 1.5px; }
     </style>
   </defs>
 
   <rect width="960" height="540" rx="28" fill="url(#bg)"/>
-  <rect x="18" y="18" width="924" height="504" rx="22" fill="url(#panel)" stroke="#233041" filter="url(#softShadow)"/>
+  <rect x="18" y="18" width="924" height="504" rx="22" fill="url(#panel)" stroke="#27364a" filter="url(#shadow)"/>
 
-  <rect x="18" y="18" width="924" height="44" rx="22" fill="#0b1017"/>
-  <rect x="18" y="40" width="924" height="22" fill="#0b1017"/>
-  <text x="42" y="47" class="sans text" font-size="16" font-weight="800">Local Flight</text>
-  <text x="137" y="47" class="mono muted tiny">v0.2.5b5</text>
-  <text x="582" y="46" class="mono muted tiny">FIDS</text>
-  <text x="646" y="46" class="mono muted tiny">RADAR</text>
-  <rect x="714" y="29" width="78" height="24" rx="12" fill="#1f2d3d"/>
-  <text x="732" y="46" class="mono text tiny" font-weight="800">MATRIX</text>
-  <text x="814" y="46" class="mono muted tiny">SETTINGS</text>
+  <rect x="18" y="18" width="924" height="46" rx="22" fill="#070c12"/>
+  <rect x="18" y="42" width="924" height="22" fill="#070c12"/>
+  <text x="42" y="47" class="sans text" font-size="16" font-weight="900">Local Flight</text>
+  <text x="138" y="47" class="mono muted tiny">v0.2.5</text>
+  <text x="548" y="46" class="mono muted tiny">FIDS</text>
+  <text x="620" y="46" class="mono muted tiny">RADAR</text>
+  <rect x="700" y="29" width="82" height="24" rx="12" fill="#1e3449" stroke="#31516e"/>
+  <text x="718" y="46" class="mono text tiny" font-weight="900">MATRIX</text>
+  <text x="804" y="46" class="mono muted tiny">SETTINGS</text>
 
-  <g transform="translate(42 90)">
-    <text x="0" y="0" class="sans text" font-size="24" font-weight="800">LED Matrix</text>
-    <text x="124" y="0" class="mono muted" font-size="13">Interstate 75 W / HUB75</text>
-    <rect x="678" y="-25" width="198" height="30" rx="15" fill="rgba(74,158,218,0.12)" stroke="rgba(74,158,218,0.38)"/>
-    <circle cx="698" cy="-10" r="4" fill="#22c55e"/>
-    <text x="711" y="-5" class="mono" fill="#bfe3ff" font-size="12" font-weight="900">1 DEVICE CHECKED IN</text>
+  <g transform="translate(42 88)">
+    <text x="0" y="0" class="sans text" font-size="25" font-weight="900">Matrix Board</text>
+    <text x="154" y="0" class="mono muted" font-size="13">Interstate 75 W / HUB75 runtime</text>
+    <rect x="654" y="-24" width="222" height="30" rx="15" fill="#0d2f1d" stroke="#146f3a"/>
+    <circle cx="674" cy="-9" r="4" fill="#22c55e"/>
+    <text x="688" y="-4" class="mono" fill="#9ff7bd" font-size="12" font-weight="900">DEVICE CHECKED IN</text>
 
-    <rect x="0" y="28" width="876" height="202" rx="18" fill="#05080b" stroke="#2b3849"/>
+    <rect x="0" y="30" width="876" height="184" rx="18" fill="#05080b" stroke="#2b3849"/>
     <rect x="28" y="54" width="512" height="128" rx="8" fill="#020403" stroke="#1b2b25"/>
-    <g transform="translate(43 68)">
-      <text x="0" y="0" class="mono" fill="#45d483" font-size="16" font-weight="900">SINGAPORE DEP</text>
-      <text x="400" y="0" class="mono" fill="#78968a" font-size="14">UTC 00:42</text>
-      <line x1="0" y1="14" x2="482" y2="14" stroke="#123825"/>
-      <text x="0" y="42" class="mono" fill="#45d483" font-size="17" font-weight="900">06:50  CZ8048</text>
-      <text x="172" y="42" class="mono" fill="#e7f5ed" font-size="17" font-weight="900">SHENZHEN SZX</text>
-      <text x="382" y="42" class="mono" fill="#7fe0a7" font-size="17" font-weight="900">DEP</text>
-      <line x1="0" y1="57" x2="482" y2="57" stroke="#0c251a"/>
-      <text x="0" y="84" class="mono" fill="#45d483" font-size="17" font-weight="900">06:55  SQ326</text>
-      <text x="172" y="84" class="mono" fill="#e7f5ed" font-size="17" font-weight="900">FRANKFURT FRA</text>
-      <text x="382" y="84" class="mono" fill="#f8c15c" font-size="17" font-weight="900">BRD</text>
-    </g>
-    <g fill="#13251a" opacity="0.74">
-      <circle cx="70" cy="198" r="2"/><circle cx="86" cy="198" r="2"/><circle cx="102" cy="198" r="2"/>
-      <circle cx="118" cy="198" r="2"/><circle cx="134" cy="198" r="2"/><circle cx="150" cy="198" r="2"/>
-      <circle cx="166" cy="198" r="2"/><circle cx="182" cy="198" r="2"/><circle cx="198" cy="198" r="2"/>
-      <circle cx="214" cy="198" r="2"/><circle cx="230" cy="198" r="2"/><circle cx="246" cy="198" r="2"/>
-      <circle cx="262" cy="198" r="2"/><circle cx="278" cy="198" r="2"/><circle cx="294" cy="198" r="2"/>
+    <g transform="translate(44 70)">
+      <text x="0" y="0" class="mono green" font-size="16" font-weight="900">HANOI DEP</text>
+      <text x="364" y="0" class="mono" fill="#78968a" font-size="14">22:24 LOC</text>
+      <line x1="0" y1="14" x2="480" y2="14" stroke="#123825"/>
+      <text x="0" y="42" class="mono green" font-size="17" font-weight="900">08:36  VN356</text>
+      <text x="168" y="42" class="mono text" font-size="17" font-weight="900">FUKUOKA FUK</text>
+      <text x="382" y="42" class="mono green" font-size="17" font-weight="900">DEP</text>
+      <line x1="0" y1="57" x2="480" y2="57" stroke="#0c251a"/>
+      <text x="0" y="84" class="mono green" font-size="17" font-weight="900">08:38  HO1330</text>
+      <text x="168" y="84" class="mono text" font-size="17" font-weight="900">SHANGHAI PVG</text>
+      <text x="382" y="84" class="mono amber" font-size="17" font-weight="900">ARR</text>
     </g>
 
-    <g transform="translate(580 52)">
-      <text x="0" y="0" class="mono label">LIVE SETTINGS</text>
-      <rect x="0" y="18" width="268" height="34" rx="10" fill="rgba(255,255,255,0.04)" stroke="rgba(255,255,255,0.08)"/>
-      <text x="14" y="40" class="mono text" font-size="13" font-weight="800">Preset</text>
-      <text x="118" y="40" class="mono" fill="#bfe3ff" font-size="13">Real passenger FIDS</text>
-      <rect x="0" y="64" width="268" height="34" rx="10" fill="rgba(255,255,255,0.04)" stroke="rgba(255,255,255,0.08)"/>
-      <text x="14" y="86" class="mono text" font-size="13" font-weight="800">Panel</text>
-      <text x="118" y="86" class="mono" fill="#bfe3ff" font-size="13">256 x 64</text>
-      <rect x="0" y="110" width="128" height="34" rx="10" fill="rgba(34,197,94,0.1)" stroke="rgba(34,197,94,0.3)"/>
-      <text x="16" y="132" class="mono" fill="#7fe0a7" font-size="12" font-weight="900">WX ON</text>
-      <rect x="140" y="110" width="128" height="34" rx="10" fill="rgba(245,158,11,0.1)" stroke="rgba(245,158,11,0.3)"/>
-      <text x="154" y="132" class="mono" fill="#f8c15c" font-size="12" font-weight="900">ANIM SPLIT</text>
+    <g transform="translate(580 54)">
+      <text x="0" y="0" class="mono label">RUNTIME</text>
+      <rect x="0" y="18" width="268" height="32" rx="10" fill="#101923" stroke="#25364a"/>
+      <text x="14" y="39" class="mono text" font-size="12" font-weight="900">Preset</text>
+      <text x="112" y="39" class="mono blue" font-size="12">real_fids</text>
+      <rect x="0" y="62" width="268" height="32" rx="10" fill="#101923" stroke="#25364a"/>
+      <text x="14" y="83" class="mono text" font-size="12" font-weight="900">Panel</text>
+      <text x="112" y="83" class="mono blue" font-size="12">256 x 64</text>
+      <rect x="0" y="106" width="126" height="32" rx="10" fill="#0d2f1d" stroke="#146f3a"/>
+      <text x="17" y="127" class="mono green" font-size="11" font-weight="900">WEATHER ON</text>
+      <rect x="140" y="106" width="128" height="32" rx="10" fill="#2a1d09" stroke="#75511a"/>
+      <text x="156" y="127" class="mono amber" font-size="11" font-weight="900">SPLIT FLAP</text>
     </g>
 
-    <g transform="translate(0 264)">
-      <rect x="0" y="0" width="278" height="114" rx="16" fill="rgba(255,255,255,0.035)" stroke="rgba(255,255,255,0.08)"/>
-      <text x="18" y="31" class="mono label">FLASH ONCE</text>
-      <text x="18" y="58" class="sans text" font-size="15" font-weight="700">Download main.py</text>
-      <text x="18" y="82" class="sans muted" font-size="13">Save with Thonny; settings sync later.</text>
+    <g transform="translate(0 248)">
+      <rect x="0" y="0" width="206" height="112" rx="16" fill="#101923" stroke="#25364a"/>
+      <text x="18" y="30" class="mono label">STATUS</text>
+      <text x="18" y="58" class="sans text" font-size="15" font-weight="800">Sync ready</text>
+      <text x="18" y="82" class="sans muted" font-size="13">Last ping 18 sec ago.</text>
 
-      <rect x="299" y="0" width="278" height="114" rx="16" fill="rgba(255,255,255,0.035)" stroke="rgba(255,255,255,0.08)"/>
-      <text x="317" y="31" class="mono label">SMALL PANELS</text>
-      <text x="317" y="58" class="sans text" font-size="15" font-weight="700">128x64 / 128x128 ready</text>
-      <text x="317" y="82" class="sans muted" font-size="13">Routes and codes cycle instead of vanishing.</text>
+      <rect x="224" y="0" width="206" height="112" rx="16" fill="#101923" stroke="#25364a"/>
+      <text x="242" y="30" class="mono label">LOOK</text>
+      <text x="242" y="58" class="sans text" font-size="15" font-weight="800">Passenger green</text>
+      <text x="242" y="82" class="sans muted" font-size="13">Palette preview stays live.</text>
 
-      <rect x="598" y="0" width="278" height="114" rx="16" fill="rgba(255,255,255,0.035)" stroke="rgba(255,255,255,0.08)"/>
-      <text x="616" y="31" class="mono label">VATSIM MODES</text>
-      <text x="616" y="58" class="sans text" font-size="15" font-weight="700">Pilot and ATC boards</text>
-      <text x="616" y="82" class="sans muted" font-size="13">ATC can rotate a decoded weather page.</text>
+      <rect x="448" y="0" width="206" height="112" rx="16" fill="#101923" stroke="#25364a"/>
+      <text x="466" y="30" class="mono label">MOTION</text>
+      <text x="466" y="58" class="sans text" font-size="15" font-weight="800">Rows rotate</text>
+      <text x="466" y="82" class="sans muted" font-size="13">Codeshares cycle safely.</text>
+
+      <rect x="672" y="0" width="204" height="112" rx="16" fill="#101923" stroke="#25364a"/>
+      <text x="690" y="30" class="mono label">CLIENT</text>
+      <text x="690" y="58" class="sans text" font-size="15" font-weight="800">Download main.py</text>
+      <text x="690" y="82" class="sans muted" font-size="13">Generated from current config.</text>
     </g>
   </g>
+
+  <text x="42" y="501" class="mono muted tiny">Illustrative sample data - public presets: real_fids, vatsim_pilot, vatsim_atc</text>
 </svg>

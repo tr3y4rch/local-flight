@@ -20,7 +20,7 @@ def test_pyinstaller_macos_bundle_is_foreground_app() -> None:
 
 
 def test_source_macos_bundle_plist_has_dock_identity(tmp_path: Path) -> None:
-    _write_info_plist(tmp_path, "0.2.5b5")
+    _write_info_plist(tmp_path, "0.2.5")
 
     plist = plistlib.loads((tmp_path / "Info.plist").read_bytes())
 

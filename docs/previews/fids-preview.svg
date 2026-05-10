@@ -1,118 +1,123 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="960" height="540" viewBox="0 0 960 540" role="img" aria-labelledby="title desc">
-  <title id="title">Local Flight FIDS preview</title>
-  <desc id="desc">Illustrative preview of the Local Flight airport-style flight information display board.</desc>
+  <title id="title">Local Flight native FIDS preview</title>
+  <desc id="desc">Illustrative preview of the current Local Flight native passenger FIDS board.</desc>
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#090d12"/>
-      <stop offset="0.58" stop-color="#10161d"/>
-      <stop offset="1" stop-color="#07090d"/>
+      <stop offset="0" stop-color="#080c12"/>
+      <stop offset="0.56" stop-color="#121922"/>
+      <stop offset="1" stop-color="#05070b"/>
     </linearGradient>
     <linearGradient id="panel" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#141b24"/>
-      <stop offset="1" stop-color="#0d1117"/>
+      <stop offset="0" stop-color="#111a24"/>
+      <stop offset="1" stop-color="#0b1017"/>
     </linearGradient>
-    <filter id="softShadow" x="-20%" y="-20%" width="140%" height="140%">
-      <feDropShadow dx="0" dy="18" stdDeviation="18" flood-color="#000000" flood-opacity="0.45"/>
+    <linearGradient id="hero" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#12283b"/>
+      <stop offset="1" stop-color="#0d141d"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="18" stdDeviation="18" flood-color="#000000" flood-opacity="0.42"/>
     </filter>
     <style>
       .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
       .sans { font-family: Inter, Segoe UI, Helvetica, Arial, sans-serif; }
-      .muted { fill: #6f8195; }
-      .text { fill: #e7edf3; }
-      .line { stroke: rgba(255,255,255,0.08); }
-      .thin { stroke-width: 1; }
-      .head { fill: #7f8fa3; font-size: 13px; font-weight: 700; letter-spacing: 2px; }
-      .cell { fill: #dfe8f2; font-size: 21px; font-weight: 700; }
-      .small { font-size: 13px; }
-      .tiny { font-size: 11px; letter-spacing: 1px; }
+      .text { fill: #e8f0f8; }
+      .muted { fill: #7890aa; }
+      .dim { fill: #48647f; }
+      .blue { fill: #62b7f6; }
+      .tiny { font-size: 11px; letter-spacing: 1.1px; }
+      .head { fill: #45617b; font-size: 12px; font-weight: 900; letter-spacing: 2.1px; }
     </style>
   </defs>
 
   <rect width="960" height="540" rx="28" fill="url(#bg)"/>
-  <rect x="18" y="18" width="924" height="504" rx="22" fill="url(#panel)" stroke="#233041" filter="url(#softShadow)"/>
+  <rect x="18" y="18" width="924" height="504" rx="22" fill="url(#panel)" stroke="#27364a" filter="url(#shadow)"/>
 
-  <rect x="18" y="18" width="924" height="44" rx="22" fill="#0b1017"/>
-  <rect x="18" y="40" width="924" height="22" fill="#0b1017"/>
-  <text x="42" y="47" class="sans text" font-size="16" font-weight="800">Local Flight</text>
-  <text x="137" y="47" class="mono muted tiny">v0.2.5b5</text>
-  <rect x="575" y="29" width="62" height="24" rx="12" fill="#1f2d3d"/>
-  <text x="594" y="46" class="mono text tiny" font-weight="800">FIDS</text>
-  <text x="654" y="46" class="mono muted tiny">RADAR</text>
-  <text x="724" y="46" class="mono muted tiny">HISTORY</text>
-  <text x="812" y="46" class="mono muted tiny">SETTINGS</text>
+  <rect x="18" y="18" width="924" height="46" rx="22" fill="#070c12"/>
+  <rect x="18" y="42" width="924" height="22" fill="#070c12"/>
+  <text x="42" y="47" class="sans text" font-size="16" font-weight="900">Local Flight</text>
+  <text x="138" y="47" class="mono muted tiny">v0.2.5</text>
+  <rect x="548" y="29" width="70" height="24" rx="12" fill="#1e3449" stroke="#31516e"/>
+  <text x="570" y="46" class="mono text tiny" font-weight="900">FIDS</text>
+  <text x="640" y="46" class="mono muted tiny">RADAR</text>
+  <text x="714" y="46" class="mono muted tiny">MATRIX</text>
+  <text x="792" y="46" class="mono muted tiny">SETTINGS</text>
+  <text x="874" y="46" class="mono muted tiny">ADMIN</text>
 
   <g transform="translate(42 86)">
-    <text x="0" y="0" class="sans text" font-size="24" font-weight="800">Zurich Airport</text>
-    <text x="165" y="0" class="mono muted small">ZRH / LSZH</text>
-    <rect x="690" y="-24" width="104" height="28" rx="14" fill="rgba(34,197,94,0.12)" stroke="rgba(34,197,94,0.35)"/>
-    <circle cx="709" cy="-10" r="4" fill="#22c55e"/>
-    <text x="721" y="-5" class="mono" fill="#22c55e" font-size="12" font-weight="800">LIVE REAL</text>
-    <text x="806" y="-5" class="mono muted small">UTC 17:24:08</text>
+    <rect x="0" y="0" width="876" height="116" rx="20" fill="url(#hero)" stroke="#213a55"/>
+    <rect x="0" y="0" width="5" height="116" rx="2.5" fill="#4a9eda"/>
+    <text x="28" y="32" class="sans text" font-size="27" font-weight="900">Noi Bai International Airport</text>
+    <text x="28" y="56" class="mono muted" font-size="13">HAN / VVNB - airport-local board time</text>
+    <rect x="28" y="74" width="76" height="26" rx="13" fill="#09331e" stroke="#146f3a"/>
+    <circle cx="46" cy="87" r="4" fill="#22c55e"/>
+    <text x="58" y="92" class="mono" fill="#25d366" font-size="12" font-weight="900">LIVE</text>
+    <rect x="116" y="74" width="70" height="26" rx="13" fill="#10283d" stroke="#244d6e"/>
+    <text x="135" y="92" class="mono" fill="#bfe3ff" font-size="12" font-weight="900">REAL</text>
+    <rect x="198" y="74" width="102" height="26" rx="13" fill="#151e2a" stroke="#304158"/>
+    <text x="216" y="92" class="mono muted" font-size="12" font-weight="900">17 ROWS</text>
 
-    <rect x="0" y="20" width="876" height="38" rx="10" fill="rgba(255,255,255,0.035)" stroke="rgba(255,255,255,0.08)"/>
-    <rect x="14" y="29" width="45" height="20" rx="5" fill="#22c55e"/>
-    <text x="25" y="44" class="mono" fill="#071009" font-size="12" font-weight="900">VFR</text>
-    <text x="72" y="43" class="mono" fill="#9fb1c5" font-size="14">Wind 240 at 8 kt - visibility 10 km - cloud few 4500 ft - QNH 1018</text>
-
-    <g transform="translate(0 92)">
-      <text x="0" y="0" class="mono head">TIME</text>
-      <text x="132" y="0" class="mono head">FLIGHT</text>
-      <text x="270" y="0" class="mono head">ROUTE</text>
-      <text x="600" y="0" class="mono head">STATUS</text>
-      <text x="760" y="0" class="mono head">GATE</text>
-      <text x="832" y="0" class="mono head">AC</text>
-      <line x1="0" y1="18" x2="876" y2="18" class="line thin"/>
-
-      <g transform="translate(0 48)">
-        <rect x="0" y="-28" width="4" height="50" rx="2" fill="#22c55e"/>
-        <text x="20" y="6" class="mono cell">17:35</text>
-        <text x="132" y="6" class="mono cell" font-size="19">LX 1842</text>
-        <text x="270" y="6" class="sans text" font-size="18">Zurich to Athens</text>
-        <rect x="600" y="-16" width="118" height="28" rx="14" fill="rgba(34,197,94,0.12)" stroke="rgba(34,197,94,0.32)"/>
-        <circle cx="616" cy="-2" r="4" fill="#22c55e"/>
-        <text x="628" y="3" class="mono" fill="#22c55e" font-size="12" font-weight="900">BOARDING</text>
-        <text x="760" y="6" class="mono cell" font-size="19">A62</text>
-        <text x="832" y="6" class="mono muted" font-size="17">A320</text>
-        <line x1="0" y1="26" x2="876" y2="26" class="line thin"/>
-      </g>
-
-      <g transform="translate(0 102)">
-        <rect x="0" y="-28" width="4" height="50" rx="2" fill="#f59e0b"/>
-        <text x="20" y="6" class="mono cell">17:50</text>
-        <text x="132" y="6" class="mono cell" font-size="19">BA 713</text>
-        <text x="270" y="6" class="sans text" font-size="18">Zurich to London Heathrow</text>
-        <rect x="600" y="-16" width="134" height="28" rx="14" fill="rgba(245,158,11,0.12)" stroke="rgba(245,158,11,0.34)"/>
-        <circle cx="616" cy="-2" r="4" fill="#f59e0b"/>
-        <text x="628" y="3" class="mono" fill="#f59e0b" font-size="12" font-weight="900">APPROACHING</text>
-        <text x="760" y="6" class="mono cell" font-size="19">B04</text>
-        <text x="832" y="6" class="mono muted" font-size="17">A319</text>
-        <line x1="0" y1="26" x2="876" y2="26" class="line thin"/>
-      </g>
-
-      <g transform="translate(0 156)">
-        <rect x="0" y="-28" width="4" height="50" rx="2" fill="#ef4444"/>
-        <text x="20" y="6" class="mono cell">18:05</text>
-        <text x="132" y="6" class="mono cell" font-size="19">LH 2369</text>
-        <text x="270" y="6" class="sans text" font-size="18">Zurich to Munich</text>
-        <rect x="600" y="-16" width="100" height="28" rx="14" fill="rgba(239,68,68,0.11)" stroke="rgba(239,68,68,0.32)"/>
-        <circle cx="616" cy="-2" r="4" fill="#ef4444"/>
-        <text x="628" y="3" class="mono" fill="#ef4444" font-size="12" font-weight="900">DELAYED</text>
-        <text x="760" y="6" class="mono cell" font-size="19">D18</text>
-        <text x="832" y="6" class="mono muted" font-size="17">E195</text>
-        <line x1="0" y1="26" x2="876" y2="26" class="line thin"/>
-      </g>
-
-      <g transform="translate(0 210)" opacity="0.48">
-        <text x="20" y="6" class="mono cell">18:20</text>
-        <text x="132" y="6" class="mono cell" font-size="19">AF 1115</text>
-        <text x="270" y="6" class="sans text" font-size="18">Zurich to Paris CDG</text>
-        <circle cx="616" cy="-2" r="4" fill="#8aa0b8"/>
-        <text x="628" y="3" class="mono muted" font-size="12" font-weight="900">SCHEDULED</text>
-        <text x="760" y="6" class="mono cell" font-size="19">A10</text>
-        <text x="832" y="6" class="mono muted" font-size="17">A220</text>
-      </g>
+    <g transform="translate(640 23)">
+      <text x="0" y="0" class="mono text" font-size="22" font-weight="900">15:24:38Z</text>
+      <text x="26" y="26" class="mono blue" font-size="14">22:24 local</text>
+      <rect x="154" y="-10" width="70" height="56" rx="14" fill="#0f1a25" stroke="#284866"/>
+      <text x="171" y="11" class="mono dim" font-size="10" font-weight="900">WX</text>
+      <text x="169" y="34" class="mono text" font-size="18" font-weight="900">25 C</text>
     </g>
   </g>
 
-  <text x="42" y="499" class="mono muted tiny">README preview - illustrative sample data, not live telemetry</text>
+  <g transform="translate(42 226)">
+    <rect x="0" y="0" width="876" height="42" rx="14" fill="#111922" stroke="#1d2a39"/>
+    <rect x="8" y="7" width="426" height="28" rx="10" fill="#173148" stroke="#356388"/>
+    <text x="180" y="26" class="mono blue tiny" font-weight="900">DEPARTURES</text>
+    <text x="630" y="26" class="mono dim tiny" font-weight="900">ARRIVALS</text>
+
+    <g transform="translate(0 70)">
+      <text x="0" y="0" class="mono head">TIME</text>
+      <text x="104" y="0" class="mono head">FLIGHT</text>
+      <text x="236" y="0" class="mono head">TO</text>
+      <text x="610" y="0" class="mono head">STATUS</text>
+      <text x="760" y="0" class="mono head">GATE</text>
+      <text x="836" y="0" class="mono head">A/C</text>
+    </g>
+
+    <g transform="translate(0 88)">
+      <rect x="0" y="0" width="876" height="56" rx="14" fill="#111922" stroke="#1d2a39"/>
+      <rect x="0" y="0" width="5" height="56" rx="2.5" fill="#22c55e"/>
+      <text x="20" y="35" class="mono text" font-size="18" font-weight="900">08:36</text>
+      <text x="104" y="35" class="mono blue" font-size="17" font-weight="900">VN 356</text>
+      <text x="236" y="28" class="sans text" font-size="18" font-weight="800">Fukuoka</text>
+      <text x="236" y="45" class="mono muted" font-size="11">FUK - Gate A12</text>
+      <rect x="610" y="16" width="110" height="24" rx="12" fill="#07351f"/>
+      <text x="635" y="32" class="mono" fill="#22c55e" font-size="11" font-weight="900">DEPARTED</text>
+      <text x="760" y="35" class="mono text" font-size="16" font-weight="900">A12</text>
+      <text x="836" y="35" class="mono dim" font-size="14">A321</text>
+    </g>
+
+    <g transform="translate(0 150)">
+      <rect x="0" y="0" width="876" height="56" rx="14" fill="#0f171f" stroke="#1b2836"/>
+      <text x="20" y="35" class="mono text" font-size="18" font-weight="900">08:38</text>
+      <text x="104" y="35" class="mono blue" font-size="17" font-weight="900">HO 1330</text>
+      <text x="236" y="28" class="sans text" font-size="18" font-weight="800">Shanghai Pudong</text>
+      <text x="236" y="45" class="mono muted" font-size="11">PVG - G39 - codeshare</text>
+      <rect x="610" y="16" width="100" height="24" rx="12" fill="#07351f"/>
+      <text x="637" y="32" class="mono" fill="#22c55e" font-size="11" font-weight="900">ARRIVED</text>
+      <text x="760" y="35" class="mono text" font-size="16" font-weight="900">G39</text>
+      <text x="836" y="35" class="mono dim" font-size="14">A320</text>
+    </g>
+
+    <g transform="translate(0 212)">
+      <rect x="0" y="0" width="876" height="56" rx="14" fill="#0f171f" stroke="#1b2836"/>
+      <text x="20" y="35" class="mono text" font-size="18" font-weight="900">09:25</text>
+      <text x="104" y="35" class="mono blue" font-size="17" font-weight="900">OZ 954</text>
+      <text x="236" y="28" class="sans text" font-size="18" font-weight="800">Hong Kong</text>
+      <text x="236" y="45" class="mono muted" font-size="11">HKG - shared snapshot</text>
+      <rect x="610" y="16" width="108" height="24" rx="12" fill="#10283d"/>
+      <text x="637" y="32" class="mono" fill="#62b7f6" font-size="11" font-weight="900">SCHEDULE</text>
+      <text x="760" y="35" class="mono text" font-size="16" font-weight="900">-</text>
+      <text x="836" y="35" class="mono dim" font-size="14">-</text>
+    </g>
+  </g>
+
+  <text x="42" y="501" class="mono muted tiny">Illustrative sample data - native Qt shell uses local FastAPI routes and WebSocket refresh</text>
 </svg>

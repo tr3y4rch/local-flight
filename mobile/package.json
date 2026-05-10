@@ -1,12 +1,14 @@
 {
   "name": "localflight-mobile",
-  "version": "0.2.5-b5",
+  "version": "0.2.5",
   "private": true,
   "main": "index.ts",
   "scripts": {
     "start": "expo start",
     "ios": "expo run:ios",
     "ios:device": "expo run:ios --device",
+    "layout:ios": "bash scripts/ios-layout-smoke.sh",
+    "verify": "npm run typecheck && npm run doctor",
     "typecheck": "tsc --noEmit",
     "doctor": "npx expo-doctor"
   },

@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Animated,
   FlatList,
+  Image,
   Linking,
   Modal,
   Pressable,
@@ -15,7 +16,7 @@ import {
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import Svg, { Circle, ClipPath, Defs, G, Polygon, Polyline, Text as SvgText } from "react-native-svg";
 
-import { getDoc, normalizeServerUrl, patchConfig, searchAirports, testCompanionSetupServer } from "../api/client";
+import { getConfig, getDoc, getHealth, getRootHealth, normalizeServerUrl, patchConfig, searchAirports } from "../api/client";
 import type {
   AppConfig,
   AppState,
@@ -31,6 +32,7 @@ import type {
   HistoryResponse,
   MatrixAnimationMode,
   MatrixPaletteId,
+  Metar,
   RadarBlip,
   RadarMapFeature,
   RadarMapResponse,
@@ -74,7 +76,7 @@ import {
 import { MATRIX_LED_PALETTES, matrixPreviewLines } from "../domain/matrix";
 import { projectBlip, projectLatLonToScope, type ProjectedRadarPoint } from "../domain/radar";
 import type { FeedbackTone, HistoryWindow, ProjectedBlip, RadarRadius, StatusTone } from "../domain/types";
-import { type ConfigProfile, type MobileDiagnosticsMode, saveProfiles } from "../storage/settings";
+import { type ConfigProfile, type MobileDiagnosticsMode, type MobileWeatherDisplayMode, saveProfiles } from "../storage/settings";
 import { palette, styles } from "../theme/styleBridge";
 import {
   MOBILE_SKIN_OPTIONS,
@@ -84,13 +86,28 @@ import {
 } from "../theme/tokens";
 
 type MaterialIconName = ComponentProps<typeof MaterialCommunityIcons>["name"];
-export type DocSlug = "readme" | "privacy" | "changelog";
+export type DocSlug = "readme" | "install" | "display-modes" | "privacy" | "changelog";
+export type ActivityStatus = {
+  label: string;
+  detail?: string;
+  tone?: "sync" | "warn" | "ok";
+};
 
 const DOC_SOURCES: Record<DocSlug, { title: string; detail: string; githubUrl: string }> = {
   readme: {
     title: "README",
-    detail: "Project overview, install notes, and operating model",
+    detail: "Friendly overview, path chooser, previews, and operating model",
     githubUrl: "https://github.com/tr3y4rch/local-flight#readme"
+  },
+  install: {
+    title: "Install Guide",
+    detail: "Platform setup, Pi modes, source checkout, and mobile testing",
+    githubUrl: "https://github.com/tr3y4rch/local-flight/blob/main/docs/install.md"
+  },
+  "display-modes": {
+    title: "Display Modes",
+    detail: "Native, browser, Pi, mobile, and Matrix display choices",
+    githubUrl: "https://github.com/tr3y4rch/local-flight/blob/main/docs/display-modes.md"
   },
   privacy: {
     title: "Privacy",
@@ -104,6 +121,30 @@ const DOC_SOURCES: Record<DocSlug, { title: string; detail: string; githubUrl: s
   }
 };
 const RADAR_GROUND_CLIP_ID = "mobile-radar-ground-clip";
+
+export function ScreenActivity({ activity }: { activity: ActivityStatus | null | undefined }) {
+  if (!activity) return null;
+
+  const toneStyle =
+    activity.tone === "warn"
+      ? styles.activityPillWarn
+      : activity.tone === "ok"
+        ? styles.activityPillOk
+        : styles.activityPillSync;
+  const iconColor = activity.tone === "warn" ? palette.amber : activity.tone === "ok" ? palette.green : palette.blue;
+
+  return (
+    <View style={[styles.activityPill, toneStyle]}>
+      <View style={styles.activitySpinnerWrap}>
+        <ActivityIndicator size="small" color={iconColor} />
+      </View>
+      <View style={styles.activityCopy}>
+        <Text style={styles.activityLabel}>{activity.label}</Text>
+        {activity.detail ? <Text style={styles.activityDetail}>{activity.detail}</Text> : null}
+      </View>
+    </View>
+  );
+}
 
 type AdminSettingsSection = "health" | "devices" | "reports" | "developer";
 type MatrixSettingsSection = "status" | "look" | "runtime" | "motion";
@@ -200,16 +241,91 @@ function metarAccentColor(category: string): string {
   }
 }
 
+const WEATHER_DISPLAY_OPTIONS: Array<{ id: MobileWeatherDisplayMode; label: string; meta: string }> = [
+  { id: "friendly", label: "Friendly", meta: "Pax wording" },
+  { id: "light", label: "Light", meta: "Aviation chips" },
+  { id: "raw", label: "Raw", meta: "METAR text" }
+];
+
+function metarCategory(metar: Metar | null | undefined): string {
+  return metar?.flight_category || metar?.category || "--";
+}
+
+function metarRawText(metar: Metar | null | undefined): string {
+  return metar?.raw_text || "";
+}
+
+function metarTemperature(metar: Metar | null | undefined): string {
+  if (typeof metar?.temperature_c === "number") {
+    return `${Math.round(metar.temperature_c)}°C`;
+  }
+  const raw = metarRawText(metar);
+  const match = raw.match(/\b(M?\d{1,2})\/(M?\d{1,2})\b/);
+  if (!match) return "--";
+  return `${(match[1] || "").replace("M", "-")}°C`;
+}
+
+function weatherCondition(metar: Metar | null | undefined): string {
+  const text = `${metar?.decoded_summary || ""} ${metar?.raw_text || ""}`.toLowerCase();
+  if (!text.trim()) return "Weather unavailable";
+  if (/thunder|tsra|ts\b/.test(text)) return "Storms nearby";
+  if (/snow|\bsn\b/.test(text)) return "Snow";
+  if (/rain|showers|\bra\b|drizzle|\bdz\b/.test(text)) return "Rain";
+  if (/fog|mist|\bfg\b|\bbr\b/.test(text)) return "Low visibility";
+  if (/overcast|broken|\bovc\b|\bbkn\b/.test(text)) return "Cloudy";
+  if (/few|scattered|\bfew\b|\bsct\b/.test(text)) return "Partly cloudy";
+  if (/cavok|clear|no significant/.test(text)) return "Clear";
+  return metarCategory(metar) !== "--" ? `${metarCategory(metar)} conditions` : "Current weather";
+}
+
+function weatherIconName(metar: Metar | null | undefined): MaterialIconName {
+  const text = `${metar?.decoded_summary || ""} ${metar?.raw_text || ""}`.toLowerCase();
+  if (/thunder|tsra|ts\b/.test(text)) return "weather-lightning-rainy";
+  if (/snow|\bsn\b/.test(text)) return "weather-snowy";
+  if (/rain|showers|\bra\b|drizzle|\bdz\b/.test(text)) return "weather-rainy";
+  if (/fog|mist|\bfg\b|\bbr\b/.test(text)) return "weather-fog";
+  if (/overcast|broken|\bovc\b|\bbkn\b/.test(text)) return "weather-cloudy";
+  if (/few|scattered|\bfew\b|\bsct\b/.test(text)) return "weather-partly-cloudy";
+  return "weather-sunny";
+}
+
+function weatherSummaryForMode(metar: Metar | null | undefined, mode: MobileWeatherDisplayMode): string {
+  if (!metar) return "Asking Local Flight";
+  if (mode === "raw") return metar.raw_text || "Raw METAR unavailable";
+  if (mode === "light") {
+    const chips = parseMetarChips(metar.raw_text || metar.decoded_summary || "");
+    const visible = chips.slice(0, 3).map((chip) => `${chip.label} ${chip.value}`);
+    return visible.length ? visible.join(" · ") : metar.decoded_summary || metar.raw_text || "Weather available";
+  }
+  return metar.decoded_summary || weatherCondition(metar);
+}
+
+function weatherChips(metar: Metar | null | undefined): Array<{ label: string; value: string }> {
+  const chips = parseMetarChips(metar?.raw_text || "");
+  if (!chips.some((chip) => chip.label === "TMP")) {
+    const temp = metarTemperature(metar);
+    if (temp !== "--") chips.push({ label: "TMP", value: temp });
+  }
+  if (!chips.some((chip) => chip.label === "QNH") && metar?.qnh_hpa) {
+    chips.push({ label: "QNH", value: String(metar.qnh_hpa) });
+  }
+  if (!chips.some((chip) => chip.label === "WND") && metar?.wind) {
+    chips.push({ label: "WND", value: metar.wind });
+  }
+  return chips;
+}
+
 export function Header({
   airportCode,
   airportIcao,
   airportName,
+  airportLocation,
   live,
   sourceLabel,
   utcTime,
   localTime,
-  metarCategory,
-  metarText,
+  metar,
+  weatherDisplayMode,
   rowCount,
   view,
   pinnedRow,
@@ -222,12 +338,13 @@ export function Header({
   airportCode: string;
   airportIcao: string;
   airportName: string;
+  airportLocation: string;
   live: boolean;
   sourceLabel: string;
   utcTime: string;
   localTime: string;
-  metarCategory: string;
-  metarText: string;
+  metar: Metar | null;
+  weatherDisplayMode: MobileWeatherDisplayMode;
   rowCount: number;
   view: FlightView;
   pinnedRow: FidsRow | null;
@@ -237,9 +354,9 @@ export function Header({
   onTogglePin: (row: FidsRow) => void;
   onOpenConfig: () => void;
 }) {
-  const accent = metarAccentColor(metarCategory);
+  const category = metarCategory(metar);
+  const accent = metarAccentColor(category);
   const dotOpacity = useRef(new Animated.Value(1)).current;
-  const chips = parseMetarChips(metarText);
 
   useEffect(() => {
     if (!live) { dotOpacity.setValue(1); return; }
@@ -255,55 +372,50 @@ export function Header({
 
   return (
     <View style={styles.header}>
-      {/* Left accent bar — color-coded to METAR category */}
       <View style={[styles.headerAccentBar, { backgroundColor: accent }]} />
 
-      {/* Identity band — tap to configure */}
-      <Pressable style={styles.identityBand} onPress={onOpenConfig}>
-        <View style={styles.identityLeft}>
-          <Text style={[styles.airportCode, {
-            color: accent,
-            textShadowColor: accent,
-            textShadowOffset: { width: 0, height: 0 },
-            textShadowRadius: 10
-          }]}>
-            {airportCode}
-          </Text>
-          <Text style={styles.airportName} numberOfLines={1}>
+      <View style={styles.airportHeroRow}>
+        <Pressable style={styles.airportHeroPressable} onPress={onOpenConfig}>
+          <View style={styles.airportHeroTopline}>
+            <Text style={styles.airportHeroKicker}>LOCAL FLIGHT AIRPORT</Text>
+            <View style={styles.airportCodeBadges}>
+              <Text style={[styles.airportCodeBadge, { borderColor: `${accent}55`, color: accent }]}>{airportCode}</Text>
+              {airportIcao ? <Text style={styles.airportCodeBadge}>{airportIcao}</Text> : null}
+            </View>
+          </View>
+          <Text style={[styles.airportHeroName, { color: accent }]} numberOfLines={2}>
             {airportName}
-            {airportIcao ? <Text style={styles.airportIcao}> · {airportIcao}</Text> : null}
           </Text>
+          {airportLocation ? (
+            <Text style={styles.airportHeroLocation} numberOfLines={1}>{airportLocation}</Text>
+          ) : null}
           <View style={styles.configHint}>
             <MaterialCommunityIcons name="tune-variant" size={10} color={palette.textDim} />
-            <Text style={styles.configHintText}>tap to configure</Text>
+            <Text style={styles.configHintText}>tap to change airport</Text>
           </View>
-        </View>
-        <View style={styles.identityRight}>
+          <View style={styles.telemetryStrip}>
+            <View style={[styles.livePill, !live && styles.livePillOff]}>
+              <Animated.View style={[styles.liveDot, !live && styles.liveDotOff, { opacity: dotOpacity }]} />
+              <Text style={[styles.liveText, !live && styles.liveTextOff]}>{live ? "LIVE" : "OFF"}</Text>
+            </View>
+            <View style={styles.sourcePill}>
+              <Text style={styles.sourceText}>{sourceLabel.toUpperCase()}</Text>
+            </View>
+            <View style={styles.countPill}>
+              <Text style={styles.countText}>
+                {view === "departures" ? "↑" : "↓"}{rowCount}
+              </Text>
+            </View>
+          </View>
+        </Pressable>
+
+        <View style={styles.headerWeatherRail}>
           <Text style={styles.utcTime}>{utcTime}<Text style={styles.utcSuffix}>Z</Text></Text>
           <Text style={styles.localTime}>{localTime} <Text style={styles.localSuffix}>LOC</Text></Text>
-          <View style={[styles.metarCatBadge, { borderColor: `${accent}55`, backgroundColor: `${accent}22` }]}>
-            <Text style={[styles.metarCatBadgeText, { color: accent }]}>{metarCategory || "--"}</Text>
-          </View>
-        </View>
-      </Pressable>
-
-      {/* Telemetry strip */}
-      <View style={styles.telemetryStrip}>
-        <View style={[styles.livePill, !live && styles.livePillOff]}>
-          <Animated.View style={[styles.liveDot, !live && styles.liveDotOff, { opacity: dotOpacity }]} />
-          <Text style={[styles.liveText, !live && styles.liveTextOff]}>{live ? "LIVE" : "OFF"}</Text>
-        </View>
-        <View style={styles.sourcePill}>
-          <Text style={styles.sourceText}>{sourceLabel.toUpperCase()}</Text>
-        </View>
-        <View style={styles.countPill}>
-          <Text style={styles.countText}>
-            {view === "departures" ? "↑" : "↓"}{rowCount}
-          </Text>
+          <CompactWeatherCapsule metar={metar} mode={weatherDisplayMode} accent={accent} />
         </View>
       </View>
 
-      {/* Flight Island */}
       <FlightIsland
         row={pinnedRow}
         isPinned={islandPinned}
@@ -313,25 +425,35 @@ export function Header({
         onOpenActions={onOpenActions}
         onTogglePin={onTogglePin}
       />
+    </View>
+  );
+}
 
-      {/* METAR strip — decoded chips when parseable, raw text fallback */}
-      <View style={styles.metarStrip}>
-        {chips.length > 0 ? (
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.metarChipRow}
-          >
-            {chips.map((chip, i) => (
-              <View key={`metar-${keyedPart(chip.label)}-${keyedPart(chip.value)}-${i}`} style={styles.metarChip}>
-                <Text style={styles.metarChipLabel}>{chip.label}</Text>
-                <Text style={styles.metarChipValue}>{chip.value}</Text>
-              </View>
-            ))}
-          </ScrollView>
-        ) : (
-          <Text style={styles.metarText} numberOfLines={1}>{metarText}</Text>
-        )}
+function CompactWeatherCapsule({
+  metar,
+  mode,
+  accent
+}: {
+  metar: Metar | null;
+  mode: MobileWeatherDisplayMode;
+  accent: string;
+}) {
+  const category = metarCategory(metar);
+  const temp = metarTemperature(metar);
+  const label = mode === "raw" ? "RAW" : category;
+  const detail =
+    mode === "raw"
+      ? (metar?.raw_text || "METAR wait").replace(/^METAR\s+/, "").slice(0, 18)
+      : mode === "light"
+        ? weatherSummaryForMode(metar, "light")
+        : weatherCondition(metar);
+
+  return (
+    <View style={[styles.weatherCompact, { borderColor: `${accent}44`, backgroundColor: `${accent}14` }]}>
+      <MaterialCommunityIcons name={weatherIconName(metar)} size={18} color={accent} />
+      <View style={styles.weatherCompactCopy}>
+        <Text style={styles.weatherCompactTemp}>{temp}</Text>
+        <Text style={styles.weatherCompactMeta} numberOfLines={1}>{label} · {detail}</Text>
       </View>
     </View>
   );
@@ -503,6 +625,7 @@ export function FidsScreen({
   view,
   loading,
   refreshing,
+  activity,
   error,
   showConnectPrompt,
   onOpenSettings,
@@ -517,6 +640,7 @@ export function FidsScreen({
   view: FlightView;
   loading: boolean;
   refreshing: boolean;
+  activity?: ActivityStatus | null;
   error: string | null;
   showConnectPrompt: boolean;
   onOpenSettings: () => void;
@@ -560,6 +684,7 @@ export function FidsScreen({
       ListHeaderComponent={
         <>
           {showConnectPrompt ? <ConnectPrompt onSettings={onOpenSettings} /> : null}
+          <ScreenActivity activity={activity} />
           {error ? <ScreenError message={error} /> : null}
 
           <View style={styles.dirToggle}>
@@ -576,11 +701,11 @@ export function FidsScreen({
           </View>
 
           <View style={styles.fidsHeader}>
-            <Text style={styles.fidsHeaderText}>TIME</Text>
-            <Text style={styles.fidsHeaderText}>FLIGHT</Text>
-            <Text style={styles.fidsHeaderText}>{view === "arrivals" ? "FROM" : "TO"}</Text>
-            <Text style={styles.fidsHeaderText}>STATUS</Text>
-            <Text style={[styles.fidsHeaderText, styles.alignRight]}>A/C</Text>
+            <Text style={[styles.fidsHeaderText, styles.fidsColTime]}>TIME</Text>
+            <Text style={[styles.fidsHeaderText, styles.fidsColFlight]}>FLIGHT</Text>
+            <Text style={[styles.fidsHeaderText, styles.fidsColRoute]}>{view === "arrivals" ? "FROM" : "TO"}</Text>
+            <Text style={[styles.fidsHeaderText, styles.fidsColStatusText]}>STATUS</Text>
+            <Text style={[styles.fidsHeaderText, styles.fidsColAircraft]}>A/C</Text>
           </View>
         </>
       }
@@ -602,6 +727,7 @@ export function HistoryScreen({
   hours,
   loading,
   refreshing,
+  activity,
   error,
   showConnectPrompt,
   onOpenSettings,
@@ -616,6 +742,7 @@ export function HistoryScreen({
   hours: HistoryWindow;
   loading: boolean;
   refreshing: boolean;
+  activity?: ActivityStatus | null;
   error: string | null;
   showConnectPrompt: boolean;
   onOpenSettings: () => void;
@@ -646,6 +773,7 @@ export function HistoryScreen({
       ListHeaderComponent={
         <>
           {showConnectPrompt ? <ConnectPrompt onSettings={onOpenSettings} /> : null}
+          <ScreenActivity activity={activity} />
           {error ? <ScreenError message={error} /> : null}
 
           <FilterSection title="DIRECTION">
@@ -693,9 +821,12 @@ export function RadarScreen({
   data,
   groundData,
   groundError,
+  metar,
+  weatherDisplayMode,
   radiusNm,
   loading,
   refreshing,
+  activity,
   error,
   showConnectPrompt,
   onOpenSettings,
@@ -708,9 +839,12 @@ export function RadarScreen({
   data: RadarResponse | null;
   groundData: RadarMapResponse | null;
   groundError: string | null;
+  metar: Metar | null;
+  weatherDisplayMode: MobileWeatherDisplayMode;
   radiusNm: RadarRadius;
   loading: boolean;
   refreshing: boolean;
+  activity?: ActivityStatus | null;
   error: string | null;
   showConnectPrompt: boolean;
   onOpenSettings: () => void;
@@ -743,6 +877,7 @@ export function RadarScreen({
       ListHeaderComponent={
         <>
           {showConnectPrompt ? <ConnectPrompt onSettings={onOpenSettings} /> : null}
+          <ScreenActivity activity={activity} />
           {error ? <ScreenError message={error} /> : null}
 
           <FilterSection title={compact ? "ZOOM" : "RADIUS"}>
@@ -770,6 +905,8 @@ export function RadarScreen({
             />
           </View>
 
+          <RadarWeatherCard metar={metar} mode={weatherDisplayMode} />
+
           <RadarScope
             data={data}
             groundData={groundData}
@@ -794,6 +931,46 @@ export function RadarScreen({
   );
 }
 
+function RadarWeatherCard({ metar, mode }: { metar: Metar | null; mode: MobileWeatherDisplayMode }) {
+  const category = metarCategory(metar);
+  const accent = metarAccentColor(category);
+  const chips = weatherChips(metar);
+  const raw = metar?.raw_text || "Raw METAR unavailable";
+  const summary = weatherSummaryForMode(metar, mode);
+  const body = mode === "raw" ? raw : summary;
+
+  return (
+    <View style={[styles.radarWeatherCard, { borderColor: `${accent}38` }]}>
+      <View style={styles.radarWeatherHeader}>
+        <View style={[styles.radarWeatherIcon, { backgroundColor: `${accent}18`, borderColor: `${accent}44` }]}>
+          <MaterialCommunityIcons name={weatherIconName(metar)} size={21} color={accent} />
+        </View>
+        <View style={styles.radarWeatherTitleWrap}>
+          <Text style={styles.radarWeatherTitle}>AIRPORT WEATHER</Text>
+          <Text style={styles.radarWeatherBody} numberOfLines={mode === "raw" ? 3 : 2}>{body}</Text>
+        </View>
+        <View style={[styles.radarWeatherCategory, { backgroundColor: `${accent}18`, borderColor: `${accent}44` }]}>
+          <Text style={[styles.radarWeatherCategoryText, { color: accent }]}>{category}</Text>
+          <Text style={styles.radarWeatherTemp}>{metarTemperature(metar)}</Text>
+        </View>
+      </View>
+
+      {mode === "raw" ? (
+        <Text style={styles.radarWeatherRaw}>{raw}</Text>
+      ) : (
+        <View style={styles.radarWeatherChips}>
+          {chips.slice(0, 5).map((chip, index) => (
+            <View key={`radar-weather-${chip.label}-${chip.value}-${index}`} style={styles.metarChip}>
+              <Text style={styles.metarChipLabel}>{chip.label}</Text>
+              <Text style={styles.metarChipValue}>{chip.value}</Text>
+            </View>
+          ))}
+        </View>
+      )}
+    </View>
+  );
+}
+
 export function MatrixScreen({
   rows,
   view,
@@ -813,6 +990,7 @@ export function MatrixScreen({
   saveMessage,
   saveTone,
   refreshing,
+  activity,
   error,
   showConnectPrompt,
   onOpenSettings,
@@ -850,6 +1028,7 @@ export function MatrixScreen({
   saveMessage: string | null;
   saveTone: FeedbackTone;
   refreshing: boolean;
+  activity?: ActivityStatus | null;
   error: string | null;
   showConnectPrompt: boolean;
   onOpenSettings: () => void;
@@ -886,6 +1065,7 @@ export function MatrixScreen({
       showsVerticalScrollIndicator={false}
     >
       {showConnectPrompt ? <ConnectPrompt onSettings={onOpenSettings} /> : null}
+      <ScreenActivity activity={activity} />
       {error ? <ScreenError message={error} /> : null}
 
       <View style={styles.cardStack}>
@@ -1209,17 +1389,19 @@ function FidsRowView({
       onLongPress={() => onOpenActions(row)}
       onPress={() => onOpenDetail(row.callsign)}
     >
-      <Text style={styles.fidsTime}>{row.display_time || "--:--"}</Text>
-      <View style={styles.fidsFlightWrap}>
+      <Text style={[styles.fidsTime, styles.fidsColTime]}>{row.display_time || "--:--"}</Text>
+      <View style={[styles.fidsFlightWrap, styles.fidsColFlight]}>
         <Text style={styles.fidsFlight} numberOfLines={1}>{row.flight_display || row.callsign || "-"}</Text>
         {isPinned ? <MaterialCommunityIcons name="pin" size={11} color={palette.amber} /> : null}
       </View>
-      <View style={styles.fidsDest}>
+      <View style={[styles.fidsDest, styles.fidsColRoute]}>
         <Text style={styles.fidsDestName} numberOfLines={1}>{routeName(row.route_display)}</Text>
         <Text style={styles.fidsDestCode}>{routeMeta(row)}</Text>
       </View>
-      <StatusBadge status={row.status_display} statusClass={row.status_class} compact />
-      <Text style={styles.fidsAircraft} numberOfLines={1}>{row.aircraft_type || "-"}</Text>
+      <View style={styles.fidsColStatus}>
+        <StatusBadge status={row.status_display} statusClass={row.status_class} compact />
+      </View>
+      <Text style={[styles.fidsAircraft, styles.fidsColAircraft]} numberOfLines={1}>{row.aircraft_type || "-"}</Text>
     </Pressable>
   );
 }
@@ -2265,7 +2447,9 @@ export function CompanionSetupScreen({
   const [testing, setTesting] = useState(false);
   const [finishing, setFinishing] = useState(false);
   const [setupError, setSetupError] = useState<string | null>(null);
+  const [setupProgress, setSetupProgress] = useState<string | null>(null);
   const [serverSummary, setServerSummary] = useState<CompanionSetupResult | null>(null);
+  const stepAnim = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
     setServerInput(initialUrl);
@@ -2277,6 +2461,15 @@ export function CompanionSetupScreen({
     }
   }, [initialDiagnosticsMode]);
 
+  useEffect(() => {
+    stepAnim.setValue(0);
+    Animated.timing(stepAnim, {
+      toValue: 1,
+      duration: 220,
+      useNativeDriver: true
+    }).start();
+  }, [step, stepAnim]);
+
   const testServer = useCallback(async () => {
     const urlProblem = companionSetupUrlProblem(serverInput);
     if (urlProblem) {
@@ -2286,21 +2479,36 @@ export function CompanionSetupScreen({
 
     setTesting(true);
     setSetupError(null);
+    let rootHealthOk = false;
     try {
-      const result = await testCompanionSetupServer(serverInput);
+      const normalizedUrl = normalizeServerUrl(serverInput);
+      setSetupProgress("Checking the Local Flight server on your LAN...");
+      await getRootHealth(normalizedUrl);
+      rootHealthOk = true;
+      setSetupProgress("Reading companion health and server config...");
+      const [state, config] = await Promise.all([
+        getHealth(normalizedUrl),
+        getConfig(normalizedUrl)
+      ]);
       const summary = {
-        serverUrl: result.normalizedUrl,
+        serverUrl: normalizedUrl,
         diagnosticsMode,
-        config: result.config,
-        state: result.state
+        config,
+        state
       };
-      setServerInput(result.normalizedUrl);
+      setSetupProgress("Server answered. Moving to diagnostics...");
+      setServerInput(normalizedUrl);
       setServerSummary(summary);
       setStep("diagnostics");
     } catch (exc) {
-      setSetupError(companionSetupErrorMessage(exc));
+      setSetupError(
+        rootHealthOk
+          ? "Local Flight answered /health, but setup APIs are not ready. Finish Local Flight setup on the desktop/Pi first, then return here."
+          : companionSetupErrorMessage(exc)
+      );
     } finally {
       setTesting(false);
+      setSetupProgress(null);
     }
   }, [diagnosticsMode, serverInput]);
 
@@ -2321,33 +2529,66 @@ export function CompanionSetupScreen({
     }
   }, [diagnosticsMode, onComplete, serverSummary]);
 
+  const activeStepIndex = setupStepRank(step);
+  const panelMotion = {
+    opacity: stepAnim,
+    transform: [{
+      translateY: stepAnim.interpolate({ inputRange: [0, 1], outputRange: [16, 0] })
+    }]
+  };
+
   return (
     <ScrollView style={styles.companionSetupScroll} contentContainerStyle={styles.companionSetupContent}>
-      <View style={styles.companionSetupCard}>
-        <Text style={styles.companionSetupEyebrow}>LOCAL FLIGHT COMPANION</Text>
-        <Text style={styles.companionSetupTitle}>First launch setup</Text>
-        <Text style={styles.companionSetupBody}>
-          Pair this iPhone with a configured Local Flight server before the companion opens FIDS, Radar, History, or Settings.
-        </Text>
-
-        <View style={styles.companionSetupSteps}>
-          {(["welcome", "server", "diagnostics", "ready"] as CompanionSetupStep[]).map((item) => (
-            <View
-              key={item}
-              style={[
-                styles.companionSetupStepDot,
-                setupStepRank(item) <= setupStepRank(step) && styles.companionSetupStepDotActive
-              ]}
+      <View style={styles.companionSetupGlowA} />
+      <View style={styles.companionSetupGlowB} />
+      <View style={styles.companionSetupShell}>
+        <View style={styles.companionSetupHero}>
+          <View style={styles.companionSetupLogoWrap}>
+            <View style={styles.companionSetupLogoRing} />
+            <View style={styles.companionSetupLogoRingOuter} />
+            <Image
+              source={require("../../assets/icon_circle.png")}
+              resizeMode="contain"
+              style={styles.companionSetupLogoMark}
             />
-          ))}
+          </View>
+          <Text style={styles.companionSetupEyebrow}>LOCAL FLIGHT COMPANION</Text>
+          <Text style={styles.companionSetupTitle}>Set up your flight board</Text>
+          <Text style={styles.companionSetupBody}>
+            Pair this device with your already-configured desktop or Pi server. The companion stays on this guided setup until LAN pairing and diagnostics consent are done.
+          </Text>
+          <View style={styles.companionSetupRoute}>
+            {(["welcome", "server", "diagnostics", "ready"] as CompanionSetupStep[]).map((item, index) => (
+              <View key={item} style={styles.companionSetupRouteItem}>
+                <View
+                  style={[
+                    styles.companionSetupStepDot,
+                    index <= activeStepIndex && styles.companionSetupStepDotActive
+                  ]}
+                >
+                  <Text style={[styles.companionSetupStepNumber, index <= activeStepIndex && styles.companionSetupStepNumberActive]}>
+                    {index + 1}
+                  </Text>
+                </View>
+                <Text style={[styles.companionSetupStepLabel, index <= activeStepIndex && styles.companionSetupStepLabelActive]}>
+                  {setupStepTitle(item)}
+                </Text>
+              </View>
+            ))}
+          </View>
         </View>
 
         {step === "welcome" ? (
-          <View style={styles.companionSetupPanel}>
+          <Animated.View style={[styles.companionSetupPanel, panelMotion]}>
             <Text style={styles.companionSetupPanelTitle}>Local-first LAN companion</Text>
             <Text style={styles.companionSetupBody}>
-              The mobile app talks to your desktop or Pi server. It does not call the relay directly, and it will stay locked here until pairing and diagnostics consent are complete.
+              You only need your Local Flight server running on the same WiFi. The phone asks that server for FIDS, radar, history, docs, reports, and Matrix/Admin status.
             </Text>
+            <View style={styles.companionSetupChecklist}>
+              <SetupChecklistItem icon="server-network" title="Server first" body="Finish desktop/Pi setup before pairing the phone." />
+              <SetupChecklistItem icon="wifi" title="Same LAN" body="Use localflight.local or the Pi/desktop IP address." />
+              <SetupChecklistItem icon="shield-check" title="Privacy choice" body="Pick manual or automatic mobile diagnostics before entering the app." />
+            </View>
             <View style={styles.companionSetupInfoGrid}>
               <SetupInfoTile label="Mode" value="LAN companion" />
               <SetupInfoTile label="Privacy" value="Server mediated" />
@@ -2355,17 +2596,23 @@ export function CompanionSetupScreen({
               <SetupInfoTile label="Next" value="Test server URL" />
             </View>
             <Pressable style={styles.companionSetupPrimary} onPress={() => setStep("server")}>
+              <MaterialCommunityIcons name="arrow-right" size={16} color="#051009" />
               <Text style={styles.companionSetupPrimaryText}>START SETUP</Text>
             </Pressable>
-          </View>
+          </Animated.View>
         ) : null}
 
         {step === "server" ? (
-          <View style={styles.companionSetupPanel}>
+          <Animated.View style={[styles.companionSetupPanel, panelMotion]}>
             <Text style={styles.companionSetupPanelTitle}>Connect your Local Flight server</Text>
             <Text style={styles.companionSetupBody}>
-              Use the LAN address shown by the desktop/Pi app, for example http://localflight.local:8000 or http://192.168.1.42:8000.
+              Use the LAN address shown by the desktop or Pi app. On a physical iPhone, localhost points at the phone, not the Local Flight server.
             </Text>
+            <View style={styles.companionSetupExampleBox}>
+              <Text style={styles.companionSetupExampleLabel}>GOOD EXAMPLES</Text>
+              <Text style={styles.companionSetupExampleText}>http://localflight.local:8000</Text>
+              <Text style={styles.companionSetupExampleText}>http://192.168.1.42:8000</Text>
+            </View>
             <TextInput
               autoCapitalize="none"
               autoCorrect={false}
@@ -2376,21 +2623,27 @@ export function CompanionSetupScreen({
               onChangeText={setServerInput}
               style={styles.companionSetupInput}
             />
+            <SetupProgressRail
+              active={testing}
+              label={setupProgress || "Waiting to test the server URL."}
+              steps={["LAN reachability", "Server health", "Companion config"]}
+            />
             <Pressable
               style={[styles.companionSetupPrimary, testing && styles.connectButtonDisabled]}
               onPress={() => void testServer()}
               disabled={testing}
             >
-              {testing ? <ActivityIndicator color="#000" /> : <Text style={styles.companionSetupPrimaryText}>TEST SERVER</Text>}
+              {testing ? <ActivityIndicator color="#000" /> : <MaterialCommunityIcons name="lan-connect" size={16} color="#051009" />}
+              <Text style={styles.companionSetupPrimaryText}>{testing ? "TESTING SERVER" : "TEST SERVER"}</Text>
             </Pressable>
             <Pressable style={styles.companionSetupSecondary} onPress={() => setStep("welcome")}>
               <Text style={styles.companionSetupSecondaryText}>BACK</Text>
             </Pressable>
-          </View>
+          </Animated.View>
         ) : null}
 
         {step === "diagnostics" ? (
-          <View style={styles.companionSetupPanel}>
+          <Animated.View style={[styles.companionSetupPanel, panelMotion]}>
             <Text style={styles.companionSetupPanelTitle}>Choose companion diagnostics</Text>
             <Text style={styles.companionSetupBody}>
               Manual reports are always available. Automatic reports only send when this device and the connected server both allow diagnostics.
@@ -2409,29 +2662,34 @@ export function CompanionSetupScreen({
                   ]}
                   onPress={() => setDiagnosticsMode(mode)}
                 >
-                  <Text style={styles.companionSetupOptionTitle}>{title}</Text>
+                  <View style={styles.companionSetupOptionTop}>
+                    <Text style={styles.companionSetupOptionTitle}>{title}</Text>
+                    {mode === "manual" ? <Text style={styles.companionSetupRecommended}>RECOMMENDED</Text> : null}
+                  </View>
                   <Text style={styles.companionSetupOptionBody}>{body}</Text>
                 </Pressable>
               ))}
             </View>
             <Pressable style={styles.companionSetupPrimary} onPress={() => setStep("ready")}>
+              <MaterialCommunityIcons name="clipboard-check-outline" size={16} color="#051009" />
               <Text style={styles.companionSetupPrimaryText}>REVIEW SETUP</Text>
             </Pressable>
             <Pressable style={styles.companionSetupSecondary} onPress={() => setStep("server")}>
               <Text style={styles.companionSetupSecondaryText}>BACK</Text>
             </Pressable>
-          </View>
+          </Animated.View>
         ) : null}
 
         {step === "ready" ? (
-          <View style={styles.companionSetupPanel}>
+          <Animated.View style={[styles.companionSetupPanel, panelMotion]}>
             <Text style={styles.companionSetupPanelTitle}>Ready for the board</Text>
             <Text style={styles.companionSetupBody}>
-              The companion will save this pairing locally and open the main app.
+              The companion will save this pairing locally, ask the Local Flight server for fresh FIDS rows, and open the main app.
             </Text>
             <View style={styles.companionSetupSummary}>
               <InfoLine label="Server" value={serverSummary?.serverUrl || normalizeServerUrl(serverInput) || "Not tested"} />
               <InfoLine label="Airport" value={serverSummary?.config.airport_iata || "---"} />
+              <InfoLine label="Server status" value={serverSummary?.state.ok === false ? "Needs attention" : "Ready"} />
               <InfoLine label="Diagnostics" value={diagnosticsMode === "manual" ? "Manual reports only" : diagnosticsMode === "auto" ? "Automatic crash reports" : "Automatic crash reports + context"} />
             </View>
             <Pressable
@@ -2439,12 +2697,13 @@ export function CompanionSetupScreen({
               onPress={() => void finishSetup()}
               disabled={finishing}
             >
-              {finishing ? <ActivityIndicator color="#000" /> : <Text style={styles.companionSetupPrimaryText}>FINISH SETUP</Text>}
+              {finishing ? <ActivityIndicator color="#000" /> : <MaterialCommunityIcons name="airplane-takeoff" size={16} color="#051009" />}
+              <Text style={styles.companionSetupPrimaryText}>{finishing ? "SAVING SETUP" : "FINISH SETUP"}</Text>
             </Pressable>
             <Pressable style={styles.companionSetupSecondary} onPress={() => setStep("diagnostics")}>
               <Text style={styles.companionSetupSecondaryText}>BACK</Text>
             </Pressable>
-          </View>
+          </Animated.View>
         ) : null}
 
         {setupError ? (
@@ -2455,6 +2714,39 @@ export function CompanionSetupScreen({
         ) : null}
       </View>
     </ScrollView>
+  );
+}
+
+function SetupChecklistItem({ icon, title, body }: { icon: MaterialIconName; title: string; body: string }) {
+  return (
+    <View style={styles.companionSetupChecklistItem}>
+      <View style={styles.companionSetupChecklistIcon}>
+        <MaterialCommunityIcons name={icon} size={16} color={palette.blue2} />
+      </View>
+      <View style={styles.companionSetupChecklistCopy}>
+        <Text style={styles.companionSetupChecklistTitle}>{title}</Text>
+        <Text style={styles.companionSetupChecklistBody}>{body}</Text>
+      </View>
+    </View>
+  );
+}
+
+function SetupProgressRail({ active, label, steps }: { active: boolean; label: string; steps: string[] }) {
+  return (
+    <View style={[styles.companionSetupProgressRail, active && styles.companionSetupProgressRailActive]}>
+      <View style={styles.companionSetupProgressHeader}>
+        {active ? <ActivityIndicator size="small" color={palette.blue} /> : <MaterialCommunityIcons name="progress-clock" size={15} color={palette.textDim} />}
+        <Text style={styles.companionSetupProgressText}>{label}</Text>
+      </View>
+      <View style={styles.companionSetupProgressSteps}>
+        {steps.map((item, index) => (
+          <View key={item} style={styles.companionSetupProgressStep}>
+            <View style={[styles.companionSetupProgressDot, active && index === 0 && styles.companionSetupProgressDotActive]} />
+            <Text style={styles.companionSetupProgressStepText}>{item}</Text>
+          </View>
+        ))}
+      </View>
+    </View>
   );
 }
 
@@ -2469,6 +2761,15 @@ function SetupInfoTile({ label, value }: { label: string; value: string }) {
 
 function setupStepRank(step: CompanionSetupStep): number {
   return { welcome: 0, server: 1, diagnostics: 2, ready: 3 }[step];
+}
+
+function setupStepTitle(step: CompanionSetupStep): string {
+  return {
+    welcome: "Welcome",
+    server: "Server",
+    diagnostics: "Reports",
+    ready: "Ready"
+  }[step];
 }
 
 function companionSetupUrlProblem(input: string): string | null {
@@ -2508,6 +2809,7 @@ export function SettingsScreen({
   isLandscape,
   themeMode,
   skin,
+  weatherDisplayMode,
   mobileDiagnosticsMode,
   outputs,
   refreshSeconds,
@@ -2515,6 +2817,7 @@ export function SettingsScreen({
   schedulerMessage,
   onThemeModeChange,
   onSkinChange,
+  onWeatherDisplayModeChange,
   onMobileDiagnosticsModeChange,
   onOpenHistory,
   onOpenAdmin,
@@ -2534,6 +2837,7 @@ export function SettingsScreen({
   isLandscape: boolean;
   themeMode: MobileThemeMode;
   skin: MobileSkin;
+  weatherDisplayMode: MobileWeatherDisplayMode;
   mobileDiagnosticsMode: MobileDiagnosticsMode;
   outputs: string[];
   refreshSeconds: number | null;
@@ -2541,6 +2845,7 @@ export function SettingsScreen({
   schedulerMessage: string | null;
   onThemeModeChange: (value: MobileThemeMode) => void;
   onSkinChange: (value: MobileSkin) => void;
+  onWeatherDisplayModeChange: (value: MobileWeatherDisplayMode) => void;
   onMobileDiagnosticsModeChange: (value: MobileDiagnosticsMode) => void;
   onOpenHistory: () => void;
   onOpenAdmin: () => void;
@@ -2619,7 +2924,7 @@ export function SettingsScreen({
           <SettingsQuickAction
             icon="palette-outline"
             label="Mobile Look"
-            value={`${themeMode} · ${skin}`}
+            value={`${themeMode} · ${skin} · ${weatherDisplayMode} WX`}
             onPress={() => setAppearanceVisible(true)}
           />
           <SettingsQuickAction
@@ -2643,8 +2948,8 @@ export function SettingsScreen({
           <SettingsQuickAction
             icon="book-open-variant"
             label="Docs"
-            value="Bundled README"
-            onPress={() => onOpenDoc("readme")}
+            value="Install + display guide"
+            onPress={() => onOpenDoc("install")}
           />
           <SettingsQuickAction
             icon="shield-lock-outline"
@@ -2676,6 +2981,18 @@ export function SettingsScreen({
             ))}
           </View>
         </FilterSection>
+        <SettingsToolPill
+          icon="monitor-dashboard"
+          label="Display modes"
+          value="Native, browser, Pi, mobile, and Matrix"
+          onPress={() => onOpenDoc("display-modes")}
+        />
+        <SettingsToolPill
+          icon="book-open-page-variant"
+          label="Project README"
+          value="Overview and quick path chooser"
+          onPress={() => onOpenDoc("readme")}
+        />
         <SettingsToolPill
           icon="format-list-bulleted"
           label="Changelog"
@@ -2710,9 +3027,11 @@ export function SettingsScreen({
         visible={appearanceVisible}
         themeMode={themeMode}
         skin={skin}
+        weatherDisplayMode={weatherDisplayMode}
         onClose={() => setAppearanceVisible(false)}
         onThemeModeChange={onThemeModeChange}
         onSkinChange={onSkinChange}
+        onWeatherDisplayModeChange={onWeatherDisplayModeChange}
       />
     </View>
   );
@@ -2771,6 +3090,16 @@ export function DocsScreen({
         />
 
         <View style={styles.docsCard}>
+          <ScreenActivity
+            activity={
+              loadingDoc
+                ? {
+                    label: `Loading ${source.title}`,
+                    detail: "Asking the connected Local Flight server for bundled Markdown."
+                  }
+                : null
+            }
+          />
           {loadingDoc ? <ActivityIndicator color={palette.blue} style={styles.loader} /> : null}
           {!loadingDoc && docError ? (
             <>
@@ -2780,7 +3109,7 @@ export function DocsScreen({
               <SettingsToolPill
                 icon="open-in-new"
                 label="Open in GitHub"
-                value="External fallback opened only when you tap"
+                value="External GitHub link opens only when you tap"
                 onPress={() => void Linking.openURL(githubUrl)}
               />
             </>
@@ -2897,16 +3226,20 @@ function AppearanceSheet({
   visible,
   themeMode,
   skin,
+  weatherDisplayMode,
   onClose,
   onThemeModeChange,
-  onSkinChange
+  onSkinChange,
+  onWeatherDisplayModeChange
 }: {
   visible: boolean;
   themeMode: MobileThemeMode;
   skin: MobileSkin;
+  weatherDisplayMode: MobileWeatherDisplayMode;
   onClose: () => void;
   onThemeModeChange: (value: MobileThemeMode) => void;
   onSkinChange: (value: MobileSkin) => void;
+  onWeatherDisplayModeChange: (value: MobileWeatherDisplayMode) => void;
 }) {
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
@@ -2948,6 +3281,20 @@ function AppearanceSheet({
                     label={item.label}
                     meta={themeMode}
                     onPress={() => onSkinChange(item.id)}
+                  />
+                ))}
+              </View>
+            </FilterSection>
+
+            <FilterSection title="WEATHER DISPLAY">
+              <View style={styles.filterWrap}>
+                {WEATHER_DISPLAY_OPTIONS.map((item) => (
+                  <OptionChip
+                    key={item.id}
+                    active={weatherDisplayMode === item.id}
+                    label={item.label}
+                    meta={item.meta}
+                    onPress={() => onWeatherDisplayModeChange(item.id)}
                   />
                 ))}
               </View>

@@ -7,6 +7,7 @@ const PROFILES_KEY = "localflight.profiles";
 const COMPANION_ID_KEY = "localflight.companionId";
 const APPEARANCE_THEME_KEY = "localflight.mobileTheme";
 const APPEARANCE_SKIN_KEY = "localflight.mobileSkin";
+const WEATHER_DISPLAY_KEY = "localflight.weatherDisplayMode";
 const MOBILE_DIAGNOSTICS_KEY = "localflight.mobileDiagnosticsMode";
 const MOBILE_SETUP_STATE_KEY = "localflight.mobileSetupState";
 
@@ -26,6 +27,7 @@ export type ConfigProfile = {
 };
 
 export type MobileDiagnosticsMode = "unset" | "manual" | "auto" | "auto_logs";
+export type MobileWeatherDisplayMode = "friendly" | "light" | "raw";
 export type MobileSetupMode = "lan_companion";
 
 export type MobileSetupState = {
@@ -118,6 +120,16 @@ function normalizeDiagnosticsMode(value: string | null | undefined): MobileDiagn
   }
 }
 
+function normalizeWeatherDisplayMode(value: string | null | undefined): MobileWeatherDisplayMode {
+  switch (value) {
+    case "light":
+    case "raw":
+      return value;
+    default:
+      return "friendly";
+  }
+}
+
 export function incompleteMobileSetupState(
   serverUrl = "",
   diagnosticsMode: MobileDiagnosticsMode = "unset"
@@ -196,6 +208,14 @@ export async function saveAppearancePrefs(value: {
     SecureStore.setItemAsync(APPEARANCE_THEME_KEY, normalizeThemeMode(value.themeMode)),
     SecureStore.setItemAsync(APPEARANCE_SKIN_KEY, normalizeSkin(value.skin))
   ]);
+}
+
+export async function loadWeatherDisplayMode(): Promise<MobileWeatherDisplayMode> {
+  return normalizeWeatherDisplayMode(await SecureStore.getItemAsync(WEATHER_DISPLAY_KEY));
+}
+
+export async function saveWeatherDisplayMode(value: MobileWeatherDisplayMode): Promise<void> {
+  await SecureStore.setItemAsync(WEATHER_DISPLAY_KEY, normalizeWeatherDisplayMode(value));
 }
 
 export async function loadMobileDiagnosticsMode(): Promise<MobileDiagnosticsMode> {

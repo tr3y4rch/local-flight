@@ -129,7 +129,17 @@ DOC_PAGES = {
     "readme": {
         "title": "Project README",
         "filename": "README.md",
-        "summary": "Install notes, setup paths, and the current Local Flight overview.",
+        "summary": "Friendly overview, quick path chooser, previews, and links to deeper docs.",
+    },
+    "install": {
+        "title": "Install Guide",
+        "filename": "install.md",
+        "summary": "Platform install steps for Windows, macOS, Raspberry Pi, source checkout, and mobile testing.",
+    },
+    "display-modes": {
+        "title": "Display Modes",
+        "filename": "display-modes.md",
+        "summary": "How to choose between native desktop, LAN browser UI, Pi display modes, mobile, and Matrix.",
     },
     "privacy": {
         "title": "Privacy & Diagnostics",
@@ -626,7 +636,11 @@ def bundled_doc(slug: str) -> dict[str, str]:
         doc_slug = "readme"
     page = DOC_PAGES[doc_slug]
     filename = page["filename"]
-    path = resolve_media_path("ui", "docs", filename) or resolve_media_path(filename)
+    path = (
+        resolve_media_path("ui", "docs", filename)
+        or resolve_media_path("docs", filename)
+        or resolve_media_path(filename)
+    )
     if path is None:
         text = f"{filename} is not bundled with this build."
     else:

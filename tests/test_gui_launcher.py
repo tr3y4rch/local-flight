@@ -2480,9 +2480,15 @@ def test_native_media_and_docs_are_resolvable() -> None:
     assert resolve_media_path("docs", "previews", "fids-preview.svg") is not None
 
     readme = bundled_doc("readme")
+    install = bundled_doc("install")
+    display_modes = bundled_doc("display-modes")
 
     assert readme["filename"] == "README.md"
     assert "Local Flight" in readme["text"]
+    assert install["filename"] == "install.md"
+    assert "Install Guide" in install["text"]
+    assert display_modes["filename"] == "display-modes.md"
+    assert "Display Modes" in display_modes["text"]
 
 
 def test_native_theme_and_skin_tokens_cover_web_choices() -> None:

@@ -10,7 +10,7 @@ Platform-aware startup:
     3. Start uvicorn
     4. Launch native Qt shell when available
     5. Setup watcher if first launch
-    6. Browser fallback keeps the legacy tray/browser path when selected
+    6. Browser mode keeps the supported tray/browser path available when selected
 
   Headless (Raspberry Pi / Linux):
     1. Load .env
@@ -18,7 +18,7 @@ Platform-aware startup:
     3. Start uvicorn
     4. Block forever; systemd handles lifecycle
        Native Qt kiosk is explicit via --native-kiosk.
-       Legacy Chromium kiosk is a separate fallback service.
+       Chromium kiosk is a separate supported display service.
 
 Usage:
   python -m localflight         (from src/)

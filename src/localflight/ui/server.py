@@ -233,7 +233,7 @@ try:
     from importlib.metadata import version as _pkg_version
     _APP_VERSION = _pkg_version("localflight")
 except Exception:
-    _APP_VERSION = "0.2.5b5"
+    _APP_VERSION = "0.2.5"
 
 templates.env.globals["app_version"] = _APP_VERSION
 
@@ -278,8 +278,20 @@ _DOC_PAGES: Dict[str, Dict[str, str]] = {
     "readme": {
         "title": "Project README",
         "filename": "README.md",
-        "summary": "Install notes, setup paths, and the current Local Flight overview.",
+        "summary": "Friendly overview, quick path chooser, previews, and links to deeper docs.",
         "github_url": "https://github.com/tr3y4rch/local-flight#readme",
+    },
+    "install": {
+        "title": "Install Guide",
+        "filename": "install.md",
+        "summary": "Platform install steps for Windows, macOS, Raspberry Pi, source checkout, and mobile testing.",
+        "github_url": "https://github.com/tr3y4rch/local-flight/blob/main/docs/install.md",
+    },
+    "display-modes": {
+        "title": "Display Modes",
+        "filename": "display-modes.md",
+        "summary": "How native desktop, LAN browser, Pi kiosk, mobile, and Matrix clients fit together.",
+        "github_url": "https://github.com/tr3y4rch/local-flight/blob/main/docs/display-modes.md",
     },
     "privacy": {
         "title": "Privacy & Diagnostics",
@@ -306,6 +318,7 @@ def _resolve_doc_path(filename: str) -> Optional[Path]:
     here = Path(__file__).resolve()
     candidates = [
         here.parent / "docs" / filename,
+        here.parents[3] / "docs" / filename,
         here.parents[3] / filename,
     ]
     for candidate in candidates:

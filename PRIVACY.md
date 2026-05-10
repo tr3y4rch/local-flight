@@ -13,7 +13,7 @@ This is a hobbyist/open-source project, not a legal document, but the app is des
 - Your config, API keys, snapshots, history, and logs stay on your own machine.
 - The desktop native GUI is a real Qt shell, not a webview. The primary client does not launch Chrome, Edge, Chromium, QWebEngine, or a browser profile.
 - Native mode avoids browser sync, extensions, cookies, browsing history, default-browser behavior, online fonts, and CDN assets for the main Local Flight window.
-- The mobile companion talks to your Local Flight server over your LAN. It does not call AviationStack, ADS-B Exchange, RapidAPI, OpenSky, VATSIM, or the hosted relay directly.
+- The LAN browser UI, mobile companion, and Matrix board talk to your Local Flight server over your LAN. The mobile and Matrix clients do not call AviationStack, ADS-B Exchange, RapidAPI, OpenSky, VATSIM, or the hosted relay directly.
 - Community mode can use the hosted Local Flight relay for shared schedules and relay-backed radar. Optional radar runway/surface/map/terrain layers use cached public data where available, stay opt-in/visual-only, and do not create Local Flight accounts or user profiles.
 - Manual reports are always your choice. First-run setup asks how diagnostics should work, saves that choice locally, and defaults to manual-only reporting.
 - Mobile automatic diagnostics require two yeses: the mobile app's local diagnostics choice and the connected server's diagnostics mode.
@@ -25,12 +25,12 @@ This is a hobbyist/open-source project, not a legal document, but the app is des
 
 - Flight snapshots, config, history, and logs stay under `~/.localflight/`.
 - Your airport settings, display preferences, and personal API keys stay in your local config and `.env`.
-- The native GUI, browser fallback, LAN clients, and matrix board all talk to your local Local Flight server first. Native mode does not fetch online fonts, CDN assets, or a webview shell for the main UI.
+- The native GUI, LAN browser UI, mobile companion, and matrix board all talk to your local Local Flight server first. Native mode does not fetch online fonts, CDN assets, or a webview shell for the main UI.
 - The optional local traffic log at `~/.localflight/requests.db` is visible only on your own Local Flight instance and is only enabled for explicit local network diagnostics.
 - Optional radar map data is simplified and cached locally for display use. It is not stored as raw provider payloads in reports or ordinary UI surfaces.
 - The Interstate 75 W board talks to your Local Flight server over your LAN. Its runtime settings live in `~/.localflight/matrix_config.json`.
 - Matrix V2 device check-ins store only board identity, label, size, renderer support, assigned config, and last-seen time locally so the admin page can show whether the board is alive.
-- VATSIM-specific matrix presets require source `virtual` and use VATSIM-backed rows/weather only; they do not quietly fall back to real-world FIDS or real METAR data.
+- VATSIM-specific matrix presets require source `virtual` and use VATSIM-backed rows/weather only; they do not quietly switch to real-world FIDS or real METAR data.
 
 When you use the Matrix page to download a ready-to-flash `main.py`, the Wi-Fi details and server host are sent to your own Local Flight instance only long enough to render that file. They are not stored in `matrix_config.json`, the hosted relay, or crash reports.
 
@@ -38,14 +38,14 @@ When you use the Matrix page to download a ready-to-flash `main.py`, the Wi-Fi d
 
 ## Why The Native GUI Exists
 
-Local Flight started with a browser kiosk because that made the project practical: one local web app could run on Windows, macOS, Raspberry Pi, phones, and tablets. The native GUI was added because a browser kiosk is still a general-purpose browser process, and that is more machinery than a local airport board should need for everyday use.
+Local Flight started with a browser-based local UI because that made the project practical: one local app could run on Windows, macOS, Raspberry Pi, phones, and tablets. That browser/LAN UI remains supported. The native GUI was added because a general-purpose browser process is more machinery than a local airport board should need for everyday desktop use.
 
 The privacy goal is data minimization and separation of purpose:
 
 - The display shell should show Local Flight, not become another browser session.
 - The app should not rely on a browser profile, browser sync, extensions, cookies, history, or default-browser integrations just to render the main UI.
 - The main window should not need a webview engine or remote web assets when the backend is already local.
-- Browser access should remain available as a deliberate fallback and LAN access path, not the only way the app can exist.
+- Browser access remains available as a deliberate LAN access and display path. It is useful for headless installs, remote screens, tablets, browser-mode displays, and recovery.
 
 Native mode does not change the aviation data sources you choose. If you enable Community, BYOK, VATSIM, radar, METAR, update checks, or reports, the relevant network calls still happen as described below. The native GUI simply keeps the app window itself out of the browser-vendor data surface.
 
@@ -116,7 +116,7 @@ When you send a report yourself, Local Flight sends:
 - Python version
 - configured airport and source mode
 - schedule mode, diagnostics mode, and display window settings
-- the reporting surface, such as native GUI, browser fallback, server, or mobile companion
+- the reporting surface, such as native GUI, LAN browser UI, server, or mobile companion
 - optional mobile companion context if the report came from the companion flow
 
 Manual reports are sanitized locally, forwarded to the hosted relay reporting gateway, deduplicated/rate-limited there, and then filed for developer triage.

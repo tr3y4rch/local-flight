@@ -24,9 +24,9 @@ def _env_truthy(name: str) -> bool:
 
 
 def launch_native_app(*, base_url: str, first_launch: bool, fullscreen: bool = False) -> int:
-    from localflight.native._legacy_app import launch_native_app as _legacy_launch
+    from localflight.native._legacy_app import launch_native_app as _compat_launch
 
-    return _legacy_launch(base_url=base_url, first_launch=first_launch, fullscreen=fullscreen)
+    return _compat_launch(base_url=base_url, first_launch=first_launch, fullscreen=fullscreen)
 
 
 def main() -> None:

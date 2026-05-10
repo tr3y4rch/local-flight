@@ -14,8 +14,6 @@ if [ ! -x "$VENV/bin/python" ]; then
     exit 1
 fi
 
-"$VENV/bin/python" -m pip install -e "${ROOT}[native]" -q
-
 if [ -f "$ROOT/.env" ]; then
     set -a
     # shellcheck disable=SC1091
@@ -27,5 +25,11 @@ if [ -n "$REQUESTED_GUI_MODE" ]; then
 elif [ -z "${LOCALFLIGHT_GUI_MODE:-}" ]; then
     export LOCALFLIGHT_GUI_MODE="native"
 fi
+
+INSTALL_TARGET="$ROOT"
+if [ "${LOCALFLIGHT_GUI_MODE:-native}" != "browser" ] && [ "${LOCALFLIGHT_GUI_MODE:-native}" != "headless" ]; then
+    INSTALL_TARGET="${ROOT}[native]"
+fi
+"$VENV/bin/python" -m pip install -e "$INSTALL_TARGET" -q
 
 exec "$VENV/bin/python" -m localflight
