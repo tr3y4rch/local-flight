@@ -9,6 +9,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [0.2.5] - 2026-05-10
 
 > Still beta, but now treated as the working multi-client release for native desktop, LAN browser UI, Pi/headless/kiosk, mobile companion, and Matrix.
+> For a user-facing beta client summary, see [docs/release-notes-0.2.5.md](docs/release-notes-0.2.5.md).
 
 ### Native GUI
 - Native Qt is now the recommended Windows/macOS desktop shell, backed by the same local FastAPI routes, WebSocket events, docs, config, diagnostics, and reporting controls as the LAN browser UI.

@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import shutil
 import subprocess
+from fnmatch import fnmatch
 from pathlib import Path
 
 try:
@@ -15,7 +16,60 @@ except ModuleNotFoundError:  # pragma: no cover - Python < 3.11 fallback
 ROOT = Path(__file__).resolve().parent.parent
 BUILD_DIR = ROOT / "build"
 DIST_DIR = ROOT / "dist"
-EXCLUDED_RELEASE_FILES = {"AGENTS.md", "CLAUDE.md", "DEV_README.md"}
+EXCLUDED_RELEASE_FILES = {
+    ".github/copilot-instructions.md",
+    "AGENTS.md",
+    "CLAUDE.md",
+    "Claude.md",
+    "DEV_NOTES.md",
+    "DEV_README.md",
+    "HANDOFF.md",
+    "docs/native-first-redesign.md",
+    "start_network.bat",
+}
+EXCLUDED_RELEASE_DIRS = (
+    ".claude/",
+    ".codex/",
+    "dev/private/",
+    "docs/handoff/",
+    "docs/internal/",
+    "mobile/.expo/",
+    "mobile/.layout-smoke/",
+    "mobile/.metro-cache/",
+    "mobile/android/",
+    "mobile/ios/",
+    "mobile/node_modules/",
+    "tmp/",
+)
+EXCLUDED_RELEASE_PATTERNS = (
+    "*.handoff.md",
+    "*.prompt.md",
+    "*.scratch.md",
+    "*_HANDOFF.md",
+    "*_handoff.md",
+    "AGENTS.*.md",
+    "CLAUDE.*.md",
+    "HANDOFF-*.md",
+    "Simulator Screenshot*.png",
+    "docs/*handoff*.md",
+    "docs/*internal*.md",
+    "handoff*.md",
+    "simulator_screenshot_*.png",
+)
+
+
+def _is_release_file(path: Path) -> bool:
+    posix = path.as_posix()
+    name = path.name
+    if name == ".DS_Store" or posix in EXCLUDED_RELEASE_FILES:
+        return False
+    if any(posix.startswith(prefix) for prefix in EXCLUDED_RELEASE_DIRS):
+        return False
+    if any(fnmatch(posix, pattern) for pattern in EXCLUDED_RELEASE_PATTERNS):
+        return False
+    if name == ".env" or (name.startswith(".env.") and name != ".env.example"):
+        return False
+    return True
 
 
 def _version() -> str:
@@ -41,11 +95,7 @@ def _release_files() -> list[Path]:
         raise SystemExit(f"Could not list release files with git: {exc}") from exc
 
     paths = sorted({Path(item) for item in raw.decode("utf-8").split("\0") if item})
-    return [
-        path
-        for path in paths
-        if path.name != ".DS_Store" and path.as_posix() not in EXCLUDED_RELEASE_FILES
-    ]
+    return [path for path in paths if _is_release_file(path)]
 
 
 def _write_sha256(path: Path) -> Path:

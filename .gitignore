@@ -16,8 +16,14 @@ venv/
 # ── Local config / runtime ─────────────────────────────
 config/
 data/
+.localflight/
 .pytest_cache/
 .smoke-home/
+.coverage
+coverage/
+htmlcov/
+.mypy_cache/
+.ruff_cache/
 
 # Setup marker
 setup_complete
@@ -31,11 +37,16 @@ src/localflight/storage/samples/*_real.json
 
 # ── Logs ───────────────────────────────────────────────
 *.log
+logs/
 
 # Local traffic / reporting runtime data
 requests.db
 bug_report_dedup.json
 api_usage.json
+*.db-wal
+*.db-shm
+*.sqlite-wal
+*.sqlite-shm
 
 # ── IDE / OS junk ──────────────────────────────────────
 .vs/
@@ -50,17 +61,30 @@ Thumbs.db
 *.egg-info/
 build/
 dist/
+*.xcarchive/
+*.xcresult/
+DerivedData/
+
+# Temporary visual QA / local screenshots
+tmp/
+Simulator Screenshot*.png
+simulator_screenshot_*.png
 
 # Mobile / React Native
 mobile/node_modules/
 mobile/.expo/
 mobile/.expo-shared/
 mobile/.layout-smoke/
+mobile/.metro-cache/
+mobile/.eslintcache
+mobile/coverage/
+mobile/DerivedData/
 mobile/ios/
 mobile/android/
 mobile/npm-debug.log*
 mobile/yarn-debug.log*
 mobile/yarn-error.log*
+mobile/pnpm-debug.log*
 
 # ── Relay server runtime (relay/) ─────────────────────
 # relay/.env  — caught by the .env rule above
@@ -82,11 +106,31 @@ linear_dedup.json
 .claude/
 start_network.bat
 
-# AI assistant context files
+# AI assistant context files and local handoff notes
 AGENTS.md
+AGENTS.local.md
+AGENTS.*.md
 Claude.md
 CLAUDE.md
+CLAUDE.local.md
+CLAUDE.*.md
+.codex/
+.codex-*/
 .github/copilot-instructions.md
 
 # Developer-only reference (not for public repo)
 DEV_README.md
+DEV_NOTES.md
+HANDOFF.md
+HANDOFF-*.md
+handoff*.md
+*.handoff.md
+*_handoff.md
+*_HANDOFF.md
+*.prompt.md
+*.scratch.md
+docs/native-first-redesign.md
+docs/internal/
+docs/handoff/
+docs/*handoff*.md
+docs/*internal*.md
