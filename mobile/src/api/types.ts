@@ -392,12 +392,89 @@ export type RadarResponse = {
   blips: RadarBlip[];
 };
 
+export type RadarMapAttribution = {
+  text?: string;
+  url?: string;
+};
+
+export type RadarMapFeature = {
+  kind: string;
+  id?: string;
+  label?: string;
+  closed?: boolean;
+  points?: number[][];
+  confidence?: string;
+  geometry_precision?: string;
+  data_source?: string;
+  validation?: Record<string, unknown>;
+};
+
+export type RadarMapResponse = {
+  center: RadarCenter & {
+    airport_iata?: string;
+    airport_icao?: string;
+  };
+  radius_nm: number;
+  schema_version?: string;
+  runways?: RadarMapFeature[];
+  surface_features?: RadarMapFeature[];
+  map_features?: RadarMapFeature[];
+  attribution?: RadarMapAttribution[];
+  sources?: {
+    runways?: string[] | string;
+    surface?: string;
+    surface_cache_state?: string;
+    map?: string;
+    map_cache_state?: string;
+    terrain?: string;
+    terrain_cache_state?: string;
+  };
+  confidence?: Record<string, unknown>;
+};
+
+export type RadarSurfaceResponse = {
+  center: RadarMapResponse["center"];
+  radius_nm: number;
+  schema_version?: string;
+  provider?: string;
+  cache_state?: string;
+  features?: RadarMapFeature[];
+  attribution?: RadarMapAttribution;
+  meta?: Record<string, unknown>;
+  error?: string;
+};
+
 export type MatrixRuntimeConfig = {
   brightness: number;
   max_rows: number;
   refresh_seconds: number;
   default_view: FlightView | string;
+  page_rotation_seconds?: number;
+  animation_enabled?: boolean;
+  animation_mode?: MatrixAnimationMode | string;
+  animation_speed?: number;
+  status_animation_enabled?: boolean;
+  palette?: MatrixPaletteId | string;
+  options?: MatrixRuntimeOptions;
   skin?: string;
+};
+
+export type MatrixPaletteId =
+  | "pax_blue"
+  | "solari_amber"
+  | "tower_scope"
+  | "vatsim_scope"
+  | "night_ops"
+  | "sunset_terminal"
+  | "ice_white";
+
+export type MatrixAnimationMode = "split_flap" | "slide_left" | "slide_right" | "static";
+
+export type MatrixRuntimeOptions = {
+  palette?: MatrixPaletteId | string;
+  show_metar?: boolean;
+  show_weather?: boolean;
+  animation_mode?: MatrixAnimationMode | string;
 };
 
 export type MatrixRuntimeConfigSave = {
@@ -405,6 +482,13 @@ export type MatrixRuntimeConfigSave = {
   max_rows: number;
   refresh_seconds: number;
   default_view: FlightView;
+  page_rotation_seconds: number;
+  animation_enabled: boolean;
+  animation_mode: MatrixAnimationMode;
+  animation_speed: number;
+  status_animation_enabled: boolean;
+  palette: MatrixPaletteId;
+  options: MatrixRuntimeOptions;
 };
 
 export type MatrixRuntimeConfigSaveResponse = MatrixRuntimeConfigSave & {

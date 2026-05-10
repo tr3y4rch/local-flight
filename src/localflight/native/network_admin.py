@@ -13,6 +13,7 @@ from typing import Any, Callable
 
 from localflight.native.api_client import NativeApiError, RelayAdminClient
 from localflight.native.design import apply_app_font_defaults, icon_from_media, native_stylesheet
+from localflight.native.geometry import fitted_window_size
 from localflight.native.qt_compat import import_qt
 from localflight.native.routes import NETWORK_ADMIN_ROUTES
 
@@ -48,10 +49,7 @@ def main() -> None:
         if geometry is None:
             window.resize(1280, 820)
         else:
-            window.resize(
-                min(1280, max(1, int(geometry.width() * 0.92))),
-                min(820, max(1, int(geometry.height() * 0.92))),
-            )
+            window.resize(*fitted_window_size(geometry.width(), geometry.height(), max_width=1440, max_height=900))
             frame = window.frameGeometry()
             frame.moveCenter(geometry.center())
             window.move(frame.topLeft())

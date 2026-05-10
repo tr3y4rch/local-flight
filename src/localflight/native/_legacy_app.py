@@ -53,6 +53,7 @@ from localflight.native.design import (
     table,
     value_at,
 )
+from localflight.native.geometry import default_display_mode, fitted_window_size
 from localflight.native.loader import lazy_symbol
 from localflight.native.live import LiveStatus, NativeLiveBus, native_ws_url
 from localflight.native.qt_compat import import_qt
@@ -202,16 +203,26 @@ def _fit_window_to_screen(QtWidgets: Any, window: Any, preferred_width: int, pre
         window.resize(preferred_width, preferred_height)
         return
 
-    max_width = max(1, int(geometry.width() * 0.92))
-    max_height = max(1, int(geometry.height() * 0.92))
-    width = min(preferred_width, max_width)
-    height = min(preferred_height, max_height)
+    width, height = fitted_window_size(
+        geometry.width(),
+        geometry.height(),
+        max_width=preferred_width,
+        max_height=preferred_height,
+    )
     window.resize(width, height)
 
     frame = getattr(window, "frameGeometry", lambda: None)()
     if frame is not None:
         frame.moveCenter(geometry.center())
         window.move(frame.topLeft())
+
+
+def _show_fitted_window(QtCore: Any, QtWidgets: Any, window: Any, preferred_width: int, preferred_height: int) -> None:
+    _fit_window_to_screen(QtWidgets, window, preferred_width, preferred_height)
+    window.show()
+    # The final macOS frame and layout minimums settle only after show().
+    QtCore.QTimer.singleShot(0, lambda: _fit_window_to_screen(QtWidgets, window, preferred_width, preferred_height))
+    QtCore.QTimer.singleShot(120, lambda: _fit_window_to_screen(QtWidgets, window, preferred_width, preferred_height))
 
 
 def _finish_splash(splash: Any, window: Any) -> None:
@@ -432,8 +443,7 @@ def launch_native_app(
         if fullscreen:
             window.showFullScreen()
         else:
-            _fit_window_to_screen(QtWidgets, window, 1280, 820)
-            window.show()
+            _show_fitted_window(QtCore, QtWidgets, window, 1680, 980)
         _finish_splash(splash, window)
         windows["main"] = window
 
@@ -456,8 +466,7 @@ def launch_native_app(
         )
         if not app_icon.isNull():
             setup_window.setWindowIcon(app_icon)
-        _fit_window_to_screen(QtWidgets, setup_window, 980, 720)
-        setup_window.show()
+        _show_fitted_window(QtCore, QtWidgets, setup_window, 980, 760)
         _finish_splash(splash, setup_window)
         windows["setup"] = setup_window
     else:
@@ -627,6 +636,8 @@ class NativeMainWindow:  # pragma: no cover - exercised with optional Qt
                 brand.setObjectName("Brand")
                 ver = QtWidgets.QLabel(f"v{_app_version()}")
                 ver.setObjectName("Version")
+                self.brand_label = brand
+                self.version_label = ver
                 self.utc_clock = QtWidgets.QLabel("UTC --:--:--")
                 self.utc_clock.setObjectName("ClockChip")
                 self.local_clock = QtWidgets.QLabel("LT --:--:--")
@@ -644,6 +655,7 @@ class NativeMainWindow:  # pragma: no cover - exercised with optional Qt
                 left_layout.addSpacing(6)
                 left_layout.addWidget(self.utc_clock)
                 left_layout.addWidget(self.local_clock)
+                left_group.setSizePolicy(QtWidgets.QSizePolicy.Maximum, QtWidgets.QSizePolicy.Preferred)
 
                 center_group = QtWidgets.QWidget()
                 self.primary_nav_layout = QtWidgets.QHBoxLayout(center_group)
@@ -660,13 +672,30 @@ class NativeMainWindow:  # pragma: no cover - exercised with optional Qt
                 quit_btn.setToolTip("Shut down Local Flight")
                 quit_btn.clicked.connect(self._quit_app)
 
+                nav_controls = QtWidgets.QWidget()
+                nav_controls.setMinimumWidth(0)
+                nav_controls_layout = QtWidgets.QHBoxLayout(nav_controls)
+                nav_controls_layout.setContentsMargins(0, 0, 0, 0)
+                nav_controls_layout.setSpacing(6)
+                nav_controls_layout.addWidget(center_group)
+                nav_controls_layout.addStretch(1)
+                nav_controls_layout.addWidget(self.live_status)
+                nav_controls_layout.addWidget(right_group)
+                nav_controls_layout.addWidget(quit_btn)
+
+                nav_scroll = QtWidgets.QScrollArea()
+                nav_scroll.setObjectName("NavScroll")
+                nav_scroll.setWidgetResizable(True)
+                nav_scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
+                nav_scroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAsNeeded)
+                nav_scroll.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+                nav_scroll.setMinimumWidth(180)
+                nav_scroll.setMaximumHeight(54)
+                nav_scroll.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Preferred)
+                nav_scroll.setWidget(nav_controls)
+
                 layout.addWidget(left_group)
-                layout.addStretch(1)
-                layout.addWidget(center_group)
-                layout.addStretch(1)
-                layout.addWidget(self.live_status)
-                layout.addWidget(right_group)
-                layout.addWidget(quit_btn)
+                layout.addWidget(nav_scroll, 1)
                 return nav
 
             def _build_footer(self) -> Any:
@@ -677,6 +706,8 @@ class NativeMainWindow:  # pragma: no cover - exercised with optional Qt
                 layout.setSpacing(8)
                 tagline = QtWidgets.QLabel("Built local-first, fueled by runway snacks.")
                 tagline.setObjectName("Dim")
+                tagline.setMinimumWidth(0)
+                tagline.setSizePolicy(QtWidgets.QSizePolicy.Ignored, QtWidgets.QSizePolicy.Preferred)
                 github = QtWidgets.QPushButton("GitHub")
                 github.setObjectName("Quiet")
                 github.setToolTip("Open the Local Flight project on GitHub")
@@ -948,6 +979,8 @@ class NativeMainWindow:  # pragma: no cover - exercised with optional Qt
                 super().resizeEvent(event)
                 compact = self.width() < 1160
                 tiny = self.width() < 760
+                self.brand_label.setVisible(self.width() >= 620)
+                self.version_label.setVisible(self.width() >= 900)
                 self.utc_clock.setVisible(not tiny)
                 self.local_clock.setVisible(not tiny)
                 self.live_status.setVisible(self.width() >= 640)
@@ -955,8 +988,9 @@ class NativeMainWindow:  # pragma: no cover - exercised with optional Qt
                     glyph = str(button.property("lf_glyph") or "")
                     text = str(button.property("lf_label") or "")
                     core = key in {"display", "fids", "radar", "matrix"}
-                    button.setText(glyph if (compact and glyph and not core) else f"{glyph} {text}".strip())
-                    button.setMinimumWidth(42 if compact and not core else 72)
+                    glyph_only = glyph and (tiny or (compact and not core))
+                    button.setText(glyph if glyph_only else f"{glyph} {text}".strip())
+                    button.setMinimumWidth(38 if glyph_only else 68)
 
         return _Window()
 
@@ -1612,7 +1646,7 @@ class RadarCanvas:  # pragma: no cover - optional Qt runtime
             def __init__(self) -> None:
                 super().__init__()
                 self.setMouseTracking(True)
-                self.setMinimumSize(420, 420)
+                self.setMinimumSize(260, 260)
                 self.blips: list[dict[str, Any]] = []
                 self.surface: list[dict[str, Any]] = []
                 self.center = {"lat": 0.0, "lon": 0.0}
@@ -2045,24 +2079,34 @@ class DisplayScreen:  # pragma: no cover - optional Qt runtime
         top.addWidget(fullscreen)
         self.splitter = QtWidgets.QSplitter()
         self.splitter.setChildrenCollapsible(False)
+        self.splitter.setMinimumWidth(0)
         self.fids = lazy_symbol("localflight.native.pages.fids", "FidsScreen")(
             QtCore, QtGui, QtWidgets, client, embedded=True
         )
         self.radar = lazy_symbol("localflight.native.pages.radar", "RadarScreen")(
             QtCore, QtGui, QtWidgets, client, embedded=True
         )
+        _as_widget(self.fids).setMinimumWidth(0)
+        _as_widget(self.radar).setMinimumWidth(0)
+        _as_widget(self.fids).setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
+        _as_widget(self.radar).setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
         self.splitter.addWidget(_as_widget(self.fids))
         self.splitter.addWidget(_as_widget(self.radar))
         saved = self.settings.value("display/splitter_sizes")
         if isinstance(saved, list) and len(saved) == 2:
             self.splitter.setSizes([int(saved[0]), int(saved[1])])
         else:
-            self.splitter.setSizes([720, 560])
+            self.splitter.setSizes([620, 420])
         self.splitter.splitterMoved.connect(lambda *_args: self._save_splitter())
         layout.addLayout(top)
         layout.addWidget(self.splitter, 1)
-        self.mode = "split"
-        self.set_mode("split")
+        geometry = _screen_available_geometry(QtWidgets, self.widget)
+        screen_width = geometry.width() if geometry is not None else None
+        saved_mode = str(self.settings.value("display/mode") or "").strip().lower()
+        if saved_mode not in {"fids", "split", "radar"} or (saved_mode == "split" and default_display_mode(screen_width) != "split"):
+            saved_mode = default_display_mode(screen_width)
+        self.mode = saved_mode
+        self.set_mode(saved_mode)
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self.widget, name)
@@ -4050,6 +4094,7 @@ class HistoryScreen:  # pragma: no cover - optional Qt runtime
         self.all_rows: list[dict[str, Any]] = []
         self.colors = colors_for()
         self.widget = QtWidgets.QSplitter()
+        self.widget.setMinimumWidth(0)
         body, layout = scroll_page(QtWidgets)
         header = QtWidgets.QHBoxLayout()
         title_col = QtWidgets.QVBoxLayout()
@@ -4059,7 +4104,7 @@ class HistoryScreen:  # pragma: no cover - optional Qt runtime
         header.addStretch(1)
         self.callsign = QtWidgets.QLineEdit()
         self.callsign.setPlaceholderText("Callsign, e.g. LX1952")
-        self.callsign.setMaximumWidth(190)
+        self.callsign.setMaximumWidth(170)
         self.hours = QtWidgets.QComboBox()
         for value, text in ((6, "Last 6h"), (24, "Last 24h"), (168, "Last 7d"), (720, "Last 30d")):
             self.hours.addItem(text, value)
@@ -4120,7 +4165,7 @@ class HistoryScreen:  # pragma: no cover - optional Qt runtime
         self.detail.hide()
         self.widget.addWidget(body)
         self.widget.addWidget(self.detail)
-        self.widget.setSizes([930, 350])
+        self.widget.setSizes([760, 300])
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self.widget, name)
@@ -4131,6 +4176,7 @@ class HistoryScreen:  # pragma: no cover - optional Qt runtime
     def _detail_panel(self) -> Any:
         detail = self.QtWidgets.QFrame()
         detail.setObjectName("Drawer")
+        detail.setMinimumWidth(280)
         detail.setMaximumWidth(420)
         layout = self.QtWidgets.QVBoxLayout(detail)
         head = self.QtWidgets.QHBoxLayout()
@@ -4342,7 +4388,7 @@ class LogsScreen:  # pragma: no cover - optional Qt runtime
         head.addLayout(title_col, 1)
         head.addStretch(1)
         self.file_combo = QtWidgets.QComboBox()
-        self.file_combo.setMinimumWidth(280)
+        self.file_combo.setMinimumWidth(180)
         self.file_combo.currentTextChanged.connect(lambda _name: self.refresh())
         self.live_tail = QtWidgets.QCheckBox("Live tail")
         self.live_tail.setChecked(False)
@@ -4361,7 +4407,7 @@ class LogsScreen:  # pragma: no cover - optional Qt runtime
         self.meta = label(QtWidgets, "No log metadata loaded yet.", "Muted")
         self.text = QtWidgets.QPlainTextEdit()
         self.text.setReadOnly(True)
-        self.text.setMinimumHeight(560)
+        self.text.setMinimumHeight(320)
         self.timer = QtCore.QTimer()
         self.timer.setInterval(2500)
         self.timer.timeout.connect(self.refresh)

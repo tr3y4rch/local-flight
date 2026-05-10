@@ -771,6 +771,9 @@ def label(QtWidgets: Any, text: str, role: str = "", *, wrap: bool = False) -> A
     if role:
         widget.setObjectName(role)
     widget.setWordWrap(wrap)
+    if wrap:
+        widget.setMinimumWidth(0)
+        widget.setSizePolicy(QtWidgets.QSizePolicy.Ignored, QtWidgets.QSizePolicy.Preferred)
     return widget
 
 
@@ -790,7 +793,9 @@ def scroll_page(QtWidgets: Any) -> tuple[Any, Any]:
     scroll.setObjectName("Page")
     scroll.setWidgetResizable(True)
     scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
+    scroll.setMinimumWidth(0)
     body = QtWidgets.QWidget()
+    body.setMinimumWidth(0)
     layout = QtWidgets.QVBoxLayout(body)
     layout.setContentsMargins(18, 18, 18, 18)
     layout.setSpacing(12)

@@ -74,8 +74,13 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
         self._last_airport_query = ""
         self._skin_buttons: dict[str, Any] = {}
         self._surface_check_future: Future[Any] | None = None
+        screen = self.QtWidgets.QApplication.primaryScreen()
+        available = screen.availableGeometry() if screen is not None else None
+        self.available_width = available.width() if available is not None else 1400
+        self.compact_geometry = available is not None and available.width() < 1320
 
         self.widget, self.layout = scroll_page(QtWidgets)
+        self.widget.setMinimumWidth(0)
         self.layout.setContentsMargins(24, 20, 24, 20)
         self.layout.setSpacing(14)
 
@@ -145,6 +150,7 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
         self.current_refresh_value = self._status_card("Refresh", "-", "Provider-friendly cadence.", "clock")
         self.current_relay_value = self._status_card("Relay", "-", "No tokens or secrets shown here.", "relay")
         self.current_surface_value = self._status_card("Surface", "-", "Radar ground drawing state.", "radar")
+        columns = 1 if self.available_width < 900 else 2 if self.compact_geometry else 5
         for index, widget in enumerate(
             (
                 self.current_airport_value,
@@ -154,7 +160,7 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
                 self.current_surface_value,
             )
         ):
-            grid.addWidget(widget, index // 5, index % 5)
+            grid.addWidget(widget, index // columns, index % columns)
         band.addLayout(grid)
         self.current_layout = band
         self.layout.addWidget(box)
@@ -183,9 +189,14 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
         grid = self.QtWidgets.QGridLayout()
         grid.setHorizontalSpacing(12)
         grid.setVerticalSpacing(12)
-        grid.addWidget(self._build_airport_data(), 0, 0)
-        grid.addWidget(self._build_appearance(), 0, 1)
-        grid.addWidget(self._build_radar_devices(), 1, 0, 1, 2)
+        if self.compact_geometry:
+            grid.addWidget(self._build_airport_data(), 0, 0)
+            grid.addWidget(self._build_appearance(), 1, 0)
+            grid.addWidget(self._build_radar_devices(), 2, 0)
+        else:
+            grid.addWidget(self._build_airport_data(), 0, 0)
+            grid.addWidget(self._build_appearance(), 0, 1)
+            grid.addWidget(self._build_radar_devices(), 1, 0, 1, 2)
         self.layout.addLayout(grid)
 
     def _settings_icon(self, kind: str) -> Any:

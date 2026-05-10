@@ -13,10 +13,12 @@ import {
   View
 } from "react-native";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
+import Svg, { Circle, ClipPath, Defs, G, Polygon, Polyline, Text as SvgText } from "react-native-svg";
 
-import { getDoc, patchConfig, searchAirports } from "../api/client";
+import { getDoc, normalizeServerUrl, patchConfig, searchAirports, testCompanionSetupServer } from "../api/client";
 import type {
   AppConfig,
+  AppState,
   AirportResult,
   ConfigPatch,
   DashboardSnapshot,
@@ -27,16 +29,23 @@ import type {
   HistoryDirection,
   HistoryFlightRow,
   HistoryResponse,
+  MatrixAnimationMode,
+  MatrixPaletteId,
   RadarBlip,
+  RadarMapFeature,
+  RadarMapResponse,
   RadarResponse
 } from "../api/types";
 import { platformPairLabel, type CompanionIdentity } from "../device/identity";
 import {
   APP_VERSION,
   HISTORY_WINDOWS,
+  MATRIX_ANIMATION_MODES,
+  MATRIX_ANIMATION_SPEEDS,
   MATRIX_BRIGHTNESS,
-  MATRIX_PRESETS,
+  MATRIX_PALETTE_OPTIONS,
   MATRIX_REFRESH_SECONDS,
+  MATRIX_ROTATION_SECONDS,
   MATRIX_ROWS,
   RADAR_RADII,
   REFRESH_OPTIONS
@@ -54,6 +63,7 @@ import {
   statusTone
 } from "../domain/flights";
 import {
+  errorMessage,
   formatClock,
   formatDateTime,
   formatInterval,
@@ -61,9 +71,9 @@ import {
   hexToRgba,
   parseMetarChips
 } from "../domain/formatting";
-import { MATRIX_SKIN_PALETTES, matrixPreviewLines } from "../domain/matrix";
-import { projectBlip } from "../domain/radar";
-import type { FeedbackTone, HistoryWindow, MatrixPreset, ProjectedBlip, RadarRadius, StatusTone } from "../domain/types";
+import { MATRIX_LED_PALETTES, matrixPreviewLines } from "../domain/matrix";
+import { projectBlip, projectLatLonToScope, type ProjectedRadarPoint } from "../domain/radar";
+import type { FeedbackTone, HistoryWindow, ProjectedBlip, RadarRadius, StatusTone } from "../domain/types";
 import { type ConfigProfile, type MobileDiagnosticsMode, saveProfiles } from "../storage/settings";
 import { palette, styles } from "../theme/styleBridge";
 import {
@@ -93,8 +103,17 @@ const DOC_SOURCES: Record<DocSlug, { title: string; detail: string; githubUrl: s
     githubUrl: "https://github.com/tr3y4rch/local-flight/blob/main/CHANGELOG.md"
   }
 };
+const RADAR_GROUND_CLIP_ID = "mobile-radar-ground-clip";
 
-type SettingsSection = "server" | "appearance" | "tools" | "about";
+type AdminSettingsSection = "health" | "devices" | "reports" | "developer";
+type MatrixSettingsSection = "status" | "look" | "runtime" | "motion";
+type CompanionSetupStep = "welcome" | "server" | "diagnostics" | "ready";
+type CompanionSetupResult = {
+  serverUrl: string;
+  diagnosticsMode: MobileDiagnosticsMode;
+  config: AppConfig;
+  state: AppState;
+};
 
 function keyedPart(value: unknown): string {
   return String(value ?? "")
@@ -392,116 +411,89 @@ function FlightIsland({
   );
 }
 
-export function LandscapeDisplay({
-  primary,
+export function FullscreenFidsDisplay({
   rows,
   view,
-  radarData,
-  radarRadius,
-  refreshing,
+  loading,
   error,
-  showConnectPrompt,
-  onOpenSettings,
-  onRefreshFids,
-  onRefreshRadar,
-  onViewChange,
-  onRadiusChange,
-  onOpenDetail,
-  onOpenActions,
-  pinnedCallsign,
-  contentPaddingBottom
+  live,
+  airportCode,
+  airportName,
+  sourceLabel,
+  utcTime,
+  localTime,
+  pinnedCallsign
 }: {
-  primary: "fids" | "radar";
   rows: FidsRow[];
   view: FlightView;
-  radarData: RadarResponse | null;
-  radarRadius: RadarRadius;
-  refreshing: boolean;
+  loading: boolean;
   error: string | null;
-  showConnectPrompt: boolean;
-  onOpenSettings: () => void;
-  onRefreshFids: () => void;
-  onRefreshRadar: () => void;
-  onViewChange: (view: FlightView) => void;
-  onRadiusChange: (value: RadarRadius) => void;
-  onOpenDetail: (callsign: string) => void;
-  onOpenActions: (row: FidsRow) => void;
+  live: boolean;
+  airportCode: string;
+  airportName: string;
+  sourceLabel: string;
+  utcTime: string;
+  localTime: string;
   pinnedCallsign: string;
-  contentPaddingBottom: number;
 }) {
-  const firstPane = primary === "fids"
-    ? (
-      <FidsScreen
-        rows={rows}
-        view={view}
-        loading={refreshing}
-        refreshing={refreshing}
-        error={error}
-        showConnectPrompt={showConnectPrompt}
-        onOpenSettings={onOpenSettings}
-        onRefresh={onRefreshFids}
-        onViewChange={onViewChange}
-        onOpenDetail={onOpenDetail}
-        onOpenActions={onOpenActions}
-        pinnedCallsign={pinnedCallsign}
-        contentPaddingBottom={contentPaddingBottom}
-      />
-    )
-    : (
-      <RadarScreen
-        data={radarData}
-        radiusNm={radarRadius}
-        loading={refreshing}
-        refreshing={refreshing}
-        error={error}
-        showConnectPrompt={showConnectPrompt}
-        onOpenSettings={onOpenSettings}
-        onRefresh={onRefreshRadar}
-        onRadiusChange={onRadiusChange}
-        onOpenDetail={onOpenDetail}
-        compact
-        contentPaddingBottom={contentPaddingBottom}
-      />
-    );
-  const secondPane = primary === "fids"
-    ? (
-      <RadarScreen
-        data={radarData}
-        radiusNm={radarRadius}
-        loading={refreshing}
-        refreshing={refreshing}
-        error={null}
-        showConnectPrompt={false}
-        onOpenSettings={onOpenSettings}
-        onRefresh={onRefreshRadar}
-        onRadiusChange={onRadiusChange}
-        onOpenDetail={onOpenDetail}
-        compact
-        contentPaddingBottom={contentPaddingBottom}
-      />
-    )
-    : (
-      <FidsScreen
-        rows={rows}
-        view={view}
-        loading={refreshing}
-        refreshing={refreshing}
-        error={null}
-        showConnectPrompt={false}
-        onOpenSettings={onOpenSettings}
-        onRefresh={onRefreshFids}
-        onViewChange={onViewChange}
-        onOpenDetail={onOpenDetail}
-        onOpenActions={onOpenActions}
-        pinnedCallsign={pinnedCallsign}
-        contentPaddingBottom={contentPaddingBottom}
-      />
-    );
+  const pinned = pinnedCallsign
+    ? rows.find((row) => flightPinKey(row) === pinnedCallsign) || null
+    : null;
+  const displayRows = pinned
+    ? [pinned, ...rows.filter((row) => flightPinKey(row) !== pinnedCallsign)]
+    : rows;
+  const boardTitle = view === "arrivals" ? "ARRIVALS" : "DEPARTURES";
+  const routeHeading = view === "arrivals" ? "FROM" : "TO";
+  const emptyTitle = loading
+    ? "LOADING FLIGHTS"
+    : live
+      ? "NO FLIGHTS ON BOARD"
+      : "LOCAL SERVER OFFLINE";
+  const emptyDetail = error || "Rows will appear here after the next Local Flight snapshot.";
 
   return (
-    <View style={styles.splitDisplay}>
-      <View style={[styles.splitPane, styles.splitPanePrimary]}>{firstPane}</View>
-      <View style={[styles.splitPane, styles.splitPaneSecondary]}>{secondPane}</View>
+    <View style={styles.fullscreenFidsShell}>
+      <View style={styles.fullscreenFidsTop}>
+        <View style={styles.fullscreenFidsIdentity}>
+          <Text style={styles.fullscreenFidsKicker}>{airportCode} LOCAL FLIGHT</Text>
+          <Text style={styles.fullscreenFidsTitle}>{boardTitle}</Text>
+          <Text style={styles.fullscreenFidsAirport} numberOfLines={1}>{airportName}</Text>
+        </View>
+
+        <View style={styles.fullscreenFidsMeta}>
+          <Text style={[styles.fullscreenFidsLive, live ? styles.fullscreenFidsLiveOn : styles.fullscreenFidsLiveOff]}>
+            {live ? "LIVE" : "OFFLINE"}
+          </Text>
+          <Text style={styles.fullscreenFidsSource}>{sourceLabel.toUpperCase()}</Text>
+          <Text style={styles.fullscreenFidsClock}>UTC {utcTime}</Text>
+          <Text style={styles.fullscreenFidsLocal}>{localTime}</Text>
+        </View>
+      </View>
+
+      <View style={styles.fullscreenFidsColumns}>
+        <Text style={[styles.fullscreenFidsColumnText, styles.fullscreenFidsTimeColumn]}>TIME</Text>
+        <Text style={[styles.fullscreenFidsColumnText, styles.fullscreenFidsFlightColumn]}>FLIGHT</Text>
+        <Text style={[styles.fullscreenFidsColumnText, styles.fullscreenFidsRouteColumn]}>{routeHeading}</Text>
+        <Text style={[styles.fullscreenFidsColumnText, styles.fullscreenFidsStatusColumn]}>STATUS</Text>
+        <Text style={[styles.fullscreenFidsColumnText, styles.fullscreenFidsAircraftColumn]}>A/C</Text>
+      </View>
+
+      <FlatList<FidsRow>
+        data={displayRows}
+        keyExtractor={fidsRowKey}
+        renderItem={({ item }) => (
+          <FullscreenFidsRow row={item} isPinned={flightPinKey(item) === pinnedCallsign} />
+        )}
+        style={styles.fullscreenFidsList}
+        contentContainerStyle={styles.fullscreenFidsListContent}
+        ListEmptyComponent={
+          <View style={styles.fullscreenFidsEmpty}>
+            <Text style={styles.fullscreenFidsEmptyTitle}>{emptyTitle}</Text>
+            <Text style={styles.fullscreenFidsEmptyDetail}>{emptyDetail}</Text>
+          </View>
+        }
+        showsVerticalScrollIndicator={false}
+      />
     </View>
   );
 }
@@ -699,6 +691,8 @@ export function HistoryScreen({
 
 export function RadarScreen({
   data,
+  groundData,
+  groundError,
   radiusNm,
   loading,
   refreshing,
@@ -712,6 +706,8 @@ export function RadarScreen({
   contentPaddingBottom
 }: {
   data: RadarResponse | null;
+  groundData: RadarMapResponse | null;
+  groundError: string | null;
   radiusNm: RadarRadius;
   loading: boolean;
   refreshing: boolean;
@@ -725,6 +721,8 @@ export function RadarScreen({
   contentPaddingBottom: number;
 }) {
   const blips = data?.blips || [];
+  const groundFeatureCount = radarGroundFeatureCount(groundData);
+  const groundUnavailable = radarGroundUnavailable(groundData, groundError);
 
   return (
     <FlatList<RadarBlip>
@@ -765,9 +763,22 @@ export function RadarScreen({
             <InfoCard label="BLIPS" value={data ? String(data.count) : "..."} />
             <InfoCard label="SOURCE" value={data?.source?.toUpperCase() || "WAIT"} tone="green" />
             <InfoCard label="RANGE" value={`${radiusNm} NM`} tone="amber" />
+            <InfoCard
+              label="GROUND"
+              value={groundFeatureCount ? String(groundFeatureCount) : groundUnavailable ? "OFF" : "WAIT"}
+              tone={groundFeatureCount ? "green" : groundUnavailable ? "amber" : "blue"}
+            />
           </View>
 
-          <RadarScope data={data} radiusNm={radiusNm} onRadiusChange={onRadiusChange} onOpenDetail={onOpenDetail} compact={compact} />
+          <RadarScope
+            data={data}
+            groundData={groundData}
+            groundError={groundError}
+            radiusNm={radiusNm}
+            onRadiusChange={onRadiusChange}
+            onOpenDetail={onOpenDetail}
+            compact={compact}
+          />
         </>
       }
       ListEmptyComponent={
@@ -786,12 +797,15 @@ export function RadarScreen({
 export function MatrixScreen({
   rows,
   view,
-  preset,
   brightness,
   maxRows,
   refreshSeconds,
-  configText,
-  matrixSkin,
+  pageRotationSeconds,
+  animationMode,
+  animationSpeed,
+  statusAnimationEnabled,
+  showWeather,
+  matrixPalette,
   matrixEnabled,
   matrixLastSeen,
   dirty,
@@ -804,10 +818,15 @@ export function MatrixScreen({
   onOpenSettings,
   onRefresh,
   onViewChange,
-  onPresetChange,
   onBrightnessChange,
   onRowsChange,
   onRefreshSecondsChange,
+  onPageRotationChange,
+  onAnimationModeChange,
+  onAnimationSpeedChange,
+  onStatusAnimationChange,
+  onShowWeatherChange,
+  onMatrixPaletteChange,
   onSave,
   onReset,
   onBackSettings,
@@ -815,12 +834,15 @@ export function MatrixScreen({
 }: {
   rows: FidsRow[];
   view: FlightView;
-  preset: MatrixPreset;
   brightness: number;
   maxRows: number;
   refreshSeconds: number;
-  configText: string;
-  matrixSkin: MobileSkin;
+  pageRotationSeconds: number;
+  animationMode: MatrixAnimationMode;
+  animationSpeed: number;
+  statusAnimationEnabled: boolean;
+  showWeather: boolean;
+  matrixPalette: MatrixPaletteId;
   matrixEnabled: boolean;
   matrixLastSeen: string | null;
   dirty: boolean;
@@ -833,10 +855,15 @@ export function MatrixScreen({
   onOpenSettings: () => void;
   onRefresh: () => void;
   onViewChange: (value: FlightView) => void;
-  onPresetChange: (value: MatrixPreset) => void;
   onBrightnessChange: (value: number) => void;
   onRowsChange: (value: number) => void;
   onRefreshSecondsChange: (value: number) => void;
+  onPageRotationChange: (value: number) => void;
+  onAnimationModeChange: (value: MatrixAnimationMode) => void;
+  onAnimationSpeedChange: (value: number) => void;
+  onStatusAnimationChange: (value: boolean) => void;
+  onShowWeatherChange: (value: boolean) => void;
+  onMatrixPaletteChange: (value: MatrixPaletteId) => void;
   onSave: () => void;
   onReset: () => void;
   onBackSettings: () => void;
@@ -844,8 +871,10 @@ export function MatrixScreen({
 }) {
   const lines = matrixPreviewLines(rows);
   const brightnessAlpha = Math.max(0.28, Math.min(1, brightness));
-  const matrixColors = MATRIX_SKIN_PALETTES[matrixSkin] || MATRIX_SKIN_PALETTES.standard;
+  const matrixColors = MATRIX_LED_PALETTES[matrixPalette] || MATRIX_LED_PALETTES.pax_blue;
+  const selectedPalette = MATRIX_PALETTE_OPTIONS.find((item) => item.id === matrixPalette) || MATRIX_PALETTE_OPTIONS[0]!;
   const brightnessPct = Math.round(brightness * 100);
+  const [section, setSection] = useState<MatrixSettingsSection>("status");
 
   return (
     <ScrollView
@@ -863,33 +892,44 @@ export function MatrixScreen({
         <HiddenToolHeader
           icon="view-grid"
           title="Matrix"
-          detail="Panel preview and client staging"
+          detail="Board look, motion, and runtime"
           onBack={onBackSettings}
         />
 
-        <View style={styles.metricRow}>
-          <InfoCard label="PANEL" value={`${preset.panelW}x${preset.panelH}`} />
-          <InfoCard label="ROWS" value={String(maxRows)} tone="green" />
-          <InfoCard label="BRIGHT" value={`${brightnessPct}%`} tone="amber" />
-        </View>
-
-        <View style={styles.metricRow}>
-          <InfoCard label="VIEW" value={view === "arrivals" ? "ARR" : "DEP"} />
-          <InfoCard label="DEVICE" value={matrixEnabled ? "ENABLED" : "OFF"} tone={matrixEnabled ? "green" : "red"} />
-          <InfoCard label="SYNC" value={dirty ? "DRAFT" : "SAVED"} tone={dirty ? "amber" : "green"} />
-        </View>
-
         <View style={styles.settingsCard}>
-          <Text style={styles.settingsTitle}>BOARD RUNTIME</Text>
+          <Text style={styles.settingsTitle}>MATRIX BOARD</Text>
           <Text style={styles.moduleIntro}>
-            These controls write the same runtime config the desktop tool saves for the physical board.
+            Tune the physical board in focused passes. Save after each pass and the board will pull the update shortly.
           </Text>
-
-          <View style={styles.infoLine}>
-            <Text style={styles.infoLineLabel}>LAST PING</Text>
-            <Text style={styles.infoLineValue}>{matrixLastSeen ? formatRelative(matrixLastSeen) : "Never pinged"}</Text>
+          <View style={styles.settingsSectionGrid}>
+            {([
+              ["status", "Status", dirty ? "Draft" : "Saved"],
+              ["look", "Look", selectedPalette.meta],
+              ["runtime", "Runtime", `${maxRows} rows`],
+              ["motion", "Motion", animationMode.replace("_", " ")]
+            ] as Array<[MatrixSettingsSection, string, string]>).map(([id, label, meta]) => (
+              <OptionChip key={id} active={section === id} label={label} meta={meta} onPress={() => setSection(id)} />
+            ))}
           </View>
+        </View>
 
+        {section === "status" ? (
+        <View style={styles.settingsCard}>
+          <Text style={styles.settingsTitle}>BOARD STATUS</Text>
+          <Text style={styles.moduleIntro}>
+            {matrixEnabled
+              ? "Matrix output is enabled on the server."
+              : "Matrix output is not selected in server outputs yet. You can still prepare the board style here."}
+          </Text>
+          <InfoLine label="Last ping" value={matrixLastSeen ? formatRelative(matrixLastSeen) : "Never pinged"} />
+          <InfoLine label="Current draft" value={`${selectedPalette.label} · ${animationMode.replace("_", " ")} · ${brightnessPct}%`} />
+          <InfoLine label="Sync state" value={dirty ? "Unsaved changes" : "Saved"} />
+        </View>
+        ) : null}
+
+        {section === "runtime" ? (
+        <View style={styles.settingsCard}>
+          <Text style={styles.settingsTitle}>RUNTIME</Text>
           <FilterSection title="VIEW">
             <View style={styles.filterRow}>
               <DirectionButton active={view === "departures"} label="DEPARTURES" onPress={() => onViewChange("departures")} />
@@ -938,98 +978,180 @@ export function MatrixScreen({
               ))}
             </View>
           </FilterSection>
-
-          <View style={styles.matrixActionRow}>
-            <Pressable
-              style={[styles.matrixActionButton, styles.matrixActionSecondary]}
-              onPress={onReset}
-              disabled={saving}
-            >
-              <Text style={styles.matrixActionSecondaryText}>RESET</Text>
-            </Pressable>
-            <Pressable
-              style={[styles.matrixActionButton, styles.matrixActionPrimary, saving && styles.configApplyBtnBusy]}
-              onPress={onSave}
-              disabled={saving}
-            >
-              {saving ? <ActivityIndicator size="small" color={palette.bg} /> : <Text style={styles.matrixActionPrimaryText}>SAVE TO SERVER</Text>}
-            </Pressable>
-          </View>
-
-          {saveMessage ? (
-            <Text style={[
-              styles.feedbackMessage,
-              saveTone === "ok" ? styles.feedbackMessageOk : styles.feedbackMessageError
-            ]}>
-              {saveMessage}
-            </Text>
-          ) : null}
         </View>
+        ) : null}
 
+        {section === "look" ? (
         <View style={styles.settingsCard}>
-          <Text style={styles.settingsTitle}>PANEL PREVIEW</Text>
+          <Text style={styles.settingsTitle}>BOARD STYLE</Text>
           <Text style={styles.moduleIntro}>
-            Keep panel size local to the phone. This only affects the preview and generated `main.py`, not the saved server runtime.
+            Pick the LED color language. This follows the cleaner web kiosk palette set, not the phone theme.
           </Text>
-
-          <FilterSection title="PANEL PRESET">
+          <FilterSection title="BOARD STYLE">
             <View style={styles.filterWrap}>
-              {MATRIX_PRESETS.map((item) => (
+              {MATRIX_PALETTE_OPTIONS.map((item) => (
+                <Pressable
+                  key={item.id}
+                  onPress={() => onMatrixPaletteChange(item.id)}
+                  style={[styles.paletteChip, matrixPalette === item.id && styles.optionChipActive]}
+                >
+                  <Text style={[styles.optionChipLabel, matrixPalette === item.id && styles.optionChipLabelActive]}>{item.label}</Text>
+                  <Text style={[styles.optionChipMeta, matrixPalette === item.id && styles.optionChipMetaActive]}>{item.meta}</Text>
+                  <View style={styles.paletteDots}>
+                    {[item.colors.green, item.colors.white, item.colors.cyan, item.colors.amber, item.colors.red].map((color) => (
+                      <View key={`${item.id}-${color}`} style={[styles.paletteDot, { backgroundColor: color }]} />
+                    ))}
+                  </View>
+                </Pressable>
+              ))}
+            </View>
+          </FilterSection>
+
+          <View style={[styles.matrixToolShell, { marginHorizontal: 0, marginTop: 12, backgroundColor: matrixColors.off }]}>
+            <View style={styles.matrixToolBezel}>
+              <View style={styles.matrixToolHeader}>
+                <Text style={[styles.matrixToolTitle, { color: matrixColors.green }]}>LIVE PREVIEW</Text>
+                <Text style={[styles.matrixToolMeta, { color: matrixColors.dim }]}>ON BOARD</Text>
+              </View>
+
+              <View
+                style={[
+                  styles.matrixPixelBoard,
+                  {
+                    opacity: brightnessAlpha,
+                    borderColor: hexToRgba(matrixColors.green, 0.18),
+                    backgroundColor: matrixColors.off
+                  }
+                ]}
+              >
+                <Text style={[styles.matrixToolAirport, { color: matrixColors.green }]}>
+                  {(rows[0]?.view || view) === "arrivals" ? "ARR" : "DEP"} · {selectedPalette.label.toUpperCase()}
+                </Text>
+                {lines.slice(0, 4).map((line, index) => (
+                  <Text key={`${index}-${line}`} style={[styles.matrixPixelLine, { color: matrixColors.white }]}>
+                    {line}
+                  </Text>
+                ))}
+              </View>
+            </View>
+          </View>
+        </View>
+        ) : null}
+
+        {section === "motion" ? (
+        <View style={styles.settingsCard}>
+          <Text style={styles.settingsTitle}>MOTION & PAGES</Text>
+          <FilterSection title="MOTION">
+            <View style={styles.filterWrap}>
+              {MATRIX_ANIMATION_MODES.map((item) => (
                 <OptionChip
-                  key={item.label}
-                  active={preset.label === item.label}
+                  key={item.id}
+                  active={animationMode === item.id}
                   label={item.label}
-                  meta={item.modules}
-                  onPress={() => onPresetChange(item)}
+                  meta={item.meta}
+                  onPress={() => onAnimationModeChange(item.id)}
                 />
               ))}
             </View>
           </FilterSection>
-        </View>
 
-        <View style={[styles.matrixToolShell, { backgroundColor: matrixColors.off }]}>
-          <View style={styles.matrixToolBezel}>
-            <View style={styles.matrixToolHeader}>
-              <Text style={[styles.matrixToolTitle, { color: matrixColors.green }]}>INTERSTATE 75 W PREVIEW</Text>
-              <Text style={[styles.matrixToolMeta, { color: matrixColors.dim }]}>{preset.panelW}x{preset.panelH} · {preset.modules}</Text>
-            </View>
-
-            <View
-              style={[
-                styles.matrixPixelBoard,
-                {
-                  opacity: brightnessAlpha,
-                  borderColor: hexToRgba(matrixColors.green, 0.18),
-                  backgroundColor: matrixColors.off
-                }
-              ]}
-            >
-              <Text style={[styles.matrixToolAirport, { color: matrixColors.green }]}>
-                {(rows[0]?.view || view) === "arrivals" ? "ARR" : "DEP"} · {preset.panelW}x{preset.panelH}
-              </Text>
-              {lines.map((line, index) => (
-                <Text key={`${index}-${line}`} style={[styles.matrixPixelLine, { color: matrixColors.white }]}>
-                  {line}
-                </Text>
+          <FilterSection title="MOTION SPEED">
+            <View style={styles.filterWrap}>
+              {MATRIX_ANIMATION_SPEEDS.map((item) => (
+                <OptionChip
+                  key={item}
+                  active={animationSpeed === item}
+                  label={String(item)}
+                  meta={item <= 2 ? "easy" : item >= 5 ? "fast" : "speed"}
+                  onPress={() => onAnimationSpeedChange(item)}
+                />
               ))}
             </View>
-          </View>
-        </View>
+          </FilterSection>
 
-        <View style={styles.settingsCard}>
-          <Text style={styles.settingsTitle}>MICROPYTHON CONFIG</Text>
-          <Text style={styles.moduleIntro}>
-            Paste this block into `client.py` later. It stays aligned with your selected panel preset and current server address.
-          </Text>
-          <View style={styles.feedbackContextBox}>
-            <Text style={styles.feedbackContextText}>{configText}</Text>
-          </View>
-          <Text style={styles.settingsHelp}>
-            The physical client still polls `/api/fids` and pings `/api/admin/ping`; this screen is the mobile staging tool for that output path.
-          </Text>
+          <FilterSection title="ROTATION">
+            <View style={styles.filterWrap}>
+              {MATRIX_ROTATION_SECONDS.map((item) => (
+                <OptionChip
+                  key={item}
+                  active={pageRotationSeconds === item}
+                  label={`${item}s`}
+                  meta="pages"
+                  onPress={() => onPageRotationChange(item)}
+                />
+              ))}
+            </View>
+          </FilterSection>
+
+          <FilterSection title="WEATHER & STATUS">
+            <View style={styles.filterRow}>
+              <DirectionButton active={showWeather} label="WEATHER" onPress={() => onShowWeatherChange(!showWeather)} />
+              <DirectionButton active={statusAnimationEnabled} label="STATUS MOTION" onPress={() => onStatusAnimationChange(!statusAnimationEnabled)} />
+            </View>
+          </FilterSection>
         </View>
+        ) : null}
+
+        <MatrixSavePanel
+          dirty={dirty}
+          saving={saving}
+          saveMessage={saveMessage}
+          saveTone={saveTone}
+          onSave={onSave}
+          onReset={onReset}
+        />
       </View>
     </ScrollView>
+  );
+}
+
+function MatrixSavePanel({
+  dirty,
+  saving,
+  saveMessage,
+  saveTone,
+  onSave,
+  onReset
+}: {
+  dirty: boolean;
+  saving: boolean;
+  saveMessage: string | null;
+  saveTone: FeedbackTone;
+  onSave: () => void;
+  onReset: () => void;
+}) {
+  return (
+    <View style={styles.settingsCard}>
+      <Text style={styles.settingsTitle}>{dirty ? "SAVE DRAFT" : "BOARD SAVED"}</Text>
+      <Text style={styles.moduleIntro}>
+        Only saved settings are sent to the physical board.
+      </Text>
+      <View style={styles.matrixActionRow}>
+        <Pressable
+          style={[styles.matrixActionButton, styles.matrixActionSecondary]}
+          onPress={onReset}
+          disabled={saving}
+        >
+          <Text style={styles.matrixActionSecondaryText}>RESET</Text>
+        </Pressable>
+        <Pressable
+          style={[styles.matrixActionButton, styles.matrixActionPrimary, saving && styles.configApplyBtnBusy]}
+          onPress={onSave}
+          disabled={saving}
+        >
+          {saving ? <ActivityIndicator size="small" color={palette.bg} /> : <Text style={styles.matrixActionPrimaryText}>SAVE TO SERVER</Text>}
+        </Pressable>
+      </View>
+
+      {saveMessage ? (
+        <Text style={[
+          styles.feedbackMessage,
+          saveTone === "ok" ? styles.feedbackMessageOk : styles.feedbackMessageError
+        ]}>
+          {saveMessage}
+        </Text>
+      ) : null}
+    </View>
   );
 }
 
@@ -1102,6 +1224,30 @@ function FidsRowView({
   );
 }
 
+function FullscreenFidsRow({ row, isPinned }: { row: FidsRow; isPinned: boolean }) {
+  return (
+    <View style={[styles.fullscreenFidsRow, isPinned && styles.fullscreenFidsRowPinned]}>
+      <Text style={[styles.fullscreenFidsTime, styles.fullscreenFidsTimeColumn]}>{row.display_time || "--:--"}</Text>
+      <View style={[styles.fullscreenFidsFlightCell, styles.fullscreenFidsFlightColumn]}>
+        <Text style={styles.fullscreenFidsFlight} numberOfLines={1}>{row.flight_display || row.callsign || "-"}</Text>
+        <Text style={styles.fullscreenFidsAirline} numberOfLines={1}>
+          {row.airline_display || row.codeshare_display || row.callsign || "LOCAL FLIGHT"}
+        </Text>
+      </View>
+      <View style={[styles.fullscreenFidsRouteCell, styles.fullscreenFidsRouteColumn]}>
+        <Text style={styles.fullscreenFidsRouteName} numberOfLines={1}>{routeName(row.route_display)}</Text>
+        <Text style={styles.fullscreenFidsRouteMeta} numberOfLines={1}>{routeMeta(row)}</Text>
+      </View>
+      <View style={styles.fullscreenFidsStatusCell}>
+        <StatusBadge status={row.status_display} statusClass={row.status_class} />
+      </View>
+      <Text style={[styles.fullscreenFidsAircraft, styles.fullscreenFidsAircraftColumn]} numberOfLines={1}>
+        {row.aircraft_type || "-"}
+      </Text>
+    </View>
+  );
+}
+
 function HistoryRow({ row, onOpenDetail }: { row: HistoryFlightRow; onOpenDetail: (callsign: string) => void }) {
   return (
     <Pressable style={styles.historyRow} onPress={() => onOpenDetail(row.callsign)}>
@@ -1155,12 +1301,16 @@ function RadarBlipRow({ blip, onOpenDetail }: { blip: RadarBlip; onOpenDetail: (
 
 function RadarScope({
   data,
+  groundData,
+  groundError,
   radiusNm,
   onRadiusChange,
   compact = false,
   onOpenDetail
 }: {
   data: RadarResponse | null;
+  groundData: RadarMapResponse | null;
+  groundError: string | null;
   radiusNm: RadarRadius;
   onRadiusChange: (value: RadarRadius) => void;
   compact?: boolean;
@@ -1168,6 +1318,13 @@ function RadarScope({
 }) {
   const [scopeSize, setScopeSize] = useState(280);
   const pinchRef = useRef<{ distance: number; index: number } | null>(null);
+  const groundFeatureCount = radarGroundFeatureCount(groundData);
+  const groundUnavailable = radarGroundUnavailable(groundData, groundError);
+  const groundStatus = groundFeatureCount
+    ? `${groundFeatureCount} ground drawings`
+    : groundUnavailable
+      ? "Ground layer unavailable"
+      : "Ground layer waiting";
   const projected = (data?.blips || [])
     .map((blip) => data ? projectBlip(blip, data.center, data.radius_nm, scopeSize) : null)
     .filter((item): item is ProjectedBlip => Boolean(item))
@@ -1237,6 +1394,12 @@ function RadarScope({
           pinchRef.current = null;
         }}
       >
+        <RadarGroundLayer
+          groundData={groundData}
+          center={data?.center || groundData?.center || null}
+          radiusNm={radiusNm}
+          scopeSize={scopeSize}
+        />
         <View style={styles.scopeRingOuter} />
         <View style={styles.scopeRingMid} />
         <View style={styles.scopeRingInner} />
@@ -1267,6 +1430,9 @@ function RadarScope({
       </View>
       <View style={styles.scopeFooter}>
         <Text style={styles.scopeHint}>Pinch to zoom the scope.</Text>
+        <Text style={[styles.scopeGroundStatus, groundUnavailable && !groundFeatureCount && styles.scopeGroundStatusWarn]}>
+          {groundStatus}
+        </Text>
         <View style={styles.scopeChipRow}>
           {RADAR_RADII.map((item) => (
             <Pressable
@@ -1283,6 +1449,266 @@ function RadarScope({
       </View>
     </View>
   );
+}
+
+function RadarGroundLayer({
+  groundData,
+  center,
+  radiusNm,
+  scopeSize
+}: {
+  groundData: RadarMapResponse | null;
+  center: RadarResponse["center"] | null;
+  radiusNm: RadarRadius;
+  scopeSize: number;
+}) {
+  if (!groundData || !center) {
+    return null;
+  }
+
+  const surfaceFeatures = radarDrawableFeatures(groundData.surface_features);
+  const runwayFeatures = radarDrawableFeatures(groundData.runways);
+  if (!surfaceFeatures.length && !runwayFeatures.length) {
+    return null;
+  }
+
+  return (
+    <Svg
+      pointerEvents="none"
+      width={scopeSize}
+      height={scopeSize}
+      viewBox={`0 0 ${scopeSize} ${scopeSize}`}
+      style={styles.scopeGroundSvg}
+    >
+      <Defs>
+        <ClipPath id={RADAR_GROUND_CLIP_ID}>
+          <Circle cx={scopeSize / 2} cy={scopeSize / 2} r={scopeSize * 0.44} />
+        </ClipPath>
+      </Defs>
+      <G clipPath={`url(#${RADAR_GROUND_CLIP_ID})`}>
+        {surfaceFeatures.map((feature, index) => (
+          <RadarGroundFeature
+            key={radarGroundFeatureKey(feature, index, "surface")}
+            feature={feature}
+            center={center}
+            radiusNm={radiusNm}
+            scopeSize={scopeSize}
+            layer="surface"
+          />
+        ))}
+        {runwayFeatures.map((feature, index) => (
+          <RadarGroundFeature
+            key={radarGroundFeatureKey(feature, index, "runway")}
+            feature={feature}
+            center={center}
+            radiusNm={radiusNm}
+            scopeSize={scopeSize}
+            layer="runway"
+          />
+        ))}
+        {radiusNm <= 5 ? runwayFeatures.map((feature, index) => (
+          <RadarRunwayLabel
+            key={`${radarGroundFeatureKey(feature, index, "label")}-label`}
+            feature={feature}
+            center={center}
+            radiusNm={radiusNm}
+            scopeSize={scopeSize}
+          />
+        )) : null}
+      </G>
+    </Svg>
+  );
+}
+
+function RadarGroundFeature({
+  feature,
+  center,
+  radiusNm,
+  scopeSize,
+  layer
+}: {
+  feature: RadarMapFeature;
+  center: RadarResponse["center"];
+  radiusNm: RadarRadius;
+  scopeSize: number;
+  layer: "surface" | "runway";
+}) {
+  const projected = projectRadarFeature(feature, center, radiusNm, scopeSize);
+  if (projected.length < 2) {
+    return null;
+  }
+
+  const points = projected.map((point) => `${point.x.toFixed(1)},${point.y.toFixed(1)}`).join(" ");
+  const paint = radarGroundPaint(feature, layer, radiusNm);
+  const isPolygon = Boolean(feature.closed && projected.length >= 3 && layer !== "runway");
+
+  if (isPolygon) {
+    return (
+      <Polygon
+        points={points}
+        fill={paint.fill}
+        stroke={paint.stroke}
+        strokeWidth={paint.strokeWidth}
+        strokeLinejoin="round"
+      />
+    );
+  }
+
+  return (
+    <Polyline
+      points={points}
+      fill="none"
+      stroke={paint.stroke}
+      strokeWidth={paint.strokeWidth}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+  );
+}
+
+function RadarRunwayLabel({
+  feature,
+  center,
+  radiusNm,
+  scopeSize
+}: {
+  feature: RadarMapFeature;
+  center: RadarResponse["center"];
+  radiusNm: RadarRadius;
+  scopeSize: number;
+}) {
+  const label = String(feature.label || "").trim();
+  if (!label) {
+    return null;
+  }
+  const projected = projectRadarFeature(feature, center, radiusNm, scopeSize);
+  if (projected.length < 2) {
+    return null;
+  }
+  const midpoint = radarProjectedMidpoint(projected);
+  if (!midpoint || midpoint.distanceNm > radiusNm * 1.05) {
+    return null;
+  }
+
+  return (
+    <SvgText
+      x={midpoint.x}
+      y={midpoint.y - 5}
+      fill={hexToRgba(palette.text, 0.68)}
+      fontSize={8}
+      fontWeight="700"
+      textAnchor="middle"
+    >
+      {label}
+    </SvgText>
+  );
+}
+
+function radarDrawableFeatures(features: RadarMapFeature[] | undefined): RadarMapFeature[] {
+  return (features || []).filter((feature) => {
+    const points = feature.points || [];
+    return Array.isArray(points) && points.length >= 2;
+  });
+}
+
+function radarGroundFeatureCount(groundData: RadarMapResponse | null): number {
+  if (!groundData) {
+    return 0;
+  }
+  return radarDrawableFeatures(groundData.runways).length + radarDrawableFeatures(groundData.surface_features).length;
+}
+
+function radarGroundUnavailable(groundData: RadarMapResponse | null, groundError: string | null): boolean {
+  if (groundError) {
+    return true;
+  }
+  const surfaceState = String(groundData?.sources?.surface_cache_state || "").trim().toLowerCase();
+  const surfaceSource = String(groundData?.sources?.surface || "").trim().toLowerCase();
+  return surfaceState === "disabled" || surfaceState === "error" || surfaceSource === "none";
+}
+
+function radarGroundFeatureKey(feature: RadarMapFeature, index: number, prefix: string): string {
+  return [
+    prefix,
+    feature.kind,
+    feature.id,
+    feature.label,
+    index
+  ].filter(Boolean).join("-");
+}
+
+function projectRadarFeature(
+  feature: RadarMapFeature,
+  center: RadarResponse["center"],
+  radiusNm: RadarRadius,
+  scopeSize: number
+): ProjectedRadarPoint[] {
+  return (feature.points || [])
+    .map((point) => {
+      const lat = Number(point[0]);
+      const lon = Number(point[1]);
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+        return null;
+      }
+      return projectLatLonToScope(lat, lon, center, radiusNm, scopeSize);
+    })
+    .filter((point): point is ProjectedRadarPoint => Boolean(point));
+}
+
+function radarProjectedMidpoint(points: ProjectedRadarPoint[]): ProjectedRadarPoint | null {
+  if (!points.length) {
+    return null;
+  }
+  const index = Math.floor(points.length / 2);
+  return points[index] || null;
+}
+
+function radarGroundPaint(
+  feature: RadarMapFeature,
+  layer: "surface" | "runway",
+  radiusNm: RadarRadius
+): { fill: string; stroke: string; strokeWidth: number } {
+  const kind = String(feature.kind || "").toLowerCase();
+  if (layer === "runway") {
+    return {
+      fill: "none",
+      stroke: hexToRgba(palette.amber, 0.78),
+      strokeWidth: radiusNm <= 5 ? 4.4 : 2.8
+    };
+  }
+  if (kind === "taxiway") {
+    return {
+      fill: "none",
+      stroke: hexToRgba(palette.blue2, 0.46),
+      strokeWidth: radiusNm <= 5 ? 1.8 : 1.2
+    };
+  }
+  if (kind === "apron") {
+    return {
+      fill: hexToRgba(palette.blue, 0.11),
+      stroke: hexToRgba(palette.blue2, 0.22),
+      strokeWidth: 1
+    };
+  }
+  if (kind === "terminal" || kind === "building") {
+    return {
+      fill: hexToRgba(palette.amber, 0.12),
+      stroke: hexToRgba(palette.amber, 0.28),
+      strokeWidth: 1
+    };
+  }
+  if (kind === "boundary") {
+    return {
+      fill: hexToRgba(palette.blue, 0.035),
+      stroke: hexToRgba(palette.blue2, 0.18),
+      strokeWidth: 0.9
+    };
+  }
+  return {
+    fill: hexToRgba(palette.blue, 0.07),
+    stroke: hexToRgba(palette.blue2, 0.26),
+    strokeWidth: 1
+  };
 }
 
 function radarTone(blip: RadarBlip): string {
@@ -1633,8 +2059,6 @@ export function AdminScreen({
   companionIdentity,
   connected,
   error,
-  rows,
-  view,
   feedbackTitle,
   feedbackDescription,
   feedbackSending,
@@ -1645,14 +2069,13 @@ export function AdminScreen({
   onFeedbackDescriptionChange,
   onSubmitFeedback,
   onSendAutoReportTest,
+  onOpenMatrix,
   onBackSettings
 }: {
   snapshot: DashboardSnapshot;
   companionIdentity: CompanionIdentity | null;
   connected: boolean;
   error: string | null;
-  rows: FidsRow[];
-  view: FlightView;
   feedbackTitle: string;
   feedbackDescription: string;
   feedbackSending: boolean;
@@ -1663,6 +2086,7 @@ export function AdminScreen({
   onFeedbackDescriptionChange: (value: string) => void;
   onSubmitFeedback: () => void;
   onSendAutoReportTest: () => void;
+  onOpenMatrix: () => void;
   onBackSettings: () => void;
 }) {
   const budget = snapshot.budget?.aviationstack;
@@ -1676,6 +2100,7 @@ export function AdminScreen({
     ? `V${snapshot.updates.latest || "NEW"} READY`
     : `V${snapshot.updates?.current || snapshot.system?.version || APP_VERSION}`;
   const platformPair = platformPairLabel(snapshot.system?.platform, companionIdentity?.mobileOs);
+  const [section, setSection] = useState<AdminSettingsSection>("health");
   const feedbackContext = [
     `Reporter      ${companionIdentity?.clientName || "Local Flight Companion"}`,
     `Companion ID  ${companionIdentity?.companionId || "UNKNOWN"}`,
@@ -1696,64 +2121,70 @@ export function AdminScreen({
         onBack={onBackSettings}
       />
 
-      <View style={styles.metricRow}>
-        <InfoCard label="SERVER" value={connected ? "ONLINE" : "CHECK"} tone={connected ? "green" : "red"} />
-        <InfoCard label="VERSION" value={snapshot.system?.version || APP_VERSION} />
-        <InfoCard
-          label="UPDATE"
-          value={updateValue}
-          tone={snapshot.updates?.update_available ? "amber" : "blue"}
-        />
-      </View>
-      <View style={styles.metricRow}>
-        <InfoCard label="LAST FETCH" value={formatRelative(snapshot.state?.last_success_utc)} tone="amber" />
-        <InfoCard label="WEBSOCKETS" value={String(snapshot.connections?.count ?? 0)} />
-        <InfoCard label="API BUDGET" value={budget?.remaining != null ? `${budget.remaining} LEFT` : "UNKNOWN"} />
-      </View>
-      <View style={styles.metricRow}>
-        <InfoCard label="PAIR" value={companionRecord?.platform_pair || platformPair} />
-        <InfoCard label="MEMORY" value={snapshot.system?.memory_mb != null ? `${snapshot.system.memory_mb} MB` : "-"} />
-        <InfoCard label="MATRIX" value={matrixOnline ? "ONLINE" : matrixEnabled ? "WAITING" : "DISABLED"} tone={matrixOnline ? "green" : matrixEnabled ? "amber" : "red"} />
-      </View>
-
       <View style={styles.settingsCard}>
-        <Text style={styles.settingsTitle}>COMPANION LINK</Text>
+        <Text style={styles.settingsTitle}>ADMIN SECTIONS</Text>
         <Text style={styles.moduleIntro}>
-          Separate mobile identity used for server presence, request tracing, and Linear reports.
+          Check health, device presence, and reports without digging through one long operations page.
         </Text>
-        <InfoLine label="Companion ID" value={companionIdentity?.companionId || "Loading..."} />
-        <InfoLine label="Companion OS" value={companionIdentity?.mobileOs || "Loading..."} />
-        <InfoLine label="Server install" value={snapshot.system?.install_id || "Unknown"} />
-        <InfoLine label="Platform pair" value={companionRecord?.platform_pair || platformPair} />
-        <InfoLine label="Last check-in" value={companionRecord?.last_seen ? formatRelative(companionRecord.last_seen) : "Not seen yet"} />
-      </View>
-
-      <View style={styles.settingsCard}>
-        <Text style={styles.settingsTitle}>MATRIX OUTPUT</Text>
-        <Text style={styles.moduleIntro}>
-          Mirrors the LED output path from the main app using the same `/api/fids` rows.
-        </Text>
-        <InfoLine label="Enabled" value={matrixEnabled ? "Yes, matrix is selected in server outputs." : "No, enable Matrix in desktop Settings first."} />
-        <InfoLine label="Last seen" value={matrixLastSeen ? formatRelative(matrixLastSeen) : "Never pinged"} />
-        <InfoLine label="Preview mode" value={`${snapshot.config?.airport_iata || "---"} ${view === "arrivals" ? "ARRIVALS" : "DEPARTURES"}`} />
-
-        <View style={styles.matrixBoard}>
-          <View style={styles.matrixHeaderRow}>
-            <Text style={styles.matrixBoardTitle}>INTERSTATE 75 W</Text>
-            <Text style={styles.matrixBoardSub}>{matrixOnline ? "LIVE PANEL" : "SIM PREVIEW"}</Text>
-          </View>
-          {matrixPreviewLines(rows).map((line, index) => (
-            <Text key={`${index}-${line}`} style={styles.matrixBoardLine}>
-              {line}
-            </Text>
+        <View style={styles.settingsSectionGrid}>
+          {([
+            ["health", "Health", connected ? "Online" : "Check"],
+            ["devices", "Devices", matrixOnline ? "Matrix" : "Links"],
+            ["reports", "Reports", feedbackMessage ? "Sent" : "Linear"],
+            ...(__DEV__ ? [["developer", "Dev", "Tests"] as [AdminSettingsSection, string, string]] : [])
+          ] as Array<[AdminSettingsSection, string, string]>).map(([id, label, meta]) => (
+            <OptionChip key={id} active={section === id} label={label} meta={meta} onPress={() => setSection(id)} />
           ))}
         </View>
-
-        <Text style={styles.settingsHelp}>
-          The physical matrix client polls the server directly and reports here through `/api/admin/ping`.
-        </Text>
       </View>
 
+      {section === "health" ? (
+      <View style={styles.settingsCard}>
+        <Text style={styles.settingsTitle}>SERVER HEALTH</Text>
+        <Text style={styles.moduleIntro}>
+          Quick operational pulse for the connected Local Flight server.
+        </Text>
+        <View style={styles.metricRow}>
+          <InfoCard label="SERVER" value={connected ? "ONLINE" : "CHECK"} tone={connected ? "green" : "red"} />
+          <InfoCard label="VERSION" value={snapshot.system?.version || APP_VERSION} />
+          <InfoCard label="UPDATE" value={updateValue} tone={snapshot.updates?.update_available ? "amber" : "blue"} />
+        </View>
+        <View style={styles.metricRow}>
+          <InfoCard label="LAST FETCH" value={formatRelative(snapshot.state?.last_success_utc)} tone="amber" />
+          <InfoCard label="API BUDGET" value={budget?.remaining != null ? `${budget.remaining} LEFT` : "UNKNOWN"} />
+          <InfoCard label="MEMORY" value={snapshot.system?.memory_mb != null ? `${snapshot.system.memory_mb} MB` : "-"} />
+        </View>
+        <InfoLine label="Server install" value={snapshot.system?.install_id || "Unknown"} />
+        <InfoLine label="Airport" value={snapshot.config?.airport_iata || "---"} />
+        <InfoLine label="Source" value={snapshot.state?.source_name || snapshot.config?.source || "Unknown"} />
+      </View>
+      ) : null}
+
+      {section === "devices" ? (
+      <View style={styles.settingsCard}>
+        <Text style={styles.settingsTitle}>DEVICES</Text>
+        <Text style={styles.moduleIntro}>
+          Mobile, Matrix, and WebSocket presence for trusted-LAN devices.
+        </Text>
+        <View style={styles.metricRow}>
+          <InfoCard label="PAIR" value={companionRecord?.platform_pair || platformPair} />
+          <InfoCard label="WEBSOCKETS" value={String(snapshot.connections?.count ?? 0)} />
+          <InfoCard label="MATRIX" value={matrixOnline ? "ONLINE" : matrixEnabled ? "WAITING" : "DISABLED"} tone={matrixOnline ? "green" : matrixEnabled ? "amber" : "red"} />
+        </View>
+        <InfoLine label="Companion ID" value={companionIdentity?.companionId || "Loading..."} />
+        <InfoLine label="Companion OS" value={companionIdentity?.mobileOs || "Loading..."} />
+        <InfoLine label="Last check-in" value={companionRecord?.last_seen ? formatRelative(companionRecord.last_seen) : "Not seen yet"} />
+        <InfoLine label="Matrix last seen" value={matrixLastSeen ? formatRelative(matrixLastSeen) : "Never pinged"} />
+        <SettingsToolPill
+          icon="view-grid"
+          label="Open Matrix Board"
+          value={matrixEnabled ? "Tune board status, look, runtime, and motion" : "Prepare board settings before enabling output"}
+          onPress={onOpenMatrix}
+        />
+      </View>
+      ) : null}
+
+      {section === "reports" ? (
       <View style={styles.settingsCard}>
         <Text style={styles.settingsTitle}>REPORT TO DEVELOPER</Text>
         <Text style={styles.moduleIntro}>
@@ -1787,8 +2218,9 @@ export function AdminScreen({
           </Text>
         ) : null}
       </View>
+      ) : null}
 
-      {__DEV__ ? (
+      {section === "developer" && __DEV__ ? (
         <View style={styles.settingsCard}>
           <Text style={styles.settingsTitle}>AUTO REPORT TEST</Text>
           <Text style={styles.moduleIntro}>
@@ -1816,6 +2248,257 @@ export function AdminScreen({
   );
 }
 
+export function CompanionSetupScreen({
+  initialUrl,
+  initialDiagnosticsMode,
+  onComplete
+}: {
+  initialUrl: string;
+  initialDiagnosticsMode: MobileDiagnosticsMode;
+  onComplete: (result: CompanionSetupResult) => Promise<void> | void;
+}) {
+  const [step, setStep] = useState<CompanionSetupStep>("welcome");
+  const [serverInput, setServerInput] = useState(initialUrl);
+  const [diagnosticsMode, setDiagnosticsMode] = useState<MobileDiagnosticsMode>(
+    initialDiagnosticsMode === "unset" ? "manual" : initialDiagnosticsMode
+  );
+  const [testing, setTesting] = useState(false);
+  const [finishing, setFinishing] = useState(false);
+  const [setupError, setSetupError] = useState<string | null>(null);
+  const [serverSummary, setServerSummary] = useState<CompanionSetupResult | null>(null);
+
+  useEffect(() => {
+    setServerInput(initialUrl);
+  }, [initialUrl]);
+
+  useEffect(() => {
+    if (initialDiagnosticsMode !== "unset") {
+      setDiagnosticsMode(initialDiagnosticsMode);
+    }
+  }, [initialDiagnosticsMode]);
+
+  const testServer = useCallback(async () => {
+    const urlProblem = companionSetupUrlProblem(serverInput);
+    if (urlProblem) {
+      setSetupError(urlProblem);
+      return;
+    }
+
+    setTesting(true);
+    setSetupError(null);
+    try {
+      const result = await testCompanionSetupServer(serverInput);
+      const summary = {
+        serverUrl: result.normalizedUrl,
+        diagnosticsMode,
+        config: result.config,
+        state: result.state
+      };
+      setServerInput(result.normalizedUrl);
+      setServerSummary(summary);
+      setStep("diagnostics");
+    } catch (exc) {
+      setSetupError(companionSetupErrorMessage(exc));
+    } finally {
+      setTesting(false);
+    }
+  }, [diagnosticsMode, serverInput]);
+
+  const finishSetup = useCallback(async () => {
+    if (!serverSummary) {
+      setStep("server");
+      setSetupError("Test your Local Flight server before finishing setup.");
+      return;
+    }
+    setFinishing(true);
+    setSetupError(null);
+    try {
+      await onComplete({ ...serverSummary, diagnosticsMode });
+    } catch (exc) {
+      setSetupError(companionSetupErrorMessage(exc));
+    } finally {
+      setFinishing(false);
+    }
+  }, [diagnosticsMode, onComplete, serverSummary]);
+
+  return (
+    <ScrollView style={styles.companionSetupScroll} contentContainerStyle={styles.companionSetupContent}>
+      <View style={styles.companionSetupCard}>
+        <Text style={styles.companionSetupEyebrow}>LOCAL FLIGHT COMPANION</Text>
+        <Text style={styles.companionSetupTitle}>First launch setup</Text>
+        <Text style={styles.companionSetupBody}>
+          Pair this iPhone with a configured Local Flight server before the companion opens FIDS, Radar, History, or Settings.
+        </Text>
+
+        <View style={styles.companionSetupSteps}>
+          {(["welcome", "server", "diagnostics", "ready"] as CompanionSetupStep[]).map((item) => (
+            <View
+              key={item}
+              style={[
+                styles.companionSetupStepDot,
+                setupStepRank(item) <= setupStepRank(step) && styles.companionSetupStepDotActive
+              ]}
+            />
+          ))}
+        </View>
+
+        {step === "welcome" ? (
+          <View style={styles.companionSetupPanel}>
+            <Text style={styles.companionSetupPanelTitle}>Local-first LAN companion</Text>
+            <Text style={styles.companionSetupBody}>
+              The mobile app talks to your desktop or Pi server. It does not call the relay directly, and it will stay locked here until pairing and diagnostics consent are complete.
+            </Text>
+            <View style={styles.companionSetupInfoGrid}>
+              <SetupInfoTile label="Mode" value="LAN companion" />
+              <SetupInfoTile label="Privacy" value="Server mediated" />
+              <SetupInfoTile label="Needed" value="Configured desktop/Pi" />
+              <SetupInfoTile label="Next" value="Test server URL" />
+            </View>
+            <Pressable style={styles.companionSetupPrimary} onPress={() => setStep("server")}>
+              <Text style={styles.companionSetupPrimaryText}>START SETUP</Text>
+            </Pressable>
+          </View>
+        ) : null}
+
+        {step === "server" ? (
+          <View style={styles.companionSetupPanel}>
+            <Text style={styles.companionSetupPanelTitle}>Connect your Local Flight server</Text>
+            <Text style={styles.companionSetupBody}>
+              Use the LAN address shown by the desktop/Pi app, for example http://localflight.local:8000 or http://192.168.1.42:8000.
+            </Text>
+            <TextInput
+              autoCapitalize="none"
+              autoCorrect={false}
+              keyboardType="url"
+              placeholder="http://localflight.local:8000"
+              placeholderTextColor={palette.textDim}
+              value={serverInput}
+              onChangeText={setServerInput}
+              style={styles.companionSetupInput}
+            />
+            <Pressable
+              style={[styles.companionSetupPrimary, testing && styles.connectButtonDisabled]}
+              onPress={() => void testServer()}
+              disabled={testing}
+            >
+              {testing ? <ActivityIndicator color="#000" /> : <Text style={styles.companionSetupPrimaryText}>TEST SERVER</Text>}
+            </Pressable>
+            <Pressable style={styles.companionSetupSecondary} onPress={() => setStep("welcome")}>
+              <Text style={styles.companionSetupSecondaryText}>BACK</Text>
+            </Pressable>
+          </View>
+        ) : null}
+
+        {step === "diagnostics" ? (
+          <View style={styles.companionSetupPanel}>
+            <Text style={styles.companionSetupPanelTitle}>Choose companion diagnostics</Text>
+            <Text style={styles.companionSetupBody}>
+              Manual reports are always available. Automatic reports only send when this device and the connected server both allow diagnostics.
+            </Text>
+            <View style={styles.companionSetupOptionStack}>
+              {([
+                ["manual", "Manual only", "No automatic companion reports. Send feedback yourself from Admin."],
+                ["auto", "Auto crash reports", "Send serious React/JS companion crashes with app and server context."],
+                ["auto_logs", "Auto + context", "Same as auto for now; native iOS logs are not collected in this pass."]
+              ] as Array<[MobileDiagnosticsMode, string, string]>).map(([mode, title, body]) => (
+                <Pressable
+                  key={mode}
+                  style={[
+                    styles.companionSetupOption,
+                    diagnosticsMode === mode && styles.companionSetupOptionActive
+                  ]}
+                  onPress={() => setDiagnosticsMode(mode)}
+                >
+                  <Text style={styles.companionSetupOptionTitle}>{title}</Text>
+                  <Text style={styles.companionSetupOptionBody}>{body}</Text>
+                </Pressable>
+              ))}
+            </View>
+            <Pressable style={styles.companionSetupPrimary} onPress={() => setStep("ready")}>
+              <Text style={styles.companionSetupPrimaryText}>REVIEW SETUP</Text>
+            </Pressable>
+            <Pressable style={styles.companionSetupSecondary} onPress={() => setStep("server")}>
+              <Text style={styles.companionSetupSecondaryText}>BACK</Text>
+            </Pressable>
+          </View>
+        ) : null}
+
+        {step === "ready" ? (
+          <View style={styles.companionSetupPanel}>
+            <Text style={styles.companionSetupPanelTitle}>Ready for the board</Text>
+            <Text style={styles.companionSetupBody}>
+              The companion will save this pairing locally and open the main app.
+            </Text>
+            <View style={styles.companionSetupSummary}>
+              <InfoLine label="Server" value={serverSummary?.serverUrl || normalizeServerUrl(serverInput) || "Not tested"} />
+              <InfoLine label="Airport" value={serverSummary?.config.airport_iata || "---"} />
+              <InfoLine label="Diagnostics" value={diagnosticsMode === "manual" ? "Manual reports only" : diagnosticsMode === "auto" ? "Automatic crash reports" : "Automatic crash reports + context"} />
+            </View>
+            <Pressable
+              style={[styles.companionSetupPrimary, finishing && styles.connectButtonDisabled]}
+              onPress={() => void finishSetup()}
+              disabled={finishing}
+            >
+              {finishing ? <ActivityIndicator color="#000" /> : <Text style={styles.companionSetupPrimaryText}>FINISH SETUP</Text>}
+            </Pressable>
+            <Pressable style={styles.companionSetupSecondary} onPress={() => setStep("diagnostics")}>
+              <Text style={styles.companionSetupSecondaryText}>BACK</Text>
+            </Pressable>
+          </View>
+        ) : null}
+
+        {setupError ? (
+          <View style={styles.companionSetupError}>
+            <Text style={styles.companionSetupErrorLabel}>SETUP NEEDS ATTENTION</Text>
+            <Text style={styles.companionSetupErrorText}>{setupError}</Text>
+          </View>
+        ) : null}
+      </View>
+    </ScrollView>
+  );
+}
+
+function SetupInfoTile({ label, value }: { label: string; value: string }) {
+  return (
+    <View style={styles.companionSetupInfoTile}>
+      <Text style={styles.companionSetupInfoLabel}>{label}</Text>
+      <Text style={styles.companionSetupInfoValue}>{value}</Text>
+    </View>
+  );
+}
+
+function setupStepRank(step: CompanionSetupStep): number {
+  return { welcome: 0, server: 1, diagnostics: 2, ready: 3 }[step];
+}
+
+function companionSetupUrlProblem(input: string): string | null {
+  const normalized = normalizeServerUrl(input);
+  if (!normalized) {
+    return "Enter the Local Flight server URL first.";
+  }
+  try {
+    const parsed = new URL(normalized);
+    const host = parsed.hostname.replace(/^\[|\]$/g, "").toLowerCase();
+    if (["localhost", "127.0.0.1", "::1", "0.0.0.0"].includes(host)) {
+      return "A physical iPhone cannot use localhost because that points at the phone. Use the Pi or desktop LAN IP, or localflight.local if mDNS works.";
+    }
+    if (!["http:", "https:"].includes(parsed.protocol)) {
+      return "Use an http:// or https:// Local Flight server URL.";
+    }
+  } catch {
+    return "Enter a valid Local Flight server URL, for example http://192.168.1.42:8000.";
+  }
+  return null;
+}
+
+function companionSetupErrorMessage(value: unknown): string {
+  const message = errorMessage(value);
+  if (/Network request failed/i.test(message)) {
+    return "Could not reach Local Flight on the LAN. Make sure the iPhone and Pi/desktop are on the same Wi-Fi, Local Flight is running, and the URL uses the server IP or localflight.local.";
+  }
+  return message;
+}
+
 export function SettingsScreen({
   serverUrl,
   draftUrl,
@@ -1839,6 +2522,7 @@ export function SettingsScreen({
   onOpenDoc,
   onOpenCoffee,
   onRestartScheduler,
+  onRerunSetup,
   onChangeUrl,
   onConnect
 }: {
@@ -1864,142 +2548,117 @@ export function SettingsScreen({
   onOpenDoc: (slug: DocSlug) => void;
   onOpenCoffee: () => void;
   onRestartScheduler: () => void;
+  onRerunSetup: () => void;
   onChangeUrl: (value: string) => void;
   onConnect: () => void;
 }) {
-  const [section, setSection] = useState<SettingsSection>("server");
+  const [serverExpanded, setServerExpanded] = useState(!serverUrl);
+  const [appearanceVisible, setAppearanceVisible] = useState(false);
+  const outputValue = outputs.length ? outputs.join(", ").toUpperCase() : "WEB";
 
   return (
     <View style={styles.cardStack}>
       <View style={styles.settingsCard}>
         <Text style={styles.settingsTitle}>SETTINGS</Text>
         <Text style={styles.moduleIntro}>
-          Keep the main companion calm: connection, looks, tools, and documents live here.
+          Start with the server link, then jump straight to the companion tools you need.
         </Text>
-        <View style={styles.settingsSectionGrid}>
-          {([
-            ["server", "Server", "LAN"],
-            ["appearance", "Looks", themeMode],
-            ["tools", "Tools", "Ops"],
-            ["about", "Docs", "Read"]
-          ] as Array<[SettingsSection, string, string]>).map(([id, label, meta]) => (
-            <OptionChip
-              key={id}
-              active={section === id}
-              label={label}
-              meta={meta}
-              onPress={() => setSection(id)}
-            />
-          ))}
-        </View>
       </View>
 
-      {section === "server" ? (
       <View style={styles.settingsCard}>
-        <Text style={styles.settingsTitle}>LOCAL SERVER</Text>
-        <TextInput
-          autoCapitalize="none"
-          autoCorrect={false}
-          keyboardType="url"
-          placeholder="http://192.168.1.42:8000"
-          placeholderTextColor={palette.textDim}
-          value={draftUrl}
-          onChangeText={onChangeUrl}
-          style={styles.serverInput}
-        />
-        <Pressable style={styles.connectButton} onPress={onConnect} disabled={loading}>
-          {loading ? <ActivityIndicator color="#000" /> : <Text style={styles.connectButtonText}>CONNECT</Text>}
-        </Pressable>
-        {error ? <Text style={styles.errorText}>{error}</Text> : null}
+        <Text style={styles.settingsTitle}>CONNECTION & SYNC</Text>
+        <View style={styles.metricRow}>
+          <InfoCard label="SERVER" value={serverUrl ? "READY" : "SETUP"} tone={serverUrl ? "green" : "amber"} />
+          <InfoCard label="REFRESH" value={refreshSeconds ? formatInterval(refreshSeconds).toUpperCase() : "WAIT"} />
+          <InfoCard label="OUTPUTS" value={outputValue} tone="blue" />
+        </View>
         <InfoLine label="Saved server" value={serverUrl || "Not set"} />
         <InfoLine label="Companion build" value={APP_VERSION} />
         <InfoLine label="Layout" value={isTablet ? `iPad ${isLandscape ? "landscape" : "portrait"}` : "iPhone"} />
-        <InfoLine label="Outputs" value={outputs.length ? outputs.join(", ").toUpperCase() : "WEB"} />
-        <InfoLine label="Update interval" value={refreshSeconds ? formatInterval(refreshSeconds) : "Not synced"} />
-        <Text style={styles.settingsHelp}>
-          Use the LAN IP of the machine running Local Flight. On a physical iPhone, localhost points at the phone itself.
-        </Text>
-      </View>
-      ) : null}
 
-      {section === "appearance" ? (
+        <View style={styles.settingsInlineActions}>
+          <Pressable style={styles.settingsCompactButton} onPress={() => setServerExpanded((value) => !value)}>
+            <Text style={styles.settingsCompactButtonText}>{serverExpanded ? "HIDE SERVER" : "CHANGE SERVER"}</Text>
+          </Pressable>
+          <Pressable
+            style={[styles.settingsCompactButton, schedulerRestarting && styles.connectButtonDisabled]}
+            onPress={onRestartScheduler}
+            disabled={schedulerRestarting}
+          >
+            {schedulerRestarting ? <ActivityIndicator size="small" color={palette.blue} /> : <Text style={styles.settingsCompactButtonText}>RESTART FETCH</Text>}
+          </Pressable>
+        </View>
+
+        {serverExpanded ? (
+          <>
+            <TextInput
+              autoCapitalize="none"
+              autoCorrect={false}
+              keyboardType="url"
+              placeholder="http://192.168.1.42:8000"
+              placeholderTextColor={palette.textDim}
+              value={draftUrl}
+              onChangeText={onChangeUrl}
+              style={styles.serverInput}
+            />
+            <Pressable style={styles.connectButton} onPress={onConnect} disabled={loading}>
+              {loading ? <ActivityIndicator color="#000" /> : <Text style={styles.connectButtonText}>CONNECT</Text>}
+            </Pressable>
+            <Text style={styles.settingsHelp}>
+              Use the LAN IP of the machine running Local Flight. On a physical iPhone, localhost points at the phone itself.
+            </Text>
+          </>
+        ) : null}
+        {schedulerMessage ? <Text style={[styles.feedbackMessage, styles.feedbackMessageOk]}>{schedulerMessage}</Text> : null}
+        {error ? <Text style={styles.errorText}>{error}</Text> : null}
+      </View>
+
       <View style={styles.settingsCard}>
-        <Text style={styles.settingsTitle}>APPEARANCE</Text>
+        <Text style={styles.settingsTitle}>QUICK ACTIONS</Text>
+        <View style={styles.settingsQuickGrid}>
+          <SettingsQuickAction
+            icon="palette-outline"
+            label="Mobile Look"
+            value={`${themeMode} · ${skin}`}
+            onPress={() => setAppearanceVisible(true)}
+          />
+          <SettingsQuickAction
+            icon="view-grid"
+            label="Matrix Board"
+            value="Status, look, runtime"
+            onPress={onOpenMatrix}
+          />
+          <SettingsQuickAction
+            icon="tools"
+            label="Admin & Reports"
+            value="Health and diagnostics"
+            onPress={onOpenAdmin}
+          />
+          <SettingsQuickAction
+            icon="history"
+            label="History"
+            value="Stored flight rows"
+            onPress={onOpenHistory}
+          />
+          <SettingsQuickAction
+            icon="book-open-variant"
+            label="Docs"
+            value="Bundled README"
+            onPress={() => onOpenDoc("readme")}
+          />
+          <SettingsQuickAction
+            icon="shield-lock-outline"
+            label="Privacy"
+            value="Local-first policy"
+            onPress={() => onOpenDoc("privacy")}
+          />
+        </View>
+      </View>
+
+      <View style={styles.settingsCard}>
+        <Text style={styles.settingsTitle}>HELP & SUPPORT</Text>
         <Text style={styles.moduleIntro}>
-          Mobile looks stay independent from the desktop skin. Pick the companion mood that feels right for the phone or tablet.
-        </Text>
-
-        <FilterSection title="THEME">
-          <View style={styles.filterRow}>
-            {MOBILE_THEME_OPTIONS.map((item) => (
-              <DirectionButton
-                key={item.id}
-                active={themeMode === item.id}
-                label={item.label.toUpperCase()}
-                onPress={() => onThemeModeChange(item.id)}
-              />
-            ))}
-          </View>
-        </FilterSection>
-
-        <FilterSection title="SKIN">
-          <View style={styles.filterWrap}>
-            {MOBILE_SKIN_OPTIONS.map((item) => (
-              <OptionChip
-                key={item.id}
-                active={skin === item.id}
-                label={item.label}
-                meta={themeMode}
-                onPress={() => onSkinChange(item.id)}
-              />
-            ))}
-          </View>
-        </FilterSection>
-
-        <AppearancePreviewStrip />
-      </View>
-      ) : null}
-
-      {section === "tools" ? (
-      <View style={styles.settingsCard}>
-        <Text style={styles.settingsTitle}>TOOLS</Text>
-        <SettingsToolPill
-          icon="restart"
-          label="Restart scheduler"
-          value={schedulerMessage || "Reload config and run a fresh fetch cycle"}
-          onPress={onRestartScheduler}
-          loading={schedulerRestarting}
-          disabled={schedulerRestarting}
-        />
-        <SettingsToolPill
-          icon="history"
-          label="History"
-          value="Browse stored flights without crowding the main nav"
-          onPress={onOpenHistory}
-        />
-        <SettingsToolPill
-          icon="view-grid"
-          label="Matrix panel"
-          value="Preview and configure HUB75 output"
-          onPress={onOpenMatrix}
-        />
-        <SettingsToolPill
-          icon="tools"
-          label="Admin panel"
-          value="Diagnostics, budgets, and reports"
-          onPress={onOpenAdmin}
-        />
-      </View>
-      ) : null}
-
-      {section === "about" ? (
-      <View style={styles.settingsCard}>
-        <Text style={styles.settingsTitle}>ABOUT</Text>
-        <Text style={styles.settingsHelp}>
-          Local Flight is a local-first flight information display. All flight data, history, and config stay on your machine — nothing is uploaded, synced, or tracked beyond the configured aviation data sources.
-        </Text>
-        <Text style={styles.settingsHelp}>
-          Automatic companion reports require both this iOS app and the connected Local Flight server to allow diagnostics. Expo JS/React errors are covered; native iOS crashes before JavaScript starts still rely on Apple crash logs.
+          Lower-frequency links and diagnostics controls live here so daily settings stay calm.
         </Text>
         <FilterSection title="MOBILE DIAGNOSTICS">
           <View style={styles.filterRow}>
@@ -2018,16 +2677,16 @@ export function SettingsScreen({
           </View>
         </FilterSection>
         <SettingsToolPill
-          icon="book-open-variant"
-          label="Local docs"
-          value="Read README inside the companion"
-          onPress={() => onOpenDoc("readme")}
+          icon="format-list-bulleted"
+          label="Changelog"
+          value="Release history and version notes"
+          onPress={() => onOpenDoc("changelog")}
         />
         <SettingsToolPill
-          icon="shield-lock-outline"
-          label="Privacy"
-          value="What stays local and what the crash reporter sends"
-          onPress={() => onOpenDoc("privacy")}
+          icon="restart-alert"
+          label="Rerun companion setup"
+          value="Revisit server pairing and diagnostics consent"
+          onPress={onRerunSetup}
         />
         <SettingsToolPill
           icon="github"
@@ -2035,13 +2694,6 @@ export function SettingsScreen({
           value="github.com/tr3y4rch/local-flight"
           onPress={() => void Linking.openURL("https://github.com/tr3y4rch/local-flight")}
         />
-        <SettingsToolPill
-          icon="format-list-bulleted"
-          label="Changelog"
-          value="Release history and version notes"
-          onPress={() => onOpenDoc("changelog")}
-        />
-
         <Pressable style={styles.coffeeCard} onPress={onOpenCoffee}>
           <View style={styles.coffeeIcon}>
             <MaterialCommunityIcons name="coffee" size={19} color="#111" />
@@ -2053,7 +2705,15 @@ export function SettingsScreen({
           <MaterialCommunityIcons name="open-in-new" size={16} color={palette.amber} />
         </Pressable>
       </View>
-      ) : null}
+
+      <AppearanceSheet
+        visible={appearanceVisible}
+        themeMode={themeMode}
+        skin={skin}
+        onClose={() => setAppearanceVisible(false)}
+        onThemeModeChange={onThemeModeChange}
+        onSkinChange={onSkinChange}
+      />
     </View>
   );
 }
@@ -2230,6 +2890,96 @@ function AppearancePreviewStrip() {
         <View style={[styles.appearancePreviewDot, { backgroundColor: palette.red }]} />
       </View>
     </View>
+  );
+}
+
+function AppearanceSheet({
+  visible,
+  themeMode,
+  skin,
+  onClose,
+  onThemeModeChange,
+  onSkinChange
+}: {
+  visible: boolean;
+  themeMode: MobileThemeMode;
+  skin: MobileSkin;
+  onClose: () => void;
+  onThemeModeChange: (value: MobileThemeMode) => void;
+  onSkinChange: (value: MobileSkin) => void;
+}) {
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <View style={styles.sheetBackdrop}>
+        <Pressable style={styles.sheetBackdropPress} onPress={onClose} />
+        <View style={styles.sheetCard}>
+          <View style={styles.sheetHandle} />
+          <View style={styles.sheetHeader}>
+            <View style={styles.sheetHeaderText}>
+              <Text style={styles.sheetEyebrow}>MOBILE LOOK</Text>
+              <Text style={styles.sheetTitle}>Companion Appearance</Text>
+              <Text style={styles.sheetSubtitle}>Theme the phone without changing the server display.</Text>
+            </View>
+            <Pressable style={styles.sheetAction} onPress={onClose}>
+              <Text style={styles.sheetActionText}>DONE</Text>
+            </Pressable>
+          </View>
+
+          <ScrollView style={styles.sheetScroll} contentContainerStyle={styles.sheetContent}>
+            <FilterSection title="THEME">
+              <View style={styles.filterRow}>
+                {MOBILE_THEME_OPTIONS.map((item) => (
+                  <DirectionButton
+                    key={item.id}
+                    active={themeMode === item.id}
+                    label={item.label.toUpperCase()}
+                    onPress={() => onThemeModeChange(item.id)}
+                  />
+                ))}
+              </View>
+            </FilterSection>
+
+            <FilterSection title="SKIN">
+              <View style={styles.filterWrap}>
+                {MOBILE_SKIN_OPTIONS.map((item) => (
+                  <OptionChip
+                    key={item.id}
+                    active={skin === item.id}
+                    label={item.label}
+                    meta={themeMode}
+                    onPress={() => onSkinChange(item.id)}
+                  />
+                ))}
+              </View>
+            </FilterSection>
+
+            <AppearancePreviewStrip />
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+function SettingsQuickAction({
+  icon,
+  label,
+  value,
+  onPress
+}: {
+  icon: MaterialIconName;
+  label: string;
+  value: string;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable style={styles.settingsQuickAction} onPress={onPress}>
+      <View style={styles.settingsQuickIcon}>
+        <MaterialCommunityIcons name={icon} size={18} color={palette.blue2} />
+      </View>
+      <Text style={styles.settingsQuickLabel}>{label}</Text>
+      <Text style={styles.settingsQuickValue} numberOfLines={2}>{value}</Text>
+    </Pressable>
   );
 }
 

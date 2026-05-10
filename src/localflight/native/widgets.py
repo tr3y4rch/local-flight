@@ -38,7 +38,7 @@ class DetailDrawer:
     def __new__(cls, QtWidgets: Any, title: str = "Detail"):
         drawer = QtWidgets.QFrame()
         drawer.setObjectName("Drawer")
-        drawer.setMinimumWidth(330)
+        drawer.setMinimumWidth(280)
         drawer.setMaximumWidth(460)
         layout = QtWidgets.QVBoxLayout(drawer)
         layout.setContentsMargins(16, 16, 16, 16)

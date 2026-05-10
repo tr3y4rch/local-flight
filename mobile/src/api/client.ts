@@ -18,7 +18,9 @@ import type {
   MatrixRuntimeConfigSave,
   MatrixRuntimeConfigSaveResponse,
   Metar,
+  RadarMapResponse,
   RadarResponse,
+  RadarSurfaceResponse,
   RequestLogResponse,
   SchedulerRestartResponse
 } from "./types";
@@ -123,6 +125,47 @@ export function getConfig(serverUrl: string): Promise<AppConfig> {
   return fetchJson<AppConfig>(serverUrl, "/api/config");
 }
 
+export async function getRootHealth(serverUrl: string): Promise<{ ok: boolean }> {
+  const base = normalizeServerUrl(serverUrl);
+  if (!base) {
+    throw new LocalFlightApiError("Set a Local Flight server URL first.");
+  }
+
+  const response = await fetch(`${base}/health`, {
+    headers: { Accept: "application/json" }
+  });
+  if (!response.ok) {
+    throw new LocalFlightApiError(`HTTP ${response.status} for /health`, response.status);
+  }
+
+  try {
+    return (await response.json()) as { ok: boolean };
+  } catch {
+    throw new LocalFlightApiError("Local Flight answered /health, but it did not return JSON.");
+  }
+}
+
+export async function testCompanionSetupServer(serverUrl: string): Promise<{
+  normalizedUrl: string;
+  state: AppState;
+  config: AppConfig;
+}> {
+  const normalizedUrl = normalizeServerUrl(serverUrl);
+  await getRootHealth(normalizedUrl);
+
+  try {
+    const [state, config] = await Promise.all([
+      getHealth(normalizedUrl),
+      getConfig(normalizedUrl)
+    ]);
+    return { normalizedUrl, state, config };
+  } catch {
+    throw new LocalFlightApiError(
+      "Local Flight answered /health, but setup APIs are not ready. Finish Local Flight setup on the desktop/Pi first, then return here."
+    );
+  }
+}
+
 export function getAdminSystem(serverUrl: string): Promise<AdminSystem> {
   return fetchJson<AdminSystem>(serverUrl, "/api/admin/system");
 }
@@ -209,6 +252,67 @@ export function getRadar(
     serverUrl,
     `/api/radar?radius_nm=${radiusNm}`
   );
+}
+
+export function getRadarMap(
+  serverUrl: string,
+  radiusNm = 20
+): Promise<RadarMapResponse> {
+  return fetchJson<RadarMapResponse>(
+    serverUrl,
+    `/api/radar/map?radius_nm=${radiusNm}&terrain=false`
+  );
+}
+
+export function getRadarSurface(
+  serverUrl: string,
+  radiusNm = 5
+): Promise<RadarSurfaceResponse> {
+  const surfaceRadius = Math.max(1, Math.min(5, radiusNm));
+  return fetchJson<RadarSurfaceResponse>(
+    serverUrl,
+    `/api/radar/surface?radius_nm=${surfaceRadius}`
+  );
+}
+
+function radarMapFromSurface(surface: RadarSurfaceResponse, radiusNm: number): RadarMapResponse {
+  const features = surface.features || [];
+  const runways = features.filter((feature) => String(feature.kind || "").toLowerCase() === "runway");
+  const surfaceFeatures = features.filter((feature) => String(feature.kind || "").toLowerCase() !== "runway");
+  const attribution = surface.attribution ? [surface.attribution] : [];
+
+  return {
+    center: surface.center,
+    radius_nm: radiusNm,
+    schema_version: "radar-map-surface-fallback-v1",
+    runways,
+    surface_features: surfaceFeatures,
+    map_features: [],
+    attribution,
+    sources: {
+      runways: runways.length ? "surface-fallback" : "none",
+      surface: surface.provider || "surface-fallback",
+      surface_cache_state: surface.cache_state || "unknown",
+      map: "none",
+      map_cache_state: "fallback"
+    },
+    confidence: {
+      runway_count: runways.length,
+      surface_feature_count: surfaceFeatures.length,
+      fallback: "surface"
+    }
+  };
+}
+
+export async function getRadarGround(
+  serverUrl: string,
+  radiusNm = 20
+): Promise<RadarMapResponse> {
+  try {
+    return await getRadarMap(serverUrl, radiusNm);
+  } catch {
+    return radarMapFromSurface(await getRadarSurface(serverUrl, Math.min(5, radiusNm)), radiusNm);
+  }
 }
 
 export function getMatrixConfig(serverUrl: string): Promise<MatrixRuntimeConfig> {

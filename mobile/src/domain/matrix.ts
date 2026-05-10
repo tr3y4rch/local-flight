@@ -1,8 +1,14 @@
-import type { FidsRow, FlightView, MatrixRuntimeConfig, MatrixRuntimeConfigSave } from "../api/types";
+import type {
+  FidsRow,
+  FlightView,
+  MatrixAnimationMode,
+  MatrixPaletteId,
+  MatrixRuntimeConfig,
+  MatrixRuntimeConfigSave
+} from "../api/types";
 import type { MobileSkin } from "../theme/tokens";
-import { DEFAULT_MATRIX_CONFIG } from "./constants";
+import { DEFAULT_MATRIX_CONFIG, MATRIX_PALETTE_OPTIONS } from "./constants";
 import { routeCode, routeName, statusShort } from "./flights";
-import type { MatrixPreset } from "./types";
 
 export const MATRIX_SKIN_PALETTES: Record<MobileSkin, {
   off: string;
@@ -19,6 +25,18 @@ export const MATRIX_SKIN_PALETTES: Record<MobileSkin, {
   cyan: { off: "#00080f", green: "#00ccff", white: "#00ffcc", dim: "#006688", amber: "#ffcc00", red: "#ff4060", cyan: "#00ccff" },
   crt: { off: "#060400", green: "#ffaa00", white: "#ffcc44", dim: "#7a5000", amber: "#ffdd00", red: "#ff4020", cyan: "#ffaa00" }
 };
+
+export const MATRIX_LED_PALETTES = Object.fromEntries(
+  MATRIX_PALETTE_OPTIONS.map((item) => [item.id, item.colors])
+) as Record<MatrixPaletteId, {
+  off: string;
+  green: string;
+  white: string;
+  dim: string;
+  amber: string;
+  red: string;
+  cyan: string;
+}>;
 
 export function normalizeMatrixDefaultView(value?: string | null): FlightView {
   return value === "arrivals" ? "arrivals" : "departures";
@@ -37,14 +55,59 @@ export function normalizeMatrixSkin(value?: string | null): MobileSkin {
   }
 }
 
+export function normalizeMatrixPalette(value?: string | null): MatrixPaletteId {
+  return MATRIX_PALETTE_OPTIONS.some((item) => item.id === value)
+    ? value as MatrixPaletteId
+    : DEFAULT_MATRIX_CONFIG.palette;
+}
+
+export function normalizeMatrixAnimationMode(value?: string | null): MatrixAnimationMode {
+  switch (value) {
+    case "split_flap":
+    case "slide_left":
+    case "slide_right":
+    case "static":
+      return value;
+    default:
+      return DEFAULT_MATRIX_CONFIG.animation_mode;
+  }
+}
+
+function normalizeMatrixShowWeather(value?: MatrixRuntimeConfig | MatrixRuntimeConfigSave | null): boolean {
+  const options = value?.options || {};
+  if (typeof options.show_metar === "boolean") return options.show_metar;
+  if (typeof options.show_weather === "boolean") return options.show_weather;
+  return Boolean(DEFAULT_MATRIX_CONFIG.options.show_metar);
+}
+
 export function normalizeMatrixRuntimeConfig(
   value?: MatrixRuntimeConfig | MatrixRuntimeConfigSave | null
 ): MatrixRuntimeConfigSave {
+  const palette = normalizeMatrixPalette(value?.palette || value?.options?.palette);
+  const animationEnabled = value?.animation_enabled ?? DEFAULT_MATRIX_CONFIG.animation_enabled;
+  const animationMode = animationEnabled === false
+    ? "static"
+    : normalizeMatrixAnimationMode(value?.animation_mode || value?.options?.animation_mode);
+  const showWeather = normalizeMatrixShowWeather(value);
+
   return {
-    brightness: Math.max(0, Math.min(1, Number(value?.brightness ?? DEFAULT_MATRIX_CONFIG.brightness) || DEFAULT_MATRIX_CONFIG.brightness)),
+    brightness: Math.max(0.05, Math.min(1, Number(value?.brightness ?? DEFAULT_MATRIX_CONFIG.brightness) || DEFAULT_MATRIX_CONFIG.brightness)),
     max_rows: Math.max(1, Math.min(8, Number(value?.max_rows ?? DEFAULT_MATRIX_CONFIG.max_rows) || DEFAULT_MATRIX_CONFIG.max_rows)),
     refresh_seconds: Math.max(10, Math.min(3600, Number(value?.refresh_seconds ?? DEFAULT_MATRIX_CONFIG.refresh_seconds) || DEFAULT_MATRIX_CONFIG.refresh_seconds)),
-    default_view: normalizeMatrixDefaultView(value?.default_view)
+    default_view: normalizeMatrixDefaultView(value?.default_view),
+    page_rotation_seconds: Math.max(3, Math.min(120, Number(value?.page_rotation_seconds ?? DEFAULT_MATRIX_CONFIG.page_rotation_seconds) || DEFAULT_MATRIX_CONFIG.page_rotation_seconds)),
+    animation_enabled: animationMode !== "static",
+    animation_mode: animationMode,
+    animation_speed: Math.max(1, Math.min(5, Number(value?.animation_speed ?? DEFAULT_MATRIX_CONFIG.animation_speed) || DEFAULT_MATRIX_CONFIG.animation_speed)),
+    status_animation_enabled: value?.status_animation_enabled ?? DEFAULT_MATRIX_CONFIG.status_animation_enabled,
+    palette,
+    options: {
+      ...(value?.options || {}),
+      palette,
+      show_metar: showWeather,
+      show_weather: showWeather,
+      animation_mode: animationMode
+    }
   };
 }
 
@@ -58,7 +121,14 @@ export function matrixConfigsEqual(
     left.brightness === right.brightness &&
     left.max_rows === right.max_rows &&
     left.refresh_seconds === right.refresh_seconds &&
-    left.default_view === right.default_view
+    left.default_view === right.default_view &&
+    left.page_rotation_seconds === right.page_rotation_seconds &&
+    left.animation_enabled === right.animation_enabled &&
+    left.animation_mode === right.animation_mode &&
+    left.animation_speed === right.animation_speed &&
+    left.status_animation_enabled === right.status_animation_enabled &&
+    left.palette === right.palette &&
+    Boolean(left.options.show_metar) === Boolean(right.options.show_metar)
   );
 }
 
@@ -74,41 +144,4 @@ export function matrixPreviewLines(rows: FidsRow[]): string[] {
     const status = statusShort(row.status_display).slice(0, 6).padEnd(6, " ");
     return `${time} ${flight} ${route} ${status}`.trimEnd();
   });
-}
-
-export function matrixClientConfig(opts: {
-  serverUrl: string;
-  airportIata?: string | null;
-  airportIcao?: string | null;
-  preset: MatrixPreset;
-  rows: number;
-  brightness: number;
-  refreshSeconds: number;
-  view: FlightView;
-  normalizeServerUrl: (value: string) => string;
-}): string {
-  let host = "192.168.1.100";
-  let port = "8000";
-
-  try {
-    const parsed = new URL(opts.normalizeServerUrl(opts.serverUrl));
-    host = parsed.hostname || host;
-    port = parsed.port || (parsed.protocol === "https:" ? "443" : "8000");
-  } catch {
-    // Keep the friendly defaults when the URL is not available yet.
-  }
-
-  return [
-    `API_HOST      = "${host}"`,
-    `API_PORT      = ${port}`,
-    `AIRPORT_IATA  = "${opts.airportIata || "ZRH"}"`,
-    `AIRPORT_ICAO  = "${opts.airportIcao || "LSZH"}"`,
-    `PANEL_W       = ${opts.preset.panelW}`,
-    `PANEL_H       = ${opts.preset.panelH}`,
-    `MAX_ROWS      = ${opts.rows}`,
-    `BRIGHTNESS    = ${opts.brightness.toFixed(2)}`,
-    `DEFAULT_VIEW  = "${opts.view}"`,
-    `REFRESH_S     = ${opts.refreshSeconds}`,
-    `PING_S        = 600`
-  ].join("\n");
 }

@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Animated,
   Linking,
-  Modal,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -11,12 +10,13 @@ import {
   Text,
   View
 } from "react-native";
+import { useKeepAwake } from "expo-keep-awake";
 import * as SplashScreen from "expo-splash-screen";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { BottomNav } from "../components/BottomNav";
 import { LaunchOverlay } from "../components/LaunchOverlay";
-import { AdminScreen, AirportConfigSheet, ConnectPrompt, DocsScreen, FidsScreen, FlightActionSheet, FlightDetailSheet, Header, HistoryScreen, LandscapeDisplay, MatrixScreen, RadarScreen, ScreenError, SettingsScreen, type DocSlug } from "../screens/AppScreens";
+import { AdminScreen, AirportConfigSheet, CompanionSetupScreen, ConnectPrompt, DocsScreen, FidsScreen, FlightActionSheet, FlightDetailSheet, FullscreenFidsDisplay, Header, HistoryScreen, MatrixScreen, RadarScreen, ScreenError, SettingsScreen, type DocSlug } from "../screens/AppScreens";
 import {
   getAdminSystem,
   getBudget,
@@ -27,6 +27,7 @@ import {
   getHistory,
   getMetar,
   getRadar,
+  getRadarGround,
   getUpdates,
   normalizeServerUrl,
   restartScheduler,
@@ -42,14 +43,14 @@ import type {
   FlightView,
   HistoryDirection,
   HistoryResponse,
+  RadarMapResponse,
   RadarResponse
 } from "../api/types";
 import { installGlobalCrashReporter, reportMobileCrash } from "../crash/reporter";
 import type { CompanionIdentity } from "../device/identity";
 import {
   COMPANION_PING_MS,
-  EMPTY_SNAPSHOT,
-  MATRIX_PRESETS
+  EMPTY_SNAPSHOT
 } from "../domain/constants";
 import { mobileClientContext } from "../domain/feedback";
 import { flightPinKey } from "../domain/flights";
@@ -60,11 +61,9 @@ import {
   formatUtc,
   hexToRgba
 } from "../domain/formatting";
-import { matrixClientConfig } from "../domain/matrix";
 import type {
   FeedbackTone,
   HistoryWindow,
-  MatrixPreset,
   RadarRadius,
   RefreshOptions,
   Screen
@@ -73,10 +72,14 @@ import { useFlightDetail } from "../hooks/useFlightDetail";
 import { type LaunchHydration, useLaunchOverlay } from "../hooks/useLaunchOverlay";
 import { useMatrixCompanion } from "../hooks/useMatrixCompanion";
 import {
-  loadMobileDiagnosticsMode,
   type ConfigProfile,
+  completeMobileSetupState,
+  incompleteMobileSetupState,
+  isMobileSetupComplete,
   type MobileDiagnosticsMode,
+  type MobileSetupState,
   saveMobileDiagnosticsMode,
+  saveMobileSetupState,
   savePinnedFlight,
   saveServerUrl
 } from "../storage/settings";
@@ -102,6 +105,7 @@ SplashScreen.setOptions({
 export function AppShell() {
   const { appearance, themeMode, skin, setThemeMode, setSkin } = useMobileTheme();
   const layout = useResponsiveLayout();
+  const landscapeFidsActive = layout.isLandscape;
   const insets = useSafeAreaInsets();
   const [screen, setScreen] = useState<Screen>("fids");
   const [view, setView] = useState<FlightView>("departures");
@@ -122,13 +126,14 @@ export function AppShell() {
   const [rows, setRows] = useState<FidsRow[]>([]);
   const [historyData, setHistoryData] = useState<HistoryResponse | null>(null);
   const [radarData, setRadarData] = useState<RadarResponse | null>(null);
+  const [radarGroundData, setRadarGroundData] = useState<RadarMapResponse | null>(null);
+  const [radarGroundError, setRadarGroundError] = useState<string | null>(null);
   const [feedbackTitle, setFeedbackTitle] = useState("");
   const [feedbackDescription, setFeedbackDescription] = useState("");
   const [feedbackSending, setFeedbackSending] = useState(false);
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
   const [feedbackTone, setFeedbackTone] = useState<FeedbackTone>("ok");
   const [autoReportMessage, setAutoReportMessage] = useState<string | null>(null);
-  const [matrixPreset, setMatrixPreset] = useState<MatrixPreset>(MATRIX_PRESETS[4]!);
   const [pinnedCallsign, setPinnedCallsign] = useState("");
   const [docsSlug, setDocsSlug] = useState<DocSlug>("readme");
   const [actionRow, setActionRow] = useState<FidsRow | null>(null);
@@ -136,9 +141,11 @@ export function AppShell() {
   const [profiles, setProfiles] = useState<ConfigProfile[]>([]);
   const [companionIdentity, setCompanionIdentity] = useState<CompanionIdentity | null>(null);
   const [mobileDiagnosticsMode, setMobileDiagnosticsMode] = useState<MobileDiagnosticsMode>("unset");
-  const [mobileDiagnosticsLoaded, setMobileDiagnosticsLoaded] = useState(false);
+  const [mobileSetupState, setMobileSetupState] = useState<MobileSetupState>(() => incompleteMobileSetupState());
+  const [launchHydrated, setLaunchHydrated] = useState(false);
 
   const socketRef = useRef<WebSocket | null>(null);
+  const radarGroundCacheRef = useRef<Map<string, RadarMapResponse>>(new Map());
   const screenOpacity = useRef(new Animated.Value(1)).current;
   const screenLift = useRef(new Animated.Value(0)).current;
   const flightDetail = useFlightDetail(serverUrl, setError);
@@ -146,7 +153,6 @@ export function AppShell() {
   const {
     rows: matrixRows,
     runtime: matrixRuntime,
-    serverSkin: matrixServerSkin,
     dirty: matrixDirty,
     saving: matrixSaving,
     saveMessage: matrixSaveMessage,
@@ -170,24 +176,6 @@ export function AppShell() {
 
   useEffect(() => {
     installGlobalCrashReporter();
-  }, []);
-
-  useEffect(() => {
-    let alive = true;
-    loadMobileDiagnosticsMode()
-      .then((mode) => {
-        if (alive) {
-          setMobileDiagnosticsMode(mode);
-        }
-      })
-      .finally(() => {
-        if (alive) {
-          setMobileDiagnosticsLoaded(true);
-        }
-      });
-    return () => {
-      alive = false;
-    };
   }, []);
 
   if (palette.key !== appearance.key) {
@@ -225,10 +213,11 @@ export function AppShell() {
   }, [screen, docsSlug, screenLift, screenOpacity]);
 
   const onLaunchHydrated = useCallback(
-    ({ savedUrl, savedPin, savedProfiles, identity }: LaunchHydration) => {
-      if (savedUrl) {
-        setServerUrl(savedUrl);
-        setDraftUrl(savedUrl);
+    ({ savedUrl, savedPin, savedProfiles, identity, mobileDiagnosticsMode: hydratedDiagnosticsMode, setupState }: LaunchHydration) => {
+      const effectiveSavedUrl = savedUrl || setupState.serverUrl;
+      if (effectiveSavedUrl) {
+        setServerUrl(effectiveSavedUrl);
+        setDraftUrl(effectiveSavedUrl);
       }
       if (savedPin) {
         setPinnedCallsign(savedPin);
@@ -237,17 +226,24 @@ export function AppShell() {
         setProfiles(savedProfiles);
       }
       setCompanionIdentity(identity);
+      setMobileDiagnosticsMode(hydratedDiagnosticsMode);
+      setMobileSetupState(setupState);
+      setLaunchHydrated(true);
     },
     []
   );
   const launch = useLaunchOverlay(onLaunchHydrated);
-  const shouldShowMobileDiagnosticsPrompt =
-    mobileDiagnosticsLoaded && connected && mobileDiagnosticsMode === "unset" && !launch.visible;
+  const mobileSetupComplete = launchHydrated && isMobileSetupComplete(mobileSetupState, serverUrl, mobileDiagnosticsMode);
 
   const chooseMobileDiagnosticsMode = useCallback(async (mode: MobileDiagnosticsMode) => {
     await saveMobileDiagnosticsMode(mode);
     setMobileDiagnosticsMode(mode);
-  }, []);
+    if (serverUrl && mode !== "unset") {
+      const nextSetupState = completeMobileSetupState(serverUrl, mode);
+      await saveMobileSetupState(nextSetupState);
+      setMobileSetupState(nextSetupState);
+    }
+  }, [serverUrl]);
 
   const fetchDashboard = useCallback(async (normalized: string) => {
     const [state, config, system, connections, updates, budget] = await Promise.all([
@@ -291,9 +287,36 @@ export function AppShell() {
     []
   );
 
-  const fetchRadarData = useCallback(async (normalized: string, nextRadius: RadarRadius) => {
+  const fetchRadarData = useCallback(async (
+    normalized: string,
+    nextRadius: RadarRadius,
+    forceGround = false
+  ) => {
     const data = await getRadar(normalized, nextRadius);
     setRadarData(data);
+
+    const cacheKey = [
+      normalized,
+      nextRadius,
+      Number(data.center?.lat || 0).toFixed(5),
+      Number(data.center?.lon || 0).toFixed(5)
+    ].join("|");
+    const cachedGround = radarGroundCacheRef.current.get(cacheKey) || null;
+    if (cachedGround && !forceGround) {
+      setRadarGroundData(cachedGround);
+      setRadarGroundError(null);
+      return;
+    }
+
+    try {
+      const ground = await getRadarGround(normalized, nextRadius);
+      radarGroundCacheRef.current.set(cacheKey, ground);
+      setRadarGroundData(ground);
+      setRadarGroundError(null);
+    } catch (exc) {
+      setRadarGroundData(cachedGround);
+      setRadarGroundError(cachedGround ? null : errorMessage(exc));
+    }
   }, []);
 
   const refreshScreen = useCallback(
@@ -303,7 +326,8 @@ export function AppShell() {
       nextView = view,
       nextHistoryDirection = historyDirection,
       nextHistoryHours = historyHours,
-      nextRadarRadius = radarRadius
+      nextRadarRadius = radarRadius,
+      forceRadarGround = false
     }: RefreshOptions = {}) => {
       const normalized = normalizeServerUrl(nextUrl);
       if (!normalized) {
@@ -324,17 +348,14 @@ export function AppShell() {
       }
 
       try {
-        if (layout.isLandscape && (target === "fids" || target === "radar")) {
-          await Promise.all([
-            fetchFidsData(normalized, nextView),
-            fetchRadarData(normalized, nextRadarRadius)
-          ]);
+        if (landscapeFidsActive) {
+          await fetchFidsData(normalized, nextView);
         } else if (target === "fids") {
           await fetchFidsData(normalized, nextView);
         } else if (target === "history") {
           await fetchHistoryData(normalized, nextHistoryDirection, nextHistoryHours);
         } else if (target === "radar") {
-          await fetchRadarData(normalized, nextRadarRadius);
+          await fetchRadarData(normalized, nextRadarRadius, forceRadarGround);
         } else if (target === "matrix") {
           await Promise.all([
             fetchMatrixRows(normalized, matrixRuntime.default_view, matrixRuntime.max_rows),
@@ -356,7 +377,7 @@ export function AppShell() {
       fetchRadarData,
       historyDirection,
       historyHours,
-      layout.isLandscape,
+      landscapeFidsActive,
       matrixRuntime.default_view,
       matrixRuntime.max_rows,
       radarRadius,
@@ -374,6 +395,11 @@ export function AppShell() {
     try {
       await testConnection(normalized);
       await saveServerUrl(normalized);
+      if (mobileDiagnosticsMode !== "unset") {
+        const nextSetupState = completeMobileSetupState(normalized, mobileDiagnosticsMode);
+        await saveMobileSetupState(nextSetupState);
+        setMobileSetupState(nextSetupState);
+      }
       setServerUrl(normalized);
       setDraftUrl(normalized);
       setScreen("fids");
@@ -383,7 +409,44 @@ export function AppShell() {
     } finally {
       setLoading(false);
     }
-  }, [draftUrl]);
+  }, [draftUrl, mobileDiagnosticsMode]);
+
+  const completeCompanionSetup = useCallback(async ({
+    serverUrl: nextServerUrl,
+    diagnosticsMode,
+    config
+  }: {
+    serverUrl: string;
+    diagnosticsMode: MobileDiagnosticsMode;
+    config: AppConfig;
+  }) => {
+    const normalized = normalizeServerUrl(nextServerUrl);
+    const nextSetupState = completeMobileSetupState(normalized, diagnosticsMode);
+    await Promise.all([
+      saveServerUrl(normalized),
+      saveMobileDiagnosticsMode(diagnosticsMode),
+      saveMobileSetupState(nextSetupState)
+    ]);
+    setServerUrl(normalized);
+    setDraftUrl(normalized);
+    setMobileDiagnosticsMode(diagnosticsMode);
+    setMobileSetupState(nextSetupState);
+    setSnapshot((prev) => ({ ...prev, config }));
+    setConnected(true);
+    setError(null);
+    setScreen("fids");
+    void refreshScreen({ nextUrl: normalized, target: "fids" });
+  }, [refreshScreen]);
+
+  const rerunCompanionSetup = useCallback(async () => {
+    const nextSetupState = incompleteMobileSetupState(serverUrl, mobileDiagnosticsMode);
+    await saveMobileSetupState(nextSetupState);
+    setMobileSetupState(nextSetupState);
+    setActionRow(null);
+    setConfigSheetVisible(false);
+    closeFlightDetail();
+    setError(null);
+  }, [closeFlightDetail, mobileDiagnosticsMode, serverUrl]);
 
   const restartSchedulerNow = useCallback(async () => {
     const normalized = normalizeServerUrl(serverUrl);
@@ -475,6 +538,18 @@ export function AppShell() {
   }, []);
 
   useEffect(() => {
+    if (!landscapeFidsActive) return;
+
+    setActionRow(null);
+    setConfigSheetVisible(false);
+    closeFlightDetail();
+
+    if (serverUrl) {
+      void refreshScreen({ target: "fids" });
+    }
+  }, [closeFlightDetail, landscapeFidsActive, refreshScreen, serverUrl]);
+
+  useEffect(() => {
     if (!serverUrl) return;
     void refreshScreen({ target: screen });
   }, [historyDirection, historyHours, radarRadius, refreshScreen, screen, serverUrl, view]);
@@ -510,6 +585,9 @@ export function AppShell() {
           if (message.config) {
             setSnapshot((prev) => ({ ...prev, config: message.config || prev.config }));
           }
+          radarGroundCacheRef.current.clear();
+          setRadarGroundData(null);
+          setRadarGroundError(null);
           void refreshScreen({ target: screen });
         } else if (message.type === "scheduler_restarted") {
           setSchedulerMessage(message.message || (message.ok ? "Scheduler restarted." : "Scheduler is still stopping."));
@@ -590,23 +668,56 @@ export function AppShell() {
   const matrixPreviewView = matrixRuntime.default_view;
   const matrixPreviewRows = matrixRuntime.max_rows;
   const matrixBrightness = matrixRuntime.brightness;
-  const showLandscapeDisplay = layout.isLandscape && (screen === "fids" || screen === "radar");
+  const matrixPalette = matrixRuntime.palette;
+  const matrixShowWeather = Boolean(matrixRuntime.options.show_metar ?? matrixRuntime.options.show_weather);
   const statusBarStyle = themeMode === "light" ? "dark-content" : "light-content";
-  const matrixConfigText = matrixClientConfig({
-    serverUrl,
-    airportIata: cfg?.airport_iata,
-    airportIcao: cfg?.airport_icao,
-    preset: matrixPreset,
-    rows: matrixPreviewRows,
-    brightness: matrixBrightness,
-    refreshSeconds: matrixRuntime.refresh_seconds,
-    view: matrixPreviewView,
-    normalizeServerUrl
-  });
+
+  if (!mobileSetupComplete) {
+    return (
+      <SafeAreaView style={styles.setupSafe} edges={["top", "bottom", "left", "right"]}>
+        <StatusBar barStyle={statusBarStyle} hidden={false} />
+        {launchHydrated ? (
+          <CompanionSetupScreen
+            initialUrl={draftUrl || serverUrl}
+            initialDiagnosticsMode={mobileDiagnosticsMode}
+            onComplete={completeCompanionSetup}
+          />
+        ) : null}
+        <LaunchOverlay
+          visible={launch.visible}
+          opacity={launch.opacity}
+          shift={launch.shift}
+          scale={launch.scale}
+          progress={launch.progress}
+          pulse={launch.pulse}
+          status={launch.status}
+          styles={styles}
+        />
+      </SafeAreaView>
+    );
+  }
+
+  if (landscapeFidsActive) {
+    return (
+      <LandscapeFidsMode
+        rows={rows}
+        view={view}
+        loading={refreshing}
+        error={error}
+        live={isLive}
+        airportCode={airportCode}
+        airportName={airportName}
+        sourceLabel={sourceLabel}
+        utcTime={utcTime}
+        localTime={localTime}
+        pinnedCallsign={pinnedCallsign}
+      />
+    );
+  }
 
   return (
     <SafeAreaView style={styles.safe} edges={["top", "left", "right"]}>
-      <StatusBar barStyle={statusBarStyle} />
+      <StatusBar barStyle={statusBarStyle} hidden={false} />
       <View style={[styles.appFrame, { maxWidth: contentWidth }]}>
         <Header
           airportCode={airportCode}
@@ -637,29 +748,7 @@ export function AppShell() {
             }
           ]}
         >
-          {showLandscapeDisplay ? (
-            <LandscapeDisplay
-              primary={screen}
-              rows={rows}
-              view={view}
-              radarData={radarData}
-              radarRadius={radarRadius}
-              refreshing={refreshing}
-              error={error}
-              showConnectPrompt={!serverUrl}
-              onOpenSettings={() => setScreen("settings")}
-              onRefreshFids={() => refreshScreen({ target: "fids" })}
-              onRefreshRadar={() => refreshScreen({ target: "radar" })}
-              onViewChange={setView}
-              onRadiusChange={setRadarRadius}
-              onOpenDetail={openFlightDetail}
-              onOpenActions={setActionRow}
-              pinnedCallsign={pinnedCallsign}
-              contentPaddingBottom={screenContentPadding}
-            />
-          ) : null}
-
-          {!showLandscapeDisplay && screen === "fids" ? (
+          {screen === "fids" ? (
             <FidsScreen
               rows={rows}
               view={view}
@@ -695,16 +784,18 @@ export function AppShell() {
             />
           ) : null}
 
-          {!showLandscapeDisplay && screen === "radar" ? (
+          {screen === "radar" ? (
             <RadarScreen
               data={radarData}
+              groundData={radarGroundData}
+              groundError={radarGroundError}
               radiusNm={radarRadius}
               loading={refreshing}
               refreshing={refreshing}
               error={error}
               showConnectPrompt={!serverUrl}
               onOpenSettings={() => setScreen("settings")}
-              onRefresh={() => refreshScreen({ target: "radar" })}
+              onRefresh={() => refreshScreen({ target: "radar", forceRadarGround: true })}
               onRadiusChange={setRadarRadius}
               onOpenDetail={openFlightDetail}
               compact={false}
@@ -716,12 +807,15 @@ export function AppShell() {
             <MatrixScreen
               rows={matrixRows}
               view={matrixPreviewView}
-              preset={matrixPreset}
               brightness={matrixBrightness}
               maxRows={matrixPreviewRows}
               refreshSeconds={matrixRuntime.refresh_seconds}
-              configText={matrixConfigText}
-              matrixSkin={matrixServerSkin}
+              pageRotationSeconds={matrixRuntime.page_rotation_seconds}
+              animationMode={matrixRuntime.animation_mode}
+              animationSpeed={matrixRuntime.animation_speed}
+              statusAnimationEnabled={matrixRuntime.status_animation_enabled}
+              showWeather={matrixShowWeather}
+              matrixPalette={matrixPalette}
               matrixEnabled={snapshot.config?.display_outputs?.includes("matrix") || false}
               matrixLastSeen={snapshot.connections?.matrix_last_seen || null}
               dirty={matrixDirty}
@@ -734,10 +828,24 @@ export function AppShell() {
               onOpenSettings={() => setScreen("settings")}
               onRefresh={() => refreshScreen({ target: "matrix" })}
               onViewChange={(value) => updateMatrixDraft({ default_view: value })}
-              onPresetChange={setMatrixPreset}
               onBrightnessChange={(value) => updateMatrixDraft({ brightness: value })}
               onRowsChange={(value) => updateMatrixDraft({ max_rows: value })}
               onRefreshSecondsChange={(value) => updateMatrixDraft({ refresh_seconds: value })}
+              onPageRotationChange={(value) => updateMatrixDraft({ page_rotation_seconds: value })}
+              onAnimationModeChange={(value) => updateMatrixDraft({
+                animation_mode: value,
+                animation_enabled: value !== "static",
+                options: { ...matrixRuntime.options, animation_mode: value }
+              })}
+              onAnimationSpeedChange={(value) => updateMatrixDraft({ animation_speed: value })}
+              onStatusAnimationChange={(value) => updateMatrixDraft({ status_animation_enabled: value })}
+              onShowWeatherChange={(value) => updateMatrixDraft({
+                options: { ...matrixRuntime.options, show_metar: value, show_weather: value }
+              })}
+              onMatrixPaletteChange={(value) => updateMatrixDraft({
+                palette: value,
+                options: { ...matrixRuntime.options, palette: value }
+              })}
               onSave={saveMatrixDraftNow}
               onReset={resetMatrixDraft}
               onBackSettings={() => setScreen("settings")}
@@ -778,8 +886,6 @@ export function AppShell() {
                   companionIdentity={companionIdentity}
                   connected={isLive}
                   error={error}
-                  rows={rows}
-                  view={view}
                   feedbackTitle={feedbackTitle}
                   feedbackDescription={feedbackDescription}
                   feedbackSending={feedbackSending}
@@ -790,6 +896,7 @@ export function AppShell() {
                   onFeedbackDescriptionChange={setFeedbackDescription}
                   onSubmitFeedback={sendFeedbackReport}
                   onSendAutoReportTest={sendAutoReportTest}
+                  onOpenMatrix={() => setScreen("matrix")}
                   onBackSettings={() => setScreen("settings")}
                 />
               ) : null}
@@ -818,6 +925,7 @@ export function AppShell() {
                   onOpenDoc={openDoc}
                   onOpenCoffee={() => void Linking.openURL("https://buymeacoffee.com/localflight")}
                   onRestartScheduler={restartSchedulerNow}
+                  onRerunSetup={rerunCompanionSetup}
                   onChangeUrl={setDraftUrl}
                   onConnect={connect}
                 />
@@ -872,32 +980,6 @@ export function AppShell() {
         onProfilesChange={setProfiles}
       />
 
-      <Modal visible={shouldShowMobileDiagnosticsPrompt} transparent animationType="fade">
-        <View style={styles.diagnosticsBackdrop}>
-          <View style={styles.diagnosticsCard}>
-            <Text style={styles.diagnosticsEyebrow}>COMPANION DIAGNOSTICS</Text>
-            <Text style={styles.diagnosticsTitle}>Choose iOS crash reporting</Text>
-            <Text style={styles.diagnosticsBody}>
-              Manual reports are always available. Automatic companion reports only send when both this device and the connected Local Flight server allow diagnostics.
-            </Text>
-            <View style={styles.diagnosticsOptionStack}>
-              <Pressable style={styles.diagnosticsOption} onPress={() => void chooseMobileDiagnosticsMode("manual")}>
-                <Text style={styles.diagnosticsOptionTitle}>MANUAL ONLY</Text>
-                <Text style={styles.diagnosticsOptionBody}>No background companion reports. Send feedback yourself from Admin.</Text>
-              </Pressable>
-              <Pressable style={styles.diagnosticsOption} onPress={() => void chooseMobileDiagnosticsMode("auto")}>
-                <Text style={styles.diagnosticsOptionTitle}>AUTO CRASH REPORTS</Text>
-                <Text style={styles.diagnosticsOptionBody}>Send serious React/JS companion crashes with device, app, and server context.</Text>
-              </Pressable>
-              <Pressable style={styles.diagnosticsOption} onPress={() => void chooseMobileDiagnosticsMode("auto_logs")}>
-                <Text style={styles.diagnosticsOptionTitle}>AUTO + CONTEXT</Text>
-                <Text style={styles.diagnosticsOptionBody}>Same as auto for now; no native iOS logs are collected in this pass.</Text>
-              </Pressable>
-            </View>
-          </View>
-        </View>
-      </Modal>
-
       <LaunchOverlay
         visible={launch.visible}
         opacity={launch.opacity}
@@ -907,6 +989,53 @@ export function AppShell() {
         pulse={launch.pulse}
         status={launch.status}
         styles={styles}
+      />
+    </SafeAreaView>
+  );
+}
+
+function LandscapeFidsMode({
+  rows,
+  view,
+  loading,
+  error,
+  live,
+  airportCode,
+  airportName,
+  sourceLabel,
+  utcTime,
+  localTime,
+  pinnedCallsign
+}: {
+  rows: FidsRow[];
+  view: FlightView;
+  loading: boolean;
+  error: string | null;
+  live: boolean;
+  airportCode: string;
+  airportName: string;
+  sourceLabel: string;
+  utcTime: string;
+  localTime: string;
+  pinnedCallsign: string;
+}) {
+  useKeepAwake("localflight-landscape-fids", { suppressDeactivateWarnings: true });
+
+  return (
+    <SafeAreaView style={styles.landscapeSafe} edges={["left", "right"]}>
+      <StatusBar hidden />
+      <FullscreenFidsDisplay
+        rows={rows}
+        view={view}
+        loading={loading}
+        error={error}
+        live={live}
+        airportCode={airportCode}
+        airportName={airportName}
+        sourceLabel={sourceLabel}
+        utcTime={utcTime}
+        localTime={localTime}
+        pinnedCallsign={pinnedCallsign}
       />
     </SafeAreaView>
   );
@@ -928,7 +1057,6 @@ function createStyles() {
   const success08 = hexToRgba(palette.green, 0.08);
   const success10 = hexToRgba(palette.green, 0.10);
   const success12 = hexToRgba(palette.green, 0.12);
-  const success16 = hexToRgba(palette.green, 0.16);
   const success18 = hexToRgba(palette.green, 0.18);
   const success25 = hexToRgba(palette.green, 0.25);
   const warn07 = hexToRgba(palette.amber, 0.07);
@@ -948,6 +1076,212 @@ function createStyles() {
     flex: 1,
     backgroundColor: palette.bg,
     alignItems: "center"
+  },
+  landscapeSafe: {
+    flex: 1,
+    backgroundColor: palette.bg
+  },
+  setupSafe: {
+    flex: 1,
+    backgroundColor: palette.bg
+  },
+  companionSetupScroll: {
+    flex: 1,
+    backgroundColor: palette.bg
+  },
+  companionSetupContent: {
+    flexGrow: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 18
+  },
+  companionSetupCard: {
+    width: "100%",
+    maxWidth: 520,
+    padding: 22,
+    borderRadius: 28,
+    borderWidth: 1,
+    borderColor: accent18,
+    backgroundColor: palette.rowAlt,
+    shadowColor: "#000",
+    shadowOpacity: 0.22,
+    shadowRadius: 24,
+    shadowOffset: { width: 0, height: 14 }
+  },
+  companionSetupEyebrow: {
+    fontFamily: mono,
+    color: palette.blue2,
+    fontSize: 10,
+    fontWeight: "800",
+    letterSpacing: 2.4,
+    textAlign: "center"
+  },
+  companionSetupTitle: {
+    marginTop: 8,
+    fontFamily: mono,
+    color: palette.text,
+    fontSize: 28,
+    fontWeight: "800",
+    letterSpacing: 1.2,
+    textAlign: "center"
+  },
+  companionSetupBody: {
+    marginTop: 10,
+    color: palette.textMuted,
+    fontSize: 13,
+    lineHeight: 20,
+    textAlign: "center"
+  },
+  companionSetupSteps: {
+    flexDirection: "row",
+    justifyContent: "center",
+    gap: 7,
+    marginTop: 20,
+    marginBottom: 18
+  },
+  companionSetupStepDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 999,
+    backgroundColor: "rgba(255,255,255,0.13)"
+  },
+  companionSetupStepDotActive: {
+    backgroundColor: palette.green
+  },
+  companionSetupPanel: {
+    gap: 12
+  },
+  companionSetupPanelTitle: {
+    fontFamily: mono,
+    color: palette.text,
+    fontSize: 16,
+    fontWeight: "800",
+    letterSpacing: 0.9,
+    textAlign: "center"
+  },
+  companionSetupInfoGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginTop: 6
+  },
+  companionSetupInfoTile: {
+    width: "48%",
+    minHeight: 68,
+    padding: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: accent14,
+    backgroundColor: accent06
+  },
+  companionSetupInfoLabel: {
+    fontFamily: mono,
+    color: palette.textDim,
+    fontSize: 8,
+    fontWeight: "800",
+    letterSpacing: 1.3,
+    textTransform: "uppercase"
+  },
+  companionSetupInfoValue: {
+    marginTop: 5,
+    color: palette.text,
+    fontSize: 12,
+    fontWeight: "800"
+  },
+  companionSetupInput: {
+    minHeight: 48,
+    paddingHorizontal: 14,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: accent18,
+    backgroundColor: palette.row,
+    color: palette.text,
+    fontFamily: mono,
+    fontSize: 13
+  },
+  companionSetupPrimary: {
+    minHeight: 48,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 999,
+    backgroundColor: palette.green
+  },
+  companionSetupPrimaryText: {
+    fontFamily: mono,
+    color: "#051009",
+    fontSize: 12,
+    fontWeight: "900",
+    letterSpacing: 1.2
+  },
+  companionSetupSecondary: {
+    minHeight: 38,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: accent14,
+    backgroundColor: "rgba(255,255,255,0.035)"
+  },
+  companionSetupSecondaryText: {
+    fontFamily: mono,
+    color: palette.blue2,
+    fontSize: 10,
+    fontWeight: "800",
+    letterSpacing: 1.1
+  },
+  companionSetupOptionStack: {
+    gap: 8,
+    marginTop: 4
+  },
+  companionSetupOption: {
+    padding: 14,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.08)",
+    backgroundColor: "rgba(255,255,255,0.03)"
+  },
+  companionSetupOptionActive: {
+    borderColor: success25,
+    backgroundColor: success08
+  },
+  companionSetupOptionTitle: {
+    color: palette.text,
+    fontSize: 13,
+    fontWeight: "800"
+  },
+  companionSetupOptionBody: {
+    marginTop: 5,
+    color: palette.textMuted,
+    fontSize: 11,
+    lineHeight: 16
+  },
+  companionSetupSummary: {
+    padding: 12,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: accent14,
+    backgroundColor: palette.row
+  },
+  companionSetupError: {
+    marginTop: 14,
+    padding: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: warn18,
+    backgroundColor: warn08
+  },
+  companionSetupErrorLabel: {
+    fontFamily: mono,
+    color: palette.amber,
+    fontSize: 9,
+    fontWeight: "800",
+    letterSpacing: 1.2
+  },
+  companionSetupErrorText: {
+    marginTop: 5,
+    color: palette.text,
+    fontSize: 12,
+    lineHeight: 18
   },
   appFrame: {
     flex: 1,
@@ -1526,6 +1860,25 @@ function createStyles() {
     borderColor: accent40,
     backgroundColor: accent12
   },
+  paletteChip: {
+    minWidth: 132,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.08)",
+    backgroundColor: "rgba(255,255,255,0.03)"
+  },
+  paletteDots: {
+    flexDirection: "row",
+    gap: 4,
+    marginTop: 8
+  },
+  paletteDot: {
+    width: 14,
+    height: 6,
+    borderRadius: 999
+  },
   optionChipLabel: {
     fontFamily: mono,
     color: palette.text,
@@ -1578,6 +1931,209 @@ function createStyles() {
     gap: 8,
     paddingHorizontal: 12,
     paddingBottom: 12
+  },
+  fullscreenFidsShell: {
+    flex: 1,
+    paddingHorizontal: 18,
+    paddingTop: 14,
+    paddingBottom: 10,
+    backgroundColor: palette.bg
+  },
+  fullscreenFidsTop: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    gap: 18,
+    marginBottom: 12,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: palette.lineSoft
+  },
+  fullscreenFidsIdentity: {
+    flex: 1,
+    minWidth: 0
+  },
+  fullscreenFidsKicker: {
+    fontFamily: mono,
+    color: palette.blue2,
+    fontSize: 11,
+    fontWeight: "800",
+    letterSpacing: 2.6
+  },
+  fullscreenFidsTitle: {
+    marginTop: 2,
+    fontFamily: mono,
+    color: palette.text,
+    fontSize: 34,
+    lineHeight: 38,
+    fontWeight: "800",
+    letterSpacing: 2
+  },
+  fullscreenFidsAirport: {
+    marginTop: 2,
+    color: palette.textMuted,
+    fontSize: 13
+  },
+  fullscreenFidsMeta: {
+    alignItems: "flex-end",
+    gap: 3,
+    paddingTop: 2
+  },
+  fullscreenFidsLive: {
+    fontFamily: mono,
+    fontSize: 12,
+    fontWeight: "800",
+    letterSpacing: 1.4
+  },
+  fullscreenFidsLiveOn: {
+    color: palette.green
+  },
+  fullscreenFidsLiveOff: {
+    color: palette.red
+  },
+  fullscreenFidsSource: {
+    fontFamily: mono,
+    color: palette.textDim,
+    fontSize: 10,
+    fontWeight: "700",
+    letterSpacing: 1.1
+  },
+  fullscreenFidsClock: {
+    fontFamily: mono,
+    color: palette.text,
+    fontSize: 13,
+    fontWeight: "800"
+  },
+  fullscreenFidsLocal: {
+    color: palette.textMuted,
+    fontSize: 11
+  },
+  fullscreenFidsColumns: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingHorizontal: 12,
+    paddingBottom: 7
+  },
+  fullscreenFidsColumnText: {
+    fontFamily: mono,
+    color: palette.line,
+    fontSize: 9,
+    fontWeight: "800",
+    letterSpacing: 1.4
+  },
+  fullscreenFidsTimeColumn: {
+    width: 78
+  },
+  fullscreenFidsFlightColumn: {
+    width: 170
+  },
+  fullscreenFidsRouteColumn: {
+    flex: 1,
+    minWidth: 0
+  },
+  fullscreenFidsStatusColumn: {
+    width: 150
+  },
+  fullscreenFidsStatusCell: {
+    width: 150,
+    alignItems: "flex-start"
+  },
+  fullscreenFidsAircraftColumn: {
+    width: 82,
+    textAlign: "right"
+  },
+  fullscreenFidsList: {
+    flex: 1
+  },
+  fullscreenFidsListContent: {
+    paddingBottom: 16,
+    gap: 5
+  },
+  fullscreenFidsRow: {
+    minHeight: 58,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.035)",
+    backgroundColor: palette.row
+  },
+  fullscreenFidsRowPinned: {
+    borderColor: warn24,
+    backgroundColor: warn07
+  },
+  fullscreenFidsTime: {
+    fontFamily: mono,
+    color: palette.text,
+    fontSize: 20,
+    fontWeight: "800"
+  },
+  fullscreenFidsFlightCell: {
+    minWidth: 0
+  },
+  fullscreenFidsFlight: {
+    fontFamily: mono,
+    color: palette.blue2,
+    fontSize: 18,
+    fontWeight: "800",
+    letterSpacing: 0.8
+  },
+  fullscreenFidsAirline: {
+    marginTop: 2,
+    color: palette.textDim,
+    fontSize: 10,
+    letterSpacing: 0.3
+  },
+  fullscreenFidsRouteCell: {
+    minWidth: 0
+  },
+  fullscreenFidsRouteName: {
+    color: "#b6d2ef",
+    fontSize: 17,
+    fontWeight: "700"
+  },
+  fullscreenFidsRouteMeta: {
+    marginTop: 2,
+    fontFamily: mono,
+    color: "#4c7daa",
+    fontSize: 10,
+    letterSpacing: 0.6
+  },
+  fullscreenFidsAircraft: {
+    fontFamily: mono,
+    color: "#6d8eb0",
+    fontSize: 12,
+    fontWeight: "700"
+  },
+  fullscreenFidsEmpty: {
+    flex: 1,
+    minHeight: 170,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 24,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: palette.lineSoft,
+    backgroundColor: palette.row
+  },
+  fullscreenFidsEmptyTitle: {
+    fontFamily: mono,
+    color: palette.text,
+    fontSize: 22,
+    fontWeight: "800",
+    letterSpacing: 1.4
+  },
+  fullscreenFidsEmptyDetail: {
+    marginTop: 8,
+    maxWidth: 520,
+    color: palette.textMuted,
+    fontSize: 13,
+    textAlign: "center",
+    lineHeight: 19
   },
   fidsHeader: {
     flexDirection: "row",
@@ -1741,6 +2297,11 @@ function createStyles() {
     borderColor: accent18,
     backgroundColor: "rgba(0,0,0,0.18)",
     overflow: "hidden"
+  },
+  scopeGroundSvg: {
+    position: "absolute",
+    left: 0,
+    top: 0
   },
   scopeRingOuter: {
     position: "absolute",
@@ -1921,6 +2482,64 @@ function createStyles() {
     flexWrap: "wrap",
     gap: 8,
     marginTop: 14
+  },
+  settingsInlineActions: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginTop: 14,
+    marginBottom: 4
+  },
+  settingsCompactButton: {
+    minHeight: 38,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 12,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: accent18,
+    backgroundColor: accent08
+  },
+  settingsCompactButtonText: {
+    fontFamily: mono,
+    color: palette.blue2,
+    fontSize: 10,
+    fontWeight: "800",
+    letterSpacing: 0.9
+  },
+  settingsQuickGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 9
+  },
+  settingsQuickAction: {
+    width: "48%",
+    minHeight: 104,
+    padding: 12,
+    borderRadius: 15,
+    borderWidth: 1,
+    borderColor: accent14,
+    backgroundColor: "rgba(255,255,255,0.035)"
+  },
+  settingsQuickIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 999,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 9,
+    backgroundColor: accent10
+  },
+  settingsQuickLabel: {
+    color: palette.text,
+    fontSize: 13,
+    fontWeight: "800"
+  },
+  settingsQuickValue: {
+    marginTop: 4,
+    color: palette.textMuted,
+    fontSize: 11,
+    lineHeight: 15
   },
   moduleIntro: {
     color: palette.textMuted,
@@ -2221,40 +2840,6 @@ function createStyles() {
     backgroundColor: error10,
     borderWidth: 1,
     borderColor: error18
-  },
-  matrixBoard: {
-    marginTop: 12,
-    padding: 14,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: success16,
-    backgroundColor: "#041108"
-  },
-  matrixHeaderRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 10
-  },
-  matrixBoardTitle: {
-    fontFamily: mono,
-    color: "#58f28a",
-    fontSize: 11,
-    fontWeight: "700",
-    letterSpacing: 1
-  },
-  matrixBoardSub: {
-    fontFamily: mono,
-    color: "#2cab57",
-    fontSize: 9,
-    letterSpacing: 0.8
-  },
-  matrixBoardLine: {
-    fontFamily: mono,
-    color: "#8cffad",
-    fontSize: 12,
-    lineHeight: 20,
-    letterSpacing: 0.8
   },
   matrixToolShell: {
     marginHorizontal: 12,
@@ -2822,25 +3407,6 @@ function createStyles() {
     fontWeight: "800",
     letterSpacing: 1.2
   },
-  splitDisplay: {
-    flex: 1,
-    flexDirection: "row",
-    gap: 8,
-    paddingHorizontal: 8,
-    minHeight: 0
-  },
-  splitPane: {
-    flex: 1,
-    minWidth: 0,
-    minHeight: 0,
-    overflow: "hidden"
-  },
-  splitPanePrimary: {
-    flex: 1.12
-  },
-  splitPaneSecondary: {
-    flex: 0.88
-  },
   scopeFooter: {
     marginTop: 12,
     gap: 10
@@ -2848,6 +3414,18 @@ function createStyles() {
   scopeHint: {
     color: palette.textMuted,
     fontSize: 11
+  },
+  scopeGroundStatus: {
+    marginTop: -6,
+    fontFamily: mono,
+    color: palette.textDim,
+    fontSize: 9,
+    fontWeight: "700",
+    letterSpacing: 0.8,
+    textTransform: "uppercase"
+  },
+  scopeGroundStatusWarn: {
+    color: palette.amber
   },
   scopeChipRow: {
     flexDirection: "row",

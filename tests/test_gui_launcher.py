@@ -388,10 +388,30 @@ def test_native_initial_window_size_fits_available_screen() -> None:
     legacy._fit_window_to_screen(object(), small_window, 1280, 820)
     legacy._fit_window_to_screen(object(), large_window, 1280, 820)
 
-    assert small_window.size == (920, 644)
+    assert small_window.size == (900, 616)
     assert small_window.frame.centered is True
     assert small_window.position == (12, 34)
     assert large_window.size == (1280, 820)
+
+
+def test_native_geometry_profiles_cover_small_laptop_and_large_displays() -> None:
+    from localflight.native.geometry import default_display_mode, fitted_window_size
+
+    cases = [
+        ((640, 480), (614, 422), "fids"),
+        ((800, 480), (768, 422), "fids"),
+        ((1024, 768), (921, 675), "fids"),
+        ((1512, 982), (1239, 864), "split"),
+        ((2048, 1280), (1515, 980), "split"),
+        ((3840, 2160), (1680, 980), "split"),
+    ]
+
+    for (screen_w, screen_h), expected, mode in cases:
+        width, height = fitted_window_size(screen_w, screen_h, max_width=1680, max_height=980)
+        assert (width, height) == expected
+        assert width <= screen_w
+        assert height <= screen_h
+        assert default_display_mode(screen_w) == mode
 
 
 def test_native_main_window_close_requests_backend_shutdown(monkeypatch: pytest.MonkeyPatch) -> None:

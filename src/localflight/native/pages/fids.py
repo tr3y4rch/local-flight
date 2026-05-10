@@ -418,7 +418,7 @@ class FidsBoardView:  # pragma: no cover - optional Qt runtime
                 self.padding = 10
 
             def minimumSizeHint(self) -> Any:
-                return QtCore.QSize(640, 320)
+                return QtCore.QSize(460, 300)
 
             def set_rows(self, rows: list[dict[str, Any]], *, route_label: str = "Route") -> None:
                 self.rows = list(rows or [])
@@ -499,13 +499,29 @@ class FidsBoardView:  # pragma: no cover - optional Qt runtime
 
             def _column_rects(self, rect: Any) -> dict[str, Any]:
                 width = max(1, rect.width() - self.padding * 2)
-                compact = width < 760
-                ac_w = 0 if compact else 92
-                time_w = 130 if compact else 160
-                status_w = 136 if compact else 176
-                gate_w = 86 if compact else 118
-                route_w = max(190, int(width * (0.31 if compact else 0.34)))
-                flight_w = max(170, width - time_w - status_w - gate_w - ac_w - route_w)
+                tiny = width < 560
+                compact = width < 820
+                if tiny:
+                    ac_w = 0
+                    gate_w = 0
+                    status_w = 0
+                    time_w = max(92, min(118, int(width * 0.24)))
+                    route_w = max(118, int(width * 0.36))
+                    flight_w = max(1, width - time_w - route_w)
+                elif compact:
+                    ac_w = 0
+                    time_w = 124
+                    status_w = 116
+                    gate_w = 74
+                    route_w = max(150, min(230, int(width * 0.28)))
+                    flight_w = max(1, width - time_w - status_w - gate_w - route_w)
+                else:
+                    ac_w = 92
+                    time_w = 160
+                    status_w = 176
+                    gate_w = 118
+                    route_w = max(190, int(width * 0.34))
+                    flight_w = max(1, width - time_w - status_w - gate_w - ac_w - route_w)
                 x = self.padding
                 columns: dict[str, Any] = {}
                 for key, col_w in (
@@ -596,8 +612,12 @@ class FidsBoardView:  # pragma: no cover - optional Qt runtime
                 self._draw_time(painter, QtCore, QtGui, self._cell_rect(rect, columns, "display_time"), shaped, colors)
                 self._draw_flight(painter, QtCore, QtGui, self._cell_rect(rect, columns, "flight_cell"), shaped, colors)
                 self._draw_route(painter, QtCore, QtGui, self._cell_rect(rect, columns, "route_display"), shaped, colors)
-                self._draw_status(painter, QtCore, QtGui, self._cell_rect(rect, columns, "status_display"), shaped, colors)
-                self._draw_gate(painter, QtCore, QtGui, self._cell_rect(rect, columns, "gate"), shaped, colors)
+                status_rect = self._cell_rect(rect, columns, "status_display")
+                if status_rect.width() > 0:
+                    self._draw_status(painter, QtCore, QtGui, status_rect, shaped, colors)
+                gate_rect = self._cell_rect(rect, columns, "gate")
+                if gate_rect.width() > 0:
+                    self._draw_gate(painter, QtCore, QtGui, gate_rect, shaped, colors)
                 ac_rect = self._cell_rect(rect, columns, "aircraft_type")
                 if ac_rect.width() > 0:
                     self._draw_aircraft(painter, QtCore, QtGui, ac_rect, shaped, colors)
@@ -872,6 +892,7 @@ class FidsScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
 
         self.widget = QtWidgets.QSplitter()
         self._init_async(QtCore, self.widget)
+        self.widget.setMinimumWidth(0)
         self.escape_shortcut = QtGui.QShortcut(QtGui.QKeySequence("Escape"), self.widget)
         self.escape_shortcut.activated.connect(lambda: self.drawer.hide())
         self.page_timer = QtCore.QTimer(self.widget)
@@ -880,11 +901,16 @@ class FidsScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
 
         board = QtWidgets.QFrame()
         board.setObjectName("Page")
+        board.setMinimumWidth(0)
+        board.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
         board_layout = QtWidgets.QVBoxLayout(board)
         board_layout.setContentsMargins(18, 18, 18, 18)
         board_layout.setSpacing(10)
 
-        header = QtWidgets.QHBoxLayout()
+        header_widget = QtWidgets.QWidget()
+        header_widget.setMinimumWidth(0)
+        header = QtWidgets.QHBoxLayout(header_widget)
+        header.setContentsMargins(0, 0, 0, 0)
         header.setSpacing(10)
         title_box = QtWidgets.QVBoxLayout()
         title_box.setSpacing(1)
@@ -938,6 +964,8 @@ class FidsScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
         self.model = FlightBoardModel(QtCore, [], QtGui=QtGui, route_label="To", colors=self.colors)
         self.delegate = _FidsBoardDelegate(QtCore, QtGui, QtWidgets, lambda: self.colors)
         self.board = FidsBoardView(QtCore, QtGui, QtWidgets, lambda: self.colors)
+        self.board.setMinimumWidth(0)
+        self.board.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
         self.board.rowActivated.connect(lambda row_idx: self._show_detail_for_row(row_idx, 0))
 
         self.board_animation_timer = QtCore.QTimer(self.widget)
@@ -953,7 +981,17 @@ class FidsScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
         self.codeshare_timer.setInterval(1350)
         self.codeshare_timer.timeout.connect(self._advance_codeshare_frames)
 
-        board_layout.addLayout(header)
+        header_scroll = QtWidgets.QScrollArea()
+        header_scroll.setObjectName("NavScroll")
+        header_scroll.setWidgetResizable(True)
+        header_scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
+        header_scroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAsNeeded)
+        header_scroll.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+        header_scroll.setMaximumHeight(72 if not embedded else 52)
+        header_scroll.setMinimumWidth(0)
+        header_scroll.setWidget(header_widget)
+
+        board_layout.addWidget(header_scroll)
         board_layout.addWidget(self.weather)
         board_layout.addWidget(self.error_banner)
         board_layout.addWidget(self.info_banner)

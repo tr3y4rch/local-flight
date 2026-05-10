@@ -8,6 +8,7 @@ const COMPANION_ID_KEY = "localflight.companionId";
 const APPEARANCE_THEME_KEY = "localflight.mobileTheme";
 const APPEARANCE_SKIN_KEY = "localflight.mobileSkin";
 const MOBILE_DIAGNOSTICS_KEY = "localflight.mobileDiagnosticsMode";
+const MOBILE_SETUP_STATE_KEY = "localflight.mobileSetupState";
 
 const DEFAULT_THEME_MODE: MobileThemeMode = "dark";
 const DEFAULT_SKIN: MobileSkin = "technical";
@@ -25,6 +26,15 @@ export type ConfigProfile = {
 };
 
 export type MobileDiagnosticsMode = "unset" | "manual" | "auto" | "auto_logs";
+export type MobileSetupMode = "lan_companion";
+
+export type MobileSetupState = {
+  complete: boolean;
+  mode: MobileSetupMode;
+  serverUrl: string;
+  diagnosticsMode: MobileDiagnosticsMode;
+  completedAt: string | null;
+};
 
 function createCompanionId(): string {
   const part = () => Math.floor(Math.random() * 0xffffffff).toString(16).padStart(8, "0");
@@ -108,6 +118,62 @@ function normalizeDiagnosticsMode(value: string | null | undefined): MobileDiagn
   }
 }
 
+export function incompleteMobileSetupState(
+  serverUrl = "",
+  diagnosticsMode: MobileDiagnosticsMode = "unset"
+): MobileSetupState {
+  return {
+    complete: false,
+    mode: "lan_companion",
+    serverUrl,
+    diagnosticsMode: normalizeDiagnosticsMode(diagnosticsMode),
+    completedAt: null
+  };
+}
+
+export function completeMobileSetupState(
+  serverUrl: string,
+  diagnosticsMode: MobileDiagnosticsMode
+): MobileSetupState {
+  return {
+    complete: true,
+    mode: "lan_companion",
+    serverUrl,
+    diagnosticsMode: normalizeDiagnosticsMode(diagnosticsMode),
+    completedAt: new Date().toISOString()
+  };
+}
+
+function normalizeMobileSetupState(raw: unknown): MobileSetupState {
+  if (!raw || typeof raw !== "object") {
+    return incompleteMobileSetupState();
+  }
+  const state = raw as Partial<MobileSetupState>;
+  const diagnosticsMode = normalizeDiagnosticsMode(state.diagnosticsMode);
+  const serverUrl = typeof state.serverUrl === "string" ? state.serverUrl : "";
+  const complete = Boolean(state.complete && serverUrl && diagnosticsMode !== "unset");
+  return {
+    complete,
+    mode: "lan_companion",
+    serverUrl,
+    diagnosticsMode,
+    completedAt: complete && typeof state.completedAt === "string" ? state.completedAt : null
+  };
+}
+
+export function isMobileSetupComplete(
+  state: MobileSetupState,
+  serverUrl = state.serverUrl,
+  diagnosticsMode: MobileDiagnosticsMode = state.diagnosticsMode
+): boolean {
+  return Boolean(
+    state.complete &&
+    state.mode === "lan_companion" &&
+    serverUrl &&
+    normalizeDiagnosticsMode(diagnosticsMode) !== "unset"
+  );
+}
+
 export async function loadAppearancePrefs(): Promise<{
   themeMode: MobileThemeMode;
   skin: MobileSkin;
@@ -138,4 +204,42 @@ export async function loadMobileDiagnosticsMode(): Promise<MobileDiagnosticsMode
 
 export async function saveMobileDiagnosticsMode(value: MobileDiagnosticsMode): Promise<void> {
   await SecureStore.setItemAsync(MOBILE_DIAGNOSTICS_KEY, normalizeDiagnosticsMode(value));
+}
+
+export async function loadMobileSetupState(): Promise<MobileSetupState> {
+  const raw = await SecureStore.getItemAsync(MOBILE_SETUP_STATE_KEY);
+  if (!raw) {
+    return incompleteMobileSetupState();
+  }
+  try {
+    return normalizeMobileSetupState(JSON.parse(raw));
+  } catch {
+    return incompleteMobileSetupState();
+  }
+}
+
+export async function saveMobileSetupState(value: MobileSetupState): Promise<void> {
+  await SecureStore.setItemAsync(MOBILE_SETUP_STATE_KEY, JSON.stringify(normalizeMobileSetupState(value)));
+}
+
+export async function resolveMobileSetupState(
+  serverUrl: string,
+  diagnosticsMode: MobileDiagnosticsMode
+): Promise<MobileSetupState> {
+  const saved = await loadMobileSetupState();
+  if (isMobileSetupComplete(saved, serverUrl || saved.serverUrl, diagnosticsMode || saved.diagnosticsMode)) {
+    return saved;
+  }
+  if (serverUrl && normalizeDiagnosticsMode(diagnosticsMode) !== "unset") {
+    const migrated = completeMobileSetupState(serverUrl, diagnosticsMode);
+    await saveMobileSetupState(migrated);
+    return migrated;
+  }
+  return normalizeMobileSetupState({
+    ...saved,
+    serverUrl: serverUrl || saved.serverUrl,
+    diagnosticsMode: diagnosticsMode || saved.diagnosticsMode,
+    complete: false,
+    completedAt: null
+  });
 }

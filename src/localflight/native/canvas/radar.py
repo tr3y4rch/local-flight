@@ -48,7 +48,7 @@ class RadarCanvas:  # pragma: no cover - optional Qt runtime
             def __init__(self) -> None:
                 super().__init__()
                 self.setMouseTracking(True)
-                self.setMinimumSize(420, 420)
+                self.setMinimumSize(260, 260)
                 self.blips: list[dict[str, Any]] = []
                 self.track_history: dict[str, list[tuple[float, float]]] = {}
                 self._track_absent_counts: dict[str, int] = {}

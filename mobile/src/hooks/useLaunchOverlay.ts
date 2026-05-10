@@ -9,13 +9,24 @@ import {
   LAUNCH_NATIVE_MIN_MS,
   LAUNCH_STATUS_STEPS
 } from "../domain/constants";
-import { type ConfigProfile, loadPinnedFlight, loadProfiles, loadServerUrl } from "../storage/settings";
+import {
+  type ConfigProfile,
+  loadMobileDiagnosticsMode,
+  loadPinnedFlight,
+  loadProfiles,
+  loadServerUrl,
+  resolveMobileSetupState,
+  type MobileDiagnosticsMode,
+  type MobileSetupState
+} from "../storage/settings";
 
 export type LaunchHydration = {
   savedUrl: string | null;
   savedPin: string | null;
   savedProfiles: ConfigProfile[];
   identity: CompanionIdentity;
+  mobileDiagnosticsMode: MobileDiagnosticsMode;
+  setupState: MobileSetupState;
 };
 
 export function useLaunchOverlay(onHydrated: (value: LaunchHydration) => void) {
@@ -65,10 +76,17 @@ export function useLaunchOverlay(onHydrated: (value: LaunchHydration) => void) {
     }).start();
     pulseAnim.start();
 
-    Promise.all([loadServerUrl(), loadPinnedFlight(), loadProfiles(), getCompanionIdentity()])
-      .then(([savedUrl, savedPin, savedProfiles, identity]) => {
+    Promise.all([
+      loadServerUrl(),
+      loadPinnedFlight(),
+      loadProfiles(),
+      getCompanionIdentity(),
+      loadMobileDiagnosticsMode()
+    ])
+      .then(async ([savedUrl, savedPin, savedProfiles, identity, mobileDiagnosticsMode]) => {
+        const setupState = await resolveMobileSetupState(savedUrl, mobileDiagnosticsMode);
         if (alive) {
-          onHydrated({ savedUrl, savedPin, savedProfiles, identity });
+          onHydrated({ savedUrl, savedPin, savedProfiles, identity, mobileDiagnosticsMode, setupState });
         }
       })
       .finally(() => {

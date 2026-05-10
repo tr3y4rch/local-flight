@@ -96,7 +96,7 @@ export function useMatrixCompanion(serverUrl: string) {
       const payload = normalizeMatrixRuntimeConfig(draftRef.current);
       await saveMatrixConfig(normalized, payload);
       await fetchRuntime(normalized, true);
-      setSaveMessage("Saved — board picks up within 5 min.");
+      setSaveMessage("Saved — board picks up in about 60 seconds.");
     } catch (exc) {
       setSaveTone("error");
       setSaveMessage(errorMessage(exc));
