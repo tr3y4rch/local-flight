@@ -74,8 +74,8 @@ def make_icons() -> None:
             data = cairosvg.svg2png(url=str(svg_file), output_width=512, output_height=512)
             img  = Image.open(io.BytesIO(data)).convert("RGBA")
             print(f"Rendered icon from {svg_file.name}")
-        except ImportError:
-            print("cairosvg not installed — checking for pre-rendered PNG")
+        except Exception as exc:
+            print(f"SVG icon render unavailable ({exc}) - checking for pre-rendered PNG")
     if img is None:
         for png_file in png_candidates:
             if png_file.exists():
@@ -95,12 +95,8 @@ def make_icons() -> None:
     img.save(ASSETS / "icon.png")
 
     if sys.platform == "win32":
-        sizes = [(16, 16), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)]
-        frames = [img.resize(s, Image.LANCZOS) for s in sizes]
-        frames[0].save(
-            ASSETS / "icon.ico", format="ICO",
-            sizes=sizes, append_images=frames[1:],
-        )
+        sizes = [(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)]
+        img.save(ASSETS / "icon.ico", format="ICO", sizes=sizes)
         print("Generated assets/icon.ico")
 
     elif sys.platform == "darwin":

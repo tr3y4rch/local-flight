@@ -10,39 +10,21 @@ import webbrowser
 from concurrent.futures import Future
 from typing import Any
 
+from localflight.core.settings_options import (
+    DIAGNOSTICS_OPTIONS,
+    OUTPUT_OPTIONS,
+    REFRESH_OPTIONS,
+    SKIN_OPTIONS,
+    SOURCE_OPTIONS,
+    THEME_OPTIONS,
+    option_label,
+)
 from localflight.native.api_client import LocalApiClient
 from localflight.native.async_tools import API_EXECUTOR
-from localflight.native.design import bundled_doc, card, label, list_payload, panel, scroll_page
+from localflight.native.design import colors_for, bundled_doc, label, list_payload, native_stylesheet, panel, scroll_page
 from localflight.native.service import NativeApiService
 from localflight.storage.profiles import list_profiles
 
-
-REFRESH_CHOICES: tuple[tuple[str, int], ...] = (
-    ("15 min", 900),
-    ("30 min", 1800),
-    ("45 min", 2700),
-    ("60 min", 3600),
-    ("2 hours", 7200),
-    ("4 hours", 14400),
-    ("8 hours", 28800),
-    ("12 hours", 43200),
-    ("24 hours", 86400),
-)
-
-SKIN_CHOICES = (
-    "standard",
-    "pax_blue",
-    "solari_amber",
-    "tower_scope",
-    "vatsim_scope",
-    "night_ops",
-    "sunset_terminal",
-    "ice_white",
-    "technical",
-    "cyan",
-    "crt",
-    "neon",
-)
 
 DOC_CHOICES = (
     ("README", "readme"),
@@ -76,6 +58,8 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
         self._last_airport_query = ""
         self._skin_buttons: dict[str, Any] = {}
         self._surface_check_future: Future[Any] | None = None
+        self._current_theme = "dark"
+        self._current_skin = "standard"
         screen = self.QtWidgets.QApplication.primaryScreen()
         available = screen.availableGeometry() if screen is not None else None
         self.available_width = available.width() if available is not None else 1400
@@ -205,6 +189,7 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
         QtCore = self.QtCore
         QtGui = self.QtGui
         QtWidgets = self.QtWidgets
+        outer = self
 
         class _SettingsIcon(QtWidgets.QWidget):
             def __init__(self, icon_kind: str) -> None:
@@ -216,9 +201,10 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
                 painter = QtGui.QPainter(self)
                 painter.setRenderHint(QtGui.QPainter.Antialiasing)
                 rect = self.rect().adjusted(3, 3, -3, -3)
-                accent = QtGui.QColor("#4a9eda")
-                muted = QtGui.QColor("#79a7c8")
-                bg = QtGui.QColor("#4a9eda")
+                colors = colors_for(outer._current_theme, outer._current_skin)
+                accent = QtGui.QColor(colors["blue"])
+                muted = QtGui.QColor(colors["muted"])
+                bg = QtGui.QColor(colors["blue"])
                 bg.setAlpha(26)
                 painter.setPen(QtGui.QPen(accent, 1.4))
                 painter.setBrush(bg)
@@ -273,7 +259,7 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
         return _SettingsIcon(kind)
 
     def _build_airport_data(self) -> Any:
-        box, layout = panel(self.QtWidgets, "Airport & Data")
+        box, layout = panel(self.QtWidgets, "Airport & Source")
         layout.addWidget(
             label(
                 self.QtWidgets,
@@ -300,10 +286,11 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
         self.airport_icao = self._readonly_line()
         self.timezone = self._readonly_line()
         self.source = self.QtWidgets.QComboBox()
-        self.source.addItems(["real", "virtual"])
+        for option in SOURCE_OPTIONS:
+            self.source.addItem(option.label, option.value)
         self.refresh_seconds = self.QtWidgets.QComboBox()
-        for title, value in REFRESH_CHOICES:
-            self.refresh_seconds.addItem(title, value)
+        for option in REFRESH_OPTIONS:
+            self.refresh_seconds.addItem(option.label, option.value)
         form.addRow("IATA", self.airport_iata)
         form.addRow("ICAO", self.airport_icao)
         form.addRow("Timezone", self.timezone)
@@ -321,15 +308,17 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
         return box
 
     def _build_appearance(self) -> Any:
-        box, layout = panel(self.QtWidgets, "Board Appearance")
+        box, layout = panel(self.QtWidgets, "Appearance")
         form = self.QtWidgets.QFormLayout()
         form.setFieldGrowthPolicy(self.QtWidgets.QFormLayout.AllNonFixedFieldsGrow)
         self.display_name = self.QtWidgets.QLineEdit()
         self.display_name.setPlaceholderText("Local Flight")
         self.theme = self.QtWidgets.QComboBox()
-        self.theme.addItems(["dark", "light"])
+        for option in THEME_OPTIONS:
+            self.theme.addItem(option.label, option.value)
         self.skin = self.QtWidgets.QComboBox()
-        self.skin.addItems(list(SKIN_CHOICES))
+        for option in SKIN_OPTIONS:
+            self.skin.addItem(option.label, option.value)
         form.addRow("Display name", self.display_name)
         form.addRow("Theme", self.theme)
         form.addRow("Skin", self.skin)
@@ -338,21 +327,29 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
         swatches = self.QtWidgets.QGridLayout()
         swatches.setHorizontalSpacing(8)
         swatches.setVerticalSpacing(8)
-        for index, skin in enumerate(SKIN_CHOICES):
-            button = self.QtWidgets.QPushButton(skin.replace("_", " "))
+        for index, option in enumerate(SKIN_OPTIONS):
+            button = self.QtWidgets.QPushButton(option.label)
             button.setCheckable(True)
-            button.setProperty("skin", skin)
+            button.setProperty("skin", option.value)
+            button.setProperty("skin_fg", option.fg)
+            button.setProperty("skin_bg", option.bg)
+            button.setProperty("skin_accent", option.accent)
             button.setObjectName("Quiet")
-            button.clicked.connect(lambda _checked=False, selected=skin: self._select_skin(selected))
-            self._skin_buttons[skin] = button
+            button.setToolTip(option.description)
+            button.setStyleSheet(
+                f"QPushButton {{ background: {option.bg}; color: {option.fg}; border: 1px solid {option.accent}; }}"
+            )
+            button.clicked.connect(lambda _checked=False, selected=option.value: self._select_skin(selected))
+            self._skin_buttons[option.value] = button
             swatches.addWidget(button, index // 4, index % 4)
-        self.skin.currentTextChanged.connect(self._sync_skin_buttons)
+        self.theme.currentIndexChanged.connect(lambda _idx: self._preview_design())
+        self.skin.currentIndexChanged.connect(lambda _idx: self._preview_design())
         layout.addWidget(label(self.QtWidgets, "Skins affect native, LAN browser, and board surfaces without changing flight data.", "Muted", wrap=True))
         layout.addLayout(swatches)
         return box
 
     def _build_radar_devices(self) -> Any:
-        box, layout = panel(self.QtWidgets, "Radar & Devices")
+        box, layout = panel(self.QtWidgets, "Outputs & Radar")
         self.surface = self.QtWidgets.QCheckBox("Runway and airport surface overlay")
         self.surface.stateChanged.connect(self._surface_changed)
         layout.addWidget(self.surface)
@@ -380,9 +377,10 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
         layout.addLayout(surface_row)
         layout.addWidget(self.surface_progress)
         outputs = self.QtWidgets.QHBoxLayout()
-        self.output_web = self.QtWidgets.QCheckBox("LAN browser UI")
-        self.output_matrix = self.QtWidgets.QCheckBox("Matrix panel")
-        self.output_hdmi = self.QtWidgets.QCheckBox("HDMI display")
+        labels = {option.value: option.label for option in OUTPUT_OPTIONS}
+        self.output_web = self.QtWidgets.QCheckBox(labels.get("web", "LAN browser UI"))
+        self.output_matrix = self.QtWidgets.QCheckBox(labels.get("matrix", "Matrix panel"))
+        self.output_hdmi = self.QtWidgets.QCheckBox(labels.get("hdmi", "HDMI display"))
         outputs.addWidget(self.output_web)
         outputs.addWidget(self.output_matrix)
         outputs.addWidget(self.output_hdmi)
@@ -414,6 +412,7 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
         self.layout.addWidget(box)
 
     def _build_help_privacy(self) -> None:
+        self._build_relay_details()
         self._build_help_docs()
         self._build_diagnostics_maintenance()
 
@@ -433,10 +432,50 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
         self.layout.addWidget(group)
         return group, body, layout
 
+    def _build_relay_details(self) -> None:
+        self.relay_group, self.relay_body, layout = self._collapsible_section("Relay details")
+        layout.addWidget(
+            label(
+                self.QtWidgets,
+                "Read-only access status for Community Relay or managed access. Raw tokens and install IDs stay hidden.",
+                "Muted",
+                wrap=True,
+            )
+        )
+        grid = self.QtWidgets.QGridLayout()
+        grid.setHorizontalSpacing(10)
+        grid.setVerticalSpacing(8)
+        self.relay_mode_detail = label(self.QtWidgets, "Loading...", "Muted", wrap=True)
+        self.relay_url_detail = label(self.QtWidgets, "Loading...", "Muted", wrap=True)
+        self.relay_token_detail = label(self.QtWidgets, "Loading...", "Muted", wrap=True)
+        self.relay_access_detail = label(self.QtWidgets, "Loading...", "Muted", wrap=True)
+        for index, (title, value) in enumerate(
+            (
+                ("Access mode", self.relay_mode_detail),
+                ("Relay host", self.relay_url_detail),
+                ("Token state", self.relay_token_detail),
+                ("What it means", self.relay_access_detail),
+            )
+        ):
+            cell = self._detail_cell(title, value)
+            grid.addWidget(cell, index // 2, index % 2)
+        layout.addLayout(grid)
+
     def _build_help_docs(self) -> None:
-        self.help_docs_group, self.help_docs_body, layout = self._collapsible_section("Help & Local Docs")
+        self.help_docs_group, self.help_docs_body, layout = self._collapsible_section("Diagnostics & Docs")
         self.diagnostics = self.QtWidgets.QComboBox()
-        self.diagnostics.addItems(["unset", "manual", "auto", "auto_logs"])
+        for option in DIAGNOSTICS_OPTIONS:
+            self.diagnostics.addItem(option.label, option.value)
+        layout.addWidget(label(self.QtWidgets, "Diagnostics mode", "Kicker"))
+        layout.addWidget(self.diagnostics)
+        layout.addWidget(
+            label(
+                self.QtWidgets,
+                "Reports stay user-triggered unless this install explicitly allows automatic crash diagnostics.",
+                "Muted",
+                wrap=True,
+            )
+        )
 
         docs = self.QtWidgets.QHBoxLayout()
         self.doc_buttons: dict[str, Any] = {}
@@ -464,13 +503,11 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
         layout.addWidget(self.doc_text)
 
     def _build_diagnostics_maintenance(self) -> None:
-        self.maintenance_group, self.maintenance_body, layout = self._collapsible_section("Diagnostics & Maintenance")
-        layout.addWidget(label(self.QtWidgets, "Diagnostics mode", "Kicker"))
-        layout.addWidget(self.diagnostics)
+        self.maintenance_group, self.maintenance_body, layout = self._collapsible_section("Maintenance")
         layout.addWidget(
             label(
                 self.QtWidgets,
-                "Reports stay user-triggered unless this install explicitly allows automatic crash diagnostics.",
+                "Use these when the local scheduler needs a nudge or you want to re-run first setup. Normal display settings live above.",
                 "Muted",
                 wrap=True,
             )
@@ -490,6 +527,16 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
         controls.addWidget(reset)
         controls.addStretch(1)
         layout.addLayout(controls)
+
+    def _detail_cell(self, title: str, value_widget: Any) -> Any:
+        box = self.QtWidgets.QFrame()
+        box.setObjectName("PreviewCard")
+        layout = self.QtWidgets.QVBoxLayout(box)
+        layout.setContentsMargins(12, 10, 12, 10)
+        layout.setSpacing(4)
+        layout.addWidget(label(self.QtWidgets, title, "Kicker"))
+        layout.addWidget(value_widget)
+        return box
 
     def _build_advanced_timing(self) -> None:
         self.advanced_display_group = self.QtWidgets.QGroupBox("Advanced Board Timing")
@@ -530,14 +577,43 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
         widget.setReadOnly(True)
         return widget
 
-    def _select_skin(self, skin: str) -> None:
-        idx = self.skin.findText(skin)
-        if idx >= 0:
-            self.skin.setCurrentIndex(idx)
+    def _combo_value(self, combo: Any, default: str = "") -> str:
+        value = combo.currentData()
+        return str(value if value is not None else combo.currentText() or default)
 
-    def _sync_skin_buttons(self, skin: str) -> None:
+    def _set_combo_value(self, combo: Any, value: Any) -> None:
+        idx = combo.findData(value)
+        if idx < 0:
+            idx = combo.findText(str(value))
+        if idx >= 0:
+            combo.setCurrentIndex(idx)
+
+    def _select_skin(self, skin: str) -> None:
+        self._set_combo_value(self.skin, skin)
+
+    def _sync_skin_buttons(self, skin: str | None = None) -> None:
+        active = skin or self._combo_value(self.skin, "standard")
         for key, button in self._skin_buttons.items():
-            button.setChecked(key == skin)
+            checked = key == active
+            button.setChecked(checked)
+            fg = str(button.property("skin_fg") or "#e8f0fe")
+            bg = str(button.property("skin_bg") or "#0d1520")
+            accent = str(button.property("skin_accent") or "#4a9eda")
+            border = 2 if checked else 1
+            button.setStyleSheet(
+                f"QPushButton {{ background: {bg}; color: {fg}; border: {border}px solid {accent}; }}"
+            )
+
+    def _preview_design(self) -> None:
+        self._current_theme = self._combo_value(self.theme, "dark")
+        self._current_skin = self._combo_value(self.skin, "standard")
+        self._sync_skin_buttons(self._current_skin)
+        try:
+            window = self.widget.window()
+            if window is not None:
+                window.setStyleSheet(native_stylesheet(theme=self._current_theme, skin=self._current_skin))
+        except Exception:
+            pass
 
     def _set_status(self, text: str, role: str = "Muted", *, busy: bool = False) -> None:
         self.status.setText(text)
@@ -574,13 +650,13 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
             + (f" | {cfg.get('timezone')}" if cfg.get("timezone") else "")
         )
         self.display_name.setText(str(cfg.get("display_name") or "Local Flight"))
-        self.source.setCurrentText(str(cfg.get("source") or "real"))
-        self.theme.setCurrentText(str(cfg.get("theme") or "dark"))
+        self._set_combo_value(self.source, str(cfg.get("source") or "real"))
+        self._set_combo_value(self.theme, str(cfg.get("theme") or "dark"))
         skin = str(cfg.get("skin") or "standard")
-        if self.skin.findText(skin) < 0:
+        if self.skin.findData(skin) < 0:
             skin = "standard"
-        self.skin.setCurrentText(skin)
-        self.diagnostics.setCurrentText(str(cfg.get("diagnostics_mode") or "unset"))
+        self._set_combo_value(self.skin, skin)
+        self._set_combo_value(self.diagnostics, str(cfg.get("diagnostics_mode") or "unset"))
         self.surface.setChecked(bool(cfg.get("radar_surface_enabled")))
         self._set_surface_status(
             "Surface overlay is enabled. Apply or check it to load runway data."
@@ -598,13 +674,14 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
         refresh_value = int(cfg.get("refresh_seconds") or 3600)
         idx = self.refresh_seconds.findData(refresh_value)
         self.refresh_seconds.setCurrentIndex(idx if idx >= 0 else self.refresh_seconds.findData(3600))
-        self._sync_skin_buttons(self.skin.currentText())
+        self._preview_design()
 
     def _refresh_current(self, cfg: dict[str, Any]) -> None:
         self.current_airport_value.value_label.setText(
             f"{cfg.get('airport_iata') or '---'} / {cfg.get('airport_icao') or '----'}"
         )
-        self.current_source_value.value_label.setText(str(cfg.get("source") or "-").upper())
+        source_value = str(cfg.get("source") or "-")
+        self.current_source_value.value_label.setText(option_label(SOURCE_OPTIONS, source_value).upper())
         self.current_refresh_value.value_label.setText(self.refresh_seconds.currentText() or "-")
         self.current_relay_value.value_label.setText("Checking...")
         surface_enabled = bool(cfg.get("radar_surface_enabled"))
@@ -622,10 +699,19 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
             self.current_relay_value.value_label.setText("Unavailable")
             self.current_relay_value.detail_label.setText(f"Relay status could not be read: {exc}")
             return
-        has_token = bool(info.get("has_activation_token") or info.get("managed"))
+        has_token = bool(info.get("has_activation_token") or info.get("activation_token_present") or info.get("managed"))
         relay_url = str(info.get("relay_url") or "local relay")
         self.current_relay_value.value_label.setText("Managed access" if has_token else "Community/BYOK")
         self.current_relay_value.detail_label.setText(f"{relay_url} - token status only, no raw token shown.")
+        if hasattr(self, "relay_mode_detail"):
+            mode = "Managed access" if has_token else "Community relay / BYOK"
+            token = "Linked token present" if has_token else "No linked managed token"
+            self.relay_mode_detail.setText(mode)
+            self.relay_url_detail.setText(relay_url.rstrip("/") or "Default hosted relay")
+            self.relay_token_detail.setText(token)
+            self.relay_access_detail.setText(
+                "Community installs share airport snapshots through the relay; BYOK keeps provider access on this device."
+            )
 
     def _refresh_profiles(self) -> None:
         current = self.profile_combo.currentText()
@@ -712,11 +798,11 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
             "airport_icao": self.airport_icao.text().strip().upper(),
             "timezone": self.timezone.text().strip(),
             "display_name": self.display_name.text().strip() or "Local Flight",
-            "source": self.source.currentText(),
+            "source": self._combo_value(self.source, "real"),
             "refresh_seconds": int(self.refresh_seconds.currentData()),
-            "theme": self.theme.currentText(),
-            "skin": self.skin.currentText(),
-            "diagnostics_mode": self.diagnostics.currentText(),
+            "theme": self._combo_value(self.theme, "dark"),
+            "skin": self._combo_value(self.skin, "standard"),
+            "diagnostics_mode": self._combo_value(self.diagnostics, "unset"),
             "web_row_limit": int(self.web_row_limit.value()),
             "web_rotation_seconds": int(self.web_rotation.value()),
             "display_grace_minutes": int(self.grace.value()),

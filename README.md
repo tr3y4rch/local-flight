@@ -12,7 +12,7 @@ The recommended desktop client is now the native Qt app. The LAN browser UI, Pi 
 
 ## Status
 
-`0.2.5` is still beta, but this pass treats Local Flight as a working multi-client app:
+`0.2.6` is the temporary client-polish target after the `0.2.5` beta baseline. It is still beta software, but this pass treats Local Flight as a working multi-client app:
 
 - Native desktop app for Windows and macOS
 - LAN browser UI for remote viewing, headless installs, and browser-mode displays
@@ -40,7 +40,8 @@ Read the detailed guides:
 - [Install Guide](docs/install.md)
 - [Display Modes](docs/display-modes.md)
 - [Privacy & Diagnostics](PRIVACY.md)
-- [Release Notes](CHANGELOG.md)
+- [Temporary 0.2.6 Client Notes](docs/release-notes-0.2.6.md)
+- [Full Changelog](CHANGELOG.md)
 
 ---
 
@@ -48,11 +49,13 @@ Read the detailed guides:
 
 - Guided setup with **Community Relay**, **Bring your own keys**, and **VATSIM** paths
 - Passenger-style FIDS boards with arrivals/departures, airport-local time, status/gate chips, codeshare grouping, pinned flights, and live refresh
-- Radar with real/VATSIM traffic, METAR weather, mobile/native range controls, and optional runway/surface/map/terrain context
+- Radar with real/VATSIM traffic, METAR weather, range controls, optional runway/surface/map/terrain context, and richer aircraft/status detail
 - Native Qt desktop shell with Display, FIDS, Radar, Matrix, Settings, Admin, History, Logs, Report, and local docs
 - LAN browser UI for headless installs, remote screens, tablets, and browser-mode displays
 - Mobile companion with first-launch pairing, FIDS, Radar, History, guided Settings, Matrix/Admin entry points, server-mediated docs, and diagnostics consent
-- Matrix tooling for Interstate 75 W / HUB75 boards, including runtime settings and generated MicroPython `main.py`
+- History dashboard with filters, delay buckets, airline delay quotas, route/aircraft stats, sortable recent flights, and detail panels
+- Matrix tooling for Interstate 75 W / HUB75 boards, including panel presets, live preview, optional real-world gate/stand display, compact weather headers, runtime settings, and generated MicroPython `main.py`
+- Shared flight detail intelligence for FIDS, Radar, History, Matrix, native Qt, and LAN browser views, using current local snapshots, radar data, weather, and history without new per-click provider calls
 - Local history, local logs, local settings, and install-scoped diagnostics
 
 ---

@@ -38,7 +38,7 @@ It includes:
 - Matrix tools
 - Settings
 - Admin summary
-- History
+- History dashboard with delay quotas, airline/route/aircraft stats, filters, sortable recent flights, and local detail panels
 - Logs
 - Manual report screen
 - Bundled local docs

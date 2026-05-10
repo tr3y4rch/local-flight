@@ -417,6 +417,7 @@ def _sync_relay_schedule_snapshot(
 
 def _fetch_managed_status(timeout_s: int = 8) -> Dict[str, Any]:
     from localflight.storage.install import get_install_id
+    from localflight.sources.web.relay_heartbeat import relay_client_metadata
 
     token = _get_activation_token()
     if not token:
@@ -436,7 +437,7 @@ def _fetch_managed_status(timeout_s: int = 8) -> Dict[str, Any]:
     try:
         response = requests.get(
             _client_status_url(),
-            params={"install_id": get_install_id(), "activation_token": token},
+            params={"install_id": get_install_id(), "activation_token": token, **relay_client_metadata()},
             headers={"Accept": "application/json", "User-Agent": "local-flight/1.0 (+https://localflight.invalid)"},
             timeout=timeout_s,
         )
@@ -626,6 +627,7 @@ def _fetch_relay(
     timeout_s: int,
 ) -> Dict[str, Any]:
     from localflight.storage.install import get_install_id
+    from localflight.sources.web.relay_heartbeat import relay_client_metadata
 
     params = _route_params(
         airport_iata=airport_iata,
@@ -637,6 +639,7 @@ def _fetch_relay(
         offset=offset,
     )
     params["install_id"] = get_install_id()
+    params.update(relay_client_metadata())
     activation_token = _get_activation_token()
     if activation_token:
         params["activation_token"] = activation_token
@@ -662,6 +665,7 @@ def fetch_relay_schedule_records(
     return_meta: bool = False,
 ) -> Any:
     from localflight.storage.install import get_install_id
+    from localflight.sources.web.relay_heartbeat import relay_client_metadata
 
     params: Dict[str, Any] = {
         "airport_iata": airport_iata.upper().strip(),
@@ -671,6 +675,7 @@ def fetch_relay_schedule_records(
         "refresh_seconds": int(refresh_seconds),
         "install_id": get_install_id(),
     }
+    params.update(relay_client_metadata())
     activation_token = _get_activation_token()
     if activation_token:
         params["activation_token"] = activation_token

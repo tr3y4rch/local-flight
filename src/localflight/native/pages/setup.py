@@ -48,7 +48,9 @@ class NativeSetupWindow:  # pragma: no cover - exercised with optional Qt
                 self._shutdown_started = False
                 self.setWindowTitle("Local Flight Setup")
                 self.setStyleSheet(native_stylesheet())
-                app_icon = icon_from_media(QtGui, "assets", "icon_circle.svg")
+                app_icon = icon_from_media(QtGui, "assets", "icon.ico")
+                if app_icon.isNull():
+                    app_icon = icon_from_media(QtGui, "assets", "icon_square.svg")
                 if not app_icon.isNull():
                     self.setWindowIcon(app_icon)
                 self.setup_screen = SetupScreen(
@@ -101,7 +103,11 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
         self._last_airport_query = ""
         self._stored_activation = False
         self._mode_initialized = False
-        self.setup_max_width = 980
+        screen = self.QtWidgets.QApplication.primaryScreen()
+        available = screen.availableGeometry() if screen is not None else None
+        available_width = available.width() if available is not None else 1200
+        self.setup_max_width = 900 if available_width >= 900 else max(560, available_width - 48)
+        self.card_columns = 1 if available_width < 760 else 3
         self.step_names = ["Welcome", "Airport", "Data Access", "Provider Keys", "Diagnostics", "Finish"]
         self.step_buttons: list[Any] = []
         self.source_buttons: dict[str, Any] = {}
@@ -110,7 +116,7 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
 
         self.widget, layout = scroll_page(QtWidgets)
         self.widget.setMinimumWidth(0)
-        layout.setContentsMargins(24, 22, 24, 22)
+        layout.setContentsMargins(18, 18, 18, 18)
         layout.setSpacing(14)
         self.status = label(
             QtWidgets,
@@ -232,7 +238,7 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
         page.setMinimumWidth(0)
         page.setMaximumWidth(self.setup_max_width)
         layout = self.QtWidgets.QVBoxLayout(page)
-        layout.setContentsMargins(24, 22, 24, 22)
+        layout.setContentsMargins(20, 18, 20, 18)
         layout.setSpacing(12)
         layout.addWidget(label(self.QtWidgets, title, "Title"))
         layout.addWidget(label(self.QtWidgets, text, "Muted", wrap=True))
@@ -247,10 +253,10 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
         logo = self.QtWidgets.QLabel()
         logo.setAlignment(self.QtCore.Qt.AlignCenter)
         logo.setMinimumHeight(120)
-        logo.setObjectName("BrandMark")
+        logo.setObjectName("SetupBrandMark")
         self.logo_label = logo
         if self.QtGui is not None:
-            pixmap = pixmap_from_media(self.QtCore, self.QtGui, "ui", "static", "splash_mark.svg", width=420, height=160)
+            pixmap = pixmap_from_media(self.QtCore, self.QtGui, "ui", "static", "brand_mark.svg", width=132, height=132)
             if not pixmap.isNull():
                 logo.setPixmap(pixmap)
             else:
@@ -260,14 +266,17 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
             logo.setText("Local Flight")
             logo.setObjectName("Title")
         layout.addWidget(logo)
-        cards = self.QtWidgets.QHBoxLayout()
-        cards.setSpacing(10)
-        for title, body in (
-            ("Local first", "The native GUI talks to the local FastAPI backend on this machine."),
-            ("Community default", "Use the hosted relay path first; add your own keys only when you want them."),
-            ("Private by default", "Secrets stay masked and diagnostics are explicit."),
+        cards = self.QtWidgets.QGridLayout()
+        cards.setHorizontalSpacing(10)
+        cards.setVerticalSpacing(10)
+        for index, (title, body) in enumerate(
+            (
+            ("Local first", "Native GUI, local backend, LAN browser fallback."),
+            ("Community default", "Start with the hosted relay; add your own keys only if you want them."),
+            ("Private by design", "Secrets stay masked and diagnostics are an explicit setup choice."),
+            )
         ):
-            cards.addWidget(self._mini_card(title, body))
+            cards.addWidget(self._mini_card(title, body), index // self.card_columns, index % self.card_columns)
         layout.addLayout(cards)
         self.start_btn = self.QtWidgets.QPushButton("Start setup")
         self.start_btn.clicked.connect(lambda: self._set_step(1))
@@ -332,20 +341,21 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
         cards = self.QtWidgets.QGridLayout()
         cards.setHorizontalSpacing(10)
         cards.setVerticalSpacing(10)
-        for col, (mode, title, body) in enumerate(
+        for index, (mode, title, body) in enumerate(
             (
-                ("community", "Community Relay", "Recommended. Real-flight snapshots through the hosted community relay."),
-                ("byok", "Use My Own Keys", "For users who already have AviationStack and optional enrichment keys."),
-                ("virtual", "VATSIM", "No schedule key. Uses virtual network data and is safe for quick testing."),
+                ("community", "Community Relay", "Recommended. Shared real-flight snapshots through the hosted relay."),
+                ("byok", "Use My Own Keys", "For AviationStack users who want direct quota ownership."),
+                ("virtual", "VATSIM", "No schedule key. Virtual traffic with privacy-safe details."),
             )
         ):
             button = self.QtWidgets.QPushButton(f"{title}\n{body}")
             button.setObjectName("SegmentButton")
             button.setCheckable(True)
             button.setMinimumHeight(112)
+            button.setSizePolicy(self.QtWidgets.QSizePolicy.Expanding, self.QtWidgets.QSizePolicy.Preferred)
             button.clicked.connect(lambda _checked=False, m=mode: self._set_mode(m))
             self.source_buttons[mode] = button
-            cards.addWidget(button, 0, col)
+            cards.addWidget(button, index // self.card_columns, index % self.card_columns)
         layout.addLayout(cards)
         self.mode_help = label(self.QtWidgets, "", "Muted", wrap=True)
         layout.addWidget(self.mode_help)
@@ -449,7 +459,7 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
         cards = self.QtWidgets.QGridLayout()
         cards.setHorizontalSpacing(10)
         cards.setVerticalSpacing(10)
-        for col, (mode, title, body) in enumerate(
+        for index, (mode, title, body) in enumerate(
             (
                 ("manual", "Manual", "Nothing is sent unless you submit a report."),
                 ("auto", "Auto crashes", "Send sanitized exception details for native crashes."),
@@ -460,9 +470,10 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
             button.setObjectName("SegmentButton")
             button.setCheckable(True)
             button.setMinimumHeight(106)
+            button.setSizePolicy(self.QtWidgets.QSizePolicy.Expanding, self.QtWidgets.QSizePolicy.Preferred)
             button.clicked.connect(lambda _checked=False, m=mode: self._set_diagnostics_mode(m))
             self.diagnostics_buttons[mode] = button
-            cards.addWidget(button, 0, col)
+            cards.addWidget(button, index // self.card_columns, index % self.card_columns)
         layout.addLayout(cards)
         self.diagnostics_help = label(
             self.QtWidgets,

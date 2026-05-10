@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="960" height="540" viewBox="0 0 960 540" role="img" aria-labelledby="title desc">
   <title id="title">Local Flight Matrix preview</title>
-  <desc id="desc">Illustrative preview of the current Local Flight Matrix board runtime and LED passenger display tooling.</desc>
+  <desc id="desc">Illustrative preview of the current Local Flight Matrix board configurator and LED passenger display tooling.</desc>
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0" stop-color="#090d12"/>
@@ -33,7 +33,7 @@
   <rect x="18" y="18" width="924" height="46" rx="22" fill="#070c12"/>
   <rect x="18" y="42" width="924" height="22" fill="#070c12"/>
   <text x="42" y="47" class="sans text" font-size="16" font-weight="900">Local Flight</text>
-  <text x="138" y="47" class="mono muted tiny">v0.2.5</text>
+  <text x="138" y="47" class="mono muted tiny">v0.2.6</text>
   <text x="548" y="46" class="mono muted tiny">FIDS</text>
   <text x="620" y="46" class="mono muted tiny">RADAR</text>
   <rect x="700" y="29" width="82" height="24" rx="12" fill="#1e3449" stroke="#31516e"/>

@@ -39,6 +39,7 @@ ANIMATION_MODE   = "split_flap"
 ANIMATION_SPEED  = 3
 STATUS_ANIMATION_ENABLED = True
 SHOW_WEATHER    = True
+SHOW_GATE_INFO  = True
 PRESET           = "real_fids"
 RENDERER         = "modern_fids"
 MATRIX_CONFIG_REV = 0
@@ -487,12 +488,40 @@ def _status_chunk(row, chars):
         status = "{} {}".format(status, delta)
     return cycle_chunks(status, chars).rstrip()
 
+def _is_vatsim_preset():
+    return str(PRESET or "").lower().startswith("vatsim_") or RENDERER in ("vatsim_pilot", "vatsim_atc")
+
+def _gate_label(row):
+    if _is_vatsim_preset() or not SHOW_GATE_INFO or not isinstance(row, dict):
+        return ""
+    for key in ("gate_label", "terminal_gate_display", "gate_display", "gate"):
+        value = _upper_text(row.get(key) or "").strip()
+        if value and value != "-":
+            return value
+    return ""
+
+def _gate_chip(row, chars):
+    gate = _gate_label(row)
+    if not gate:
+        return ""
+    return ("G " + gate)[:chars].strip()
+
+def _status_or_gate_chunk(row, chars):
+    gate = _gate_chip(row, chars)
+    if gate and WIDTH < 180:
+        try:
+            if int(time.time() // 4) % 2 == 1:
+                return gate
+        except Exception:
+            pass
+    return _status_chunk(row, chars)
+
 def build_row_text(row):
     time_s   = fit_text(_text_field(row.get("time_primary") or row.get("display_time") or row.get("time"), "--:--"), 5)
     flight_s = fit_text(_flight_cycle_display(row), 8)
     dest_s   = fit_text(_route_label(row), 12)
     status_s = fit_text(_text_field(row.get("status_display") or row.get("status")), 10)
-    gate_s   = fit_text(_text_field(row.get("gate_display") or row.get("gate"), ""), 4)
+    gate_s   = fit_text(_gate_label(row), 4)
     return f"{time_s} {flight_s} {dest_s} {status_s} {gate_s}"
 
 def build_detail_text(row):
@@ -749,7 +778,7 @@ def checkin_matrix_device():
 def fetch_matrix_config():
     global MAX_ROWS, REFRESH_S, PAGE_ROTATION_S, BRIGHTNESS, DEFAULT_VIEW
     global ANIMATION_ENABLED, ANIMATION_MODE, ANIMATION_SPEED, STATUS_ANIMATION_ENABLED
-    global SHOW_WEATHER, PRESET, RENDERER, MATRIX_CONFIG_REV, _airport_iata, _airport_label
+    global SHOW_WEATHER, SHOW_GATE_INFO, PRESET, RENDERER, MATRIX_CONFIG_REV, _airport_iata, _airport_label
     data = _get_json(f"/api/matrix/v2/devices/{device_id()}/config", timeout=8)
     if not isinstance(data, dict):
         data = _get_json("/api/matrix/config", timeout=8)
@@ -773,10 +802,13 @@ def fetch_matrix_config():
     STATUS_ANIMATION_ENABLED = bool(data.get("status_animation_enabled", STATUS_ANIMATION_ENABLED))
     options = data.get("options") if isinstance(data.get("options"), dict) else {}
     SHOW_WEATHER = _truthy(options.get("show_metar", options.get("show_weather")), SHOW_WEATHER)
+    SHOW_GATE_INFO = _truthy(data.get("show_gate_info", options.get("show_gate_info")), SHOW_GATE_INFO)
     PRESET = data.get("preset", PRESET)
     RENDERER = data.get("renderer", RENDERER)
     if RENDERER not in SUPPORTED_RENDERERS:
         RENDERER = "modern_fids"
+    if _is_vatsim_preset():
+        SHOW_GATE_INFO = False
     MATRIX_CONFIG_REV = data.get("config_rev", MATRIX_CONFIG_REV)
     skin = data.get("palette") or data.get("skin") or "pax_blue"
     if skin != _active_skin:
@@ -882,6 +914,37 @@ def _weather_line(chars=18):
     text = " ".join(part for part in (condition, temp_s) if part)
     return marquee(text, chars).rstrip() if len(text) > chars else text[:chars]
 
+def _weather_temp_text():
+    if not SHOW_WEATHER or not isinstance(_matrix_metar, dict):
+        return ""
+    temp = (
+        _matrix_metar.get("temperature_short")
+        or _matrix_metar.get("temperature_display")
+        or _matrix_metar.get("temp_c")
+        or _matrix_metar.get("temperature_c")
+    )
+    if temp is None:
+        return ""
+    temp_s = str(temp).replace(" C", "C").replace(" ", "").upper()
+    if temp_s and not temp_s.endswith("C"):
+        temp_s += "C"
+    return temp_s
+
+def draw_weather_mini(x, y, max_width):
+    if not SHOW_WEATHER or not isinstance(_matrix_metar, dict):
+        return 0
+    temp_s = _weather_temp_text()
+    if not temp_s:
+        return 0
+    width = 7 + len(temp_s) * 8
+    if width > max_width:
+        return 0
+    glyph = _weather_glyph_name()
+    draw_glyph(glyph, x, y + 1, AMBER if glyph in ("sun", "storm") else DIM)
+    graphics.set_pen(AMBER)
+    graphics.text(temp_s, x + 7, y, max_width, 1)
+    return width
+
 def draw_weather_compact(x, y, max_width):
     if not SHOW_WEATHER or not isinstance(_matrix_metar, dict):
         return 0
@@ -941,9 +1004,7 @@ def _clock_label(compact=False):
 def _header_height():
     if WIDTH < 200:
         return 20
-    if HEIGHT >= 96 and _weather_line(8):
-        return 20
-    return 11
+    return 20 if HEIGHT >= 96 else 11
 
 def _visible_rows():
     if WIDTH < 180:
@@ -1016,12 +1077,14 @@ def _vatsim_atc_page():
 
 def draw_header(view, connected=True):
     header_name = _airport_label or _airport_iata
-    label = f"{header_name} {'DEP' if view == 'departures' else 'ARR'}"
+    lane = "DEP" if view == "departures" else "ARR"
+    weather_temp = _weather_temp_text()
+    label = f"{header_name} {lane}"
     if WIDTH < 200:
-        label = "{} {}".format(marquee(header_name, max(6, WIDTH // 8 - 4)).rstrip(), "DEP" if view == "departures" else "ARR")
+        compact_name = _airport_iata if weather_temp else header_name
+        label = "{} {}".format(marquee(compact_name, max(3, WIDTH // 8 - 5)).rstrip(), lane)
     elif len(label) * 8 > WIDTH // 2 and len(header_name) > 10:
-        view_label = "DEP" if view == "departures" else "ARR"
-        label = "{} {}".format(marquee(header_name, max(6, WIDTH // 16)).rstrip(), view_label)
+        label = "{} {}".format(marquee(header_name, max(6, WIDTH // 16)).rstrip(), lane)
     graphics.set_pen(GREEN)
     graphics.set_font("bitmap8")
     graphics.text(label, 0, 0, WIDTH, 1)
@@ -1030,8 +1093,18 @@ def draw_header(view, connected=True):
     weather = _weather_line(max(8, WIDTH // 8 - 1))
     show_weather = bool(weather) and (HEIGHT >= 96 or int(time.time() // 8) % 2 == 1)
     if WIDTH < 200:
+        chars = max(8, WIDTH // 8)
+        top_weather_drawn = False
+        if weather_temp:
+            weather_width = 7 + len(weather_temp) * 8
+            weather_x = WIDTH - weather_width - 1
+            if weather_x > len(label) * 8 + 4:
+                top_weather_drawn = bool(draw_weather_mini(weather_x, 0, weather_width + 1))
+        clock_text = _clock_label(compact=True)
+        if weather_temp and not top_weather_drawn and int(time.time() // 8) % 2 == 1:
+            clock_text = weather_temp
         graphics.set_pen(DIM)
-        graphics.text(_clock_label(compact=True)[:max(8, WIDTH // 8)], 0, 10, WIDTH, 1)
+        graphics.text(clock_text[:chars], 0, 10, WIDTH, 1)
     else:
         clock = weather if show_weather else _clock_label()
         clock_x = WIDTH - len(clock) * 8 - 2
@@ -1083,12 +1156,12 @@ def draw_row(flap_row, row_data, y, row_h):
 
         if status_y + 7 <= y + row_h:
             graphics.set_pen(WHITE if cancel_flash else s_color)
-            status_text = _status_chunk(row_data, chars)
-            gate = _upper_text(row_data.get("gate") or "")
+            status_text = _status_or_gate_chunk(row_data, chars)
+            gate = _gate_label(row_data)
             aircraft = _upper_text(row_data.get("aircraft_type") or row_data.get("aircraft") or "")
-            if row_h >= 27 and (gate and gate != "-" or aircraft):
+            if row_h >= 27 and aircraft and not gate:
                 status_text = fit_text(status_text, max(1, chars - 5)).rstrip()
-                extra = gate if gate and gate != "-" else aircraft
+                extra = aircraft
                 status_text = (status_text + " " + extra[:4]).strip()
             graphics.text(status_text, 0, status_y, WIDTH, 1)
         return
@@ -1146,7 +1219,7 @@ def draw_modern_fids(flap_rows, page_data, view):
             graphics.text(_route_chunk(row, max(8, WIDTH // 8)), 0, route_y, WIDTH, 1)
             if row_h >= 25 and status_y + 7 <= y + row_h:
                 graphics.set_pen(status_color(row))
-                status = _status_chunk(row, max(8, WIDTH // 8))
+                status = _status_or_gate_chunk(row, max(8, WIDTH // 8))
                 graphics.text(status, 0, status_y, WIDTH, 1)
         else:
             route_chars = max(8, (WIDTH - 118) // 8)
@@ -1158,6 +1231,10 @@ def draw_modern_fids(flap_rows, page_data, view):
                     ac = _upper_text(row.get("aircraft_type") or row.get("aircraft") or "")
                     cs = _upper_text(row.get("callsign") or "")
                     status = " ".join(part for part in (status, ac or cs) if part)
+                else:
+                    gate = _gate_chip(row, 8)
+                    if gate and WIDTH >= 220:
+                        status = " ".join(part for part in (status, gate) if part)
                 graphics.text(status[:max(8, WIDTH // 8)], 8, y + 8, WIDTH - 8, 1)
             else:
                 graphics.set_pen(status_color(row))

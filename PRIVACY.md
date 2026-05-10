@@ -15,6 +15,8 @@ This is a hobbyist/open-source project, not a legal document, but the app is des
 - Native mode avoids browser sync, extensions, cookies, browsing history, default-browser behavior, online fonts, and CDN assets for the main Local Flight window.
 - The LAN browser UI, mobile companion, and Matrix board talk to your Local Flight server over your LAN. The mobile and Matrix clients do not call AviationStack, ADS-B Exchange, RapidAPI, OpenSky, VATSIM, or the hosted relay directly.
 - Community mode can use the hosted Local Flight relay for shared schedules and relay-backed radar. Optional radar runway/surface/map/terrain layers use cached public data where available, stay opt-in/visual-only, and do not create Local Flight accounts or user profiles.
+- Richer FIDS/Radar/History detail views reuse data Local Flight already fetched or stored locally. Opening a detail panel should not trigger surprise per-flight paid provider calls.
+- Matrix gate/stand display uses existing real-world schedule fields when available. VATSIM Matrix presets hide gate data instead of inventing placeholders.
 - Manual reports are always your choice. First-run setup asks how diagnostics should work, saves that choice locally, and defaults to manual-only reporting.
 - Mobile automatic diagnostics require two yeses: the mobile app's local diagnostics choice and the connected server's diagnostics mode.
 - Developer reporting credentials are kept on the hosted relay, not in the desktop package, mobile app, installers, or docs.
@@ -31,6 +33,7 @@ This is a hobbyist/open-source project, not a legal document, but the app is des
 - The Interstate 75 W board talks to your Local Flight server over your LAN. Its runtime settings live in `~/.localflight/matrix_config.json`.
 - Matrix V2 device check-ins store only board identity, label, size, renderer support, assigned config, and last-seen time locally so the admin page can show whether the board is alive.
 - VATSIM-specific matrix presets require source `virtual` and use VATSIM-backed rows/weather only; they do not quietly switch to real-world FIDS or real METAR data.
+- Flight intelligence shown in FIDS, Radar, History, and Matrix is assembled from the current local snapshot, live radar cache, METAR/weather context, airport/surface context, and local history database. It is a display model, not a new background data-harvesting layer.
 
 When you use the Matrix page to download a ready-to-flash `main.py`, the Wi-Fi details and server host are sent to your own Local Flight instance only long enough to render that file. They are not stored in `matrix_config.json`, the hosted relay, or crash reports.
 
@@ -90,6 +93,8 @@ If you choose **Bring your own keys**, your local app talks directly to the upst
 If you choose **VATSIM**, the app uses virtual traffic data and does not need real-world schedule API keys.
 
 Local Flight fetches the public VATSIM network feed and keeps only flight-board-relevant fields such as callsign, filed route, aircraft type, airport codes, planned times, current aircraft position, and the raw METAR line when available from ATIS/METAR text. It intentionally does not store or display VATSIM pilot names, controller names, CIDs/account IDs, server names, or other person-identifying network fields.
+
+VATSIM Matrix views also avoid gate/stand placeholders because the current source does not provide reliable gate data. Virtual boards prioritize callsign, aircraft, route/status, flight-plan, weather/ATIS, and timing information instead.
 
 ---
 

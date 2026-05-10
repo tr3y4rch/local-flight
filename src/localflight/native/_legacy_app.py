@@ -131,7 +131,7 @@ def _app_version() -> str:
     try:
         return version("localflight")
     except PackageNotFoundError:
-        return "0.2.5"
+        return "0.2.6"
 
 
 def _as_widget(screen: Any) -> Any:
@@ -415,7 +415,9 @@ def launch_native_app(
     app.setOrganizationName("Local Flight")
     app.setOrganizationDomain("localflight.app")
     apply_app_font_defaults(QtGui, app)
-    app_icon = icon_from_media(QtGui, "assets", "icon_circle.svg")
+    app_icon = icon_from_media(QtGui, "assets", "icon.ico")
+    if app_icon.isNull():
+        app_icon = icon_from_media(QtGui, "assets", "icon_square.svg")
     if not app_icon.isNull():
         app.setWindowIcon(app_icon)
     splash = _build_splash(QtCore, QtGui, QtWidgets)
@@ -627,7 +629,9 @@ class NativeMainWindow:  # pragma: no cover - exercised with optional Qt
                 brand_mark = QtWidgets.QLabel()
                 brand_mark.setObjectName("BrandMark")
                 brand_mark.setAlignment(QtCore.Qt.AlignCenter)
-                brand_pixmap = pixmap_from_media(QtCore, QtGui, "assets", "icon_circle.svg", width=24, height=24)
+                brand_pixmap = pixmap_from_media(QtCore, QtGui, "ui", "static", "brand_mark.svg", width=26, height=26)
+                if brand_pixmap.isNull():
+                    brand_pixmap = pixmap_from_media(QtCore, QtGui, "assets", "icon_square.svg", width=26, height=26)
                 if brand_pixmap.isNull():
                     brand_mark.setText("*")
                 else:
@@ -2170,6 +2174,7 @@ class MatrixCanvas:  # pragma: no cover - optional Qt runtime
                 self.animation_speed = 3
                 self.status_animation_enabled = True
                 self.show_weather = True
+                self.show_gate_info = True
                 self.preset = "real_fids"
                 self.max_rows = 4
                 self.phase = 0
@@ -2185,6 +2190,9 @@ class MatrixCanvas:  # pragma: no cover - optional Qt runtime
                 self.pages: dict[str, Any] | None = None
                 self.weather_page: dict[str, Any] | None = None
                 self.message = ""
+                self.airport_iata = "LOCAL"
+                self.airport_label = "LOCAL"
+                self.view = "departures"
                 self.clock_utc_epoch: int | None = None
                 self.clock_sync_monotonic = time.monotonic()
                 self.clock_offset_minutes = 0
@@ -2220,6 +2228,10 @@ class MatrixCanvas:  # pragma: no cover - optional Qt runtime
                 self.pages = payload.get("pages") if isinstance(payload.get("pages"), dict) else None
                 self.weather_page = payload.get("weather_page") if isinstance(payload.get("weather_page"), dict) else None
                 self.message = str(payload.get("message") or "").upper()
+                self.airport_iata = str(payload.get("airport_iata") or self.airport_iata or "LOCAL").upper()
+                self.airport_label = str(payload.get("airport_label") or payload.get("airport_iata") or self.airport_label or "LOCAL").upper()
+                payload_view = str(payload.get("view") or self.view or "departures").lower()
+                self.view = payload_view if payload_view in {"departures", "arrivals"} else "departures"
                 try:
                     if payload.get("clock_utc_epoch") is not None:
                         self.clock_utc_epoch = int(payload.get("clock_utc_epoch"))
@@ -2241,6 +2253,7 @@ class MatrixCanvas:  # pragma: no cover - optional Qt runtime
                 animation_speed: int = 3,
                 status_animation_enabled: bool = True,
                 show_weather: bool = True,
+                show_gate_info: bool = True,
                 preset: str = "real_fids",
                 max_rows: int = 4,
             ) -> None:
@@ -2254,6 +2267,7 @@ class MatrixCanvas:  # pragma: no cover - optional Qt runtime
                 self.status_animation_enabled = bool(status_animation_enabled)
                 self.show_weather = bool(show_weather)
                 self.preset = preset or "real_fids"
+                self.show_gate_info = bool(show_gate_info) and not self._is_vatsim_preset()
                 self.animate = animate and self.animation_mode != "static"
                 self.max_rows = max(1, min(8, int(max_rows or 4)))
                 self.setMinimumHeight(max(260, int(self.panel_h * max(2, self.zoom) + 96)))
@@ -2433,10 +2447,78 @@ class MatrixCanvas:  # pragma: no cover - optional Qt runtime
                     return f"U{now_utc:%H:%M} L{local:%H:%M}"
                 return f"UTC{now_utc:%H:%M} LT{local:%H:%M}"
 
+            def _weather_line(self, chars: int = 18) -> str:
+                if not self.show_weather or not isinstance(self.metar, dict):
+                    return ""
+                condition = (
+                    self.metar.get("condition_display")
+                    or self.metar.get("weather_label")
+                    or self.metar.get("summary")
+                    or self.metar.get("weather_display")
+                    or ""
+                )
+                temp = (
+                    self.metar.get("temperature_short")
+                    or self.metar.get("temperature_display")
+                    or self.metar.get("temp_c")
+                    or self.metar.get("temperature_c")
+                    or ""
+                )
+                temp_s = str(temp).replace(" C", "C").replace(" ", "").upper()
+                if temp_s and not temp_s.endswith("C") and temp_s.replace("-", "").isdigit():
+                    temp_s = f"{temp_s}C"
+                text = " ".join(part for part in (self._ascii(condition).upper(), temp_s) if part)
+                if not text:
+                    return ""
+                return self.marquee(text, chars).strip() if len(text) > chars else text[:chars]
+
+            def _weather_glyph_name(self) -> str:
+                if not isinstance(self.metar, dict):
+                    return "unknown"
+                text = str(
+                    self.metar.get("weather_icon")
+                    or self.metar.get("condition_display")
+                    or self.metar.get("weather_label")
+                    or self.metar.get("summary")
+                    or ""
+                ).lower()
+                if "storm" in text or "thunder" in text:
+                    return "storm"
+                if "rain" in text or "shower" in text:
+                    return "rain"
+                if "mist" in text or "fog" in text or "haze" in text:
+                    return "fog"
+                if "cloud" in text or "overcast" in text:
+                    return "cloud"
+                if "sun" in text or "clear" in text or "vfr" in text:
+                    return "sun"
+                return "unknown"
+
+            def _weather_temp_text(self) -> str:
+                if not self.show_weather or not isinstance(self.metar, dict):
+                    return ""
+                temp = (
+                    self.metar.get("temperature_short")
+                    or self.metar.get("temperature_display")
+                    or self.metar.get("temp_c")
+                    or self.metar.get("temperature_c")
+                    or ""
+                )
+                temp_s = str(temp).replace(" C", "C").replace(" ", "").upper()
+                if temp_s and not temp_s.endswith("C") and temp_s.replace("-", "").replace(".", "").isdigit():
+                    temp_s = f"{temp_s}C"
+                return temp_s
+
+            def _weather_compact_token(self, max_chars: int = 8) -> str:
+                temp = self._weather_temp_text()
+                if temp:
+                    return f"{_weather_icon_glyph(self._weather_glyph_name())} {temp}"[:max_chars]
+                return self._weather_line(max_chars)
+
             def _header_height(self) -> int:
                 if self.panel_w < 200:
                     return 20
-                return 20 if self.panel_h >= 96 and self.show_weather and self.metar else 11
+                return 20 if self.panel_h >= 96 else 11
 
             def _route_chunk(self, row: dict[str, Any], chars: int) -> str:
                 label_text, code_text = self._route_fields(row)
@@ -2444,6 +2526,30 @@ class MatrixCanvas:  # pragma: no cover - optional Qt runtime
 
             def _status_chunk(self, row: dict[str, Any], chars: int) -> str:
                 return self.cycle_chunks(row.get("status_display") or row.get("status") or "-", chars).strip()
+
+            def _is_vatsim_preset(self) -> bool:
+                return str(self.preset or "").lower().startswith("vatsim_")
+
+            def _gate_label(self, row: dict[str, Any]) -> str:
+                if self._is_vatsim_preset() or not self.show_gate_info:
+                    return ""
+                for key in ("gate_label", "terminal_gate_display", "gate_display", "gate"):
+                    value = (format_value(row.get(key)) or "").strip().upper()
+                    if value and value != "-":
+                        return value
+                return ""
+
+            def _gate_chip(self, row: dict[str, Any], chars: int) -> str:
+                gate = self._gate_label(row)
+                if not gate:
+                    return ""
+                return f"G {gate}"[:chars].strip()
+
+            def _status_or_gate_chunk(self, row: dict[str, Any], chars: int) -> str:
+                gate = self._gate_chip(row, chars)
+                if gate and self.panel_w < 180 and int(time.monotonic() // 4) % 2 == 1:
+                    return gate
+                return self._status_chunk(row, chars)
 
             def _weather_page_lines(self, chars: int) -> list[str]:
                 if not self.show_weather:
@@ -2467,7 +2573,7 @@ class MatrixCanvas:  # pragma: no cover - optional Qt runtime
                 flight = self._flight_cycle_display(row)[:8].ljust(8)
                 route = self.fit(self._route_fields(row)[0], 12)
                 status = (format_value(row.get("status_display")) or format_value(row.get("status")) or "-")[:10].ljust(10)
-                gate = (format_value(row.get("gate")) or "-")[:4].ljust(4)
+                gate = (self._gate_label(row) or "")[:4].ljust(4)
                 return f"{time_text} {flight} {route} {status} {gate}".upper()
 
             def _detail_line(self, row: dict[str, Any]) -> str:
@@ -2565,8 +2671,9 @@ class MatrixCanvas:  # pragma: no cover - optional Qt runtime
                         painter.drawText(int(left + 10), int(top + 24 * scale), self._clock_text(True)[:chars])
                     else:
                         painter.drawText(int(left + max(10, board_w - 104 * scale)), int(top + 14 * scale), self._clock_text(False))
-                    y = top + (self._header_height() + 8) * scale
-                    for line in self._weather_page_lines(chars)[: max(1, int((self.panel_h - self._header_height()) / 9))]:
+                    weather_header_h = 30 if self.panel_w < 200 and self.panel_h >= 96 else self._header_height()
+                    y = top + (weather_header_h + 8) * scale
+                    for line in self._weather_page_lines(chars)[: max(1, int((self.panel_h - weather_header_h) / 9))]:
                         painter.drawText(int(left + 10), int(y), line)
                         y += 9 * scale
                     return
@@ -2574,14 +2681,37 @@ class MatrixCanvas:  # pragma: no cover - optional Qt runtime
                 rows_to_draw = self._visible_rows()
                 row_h = (board_h - header_h) / max(1, rows_to_draw)
                 painter.setPen(dim_color)
-                header = f"{self.preset.replace('_', ' ').upper()}  {self.panel_w}x{self.panel_h}  {self.animation_mode.replace('_', ' ').upper()}"
-                painter.drawText(int(left + 10), int(top + header_h * 0.72), header[:52])
+                lane = "ARR" if self.view == "arrivals" else "DEP"
+                compact_weather = self._weather_compact_token(8)
+                airport = (self.airport_iata if self.panel_w < 200 and compact_weather else self.airport_label or "LOCAL").upper()
+                header = f"{airport} {lane}"
+                if self.panel_w >= 200:
+                    header = f"{header}  {self.panel_w}x{self.panel_h}  {self.animation_mode.replace('_', ' ').upper()}"
+                painter.drawText(int(left + 10), int(top + 8 * scale), header[:52])
                 clock = self._clock_text(self.panel_w < 200)
                 painter.setPen(dim_color)
                 if self.panel_w < 200:
-                    painter.drawText(int(left + 10), int(top + min(header_h - 3, 20 * scale)), clock)
+                    chars = max(8, int(self.panel_w / 6))
+                    second_line = clock[:chars]
+                    second_color = dim_color
+                    if compact_weather:
+                        approx_w = len(compact_weather) * 6 * scale
+                        wx_x = left + board_w - approx_w - 10 * scale
+                        header_right = left + 10 + len(header[:52]) * 6 * scale + 6 * scale
+                        if wx_x > header_right:
+                            painter.setPen(QtGui.QColor(self.colors["amber"]))
+                            painter.drawText(int(wx_x), int(top + 8 * scale), compact_weather)
+                        elif int(time.monotonic() // 8) % 2 == 1:
+                            second_line = compact_weather[:chars]
+                            second_color = QtGui.QColor(self.colors["amber"])
+                    painter.setPen(second_color)
+                    painter.drawText(int(left + 10), int(top + 18 * scale), second_line)
                 else:
                     painter.drawText(int(left + max(10, board_w - 104 * scale)), int(top + header_h * 0.72), clock)
+                    weather_line = self._weather_line(max(10, int(self.panel_w / 8)))
+                    if self.panel_h >= 96 and weather_line:
+                        painter.setPen(QtGui.QColor(self.colors["amber"]))
+                        painter.drawText(int(left + 10), int(top + 18 * scale), weather_line)
                 painter.setPen(text_color)
                 paint_rows = self.rows
                 if self.preset == "vatsim_atc":
@@ -2618,11 +2748,11 @@ class MatrixCanvas:  # pragma: no cover - optional Qt runtime
                             status_y = row_top + 16 * scale
                         if status_y < row_top + row_h:
                             painter.setPen(text_color if cancelled else status_color)
-                            status_text = self._status_chunk(row_data, chars)
-                            gate = (format_value(row_data.get("gate")) or "").upper()
+                            status_text = self._status_or_gate_chunk(row_data, chars)
+                            gate = self._gate_label(row_data)
                             aircraft = (format_value(row_data.get("aircraft_type")) or format_value(row_data.get("aircraft")) or "").upper()
-                            if row_h >= 27 * scale and ((gate and gate != "-") or aircraft):
-                                extra = gate if gate and gate != "-" else aircraft
+                            if row_h >= 27 * scale and (aircraft and not gate):
+                                extra = aircraft
                                 status_text = f"{status_text[: max(1, chars - 5)].strip()} {extra[:4]}".strip()
                             painter.drawText(int(left + 4), int(status_y), status_text)
                         if idx < len(self.row_details) and self.row_details[idx] and row_h >= 34 * scale:
@@ -2689,13 +2819,14 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
         self._last_script = ""
         self._v2_available = False
         self.presets: list[dict[str, Any]] = []
+        self.panel_presets: list[dict[str, Any]] = []
         self.configs: list[dict[str, Any]] = []
         self.devices: list[dict[str, Any]] = []
         self.default_config_id = "default"
         self.widget, layout = scroll_page(QtWidgets)
 
         header = QtWidgets.QHBoxLayout()
-        header.addWidget(label(QtWidgets, "Matrix V2", "Title"))
+        header.addWidget(label(QtWidgets, "Matrix Board", "Title"))
         header.addStretch(1)
         for text, slot, quiet in (
             ("Refresh", self.refresh, False),
@@ -2709,14 +2840,16 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
                 button.setObjectName("Quiet")
             button.clicked.connect(slot)
             header.addWidget(button)
-        self.status = label(QtWidgets, "Preset configs, device assignment, live preview, and i75W export.", "Muted", wrap=True)
+        self.status = label(QtWidgets, "Choose a panel, preview the exact board, apply live settings, and generate main.py for the i75W.", "Muted", wrap=True)
         self.loading_indicator = _loading_indicator(QtWidgets)
         self.board_status = label(QtWidgets, "I75W status: not checked yet.", "Muted", wrap=True)
+        self.action_status = label(QtWidgets, "Ready.", "Muted", wrap=True)
         self.tabs = QtWidgets.QTabWidget()
         layout.addLayout(header)
         layout.addWidget(self.loading_indicator)
         layout.addWidget(self.status)
         layout.addWidget(self.board_status)
+        layout.addWidget(self.action_status)
         layout.addWidget(self.tabs, 1)
 
         self._build_shared_controls(QtCore)
@@ -2742,6 +2875,7 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
 
     def _build_shared_controls(self, QtCore: Any) -> None:
         self.config_select = self.QtWidgets.QComboBox()
+        self.config_name = self.QtWidgets.QLineEdit()
         self.preset_select = self.QtWidgets.QComboBox()
         self.panel_preset = self.QtWidgets.QComboBox()
         self._panel_presets = (
@@ -2786,6 +2920,9 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
         self.rotation_seconds.setSuffix("s")
         self.max_rows = self.QtWidgets.QSpinBox()
         self.max_rows.setRange(1, 8)
+        self.default_view_select = self.QtWidgets.QComboBox()
+        self.default_view_select.addItem("Departures first", "departures")
+        self.default_view_select.addItem("Arrivals first", "arrivals")
         self.animation_speed = self.QtWidgets.QSpinBox()
         self.animation_speed.setRange(1, 5)
         self.palette = self.QtWidgets.QComboBox()
@@ -2807,31 +2944,53 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
         self.status_animation.setChecked(True)
         self.weather_toggle = self.QtWidgets.QCheckBox("Weather strip/page")
         self.weather_toggle.setChecked(True)
+        self.gate_toggle = self.QtWidgets.QCheckBox("Gate/stand info")
+        self.gate_toggle.setChecked(True)
 
     def _build_preview_tab(self, QtCore: Any, QtGui: Any, QtWidgets2: Any) -> None:
         tab = self.QtWidgets.QWidget()
         layout = self.QtWidgets.QVBoxLayout(tab)
-        controls, form = panel(self.QtWidgets, "Preview & Preset")
+        guide, guide_layout = panel(self.QtWidgets, "Board setup in four steps")
+        steps = self.QtWidgets.QHBoxLayout()
+        for title, body in (
+            ("1 Choose panel", "Pick the physical panel combo or enter a custom size."),
+            ("2 Preview style", "Mode, palette, rows, weather, and motion update live below."),
+            ("3 Apply live config", "Saved boards pull these settings over Wi-Fi about once a minute."),
+            ("4 Generate main.py", "Use this only when Wi-Fi, server, or panel wiring changes."),
+        ):
+            steps.addWidget(card(self.QtWidgets, title, body))
+        guide_layout.addLayout(steps)
+
+        setup_row = self.QtWidgets.QHBoxLayout()
+        controls, form = panel(self.QtWidgets, "Board setup")
         form_layout = self.QtWidgets.QFormLayout()
         form_layout.addRow("Config", self.config_select)
-        form_layout.addRow("Preset", self.preset_select)
-        form_layout.addRow("Panel preset", self.panel_preset)
-        form_layout.addRow("Panel size", self._panel_size_row())
-        form_layout.addRow("Preview pixel size", self._slider_row(self.zoom, self.zoom_value))
-        form_layout.addRow("Brightness", self._slider_row(self.brightness, self.brightness_value))
-        form_layout.addRow("Max rows", self.max_rows)
+        form_layout.addRow("Name", self.config_name)
+        form_layout.addRow("Board mode", self.preset_select)
+        form_layout.addRow("Panel combo", self.panel_preset)
+        form_layout.addRow("Custom size", self._panel_size_row())
+        form_layout.addRow("Startup lane", self.default_view_select)
+        form_layout.addRow("Rows", self.max_rows)
         form_layout.addRow("Refresh", self.refresh_seconds)
         form_layout.addRow("Page rotation", self.rotation_seconds)
+        form_layout.addRow("Brightness", self._slider_row(self.brightness, self.brightness_value))
+        form_layout.addRow("Preview pixel size", self._slider_row(self.zoom, self.zoom_value))
+        form_layout.addRow("Palette", self.palette)
         form_layout.addRow("Animation", self.animation_mode)
         form_layout.addRow("Animation speed", self.animation_speed)
         form_layout.addRow("Status motion", self.status_animation)
         form_layout.addRow("Weather", self.weather_toggle)
-        form_layout.addRow("Palette", self.palette)
+        form_layout.addRow("Gate/stand", self.gate_toggle)
         form.addLayout(form_layout)
         self.canvas = lazy_symbol("localflight.native.canvas.matrix", "MatrixCanvas")(QtCore, QtGui, QtWidgets2)
-        layout.addWidget(controls)
-        layout.addWidget(self.canvas, 1)
-        self.tabs.addTab(tab, "Preview")
+        preview, preview_layout = panel(self.QtWidgets, "Live preview")
+        preview_layout.addWidget(label(self.QtWidgets, "This preview uses the same Matrix feed and compact renderer as the MicroPython board.", "Muted", wrap=True))
+        preview_layout.addWidget(self.canvas, 1)
+        setup_row.addWidget(controls, 1)
+        setup_row.addWidget(preview, 2)
+        layout.addWidget(guide)
+        layout.addLayout(setup_row, 1)
+        self.tabs.addTab(tab, "Preview & setup")
 
     def _build_configs_tab(self) -> None:
         tab = self.QtWidgets.QWidget()
@@ -2839,11 +2998,8 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
         row = self.QtWidgets.QHBoxLayout()
         self.config_list = self.QtWidgets.QListWidget()
         editor, editor_layout = panel(self.QtWidgets, "Config Details")
-        self.config_name = self.QtWidgets.QLineEdit()
         self.config_preset_hint = label(self.QtWidgets, "Preset and visual controls live in the Preview tab.", "Muted", wrap=True)
-        details = self.QtWidgets.QFormLayout()
-        details.addRow("Name", self.config_name)
-        editor_layout.addLayout(details)
+        editor_layout.addWidget(label(self.QtWidgets, "Edit the selected config name and board options in Preview & setup.", "Muted", wrap=True))
         editor_layout.addWidget(self.config_preset_hint)
         actions = self.QtWidgets.QHBoxLayout()
         for text, slot in (
@@ -2927,10 +3083,16 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
         self.panel_preset.currentIndexChanged.connect(self._apply_panel_preset_index)
         self.panel_w.valueChanged.connect(self._panel_dimensions_changed)
         self.panel_h.valueChanged.connect(self._panel_dimensions_changed)
-        for widget in (self.zoom, self.brightness, self.animation_mode, self.animation_speed, self.max_rows, self.preset_select, self.palette):
+        for widget in (self.zoom, self.brightness, self.animation_mode, self.animation_speed, self.max_rows, self.preset_select, self.palette, self.default_view_select):
             widget.currentIndexChanged.connect(self._sync_canvas_options) if hasattr(widget, "currentIndexChanged") else widget.valueChanged.connect(self._sync_canvas_options)
         self.status_animation.toggled.connect(self._sync_canvas_options)
         self.weather_toggle.toggled.connect(self._sync_canvas_options)
+        self.gate_toggle.toggled.connect(self._sync_canvas_options)
+        self.default_view_select.currentIndexChanged.connect(lambda *_args: self.refresh_feed_only())
+        self.preset_select.currentIndexChanged.connect(lambda *_args: self.refresh_feed_only())
+        self.max_rows.valueChanged.connect(lambda *_args: self.refresh_feed_only())
+        self.weather_toggle.toggled.connect(lambda *_args: self.refresh_feed_only())
+        self.gate_toggle.toggled.connect(lambda *_args: self.refresh_feed_only())
 
     def apply_theme(self, theme: str, skin: str) -> None:
         if hasattr(self.canvas, "apply_theme"):
@@ -2953,6 +3115,7 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
     def _load_v2_state(self) -> None:
         state = self.service.matrix_state()
         self.presets = state.presets
+        self.panel_presets = state.panel_presets
         self.configs = state.configs
         self.devices = state.devices
         self.default_config_id = state.default_config_id
@@ -2976,10 +3139,17 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
     def refresh_feed_only(self) -> None:
         if not self._v2_available:
             return
-        device_id = self._selected_device_id()
+        params = {
+            "view": self.feed_view,
+            "config_id": self._current_config_id() or "",
+            "preset": str(self.preset_select.currentData() or "real_fids"),
+            "max_rows": int(self.max_rows.value()),
+            "show_weather": bool(self.weather_toggle.isChecked()),
+            "show_gate_info": bool(self.gate_toggle.isChecked()),
+        }
         try:
             # Service keeps the browser-parity preview route: /api/matrix/v2/devices/preview/feed
-            payload, rows = self.service.matrix_feed(device_id=device_id)
+            payload, rows = self.service.matrix_feed(params=params)
         except NativeApiError:
             payload = {}
             rows = []
@@ -2987,8 +3157,10 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
         if hasattr(self.canvas, "set_matrix_payload"):
             self.canvas.set_matrix_payload(payload if isinstance(payload, dict) else {})
         self._sync_canvas_options()
+        self.action_status.setText(f"Preview updated from {payload.get('view', self.feed_view) if isinstance(payload, dict) else self.feed_view}.")
 
     def _populate_v2_lists(self) -> None:
+        self._populate_panel_presets()
         for widget in (self.config_select, self.preset_select, self.device_config):
             widget.blockSignals(True)
             widget.clear()
@@ -3011,6 +3183,28 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
             self.config_list.setCurrentRow(0)
             self._populate_config(self.configs[0])
         self._populate_device(0 if self.devices else -1)
+
+    def _populate_panel_presets(self) -> None:
+        if not self.panel_presets:
+            return
+        current = self.panel_preset.currentData()
+        old = self.panel_preset.blockSignals(True)
+        self.panel_preset.clear()
+        self.panel_preset.addItem("Custom size", "custom")
+        for item in self.panel_presets:
+            try:
+                width = int(item.get("panel_w") or 0)
+                height = int(item.get("panel_h") or 0)
+            except Exception:
+                continue
+            if width <= 0 or height <= 0:
+                continue
+            text = str(item.get("label") or f"{width} x {height}")
+            self.panel_preset.addItem(text, (width, height))
+        idx = self.panel_preset.findData(current)
+        if idx >= 0:
+            self.panel_preset.setCurrentIndex(idx)
+        self.panel_preset.blockSignals(old)
 
     def _select_config_from_combo(self, index: int) -> None:
         if index >= 0 and index < len(self.configs):
@@ -3044,7 +3238,7 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
         self.board_status.setText(f"Selected board: {device.get('label')} | last seen {device.get('last_seen') or 'never'}")
 
     def _populate_config(self, cfg: dict[str, Any]) -> None:
-        for widget in (self.brightness, self.max_rows, self.refresh_seconds, self.rotation_seconds, self.animation_mode, self.animation_speed, self.palette, self.preset_select, self.status_animation, self.weather_toggle, self.panel_preset, self.panel_w, self.panel_h):
+        for widget in (self.brightness, self.max_rows, self.refresh_seconds, self.rotation_seconds, self.default_view_select, self.animation_mode, self.animation_speed, self.palette, self.preset_select, self.status_animation, self.weather_toggle, self.gate_toggle, self.panel_preset, self.panel_w, self.panel_h):
             widget.blockSignals(True)
         self.config_name.setText(str(cfg.get("name") or "Matrix Config"))
         self.brightness.setValue(int(float(cfg.get("brightness", 0.8)) * 100))
@@ -3053,6 +3247,9 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
         self.rotation_seconds.setValue(int(cfg.get("page_rotation_seconds") or 10))
         feed_view = str(cfg.get("default_view") or "departures")
         self.feed_view = feed_view if feed_view in {"departures", "arrivals"} else "departures"
+        view_idx = self.default_view_select.findData(self.feed_view)
+        if view_idx >= 0:
+            self.default_view_select.setCurrentIndex(view_idx)
         animation_mode = str(cfg.get("animation_mode") or ("split_flap" if bool(cfg.get("animation_enabled", True)) else "static"))
         mode_idx = self.animation_mode.findData(animation_mode)
         self.animation_mode.setCurrentIndex(mode_idx if mode_idx >= 0 else 0)
@@ -3060,7 +3257,12 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
         self.status_animation.setChecked(bool(cfg.get("status_animation_enabled", True)))
         options = cfg.get("options") if isinstance(cfg.get("options"), dict) else {}
         self.weather_toggle.setChecked(bool(options.get("show_metar", options.get("show_weather", True))))
-        preset_idx = self.preset_select.findData(str(cfg.get("preset") or "real_fids"))
+        preset_name = str(cfg.get("preset") or "real_fids")
+        is_vatsim = preset_name.startswith("vatsim_")
+        self.gate_toggle.setChecked(bool(options.get("show_gate_info", cfg.get("show_gate_info", not is_vatsim))) and not is_vatsim)
+        self.gate_toggle.setEnabled(not is_vatsim)
+        self.gate_toggle.setToolTip("VATSIM does not provide reliable gate data." if is_vatsim else "Show gate or stand labels when real FIDS data provides them.")
+        preset_idx = self.preset_select.findData(preset_name)
         if preset_idx >= 0:
             self.preset_select.setCurrentIndex(preset_idx)
         palette_idx = self.palette.findText(str(cfg.get("palette") or "pax_blue"))
@@ -3070,7 +3272,7 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
             self.palette.setCurrentIndex(palette_idx)
         panel = (int(cfg.get("panel_w") or 256), int(cfg.get("panel_h") or 64))
         self._set_panel_size(*panel, sync=False)
-        for widget in (self.brightness, self.max_rows, self.refresh_seconds, self.rotation_seconds, self.animation_mode, self.animation_speed, self.palette, self.preset_select, self.status_animation, self.weather_toggle, self.panel_preset, self.panel_w, self.panel_h):
+        for widget in (self.brightness, self.max_rows, self.refresh_seconds, self.rotation_seconds, self.default_view_select, self.animation_mode, self.animation_speed, self.palette, self.preset_select, self.status_animation, self.weather_toggle, self.gate_toggle, self.panel_preset, self.panel_w, self.panel_h):
             widget.blockSignals(False)
         self._sync_value_labels()
         self._sync_canvas_options()
@@ -3133,23 +3335,39 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
             "brightness": self.brightness.value() / 100.0,
             "max_rows": int(self.max_rows.value()),
             "refresh_seconds": int(self.refresh_seconds.value()),
+            "default_view": str(self.default_view_select.currentData() or self.feed_view or "departures"),
             "page_rotation_seconds": int(self.rotation_seconds.value()),
             "animation_enabled": self.animation_mode.currentData() != "static",
             "animation_mode": str(self.animation_mode.currentData() or "split_flap"),
             "animation_speed": int(self.animation_speed.value()),
             "status_animation_enabled": bool(self.status_animation.isChecked()),
+            "show_gate_info": bool(self.gate_toggle.isChecked()),
             "palette": self.palette.currentText(),
             "options": {
                 "palette": self.palette.currentText(),
                 "show_metar": bool(self.weather_toggle.isChecked()),
                 "show_weather": bool(self.weather_toggle.isChecked()),
+                "show_gate_info": bool(self.gate_toggle.isChecked()),
             },
         }
 
     def _sync_canvas_options(self, *_args: Any) -> None:
         self._sync_value_labels()
+        self.feed_view = str(self.default_view_select.currentData() or self.feed_view or "departures")
         w, h = self._panel_size()
         mode = str(self.animation_mode.currentData() or "split_flap")
+        preset = str(self.preset_select.currentData() or "real_fids")
+        is_vatsim = preset.startswith("vatsim_")
+        if is_vatsim and self.gate_toggle.isChecked():
+            old = self.gate_toggle.blockSignals(True)
+            self.gate_toggle.setChecked(False)
+            self.gate_toggle.blockSignals(old)
+        elif not is_vatsim and not self.gate_toggle.isEnabled() and not self.gate_toggle.isChecked():
+            old = self.gate_toggle.blockSignals(True)
+            self.gate_toggle.setChecked(True)
+            self.gate_toggle.blockSignals(old)
+        self.gate_toggle.setEnabled(not is_vatsim)
+        self.gate_toggle.setToolTip("VATSIM does not provide reliable gate data." if is_vatsim else "Show gate or stand labels when real FIDS data provides them.")
         self.canvas.set_options(
             panel_w=w,
             panel_h=h,
@@ -3160,7 +3378,8 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
             animation_speed=int(self.animation_speed.value()),
             status_animation_enabled=bool(self.status_animation.isChecked()),
             show_weather=bool(self.weather_toggle.isChecked()),
-            preset=str(self.preset_select.currentData() or "real_fids"),
+            show_gate_info=bool(self.gate_toggle.isChecked()),
+            preset=preset,
             max_rows=int(self.max_rows.value()),
         )
         self.canvas.apply_theme("dark", self.palette.currentText())
@@ -3190,6 +3409,7 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
     def save_config(self) -> None:
         payload = self._config_payload()
         _set_native_feedback(self, "Saving matrix configuration...", busy=True)
+        self.action_status.setText("Saving Matrix config to the local server...")
         try:
             result = self.service.matrix_save_config(
                 config_id=self._current_config_id(),
@@ -3198,8 +3418,10 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
             )
         except NativeApiError as exc:
             _set_native_feedback(self, f"Matrix save failed: {exc}", "StatusBad")
+            self.action_status.setText(f"Save failed: {exc}")
             return
         _set_native_feedback(self, "Matrix config saved." if result.get("ok") else format_value(result), "StatusGood" if result.get("ok") else "StatusWarn")
+        self.action_status.setText("Saved. A connected board will pick this up on its next config refresh.")
         self.refresh()
 
     def create_config(self) -> None:
@@ -3271,19 +3493,30 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
             "panel_h": h,
             "max_rows": int(self.max_rows.value()),
             "refresh_seconds": int(self.refresh_seconds.value()),
+            "default_view": str(self.default_view_select.currentData() or "departures"),
             "brightness": self.brightness.value() / 100.0,
             "page_rotation_seconds": int(self.rotation_seconds.value()),
             "animation_enabled": self.animation_mode.currentData() != "static",
+            "animation_mode": str(self.animation_mode.currentData() or "split_flap"),
+            "animation_speed": int(self.animation_speed.value()),
+            "status_animation_enabled": bool(self.status_animation.isChecked()),
+            "show_weather": bool(self.weather_toggle.isChecked()),
+            "show_gate_info": bool(self.gate_toggle.isChecked()),
+            "preset": str(self.preset_select.currentData() or "real_fids"),
+            "palette": self.palette.currentText(),
         }
         _set_native_feedback(self, "Generating Matrix main.py preview...", busy=True)
+        self.action_status.setText("Generating main.py preview...")
         try:
             text = self.service.matrix_generate_script(payload)
         except NativeApiError as exc:
             _set_native_feedback(self, f"Script generation failed: {exc}", "StatusBad")
+            self.action_status.setText(f"main.py generation failed: {exc}")
             return
         self._last_script = text
         self.script_preview.setPlainText(text)
         self.tabs.setCurrentIndex(3)
+        self.action_status.setText("main.py generated. Save it to the board as main.py.")
         _set_native_feedback(self, "Generated V2 matrix main.py preview.", "StatusGood")
 
     def save_script_file(self) -> None:
@@ -4093,47 +4326,94 @@ class HistoryScreen:  # pragma: no cover - optional Qt runtime
         self.client = client
         self.service = NativeApiService(client)
         self.rows: list[dict[str, Any]] = []
-        self.all_rows: list[dict[str, Any]] = []
         self.colors = colors_for()
         self.widget = QtWidgets.QSplitter()
         self.widget.setMinimumWidth(0)
+
         body, layout = scroll_page(QtWidgets)
+        layout.setSpacing(12)
+
         header = QtWidgets.QHBoxLayout()
         title_col = QtWidgets.QVBoxLayout()
         title_col.addWidget(label(QtWidgets, "Flight History", "Title"))
-        title_col.addWidget(label(QtWidgets, "Search one callsign, filter the recent local board, and keep the useful stats in one place.", "Muted", wrap=True))
+        title_col.addWidget(label(QtWidgets, "Airport-board analytics: delay quotas, airline performance, routes, aircraft, and recent matching flights.", "Muted", wrap=True))
         header.addLayout(title_col, 1)
         header.addStretch(1)
+        self.last_refresh = label(QtWidgets, "Not loaded yet", "Muted")
+        header.addWidget(self.last_refresh)
+        layout.addLayout(header)
+
+        filters, filter_layout = panel(QtWidgets, "Filters")
+        filter_grid = QtWidgets.QGridLayout()
         self.callsign = QtWidgets.QLineEdit()
         self.callsign.setPlaceholderText("Callsign, e.g. LX1952")
-        self.callsign.setMaximumWidth(170)
+        self.callsign.setMaximumWidth(180)
+        self.callsign.returnPressed.connect(self.refresh)
+        self.airline = QtWidgets.QLineEdit()
+        self.airline.setPlaceholderText("Airline, e.g. LX")
+        self.airline.setMaxLength(3)
+        self.airline.setMaximumWidth(100)
+        self.airline.returnPressed.connect(self.refresh)
         self.hours = QtWidgets.QComboBox()
-        for value, text in ((6, "Last 6h"), (24, "Last 24h"), (168, "Last 7d"), (720, "Last 30d")):
+        for value, text in ((6, "Last 6h"), (24, "Last 24h"), (168, "Last 7d"), (720, "Last 30d"), (2160, "Last 90d")):
             self.hours.addItem(text, value)
         self.direction = QtWidgets.QComboBox()
-        self.direction.addItems(["both", "dep", "arr"])
+        for value, text in (("both", "Both"), ("dep", "Departures"), ("arr", "Arrivals")):
+            self.direction.addItem(text, value)
+        self.status_filter = QtWidgets.QComboBox()
+        for value, text in (("", "All statuses"), ("scheduled", "Scheduled"), ("boarding", "Boarding"), ("delayed", "Delayed"), ("departed", "Departed"), ("arrived", "Arrived"), ("cancelled", "Cancelled")):
+            self.status_filter.addItem(text, value)
         apply = QtWidgets.QPushButton("Apply")
         apply.clicked.connect(self.refresh)
-        search = QtWidgets.QPushButton("Search")
-        search.clicked.connect(self.search_callsign)
         clear = QtWidgets.QPushButton("Clear")
         clear.setObjectName("Quiet")
         clear.clicked.connect(self.clear_search)
-        self.status_filter = QtWidgets.QComboBox()
-        self.status_filter.addItems(["all statuses", "scheduled", "boarding", "delayed", "departed", "arrived", "cancelled"])
-        self.status_filter.currentTextChanged.connect(lambda _text: self._apply_local_filters())
-        header.addWidget(self.callsign)
-        header.addWidget(search)
-        header.addWidget(clear)
-        header.addWidget(self.hours)
-        header.addWidget(self.direction)
-        header.addWidget(self.status_filter)
-        header.addWidget(apply)
-        self.status = label(QtWidgets, "90-day local database. Click any row for details.", "Muted", wrap=True)
+        fields = [
+            ("Callsign", self.callsign),
+            ("Airline", self.airline),
+            ("Period", self.hours),
+            ("Direction", self.direction),
+            ("Status", self.status_filter),
+        ]
+        for idx, (name, widget) in enumerate(fields):
+            filter_grid.addWidget(label(QtWidgets, name, "Muted"), 0, idx)
+            filter_grid.addWidget(widget, 1, idx)
+        filter_grid.addWidget(apply, 1, len(fields))
+        filter_grid.addWidget(clear, 1, len(fields) + 1)
+        filter_layout.addLayout(filter_grid)
+        layout.addWidget(filters)
+
+        self.status = label(QtWidgets, "90-day local database. Click a row for details.", "Muted", wrap=True)
         self.loading_indicator = _loading_indicator(QtWidgets)
-        self.tabs = QtWidgets.QTabWidget()
-        self.tabs.hide()
-        self.table = QtWidgets.QTableWidget(0, 11)
+        layout.addWidget(self.loading_indicator)
+        layout.addWidget(self.status)
+
+        self.kpi_grid = QtWidgets.QGridLayout()
+        self.kpi_cards: dict[str, tuple[Any, Any]] = {}
+        for idx, (key, title, note) in enumerate((
+            ("total", "Flights tracked", "local DB"),
+            ("departures", "Departures", "outbound rows"),
+            ("arrivals", "Arrivals", "inbound rows"),
+            ("on_time_pct", "On time", "-4m to +4m"),
+            ("delayed_pct", "Delayed", "5m or more"),
+            ("avg_delay_minutes", "Avg delay", "when late"),
+        )):
+            box, value_label = self._metric_card(title, note)
+            self.kpi_cards[key] = (box, value_label)
+            self.kpi_grid.addWidget(box, idx // 3, idx % 3)
+        layout.addLayout(self.kpi_grid)
+
+        self.stats_body = QtWidgets.QWidget()
+        self.stats_outer_layout = QtWidgets.QVBoxLayout(self.stats_body)
+        self.stats_outer_layout.setContentsMargins(0, 0, 0, 0)
+        self.stats_content = QtWidgets.QWidget()
+        self.stats_layout = QtWidgets.QGridLayout(self.stats_content)
+        self.stats_layout.setContentsMargins(0, 0, 0, 0)
+        self.stats_outer_layout.addWidget(self.stats_content)
+        layout.addWidget(self.stats_body)
+
+        layout.addWidget(section_label(QtWidgets, "Recent matching flights"))
+        self.table = QtWidgets.QTableWidget(0, 12)
         self.table.setObjectName("FidsTable")
         self.table.verticalHeader().setVisible(False)
         self.table.setAlternatingRowColors(True)
@@ -4141,33 +4421,13 @@ class HistoryScreen:  # pragma: no cover - optional Qt runtime
         self.table.horizontalHeader().setStretchLastSection(True)
         self.table.setSortingEnabled(True)
         self.table.cellClicked.connect(self._show_row_detail)
-        self.stats_body = QtWidgets.QWidget()
-        self.stats_outer_layout = QtWidgets.QVBoxLayout(self.stats_body)
-        self.stats_period = QtWidgets.QComboBox()
-        for value, text in ((6, "6 hours"), (24, "24 hours"), (168, "7 days"), (720, "30 days"), (2160, "90 days")):
-            self.stats_period.addItem(text, value)
-        self.stats_period.currentIndexChanged.connect(lambda _idx: self._render_stats())
-        period_row = QtWidgets.QHBoxLayout()
-        period_row.addWidget(label(QtWidgets, "Statistics window", "Muted"))
-        period_row.addWidget(self.stats_period)
-        period_row.addStretch(1)
-        self.stats_outer_layout.addLayout(period_row)
-        self.stats_content = QtWidgets.QWidget()
-        self.stats_layout = QtWidgets.QVBoxLayout(self.stats_content)
-        self.stats_outer_layout.addWidget(self.stats_content, 1)
-        self.tabs.addTab(self.table, "Browse")
-        self.tabs.addTab(self.stats_body, "Stats")
-        layout.addLayout(header)
-        layout.addWidget(self.loading_indicator)
-        layout.addWidget(self.status)
-        layout.addWidget(self.stats_body)
-        layout.addWidget(section_label(QtWidgets, "Recent matching flights"))
         layout.addWidget(self.table, 1)
+
         self.detail = self._detail_panel()
         self.detail.hide()
         self.widget.addWidget(body)
         self.widget.addWidget(self.detail)
-        self.widget.setSizes([760, 300])
+        self.widget.setSizes([900, 340])
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self.widget, name)
@@ -4175,11 +4435,21 @@ class HistoryScreen:  # pragma: no cover - optional Qt runtime
     def apply_theme(self, theme: str, skin: str) -> None:
         self.colors = colors_for(theme, skin)
 
+    def _metric_card(self, title: str, note: str) -> tuple[Any, Any]:
+        box = self.QtWidgets.QFrame()
+        box.setObjectName("Card")
+        lay = self.QtWidgets.QVBoxLayout(box)
+        lay.addWidget(label(self.QtWidgets, title.upper(), "Kicker"))
+        value = label(self.QtWidgets, "-", "Title")
+        lay.addWidget(value)
+        lay.addWidget(label(self.QtWidgets, note, "Muted"))
+        return box, value
+
     def _detail_panel(self) -> Any:
         detail = self.QtWidgets.QFrame()
         detail.setObjectName("Drawer")
-        detail.setMinimumWidth(280)
-        detail.setMaximumWidth(420)
+        detail.setMinimumWidth(300)
+        detail.setMaximumWidth(460)
         layout = self.QtWidgets.QVBoxLayout(detail)
         head = self.QtWidgets.QHBoxLayout()
         self.detail_title = label(self.QtWidgets, "Flight details", "Title")
@@ -4194,57 +4464,62 @@ class HistoryScreen:  # pragma: no cover - optional Qt runtime
         layout.addWidget(self.detail_text, 1)
         return detail
 
+    def _filters(self, *, include_limit: bool = True) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "hours": int(self.hours.currentData()),
+            "direction": str(self.direction.currentData() or "both"),
+        }
+        if include_limit:
+            payload["limit"] = 500
+        callsign = self.callsign.text().strip().upper()
+        airline = self.airline.text().strip().upper()
+        status = str(self.status_filter.currentData() or "")
+        if callsign:
+            payload["callsign"] = callsign
+        if airline:
+            payload["airline_iata"] = airline
+        if status:
+            payload["status"] = status
+        return payload
+
     def refresh(self) -> None:
-        _set_native_feedback(self, "Loading local flight history...", busy=True)
+        _set_native_feedback(self, "Loading local history analytics...", busy=True)
         try:
-            payload = self.service.history_payload(
-                hours=int(self.hours.currentData()),
-                direction=self.direction.currentText(),
-                limit=500,
-            )
+            payload = self.service.history_payload(**self._filters(include_limit=True))
+            summary = self.service.history_summary(**self._filters(include_limit=False))
         except NativeApiError as exc:
             _set_native_feedback(self, f"History offline: {exc}", "StatusBad")
+            self.status.setText(f"History unavailable: {exc}")
             return
-        self.all_rows = list_payload(payload, "flights")
-        self._apply_local_filters(render=False)
-        _set_native_feedback(self, f"{payload.get('count', len(self.rows))} records in this filter | {payload.get('airport_iata', 'airport')}", "StatusGood")
+        self.rows = list_payload(payload, "flights")
+        self._render_summary(summary)
         self._render_table()
-        self._render_stats()
+        visible = min(len(self.rows), 120)
+        airport = payload.get("airport_iata") or summary.get("airport_iata") or "airport"
+        self.status.setText(f"{len(self.rows)} records in this filter | {airport} | showing first {visible} to keep the view light")
+        self.last_refresh.setText(f"Updated {datetime.now().strftime('%H:%M:%S')}")
+        _set_native_feedback(self, f"{len(self.rows)} history records loaded.", "StatusGood")
 
     def search_callsign(self) -> None:
-        callsign = self.callsign.text().strip().upper()
-        if not callsign:
-            self.refresh()
-            return
-        _set_native_feedback(self, f"Searching local history for {callsign}...", busy=True)
-        try:
-            payload = self.service.history_flight(callsign, days=30)
-        except NativeApiError as exc:
-            _set_native_feedback(self, f"Callsign search failed: {exc}", "StatusBad")
-            return
-        self.all_rows = list_payload(payload, "flights")
-        self._apply_local_filters(render=False)
-        _set_native_feedback(self, f"{len(self.rows)} records for {callsign}", "StatusGood")
-        self._render_table()
+        self.refresh()
 
     def clear_search(self) -> None:
         self.callsign.clear()
+        self.airline.clear()
+        self.status_filter.setCurrentIndex(0)
+        self.direction.setCurrentIndex(0)
         self.refresh()
 
-    def _apply_local_filters(self, *, render: bool = True) -> None:
-        status = self.status_filter.currentText().replace("all statuses", "").strip().lower()
-        if status:
-            self.rows = [row for row in self.all_rows if status in str(row.get("status") or "").lower()]
-        else:
-            self.rows = list(self.all_rows)
-        if render:
-            self._render_table()
-
     def _render_table(self) -> None:
+        self.table.setUpdatesEnabled(False)
+        self.table.blockSignals(True)
+        sorting = self.table.isSortingEnabled()
+        self.table.setSortingEnabled(False)
+        table_rows = [self._table_row(row) for row in self.rows[:120]]
         set_table_rows(
             self.table,
             self.QtWidgets,
-            self.rows[:120],
+            table_rows,
             [
                 ("sched_time", "Scheduled"),
                 ("direction", "Dir"),
@@ -4254,57 +4529,97 @@ class HistoryScreen:  # pragma: no cover - optional Qt runtime
                 ("origin_iata", "From"),
                 ("dest_iata", "To"),
                 ("status", "Status"),
+                ("delay_label", "Delay"),
                 ("gate", "Gate"),
                 ("aircraft_type", "A/C"),
                 ("source", "Source"),
             ],
             resize=False,
         )
-        for idx, width in enumerate((132, 68, 86, 86, 112, 82, 82, 116, 76, 92, 88)):
+        for idx, width in enumerate((138, 60, 82, 96, 110, 80, 80, 118, 96, 64, 86, 90)):
             self.table.setColumnWidth(idx, width)
         self.table.horizontalHeader().setStretchLastSection(True)
-        if len(self.rows) > 120 and "showing first 120" not in self.status.text():
-            self.status.setText(f"{self.status.text()} | showing first 120 to keep the view light")
+        QtCore, _QtGui, _QtWidgets = import_qt()
+        for idx, _row in enumerate(self.rows[:120]):
+            item = self.table.item(idx, 0)
+            if item is not None:
+                item.setData(QtCore.Qt.UserRole, idx)
+        self.table.setSortingEnabled(sorting)
+        self.table.blockSignals(False)
+        self.table.setUpdatesEnabled(True)
+
+    def _table_row(self, row: dict[str, Any]) -> dict[str, Any]:
+        copied = dict(row)
+        copied["delay_label"] = self._delay_label(row.get("delay_minutes"))
+        return copied
 
     def _render_stats(self) -> None:
-        clear_layout(self.stats_layout)
         try:
-            summary = self.service.history_summary(hours=int(self.stats_period.currentData()))
+            summary = self.service.history_summary(**self._filters(include_limit=False))
         except NativeApiError as exc:
-            self.stats_layout.addWidget(label(self.QtWidgets, f"Stats unavailable: {exc}", "Muted", wrap=True))
+            clear_layout(self.stats_layout)
+            self.stats_layout.addWidget(label(self.QtWidgets, f"Stats unavailable: {exc}", "Muted", wrap=True), 0, 0)
             return
-        kpis = summary.get("kpis") if isinstance(summary.get("kpis"), dict) else summary
-        grid = self.QtWidgets.QGridLayout()
-        kpi_rows = [
-            ("Flights tracked", "total", ""),
-            ("Departures", "departures", ""),
-            ("Arrivals", "arrivals", ""),
-            ("On time", "on_time_pct", "%"),
-            ("Avg delay", "avg_delay_minutes", "m"),
-        ]
-        for idx, (title, key, suffix) in enumerate(kpi_rows):
-            value = value_at(kpis, key) or summary.get(key)
-            if value not in (None, "") and suffix:
-                value = f"{value}{suffix}"
-            grid.addWidget(card(self.QtWidgets, title, value), idx // 3, idx % 3)
-        self.stats_layout.addLayout(grid)
-        bars = self.QtWidgets.QGridLayout()
+        self._render_summary(summary)
+
+    def _render_summary(self, summary: dict[str, Any]) -> None:
+        for key, (_box, value_label) in self.kpi_cards.items():
+            value = summary.get(key)
+            if key in {"on_time_pct", "delayed_pct"} and value is not None:
+                value = f"{value}%"
+            elif key == "avg_delay_minutes" and value is not None:
+                value = f"+{value}m"
+            value_label.setText(format_value(value) or "-")
+
+        clear_layout(self.stats_layout)
         specs = [
-            ("Top Airlines", "top_airlines", ("label", "code", "airline_iata")),
-            ("Top Destinations", "top_destinations", ("label", "code", "dest_iata")),
-            ("Top Origins", "top_origins", ("label", "code", "origin_iata")),
-            ("Top Aircraft Types", "top_aircraft", ("label", "aircraft_type", "code")),
+            ("Delay quota", self._delay_rows(summary), 0, 0),
+            ("Daily volume", self._daily_rows(summary), 0, 1),
+            ("Status mix", self._status_rows(summary), 0, 2),
+            ("Airline delay quota", self._airline_rows(summary), 1, 0),
+            ("Top routes", self._route_rows(summary), 1, 1),
+            ("Top aircraft", self._normalize_stat_rows(list_payload(summary, "top_aircraft"), ("aircraft_type", "code", "label")), 1, 2),
         ]
-        for idx, (title, section, keys) in enumerate(specs):
-            rows = self._normalize_stat_rows(list_payload(summary, section), keys)
+        for title, rows, r, c in specs:
             box, box_layout = panel(self.QtWidgets, title)
             if rows:
                 box_layout.addWidget(bar_summary(self.QtWidgets, rows))
             else:
-                box_layout.addWidget(label(self.QtWidgets, "No data yet.", "Muted"))
-            bars.addWidget(box, idx // 2, idx % 2)
-        self.stats_layout.addLayout(bars)
-        self.stats_layout.addStretch(1)
+                box_layout.addWidget(label(self.QtWidgets, "No matching data yet.", "Muted"))
+            self.stats_layout.addWidget(box, r, c)
+
+    def _delay_rows(self, summary: dict[str, Any]) -> list[dict[str, Any]]:
+        return [
+            {"label": row.get("label") or row.get("bucket") or "-", "count": row.get("count") or 0}
+            for row in list_payload(summary, "delay_buckets")
+        ]
+
+    def _daily_rows(self, summary: dict[str, Any]) -> list[dict[str, Any]]:
+        rows = list_payload(summary, "daily_volume")[-10:]
+        return [{"label": str(row.get("date") or "")[-5:] or "-", "count": row.get("total") or 0} for row in rows]
+
+    def _status_rows(self, summary: dict[str, Any]) -> list[dict[str, Any]]:
+        return [
+            {"label": f"{row.get('label') or row.get('status') or '-'} {row.get('pct') or 0}%", "count": row.get("count") or 0}
+            for row in list_payload(summary, "status_mix")
+        ]
+
+    def _airline_rows(self, summary: dict[str, Any]) -> list[dict[str, Any]]:
+        rows: list[dict[str, Any]] = []
+        for row in list_payload(summary, "top_airlines"):
+            code = format_value(row.get("code")) or "-"
+            delay = row.get("delay_rate_pct")
+            rows.append({"label": f"{code} {delay or 0}% late", "count": row.get("count") or 0})
+        return rows
+
+    def _route_rows(self, summary: dict[str, Any]) -> list[dict[str, Any]]:
+        rows: list[dict[str, Any]] = []
+        for row in list_payload(summary, "top_routes"):
+            origin = format_value(row.get("origin")) or "-"
+            dest = format_value(row.get("destination")) or "-"
+            delay = row.get("delay_rate_pct")
+            rows.append({"label": f"{origin}->{dest} {delay or 0}% late", "count": row.get("count") or 0})
+        return rows
 
     def _normalize_stat_rows(self, rows: list[dict[str, Any]], keys: tuple[str, ...]) -> list[dict[str, Any]]:
         normalized: list[dict[str, Any]] = []
@@ -4318,25 +4633,48 @@ class HistoryScreen:  # pragma: no cover - optional Qt runtime
         return normalized
 
     def _show_row_detail(self, row_idx: int, _col: int) -> None:
-        if row_idx < 0 or row_idx >= len(self.rows):
+        mapped_idx = row_idx
+        try:
+            QtCore, _QtGui, _QtWidgets = import_qt()
+            item = self.table.item(row_idx, 0)
+            if item is not None:
+                mapped_idx = int(item.data(QtCore.Qt.UserRole))
+        except Exception:
+            mapped_idx = row_idx
+        if mapped_idx < 0 or mapped_idx >= len(self.rows):
             return
-        row = self.rows[row_idx]
+        row = self.rows[mapped_idx]
         self.detail_title.setText(str(row.get("flight_number") or row.get("callsign") or "Flight"))
-        self.detail_text.setHtml(self._history_detail_html(row))
+        intel: dict[str, Any] = {}
+        callsign = str(row.get("callsign") or "").strip()
+        if callsign:
+            try:
+                live_detail = self.service.fids_detail(callsign)
+                if isinstance(live_detail.get("intel"), dict):
+                    intel = live_detail["intel"]
+                elif isinstance(live_detail.get("detail"), dict) and isinstance(live_detail["detail"].get("intel"), dict):
+                    intel = live_detail["detail"]["intel"]
+            except Exception:
+                intel = {}
+        self.detail_text.setHtml(self._history_detail_html(row, intel=intel))
         self.detail.show()
 
-    def _history_detail_html(self, row: dict[str, Any]) -> str:
+    def _history_detail_html(self, row: dict[str, Any], *, intel: dict[str, Any] | None = None) -> str:
+        intel = intel or {}
+        motion = intel.get("motion") if isinstance(intel.get("motion"), dict) else {}
+        aircraft = intel.get("aircraft") if isinstance(intel.get("aircraft"), dict) else {}
+        evidence = intel.get("source_evidence") if isinstance(intel.get("source_evidence"), dict) else {}
         sections = [
             ("Identity", [
                 ("Callsign", row.get("callsign")),
-                ("Flight No", row.get("flight_number")),
+                ("Flight", row.get("flight_number")),
                 ("Airline", row.get("airline_iata")),
-                ("Direction", row.get("direction")),
-                ("Status", row.get("status")),
+                ("Source", row.get("source")),
             ]),
-            ("Route & Operations", [
+            ("Route", [
                 ("From", row.get("origin_iata")),
                 ("To", row.get("dest_iata")),
+                ("Direction", row.get("direction")),
                 ("Gate", row.get("gate")),
                 ("Terminal", row.get("terminal")),
                 ("Aircraft", row.get("aircraft_type")),
@@ -4344,28 +4682,44 @@ class HistoryScreen:  # pragma: no cover - optional Qt runtime
             ("Timing", [
                 ("Scheduled", row.get("sched_time")),
                 ("Actual", row.get("actual_time")),
-                ("Delay", row.get("delay_minutes")),
+                ("Delay bucket", self._delay_label(row.get("delay_minutes"))),
                 ("Snapshot", row.get("snapshot_ts")),
             ]),
-            ("Source", [
-                ("Source", row.get("source")),
-                ("Enriched by", row.get("enriched_by")),
+            ("Operations", [
+                ("Status", row.get("status")),
+                ("Enriched by", evidence.get("position_source") or row.get("enriched_by")),
                 ("Lat / Lon", f"{row.get('lat')}, {row.get('lon')}" if row.get("lat") is not None and row.get("lon") is not None else ""),
-                ("Altitude", self._altitude(row.get("altitude_m"))),
+                ("Altitude", f"{motion.get('altitude_ft'):,} ft" if isinstance(motion.get("altitude_ft"), int) else self._altitude(row.get("altitude_m"))),
+                ("Speed", f"{motion.get('speed_kt')} kt" if motion.get("speed_kt") is not None else ""),
+                ("Aircraft reg", aircraft.get("registration")),
+                ("Source confidence", evidence.get("confidence")),
             ]),
         ]
-        parts = [
-            _detail_css(self.colors)
-        ]
+        parts = [_detail_css(self.colors)]
         for title, fields in sections:
-            rows = [(name, format_value(value)) for name, value in fields if format_value(value)]
-            if not rows:
+            detail_rows = [(name, format_value(value)) for name, value in fields if format_value(value)]
+            if not detail_rows:
                 continue
             parts.append(f"<div class='section'><div class='label'>{html_escape(title)}</div>")
-            for name, value in rows:
+            for name, value in detail_rows:
                 parts.append(f"<div class='row'><span class='key'>{html_escape(name)}</span><span class='val'>{html_escape(value)}</span></div>")
             parts.append("</div>")
         return "".join(parts)
+
+    def _delay_label(self, value: Any) -> str:
+        if value in (None, ""):
+            return "unknown"
+        try:
+            minutes = int(float(value))
+        except (TypeError, ValueError):
+            return "unknown"
+        if minutes <= -5:
+            return f"{abs(minutes)}m early"
+        if minutes <= 4:
+            return "on time"
+        if minutes <= 15:
+            return f"+{minutes}m warn"
+        return f"+{minutes}m late"
 
     def _altitude(self, value: Any) -> str:
         try:

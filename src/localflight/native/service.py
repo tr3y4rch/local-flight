@@ -7,6 +7,7 @@ place to harden route contracts without changing public HTTP APIs.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from dataclasses import field
 from typing import Any
 
 from localflight.native.api_client import LocalApiClient
@@ -43,6 +44,7 @@ class MatrixState:
     configs: list[dict[str, Any]]
     devices: list[dict[str, Any]]
     default_config_id: str
+    panel_presets: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -218,6 +220,7 @@ class NativeApiService:
             configs=list_payload(configs, "configs"),
             devices=list_payload(devices, "devices"),
             default_config_id=str(configs.get("default_config_id") or "default"),
+            panel_presets=list_payload(presets, "panel_presets"),
         )
 
     def matrix_compat_config(self) -> dict[str, Any]:
@@ -227,9 +230,14 @@ class NativeApiService:
         payload = self.client.get_any_json("/api/fids", params={"view": view, "limit": limit})
         return list_payload(payload)
 
-    def matrix_feed(self, *, device_id: str | None = None) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    def matrix_feed(
+        self,
+        *,
+        device_id: str | None = None,
+        params: dict[str, Any] | None = None,
+    ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
         path = f"/api/matrix/v2/devices/{device_id}/feed" if device_id else "/api/matrix/v2/devices/preview/feed"
-        payload = self.client.get_json(path)
+        payload = self.client.get_json(path, params=params)
         return payload, list_payload(payload, "rows")
 
     def matrix_save_config(self, *, config_id: str | None, payload: dict[str, Any], v2_available: bool) -> dict[str, Any]:
@@ -241,8 +249,14 @@ class NativeApiService:
                 "brightness": payload["brightness"],
                 "max_rows": payload["max_rows"],
                 "refresh_seconds": payload["refresh_seconds"],
+                "default_view": payload.get("default_view", "departures"),
                 "page_rotation_seconds": payload["page_rotation_seconds"],
                 "animation_enabled": payload["animation_enabled"],
+                "animation_mode": payload.get("animation_mode", "split_flap"),
+                "animation_speed": payload.get("animation_speed", 3),
+                "status_animation_enabled": payload.get("status_animation_enabled", True),
+                "palette": payload.get("palette", "pax_blue"),
+                "options": payload.get("options", {}),
             },
         )
 
@@ -261,18 +275,98 @@ class NativeApiService:
     def matrix_generate_script(self, payload: dict[str, Any]) -> str:
         return self.client.post_text("/api/matrix/script", payload)
 
-    def history_rows(self, *, hours: int = 24, direction: str = "both", limit: int = 500) -> list[dict[str, Any]]:
-        payload = self.client.get_json("/api/history", params={"hours": hours, "direction": direction, "limit": limit})
+    def _history_params(
+        self,
+        *,
+        hours: int,
+        direction: str = "both",
+        limit: int | None = None,
+        include_direction: bool = True,
+        status: str | None = None,
+        callsign: str | None = None,
+        airline_iata: str | None = None,
+    ) -> dict[str, Any]:
+        params: dict[str, Any] = {"hours": hours}
+        if include_direction:
+            params["direction"] = direction
+        if limit is not None:
+            params["limit"] = limit
+        if status:
+            params["status"] = status
+        if callsign:
+            params["callsign"] = callsign
+        if airline_iata:
+            params["airline_iata"] = airline_iata
+        return params
+
+    def history_rows(
+        self,
+        *,
+        hours: int = 24,
+        direction: str = "both",
+        limit: int = 500,
+        status: str | None = None,
+        callsign: str | None = None,
+        airline_iata: str | None = None,
+    ) -> list[dict[str, Any]]:
+        payload = self.client.get_json(
+            "/api/history",
+            params=self._history_params(
+                hours=hours,
+                direction=direction,
+                limit=limit,
+                status=status,
+                callsign=callsign,
+                airline_iata=airline_iata,
+            ),
+        )
         return list_payload(payload, "flights")
 
-    def history_payload(self, *, hours: int = 24, direction: str = "both", limit: int = 500) -> dict[str, Any]:
-        return self.client.get_json("/api/history", params={"hours": hours, "direction": direction, "limit": limit})
+    def history_payload(
+        self,
+        *,
+        hours: int = 24,
+        direction: str = "both",
+        limit: int = 500,
+        status: str | None = None,
+        callsign: str | None = None,
+        airline_iata: str | None = None,
+    ) -> dict[str, Any]:
+        return self.client.get_json(
+            "/api/history",
+            params=self._history_params(
+                hours=hours,
+                direction=direction,
+                limit=limit,
+                status=status,
+                callsign=callsign,
+                airline_iata=airline_iata,
+            ),
+        )
 
     def history_flight(self, callsign: str, *, days: int = 30) -> dict[str, Any]:
         return self.client.get_json("/api/history/flight", params={"callsign": callsign, "days": days})
 
-    def history_summary(self, *, hours: int) -> dict[str, Any]:
-        return self.client.get_json("/api/history/summary", params={"hours": hours})
+    def history_summary(
+        self,
+        *,
+        hours: int,
+        direction: str = "both",
+        status: str | None = None,
+        callsign: str | None = None,
+        airline_iata: str | None = None,
+    ) -> dict[str, Any]:
+        return self.client.get_json(
+            "/api/history/summary",
+            params=self._history_params(
+                hours=hours,
+                direction=direction,
+                include_direction=direction != "both" or bool(status or callsign or airline_iata),
+                status=status,
+                callsign=callsign,
+                airline_iata=airline_iata,
+            ),
+        )
 
     def history_stats(self) -> dict[str, Any]:
         return self.client.get_json("/api/history/stats")

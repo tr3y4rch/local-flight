@@ -230,10 +230,13 @@ def test_native_history_stats_render_code_labels(monkeypatch: pytest.MonkeyPatch
                 "departures": 7,
                 "arrivals": 5,
                 "on_time_pct": 91.2,
+                "delayed_pct": 8.8,
                 "avg_delay_minutes": 3,
-                "top_airlines": [{"code": "LX", "count": 8}],
-                "top_destinations": [{"code": "BCN", "count": 4}],
-                "top_origins": [{"code": "FRA", "count": 3}],
+                "delay_buckets": [{"label": "On time", "count": 11}, {"label": "Delayed 5-15m", "count": 1}],
+                "status_mix": [{"label": "Scheduled", "count": 9, "pct": 75}],
+                "top_airlines": [{"code": "LX", "count": 8, "delay_rate_pct": 12.5}],
+                "top_routes": [{"origin": "ZRH", "destination": "BCN", "count": 4, "delay_rate_pct": 25}],
+                "daily_volume": [{"date": "2026-05-10", "total": 12}],
                 "top_aircraft": [{"aircraft_type": "A320", "count": 2}],
             }
 
@@ -243,7 +246,10 @@ def test_native_history_stats_render_code_labels(monkeypatch: pytest.MonkeyPatch
 
     labels = {child.text() for child in screen.stats_content.findChildren(QtWidgets.QLabel)}
     assert app is not None
-    assert {"LX", "BCN", "FRA", "A320"}.issubset(labels)
+    assert "A320" in labels
+    assert any(text.startswith("LX ") for text in labels)
+    assert any(text.startswith("ZRH->BCN") for text in labels)
+    assert "On time" in labels
 
 
 def test_native_admin_uses_active_nested_schedule_budget() -> None:
@@ -2597,12 +2603,13 @@ def test_native_network_admin_tabs_match_operator_surfaces(monkeypatch: pytest.M
     assert app is not None
     assert [window.tabs.tabText(i) for i in range(window.tabs.count())] == [
         "Overview",
-        "Providers",
-        "Usage",
+        "Fleet",
+        "Traffic",
         "Schedules",
         "Surfaces",
         "Activations",
         "Reports",
+        "Providers",
         "Maintenance",
     ]
     assert "Raw" not in window.pages
@@ -2711,7 +2718,50 @@ def test_native_network_admin_auto_refresh_keeps_credentials_and_active_tab(monk
     assert app is not None
     assert window.password.text() == "secret"
     assert window._current_page_key() == "reports"
-    assert calls == ["/admin/api/reports"]
+    assert calls == ["/admin/api/reports?limit=100&sort=ts&dir=desc"]
+
+
+def test_native_network_admin_fleet_saved_view_sets_server_filters(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    monkeypatch.delenv("LOCALFLIGHT_NETWORK_ADMIN_RAW", raising=False)
+    pytest.importorskip("PySide6")
+    from PySide6 import QtWidgets
+    from localflight.native.network_admin import NetworkAdminWindow
+    from localflight.native.qt_compat import import_qt
+
+    QtCore, _QtGui, QtWidgets2 = import_qt()
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    window = NetworkAdminWindow(QtCore, QtWidgets2)
+    refreshed: list[str] = []
+    window._refresh_page = lambda page_key: refreshed.append(page_key)
+    window.payloads = {
+        "fleet": {
+            "metrics": {},
+            "facets": {
+                "status": {"active": 1},
+                "plan": {"community": 1},
+                "os_family": {"macos": 1, "windows": 1},
+                "effective_gui": {"native": 2},
+                "app_version": {"0.2.6": 1},
+            },
+            "installs": [],
+            "rows": [],
+            "filtered_estimate": 0,
+            "total_estimate": 0,
+        }
+    }
+    window._render_fleet()
+    quick = window.findChild(QtWidgets.QComboBox, "FleetQuickView")
+    os_filter = window.findChild(QtWidgets.QComboBox, "FleetFilter_os_family")
+
+    assert app is not None
+    assert quick is not None
+    assert os_filter is not None
+    idx = quick.findText("macOS native")
+    assert idx >= 0
+    quick.setCurrentIndex(idx)
+    assert window.page_filters["fleet"] == {"os_family": "macos", "effective_gui": "native"}
+    assert refreshed == ["fleet"]
 
 
 def test_native_declared_routes_exist() -> None:
@@ -2939,6 +2989,31 @@ def test_native_service_adapters_cover_kiosk_parity_reads() -> None:
     assert cfg["airport_iata"] == "ZRH"
     assert system["version"] == "test"
     assert client_info["relay_url"] == "https://relay.test"
+
+
+def test_native_history_service_forwards_dashboard_filters() -> None:
+    from localflight.native.service import NativeApiService
+
+    seen: list[tuple[str, dict[str, object] | None]] = []
+
+    class _Client:
+        def get_json(self, path: str, *, params: dict[str, object] | None = None) -> dict[str, object]:
+            seen.append((path, params))
+            if path == "/api/history":
+                return {"flights": []}
+            if path == "/api/history/summary":
+                return {"total": 0}
+            raise AssertionError(path)
+
+    service = NativeApiService(_Client())
+
+    service.history_payload(hours=168, direction="arr", limit=120, status="delayed", callsign="LX1952", airline_iata="LX")
+    service.history_summary(hours=168, direction="arr", status="delayed", callsign="LX1952", airline_iata="LX")
+
+    assert seen == [
+        ("/api/history", {"hours": 168, "direction": "arr", "limit": 120, "status": "delayed", "callsign": "LX1952", "airline_iata": "LX"}),
+        ("/api/history/summary", {"hours": 168, "direction": "arr", "status": "delayed", "callsign": "LX1952", "airline_iata": "LX"}),
+    ]
 
 
 def test_native_service_adapters_cover_native_actions() -> None:

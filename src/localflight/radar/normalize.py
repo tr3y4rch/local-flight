@@ -10,6 +10,16 @@ from .geo import (
     distance_nm,
 )
 
+_PRIVATE_VATSIM_KEYS = {
+    "cid",
+    "name",
+    "pilot_name",
+    "controller_name",
+    "server",
+    "server_name",
+    "real_name",
+}
+
 
 def _ft_to_m(value: Any) -> float | None:
     feet = float_or_none(value)
@@ -39,6 +49,9 @@ def _truthy_source_quality(item: dict[str, Any]) -> str:
 def enrich_blip_display_fields(blip: dict[str, Any]) -> dict[str, Any]:
     """Add stable display fields while preserving existing meter/m/s keys."""
     item = dict(blip)
+    if str(item.get("source") or "").lower().startswith("vatsim"):
+        for key in _PRIVATE_VATSIM_KEYS:
+            item.pop(key, None)
     altitude_ft = item.get("altitude_ft")
     if altitude_ft is None:
         altitude_ft = feet_from_m(item.get("altitude_m"))
@@ -51,13 +64,43 @@ def enrich_blip_display_fields(blip: dict[str, Any]) -> dict[str, Any]:
     heading = item.get("heading")
     if item.get("track_deg") is None and heading is not None:
         item["track_deg"] = heading
+    heading_deg = item.get("heading_deg") or item.get("track_deg") or heading
     if altitude_ft is not None:
         item["altitude_ft"] = round(float(altitude_ft))
     if speed_kt is not None:
         item["speed_kt"] = round(float(speed_kt))
     if vertical_rate_fpm is not None:
         item["vertical_rate_fpm"] = round(float(vertical_rate_fpm))
+    if heading_deg is not None:
+        try:
+            item["heading_deg"] = round(float(heading_deg)) % 360
+        except (TypeError, ValueError):
+            pass
     item.setdefault("source_quality", "unknown")
+    item["detail_mode"] = "virtual" if str(item.get("source") or "").lower().startswith("vatsim") else "real"
+
+    dep = str(item.get("departure_iata") or item.get("departure_icao") or "").strip().upper()
+    arr = str(item.get("arrival_iata") or item.get("arrival_icao") or "").strip().upper()
+    if dep or arr:
+        item["route_display"] = f"{dep or '???'} -> {arr or '???'}"
+
+    title = str(item.get("callsign") or item.get("flight_number") or item.get("icao24") or "Traffic").strip().upper()
+    item["display_title"] = title
+    if item.get("altitude_ft") is not None:
+        item["altitude_display"] = "GROUND" if item.get("on_ground") else f"{int(item['altitude_ft']):,} ft"
+    elif item.get("on_ground"):
+        item["altitude_display"] = "GROUND"
+    if item.get("speed_kt") is not None:
+        item["speed_display"] = f"{int(item['speed_kt'])} kt"
+    if item.get("vertical_rate_fpm") is not None:
+        vr = int(item["vertical_rate_fpm"])
+        item["vertical_rate_display"] = f"{vr:+d} fpm"
+    motion_parts = [
+        item.get("altitude_display"),
+        item.get("speed_display"),
+        item.get("vertical_rate_display"),
+    ]
+    item["motion_display"] = " | ".join(str(part) for part in motion_parts if part)
     return item
 
 

@@ -314,10 +314,10 @@ QLabel#Brand {{
   font-size: 15px;
 }}
 QLabel#BrandMark {{
-  background: {_rgba(accent, 0.16)};
-  border: 1px solid {_rgba(accent, 0.26)};
-  border-radius: 9px;
-  padding: 3px;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  padding: 0;
 }}
 QLabel#Version {{
   color: {colors["dim"]};
@@ -427,6 +427,13 @@ QLineEdit, QPlainTextEdit, QTextEdit, QSpinBox, QComboBox, QTableWidget, QTableV
   border: 1px solid {colors["line"]};
   border-radius: 8px;
   color: {colors["text"]};
+}}
+QComboBox QAbstractItemView {{
+  background: {colors["panel"]};
+  color: {colors["text"]};
+  selection-background-color: {accent_soft};
+  selection-color: {colors["text"]};
+  border: 1px solid {colors["line"]};
 }}
 QPlainTextEdit, QTextEdit {{
   font-family: {BOARD_FONT_STACK};

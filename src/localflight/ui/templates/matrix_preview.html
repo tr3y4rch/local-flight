@@ -406,7 +406,7 @@
     </div>
 
     <div class="ctrl-group">
-      <label>Panel file</label>
+      <label>Panel combo</label>
       <select id="panelPreset" onchange="applyPreset(this.value)">
         <option value="custom">Custom size</option>
         <optgroup label="128x64 rectangular modules">
@@ -429,6 +429,14 @@
       <input id="panelWidthInput" type="number" min="32" max="4096" value="{{ panel_w }}" onchange="setCustomPanelSize()" />
       <span class="dim">x</span>
       <input id="panelHeightInput" type="number" min="16" max="512" value="{{ panel_h }}" onchange="setCustomPanelSize()" />
+    </div>
+
+    <div class="ctrl-group">
+      <label>Startup lane</label>
+      <select id="viewSelect" onchange="setMatrixView(this.value)">
+        <option value="departures" selected>Departures first</option>
+        <option value="arrivals">Arrivals first</option>
+      </select>
     </div>
 
     <div class="ctrl-group">
@@ -519,6 +527,7 @@
      </div>
 
     <button class="toggle-btn active" id="weatherToggle" onclick="toggleWeather()">Weather</button>
+    <button class="toggle-btn active" id="gateToggle" onclick="toggleGateInfo()">Gate/stand</button>
     <button class="toggle-btn active" id="statusMotionToggle" onclick="toggleStatusMotion()">Status motion</button>
     <button class="toggle-btn" onclick="triggerDemo()">Demo</button>
   </div>
@@ -553,7 +562,7 @@
       <div class="guide-grid">
         <div class="guide-pill">
           <strong>Toggle without reflashing</strong>
-          Board mode, style, brightness, rows, refresh, rotation, weather, status motion, and animation mode/speed.
+          Board mode, style, brightness, rows, refresh, rotation, weather, gate/stand labels, status motion, and animation mode/speed.
         </div>
         <div class="guide-pill">
           <strong>Reflash when these change</strong>
@@ -634,10 +643,12 @@
   let ANIMATION_SPEED = 3;
   let STATUS_ANIMATION_ENABLED = true;
   let SHOW_WEATHER = true;
+  let SHOW_GATE_INFO = true;
   let MATRIX_PALETTE = "pax_blue";
   let MATRIX_CONFIGS = [];
   let MATRIX_PRESETS = [];
   let MATRIX_PALETTE_OPTIONS = [];
+  let MATRIX_PANEL_PRESETS = [];
   let CURRENT_CONFIG_ID = "";
   let MATRIX_METAR = null;
   let MATRIX_PAGES = null;
@@ -992,6 +1003,34 @@
     return cycleChunks(row?.status_display || row?.status || "-", chars).trim();
   }
 
+  function isVatsimPreset() {
+    return String(MATRIX_PRESET || "").toLowerCase().startsWith("vatsim_");
+  }
+
+  function gateInfoEnabled() {
+    return SHOW_GATE_INFO && !isVatsimPreset();
+  }
+
+  function gateLabel(row) {
+    if (!gateInfoEnabled() || !row) return "";
+    for (const key of ["gate_label", "terminal_gate_display", "gate_display", "gate"]) {
+      const value = String(row[key] || "").trim().toUpperCase();
+      if (value && value !== "-") return value;
+    }
+    return "";
+  }
+
+  function gateChip(row, chars) {
+    const gate = gateLabel(row);
+    return gate ? `G ${gate}`.slice(0, chars).trim() : "";
+  }
+
+  function statusOrGateChunk(row, chars) {
+    const gate = gateChip(row, chars);
+    if (gate && PANEL_W < 180 && Math.floor(Date.now() / 4000) % 2 === 1) return gate;
+    return statusChunk(row, chars);
+  }
+
   const cycle_chunks = cycleChunks;
   const code_preserve = codePreserve;
 
@@ -1000,7 +1039,7 @@
     const fn = ((flightCycleDisplay(row))+"        ").slice(0,8);
     const rt = fit(routeFields(row).label, 14);
     const st = ((row.status_display || row.status || "")+"          ").slice(0,10);
-    const gt = ((row.gate || "-")+"    ").slice(0,4);
+    const gt = ((gateLabel(row))+"    ").slice(0,4);
     return `${t} ${fn} ${rt} ${st} ${gt}`;
   }
 
@@ -1091,6 +1130,24 @@
     return text.length > chars ? marquee(text, chars).trim() : text.slice(0, chars);
   }
 
+  function weatherTempText() {
+    if (!SHOW_WEATHER || !MATRIX_METAR) return "";
+    const rawTemp = MATRIX_METAR.temperature_short || MATRIX_METAR.temperature_display || MATRIX_METAR.temp_c || MATRIX_METAR.temperature_c || "";
+    return rawTemp === "" ? "" : String(rawTemp).replace(" C", "C").replace(/\s+/g, "").toUpperCase().replace(/([^C])$/, "$1C");
+  }
+
+  function drawWeatherMini(x, y, maxW) {
+    if (!SHOW_WEATHER || !MATRIX_METAR) return false;
+    const temp = weatherTempText();
+    if (!temp) return false;
+    const width = 8 + temp.length * 6;
+    if (width > maxW) return false;
+    const glyph = weatherGlyphName();
+    drawGlyph(glyph, x, y + 1, glyph === "sun" || glyph === "storm" ? C.amber : C.dim);
+    drawString(temp, x + 8, y, C.amber, maxW - 8);
+    return true;
+  }
+
   function drawWeatherCompact(x, y, maxW) {
     if (!SHOW_WEATHER || !MATRIX_METAR) return;
     const glyph = weatherGlyphName();
@@ -1120,7 +1177,7 @@
 
   function headerHeight() {
     if (PANEL_W < 200) return 20;
-    return PANEL_H >= 96 && weatherLine(8) ? 20 : 11;
+    return PANEL_H >= 96 ? 20 : 11;
   }
 
   function visibleRows() {
@@ -1220,7 +1277,8 @@
       ? MATRIX_PAGES[atcPage]
       : flightData;
     const renderView = atcPage || VIEW;
-    const headerBase = asciiText(CFG.airport_label || CFG.airport_iata);
+    const weatherTemp = weatherTempText();
+    const headerBase = asciiText((PANEL_W < 200 && weatherTemp ? CFG.airport_iata : CFG.airport_label) || CFG.airport_iata);
     const headerView = renderView==="arrivals"?"ARR":"DEP";
     const headerLabel = `${PANEL_W < 200 ? marquee(headerBase, Math.max(6, Math.floor(PANEL_W / 6) - 4)).trim() : headerBase.length > 10 ? marquee(headerBase, Math.max(6, Math.floor(PANEL_W / 12))).trim() : headerBase} ${headerView}`.toUpperCase();
     drawString(headerLabel, 0, 0, C.green);
@@ -1229,7 +1287,19 @@
     const wx = weatherLine(Math.max(8, Math.floor(PANEL_W / 6) - 1));
     const showWeather = wx && (PANEL_H >= 96 || Math.floor(Date.now() / 8000) % 2 === 1);
     if (PANEL_W < 200) {
-      drawString(clockLabel(true).slice(0, Math.max(8, Math.floor(PANEL_W / 6))), 0, 10, C.dim, PANEL_W);
+      const chars = Math.max(8, Math.floor(PANEL_W / 6));
+      let topWeatherDrawn = false;
+      if (weatherTemp) {
+        const weatherWidth = 8 + weatherTemp.length * 6;
+        const weatherX = PANEL_W - weatherWidth - 1;
+        if (weatherX > headerLabel.length * 6 + 4) {
+          topWeatherDrawn = drawWeatherMini(weatherX, 0, weatherWidth + 1);
+        }
+      }
+      const clockText = weatherTemp && !topWeatherDrawn && Math.floor(Date.now() / 8000) % 2 === 1
+        ? weatherTemp
+        : clockLabel(true);
+      drawString(clockText.slice(0, chars), 0, 10, C.dim, PANEL_W);
     } else {
       const clockLine = showWeather ? wx : clockLabel();
       const clockX    = PANEL_W - clockLine.length*6 - 1;
@@ -1283,11 +1353,11 @@
           statusY = y + 16;
         }
         if (statusY + 7 <= y + rowH) {
-          let statusText = row ? statusChunk(row, chars) : txt.slice(28,38);
-          const gate = String(row?.gate || "").toUpperCase();
+          let statusText = row ? statusOrGateChunk(row, chars) : txt.slice(28,38);
+          const gate = gateLabel(row);
           const aircraft = String(row?.aircraft_type || row?.aircraft || "").toUpperCase();
-          if (rowH >= 27 && ((gate && gate !== "-") || aircraft)) {
-            const extra = gate && gate !== "-" ? gate : aircraft;
+          if (rowH >= 27 && aircraft && !gate) {
+            const extra = aircraft;
             statusText = `${statusText.slice(0, Math.max(1, chars - 5)).trim()} ${extra.slice(0,4)}`.trim();
           }
           drawString(statusText, 0, statusY, cancelled ? C.white : sc, PANEL_W);
@@ -1390,7 +1460,16 @@
   async function fetchRows() {
     try {
       const fetchLimit = Math.min(visibleRows() * 4, 32);
-      let r = await fetch(`/api/matrix/v2/devices/preview/feed`);
+      status.textContent = "Loading Matrix preview feed...";
+      const params = new URLSearchParams({
+        view: VIEW,
+        config_id: CURRENT_CONFIG_ID || "",
+        preset: MATRIX_PRESET,
+        max_rows: String(MAX_ROWS),
+        show_weather: SHOW_WEATHER ? "true" : "false",
+        show_gate_info: SHOW_GATE_INFO ? "true" : "false",
+      });
+      let r = await fetch(`/api/matrix/v2/devices/preview/feed?${params.toString()}`);
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       let payload = await r.json();
       let data = Array.isArray(payload) ? payload : (payload.rows || []);
@@ -1540,6 +1619,14 @@
     updateCfgBlock();
   };
 
+  window.setMatrixView = function(v) {
+    VIEW = v === "arrivals" ? "arrivals" : "departures";
+    const sel = document.getElementById("viewSelect");
+    if (sel) sel.value = VIEW;
+    updateCfgBlock();
+    fetchRows();
+  };
+
   window.setPageRotation = function(v) {
     PAGE_ROTATION_S = parseInt(v);
     lastRotationTs = performance.now();
@@ -1622,13 +1709,14 @@ MAX_ROWS      = ${MAX_ROWS}
 REFRESH_S     = ${REFRESH_S_SRV}
 PAGE_ROTATION_S = ${PAGE_ROTATION_S}
 BRIGHTNESS    = ${BRIGHTNESS.toFixed(2)}
-FEED_VIEW     = "auto (${VIEW})"
+DEFAULT_VIEW  = "${VIEW}"
 PRESET        = "${MATRIX_PRESET}"
 PALETTE       = "${MATRIX_PALETTE}"
 ANIMATION_MODE = "${ANIMATION_MODE}"
 ANIMATION_SPEED = ${ANIMATION_SPEED}
 STATUS_MOTION = ${STATUS_ANIMATION_ENABLED ? "True" : "False"}
 SHOW_WEATHER = ${SHOW_WEATHER ? "True" : "False"}
+SHOW_GATE_INFO = ${SHOW_GATE_INFO ? "True" : "False"}
 CLIENT_VER    = "2.0"
 
 Board reads: /api/config -> /api/matrix/v2/devices/{id}/config -> /api/matrix/v2/devices/{id}/feed`;
@@ -1646,9 +1734,17 @@ Board reads: /api/config -> /api/matrix/v2/devices/{id}/config -> /api/matrix/v2
       panel_h: PANEL_H,
       max_rows: MAX_ROWS,
       refresh_seconds: REFRESH_S_SRV,
+      default_view: VIEW,
       page_rotation_seconds: PAGE_ROTATION_S,
       brightness: BRIGHTNESS,
       animation_enabled: ANIMATION_MODE !== "static",
+      animation_mode: ANIMATION_MODE,
+      animation_speed: ANIMATION_SPEED,
+      status_animation_enabled: STATUS_ANIMATION_ENABLED,
+      show_weather: SHOW_WEATHER,
+      show_gate_info: SHOW_GATE_INFO,
+      preset: MATRIX_PRESET,
+      palette: MATRIX_PALETTE,
     };
   }
 
@@ -1741,6 +1837,7 @@ Board reads: /api/config -> /api/matrix/v2/devices/{id}/config -> /api/matrix/v2
         const configPayload = await configRes.json();
         MATRIX_PRESETS = Array.isArray(presetPayload.presets) ? presetPayload.presets : [];
         MATRIX_PALETTE_OPTIONS = Array.isArray(presetPayload.palettes) ? presetPayload.palettes : [];
+        MATRIX_PANEL_PRESETS = Array.isArray(presetPayload.panel_presets) ? presetPayload.panel_presets : [];
         MATRIX_CONFIGS = Array.isArray(configPayload.configs) ? configPayload.configs : [];
         CURRENT_CONFIG_ID = configPayload.default_config_id || (MATRIX_CONFIGS[0] && MATRIX_CONFIGS[0].id) || "";
         populateMatrixV2Selectors();
@@ -1763,6 +1860,7 @@ Board reads: /api/config -> /api/matrix/v2/devices/{id}/config -> /api/matrix/v2
     const configSel = document.getElementById("matrixConfigSelect");
     const presetSel = document.getElementById("presetSelect");
     const paletteSel = document.getElementById("paletteSelect");
+    const panelSel = document.getElementById("panelPreset");
     if (configSel && MATRIX_CONFIGS.length) {
       configSel.innerHTML = MATRIX_CONFIGS.map(c =>
         `<option value="${c.id}">${c.name || c.id}</option>`
@@ -1779,6 +1877,17 @@ Board reads: /api/config -> /api/matrix/v2/devices/{id}/config -> /api/matrix/v2
         `<option value="${p.id}">${p.label || p.id}</option>`
       ).join("");
       paletteSel.value = MATRIX_PALETTE;
+    }
+    if (panelSel && MATRIX_PANEL_PRESETS.length) {
+      const groups = new Map();
+      for (const p of MATRIX_PANEL_PRESETS) {
+        const group = p.group || "Panel presets";
+        if (!groups.has(group)) groups.set(group, []);
+        groups.get(group).push(p);
+      }
+      panelSel.innerHTML = `<option value="custom">Custom size</option>` + [...groups.entries()].map(([group, items]) =>
+        `<optgroup label="${group}">${items.map(p => `<option value="${p.panel_w}x${p.panel_h}">${p.label || `${p.panel_w} x ${p.panel_h}`}</option>`).join("")}</optgroup>`
+      ).join("");
     }
   }
 
@@ -1842,8 +1951,14 @@ Board reads: /api/config -> /api/matrix/v2/devices/{id}/config -> /api/matrix/v2
       SHOW_WEATHER = options.show_metar !== undefined ? Boolean(options.show_metar) : Boolean(options.show_weather);
       document.getElementById("weatherToggle")?.classList.toggle("active", SHOW_WEATHER);
     }
+    if (d.show_gate_info !== undefined || options.show_gate_info !== undefined) {
+      SHOW_GATE_INFO = d.show_gate_info !== undefined ? Boolean(d.show_gate_info) : Boolean(options.show_gate_info);
+    }
+    syncGateToggleForPreset();
     if (d.default_view !== undefined) {
-      VIEW = d.default_view;
+      VIEW = d.default_view === "arrivals" ? "arrivals" : "departures";
+      const viewSel = document.getElementById("viewSelect");
+      if (viewSel) viewSel.value = VIEW;
     }
     fetchRows();
   }
@@ -1860,13 +1975,46 @@ Board reads: /api/config -> /api/matrix/v2/devices/{id}/config -> /api/matrix/v2
     if (Array.isArray(suggested) && suggested.length && !suggested.includes(MATRIX_PALETTE)) {
       window.setMatrixPalette(suggested[0]);
     }
+    syncGateToggleForPreset();
     updateCfgBlock();
+    fetchRows();
   };
 
   window.toggleWeather = function() {
     SHOW_WEATHER = !SHOW_WEATHER;
     document.getElementById("weatherToggle")?.classList.toggle("active", SHOW_WEATHER);
     updateCfgBlock();
+    fetchRows();
+  };
+
+  function syncGateToggleForPreset() {
+    const btn = document.getElementById("gateToggle");
+    if (isVatsimPreset()) {
+      SHOW_GATE_INFO = false;
+      if (btn) {
+        btn.classList.remove("active");
+        btn.disabled = true;
+        btn.title = "VATSIM does not provide reliable gate data.";
+      }
+      return;
+    }
+    if (btn) {
+      btn.disabled = false;
+      btn.title = "Show gate or stand labels when real FIDS data provides them.";
+      btn.classList.toggle("active", SHOW_GATE_INFO);
+    }
+  }
+
+  window.toggleGateInfo = function() {
+    if (isVatsimPreset()) {
+      syncGateToggleForPreset();
+      return;
+    }
+    SHOW_GATE_INFO = !SHOW_GATE_INFO;
+    syncGateToggleForPreset();
+    updateCfgBlock();
+    applyVisiblePage(flightData);
+    fetchRows();
   };
 
   window.toggleStatusMotion = function() {
@@ -1889,16 +2037,19 @@ Board reads: /api/config -> /api/matrix/v2/devices/{id}/config -> /api/matrix/v2
           brightness:      BRIGHTNESS,
           max_rows:        MAX_ROWS,
           refresh_seconds: REFRESH_S_SRV,
+          default_view: VIEW,
           page_rotation_seconds: PAGE_ROTATION_S,
           animation_enabled: ANIMATION_MODE !== "static",
           animation_mode: ANIMATION_MODE,
           animation_speed: ANIMATION_SPEED,
           status_animation_enabled: STATUS_ANIMATION_ENABLED,
+          show_gate_info: SHOW_GATE_INFO,
           palette: MATRIX_PALETTE,
           options: {
             palette: MATRIX_PALETTE,
             show_metar: SHOW_WEATHER,
             show_weather: SHOW_WEATHER,
+            show_gate_info: SHOW_GATE_INFO,
           },
         }),
       });
@@ -1914,16 +2065,19 @@ Board reads: /api/config -> /api/matrix/v2/devices/{id}/config -> /api/matrix/v2
             brightness: BRIGHTNESS,
             max_rows: MAX_ROWS,
             refresh_seconds: REFRESH_S_SRV,
+            default_view: VIEW,
             page_rotation_seconds: PAGE_ROTATION_S,
             animation_enabled: ANIMATION_MODE !== "static",
             animation_mode: ANIMATION_MODE,
             animation_speed: ANIMATION_SPEED,
             status_animation_enabled: STATUS_ANIMATION_ENABLED,
+            show_gate_info: SHOW_GATE_INFO,
             palette: MATRIX_PALETTE,
             options: {
               palette: MATRIX_PALETTE,
               show_metar: SHOW_WEATHER,
               show_weather: SHOW_WEATHER,
+              show_gate_info: SHOW_GATE_INFO,
             },
           }),
         });
@@ -1946,6 +2100,7 @@ Board reads: /api/config -> /api/matrix/v2/devices/{id}/config -> /api/matrix/v2
   if (serverPortInput && !serverPortInput.value) serverPortInput.value = DEFAULT_SERVER_PORT;
   resizeCanvas();
   setPreviewPalette(MATRIX_PALETTE);
+  syncGateToggleForPreset();
   updateCfgBlock();
 
   // Start demo animation immediately so there's something to see

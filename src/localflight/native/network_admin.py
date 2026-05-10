@@ -10,6 +10,7 @@ import json
 import os
 import sys
 from typing import Any, Callable
+from urllib.parse import urlencode
 
 from localflight.native.api_client import NativeApiError, RelayAdminClient
 from localflight.native.design import apply_app_font_defaults, icon_from_media, native_stylesheet
@@ -39,7 +40,9 @@ def main() -> None:
         app.setOrganizationName("Local Flight")
         app.setOrganizationDomain("localflight.app")
         apply_app_font_defaults(QtGui, app)
-        app_icon = icon_from_media(QtGui, "assets", "icon_square.svg")
+        app_icon = icon_from_media(QtGui, "assets", "icon.ico")
+        if app_icon.isNull():
+            app_icon = icon_from_media(QtGui, "assets", "icon_square.svg")
         if not app_icon.isNull():
             app.setWindowIcon(app_icon)
         window = NetworkAdminWindow(QtCore, QtWidgets)
@@ -76,6 +79,16 @@ class NetworkAdminWindow:  # pragma: no cover - optional Qt runtime
                 self._last_refresh = ""
                 self._next_refresh_seconds = 0
                 self.show_raw = _raw_debug_enabled()
+                self.page_filters: dict[str, dict[str, Any]] = {}
+                self.page_cursors: dict[str, str] = {}
+                self.page_cursor_stack: dict[str, list[str]] = {}
+                self.page_sorts: dict[str, tuple[str, str]] = {
+                    "fleet": ("last_seen", "desc"),
+                    "traffic": ("last_seen", "desc"),
+                    "schedules": ("updated_at", "desc"),
+                    "surfaces": ("updated_at", "desc"),
+                    "reports": ("ts", "desc"),
+                }
 
                 root = QtWidgets.QWidget()
                 layout = QtWidgets.QVBoxLayout(root)
@@ -90,19 +103,26 @@ class NetworkAdminWindow:  # pragma: no cover - optional Qt runtime
                 self.brand_mark = QtWidgets.QLabel()
                 self.brand_mark.setObjectName("BrandMark")
                 self.brand_mark.setText("LF")
+                try:
+                    pixmap = QtWidgets.QApplication.windowIcon().pixmap(34, 34)
+                    if not pixmap.isNull():
+                        self.brand_mark.setPixmap(pixmap)
+                        self.brand_mark.setText("")
+                except Exception:
+                    pass
                 top.addWidget(self.brand_mark)
                 brand_box = QtWidgets.QVBoxLayout()
                 brand = QtWidgets.QLabel("Local Flight")
                 brand.setObjectName("Brand")
-                subtitle = QtWidgets.QLabel("Network Admin")
+                subtitle = QtWidgets.QLabel("Network Admin - operator relay console")
                 subtitle.setObjectName("Kicker")
                 brand_box.addWidget(brand)
                 brand_box.addWidget(subtitle)
                 top.addLayout(brand_box)
                 self.auth_chip = QtWidgets.QLabel("OFFLINE")
-                self.auth_chip.setObjectName("ClockChip")
-                self.operator_chip = QtWidgets.QLabel("OPERATOR ONLY")
-                self.operator_chip.setObjectName("ClockChip")
+                self.auth_chip.setObjectName("AuthChip")
+                self.operator_chip = QtWidgets.QLabel("MONITOR / INVESTIGATE / OPERATE")
+                self.operator_chip.setObjectName("OperatorChip")
                 self.last_refresh_chip = QtWidgets.QLabel("not refreshed")
                 self.last_refresh_chip.setObjectName("ClockChip")
                 self.countdown_chip = QtWidgets.QLabel("auto 30s")
@@ -120,7 +140,7 @@ class NetworkAdminWindow:  # pragma: no cover - optional Qt runtime
                 shell_layout.setSpacing(10)
 
                 hero = QtWidgets.QFrame()
-                hero.setObjectName("Panel")
+                hero.setObjectName("HeroPanel")
                 hero_layout = QtWidgets.QVBoxLayout(hero)
                 hero_layout.setContentsMargins(16, 14, 16, 14)
                 hero_layout.setSpacing(8)
@@ -147,6 +167,9 @@ class NetworkAdminWindow:  # pragma: no cover - optional Qt runtime
                 self.refresh_interval.setRange(10, 600)
                 self.refresh_interval.setValue(30)
                 self.refresh_interval.setSuffix("s")
+                self.search = QtWidgets.QLineEdit()
+                self.search.setPlaceholderText("Search fleet, OS, GUI, airport, reports")
+                self.search.setClearButtonEnabled(True)
                 self.status = QtWidgets.QLabel("Operator-only console. Mutating actions require admin auth.")
                 self.status.setObjectName("Muted")
                 login.addWidget(QtWidgets.QLabel("Relay admin URL"))
@@ -159,6 +182,7 @@ class NetworkAdminWindow:  # pragma: no cover - optional Qt runtime
                 login.addWidget(self.refresh_btn)
                 login.addWidget(self.auto_refresh)
                 login.addWidget(self.refresh_interval)
+                login.addWidget(self.search, 2)
                 hero_layout.addLayout(login)
                 hero_layout.addWidget(self.status)
                 shell_layout.addWidget(hero)
@@ -167,12 +191,13 @@ class NetworkAdminWindow:  # pragma: no cover - optional Qt runtime
                 self.nav_buttons: dict[str, Any] = {}
                 self.page_defs: list[tuple[str, str]] = [
                     ("overview", "Overview"),
-                    ("providers", "Providers"),
-                    ("usage", "Usage"),
+                    ("fleet", "Fleet"),
+                    ("traffic", "Traffic"),
                     ("schedules", "Schedules"),
                     ("surfaces", "Surfaces"),
                     ("activations", "Activations"),
                     ("reports", "Reports"),
+                    ("providers", "Providers"),
                     ("maintenance", "Maintenance"),
                 ]
                 if self.show_raw:
@@ -203,6 +228,7 @@ class NetworkAdminWindow:  # pragma: no cover - optional Qt runtime
                 self.connect_btn.clicked.connect(self.connect_relay)
                 self.refresh_btn.clicked.connect(lambda: self.refresh_all())
                 self.refresh_interval.valueChanged.connect(self._set_refresh_interval)
+                self.search.textChanged.connect(lambda _text="": self._render_page(self._current_page_key()))
                 self.timer = QtCore.QTimer(self)
                 self.timer.timeout.connect(self._auto_refresh_tick)
                 self._set_refresh_interval(self.refresh_interval.value())
@@ -294,6 +320,7 @@ class NetworkAdminWindow:  # pragma: no cover - optional Qt runtime
                 table.horizontalHeader().setStretchLastSection(True)
                 table.horizontalHeader().setDefaultSectionSize(142)
                 table.setWordWrap(False)
+                table.setSortingEnabled(False)
                 for row_idx, row in enumerate(rows):
                     for col_idx, (key, _label) in enumerate(columns):
                         value = _value_at(row, key)
@@ -302,6 +329,7 @@ class NetworkAdminWindow:  # pragma: no cover - optional Qt runtime
                         item.setToolTip(display)
                         table.setItem(row_idx, col_idx, item)
                 table.setMinimumHeight(min(440, max(140, 46 + len(rows) * 30)))
+                table.setSortingEnabled(True)
                 return table
 
             def _action_button(self, label: str, fn: Callable[[], None], danger: bool = False, action_id: str = "") -> Any:
@@ -343,6 +371,17 @@ class NetworkAdminWindow:  # pragma: no cover - optional Qt runtime
                 layout.addStretch(1)
                 return row
 
+            def _filtered_rows(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+                needle = self.search.text().strip().lower() if hasattr(self, "search") else ""
+                if not needle:
+                    return rows
+                filtered: list[dict[str, Any]] = []
+                for row in rows:
+                    blob = json.dumps(row, ensure_ascii=False, default=str).lower()
+                    if needle in blob:
+                        filtered.append(row)
+                return filtered
+
             def connect_relay(self) -> None:
                 self.client = RelayAdminClient(
                     base_url=self.url.text().strip(),
@@ -372,7 +411,7 @@ class NetworkAdminWindow:  # pragma: no cover - optional Qt runtime
                         if not path:
                             continue
                         try:
-                            self.payloads[key] = self.client.get_json(path)
+                            self.payloads[key] = self.client.get_json(self._endpoint_path(key, path))
                         except NativeApiError as exc:
                             errors.append(f"{key}: {exc}")
                     if active_only and self._has_loaded_all:
@@ -400,10 +439,162 @@ class NetworkAdminWindow:  # pragma: no cover - optional Qt runtime
 
             def _endpoint_keys_for_refresh(self, page_key: str) -> list[str]:
                 if page_key in {"overview", "providers", "maintenance"}:
-                    return ["overview", "usage", "activations", "reports", "schedules", "surfaces"]
+                    return ["overview", "fleet", "usage", "activations", "reports", "schedules", "surfaces"]
+                if page_key == "traffic":
+                    return ["usage"]
                 if page_key in ADMIN_ENDPOINTS:
                     return [page_key]
                 return ["overview"]
+
+            def _endpoint_path(self, key: str, path: str) -> str:
+                query_key = "traffic" if key == "usage" else key
+                if query_key not in {"fleet", "traffic", "schedules", "surfaces", "reports"}:
+                    return path
+                filters = {
+                    name: value
+                    for name, value in self.page_filters.get(query_key, {}).items()
+                    if str(value or "").strip()
+                }
+                sort_key, direction = self.page_sorts.get(query_key, ("last_seen", "desc"))
+                params: dict[str, Any] = {
+                    **filters,
+                    "limit": 100,
+                    "sort": sort_key,
+                    "dir": direction,
+                }
+                cursor = self.page_cursors.get(query_key, "")
+                if cursor:
+                    params["cursor"] = cursor
+                return f"{path}?{urlencode(params)}"
+
+            def _refresh_page(self, page_key: str) -> None:
+                self.refresh_all(active_only=True)
+
+            def _facet_options(self, payload: dict[str, Any], name: str) -> list[str]:
+                facets = payload.get("facets") if isinstance(payload.get("facets"), dict) else {}
+                values = facets.get(name) if isinstance(facets.get(name), dict) else {}
+                return sorted([str(key) for key in values if str(key or "").strip() and str(key) != "unknown"])
+
+            def _filter_bar(
+                self,
+                page_key: str,
+                fields: list[tuple[str, str, str, list[str]]],
+                *,
+                quick_views: list[tuple[str, dict[str, Any]]] | None = None,
+            ) -> Any:
+                box = self.QtWidgets.QFrame()
+                box.setObjectName("FilterBar")
+                layout = self.QtWidgets.QHBoxLayout(box)
+                layout.setContentsMargins(10, 8, 10, 8)
+                layout.setSpacing(8)
+                controls: dict[str, Any] = {}
+                if quick_views:
+                    quick = self.QtWidgets.QComboBox()
+                    quick.setObjectName("FleetQuickView" if page_key == "fleet" else "QuickView")
+                    quick.addItem("Saved view", {})
+                    for label, filters in quick_views:
+                        quick.addItem(label, filters)
+                    def apply_quick(_idx: int = 0, combo: Any = quick) -> None:
+                        data = combo.currentData()
+                        if isinstance(data, dict) and data:
+                            self.page_filters[page_key] = dict(data)
+                            self.page_cursors[page_key] = ""
+                            self.page_cursor_stack[page_key] = []
+                            self._refresh_page(page_key)
+                    quick.currentIndexChanged.connect(apply_quick)
+                    layout.addWidget(quick)
+                current = self.page_filters.get(page_key, {})
+                for name, label_text, kind, options in fields:
+                    if kind == "select":
+                        control = self.QtWidgets.QComboBox()
+                        control.setObjectName(f"{page_key.title()}Filter_{name}")
+                        control.addItem(label_text, "")
+                        for option in options:
+                            control.addItem(option, option)
+                        existing = str(current.get(name) or "")
+                        if existing:
+                            idx = control.findData(existing)
+                            if idx >= 0:
+                                control.setCurrentIndex(idx)
+                    else:
+                        control = self.QtWidgets.QLineEdit()
+                        control.setObjectName(f"{page_key.title()}Filter_{name}")
+                        control.setPlaceholderText(label_text)
+                        control.setText(str(current.get(name) or ""))
+                        control.setClearButtonEnabled(True)
+                    controls[name] = control
+                    layout.addWidget(control)
+                apply = self.QtWidgets.QPushButton("Apply filters")
+                clear = self.QtWidgets.QPushButton("Clear")
+                def apply_filters() -> None:
+                    values: dict[str, Any] = {}
+                    for name, control in controls.items():
+                        if isinstance(control, self.QtWidgets.QComboBox):
+                            value = control.currentData()
+                        else:
+                            value = control.text()
+                        if str(value or "").strip():
+                            values[name] = value
+                    self.page_filters[page_key] = values
+                    self.page_cursors[page_key] = ""
+                    self.page_cursor_stack[page_key] = []
+                    self._refresh_page(page_key)
+                def clear_filters() -> None:
+                    self.page_filters[page_key] = {}
+                    self.page_cursors[page_key] = ""
+                    self.page_cursor_stack[page_key] = []
+                    self._refresh_page(page_key)
+                apply.clicked.connect(apply_filters)
+                clear.clicked.connect(clear_filters)
+                layout.addWidget(apply)
+                layout.addWidget(clear)
+                layout.addStretch(1)
+                return box
+
+            def _paging_row(self, page_key: str, payload: dict[str, Any]) -> Any:
+                row = self.QtWidgets.QFrame()
+                row.setObjectName("PagerRow")
+                layout = self.QtWidgets.QHBoxLayout(row)
+                layout.setContentsMargins(0, 0, 0, 0)
+                filtered = payload.get("filtered_estimate", len(_list(payload.get("rows"))))
+                total = payload.get("total_estimate", filtered)
+                cursor = self.page_cursors.get(page_key, "") or "0"
+                label = self.QtWidgets.QLabel(f"{filtered} filtered / {total} total | cursor {cursor}")
+                label.setObjectName("Muted")
+                prev = self.QtWidgets.QPushButton("Previous")
+                next_btn = self.QtWidgets.QPushButton("Next")
+                prev.setEnabled(bool(self.page_cursor_stack.get(page_key)))
+                next_btn.setEnabled(bool(payload.get("next_cursor")))
+                def go_prev() -> None:
+                    stack = self.page_cursor_stack.setdefault(page_key, [])
+                    self.page_cursors[page_key] = stack.pop() if stack else ""
+                    self._refresh_page(page_key)
+                def go_next() -> None:
+                    self.page_cursor_stack.setdefault(page_key, []).append(self.page_cursors.get(page_key, ""))
+                    self.page_cursors[page_key] = str(payload.get("next_cursor") or "")
+                    self._refresh_page(page_key)
+                prev.clicked.connect(go_prev)
+                next_btn.clicked.connect(go_next)
+                layout.addWidget(label)
+                layout.addStretch(1)
+                layout.addWidget(prev)
+                layout.addWidget(next_btn)
+                return row
+
+            def _show_row_detail(self, title: str, row: dict[str, Any]) -> None:
+                dialog = self.QtWidgets.QDialog(self)
+                dialog.setWindowTitle(title)
+                dialog.resize(720, 560)
+                layout = self.QtWidgets.QVBoxLayout(dialog)
+                layout.addWidget(self._label(title, "Title"))
+                text = self.QtWidgets.QPlainTextEdit()
+                text.setReadOnly(True)
+                text.setPlainText(json.dumps(row, indent=2, ensure_ascii=False, default=str))
+                layout.addWidget(text, 1)
+                buttons = self.QtWidgets.QDialogButtonBox(self.QtWidgets.QDialogButtonBox.Close)
+                buttons.rejected.connect(dialog.reject)
+                layout.addWidget(buttons)
+                dialog.exec()
 
             def _set_refresh_interval(self, seconds: int) -> None:
                 seconds = max(10, int(seconds))
@@ -476,6 +667,8 @@ class NetworkAdminWindow:  # pragma: no cover - optional Qt runtime
             def _render_page(self, page_key: str) -> None:
                 renderers = {
                     "overview": self._render_overview,
+                    "fleet": self._render_fleet,
+                    "traffic": self._render_traffic,
                     "providers": self._render_providers,
                     "usage": self._render_usage,
                     "schedules": self._render_schedules,
@@ -492,13 +685,17 @@ class NetworkAdminWindow:  # pragma: no cover - optional Qt runtime
             def _render_overview(self) -> None:
                 layout = self._clear("overview")
                 overview = self.payloads.get("overview", {})
+                fleet = self.payloads.get("fleet", {})
                 counts = overview.get("counts") if isinstance(overview.get("counts"), dict) else {}
+                fleet_metrics = fleet.get("metrics") if isinstance(fleet.get("metrics"), dict) else overview.get("fleet")
+                if not isinstance(fleet_metrics, dict):
+                    fleet_metrics = {}
                 schedule = overview.get("shared_schedule") if isinstance(overview.get("shared_schedule"), dict) else {}
                 surface = overview.get("surface_cache") if isinstance(overview.get("surface_cache"), dict) else {}
                 providers = overview.get("providers") if isinstance(overview.get("providers"), dict) else {}
 
                 layout.addWidget(self._label("Network Overview", "Title"))
-                layout.addWidget(self._label("Shared relay health, provider readiness, caches, activations, and report gateway state.", "Muted"))
+                layout.addWidget(self._label("Fleet health, provider readiness, shared caches, activations, and report gateway state.", "Muted"))
                 grid = self.QtWidgets.QGridLayout()
                 schedule_hits = int(schedule.get("cache_hits", 0) or 0)
                 upstream_pulls = int(schedule.get("upstream_pulls", 0) or 0)
@@ -507,6 +704,8 @@ class NetworkAdminWindow:  # pragma: no cover - optional Qt runtime
                 configured = sum(1 for value in providers.values() if isinstance(value, dict) and value.get("configured"))
                 cards = [
                     self._card("Relay month", str(overview.get("month", "-")), f"{counts.get('usage_rows', 0)} usage rows"),
+                    self._card("Known installs", str(fleet_metrics.get("known_installs", counts.get("known_installs", 0))), "Fleet rows with relay activity"),
+                    self._card("Active installs", str(fleet_metrics.get("active_installs_24h", counts.get("active_installs_24h", 0))), "Seen in the last 24h"),
                     self._card("Providers ready", f"{configured} / {len(providers)}", "AviationStack / RapidAPI readiness"),
                     self._card("Shared schedule cache", str(counts.get("schedule_snapshots", 0)), f"{schedule_hits} hits"),
                     self._card("Upstream pulls", str(upstream_pulls), f"{accesses} client accesses"),
@@ -514,7 +713,8 @@ class NetworkAdminWindow:  # pragma: no cover - optional Qt runtime
                     self._card("Surface cache", str(counts.get("surface_snapshots", 0)), f"{surface.get('cache_hits', 0)} hits"),
                     self._card("Activation queue", str(counts.get("activation_requests_pending", 0)), "Pending/manual review"),
                     self._card("Reports 24h", str(counts.get("reports_24h", 0)), "Sanitized gateway events"),
-                    self._card("Trial cleanup", "ready", "Maintenance keeps provider keys/tokens/counters"),
+                    self._card("Companion installs", str(fleet_metrics.get("companion_installs", counts.get("companion_installs", 0))), "Mobile companion presence"),
+                    self._card("Matrix installs", str(fleet_metrics.get("matrix_installs", counts.get("matrix_installs", 0))), "LED/matrix presence"),
                 ]
                 for idx, card in enumerate(cards):
                     grid.addWidget(card, idx // 3, idx % 3)
@@ -537,13 +737,125 @@ class NetworkAdminWindow:  # pragma: no cover - optional Qt runtime
                 quick_layout.addWidget(
                     self._button_row(
                         [
-                            ("Open activations", lambda: self._show_page("activations"), False),
+                            ("Open fleet", lambda: self._show_page("fleet"), False),
                             ("Open reports", lambda: self._show_page("reports"), False),
+                            ("Open activations", lambda: self._show_page("activations"), False),
                             ("Open maintenance", lambda: self._show_page("maintenance"), False),
                         ]
                     )
                 )
                 layout.addWidget(quick)
+                layout.addStretch(1)
+
+            def _render_fleet(self) -> None:
+                layout = self._clear("fleet")
+                fleet = self.payloads.get("fleet", {})
+                metrics = fleet.get("metrics") if isinstance(fleet.get("metrics"), dict) else {}
+                rows = self._filtered_rows(_list(fleet.get("installs")))
+                layout.addWidget(self._label("Fleet", "Title"))
+                layout.addWidget(self._label("Sortable install registry. Rows expose fingerprints and opaque action refs only.", "Muted"))
+                layout.addWidget(
+                    self._filter_bar(
+                        "fleet",
+                        [
+                            ("q", "Search fleet", "text", []),
+                            ("status", "Status", "select", self._facet_options(fleet, "status")),
+                            ("plan", "Plan", "select", self._facet_options(fleet, "plan")),
+                            ("os_family", "OS", "select", self._facet_options(fleet, "os_family")),
+                            ("effective_gui", "GUI", "select", self._facet_options(fleet, "effective_gui")),
+                            ("app_version", "Version", "select", self._facet_options(fleet, "app_version")),
+                            ("airport_iata", "Airport", "text", []),
+                            ("has_companion", "Companion", "select", ["true", "false"]),
+                            ("has_matrix", "Matrix", "select", ["true", "false"]),
+                            ("blocked", "Blocked", "select", ["true", "false"]),
+                            ("managed", "Managed", "select", ["true", "false"]),
+                        ],
+                        quick_views=[
+                            ("Active installs", {"status": "active"}),
+                            ("Blocked/revoked", {"blocked": "true"}),
+                            ("Companion users", {"has_companion": "true"}),
+                            ("Matrix installs", {"has_matrix": "true"}),
+                            ("macOS native", {"os_family": "macos", "effective_gui": "native"}),
+                            ("Windows native", {"os_family": "windows", "effective_gui": "native"}),
+                        ],
+                    )
+                )
+                grid = self.QtWidgets.QGridLayout()
+                cards = [
+                    self._card("Known installs", str(metrics.get("known_installs", len(rows))), "All tracked relay installs"),
+                    self._card("Active 24h", str(metrics.get("active_installs_24h", 0)), "Recent heartbeat or relay traffic"),
+                    self._card("Managed", str(metrics.get("managed_installs", 0)), "Bound managed tokens"),
+                    self._card("Blocked", str(metrics.get("blocked_installs", 0)), "Revoked install access"),
+                    self._card("Companion", str(metrics.get("companion_installs", 0)), "Mobile companion present"),
+                    self._card("Matrix", str(metrics.get("matrix_installs", 0)), "LED/matrix present"),
+                ]
+                for idx, card in enumerate(cards):
+                    grid.addWidget(card, idx // 3, idx % 3)
+                layout.addLayout(grid)
+                table = self._table(
+                    rows,
+                    [
+                        ("install_fingerprint", "Install"),
+                        ("first_seen", "First seen"),
+                        ("last_seen", "Last seen"),
+                        ("os_family", "OS"),
+                        ("effective_gui", "GUI"),
+                        ("app_version", "Version"),
+                        ("plan", "Plan"),
+                        ("current_lane.airport_iata", "Airport"),
+                        ("companion_count", "Companion"),
+                        ("matrix_online_count", "Matrix"),
+                        ("schedule_calls", "Schedule"),
+                        ("radar_calls", "Radar"),
+                        ("status", "Status"),
+                    ],
+                )
+                table.setColumnCount(table.columnCount() + 1)
+                table.setHorizontalHeaderItem(table.columnCount() - 1, self.QtWidgets.QTableWidgetItem("Actions"))
+                for row_idx, row in enumerate(rows):
+                    install_ref = str(row.get("action_ref") or "")
+                    fp = str(row.get("install_fingerprint") or "")
+                    blocked = bool(row.get("blocked"))
+                    actions = [
+                        ("Reset", lambda r=install_ref, f=fp: self._reset_counter("install", install_ref=r, install_fingerprint=f), True, "counters.reset"),
+                        ("Unblock" if blocked else "Block", lambda r=install_ref, f=fp, a=("unblock" if blocked else "block"): self._install_access(a, r, f), True, "install.access"),
+                    ]
+                    table.setCellWidget(row_idx, table.columnCount() - 1, self._button_row(actions))
+                table.itemDoubleClicked.connect(lambda item, data=rows: self._show_row_detail("Fleet install", data[item.row()] if item.row() < len(data) else {}))
+                layout.addWidget(table)
+                layout.addWidget(self._paging_row("fleet", fleet))
+                layout.addStretch(1)
+
+            def _render_traffic(self) -> None:
+                layout = self._clear("traffic")
+                usage = self.payloads.get("usage", {})
+                layout.addWidget(self._label(f"Traffic - {usage.get('month', '')}", "Title"))
+                layout.addWidget(self._label("Relay usage and transport counters. Sort by service, plan, calls, or last seen.", "Muted"))
+                layout.addWidget(
+                    self._filter_bar(
+                        "traffic",
+                        [
+                            ("q", "Search traffic", "text", []),
+                            ("service", "Service", "text", []),
+                            ("plan", "Plan", "text", []),
+                            ("status", "Status or error", "text", []),
+                        ],
+                    )
+                )
+                layout.addWidget(self._label("Monthly service counters", "Section"))
+                layout.addWidget(self._table(self._filtered_rows(_list(usage.get("summary"))), [("service", "Service"), ("plan", "Plan"), ("calls", "Calls"), ("subjects", "Subjects"), ("last_seen", "Last seen")]))
+                layout.addWidget(self._label("Install/service rows", "Section"))
+                traffic_rows = self._filtered_rows(_list(usage.get("rows")))
+                traffic_table = self._table(traffic_rows, [("subject.kind", "Kind"), ("subject.fingerprint", "Fingerprint"), ("subject.tag", "Network"), ("service", "Service"), ("plan", "Plan"), ("calls", "Calls"), ("last_seen", "Last seen")])
+                traffic_table.itemDoubleClicked.connect(lambda item, data=traffic_rows: self._show_row_detail("Traffic row", data[item.row()] if item.row() < len(data) else {}))
+                layout.addWidget(traffic_table)
+                if isinstance(usage.get("requests"), dict):
+                    layout.addWidget(self._label("Recent request health", "Section"))
+                    request_rows = _list(usage["requests"].get("rows"))
+                    request_table = self._table(request_rows, [("ts", "Time"), ("install_fingerprint", "Install"), ("service", "Service"), ("scope", "Scope"), ("status", "Status"), ("latency_ms", "Latency"), ("plan", "Plan")])
+                    request_table.itemDoubleClicked.connect(lambda item, data=request_rows: self._show_row_detail("Request row", data[item.row()] if item.row() < len(data) else {}))
+                    layout.addWidget(request_table)
+                layout.addWidget(self._paging_row("traffic", usage))
                 layout.addStretch(1)
 
             def _render_providers(self) -> None:
@@ -679,7 +991,12 @@ class NetworkAdminWindow:  # pragma: no cover - optional Qt runtime
                 layout = self._clear("schedules")
                 schedules = self.payloads.get("schedules", {})
                 layout.addWidget(self._label("Shared Schedule Cache", "Title"))
-                layout.addWidget(self._table(_list(schedules.get("snapshots")), [("airport_iata", "Airport"), ("timezone", "Timezone"), ("client_accesses", "Client accesses"), ("upstream_pulls", "Upstream pulls"), ("cache_hits", "Hits"), ("last_cache_state", "State"), ("updated_at", "Updated"), ("last_error", "Error")]))
+                layout.addWidget(self._filter_bar("schedules", [("q", "Search schedules", "text", []), ("airport_iata", "Airport", "text", []), ("cache_state", "Cache state", "text", [])]))
+                schedule_rows = _list(schedules.get("snapshots"))
+                schedule_table = self._table(schedule_rows, [("airport_iata", "Airport"), ("timezone", "Timezone"), ("client_accesses", "Client accesses"), ("upstream_pulls", "Upstream pulls"), ("cache_hits", "Hits"), ("last_cache_state", "State"), ("updated_at", "Updated"), ("last_error", "Error")])
+                schedule_table.itemDoubleClicked.connect(lambda item, data=schedule_rows: self._show_row_detail("Schedule cache lane", data[item.row()] if item.row() < len(data) else {}))
+                layout.addWidget(schedule_table)
+                layout.addWidget(self._paging_row("schedules", schedules))
                 layout.addWidget(self._label("Live client interests", "Section"))
                 layout.addWidget(self._table(_list(schedules.get("client_interests")), [("install_fingerprint", "Install"), ("plan", "Plan"), ("airport_iata", "Airport"), ("timezone", "Timezone"), ("refresh_seconds", "Refresh"), ("last_seen", "Last seen")]))
                 layout.addStretch(1)
@@ -689,7 +1006,12 @@ class NetworkAdminWindow:  # pragma: no cover - optional Qt runtime
                 surfaces = self.payloads.get("surfaces", {})
                 layout.addWidget(self._label("Airport Surface Cache", "Title"))
                 layout.addWidget(self._label(f"Relay surface overlay enabled: {surfaces.get('enabled')}", "Muted"))
-                layout.addWidget(self._table(_list(surfaces.get("snapshots")), [("airport_iata", "IATA"), ("airport_icao", "ICAO"), ("feature_count", "Features"), ("request_count", "Requests"), ("cache_hits", "Hits"), ("refresh_count", "Refreshes"), ("last_cache_state", "State"), ("updated_at", "Updated"), ("last_error", "Error")]))
+                layout.addWidget(self._filter_bar("surfaces", [("q", "Search surfaces", "text", []), ("airport_iata", "Airport", "text", []), ("cache_state", "Cache state", "text", [])]))
+                surface_rows = _list(surfaces.get("snapshots"))
+                surface_table = self._table(surface_rows, [("airport_iata", "IATA"), ("airport_icao", "ICAO"), ("feature_count", "Features"), ("request_count", "Requests"), ("cache_hits", "Hits"), ("refresh_count", "Refreshes"), ("last_cache_state", "State"), ("updated_at", "Updated"), ("last_error", "Error")])
+                surface_table.itemDoubleClicked.connect(lambda item, data=surface_rows: self._show_row_detail("Surface cache lane", data[item.row()] if item.row() < len(data) else {}))
+                layout.addWidget(surface_table)
+                layout.addWidget(self._paging_row("surfaces", surfaces))
                 layout.addStretch(1)
 
             def _render_activations(self) -> None:
@@ -724,6 +1046,7 @@ class NetworkAdminWindow:  # pragma: no cover - optional Qt runtime
                         ("Delete", lambda r=token_ref, p=prefix: self._token_action(r, "delete", p), True, "activation.token_action"),
                     ]
                     table.setCellWidget(row_idx, table.columnCount() - 1, self._button_row(actions))
+                table.itemDoubleClicked.connect(lambda item, data=token_rows: self._show_row_detail("Managed token", data[item.row()] if item.row() < len(data) else {}))
                 layout.addWidget(table)
 
                 layout.addWidget(self._label("Activation requests", "Section"))
@@ -740,6 +1063,7 @@ class NetworkAdminWindow:  # pragma: no cover - optional Qt runtime
                         ("Delete", lambda r=request_id, d=display_id: self._request_action(r, "delete", d), True, "activation.request_action"),
                     ]
                     request_table.setCellWidget(row_idx, request_table.columnCount() - 1, self._button_row(actions))
+                request_table.itemDoubleClicked.connect(lambda item, data=request_rows: self._show_row_detail("Activation request", data[item.row()] if item.row() < len(data) else {}))
                 layout.addWidget(request_table)
 
                 layout.addWidget(self._label("Blocked installs", "Section"))
@@ -810,11 +1134,16 @@ class NetworkAdminWindow:  # pragma: no cover - optional Qt runtime
                 layout = self._clear("reports")
                 reports = self.payloads.get("reports", {})
                 layout.addWidget(self._label("Report Gateway", "Title"))
+                layout.addWidget(self._filter_bar("reports", [("q", "Search reports", "text", []), ("report_type", "Type", "text", []), ("origin", "Origin", "text", []), ("team", "Team", "text", []), ("status", "Status", "text", [])]))
                 layout.addWidget(self._table(_list(reports.get("summary_24h")), [("report_type", "Type"), ("origin", "Origin"), ("team", "Team"), ("status", "Status"), ("reports", "Reports"), ("installs", "Installs"), ("last_seen", "Last seen")]))
                 layout.addWidget(self._label("Recent sanitized events", "Section"))
-                layout.addWidget(self._table(_list(reports.get("recent_events")), [("ts", "Time"), ("install_fingerprint", "Install"), ("network_tag", "Network"), ("report_type", "Type"), ("origin", "Origin"), ("team", "Team"), ("status", "Status")]))
+                report_rows = _list(reports.get("recent_events"))
+                report_table = self._table(report_rows, [("ts", "Time"), ("install_fingerprint", "Install"), ("network_tag", "Network"), ("report_type", "Type"), ("origin", "Origin"), ("team", "Team"), ("status", "Status")])
+                report_table.itemDoubleClicked.connect(lambda item, data=report_rows: self._show_row_detail("Report event", data[item.row()] if item.row() < len(data) else {}))
+                layout.addWidget(report_table)
                 layout.addWidget(self._label("Dedupe groups", "Section"))
                 layout.addWidget(self._table(_list(reports.get("dedupe")), [("team", "Team"), ("report_type", "Type"), ("origin", "Origin"), ("count", "Count"), ("issue_url", "Issue"), ("last_seen", "Last seen")]))
+                layout.addWidget(self._paging_row("reports", reports))
                 layout.addStretch(1)
 
             def _render_raw(self) -> None:
@@ -887,11 +1216,148 @@ def _clean_payload(value: Any) -> Any:
 
 
 _NETWORK_ADMIN_STYLE = """
+QMainWindow, QWidget {
+  background-color: #061019;
+}
+QFrame#TopNav {
+  background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #071422, stop:0.55 #0c1b2c, stop:1 #081521);
+  border-bottom: 1px solid rgba(92,168,255,0.22);
+}
+QLabel#BrandMark {
+  min-width: 34px;
+  min-height: 34px;
+  border-radius: 11px;
+  padding: 2px;
+  background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #ffbf59, stop:0.45 #fff4bf, stop:1 #43d8e8);
+  color: #03111a;
+  font-weight: 900;
+}
+QLabel#Brand {
+  color: #edf6ff;
+  font-size: 15px;
+  font-weight: 900;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+QLabel#Kicker {
+  color: #9fb4c9;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
 QLabel#Title {
   color: #fff4df;
+  font-size: 22px;
+  font-weight: 900;
 }
 QLabel#Metric {
   font-size: 26px;
+  color: #ffffff;
+  font-weight: 900;
+}
+QFrame#HeroPanel {
+  background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 rgba(255,191,89,0.18), stop:0.45 rgba(15,25,38,0.98), stop:1 rgba(67,216,232,0.08));
+  border: 1px solid rgba(145,167,192,0.24);
+  border-radius: 18px;
+}
+QFrame#Panel {
+  background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 rgba(15,26,39,0.98), stop:1 rgba(9,18,29,0.98));
+  border: 1px solid rgba(35,54,74,0.92);
+  border-radius: 14px;
+}
+QFrame#Card {
+  background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 rgba(255,191,89,0.13), stop:0.04 rgba(255,191,89,0.28), stop:0.05 rgba(15,26,39,0.98), stop:1 rgba(9,18,29,0.98));
+  border: 1px solid rgba(35,54,74,0.95);
+  border-radius: 14px;
+}
+QFrame#FilterBar, QFrame#PagerRow {
+  background: rgba(9,18,29,0.82);
+  border: 1px solid rgba(35,54,74,0.82);
+  border-radius: 13px;
+}
+QLineEdit, QComboBox, QSpinBox {
+  background: #07111b;
+  color: #edf6ff;
+  border: 1px solid rgba(92,168,255,0.26);
+  border-radius: 10px;
+  padding: 8px 10px;
+  selection-background-color: rgba(67,216,232,0.35);
+}
+QLineEdit:focus, QComboBox:focus, QSpinBox:focus {
+  border-color: rgba(67,216,232,0.75);
+}
+QCheckBox {
+  color: #cfe0f2;
+  font-weight: 700;
+}
+QTableWidget {
+  background: #081421;
+  alternate-background-color: #0c1a29;
+  color: #edf6ff;
+  border: 1px solid rgba(35,54,74,0.92);
+  border-radius: 12px;
+  gridline-color: rgba(35,54,74,0.75);
+  selection-background-color: rgba(92,168,255,0.24);
+  selection-color: #ffffff;
+}
+QHeaderView::section {
+  background: #111d2b;
+  color: #9fb4c9;
+  border: 0;
+  border-right: 1px solid rgba(35,54,74,0.8);
+  border-bottom: 1px solid rgba(35,54,74,0.9);
+  padding: 9px 8px;
+  font-size: 11px;
+  font-weight: 900;
+}
+QPushButton {
+  background: #172638;
+  border: 1px solid rgba(145,167,192,0.16);
+  border-radius: 11px;
+  color: #edf6ff;
+  font-weight: 850;
+  padding: 8px 11px;
+}
+QPushButton:hover {
+  border-color: rgba(67,216,232,0.48);
+  background: rgba(92,168,255,0.20);
+}
+QPushButton:disabled {
+  color: rgba(237,246,255,0.36);
+  background: rgba(23,38,56,0.48);
+}
+QPushButton#NavButton {
+  min-height: 30px;
+  border-radius: 12px;
+}
+QPushButton#NavButton:checked {
+  border-color: rgba(255,191,89,0.82);
+  background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 rgba(255,191,89,0.24), stop:1 rgba(92,168,255,0.15));
+}
+QLabel#AuthChip, QLabel#OperatorChip, QLabel#ClockChip {
+  color: #d8e7f8;
+  background: rgba(145,167,192,0.12);
+  border: 1px solid rgba(145,167,192,0.22);
+  border-radius: 999px;
+  padding: 5px 9px;
+  font-size: 11px;
+  font-weight: 900;
+}
+QLabel#AuthChip[connected="true"] {
+  color: #b9ffd9;
+  background: rgba(42,208,127,0.16);
+  border-color: rgba(42,208,127,0.42);
+}
+QLabel#AuthChip[connected="false"] {
+  color: #ffd0cd;
+  background: rgba(255,113,109,0.14);
+  border-color: rgba(255,113,109,0.34);
+}
+QLabel#OperatorChip {
+  color: #ffe3a7;
+  background: rgba(255,191,89,0.14);
+  border-color: rgba(255,191,89,0.36);
 }
 QFrame#DangerPanel {
   background: rgba(239,68,68,0.08);
@@ -902,9 +1368,6 @@ QPushButton#Danger {
   background: rgba(239,68,68,0.20);
   border-color: rgba(239,68,68,0.50);
   color: #ffd0d0;
-}
-QPushButton#NavButton:checked {
-  border-color: #f0b429;
 }
 """
 

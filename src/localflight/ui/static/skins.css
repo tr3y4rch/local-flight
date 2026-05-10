@@ -8,6 +8,98 @@
 /* ── Standard (default) — inherits app.css fully, no overrides needed ── */
 [data-skin="standard"] {}
 
+[data-skin="pax_blue"] {
+  --skin-bg: #071829; --skin-surface: #0b2137; --skin-border: rgba(29, 140, 255, 0.24);
+  --skin-text: #d9f4ff; --skin-text-dim: #6aaed8; --skin-accent: #1d8cff;
+  --skin-ok: #65e7ff; --skin-warn: #ffbd45; --skin-bad: #ff4d5f;
+}
+
+[data-skin="solari_amber"] {
+  --skin-bg: #201000; --skin-surface: #2a1703; --skin-border: rgba(255, 173, 47, 0.22);
+  --skin-text: #fff0bf; --skin-text-dim: #c98d30; --skin-accent: #ffad2f;
+  --skin-ok: #ffd06c; --skin-warn: #ffe15c; --skin-bad: #ff5538;
+}
+
+[data-skin="tower_scope"] {
+  --skin-bg: #06170d; --skin-surface: #0b2012; --skin-border: rgba(56, 255, 117, 0.20);
+  --skin-text: #dfffe8; --skin-text-dim: #58a878; --skin-accent: #38ff75;
+  --skin-ok: #38ff75; --skin-warn: #ffd84a; --skin-bad: #ff4c4c;
+}
+
+[data-skin="vatsim_scope"] {
+  --skin-bg: #07130b; --skin-surface: #0c1d12; --skin-border: rgba(116, 255, 95, 0.20);
+  --skin-text: #e4ffe0; --skin-text-dim: #68a86b; --skin-accent: #74ff5f;
+  --skin-ok: #74ff5f; --skin-warn: #ffe066; --skin-bad: #ff5b5b;
+}
+
+[data-skin="night_ops"] {
+  --skin-bg: #07111f; --skin-surface: #0c1b2d; --skin-border: rgba(75, 184, 255, 0.20);
+  --skin-text: #d8f3ff; --skin-text-dim: #619cc4; --skin-accent: #4bb8ff;
+  --skin-ok: #49f0c8; --skin-warn: #f4c95d; --skin-bad: #ff5d7a;
+}
+
+[data-skin="sunset_terminal"] {
+  --skin-bg: #20100b; --skin-surface: #2b1710; --skin-border: rgba(255, 122, 61, 0.22);
+  --skin-text: #ffe8d8; --skin-text-dim: #c9825f; --skin-accent: #ff7a3d;
+  --skin-ok: #ffb05f; --skin-warn: #ffd166; --skin-bad: #ff3864;
+}
+
+[data-skin="ice_white"] {
+  --skin-bg: #f5fbff; --skin-surface: #ffffff; --skin-border: rgba(22, 136, 191, 0.22);
+  --skin-text: #0c2433; --skin-text-dim: #486d82; --skin-accent: #1688bf;
+  --skin-ok: #087f5b; --skin-warn: #a56500; --skin-bad: #b4233c;
+}
+
+[data-skin="pax_blue"],
+[data-skin="solari_amber"],
+[data-skin="tower_scope"],
+[data-skin="vatsim_scope"],
+[data-skin="night_ops"],
+[data-skin="sunset_terminal"],
+[data-skin="ice_white"] {
+  --bg: var(--skin-bg);
+  --text: var(--skin-text);
+  --card-bg: var(--skin-surface);
+  --card-border: var(--skin-border);
+  --panel-bg: color-mix(in srgb, var(--skin-surface) 86%, black);
+  --panel-border: var(--skin-border);
+  --input-bg: color-mix(in srgb, var(--skin-surface) 78%, black);
+  --input-border: var(--skin-border);
+  --btn-bg: color-mix(in srgb, var(--skin-accent) 18%, transparent);
+  --btn-border: color-mix(in srgb, var(--skin-accent) 48%, transparent);
+  --toast-bg: color-mix(in srgb, var(--skin-ok) 14%, var(--skin-surface));
+  --toast-border: color-mix(in srgb, var(--skin-ok) 42%, transparent);
+}
+
+[data-skin="ice_white"] {
+  --panel-bg: #eef6fc;
+  --input-bg: #ffffff;
+  --btn-bg: #e3f1fa;
+  --btn-border: #9ac7e2;
+}
+
+[data-skin="pax_blue"] body,
+[data-skin="solari_amber"] body,
+[data-skin="tower_scope"] body,
+[data-skin="vatsim_scope"] body,
+[data-skin="night_ops"] body,
+[data-skin="sunset_terminal"] body,
+[data-skin="ice_white"] body {
+  background: var(--skin-bg);
+  color: var(--skin-text);
+}
+
+[data-skin="pax_blue"] .dim,
+[data-skin="solari_amber"] .dim,
+[data-skin="tower_scope"] .dim,
+[data-skin="vatsim_scope"] .dim,
+[data-skin="night_ops"] .dim,
+[data-skin="sunset_terminal"] .dim,
+[data-skin="ice_white"] .dim {
+  color: var(--skin-text-dim);
+  opacity: 1;
+}
+
 /* ── Technical — slightly cooler, desaturated, grid feel ── */
 [data-skin="technical"] {
   --skin-bg:        #0a0e14;

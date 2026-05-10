@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from localflight.radar.classify import classify_blip
 from localflight.radar.map_layers import build_radar_map
-from localflight.radar.normalize import adsbx_aircraft_to_blips
+from localflight.radar.normalize import adsbx_aircraft_to_blips, enrich_blip_display_fields
 from localflight.radar import runways as runway_domain
 from localflight.radar.runways import merge_runways
 from localflight.sources.web.airport_map_context import fetch_overpass_map_context, normalize_overpass_map_context
@@ -47,6 +47,35 @@ def test_adsbx_normalizer_preserves_navigation_and_quality_fields() -> None:
     assert blips[0]["vertical_rate_fpm"] == -700
     assert blips[0]["selected_altitude_ft"] == 4000
     assert blips[0]["source_quality"] == "adsb-quality"
+
+
+def test_radar_display_normalizer_adds_safe_common_fields_and_scrubs_vatsim_identity() -> None:
+    blip = enrich_blip_display_fields(
+        {
+            "callsign": "BAW123",
+            "source": "vatsim",
+            "altitude_m": 3000,
+            "speed_ms": 110,
+            "vertical_rate": -3,
+            "heading": 271,
+            "departure_icao": "EGLL",
+            "arrival_icao": "LSZH",
+            "pilot_name": "Do Not Show",
+            "cid": 123456,
+            "server": "PRIVATE",
+        }
+    )
+
+    assert blip["detail_mode"] == "virtual"
+    assert blip["display_title"] == "BAW123"
+    assert blip["route_display"] == "EGLL -> LSZH"
+    assert blip["altitude_ft"] == 9843
+    assert blip["speed_kt"] == 214
+    assert blip["vertical_rate_fpm"] == -591
+    assert blip["heading_deg"] == 271
+    assert "pilot_name" not in blip
+    assert "cid" not in blip
+    assert "server" not in blip
 
 
 def test_runway_merge_uses_osm_geometry_and_ourairports_metadata(monkeypatch) -> None:

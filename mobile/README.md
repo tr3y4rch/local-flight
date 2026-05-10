@@ -94,12 +94,12 @@ The screenshot script builds a self-contained simulator app and captures portrai
 - Connection checks against `/api/health`
 - Dashboard data from `/api/admin/system`, `/api/config`, `/api/health`, `/api/admin/budget`, `/api/admin/connections`, `/api/admin/updates`, and `/api/metar`
 - Native FIDS list from `/api/fids`
-- Flight details from `/api/fids/detail`, including real vs VATSIM detail modes when the server has that data
+- Flight details from `/api/fids/detail`, including the server's shared current-source detail model for real vs VATSIM schedule, motion, aircraft, weather, source confidence, and history fields when available
 - Airport, source, and refresh interval editing. The server offers 15, 30, 45, and 60 minute choices plus longer 2, 4, 8, 12, and 24 hour choices. Community Relay may still reuse already-cached airport snapshots for about one hour to protect shared upstream schedule access.
 - Pinned flight island with pin/unpin and tap-for-detail behavior
 - WebSocket listener for `/ws` `snapshot_updated`, `config_updated`, and `scheduler_restarted` events
 - Independent mobile appearance with dark/light theme plus `standard`, `technical`, `neon`, `cyan`, and `crt` skins
-- Server-backed Matrix runtime editor using `/api/matrix/config`, with local-only panel preview presets
+- Server-backed Matrix runtime editor using `/api/matrix/config`, with local-only panel preview presets. Real-world Matrix feeds can expose gate/stand labels when available; VATSIM Matrix presets intentionally hide gate placeholders.
 - Fullscreen landscape FIDS from any screen, with normal portrait state restored when rotating back
 - Mobile-owned radar radius controls with server-mediated runway and airport-surface drawing
 - In-app Markdown reader for README, Privacy, and Changelog

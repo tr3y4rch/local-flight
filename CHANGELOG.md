@@ -6,6 +6,33 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.2.6] - 2026-05-10
+
+> Temporary client-polish and docs target after the `0.2.5` beta baseline.
+> For the user-facing summary, see [docs/release-notes-0.2.6.md](docs/release-notes-0.2.6.md).
+
+### Client UX
+- Native Qt and LAN/browser History now share the same dashboard-style analytics model: filters, KPIs, delay buckets, airline delay quotas, route/aircraft stats, sortable recent flights, and polished detail panels.
+- Native Qt and LAN/browser Matrix now expose the same friendly board configurator shape with panel presets, startup lane, live preview, config save/apply feedback, Wi-Fi/server guidance, and generated `main.py` support.
+- Native Qt and LAN/browser Settings now use a calmer dashboard-card structure with user-first controls, collapsed advanced/support sections, stronger theme/skin contrast, and cleaner setup/reset/resource flows.
+- Native setup copy and layout now follow the same first-run guidance model as the browser setup while keeping the hosted relay root user-facing and hiding internal route details.
+
+### Matrix
+- Matrix FIDS weather no longer consumes a dedicated third header line. Compact boards such as `128x128` keep a two-line header and fit weather into the existing top area.
+- Real-world Matrix FIDS can show gate/stand information from existing schedule data, including tiny-board status/gate alternation when space is tight.
+- VATSIM Matrix presets intentionally hide gate placeholders because the current virtual source does not provide reliable gate data.
+- Native preview, LAN browser preview, and generated MicroPython `main.py` now follow the same compact weather and gate-display policies.
+
+### FIDS, Radar, And Details
+- FIDS detail, Radar detail, History detail, Matrix compact fields, native Qt, and LAN/browser views now share a current-source flight intelligence layer built from existing schedule, radar, METAR, surface context, and local history data.
+- Radar information and drawing behavior from the native client have been carried into the LAN/browser radar path so blip status, layering, surface context, and detail wording stay aligned.
+- No new paid provider or surprise per-row detail fetches were added for this intelligence pass.
+
+### Privacy And Docs
+- Public docs now describe `0.2.6` as a temporary client-polish target and keep `0.2.5` as the beta baseline it builds on.
+- Privacy copy now clarifies that richer detail drawers reuse already-fetched local/server data and that Matrix gate display is real-FIDS-only, with VATSIM gate placeholders suppressed by design.
+- Public docs stay focused on normal client functions and avoid exposing maintenance/admin internals.
+
 ## [0.2.5] - 2026-05-10
 
 > Still beta, but now treated as the working multi-client release for native desktop, LAN browser UI, Pi/headless/kiosk, mobile companion, and Matrix.
@@ -17,6 +44,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Native Radar now uses explicit drawing layers for runways, airport surface, map context, terrain/relief, grid, blips, trails, hover, and footer details.
 - Native Settings now has a quieter control-room layout with explicit apply/save feedback, profile controls, radar surface status, collapsible help/diagnostics sections, and bundled local docs.
 - Native first-run setup now guides users through Welcome, Airport, Data Access, Provider Keys, Diagnostics, and Finish before opening the main shell.
+- Native History is now a dashboard instead of a debug table, with filter-driven KPIs, delay buckets, status mix, airline delay quotas, route/aircraft stats, sortable recent flights, and a sectioned detail drawer.
 
 ### Mobile Companion
 - Mobile now has a forced first-launch companion setup gate for LAN pairing and diagnostics consent before normal FIDS/Radar/Settings access.
@@ -33,14 +61,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Raspberry Pi installs support three clear paths: headless server, native Qt HDMI kiosk, and Chromium HDMI kiosk.
 - Source installers explain display-mode choices in user-facing terms instead of treating browser or kiosk paths as leftovers.
 - Browser Settings now groups diagnostics, documents, and display-output copy around the current install/display model.
+- Browser History now shares the same analytics contract as native History, combining filters, KPIs, CSS-only charts, recent matching flights, and a polished detail panel on one page.
 
 ### Matrix
 - Matrix V2 exposes three public presets: `real_fids`, `vatsim_pilot`, and `vatsim_atc`.
 - Matrix runtime, preview, generated `main.py`, and device check-in are aligned across native Qt and LAN browser UI.
 - Matrix rows now preserve display-safe route/codeshare/status fields for small panels, while weather payloads expose decoded condition and temperature fields.
 - The generated Interstate 75 W client supports rectangular HUB75 layouts, small-panel rotation, weather toggles, and VATSIM ATC page rotation.
+- Matrix setup is now a guided board configurator in native Qt and LAN browser UI, with shared panel-combination presets, startup-lane control, live preview overrides, clearer Wi-Fi/main.py guidance, action feedback, and compact `128x128` header rendering for airport, weather, UTC, and local time.
 
 ### Radar And FIDS Contracts
+- FIDS detail, Radar blip detail, History detail, native Qt, and LAN/browser views now share a current-source `flight-intel-v1` detail model that merges schedule, live motion, aircraft, operations, source confidence, and local history without adding provider calls or exposing VATSIM personal identifiers.
 - `/api/radar/map` now carries runway, simplified surface/map context, optional terrain availability, attribution, and source confidence metadata while preserving `/api/radar` and `/api/radar/surface` compatibility.
 - Runway drawing uses local OurAirports data when available, merges OSM/Overpass geometry when available, and uses clearly labeled estimated geometry when no reliable cache exists.
 - Radar source normalization preserves useful ADS-B fields for display and classification without exposing raw provider payloads.

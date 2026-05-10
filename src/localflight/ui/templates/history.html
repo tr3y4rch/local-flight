@@ -1,133 +1,114 @@
 {% extends "base.html" %}
 {% from "_nav.html" import topnav %}
 
-{% block title %}Local Flight — History{% endblock %}
+{% block title %}Local Flight - History{% endblock %}
 
 {% block extra_style %}
   body { display: block; min-height: 100vh; padding: 0; }
-  .page-body { padding: 20px 16px; }
-  .card { width: min(1100px, calc(100vw - 32px)); max-width: none; margin: 0 auto; }
+  .page-body { padding: 20px 16px 34px; }
+  .history-card {
+    width: min(1240px, calc(100vw - 32px)); max-width: none; margin: 0 auto;
+    --muted: color-mix(in srgb, var(--text) 58%, transparent);
+  }
   .history-header {
-    display: flex; justify-content: space-between; align-items: flex-start;
-    flex-wrap: wrap; gap: 10px; margin-bottom: 16px;
-    padding-bottom: 14px; border-bottom: 1px solid var(--panel-border);
+    display: grid; grid-template-columns: minmax(240px, 1fr) auto; gap: 18px;
+    align-items: start; padding-bottom: 16px; border-bottom: 1px solid var(--panel-border);
   }
-  .history-header h1 { margin: 0; font-size: 1.1rem; }
-  .filters {
-    display: flex; gap: 10px; flex-wrap: wrap; align-items: center;
-    margin-bottom: 14px; padding: 10px 14px;
-    background: var(--panel-bg); border: 1px solid var(--panel-border); border-radius: 10px;
+  .history-header h1 { margin: 0; font-size: 1.18rem; letter-spacing: 0.01em; }
+  .history-sub { margin-top: 4px; color: var(--muted); font-size: 0.82rem; line-height: 1.45; }
+  .filter-panel {
+    display: grid; grid-template-columns: minmax(130px, 1fr) 90px 110px 118px 118px auto auto;
+    gap: 8px; align-items: end; margin: 18px 0;
+    padding: 12px; border: 1px solid var(--panel-border); border-radius: 14px;
+    background: linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.015));
   }
-  .filters label { font-size: 0.8rem; opacity: 0.7; white-space: nowrap; }
-  .filters select, .filters input {
-    padding: 5px 8px; font-size: 0.82rem; border-radius: 6px;
+  [data-theme="light"] .filter-panel { background: linear-gradient(180deg, rgba(0,0,0,0.035), rgba(0,0,0,0.015)); }
+  .field label { display: block; margin: 0 0 4px; color: var(--muted); font-size: 0.68rem; letter-spacing: 0.09em; text-transform: uppercase; }
+  .field input, .field select {
+    width: 100%; min-height: 34px; padding: 7px 9px; border-radius: 8px;
     border: 1px solid var(--input-border); background: var(--input-bg); color: var(--text);
+    font-family: var(--font-board); font-size: 0.78rem;
   }
-  .filters button {
-    padding: 5px 14px; font-size: 0.82rem; border-radius: 6px;
+  .filter-panel button {
+    min-height: 34px; width: auto; margin: 0; padding: 7px 15px; border-radius: 8px;
     border: 1px solid var(--btn-border); background: var(--btn-bg); color: var(--text);
-    cursor: pointer; font-weight: 600; margin-top: 0; width: auto;
+    font-weight: 800; cursor: pointer;
   }
-  .filters button:hover { filter: brightness(1.1); }
-  .history-stats { display: flex; gap: 16px; font-size: 0.8rem; opacity: 0.6; margin-bottom: 10px; font-family: var(--font-board); }
-  .callsign-search { display: flex; gap: 8px; margin-bottom: 14px; }
-  .callsign-search input {
-    flex: 1; padding: 6px 10px; border-radius: 6px;
-    border: 1px solid var(--input-border); background: var(--input-bg); color: var(--text);
-    font-size: 0.85rem; font-family: var(--font-board); text-transform: uppercase;
+  .filter-panel button.secondary { background: transparent; opacity: 0.72; }
+  .filter-panel button:hover { filter: brightness(1.08); }
+  .summary-line {
+    display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 14px;
+    color: var(--accent, #4a9eda); font-size: 0.78rem; font-family: var(--font-board);
   }
-  .callsign-search button {
-    padding: 6px 14px; border-radius: 6px;
-    border: 1px solid var(--btn-border); background: var(--btn-bg); color: var(--text);
-    cursor: pointer; font-weight: 600; font-size: 0.82rem; margin-top: 0; width: auto;
+  .kpi-grid {
+    display: grid; grid-template-columns: repeat(6, minmax(120px, 1fr)); gap: 10px; margin-bottom: 14px;
   }
-  .table-wrap { overflow-x: auto; border-radius: 10px; border: 1px solid var(--panel-border); }
+  .kpi-card {
+    padding: 13px 14px; border-radius: 14px; border: 1px solid var(--panel-border);
+    background: var(--panel-bg); min-height: 84px;
+  }
+  .kpi-label { color: var(--muted); font-size: 0.66rem; letter-spacing: 0.09em; text-transform: uppercase; }
+  .kpi-value { margin-top: 7px; font-family: var(--font-board); font-size: 1.72rem; font-weight: 900; line-height: 1; }
+  .kpi-note { margin-top: 6px; color: var(--muted); font-size: 0.72rem; }
+  .green { color: #18d66a; } .amber { color: #f2b84b; } .red { color: #ff5d5d; } .blue { color: var(--accent, #4a9eda); }
+  .dash-grid { display: grid; grid-template-columns: 1.1fr 1fr 1fr; gap: 12px; margin-bottom: 14px; }
+  .perf-grid { display: grid; grid-template-columns: 1.2fr 1fr 1fr; gap: 12px; margin-bottom: 16px; }
+  .dash-panel {
+    border: 1px solid var(--panel-border); border-radius: 14px; background: var(--panel-bg);
+    padding: 13px 14px; min-height: 150px;
+  }
+  .dash-title { margin-bottom: 10px; color: var(--muted); font-size: 0.69rem; letter-spacing: 0.09em; text-transform: uppercase; font-weight: 800; }
+  .stacked { display: flex; height: 18px; overflow: hidden; border-radius: 999px; background: rgba(255,255,255,0.06); border: 1px solid var(--panel-border); }
+  [data-theme="light"] .stacked { background: rgba(0,0,0,0.06); }
+  .stacked span { min-width: 2px; transition: width 0.25s ease; }
+  .bucket-list, .bar-list { display: grid; gap: 8px; margin-top: 12px; }
+  .bucket-row, .bar-row { display: grid; grid-template-columns: 88px 1fr 56px; gap: 8px; align-items: center; font-size: 0.75rem; }
+  .bar-row.wide { grid-template-columns: 128px 1fr 74px; }
+  .bar-track { height: 9px; border-radius: 99px; overflow: hidden; background: rgba(255,255,255,0.07); }
+  [data-theme="light"] .bar-track { background: rgba(0,0,0,0.07); }
+  .bar-fill { height: 100%; border-radius: 99px; background: var(--accent, #4a9eda); }
+  .mini-trend { display: flex; align-items: end; gap: 3px; height: 86px; padding-top: 8px; }
+  .trend-bar { flex: 1; min-width: 5px; border-radius: 3px 3px 0 0; background: var(--accent, #4a9eda); opacity: 0.88; position: relative; }
+  .trend-bar.delayed::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: var(--delay-h, 0%); background: #f2b84b; border-radius: 0 0 3px 3px; }
+  .table-wrap { overflow: auto; border-radius: 14px; border: 1px solid var(--panel-border); max-height: min(48vh, 520px); }
   table { width: 100%; border-collapse: collapse; }
-  th, td { padding: 8px 12px; text-align: left; border-bottom: 1px solid rgba(255,255,255,0.05); font-size: 0.83rem; white-space: nowrap; }
-  [data-theme="light"] th, [data-theme="light"] td { border-bottom-color: rgba(0,0,0,0.05); }
-  th { background: var(--panel-bg); font-weight: 600; opacity: 0.8; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.04em; cursor: pointer; user-select: none; }
-  th:hover { opacity: 1; }
-  tbody tr { transition: background 0.1s; }
-  tbody tr:hover { background: rgba(255,255,255,0.03); }
-  [data-theme="light"] tbody tr:hover { background: rgba(0,0,0,0.03); }
+  th, td { padding: 9px 11px; text-align: left; border-bottom: 1px solid rgba(255,255,255,0.055); font-size: 0.8rem; white-space: nowrap; }
+  [data-theme="light"] th, [data-theme="light"] td { border-bottom-color: rgba(0,0,0,0.055); }
+  th {
+    position: sticky; top: 0; z-index: 1; background: var(--panel-bg);
+    color: var(--muted); font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.08em;
+    cursor: pointer; user-select: none;
+  }
+  tbody tr { cursor: pointer; transition: background 0.12s ease, opacity 0.12s ease; }
+  tbody tr:hover { background: rgba(74,158,218,0.09); }
   .mono { font-family: var(--font-board); }
-  .status-Scheduled { opacity: 0.8; }
-  .status-Departed  { color: #4a9eda; }
-  .status-Arrived   { color: #00c040; opacity: 0.8; }
-  .status-Delayed   { color: #ffaa00; }
-  .status-Cancelled { color: #ff4040; text-decoration: line-through; opacity: 0.7; }
-  .dir-DEP { color: #4a9eda; font-weight: 700; }
-  .dir-ARR { color: #00c040; font-weight: 700; }
-  .empty-row td { text-align: center; padding: 30px; opacity: 0.5; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 5px; border-radius: 7px; padding: 4px 8px;
+    font-family: var(--font-board); font-size: 0.7rem; border: 1px solid var(--panel-border);
+    background: rgba(255,255,255,0.04);
+  }
+  .chip.warn { color: #f2b84b; border-color: rgba(242,184,75,0.35); }
+  .chip.bad { color: #ff5d5d; border-color: rgba(255,93,93,0.35); }
+  .chip.good { color: #18d66a; border-color: rgba(24,214,106,0.35); }
+  .empty-row td { text-align: center; padding: 34px; color: var(--muted); }
   .detail-panel {
-    position: fixed; top: 0; right: 0; width: 340px; height: 100vh;
+    position: fixed; top: 0; right: 0; width: min(420px, 92vw); height: 100vh;
     background: var(--card-bg); border-left: 1px solid var(--card-border);
-    padding: 20px; box-shadow: -4px 0 20px rgba(0,0,0,0.3);
-    overflow-y: auto; z-index: 100;
-    transform: translateX(100%); transition: transform 0.25s ease;
+    padding: 20px; box-shadow: -16px 0 40px rgba(0,0,0,0.34);
+    overflow-y: auto; z-index: 100; transform: translateX(100%); transition: transform 0.22s ease;
   }
   .detail-panel.open { transform: translateX(0); }
-  .detail-panel h3 { margin: 0 0 16px 0; font-size: 1rem; }
-  .detail-close { position: absolute; top: 16px; right: 16px; background: none; border: none; cursor: pointer; font-size: 1.2rem; opacity: 0.5; color: inherit; }
-  .detail-close:hover { opacity: 1; }
-  .detail-row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid rgba(255,255,255,0.05); font-size: 0.82rem; }
-  .detail-label { opacity: 0.6; }
-  .detail-val { font-weight: 600; font-family: var(--font-board); font-size: 0.78rem; }
-
-  /* ── Tabs ── */
-  .tab-bar {
-    display: flex; gap: 4px; margin-bottom: 16px;
-    border-bottom: 1px solid var(--panel-border); padding-bottom: 0;
-  }
-  .tab-btn {
-    padding: 7px 18px; border-radius: 8px 8px 0 0; border: none;
-    background: none; color: inherit; cursor: pointer; font-size: 0.85rem;
-    font-weight: 600; opacity: 0.45; margin-bottom: -1px;
-    border-bottom: 2px solid transparent; transition: opacity 0.12s;
-    width: auto; margin-top: 0;
-  }
-  .tab-btn.active { opacity: 1; border-bottom-color: var(--accent, #4a9eda); }
-  .tab-btn:hover:not(.active) { opacity: 0.75; }
-  .tab-pane { display: none; }
-  .tab-pane.active { display: block; animation: lf-page-in 0.18s ease-out both; }
-
-  /* ── Stats grid ── */
-  .stats-kpi-row {
-    display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 20px;
-  }
-  .stats-kpi {
-    flex: 1; min-width: 120px; padding: 14px 18px;
-    background: var(--panel-bg); border: 1px solid var(--panel-border);
-    border-radius: 10px; text-align: center;
-  }
-  .stats-kpi-val { font-size: 2rem; font-weight: 800; line-height: 1.1; font-family: var(--font-board); }
-  .stats-kpi-label { font-size: 0.72rem; opacity: 0.55; text-transform: uppercase; letter-spacing: 0.05em; margin-top: 4px; }
-  .kpi-green { color: #22c55e; }
-  .kpi-amber { color: #f59e0b; }
-  .kpi-red   { color: #ef4444; }
-  .kpi-blue  { color: #4a9eda; }
-
-  .stats-grid {
-    display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-    gap: 14px; margin-bottom: 20px;
-  }
-  .stats-panel {
-    padding: 14px 16px; background: var(--panel-bg);
-    border: 1px solid var(--panel-border); border-radius: 10px;
-  }
-  .stats-panel h3 { margin: 0 0 12px 0; font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.05em; opacity: 0.65; }
-  .bar-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
-  .bar-label { font-family: var(--font-board); font-size: 0.78rem; min-width: 52px; font-weight: 700; }
-  .bar-track { flex: 1; background: rgba(255,255,255,0.06); border-radius: 3px; height: 10px; overflow: hidden; }
-  [data-theme="light"] .bar-track { background: rgba(0,0,0,0.06); }
-  .bar-fill { height: 100%; border-radius: 3px; background: var(--accent, #4a9eda); transition: width 0.4s ease; }
-  .bar-count { font-size: 0.72rem; opacity: 0.5; min-width: 28px; text-align: right; font-family: var(--font-board); }
-  .stats-empty { opacity: 0.4; font-size: 0.82rem; font-style: italic; padding: 8px 0; }
-  .stats-period { font-size: 0.72rem; opacity: 0.45; margin-bottom: 16px; }
-  .stats-period select {
-    margin-left: 6px; padding: 2px 6px; font-size: 0.72rem;
-    border-radius: 4px; border: 1px solid var(--input-border);
-    background: var(--input-bg); color: var(--text);
+  .detail-close { position: absolute; top: 14px; right: 14px; width: auto; margin: 0; background: transparent; border: 1px solid var(--panel-border); border-radius: 9px; color: inherit; cursor: pointer; padding: 5px 9px; }
+  .detail-panel h3 { margin: 0 0 4px 0; font-size: 1.28rem; }
+  .detail-sub { color: var(--muted); margin-bottom: 18px; font-family: var(--font-board); font-size: 0.82rem; }
+  .detail-section { margin: 16px 0 0; }
+  .detail-section-title { color: var(--muted); font-size: 0.67rem; text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 6px; font-weight: 800; }
+  .detail-row { display: flex; justify-content: space-between; gap: 14px; padding: 7px 0; border-bottom: 1px solid rgba(255,255,255,0.055); font-size: 0.82rem; }
+  .detail-label { color: var(--muted); }
+  .detail-val { text-align: right; font-weight: 700; font-family: var(--font-board); }
+  @media (max-width: 980px) {
+    .history-header, .filter-panel, .dash-grid, .perf-grid { grid-template-columns: 1fr; }
+    .kpi-grid { grid-template-columns: repeat(2, minmax(120px, 1fr)); }
   }
 {% endblock %}
 
@@ -135,14 +116,11 @@
 {{ topnav(active="history", cfg=cfg) }}
 
 <div class="page-body">
-<main class="card">
-
+<main class="card history-card">
   <div class="history-header">
     <div>
-      <h1>📅 Flight History — {{ cfg.airport_iata }}</h1>
-      <div style="opacity:0.5; font-size:0.78rem; margin-top:3px;">
-        90-day local database · click any row for details
-      </div>
+      <h1>Flight History - {{ cfg.airport_iata }}</h1>
+      <div class="history-sub">Local 90-day flight analytics with delay quotas, airline performance, route patterns, and recent matching rows.</div>
     </div>
     <div class="clock-bar">
       <span class="clock-utc">UTC: <span class="clock-utc-val">--:--:--</span></span>
@@ -151,289 +129,327 @@
     </div>
   </div>
 
-  <!-- Tab bar -->
-  <div class="tab-bar">
-    <button class="tab-btn active" onclick="switchTab('browse')">📋 Browse</button>
-    <button class="tab-btn"        onclick="switchTab('stats')">📊 Stats</button>
+  <section class="filter-panel" aria-label="History filters">
+    <div class="field"><label for="callsignInput">Callsign</label><input id="callsignInput" placeholder="LX1952" maxlength="16" oninput="this.value=this.value.toUpperCase()"></div>
+    <div class="field"><label for="airlineInput">Airline</label><input id="airlineInput" placeholder="LX" maxlength="3" oninput="this.value=this.value.toUpperCase()"></div>
+    <div class="field"><label for="hoursFilter">Period</label><select id="hoursFilter"><option value="6">Last 6h</option><option value="24" selected>Last 24h</option><option value="168">Last 7d</option><option value="720">Last 30d</option><option value="2160">Last 90d</option></select></div>
+    <div class="field"><label for="dirFilter">Direction</label><select id="dirFilter"><option value="both">Both</option><option value="dep">Departures</option><option value="arr">Arrivals</option></select></div>
+    <div class="field"><label for="statusFilter">Status</label><select id="statusFilter"><option value="">All statuses</option><option value="scheduled">Scheduled</option><option value="boarding">Boarding</option><option value="delayed">Delayed</option><option value="departed">Departed</option><option value="arrived">Arrived</option><option value="cancelled">Cancelled</option></select></div>
+    <button onclick="loadDashboard()">Apply</button>
+    <button class="secondary" onclick="clearFilters()">Clear</button>
+  </section>
+
+  <div class="summary-line" id="summaryLine">Loading history analytics...</div>
+
+  <section class="kpi-grid">
+    <div class="kpi-card"><div class="kpi-label">Flights tracked</div><div class="kpi-value" id="kpiTotal">-</div><div class="kpi-note" id="kpiScope">local DB</div></div>
+    <div class="kpi-card"><div class="kpi-label">Departures</div><div class="kpi-value blue" id="kpiDep">-</div><div class="kpi-note">outbound rows</div></div>
+    <div class="kpi-card"><div class="kpi-label">Arrivals</div><div class="kpi-value green" id="kpiArr">-</div><div class="kpi-note">inbound rows</div></div>
+    <div class="kpi-card"><div class="kpi-label">On time</div><div class="kpi-value green" id="kpiOnTime">-</div><div class="kpi-note">-4m to +4m</div></div>
+    <div class="kpi-card"><div class="kpi-label">Delayed</div><div class="kpi-value amber" id="kpiDelayed">-</div><div class="kpi-note">5m or more</div></div>
+    <div class="kpi-card"><div class="kpi-label">Avg delay</div><div class="kpi-value" id="kpiAvg">-</div><div class="kpi-note">when late</div></div>
+  </section>
+
+  <section class="dash-grid">
+    <div class="dash-panel">
+      <div class="dash-title">Delay quota</div>
+      <div class="stacked" id="delayStack"></div>
+      <div class="bucket-list" id="delayBuckets"></div>
+    </div>
+    <div class="dash-panel">
+      <div class="dash-title">Daily volume</div>
+      <div class="mini-trend" id="dailyTrend"></div>
+      <div class="history-sub" id="dailyNote"></div>
+    </div>
+    <div class="dash-panel">
+      <div class="dash-title">Status mix</div>
+      <div class="bar-list" id="statusMix"></div>
+    </div>
+  </section>
+
+  <section class="perf-grid">
+    <div class="dash-panel">
+      <div class="dash-title">Airline performance</div>
+      <div class="bar-list" id="airlinePerf"></div>
+    </div>
+    <div class="dash-panel">
+      <div class="dash-title">Top routes</div>
+      <div class="bar-list" id="routePerf"></div>
+    </div>
+    <div class="dash-panel">
+      <div class="dash-title">Top aircraft</div>
+      <div class="bar-list" id="aircraftPerf"></div>
+    </div>
+  </section>
+
+  <div class="dash-title">Recent matching flights</div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th onclick="sortBy('sched_time')">Time</th>
+          <th onclick="sortBy('direction')">Dir</th>
+          <th onclick="sortBy('airline_iata')">Airline</th>
+          <th onclick="sortBy('flight_number')">Flight</th>
+          <th onclick="sortBy('origin_iata')">From</th>
+          <th onclick="sortBy('dest_iata')">To</th>
+          <th onclick="sortBy('status')">Status</th>
+          <th onclick="sortBy('delay_minutes')">Delay</th>
+          <th onclick="sortBy('aircraft_type')">A/C</th>
+          <th onclick="sortBy('source')">Source</th>
+        </tr>
+      </thead>
+      <tbody id="historyBody"><tr class="empty-row"><td colspan="10">Loading history...</td></tr></tbody>
+    </table>
   </div>
-
-  <!-- ── Browse tab ── -->
-  <div class="tab-pane active" id="tab-browse">
-    <div class="callsign-search">
-      <input id="callsignInput" placeholder="Search callsign e.g. SWR184"
-        maxlength="10" oninput="this.value=this.value.toUpperCase()"
-        onkeydown="if(event.key==='Enter') searchCallsign()" />
-      <button onclick="searchCallsign()">Search</button>
-      <button onclick="clearCallsign()" style="opacity:0.6;">Clear</button>
-    </div>
-
-    <div class="filters">
-      <label>Period</label>
-      <select id="hoursFilter">
-        <option value="6">Last 6h</option>
-        <option value="24" selected>Last 24h</option>
-        <option value="48">Last 48h</option>
-        <option value="168">Last 7 days</option>
-        <option value="720">Last 30 days</option>
-      </select>
-      <label>Direction</label>
-      <select id="dirFilter">
-        <option value="both">Both</option>
-        <option value="dep">Departures</option>
-        <option value="arr">Arrivals</option>
-      </select>
-      <label>Status</label>
-      <select id="statusFilter">
-        <option value="">All</option>
-        <option value="Scheduled">Scheduled</option>
-        <option value="Departed">Departed</option>
-        <option value="Arrived">Arrived</option>
-        <option value="Delayed">Delayed</option>
-        <option value="Cancelled">Cancelled</option>
-      </select>
-      <button onclick="loadHistory()">Apply</button>
-    </div>
-
-    <div class="history-stats" id="historyStats">Loading...</div>
-
-    <div class="table-wrap">
-      <table>
-        <thead>
-          <tr>
-            <th onclick="sortBy('snapshot_ts')">Time ↕</th>
-            <th onclick="sortBy('direction')">Dir</th>
-            <th onclick="sortBy('flight_number')">Flight</th>
-            <th onclick="sortBy('callsign')">Callsign</th>
-            <th onclick="sortBy('origin_iata')">From</th>
-            <th onclick="sortBy('dest_iata')">To</th>
-            <th onclick="sortBy('status')">Status</th>
-            <th onclick="sortBy('gate')">Gate</th>
-            <th onclick="sortBy('aircraft_type')">A/C</th>
-            <th onclick="sortBy('source')">Source</th>
-          </tr>
-        </thead>
-        <tbody id="historyBody">
-          <tr class="empty-row"><td colspan="10">Loading history...</td></tr>
-        </tbody>
-      </table>
-    </div>
-  </div>
-
-  <!-- ── Stats tab ── -->
-  <div class="tab-pane" id="tab-stats">
-    <div class="stats-period">
-      Showing data for
-      <select id="statsPeriod" onchange="loadStats()">
-        <option value="168">last 7 days</option>
-        <option value="720" selected>last 30 days</option>
-        <option value="2160">last 90 days</option>
-      </select>
-    </div>
-
-    <div class="stats-kpi-row" id="statsKpi">
-      <div class="stats-kpi"><div class="stats-kpi-val" id="kpiTotal">—</div><div class="stats-kpi-label">Flights tracked</div></div>
-      <div class="stats-kpi"><div class="stats-kpi-val kpi-blue"  id="kpiDep">—</div><div class="stats-kpi-label">🛫 Departures</div></div>
-      <div class="stats-kpi"><div class="stats-kpi-val kpi-green" id="kpiArr">—</div><div class="stats-kpi-label">🛬 Arrivals</div></div>
-      <div class="stats-kpi"><div class="stats-kpi-val" id="kpiOnTime">—</div><div class="stats-kpi-label">On time</div></div>
-      <div class="stats-kpi"><div class="stats-kpi-val kpi-amber" id="kpiDelay">—</div><div class="stats-kpi-label">Avg delay (when late)</div></div>
-    </div>
-
-    <div class="stats-grid">
-      <div class="stats-panel">
-        <h3>✈️ Top airlines</h3>
-        <div id="barAirlines"><span class="stats-empty">Loading…</span></div>
-      </div>
-      <div class="stats-panel">
-        <h3>🛫 Top destinations</h3>
-        <div id="barDestinations"><span class="stats-empty">Loading…</span></div>
-      </div>
-      <div class="stats-panel">
-        <h3>🛬 Top origins</h3>
-        <div id="barOrigins"><span class="stats-empty">Loading…</span></div>
-      </div>
-      <div class="stats-panel">
-        <h3>🛩️ Top aircraft types</h3>
-        <div id="barAircraft"><span class="stats-empty">Loading…</span></div>
-      </div>
-    </div>
-  </div>
-
 </main>
 </div>
 
-<div class="detail-panel" id="detailPanel">
-  <button class="detail-close" onclick="closeDetail()">✕</button>
+<aside class="detail-panel" id="detailPanel">
+  <button class="detail-close" onclick="closeDetail()">Close</button>
   <h3 id="detailTitle">Flight details</h3>
+  <div class="detail-sub" id="detailSub"></div>
   <div id="detailBody"></div>
-</div>
+</aside>
 {% endblock %}
 
 {% block extra_script %}
 <script>
-// ── Tab switching ─────────────────────────────────────────────────────────────
-window.switchTab = function (name) {
-  document.querySelectorAll(".tab-btn").forEach((b, i) => {
-    b.classList.toggle("active", b.getAttribute("onclick").includes(`'${name}'`));
-  });
-  document.querySelectorAll(".tab-pane").forEach(p => {
-    p.classList.toggle("active", p.id === `tab-${name}`);
-  });
-  if (name === "stats") loadStats();
+let rows = [];
+let sortKey = "sched_time";
+let sortAsc = false;
+
+function escapeHtml(value) {
+  return String(value ?? "").replace(/[&<>"']/g, ch => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[ch]));
+}
+
+function params(includeLimit = true) {
+  const p = new URLSearchParams();
+  p.set("hours", document.getElementById("hoursFilter").value);
+  p.set("direction", document.getElementById("dirFilter").value);
+  if (includeLimit) p.set("limit", "500");
+  const status = document.getElementById("statusFilter").value;
+  const callsign = document.getElementById("callsignInput").value.trim().toUpperCase();
+  const airline = document.getElementById("airlineInput").value.trim().toUpperCase();
+  if (status) p.set("status", status);
+  if (callsign) p.set("callsign", callsign);
+  if (airline) p.set("airline_iata", airline);
+  return p;
+}
+
+window.clearFilters = function () {
+  document.getElementById("callsignInput").value = "";
+  document.getElementById("airlineInput").value = "";
+  document.getElementById("statusFilter").value = "";
+  document.getElementById("dirFilter").value = "both";
+  loadDashboard();
 };
 
-// ── Stats tab ─────────────────────────────────────────────────────────────────
-window.loadStats = async function () {
-  const hours = document.getElementById("statsPeriod").value;
+window.loadDashboard = async function () {
+  const historyBody = document.getElementById("historyBody");
+  historyBody.innerHTML = '<tr class="empty-row"><td colspan="10">Loading local history...</td></tr>';
+  document.getElementById("summaryLine").textContent = "Loading history analytics...";
   try {
-    const r = await fetch(`/api/history/summary?hours=${hours}`);
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    const d = await r.json();
-    if (d.error) throw new Error(d.error);
-
-    document.getElementById("kpiTotal").textContent  = d.total ?? "—";
-    document.getElementById("kpiDep").textContent    = d.departures ?? "—";
-    document.getElementById("kpiArr").textContent    = d.arrivals ?? "—";
-    document.getElementById("kpiOnTime").textContent = d.on_time_pct != null ? `${d.on_time_pct}%` : "—";
-    const kpiOnTime = document.getElementById("kpiOnTime");
-    kpiOnTime.className = "stats-kpi-val " + (
-      d.on_time_pct >= 80 ? "kpi-green" : d.on_time_pct >= 60 ? "kpi-amber" : "kpi-red"
-    );
-    document.getElementById("kpiDelay").textContent = d.avg_delay_minutes != null ? `+${d.avg_delay_minutes}m` : "—";
-
-    renderBars("barAirlines",     d.top_airlines,      "code");
-    renderBars("barDestinations", d.top_destinations,  "code");
-    renderBars("barOrigins",      d.top_origins,       "code");
-    renderBars("barAircraft",     d.top_aircraft,      "aircraft_type");
-  } catch (e) {
-    ["barAirlines","barDestinations","barOrigins","barAircraft"].forEach(id => {
-      document.getElementById(id).innerHTML = `<span class="stats-empty">Error: ${e.message}</span>`;
-    });
+    const [historyResp, summaryResp] = await Promise.all([
+      fetch(`/api/history?${params(true).toString()}`),
+      fetch(`/api/history/summary?${params(false).toString()}`),
+    ]);
+    if (!historyResp.ok) throw new Error(`History HTTP ${historyResp.status}`);
+    if (!summaryResp.ok) throw new Error(`Summary HTTP ${summaryResp.status}`);
+    const history = await historyResp.json();
+    const summary = await summaryResp.json();
+    if (summary.error) throw new Error(summary.error);
+    rows = Array.isArray(history.flights) ? history.flights : [];
+    renderSummary(summary, history);
+    renderTable();
+  } catch (error) {
+    document.getElementById("summaryLine").textContent = `History unavailable: ${error.message}`;
+    historyBody.innerHTML = `<tr class="empty-row"><td colspan="10">History unavailable: ${escapeHtml(error.message)}</td></tr>`;
+    renderEmptySummary();
   }
 };
 
-function renderBars(containerId, items, labelKey) {
+function renderSummary(summary, history) {
+  const total = Number(summary.total || 0);
+  document.getElementById("kpiTotal").textContent = total || "-";
+  document.getElementById("kpiDep").textContent = summary.departures ?? "-";
+  document.getElementById("kpiArr").textContent = summary.arrivals ?? "-";
+  document.getElementById("kpiOnTime").textContent = summary.on_time_pct != null ? `${summary.on_time_pct}%` : "-";
+  document.getElementById("kpiDelayed").textContent = summary.delayed_pct != null ? `${summary.delayed_pct}%` : "-";
+  document.getElementById("kpiAvg").textContent = summary.avg_delay_minutes != null ? `+${summary.avg_delay_minutes}m` : "-";
+  document.getElementById("kpiScope").textContent = `${summary.hours || document.getElementById("hoursFilter").value}h window`;
+  document.getElementById("summaryLine").textContent =
+    `${history.count ?? rows.length} rows in filter | ${summary.airport_iata || history.airport_iata || "{{ cfg.airport_iata }}"} | showing first ${Math.min(rows.length, 120)} of ${rows.length}`;
+
+  renderDelayBuckets(summary.delay_buckets || []);
+  renderTrend(summary.daily_volume || []);
+  renderBars("statusMix", summary.status_mix || [], item => item.label || item.status, item => `${item.count} (${item.pct ?? 0}%)`);
+  renderBars("airlinePerf", summary.top_airlines || [], item => item.code || "-", item => `${item.delay_rate_pct ?? 0}% delayed | ${item.count}`);
+  renderBars("routePerf", summary.top_routes || [], item => `${item.origin || "-"} -> ${item.destination || "-"}`, item => `${item.delay_rate_pct ?? 0}% | ${item.count}`);
+  renderBars("aircraftPerf", summary.top_aircraft || [], item => item.aircraft_type || "-", item => `${item.count}`);
+}
+
+function renderEmptySummary() {
+  ["kpiTotal","kpiDep","kpiArr","kpiOnTime","kpiDelayed","kpiAvg"].forEach(id => document.getElementById(id).textContent = "-");
+  ["delayStack","delayBuckets","dailyTrend","statusMix","airlinePerf","routePerf","aircraftPerf"].forEach(id => document.getElementById(id).innerHTML = "");
+}
+
+function renderDelayBuckets(items) {
+  const colors = { early: "#18d66a", on_time: "var(--accent, #4a9eda)", delayed_warn: "#f2b84b", delayed_bad: "#ff5d5d", unknown: "rgba(150,160,175,0.45)" };
+  document.getElementById("delayStack").innerHTML = items.map(item =>
+    `<span title="${escapeHtml(item.label)} ${item.count}" style="width:${Math.max(item.pct || 0, item.count ? 2 : 0)}%; background:${colors[item.bucket] || colors.unknown}"></span>`
+  ).join("");
+  document.getElementById("delayBuckets").innerHTML = items.length ? items.map(item => `
+    <div class="bucket-row">
+      <span>${escapeHtml(item.label)}</span>
+      <div class="bar-track"><div class="bar-fill" style="width:${item.pct || 0}%; background:${colors[item.bucket] || colors.unknown}"></div></div>
+      <span class="mono">${item.count}</span>
+    </div>`).join("") : `<div class="history-sub">No delay data yet.</div>`;
+}
+
+function renderTrend(items) {
+  const recent = items.slice(-18);
+  const max = Math.max(...recent.map(item => Number(item.total || 0)), 1);
+  document.getElementById("dailyTrend").innerHTML = recent.length ? recent.map(item => {
+    const totalPct = Math.max(4, Math.round((Number(item.total || 0) / max) * 100));
+    const delayPct = item.total ? Math.round((Number(item.delayed || 0) / Number(item.total || 1)) * 100) : 0;
+    return `<div class="trend-bar delayed" title="${escapeHtml(item.date)}: ${item.total} flights, ${item.delayed} delayed" style="height:${totalPct}%; --delay-h:${delayPct}%"></div>`;
+  }).join("") : `<div class="history-sub">No daily volume yet.</div>`;
+  document.getElementById("dailyNote").textContent = recent.length ? `${recent.length} active days in this window | amber segment = delayed share` : "";
+}
+
+function renderBars(containerId, items, labelFn, metaFn) {
   const el = document.getElementById(containerId);
-  if (!items || !items.length) { el.innerHTML = '<span class="stats-empty">No data yet</span>'; return; }
-  const max = items[0].count || 1;
-  el.innerHTML = items.map(item => {
-    const label = item[labelKey] || item.code || item.aircraft_type || "?";
-    const pct   = Math.round((item.count / max) * 100);
-    return `<div class="bar-row">
-      <span class="bar-label">${label}</span>
-      <div class="bar-track"><div class="bar-fill" style="width:${pct}%"></div></div>
-      <span class="bar-count">${item.count}</span>
+  const max = Math.max(...items.map(item => Number(item.count || 0)), 1);
+  if (!items.length) {
+    el.innerHTML = `<div class="history-sub">No matching data yet.</div>`;
+    return;
+  }
+  el.innerHTML = items.slice(0, 10).map(item => {
+    const width = Math.round((Number(item.count || 0) / max) * 100);
+    return `<div class="bar-row wide">
+      <span class="mono">${escapeHtml(labelFn(item))}</span>
+      <div class="bar-track"><div class="bar-fill" style="width:${width}%"></div></div>
+      <span class="mono">${escapeHtml(metaFn(item))}</span>
     </div>`;
   }).join("");
 }
 
-// ── Browse tab ────────────────────────────────────────────────────────────────
-(function () {
-  let allRows = [], sortKey = "snapshot_ts", sortAsc = false;
+window.sortBy = function (key) {
+  if (sortKey === key) sortAsc = !sortAsc;
+  else { sortKey = key; sortAsc = true; }
+  renderTable();
+};
 
-  async function loadHistory() {
-    const hours = document.getElementById("hoursFilter").value;
-    const dir   = document.getElementById("dirFilter").value;
-    const tbody = document.getElementById("historyBody");
-    tbody.innerHTML = '<tr class="empty-row"><td colspan="10"><span class="lf-shimmer" style="width:120px;height:0.9em;">&nbsp;</span></td></tr>';
-    try {
-      const r = await fetch(`/api/history?hours=${hours}&direction=${dir}&limit=500`);
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      const d = await r.json();
-      allRows = d.flights || [];
-      renderTable();
-      document.getElementById("historyStats").textContent = `${d.count} records · ${d.airport_iata} · last ${hours}h`;
-    } catch (e) {
-      tbody.innerHTML = `<tr class="empty-row"><td colspan="10">Error: ${e.message}</td></tr>`;
-    }
+function compareValues(a, b) {
+  const av = a?.[sortKey];
+  const bv = b?.[sortKey];
+  if (typeof av === "number" || typeof bv === "number") return (Number(av || 0) - Number(bv || 0)) * (sortAsc ? 1 : -1);
+  return String(av || "").localeCompare(String(bv || "")) * (sortAsc ? 1 : -1);
+}
+
+function delayChip(minutes) {
+  if (minutes === null || minutes === undefined || minutes === "") return `<span class="chip">unknown</span>`;
+  const n = Number(minutes);
+  if (Number.isNaN(n)) return `<span class="chip">unknown</span>`;
+  if (n <= -5) return `<span class="chip good">${Math.abs(n)}m early</span>`;
+  if (n <= 4) return `<span class="chip good">on time</span>`;
+  if (n <= 15) return `<span class="chip warn">+${n}m</span>`;
+  return `<span class="chip bad">+${n}m</span>`;
+}
+
+function renderTable() {
+  const body = document.getElementById("historyBody");
+  const sorted = [...rows].sort(compareValues);
+  window._historyRows = sorted;
+  if (!sorted.length) {
+    body.innerHTML = `<tr class="empty-row"><td colspan="10">No matching history rows yet. Try a wider period or clear filters.</td></tr>`;
+    return;
   }
+  body.innerHTML = sorted.slice(0, 120).map((r, idx) => {
+    const time = String(r.sched_time || r.snapshot_ts || "").slice(0, 16).replace("T", " ");
+    const route = `${r.origin_iata || "-"} -> ${r.dest_iata || "-"}`;
+    return `<tr onclick="showDetail(${idx})">
+      <td class="mono">${escapeHtml(time || "-")}</td>
+      <td class="mono">${escapeHtml(r.direction || "-")}</td>
+      <td class="mono">${escapeHtml(r.airline_iata || "-")}</td>
+      <td class="mono">${escapeHtml(r.flight_number || r.callsign || "-")}</td>
+      <td class="mono">${escapeHtml(r.origin_iata || "-")}</td>
+      <td class="mono">${escapeHtml(r.dest_iata || "-")}</td>
+      <td>${escapeHtml(r.status || "-")}</td>
+      <td>${delayChip(r.delay_minutes)}</td>
+      <td class="mono">${escapeHtml(r.aircraft_type || "-")}</td>
+      <td class="mono" title="${escapeHtml(route)}">${escapeHtml(r.source || "-")}</td>
+    </tr>`;
+  }).join("");
+}
 
-  window.searchCallsign = async function () {
-    const cs = document.getElementById("callsignInput").value.trim().toUpperCase();
-    if (!cs) return;
-    const tbody = document.getElementById("historyBody");
-    tbody.innerHTML = '<tr class="empty-row"><td colspan="10"><span class="lf-shimmer" style="width:140px;height:0.9em;">&nbsp;</span></td></tr>';
-    try {
-      const r = await fetch(`/api/history/flight?callsign=${encodeURIComponent(cs)}&days=30`);
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      const d = await r.json();
-      allRows = d.flights || [];
-      renderTable();
-      document.getElementById("historyStats").textContent = `${d.count} records for ${d.callsign} · last 30 days`;
-    } catch (e) {
-      document.getElementById("historyBody").innerHTML = `<tr class="empty-row"><td colspan="10">Error: ${e.message}</td></tr>`;
+function historyDetailSections(row, intel = {}) {
+  const motion = intel.motion || {};
+  const aircraft = intel.aircraft || {};
+  const evidence = intel.source_evidence || {};
+  return [
+    ["Identity", [["Callsign", row.callsign], ["Flight", row.flight_number], ["Airline", row.airline_iata], ["Source", row.source]]],
+    ["Route", [["From", row.origin_iata], ["To", row.dest_iata], ["Direction", row.direction], ["Gate", row.gate], ["Terminal", row.terminal], ["Aircraft", aircraft.type || row.aircraft_type]]],
+    ["Timing", [["Scheduled", fmtTime(row.sched_time)], ["Actual", fmtTime(row.actual_time)], ["Delay", delayText(row.delay_minutes)], ["Snapshot", fmtTime(row.snapshot_ts)]]],
+    ["Live Motion", [
+      ["Status", row.status],
+      ["Position", motion.lat != null && motion.lon != null ? `${Number(motion.lat).toFixed(4)}, ${Number(motion.lon).toFixed(4)}` : positionText(row)],
+      ["Altitude", motion.altitude_ft != null ? `${Number(motion.altitude_ft).toLocaleString()} ft` : (row.altitude_m != null ? `${Math.round(Number(row.altitude_m) * 3.28084)} ft` : "")],
+      ["Speed", motion.speed_kt != null ? `${Number(motion.speed_kt).toLocaleString()} kt` : ""],
+      ["Vertical", motion.vertical_rate_fpm != null ? `${Number(motion.vertical_rate_fpm) >= 0 ? "+" : ""}${Number(motion.vertical_rate_fpm).toLocaleString()} fpm` : ""],
+    ]],
+    ["Source Evidence", [["Enriched by", evidence.position_source || row.enriched_by], ["Confidence", evidence.confidence], ["Fields", Array.isArray(evidence.fields_available) ? evidence.fields_available.join(", ") : ""]]],
+    ["Aircraft", [["Type", aircraft.type || row.aircraft_type], ["Registration", aircraft.registration], ["ICAO24", aircraft.icao24], ["Squawk", aircraft.squawk]]],
+  ];
+}
+
+function renderHistoryDetail(row, intel = {}) {
+  const sections = historyDetailSections(row, intel);
+  document.getElementById("detailBody").innerHTML = sections.map(([title, fields]) => {
+    const rowsHtml = fields.filter(([, value]) => value !== null && value !== undefined && String(value).trim() !== "").map(([label, value]) =>
+      `<div class="detail-row"><span class="detail-label">${escapeHtml(label)}</span><span class="detail-val">${escapeHtml(value)}</span></div>`
+    ).join("");
+    return rowsHtml ? `<section class="detail-section"><div class="detail-section-title">${escapeHtml(title)}</div>${rowsHtml}</section>` : "";
+  }).join("");
+}
+
+window.showDetail = async function (idx) {
+  const row = window._historyRows?.[idx];
+  if (!row) return;
+  document.getElementById("detailTitle").textContent = row.flight_number || row.callsign || "Flight";
+  document.getElementById("detailSub").textContent = `${row.origin_iata || "-"} -> ${row.dest_iata || "-"} | ${row.direction || "-"} | ${row.airline_iata || "airline unknown"}`;
+  renderHistoryDetail(row);
+  document.getElementById("detailPanel").classList.add("open");
+  try {
+    const callsign = String(row.callsign || "").trim();
+    if (callsign) {
+      const response = await fetch(`/api/fids/detail?callsign=${encodeURIComponent(callsign)}`);
+      if (response.ok) {
+        const payload = await response.json();
+        renderHistoryDetail(row, payload.intel || payload.detail?.intel || {});
+      }
     }
-  };
+  } catch {}
+};
 
-  window.clearCallsign = function () {
-    document.getElementById("callsignInput").value = "";
-    loadHistory();
-  };
+function fmtTime(value) { return value ? String(value).slice(0, 16).replace("T", " ") : ""; }
+function positionText(row) { return row.lat != null && row.lon != null ? `${Number(row.lat).toFixed(4)}, ${Number(row.lon).toFixed(4)}` : ""; }
+function delayText(value) {
+  if (value === null || value === undefined || value === "") return "Unknown";
+  const n = Number(value);
+  if (Number.isNaN(n)) return "Unknown";
+  if (n <= -5) return `${Math.abs(n)} min early`;
+  if (n <= 4) return "On time";
+  return `+${n} min`;
+}
+window.closeDetail = function () { document.getElementById("detailPanel").classList.remove("open"); };
 
-  window.sortBy = function (key) {
-    if (sortKey === key) sortAsc = !sortAsc;
-    else { sortKey = key; sortAsc = true; }
-    renderTable();
-  };
+document.addEventListener("keydown", event => {
+  if (event.key === "Escape") closeDetail();
+  if (event.key === "Enter" && document.activeElement?.id === "callsignInput") loadDashboard();
+});
 
-  function renderTable() {
-    const statusF = document.getElementById("statusFilter").value;
-    let rows = allRows.filter(r => !statusF || r.status === statusF);
-    rows.sort((a, b) => {
-      const av = a[sortKey]||"", bv = b[sortKey]||"";
-      return sortAsc ? av.localeCompare(bv) : bv.localeCompare(av);
-    });
-    const tbody = document.getElementById("historyBody");
-    if (!rows.length) { tbody.innerHTML = '<tr class="empty-row"><td colspan="10">No records found.</td></tr>'; return; }
-    tbody.innerHTML = rows.slice(0, 200).map((r, i) => {
-      const ts  = (r.snapshot_ts||"").slice(0,16).replace("T"," ");
-      const fn  = r.flight_number || r.callsign || "—";
-      const sc  = (r.status||"").replace(" ","");
-      return `<tr style="cursor:pointer" onclick="showDetail(${i})">
-        <td class="mono">${ts}</td>
-        <td class="mono dir-${r.direction||''}">${r.direction||'—'}</td>
-        <td class="mono">${fn}</td>
-        <td class="mono">${r.callsign||'—'}</td>
-        <td class="mono">${r.origin_iata||'—'}</td>
-        <td class="mono">${r.dest_iata||'—'}</td>
-        <td class="status-${sc}">${r.status||'—'}</td>
-        <td class="mono">${r.gate||'—'}</td>
-        <td class="mono">${r.aircraft_type||'—'}</td>
-        <td class="mono" style="opacity:0.5;font-size:0.72rem">${r.source||'—'}</td>
-      </tr>`;
-    }).join("");
-    window._histRows = rows;
-  }
-
-  window.showDetail = function (idx) {
-    const r = window._histRows?.[idx]; if (!r) return;
-    document.getElementById("detailTitle").textContent = `${r.flight_number||r.callsign||"Flight"} · ${r.direction}`;
-    const fields = [
-      ["Callsign",r.callsign],["Flight No",r.flight_number],["Direction",r.direction],
-      ["Status",r.status],["From",r.origin_iata],["To",r.dest_iata],
-      ["Gate",r.gate],["Terminal",r.terminal],["Aircraft",r.aircraft_type],
-      ["Sched time",r.sched_time?.slice(0,16).replace("T"," ")],
-      ["Actual time",r.actual_time?.slice(0,16).replace("T"," ")],
-      ["Source",r.source],["Enriched by",r.enriched_by],
-      ["Snapshot",r.snapshot_ts?.slice(0,16).replace("T"," ")],
-      ["Lat / Lon",r.lat!=null?`${r.lat?.toFixed(4)}, ${r.lon?.toFixed(4)}`:null],
-      ["Altitude",r.altitude_m!=null?`${Math.round(r.altitude_m*3.28084)}ft`:null],
-    ];
-    document.getElementById("detailBody").innerHTML = fields
-      .filter(([,v])=>v)
-      .map(([k,v])=>`<div class="detail-row"><span class="detail-label">${k}</span><span class="detail-val">${v}</span></div>`)
-      .join("");
-    document.getElementById("detailPanel").classList.add("open");
-  };
-
-  window.closeDetail = function () { document.getElementById("detailPanel").classList.remove("open"); };
-
-  document.addEventListener("click", e => {
-    const panel = document.getElementById("detailPanel");
-    if (panel.classList.contains("open") && !panel.contains(e.target)) closeDetail();
-  });
-
-  window.loadHistory = loadHistory;
-  loadHistory();
-})();
+loadDashboard();
 </script>
 {% endblock %}

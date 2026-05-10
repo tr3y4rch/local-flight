@@ -182,6 +182,7 @@ def _fetch_direct(lat: float, lon: float, dist_nm: int, timeout_s: int) -> List[
 
 def _fetch_managed_relay(lat: float, lon: float, dist_nm: int, timeout_s: int) -> List[Dict[str, Any]]:
     from localflight.storage.install import get_install_id
+    from localflight.sources.web.relay_heartbeat import relay_client_metadata
 
     params = {
         "install_id": get_install_id(),
@@ -190,6 +191,7 @@ def _fetch_managed_relay(lat: float, lon: float, dist_nm: int, timeout_s: int) -
         "radius_nm": dist_nm,
         "activation_token": _get_activation_token(),
     }
+    params.update(relay_client_metadata())
     try:
         r = requests.get(
             _get_relay_url(),

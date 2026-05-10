@@ -21,6 +21,7 @@ from fastapi.templating import Jinja2Templates
 
 from localflight.ui.api import router as api_router
 from localflight.core.airports import best_label
+from localflight.core.settings_options import settings_options_context
 from localflight.sources.web.relay_defaults import default_public_relay_url, relay_endpoint_url, validate_public_relay_url
 from localflight.storage.config import (
     AppConfig, load_config, save_config,
@@ -233,7 +234,7 @@ try:
     from importlib.metadata import version as _pkg_version
     _APP_VERSION = _pkg_version("localflight")
 except Exception:
-    _APP_VERSION = "0.2.5"
+    _APP_VERSION = "0.2.6"
 
 templates.env.globals["app_version"] = _APP_VERSION
 
@@ -260,6 +261,10 @@ def _managed_status_url(relay_url: str) -> str:
 
 def _client_status_url(relay_url: str) -> str:
     return relay_endpoint_url(relay_url or _relay_url_default(), "/v1/client/status")
+
+
+def _client_checkin_url(relay_url: str) -> str:
+    return relay_endpoint_url(relay_url or _relay_url_default(), "/v1/client/checkin")
 
 
 def _activate_url(relay_url: str) -> str:
@@ -292,6 +297,12 @@ _DOC_PAGES: Dict[str, Dict[str, str]] = {
         "filename": "display-modes.md",
         "summary": "How native desktop, LAN browser, Pi kiosk, mobile, and Matrix clients fit together.",
         "github_url": "https://github.com/tr3y4rch/local-flight/blob/main/docs/display-modes.md",
+    },
+    "client-notes": {
+        "title": "0.2.6 Client Notes",
+        "filename": "release-notes-0.2.6.md",
+        "summary": "Temporary 0.2.6 client polish notes for native, LAN browser, Matrix, History, Settings, and Radar/FIDS detail.",
+        "github_url": "https://github.com/tr3y4rch/local-flight/blob/main/docs/release-notes-0.2.6.md",
     },
     "privacy": {
         "title": "Privacy & Diagnostics",
@@ -601,6 +612,8 @@ async def setup_activate(body: ActivationSetupIn) -> Dict[str, Any]:
 @app.post("/api/setup/client-status")
 async def setup_client_status(body: ClientStatusSetupIn) -> Dict[str, Any]:
     import requests as _req
+    from localflight.sources.web.relay_heartbeat import relay_client_metadata
+    from localflight.storage.config import load_config
     from localflight.storage.install import get_activation_token, get_install_id
 
     try:
@@ -608,13 +621,27 @@ async def setup_client_status(body: ClientStatusSetupIn) -> Dict[str, Any]:
     except ValueError as exc:
         return {"ok": False, "error": str(exc)}
     activation_token = (body.activation_token or "").strip() or get_activation_token().strip()
+    metadata = relay_client_metadata()
     try:
-        response = _req.get(
-            _client_status_url(relay_url),
-            params={
+        cfg = load_config()
+        metadata.update(
+            {
+                "airport_iata": cfg.airport_iata,
+                "timezone": cfg.timezone,
+                "display_grace_minutes": int(cfg.display_grace_minutes),
+                "display_horizon_hours": int(cfg.display_horizon_hours),
+                "refresh_seconds": int(cfg.refresh_seconds),
+            }
+        )
+    except Exception:
+        pass
+    try:
+        response = _req.post(
+            _client_checkin_url(relay_url),
+            json={
                 "install_id": get_install_id(),
                 "activation_token": activation_token,
-                "app_version": _APP_VERSION,
+                **metadata,
             },
             headers={"Accept": "application/json"},
             timeout=12,
@@ -647,6 +674,7 @@ async def setup_request_activation_status_compat(body: ClientStatusSetupIn) -> D
 @app.post("/api/setup/test-activation")
 async def setup_test_activation(body: ActivationTokenTestIn) -> Dict[str, Any]:
     import requests as _req
+    from localflight.sources.web.relay_heartbeat import relay_client_metadata
     from localflight.storage.install import get_activation_token, get_install_fingerprint, get_install_id
 
     try:
@@ -659,7 +687,7 @@ async def setup_test_activation(body: ActivationTokenTestIn) -> Dict[str, Any]:
     try:
         response = _req.get(
             _client_status_url(relay_url),
-            params={"install_id": get_install_id(), "activation_token": token, "app_version": _APP_VERSION},
+            params={"install_id": get_install_id(), "activation_token": token, **relay_client_metadata()},
             headers={"Accept": "application/json"},
             timeout=12,
         )
@@ -876,6 +904,7 @@ def settings_page(
             "cfg": cfg,
             "state": state,
             "profiles": profiles,
+            "settings_options": settings_options_context(),
             "saved": (saved == "1"),
             "profile_msg": profile_msg,
         },

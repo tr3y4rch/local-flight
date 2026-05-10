@@ -785,6 +785,12 @@ def test_api_radar_virtual_uses_vatsim_only(monkeypatch) -> None:
     assert result["blips"][0]["arrival_icao"] == "EGLL"
     assert result["blips"][0]["aircraft_type"] == "A320"
     assert result["blips"][0]["route"] == "DCT TEST"
+    assert result["blips"][0]["detail_mode"] == "virtual"
+    assert result["blips"][0]["display_title"] == "SWR100"
+    assert result["blips"][0]["route_display"] == "LSZH -> EGLL"
+    assert result["blips"][0]["altitude_ft"] == 12000
+    assert result["blips"][0]["speed_kt"] == 250
+    assert result["blips"][0]["motion_display"]
     assert result["blips"][0]["radar_phase"] == "departure"
     assert result["blips"][0]["radar_status_label"] == "Departing"
     assert "name" not in result["blips"][0]
@@ -1663,6 +1669,80 @@ def test_fids_detail_exposes_live_track_metadata(monkeypatch, tmp_path: Path) ->
     assert detail["data_sources"]["enrichment"] == "adsbexchange"
     assert detail["data_sources"]["confidence"] == "live_position_matched"
     assert isinstance(detail["data_sources"]["snapshot_age_seconds"], int)
+    assert response.json()["intel"]["schema_version"] == "flight-intel-v1"
+    assert detail["intel"]["aircraft"]["registration"] == "HB-JCA"
+    assert detail["intel"]["motion"]["altitude_ft"] == 10000
+    assert detail["intel"]["source_evidence"]["confidence"] == "live_position_matched"
+
+
+def test_flight_intel_builder_handles_schedule_adsb_and_vatsim_privately() -> None:
+    from localflight.core.flight_intel import build_flight_intel
+    from localflight.core.models import AirlineRef, FlightStatus
+
+    now = datetime.now(timezone.utc)
+    real = Flight(
+        direction=FlightDirection.DEPARTURE,
+        airport=AirportRef(iata="ZRH", icao="LSZH", name="Zurich"),
+        callsign="SWR10",
+        airline=AirlineRef(name="Swiss", iata="LX", icao="SWR"),
+        flight_number="LX10",
+        origin=AirportRef(iata="ZRH", icao="LSZH", name="Zurich"),
+        destination=AirportRef(iata="JFK", icao="KJFK", name="New York"),
+        aircraft_type="A333",
+        aircraft_registration="HB-JHA",
+        gate="A42",
+        terminal="1",
+        status=FlightStatus.SCHEDULED,
+        times=FlightTime(scheduled=now),
+        position=FlightPosition(
+            lat=47.45,
+            lon=8.55,
+            altitude_baro=3048,
+            speed_ms=120,
+            vertical_rate=-2.5,
+            heading=280,
+            on_ground=False,
+            icao24="4B1800",
+            squawk="7000",
+            last_contact=now,
+        ),
+        source="aviationstack",
+        enriched_by="adsbexchange",
+    )
+
+    real_intel = build_flight_intel(real, [{"date": "2026-05-10", "status": "Scheduled", "delay_minutes": 8, "gate": "A42"}], generated_at=now)
+
+    assert real_intel["detail_mode"] == "real"
+    assert "ZRH" in real_intel["route"]["route_display"]
+    assert "JFK" in real_intel["route"]["route_display"]
+    assert real_intel["motion"]["altitude_ft"] == 10000
+    assert real_intel["motion"]["speed_kt"] == 233
+    assert real_intel["aircraft"]["registration"] == "HB-JHA"
+    assert real_intel["history_summary"]["late_count"] == 1
+
+    virtual = Flight(
+        direction=FlightDirection.ARRIVAL,
+        airport=AirportRef(iata="ZRH", icao="LSZH", name="Zurich"),
+        callsign="BAW123",
+        origin=AirportRef(icao="EGLL", name="Heathrow"),
+        destination=AirportRef(icao="LSZH", name="Zurich"),
+        aircraft_type="A320",
+        flight_rules="I",
+        planned_route="DCT TEST",
+        planned_altitude="FL350",
+        assigned_transponder="2201",
+        position=FlightPosition(lat=47.1, lon=8.1, altitude_baro=2500, speed_ms=95, heading=90),
+        source="vatsim",
+    )
+
+    virtual_intel = build_flight_intel(virtual, generated_at=now)
+    dumped = json.dumps(virtual_intel).lower()
+
+    assert virtual_intel["detail_mode"] == "virtual"
+    assert virtual_intel["flight_plan"]["route"] == "DCT TEST"
+    assert virtual_intel["privacy"]["vatsim_personal_identifiers"] is False
+    assert "pilot_name" not in dumped
+    assert "cid" not in dumped
 
 
 def test_api_radar_reports_refresh_hint_for_adsb_cache(monkeypatch) -> None:
@@ -1789,6 +1869,120 @@ def test_api_radar_filters_ground_blips_for_real_sources(monkeypatch) -> None:
     assert result["blips"][0]["callsign"] == "AIRBORNE"
 
 
+def test_history_summary_adds_delay_buckets_and_filtered_analytics(tmp_path: Path, monkeypatch) -> None:
+    import localflight.storage.history as history
+
+    config_file = tmp_path / ".localflight" / "config.json"
+    config_file.parent.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(history, "config_path", lambda: config_file)
+
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    rows = []
+    delays = [-5, -4, 4, 5, 15, 16, None]
+    for idx, delay in enumerate(delays):
+        rows.append((
+            "ZRH",
+            f"LX{100 + idx}",
+            f"LX {100 + idx}",
+            "ZRH" if idx % 2 == 0 else "FRA",
+            "BCN" if idx % 2 == 0 else "ZRH",
+            "DEP" if idx % 2 == 0 else "ARR",
+            "Delayed" if delay and delay >= 5 else "Scheduled",
+            "A1",
+            "1",
+            "A320",
+            (now + timedelta(minutes=idx * 10)).isoformat(),
+            None,
+            None,
+            None,
+            None,
+            "aviationstack",
+            "schedule",
+            now.isoformat(),
+            delay,
+            "LX",
+        ))
+
+    conn = history._connect()
+    history._ensure_schema(conn)
+    history._migrate_schema(conn)
+    conn.executemany(
+        """
+        INSERT INTO flights (
+            airport_iata, callsign, flight_number, origin_iata, dest_iata,
+            direction, status, gate, terminal, aircraft_type, sched_time,
+            actual_time, lat, lon, altitude_m, source, enriched_by, snapshot_ts,
+            delay_minutes, airline_iata
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        """,
+        rows,
+    )
+    conn.commit()
+    conn.close()
+
+    summary = history.query_summary("ZRH", hours=24)
+    buckets = {row["bucket"]: row["count"] for row in summary["delay_buckets"]}
+
+    assert buckets == {
+        "early": 1,
+        "on_time": 2,
+        "delayed_warn": 2,
+        "delayed_bad": 1,
+        "unknown": 1,
+    }
+    assert summary["delayed"] == 3
+    assert summary["top_airlines"][0]["code"] == "LX"
+    assert summary["top_airlines"][0]["delay_rate_pct"] == 42.9
+    assert summary["top_routes"][0]["origin"] in {"ZRH", "FRA"}
+    assert summary["status_mix"][0]["count"] >= 3
+    assert summary["daily_volume"][0]["total"] == 7
+    assert history.query_recent("ZRH", direction="DEP", callsign="LX10", status="scheduled", airline_iata="LX", hours=24, limit=10)
+
+
+def test_api_history_forwards_dashboard_filters(monkeypatch) -> None:
+    import localflight.storage.history as history
+
+    captured_recent: dict[str, object] = {}
+    captured_summary: dict[str, object] = {}
+
+    def fake_recent(**kwargs: object) -> list[dict[str, object]]:
+        captured_recent.update(kwargs)
+        return [{"callsign": "LX1952"}]
+
+    def fake_summary(**kwargs: object) -> dict[str, object]:
+        captured_summary.update(kwargs)
+        return {"total": 1, "delay_buckets": [], "status_mix": []}
+
+    monkeypatch.setattr(ui_server, "_setup_complete", lambda: True)
+    monkeypatch.setattr(ui_api, "load_config", lambda: AppConfig(airport_iata="ZRH", airport_icao="LSZH"))
+    monkeypatch.setattr(history, "query_recent", fake_recent)
+    monkeypatch.setattr(history, "query_summary", fake_summary)
+
+    client = TestClient(app)
+    recent = client.get("/api/history?hours=48&direction=dep&limit=25&status=delayed&callsign=lx1952&airline_iata=lx")
+    summary = client.get("/api/history/summary?hours=48&direction=dep&status=delayed&callsign=lx1952&airline_iata=lx")
+
+    assert recent.status_code == 200
+    assert summary.status_code == 200
+    assert captured_recent == {
+        "airport_iata": "ZRH",
+        "hours": 48,
+        "direction": "DEP",
+        "limit": 25,
+        "status": "delayed",
+        "callsign": "lx1952",
+        "airline_iata": "lx",
+    }
+    assert captured_summary == {
+        "airport_iata": "ZRH",
+        "hours": 48,
+        "direction": "DEP",
+        "status": "delayed",
+        "callsign": "lx1952",
+        "airline_iata": "lx",
+    }
+
+
 def test_matrix_config_endpoint_round_trip(tmp_path: Path, monkeypatch) -> None:
     matrix_config = tmp_path / "matrix_config.json"
     monkeypatch.setattr(ui_api, "_matrix_config_path", lambda: matrix_config)
@@ -1849,10 +2043,12 @@ def test_matrix_config_endpoint_round_trip(tmp_path: Path, monkeypatch) -> None:
         "animation_mode": "static",
         "animation_speed": 3,
         "status_animation_enabled": True,
+        "show_gate_info": True,
         "palette": "pax_blue",
         "options": {
             "animation_mode": "static",
             "palette": "pax_blue",
+            "show_gate_info": True,
             "show_metar": True,
         },
     }
@@ -1899,9 +2095,15 @@ def test_matrix_v2_migrates_flat_config_and_registers_device(tmp_path: Path, mon
     presets = preset_payload["presets"]
     preset_ids = {item["id"] for item in presets}
     assert preset_ids == {"real_fids", "vatsim_pilot", "vatsim_atc"}
+    preset_options = {item["id"]: item["options"] for item in presets}
+    assert preset_options["real_fids"]["show_gate_info"] is True
+    assert preset_options["vatsim_pilot"]["show_gate_info"] is False
+    assert preset_options["vatsim_atc"]["show_gate_info"] is False
     palette_ids = {item["id"] for item in preset_payload["palettes"]}
     assert palette_ids == {"pax_blue", "solari_amber", "tower_scope", "vatsim_scope", "night_ops", "sunset_terminal", "ice_white"}
     assert not ({"standard", "technical", "cyan", "crt", "neon", "amber", "green", "white"} & palette_ids)
+    panel_ids = {item["id"] for item in preset_payload["panel_presets"]}
+    assert {"64x32", "128x64", "128x128", "256x128", "512x128"} <= panel_ids
 
     response = client.post(
         "/api/matrix/v2/devices/checkin",
@@ -1924,6 +2126,7 @@ def test_matrix_v2_migrates_flat_config_and_registers_device(tmp_path: Path, mon
     resolved = response.json()
     assert resolved["renderer"] == "modern_fids"
     assert resolved["device_id"] == "i75w-test"
+    assert resolved["show_gate_info"] is True
 
 
 def test_matrix_v2_legacy_presets_are_removed_from_public_profiles(tmp_path: Path, monkeypatch) -> None:
@@ -2004,12 +2207,73 @@ def test_matrix_v2_feed_adds_route_safe_fields_and_metar(tmp_path: Path, monkeyp
     assert row["route_matrix_label"] == "DALLAS-FORT WORTH KDFW"
     assert row["gate"] == ""
     assert row["gate_display"] == ""
+    assert row["gate_label"] == ""
     assert row["aircraft_type"] == "A321"
     assert row["callsign"] == "AAL100"
     assert row["status_kind"] == "scheduled"
     assert row["tone"] == "neutral"
     assert payload["metar"]["weather_icon"] == "sun"
     assert payload["metar"]["temperature_display"] == "29 C"
+
+
+def test_matrix_v2_real_feed_exposes_gate_label_and_preview_toggle(tmp_path: Path, monkeypatch) -> None:
+    matrix_config = tmp_path / "matrix_config.json"
+    monkeypatch.setattr(ui_api, "_matrix_config_path", lambda: matrix_config)
+    monkeypatch.setattr(
+        ui_api,
+        "load_config",
+        lambda: AppConfig(airport_iata="ZRH", airport_icao="LSZH", timezone="Europe/Zurich"),
+    )
+    monkeypatch.setattr(
+        ui_api,
+        "api_fids",
+        lambda view, limit: [
+            {
+                "id": "flight-gate",
+                "display_time": "12:10",
+                "flight_display": "LX 42",
+                "route_display": "New York (JFK)",
+                "status_display": "BOARDING",
+                "status_class": "boarding",
+                "gate": "A64",
+                "gate_display": "A64",
+                "terminal_display": "1",
+                "terminal_gate_display": "T1 / A64",
+                "aircraft_type": "A333",
+            }
+        ],
+    )
+    monkeypatch.setattr(ui_api, "api_metar", lambda: {})
+
+    client = TestClient(ui_api.app)
+    enabled = client.get("/api/matrix/v2/devices/preview/feed?view=departures&show_gate_info=true")
+    disabled = client.get("/api/matrix/v2/devices/preview/feed?view=departures&show_gate_info=false")
+
+    assert enabled.status_code == 200
+    assert enabled.json()["show_gate_info"] is True
+    assert enabled.json()["rows"][0]["gate_label"] == "T1 / A64"
+    assert disabled.status_code == 200
+    assert disabled.json()["show_gate_info"] is False
+    assert disabled.json()["rows"][0]["gate_label"] == ""
+
+
+def test_matrix_preview_feed_accepts_unsaved_overrides(tmp_path: Path, monkeypatch) -> None:
+    matrix_config = tmp_path / "matrix_config.json"
+    monkeypatch.setattr(ui_api, "_matrix_config_path", lambda: matrix_config)
+    monkeypatch.setattr(ui_api, "load_config", lambda: AppConfig(airport_iata="ZRH", airport_icao="LSZH", source="real"))
+    monkeypatch.setattr(ui_api, "api_fids", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("real FIDS must not be fetched for VATSIM preview")))
+    monkeypatch.setattr(ui_api, "api_metar", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("real METAR must not be fetched for VATSIM preview")))
+
+    response = TestClient(ui_api.app).get(
+        "/api/matrix/v2/devices/preview/feed?view=arrivals&preset=vatsim_pilot&max_rows=2&show_weather=false&show_gate_info=true"
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["source_required"] == "virtual"
+    assert payload["message"] == "SET SOURCE TO VATSIM"
+    assert payload["show_gate_info"] is False
+    assert payload["rows"] == []
 
 
 def test_matrix_v2_feed_falls_back_to_lane_with_rows(tmp_path: Path, monkeypatch) -> None:
@@ -2106,7 +2370,9 @@ def test_matrix_vatsim_atc_feed_pages_and_weather_are_vatsim_only(tmp_path: Path
                 "route_display": route,
                 "status_display": "SCHEDULED",
                 "status_class": "scheduled",
-                "gate": "-",
+                "gate": "A12",
+                "gate_display": "A12",
+                "terminal_gate_display": "T1 / A12",
                 "aircraft_type": "A320",
                 "callsign": "SWR100",
             }
@@ -2136,11 +2402,14 @@ def test_matrix_vatsim_atc_feed_pages_and_weather_are_vatsim_only(tmp_path: Path
 
     assert response.status_code == 200
     payload = response.json()
+    assert payload["show_gate_info"] is False
     assert payload["rows"][0]["route_code"] == "LSZH"
     assert payload["rows"][0]["gate"] == ""
+    assert payload["rows"][0]["gate_label"] == ""
     assert set(payload["pages"]) == {"departures", "arrivals", "weather"}
     assert payload["pages"]["departures"][0]["route_code"] == "EGLL"
     assert payload["pages"]["arrivals"][0]["gate"] == ""
+    assert payload["pages"]["arrivals"][0]["gate_label"] == ""
     assert payload["metar"]["source"] == "vatsim"
     assert payload["weather_page"]["available"] is True
     assert "LSZH VATSIM WX" in payload["weather_page"]["lines"]
@@ -2212,6 +2481,13 @@ def test_matrix_script_endpoint_renders_from_canonical_template(tmp_path: Path, 
                 "BRIGHTNESS    = 0.80",
                 'DEFAULT_VIEW  = "departures"',
                 "ANIMATION_ENABLED = True",
+                'ANIMATION_MODE = "split_flap"',
+                "ANIMATION_SPEED = 3",
+                "STATUS_ANIMATION_ENABLED = True",
+                "SHOW_WEATHER = True",
+                "SHOW_GATE_INFO = True",
+                'PRESET = "real_fids"',
+                'PALETTE = "pax_blue"',
             ]
         ),
         encoding="utf-8",
@@ -2234,6 +2510,13 @@ def test_matrix_script_endpoint_renders_from_canonical_template(tmp_path: Path, 
             "brightness": 0.55,
             "default_view": "arrivals",
             "animation_enabled": False,
+            "animation_mode": "slide_left",
+            "animation_speed": 4,
+            "status_animation_enabled": False,
+            "show_weather": False,
+            "show_gate_info": True,
+            "preset": "vatsim_pilot",
+            "palette": "tower_scope",
         },
     )
 
@@ -2251,6 +2534,13 @@ def test_matrix_script_endpoint_renders_from_canonical_template(tmp_path: Path, 
     assert "BRIGHTNESS    = 0.55" in response.text
     assert 'DEFAULT_VIEW  = "arrivals"' in response.text
     assert "ANIMATION_ENABLED = False" in response.text
+    assert 'ANIMATION_MODE = "static"' in response.text
+    assert "ANIMATION_SPEED = 4" in response.text
+    assert "STATUS_ANIMATION_ENABLED = False" in response.text
+    assert "SHOW_WEATHER  = False" in response.text
+    assert "SHOW_GATE_INFO = False" in response.text
+    assert 'PRESET        = "vatsim_pilot"' in response.text
+    assert 'PALETTE       = "tower_scope"' in response.text
 
 
 def test_matrix_script_endpoint_uses_current_i75w_client_template() -> None:
@@ -2294,9 +2584,15 @@ def test_matrix_script_endpoint_uses_current_i75w_client_template() -> None:
     assert "route_matrix_label" in script
     assert "def _weather_line(chars=18):" in script
     assert "SHOW_WEATHER" in script
+    assert "SHOW_GATE_INFO" in script
+    assert "def _gate_label(row):" in script
+    assert "def _status_or_gate_chunk(row, chars):" in script
     assert "_airport_label" in script
     assert '"temp": ["00100", "01010", "01010", "10001", "01110"]' in script
     assert '"WX "' not in script
+    assert "def _weather_temp_text():" in script
+    assert "def draw_weather_mini(x, y, max_width):" in script
+    assert "return 30 if HEIGHT >= 96 and _weather_line(8) else 20" not in script
     assert "def draw_vatsim_weather_page():" in script
     assert "def draw_vatsim_atc(flap_rows, fallback_rows, fallback_view):" in script
     assert "\"real_fids\"" in script
@@ -2362,7 +2658,9 @@ def test_matrix_preview_download_payload_uses_defined_animation_state() -> None:
     assert 'animation_enabled: ANIMATION_MODE !== "static"' in template
     assert "animation_enabled: ANIMATION_ENABLED" not in template
     assert "SHOW_WEATHER" in template
+    assert "SHOW_GATE_INFO" in template
     assert "weatherToggle" in template
+    assert "gateToggle" in template
     assert 'id="paletteSelect"' in template
     assert 'id="animationSpeedSelect"' in template
     assert 'id="statusMotionToggle"' in template
@@ -2372,18 +2670,39 @@ def test_matrix_preview_download_payload_uses_defined_animation_state() -> None:
     assert "about 60 seconds" in template
     assert "function setPreviewPalette(name)" in template
     assert "MATRIX_PALETTE_OPTIONS" in template
+    assert "MATRIX_PANEL_PRESETS" in template
     assert "palette: MATRIX_PALETTE" in template
+    assert "default_view: VIEW" in template
+    assert "status_animation_enabled: STATUS_ANIMATION_ENABLED" in template
+    assert "show_gate_info: SHOW_GATE_INFO" in template
+    assert "preset: MATRIX_PRESET" in template
     assert "condition_display" in template
     assert 'WX ${' not in template
+    assert "function weatherTempText()" in template
+    assert "function drawWeatherMini" in template
+    assert "return PANEL_H >= 96 && weatherLine(8) ? 30 : 20" not in template
     assert "function asciiText" in template
     assert "function clockLabel" in template
     assert "PANEL_W < 200" in template
     assert 'id="btnDep"' not in template
     assert 'id="btnArr"' not in template
     assert "setView" not in template
-    assert "default_view: VIEW" not in template
     for legacy in ('value="standard"', 'value="technical"', 'value="cyan"', 'value="crt"', 'value="neon"', 'value="green"', 'value="white"'):
         assert legacy not in template
+
+
+def test_history_template_uses_dashboard_summary_contract() -> None:
+    root = Path(__file__).resolve().parents[1]
+    template = (root / "src" / "localflight" / "ui" / "templates" / "history.html").read_text(encoding="utf-8")
+
+    assert "loadDashboard" in template
+    assert "/api/history/summary" in template
+    assert "delay_buckets" in template
+    assert "status_mix" in template
+    assert "top_airlines" in template
+    assert "top_routes" in template
+    assert 'id="airlineInput"' in template
+    assert "No matching history rows yet" in template
 
 
 def test_matrix_preview_panel_geometry_stays_in_sync() -> None:
@@ -2406,6 +2725,8 @@ def test_matrix_preview_panel_geometry_stays_in_sync() -> None:
     assert "function cycleChunks(value, width, code = \"\")" in template
     assert "const code_preserve = codePreserve" in template
     assert "function routeChunk(row, chars)" in template
+    assert "function gateLabel(row)" in template
+    assert "function statusOrGateChunk(row, chars)" in template
     assert "function visibleRows()" in template
     assert "function drawGlyph(name, x, y, color)" in template
     assert "Real FIDS" in template
@@ -2434,7 +2755,9 @@ def test_native_matrix_panel_geometry_matches_web_controls() -> None:
     assert '("256 x 128 - 2 by 2", 256, 128)' in source
     assert "self.panel_w = self.QtWidgets.QSpinBox()" in source
     assert "self.panel_h = self.QtWidgets.QSpinBox()" in source
-    assert 'form_layout.addRow("Panel size", self._panel_size_row())' in source
+    assert 'form_layout.addRow("Panel combo", self.panel_preset)' in source
+    assert 'form_layout.addRow("Custom size", self._panel_size_row())' in source
+    assert 'form_layout.addRow("Startup lane", self.default_view_select)' in source
     assert "def _panel_dimensions_changed" in source
     assert "if self.panel_w < 180:" in source
     assert "text[39:43]" in source
@@ -2447,6 +2770,9 @@ def test_native_matrix_panel_geometry_matches_web_controls() -> None:
     assert "def _route_chunk" in source
     assert "def _visible_rows" in source
     assert "def _weather_page_lines" in source
+    assert "def _weather_temp_text" in source
+    assert "def _weather_compact_token" in source
+    assert "return 30 if self.panel_h >= 96 and self._weather_line(8) else 20" not in source
     assert "def _vatsim_atc_page" in source
     assert "set_matrix_payload" in source
     assert "/api/matrix/v2/devices/preview/feed" in source
@@ -2891,6 +3217,8 @@ def test_ui_route_contracts_cover_core_pages_and_api_surfaces() -> None:
         "/api/radar/surface",
         "/api/metar",
         "/api/history",
+        "/api/history/flight",
+        "/api/history/summary",
         "/api/admin/system",
         "/api/admin/budget",
         "/api/admin/connections",
@@ -2906,6 +3234,38 @@ def test_ui_route_contracts_cover_core_pages_and_api_surfaces() -> None:
     }
 
     assert expected.issubset(paths)
+
+
+def test_lan_radar_template_uses_native_layer_controls_and_filtered_routes() -> None:
+    template = Path("src/localflight/ui/templates/radar.html").read_text(encoding="utf-8")
+
+    for control_id in [
+        "mapToggle",
+        "surfaceToggle",
+        "runwaysToggle",
+        "terrainToggle",
+        "routesToggle",
+        "statusToggle",
+        "trafficFilter",
+        "altitudeFilter",
+    ]:
+        assert control_id in template
+
+    for js_hook in [
+        "fetchRadarMap",
+        "/api/radar/map",
+        "radarQueryParams",
+        "traffic",
+        "min_alt_ft",
+        "max_alt_ft",
+        "drawMapInlay",
+        "drawTerrain",
+        "drawProcedures",
+        "blipStatusLabel",
+        "selectBlip",
+        "/api/fids/detail",
+    ]:
+        assert js_hook in template
 
 
 def test_api_docs_serves_bundled_markdown(monkeypatch) -> None:
@@ -2990,6 +3350,7 @@ def test_relay_route_contracts_cover_public_and_admin_surfaces() -> None:
         "/admin",
         "/admin/api/overview",
         "/admin/api/usage",
+        "/admin/api/fleet",
         "/admin/api/schedules",
         "/admin/api/surfaces",
         "/admin/api/activations",
@@ -3014,6 +3375,53 @@ def test_relay_route_contracts_cover_public_and_admin_surfaces() -> None:
     }
 
     assert expected.issubset(paths)
+
+
+def test_operator_power_stays_out_of_public_docs_and_examples() -> None:
+    root = Path(__file__).resolve().parents[1]
+    gitignore = (root / ".gitignore").read_text(encoding="utf-8")
+    env_example = (root / ".env.example").read_text(encoding="utf-8")
+
+    for private_name in (
+        "start_network.bat",
+        "start_network.local.bat",
+        "operator/",
+        "AGENTS.md",
+        "DEV_README.md",
+        "docs/native-first-redesign.md",
+    ):
+        assert private_name in gitignore
+
+    for secret_name in (
+        "RELAY_ADMIN_PASSWORD",
+        "LINEAR_REPORTER_API_KEY",
+        "LINEAR_TEAM_IOS_ID",
+        "LINEAR_TEAM_DESKTOP_ID",
+        "LINEAR_TEAM_SERVER_ID",
+        "LINEAR_TEAM_RELAY_ID",
+        "LINEAR_TEAM_DEFAULT_ID",
+    ):
+        assert secret_name not in env_example
+
+    public_docs = [
+        root / "README.md",
+        root / "PRIVACY.md",
+        root / "docs" / "install.md",
+        root / "docs" / "display-modes.md",
+    ]
+    forbidden_public_terms = (
+        "start_network.bat",
+        "/admin/api",
+        "network.localflight.app",
+        "RELAY_ADMIN_PASSWORD",
+        "LINEAR_REPORTER_API_KEY",
+        "DEV_README.md",
+        "AGENTS.md",
+    )
+    for path in public_docs:
+        text = path.read_text(encoding="utf-8")
+        for term in forbidden_public_terms:
+            assert term not in text, f"{term} leaked into {path}"
 
 
 def test_gui_mode_defaults_to_native_only_when_a_local_display_is_expected() -> None:

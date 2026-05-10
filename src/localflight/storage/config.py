@@ -5,19 +5,27 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, List
 
-ALLOWED_REFRESH_SECONDS = {900, 1800, 2700, 3600, 7200, 14400, 28800, 43200, 86400}
+from localflight.core.settings_options import (
+    DIAGNOSTICS_IDS,
+    OUTPUT_IDS,
+    REFRESH_SECONDS,
+    SKIN_IDS,
+    SOURCE_IDS,
+)
+
+ALLOWED_REFRESH_SECONDS = set(REFRESH_SECONDS)
 DEFAULT_REFRESH_SECONDS = 3600
 
-ALLOWED_SOURCES = {"real", "virtual"}
+ALLOWED_SOURCES = set(SOURCE_IDS)
 DEFAULT_SOURCE  = "real"
 
-ALLOWED_SKINS = {"standard", "technical", "neon", "cyan", "crt"}
+ALLOWED_SKINS = set(SKIN_IDS)
 DEFAULT_SKIN  = "standard"
 
-ALLOWED_OUTPUTS = {"web", "matrix", "hdmi"}
+ALLOWED_OUTPUTS = set(OUTPUT_IDS)
 DEFAULT_OUTPUTS  = ["web"]
 
-ALLOWED_DIAGNOSTICS_MODES = {"unset", "manual", "auto", "auto_logs"}
+ALLOWED_DIAGNOSTICS_MODES = set(DIAGNOSTICS_IDS)
 DEFAULT_DIAGNOSTICS_MODE = "unset"
 DEFAULT_WEB_ROW_LIMIT = 20
 DEFAULT_WEB_ROTATION_SECONDS = 8

@@ -36,7 +36,8 @@ What it gives you:
 
 - Display, FIDS, Radar, Matrix, Settings, Admin, History, Logs, and Report pages
 - Native first-run setup
-- Native FIDS and radar drawing
+- Native FIDS and radar drawing with the same current-source detail model as the LAN browser UI
+- History dashboard analytics, Matrix board configuration, and user-facing Settings cards
 - Local docs and diagnostics
 - Same local API and WebSocket events as the browser UI
 
@@ -141,6 +142,14 @@ The Interstate 75 W / HUB75 Matrix client is a small display client.
 It connects over WiFi, reads only the display feed/config it needs, and never receives provider keys, relay secrets, or admin credentials.
 
 Use the Matrix page in the native app or LAN browser UI to configure runtime settings and generate the MicroPython `main.py` file.
+
+Matrix configuration is shared across the native app and LAN browser UI:
+
+- common panel presets from `64x32` through larger HUB75 combinations
+- live preview for brightness, zoom, row count, weather, palette, animation, startup lane, and page rotation
+- compact weather headers that keep small boards such as `128x128` readable
+- optional real-world gate/stand display when the schedule source provides it
+- VATSIM presets that hide gate placeholders and focus on virtual callsign, aircraft, route/status, flight-plan, and weather/ATIS information
 
 ---
 

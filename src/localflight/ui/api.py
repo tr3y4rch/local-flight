@@ -28,6 +28,7 @@ from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, Field
 
 from localflight.core.airports import _load_index, best_label, lookup_airport
+from localflight.core.flight_intel import build_flight_intel
 from localflight.core.models import Flight, FlightDirection, FlightPosition
 from localflight.display.fids import enrich_presentation_fields
 from localflight.render.fids import build_fids_context
@@ -827,7 +828,15 @@ def api_fids_detail(callsign: str = Query(..., min_length=1, max_length=20)) -> 
         for r in history_raw[:10]
     ]
 
-    return {"detail": detail, "history": history}
+    intel = build_flight_intel(
+        flight,
+        history,
+        generated_at=generated_at,
+    )
+    if detail:
+        detail["intel"] = intel
+
+    return {"detail": detail, "history": history, "intel": intel}
 
 
 # â”€â”€ Radar endpoint â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -1704,9 +1713,12 @@ def api_radar(
  
 @router.get("/api/history")
 def api_history(
-    hours:     int = Query(24,  ge=1,   le=720),
+    hours:     int = Query(24,  ge=1,   le=2160),
     direction: str = Query("both"),
     limit:     int = Query(100, ge=1,   le=1000),
+    status:    Optional[str] = Query(None, max_length=32),
+    callsign:  Optional[str] = Query(None, max_length=16),
+    airline_iata: Optional[str] = Query(None, max_length=3),
 ) -> Dict[str, Any]:
     """
     Returns recent flight history from the local SQLite database.
@@ -1728,9 +1740,10 @@ def api_history(
     cfg = load_config()
  
     dir_filter = None
-    if direction == "dep":
+    direction_clean = direction.lower().strip()
+    if direction_clean == "dep":
         dir_filter = "DEP"
-    elif direction == "arr":
+    elif direction_clean == "arr":
         dir_filter = "ARR"
  
     rows = query_recent(
@@ -1738,11 +1751,20 @@ def api_history(
         hours=hours,
         direction=dir_filter,
         limit=limit,
+        status=status,
+        callsign=callsign,
+        airline_iata=airline_iata,
     )
  
     return {
         "airport_iata": cfg.airport_iata,
         "hours":        hours,
+        "direction":    direction,
+        "filters": {
+            "status": status or "",
+            "callsign": (callsign or "").upper().strip(),
+            "airline_iata": (airline_iata or "").upper().strip(),
+        },
         "count":        len(rows),
         "flights":      rows,
     }
@@ -1772,11 +1794,28 @@ def api_history_flight(
 @router.get("/api/history/summary")
 def api_history_summary(
     hours: int = Query(720, ge=1, le=2160),
+    direction: str = Query("both"),
+    status: Optional[str] = Query(None, max_length=32),
+    callsign: Optional[str] = Query(None, max_length=16),
+    airline_iata: Optional[str] = Query(None, max_length=3),
 ) -> Dict[str, Any]:
     """Aggregated stats: top airlines, routes, aircraft, on-time rate."""
     from localflight.storage.history import query_summary
     cfg = load_config()
-    return query_summary(airport_iata=cfg.airport_iata, hours=hours)
+    dir_filter = None
+    direction_clean = direction.lower().strip()
+    if direction_clean == "dep":
+        dir_filter = "DEP"
+    elif direction_clean == "arr":
+        dir_filter = "ARR"
+    return query_summary(
+        airport_iata=cfg.airport_iata,
+        hours=hours,
+        direction=dir_filter,
+        status=status,
+        callsign=callsign,
+        airline_iata=airline_iata,
+    )
 
 
 @router.get("/api/history/stats")
@@ -1847,7 +1886,7 @@ def api_admin_system() -> Dict[str, Any]:
         from importlib.metadata import version as _pkg_version
         _ver = _pkg_version("localflight")
     except Exception:
-        _ver = "0.2.5"
+        _ver = "0.2.6"
 
     result: Dict[str, Any] = {
         "version":  _ver,
@@ -2252,7 +2291,7 @@ def api_admin_updates() -> Dict[str, Any]:
         from importlib.metadata import version as _pkg_version
         current = _pkg_version("localflight")
     except Exception:
-        current = "0.2.5"
+        current = "0.2.6"
 
     # Simple in-process cache to avoid hammering GitHub API
     cache = getattr(api_admin_updates, "_cache", None)
@@ -2415,6 +2454,7 @@ _MATRIX_PRESETS: Dict[str, Dict[str, Any]] = {
             "animation_speed": {"min": 1, "max": 5, "default": 3},
             "show_clock": True,
             "show_metar": True,
+            "show_gate_info": True,
             "show_glyphs": True,
             "weather_strip": True,
             "code_preserve": True,
@@ -2431,6 +2471,7 @@ _MATRIX_PRESETS: Dict[str, Dict[str, Any]] = {
             "animation_speed": {"min": 1, "max": 5, "default": 2},
             "show_clock": True,
             "show_metar": True,
+            "show_gate_info": False,
             "show_glyphs": True,
             "vatsim_labels": True,
             "code_preserve": True,
@@ -2448,6 +2489,7 @@ _MATRIX_PRESETS: Dict[str, Dict[str, Any]] = {
             "animation_speed": {"min": 1, "max": 5, "default": 2},
             "show_clock": True,
             "show_metar": True,
+            "show_gate_info": False,
             "show_glyphs": True,
             "vatsim_labels": True,
             "weather_page": True,
@@ -2474,6 +2516,7 @@ _MATRIX_CONFIG_DEFAULTS: Dict[str, Any] = {
     "animation_mode": "split_flap",
     "animation_speed": 3,
     "status_animation_enabled": True,
+    "show_gate_info": True,
     "palette": "pax_blue",
     "options": {},
 }
@@ -2488,11 +2531,27 @@ _MATRIX_V1_FIELDS = {
     "animation_mode",
     "animation_speed",
     "status_animation_enabled",
+    "show_gate_info",
     "palette",
     "options",
 }
 
 _MATRIX_ANIMATION_MODES = {"split_flap", "slide_left", "slide_right", "static"}
+
+_MATRIX_PANEL_PRESETS: List[Dict[str, Any]] = [
+    {"id": "64x32", "label": "64 x 32", "group": "Other common HUB75 sizes", "panel_w": 64, "panel_h": 32},
+    {"id": "128x32", "label": "128 x 32", "group": "Other common HUB75 sizes", "panel_w": 128, "panel_h": 32},
+    {"id": "256x32", "label": "256 x 32", "group": "Other common HUB75 sizes", "panel_w": 256, "panel_h": 32},
+    {"id": "64x64", "label": "64 x 64", "group": "Other common HUB75 sizes", "panel_w": 64, "panel_h": 64},
+    {"id": "128x64", "label": "128 x 64 - 1 rectangular module", "group": "128x64 rectangular modules", "panel_w": 128, "panel_h": 64},
+    {"id": "256x64", "label": "256 x 64 - 2 across", "group": "128x64 rectangular modules", "panel_w": 256, "panel_h": 64},
+    {"id": "384x64", "label": "384 x 64 - 3 across", "group": "128x64 rectangular modules", "panel_w": 384, "panel_h": 64},
+    {"id": "512x64", "label": "512 x 64 - 4 across", "group": "128x64 rectangular modules", "panel_w": 512, "panel_h": 64},
+    {"id": "128x128", "label": "128 x 128 - 2 stacked", "group": "128x64 rectangular modules", "panel_w": 128, "panel_h": 128},
+    {"id": "256x128", "label": "256 x 128 - 2 by 2", "group": "128x64 rectangular modules", "panel_w": 256, "panel_h": 128},
+    {"id": "384x128", "label": "384 x 128 - 3 by 2", "group": "128x64 rectangular modules", "panel_w": 384, "panel_h": 128},
+    {"id": "512x128", "label": "512 x 128 - 4 by 2", "group": "128x64 rectangular modules", "panel_w": 512, "panel_h": 128},
+]
 
 
 def _matrix_config_path():
@@ -2568,6 +2627,14 @@ def _normalize_matrix_config(raw: Dict[str, Any], *, fallback_id: str) -> Dict[s
         options = {**options, "show_metar": bool(preset_options.get("show_metar", True))}
     elif "show_weather" in options and "show_metar" not in options:
         options = {**options, "show_metar": bool(options.get("show_weather"))}
+    if "show_gate_info" in raw:
+        show_gate_info = bool(raw.get("show_gate_info"))
+    elif "show_gate_info" in options:
+        show_gate_info = bool(options.get("show_gate_info"))
+    else:
+        show_gate_info = bool(preset_options.get("show_gate_info", not _matrix_is_vatsim_preset(preset)))
+    if _matrix_is_vatsim_preset(preset):
+        show_gate_info = False
     palette = str(raw.get("palette") or options.get("palette") or _MATRIX_CONFIG_DEFAULTS["palette"]).strip().lower()
     if palette not in _MATRIX_PALETTES:
         palette = _MATRIX_CONFIG_DEFAULTS["palette"]
@@ -2592,8 +2659,9 @@ def _normalize_matrix_config(raw: Dict[str, Any], *, fallback_id: str) -> Dict[s
         "animation_mode": animation_mode,
         "animation_speed": max(1, min(5, int(raw.get("animation_speed") or 3))),
         "status_animation_enabled": bool(raw.get("status_animation_enabled", True)),
+        "show_gate_info": show_gate_info,
         "palette": palette,
-        "options": {**options, "palette": palette, "animation_mode": animation_mode},
+        "options": {**options, "palette": palette, "animation_mode": animation_mode, "show_gate_info": show_gate_info},
     }
 
 
@@ -2715,6 +2783,7 @@ class MatrixConfigIn(BaseModel):
     animation_mode: str = "split_flap"
     animation_speed: int = Field(3, ge=1, le=5)
     status_animation_enabled: bool = True
+    show_gate_info: bool = True
     palette: str = "pax_blue"
     options: Dict[str, Any] = Field(default_factory=dict)
 
@@ -2734,6 +2803,7 @@ class MatrixV2ConfigIn(BaseModel):
     animation_mode: Optional[str] = None
     animation_speed: Optional[int] = Field(None, ge=1, le=5)
     status_animation_enabled: Optional[bool] = None
+    show_gate_info: Optional[bool] = None
     palette: Optional[str] = None
     options: Dict[str, Any] = Field(default_factory=dict)
 
@@ -2780,6 +2850,7 @@ def api_matrix_config_post(body: MatrixConfigIn) -> Dict[str, Any]:
         "animation_mode": body.animation_mode,
         "animation_speed": int(body.animation_speed),
         "status_animation_enabled": bool(body.status_animation_enabled),
+        "show_gate_info": bool(body.show_gate_info),
         "palette": body.palette,
         "options": body.options,
     }
@@ -2797,6 +2868,7 @@ def api_matrix_v2_presets() -> Dict[str, Any]:
     return {
         "presets": list(_MATRIX_PRESETS.values()),
         "palettes": list(_MATRIX_PALETTES.values()),
+        "panel_presets": list(_MATRIX_PANEL_PRESETS),
     }
 
 
@@ -2929,9 +3001,20 @@ def api_matrix_v2_device_patch(device_id: str, body: MatrixDevicePatchIn) -> Dic
     return {"ok": True, "device": device}
 
 
-def _matrix_resolved_config(store: Dict[str, Any], device_id: Optional[str]) -> Dict[str, Any]:
+def _matrix_resolved_config(
+    store: Dict[str, Any],
+    device_id: Optional[str],
+    *,
+    config_id: Optional[str] = None,
+    preview_overrides: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
     device = _matrix_device_by_id(store, _matrix_slug(device_id or "", "")) if device_id else None
-    cfg = _matrix_config_by_id(store, device.get("assigned_config_id") if device else store.get("default_config_id"))
+    if config_id and config_id in {cfg["id"] for cfg in store["configs"]}:
+        cfg = _matrix_config_by_id(store, config_id)
+    else:
+        cfg = _matrix_config_by_id(store, device.get("assigned_config_id") if device else store.get("default_config_id"))
+    if preview_overrides:
+        cfg = _normalize_matrix_config({**cfg, **preview_overrides}, fallback_id=cfg["id"])
     preset = _MATRIX_PRESETS.get(cfg["preset"], _MATRIX_PRESETS["real_fids"])
     return {
         **cfg,
@@ -2987,7 +3070,22 @@ def _matrix_ascii(value: Any) -> str:
     return unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode("ascii").strip()
 
 
-def _matrix_row_payload(row: Any) -> Dict[str, Any]:
+def _matrix_gate_label(
+    data: Dict[str, Any],
+    *,
+    preset: Any = "real_fids",
+    show_gate_info: bool = True,
+) -> str:
+    if _matrix_is_vatsim_preset(preset) or not show_gate_info:
+        return ""
+    for key in ("terminal_gate_display", "gate_display", "gate"):
+        value = str(data.get(key) or "").strip()
+        if value and value != "-":
+            return value
+    return ""
+
+
+def _matrix_row_payload(row: Any, *, preset: Any = "real_fids", show_gate_info: bool = True) -> Dict[str, Any]:
     data = row.model_dump() if hasattr(row, "model_dump") else row.dict() if hasattr(row, "dict") else dict(row)
     data = enrich_presentation_fields(data)
     status = str(data.get("status_display") or "")
@@ -3009,9 +3107,24 @@ def _matrix_row_payload(row: Any) -> Dict[str, Any]:
     codeshare = data.get("codeshare_display") or ""
     route_display = data.get("route_display") or "-"
     route_fields = _matrix_route_fields(route_display)
-    gate_value = data.get("gate_display") or data.get("gate") or ""
+    hide_gate_fields = _matrix_is_vatsim_preset(preset)
+    gate_value = "" if hide_gate_fields else data.get("gate_display") or data.get("gate") or ""
     if str(gate_value).strip() == "-":
         gate_value = ""
+    gate_display = "" if hide_gate_fields else data.get("gate_display") or ""
+    terminal_display = "" if hide_gate_fields else data.get("terminal_display") or ""
+    terminal_gate_display = "" if hide_gate_fields else data.get("terminal_gate_display") or ""
+    gate_label = _matrix_gate_label(
+        {
+            **data,
+            "gate": gate_value,
+            "gate_display": gate_display,
+            "terminal_display": terminal_display,
+            "terminal_gate_display": terminal_gate_display,
+        },
+        preset=preset,
+        show_gate_info=show_gate_info,
+    )
     return {
         "id": data.get("id"),
         "time": data.get("display_time") or "--:--",
@@ -3030,9 +3143,10 @@ def _matrix_row_payload(row: Any) -> Dict[str, Any]:
         "delay_kind": data.get("delay_kind") or "none",
         "tone": data.get("tone") or "neutral",
         "gate": gate_value,
-        "gate_display": data.get("gate_display") or "",
-        "terminal_display": data.get("terminal_display") or "",
-        "terminal_gate_display": data.get("terminal_gate_display") or "",
+        "gate_display": gate_display,
+        "terminal_display": terminal_display,
+        "terminal_gate_display": terminal_gate_display,
+        "gate_label": gate_label,
         "aircraft": data.get("aircraft_type") or "",
         "aircraft_type": data.get("aircraft_type") or "",
         "callsign": data.get("callsign") or "",
@@ -3193,9 +3307,37 @@ def _matrix_vatsim_rows(
 
 
 @router.get("/api/matrix/v2/devices/{device_id}/feed")
-def api_matrix_v2_device_feed(device_id: str, view: Optional[str] = Query(None)) -> Dict[str, Any]:
+def api_matrix_v2_device_feed(
+    device_id: str,
+    view: Optional[str] = Query(None),
+    config_id: Optional[str] = Query(None),
+    preset: Optional[str] = Query(None),
+    max_rows: Optional[int] = Query(None, ge=1, le=8),
+    show_weather: Optional[bool] = Query(None),
+    show_gate_info: Optional[bool] = Query(None),
+) -> Dict[str, Any]:
     store = _load_matrix_store()
-    resolved = _matrix_resolved_config(store, device_id)
+    is_preview = _matrix_slug(device_id or "", "") == "preview"
+    preview_overrides: Dict[str, Any] = {}
+    if is_preview:
+        if preset in _MATRIX_PRESETS:
+            preview_overrides["preset"] = preset
+        if max_rows is not None:
+            preview_overrides["max_rows"] = int(max_rows)
+        preview_options: Dict[str, Any] = {}
+        if show_weather is not None:
+            preview_options.update({"show_metar": bool(show_weather), "show_weather": bool(show_weather)})
+        if show_gate_info is not None:
+            preview_options["show_gate_info"] = bool(show_gate_info)
+            preview_overrides["show_gate_info"] = bool(show_gate_info)
+        if preview_options:
+            preview_overrides["options"] = preview_options
+    resolved = _matrix_resolved_config(
+        store,
+        None if is_preview else device_id,
+        config_id=config_id if is_preview else None,
+        preview_overrides=preview_overrides if is_preview else None,
+    )
     requested_view = view if view in {"departures", "arrivals"} else resolved["default_view"]
     effective_view = requested_view
     cfg = load_config()
@@ -3208,6 +3350,14 @@ def api_matrix_v2_device_feed(device_id: str, view: Optional[str] = Query(None))
         **_matrix_airport_payload(cfg),
     }
     show_metar = _matrix_option_enabled(resolved, "show_metar", True)
+    show_gate = _matrix_option_enabled(
+        resolved,
+        "show_gate_info",
+        not _matrix_is_vatsim_preset(resolved["preset"]),
+    )
+    if _matrix_is_vatsim_preset(resolved["preset"]):
+        show_gate = False
+    payload["show_gate_info"] = show_gate
     if _matrix_is_vatsim_preset(resolved["preset"]) and (cfg.source or "").strip().lower() != "virtual":
         message = "SET SOURCE TO VATSIM"
         return {
@@ -3227,8 +3377,14 @@ def api_matrix_v2_device_feed(device_id: str, view: Optional[str] = Query(None))
         }
 
     if _matrix_is_vatsim_preset(resolved["preset"]):
-        dep_rows = [_matrix_row_payload(row) for row in _matrix_vatsim_rows(cfg=cfg, view="departures", limit=limit)]
-        arr_rows = [_matrix_row_payload(row) for row in _matrix_vatsim_rows(cfg=cfg, view="arrivals", limit=limit)]
+        dep_rows = [
+            _matrix_row_payload(row, preset=resolved["preset"], show_gate_info=show_gate)
+            for row in _matrix_vatsim_rows(cfg=cfg, view="departures", limit=limit)
+        ]
+        arr_rows = [
+            _matrix_row_payload(row, preset=resolved["preset"], show_gate_info=show_gate)
+            for row in _matrix_vatsim_rows(cfg=cfg, view="arrivals", limit=limit)
+        ]
         rows = dep_rows if effective_view == "departures" else arr_rows
         if not rows:
             alternate_view = "arrivals" if effective_view == "departures" else "departures"
@@ -3274,7 +3430,10 @@ def api_matrix_v2_device_feed(device_id: str, view: Optional[str] = Query(None))
             payload["view"] = effective_view
             payload["requested_view"] = requested_view
             payload["fallback_view"] = True
-    payload["rows"] = [_matrix_row_payload(row) for row in rows]
+    payload["rows"] = [
+        _matrix_row_payload(row, preset=resolved["preset"], show_gate_info=show_gate)
+        for row in rows
+    ]
     if show_metar:
         try:
             payload["metar"] = _matrix_metar_payload(api_metar())
@@ -3299,6 +3458,13 @@ class MatrixScriptIn(BaseModel):
     default_view: str = Field("departures")
     page_rotation_seconds: int = Field(10, ge=3, le=120)
     animation_enabled: bool = True
+    animation_mode: str = "split_flap"
+    animation_speed: int = Field(3, ge=1, le=5)
+    status_animation_enabled: bool = True
+    show_weather: bool = True
+    show_gate_info: bool = True
+    preset: str = "real_fids"
+    palette: str = "pax_blue"
 
 
 def _matrix_client_template_path() -> Path:
@@ -3326,6 +3492,12 @@ def _matrix_assignment_line(name: str, value: str) -> str:
 
 def _render_matrix_client_script(body: MatrixScriptIn) -> str:
     default_view = body.default_view if body.default_view in {"departures", "arrivals"} else "departures"
+    animation_mode = body.animation_mode if body.animation_mode in _MATRIX_ANIMATION_MODES else "split_flap"
+    if not body.animation_enabled:
+        animation_mode = "static"
+    palette = body.palette if body.palette in _MATRIX_PALETTES else "pax_blue"
+    preset = body.preset if body.preset in _MATRIX_PRESETS else "real_fids"
+    show_gate_info = bool(body.show_gate_info) and not _matrix_is_vatsim_preset(preset)
     host = _normalize_matrix_api_host(body.api_host)
     text = _matrix_client_template_path().read_text(encoding="utf-8")
     replacements = {
@@ -3342,7 +3514,14 @@ def _render_matrix_client_script(body: MatrixScriptIn) -> str:
         "BRIGHTNESS": f"{float(body.brightness):.2f}",
         "DEFAULT_VIEW": json.dumps(default_view),
         "ANIMATION_ENABLED": "True" if body.animation_enabled else "False",
+        "ANIMATION_MODE": json.dumps(animation_mode),
+        "ANIMATION_SPEED": str(int(body.animation_speed)),
+        "STATUS_ANIMATION_ENABLED": "True" if body.status_animation_enabled else "False",
+        "SHOW_WEATHER": "True" if body.show_weather else "False",
+        "SHOW_GATE_INFO": "True" if show_gate_info else "False",
+        "PRESET": json.dumps(preset),
     }
+    replacements["PALETTE"] = json.dumps(palette)
     for key, value in replacements.items():
         text = re.sub(
             rf"^{key}\s*=.*$",

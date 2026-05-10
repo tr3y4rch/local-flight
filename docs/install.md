@@ -12,7 +12,7 @@ If you are unsure, use the packaged Windows or macOS app on a desktop first. It 
 - First launch opens a guided setup wizard before the normal app.
 - You can choose **Community Relay**, **Bring your own keys**, or **VATSIM**.
 - Diagnostics are optional. Manual reports stay available even if automatic diagnostics are off.
-- The current release is `0.2.5`. It is still beta software, but the client paths are now intended to work across the supported display types.
+- The current temporary client target is `0.2.6`. It is still beta software, but the client paths are now intended to work across the supported display types.
 
 ---
 
@@ -79,6 +79,8 @@ You can clone the repo on the Pi or download the versioned Pi source bundle from
 ```text
 LocalFlight-pi-source-<version>.zip
 ```
+
+For this temporary target, that package name is expected to look like `LocalFlight-pi-source-0.2.6.zip` once the release bundle is built.
 
 Unzip or clone on the Pi, then run:
 
@@ -202,6 +204,7 @@ Provider keys live in your local `.env` when you choose the BYOK path.
 - If `localflight.local` does not resolve, use the LAN IP address.
 - If a Pi display stays blank, confirm whether you installed `--native-kiosk`, `--kiosk`, or `--headless`.
 - If a real-data board looks sparse, try a busier airport or wait for the next fetch. Provider coverage varies by airport and lane.
+- If a Matrix board looks cramped, pick the closest panel preset first. Compact boards prioritize airport/lane, UTC/LT, weather, rows, and real-world gate/status information in that order.
 - If diagnostics are off, manual reports still work from the Report page.
 
 For display-choice help, see [Display Modes](display-modes.md).

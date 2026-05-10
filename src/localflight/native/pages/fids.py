@@ -1421,10 +1421,12 @@ class FidsScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
     def _apply_detail(self, payload: dict[str, Any]) -> None:
         detail = payload.get("detail") if isinstance(payload.get("detail"), dict) else payload
         history = payload.get("history") if isinstance(payload.get("history"), list) else []
+        intel = payload.get("intel") if isinstance(payload.get("intel"), dict) else detail.get("intel") if isinstance(detail.get("intel"), dict) else {}
+        intel_route = value_at(intel, "route.route_display")
         origin = detail.get("origin_iata") or detail.get("origin_icao") or "-"
         dest = detail.get("dest_iata") or detail.get("dest_icao") or "-"
         airline = detail.get("airline_display") or detail.get("airline_name") or ""
-        self.detail_route.setText(f"{origin} -> {dest}" + (f" | {airline}" if airline else ""))
+        self.detail_route.setText((intel_route or f"{origin} -> {dest}") + (f" | {airline}" if airline else ""))
         mode = str(detail.get("detail_mode") or detail.get("source") or value_at(detail, "data_sources.schedule") or "real").strip().lower()
         self.detail_body.setHtml(self._detail_html(detail, history, virtual=("virtual" in mode or "vatsim" in mode)))
 

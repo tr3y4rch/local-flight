@@ -60,7 +60,7 @@ Hard rules:
 - No developer-owned API keys, Linear keys, relay admin passwords, provider keys, signing credentials, activation master tokens, private endpoint passwords, or privileged operator values in repo-tracked code, docs, templates, test fixtures, built artifacts, mobile bundles, matrix scripts, or sample config.
 - No hidden "temporary" internal values in the GUI, local defaults, packaged `.env`, compiled assets, comments, screenshots, generated docs, or installer scripts.
 - Public client GUI can call only local owner/client routes and public relay routes intended for clients.
-- Operator Network Admin stays separate from the public client GUI and must use explicit operator-provided credentials.
+- Operator Network Admin stays separate from the public client GUI and must use explicit operator-provided credentials. Local helper launchers such as `start_network.bat` stay ignored/private; the packaged client and public docs must not advertise operator admin paths.
 - Local user-owned keys are stored locally, redacted in UI/logs/reports, and never forwarded except to the intended provider/relay endpoint.
 - Diagnostics/reporting payloads must redact secrets, raw tokens, raw install IDs, provider responses that include credentials, and long logs before leaving the machine.
 - Mobile and Matrix clients receive only the minimum public/local configuration required to operate.
@@ -75,7 +75,7 @@ Power boundaries:
 | Browser/LAN UI | Same public/local client capabilities as native for LAN access, headless installs, and browser-mode displays. | Hidden privileged routes or admin-only relay controls. |
 | Mobile companion | LAN client display/settings subset and diagnostics by consent. | Admin mutations beyond explicitly trusted local-owner actions. |
 | Matrix client/script | Read display feed, identify device, ping/check in. | Provider keys, relay secrets, admin actions. |
-| Operator Network Admin | Relay/admin inspection and actions with supplied operator credentials. | Shipping or deriving credentials from the public app. |
+| Operator Network Admin | Relay/admin inspection, fleet/dev operations, and actions with supplied operator credentials. | Shipping or deriving credentials from the public app, public docs, or example env files. |
 | Relay/server infrastructure | Owns shared secrets and privileged upstream/provider access. | Exposing private secrets to client payloads, logs, reports, or generated artifacts. |
 
 Acceptance gate for every page/release:
@@ -148,7 +148,18 @@ Browser templates to treat as source specs:
 
 ## Current Status
 
-Current beta snapshot as of 2026-05-09:
+Current checkpoint as of 2026-05-10 / 0.2.6:
+
+- Native remains the intended primary desktop/display GUI, with browser/LAN kept as a supported parity and recovery surface.
+- The latest polish wave moved beyond the original shell parity goal: History, Matrix, Settings/setup, FIDS details, and Radar details now need to be validated as one shared native/browser product surface.
+- History now uses the shared `/api/history` + `/api/history/summary` analytics contract for KPIs, delay buckets, status mix, airline delay quotas, route/aircraft stats, daily/hourly volume, sortable recent rows, and detail surfaces.
+- Matrix now has shared panel presets, live preview overrides, friendly save/apply/generate feedback, compact weather header rules, and real-source gate/stand display. VATSIM Matrix presets intentionally hide unreliable gate placeholders.
+- FIDS/Radar/History detail views are converging on the shared current-source intelligence model: schedule, live motion, aircraft, airport operations, weather context, source evidence, and recent history from current sources only.
+- Settings/setup now follow dashboard-card/user-first structure with hidden advanced sections, contrast-safe theme/skin handling, and cleaner brand/icon usage.
+- Windows validation is green: `pip check`, no outdated packages, `python -m compileall -q src relay installers scripts tests`, and `python -m pytest tests -q` -> `293 passed`.
+- Windows and Pi `0.2.6` artifacts have been rebuilt; macOS packaging/smoke remains the next platform checkpoint.
+
+Previous native checkpoint as of 2026-05-09:
 
 - Native FIDS, Radar, Settings, Setup, Matrix, History, Logs, Admin, Feedback, and Display are no longer treated as throwaway placeholders. The active direction is native-first hardening with the browser/LAN UI kept as a supported display surface and spec reference.
 - FIDS has moved from a table-like visual target toward a custom passenger-board surface, with operating-flight priority, codeshare rotation, status/gate chips, loading feedback, and a restyled flight-detail drawer.
@@ -328,19 +339,28 @@ Radar inventory checkpoint:
 
 ## What To Do Next
 
-Continue from the current native beta state, not from the earlier shell foundation.
+Continue from the current 0.2.6 native/browser state, not from the earlier shell foundation.
 
 Recommended next slice:
 
-1. Run visual QA for Radar overlays across at least ZRH and LAX:
+1. Mac handoff and packaging:
+   - Pull the exact current source state.
+   - Run `python -m compileall -q src relay installers scripts tests` and `python -m pytest tests -q`.
+   - Smoke native setup/FIDS/Radar/Matrix/Settings/History on macOS.
+   - Build and checksum `dist/LocalFlight-macos.zip`.
+2. Clean install smoke:
+   - Windows zip extraction and first-run setup.
+   - Pi source install in headless mode.
+   - Optional Pi native-kiosk validation only on a display-capable Pi OS image.
+3. Run visual QA for Radar overlays across at least ZRH and LAX:
    - 1/2/3/5 NM surface mode.
    - 10/20/40 NM airborne mode.
    - map on/off, terrain on/off, runways on/off, surface on/off.
    - dark/light theme contrast.
    - no OSM cache, stale cache, and estimated fallback states.
-2. Tighten Display split composition now that FIDS and Radar have standalone native surfaces.
-3. Continue full native extraction/polish for Matrix, History, Logs, Requests, Admin, and Feedback until each page has native tests and browser-parity checklists.
-4. Keep browser/LAN parity checks running as native acceptance passes, because both surfaces remain supported.
+4. Visual QA the 0.2.6 polish pages at desktop and compact sizes: History dashboard, Matrix configurator/preview, Settings/setup cards, FIDS detail drawer, and LAN radar parity.
+5. Continue full native extraction/polish for Logs, Requests, Admin, and Feedback until each page has native tests and browser-parity checklists.
+6. Keep browser/LAN parity checks running as native acceptance passes, because both surfaces remain supported.
 
 ## Page-by-Page Feedback Map
 

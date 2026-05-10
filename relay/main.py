@@ -494,6 +494,26 @@ def _ensure_schema() -> None:
         )
         """
     )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS install_profiles (
+            install_id           TEXT PRIMARY KEY,
+            first_seen           TEXT NOT NULL,
+            last_seen            TEXT NOT NULL,
+            app_version          TEXT,
+            os_family            TEXT,
+            os_version           TEXT,
+            arch                 TEXT,
+            requested_gui        TEXT,
+            effective_gui        TEXT,
+            source_mode          TEXT,
+            diagnostics_mode     TEXT,
+            companion_count      INTEGER DEFAULT 0,
+            matrix_count         INTEGER DEFAULT 0,
+            matrix_online_count  INTEGER DEFAULT 0
+        )
+        """
+    )
     _ensure_column(conn, "request_log", "service TEXT")
     _ensure_column(conn, "request_log", "plan TEXT")
     _ensure_column(conn, "activation_requests", "display_name TEXT")
@@ -521,6 +541,17 @@ def _ensure_schema() -> None:
     _ensure_column(conn, "airport_surface_snapshots", "stale_serves INTEGER DEFAULT 0")
     _ensure_column(conn, "airport_surface_snapshots", "last_cache_state TEXT")
     _ensure_column(conn, "airport_surface_snapshots", "last_error TEXT")
+    _ensure_column(conn, "install_profiles", "app_version TEXT")
+    _ensure_column(conn, "install_profiles", "os_family TEXT")
+    _ensure_column(conn, "install_profiles", "os_version TEXT")
+    _ensure_column(conn, "install_profiles", "arch TEXT")
+    _ensure_column(conn, "install_profiles", "requested_gui TEXT")
+    _ensure_column(conn, "install_profiles", "effective_gui TEXT")
+    _ensure_column(conn, "install_profiles", "source_mode TEXT")
+    _ensure_column(conn, "install_profiles", "diagnostics_mode TEXT")
+    _ensure_column(conn, "install_profiles", "companion_count INTEGER DEFAULT 0")
+    _ensure_column(conn, "install_profiles", "matrix_count INTEGER DEFAULT 0")
+    _ensure_column(conn, "install_profiles", "matrix_online_count INTEGER DEFAULT 0")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_usage_month_service ON usage (month, service, calls DESC)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_activation_revoked ON activation_tokens (revoked_at)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_activation_requests_status ON activation_requests (status, created_at DESC)")
@@ -531,6 +562,8 @@ def _ensure_schema() -> None:
     conn.execute("CREATE INDEX IF NOT EXISTS idx_schedule_snapshots_airport ON schedule_snapshots (airport_iata, updated_at DESC)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_airport_surface_updated ON airport_surface_snapshots (airport_iata, updated_at DESC)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_client_interests_last_seen ON client_interests (last_seen DESC)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_install_profiles_last_seen ON install_profiles (last_seen DESC)")
+    _backfill_install_profiles(conn)
     conn.commit()
     conn.close()
 
@@ -1716,6 +1749,119 @@ def _record_client_interest(
     conn.close()
 
 
+def _coarse_admin_text(value: Any, *, limit: int = 80) -> str:
+    clean = re.sub(r"[^A-Za-z0-9_.:/+() -]", "", str(value or "").strip())
+    return clean[:limit]
+
+
+def _coarse_admin_int(value: Any, *, minimum: int = 0, maximum: int = 100_000) -> int:
+    try:
+        number = int(value or 0)
+    except Exception:
+        number = 0
+    return max(minimum, min(maximum, number))
+
+
+def _record_install_profile(
+    *,
+    install_id: str,
+    app_version: str = "",
+    os_family: str = "",
+    os_version: str = "",
+    arch: str = "",
+    requested_gui: str = "",
+    effective_gui: str = "",
+    source_mode: str = "",
+    diagnostics_mode: str = "",
+    companion_count: int = 0,
+    matrix_count: int = 0,
+    matrix_online_count: int = 0,
+) -> None:
+    install_id = _validate_install_id(install_id)
+    now = _utc_now()
+    conn = _connect()
+    try:
+        conn.execute(
+            """
+            INSERT INTO install_profiles (
+                install_id, first_seen, last_seen, app_version, os_family, os_version, arch,
+                requested_gui, effective_gui, source_mode, diagnostics_mode,
+                companion_count, matrix_count, matrix_online_count
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(install_id) DO UPDATE SET
+                last_seen = excluded.last_seen,
+                app_version = COALESCE(NULLIF(excluded.app_version, ''), install_profiles.app_version),
+                os_family = COALESCE(NULLIF(excluded.os_family, ''), install_profiles.os_family),
+                os_version = COALESCE(NULLIF(excluded.os_version, ''), install_profiles.os_version),
+                arch = COALESCE(NULLIF(excluded.arch, ''), install_profiles.arch),
+                requested_gui = COALESCE(NULLIF(excluded.requested_gui, ''), install_profiles.requested_gui),
+                effective_gui = COALESCE(NULLIF(excluded.effective_gui, ''), install_profiles.effective_gui),
+                source_mode = COALESCE(NULLIF(excluded.source_mode, ''), install_profiles.source_mode),
+                diagnostics_mode = COALESCE(NULLIF(excluded.diagnostics_mode, ''), install_profiles.diagnostics_mode),
+                companion_count = excluded.companion_count,
+                matrix_count = excluded.matrix_count,
+                matrix_online_count = excluded.matrix_online_count
+            """,
+            (
+                install_id,
+                now,
+                now,
+                _coarse_admin_text(app_version, limit=40),
+                _coarse_admin_text(os_family, limit=40),
+                _coarse_admin_text(os_version, limit=80),
+                _coarse_admin_text(arch, limit=40),
+                _coarse_admin_text(requested_gui, limit=24),
+                _coarse_admin_text(effective_gui, limit=24),
+                _coarse_admin_text(source_mode, limit=32),
+                _coarse_admin_text(diagnostics_mode, limit=32),
+                _coarse_admin_int(companion_count),
+                _coarse_admin_int(matrix_count),
+                _coarse_admin_int(matrix_online_count),
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _backfill_install_profiles(conn: sqlite3.Connection) -> None:
+    """Seed first/last seen from existing relay tables without inventing metadata."""
+    candidates = conn.execute(
+        """
+        SELECT install_id, MIN(ts) AS first_seen, MAX(ts) AS last_seen
+        FROM (
+            SELECT install_id, last_seen AS ts FROM usage WHERE COALESCE(install_id, '') <> ''
+            UNION ALL
+            SELECT install_id, created_at AS ts FROM activation_requests WHERE COALESCE(install_id, '') <> ''
+            UNION ALL
+            SELECT install_id, last_seen AS ts FROM activation_requests WHERE COALESCE(install_id, '') <> ''
+            UNION ALL
+            SELECT install_id, last_seen AS ts FROM client_interests WHERE COALESCE(install_id, '') <> ''
+            UNION ALL
+            SELECT bound_install_id AS install_id, last_seen AS ts FROM activation_tokens WHERE COALESCE(bound_install_id, '') <> ''
+        )
+        WHERE COALESCE(ts, '') <> ''
+        GROUP BY install_id
+        """
+    ).fetchall()
+    for row in candidates:
+        install_id = str(row["install_id"] or "").strip()
+        if not install_id:
+            continue
+        first_seen = str(row["first_seen"] or row["last_seen"] or _utc_now())
+        last_seen = str(row["last_seen"] or first_seen)
+        conn.execute(
+            """
+            INSERT INTO install_profiles (install_id, first_seen, last_seen)
+            VALUES (?, ?, ?)
+            ON CONFLICT(install_id) DO UPDATE SET
+                first_seen = COALESCE(install_profiles.first_seen, excluded.first_seen),
+                last_seen = MAX(install_profiles.last_seen, excluded.last_seen)
+            """,
+            (install_id, first_seen, last_seen),
+        )
+
+
 def _client_interest_snapshot(conn: sqlite3.Connection, install_id: str) -> Optional[Dict[str, Any]]:
     interest = conn.execute(
         """
@@ -2619,7 +2765,7 @@ def _admin_usage_rows(conn: sqlite3.Connection, month: str) -> list[Dict[str, An
         FROM usage
         WHERE month=?
         ORDER BY service ASC, calls DESC, last_seen DESC
-        LIMIT 250
+        LIMIT 20000
         """,
         (month,),
     ).fetchall()
@@ -2636,6 +2782,407 @@ def _admin_usage_rows(conn: sqlite3.Connection, month: str) -> list[Dict[str, An
     ]
 
 
+def _admin_request_rows(conn: sqlite3.Connection) -> list[Dict[str, Any]]:
+    rows = conn.execute(
+        """
+        SELECT ts, install_id, mode, status, latency_ms, service, plan
+        FROM request_log
+        ORDER BY ts DESC
+        LIMIT 20000
+        """
+    ).fetchall()
+    return [
+        {
+            "ts": str(row["ts"] or ""),
+            "install_fingerprint": _public_install_id(str(row["install_id"] or "")),
+            "scope": str(row["mode"] or ""),
+            "status": int(row["status"] or 0),
+            "latency_ms": int(row["latency_ms"] or 0),
+            "service": str(row["service"] or ""),
+            "plan": str(row["plan"] or ""),
+            "error": int(row["status"] or 0) == 0 or int(row["status"] or 0) >= 400,
+        }
+        for row in rows
+    ]
+
+
+def _admin_fleet_rows(conn: sqlite3.Connection, month: str) -> list[Dict[str, Any]]:
+    install_ids = _admin_install_candidates(conn)
+    try:
+        rows = conn.execute(
+            "SELECT install_id FROM install_profiles WHERE COALESCE(install_id, '') <> '' LIMIT 1000"
+        ).fetchall()
+        install_ids.update(str(row["install_id"] or "") for row in rows if str(row["install_id"] or "").strip())
+    except sqlite3.Error:
+        pass
+
+    fleet: list[Dict[str, Any]] = []
+    now = datetime.now(timezone.utc)
+    for install_id in sorted(install_ids):
+        profile = conn.execute("SELECT * FROM install_profiles WHERE install_id=?", (install_id,)).fetchone()
+        interest = conn.execute(
+            """
+            SELECT plan, airport_iata, timezone, display_grace_minutes, display_horizon_hours,
+                   refresh_seconds, last_seen
+            FROM client_interests
+            WHERE install_id=?
+            """,
+            (install_id,),
+        ).fetchone()
+        usage = conn.execute(
+            """
+            SELECT
+                COALESCE(SUM(CASE WHEN service='aviationstack' THEN calls ELSE 0 END), 0) AS schedule_calls,
+                COALESCE(SUM(CASE WHEN service='radar' THEN calls ELSE 0 END), 0) AS radar_calls,
+                MAX(last_seen) AS usage_last_seen,
+                GROUP_CONCAT(DISTINCT plan) AS usage_plans
+            FROM usage
+            WHERE install_id=? AND month=?
+            """,
+            (install_id, month),
+        ).fetchone()
+        token = conn.execute(
+            """
+            SELECT token_prefix, label, schedule_limit, radar_limit, last_seen, revoked_at
+            FROM activation_tokens
+            WHERE bound_install_id=?
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            (install_id,),
+        ).fetchone()
+        latest_request = conn.execute(
+            """
+            SELECT requested_mode, app_version, display_name, status, created_at, updated_at, last_seen
+            FROM activation_requests
+            WHERE install_id=?
+            ORDER BY updated_at DESC
+            LIMIT 1
+            """,
+            (install_id,),
+        ).fetchone()
+        block = conn.execute("SELECT reason, created_at FROM blocked_installs WHERE install_id=?", (install_id,)).fetchone()
+
+        seen_values = [
+            str((profile or {}).get("last_seen") or "") if isinstance(profile, dict) else (str(profile["last_seen"] or "") if profile else ""),
+            str(interest["last_seen"] or "") if interest else "",
+            str(usage["usage_last_seen"] or "") if usage else "",
+            str(token["last_seen"] or "") if token else "",
+            str(latest_request["last_seen"] or latest_request["updated_at"] or "") if latest_request else "",
+        ]
+        first_values = [
+            str(profile["first_seen"] or "") if profile else "",
+            str(latest_request["created_at"] or "") if latest_request else "",
+            str(usage["usage_last_seen"] or "") if usage else "",
+            str(interest["last_seen"] or "") if interest else "",
+        ]
+        last_seen = max([value for value in seen_values if value] or [""])
+        first_seen = min([value for value in first_values if value] or [last_seen])
+        last_seen_dt = _parse_utc_dt(last_seen)
+        if block:
+            status = "blocked"
+        elif token and token["revoked_at"]:
+            status = "token_revoked"
+        elif last_seen_dt and (now - last_seen_dt) <= timedelta(hours=24):
+            status = "active"
+        elif last_seen:
+            status = "dormant"
+        else:
+            status = "unknown"
+        plan = str((interest or {}).get("plan") or "") if isinstance(interest, dict) else (str(interest["plan"] or "") if interest else "")
+        if not plan and token and not token["revoked_at"]:
+            plan = "managed"
+        if not plan:
+            usage_plans = str(usage["usage_plans"] or "") if usage else ""
+            plan = usage_plans.split(",", 1)[0] if usage_plans else "community"
+        current_lane = {
+            "airport_iata": str(interest["airport_iata"] or "") if interest else "",
+            "timezone": str(interest["timezone"] or "") if interest else "",
+            "display_grace_minutes": int(interest["display_grace_minutes"] or 0) if interest else 0,
+            "display_horizon_hours": int(interest["display_horizon_hours"] or 0) if interest else 0,
+            "refresh_seconds": int(interest["refresh_seconds"] or 0) if interest else 0,
+            "last_seen": str(interest["last_seen"] or "") if interest else "",
+        }
+        fleet.append(
+            {
+                "install_fingerprint": _public_install_id(install_id),
+                "action_ref": _admin_action_ref(conn, "inst", install_id),
+                "first_seen": first_seen,
+                "last_seen": last_seen,
+                "status": status,
+                "plan": plan,
+                "managed": bool(token and not token["revoked_at"]),
+                "blocked": bool(block),
+                "blocked_reason": str(block["reason"] or "") if block else "",
+                "app_version": str((profile["app_version"] if profile else "") or (latest_request["app_version"] if latest_request else "") or ""),
+                "os_family": str(profile["os_family"] or "") if profile else "",
+                "os_version": str(profile["os_version"] or "") if profile else "",
+                "arch": str(profile["arch"] or "") if profile else "",
+                "requested_gui": str((profile["requested_gui"] if profile else "") or (latest_request["requested_mode"] if latest_request else "") or ""),
+                "effective_gui": str(profile["effective_gui"] or "") if profile else "",
+                "source_mode": str(profile["source_mode"] or "") if profile else "",
+                "diagnostics_mode": str(profile["diagnostics_mode"] or "") if profile else "",
+                "companion_count": int(profile["companion_count"] or 0) if profile else 0,
+                "matrix_count": int(profile["matrix_count"] or 0) if profile else 0,
+                "matrix_online_count": int(profile["matrix_online_count"] or 0) if profile else 0,
+                "schedule_calls": int(usage["schedule_calls"] or 0) if usage else 0,
+                "radar_calls": int(usage["radar_calls"] or 0) if usage else 0,
+                "current_lane": current_lane,
+                "token_prefix": str(token["token_prefix"] or "") if token else "",
+                "token_label": str(token["label"] or "") if token else "",
+                "activation_status": str(latest_request["status"] or "") if latest_request else "",
+            }
+        )
+    fleet.sort(key=lambda row: (str(row.get("last_seen") or ""), str(row.get("first_seen") or "")), reverse=True)
+    return fleet[:20000]
+
+
+def _admin_fleet_metrics(rows: list[Dict[str, Any]]) -> Dict[str, Any]:
+    active = [row for row in rows if row.get("status") == "active"]
+    return {
+        "known_installs": len(rows),
+        "active_installs_24h": len(active),
+        "managed_installs": sum(1 for row in rows if row.get("managed")),
+        "blocked_installs": sum(1 for row in rows if row.get("blocked")),
+        "companion_installs": sum(1 for row in rows if int(row.get("companion_count") or 0) > 0),
+        "matrix_installs": sum(1 for row in rows if int(row.get("matrix_count") or 0) > 0),
+        "os": _admin_count_values(rows, "os_family"),
+        "gui": _admin_count_values(rows, "effective_gui"),
+        "plans": _admin_count_values(rows, "plan"),
+    }
+
+
+def _admin_count_values(rows: list[Dict[str, Any]], key: str) -> Dict[str, int]:
+    counts: Dict[str, int] = {}
+    for row in rows:
+        value = _admin_nested_value(row, key)
+        label = str(value or "unknown").strip().lower() or "unknown"
+        counts[label] = counts.get(label, 0) + 1
+    return counts
+
+
+_ADMIN_MAX_PAGE_LIMIT = 500
+_ADMIN_DEFAULT_PAGE_LIMIT = 100
+
+
+def _admin_nested_value(row: Dict[str, Any], key: str) -> Any:
+    value: Any = row
+    for part in (key or "").split("."):
+        if not isinstance(value, dict):
+            return ""
+        value = value.get(part)
+    return value
+
+
+def _admin_clean_query(value: Any, *, limit: int = 120) -> str:
+    return _coarse_admin_text(value, limit=limit).strip()
+
+
+def _admin_bool_param(value: Any) -> Optional[bool]:
+    if value is None:
+        return None
+    clean = str(value).strip().lower()
+    if clean in {"1", "true", "yes", "on"}:
+        return True
+    if clean in {"0", "false", "no", "off"}:
+        return False
+    return None
+
+
+def _admin_page_limit(value: int | None) -> int:
+    try:
+        limit = int(value or _ADMIN_DEFAULT_PAGE_LIMIT)
+    except Exception:
+        limit = _ADMIN_DEFAULT_PAGE_LIMIT
+    return max(1, min(_ADMIN_MAX_PAGE_LIMIT, limit))
+
+
+def _admin_cursor_offset(cursor: str | None) -> int:
+    try:
+        return max(0, int(str(cursor or "0").strip() or "0"))
+    except Exception:
+        return 0
+
+
+def _admin_sort_rows(rows: list[Dict[str, Any]], *, sort: str = "", direction: str = "desc") -> list[Dict[str, Any]]:
+    sort_key = _admin_clean_query(sort, limit=48)
+    if not sort_key:
+        return rows
+    reverse = str(direction or "desc").strip().lower() != "asc"
+
+    def _key(row: Dict[str, Any]) -> tuple[int, Any]:
+        value = _admin_nested_value(row, sort_key)
+        if value is None or value == "":
+            return (1, "")
+        if isinstance(value, bool):
+            return (0, int(value))
+        if isinstance(value, (int, float)):
+            return (0, value)
+        text = str(value)
+        try:
+            return (0, float(text.replace(",", "")))
+        except Exception:
+            return (0, text.lower())
+
+    return sorted(rows, key=_key, reverse=reverse)
+
+
+def _admin_q_match(row: Dict[str, Any], query: str) -> bool:
+    query = _admin_clean_query(query).lower()
+    if not query:
+        return True
+    return query in json.dumps(row, sort_keys=True, default=str).lower()
+
+
+def _admin_page_payload(
+    rows: list[Dict[str, Any]],
+    *,
+    total_estimate: int,
+    limit: int | None,
+    cursor: str | None,
+    sort: str = "",
+    direction: str = "desc",
+    filters: Dict[str, Any] | None = None,
+    facets: Dict[str, Any] | None = None,
+) -> Dict[str, Any]:
+    page_limit = _admin_page_limit(limit)
+    offset = _admin_cursor_offset(cursor)
+    page = rows[offset : offset + page_limit]
+    next_offset = offset + page_limit
+    return {
+        "rows": page,
+        "next_cursor": str(next_offset) if next_offset < len(rows) else "",
+        "total_estimate": int(total_estimate),
+        "filtered_estimate": len(rows),
+        "facets": facets or {},
+        "sort": {"key": sort or "", "dir": "asc" if str(direction).lower() == "asc" else "desc"},
+        "filters": filters or {},
+    }
+
+
+def _admin_fleet_facets(rows: list[Dict[str, Any]]) -> Dict[str, Any]:
+    return {
+        "os_family": _admin_count_values(rows, "os_family"),
+        "effective_gui": _admin_count_values(rows, "effective_gui"),
+        "app_version": _admin_count_values(rows, "app_version"),
+        "plan": _admin_count_values(rows, "plan"),
+        "airport_iata": _admin_count_values(rows, "current_lane.airport_iata"),
+        "status": _admin_count_values(rows, "status"),
+        "has_companion": {
+            "yes": sum(1 for row in rows if int(row.get("companion_count") or 0) > 0),
+            "no": sum(1 for row in rows if int(row.get("companion_count") or 0) <= 0),
+        },
+        "has_matrix": {
+            "yes": sum(1 for row in rows if int(row.get("matrix_count") or 0) > 0),
+            "no": sum(1 for row in rows if int(row.get("matrix_count") or 0) <= 0),
+        },
+        "managed": {
+            "yes": sum(1 for row in rows if bool(row.get("managed"))),
+            "no": sum(1 for row in rows if not bool(row.get("managed"))),
+        },
+        "blocked": {
+            "yes": sum(1 for row in rows if bool(row.get("blocked"))),
+            "no": sum(1 for row in rows if not bool(row.get("blocked"))),
+        },
+    }
+
+
+def _admin_filter_fleet_rows(
+    rows: list[Dict[str, Any]],
+    *,
+    q: str = "",
+    status: str = "",
+    plan: str = "",
+    os_family: str = "",
+    effective_gui: str = "",
+    app_version: str = "",
+    airport_iata: str = "",
+    has_companion: Any = None,
+    has_matrix: Any = None,
+    blocked: Any = None,
+    managed: Any = None,
+    first_seen_from: str = "",
+    last_seen_from: str = "",
+) -> tuple[list[Dict[str, Any]], Dict[str, Any]]:
+    filters = {
+        "q": _admin_clean_query(q),
+        "status": _admin_clean_query(status, limit=48).lower(),
+        "plan": _admin_clean_query(plan, limit=48).lower(),
+        "os_family": _admin_clean_query(os_family, limit=48).lower(),
+        "effective_gui": _admin_clean_query(effective_gui, limit=48).lower(),
+        "app_version": _admin_clean_query(app_version, limit=48),
+        "airport_iata": _admin_clean_query(airport_iata, limit=8).upper(),
+        "has_companion": _admin_bool_param(has_companion),
+        "has_matrix": _admin_bool_param(has_matrix),
+        "blocked": _admin_bool_param(blocked),
+        "managed": _admin_bool_param(managed),
+        "first_seen_from": _admin_clean_query(first_seen_from, limit=32),
+        "last_seen_from": _admin_clean_query(last_seen_from, limit=32),
+    }
+    filtered: list[Dict[str, Any]] = []
+    for row in rows:
+        if not _admin_q_match(row, filters["q"]):
+            continue
+        if filters["status"] and str(row.get("status") or "").lower() != filters["status"]:
+            continue
+        if filters["plan"] and str(row.get("plan") or "").lower() != filters["plan"]:
+            continue
+        if filters["os_family"] and str(row.get("os_family") or "").lower() != filters["os_family"]:
+            continue
+        if filters["effective_gui"] and str(row.get("effective_gui") or row.get("requested_gui") or "").lower() != filters["effective_gui"]:
+            continue
+        if filters["app_version"] and str(row.get("app_version") or "") != filters["app_version"]:
+            continue
+        if filters["airport_iata"] and str(_admin_nested_value(row, "current_lane.airport_iata") or "").upper() != filters["airport_iata"]:
+            continue
+        if filters["has_companion"] is not None and (int(row.get("companion_count") or 0) > 0) != filters["has_companion"]:
+            continue
+        if filters["has_matrix"] is not None and (int(row.get("matrix_count") or 0) > 0) != filters["has_matrix"]:
+            continue
+        if filters["blocked"] is not None and bool(row.get("blocked")) != filters["blocked"]:
+            continue
+        if filters["managed"] is not None and bool(row.get("managed")) != filters["managed"]:
+            continue
+        if filters["first_seen_from"] and str(row.get("first_seen") or "") < filters["first_seen_from"]:
+            continue
+        if filters["last_seen_from"] and str(row.get("last_seen") or "") < filters["last_seen_from"]:
+            continue
+        filtered.append(row)
+    return filtered, {key: value for key, value in filters.items() if value not in {"", None}}
+
+
+def _admin_filter_rows(
+    rows: list[Dict[str, Any]],
+    *,
+    q: str = "",
+    filters: Dict[str, Any] | None = None,
+) -> tuple[list[Dict[str, Any]], Dict[str, Any]]:
+    active_filters: Dict[str, Any] = {"q": _admin_clean_query(q)}
+    for key, raw_value in (filters or {}).items():
+        clean = _admin_clean_query(raw_value, limit=80)
+        if clean:
+            active_filters[key] = clean
+    filtered: list[Dict[str, Any]] = []
+    for row in rows:
+        if not _admin_q_match(row, active_filters.get("q", "")):
+            continue
+        keep = True
+        for key, value in active_filters.items():
+            if key == "q":
+                continue
+            row_value = _admin_nested_value(row, key)
+            if str(row_value or "").lower() != str(value).lower():
+                keep = False
+                break
+        if keep:
+            filtered.append(row)
+    return filtered, {key: value for key, value in active_filters.items() if value}
+
+
+def _list_dicts(value: Any) -> list[Dict[str, Any]]:
+    return [item for item in value if isinstance(item, dict)] if isinstance(value, list) else []
+
+
 def _admin_schedule_snapshot_rows(conn: sqlite3.Connection) -> list[Dict[str, Any]]:
     rows = conn.execute(
         """
@@ -2645,7 +3192,7 @@ def _admin_schedule_snapshot_rows(conn: sqlite3.Connection) -> list[Dict[str, An
                stale_serves, last_cache_state, last_error
         FROM schedule_snapshots
         ORDER BY updated_at DESC
-        LIMIT 120
+        LIMIT 20000
         """
     ).fetchall()
     payload: list[Dict[str, Any]] = []
@@ -2682,7 +3229,7 @@ def _admin_client_interest_rows(conn: sqlite3.Connection) -> list[Dict[str, Any]
                display_horizon_hours, refresh_seconds, last_seen
         FROM client_interests
         ORDER BY last_seen DESC
-        LIMIT 120
+        LIMIT 20000
         """
     ).fetchall()
     return [
@@ -2708,7 +3255,7 @@ def _admin_surface_rows(conn: sqlite3.Connection) -> list[Dict[str, Any]]:
                cache_hits, refresh_count, stale_serves, last_cache_state, last_error
         FROM airport_surface_snapshots
         ORDER BY updated_at DESC
-        LIMIT 120
+        LIMIT 20000
         """
     ).fetchall()
     payload: list[Dict[str, Any]] = []
@@ -2836,7 +3383,7 @@ def _admin_report_payload(conn: sqlite3.Connection) -> Dict[str, Any]:
         SELECT ts, install_fingerprint, network_tag, report_type, origin, team, status, dedupe_key
         FROM report_events
         ORDER BY ts DESC
-        LIMIT 120
+        LIMIT 20000
         """
     ).fetchall()
     dedupe_rows = conn.execute(
@@ -2844,7 +3391,7 @@ def _admin_report_payload(conn: sqlite3.Connection) -> Dict[str, Any]:
         SELECT team, report_type, origin, url, count, first_seen, last_seen
         FROM report_dedupe
         ORDER BY last_seen DESC
-        LIMIT 120
+        LIMIT 20000
         """
     ).fetchall()
     return {
@@ -2941,10 +3488,11 @@ def _admin_install_candidates(conn: sqlite3.Connection) -> set[str]:
         ("usage", "install_id"),
         ("blocked_installs", "install_id"),
         ("activation_tokens", "bound_install_id"),
+        ("install_profiles", "install_id"),
     ):
         try:
             rows = conn.execute(
-                f"SELECT DISTINCT {column} AS install_id FROM {table} WHERE COALESCE({column}, '') <> '' LIMIT 500"
+                f"SELECT DISTINCT {column} AS install_id FROM {table} WHERE COALESCE({column}, '') <> '' LIMIT 20000"
             ).fetchall()
         except sqlite3.Error:
             continue
@@ -3185,26 +3733,8 @@ def _render_admin_legacy(username: str, *, created_token: str = "", message: str
         ).fetchall()
     ]
     pending_requests = sum(1 for row in activation_requests if row.get("status") == _REQUEST_STATUS_MANUAL_REVIEW)
-    installs = [
-        dict(r)
-        for r in conn.execute(
-            """
-            SELECT u.install_id,
-                   MAX(u.last_seen) AS last_seen,
-                   COALESCE(SUM(CASE WHEN u.service = 'aviationstack' THEN u.calls ELSE 0 END), 0) AS schedule_calls,
-                   COALESCE(SUM(CASE WHEN u.service = 'radar' THEN u.calls ELSE 0 END), 0) AS radar_calls,
-                   GROUP_CONCAT(DISTINCT u.plan) AS plans,
-                   CASE WHEN b.install_id IS NULL THEN 0 ELSE 1 END AS blocked
-            FROM usage u
-            LEFT JOIN blocked_installs b ON b.install_id = u.install_id
-            WHERE u.month=? AND u.service IN ('aviationstack', 'radar')
-            GROUP BY u.install_id
-            ORDER BY (schedule_calls + radar_calls) DESC, last_seen DESC
-            LIMIT 300
-            """,
-            (month,),
-        ).fetchall()
-    ]
+    installs = _admin_fleet_rows(conn, month)
+    fleet_metrics = _admin_fleet_metrics(installs)
     recent = [
         dict(r)
         for r in conn.execute(
@@ -3519,7 +4049,7 @@ def _render_admin_legacy(username: str, *, created_token: str = "", message: str
     <div class="card"><h2>Blocked installs</h2><div class="big">{int(blocked_count or 0)}</div></div>
   </div>
 
-  <div class="split">
+  <div class="split" id="providers">
     <div class="card stack">
       <div>
         <h2>Provider keys</h2>
@@ -3623,7 +4153,343 @@ def _render_admin_legacy(username: str, *, created_token: str = "", message: str
 </html>"""
 
 
+def _render_admin_shell(username: str, *, created_token: str = "", message: str = "") -> str:
+    boot = json.dumps(
+        {
+            "username": username,
+            "createdToken": created_token,
+            "message": message,
+        }
+    ).replace("<", "\\u003c")
+    return """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Local Flight Network Admin</title>
+<style>
+:root {
+  --bg:#061019; --panel:rgba(15,25,38,.88); --panel2:#0a1420; --line:#23364a;
+  --text:#edf6ff; --muted:#92a8bf; --soft:#647b92; --blue:#5ca8ff;
+  --cyan:#43d8e8; --green:#2ad07f; --amber:#ffbf59; --red:#ff716d;
+  --shadow:0 24px 80px rgba(0,0,0,.28);
+}
+* { box-sizing:border-box; }
+html { scroll-behavior:smooth; }
+body {
+  margin:0; min-height:100vh; color:var(--text);
+  font-family:"Segoe UI Variable","Aptos","SF Pro Display",system-ui,sans-serif;
+  background:
+    linear-gradient(90deg,rgba(67,216,232,.045) 1px,transparent 1px) 0 0/54px 54px,
+    linear-gradient(180deg,rgba(92,168,255,.08),transparent 34%),
+    linear-gradient(155deg,#061019 0%,#0b1826 48%,#07111b 100%);
+}
+body::before {
+  content:""; position:fixed; inset:0; pointer-events:none;
+  background:
+    repeating-linear-gradient(100deg,transparent 0 34px,rgba(255,191,89,.055) 34px 35px),
+    linear-gradient(180deg,rgba(255,255,255,.035),transparent 28rem);
+  mask-image:linear-gradient(180deg,rgba(0,0,0,.88),transparent 78%);
+}
+.shell { max-width:1680px; margin:0 auto; padding:18px; }
+.topbar {
+  position:sticky; top:0; z-index:20; display:flex; gap:12px; align-items:center;
+  padding:10px; border:1px solid rgba(92,168,255,.2); border-radius:16px;
+  background:rgba(6,16,25,.88); backdrop-filter:blur(18px); box-shadow:0 16px 60px rgba(0,0,0,.22);
+}
+.brand { display:flex; align-items:center; gap:10px; min-width:max-content; font-weight:850; }
+.mark { width:34px; height:34px; display:grid; place-items:center; border-radius:11px; color:#03111a; background:linear-gradient(135deg,var(--amber),#fff4bf 42%,var(--cyan)); font-family:"Cascadia Code",monospace; font-size:.78rem; box-shadow:0 10px 34px rgba(255,191,89,.22),inset 0 1px 0 rgba(255,255,255,.55); }
+.brand-text { display:flex; flex-direction:column; line-height:1.05; }
+.brand-text strong { letter-spacing:.04em; text-transform:uppercase; }
+.brand-text span { color:var(--muted); font-size:.72rem; font-weight:700; }
+.nav { display:flex; gap:6px; overflow:auto; flex:1; }
+.nav button,.quick button,.drawer button,.pager button {
+  border:1px solid rgba(145,167,192,.14); border-radius:11px; padding:9px 11px; color:var(--text); background:#172638; font-weight:800; cursor:pointer;
+  transition:border-color .16s ease,transform .16s ease,background .16s ease,box-shadow .16s ease;
+}
+.nav button:hover,.quick button:hover,.drawer button:hover,.pager button:hover { transform:translateY(-1px); border-color:rgba(67,216,232,.45); box-shadow:0 12px 30px rgba(0,0,0,.18); }
+.nav button.active { border-color:rgba(255,191,89,.72); background:linear-gradient(135deg,rgba(255,191,89,.22),rgba(92,168,255,.13)); box-shadow:inset 0 1px 0 rgba(255,255,255,.12); }
+.hero { position:relative; overflow:hidden; display:flex; justify-content:space-between; gap:18px; margin:16px 0; padding:22px; border:1px solid rgba(145,167,192,.24); border-radius:18px; background:linear-gradient(135deg,rgba(255,191,89,.17),rgba(67,216,232,.09)),linear-gradient(90deg,rgba(255,255,255,.06),transparent); box-shadow:var(--shadow); }
+.hero::after { content:""; position:absolute; left:22px; right:22px; bottom:0; height:3px; background:linear-gradient(90deg,var(--amber),var(--cyan),transparent); opacity:.86; }
+h1 { margin:0 0 6px; font-size:1.45rem; }
+.muted { color:var(--muted); }
+.chips { display:flex; flex-wrap:wrap; gap:8px; justify-content:flex-end; }
+.chip { border:1px solid rgba(145,167,192,.22); border-radius:999px; padding:5px 9px; color:#d8e7f8; background:rgba(145,167,192,.1); font-size:.74rem; font-weight:800; text-transform:uppercase; letter-spacing:.06em; white-space:nowrap; }
+.notice { margin:10px 0; padding:11px 13px; border:1px solid var(--line); border-radius:12px; background:#101c2a; }
+.notice.good { border-color:rgba(42,208,127,.4); background:rgba(10,41,26,.82); }
+.quick { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:14px; }
+.quick button { display:inline-flex; align-items:center; gap:8px; border-radius:14px; }
+.quick button::before { content:""; width:8px; height:8px; border-radius:50%; background:var(--cyan); box-shadow:0 0 18px rgba(67,216,232,.55); }
+.layer { color:var(--cyan); font-size:.72rem; font-weight:900; letter-spacing:.12em; text-transform:uppercase; margin:18px 0 8px; }
+.grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:10px; }
+.metric,.panel { border:1px solid var(--line); border-radius:14px; background:linear-gradient(180deg,rgba(15,26,39,.98),rgba(9,18,29,.98)); box-shadow:0 18px 50px rgba(0,0,0,.18); }
+.metric { position:relative; overflow:hidden; padding:13px; border-left:3px solid rgba(255,191,89,.82); }
+.metric::after { content:""; position:absolute; inset:0; background:linear-gradient(100deg,rgba(255,255,255,.07),transparent 38%); pointer-events:none; }
+.metric .label { color:var(--muted); font-size:.72rem; text-transform:uppercase; letter-spacing:.08em; }
+.metric .value { font-size:1.55rem; font-weight:900; margin-top:6px; }
+.panel { margin-bottom:14px; overflow:hidden; scroll-margin-top:86px; }
+.panel-head { display:flex; justify-content:space-between; gap:12px; align-items:flex-start; padding:14px 16px; border-bottom:1px solid var(--line); }
+.panel-head h2 { margin:0 0 4px; font-size:.95rem; text-transform:uppercase; letter-spacing:.08em; }
+.filters { display:flex; flex-wrap:wrap; gap:8px; padding:12px 16px; border-bottom:1px solid rgba(35,54,74,.7); }
+input,select { min-width:130px; border:1px solid var(--line); border-radius:10px; padding:9px 10px; color:var(--text); background:#07111b; }
+input[type="search"] { min-width:220px; }
+.table-wrap { max-height:min(560px,calc(100vh - 250px)); overflow:auto; overscroll-behavior:contain; }
+table { width:100%; border-collapse:collapse; font-size:.84rem; }
+th { position:sticky; top:0; z-index:2; text-align:left; padding:10px; background:#111d2b; color:var(--muted); text-transform:uppercase; letter-spacing:.06em; font-size:.7rem; cursor:pointer; }
+td { padding:10px; border-top:1px solid rgba(35,54,74,.65); vertical-align:top; }
+tbody tr { cursor:pointer; transition:background .14s ease; }
+tr:hover td { background:rgba(92,168,255,.06); }
+.mono { font-family:"Cascadia Code","SFMono-Regular",Consolas,monospace; }
+.badge { display:inline-block; border-radius:999px; padding:3px 8px; font-size:.72rem; font-weight:850; text-transform:uppercase; color:#dcecff; background:rgba(145,167,192,.13); }
+.badge.good { color:#b9ffd9; background:rgba(42,208,127,.16); }
+.badge.warn { color:#ffe3a7; background:rgba(255,191,89,.16); }
+.badge.bad { color:#ffd0cd; background:rgba(255,113,109,.16); }
+.pager { display:flex; justify-content:space-between; align-items:center; gap:10px; padding:10px 16px; border-top:1px solid var(--line); color:var(--muted); }
+.drawer { position:fixed; inset:0 0 0 auto; width:min(540px,100vw); transform:translateX(102%); transition:.18s ease; z-index:50; border-left:1px solid var(--line); background:#081421; box-shadow:-30px 0 80px rgba(0,0,0,.4); display:flex; flex-direction:column; }
+.drawer.open { transform:translateX(0); }
+.drawer-head { display:flex; justify-content:space-between; gap:10px; align-items:center; padding:16px; border-bottom:1px solid var(--line); }
+.drawer-body { padding:16px; overflow:auto; }
+.drawer pre { white-space:pre-wrap; word-break:break-word; color:#cfe0f2; background:#050c13; border:1px solid var(--line); border-radius:12px; padding:12px; }
+.drawer .danger { background:rgba(255,113,109,.18); color:#ffd0cd; }
+.drawer .safe { background:rgba(42,208,127,.18); color:#b9ffd9; }
+.hidden { display:none !important; }
+@media (max-width:900px) { .topbar,.hero { flex-direction:column; } .chips { justify-content:flex-start; } }
+</style>
+</head>
+<body>
+<div class="shell">
+  <div class="topbar">
+    <div class="brand"><span class="mark">LF</span><span class="brand-text"><strong>Network Admin</strong><span>operator relay console</span></span></div>
+    <div class="nav" id="nav"></div>
+  </div>
+  <div class="hero">
+    <div>
+      <h1>Local Flight Relay Operations</h1>
+      <div class="muted">Lazy, query-driven admin console for fleet, traffic, schedules, activations, reports, providers, and maintenance.</div>
+    </div>
+    <div class="chips"><span class="chip" id="userChip"></span><span class="chip">Single admin</span><span class="chip">Redacted JSON</span></div>
+  </div>
+  <div id="notices"></div>
+  <div class="quick" id="quickViews"></div>
+  <div class="layer">Monitor</div>
+  <section class="panel" id="overview"></section>
+  <section class="panel" id="fleet"></section>
+  <section class="panel" id="traffic"></section>
+  <div class="layer">Investigate</div>
+  <section class="panel" id="schedules"></section>
+  <section class="panel" id="surfaces"></section>
+  <section class="panel" id="reports"></section>
+  <div class="layer">Operate</div>
+  <section class="panel" id="activations"></section>
+  <section class="panel" id="providers"></section>
+  <div class="layer">Danger Zone</div>
+  <section class="panel" id="maintenance"></section>
+</div>
+<aside class="drawer" id="drawer">
+  <div class="drawer-head"><strong id="drawerTitle">Details</strong><button id="drawerClose">Close</button></div>
+  <div class="drawer-body" id="drawerBody"></div>
+</aside>
+<script>
+const BOOT = __BOOT__;
+const views = [
+  ["overview","Overview"],["fleet","Fleet"],["traffic","Traffic"],["schedules","Schedules"],["surfaces","Surfaces"],["reports","Reports"],["activations","Activations"],["providers","Providers"],["maintenance","Maintenance"]
+];
+const state = Object.fromEntries(views.map(([key]) => [key, {cursor:"", last:"", filters:{}, sort:"last_seen", dir:"desc"}]));
+const endpoints = {
+  overview:"/admin/api/overview", fleet:"/admin/api/fleet", traffic:"/admin/api/usage", schedules:"/admin/api/schedules",
+  surfaces:"/admin/api/surfaces", reports:"/admin/api/reports", activations:"/admin/api/activations"
+};
+const columns = {
+  fleet:[["install_fingerprint","Install"],["first_seen","First"],["last_seen","Last"],["os_family","OS"],["effective_gui","GUI"],["app_version","Version"],["plan","Plan"],["current_lane.airport_iata","Airport"],["companion_count","Companion"],["matrix_online_count","Matrix"],["schedule_calls","Schedule"],["radar_calls","Radar"],["status","Status"]],
+  traffic:[["service","Service"],["plan","Plan"],["calls","Calls"],["subject.fingerprint","Subject"],["last_seen","Last seen"]],
+  requests:[["ts","Time"],["install_fingerprint","Install"],["service","Service"],["scope","Scope"],["status","Status"],["latency_ms","Latency"],["plan","Plan"]],
+  schedules:[["airport_iata","Airport"],["timezone","Timezone"],["client_accesses","Serves"],["upstream_pulls","Pulls"],["cache_hits","Hits"],["last_cache_state","State"],["updated_at","Updated"],["last_error","Error"]],
+  surfaces:[["airport_iata","IATA"],["airport_icao","ICAO"],["feature_count","Features"],["request_count","Requests"],["cache_hits","Hits"],["last_cache_state","State"],["updated_at","Updated"],["last_error","Error"]],
+  reports:[["ts","Time"],["install_fingerprint","Install"],["report_type","Type"],["origin","Origin"],["team","Team"],["status","Status"],["network_tag","Network"]],
+  tokens:[["token_prefix","Prefix"],["label","Label"],["schedule_limit","Schedule"],["radar_limit","Radar"],["bound_install_fingerprint","Bound"],["last_seen","Last"],["revoked","Revoked"]],
+  requestsQueue:[["request_id","Request"],["install_fingerprint","Install"],["network_tag","Network"],["airport_iata","Airport"],["display_name","Display"],["status","Status"],["updated_at","Updated"],["decision_note","Note"]]
+};
+const quickViewDefs = [
+  ["Active installs","fleet",{status:"active"}],["Blocked/revoked","fleet",{blocked:"true"}],["Companion users","fleet",{has_companion:"true"}],
+  ["Matrix installs","fleet",{has_matrix:"true"}],["macOS native","fleet",{os_family:"macos",effective_gui:"native"}],["Windows native","fleet",{os_family:"windows",effective_gui:"native"}],
+  ["Stale cache/error lanes","schedules",{cache_state:"stale"}],["Pending activation review","activations",{}]
+];
+function esc(value) {
+  const map = {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"};
+  return String(value ?? "").replace(/[&<>"']/g, ch => map[ch]);
+}
+function valueAt(row, path) { return path.split(".").reduce((v,k) => v && typeof v === "object" ? v[k] : "", row); }
+function badge(value) {
+  const text = esc(value || "-"); const lower = text.toLowerCase();
+  const tone = lower.includes("active") || lower.includes("fresh") || lower === "200" || lower === "false" ? "good" : lower.includes("error") || lower.includes("blocked") || lower.includes("revoked") || lower.includes("failed") ? "bad" : lower.includes("stale") || lower.includes("pending") || lower.includes("manual") ? "warn" : "";
+  return `<span class="badge ${tone}">${text}</span>`;
+}
+function setNav(active) {
+  document.querySelectorAll(".nav button").forEach(btn => btn.classList.toggle("active", btn.dataset.view === active));
+}
+function paramsFor(key) {
+  const params = new URLSearchParams();
+  Object.entries(state[key]?.filters || {}).forEach(([k,v]) => { if (v !== "" && v != null) params.set(k, v); });
+  if (state[key]?.cursor) params.set("cursor", state[key].cursor);
+  params.set("limit", "100");
+  if (state[key]?.sort) params.set("sort", state[key].sort);
+  if (state[key]?.dir) params.set("dir", state[key].dir);
+  return params;
+}
+async function load(key) {
+  setNav(key);
+  const endpoint = endpoints[key];
+  if (!endpoint) return renderStatic(key);
+  const qs = paramsFor(key).toString();
+  const response = await fetch(endpoint + (qs ? "?" + qs : ""), {headers: {"Accept":"application/json"}});
+  if (!response.ok) throw new Error(`${key}: HTTP ${response.status}`);
+  const payload = await response.json();
+  state[key].last = payload;
+  render(key, payload);
+}
+function panel(key, title, copy, tools, body, pager="") {
+  document.getElementById(key).innerHTML = `<div class="panel-head"><div><h2>${esc(title)}</h2><div class="muted">${esc(copy)}</div></div><div class="muted">${tools || ""}</div></div>${body}${pager}`;
+}
+function metrics(items) {
+  return `<div class="grid">${items.map(([label,value,sub]) => `<div class="metric"><div class="label">${esc(label)}</div><div class="value">${esc(value)}</div><div class="muted">${esc(sub || "")}</div></div>`).join("")}</div>`;
+}
+function filters(key, defs) {
+  return `<div class="filters">${defs.map(def => {
+    const [name,label,type,options] = def; const value = state[key].filters[name] || "";
+    if (type === "select") return `<select data-filter="${esc(name)}"><option value="">${esc(label)}</option>${(options || []).map(opt => `<option value="${esc(opt)}" ${String(value).toLowerCase() === String(opt).toLowerCase() ? "selected" : ""}>${esc(opt)}</option>`).join("")}</select>`;
+    return `<input data-filter="${esc(name)}" type="${type || "search"}" placeholder="${esc(label)}" value="${esc(value)}">`;
+  }).join("")}<button data-apply="${key}">Apply</button><button data-clear="${key}">Clear</button></div>`;
+}
+function table(key, rows, cols, kind) {
+  if (!rows || !rows.length) return `<div class="table-wrap"><table><tbody><tr><td class="muted">No rows for this view.</td></tr></tbody></table></div>`;
+  return `<div class="table-wrap"><table><thead><tr>${cols.map(([path,label]) => `<th data-sort="${esc(path)}">${esc(label)}</th>`).join("")}</tr></thead><tbody>${rows.map((row,idx) => `<tr data-kind="${esc(kind || key)}" data-index="${idx}">${cols.map(([path]) => {
+    const value = valueAt(row,path); const cell = path.includes("status") || path.includes("state") || path === "revoked" ? badge(value) : esc(value);
+    return `<td>${cell}</td>`;
+  }).join("")}</tr>`).join("")}</tbody></table></div>`;
+}
+function pager(key, payload) {
+  return `<div class="pager"><span>${payload.filtered_estimate ?? 0} filtered / ${payload.total_estimate ?? 0} total</span><span><button data-prev="${key}">Previous</button> <button data-next="${key}" ${payload.next_cursor ? "" : "disabled"}>Next</button></span></div>`;
+}
+function render(key, payload) {
+  if (key === "overview") {
+    const c = payload.counts || {}, f = payload.fleet || {}, s = payload.shared_schedule || {};
+    panel("overview","Overview","Launch-scale health snapshot.","Monitor", metrics([
+      ["Known installs", c.known_installs || f.known_installs || 0, "Fleet rows"],
+      ["Active installs", c.active_installs_24h || f.active_installs_24h || 0, "Last 24h"],
+      ["Requests 24h", c.requests_24h || 0, "Relay traffic"],
+      ["Reports 24h", c.reports_24h || 0, "Report gateway"],
+      ["Pending review", c.activation_requests_pending || 0, "Activation queue"],
+      ["Cache hits", s.cache_hits || 0, "Shared schedules"],
+      ["Upstream pulls", s.upstream_pulls || 0, "Provider load"],
+      ["Blocked installs", c.blocked_installs || 0, "Access revoked"]
+    ]));
+  } else if (key === "fleet") {
+    const facets = payload.facets || {};
+    const opts = name => Object.keys(facets[name] || {});
+    const body = filters(key,[["q","Search fleet"],["status","Status","select",opts("status")],["plan","Plan","select",opts("plan")],["os_family","OS","select",opts("os_family")],["effective_gui","GUI","select",opts("effective_gui")],["app_version","Version","select",opts("app_version")],["airport_iata","Airport"],["has_companion","Companion","select",["true","false"]],["has_matrix","Matrix","select",["true","false"]],["blocked","Blocked","select",["true","false"]],["managed","Managed","select",["true","false"]]]) + table(key,payload.rows || payload.installs || [],columns.fleet,"fleet");
+    panel(key,"Fleet","Install registry with server-side filters and opaque action refs.","Investigate",body,pager(key,payload));
+  } else if (key === "traffic") {
+    const reqRows = payload.requests?.rows || [];
+    const body = filters(key,[["q","Search traffic"],["service","Service"],["plan","Plan"],["status","Status or error"]]) + table(key,payload.rows || [],columns.traffic,"usage") + `<div class="panel-head"><div><h2>Request tail</h2><div class="muted">Recent transport health</div></div></div>` + table(key,reqRows,columns.requests,"request");
+    panel(key,"Traffic","Monthly usage and recent request health.","Monitor",body,pager(key,payload));
+  } else if (key === "schedules" || key === "surfaces") {
+    const body = filters(key,[["q","Search cache"],["airport_iata","Airport"],["cache_state","Cache state"]]) + table(key,payload.rows || payload.snapshots || [],columns[key],key);
+    panel(key,key === "schedules" ? "Schedules" : "Surfaces",key === "schedules" ? "Shared schedule cache lanes." : "Airport surface cache lanes.","Investigate",body,pager(key,payload));
+  } else if (key === "reports") {
+    const body = filters(key,[["q","Search reports"],["report_type","Type"],["origin","Origin"],["team","Team"],["status","Status"]]) + table(key,payload.rows || payload.recent_events || [],columns.reports,"report");
+    panel(key,"Reports","Sanitized report gateway events and dedupe state.","Investigate",body,pager(key,payload));
+  } else if (key === "activations") {
+    const body = table(key,payload.tokens || [],columns.tokens,"token") + `<div class="panel-head"><div><h2>Activation queue</h2><div class="muted">Manual review and issued requests</div></div></div>` + table(key,payload.requests || [],columns.requestsQueue,"activation_request");
+    panel(key,"Activations","Managed tokens and activation queue.","Operate",body);
+  }
+}
+function renderStatic(key) {
+  if (key === "providers") panel(key,"Providers","Save or clear relay provider key overrides.","Operate",`<div class="filters"><input id="aviKey" type="password" placeholder="Replacement AviationStack key"><input id="rapidKey" type="password" placeholder="Replacement RapidAPI key"><button data-action="saveProviders">Save keys</button><button data-action="clearAviation">Clear AviationStack</button><button data-action="clearRapid">Clear RapidAPI</button></div>`);
+  if (key === "maintenance") panel(key,"Maintenance","Danger Zone actions stay separated from monitoring.","Danger Zone",`<div class="filters"><button data-action="resetAll">Reset all monthly counters</button><button data-action="resetLogs">Clear request log</button><input id="scheduleTotal" type="number" min="0" placeholder="Known schedule total"><button data-action="correctSchedule">Correct schedule total</button><button data-action="cleanTrial">Clean setup trial state</button></div>`);
+}
+function openDrawer(kind, row) {
+  const actions = [];
+  if (kind === "fleet") {
+    actions.push(`<button data-drawer-action="resetInstall">Reset counters</button>`);
+    actions.push(`<button class="${row.blocked ? "safe" : "danger"}" data-drawer-action="${row.blocked ? "unblockInstall" : "blockInstall"}">${row.blocked ? "Unblock install" : "Block install"}</button>`);
+  }
+  if (kind === "token") {
+    actions.push(`<button data-drawer-action="rotateToken">Rotate</button><button class="danger" data-drawer-action="${row.revoked ? "reactivateToken" : "revokeToken"}">${row.revoked ? "Reactivate" : "Revoke"}</button><button data-drawer-action="unbindToken">Unbind</button>`);
+  }
+  if (kind === "activation_request") {
+    actions.push(`<button class="safe" data-drawer-action="approveRequest">Issue</button><button class="danger" data-drawer-action="rejectRequest">Dismiss</button><button class="danger" data-drawer-action="deleteRequest">Delete</button>`);
+  }
+  drawer.dataset.kind = kind; drawer.dataset.row = JSON.stringify(row);
+  drawerTitle.textContent = `${kind.replace("_"," ")} details`;
+  drawerBody.innerHTML = `<div class="quick">${actions.join("")}</div><pre>${esc(JSON.stringify(row,null,2))}</pre>`;
+  drawer.classList.add("open");
+}
+async function post(path, body, confirmText) {
+  if (confirmText && !confirm(confirmText)) return;
+  const res = await fetch(path,{method:"POST",headers:{"Content-Type":"application/json","Accept":"application/json"},body:JSON.stringify(body || {})});
+  const payload = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(payload.detail || res.statusText);
+  notice(payload.message || "Action completed.", "good");
+  drawer.classList.remove("open");
+  load(document.querySelector(".nav button.active")?.dataset.view || "overview");
+}
+function notice(text, kind="") { notices.innerHTML = `<div class="notice ${kind}">${esc(text)}</div>`; }
+document.getElementById("userChip").textContent = "Logged in as " + BOOT.username;
+if (BOOT.message) notice(BOOT.message);
+if (BOOT.createdToken) notice("Fresh token: " + BOOT.createdToken, "good");
+nav.innerHTML = views.map(([key,label]) => `<button data-view="${key}">${label}</button>`).join("");
+document.getElementById("quickViews").innerHTML = quickViewDefs.map(([label]) => `<button>${esc(label)}</button>`).join("");
+document.addEventListener("click", async ev => {
+  const button = ev.target.closest("button"); const rowEl = ev.target.closest("tr[data-kind]");
+  if (button?.dataset.view) { load(button.dataset.view).catch(e => notice(e.message)); return; }
+  if (button?.dataset.apply) { const key = button.dataset.apply; state[key].cursor = ""; document.querySelectorAll(`#${key} [data-filter]`).forEach(input => state[key].filters[input.dataset.filter] = input.value); load(key).catch(e => notice(e.message)); return; }
+  if (button?.dataset.clear) { const key = button.dataset.clear; state[key].cursor = ""; state[key].filters = {}; load(key).catch(e => notice(e.message)); return; }
+  if (button?.dataset.next) { const key = button.dataset.next; state[key].cursor = state[key].last.next_cursor || ""; load(key).catch(e => notice(e.message)); return; }
+  if (button?.dataset.prev) { const key = button.dataset.prev; state[key].cursor = ""; load(key).catch(e => notice(e.message)); return; }
+  if (button?.dataset.action === "saveProviders") return post("/admin/api/providers/save",{aviationstack_key:aviKey.value,rapidapi_key:rapidKey.value},"Save replacement provider keys?");
+  if (button?.dataset.action === "clearAviation") return post("/admin/api/providers/clear",{provider:"aviationstack"},"Clear AviationStack override?");
+  if (button?.dataset.action === "clearRapid") return post("/admin/api/providers/clear",{provider:"rapidapi"},"Clear RapidAPI override?");
+  if (button?.dataset.action === "resetAll") return post("/admin/api/counters/reset",{scope:"all"},"Reset all monthly counters?");
+  if (button?.dataset.action === "resetLogs") return post("/admin/api/counters/reset",{scope:"logs"},"Clear request log?");
+  if (button?.dataset.action === "correctSchedule") return post("/admin/api/counters/correct-schedule",{total:Number(scheduleTotal.value || 0)},"Correct schedule total?");
+  if (button?.dataset.action === "cleanTrial") return post("/admin/api/maintenance/clean-trial",{},"Clean setup trial state?");
+  if (button?.dataset.drawerAction) {
+    const row = JSON.parse(drawer.dataset.row || "{}");
+    const action = button.dataset.drawerAction;
+    if (action === "resetInstall") return post("/admin/api/counters/reset",{scope:"install",install_ref:row.action_ref},"Reset install counters?");
+    if (action === "blockInstall" || action === "unblockInstall") return post("/admin/api/install/access",{install_ref:row.action_ref,action:action === "blockInstall" ? "block" : "unblock",reason:"revoked by admin"},"Change install access?");
+    if (action.endsWith("Token")) return post("/admin/api/activation/token-action",{token_ref:row.action_ref,token_prefix:row.token_prefix,action:action.replace("Token","").replace("reactivate","reactivate").toLowerCase()},"Run token action?");
+    if (action.endsWith("Request")) return post("/admin/api/activation/request-action",{request_id:row.action_ref || row.request_id,action:action.replace("Request","").replace("approve","approve").replace("reject","reject").replace("delete","delete").toLowerCase(),decision_note:"dismissed"},"Run request action?");
+  }
+  if (rowEl) {
+    const active = document.querySelector(".nav button.active")?.dataset.view || "";
+    const kind = rowEl.dataset.kind; const idx = Number(rowEl.dataset.index);
+    const payload = state[active]?.last || {}; const source = kind === "token" ? payload.tokens : kind === "activation_request" ? payload.requests : kind === "request" ? payload.requests?.rows : payload.rows || payload.installs || payload.snapshots || payload.recent_events || [];
+    openDrawer(kind, source[idx] || {});
+  }
+});
+document.addEventListener("click", ev => {
+  const th = ev.target.closest("th[data-sort]");
+  if (!th) return;
+  const key = document.querySelector(".nav button.active")?.dataset.view;
+  if (!key) return;
+  const sort = th.dataset.sort;
+  state[key].dir = state[key].sort === sort && state[key].dir === "desc" ? "asc" : "desc";
+  state[key].sort = sort; state[key].cursor = "";
+  load(key).catch(e => notice(e.message));
+});
+drawerClose.onclick = () => drawer.classList.remove("open");
+document.getElementById("quickViews").querySelectorAll("button").forEach((btn, idx) => btn.onclick = () => {
+  const [, key, filters] = quickViewDefs[idx]; state[key].filters = {...filters}; state[key].cursor = ""; load(key).catch(e => notice(e.message)); location.hash = key;
+});
+load("overview").catch(e => notice(e.message));
+</script>
+</body>
+</html>""".replace("__BOOT__", boot)
+
+
 def _render_admin(username: str, *, created_token: str = "", message: str = "") -> str:
+    return _render_admin_shell(username, created_token=created_token, message=message)
     conn = _connect()
     month = _month_key()
     day_cutoff = _hours_ago(24)
@@ -3830,26 +4696,8 @@ def _render_admin(username: str, *, created_token: str = "", message: str = "") 
         ).fetchall()
     ]
     pending_requests = sum(1 for row in activation_requests if row.get("status") == _REQUEST_STATUS_MANUAL_REVIEW)
-    installs = [
-        dict(r)
-        for r in conn.execute(
-            """
-            SELECT u.install_id,
-                   MAX(u.last_seen) AS last_seen,
-                   COALESCE(SUM(CASE WHEN u.service = 'aviationstack' THEN u.calls ELSE 0 END), 0) AS schedule_calls,
-                   COALESCE(SUM(CASE WHEN u.service = 'radar' THEN u.calls ELSE 0 END), 0) AS radar_calls,
-                   GROUP_CONCAT(DISTINCT u.plan) AS plans,
-                   CASE WHEN b.install_id IS NULL THEN 0 ELSE 1 END AS blocked
-            FROM usage u
-            LEFT JOIN blocked_installs b ON b.install_id = u.install_id
-            WHERE u.month=? AND u.service IN ('aviationstack', 'radar')
-            GROUP BY u.install_id
-            ORDER BY (schedule_calls + radar_calls) DESC, last_seen DESC
-            LIMIT 300
-            """,
-            (month,),
-        ).fetchall()
-    ]
+    installs = _admin_fleet_rows(conn, month)
+    fleet_metrics = _admin_fleet_metrics(installs)
     recent = [
         dict(r)
         for r in conn.execute(
@@ -4457,15 +5305,17 @@ def _render_admin(username: str, *, created_token: str = "", message: str = "") 
 
     def rows_for_installs() -> str:
         if not installs:
-            return "<tr><td colspan='7' class='muted'>No relay install usage recorded yet</td></tr>"
+            return "<tr><td colspan='10' class='muted'>No relay install usage recorded yet</td></tr>"
         out = []
         for row in installs:
-            install_id = str(row["install_id"] or "")
-            blocked = bool(row["blocked"])
+            blocked = bool(row.get("blocked"))
+            install_ref = str(row.get("action_ref") or "")
+            install_fp = str(row.get("install_fingerprint") or "")
+            lane = row.get("current_lane") if isinstance(row.get("current_lane"), dict) else {}
             action_bits = [
                 _post_form(
                     "/admin/counters/reset",
-                    {"scope": "install", "install_id": install_id},
+                    {"scope": "install", "install_ref": install_ref},
                     "Reset counters",
                     "slate",
                 )
@@ -4474,7 +5324,7 @@ def _render_admin(username: str, *, created_token: str = "", message: str = "") 
                 action_bits.append(
                     _post_form(
                         "/admin/install/unblock",
-                        {"install_id": install_id},
+                        {"install_ref": install_ref},
                         "Restore access",
                         "green",
                     )
@@ -4483,21 +5333,32 @@ def _render_admin(username: str, *, created_token: str = "", message: str = "") 
                 action_bits.append(
                     _post_form(
                         "/admin/install/block",
-                        {"install_id": install_id, "reason": "revoked by admin"},
+                        {"install_ref": install_ref, "reason": "revoked by admin"},
                         "Revoke access",
                         "red",
                     )
                 )
-            plans = [bit.strip() for bit in str(row["plans"] or "").split(",") if bit.strip()]
-            plan_html = " ".join(_plan_badge(plan) for plan in sorted(plans, key=lambda plan: plan_order.get(plan, 99)))
+            plan_html = _plan_badge(str(row.get("plan") or "unknown"))
+            gui_bits = [
+                str(row.get("os_family") or "").strip(),
+                str(row.get("effective_gui") or row.get("requested_gui") or "").strip(),
+                str(row.get("app_version") or "").strip(),
+            ]
+            gui_label = " | ".join(bit for bit in gui_bits if bit) or "-"
+            airport = str(lane.get("airport_iata") or "-")
+            timezone_name = str(lane.get("timezone") or "-")
+            refresh_seconds = int(lane.get("refresh_seconds") or 0)
             out.append(
                 "<tr>"
-                f"<td><div class='cell-title mono'>{html.escape(_install_fingerprint(install_id))}</div><div class='cell-sub mono'>{html.escape(install_id[:12])}...</div></td>"
-                f"<td><div class='cell-title'>{int(row['schedule_calls'] or 0):,}</div><div class='cell-sub'>Schedule accesses</div></td>"
-                f"<td><div class='cell-title'>{int(row['radar_calls'] or 0):,}</div><div class='cell-sub'>Radar accesses</div></td>"
-                f"<td>{_install_lane_summary(install_id)}</td>"
-                f"<td>{plan_html or _badge('unknown', 'slate')}</td>"
-                f"<td><div class='cell-title'>{_badge('blocked', 'red') if blocked else _badge('active', 'green')}</div><div class='cell-sub'>{_fmt_ts(row.get('last_seen'))}</div></td>"
+                f"<td><div class='cell-title mono'>{html.escape(install_fp or '-')}</div><div class='cell-sub'>First {_fmt_ts(row.get('first_seen'))}</div></td>"
+                f"<td><div class='cell-title'>{html.escape(gui_label)}</div><div class='cell-sub'>{html.escape(str(row.get('arch') or '-'))}</div></td>"
+                f"<td><div class='cell-title mono'>{html.escape(airport)}</div><div class='cell-sub'>{html.escape(timezone_name)} | {_fmt_refresh(refresh_seconds) if refresh_seconds else '-'}</div></td>"
+                f"<td>{plan_html}</td>"
+                f"<td><div class='cell-title'>{int(row.get('companion_count') or 0):,}</div><div class='cell-sub'>Companion clients</div></td>"
+                f"<td><div class='cell-title'>{int(row.get('matrix_online_count') or 0):,} / {int(row.get('matrix_count') or 0):,}</div><div class='cell-sub'>Matrix online</div></td>"
+                f"<td><div class='cell-title'>{int(row.get('schedule_calls') or 0):,}</div><div class='cell-sub'>Schedule accesses</div></td>"
+                f"<td><div class='cell-title'>{int(row.get('radar_calls') or 0):,}</div><div class='cell-sub'>Radar accesses</div></td>"
+                f"<td><div class='cell-title'>{_badge(str(row.get('status') or 'unknown').replace('_', ' '), 'red' if blocked else ('green' if row.get('status') == 'active' else 'slate'))}</div><div class='cell-sub'>{_fmt_ts(row.get('last_seen'))}</div></td>"
                 f"<td class='actions'>{''.join(action_bits)}</td>"
                 "</tr>"
             )
@@ -4554,6 +5415,7 @@ def _render_admin(username: str, *, created_token: str = "", message: str = "") 
     --shadow: 0 28px 80px rgba(0, 0, 0, 0.34);
   }}
   * {{ box-sizing: border-box; }}
+  html {{ scroll-behavior: smooth; }}
   body {{
     margin: 0;
     min-height: 100vh;
@@ -4566,6 +5428,67 @@ def _render_admin(username: str, *, created_token: str = "", message: str = "") 
     line-height: 1.45;
   }}
   .wrap {{ max-width: 1600px; margin: 0 auto; padding: 28px; }}
+  .admin-bar {{
+    position: sticky;
+    top: 0;
+    z-index: 30;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 14px;
+    margin: -6px 0 16px;
+    padding: 10px;
+    border: 1px solid rgba(92, 168, 255, 0.18);
+    border-radius: 18px;
+    background: rgba(6, 16, 25, 0.88);
+    box-shadow: 0 18px 44px rgba(0, 0, 0, 0.22);
+    backdrop-filter: blur(18px);
+  }}
+  .brand-chip {{
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    min-width: max-content;
+    padding: 8px 10px;
+    color: var(--text);
+    font-weight: 850;
+    letter-spacing: .02em;
+  }}
+  .brand-mark {{
+    width: 28px;
+    height: 28px;
+    display: grid;
+    place-items: center;
+    border-radius: 9px;
+    color: #03111a;
+    background: linear-gradient(135deg, var(--cyan), var(--blue));
+    font-family: "Cascadia Code", Consolas, monospace;
+    font-size: .72rem;
+    box-shadow: 0 8px 22px rgba(67, 216, 232, 0.24);
+  }}
+  .admin-nav {{
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    scrollbar-width: thin;
+  }}
+  .admin-nav a {{
+    flex: 0 0 auto;
+    padding: 9px 11px;
+    border-radius: 12px;
+    color: var(--muted);
+    text-decoration: none;
+    font-size: .82rem;
+    font-weight: 800;
+    letter-spacing: .02em;
+  }}
+  .admin-nav a:hover,
+  .admin-nav a:focus,
+  .admin-nav a.active {{
+    color: var(--text);
+    background: rgba(92, 168, 255, 0.15);
+    outline: none;
+  }}
   .hero {{
     display: flex;
     justify-content: space-between;
@@ -4613,10 +5536,10 @@ def _render_admin(username: str, *, created_token: str = "", message: str = "") 
     border-color: rgba(42, 208, 127, 0.42);
     background: rgba(10, 41, 26, 0.88);
   }}
-  .grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 18px; }}
+  .grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin-bottom: 18px; }}
   .metric {{
-    padding: 16px 18px;
-    border-radius: 18px;
+    padding: 14px 15px;
+    border-radius: 14px;
     border: 1px solid var(--line);
     background: linear-gradient(180deg, rgba(19, 33, 49, 0.94), rgba(12, 22, 34, 0.96));
     box-shadow: 0 18px 44px rgba(0, 0, 0, 0.18);
@@ -4629,7 +5552,7 @@ def _render_admin(username: str, *, created_token: str = "", message: str = "") 
   }}
   .metric-value {{
     margin-top: 8px;
-    font-size: 1.9rem;
+    font-size: 1.65rem;
     font-weight: 800;
     line-height: 1;
   }}
@@ -4640,19 +5563,20 @@ def _render_admin(username: str, *, created_token: str = "", message: str = "") 
   }}
   .split {{ display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-bottom: 16px; }}
   .card, .section {{
-    border-radius: 20px;
+    scroll-margin-top: 96px;
+    border-radius: 16px;
     border: 1px solid var(--line);
     background: linear-gradient(180deg, rgba(14, 25, 38, 0.96), rgba(10, 18, 29, 0.98));
     box-shadow: 0 18px 48px rgba(0, 0, 0, 0.18);
   }}
-  .card {{ padding: 18px 20px; }}
+  .card {{ padding: 16px 18px; }}
   .stack {{ display: grid; gap: 16px; }}
   .section-head {{
     display: flex;
     justify-content: space-between;
     align-items: flex-start;
     gap: 16px;
-    padding: 18px 20px 0;
+    padding: 16px 18px 0;
   }}
   .section-head h2 {{
     margin: 0 0 6px;
@@ -4666,7 +5590,21 @@ def _render_admin(username: str, *, created_token: str = "", message: str = "") 
     font-size: .88rem;
     max-width: 820px;
   }}
-  .section-tools {{ padding: 0 20px 18px; color: var(--soft); font-size: .82rem; }}
+  .section-tools {{ padding: 0 18px 14px; color: var(--soft); font-size: .82rem; }}
+  .table-filter {{
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin: 12px 0 0;
+  }}
+  .table-filter input {{
+    max-width: 320px;
+    padding: 8px 10px;
+    border-radius: 10px;
+    font-size: .82rem;
+  }}
+  .table-filter .tiny {{ min-width: max-content; }}
   .soft {{ color: var(--soft); }}
   .muted {{ color: var(--soft); padding: 24px 14px; text-align: center; }}
   .mono {{ font-family: "Cascadia Code", "SFMono-Regular", Consolas, monospace; }}
@@ -4703,7 +5641,12 @@ def _render_admin(username: str, *, created_token: str = "", message: str = "") 
   }}
   .stat-row:last-child {{ border-bottom: 0; }}
   .stat-row strong {{ color: var(--text); }}
-  .table-shell {{ padding: 0 20px 20px; overflow-x: auto; }}
+  .table-shell {{
+    max-height: min(520px, calc(100vh - 250px));
+    padding: 0 18px 18px;
+    overflow: auto;
+    overscroll-behavior: contain;
+  }}
   table {{
     width: 100%;
     border-collapse: collapse;
@@ -4714,6 +5657,9 @@ def _render_admin(username: str, *, created_token: str = "", message: str = "") 
     overflow: hidden;
   }}
   th {{
+    position: sticky;
+    top: 0;
+    z-index: 5;
     text-align: left;
     padding: 11px 12px;
     background: rgba(15, 25, 38, 0.95);
@@ -4723,6 +5669,10 @@ def _render_admin(username: str, *, created_token: str = "", message: str = "") 
     letter-spacing: .1em;
     text-transform: uppercase;
   }}
+  th[data-sortable] {{ cursor: pointer; user-select: none; }}
+  th[data-sortable]::after {{ content: "  sort"; color: var(--soft); font-size: .62rem; }}
+  th.sort-asc::after {{ content: "  asc"; color: var(--cyan); }}
+  th.sort-desc::after {{ content: "  desc"; color: var(--cyan); }}
   td {{
     padding: 12px;
     border-bottom: 1px solid var(--line-soft);
@@ -4730,7 +5680,10 @@ def _render_admin(username: str, *, created_token: str = "", message: str = "") 
   }}
   tr:last-child td {{ border-bottom: 0; }}
   tr:hover td {{ background: rgba(92, 168, 255, 0.04); }}
-  .actions {{ min-width: 240px; }}
+  .actions {{
+    min-width: 220px;
+    max-width: 320px;
+  }}
   form {{ display: grid; gap: 10px; }}
   .inline {{ display: inline-block; margin: 0 6px 6px 0; }}
   .inline input {{ display: none; }}
@@ -4771,14 +5724,18 @@ def _render_admin(username: str, *, created_token: str = "", message: str = "") 
   .meter-red {{ background: linear-gradient(90deg, rgba(255, 113, 109, 0.45), rgba(255, 113, 109, 0.92)); }}
   details.section {{ margin-bottom: 16px; overflow: hidden; }}
   details.section > summary {{
+    position: sticky;
+    top: 70px;
+    z-index: 10;
     list-style: none;
     cursor: pointer;
     display: flex;
     justify-content: space-between;
     align-items: center;
     gap: 16px;
-    padding: 18px 20px;
+    padding: 16px 18px;
     font-weight: 700;
+    background: linear-gradient(180deg, rgba(14, 25, 38, 0.98), rgba(10, 18, 29, 0.98));
   }}
   details.section > summary::-webkit-details-marker {{ display: none; }}
   details.section[open] > summary {{ border-bottom: 1px solid var(--line); }}
@@ -4787,6 +5744,10 @@ def _render_admin(username: str, *, created_token: str = "", message: str = "") 
     .split {{ grid-template-columns: 1fr; }}
     .hero {{ flex-direction: column; }}
     .hero-meta {{ justify-content: flex-start; min-width: 0; }}
+    .admin-bar {{ align-items: stretch; flex-direction: column; }}
+    .brand-chip {{ width: 100%; }}
+    .admin-nav {{ width: 100%; }}
+  }}
   }}
 </style>
 </head>
@@ -4809,9 +5770,24 @@ def _render_admin(username: str, *, created_token: str = "", message: str = "") 
   {token_notice}
   {message_notice}
 
-  <div class="grid">
-    <div class="metric"><div class="metric-label">Known installs</div><div class="metric-value">{int(total_installs or 0):,}</div><div class="metric-sub">Distinct installs with relay usage this month</div></div>
-    <div class="metric"><div class="metric-label">Active clients (24h)</div><div class="metric-value">{active_clients_24h:,}</div><div class="metric-sub">Installs that checked in with an airport lane today</div></div>
+  <div class="admin-bar" aria-label="Relay admin sections">
+    <div class="brand-chip"><span class="brand-mark">LF</span><span>Network Admin</span></div>
+    <nav class="admin-nav">
+      <a href="#overview">Overview</a>
+      <a href="#providers">Providers</a>
+      <a href="#traffic">Traffic</a>
+      <a href="#reports">Reports</a>
+      <a href="#schedules">Schedules</a>
+      <a href="#activations">Activations</a>
+      <a href="#tokens">Tokens</a>
+      <a href="#fleet">Fleet</a>
+      <a href="#maintenance">Maintenance</a>
+    </nav>
+  </div>
+
+  <div class="grid" id="overview">
+    <div class="metric"><div class="metric-label">Known installs</div><div class="metric-value">{int(fleet_metrics.get('known_installs', total_installs) or 0):,}</div><div class="metric-sub">Fleet rows with relay activity or heartbeat</div></div>
+    <div class="metric"><div class="metric-label">Active installs (24h)</div><div class="metric-value">{int(fleet_metrics.get('active_installs_24h', active_clients_24h) or 0):,}</div><div class="metric-sub">{fleet_metrics.get('companion_installs', 0):,} with companion | {fleet_metrics.get('matrix_installs', 0):,} with matrix</div></div>
     <div class="metric"><div class="metric-label">Active airport lanes</div><div class="metric-value">{active_lane_count:,}</div><div class="metric-sub">Distinct airport and board-window combinations active today</div></div>
     <div class="metric"><div class="metric-label">Schedule accesses</div><div class="metric-value">{int(total_schedule or 0):,}</div><div class="metric-sub">Per-install relay schedule uses this month</div></div>
     <div class="metric"><div class="metric-label">Upstream pulls</div><div class="metric-value">{int(total_schedule_upstream or 0):,}</div><div class="metric-sub">Actual AviationStack page pulls charged upstream</div></div>
@@ -4825,7 +5801,7 @@ def _render_admin(username: str, *, created_token: str = "", message: str = "") 
     <div class="metric"><div class="metric-label">Blocked installs</div><div class="metric-value">{int(blocked_count or 0):,}</div><div class="metric-sub">{snapshot_error_count:,} snapshot rows currently carry a last error note</div></div>
   </div>
 
-  <div class="split">
+  <div class="split" id="providers">
     <div class="card stack">
       <div>
         <div class="eyebrow">Provider State</div>
@@ -4859,7 +5835,7 @@ def _render_admin(username: str, *, created_token: str = "", message: str = "") 
       </div>
     </div>
 
-    <div class="card stack">
+    <div class="card stack" id="maintenance">
       <div>
         <div class="eyebrow">Operator Controls</div>
         <h1 style="font-size:1.35rem;margin:0 0 8px;">Managed tokens and relay counters</h1>
@@ -4891,7 +5867,7 @@ def _render_admin(username: str, *, created_token: str = "", message: str = "") 
     </div>
   </div>
 
-  <div class="split">
+  <div class="split" id="traffic">
     <section class="section">
       <div class="section-head">
         <div>
@@ -4922,7 +5898,7 @@ def _render_admin(username: str, *, created_token: str = "", message: str = "") 
     </section>
   </div>
 
-  <div class="split">
+  <div class="split" id="reports">
     <section class="section">
       <div class="section-head">
         <div>
@@ -4955,7 +5931,7 @@ def _render_admin(username: str, *, created_token: str = "", message: str = "") 
     </section>
   </div>
 
-  <div class="split">
+  <div class="split" id="schedules">
     <section class="section">
       <div class="section-head">
         <div>
@@ -4988,7 +5964,7 @@ def _render_admin(username: str, *, created_token: str = "", message: str = "") 
     </section>
   </div>
 
-  <details class="section"{activation_open}>
+  <details class="section" id="activations"{activation_open}>
     <summary>
       <span>Activation queue</span>
       <span class="summary-meta">{pending_requests:,} pending review | {len(activation_requests):,} total rows</span>
@@ -5002,7 +5978,7 @@ def _render_admin(username: str, *, created_token: str = "", message: str = "") 
     </div>
   </details>
 
-  <details class="section">
+  <details class="section" id="tokens">
     <summary>
       <span>Managed tokens</span>
       <span class="summary-meta">{len(tokens):,} tracked tokens</span>
@@ -5016,21 +5992,21 @@ def _render_admin(username: str, *, created_token: str = "", message: str = "") 
     </div>
   </details>
 
-  <details class="section">
+  <details class="section" id="fleet">
     <summary>
-      <span>Install registry</span>
-      <span class="summary-meta">{len(installs):,} installs with monthly usage</span>
+      <span>Fleet registry</span>
+      <span class="summary-meta">{fleet_metrics.get('active_installs_24h', 0):,} active | {len(installs):,} known installs</span>
     </summary>
-    <div class="section-tools">This registry is useful when you need to trace a specific install fingerprint, reset a single install's counters, or revoke access without touching the rest of the shared pool.</div>
+    <div class="section-tools">Sortable launch-support view by install date, OS, GUI shell, companion/matrix presence, airport lane, usage, and access status. Raw install IDs stay hidden; actions use opaque references.</div>
     <div class="table-shell">
       <table>
-        <thead><tr><th>Install</th><th>Schedule</th><th>Radar</th><th>Current lane</th><th>Plans</th><th>Status</th><th>Actions</th></tr></thead>
+        <thead><tr><th>Install</th><th>OS / GUI / Version</th><th>Current lane</th><th>Plan</th><th>Companion</th><th>Matrix</th><th>Schedule</th><th>Radar</th><th>Status</th><th>Actions</th></tr></thead>
         <tbody>{rows_for_installs()}</tbody>
       </table>
     </div>
   </details>
 
-  <details class="section">
+  <details class="section" id="report-dedupe">
     <summary>
       <span>Report dedupe groups</span>
       <span class="summary-meta">{len(report_dedupe_rows):,} recent groups</span>
@@ -5044,7 +6020,7 @@ def _render_admin(username: str, *, created_token: str = "", message: str = "") 
     </div>
   </details>
 
-  <details class="section">
+  <details class="section" id="recent-requests">
     <summary>
       <span>Recent relay requests</span>
       <span class="summary-meta">Last {len(recent):,} request log rows</span>
@@ -5058,6 +6034,107 @@ def _render_admin(username: str, *, created_token: str = "", message: str = "") 
     </div>
   </details>
 </div>
+<script>
+(function () {{
+  var navLinks = Array.prototype.slice.call(document.querySelectorAll(".admin-nav a"));
+  navLinks.forEach(function (link) {{
+    link.addEventListener("click", function () {{
+      var target = document.querySelector(link.getAttribute("href"));
+      if (target && target.tagName === "DETAILS") {{
+        target.open = true;
+      }}
+    }});
+  }});
+
+  if ("IntersectionObserver" in window) {{
+    var sections = navLinks
+      .map(function (link) {{ return document.querySelector(link.getAttribute("href")); }})
+      .filter(Boolean);
+    var observer = new IntersectionObserver(function (entries) {{
+      entries.forEach(function (entry) {{
+        if (!entry.isIntersecting) {{
+          return;
+        }}
+        navLinks.forEach(function (link) {{
+          link.classList.toggle("active", link.getAttribute("href") === "#" + entry.target.id);
+        }});
+      }});
+    }}, {{ rootMargin: "-35% 0px -55% 0px", threshold: 0.01 }});
+    sections.forEach(function (section) {{ observer.observe(section); }});
+  }}
+
+  function cellValue(row, index) {{
+    var cell = row.children[index];
+    return cell ? cell.textContent.trim() : "";
+  }}
+
+  function sortableValue(text) {{
+    var normalized = text.replace(/,/g, "").trim();
+    var match = normalized.match(/-?\\d+(\\.\\d+)?/);
+    if (match && normalized.length < 48) {{
+      return Number(match[0]);
+    }}
+    return text.toLowerCase();
+  }}
+
+  document.querySelectorAll("table").forEach(function (table, tableIndex) {{
+    var body = table.tBodies[0];
+    if (!body) {{
+      return;
+    }}
+    var rows = Array.prototype.slice.call(body.rows);
+    var shell = table.closest(".table-shell");
+    if (shell && !shell.previousElementSibling?.classList.contains("table-filter")) {{
+      var filter = document.createElement("div");
+      filter.className = "table-filter";
+      filter.innerHTML = '<input type="search" placeholder="Filter this table" aria-label="Filter table"><span class="tiny"></span>';
+      shell.parentNode.insertBefore(filter, shell);
+      var input = filter.querySelector("input");
+      var count = filter.querySelector(".tiny");
+      var updateFilter = function () {{
+        var term = input.value.trim().toLowerCase();
+        var visible = 0;
+        rows.forEach(function (row) {{
+          var show = !term || row.textContent.toLowerCase().indexOf(term) !== -1;
+          row.hidden = !show;
+          if (show) {{
+            visible += 1;
+          }}
+        }});
+        count.textContent = visible + " / " + rows.length + " rows";
+      }};
+      input.addEventListener("input", updateFilter);
+      updateFilter();
+    }}
+
+    Array.prototype.slice.call(table.tHead ? table.tHead.rows[0].cells : []).forEach(function (header, index) {{
+      if (header.textContent.trim().toLowerCase() === "actions") {{
+        return;
+      }}
+      header.dataset.sortable = "1";
+      header.addEventListener("click", function () {{
+        var descending = !header.classList.contains("sort-desc");
+        Array.prototype.slice.call(header.parentNode.cells).forEach(function (cell) {{
+          cell.classList.remove("sort-asc", "sort-desc");
+        }});
+        header.classList.add(descending ? "sort-desc" : "sort-asc");
+        rows.sort(function (a, b) {{
+          var aValue = sortableValue(cellValue(a, index));
+          var bValue = sortableValue(cellValue(b, index));
+          if (aValue < bValue) {{
+            return descending ? 1 : -1;
+          }}
+          if (aValue > bValue) {{
+            return descending ? -1 : 1;
+          }}
+          return 0;
+        }});
+        rows.forEach(function (row) {{ body.appendChild(row); }});
+      }});
+    }});
+  }});
+}})();
+</script>
 </body>
 </html>"""
 
@@ -5122,6 +6199,34 @@ class ClientStatusIn(BaseModel):
     display_grace_minutes: int = 30
     display_horizon_hours: int = 12
     refresh_seconds: int = 3600
+    os_family: str = Field("", max_length=40)
+    os_version: str = Field("", max_length=80)
+    arch: str = Field("", max_length=40)
+    requested_gui: str = Field("", max_length=24)
+    effective_gui: str = Field("", max_length=24)
+    source_mode: str = Field("", max_length=32)
+    diagnostics_mode: str = Field("", max_length=32)
+    companion_count: int = Field(0, ge=0, le=100_000)
+    matrix_count: int = Field(0, ge=0, le=100_000)
+    matrix_online_count: int = Field(0, ge=0, le=100_000)
+
+    @field_validator(
+        "activation_token",
+        "app_version",
+        "airport_iata",
+        "timezone",
+        "os_family",
+        "os_version",
+        "arch",
+        "requested_gui",
+        "effective_gui",
+        "source_mode",
+        "diagnostics_mode",
+        mode="before",
+    )
+    @classmethod
+    def _coerce_optional_text(cls, value: Any) -> str:
+        return _admin_text(value)
 
 
 class ReportIn(BaseModel):
@@ -5394,8 +6499,36 @@ def relay_client_status(
     install_id: str = Query(...),
     activation_token: str = Query(""),
     app_version: str = Query(""),
+    os_family: str = Query(""),
+    os_version: str = Query(""),
+    arch: str = Query(""),
+    requested_gui: str = Query(""),
+    effective_gui: str = Query(""),
+    source_mode: str = Query(""),
+    diagnostics_mode: str = Query(""),
+    companion_count: int = Query(0, ge=0, le=100_000),
+    matrix_count: int = Query(0, ge=0, le=100_000),
+    matrix_online_count: int = Query(0, ge=0, le=100_000),
 ) -> Dict[str, Any]:
     install_id = _validate_install_id(install_id)
+    if any(
+        str(value or "").strip()
+        for value in (app_version, os_family, os_version, arch, requested_gui, effective_gui, source_mode, diagnostics_mode)
+    ) or companion_count or matrix_count or matrix_online_count:
+        _record_install_profile(
+            install_id=install_id,
+            app_version=app_version,
+            os_family=os_family,
+            os_version=os_version,
+            arch=arch,
+            requested_gui=requested_gui,
+            effective_gui=effective_gui,
+            source_mode=source_mode,
+            diagnostics_mode=diagnostics_mode,
+            companion_count=companion_count,
+            matrix_count=matrix_count,
+            matrix_online_count=matrix_online_count,
+        )
     return _build_client_status(
         install_id=install_id,
         activation_token=(activation_token or "").strip(),
@@ -5410,6 +6543,20 @@ def relay_client_checkin(body: ClientStatusIn) -> Dict[str, Any]:
         install_id=install_id,
         activation_token=(body.activation_token or "").strip(),
         app_version=body.app_version,
+    )
+    _record_install_profile(
+        install_id=install_id,
+        app_version=body.app_version,
+        os_family=body.os_family,
+        os_version=body.os_version,
+        arch=body.arch,
+        requested_gui=body.requested_gui,
+        effective_gui=body.effective_gui,
+        source_mode=body.source_mode,
+        diagnostics_mode=body.diagnostics_mode,
+        companion_count=body.companion_count,
+        matrix_count=body.matrix_count,
+        matrix_online_count=body.matrix_online_count,
     )
     airport_iata = _clean_airport(body.airport_iata) if (body.airport_iata or "").strip() else None
     timezone_name = (body.timezone or "").strip()
@@ -5565,12 +6712,37 @@ def relay_schedule(
     refresh_seconds: int = Query(3600, ge=60, le=86400),
     install_id: str = Query(...),
     activation_token: str = Query(""),
+    app_version: str = Query(""),
+    os_family: str = Query(""),
+    os_version: str = Query(""),
+    arch: str = Query(""),
+    requested_gui: str = Query(""),
+    effective_gui: str = Query(""),
+    source_mode: str = Query(""),
+    diagnostics_mode: str = Query(""),
+    companion_count: int = Query(0, ge=0, le=100_000),
+    matrix_count: int = Query(0, ge=0, le=100_000),
+    matrix_online_count: int = Query(0, ge=0, le=100_000),
 ) -> JSONResponse:
     install_id = _validate_install_id(install_id)
     airport_iata = _clean_airport(airport_iata)
     timezone_name = _normalize_timezone_name(timezone)
 
     access = _resolve_access(install_id=install_id, activation_token=activation_token, service="aviationstack")
+    _record_install_profile(
+        install_id=install_id,
+        app_version=app_version,
+        os_family=os_family,
+        os_version=os_version,
+        arch=arch,
+        requested_gui=requested_gui,
+        effective_gui=effective_gui,
+        source_mode=source_mode,
+        diagnostics_mode=diagnostics_mode,
+        companion_count=companion_count,
+        matrix_count=matrix_count,
+        matrix_online_count=matrix_online_count,
+    )
     plan = str(access["plan"] or "community")
     min_fresh_ttl_s = _schedule_min_fresh_ttl_seconds_for_plan(plan)
     if plan == "community":
@@ -6070,9 +7242,34 @@ def relay_radar(
     radius_nm: float = Query(20.0, ge=5.0, le=200.0),
     install_id: str = Query(...),
     activation_token: str = Query(""),
+    app_version: str = Query(""),
+    os_family: str = Query(""),
+    os_version: str = Query(""),
+    arch: str = Query(""),
+    requested_gui: str = Query(""),
+    effective_gui: str = Query(""),
+    source_mode: str = Query(""),
+    diagnostics_mode: str = Query(""),
+    companion_count: int = Query(0, ge=0, le=100_000),
+    matrix_count: int = Query(0, ge=0, le=100_000),
+    matrix_online_count: int = Query(0, ge=0, le=100_000),
 ) -> Response:
     install_id = _validate_install_id(install_id)
     access = _resolve_access(install_id=install_id, activation_token=activation_token, service="radar")
+    _record_install_profile(
+        install_id=install_id,
+        app_version=app_version,
+        os_family=os_family,
+        os_version=os_version,
+        arch=arch,
+        requested_gui=requested_gui,
+        effective_gui=effective_gui,
+        source_mode=source_mode,
+        diagnostics_mode=diagnostics_mode,
+        companion_count=companion_count,
+        matrix_count=matrix_count,
+        matrix_online_count=matrix_online_count,
+    )
     if access["plan"] == "community":
         _check_and_increment_community_daily_limit(
             service="radar",
@@ -6136,6 +7333,8 @@ def admin_api_overview(username: str = Depends(_require_admin)) -> Dict[str, Any
     try:
         aviationstack = _provider_admin_state(conn, _SETTING_AVIATIONSTACK_KEY, "AVIATIONSTACK_API_KEY")
         rapidapi = _provider_admin_state(conn, _SETTING_RAPIDAPI_KEY, "RAPIDAPI_KEY")
+        fleet_rows = _admin_fleet_rows(conn, month)
+        fleet_metrics = _admin_fleet_metrics(fleet_rows)
         snapshot_totals = conn.execute(
             """
             SELECT COALESCE(SUM(client_accesses), 0) AS client_accesses,
@@ -6194,8 +7393,13 @@ def admin_api_overview(username: str = Depends(_require_admin)) -> Dict[str, Any
                 "schedule_snapshots": _admin_count(conn, "SELECT COUNT(*) FROM schedule_snapshots"),
                 "surface_snapshots": _admin_count(conn, "SELECT COUNT(*) FROM airport_surface_snapshots"),
                 "client_interests": _admin_count(conn, "SELECT COUNT(*) FROM client_interests"),
+                "known_installs": int(fleet_metrics.get("known_installs") or 0),
+                "active_installs_24h": int(fleet_metrics.get("active_installs_24h") or 0),
+                "companion_installs": int(fleet_metrics.get("companion_installs") or 0),
+                "matrix_installs": int(fleet_metrics.get("matrix_installs") or 0),
                 "reports_24h": _admin_count(conn, "SELECT COUNT(*) FROM report_events WHERE ts>=?", (_hours_ago(24),)),
             },
+            "fleet": fleet_metrics,
             "shared_schedule": {
                 "client_accesses": int(snapshot_totals["client_accesses"] or 0),
                 "upstream_pulls": int(snapshot_totals["upstream_pulls"] or 0),
@@ -6215,7 +7419,17 @@ def admin_api_overview(username: str = Depends(_require_admin)) -> Dict[str, Any
 
 
 @app.get("/admin/api/usage")
-def admin_api_usage(username: str = Depends(_require_admin)) -> Dict[str, Any]:
+def admin_api_usage(
+    username: str = Depends(_require_admin),
+    q: str = Query(""),
+    service: str = Query(""),
+    plan: str = Query(""),
+    status: str = Query(""),
+    limit: int = Query(_ADMIN_DEFAULT_PAGE_LIMIT, ge=1, le=_ADMIN_MAX_PAGE_LIMIT),
+    cursor: str = Query(""),
+    sort: str = Query("last_seen"),
+    dir: str = Query("desc"),
+) -> Dict[str, Any]:
     conn = _connect()
     month = _month_key()
     try:
@@ -6231,6 +7445,51 @@ def admin_api_usage(username: str = Depends(_require_admin)) -> Dict[str, Any]:
             """,
             (month,),
         ).fetchall()
+        usage_rows = _admin_usage_rows(conn, month)
+        usage_filtered, usage_filters = _admin_filter_rows(
+            usage_rows,
+            q=q,
+            filters={"service": service, "plan": plan},
+        )
+        usage_filtered = _admin_sort_rows(usage_filtered, sort=sort or "last_seen", direction=dir)
+
+        request_rows = _admin_request_rows(conn)
+        request_filters: Dict[str, Any] = {"service": service, "plan": plan}
+        if status:
+            if status == "error":
+                request_rows = [row for row in request_rows if bool(row.get("error"))]
+            else:
+                request_filters["status"] = status
+        request_filtered, request_active_filters = _admin_filter_rows(request_rows, q=q, filters=request_filters)
+        request_filtered = _admin_sort_rows(request_filtered, sort=sort or "ts", direction=dir)
+        page = _admin_page_payload(
+            usage_filtered,
+            total_estimate=len(usage_rows),
+            limit=limit,
+            cursor=cursor,
+            sort=sort,
+            direction=dir,
+            filters=usage_filters,
+            facets={
+                "service": _admin_count_values(usage_filtered, "service"),
+                "plan": _admin_count_values(usage_filtered, "plan"),
+            },
+        )
+        request_page = _admin_page_payload(
+            request_filtered,
+            total_estimate=len(request_rows),
+            limit=limit,
+            cursor=cursor,
+            sort=sort or "ts",
+            direction=dir,
+            filters=request_active_filters,
+            facets={
+                "service": _admin_count_values(request_filtered, "service"),
+                "plan": _admin_count_values(request_filtered, "plan"),
+                "error": _admin_count_values(request_filtered, "error"),
+                "status": _admin_count_values(request_filtered, "status"),
+            },
+        )
         return {
             "generated_at": _utc_now(),
             "operator": username,
@@ -6245,35 +7504,185 @@ def admin_api_usage(username: str = Depends(_require_admin)) -> Dict[str, Any]:
                 }
                 for row in service_rows
             ],
-            "rows": _admin_usage_rows(conn, month),
+            "rows": page["rows"],
+            "next_cursor": page["next_cursor"],
+            "total_estimate": page["total_estimate"],
+            "filtered_estimate": page["filtered_estimate"],
+            "facets": page["facets"],
+            "sort": page["sort"],
+            "filters": page["filters"],
+            "requests": request_page,
+        }
+    finally:
+        conn.close()
+
+
+@app.get("/admin/api/fleet")
+def admin_api_fleet(
+    username: str = Depends(_require_admin),
+    q: str = Query(""),
+    status: str = Query(""),
+    plan: str = Query(""),
+    os_family: str = Query(""),
+    effective_gui: str = Query(""),
+    app_version: str = Query(""),
+    airport_iata: str = Query(""),
+    has_companion: Optional[bool] = Query(None),
+    has_matrix: Optional[bool] = Query(None),
+    blocked: Optional[bool] = Query(None),
+    managed: Optional[bool] = Query(None),
+    first_seen_from: str = Query(""),
+    last_seen_from: str = Query(""),
+    limit: int = Query(_ADMIN_DEFAULT_PAGE_LIMIT, ge=1, le=_ADMIN_MAX_PAGE_LIMIT),
+    cursor: str = Query(""),
+    sort: str = Query("last_seen"),
+    dir: str = Query("desc"),
+) -> Dict[str, Any]:
+    conn = _connect()
+    month = _month_key()
+    try:
+        rows = _admin_fleet_rows(conn, month)
+        filtered, active_filters = _admin_filter_fleet_rows(
+            rows,
+            q=q,
+            status=status,
+            plan=plan,
+            os_family=os_family,
+            effective_gui=effective_gui,
+            app_version=app_version,
+            airport_iata=airport_iata,
+            has_companion=has_companion,
+            has_matrix=has_matrix,
+            blocked=blocked,
+            managed=managed,
+            first_seen_from=first_seen_from,
+            last_seen_from=last_seen_from,
+        )
+        filtered = _admin_sort_rows(filtered, sort=sort or "last_seen", direction=dir)
+        page = _admin_page_payload(
+            filtered,
+            total_estimate=len(rows),
+            limit=limit,
+            cursor=cursor,
+            sort=sort,
+            direction=dir,
+            filters=active_filters,
+            facets=_admin_fleet_facets(filtered),
+        )
+        return {
+            "generated_at": _utc_now(),
+            "operator": username,
+            "month": month,
+            "metrics": _admin_fleet_metrics(rows),
+            "installs": page["rows"],
+            "rows": page["rows"],
+            "next_cursor": page["next_cursor"],
+            "total_estimate": page["total_estimate"],
+            "filtered_estimate": page["filtered_estimate"],
+            "facets": page["facets"],
+            "sort": page["sort"],
+            "filters": page["filters"],
         }
     finally:
         conn.close()
 
 
 @app.get("/admin/api/schedules")
-def admin_api_schedules(username: str = Depends(_require_admin)) -> Dict[str, Any]:
+def admin_api_schedules(
+    username: str = Depends(_require_admin),
+    q: str = Query(""),
+    airport_iata: str = Query(""),
+    cache_state: str = Query(""),
+    limit: int = Query(_ADMIN_DEFAULT_PAGE_LIMIT, ge=1, le=_ADMIN_MAX_PAGE_LIMIT),
+    cursor: str = Query(""),
+    sort: str = Query("updated_at"),
+    dir: str = Query("desc"),
+) -> Dict[str, Any]:
     conn = _connect()
     try:
+        snapshots = _admin_schedule_snapshot_rows(conn)
+        filtered, filters = _admin_filter_rows(
+            snapshots,
+            q=q,
+            filters={"airport_iata": airport_iata.upper(), "last_cache_state": cache_state},
+        )
+        filtered = _admin_sort_rows(filtered, sort=sort or "updated_at", direction=dir)
+        page = _admin_page_payload(
+            filtered,
+            total_estimate=len(snapshots),
+            limit=limit,
+            cursor=cursor,
+            sort=sort,
+            direction=dir,
+            filters=filters,
+            facets={
+                "airport_iata": _admin_count_values(filtered, "airport_iata"),
+                "last_cache_state": _admin_count_values(filtered, "last_cache_state"),
+            },
+        )
+        interests = _admin_client_interest_rows(conn)
         return {
             "generated_at": _utc_now(),
             "operator": username,
-            "snapshots": _admin_schedule_snapshot_rows(conn),
-            "client_interests": _admin_client_interest_rows(conn),
+            "snapshots": page["rows"],
+            "rows": page["rows"],
+            "next_cursor": page["next_cursor"],
+            "total_estimate": page["total_estimate"],
+            "filtered_estimate": page["filtered_estimate"],
+            "facets": page["facets"],
+            "sort": page["sort"],
+            "filters": page["filters"],
+            "client_interests": interests[: _ADMIN_DEFAULT_PAGE_LIMIT],
         }
     finally:
         conn.close()
 
 
 @app.get("/admin/api/surfaces")
-def admin_api_surfaces(username: str = Depends(_require_admin)) -> Dict[str, Any]:
+def admin_api_surfaces(
+    username: str = Depends(_require_admin),
+    q: str = Query(""),
+    airport_iata: str = Query(""),
+    cache_state: str = Query(""),
+    limit: int = Query(_ADMIN_DEFAULT_PAGE_LIMIT, ge=1, le=_ADMIN_MAX_PAGE_LIMIT),
+    cursor: str = Query(""),
+    sort: str = Query("updated_at"),
+    dir: str = Query("desc"),
+) -> Dict[str, Any]:
     conn = _connect()
     try:
+        snapshots = _admin_surface_rows(conn)
+        filtered, filters = _admin_filter_rows(
+            snapshots,
+            q=q,
+            filters={"airport_iata": airport_iata.upper(), "last_cache_state": cache_state},
+        )
+        filtered = _admin_sort_rows(filtered, sort=sort or "updated_at", direction=dir)
+        page = _admin_page_payload(
+            filtered,
+            total_estimate=len(snapshots),
+            limit=limit,
+            cursor=cursor,
+            sort=sort,
+            direction=dir,
+            filters=filters,
+            facets={
+                "airport_iata": _admin_count_values(filtered, "airport_iata"),
+                "last_cache_state": _admin_count_values(filtered, "last_cache_state"),
+            },
+        )
         return {
             "generated_at": _utc_now(),
             "operator": username,
             "enabled": _airport_surface_enabled(),
-            "snapshots": _admin_surface_rows(conn),
+            "snapshots": page["rows"],
+            "rows": page["rows"],
+            "next_cursor": page["next_cursor"],
+            "total_estimate": page["total_estimate"],
+            "filtered_estimate": page["filtered_estimate"],
+            "facets": page["facets"],
+            "sort": page["sort"],
+            "filters": page["filters"],
         }
     finally:
         conn.close()
@@ -6292,10 +7701,51 @@ def admin_api_activations(username: str = Depends(_require_admin)) -> Dict[str, 
 
 
 @app.get("/admin/api/reports")
-def admin_api_reports(username: str = Depends(_require_admin)) -> Dict[str, Any]:
+def admin_api_reports(
+    username: str = Depends(_require_admin),
+    q: str = Query(""),
+    report_type: str = Query(""),
+    origin: str = Query(""),
+    team: str = Query(""),
+    status: str = Query(""),
+    limit: int = Query(_ADMIN_DEFAULT_PAGE_LIMIT, ge=1, le=_ADMIN_MAX_PAGE_LIMIT),
+    cursor: str = Query(""),
+    sort: str = Query("ts"),
+    dir: str = Query("desc"),
+) -> Dict[str, Any]:
     conn = _connect()
     try:
         payload = _admin_report_payload(conn)
+        recent = _list_dicts(payload.get("recent_events"))
+        filtered, filters = _admin_filter_rows(
+            recent,
+            q=q,
+            filters={"report_type": report_type, "origin": origin, "team": team, "status": status},
+        )
+        filtered = _admin_sort_rows(filtered, sort=sort or "ts", direction=dir)
+        page = _admin_page_payload(
+            filtered,
+            total_estimate=len(recent),
+            limit=limit,
+            cursor=cursor,
+            sort=sort,
+            direction=dir,
+            filters=filters,
+            facets={
+                "report_type": _admin_count_values(filtered, "report_type"),
+                "origin": _admin_count_values(filtered, "origin"),
+                "team": _admin_count_values(filtered, "team"),
+                "status": _admin_count_values(filtered, "status"),
+            },
+        )
+        payload["recent_events"] = page["rows"]
+        payload["rows"] = page["rows"]
+        payload["next_cursor"] = page["next_cursor"]
+        payload["total_estimate"] = page["total_estimate"]
+        payload["filtered_estimate"] = page["filtered_estimate"]
+        payload["facets"] = page["facets"]
+        payload["sort"] = page["sort"]
+        payload["filters"] = page["filters"]
         payload["generated_at"] = _utc_now()
         payload["operator"] = username
         return payload
@@ -6987,12 +8437,16 @@ def admin_activation_delete(
 
 @app.post("/admin/install/block")
 def admin_install_block(
-    install_id: str = Form(...),
+    install_id: str = Form(""),
+    install_ref: str = Form(""),
     reason: str = Form("revoked by admin"),
     username: str = Depends(_require_admin),
 ) -> HTMLResponse:
-    install_id = _validate_install_id(install_id)
     conn = _connect()
+    install_id = _admin_install_id_from_reference(conn, install_id=install_id, install_ref=install_ref)
+    if not install_id:
+        conn.close()
+        raise HTTPException(status_code=400, detail="install reference required")
     conn.execute(
         """
         INSERT INTO blocked_installs (install_id, reason, created_at)
@@ -7010,11 +8464,15 @@ def admin_install_block(
 
 @app.post("/admin/install/unblock")
 def admin_install_unblock(
-    install_id: str = Form(...),
+    install_id: str = Form(""),
+    install_ref: str = Form(""),
     username: str = Depends(_require_admin),
 ) -> HTMLResponse:
-    install_id = _validate_install_id(install_id)
     conn = _connect()
+    install_id = _admin_install_id_from_reference(conn, install_id=install_id, install_ref=install_ref)
+    if not install_id:
+        conn.close()
+        raise HTTPException(status_code=400, detail="install reference required")
     conn.execute("DELETE FROM blocked_installs WHERE install_id=?", (install_id,))
     conn.commit()
     conn.close()
@@ -7058,6 +8516,7 @@ def admin_reset_counters(
     service: str = Form(""),
     token_hash: str = Form(""),
     install_id: str = Form(""),
+    install_ref: str = Form(""),
     username: str = Depends(_require_admin),
 ) -> HTMLResponse:
     conn = _connect()
@@ -7082,7 +8541,10 @@ def admin_reset_counters(
         )
         message = "Reset counters for the selected activation token."
     elif scope == "install":
-        install_id = _validate_install_id(install_id)
+        install_id = _admin_install_id_from_reference(conn, install_id=install_id, install_ref=install_ref)
+        if not install_id:
+            conn.close()
+            raise HTTPException(status_code=400, detail="install reference required")
         conn.execute("DELETE FROM usage WHERE month=? AND install_id=?", (month, install_id))
         message = "Reset counters for the selected install."
     elif scope == "logs":

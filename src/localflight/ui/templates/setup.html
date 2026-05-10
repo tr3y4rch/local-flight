@@ -4,6 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Local Flight - Setup</title>
+  <link rel="stylesheet" href="/static/fonts.css" />
   <link rel="stylesheet" href="/static/app.css" />
   <style>
     body {
@@ -12,19 +13,35 @@
       justify-content: center;
       min-height: 100vh;
       padding: 20px;
-      background: #0b0d10;
+      background:
+        radial-gradient(circle at 18% 12%, rgba(74,158,218,.16), transparent 32%),
+        radial-gradient(circle at 82% 88%, rgba(0,192,64,.10), transparent 36%),
+        #080c12;
     }
     .setup-card {
-      width: min(680px, calc(100vw - 32px));
-      background: #12161b;
-      border: 1px solid #1e2630;
-      border-radius: 16px;
-      padding: 32px;
+      width: min(920px, calc(100vw - 32px));
+      max-height: calc(100vh - 40px);
+      overflow: auto;
+      background: rgba(18,22,27,.96);
+      border: 1px solid #1e3a5a;
+      border-radius: 20px;
+      padding: clamp(18px, 3vw, 30px);
       box-shadow: 0 20px 60px rgba(0,0,0,0.5);
     }
-    .setup-header { text-align: center; margin-bottom: 28px; }
-    .setup-header h1 { margin: 0 0 6px 0; font-size: 1.4rem; }
-    .setup-header p  { margin: 0; opacity: 0.55; font-size: 0.85rem; }
+    .setup-header {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 16px;
+      align-items: center;
+      margin-bottom: 22px;
+    }
+    .setup-mark {
+      width: 72px;
+      height: 72px;
+      filter: drop-shadow(0 18px 30px rgba(0,0,0,.35));
+    }
+    .setup-header h1 { margin: 0 0 6px 0; font-size: clamp(1.35rem, 2vw, 1.9rem); }
+    .setup-header p  { margin: 0; opacity: 0.68; font-size: 0.9rem; line-height: 1.5; }
     .steps {
       display: flex;
       justify-content: center;
@@ -159,7 +176,7 @@
     .btn-skip:hover { opacity: 0.72; }
     .mode-grid {
       display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
       gap: 10px;
       margin-bottom: 10px;
     }
@@ -212,7 +229,7 @@
     }
     .info-grid {
       display: grid;
-      grid-template-columns: 1fr 1fr;
+      grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
       gap: 10px;
     }
     .info-cell {
@@ -256,6 +273,12 @@
     }
     .finish-list li::before { content: "OK"; color: #00e84a; font-weight: 700; font-size: 0.72rem; }
     @media (max-width: 760px) {
+      body { align-items: flex-start; padding: 10px; }
+      .setup-card { width: calc(100vw - 20px); max-height: none; }
+      .setup-header { grid-template-columns: 1fr; text-align: center; }
+      .setup-mark { margin: 0 auto; width: 64px; height: 64px; }
+      .btn-row { flex-wrap: wrap; }
+      .btn-row .btn { flex: 1 1 150px; }
       .mode-grid { grid-template-columns: 1fr; }
       .info-grid { grid-template-columns: 1fr; }
     }
@@ -264,8 +287,11 @@
 <body>
 <div class="setup-card">
   <div class="setup-header">
-    <h1>Welcome to Local Flight</h1>
-    <p>Set the airport, choose the connection mode, and only fill the keys that actually belong to that setup.</p>
+    <img class="setup-mark" src="/static/brand_mark.svg" alt="" />
+    <div>
+      <h1>Welcome to Local Flight</h1>
+      <p>Set the airport, choose the connection mode, and only fill the keys that actually belong to that setup.</p>
+    </div>
   </div>
 
   <div class="steps" id="stepDots"></div>

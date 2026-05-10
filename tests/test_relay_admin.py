@@ -280,11 +280,12 @@ def test_admin_dashboard_handles_live_lane_without_snapshot(tmp_path: Path, monk
     client = TestClient(relay_main.app)
 
     admin = client.get("/admin", headers={"host": "network.localflight.app"}, auth=("admin", "correct-horse"))
+    schedules = client.get("/admin/api/schedules", headers={"host": "network.localflight.app"}, auth=("admin", "correct-horse")).json()
 
     assert admin.status_code == 200
-    assert "Live airport lanes" in admin.text
-    assert "ZRH" in admin.text
-    assert "miss" in admin.text
+    assert "Lazy, query-driven admin console" in admin.text
+    assert any(row["airport_iata"] == "ZRH" for row in schedules["client_interests"])
+    assert schedules["filtered_estimate"] == 0
 
 
 def test_admin_clean_trial_state_keeps_tokens_and_usage_counters(tmp_path: Path, monkeypatch) -> None:
@@ -593,6 +594,7 @@ def test_admin_api_requires_auth_and_redacts_private_values(tmp_path: Path, monk
         for path in (
             "/admin/api/overview",
             "/admin/api/usage",
+            "/admin/api/fleet",
             "/admin/api/schedules",
             "/admin/api/surfaces",
             "/admin/api/activations",
@@ -612,8 +614,8 @@ def test_admin_api_requires_auth_and_redacts_private_values(tmp_path: Path, monk
     assert "issued_token" not in combined
     assert "context" not in combined
     assert responses[0].json()["providers"]["aviationstack"]["configured"] is True
-    assert responses[4].json()["tokens"][0]["token_prefix"] == raw_token[:10]
-    assert responses[4].json()["tokens"][0]["action_ref"].startswith("tok_")
+    assert responses[5].json()["tokens"][0]["token_prefix"] == raw_token[:10]
+    assert responses[5].json()["tokens"][0]["action_ref"].startswith("tok_")
 
 
 def test_admin_api_provider_and_token_actions(tmp_path: Path, monkeypatch) -> None:
@@ -1214,17 +1216,19 @@ def test_admin_dashboard_surfaces_report_gateway_events(tmp_path: Path, monkeypa
     first = client.post("/v1/reports", json=payload)
     second = client.post("/v1/reports", json=payload)
     admin = client.get("/admin", headers={"host": "network.localflight.app"}, auth=("admin", "correct-horse"))
+    reports = client.get("/admin/api/reports", headers={"host": "network.localflight.app"}, auth=("admin", "correct-horse")).json()
 
     assert first.status_code == 200
     assert second.status_code == 200
     assert second.json()["deduped"] is True
     assert admin.status_code == 200
-    assert "Report gateway (24h)" in admin.text
-    assert "Recent report events" in admin.text
-    assert "Report dedupe groups" in admin.text
-    assert "filed" in admin.text
-    assert "deduped" in admin.text
-    assert "web/feedback" in admin.text
+    assert "Sanitized report gateway events" in admin.text
+    statuses = {row["status"] for row in reports["rows"]}
+    assert {"filed", "deduped"}.issubset(statuses)
+    assert reports["facets"]["status"]["filed"] == 1
+    assert reports["facets"]["status"]["deduped"] == 1
+    assert "context" not in json.dumps(reports)
+    assert "web/feedback" not in json.dumps(reports)
 
 
 def test_admin_dashboard_sorts_recent_report_events_newest_first(tmp_path: Path, monkeypatch) -> None:
@@ -1261,11 +1265,13 @@ def test_admin_dashboard_sorts_recent_report_events_newest_first(tmp_path: Path,
         ),
     )
     admin = client.get("/admin", headers={"host": "network.localflight.app"}, auth=("admin", "correct-horse"))
+    reports = client.get("/admin/api/reports?sort=ts&dir=desc", headers={"host": "network.localflight.app"}, auth=("admin", "correct-horse")).json()
 
     assert old_report.status_code == 200
     assert new_report.status_code == 200
     assert admin.status_code == 200
-    assert admin.text.index("web/feedback-new") < admin.text.index("web/feedback-old")
+    assert reports["rows"][0]["install_fingerprint"] == relay_main._install_fingerprint("00000000-0000-0000-0000-000000000313")
+    assert reports["rows"][1]["install_fingerprint"] == relay_main._install_fingerprint("00000000-0000-0000-0000-000000000312")
 
 
 def test_relay_flights_forwards_page_params_and_counts_one_raw_call(tmp_path: Path, monkeypatch) -> None:
@@ -1880,3 +1886,181 @@ def test_client_checkin_records_interest_and_exposes_schedule_cache(tmp_path: Pa
     assert payload["interest"]["airport_iata"] == "ZRH"
     assert payload["schedule_cache"]["provider"] == "aviationstack"
     assert payload["schedule_cache"]["meta"]["shared_stats"]["client_accesses"] >= 1
+
+
+def test_client_checkin_records_redacted_fleet_profile_and_preserves_first_seen(tmp_path: Path, monkeypatch) -> None:
+    _use_temp_db(tmp_path, monkeypatch)
+    monkeypatch.setenv("RELAY_ADMIN_PASSWORD", "correct-horse")
+    client = TestClient(relay_main.app)
+    headers = {"host": "network.localflight.app"}
+    auth = ("admin", "correct-horse")
+    install_id = "00000000-0000-0000-0000-000000000406"
+
+    first = client.post(
+        "/v1/client/checkin",
+        json={
+            "install_id": install_id,
+            "app_version": "0.2.5",
+            "os_family": "Windows",
+            "os_version": "11",
+            "arch": "AMD64",
+            "requested_gui": "native",
+            "effective_gui": "native",
+            "source_mode": "real",
+            "diagnostics_mode": "manual",
+            "companion_count": 1,
+            "matrix_count": 2,
+            "matrix_online_count": 1,
+            "airport_iata": "ZRH",
+            "timezone": "Europe/Zurich",
+            "refresh_seconds": 3600,
+        },
+    )
+    assert first.status_code == 200
+    fleet_first = client.get("/admin/api/fleet", headers=headers, auth=auth).json()
+    row = fleet_first["installs"][0]
+
+    assert row["install_fingerprint"] == relay_main._install_fingerprint(install_id)
+    assert row["action_ref"].startswith("inst_")
+    assert row["os_family"] == "Windows"
+    assert row["effective_gui"] == "native"
+    assert row["companion_count"] == 1
+    assert row["matrix_online_count"] == 1
+    assert row["current_lane"]["airport_iata"] == "ZRH"
+    assert install_id not in json.dumps(fleet_first)
+
+    second = client.post(
+        "/v1/client/checkin",
+        json={"install_id": install_id, "app_version": "0.2.6", "os_family": "Windows"},
+    )
+    assert second.status_code == 200
+    fleet_second = client.get("/admin/api/fleet", headers=headers, auth=auth).json()
+    updated = fleet_second["installs"][0]
+
+    assert updated["first_seen"] == row["first_seen"]
+    assert updated["last_seen"] >= row["last_seen"]
+    assert updated["app_version"] == "0.2.6"
+
+
+def test_admin_fleet_install_refs_support_actions(tmp_path: Path, monkeypatch) -> None:
+    _use_temp_db(tmp_path, monkeypatch)
+    monkeypatch.setenv("RELAY_ADMIN_PASSWORD", "correct-horse")
+    client = TestClient(relay_main.app)
+    headers = {"host": "network.localflight.app"}
+    auth = ("admin", "correct-horse")
+    install_id = "00000000-0000-0000-0000-000000000407"
+
+    checkin = client.post("/v1/client/checkin", json={"install_id": install_id, "os_family": "macOS"})
+    assert checkin.status_code == 200
+    fleet = client.get("/admin/api/fleet", headers=headers, auth=auth).json()
+    install_ref = fleet["installs"][0]["action_ref"]
+
+    blocked = client.post(
+        "/admin/api/install/access",
+        headers=headers,
+        auth=auth,
+        json={"install_ref": install_ref, "action": "block", "reason": "test"},
+    )
+    assert blocked.status_code == 200
+    reset = client.post(
+        "/admin/api/counters/reset",
+        headers=headers,
+        auth=auth,
+        json={"scope": "install", "install_ref": install_ref},
+    )
+    assert reset.status_code == 200
+    after = client.get("/admin/api/fleet", headers=headers, auth=auth).json()
+    assert after["installs"][0]["blocked"] is True
+
+
+def test_admin_fleet_supports_server_filters_pagination_and_facets(tmp_path: Path, monkeypatch) -> None:
+    _use_temp_db(tmp_path, monkeypatch)
+    monkeypatch.setenv("RELAY_ADMIN_PASSWORD", "correct-horse")
+    client = TestClient(relay_main.app)
+    headers = {"host": "network.localflight.app"}
+    auth = ("admin", "correct-horse")
+    installs = [
+        ("00000000-0000-0000-0000-000000001001", "Windows", "native", "0.2.5", "ZRH", 1, 0),
+        ("00000000-0000-0000-0000-000000001002", "Windows", "browser", "0.2.5", "JFK", 0, 1),
+        ("00000000-0000-0000-0000-000000001003", "macOS", "native", "0.2.6", "ZRH", 1, 1),
+        ("00000000-0000-0000-0000-000000001004", "Linux", "headless", "0.2.6", "LHR", 0, 0),
+    ]
+    for install_id, os_family, gui, version, airport, companions, matrices in installs:
+        response = client.post(
+            "/v1/client/checkin",
+            json={
+                "install_id": install_id,
+                "os_family": os_family,
+                "effective_gui": gui,
+                "requested_gui": gui,
+                "app_version": version,
+                "airport_iata": airport,
+                "timezone": "UTC",
+                "companion_count": companions,
+                "matrix_count": matrices,
+                "matrix_online_count": matrices,
+            },
+        )
+        assert response.status_code == 200
+
+    first_page = client.get(
+        "/admin/api/fleet?limit=2&sort=install_fingerprint&dir=asc",
+        headers=headers,
+        auth=auth,
+    ).json()
+    second_page = client.get(
+        f"/admin/api/fleet?limit=2&sort=install_fingerprint&dir=asc&cursor={first_page['next_cursor']}",
+        headers=headers,
+        auth=auth,
+    ).json()
+    first_ids = {row["install_fingerprint"] for row in first_page["rows"]}
+    second_ids = {row["install_fingerprint"] for row in second_page["rows"]}
+
+    assert first_page["total_estimate"] == 4
+    assert first_page["filtered_estimate"] == 4
+    assert first_page["next_cursor"]
+    assert len(first_ids) == 2
+    assert len(second_ids) == 2
+    assert not first_ids & second_ids
+
+    filtered = client.get(
+        "/admin/api/fleet?os_family=macOS&effective_gui=native&has_companion=true&airport_iata=ZRH",
+        headers=headers,
+        auth=auth,
+    ).json()
+    combined = json.dumps(filtered)
+
+    assert filtered["filtered_estimate"] == 1
+    assert filtered["rows"][0]["os_family"] == "macOS"
+    assert filtered["rows"][0]["effective_gui"] == "native"
+    assert filtered["rows"][0]["current_lane"]["airport_iata"] == "ZRH"
+    assert filtered["facets"]["os_family"] == {"macos": 1}
+    assert filtered["facets"]["has_companion"]["yes"] == 1
+    assert "00000000-0000-0000-0000-000000001003" not in combined
+
+    block_ref = filtered["rows"][0]["action_ref"]
+    blocked = client.post(
+        "/admin/api/install/access",
+        headers=headers,
+        auth=auth,
+        json={"install_ref": block_ref, "action": "block", "reason": "test"},
+    )
+    assert blocked.status_code == 200
+    blocked_rows = client.get("/admin/api/fleet?blocked=true", headers=headers, auth=auth).json()
+    assert blocked_rows["filtered_estimate"] == 1
+    assert blocked_rows["rows"][0]["blocked"] is True
+
+
+def test_admin_html_is_lazy_query_driven_shell(tmp_path: Path, monkeypatch) -> None:
+    _use_temp_db(tmp_path, monkeypatch)
+    monkeypatch.setenv("RELAY_ADMIN_PASSWORD", "correct-horse")
+    client = TestClient(relay_main.app)
+    response = client.get("/admin", headers={"host": "network.localflight.app"}, auth=("admin", "correct-horse"))
+    text = response.text
+
+    assert response.status_code == 200
+    assert "Lazy, query-driven admin console" in text
+    assert '"/admin/api/fleet"' in text
+    assert "quickViewDefs" in text
+    assert "data-filter" in text
+    assert "Provider State" not in text

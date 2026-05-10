@@ -919,8 +919,14 @@ async function refreshFIDS() {
     return src === "virtual" || src.includes("vatsim");
   }
 
-  function renderDetail({ detail, history }) {
-    const d = detail || {};
+  function renderDetail(payload) {
+    const d = payload?.detail || {};
+    const history = payload?.history || [];
+    const intel = payload?.intel || d.intel || {};
+    const evidence = intel.source_evidence || {};
+    const motion = intel.motion || {};
+    const aircraftIntel = intel.aircraft || {};
+    const opsIntel = intel.operations || {};
     const virtual = isVirtualDetail(d);
     document.getElementById("fdOpsLabel").textContent = virtual ? "Virtual Flight" : "Operations & Aircraft";
     document.getElementById("fdDataLabel").textContent = virtual ? "VATSIM Data" : "Data Sources";
@@ -986,17 +992,17 @@ async function refreshFIDS() {
     const rows = virtual
       ? [
           ["Callsign", d.callsign || "—"],
-          ["Aircraft", d.aircraft_type || "—"],
+          ["Aircraft", aircraftIntel.type || d.aircraft_type || "—"],
           ["Rules", d.flight_plan?.flight_rules || "—"],
           ["From", d.origin_icao || d.origin_iata || "—"],
           ["To", d.dest_icao || d.dest_iata || "—"],
           ["Status", d.status || "—"],
         ]
       : [
-          ["Gate",     d.gate     || "—"],
-          ["Terminal", d.terminal || "—"],
-          ["Aircraft", d.aircraft_type || "—"],
-          ["Reg",      d.aircraft_registration || "—"],
+          ["Gate",     opsIntel.gate || d.gate || "—"],
+          ["Terminal", opsIntel.terminal || d.terminal || "—"],
+          ["Aircraft", aircraftIntel.type || d.aircraft_type || "—"],
+          ["Reg",      aircraftIntel.registration || d.aircraft_registration || "—"],
           ["Callsign", d.callsign || "—"],
           ["Airline",  d.airline_iata || d.airline || "—"],
         ];
@@ -1032,13 +1038,14 @@ async function refreshFIDS() {
     // Data source coverage
     const data = d.data_sources || {};
     const dataEl = document.getElementById("fdData");
-    const confidence = sourceLabel(data.confidence || (d.position ? "position_from_snapshot" : "schedule_only"));
+    const confidence = sourceLabel(evidence.confidence || data.confidence || (d.position ? "position_from_snapshot" : "schedule_only"));
+    const snapshotAge = evidence.snapshot_age_seconds ?? data.snapshot_age_seconds;
     dataEl.innerHTML = virtual
       ? `<div class="fd-source-grid">
         <div class="fd-source-card">
           <div class="fd-source-label">Network</div>
           <div class="fd-source-value">VATSIM</div>
-          <div class="fd-source-sub">snapshot ${esc(ageLabel(data.snapshot_age_seconds))}</div>
+          <div class="fd-source-sub">snapshot ${esc(ageLabel(snapshotAge))}</div>
         </div>
         <div class="fd-source-card">
           <div class="fd-source-label">Track</div>
@@ -1049,12 +1056,12 @@ async function refreshFIDS() {
       : `<div class="fd-source-grid">
         <div class="fd-source-card">
           <div class="fd-source-label">Schedule</div>
-          <div class="fd-source-value">${esc(sourceLabel(data.schedule || d.source))}</div>
-          <div class="fd-source-sub">snapshot ${esc(ageLabel(data.snapshot_age_seconds))}</div>
+          <div class="fd-source-value">${esc(sourceLabel(evidence.schedule_source || data.schedule || d.source))}</div>
+          <div class="fd-source-sub">snapshot ${esc(ageLabel(snapshotAge))}</div>
         </div>
         <div class="fd-source-card">
           <div class="fd-source-label">Live track</div>
-          <div class="fd-source-value">${esc(sourceLabel(data.enrichment || d.enriched_by))}</div>
+          <div class="fd-source-value">${esc(sourceLabel(evidence.position_source || data.enrichment || d.enriched_by))}</div>
           <div class="fd-source-sub">${esc(confidence)}</div>
         </div>
       </div>`;
@@ -1063,20 +1070,29 @@ async function refreshFIDS() {
     const posSection = document.getElementById("fdPosSection");
     const posEl      = document.getElementById("fdPos");
     const pos = d.position;
-    if (pos && pos.lat != null) {
+    const hasIntelMotion = motion && motion.has_position && motion.lat != null;
+    if ((pos && pos.lat != null) || hasIntelMotion) {
       posSection.style.display = "";
-      const altSource = pos.altitude_geo_m != null ? "geo" : "baro";
-      const altitudeM = pos.altitude_geo_m ?? pos.altitude_baro_m ?? pos.altitude_m;
-      const altFt  = altitudeM != null ? `${Math.round(altitudeM * 3.28084).toLocaleString()} ft ${altSource}` : "—";
-      const spdKt  = pos.speed_ms != null ? `${Math.round(pos.speed_ms * 1.944)} kt` : "—";
-      const hdg    = pos.heading != null ? `${Math.round(pos.heading)}°` : "—";
-      const vr     = pos.vertical_rate != null ? `${pos.vertical_rate >= 0 ? "+" : ""}${Math.round(pos.vertical_rate * 196.85)} fpm` : "—";
-      const ground = pos.on_ground ? "On ground" : "Airborne";
-      const contact = data.position_age_seconds != null
-        ? ageLabel(data.position_age_seconds)
-        : (pos.last_contact ? "contact recorded" : "—");
+      const lat = pos?.lat ?? motion.lat;
+      const lon = pos?.lon ?? motion.lon;
+      const altSource = (pos?.altitude_geo_m ?? motion.geo_altitude_m) != null ? "geo" : "baro";
+      const altitudeM = pos?.altitude_geo_m ?? pos?.altitude_baro_m ?? pos?.altitude_m ?? motion.geo_altitude_m ?? motion.altitude_m;
+      const altitudeFt = motion.altitude_ft ?? (altitudeM != null ? Math.round(altitudeM * 3.28084) : null);
+      const altFt  = altitudeFt != null ? `${Number(altitudeFt).toLocaleString()} ft ${altSource}` : "—";
+      const speedKt = motion.speed_kt ?? (pos?.speed_ms != null ? Math.round(pos.speed_ms * 1.944) : null);
+      const spdKt  = speedKt != null ? `${Number(speedKt).toLocaleString()} kt` : "—";
+      const heading = motion.heading_deg ?? pos?.heading;
+      const hdg    = heading != null ? `${Math.round(heading)}°` : "—";
+      const vrFpm = motion.vertical_rate_fpm ?? (pos?.vertical_rate != null ? Math.round(pos.vertical_rate * 196.85) : null);
+      const vr     = vrFpm != null ? `${Number(vrFpm) >= 0 ? "+" : ""}${Number(vrFpm).toLocaleString()} fpm` : "—";
+      const onGround = motion.on_ground ?? pos?.on_ground;
+      const ground = onGround ? "On ground" : "Airborne";
+      const contactAge = motion.position_age_seconds ?? data.position_age_seconds;
+      const contact = contactAge != null
+        ? ageLabel(contactAge)
+        : (pos?.last_contact ? "contact recorded" : "—");
       const posRows = [
-        ["Coordinates", coordLabel(pos.lat, pos.lon)],
+        ["Coordinates", coordLabel(lat, lon)],
         ["Altitude", altFt],
         ["Speed",    spdKt],
         ["Heading",  hdg],
@@ -1084,10 +1100,10 @@ async function refreshFIDS() {
         ["Contact",   contact],
       ];
       if (virtual) {
-        posRows.splice(4, 0, ["XPDR", plan.assigned_transponder || pos.squawk || "—"]);
+        posRows.splice(4, 0, ["XPDR", plan.assigned_transponder || aircraftIntel.squawk || pos?.squawk || "—"]);
       } else {
         posRows.splice(4, 0, ["Vert rate", vr]);
-        posRows.splice(6, 0, ["ICAO24", pos.icao24 || "—"], ["Squawk", pos.squawk || "—"]);
+        posRows.splice(6, 0, ["ICAO24", aircraftIntel.icao24 || pos?.icao24 || "—"], ["Squawk", aircraftIntel.squawk || pos?.squawk || "—"]);
       }
       posEl.innerHTML = posRows.map(([lbl, val]) => rowHtml(lbl, val)).join("");
     } else {

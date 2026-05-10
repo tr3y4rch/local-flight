@@ -142,6 +142,7 @@ if errorlevel 2 (
 
 :: -- Launch Local Flight -------------------------------------------------------------
 echo  Launching Local Flight...
+echo  Public/client app only. Operator relay tools stay in the separate Network Admin launcher.
 if /i "%LOCALFLIGHT_GUI_MODE%"=="browser" (
     echo  Browser/LAN UI mode will open. Right-click tray icon to open UI or quit.
 )

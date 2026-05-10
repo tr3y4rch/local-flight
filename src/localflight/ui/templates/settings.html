@@ -1,515 +1,590 @@
 {% extends "base.html" %}
 {% from "_nav.html" import topnav %}
 
-{% block title %}Local Flight — Settings{% endblock %}
+{% block title %}Local Flight - Settings{% endblock %}
 
 {% block extra_style %}
   body { display: block; min-height: 100vh; padding: 0; }
-  .page-body { padding: 24px 16px; }
-  .card {
-    width: min(860px, calc(100vw - 32px));
-    max-width: none;
+  .settings-page {
+    width: min(1180px, calc(100vw - 32px));
     margin: 0 auto;
+    padding: 26px 16px 42px;
   }
+  .settings-hero {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 16px;
+    align-items: start;
+    margin-bottom: 18px;
+  }
+  .settings-title {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+  }
+  .settings-title img {
+    width: 44px;
+    height: 44px;
+    flex: 0 0 auto;
+  }
+  .settings-title h1 {
+    margin: 0 0 4px;
+    font-size: clamp(1.45rem, 2vw, 2.1rem);
+  }
+  .settings-title p {
+    margin: 0;
+    color: color-mix(in srgb, var(--text) 68%, transparent);
+    line-height: 1.5;
+    max-width: 680px;
+  }
+  .settings-actions {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+  .settings-actions button,
+  .settings-actions a,
+  .card-actions button,
+  .card-actions a {
+    width: auto;
+    margin-top: 0;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+  }
+  .status-strip {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 10px;
+    margin-bottom: 14px;
+  }
+  .metric-card,
+  .settings-card,
+  .details-card {
+    border: 1px solid var(--panel-border);
+    background: var(--panel-bg);
+    border-radius: 16px;
+    box-shadow: 0 18px 50px rgba(0,0,0,.18);
+  }
+  .metric-card {
+    padding: 12px;
+    min-width: 0;
+  }
+  .metric-card b,
+  .settings-card h2,
+  .details-card summary {
+    font-family: var(--font-board);
+    letter-spacing: .08em;
+    text-transform: uppercase;
+  }
+  .metric-card b {
+    display: block;
+    font-size: .68rem;
+    color: color-mix(in srgb, var(--text) 58%, transparent);
+    margin-bottom: 8px;
+  }
+  .metric-card strong {
+    display: block;
+    font-size: 1.28rem;
+    line-height: 1.05;
+  }
+  .metric-card span {
+    display: block;
+    margin-top: 6px;
+    font-size: .78rem;
+    color: color-mix(in srgb, var(--text) 68%, transparent);
+    line-height: 1.35;
+  }
+  .settings-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+  }
+  .settings-card {
+    padding: 16px;
+    min-width: 0;
+  }
+  .settings-card h2 {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0 0 8px;
+    font-size: .88rem;
+    color: #7cc4f0;
+  }
+  .settings-card .intro {
+    margin: 0 0 14px;
+    line-height: 1.55;
+    color: color-mix(in srgb, var(--text) 70%, transparent);
+    font-size: .86rem;
+  }
+  .form-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+  }
+  .form-grid .wide { grid-column: 1 / -1; }
   .airport-picker { position: relative; }
-  .airport-picker input { width: 100%; box-sizing: border-box; }
   .airport-dropdown {
-    display: none; position: absolute; z-index: 100; width: 100%;
-    border: 1px solid rgba(255,255,255,0.15); border-radius: 6px;
-    margin-top: 4px; max-height: 280px; overflow-y: auto;
-    background: var(--bg, #1a1a1a);
+    display: none;
+    position: absolute;
+    z-index: 100;
+    width: 100%;
+    border: 1px solid var(--input-border);
+    border-radius: 10px;
+    margin-top: 5px;
+    max-height: 280px;
+    overflow-y: auto;
+    background: var(--card-bg);
+    box-shadow: 0 18px 50px rgba(0,0,0,.35);
   }
-  [data-theme="light"] .airport-dropdown { background: #fff; border-color: rgba(0,0,0,0.15); }
   .airport-dropdown.open { display: block; }
   .airport-option {
-    padding: 10px 14px; cursor: pointer;
-    border-bottom: 1px solid rgba(255,255,255,0.06); font-size: 0.9rem;
+    padding: 10px 12px;
+    cursor: pointer;
+    border-bottom: 1px solid color-mix(in srgb, var(--panel-border) 70%, transparent);
   }
-  [data-theme="light"] .airport-option { border-bottom-color: rgba(0,0,0,0.06); }
   .airport-option:last-child { border-bottom: none; }
-  .airport-option:hover, .airport-option:focus { background: rgba(255,255,255,0.08); outline: none; }
-  [data-theme="light"] .airport-option:hover { background: rgba(0,0,0,0.05); }
-  .airport-option .codes { font-weight: 700; font-size: 1rem; }
-  .airport-option .detail { opacity: 0.65; font-size: 0.8rem; margin-top: 2px; }
+  .airport-option:hover, .airport-option:focus {
+    background: color-mix(in srgb, #4a9eda 14%, transparent);
+    outline: none;
+  }
+  .airport-option .codes { font-weight: 800; }
+  .airport-option .detail {
+    opacity: .68;
+    font-size: .78rem;
+    margin-top: 3px;
+  }
   .airport-selected {
-    margin-top: 6px; padding: 8px 12px; border-radius: 6px;
-    background: rgba(255,255,255,0.05); font-size: 0.85rem; display: none;
+    margin-top: 8px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    background: color-mix(in srgb, #4a9eda 9%, transparent);
+    border: 1px solid color-mix(in srgb, #4a9eda 20%, transparent);
+    font-size: .82rem;
+    display: none;
   }
   .airport-selected.visible { display: block; }
-  [data-theme="light"] .airport-selected { background: rgba(0,0,0,0.04); }
-  .skin-grid {
+  .skin-grid, .output-grid, .resource-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
-    gap: 8px; margin-top: 6px;
+    grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+    gap: 9px;
+  }
+  .sk-opt, .choice-tile, .resource-card {
+    border-radius: 12px;
+    border: 1px solid var(--panel-border);
+    padding: 11px 12px;
+    background: color-mix(in srgb, var(--panel-bg) 84%, transparent);
   }
   .sk-opt {
-    padding: 10px 6px; border-radius: 6px; cursor: pointer;
-    text-align: center; font-size: 0.78rem; font-weight: 700;
-    border: 2px solid transparent; transition: border-color 0.15s;
+    cursor: pointer;
+    text-align: left;
+    min-height: 58px;
+    transition: transform .12s ease, border-color .12s ease;
+  }
+  .sk-opt:hover { transform: translateY(-1px); }
+  .sk-opt.active {
+    border-color: var(--skin-accent, #4a9eda);
+    box-shadow: inset 0 0 0 1px var(--skin-accent, #4a9eda);
+  }
+  .sk-opt strong { display: block; font-size: .84rem; }
+  .sk-opt span { display: block; opacity: .72; font-size: .72rem; margin-top: 4px; line-height: 1.35; }
+  .choice-tile {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    cursor: pointer;
+  }
+  .choice-tile input { width: auto; margin: 3px 0 0; accent-color: #4a9eda; }
+  .choice-tile strong { display: block; font-size: .86rem; }
+  .choice-tile span { display: block; opacity: .68; font-size: .76rem; line-height: 1.35; margin-top: 3px; }
+  .profile-row,
+  .card-actions {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+  .profile-row select,
+  .profile-row input { flex: 1 1 220px; }
+  .details-stack {
+    display: grid;
+    gap: 10px;
+    margin-top: 14px;
+  }
+  .details-card {
+    padding: 0;
+    overflow: hidden;
+  }
+  .details-card summary {
+    padding: 14px 16px;
+    cursor: pointer;
+    list-style: none;
+    color: #7cc4f0;
+    font-size: .78rem;
+  }
+  .details-card summary::-webkit-details-marker { display: none; }
+  .details-body {
+    padding: 0 16px 16px;
   }
   .mini-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
     gap: 10px;
-    margin-top: 10px;
   }
   .mini-cell {
     padding: 10px 12px;
-    border-radius: 8px;
-    background: rgba(255,255,255,0.04);
-    border: 1px solid rgba(255,255,255,0.08);
-    font-size: 0.8rem;
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--bg) 42%, transparent);
+    border: 1px solid color-mix(in srgb, var(--panel-border) 80%, transparent);
+    font-size: .8rem;
     line-height: 1.45;
   }
   .mini-cell b {
     display: block;
-    margin-bottom: 4px;
-    font-size: 0.72rem;
-    opacity: 0.62;
+    margin-bottom: 5px;
+    font-size: .68rem;
+    opacity: .62;
     text-transform: uppercase;
-    letter-spacing: 0.03em;
-  }
-      .panel-intro {
-    margin: -4px 0 14px 0;
-    font-size: 0.84rem;
-    line-height: 1.5;
-    opacity: 0.68;
-  }
-  .cadence-help {
-    margin-top: 8px;
-    padding: 10px 12px;
-    border-radius: 8px;
-    background: rgba(255,255,255,0.04);
-    border: 1px solid rgba(255,255,255,0.08);
-    font-size: 0.8rem;
-    line-height: 1.45;
-    opacity: 0.78;
-  }
-  .cadence-help strong { opacity: 0.95; }
-  .resource-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-    gap: 10px;
-    margin-top: 10px;
+    letter-spacing: .06em;
   }
   .resource-card {
     display: block;
-    padding: 12px 14px;
-    color: inherit;
     text-decoration: none;
-    border-radius: 10px;
-    background: rgba(255,255,255,0.04);
-    border: 1px solid rgba(255,255,255,0.08);
-    transition: border-color 0.12s ease, background 0.12s ease, transform 0.12s ease;
+    color: inherit;
   }
-  .resource-card:hover {
-    border-color: rgba(124,196,240,0.35);
-    background: rgba(124,196,240,0.08);
-    transform: translateY(-1px);
+  .resource-card strong { display: block; margin-bottom: 4px; }
+  .resource-card span { display: block; font-size: .76rem; line-height: 1.45; opacity: .68; }
+  .cadence-help {
+    margin-top: 10px;
+    padding: 11px 12px;
+    border-radius: 12px;
+    background: color-mix(in srgb, #4a9eda 8%, transparent);
+    border: 1px solid color-mix(in srgb, #4a9eda 18%, transparent);
+    font-size: .8rem;
+    line-height: 1.5;
   }
-  [data-theme="light"] .resource-card {
-    background: rgba(0,0,0,0.03);
-    border-color: rgba(0,0,0,0.08);
+  .footer-row {
+    display: flex;
+    gap: 10px;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    margin-top: 16px;
+    color: color-mix(in srgb, var(--text) 58%, transparent);
+    font-size: .78rem;
   }
-  [data-theme="light"] .resource-card:hover {
-    border-color: rgba(30,108,180,0.28);
-    background: rgba(30,108,180,0.05);
+  .danger-link {
+    width: auto;
+    margin: 0;
+    color: #ff8b8b;
+    border-color: rgba(239,68,68,.35);
+    background: rgba(239,68,68,.08);
   }
-  .resource-card strong {
-    display: block;
-    margin-bottom: 4px;
-    font-size: 0.85rem;
-  }
-  .resource-card span {
-    display: block;
-    font-size: 0.78rem;
-    line-height: 1.45;
-    opacity: 0.68;
+  @media (max-width: 900px) {
+    .settings-hero,
+    .settings-grid,
+    .status-strip,
+    .form-grid { grid-template-columns: 1fr; }
+    .settings-actions { justify-content: flex-start; }
   }
 {% endblock %}
 
 {% block body %}
 {{ topnav(active="settings", cfg=cfg) }}
 
-<div class="page-body">
-<main class="card">
-  <header>
-    <h1>{{ cfg.display_name or "Local Flight" }}</h1>
-    <p class="sub">{{ cfg.airport_iata }} / {{ cfg.airport_icao }} · {{ cfg.source or "real" }} · {{ cfg.skin or "standard" }}</p>
-  </header>
-
-  {% if profile_msg %}
-    <div class="toast">{{ profile_msg }}</div>
-  {% endif %}
-  {% if saved %}
-    <div class="toast">Saved.</div>
-  {% endif %}
-
-  <!-- STATUS -->
-  <section class="panel">
-    <h2>Current</h2>
-    <div class="grid" id="statusGrid"
-      data-last-attempt="{{ state.last_attempt_utc or '' }}"
-      data-last-success="{{ state.last_success_utc or '' }}"
-      data-refresh-seconds="{{ cfg.refresh_seconds }}"
-    >
-      <div><b>Airport</b><br />{{ cfg.airport_iata }} / {{ cfg.airport_icao }}</div>
-      <div><b>Refresh</b><br />{{ cfg.refresh_seconds }}s</div>
+<main class="settings-page">
+  <section class="settings-hero">
+    <div class="settings-title">
+      <img src="/static/brand_mark.svg" alt="" />
       <div>
-        <b>Source</b><br />
-        <span class="dim">Configured:</span> {{ cfg.source or "real" }}<br />
-        <span class="dim">Runtime:</span> {{ state.source_name }}
-      </div>
-      <div>
-        <b>Connection</b><br />
-        {% if state.ok %}<span class="ok">OK</span>{% else %}<span class="bad">ERROR</span>{% endif %}
-      </div>
-      <div><b>Last attempt</b><br />{{ state.last_attempt_utc or "-" }}</div>
-      <div><b>Latency</b><br />{{ state.last_latency_ms or "-" }} ms</div>
-      <div>
-        <b>Last refresh</b><br />
-        <span id="lastAbs">{{ state.last_success_utc or "-" }}</span><br />
-        <small id="lastRel">-</small>
-      </div>
-      <div>
-        <b>Next refresh</b><br />
-        <span id="nextAbs">-</span><br />
-        <small id="nextRel">-</small>
+        <h1>Settings</h1>
+        <p>Friendly controls for the local board. Operator relay tools stay separate in Network Admin.</p>
       </div>
     </div>
-    {% if state.last_error %}
-      <p class="err"><b>Last error:</b> {{ state.last_error }}</p>
-    {% endif %}
-    <div class="row" style="margin-top:14px;align-items:center;">
+    <div class="settings-actions">
       <button type="button" id="restartSchedulerBtn" onclick="restartSchedulerNow()">Restart scheduler</button>
-      <span id="restartSchedulerMsg" class="dim" style="font-size:0.82rem;">
-        Reloads config and starts a fresh fetch cycle.
-      </span>
+      <button type="submit" form="settingsForm">Apply settings</button>
     </div>
   </section>
 
-  <section class="panel">
-    <h2>Install &amp; Relay</h2>
-    <p class="hint">Read-only details about how this install reaches live schedule data.</p>
-    <div class="mini-grid">
-      <div class="mini-cell"><b>Machine ID</b><span id="clientInstallId" class="mono">Loading...</span></div>
-      <div class="mini-cell"><b>Data mode</b><span id="clientMode">Loading...</span></div>
-      <div class="mini-cell"><b>Community key</b><span id="clientCommunityKey">Loading...</span></div>
-      <div class="mini-cell"><b>Managed token</b><span id="clientToken">Loading...</span></div>
-      <div class="mini-cell"><b>Relay URL</b><span id="clientRelayUrl" class="mono">Loading...</span></div>
-      <div class="mini-cell"><b>Access path</b><span id="clientAccessStatus">Loading...</span></div>
-      <div class="mini-cell"><b>Schedule window</b><span id="clientFetchWindow">Loading...</span></div>
-      <div class="mini-cell"><b>Access summary</b><span id="clientBurnRate">Loading...</span></div>
-      <div class="mini-cell"><b>Data note</b><span id="clientCadenceNote">Loading...</span></div>
-    </div>
+  {% if profile_msg %}<div class="toast">{{ profile_msg }}</div>{% endif %}
+  {% if saved %}<div class="toast">Saved. Settings were applied to this install.</div>{% endif %}
+
+  <section class="status-strip" id="statusGrid"
+    data-last-attempt="{{ state.last_attempt_utc or '' }}"
+    data-last-success="{{ state.last_success_utc or '' }}"
+    data-refresh-seconds="{{ cfg.refresh_seconds }}">
+    <div class="metric-card"><b>Airport</b><strong>{{ cfg.airport_iata }} / {{ cfg.airport_icao }}</strong><span>{{ cfg.timezone }}</span></div>
+    <div class="metric-card"><b>Source</b><strong>{{ cfg.source or "real" }}</strong><span>Runtime: {{ state.source_name }}</span></div>
+    <div class="metric-card"><b>Refresh</b><strong>{{ cfg.refresh_seconds // 60 }} min</strong><span>Provider-friendly cadence</span></div>
+    <div class="metric-card"><b>Last refresh</b><strong id="lastAbs">{{ state.last_success_utc or "-" }}</strong><span id="lastRel">-</span></div>
+    <div class="metric-card"><b>Next refresh</b><strong id="nextAbs">-</strong><span id="nextRel">-</span></div>
   </section>
 
-  <!-- PROFILES -->
-  <section class="panel">
-    <h2>Profiles</h2>
-    <form action="/profiles/load" method="post" class="row">
-      <select name="profile_name">
-        {% for p in profiles %}<option value="{{ p }}">{{ p }}</option>{% endfor %}
-      </select>
-      <button type="submit">Load</button>
-    </form>
-    <form action="/profiles/save" method="post" class="row">
-      <input name="profile_name" placeholder="New profile name (e.g. LSZH_day)" />
-      <button type="submit">Save current</button>
-    </form>
-    <form action="/profiles/delete" method="post" class="row">
-      <select name="profile_name">
-        {% for p in profiles %}<option value="{{ p }}">{{ p }}</option>{% endfor %}
-      </select>
-      <button type="submit">Delete</button>
-    </form>
-  </section>
+  {% if state.last_error %}
+    <div class="toast" style="border-color:rgba(239,68,68,.42);background:rgba(239,68,68,.1);"><b>Last error:</b> {{ state.last_error }}</div>
+  {% endif %}
 
   <form action="/save" method="post" id="settingsForm">
-    <section class="panel">
-      <h2>Flight Setup</h2>
-      <p class="panel-intro">Choose which airport the board follows, where the live data comes from, and how often Local Flight refreshes it.</p>
+    <input type="hidden" name="timezone" id="timezoneHidden" value="{{ cfg.timezone }}" />
+    <input type="hidden" name="skin" id="skinInput" value="{{ cfg.skin or 'standard' }}" />
 
-      <label>
-        <span>Airport</span>
-        <div class="airport-picker">
-          <input type="text" id="airportSearch"
-            placeholder="Search by name, city, IATA or ICAO…"
-            autocomplete="off"
-            value="{{ cfg.airport_iata }} / {{ cfg.airport_icao }}" />
-          <div class="airport-dropdown" id="airportDropdown"></div>
+    <section class="settings-grid">
+      <div class="settings-card">
+        <h2>Airport &amp; Source</h2>
+        <p class="intro">Pick the airport and choose real schedule data or VATSIM virtual traffic.</p>
+        <div class="form-grid">
+          <label class="wide">
+            <span>Airport search</span>
+            <div class="airport-picker">
+              <input type="text" id="airportSearch" autocomplete="off" value="{{ cfg.airport_iata }} / {{ cfg.airport_icao }}" placeholder="Search airport, city, IATA, or ICAO..." />
+              <div class="airport-dropdown" id="airportDropdown"></div>
+            </div>
+            <div class="airport-selected" id="airportSelected"></div>
+            <small>Select a result so IATA, ICAO, and timezone stay aligned.</small>
+          </label>
+          <label>
+            <span>IATA</span>
+            <input type="text" name="airport_iata" id="airportIata" value="{{ cfg.airport_iata }}" readonly />
+          </label>
+          <label>
+            <span>ICAO</span>
+            <input type="text" name="airport_icao" id="airportIcao" value="{{ cfg.airport_icao }}" readonly />
+          </label>
+          <label>
+            <span>Flight source</span>
+            <select name="source">
+              {% for option in settings_options.sources %}
+                <option value="{{ option.value }}" {% if (cfg.source or "real") == option.value %}selected{% endif %}>{{ option.label }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          <label>
+            <span>Refresh cadence</span>
+            <select name="refresh_seconds">
+              {% for option in settings_options.refresh %}
+                <option value="{{ option.value }}" {% if cfg.refresh_seconds == option.value %}selected{% endif %}>{{ option.label }}</option>
+              {% endfor %}
+            </select>
+          </label>
         </div>
-        <div class="airport-selected" id="airportSelected"></div>
-        <small>Type IATA (ZRH), ICAO (LSZH), city (Zurich) or name (Heathrow)</small>
-        <input type="hidden" name="airport_iata" id="airportIata" value="{{ cfg.airport_iata }}" />
-        <input type="hidden" name="airport_icao" id="airportIcao" value="{{ cfg.airport_icao }}" />
-      </label>
-
-      <label>
-        <span>Source</span>
-        <select name="source">
-          <option value="real"    {% if (cfg.source or "real") == "real"    %}selected{% endif %}>Real (AviationStack)</option>
-          <option value="virtual" {% if (cfg.source or "real") == "virtual" %}selected{% endif %}>Virtual (VATSIM live)</option>
-        </select>
-        <small>Real = live scheduled flights. Virtual = VATSIM sim traffic.</small>
-      </label>
-
-      <label>
-        <span>Update frequency</span>
-        <select name="refresh_seconds">
-          {% set choices = [
-            (900,  "Every 15 minutes"),
-            (1800, "Every 30 minutes"),
-            (2700, "Every 45 minutes"),
-            (3600, "Every 60 minutes"),
-            (7200, "Every 2 hours"),
-            (14400,"Every 4 hours"),
-            (28800,"Every 8 hours"),
-            (43200,"Every 12 hours"),
-            (86400,"Every 24 hours"),
-          ] %}
-          {% for val, label in choices %}
-            <option value="{{ val }}" {% if cfg.refresh_seconds == val %}selected{% endif %}>{{ label }}</option>
-          {% endfor %}
-        </select>
         <div class="cadence-help">
           <strong>Available choices:</strong> 15, 30, 45, and 60 minutes, then 2, 4, 8, 12, or 24 hours.
-          Short intervals keep local displays feeling fresh. Longer intervals are gentler on shared schedule providers.
-          Community Relay protects already-cached airports with an hourly upstream refresh floor, so 15 or 30 minute
-          local polling can still reuse the shared snapshot instead of forcing new provider calls.
+          Community Relay can reuse a shared airport snapshot and keeps an hourly upstream refresh floor, so local checks can be frequent without forcing provider calls every time.
         </div>
-      </label>
+      </div>
 
-      <label>
-        <span>Board grace window</span>
-        <select name="display_grace_minutes">
-          {% for val, label in [(0, "Hide immediately"), (15, "15 minutes"), (30, "30 minutes"), (60, "60 minutes"), (90, "90 minutes")] %}
-            <option value="{{ val }}" {% if cfg.display_grace_minutes == val %}selected{% endif %}>{{ label }}</option>
-          {% endfor %}
-        </select>
-        <small>How long departed or arrived flights remain visible before dropping off the board.</small>
-      </label>
-
-      <label>
-        <span>Board horizon</span>
-        <select name="display_horizon_hours">
-          {% for val in [6, 12, 18, 24] %}
-            <option value="{{ val }}" {% if cfg.display_horizon_hours == val %}selected{% endif %}>{{ val }} hours</option>
-          {% endfor %}
-        </select>
-        <small>How far ahead upcoming flights stay eligible for FIDS and matrix display.</small>
-      </label>
-    </section>
-
-    <section class="panel">
-      <h2>Display &amp; Devices</h2>
-      <p class="panel-intro">Set how the board looks and which outputs this install should serve.</p>
-
-      <input type="hidden" name="timezone" id="timezoneHidden" value="{{ cfg.timezone }}" />
-
-      <label>
-        <span>Skin</span>
-        <input type="hidden" name="skin" id="skinInput" value="{{ cfg.skin or 'standard' }}" />
-        <div class="skin-grid">
-          {% set skins = [
-            ("standard",  "Standard",  "#e7edf3", "#1a1d22"),
-            ("technical", "Technical", "#4a9eda", "#0a0e14"),
-            ("neon",      "Neon",      "#00ff50", "#000d00"),
-            ("cyan",      "Cyan",      "#00ccff", "#00080f"),
-            ("crt",       "CRT",       "#ffaa00", "#0a0600"),
-          ] %}
-          {% for sk_id, sk_label, sk_fg, sk_bg in skins %}
-          <div class="sk-opt" data-sk="{{ sk_id }}"
-            style="background:{{ sk_bg }}; color:{{ sk_fg }};"
-            onclick="selectSkin('{{ sk_id }}', '{{ sk_fg }}')">
-            {{ sk_label }}
-          </div>
-          {% endfor %}
-        </div>
-      </label>
-
-      <label>
-        <span>Display outputs</span>
-        {% set outputs = [
-          ("web",    "Web",    "LAN browser UI on this machine"),
-          ("matrix", "Matrix", "Interstate 75 W LED panel over WiFi"),
-          ("hdmi",   "HDMI",   "Chromium browser kiosk on connected screen"),
-        ] %}
-        <div style="display:flex; flex-direction:column; gap:8px; margin-top:6px;">
-          {% for out_id, out_label, out_desc in outputs %}
-          <label style="display:flex; gap:10px; align-items:flex-start; cursor:pointer;
-                        background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08);
-                        border-radius:8px; padding:10px; margin:0;">
-            <input type="checkbox" name="display_outputs" value="{{ out_id }}"
-              {% if out_id in (cfg.display_outputs or ['web']) %}checked{% endif %}
-              style="width:auto; margin-top:2px; accent-color:#00ff50;" />
-            <div>
-              <div style="font-weight:700; font-size:0.85rem;">{{ out_label }}</div>
-              <div style="opacity:0.55; font-size:0.75rem;">{{ out_desc }}</div>
-            </div>
+      <div class="settings-card">
+        <h2>Appearance</h2>
+        <p class="intro">Change the board mood without changing flight data. Choices update the preview immediately and save with Apply.</p>
+        <div class="form-grid">
+          <label>
+            <span>Display name</span>
+            <input name="display_name" value="{{ cfg.display_name }}" maxlength="40" />
           </label>
+          <label>
+            <span>Theme</span>
+            <select name="theme" id="themeSelect">
+              {% for option in settings_options.themes %}
+                <option value="{{ option.value }}" {% if cfg.theme == option.value %}selected{% endif %}>{{ option.label }}</option>
+              {% endfor %}
+            </select>
+          </label>
+        </div>
+        <div class="skin-grid" id="skinGrid">
+          {% for option in settings_options.skins %}
+            <button type="button"
+              class="sk-opt {% if (cfg.skin or 'standard') == option.value %}active{% endif %}"
+              data-sk="{{ option.value }}"
+              data-fg="{{ option.fg }}"
+              data-bg="{{ option.bg }}"
+              data-accent="{{ option.accent }}"
+              style="background:{{ option.bg }}; color:{{ option.fg }};"
+              onclick="selectSkin('{{ option.value }}')">
+              <strong>{{ option.label }}</strong>
+              <span>{{ option.description }}</span>
+            </button>
           {% endfor %}
         </div>
-        <small>
-          Matrix = Interstate 75 W polls /api/fids over WiFi.
-          <a href="/matrix-preview" style="color:inherit; opacity:0.7;">Preview matrix →</a>
-        </small>
-      </label>
+      </div>
 
-      <div>
-        <span>Radar overlay</span>
-        <label style="display:flex; gap:10px; align-items:flex-start; cursor:pointer;
-                      background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08);
-                      border-radius:8px; padding:10px; margin:6px 0 0;">
-          <input type="checkbox" name="radar_surface_enabled" value="1"
-            {% if cfg.radar_surface_enabled %}checked{% endif %}
-            style="width:auto; margin-top:2px; accent-color:#00ff50;" />
-          <div>
-            <div style="font-weight:700; font-size:0.85rem;">Airport surface overlay</div>
-            <div style="opacity:0.55; font-size:0.75rem;">Draws cached OpenStreetMap airport geometry under the radar scope when available.</div>
-          </div>
+      <div class="settings-card">
+        <h2>Outputs &amp; Radar</h2>
+        <p class="intro">Choose which display surfaces this install should serve and whether radar draws the airport surface layer.</p>
+        <div class="output-grid">
+          {% for option in settings_options.outputs %}
+            <label class="choice-tile">
+              <input type="checkbox" name="display_outputs" value="{{ option.value }}"
+                {% if option.value in (cfg.display_outputs or ['web']) %}checked{% endif %} />
+              <span><strong>{{ option.label }}</strong><span>{{ option.description }}</span></span>
+            </label>
+          {% endfor %}
+        </div>
+        <label class="choice-tile" style="margin-top:12px;">
+          <input type="checkbox" name="radar_surface_enabled" value="1" {% if cfg.radar_surface_enabled %}checked{% endif %} />
+          <span><strong>Airport surface overlay</strong><span>Draw cached runway/surface geometry under the radar when available. Visual only, not navigation data.</span></span>
         </label>
       </div>
-    </section>
 
-    <section class="panel">
-      <h2>App</h2>
-      <p class="panel-intro">Adjust the local app shell without changing the live flight-data path.</p>
-
-      <label>
-        <span>Theme</span>
-        <select name="theme">
-          <option value="dark"  {% if cfg.theme == "dark"  %}selected{% endif %}>Dark</option>
-          <option value="light" {% if cfg.theme == "light" %}selected{% endif %}>Light</option>
-        </select>
-      </label>
-
-      <label>
-        <span>Display name</span>
-        <input name="display_name" value="{{ cfg.display_name }}" maxlength="40" />
-      </label>
-
-      <label>
-        <span>Web board rows</span>
-        <select name="web_row_limit">
-          {% for val in [10, 12, 16, 20, 24, 28, 32] %}
-            <option value="{{ val }}" {% if cfg.web_row_limit == val %}selected{% endif %}>{{ val }} visible rows</option>
-          {% endfor %}
-        </select>
-      </label>
-
-      <label>
-        <span>Web page rotation</span>
-        <select name="web_rotation_seconds">
-          {% for val in [4, 6, 8, 10, 12, 15] %}
-            <option value="{{ val }}" {% if cfg.web_rotation_seconds == val %}selected{% endif %}>Every {{ val }} seconds</option>
-          {% endfor %}
-        </select>
-        <small>When more rows exist than the visible board cap, rotate board pages instead of scrolling.</small>
-      </label>
-    </section>
-
-    <section class="panel">
-      <h2>Diagnostics &amp; Documents</h2>
-      <p class="panel-intro">Keep support, reporting, and project docs separate from the live-board controls.</p>
-
-      <label>
-        <span>Diagnostics</span>
-        <select name="diagnostics_mode">
-          <option value="unset" {% if (cfg.diagnostics_mode or "unset") == "unset" %}selected{% endif %}>Ask me again on next launch</option>
-          <option value="manual" {% if cfg.diagnostics_mode == "manual" %}selected{% endif %}>Manual reports only</option>
-          <option value="auto" {% if cfg.diagnostics_mode == "auto" %}selected{% endif %}>Automatic crash reports</option>
-          <option value="auto_logs" {% if cfg.diagnostics_mode == "auto_logs" %}selected{% endif %}>Automatic crash reports + sanitized logs</option>
-        </select>
-        <small>
-          Manual reports stay available from the Report page. Automatic diagnostics are sanitized locally, sent through the hosted relay reporting gateway, and then filed into the developer issue inbox.
-        </small>
-      </label>
-
-      <div class="resource-grid">
-        <a class="resource-card" href="/feedback">
-          <strong>Report an issue</strong>
-          <span>Send a manual bug report with install-scoped diagnostics attached.</span>
-        </a>
-        <a class="resource-card" href="/docs/readme">
-          <strong>Project README</strong>
-          <span>Friendly overview, quick path chooser, previews, and links to deeper docs.</span>
-        </a>
-        <a class="resource-card" href="/docs/install">
-          <strong>Install guide</strong>
-          <span>Windows, macOS, Raspberry Pi, source checkout, and mobile testing steps.</span>
-        </a>
-        <a class="resource-card" href="/docs/display-modes">
-          <strong>Display modes</strong>
-          <span>Choose native desktop, LAN browser UI, Pi kiosk, mobile companion, or Matrix.</span>
-        </a>
-        <a class="resource-card" href="/docs/privacy">
-          <strong>Privacy &amp; diagnostics</strong>
-          <span>What gets sent, what stays local, and how the reporting modes behave.</span>
-        </a>
-        <a class="resource-card" href="/docs/changelog">
-          <strong>Release notes</strong>
-          <span>See what changed in the current beta and what landed in earlier passes.</span>
-        </a>
-        <a class="resource-card" href="/docs/third-party">
-          <strong>Third-party notices</strong>
-          <span>Bundled font licenses and source attribution for local app assets.</span>
-        </a>
-      </div>
-
-      <div class="row" style="margin-top:14px;align-items:center;">
-        <button type="submit">Save settings</button>
-        <span class="dim" style="font-size:0.82rem;">Saves the local config and restarts the scheduler if the flight setup changed.</span>
+      <div class="settings-card">
+        <h2>Profiles</h2>
+        <p class="intro">Save airport and board presets for quick swaps without re-running setup.</p>
+        <div class="profile-row">
+          <select form="profileLoadForm" name="profile_name">
+            {% for p in profiles %}<option value="{{ p }}">{{ p }}</option>{% endfor %}
+          </select>
+          <button type="submit" form="profileLoadForm">Load</button>
+        </div>
+        <div class="profile-row">
+          <input form="profileSaveForm" name="profile_name" placeholder="New profile name" />
+          <button type="submit" form="profileSaveForm">Save current</button>
+        </div>
+        <div class="profile-row">
+          <select form="profileDeleteForm" name="profile_name">
+            {% for p in profiles %}<option value="{{ p }}">{{ p }}</option>{% endfor %}
+          </select>
+          <button type="submit" form="profileDeleteForm" class="danger-link">Delete</button>
+        </div>
       </div>
     </section>
+
+    <section class="details-stack">
+      <details class="details-card">
+        <summary>Relay details</summary>
+        <div class="details-body">
+          <p class="intro">Read-only access status. Tokens, raw install IDs, and operator internals are not shown.</p>
+          <div class="mini-grid">
+            <div class="mini-cell"><b>Support ID</b><span id="clientInstallId" class="mono">Loading...</span></div>
+            <div class="mini-cell"><b>Data mode</b><span id="clientMode">Loading...</span></div>
+            <div class="mini-cell"><b>Community key</b><span id="clientCommunityKey">Loading...</span></div>
+            <div class="mini-cell"><b>Managed token</b><span id="clientToken">Loading...</span></div>
+            <div class="mini-cell"><b>Relay host</b><span id="clientRelayUrl" class="mono">Loading...</span></div>
+            <div class="mini-cell"><b>Access path</b><span id="clientAccessStatus">Loading...</span></div>
+            <div class="mini-cell"><b>Schedule window</b><span id="clientFetchWindow">Loading...</span></div>
+            <div class="mini-cell"><b>Access summary</b><span id="clientBurnRate">Loading...</span></div>
+            <div class="mini-cell"><b>Data note</b><span id="clientCadenceNote">Loading...</span></div>
+          </div>
+        </div>
+      </details>
+
+      <details class="details-card">
+        <summary>Diagnostics &amp; Docs</summary>
+        <div class="details-body">
+          <label>
+            <span>Diagnostics mode</span>
+            <select name="diagnostics_mode">
+              {% for option in settings_options.diagnostics %}
+                <option value="{{ option.value }}" {% if (cfg.diagnostics_mode or "unset") == option.value %}selected{% endif %}>{{ option.label }}</option>
+              {% endfor %}
+            </select>
+            <small>Manual reports stay available from Report. Automatic diagnostics are sanitized locally first.</small>
+          </label>
+          <div class="resource-grid">
+            <a class="resource-card" href="/feedback"><strong>Report an issue</strong><span>Send a manual report with local app context.</span></a>
+            <a class="resource-card" href="/docs/readme"><strong>README</strong><span>Friendly overview and quick path chooser.</span></a>
+            <a class="resource-card" href="/docs/install"><strong>Install guide</strong><span>Windows, macOS, Pi, source, and mobile steps.</span></a>
+            <a class="resource-card" href="/docs/display-modes"><strong>Display modes</strong><span>Native, browser fallback, Pi, mobile, and Matrix.</span></a>
+            <a class="resource-card" href="/docs/privacy"><strong>Privacy</strong><span>What stays local and how reporting works.</span></a>
+            <a class="resource-card" href="/docs/third-party"><strong>Third-party notices</strong><span>Bundled fonts and asset attributions.</span></a>
+          </div>
+        </div>
+      </details>
+
+      <details class="details-card">
+        <summary>Advanced board timing</summary>
+        <div class="details-body">
+          <div class="form-grid">
+            <label>
+              <span>Visible web rows</span>
+              <select name="web_row_limit">
+                {% for option in settings_options.web_rows %}
+                  <option value="{{ option.value }}" {% if cfg.web_row_limit == option.value %}selected{% endif %}>{{ option.label }}</option>
+                {% endfor %}
+              </select>
+            </label>
+            <label>
+              <span>Page rotation</span>
+              <select name="web_rotation_seconds">
+                {% for option in settings_options.web_rotation %}
+                  <option value="{{ option.value }}" {% if cfg.web_rotation_seconds == option.value %}selected{% endif %}>{{ option.label }}</option>
+                {% endfor %}
+              </select>
+            </label>
+            <label>
+              <span>Past grace window</span>
+              <select name="display_grace_minutes">
+                {% for option in settings_options.grace %}
+                  <option value="{{ option.value }}" {% if cfg.display_grace_minutes == option.value %}selected{% endif %}>{{ option.label }}</option>
+                {% endfor %}
+              </select>
+            </label>
+            <label>
+              <span>Future board horizon</span>
+              <select name="display_horizon_hours">
+                {% for option in settings_options.horizon %}
+                  <option value="{{ option.value }}" {% if cfg.display_horizon_hours == option.value %}selected{% endif %}>{{ option.label }}</option>
+                {% endfor %}
+              </select>
+            </label>
+          </div>
+        </div>
+      </details>
+
+      <details class="details-card">
+        <summary>Maintenance</summary>
+        <div class="details-body">
+          <p class="intro">Most users can ignore this. Use setup reset only when you want to re-run the first-launch guide.</p>
+          <div class="card-actions">
+            <button type="button" onclick="restartSchedulerNow()">Restart scheduler</button>
+            <button type="button" class="danger-link" onclick="resetSetup()">Re-run setup wizard</button>
+            <span id="restartSchedulerMsg" class="dim">Reloads config and starts a fresh fetch cycle.</span>
+          </div>
+        </div>
+      </details>
+    </section>
+
+    <div class="footer-row">
+      <span>Config lives locally at <code>~/.localflight/config.json</code></span>
+      <button type="submit">Apply settings</button>
+    </div>
   </form>
 
-  <footer>
-    <p class="hint">Config: <code>~/.localflight/config.json</code></p>
-    <p class="hint" style="margin-top:16px;padding-top:16px;border-top:1px solid rgba(255,255,255,0.07);">
-      <button onclick="resetSetup()"
-        style="background:none;border:1px solid rgba(255,255,255,0.12);border-radius:6px;
-               color:inherit;opacity:0.45;font-size:0.75rem;padding:5px 12px;cursor:pointer;
-               transition:opacity 0.15s,border-color 0.15s;"
-        onmouseover="this.style.opacity='0.8';this.style.borderColor='rgba(239,68,68,0.4)'"
-        onmouseout="this.style.opacity='0.45';this.style.borderColor='rgba(255,255,255,0.12)'">
-        Re-run setup wizard
-      </button>
-      <span style="opacity:0.3;font-size:0.72rem;margin-left:10px;">Clears the setup marker and restarts the wizard</span>
-    </p>
-  </footer>
+  <form action="/profiles/load" method="post" id="profileLoadForm"></form>
+  <form action="/profiles/save" method="post" id="profileSaveForm"></form>
+  <form action="/profiles/delete" method="post" id="profileDeleteForm"></form>
 
-  {# ── Reset confirmation modal ── #}
   <div id="resetModal" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.55);backdrop-filter:blur(4px);align-items:center;justify-content:center;">
-    <div style="background:var(--panel-bg,#1a1a1a);border:1px solid var(--panel-border,rgba(255,255,255,0.12));border-radius:14px;padding:28px 32px;min-width:280px;max-width:360px;text-align:center;box-shadow:0 24px 64px rgba(0,0,0,0.5);">
-      <div style="font-size:2rem;margin-bottom:12px;">⚙️</div>
-      <div style="font-weight:700;font-size:1rem;margin-bottom:6px;">Re-run setup wizard?</div>
-      <div style="opacity:0.5;font-size:0.82rem;margin-bottom:24px;">Your current config will be preserved but the wizard will open on next page load.</div>
+    <div style="background:var(--panel-bg);border:1px solid var(--panel-border);border-radius:16px;padding:28px 32px;min-width:280px;max-width:380px;text-align:center;box-shadow:0 24px 64px rgba(0,0,0,0.5);">
+      <img src="/static/brand_mark.svg" alt="" style="width:48px;height:48px;margin-bottom:12px;" />
+      <div style="font-weight:800;font-size:1rem;margin-bottom:6px;">Re-run setup wizard?</div>
+      <div style="opacity:.66;font-size:.84rem;line-height:1.5;margin-bottom:22px;">Your config stays on disk, but Local Flight will open the guided setup again.</div>
       <div style="display:flex;gap:10px;justify-content:center;">
-        <button onclick="document.getElementById('resetModal').style.display='none'" style="padding:8px 20px;border-radius:8px;border:1px solid rgba(255,255,255,0.12);background:none;color:inherit;font-size:0.88rem;cursor:pointer;opacity:0.7;">Cancel</button>
-        <button onclick="confirmReset()" style="padding:8px 20px;border-radius:8px;border:none;background:#ef4444;color:#fff;font-size:0.88rem;font-weight:700;cursor:pointer;">Reset</button>
+        <button type="button" onclick="document.getElementById('resetModal').style.display='none'" style="width:auto;margin:0;">Cancel</button>
+        <button type="button" onclick="confirmReset()" class="danger-link">Reset</button>
       </div>
     </div>
   </div>
 </main>
-</div>
 {% endblock %}
 
 {% block extra_script %}
 <script>
-function selectSkin(sk, fg) {
-  document.getElementById("skinInput").value = sk;
+function selectSkin(sk) {
+  const input = document.getElementById("skinInput");
+  input.value = sk;
+  document.documentElement.dataset.skin = sk;
   document.querySelectorAll(".sk-opt").forEach(el => {
-    el.style.borderColor = el.dataset.sk === sk ? fg : "transparent";
+    el.classList.toggle("active", el.dataset.sk === sk);
   });
 }
 
-// highlight the saved skin on load
-(function () {
-  const active = document.getElementById("skinInput").value;
-  const el = document.querySelector(`.sk-opt[data-sk="${active}"]`);
-  if (el) el.style.borderColor = el.style.color;
-})();
+document.getElementById("themeSelect")?.addEventListener("change", event => {
+  document.documentElement.dataset.theme = event.target.value || "dark";
+});
 
 (function () {
   const el = document.getElementById("statusGrid");
@@ -520,7 +595,6 @@ function selectSkin(sk, fg) {
   const lastRel = document.getElementById("lastRel");
   const nextAbs = document.getElementById("nextAbs");
   const nextRel = document.getElementById("nextRel");
-
   function parseIso(s) { const d = new Date(s); return isNaN(d.getTime()) ? null : d; }
   function fmtRel(ms) {
     const sec = Math.max(0, Math.floor(ms / 1000));
@@ -528,16 +602,15 @@ function selectSkin(sk, fg) {
     if (m >= 60) { const h = Math.floor(m / 60); return `${h}h ${m % 60}m`; }
     return `${m}m ${s}s`;
   }
-
   function tick() {
     const now = new Date();
     const lastS = parseIso(lastSuccess);
-    if (lastRel) lastRel.textContent = lastS ? `(${fmtRel(now - lastS)} ago)` : "-";
+    if (lastRel) lastRel.textContent = lastS ? `${fmtRel(now - lastS)} ago` : "-";
     const lastA = parseIso(lastAttempt);
     if (!lastA || !refreshSeconds) { if (nextAbs) nextAbs.textContent = "-"; return; }
     const next = new Date(lastA.getTime() + refreshSeconds * 1000);
     if (nextAbs) nextAbs.textContent = next.toISOString().replace(".000Z", "Z");
-    if (nextRel) nextRel.textContent = next > now ? `(in ${fmtRel(next - now)})` : "(due now)";
+    if (nextRel) nextRel.textContent = next > now ? `in ${fmtRel(next - now)}` : "due now";
   }
   tick(); setInterval(tick, 1000);
 })();
@@ -546,6 +619,10 @@ function selectSkin(sk, fg) {
   function setText(id, value) {
     const target = document.getElementById(id);
     if (target) target.textContent = value;
+  }
+  function safeId(value) {
+    if (!value || value === "-") return "-";
+    return `lf-${String(value).slice(0, 6)}...${String(value).slice(-4)}`;
   }
   try {
     const r = await fetch("/api/admin/system");
@@ -572,67 +649,33 @@ function selectSkin(sk, fg) {
             : mode === "virtual"
               ? "No schedule relay in use"
               : "Unavailable";
-    setText("clientInstallId", data.install_id || "-");
+    setText("clientInstallId", safeId(data.install_id));
     setText("clientMode", modeLabel);
     setText("clientCommunityKey", client.community_key_present ? "Set locally" : "Not set");
     setText("clientToken", client.activation_token_present ? (client.activation_token_prefix || "Present") : "Not set");
     setText("clientRelayUrl", client.relay_url || (mode === "byok" || mode === "virtual" ? "Not used" : "Default relay"));
     setText("clientAccessStatus", accessLabel);
-    setText(
-      "clientFetchWindow",
-      mode === "virtual"
-        ? "VATSIM live only"
-        : `${estimate.dates_touched || 0} date${(estimate.dates_touched || 0) === 1 ? "" : "s"} · ${estimate.page_size || 100}/page`
-    );
-    setText(
-      "clientBurnRate",
-      mode === "virtual"
-        ? "No schedule calls"
-        : `~${estimate.estimated_calls_per_refresh || 0} per refresh · ~${estimate.estimated_calls_per_month || 0}/30d`
-    );
-    setText(
-      "clientCadenceNote",
-      estimate.cadence_warning || (mode === "virtual" ? "Not applicable" : `Recent avg ${estimate.recent_avg_pages_per_direction || 0} pages/direction`)
-    );
+    setText("clientFetchWindow", mode === "virtual" ? "VATSIM live only" : `${estimate.dates_touched || 0} date(s), ${estimate.page_size || 100}/page`);
+    setText("clientBurnRate", mode === "virtual" ? "No schedule calls" : `~${estimate.estimated_calls_per_refresh || 0} per refresh, ~${estimate.estimated_calls_per_month || 0}/30d`);
+    setText("clientCadenceNote", estimate.cadence_warning || (mode === "virtual" ? "Not applicable" : `Recent avg ${estimate.recent_avg_pages_per_direction || 0} pages/direction`));
     if (sharedMode) {
-      setText(
-        "clientBurnRate",
-        sharedStats.client_accesses != null
-          ? `${sharedStats.client_accesses || 0} relay accesses · ${sharedStats.upstream_pulls || 0} upstream pulls`
-          : "Waiting for first shared relay snapshot"
-      );
-      setText(
-        "clientCadenceNote",
-        sharedStats.client_accesses != null
-          ? `${shared.cache_state || "fresh"} snapshot · ${sharedStats.cache_hit_rate_pct || 0}% hit rate · ~${sharedStats.estimated_savings || 0} refreshes shared`
-          : "Relay-backed mode shares upstream fetches by airport/window"
-      );
+      setText("clientBurnRate", sharedStats.client_accesses != null ? `${sharedStats.client_accesses || 0} relay accesses, ${sharedStats.upstream_pulls || 0} upstream pulls` : "Waiting for first shared relay snapshot");
+      setText("clientCadenceNote", sharedStats.client_accesses != null ? `${shared.cache_state || "fresh"} snapshot, ${sharedStats.cache_hit_rate_pct || 0}% hit rate, ~${sharedStats.estimated_savings || 0} refreshes shared` : "Relay-backed mode shares upstream fetches by airport/window");
     }
   } catch {
-    setText("clientInstallId", "Unavailable");
-    setText("clientMode", "Unavailable");
-    setText("clientCommunityKey", "Unavailable");
-    setText("clientToken", "Unavailable");
-    setText("clientRelayUrl", "Unavailable");
-    setText("clientAccessStatus", "Unavailable");
-    setText("clientFetchWindow", "Unavailable");
-    setText("clientBurnRate", "Unavailable");
-    setText("clientCadenceNote", "Unavailable");
+    ["clientInstallId","clientMode","clientCommunityKey","clientToken","clientRelayUrl","clientAccessStatus","clientFetchWindow","clientBurnRate","clientCadenceNote"].forEach(id => setText(id, "Unavailable"));
   }
 })();
 
 (function () {
   const searchInput = document.getElementById("airportSearch");
-  const dropdown    = document.getElementById("airportDropdown");
+  const dropdown = document.getElementById("airportDropdown");
   const selectedBox = document.getElementById("airportSelected");
-  const iataInput   = document.getElementById("airportIata");
-  const icaoInput   = document.getElementById("airportIcao");
-
+  const iataInput = document.getElementById("airportIata");
+  const icaoInput = document.getElementById("airportIcao");
+  const tzInput = document.getElementById("timezoneHidden");
   let debounceTimer = null;
   let currentResults = [];
-
-  const tzInput = document.getElementById("timezoneHidden");
-
   function showDropdown(results) {
     currentResults = results;
     dropdown.innerHTML = "";
@@ -640,34 +683,28 @@ function selectSkin(sk, fg) {
     results.forEach(r => {
       const div = document.createElement("div");
       div.className = "airport-option"; div.tabIndex = 0;
-      div.innerHTML = `<div class="codes">${r.iata||"---"} / ${r.icao||"----"}</div>
-        <div class="detail">${r.name} · ${r.city}, ${r.country}</div>`;
+      div.innerHTML = `<div class="codes">${r.iata || "---"} / ${r.icao || "----"}</div><div class="detail">${r.name} - ${r.city}, ${r.country}</div>`;
       div.addEventListener("mousedown", e => { e.preventDefault(); selectAirport(r); });
       div.addEventListener("keydown", e => { if (e.key === "Enter") selectAirport(r); });
       dropdown.appendChild(div);
     });
     dropdown.classList.add("open");
   }
-
   function selectAirport(r) {
     iataInput.value = r.iata || "";
     icaoInput.value = r.icao || "";
-    searchInput.value = `${r.iata||"---"} / ${r.icao||"----"}`;
+    searchInput.value = `${r.iata || "---"} / ${r.icao || "----"}`;
     if (tzInput && r.timezone) tzInput.value = r.timezone;
-    const tzNote = r.timezone ? `<span style="opacity:0.45;font-size:0.75rem;"> · ${r.timezone}</span>` : "";
-    selectedBox.innerHTML = `<b>${r.iata||"---"} / ${r.icao||"----"}</b> — ${r.name}${tzNote}<br>
-      <span style="opacity:0.65">${r.city}, ${r.country}</span>`;
+    selectedBox.innerHTML = `<b>${r.iata || "---"} / ${r.icao || "----"}</b> - ${r.name}<br><span style="opacity:.66">${r.city}, ${r.country}${r.timezone ? " | " + r.timezone : ""}</span>`;
     selectedBox.classList.add("visible");
     dropdown.classList.remove("open");
   }
-
   function search(q) {
     if (q.length < 2) { dropdown.classList.remove("open"); return; }
     fetch(`/api/airports/search?q=${encodeURIComponent(q)}&limit=8`)
       .then(r => r.json()).then(data => showDropdown(data))
       .catch(() => dropdown.classList.remove("open"));
   }
-
   searchInput.addEventListener("input", () => {
     clearTimeout(debounceTimer);
     iataInput.value = ""; icaoInput.value = "";
@@ -675,24 +712,11 @@ function selectSkin(sk, fg) {
     debounceTimer = setTimeout(() => search(searchInput.value.trim()), 220);
   });
   searchInput.addEventListener("focus", () => { if (currentResults.length) dropdown.classList.add("open"); });
-  searchInput.addEventListener("blur",  () => { setTimeout(() => dropdown.classList.remove("open"), 200); });
-  searchInput.addEventListener("keydown", e => {
-    const opts = dropdown.querySelectorAll(".airport-option");
-    if (!opts.length) return;
-    if (e.key === "ArrowDown") { e.preventDefault(); opts[0].focus(); }
-    if (e.key === "Escape") dropdown.classList.remove("open");
-  });
-  dropdown.addEventListener("keydown", e => {
-    const opts = [...dropdown.querySelectorAll(".airport-option")];
-    const idx = opts.indexOf(document.activeElement);
-    if (e.key === "ArrowDown" && idx < opts.length - 1) { e.preventDefault(); opts[idx+1].focus(); }
-    if (e.key === "ArrowUp") { e.preventDefault(); idx > 0 ? opts[idx-1].focus() : searchInput.focus(); }
-    if (e.key === "Escape") { dropdown.classList.remove("open"); searchInput.focus(); }
-  });
+  searchInput.addEventListener("blur", () => { setTimeout(() => dropdown.classList.remove("open"), 200); });
   document.getElementById("settingsForm").addEventListener("submit", e => {
     if (!iataInput.value || !icaoInput.value) {
       e.preventDefault();
-      searchInput.style.outline = "2px solid red";
+      searchInput.style.outline = "2px solid #ef4444";
       searchInput.placeholder = "Please select an airport from the dropdown";
       setTimeout(() => searchInput.style.outline = "", 2000);
     }
@@ -706,30 +730,27 @@ async function confirmReset() {
   try {
     const r = await fetch("/api/setup/reset", { method: "POST" });
     if (r.ok) { window.location.href = "/setup"; }
-    else { alert("Reset failed — check logs."); }
+    else { alert("Reset failed. Check logs."); }
   } catch { alert("Network error."); }
 }
-
 async function restartSchedulerNow() {
   const btn = document.getElementById("restartSchedulerBtn");
   const msg = document.getElementById("restartSchedulerMsg");
-  if (!btn || !msg) return;
-
-  btn.disabled = true;
-  msg.textContent = "Restarting scheduler...";
+  if (btn) btn.disabled = true;
+  if (msg) msg.textContent = "Restarting scheduler...";
   try {
     const r = await fetch("/api/admin/scheduler/restart", { method: "POST" });
     const data = await r.json().catch(() => ({}));
     if (!r.ok || data.ok === false) {
-      msg.textContent = data.message || "Scheduler restart is still in progress.";
+      if (msg) msg.textContent = data.message || "Scheduler restart is still in progress.";
     } else {
-      msg.textContent = data.message || "Scheduler restarted.";
+      if (msg) msg.textContent = data.message || "Scheduler restarted.";
       setTimeout(() => window.location.reload(), 1200);
     }
   } catch {
-    msg.textContent = "Network error while restarting scheduler.";
+    if (msg) msg.textContent = "Network error while restarting scheduler.";
   } finally {
-    btn.disabled = false;
+    if (btn) btn.disabled = false;
   }
 }
 </script>

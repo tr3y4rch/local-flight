@@ -104,7 +104,12 @@ linear_dedup.json
 
 # Claude Code local settings
 .claude/
+
+# Operator-only local Network Admin launcher.
+# The public/client app starts from start.bat; relay admin power is local/private.
 start_network.bat
+start_network.local.bat
+operator/
 
 # AI assistant context files and local handoff notes
 AGENTS.md

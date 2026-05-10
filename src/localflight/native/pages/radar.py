@@ -462,15 +462,25 @@ class RadarScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
         if not detail:
             self.status.setText(f"Selected {summary['title']}. No matching FIDS detail is available yet.")
             return
-        route = _detail_route(detail) or summary["route"]
+        intel = _extract_intel_payload(payload, detail)
+        route = _intel_route(intel) or _detail_route(detail) or summary["route"]
         chips = [part for part in (
+            _intel_status(intel),
+            _intel_motion(intel),
+            _intel_aircraft(intel),
+            _intel_ops(intel),
+            _intel_source(intel),
             _detail_status(detail),
             _detail_gate(detail),
             _detail_aircraft(detail),
             _detail_source(detail),
         ) if part]
+        deduped: list[str] = []
+        for chip in chips:
+            if chip not in deduped:
+                deduped.append(chip)
         self.blip_route.setText(route)
-        self.blip_detail.setText(" | ".join(chips + ([summary["detail"]] if summary["detail"] else [])))
+        self.blip_detail.setText(" | ".join(deduped + ([summary["detail"]] if summary["detail"] else [])))
         self.status.setText(f"Selected {summary['title']}. Details: /api/fids/detail")
 
     def _apply_selected_detail_error(self, summary: dict[str, str], _exc: Exception) -> None:
@@ -575,6 +585,95 @@ def _extract_detail_payload(payload: Any) -> dict[str, Any]:
         return {}
     detail = payload.get("detail")
     return detail if isinstance(detail, dict) else {}
+
+
+def _extract_intel_payload(payload: Any, detail: dict[str, Any] | None = None) -> dict[str, Any]:
+    if isinstance(payload, dict) and isinstance(payload.get("intel"), dict):
+        return payload["intel"]
+    if isinstance(detail, dict) and isinstance(detail.get("intel"), dict):
+        return detail["intel"]
+    return {}
+
+
+def _nested(mapping: dict[str, Any], *keys: str) -> Any:
+    value: Any = mapping
+    for key in keys:
+        if not isinstance(value, dict):
+            return None
+        value = value.get(key)
+    return value
+
+
+def _intel_route(intel: dict[str, Any]) -> str:
+    route = str(_nested(intel, "route", "route_display") or "").strip()
+    return route.replace("→", "->")
+
+
+def _intel_status(intel: dict[str, Any]) -> str:
+    status = str(_nested(intel, "timing", "status") or "").strip().replace("_", " ").upper()
+    delay = _nested(intel, "timing", "delay_minutes")
+    try:
+        delay_value = int(delay)
+    except (TypeError, ValueError):
+        delay_value = 0
+    if status and delay_value:
+        return f"{status} {delay_value:+d}m"
+    return status
+
+
+def _intel_motion(intel: dict[str, Any]) -> str:
+    motion = intel.get("motion") if isinstance(intel.get("motion"), dict) else {}
+    parts: list[str] = []
+    if motion.get("on_ground") is True:
+        parts.append("On ground")
+    elif motion.get("altitude_ft") is not None:
+        try:
+            parts.append(f"{int(float(motion['altitude_ft'])):,} ft")
+        except (TypeError, ValueError):
+            pass
+    if motion.get("speed_kt") is not None:
+        try:
+            parts.append(f"{int(float(motion['speed_kt']))} kt")
+        except (TypeError, ValueError):
+            pass
+    if motion.get("vertical_rate_fpm") is not None:
+        try:
+            parts.append(f"{int(float(motion['vertical_rate_fpm'])):+d} fpm")
+        except (TypeError, ValueError):
+            pass
+    radar_status = str(motion.get("radar_status") or "").strip()
+    if radar_status:
+        parts.insert(0, radar_status)
+    return " ".join(parts)
+
+
+def _intel_aircraft(intel: dict[str, Any]) -> str:
+    aircraft = intel.get("aircraft") if isinstance(intel.get("aircraft"), dict) else {}
+    return " ".join(
+        str(part).strip().upper()
+        for part in (aircraft.get("type"), aircraft.get("registration"))
+        if str(part or "").strip()
+    )
+
+
+def _intel_ops(intel: dict[str, Any]) -> str:
+    ops = intel.get("operations") if isinstance(intel.get("operations"), dict) else {}
+    terminal = str(ops.get("terminal") or "").strip()
+    gate = str(ops.get("gate") or "").strip()
+    if terminal and gate:
+        return f"Terminal {terminal} Gate {gate}"
+    if gate:
+        return f"Gate {gate}"
+    if terminal:
+        return f"Terminal {terminal}"
+    return ""
+
+
+def _intel_source(intel: dict[str, Any]) -> str:
+    evidence = intel.get("source_evidence") if isinstance(intel.get("source_evidence"), dict) else {}
+    confidence = str(evidence.get("confidence") or "").strip().replace("_", " ")
+    source = str(evidence.get("position_source") or evidence.get("schedule_source") or "").strip()
+    return " | ".join(part for part in (source, confidence) if part)
 
 
 def _detail_route(detail: dict[str, Any]) -> str:
