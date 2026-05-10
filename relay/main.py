@@ -61,6 +61,9 @@ _airport_surface_locks: Dict[str, threading.Lock] = {}
 _airport_surface_locks_guard = threading.Lock()
 _admin_auth_failures: Dict[str, list[float]] = {}
 _admin_auth_failures_guard = threading.Lock()
+_heartbeat_last_seen: Dict[str, float] = {}
+_heartbeat_guard = threading.Lock()
+_HEARTBEAT_MIN_INTERVAL_S = 300  # 5 minutes per install
 
 _REPORT_CRASH_DEDUPE_HOURS = 6
 _REPORT_MANUAL_DEDUPE_MINUTES = 30
@@ -1289,6 +1292,17 @@ def _check_report_rate_limit(
         raise HTTPException(status_code=429, detail="Report rate limit reached for this install")
     if int(network_count["count"] or 0) >= _report_network_limit():
         raise HTTPException(status_code=429, detail="Report rate limit reached for this network")
+
+
+def _check_heartbeat_rate_limit(install_id: str) -> bool:
+    """True = allowed. False = cooldown not elapsed (5 min minimum between beats)."""
+    now = time.time()
+    with _heartbeat_guard:
+        last = _heartbeat_last_seen.get(install_id)
+        if last is not None and (now - last) < _HEARTBEAT_MIN_INTERVAL_S:
+            return False
+        _heartbeat_last_seen[install_id] = now
+    return True
 
 
 def _record_report_event(
@@ -6229,6 +6243,30 @@ class ClientStatusIn(BaseModel):
         return _admin_text(value)
 
 
+class HeartbeatIn(BaseModel):
+    install_id: str
+    app_version: str = Field("", max_length=40)
+    os_family: str = Field("", max_length=40)
+    os_version: str = Field("", max_length=80)
+    arch: str = Field("", max_length=40)
+    requested_gui: str = Field("", max_length=24)
+    effective_gui: str = Field("", max_length=24)
+    source_mode: str = Field("", max_length=32)
+    diagnostics_mode: str = Field("", max_length=32)
+    companion_count: int = Field(0, ge=0, le=100_000)
+    matrix_count: int = Field(0, ge=0, le=100_000)
+    matrix_online_count: int = Field(0, ge=0, le=100_000)
+
+    @field_validator(
+        "app_version", "os_family", "os_version", "arch",
+        "requested_gui", "effective_gui", "source_mode", "diagnostics_mode",
+        mode="before",
+    )
+    @classmethod
+    def _coerce_optional_text(cls, value: Any) -> str:
+        return _admin_text(value)
+
+
 class ReportIn(BaseModel):
     report_type: str = Field(..., min_length=1, max_length=20)
     origin: str = Field("", max_length=20)
@@ -6576,6 +6614,28 @@ def relay_client_checkin(body: ClientStatusIn) -> Dict[str, Any]:
             app_version=body.app_version,
         )
     return status
+
+
+@app.post("/v1/heartbeat")
+def relay_heartbeat(body: HeartbeatIn) -> Dict[str, Any]:
+    install_id = _validate_install_id(body.install_id)
+    if not _check_heartbeat_rate_limit(install_id):
+        raise HTTPException(status_code=429, detail="Heartbeat cooldown: minimum 5 minutes between beats")
+    _record_install_profile(
+        install_id=install_id,
+        app_version=body.app_version,
+        os_family=body.os_family,
+        os_version=body.os_version,
+        arch=body.arch,
+        requested_gui=body.requested_gui,
+        effective_gui=body.effective_gui,
+        source_mode=body.source_mode,
+        diagnostics_mode=body.diagnostics_mode,
+        companion_count=body.companion_count,
+        matrix_count=body.matrix_count,
+        matrix_online_count=body.matrix_online_count,
+    )
+    return {"ok": True}
 
 
 @app.post("/v1/activation-request")

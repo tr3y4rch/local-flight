@@ -204,6 +204,8 @@ async def _lifespan(_app: FastAPI):
     loop = asyncio.get_running_loop()
     manager.set_loop(loop)
     asyncio.create_task(manager.broadcast_loop())
+    from localflight.sources.web.relay_beat import _heartbeat_loop
+    asyncio.create_task(_heartbeat_loop())
 
     import localflight.ui.server as _self
     _self._ws_manager = manager
@@ -860,6 +862,11 @@ async def setup_complete(request: Request, background_tasks: BackgroundTasks) ->
 
     notify_config_updated(cfg, reason="setup_complete")
     background_tasks.add_task(restart_scheduler_and_notify, "setup_complete")
+    try:
+        from localflight.sources.web.relay_beat import fire_heartbeat
+        fire_heartbeat()
+    except Exception:
+        pass
 
     return {"ok": True}
 
@@ -1091,6 +1098,11 @@ async def save_settings(
         background_tasks.add_task(restart_scheduler_and_notify, "desktop_settings")
     else:
         logger.info("Settings save did not change scheduler fields")
+    try:
+        from localflight.sources.web.relay_beat import fire_heartbeat
+        fire_heartbeat()
+    except Exception:
+        pass
 
     return RedirectResponse(url="/?saved=1", status_code=303)
 

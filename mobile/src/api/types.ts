@@ -268,6 +268,9 @@ export type FidsRow = {
   id: string;
   view: FlightView | string;
   display_time: string;
+  time_primary?: string;
+  time_delta_label?: string;
+  delay_kind?: string;
   flight_display: string;
   airline_display?: string;
   codeshare_display?: string;
@@ -275,6 +278,8 @@ export type FidsRow = {
   status_display: string;
   status_class: string;
   gate: string;
+  terminal_gate_display?: string;
+  gate_display?: string;
   aircraft_type: string;
   callsign: string;
 };
@@ -538,6 +543,67 @@ export type HistoryStats = {
   size_mb: number;
   db_path: string;
   error?: string;
+};
+
+export type HistorySummaryBucket = {
+  bucket: string;
+  label: string;
+  count: number;
+  pct: number;
+};
+
+export type HistorySummaryStatus = {
+  status: string;
+  label: string;
+  count: number;
+  pct: number;
+};
+
+export type HistorySummaryAirline = {
+  code: string;
+  count: number;
+  delay_rate_pct: number;
+  on_time_pct: number;
+  avg_delay_minutes?: number | null;
+};
+
+export type HistorySummaryRoute = {
+  origin: string;
+  destination: string;
+  direction: string;
+  count: number;
+  delay_rate_pct: number;
+};
+
+export type HistorySummaryAircraft = {
+  aircraft_type: string;
+  count: number;
+};
+
+export type HistorySummaryVolume = {
+  date: string;
+  departures: number;
+  arrivals: number;
+  total: number;
+  delayed: number;
+};
+
+export type HistorySummary = {
+  airport_iata: string;
+  hours: number;
+  total: number;
+  departures: number;
+  arrivals: number;
+  delayed: number;
+  delayed_pct: number;
+  on_time_pct: number;
+  avg_delay_minutes: number | null;
+  delay_buckets: HistorySummaryBucket[];
+  status_mix: HistorySummaryStatus[];
+  top_airlines: HistorySummaryAirline[];
+  top_routes: HistorySummaryRoute[];
+  top_aircraft: HistorySummaryAircraft[];
+  daily_volume: HistorySummaryVolume[];
 };
 
 export type ConfigPatch = {

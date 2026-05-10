@@ -25,6 +25,8 @@ import {
   getFids,
   getHealth,
   getHistory,
+  getHistorySummary,
+  getHistoryStats,
   getMetar,
   getRadar,
   getRadarGround,
@@ -45,6 +47,8 @@ import type {
   FlightView,
   HistoryDirection,
   HistoryResponse,
+  HistorySummary,
+  HistoryStats,
   RadarMapResponse,
   RadarResponse
 } from "../api/types";
@@ -94,6 +98,7 @@ import {
   DEFAULT_MOBILE_APPEARANCE,
   type MobileAppearance
 } from "../theme/tokens";
+import { hapticLight, hapticSuccess, hapticWarning } from "../utils/haptics";
 import { useResponsiveLayout } from "../utils/layout";
 
 let palette: MobileAppearance = DEFAULT_MOBILE_APPEARANCE;
@@ -153,6 +158,10 @@ export function AppShell() {
   const [view, setView] = useState<FlightView>("departures");
   const [historyDirection, setHistoryDirection] = useState<HistoryDirection>("both");
   const [historyHours, setHistoryHours] = useState<HistoryWindow>(24);
+  const [historyCallsign, setHistoryCallsign] = useState("");
+  const [historyAirline, setHistoryAirline] = useState("");
+  const [historySummary, setHistorySummary] = useState<HistorySummary | null>(null);
+  const [historyStats, setHistoryStats] = useState<HistoryStats | null>(null);
   const [radarRadius, setRadarRadius] = useState<RadarRadius>(20);
   const [serverUrl, setServerUrl] = useState("");
   const [draftUrl, setDraftUrl] = useState("");
@@ -249,9 +258,9 @@ export function AppShell() {
       }),
       Animated.spring(screenLift, {
         toValue: 0,
-        damping: 18,
-        stiffness: 190,
-        mass: 0.8,
+        damping: 15,
+        stiffness: 240,
+        mass: 0.7,
         useNativeDriver: true
       })
     ]).start();
@@ -324,6 +333,13 @@ export function AppShell() {
       metar = null;
     }
 
+    let histStats: HistoryStats | null = null;
+    try {
+      histStats = await getHistoryStats(normalized);
+    } catch {
+      histStats = null;
+    }
+
     let resolvedAirport: AirportResolved | null = null;
     const airportQuery = config.airport_iata || config.airport_icao;
     if (airportQuery) {
@@ -335,6 +351,7 @@ export function AppShell() {
     }
 
     setAirportDetail(resolvedAirport);
+    setHistoryStats(histStats);
     setSnapshot({ state, config, system, connections, updates, budget, metar });
     setConnected(true);
   }, []);
@@ -348,14 +365,27 @@ export function AppShell() {
     async (
       normalized: string,
       nextDirection: HistoryDirection,
-      nextHours: HistoryWindow
+      nextHours: HistoryWindow,
+      nextCallsign = "",
+      nextAirline = ""
     ) => {
-      const data = await getHistory(normalized, {
-        direction: nextDirection,
-        hours: nextHours,
-        limit: 120
-      });
+      const [data, summary] = await Promise.all([
+        getHistory(normalized, {
+          direction: nextDirection,
+          hours: nextHours,
+          limit: 120,
+          callsign: nextCallsign,
+          airline_iata: nextAirline
+        }),
+        getHistorySummary(normalized, {
+          hours: nextHours,
+          direction: nextDirection,
+          callsign: nextCallsign,
+          airline_iata: nextAirline
+        }).catch(() => null)
+      ]);
       setHistoryData(data);
+      setHistorySummary(summary);
     },
     []
   );
@@ -440,7 +470,7 @@ export function AppShell() {
         } else if (target === "fids") {
           await fetchFidsData(normalized, nextView);
         } else if (target === "history") {
-          await fetchHistoryData(normalized, nextHistoryDirection, nextHistoryHours);
+          await fetchHistoryData(normalized, nextHistoryDirection, nextHistoryHours, historyCallsign, historyAirline);
         } else if (target === "radar") {
           await fetchRadarData(normalized, nextRadarRadius, forceRadarGround);
         } else if (target === "matrix") {
@@ -463,6 +493,8 @@ export function AppShell() {
       fetchMatrixRows,
       fetchMatrixRuntime,
       fetchRadarData,
+      historyAirline,
+      historyCallsign,
       historyDirection,
       historyHours,
       landscapeFidsActive,
@@ -495,9 +527,11 @@ export function AppShell() {
       setServerUrl(normalized);
       setDraftUrl(normalized);
       setScreen("fids");
+      hapticSuccess();
     } catch (exc) {
       setConnected(false);
       setError(errorMessage(exc));
+      hapticWarning();
     } finally {
       setLoading(false);
       setActivity(null);
@@ -528,6 +562,7 @@ export function AppShell() {
     setConnected(true);
     setError(null);
     setScreen("fids");
+    hapticSuccess();
     void refreshScreen({ nextUrl: normalized, target: "fids" });
   }, [refreshScreen]);
 
@@ -634,6 +669,11 @@ export function AppShell() {
     setDocsSlug(slug);
     setScreen("docs");
   }, []);
+
+  const openFlightDetailWithHaptic = useCallback((callsign: string) => {
+    hapticLight();
+    openFlightDetail(callsign);
+  }, [openFlightDetail]);
 
   useEffect(() => {
     if (!landscapeFidsActive) return;
@@ -831,6 +871,7 @@ export function AppShell() {
           airportName={airportName}
           airportLocation={airportLocation}
           live={isLive}
+          error={error}
           sourceLabel={sourceLabel}
           utcTime={utcTime}
           localTime={localTime}
@@ -865,7 +906,7 @@ export function AppShell() {
               error={error}
               showConnectPrompt={!serverUrl}
               onOpenSettings={() => setScreen("settings")}
-              onRefresh={() => refreshScreen({ target: "fids" })}
+              onRefresh={() => { hapticLight(); refreshScreen({ target: "fids" }); }}
               onViewChange={setView}
               onOpenDetail={openFlightDetail}
               onOpenActions={setActionRow}
@@ -877,17 +918,23 @@ export function AppShell() {
           {screen === "history" ? (
             <HistoryScreen
               data={historyData}
+              summary={historySummary}
               direction={historyDirection}
               hours={historyHours}
+              callsign={historyCallsign}
+              airline={historyAirline}
               loading={refreshing}
               refreshing={refreshing}
               activity={activity}
               error={error}
               showConnectPrompt={!serverUrl}
               onOpenSettings={() => setScreen("settings")}
-              onRefresh={() => refreshScreen({ target: "history" })}
+              onRefresh={() => { hapticLight(); refreshScreen({ target: "history" }); }}
               onDirectionChange={setHistoryDirection}
               onHoursChange={setHistoryHours}
+              onCallsignChange={setHistoryCallsign}
+              onAirlineChange={setHistoryAirline}
+              onApplyFilters={() => refreshScreen({ target: "history" })}
               onOpenDetail={openFlightDetail}
               contentPaddingBottom={screenContentPadding}
             />
@@ -907,7 +954,7 @@ export function AppShell() {
               error={error}
               showConnectPrompt={!serverUrl}
               onOpenSettings={() => setScreen("settings")}
-              onRefresh={() => refreshScreen({ target: "radar", forceRadarGround: true })}
+              onRefresh={() => { hapticLight(); refreshScreen({ target: "radar", forceRadarGround: true }); }}
               onRadiusChange={setRadarRadius}
               onOpenDetail={openFlightDetail}
               compact={false}
@@ -993,11 +1040,17 @@ export function AppShell() {
 
               <ScreenActivity activity={activity} />
 
-              {error ? <ScreenError message={error} /> : null}
+              {error ? (
+                <ScreenError
+                  message={error}
+                  onRetry={() => { hapticLight(); refreshScreen({ target: screen }); }}
+                />
+              ) : null}
 
               {screen === "admin" ? (
                 <AdminScreen
                   snapshot={snapshot}
+                  historyStats={historyStats}
                   companionIdentity={companionIdentity}
                   connected={isLive}
                   error={error}
@@ -2193,6 +2246,10 @@ function createStyles() {
     borderColor: error25,
     backgroundColor: error10
   },
+  livePillIssue: {
+    borderColor: warn24,
+    backgroundColor: warn07
+  },
   liveDot: {
     width: 5,
     height: 5,
@@ -2201,6 +2258,9 @@ function createStyles() {
   },
   liveDotOff: {
     backgroundColor: palette.red
+  },
+  liveDotIssue: {
+    backgroundColor: palette.amber
   },
   liveText: {
     fontFamily: mono,
@@ -2211,6 +2271,9 @@ function createStyles() {
   },
   liveTextOff: {
     color: palette.red
+  },
+  liveTextIssue: {
+    color: palette.amber
   },
   sourcePill: {
     paddingHorizontal: 9,
@@ -2473,6 +2536,69 @@ function createStyles() {
     borderWidth: 1,
     backgroundColor: palette.rowAlt
   },
+  radarLegend: {
+    marginHorizontal: 12,
+    marginBottom: 8,
+    paddingVertical: 9,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.05)",
+    backgroundColor: palette.row
+  },
+  radarLegendHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 8
+  },
+  radarLegendTitle: {
+    fontFamily: mono,
+    color: palette.line,
+    fontSize: 9,
+    fontWeight: "700",
+    letterSpacing: 1.4
+  },
+  radarLegendMetaWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8
+  },
+  radarLegendSource: {
+    fontFamily: mono,
+    color: palette.blue2,
+    fontSize: 10,
+    fontWeight: "700",
+    letterSpacing: 0.8
+  },
+  radarLegendAge: {
+    fontFamily: mono,
+    fontSize: 10,
+    fontWeight: "700",
+    letterSpacing: 0.8
+  },
+  radarLegendChips: {
+    flexDirection: "row",
+    gap: 10,
+    flexWrap: "wrap"
+  },
+  radarLegendChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5
+  },
+  radarLegendDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 999
+  },
+  radarLegendLabel: {
+    fontFamily: mono,
+    color: palette.textMuted,
+    fontSize: 9,
+    fontWeight: "700",
+    letterSpacing: 0.8
+  },
   radarWeatherHeader: {
     flexDirection: "row",
     alignItems: "center",
@@ -2558,7 +2684,13 @@ function createStyles() {
     borderRadius: 14,
     borderWidth: 1,
     borderColor: error18,
-    backgroundColor: error08
+    backgroundColor: error08,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10
+  },
+  errorBannerCopy: {
+    flex: 1
   },
   errorBannerLabel: {
     fontFamily: mono,
@@ -2572,6 +2704,24 @@ function createStyles() {
     color: palette.text,
     fontSize: 12,
     lineHeight: 18
+  },
+  errorRetryButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: error25,
+    backgroundColor: error10
+  },
+  errorRetryText: {
+    fontFamily: mono,
+    color: palette.red,
+    fontSize: 10,
+    fontWeight: "800",
+    letterSpacing: 1
   },
   filterSection: {
     paddingHorizontal: 12,
@@ -2931,8 +3081,16 @@ function createStyles() {
     textAlign: "center"
   },
   fidsColAircraft: {
-    width: 24,
+    width: 20,
     textAlign: "right"
+  },
+  fidsColGate: {
+    width: 34,
+    alignItems: "center"
+  },
+  fidsColGateText: {
+    width: 34,
+    textAlign: "center"
   },
   alignRight: {
     textAlign: "right",
@@ -2956,7 +3114,13 @@ function createStyles() {
   },
   fidsRowPinned: {
     borderColor: warn24,
+    borderLeftWidth: 3,
+    borderLeftColor: palette.amber,
     backgroundColor: warn07
+  },
+  fidsTimeCell: {
+    flexDirection: "column",
+    alignItems: "flex-start"
   },
   fidsTime: {
     fontFamily: mono,
@@ -2964,16 +3128,58 @@ function createStyles() {
     fontSize: 12,
     fontWeight: "700"
   },
+  fidsDelayTag: {
+    fontFamily: mono,
+    fontSize: 9,
+    fontWeight: "700",
+    paddingHorizontal: 3,
+    paddingVertical: 1,
+    borderRadius: 3,
+    marginTop: 2,
+    overflow: "hidden"
+  },
+  fidsDelayTagEarly: {
+    color: palette.green,
+    backgroundColor: success08
+  },
+  fidsDelayTagWarn: {
+    color: palette.amber,
+    backgroundColor: warn07
+  },
+  fidsDelayTagBad: {
+    color: palette.red,
+    backgroundColor: error08
+  },
   fidsFlightWrap: {
+    flexDirection: "column",
+    alignItems: "flex-start"
+  },
+  fidsFlightTopRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 4
   },
+  fidsAirlineLine: {
+    color: palette.textMuted,
+    fontSize: 9,
+    marginTop: 1
+  },
   fidsFlight: {
-    flex: 1,
     fontFamily: mono,
     color: palette.blue2,
     fontSize: 11
+  },
+  fidsGateVal: {
+    fontFamily: mono,
+    color: palette.text,
+    fontSize: 9,
+    textAlign: "center"
+  },
+  fidsGateEmpty: {
+    fontFamily: mono,
+    color: palette.line,
+    fontSize: 9,
+    textAlign: "center"
   },
   fidsDest: {
     flex: 1,
@@ -3052,6 +3258,182 @@ function createStyles() {
     color: palette.textDim,
     fontSize: 9,
     letterSpacing: 1
+  },
+  historyFilterRow: {
+    flexDirection: "row",
+    gap: 8,
+    marginHorizontal: 12,
+    marginBottom: 8,
+    alignItems: "center"
+  },
+  historyFilterInput: {
+    flex: 1,
+    height: 34,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.10)",
+    backgroundColor: "rgba(255,255,255,0.04)",
+    color: palette.text,
+    fontFamily: mono,
+    fontSize: 11,
+    paddingHorizontal: 9
+  },
+  historyApplyButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    backgroundColor: palette.blue,
+    alignItems: "center",
+    justifyContent: "center"
+  },
+  historyApplyButtonText: {
+    fontFamily: mono,
+    color: "#000",
+    fontSize: 10,
+    fontWeight: "700"
+  },
+  historyKpiGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+    marginHorizontal: 12,
+    marginBottom: 8
+  },
+  historyKpiCard: {
+    flex: 1,
+    minWidth: "30%",
+    padding: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.05)",
+    backgroundColor: palette.row,
+    alignItems: "flex-start"
+  },
+  historyKpiLabel: {
+    color: palette.textMuted,
+    fontSize: 8,
+    fontWeight: "700",
+    letterSpacing: 0.8
+  },
+  historyKpiValue: {
+    fontFamily: mono,
+    color: palette.text,
+    fontSize: 22,
+    fontWeight: "900",
+    lineHeight: 26,
+    marginTop: 3
+  },
+  historyKpiNote: {
+    color: palette.textMuted,
+    fontSize: 8,
+    marginTop: 2
+  },
+  historyPanel: {
+    marginHorizontal: 12,
+    marginBottom: 8,
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.05)",
+    backgroundColor: palette.row
+  },
+  historyPanelTitle: {
+    fontFamily: mono,
+    color: palette.line,
+    fontSize: 8,
+    fontWeight: "700",
+    letterSpacing: 1,
+    marginBottom: 10
+  },
+  historyDelayStack: {
+    flexDirection: "row",
+    height: 8,
+    borderRadius: 99,
+    overflow: "hidden",
+    backgroundColor: "rgba(255,255,255,0.06)",
+    marginBottom: 10
+  },
+  historyBarRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 5
+  },
+  historyBarLabel: {
+    fontFamily: mono,
+    color: palette.text,
+    fontSize: 9,
+    width: 64
+  },
+  historyBarTrack: {
+    flex: 1,
+    height: 6,
+    backgroundColor: "rgba(255,255,255,0.06)",
+    borderRadius: 99,
+    overflow: "hidden"
+  },
+  historyBarFill: {
+    height: 6,
+    borderRadius: 99,
+    backgroundColor: palette.blue
+  },
+  historyBarValue: {
+    fontFamily: mono,
+    color: palette.textMuted,
+    fontSize: 9,
+    width: 58,
+    textAlign: "right"
+  },
+  adminSubTitle: {
+    fontFamily: mono,
+    color: palette.line,
+    fontSize: 8,
+    fontWeight: "700",
+    letterSpacing: 1,
+    marginTop: 14,
+    marginBottom: 6
+  },
+  adminBudgetTrack: {
+    height: 5,
+    borderRadius: 99,
+    overflow: "hidden",
+    backgroundColor: "rgba(255,255,255,0.06)",
+    marginTop: 8
+  },
+  adminMetarHero: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    padding: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "rgba(74,158,218,0.18)",
+    backgroundColor: "rgba(74,158,218,0.07)",
+    marginBottom: 8
+  },
+  adminMetarIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: "rgba(255,255,255,0.07)",
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0
+  },
+  adminMetarIconText: {
+    fontSize: 20
+  },
+  adminMetarTitle: {
+    fontFamily: mono,
+    color: palette.text,
+    fontSize: 13,
+    fontWeight: "900"
+  },
+  adminMetarSub: {
+    color: palette.textMuted,
+    fontSize: 11,
+    lineHeight: 16,
+    marginTop: 2
   },
   scopeCard: {
     marginHorizontal: 12,
@@ -3729,6 +4111,13 @@ function createStyles() {
   navLabelActive: {
     color: palette.blue
   },
+  navDot: {
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: palette.blue,
+    marginTop: 3
+  },
   sheetBackdrop: {
     flex: 1,
     justifyContent: "flex-end",
@@ -3866,13 +4255,69 @@ function createStyles() {
   sheetSummary: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
+    flexWrap: "wrap",
+    gap: 8,
     marginBottom: 16
   },
   sheetSummaryText: {
     flex: 1,
+    minWidth: 120,
     color: palette.textMuted,
     fontSize: 12
+  },
+  sheetSummaryBadge: {
+    fontFamily: mono,
+    fontSize: 11,
+    fontWeight: "800",
+    letterSpacing: 0.6,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    overflow: "hidden"
+  },
+  sheetSummaryGateBadge: {
+    color: palette.blue,
+    backgroundColor: accent08,
+    borderWidth: 1,
+    borderColor: accent18
+  },
+  sheetDelayBadgeEarly: {
+    color: palette.green,
+    backgroundColor: success08,
+    borderWidth: 1,
+    borderColor: success25
+  },
+  sheetDelayBadgeOnTime: {
+    color: palette.text,
+    backgroundColor: "rgba(255,255,255,0.04)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.10)"
+  },
+  sheetDelayBadgeWarn: {
+    color: palette.amber,
+    backgroundColor: warn07,
+    borderWidth: 1,
+    borderColor: warn24
+  },
+  sheetDelayBadgeBad: {
+    color: palette.red,
+    backgroundColor: error08,
+    borderWidth: 1,
+    borderColor: error18
+  },
+  sheetSkeleton: {
+    paddingTop: 4
+  },
+  sheetSkeletonBar: {
+    height: 18,
+    borderRadius: 6,
+    backgroundColor: "rgba(255,255,255,0.08)"
+  },
+  sheetSkeletonCard: {
+    flex: 1,
+    height: 56,
+    borderRadius: 14,
+    backgroundColor: "rgba(255,255,255,0.05)"
   },
   sheetMetricRow: {
     flexDirection: "row",

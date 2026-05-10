@@ -30,6 +30,8 @@ import type {
   HistoryDirection,
   HistoryFlightRow,
   HistoryResponse,
+  HistorySummary,
+  HistoryStats,
   MatrixAnimationMode,
   MatrixPaletteId,
   Metar,
@@ -321,6 +323,7 @@ export function Header({
   airportName,
   airportLocation,
   live,
+  error,
   sourceLabel,
   utcTime,
   localTime,
@@ -340,6 +343,7 @@ export function Header({
   airportName: string;
   airportLocation: string;
   live: boolean;
+  error?: string | null;
   sourceLabel: string;
   utcTime: string;
   localTime: string;
@@ -354,6 +358,7 @@ export function Header({
   onTogglePin: (row: FidsRow) => void;
   onOpenConfig: () => void;
 }) {
+  const hasIssue = Boolean(live && error);
   const category = metarCategory(metar);
   const accent = metarAccentColor(category);
   const dotOpacity = useRef(new Animated.Value(1)).current;
@@ -394,9 +399,11 @@ export function Header({
             <Text style={styles.configHintText}>tap to change airport</Text>
           </View>
           <View style={styles.telemetryStrip}>
-            <View style={[styles.livePill, !live && styles.livePillOff]}>
-              <Animated.View style={[styles.liveDot, !live && styles.liveDotOff, { opacity: dotOpacity }]} />
-              <Text style={[styles.liveText, !live && styles.liveTextOff]}>{live ? "LIVE" : "OFF"}</Text>
+            <View style={[styles.livePill, hasIssue && styles.livePillIssue, !live && styles.livePillOff]}>
+              <Animated.View style={[styles.liveDot, hasIssue && styles.liveDotIssue, !live && styles.liveDotOff, { opacity: dotOpacity }]} />
+              <Text style={[styles.liveText, hasIssue && styles.liveTextIssue, !live && styles.liveTextOff]}>
+                {!live ? "OFF" : hasIssue ? "ISSUE" : "LIVE"}
+              </Text>
             </View>
             <View style={styles.sourcePill}>
               <Text style={styles.sourceText}>{sourceLabel.toUpperCase()}</Text>
@@ -685,7 +692,7 @@ export function FidsScreen({
         <>
           {showConnectPrompt ? <ConnectPrompt onSettings={onOpenSettings} /> : null}
           <ScreenActivity activity={activity} />
-          {error ? <ScreenError message={error} /> : null}
+          {error ? <ScreenError message={error} onRetry={onRefresh} /> : null}
 
           <View style={styles.dirToggle}>
             <DirectionButton
@@ -706,6 +713,7 @@ export function FidsScreen({
             <Text style={[styles.fidsHeaderText, styles.fidsColRoute]}>{view === "arrivals" ? "FROM" : "TO"}</Text>
             <Text style={[styles.fidsHeaderText, styles.fidsColStatusText]}>STATUS</Text>
             <Text style={[styles.fidsHeaderText, styles.fidsColAircraft]}>A/C</Text>
+            <Text style={[styles.fidsHeaderText, styles.fidsColGateText]}>GATE</Text>
           </View>
         </>
       }
@@ -721,10 +729,52 @@ export function FidsScreen({
   );
 }
 
+function historyWindowLabel(w: HistoryWindow): string {
+  if (w === 720) return "30D";
+  if (w === 2160) return "90D";
+  if (w === 168) return "7D";
+  return `${w}H`;
+}
+
+function HistoryBarRow({
+  label,
+  value,
+  pct,
+  meta,
+  color
+}: {
+  label: string;
+  value: number;
+  pct: number;
+  meta: string;
+  color?: string;
+}) {
+  return (
+    <View style={styles.historyBarRow}>
+      <Text style={styles.historyBarLabel} numberOfLines={1}>{label}</Text>
+      <View style={styles.historyBarTrack}>
+        <View style={[styles.historyBarFill, { width: `${Math.max(pct, value ? 2 : 0)}%` as unknown as number, backgroundColor: color || palette.blue }]} />
+      </View>
+      <Text style={styles.historyBarValue} numberOfLines={1}>{meta}</Text>
+    </View>
+  );
+}
+
+const DELAY_BUCKET_COLORS: Record<string, string> = {
+  early: "#18d66a",
+  on_time: "#4a9eda",
+  delayed_warn: "#f2b84b",
+  delayed_bad: "#ff5d5d",
+  unknown: "rgba(150,160,175,0.45)"
+};
+
 export function HistoryScreen({
   data,
+  summary,
   direction,
   hours,
+  callsign,
+  airline,
   loading,
   refreshing,
   activity,
@@ -734,12 +784,18 @@ export function HistoryScreen({
   onRefresh,
   onDirectionChange,
   onHoursChange,
+  onCallsignChange,
+  onAirlineChange,
+  onApplyFilters,
   onOpenDetail,
   contentPaddingBottom
 }: {
   data: HistoryResponse | null;
+  summary: HistorySummary | null;
   direction: HistoryDirection;
   hours: HistoryWindow;
+  callsign: string;
+  airline: string;
   loading: boolean;
   refreshing: boolean;
   activity?: ActivityStatus | null;
@@ -749,10 +805,16 @@ export function HistoryScreen({
   onRefresh: () => void;
   onDirectionChange: (value: HistoryDirection) => void;
   onHoursChange: (value: HistoryWindow) => void;
+  onCallsignChange: (v: string) => void;
+  onAirlineChange: (v: string) => void;
+  onApplyFilters: () => void;
   onOpenDetail: (callsign: string) => void;
   contentPaddingBottom: number;
 }) {
   const flights = data?.flights || [];
+  const maxAirlineCount = Math.max(...(summary?.top_airlines?.map((a) => a.count) || [1]), 1);
+  const maxRouteCount = Math.max(...(summary?.top_routes?.map((r) => r.count) || [1]), 1);
+  const maxAircraftCount = Math.max(...(summary?.top_aircraft?.map((a) => a.count) || [1]), 1);
 
   return (
     <FlatList<HistoryFlightRow>
@@ -774,7 +836,7 @@ export function HistoryScreen({
         <>
           {showConnectPrompt ? <ConnectPrompt onSettings={onOpenSettings} /> : null}
           <ScreenActivity activity={activity} />
-          {error ? <ScreenError message={error} /> : null}
+          {error ? <ScreenError message={error} onRetry={onRefresh} /> : null}
 
           <FilterSection title="DIRECTION">
             <View style={styles.filterRow}>
@@ -784,24 +846,160 @@ export function HistoryScreen({
             </View>
           </FilterSection>
 
-          <FilterSection title="WINDOW">
+          <FilterSection title="PERIOD">
             <View style={styles.filterRow}>
               {HISTORY_WINDOWS.map((item) => (
                 <DirectionButton
                   key={item}
                   active={hours === item}
-                  label={item === 168 ? "7 DAYS" : `${item} HOURS`}
+                  label={historyWindowLabel(item)}
                   onPress={() => onHoursChange(item)}
                 />
               ))}
             </View>
           </FilterSection>
 
-          <View style={styles.metricRow}>
-            <InfoCard label="ROWS" value={data ? String(data.count) : "..."} />
-            <InfoCard label="FILTER" value={direction.toUpperCase()} tone="green" />
-            <InfoCard label="WINDOW" value={hours === 168 ? "7 DAYS" : `${hours}H`} tone="amber" />
+          <View style={styles.historyFilterRow}>
+            <TextInput
+              style={styles.historyFilterInput}
+              value={callsign}
+              onChangeText={(v) => onCallsignChange(v.toUpperCase())}
+              placeholder="CALLSIGN"
+              placeholderTextColor={palette.textDim}
+              autoCapitalize="characters"
+              autoCorrect={false}
+              maxLength={10}
+              returnKeyType="search"
+              onSubmitEditing={onApplyFilters}
+            />
+            <TextInput
+              style={styles.historyFilterInput}
+              value={airline}
+              onChangeText={(v) => onAirlineChange(v.toUpperCase())}
+              placeholder="AIRLINE"
+              placeholderTextColor={palette.textDim}
+              autoCapitalize="characters"
+              autoCorrect={false}
+              maxLength={3}
+              returnKeyType="search"
+              onSubmitEditing={onApplyFilters}
+            />
+            <Pressable style={styles.historyApplyButton} onPress={onApplyFilters}>
+              <Text style={styles.historyApplyButtonText}>APPLY</Text>
+            </Pressable>
           </View>
+
+          {summary ? (
+            <>
+              <View style={styles.historyKpiGrid}>
+                <View style={styles.historyKpiCard}>
+                  <Text style={styles.historyKpiLabel}>FLIGHTS</Text>
+                  <Text style={styles.historyKpiValue}>{summary.total || "-"}</Text>
+                  <Text style={styles.historyKpiNote}>{historyWindowLabel(hours)} window</Text>
+                </View>
+                <View style={styles.historyKpiCard}>
+                  <Text style={styles.historyKpiLabel}>DEPART.</Text>
+                  <Text style={[styles.historyKpiValue, { color: palette.blue }]}>{summary.departures ?? "-"}</Text>
+                  <Text style={styles.historyKpiNote}>outbound</Text>
+                </View>
+                <View style={styles.historyKpiCard}>
+                  <Text style={styles.historyKpiLabel}>ARRIVE.</Text>
+                  <Text style={[styles.historyKpiValue, { color: palette.green }]}>{summary.arrivals ?? "-"}</Text>
+                  <Text style={styles.historyKpiNote}>inbound</Text>
+                </View>
+                <View style={styles.historyKpiCard}>
+                  <Text style={styles.historyKpiLabel}>ON TIME</Text>
+                  <Text style={[styles.historyKpiValue, { color: palette.green }]}>{summary.on_time_pct != null ? `${summary.on_time_pct}%` : "-"}</Text>
+                  <Text style={styles.historyKpiNote}>±4m</Text>
+                </View>
+                <View style={styles.historyKpiCard}>
+                  <Text style={styles.historyKpiLabel}>DELAYED</Text>
+                  <Text style={[styles.historyKpiValue, { color: palette.amber }]}>{summary.delayed_pct != null ? `${summary.delayed_pct}%` : "-"}</Text>
+                  <Text style={styles.historyKpiNote}>5m+</Text>
+                </View>
+                <View style={styles.historyKpiCard}>
+                  <Text style={styles.historyKpiLabel}>AVG DELAY</Text>
+                  <Text style={[styles.historyKpiValue, { fontSize: 16, lineHeight: 22, marginTop: 6 }]}>{summary.avg_delay_minutes != null ? `+${summary.avg_delay_minutes}m` : "-"}</Text>
+                  <Text style={styles.historyKpiNote}>when late</Text>
+                </View>
+              </View>
+
+              {(summary.delay_buckets?.length ?? 0) > 0 ? (
+                <View style={styles.historyPanel}>
+                  <Text style={styles.historyPanelTitle}>DELAY QUOTA</Text>
+                  <View style={styles.historyDelayStack}>
+                    {summary.delay_buckets.map((b) => (
+                      <View
+                        key={b.bucket}
+                        style={{ width: `${Math.max(b.pct || 0, b.count ? 1 : 0)}%` as unknown as number, backgroundColor: DELAY_BUCKET_COLORS[b.bucket] || "#888" }}
+                      />
+                    ))}
+                  </View>
+                  {summary.delay_buckets.map((b) => (
+                    <HistoryBarRow
+                      key={b.bucket}
+                      label={b.label}
+                      value={b.count}
+                      pct={b.pct || 0}
+                      meta={String(b.count)}
+                      color={DELAY_BUCKET_COLORS[b.bucket]}
+                    />
+                  ))}
+                </View>
+              ) : null}
+
+              {(summary.top_airlines?.length ?? 0) > 0 ? (
+                <View style={styles.historyPanel}>
+                  <Text style={styles.historyPanelTitle}>AIRLINE PERFORMANCE</Text>
+                  {summary.top_airlines.slice(0, 8).map((a) => (
+                    <HistoryBarRow
+                      key={a.code}
+                      label={a.code || "-"}
+                      value={a.count}
+                      pct={Math.round((a.count / maxAirlineCount) * 100)}
+                      meta={`${a.delay_rate_pct ?? 0}% delay | ${a.count}`}
+                    />
+                  ))}
+                </View>
+              ) : null}
+
+              {(summary.top_routes?.length ?? 0) > 0 ? (
+                <View style={styles.historyPanel}>
+                  <Text style={styles.historyPanelTitle}>TOP ROUTES</Text>
+                  {summary.top_routes.slice(0, 8).map((r, i) => (
+                    <HistoryBarRow
+                      key={`${r.origin}-${r.destination}-${i}`}
+                      label={`${r.origin || "-"}›${r.destination || "-"}`}
+                      value={r.count}
+                      pct={Math.round((r.count / maxRouteCount) * 100)}
+                      meta={`${r.delay_rate_pct ?? 0}% | ${r.count}`}
+                    />
+                  ))}
+                </View>
+              ) : null}
+
+              {(summary.top_aircraft?.length ?? 0) > 0 ? (
+                <View style={styles.historyPanel}>
+                  <Text style={styles.historyPanelTitle}>TOP AIRCRAFT</Text>
+                  {summary.top_aircraft.slice(0, 8).map((a) => (
+                    <HistoryBarRow
+                      key={a.aircraft_type}
+                      label={a.aircraft_type}
+                      value={a.count}
+                      pct={Math.round((a.count / maxAircraftCount) * 100)}
+                      meta={String(a.count)}
+                    />
+                  ))}
+                </View>
+              ) : null}
+            </>
+          ) : (
+            <View style={styles.metricRow}>
+              <InfoCard label="ROWS" value={data ? String(data.count) : "..."} />
+              <InfoCard label="FILTER" value={direction.toUpperCase()} tone="green" />
+              <InfoCard label="WINDOW" value={historyWindowLabel(hours)} tone="amber" />
+            </View>
+          )}
         </>
       }
       ListEmptyComponent={
@@ -814,6 +1012,46 @@ export function HistoryScreen({
       ItemSeparatorComponent={() => <View style={styles.historyGap} />}
       showsVerticalScrollIndicator={false}
     />
+  );
+}
+
+function RadarLegendOverlay({ source, ageSeconds }: { source?: string | null; ageSeconds: number | null }) {
+  const ageLabel = ageSeconds == null
+    ? "no fix"
+    : ageSeconds < 60
+      ? `${ageSeconds}s ago`
+      : `${Math.round(ageSeconds / 60)}m ago`;
+  const ageTone = ageSeconds == null
+    ? palette.textDim
+    : ageSeconds < 30
+      ? palette.green
+      : ageSeconds < 120
+        ? palette.amber
+        : palette.red;
+  return (
+    <View style={styles.radarLegend}>
+      <View style={styles.radarLegendHeader}>
+        <Text style={styles.radarLegendTitle}>RADAR</Text>
+        <View style={styles.radarLegendMetaWrap}>
+          <Text style={styles.radarLegendSource} numberOfLines={1}>{(source || "wait").toUpperCase()}</Text>
+          <Text style={[styles.radarLegendAge, { color: ageTone }]}>{ageLabel}</Text>
+        </View>
+      </View>
+      <View style={styles.radarLegendChips}>
+        <View style={styles.radarLegendChip}>
+          <View style={[styles.radarLegendDot, { backgroundColor: palette.green }]} />
+          <Text style={styles.radarLegendLabel}>ENRICHED</Text>
+        </View>
+        <View style={styles.radarLegendChip}>
+          <View style={[styles.radarLegendDot, { backgroundColor: palette.blue2 }]} />
+          <Text style={styles.radarLegendLabel}>AIRBORNE</Text>
+        </View>
+        <View style={styles.radarLegendChip}>
+          <View style={[styles.radarLegendDot, { backgroundColor: palette.amber }]} />
+          <Text style={styles.radarLegendLabel}>GROUND</Text>
+        </View>
+      </View>
+    </View>
   );
 }
 
@@ -858,6 +1096,17 @@ export function RadarScreen({
   const groundFeatureCount = radarGroundFeatureCount(groundData);
   const groundUnavailable = radarGroundUnavailable(groundData, groundError);
 
+  const [fetchedAt, setFetchedAt] = useState<number | null>(null);
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    if (data) setFetchedAt(Date.now());
+  }, [data]);
+  useEffect(() => {
+    const t = setInterval(() => setTick((n) => n + 1), 5000);
+    return () => clearInterval(t);
+  }, []);
+  const ageSeconds = fetchedAt ? Math.max(0, Math.round((Date.now() - fetchedAt) / 1000)) : null;
+
   return (
     <FlatList<RadarBlip>
       data={blips}
@@ -878,7 +1127,7 @@ export function RadarScreen({
         <>
           {showConnectPrompt ? <ConnectPrompt onSettings={onOpenSettings} /> : null}
           <ScreenActivity activity={activity} />
-          {error ? <ScreenError message={error} /> : null}
+          {error ? <ScreenError message={error} onRetry={onRefresh} /> : null}
 
           <FilterSection title={compact ? "ZOOM" : "RADIUS"}>
             <View style={compact ? styles.filterWrap : styles.filterRow}>
@@ -906,6 +1155,8 @@ export function RadarScreen({
           </View>
 
           <RadarWeatherCard metar={metar} mode={weatherDisplayMode} />
+
+          <RadarLegendOverlay source={data?.source} ageSeconds={ageSeconds} />
 
           <RadarScope
             data={data}
@@ -1066,7 +1317,7 @@ export function MatrixScreen({
     >
       {showConnectPrompt ? <ConnectPrompt onSettings={onOpenSettings} /> : null}
       <ScreenActivity activity={activity} />
-      {error ? <ScreenError message={error} /> : null}
+      {error ? <ScreenError message={error} onRetry={onRefresh} /> : null}
 
       <View style={styles.cardStack}>
         <HiddenToolHeader
@@ -1382,6 +1633,13 @@ function FidsRowView({
   onOpenDetail: (callsign: string) => void;
   onOpenActions: (row: FidsRow) => void;
 }) {
+  const delayTagStyle =
+    row.delay_kind === "early" ? styles.fidsDelayTagEarly
+    : row.delay_kind === "warn" ? styles.fidsDelayTagWarn
+    : row.delay_kind === "bad" ? styles.fidsDelayTagBad
+    : null;
+  const gateLabel = row.terminal_gate_display || row.gate_display || row.gate;
+
   return (
     <Pressable
       style={[styles.fidsRow, isPinned && styles.fidsRowPinned]}
@@ -1389,10 +1647,20 @@ function FidsRowView({
       onLongPress={() => onOpenActions(row)}
       onPress={() => onOpenDetail(row.callsign)}
     >
-      <Text style={[styles.fidsTime, styles.fidsColTime]}>{row.display_time || "--:--"}</Text>
+      <View style={[styles.fidsTimeCell, styles.fidsColTime]}>
+        <Text style={styles.fidsTime}>{row.time_primary || row.display_time || "--:--"}</Text>
+        {row.time_delta_label && delayTagStyle ? (
+          <Text style={[styles.fidsDelayTag, delayTagStyle]}>{row.time_delta_label}</Text>
+        ) : null}
+      </View>
       <View style={[styles.fidsFlightWrap, styles.fidsColFlight]}>
-        <Text style={styles.fidsFlight} numberOfLines={1}>{row.flight_display || row.callsign || "-"}</Text>
-        {isPinned ? <MaterialCommunityIcons name="pin" size={11} color={palette.amber} /> : null}
+        <View style={styles.fidsFlightTopRow}>
+          <Text style={styles.fidsFlight} numberOfLines={1}>{row.flight_display || row.callsign || "-"}</Text>
+          {isPinned ? <MaterialCommunityIcons name="pin" size={11} color={palette.amber} /> : null}
+        </View>
+        {(row.airline_display || row.codeshare_display) ? (
+          <Text style={styles.fidsAirlineLine} numberOfLines={1}>{row.airline_display || row.codeshare_display}</Text>
+        ) : null}
       </View>
       <View style={[styles.fidsDest, styles.fidsColRoute]}>
         <Text style={styles.fidsDestName} numberOfLines={1}>{routeName(row.route_display)}</Text>
@@ -1402,6 +1670,13 @@ function FidsRowView({
         <StatusBadge status={row.status_display} statusClass={row.status_class} compact />
       </View>
       <Text style={[styles.fidsAircraft, styles.fidsColAircraft]} numberOfLines={1}>{row.aircraft_type || "-"}</Text>
+      <View style={styles.fidsColGate}>
+        {gateLabel ? (
+          <Text style={styles.fidsGateVal} numberOfLines={1}>{gateLabel}</Text>
+        ) : (
+          <Text style={styles.fidsGateEmpty}>-</Text>
+        )}
+      </View>
     </Pressable>
   );
 }
@@ -1945,6 +2220,41 @@ function formatEnrouteMinutes(value?: number | null): string {
   return hours ? `${hours}h ${String(minutes).padStart(2, "0")}m` : `${minutes}m`;
 }
 
+function DetailSkeleton() {
+  const opacity = useRef(new Animated.Value(0.5)).current;
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(opacity, { toValue: 0.85, duration: 700, useNativeDriver: true }),
+        Animated.timing(opacity, { toValue: 0.4, duration: 700, useNativeDriver: true })
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [opacity]);
+
+  return (
+    <View style={styles.sheetSkeleton}>
+      <Animated.View style={[styles.sheetSkeletonBar, { width: "55%", opacity }]} />
+      <Animated.View style={[styles.sheetSkeletonBar, { width: "38%", height: 12, marginTop: 16, opacity }]} />
+      {[0, 1, 2, 3].map((i) => (
+        <View key={i} style={styles.sheetMetricRow}>
+          <Animated.View style={[styles.sheetSkeletonCard, { opacity }]} />
+          <Animated.View style={[styles.sheetSkeletonCard, { opacity }]} />
+        </View>
+      ))}
+    </View>
+  );
+}
+
+function delayBadgeStyleFor(minutes: number | null | undefined) {
+  if (minutes == null) return null;
+  if (minutes <= -1) return styles.sheetDelayBadgeEarly;
+  if (minutes >= 15) return styles.sheetDelayBadgeBad;
+  if (minutes >= 5) return styles.sheetDelayBadgeWarn;
+  return styles.sheetDelayBadgeOnTime;
+}
+
 export function FlightDetailSheet({
   visible,
   callsign,
@@ -1972,6 +2282,13 @@ export function FlightDetailSheet({
   const positionFreshness = sources.position_age_seconds != null
     ? formatAgeSeconds(sources.position_age_seconds)
     : formatRelative(detail?.position?.last_contact);
+  const delayBadgeStyle = delayBadgeStyleFor(detail?.delay_minutes);
+  const delayBadgeText = detail?.delay_minutes != null
+    ? (detail.delay_minutes > 0 ? `+${detail.delay_minutes}m` : `${detail.delay_minutes}m`)
+    : null;
+  const gateBadgeText = !virtualDetail && (detail?.gate || detail?.terminal)
+    ? [detail?.terminal, detail?.gate].filter(Boolean).join(" · ")
+    : null;
 
   return (
     <Modal visible={visible} animationType="slide" transparent statusBarTranslucent>
@@ -1998,12 +2315,18 @@ export function FlightDetailSheet({
           </View>
 
           <ScrollView style={styles.sheetScroll} contentContainerStyle={styles.sheetContent}>
-            {loading ? <ActivityIndicator color={palette.blue} style={styles.loader} /> : null}
+            {loading && !detail ? <DetailSkeleton /> : null}
 
             {!loading && detail ? (
               <>
                 <View style={styles.sheetSummary}>
                   <StatusBadge status={detail.status || "Tracked"} statusClass={detail.status || ""} />
+                  {delayBadgeText && delayBadgeStyle ? (
+                    <Text style={[styles.sheetSummaryBadge, delayBadgeStyle]}>{delayBadgeText}</Text>
+                  ) : null}
+                  {gateBadgeText ? (
+                    <Text style={[styles.sheetSummaryBadge, styles.sheetSummaryGateBadge]}>GATE {gateBadgeText}</Text>
+                  ) : null}
                   <Text style={styles.sheetSummaryText}>
                     {virtualDetail
                       ? `VATSIM ${detail.aircraft_type || "aircraft"}`
@@ -2238,6 +2561,7 @@ function StatusBadge({
 
 export function AdminScreen({
   snapshot,
+  historyStats,
   companionIdentity,
   connected,
   error,
@@ -2255,6 +2579,7 @@ export function AdminScreen({
   onBackSettings
 }: {
   snapshot: DashboardSnapshot;
+  historyStats: HistoryStats | null;
   companionIdentity: CompanionIdentity | null;
   connected: boolean;
   error: string | null;
@@ -2339,6 +2664,72 @@ export function AdminScreen({
         <InfoLine label="Server install" value={snapshot.system?.install_id || "Unknown"} />
         <InfoLine label="Airport" value={snapshot.config?.airport_iata || "---"} />
         <InfoLine label="Source" value={snapshot.state?.source_name || snapshot.config?.source || "Unknown"} />
+
+        {budget ? (
+          <>
+            <Text style={styles.adminSubTitle}>SCHEDULE ACCESS</Text>
+            <InfoLine label="Access mode" value={budget.active_mode || budget.mode || "—"} />
+            <InfoLine label="Used this window" value={budget.calls_this_month != null ? String(budget.calls_this_month) : "—"} />
+            <InfoLine label="Requests left" value={budget.remaining != null ? String(budget.remaining) : "—"} />
+            <InfoLine label="Access window" value={budget.month || "—"} />
+            {budget.cost_estimate?.cadence_warning ? (
+              <InfoLine label="Note" value={budget.cost_estimate.cadence_warning} />
+            ) : null}
+            {budget.monthly_limit != null && budget.remaining != null ? (
+              <View style={styles.adminBudgetTrack}>
+                <View
+                  style={{
+                    height: 5,
+                    borderRadius: 99,
+                    backgroundColor: budget.remaining > budget.monthly_limit * 0.3
+                      ? palette.green
+                      : budget.remaining > budget.monthly_limit * 0.1
+                      ? palette.amber
+                      : palette.red,
+                    width: `${Math.min(Math.round((budget.remaining / budget.monthly_limit) * 100), 100)}%` as unknown as number
+                  }}
+                />
+              </View>
+            ) : null}
+          </>
+        ) : null}
+
+        {snapshot.metar ? (
+          <>
+            <Text style={styles.adminSubTitle}>AIRPORT WEATHER</Text>
+            <View style={styles.adminMetarHero}>
+              <View style={styles.adminMetarIcon}>
+                <Text style={styles.adminMetarIconText}>
+                  {snapshot.metar.flight_category === "VFR" ? "☀" :
+                   snapshot.metar.flight_category === "MVFR" ? "⛅" :
+                   snapshot.metar.flight_category === "IFR" ? "☁" :
+                   snapshot.metar.flight_category === "LIFR" ? "🌫" : "•"}
+                </Text>
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.adminMetarTitle}>{snapshot.metar.flight_category || "UNKNOWN"}</Text>
+                <Text style={styles.adminMetarSub} numberOfLines={2}>{snapshot.metar.decoded_summary || snapshot.metar.raw_text || "No METAR data"}</Text>
+              </View>
+            </View>
+            <InfoLine label="Wind" value={snapshot.metar.wind || "—"} />
+            <InfoLine label="Temperature" value={snapshot.metar.temperature_c != null ? `${snapshot.metar.temperature_c}°C` : "—"} />
+            <InfoLine label="QNH" value={snapshot.metar.qnh_hpa != null ? `${snapshot.metar.qnh_hpa} hPa` : "—"} />
+            {snapshot.metar.raw_text ? (
+              <InfoLine label="Raw METAR" value={snapshot.metar.raw_text} />
+            ) : null}
+          </>
+        ) : null}
+
+        {historyStats && !historyStats.error ? (
+          <>
+            <Text style={styles.adminSubTitle}>HISTORY DATABASE</Text>
+            <InfoLine label="Total rows" value={String(historyStats.total_rows)} />
+            <InfoLine label="Airports" value={historyStats.airports?.join(", ") || "—"} />
+            <InfoLine label="Oldest record" value={historyStats.oldest ? formatRelative(historyStats.oldest) : "—"} />
+            <InfoLine label="Newest record" value={historyStats.newest ? formatRelative(historyStats.newest) : "—"} />
+            <InfoLine label="DB size" value={historyStats.size_mb != null ? `${historyStats.size_mb} MB` : "—"} />
+          </>
+        ) : null}
       </View>
       ) : null}
 
@@ -3406,11 +3797,19 @@ function HiddenToolHeader({
   );
 }
 
-export function ScreenError({ message }: { message: string }) {
+export function ScreenError({ message, onRetry }: { message: string; onRetry?: () => void }) {
   return (
     <View style={styles.errorBanner}>
-      <Text style={styles.errorBannerLabel}>DATA ISSUE</Text>
-      <Text style={styles.errorBannerText}>{message}</Text>
+      <View style={styles.errorBannerCopy}>
+        <Text style={styles.errorBannerLabel}>DATA ISSUE</Text>
+        <Text style={styles.errorBannerText}>{message}</Text>
+      </View>
+      {onRetry ? (
+        <Pressable style={styles.errorRetryButton} onPress={onRetry}>
+          <MaterialCommunityIcons name="refresh" size={12} color={palette.red} />
+          <Text style={styles.errorRetryText}>RETRY</Text>
+        </Pressable>
+      ) : null}
     </View>
   );
 }

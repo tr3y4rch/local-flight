@@ -221,17 +221,45 @@ export function getHistory(
   {
     hours = 24,
     direction = "both",
-    limit = 100
+    limit = 100,
+    callsign = "",
+    airline_iata = ""
   }: {
     hours?: number;
     direction?: HistoryDirection;
     limit?: number;
+    callsign?: string;
+    airline_iata?: string;
   } = {}
 ): Promise<HistoryResponse> {
-  return fetchJson<HistoryResponse>(
-    serverUrl,
-    `/api/history?hours=${hours}&direction=${encodeURIComponent(direction)}&limit=${limit}`
-  );
+  const p = new URLSearchParams({ hours: String(hours), direction, limit: String(limit) });
+  if (callsign) p.set("callsign", callsign.toUpperCase());
+  if (airline_iata) p.set("airline_iata", airline_iata.toUpperCase());
+  return fetchJson<HistoryResponse>(serverUrl, `/api/history?${p}`);
+}
+
+export function getHistorySummary(
+  serverUrl: string,
+  {
+    hours = 24,
+    direction = "both",
+    callsign = "",
+    airline_iata = ""
+  }: {
+    hours?: number;
+    direction?: HistoryDirection;
+    callsign?: string;
+    airline_iata?: string;
+  } = {}
+): Promise<import("./types").HistorySummary> {
+  const p = new URLSearchParams({ hours: String(hours), direction });
+  if (callsign) p.set("callsign", callsign.toUpperCase());
+  if (airline_iata) p.set("airline_iata", airline_iata.toUpperCase());
+  return fetchJson(serverUrl, `/api/history/summary?${p}`);
+}
+
+export function getHistoryStats(serverUrl: string): Promise<import("./types").HistoryStats> {
+  return fetchJson(serverUrl, "/api/history/stats");
 }
 
 export function getHistoryFlight(

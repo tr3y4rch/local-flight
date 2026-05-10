@@ -5,7 +5,7 @@ import type { HistoryWindow, RadarRadius } from "./types";
 export const APP_VERSION = appVersion();
 export const COMPANION_PING_MS = 10 * 60 * 1000;
 
-export const HISTORY_WINDOWS: HistoryWindow[] = [24, 72, 168];
+export const HISTORY_WINDOWS: HistoryWindow[] = [24, 72, 168, 720, 2160];
 export const RADAR_RADII: RadarRadius[] = [1, 2, 3, 5, 10, 20, 40];
 
 export const MATRIX_ROWS = [2, 3, 4, 5, 6];
