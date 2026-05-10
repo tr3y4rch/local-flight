@@ -94,6 +94,7 @@ export type ActivityStatus = {
   detail?: string;
   tone?: "sync" | "warn" | "ok";
 };
+export type ConnectionState = "live" | "retrying" | "offline";
 
 const DOC_SOURCES: Record<DocSlug, { title: string; detail: string; githubUrl: string }> = {
   readme: {
@@ -324,6 +325,7 @@ export function Header({
   airportLocation,
   live,
   error,
+  connectionState,
   sourceLabel,
   utcTime,
   localTime,
@@ -344,6 +346,7 @@ export function Header({
   airportLocation: string;
   live: boolean;
   error?: string | null;
+  connectionState?: ConnectionState;
   sourceLabel: string;
   utcTime: string;
   localTime: string;
@@ -358,13 +361,25 @@ export function Header({
   onTogglePin: (row: FidsRow) => void;
   onOpenConfig: () => void;
 }) {
-  const hasIssue = Boolean(live && error);
   const category = metarCategory(metar);
   const accent = metarAccentColor(category);
+  const effectiveConnectionState = connectionState || (!live ? "offline" : error ? "offline" : "live");
+  const connectionAccent =
+    effectiveConnectionState === "live"
+      ? palette.green
+      : effectiveConnectionState === "retrying"
+        ? palette.amber
+        : palette.red;
+  const connectionLabel =
+    effectiveConnectionState === "live"
+      ? "LIVE"
+      : effectiveConnectionState === "retrying"
+        ? "RETRYING"
+        : "OFFLINE";
   const dotOpacity = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
-    if (!live) { dotOpacity.setValue(1); return; }
+    if (effectiveConnectionState === "offline") { dotOpacity.setValue(1); return; }
     const anim = Animated.loop(
       Animated.sequence([
         Animated.timing(dotOpacity, { toValue: 0.2, duration: 850, useNativeDriver: true }),
@@ -373,7 +388,7 @@ export function Header({
     );
     anim.start();
     return () => anim.stop();
-  }, [dotOpacity, live]);
+  }, [dotOpacity, effectiveConnectionState]);
 
   return (
     <View style={styles.header}>
@@ -399,11 +414,17 @@ export function Header({
             <Text style={styles.configHintText}>tap to change airport</Text>
           </View>
           <View style={styles.telemetryStrip}>
-            <View style={[styles.livePill, hasIssue && styles.livePillIssue, !live && styles.livePillOff]}>
-              <Animated.View style={[styles.liveDot, hasIssue && styles.liveDotIssue, !live && styles.liveDotOff, { opacity: dotOpacity }]} />
-              <Text style={[styles.liveText, hasIssue && styles.liveTextIssue, !live && styles.liveTextOff]}>
-                {!live ? "OFF" : hasIssue ? "ISSUE" : "LIVE"}
-              </Text>
+            <View
+              style={[
+                styles.livePill,
+                {
+                  borderColor: hexToRgba(connectionAccent, 0.28),
+                  backgroundColor: hexToRgba(connectionAccent, 0.10)
+                }
+              ]}
+            >
+              <Animated.View style={[styles.liveDot, { backgroundColor: connectionAccent, opacity: dotOpacity }]} />
+              <Text style={[styles.liveText, { color: connectionAccent }]}>{connectionLabel}</Text>
             </View>
             <View style={styles.sourcePill}>
               <Text style={styles.sourceText}>{sourceLabel.toUpperCase()}</Text>
@@ -692,7 +713,7 @@ export function FidsScreen({
         <>
           {showConnectPrompt ? <ConnectPrompt onSettings={onOpenSettings} /> : null}
           <ScreenActivity activity={activity} />
-          {error ? <ScreenError message={error} onRetry={onRefresh} /> : null}
+          {error ? <ScreenError message={error} onRetry={onRefresh} retrying={refreshing} /> : null}
 
           <View style={styles.dirToggle}>
             <DirectionButton
@@ -836,7 +857,7 @@ export function HistoryScreen({
         <>
           {showConnectPrompt ? <ConnectPrompt onSettings={onOpenSettings} /> : null}
           <ScreenActivity activity={activity} />
-          {error ? <ScreenError message={error} onRetry={onRefresh} /> : null}
+          {error ? <ScreenError message={error} onRetry={onRefresh} retrying={refreshing} /> : null}
 
           <FilterSection title="DIRECTION">
             <View style={styles.filterRow}>
@@ -1127,7 +1148,7 @@ export function RadarScreen({
         <>
           {showConnectPrompt ? <ConnectPrompt onSettings={onOpenSettings} /> : null}
           <ScreenActivity activity={activity} />
-          {error ? <ScreenError message={error} onRetry={onRefresh} /> : null}
+          {error ? <ScreenError message={error} onRetry={onRefresh} retrying={refreshing} /> : null}
 
           <FilterSection title={compact ? "ZOOM" : "RADIUS"}>
             <View style={compact ? styles.filterWrap : styles.filterRow}>
@@ -1317,7 +1338,7 @@ export function MatrixScreen({
     >
       {showConnectPrompt ? <ConnectPrompt onSettings={onOpenSettings} /> : null}
       <ScreenActivity activity={activity} />
-      {error ? <ScreenError message={error} onRetry={onRefresh} /> : null}
+      {error ? <ScreenError message={error} onRetry={onRefresh} retrying={refreshing} /> : null}
 
       <View style={styles.cardStack}>
         <HiddenToolHeader
@@ -3797,17 +3818,29 @@ function HiddenToolHeader({
   );
 }
 
-export function ScreenError({ message, onRetry }: { message: string; onRetry?: () => void }) {
+export function ScreenError({
+  message,
+  onRetry,
+  retrying
+}: {
+  message: string;
+  onRetry?: () => void;
+  retrying?: boolean;
+}) {
   return (
     <View style={styles.errorBanner}>
       <View style={styles.errorBannerCopy}>
-        <Text style={styles.errorBannerLabel}>DATA ISSUE</Text>
+        <Text style={styles.errorBannerLabel}>{retrying ? "RETRYING" : "DATA ISSUE"}</Text>
         <Text style={styles.errorBannerText}>{message}</Text>
       </View>
       {onRetry ? (
-        <Pressable style={styles.errorRetryButton} onPress={onRetry}>
-          <MaterialCommunityIcons name="refresh" size={12} color={palette.red} />
-          <Text style={styles.errorRetryText}>RETRY</Text>
+        <Pressable style={styles.errorRetryButton} onPress={onRetry} disabled={retrying}>
+          {retrying ? (
+            <ActivityIndicator size="small" color={palette.amber} />
+          ) : (
+            <MaterialCommunityIcons name="refresh" size={12} color={palette.red} />
+          )}
+          <Text style={[styles.errorRetryText, retrying && { color: palette.amber }]}>{retrying ? "WAIT" : "RETRY"}</Text>
         </Pressable>
       ) : null}
     </View>

@@ -16,7 +16,7 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 
 import { BottomNav } from "../components/BottomNav";
 import { LaunchOverlay } from "../components/LaunchOverlay";
-import { AdminScreen, AirportConfigSheet, CompanionSetupScreen, ConnectPrompt, DocsScreen, FidsScreen, FlightActionSheet, FlightDetailSheet, FullscreenFidsDisplay, Header, HistoryScreen, MatrixScreen, RadarScreen, ScreenActivity, ScreenError, SettingsScreen, type ActivityStatus, type DocSlug } from "../screens/AppScreens";
+import { AdminScreen, AirportConfigSheet, CompanionSetupScreen, ConnectPrompt, DocsScreen, FidsScreen, FlightActionSheet, FlightDetailSheet, FullscreenFidsDisplay, Header, HistoryScreen, MatrixScreen, RadarScreen, ScreenActivity, ScreenError, SettingsScreen, type ActivityStatus, type ConnectionState, type DocSlug } from "../screens/AppScreens";
 import {
   getAdminSystem,
   getBudget,
@@ -760,6 +760,9 @@ export function AppShell() {
   const airportLocation = [airportDetail?.city, airportDetail?.country].filter(Boolean).join(" · ");
   const sourceLabel = state?.source_name || cfg?.source || "VATSIM";
   const isLive = connected && state?.ok !== false;
+  const connectionState: ConnectionState = error
+    ? refreshing ? "retrying" : "offline"
+    : isLive ? "live" : "offline";
   const syncIntervalMs = companionSyncMs(cfg?.refresh_seconds);
 
   useEffect(() => {
@@ -872,6 +875,7 @@ export function AppShell() {
           airportLocation={airportLocation}
           live={isLive}
           error={error}
+          connectionState={connectionState}
           sourceLabel={sourceLabel}
           utcTime={utcTime}
           localTime={localTime}
@@ -1043,6 +1047,7 @@ export function AppShell() {
               {error ? (
                 <ScreenError
                   message={error}
+                  retrying={refreshing}
                   onRetry={() => { hapticLight(); refreshScreen({ target: screen }); }}
                 />
               ) : null}
