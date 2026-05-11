@@ -107,6 +107,8 @@ linear_dedup.json
 # The public/client app starts from start.bat; relay admin power is local/private.
 start_network.bat
 start_network.local.bat
+start_network.command
+start_network.local.command
 operator/
 
 # AI assistant context files and local handoff notes

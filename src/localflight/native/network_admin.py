@@ -121,17 +121,23 @@ class NetworkAdminWindow:  # pragma: no cover - optional Qt runtime
                 top.addLayout(brand_box)
                 self.auth_chip = QtWidgets.QLabel("OFFLINE")
                 self.auth_chip.setObjectName("AuthChip")
-                self.operator_chip = QtWidgets.QLabel("MONITOR / INVESTIGATE / OPERATE")
-                self.operator_chip.setObjectName("OperatorChip")
                 self.last_refresh_chip = QtWidgets.QLabel("not refreshed")
                 self.last_refresh_chip.setObjectName("ClockChip")
                 self.countdown_chip = QtWidgets.QLabel("auto 30s")
                 self.countdown_chip.setObjectName("ClockChip")
+                self.disconnect_btn = QtWidgets.QPushButton("Disconnect")
+                self.disconnect_btn.setObjectName("DisconnectButton")
+                self.disconnect_btn.setToolTip("Clear credentials and return to the login state")
+                self.disconnect_btn.setEnabled(False)
+                self.quit_btn = QtWidgets.QPushButton("Quit")
+                self.quit_btn.setObjectName("QuitButton")
+                self.quit_btn.setToolTip("Close the Network Admin window")
                 top.addStretch(1)
                 top.addWidget(self.auth_chip)
-                top.addWidget(self.operator_chip)
                 top.addWidget(self.last_refresh_chip)
                 top.addWidget(self.countdown_chip)
+                top.addWidget(self.disconnect_btn)
+                top.addWidget(self.quit_btn)
                 layout.addWidget(top_nav)
 
                 shell = QtWidgets.QWidget()
@@ -152,15 +158,15 @@ class NetworkAdminWindow:  # pragma: no cover - optional Qt runtime
                     )
                 )
 
-                login = QtWidgets.QHBoxLayout()
                 self.url = QtWidgets.QLineEdit(
                     os.environ.get("LOCALFLIGHT_NETWORK_ADMIN_URL", "https://localflight-community-relay.fly.dev/admin")
                 )
                 self.user = QtWidgets.QLineEdit(os.environ.get("LOCALFLIGHT_NETWORK_ADMIN_USER", "admin"))
                 self.password = QtWidgets.QLineEdit()
                 self.password.setEchoMode(QtWidgets.QLineEdit.Password)
-                self.connect_btn = QtWidgets.QPushButton("Connect to admin")
-                self.refresh_btn = QtWidgets.QPushButton("Refresh snapshot")
+                self.password.setPlaceholderText("Admin password")
+                self.connect_btn = QtWidgets.QPushButton("Connect")
+                self.refresh_btn = QtWidgets.QPushButton("Refresh")
                 self.auto_refresh = QtWidgets.QCheckBox("Auto-refresh")
                 self.auto_refresh.setChecked(True)
                 self.refresh_interval = QtWidgets.QSpinBox()
@@ -172,18 +178,24 @@ class NetworkAdminWindow:  # pragma: no cover - optional Qt runtime
                 self.search.setClearButtonEnabled(True)
                 self.status = QtWidgets.QLabel("Operator-only console. Mutating actions require admin auth.")
                 self.status.setObjectName("Muted")
-                login.addWidget(QtWidgets.QLabel("Relay admin URL"))
-                login.addWidget(self.url, 3)
-                login.addWidget(QtWidgets.QLabel("User"))
-                login.addWidget(self.user)
-                login.addWidget(QtWidgets.QLabel("Password"))
-                login.addWidget(self.password)
-                login.addWidget(self.connect_btn)
-                login.addWidget(self.refresh_btn)
-                login.addWidget(self.auto_refresh)
-                login.addWidget(self.refresh_interval)
-                login.addWidget(self.search, 2)
-                hero_layout.addLayout(login)
+
+                connection_row = QtWidgets.QHBoxLayout()
+                connection_row.addWidget(QtWidgets.QLabel("Relay admin URL"))
+                connection_row.addWidget(self.url, 3)
+                connection_row.addWidget(QtWidgets.QLabel("User"))
+                connection_row.addWidget(self.user, 1)
+                connection_row.addWidget(QtWidgets.QLabel("Password"))
+                connection_row.addWidget(self.password, 1)
+                connection_row.addWidget(self.connect_btn)
+                hero_layout.addLayout(connection_row)
+
+                controls_row = QtWidgets.QHBoxLayout()
+                controls_row.addWidget(self.refresh_btn)
+                controls_row.addWidget(self.auto_refresh)
+                controls_row.addWidget(self.refresh_interval)
+                controls_row.addWidget(self.search, 2)
+                hero_layout.addLayout(controls_row)
+
                 hero_layout.addWidget(self.status)
                 shell_layout.addWidget(hero)
 
@@ -229,6 +241,8 @@ class NetworkAdminWindow:  # pragma: no cover - optional Qt runtime
                 self.refresh_btn.clicked.connect(lambda: self.refresh_all())
                 self.refresh_interval.valueChanged.connect(self._set_refresh_interval)
                 self.search.textChanged.connect(lambda _text="": self._render_page(self._current_page_key()))
+                self.disconnect_btn.clicked.connect(self.disconnect_relay)
+                self.quit_btn.clicked.connect(self.quit_app)
                 self.timer = QtCore.QTimer(self)
                 self.timer.timeout.connect(self._auto_refresh_tick)
                 self._set_refresh_interval(self.refresh_interval.value())
@@ -237,6 +251,17 @@ class NetworkAdminWindow:  # pragma: no cover - optional Qt runtime
                 self.countdown_timer.setInterval(1000)
                 self.countdown_timer.timeout.connect(self._countdown_tick)
                 self.countdown_timer.start()
+                # Idle auto-logoff: clear creds after N seconds with no input.
+                try:
+                    self._idle_seconds = max(60, int(os.environ.get("LOCALFLIGHT_NETWORK_ADMIN_IDLE_S", "900")))
+                except ValueError:
+                    self._idle_seconds = 900
+                self.idle_timer = QtCore.QTimer(self)
+                self.idle_timer.setSingleShot(True)
+                self.idle_timer.setInterval(self._idle_seconds * 1000)
+                self.idle_timer.timeout.connect(self._idle_logoff)
+                QtWidgets.QApplication.instance().installEventFilter(self)
+                self.idle_timer.start()
                 self._show_page("overview")
 
             def _scroll_page(self) -> Any:
@@ -392,7 +417,47 @@ class NetworkAdminWindow:  # pragma: no cover - optional Qt runtime
                 self.auth_chip.setProperty("connected", False)
                 self.auth_chip.style().unpolish(self.auth_chip)
                 self.auth_chip.style().polish(self.auth_chip)
+                self.disconnect_btn.setEnabled(True)
                 self.refresh_all()
+
+            def disconnect_relay(self, *, idle: bool = False) -> None:
+                self.client = None
+                self.payloads = {}
+                self._has_loaded_all = False
+                self.password.clear()
+                self.auth_chip.setText("OFFLINE")
+                self.auth_chip.setProperty("connected", False)
+                self.auth_chip.style().unpolish(self.auth_chip)
+                self.auth_chip.style().polish(self.auth_chip)
+                self.disconnect_btn.setEnabled(False)
+                if idle:
+                    self.status.setText(
+                        f"Auto-disconnected after {self._idle_seconds // 60} min of inactivity. Re-enter password and connect."
+                    )
+                else:
+                    self.status.setText("Disconnected. Enter password and connect to resume.")
+                self.password.setFocus()
+
+            def quit_app(self) -> None:
+                self.QtWidgets.QApplication.instance().quit()
+
+            def _idle_logoff(self) -> None:
+                if self.client is not None:
+                    self.disconnect_relay(idle=True)
+
+            def eventFilter(self, _obj: Any, event: Any) -> bool:
+                # Treat any user input as activity; reset the idle timer.
+                kind = event.type()
+                if kind in {
+                    self.QtCore.QEvent.MouseMove,
+                    self.QtCore.QEvent.MouseButtonPress,
+                    self.QtCore.QEvent.KeyPress,
+                    self.QtCore.QEvent.Wheel,
+                    self.QtCore.QEvent.TouchBegin,
+                }:
+                    if hasattr(self, "idle_timer"):
+                        self.idle_timer.start(self._idle_seconds * 1000)
+                return False
 
             def refresh_all(self, *, silent: bool = False, active_only: bool = False) -> None:
                 if self.client is None:
@@ -695,7 +760,7 @@ class NetworkAdminWindow:  # pragma: no cover - optional Qt runtime
                 providers = overview.get("providers") if isinstance(overview.get("providers"), dict) else {}
 
                 layout.addWidget(self._label("Network Overview", "Title"))
-                layout.addWidget(self._label("Fleet health, provider readiness, shared caches, activations, and report gateway state.", "Muted"))
+                layout.addWidget(self._label("Fleet health, provider readiness, shared caches, activations, and report gateway state. Counts marked 24h are last-seen windows, not live concurrency.", "Muted"))
                 grid = self.QtWidgets.QGridLayout()
                 schedule_hits = int(schedule.get("cache_hits", 0) or 0)
                 upstream_pulls = int(schedule.get("upstream_pulls", 0) or 0)
@@ -705,7 +770,7 @@ class NetworkAdminWindow:  # pragma: no cover - optional Qt runtime
                 cards = [
                     self._card("Relay month", str(overview.get("month", "-")), f"{counts.get('usage_rows', 0)} usage rows"),
                     self._card("Known installs", str(fleet_metrics.get("known_installs", counts.get("known_installs", 0))), "Fleet rows with relay activity"),
-                    self._card("Active installs", str(fleet_metrics.get("active_installs_24h", counts.get("active_installs_24h", 0))), "Seen in the last 24h"),
+                    self._card("Seen ≤24h", str(fleet_metrics.get("active_installs_24h", counts.get("active_installs_24h", 0))), "Heartbeat or relay activity"),
                     self._card("Providers ready", f"{configured} / {len(providers)}", "AviationStack / RapidAPI readiness"),
                     self._card("Shared schedule cache", str(counts.get("schedule_snapshots", 0)), f"{schedule_hits} hits"),
                     self._card("Upstream pulls", str(upstream_pulls), f"{accesses} client accesses"),
@@ -753,7 +818,7 @@ class NetworkAdminWindow:  # pragma: no cover - optional Qt runtime
                 metrics = fleet.get("metrics") if isinstance(fleet.get("metrics"), dict) else {}
                 rows = self._filtered_rows(_list(fleet.get("installs")))
                 layout.addWidget(self._label("Fleet", "Title"))
-                layout.addWidget(self._label("Sortable install registry. Rows expose fingerprints and opaque action refs only.", "Muted"))
+                layout.addWidget(self._label("Sortable install registry. Rows expose fingerprints and opaque action refs only. Last seen reflects coarse heartbeat presence (~30 min cadence) and relay activity, not live online status.", "Muted"))
                 layout.addWidget(
                     self._filter_bar(
                         "fleet",
@@ -771,7 +836,7 @@ class NetworkAdminWindow:  # pragma: no cover - optional Qt runtime
                             ("managed", "Managed", "select", ["true", "false"]),
                         ],
                         quick_views=[
-                            ("Active installs", {"status": "active"}),
+                            ("Recently seen (≤24h)", {"status": "active"}),
                             ("Blocked/revoked", {"blocked": "true"}),
                             ("Companion users", {"has_companion": "true"}),
                             ("Matrix installs", {"has_matrix": "true"}),
@@ -783,7 +848,7 @@ class NetworkAdminWindow:  # pragma: no cover - optional Qt runtime
                 grid = self.QtWidgets.QGridLayout()
                 cards = [
                     self._card("Known installs", str(metrics.get("known_installs", len(rows))), "All tracked relay installs"),
-                    self._card("Active 24h", str(metrics.get("active_installs_24h", 0)), "Recent heartbeat or relay traffic"),
+                    self._card("Seen ≤24h", str(metrics.get("active_installs_24h", 0)), "Heartbeat or relay activity"),
                     self._card("Managed", str(metrics.get("managed_installs", 0)), "Bound managed tokens"),
                     self._card("Blocked", str(metrics.get("blocked_installs", 0)), "Revoked install access"),
                     self._card("Companion", str(metrics.get("companion_installs", 0)), "Mobile companion present"),
@@ -1217,158 +1282,152 @@ def _clean_payload(value: Any) -> Any:
 
 _NETWORK_ADMIN_STYLE = """
 QMainWindow, QWidget {
-  background-color: #061019;
+  background-color: #0b121b;
+  color: #e6eef8;
 }
 QFrame#TopNav {
-  background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #071422, stop:0.55 #0c1b2c, stop:1 #081521);
-  border-bottom: 1px solid rgba(92,168,255,0.22);
+  background: #111c28;
+  border-bottom: 1px solid #23364a;
 }
 QLabel#BrandMark {
-  min-width: 34px;
-  min-height: 34px;
-  border-radius: 11px;
+  min-width: 32px;
+  min-height: 32px;
+  border-radius: 8px;
   padding: 2px;
-  background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #ffbf59, stop:0.45 #fff4bf, stop:1 #43d8e8);
-  color: #03111a;
+  background: #ffbf59;
+  color: #0b121b;
   font-weight: 900;
 }
 QLabel#Brand {
-  color: #edf6ff;
-  font-family: "Audiowide", "DM Sans", sans-serif;
-  font-size: 15px;
-  font-weight: 400;
+  color: #e6eef8;
+  font-family: "DM Sans", "SF Pro Display", system-ui, sans-serif;
+  font-size: 14px;
+  font-weight: 700;
   letter-spacing: 1px;
   text-transform: uppercase;
 }
 QLabel#Kicker {
-  color: #9fb4c9;
+  color: #8aa0b8;
   font-size: 11px;
-  font-weight: 800;
+  font-weight: 600;
   letter-spacing: 1px;
   text-transform: uppercase;
 }
 QLabel#Title {
-  color: #fff4df;
-  font-size: 22px;
-  font-weight: 900;
-}
-QLabel#Metric {
-  font-size: 26px;
-  color: #ffffff;
-  font-weight: 900;
-}
-QFrame#HeroPanel {
-  background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 rgba(255,191,89,0.18), stop:0.45 rgba(15,25,38,0.98), stop:1 rgba(67,216,232,0.08));
-  border: 1px solid rgba(145,167,192,0.24);
-  border-radius: 18px;
-}
-QFrame#Panel {
-  background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 rgba(15,26,39,0.98), stop:1 rgba(9,18,29,0.98));
-  border: 1px solid rgba(35,54,74,0.92);
-  border-radius: 14px;
-}
-QFrame#Card {
-  background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 rgba(255,191,89,0.13), stop:0.04 rgba(255,191,89,0.28), stop:0.05 rgba(15,26,39,0.98), stop:1 rgba(9,18,29,0.98));
-  border: 1px solid rgba(35,54,74,0.95);
-  border-radius: 14px;
-}
-QFrame#FilterBar, QFrame#PagerRow {
-  background: rgba(9,18,29,0.82);
-  border: 1px solid rgba(35,54,74,0.82);
-  border-radius: 13px;
-}
-QLineEdit, QComboBox, QSpinBox {
-  background: #07111b;
-  color: #edf6ff;
-  border: 1px solid rgba(92,168,255,0.26);
-  border-radius: 10px;
-  padding: 8px 10px;
-  selection-background-color: rgba(67,216,232,0.35);
-}
-QLineEdit:focus, QComboBox:focus, QSpinBox:focus {
-  border-color: rgba(67,216,232,0.75);
-}
-QCheckBox {
-  color: #cfe0f2;
+  color: #e6eef8;
+  font-size: 18px;
   font-weight: 700;
 }
+QLabel#Metric {
+  font-size: 22px;
+  color: #e6eef8;
+  font-weight: 700;
+}
+QFrame#HeroPanel, QFrame#Panel, QFrame#FilterBar, QFrame#PagerRow {
+  background: #111c28;
+  border: 1px solid #23364a;
+  border-radius: 10px;
+}
+QFrame#Card {
+  background: #111c28;
+  border: 1px solid #23364a;
+  border-left: 2px solid #ffbf59;
+  border-radius: 10px;
+}
+QLineEdit, QComboBox, QSpinBox {
+  background: #0d1722;
+  color: #e6eef8;
+  border: 1px solid #23364a;
+  border-radius: 8px;
+  padding: 7px 10px;
+  selection-background-color: rgba(67,216,232,0.32);
+}
+QLineEdit:focus, QComboBox:focus, QSpinBox:focus {
+  border-color: #43d8e8;
+}
+QCheckBox {
+  color: #e6eef8;
+  font-weight: 600;
+}
 QTableWidget {
-  background: #081421;
-  alternate-background-color: #0c1a29;
-  color: #edf6ff;
-  border: 1px solid rgba(35,54,74,0.92);
-  border-radius: 12px;
-  gridline-color: rgba(35,54,74,0.75);
-  selection-background-color: rgba(92,168,255,0.24);
+  background: #0d1722;
+  alternate-background-color: #111c28;
+  color: #e6eef8;
+  border: 1px solid #23364a;
+  border-radius: 8px;
+  gridline-color: #23364a;
+  selection-background-color: rgba(67,216,232,0.24);
   selection-color: #ffffff;
 }
 QHeaderView::section {
-  background: #111d2b;
-  color: #9fb4c9;
+  background: #111c28;
+  color: #8aa0b8;
   border: 0;
-  border-right: 1px solid rgba(35,54,74,0.8);
-  border-bottom: 1px solid rgba(35,54,74,0.9);
-  padding: 9px 8px;
+  border-right: 1px solid #23364a;
+  border-bottom: 1px solid #23364a;
+  padding: 8px;
   font-size: 11px;
-  font-weight: 900;
+  font-weight: 700;
 }
 QPushButton {
-  background: #172638;
-  border: 1px solid rgba(145,167,192,0.16);
-  border-radius: 11px;
-  color: #edf6ff;
-  font-weight: 850;
-  padding: 8px 11px;
+  background: #0d1722;
+  border: 1px solid #23364a;
+  border-radius: 8px;
+  color: #e6eef8;
+  font-weight: 600;
+  padding: 7px 12px;
 }
 QPushButton:hover {
-  border-color: rgba(67,216,232,0.48);
-  background: rgba(92,168,255,0.20);
+  border-color: #43d8e8;
 }
 QPushButton:disabled {
-  color: rgba(237,246,255,0.36);
-  background: rgba(23,38,56,0.48);
+  color: rgba(230,238,248,0.36);
+  background: rgba(13,23,34,0.6);
 }
 QPushButton#NavButton {
-  min-height: 30px;
-  border-radius: 12px;
+  min-height: 28px;
 }
 QPushButton#NavButton:checked {
-  border-color: rgba(255,191,89,0.82);
-  background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 rgba(255,191,89,0.24), stop:1 rgba(92,168,255,0.15));
+  border-color: #ffbf59;
+  color: #ffbf59;
 }
-QLabel#AuthChip, QLabel#OperatorChip, QLabel#ClockChip {
-  color: #d8e7f8;
-  background: rgba(145,167,192,0.12);
-  border: 1px solid rgba(145,167,192,0.22);
+QPushButton#DisconnectButton:enabled:hover {
+  border-color: #ffbf59;
+  color: #ffbf59;
+}
+QPushButton#QuitButton:hover {
+  border-color: #ff716d;
+  color: #ff716d;
+}
+QLabel#AuthChip, QLabel#ClockChip {
+  color: #8aa0b8;
+  background: transparent;
+  border: 1px solid #23364a;
   border-radius: 999px;
-  padding: 5px 9px;
+  padding: 4px 9px;
   font-size: 11px;
-  font-weight: 900;
+  font-weight: 700;
 }
 QLabel#AuthChip[connected="true"] {
   color: #b9ffd9;
-  background: rgba(42,208,127,0.16);
-  border-color: rgba(42,208,127,0.42);
+  border-color: rgba(42,208,127,0.5);
 }
 QLabel#AuthChip[connected="false"] {
   color: #ffd0cd;
-  background: rgba(255,113,109,0.14);
-  border-color: rgba(255,113,109,0.34);
-}
-QLabel#OperatorChip {
-  color: #ffe3a7;
-  background: rgba(255,191,89,0.14);
-  border-color: rgba(255,191,89,0.36);
+  border-color: rgba(255,113,109,0.5);
 }
 QFrame#DangerPanel {
-  background: rgba(239,68,68,0.08);
-  border: 1px solid rgba(239,68,68,0.35);
-  border-radius: 14px;
+  background: #111c28;
+  border: 1px solid rgba(255,113,109,0.5);
+  border-radius: 10px;
 }
 QPushButton#Danger {
-  background: rgba(239,68,68,0.20);
-  border-color: rgba(239,68,68,0.50);
-  color: #ffd0d0;
+  border-color: rgba(255,113,109,0.6);
+  color: #ffd0cd;
+}
+QPushButton#Danger:hover {
+  border-color: #ff716d;
+  background: rgba(255,113,109,0.12);
 }
 """
 

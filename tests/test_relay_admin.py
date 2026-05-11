@@ -283,7 +283,7 @@ def test_admin_dashboard_handles_live_lane_without_snapshot(tmp_path: Path, monk
     schedules = client.get("/admin/api/schedules", headers={"host": "network.localflight.app"}, auth=("admin", "correct-horse")).json()
 
     assert admin.status_code == 200
-    assert "Lazy, query-driven admin console" in admin.text
+    assert "Presence is coarse" in admin.text
     assert any(row["airport_iata"] == "ZRH" for row in schedules["client_interests"])
     assert schedules["filtered_estimate"] == 0
 
@@ -2059,7 +2059,7 @@ def test_admin_html_is_lazy_query_driven_shell(tmp_path: Path, monkeypatch) -> N
     text = response.text
 
     assert response.status_code == 200
-    assert "Lazy, query-driven admin console" in text
+    assert "Presence is coarse" in text
     assert '"/admin/api/fleet"' in text
     assert "quickViewDefs" in text
     assert "data-filter" in text

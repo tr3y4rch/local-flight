@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Local Flight Network Admin</title>
+<style>
+__ADMIN_CSS__
+</style>
+</head>
+<body>
+<div class="shell">
+  <div class="topbar">
+    <div class="brand"><span class="mark">LF</span><span class="brand-text"><strong>Network Admin</strong><span>operator relay console</span></span></div>
+    <div class="nav" id="nav"></div>
+    <button id="signOutBtn" class="signout-btn" title="Sign out of admin console">Sign out</button>
+  </div>
+  <div class="hero">
+    <div>
+      <h1>Local Flight Relay Operations</h1>
+      <div class="muted">Operator console for fleet, traffic, schedules, activations, reports, providers, and maintenance. Presence is coarse — derived from heartbeat (~30 min cadence) and relay activity, not a live online signal.</div>
+    </div>
+    <div class="chips"><span class="chip" id="userChip"></span><span class="chip">Single admin</span><span class="chip">Redacted JSON</span><span class="chip">Coarse presence</span></div>
+  </div>
+  <div id="notices"></div>
+  <div class="quick" id="quickViews"></div>
+  <div class="layer">Monitor</div>
+  <section class="panel" id="overview"></section>
+  <section class="panel" id="fleet"></section>
+  <section class="panel" id="traffic"></section>
+  <div class="layer">Investigate</div>
+  <section class="panel" id="schedules"></section>
+  <section class="panel" id="surfaces"></section>
+  <section class="panel" id="reports"></section>
+  <div class="layer">Operate</div>
+  <section class="panel" id="activations"></section>
+  <section class="panel" id="providers"></section>
+  <div class="layer">Danger Zone</div>
+  <section class="panel" id="maintenance"></section>
+</div>
+<aside class="drawer" id="drawer">
+  <div class="drawer-head"><strong id="drawerTitle">Details</strong><button id="drawerClose">Close</button></div>
+  <div class="drawer-body" id="drawerBody"></div>
+</aside>
+<script>
+__ADMIN_JS__
+</script>
+</body>
+</html>

@@ -4167,339 +4167,62 @@ def _render_admin_legacy(username: str, *, created_token: str = "", message: str
 </html>"""
 
 
+_ADMIN_ASSET_DIR = Path(__file__).resolve().parent / "admin"
+_ADMIN_HTML_TEMPLATE = (_ADMIN_ASSET_DIR / "admin.html").read_text(encoding="utf-8")
+_ADMIN_CSS = (_ADMIN_ASSET_DIR / "admin.css").read_text(encoding="utf-8")
+_ADMIN_JS = (_ADMIN_ASSET_DIR / "admin.js").read_text(encoding="utf-8")
+_ADMIN_SHELL = _ADMIN_HTML_TEMPLATE.replace("__ADMIN_CSS__", _ADMIN_CSS).replace("__ADMIN_JS__", _ADMIN_JS)
+
+
 def _render_admin_shell(username: str, *, created_token: str = "", message: str = "") -> str:
     boot = json.dumps(
         {
             "username": username,
             "createdToken": created_token,
             "message": message,
+            "idleSeconds": _admin_idle_seconds(),
         }
     ).replace("<", "\\u003c")
+    return _ADMIN_SHELL.replace("__BOOT__", boot)
+
+
+def _admin_idle_seconds() -> int:
+    try:
+        value = int(_env("LOCALFLIGHT_NETWORK_ADMIN_IDLE_S", "900"))
+    except ValueError:
+        return 900
+    return max(60, value)
+
+
+def _render_admin_signed_out() -> str:
     return """<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Local Flight Network Admin</title>
+<title>Signed out — Local Flight Network Admin</title>
 <style>
-:root {
-  --bg:#061019; --panel:rgba(15,25,38,.88); --panel2:#0a1420; --line:#23364a;
-  --text:#edf6ff; --muted:#92a8bf; --soft:#647b92; --blue:#5ca8ff;
-  --cyan:#43d8e8; --green:#2ad07f; --amber:#ffbf59; --red:#ff716d;
-  --shadow:0 24px 80px rgba(0,0,0,.28);
-}
-* { box-sizing:border-box; }
-html { scroll-behavior:smooth; }
-body {
-  margin:0; min-height:100vh; color:var(--text);
-  font-family:"Segoe UI Variable","Aptos","SF Pro Display",system-ui,sans-serif;
-  background:
-    linear-gradient(90deg,rgba(67,216,232,.045) 1px,transparent 1px) 0 0/54px 54px,
-    linear-gradient(180deg,rgba(92,168,255,.08),transparent 34%),
-    linear-gradient(155deg,#061019 0%,#0b1826 48%,#07111b 100%);
-}
-body::before {
-  content:""; position:fixed; inset:0; pointer-events:none;
-  background:
-    repeating-linear-gradient(100deg,transparent 0 34px,rgba(255,191,89,.055) 34px 35px),
-    linear-gradient(180deg,rgba(255,255,255,.035),transparent 28rem);
-  mask-image:linear-gradient(180deg,rgba(0,0,0,.88),transparent 78%);
-}
-.shell { max-width:1680px; margin:0 auto; padding:18px; }
-.topbar {
-  position:sticky; top:0; z-index:20; display:flex; gap:12px; align-items:center;
-  padding:10px; border:1px solid rgba(92,168,255,.2); border-radius:16px;
-  background:rgba(6,16,25,.88); backdrop-filter:blur(18px); box-shadow:0 16px 60px rgba(0,0,0,.22);
-}
-.brand { display:flex; align-items:center; gap:10px; min-width:max-content; font-weight:850; }
-.mark { width:34px; height:34px; display:grid; place-items:center; border-radius:11px; color:#03111a; background:linear-gradient(135deg,var(--amber),#fff4bf 42%,var(--cyan)); font-family:"Cascadia Code",monospace; font-size:.78rem; box-shadow:0 10px 34px rgba(255,191,89,.22),inset 0 1px 0 rgba(255,255,255,.55); }
-.brand-text { display:flex; flex-direction:column; line-height:1.05; }
-.brand-text strong { letter-spacing:.04em; text-transform:uppercase; }
-.brand-text span { color:var(--muted); font-size:.72rem; font-weight:700; }
-.nav { display:flex; gap:6px; overflow:auto; flex:1; }
-.nav button,.quick button,.drawer button,.pager button {
-  border:1px solid rgba(145,167,192,.14); border-radius:11px; padding:9px 11px; color:var(--text); background:#172638; font-weight:800; cursor:pointer;
-  transition:border-color .16s ease,transform .16s ease,background .16s ease,box-shadow .16s ease;
-}
-.nav button:hover,.quick button:hover,.drawer button:hover,.pager button:hover { transform:translateY(-1px); border-color:rgba(67,216,232,.45); box-shadow:0 12px 30px rgba(0,0,0,.18); }
-.nav button.active { border-color:rgba(255,191,89,.72); background:linear-gradient(135deg,rgba(255,191,89,.22),rgba(92,168,255,.13)); box-shadow:inset 0 1px 0 rgba(255,255,255,.12); }
-.hero { position:relative; overflow:hidden; display:flex; justify-content:space-between; gap:18px; margin:16px 0; padding:22px; border:1px solid rgba(145,167,192,.24); border-radius:18px; background:linear-gradient(135deg,rgba(255,191,89,.17),rgba(67,216,232,.09)),linear-gradient(90deg,rgba(255,255,255,.06),transparent); box-shadow:var(--shadow); }
-.hero::after { content:""; position:absolute; left:22px; right:22px; bottom:0; height:3px; background:linear-gradient(90deg,var(--amber),var(--cyan),transparent); opacity:.86; }
-h1 { margin:0 0 6px; font-size:1.45rem; }
-.muted { color:var(--muted); }
-.chips { display:flex; flex-wrap:wrap; gap:8px; justify-content:flex-end; }
-.chip { border:1px solid rgba(145,167,192,.22); border-radius:999px; padding:5px 9px; color:#d8e7f8; background:rgba(145,167,192,.1); font-size:.74rem; font-weight:800; text-transform:uppercase; letter-spacing:.06em; white-space:nowrap; }
-.notice { margin:10px 0; padding:11px 13px; border:1px solid var(--line); border-radius:12px; background:#101c2a; }
-.notice.good { border-color:rgba(42,208,127,.4); background:rgba(10,41,26,.82); }
-.quick { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:14px; }
-.quick button { display:inline-flex; align-items:center; gap:8px; border-radius:14px; }
-.quick button::before { content:""; width:8px; height:8px; border-radius:50%; background:var(--cyan); box-shadow:0 0 18px rgba(67,216,232,.55); }
-.layer { color:var(--cyan); font-size:.72rem; font-weight:900; letter-spacing:.12em; text-transform:uppercase; margin:18px 0 8px; }
-.grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:10px; }
-.metric,.panel { border:1px solid var(--line); border-radius:14px; background:linear-gradient(180deg,rgba(15,26,39,.98),rgba(9,18,29,.98)); box-shadow:0 18px 50px rgba(0,0,0,.18); }
-.metric { position:relative; overflow:hidden; padding:13px; border-left:3px solid rgba(255,191,89,.82); }
-.metric::after { content:""; position:absolute; inset:0; background:linear-gradient(100deg,rgba(255,255,255,.07),transparent 38%); pointer-events:none; }
-.metric .label { color:var(--muted); font-size:.72rem; text-transform:uppercase; letter-spacing:.08em; }
-.metric .value { font-size:1.55rem; font-weight:900; margin-top:6px; }
-.panel { margin-bottom:14px; overflow:hidden; scroll-margin-top:86px; }
-.panel-head { display:flex; justify-content:space-between; gap:12px; align-items:flex-start; padding:14px 16px; border-bottom:1px solid var(--line); }
-.panel-head h2 { margin:0 0 4px; font-size:.95rem; text-transform:uppercase; letter-spacing:.08em; }
-.filters { display:flex; flex-wrap:wrap; gap:8px; padding:12px 16px; border-bottom:1px solid rgba(35,54,74,.7); }
-input,select { min-width:130px; border:1px solid var(--line); border-radius:10px; padding:9px 10px; color:var(--text); background:#07111b; }
-input[type="search"] { min-width:220px; }
-.table-wrap { max-height:min(560px,calc(100vh - 250px)); overflow:auto; overscroll-behavior:contain; }
-table { width:100%; border-collapse:collapse; font-size:.84rem; }
-th { position:sticky; top:0; z-index:2; text-align:left; padding:10px; background:#111d2b; color:var(--muted); text-transform:uppercase; letter-spacing:.06em; font-size:.7rem; cursor:pointer; }
-td { padding:10px; border-top:1px solid rgba(35,54,74,.65); vertical-align:top; }
-tbody tr { cursor:pointer; transition:background .14s ease; }
-tr:hover td { background:rgba(92,168,255,.06); }
-.mono { font-family:"Cascadia Code","SFMono-Regular",Consolas,monospace; }
-.badge { display:inline-block; border-radius:999px; padding:3px 8px; font-size:.72rem; font-weight:850; text-transform:uppercase; color:#dcecff; background:rgba(145,167,192,.13); }
-.badge.good { color:#b9ffd9; background:rgba(42,208,127,.16); }
-.badge.warn { color:#ffe3a7; background:rgba(255,191,89,.16); }
-.badge.bad { color:#ffd0cd; background:rgba(255,113,109,.16); }
-.pager { display:flex; justify-content:space-between; align-items:center; gap:10px; padding:10px 16px; border-top:1px solid var(--line); color:var(--muted); }
-.drawer { position:fixed; inset:0 0 0 auto; width:min(540px,100vw); transform:translateX(102%); transition:.18s ease; z-index:50; border-left:1px solid var(--line); background:#081421; box-shadow:-30px 0 80px rgba(0,0,0,.4); display:flex; flex-direction:column; }
-.drawer.open { transform:translateX(0); }
-.drawer-head { display:flex; justify-content:space-between; gap:10px; align-items:center; padding:16px; border-bottom:1px solid var(--line); }
-.drawer-body { padding:16px; overflow:auto; }
-.drawer pre { white-space:pre-wrap; word-break:break-word; color:#cfe0f2; background:#050c13; border:1px solid var(--line); border-radius:12px; padding:12px; }
-.drawer .danger { background:rgba(255,113,109,.18); color:#ffd0cd; }
-.drawer .safe { background:rgba(42,208,127,.18); color:#b9ffd9; }
-.hidden { display:none !important; }
-@media (max-width:900px) { .topbar,.hero { flex-direction:column; } .chips { justify-content:flex-start; } }
+body { margin:0; min-height:100vh; display:grid; place-items:center; color:#edf6ff; font-family:"Segoe UI Variable","SF Pro Display",system-ui,sans-serif; background:#061019; }
+.card { max-width:420px; padding:28px 30px; border:1px solid #23364a; border-radius:14px; background:#0a1420; text-align:center; }
+h1 { margin:0 0 8px; font-size:1.2rem; letter-spacing:.04em; text-transform:uppercase; }
+p { margin:8px 0; color:#92a8bf; line-height:1.5; }
+a { display:inline-block; margin-top:14px; padding:9px 14px; border:1px solid #23364a; border-radius:10px; color:#edf6ff; text-decoration:none; font-weight:800; }
+a:hover { border-color:#43d8e8; }
+small { display:block; margin-top:14px; color:#647b92; }
 </style>
 </head>
 <body>
-<div class="shell">
-  <div class="topbar">
-    <div class="brand"><span class="mark">LF</span><span class="brand-text"><strong>Network Admin</strong><span>operator relay console</span></span></div>
-    <div class="nav" id="nav"></div>
-  </div>
-  <div class="hero">
-    <div>
-      <h1>Local Flight Relay Operations</h1>
-      <div class="muted">Lazy, query-driven admin console for fleet, traffic, schedules, activations, reports, providers, and maintenance.</div>
-    </div>
-    <div class="chips"><span class="chip" id="userChip"></span><span class="chip">Single admin</span><span class="chip">Redacted JSON</span></div>
-  </div>
-  <div id="notices"></div>
-  <div class="quick" id="quickViews"></div>
-  <div class="layer">Monitor</div>
-  <section class="panel" id="overview"></section>
-  <section class="panel" id="fleet"></section>
-  <section class="panel" id="traffic"></section>
-  <div class="layer">Investigate</div>
-  <section class="panel" id="schedules"></section>
-  <section class="panel" id="surfaces"></section>
-  <section class="panel" id="reports"></section>
-  <div class="layer">Operate</div>
-  <section class="panel" id="activations"></section>
-  <section class="panel" id="providers"></section>
-  <div class="layer">Danger Zone</div>
-  <section class="panel" id="maintenance"></section>
+<div class="card">
+<h1>Signed out</h1>
+<p>You have been signed out of the Network Admin console.</p>
+<a href="/admin">Sign back in</a>
+<small>Safari may keep credentials cached for this tab — close the tab if you need a fully clean session.</small>
 </div>
-<aside class="drawer" id="drawer">
-  <div class="drawer-head"><strong id="drawerTitle">Details</strong><button id="drawerClose">Close</button></div>
-  <div class="drawer-body" id="drawerBody"></div>
-</aside>
-<script>
-const BOOT = __BOOT__;
-const views = [
-  ["overview","Overview"],["fleet","Fleet"],["traffic","Traffic"],["schedules","Schedules"],["surfaces","Surfaces"],["reports","Reports"],["activations","Activations"],["providers","Providers"],["maintenance","Maintenance"]
-];
-const state = Object.fromEntries(views.map(([key]) => [key, {cursor:"", last:"", filters:{}, sort:"last_seen", dir:"desc"}]));
-const endpoints = {
-  overview:"/admin/api/overview", fleet:"/admin/api/fleet", traffic:"/admin/api/usage", schedules:"/admin/api/schedules",
-  surfaces:"/admin/api/surfaces", reports:"/admin/api/reports", activations:"/admin/api/activations"
-};
-const columns = {
-  fleet:[["install_fingerprint","Install"],["first_seen","First"],["last_seen","Last"],["os_family","OS"],["effective_gui","GUI"],["app_version","Version"],["plan","Plan"],["current_lane.airport_iata","Airport"],["companion_count","Companion"],["matrix_online_count","Matrix"],["schedule_calls","Schedule"],["radar_calls","Radar"],["status","Status"]],
-  traffic:[["service","Service"],["plan","Plan"],["calls","Calls"],["subject.fingerprint","Subject"],["last_seen","Last seen"]],
-  requests:[["ts","Time"],["install_fingerprint","Install"],["service","Service"],["scope","Scope"],["status","Status"],["latency_ms","Latency"],["plan","Plan"]],
-  schedules:[["airport_iata","Airport"],["timezone","Timezone"],["client_accesses","Serves"],["upstream_pulls","Pulls"],["cache_hits","Hits"],["last_cache_state","State"],["updated_at","Updated"],["last_error","Error"]],
-  surfaces:[["airport_iata","IATA"],["airport_icao","ICAO"],["feature_count","Features"],["request_count","Requests"],["cache_hits","Hits"],["last_cache_state","State"],["updated_at","Updated"],["last_error","Error"]],
-  reports:[["ts","Time"],["install_fingerprint","Install"],["report_type","Type"],["origin","Origin"],["team","Team"],["status","Status"],["network_tag","Network"]],
-  tokens:[["token_prefix","Prefix"],["label","Label"],["schedule_limit","Schedule"],["radar_limit","Radar"],["bound_install_fingerprint","Bound"],["last_seen","Last"],["revoked","Revoked"]],
-  requestsQueue:[["request_id","Request"],["install_fingerprint","Install"],["network_tag","Network"],["airport_iata","Airport"],["display_name","Display"],["status","Status"],["updated_at","Updated"],["decision_note","Note"]]
-};
-const quickViewDefs = [
-  ["Active installs","fleet",{status:"active"}],["Blocked/revoked","fleet",{blocked:"true"}],["Companion users","fleet",{has_companion:"true"}],
-  ["Matrix installs","fleet",{has_matrix:"true"}],["macOS native","fleet",{os_family:"macos",effective_gui:"native"}],["Windows native","fleet",{os_family:"windows",effective_gui:"native"}],
-  ["Stale cache/error lanes","schedules",{cache_state:"stale"}],["Pending activation review","activations",{}]
-];
-function esc(value) {
-  const map = {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"};
-  return String(value ?? "").replace(/[&<>"']/g, ch => map[ch]);
-}
-function valueAt(row, path) { return path.split(".").reduce((v,k) => v && typeof v === "object" ? v[k] : "", row); }
-function badge(value) {
-  const text = esc(value || "-"); const lower = text.toLowerCase();
-  const tone = lower.includes("active") || lower.includes("fresh") || lower === "200" || lower === "false" ? "good" : lower.includes("error") || lower.includes("blocked") || lower.includes("revoked") || lower.includes("failed") ? "bad" : lower.includes("stale") || lower.includes("pending") || lower.includes("manual") ? "warn" : "";
-  return `<span class="badge ${tone}">${text}</span>`;
-}
-function setNav(active) {
-  document.querySelectorAll(".nav button").forEach(btn => btn.classList.toggle("active", btn.dataset.view === active));
-}
-function paramsFor(key) {
-  const params = new URLSearchParams();
-  Object.entries(state[key]?.filters || {}).forEach(([k,v]) => { if (v !== "" && v != null) params.set(k, v); });
-  if (state[key]?.cursor) params.set("cursor", state[key].cursor);
-  params.set("limit", "100");
-  if (state[key]?.sort) params.set("sort", state[key].sort);
-  if (state[key]?.dir) params.set("dir", state[key].dir);
-  return params;
-}
-async function load(key) {
-  setNav(key);
-  const endpoint = endpoints[key];
-  if (!endpoint) return renderStatic(key);
-  const qs = paramsFor(key).toString();
-  const response = await fetch(endpoint + (qs ? "?" + qs : ""), {headers: {"Accept":"application/json"}});
-  if (!response.ok) throw new Error(`${key}: HTTP ${response.status}`);
-  const payload = await response.json();
-  state[key].last = payload;
-  render(key, payload);
-}
-function panel(key, title, copy, tools, body, pager="") {
-  document.getElementById(key).innerHTML = `<div class="panel-head"><div><h2>${esc(title)}</h2><div class="muted">${esc(copy)}</div></div><div class="muted">${tools || ""}</div></div>${body}${pager}`;
-}
-function metrics(items) {
-  return `<div class="grid">${items.map(([label,value,sub]) => `<div class="metric"><div class="label">${esc(label)}</div><div class="value">${esc(value)}</div><div class="muted">${esc(sub || "")}</div></div>`).join("")}</div>`;
-}
-function filters(key, defs) {
-  return `<div class="filters">${defs.map(def => {
-    const [name,label,type,options] = def; const value = state[key].filters[name] || "";
-    if (type === "select") return `<select data-filter="${esc(name)}"><option value="">${esc(label)}</option>${(options || []).map(opt => `<option value="${esc(opt)}" ${String(value).toLowerCase() === String(opt).toLowerCase() ? "selected" : ""}>${esc(opt)}</option>`).join("")}</select>`;
-    return `<input data-filter="${esc(name)}" type="${type || "search"}" placeholder="${esc(label)}" value="${esc(value)}">`;
-  }).join("")}<button data-apply="${key}">Apply</button><button data-clear="${key}">Clear</button></div>`;
-}
-function table(key, rows, cols, kind) {
-  if (!rows || !rows.length) return `<div class="table-wrap"><table><tbody><tr><td class="muted">No rows for this view.</td></tr></tbody></table></div>`;
-  return `<div class="table-wrap"><table><thead><tr>${cols.map(([path,label]) => `<th data-sort="${esc(path)}">${esc(label)}</th>`).join("")}</tr></thead><tbody>${rows.map((row,idx) => `<tr data-kind="${esc(kind || key)}" data-index="${idx}">${cols.map(([path]) => {
-    const value = valueAt(row,path); const cell = path.includes("status") || path.includes("state") || path === "revoked" ? badge(value) : esc(value);
-    return `<td>${cell}</td>`;
-  }).join("")}</tr>`).join("")}</tbody></table></div>`;
-}
-function pager(key, payload) {
-  return `<div class="pager"><span>${payload.filtered_estimate ?? 0} filtered / ${payload.total_estimate ?? 0} total</span><span><button data-prev="${key}">Previous</button> <button data-next="${key}" ${payload.next_cursor ? "" : "disabled"}>Next</button></span></div>`;
-}
-function render(key, payload) {
-  if (key === "overview") {
-    const c = payload.counts || {}, f = payload.fleet || {}, s = payload.shared_schedule || {};
-    panel("overview","Overview","Launch-scale health snapshot.","Monitor", metrics([
-      ["Known installs", c.known_installs || f.known_installs || 0, "Fleet rows"],
-      ["Active installs", c.active_installs_24h || f.active_installs_24h || 0, "Last 24h"],
-      ["Requests 24h", c.requests_24h || 0, "Relay traffic"],
-      ["Reports 24h", c.reports_24h || 0, "Report gateway"],
-      ["Pending review", c.activation_requests_pending || 0, "Activation queue"],
-      ["Cache hits", s.cache_hits || 0, "Shared schedules"],
-      ["Upstream pulls", s.upstream_pulls || 0, "Provider load"],
-      ["Blocked installs", c.blocked_installs || 0, "Access revoked"]
-    ]));
-  } else if (key === "fleet") {
-    const facets = payload.facets || {};
-    const opts = name => Object.keys(facets[name] || {});
-    const body = filters(key,[["q","Search fleet"],["status","Status","select",opts("status")],["plan","Plan","select",opts("plan")],["os_family","OS","select",opts("os_family")],["effective_gui","GUI","select",opts("effective_gui")],["app_version","Version","select",opts("app_version")],["airport_iata","Airport"],["has_companion","Companion","select",["true","false"]],["has_matrix","Matrix","select",["true","false"]],["blocked","Blocked","select",["true","false"]],["managed","Managed","select",["true","false"]]]) + table(key,payload.rows || payload.installs || [],columns.fleet,"fleet");
-    panel(key,"Fleet","Install registry with server-side filters and opaque action refs.","Investigate",body,pager(key,payload));
-  } else if (key === "traffic") {
-    const reqRows = payload.requests?.rows || [];
-    const body = filters(key,[["q","Search traffic"],["service","Service"],["plan","Plan"],["status","Status or error"]]) + table(key,payload.rows || [],columns.traffic,"usage") + `<div class="panel-head"><div><h2>Request tail</h2><div class="muted">Recent transport health</div></div></div>` + table(key,reqRows,columns.requests,"request");
-    panel(key,"Traffic","Monthly usage and recent request health.","Monitor",body,pager(key,payload));
-  } else if (key === "schedules" || key === "surfaces") {
-    const body = filters(key,[["q","Search cache"],["airport_iata","Airport"],["cache_state","Cache state"]]) + table(key,payload.rows || payload.snapshots || [],columns[key],key);
-    panel(key,key === "schedules" ? "Schedules" : "Surfaces",key === "schedules" ? "Shared schedule cache lanes." : "Airport surface cache lanes.","Investigate",body,pager(key,payload));
-  } else if (key === "reports") {
-    const body = filters(key,[["q","Search reports"],["report_type","Type"],["origin","Origin"],["team","Team"],["status","Status"]]) + table(key,payload.rows || payload.recent_events || [],columns.reports,"report");
-    panel(key,"Reports","Sanitized report gateway events and dedupe state.","Investigate",body,pager(key,payload));
-  } else if (key === "activations") {
-    const body = table(key,payload.tokens || [],columns.tokens,"token") + `<div class="panel-head"><div><h2>Activation queue</h2><div class="muted">Manual review and issued requests</div></div></div>` + table(key,payload.requests || [],columns.requestsQueue,"activation_request");
-    panel(key,"Activations","Managed tokens and activation queue.","Operate",body);
-  }
-}
-function renderStatic(key) {
-  if (key === "providers") panel(key,"Providers","Save or clear relay provider key overrides.","Operate",`<div class="filters"><input id="aviKey" type="password" placeholder="Replacement AviationStack key"><input id="rapidKey" type="password" placeholder="Replacement RapidAPI key"><button data-action="saveProviders">Save keys</button><button data-action="clearAviation">Clear AviationStack</button><button data-action="clearRapid">Clear RapidAPI</button></div>`);
-  if (key === "maintenance") panel(key,"Maintenance","Danger Zone actions stay separated from monitoring.","Danger Zone",`<div class="filters"><button data-action="resetAll">Reset all monthly counters</button><button data-action="resetLogs">Clear request log</button><input id="scheduleTotal" type="number" min="0" placeholder="Known schedule total"><button data-action="correctSchedule">Correct schedule total</button><button data-action="cleanTrial">Clean setup trial state</button></div>`);
-}
-function openDrawer(kind, row) {
-  const actions = [];
-  if (kind === "fleet") {
-    actions.push(`<button data-drawer-action="resetInstall">Reset counters</button>`);
-    actions.push(`<button class="${row.blocked ? "safe" : "danger"}" data-drawer-action="${row.blocked ? "unblockInstall" : "blockInstall"}">${row.blocked ? "Unblock install" : "Block install"}</button>`);
-  }
-  if (kind === "token") {
-    actions.push(`<button data-drawer-action="rotateToken">Rotate</button><button class="danger" data-drawer-action="${row.revoked ? "reactivateToken" : "revokeToken"}">${row.revoked ? "Reactivate" : "Revoke"}</button><button data-drawer-action="unbindToken">Unbind</button>`);
-  }
-  if (kind === "activation_request") {
-    actions.push(`<button class="safe" data-drawer-action="approveRequest">Issue</button><button class="danger" data-drawer-action="rejectRequest">Dismiss</button><button class="danger" data-drawer-action="deleteRequest">Delete</button>`);
-  }
-  drawer.dataset.kind = kind; drawer.dataset.row = JSON.stringify(row);
-  drawerTitle.textContent = `${kind.replace("_"," ")} details`;
-  drawerBody.innerHTML = `<div class="quick">${actions.join("")}</div><pre>${esc(JSON.stringify(row,null,2))}</pre>`;
-  drawer.classList.add("open");
-}
-async function post(path, body, confirmText) {
-  if (confirmText && !confirm(confirmText)) return;
-  const res = await fetch(path,{method:"POST",headers:{"Content-Type":"application/json","Accept":"application/json"},body:JSON.stringify(body || {})});
-  const payload = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(payload.detail || res.statusText);
-  notice(payload.message || "Action completed.", "good");
-  drawer.classList.remove("open");
-  load(document.querySelector(".nav button.active")?.dataset.view || "overview");
-}
-function notice(text, kind="") { notices.innerHTML = `<div class="notice ${kind}">${esc(text)}</div>`; }
-document.getElementById("userChip").textContent = "Logged in as " + BOOT.username;
-if (BOOT.message) notice(BOOT.message);
-if (BOOT.createdToken) notice("Fresh token: " + BOOT.createdToken, "good");
-nav.innerHTML = views.map(([key,label]) => `<button data-view="${key}">${label}</button>`).join("");
-document.getElementById("quickViews").innerHTML = quickViewDefs.map(([label]) => `<button>${esc(label)}</button>`).join("");
-document.addEventListener("click", async ev => {
-  const button = ev.target.closest("button"); const rowEl = ev.target.closest("tr[data-kind]");
-  if (button?.dataset.view) { load(button.dataset.view).catch(e => notice(e.message)); return; }
-  if (button?.dataset.apply) { const key = button.dataset.apply; state[key].cursor = ""; document.querySelectorAll(`#${key} [data-filter]`).forEach(input => state[key].filters[input.dataset.filter] = input.value); load(key).catch(e => notice(e.message)); return; }
-  if (button?.dataset.clear) { const key = button.dataset.clear; state[key].cursor = ""; state[key].filters = {}; load(key).catch(e => notice(e.message)); return; }
-  if (button?.dataset.next) { const key = button.dataset.next; state[key].cursor = state[key].last.next_cursor || ""; load(key).catch(e => notice(e.message)); return; }
-  if (button?.dataset.prev) { const key = button.dataset.prev; state[key].cursor = ""; load(key).catch(e => notice(e.message)); return; }
-  if (button?.dataset.action === "saveProviders") return post("/admin/api/providers/save",{aviationstack_key:aviKey.value,rapidapi_key:rapidKey.value},"Save replacement provider keys?");
-  if (button?.dataset.action === "clearAviation") return post("/admin/api/providers/clear",{provider:"aviationstack"},"Clear AviationStack override?");
-  if (button?.dataset.action === "clearRapid") return post("/admin/api/providers/clear",{provider:"rapidapi"},"Clear RapidAPI override?");
-  if (button?.dataset.action === "resetAll") return post("/admin/api/counters/reset",{scope:"all"},"Reset all monthly counters?");
-  if (button?.dataset.action === "resetLogs") return post("/admin/api/counters/reset",{scope:"logs"},"Clear request log?");
-  if (button?.dataset.action === "correctSchedule") return post("/admin/api/counters/correct-schedule",{total:Number(scheduleTotal.value || 0)},"Correct schedule total?");
-  if (button?.dataset.action === "cleanTrial") return post("/admin/api/maintenance/clean-trial",{},"Clean setup trial state?");
-  if (button?.dataset.drawerAction) {
-    const row = JSON.parse(drawer.dataset.row || "{}");
-    const action = button.dataset.drawerAction;
-    if (action === "resetInstall") return post("/admin/api/counters/reset",{scope:"install",install_ref:row.action_ref},"Reset install counters?");
-    if (action === "blockInstall" || action === "unblockInstall") return post("/admin/api/install/access",{install_ref:row.action_ref,action:action === "blockInstall" ? "block" : "unblock",reason:"revoked by admin"},"Change install access?");
-    if (action.endsWith("Token")) return post("/admin/api/activation/token-action",{token_ref:row.action_ref,token_prefix:row.token_prefix,action:action.replace("Token","").replace("reactivate","reactivate").toLowerCase()},"Run token action?");
-    if (action.endsWith("Request")) return post("/admin/api/activation/request-action",{request_id:row.action_ref || row.request_id,action:action.replace("Request","").replace("approve","approve").replace("reject","reject").replace("delete","delete").toLowerCase(),decision_note:"dismissed"},"Run request action?");
-  }
-  if (rowEl) {
-    const active = document.querySelector(".nav button.active")?.dataset.view || "";
-    const kind = rowEl.dataset.kind; const idx = Number(rowEl.dataset.index);
-    const payload = state[active]?.last || {}; const source = kind === "token" ? payload.tokens : kind === "activation_request" ? payload.requests : kind === "request" ? payload.requests?.rows : payload.rows || payload.installs || payload.snapshots || payload.recent_events || [];
-    openDrawer(kind, source[idx] || {});
-  }
-});
-document.addEventListener("click", ev => {
-  const th = ev.target.closest("th[data-sort]");
-  if (!th) return;
-  const key = document.querySelector(".nav button.active")?.dataset.view;
-  if (!key) return;
-  const sort = th.dataset.sort;
-  state[key].dir = state[key].sort === sort && state[key].dir === "desc" ? "asc" : "desc";
-  state[key].sort = sort; state[key].cursor = "";
-  load(key).catch(e => notice(e.message));
-});
-drawerClose.onclick = () => drawer.classList.remove("open");
-document.getElementById("quickViews").querySelectorAll("button").forEach((btn, idx) => btn.onclick = () => {
-  const [, key, filters] = quickViewDefs[idx]; state[key].filters = {...filters}; state[key].cursor = ""; load(key).catch(e => notice(e.message)); location.hash = key;
-});
-load("overview").catch(e => notice(e.message));
-</script>
 </body>
-</html>""".replace("__BOOT__", boot)
+</html>
+"""
+
+
 
 
 def _render_admin(username: str, *, created_token: str = "", message: str = "") -> str:
@@ -8217,6 +7940,22 @@ def admin_api_clean_trial_state(username: str = Depends(_require_admin)) -> Dict
 @app.get("/admin", response_class=HTMLResponse)
 def admin_dashboard(username: str = Depends(_require_admin)) -> str:
     return _render_admin(username)
+
+
+@app.post("/admin/api/logout")
+def admin_api_logout() -> Response:
+    # Rotate the realm so Chrome/Firefox/Edge drop the cached basic-auth credential
+    # for the original realm. Safari may still cling — the signed-out page tells the
+    # operator to close the tab if so.
+    return Response(
+        status_code=401,
+        headers={"WWW-Authenticate": f'Basic realm="logout-{int(time.time())}"'},
+    )
+
+
+@app.get("/admin/signed-out", response_class=HTMLResponse)
+def admin_signed_out() -> str:
+    return _render_admin_signed_out()
 
 
 @app.post("/admin/providers/save")
