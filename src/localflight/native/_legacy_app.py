@@ -131,7 +131,7 @@ def _app_version() -> str:
     try:
         return version("localflight")
     except PackageNotFoundError:
-        return "0.2.6"
+        return "0.2.7"
 
 
 def _as_widget(screen: Any) -> Any:

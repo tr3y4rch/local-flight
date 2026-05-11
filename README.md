@@ -12,7 +12,7 @@ The recommended desktop client is now the native Qt app. The LAN browser UI, Pi 
 
 ## Status
 
-`0.2.6` is the temporary client-polish target after the `0.2.5` beta baseline. It is still beta software, but this pass treats Local Flight as a working multi-client app:
+`0.2.7` is the current client target — a polish pass on top of the `0.2.6` beta baseline. It is still beta software, but this pass treats Local Flight as a working multi-client app:
 
 - Native desktop app for Windows and macOS
 - LAN browser UI for remote viewing, headless installs, and browser-mode displays
@@ -40,7 +40,7 @@ Read the detailed guides:
 - [Install Guide](docs/install.md)
 - [Display Modes](docs/display-modes.md)
 - [Privacy & Diagnostics](PRIVACY.md)
-- [Temporary 0.2.6 Client Notes](docs/release-notes-0.2.6.md)
+- [0.2.7 Client Notes](docs/release-notes-0.2.7.md)
 - [Full Changelog](CHANGELOG.md)
 
 ---

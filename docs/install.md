@@ -12,7 +12,7 @@ If you are unsure, use the packaged Windows or macOS app on a desktop first. It 
 - First launch opens a guided setup wizard before the normal app.
 - You can choose **Community Relay**, **Bring your own keys**, or **VATSIM**.
 - Diagnostics are optional. Manual reports stay available even if automatic diagnostics are off.
-- The current temporary client target is `0.2.6`. It is still beta software, but the client paths are now intended to work across the supported display types.
+- The current client target is `0.2.7`. It is still beta software, but the client paths are now intended to work across the supported display types.
 
 ---
 
@@ -80,7 +80,7 @@ You can clone the repo on the Pi or download the versioned Pi source bundle from
 LocalFlight-pi-source-<version>.zip
 ```
 
-For this temporary target, that package name is expected to look like `LocalFlight-pi-source-0.2.6.zip` once the release bundle is built.
+For this target, that package name is expected to look like `LocalFlight-pi-source-0.2.7.zip` once the release bundle is built.
 
 Unzip or clone on the Pi, then run:
 

@@ -65,11 +65,12 @@ The relay stores the minimum metadata needed to run that shared service safely:
 - random local install UUID
 - hashed install fingerprint
 - per-install usage counts
-- last-seen timestamps
+- last-seen timestamps (heartbeat or relay activity, ~30 min coarse cadence — not real-time presence)
 - token prefixes for relay-linked installs
 - one-way anonymous network tags for abuse protection
 - short-lived "current interest" rows, such as airport and display window, so shared schedule snapshots can be reused
 - short-lived shared schedule snapshots containing Local Flight canonical schedule records and cache metadata
+- a small coarse install profile sent with periodic heartbeats: app version, OS family/version/architecture, GUI mode, source mode (real / VATSIM / BYOK), diagnostics mode, companion device count, and matrix device count. This profile lets the relay operator see fleet shape (how many installs are on which version/OS) without identifying individuals.
 - if the operator explicitly enables the optional surface/map overlay path: short-lived airport-surface and map-geometry cache entries derived from OpenStreetMap/Overpass so many installs looking at the same airport do not repeatedly query public map infrastructure
 
 The relay does **not** store:

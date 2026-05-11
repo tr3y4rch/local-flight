@@ -6,6 +6,27 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.2.7] - 2026-05-11
+
+> Polish pass on top of the `0.2.6` baseline. Operator-facing changes; client behavior unchanged.
+> For the user-facing summary, see [docs/release-notes-0.2.7.md](docs/release-notes-0.2.7.md).
+
+### Network Admin (operator-only)
+- Reframed fleet/overview copy as coarse heartbeat presence, not live online status. "Seen ≤24h" replaces "Active installs" wherever the count referred to a 24-hour last-seen window. Applies to both the HTML admin SPA and the native Qt console.
+- Added `POST /admin/api/logout` (returns 401 with a rotated `WWW-Authenticate` realm to invalidate the cached basic-auth credential in Chrome / Firefox / Edge) plus an open `GET /admin/signed-out` page.
+- Idle auto-logoff on both surfaces, default 15 minutes, configurable via `LOCALFLIGHT_NETWORK_ADMIN_IDLE_S` (seconds, min 60). HTML shows a 60-second warning toast before signing out; Qt clears the client and password silently and shows a status message.
+- Native Qt console gained explicit Disconnect (clear credentials, return to login state) and Quit (`QApplication.quit()`) buttons. Hero split into a connection row and a controls row; removed the decorative `MONITOR / INVESTIGATE / OPERATE` chip.
+- Stripped visual decoration on both surfaces: dropped CRT scanline overlay, glow underlines, shimmer overlays, multi-stop body and panel gradients, tri-color brand mark. Calmer shared palette with accents only on hover / focus / checked states.
+
+### Relay
+- Extracted the admin SPA from `relay/main.py` into `relay/admin/{admin.html,admin.css,admin.js}`, loaded once at module import with `__BOOT__` / `__ADMIN_CSS__` / `__ADMIN_JS__` substitution. No new dependency and no extra HTTP requests; render output stays byte-equivalent. The Dockerfile now copies the new asset directory into the Fly image.
+- Removed ~330 lines of dead legacy admin renderer (`_render_admin_legacy`) that was no longer wired to any route.
+
+### Privacy
+- PRIVACY.md now lists the heartbeat install-profile fields explicitly (app version, OS family/version/architecture, GUI mode, source mode, diagnostics mode, companion count, matrix count) so operator-side fleet shape visibility is transparent.
+
+---
+
 ## [0.2.6] - 2026-05-10
 
 > Temporary client-polish and docs target after the `0.2.5` beta baseline.

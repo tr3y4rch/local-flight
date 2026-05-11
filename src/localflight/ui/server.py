@@ -236,7 +236,7 @@ try:
     from importlib.metadata import version as _pkg_version
     _APP_VERSION = _pkg_version("localflight")
 except Exception:
-    _APP_VERSION = "0.2.6"
+    _APP_VERSION = "0.2.7"
 
 templates.env.globals["app_version"] = _APP_VERSION
 
@@ -301,10 +301,10 @@ _DOC_PAGES: Dict[str, Dict[str, str]] = {
         "github_url": "https://github.com/tr3y4rch/local-flight/blob/main/docs/display-modes.md",
     },
     "client-notes": {
-        "title": "0.2.6 Client Notes",
-        "filename": "release-notes-0.2.6.md",
-        "summary": "Temporary 0.2.6 client polish notes for native, LAN browser, Matrix, History, Settings, and Radar/FIDS detail.",
-        "github_url": "https://github.com/tr3y4rch/local-flight/blob/main/docs/release-notes-0.2.6.md",
+        "title": "0.2.7 Client Notes",
+        "filename": "release-notes-0.2.7.md",
+        "summary": "0.2.7 polish pass: Network Admin presence framing, sign-out + idle auto-logoff, calmer admin styling.",
+        "github_url": "https://github.com/tr3y4rch/local-flight/blob/main/docs/release-notes-0.2.7.md",
     },
     "privacy": {
         "title": "Privacy & Diagnostics",
