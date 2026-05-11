@@ -466,6 +466,7 @@ export type RadarSurfaceResponse = {
 };
 
 export type MatrixRuntimeConfig = {
+  preset?: MatrixPresetId | string;
   brightness: number;
   max_rows: number;
   refresh_seconds: number;
@@ -475,10 +476,13 @@ export type MatrixRuntimeConfig = {
   animation_mode?: MatrixAnimationMode | string;
   animation_speed?: number;
   status_animation_enabled?: boolean;
+  show_gate_info?: boolean;
   palette?: MatrixPaletteId | string;
   options?: MatrixRuntimeOptions;
   skin?: string;
 };
+
+export type MatrixPresetId = "real_fids" | "vatsim_pilot" | "vatsim_atc";
 
 export type MatrixPaletteId =
   | "pax_blue"
@@ -495,10 +499,12 @@ export type MatrixRuntimeOptions = {
   palette?: MatrixPaletteId | string;
   show_metar?: boolean;
   show_weather?: boolean;
+  show_gate_info?: boolean;
   animation_mode?: MatrixAnimationMode | string;
 };
 
 export type MatrixRuntimeConfigSave = {
+  preset: MatrixPresetId;
   brightness: number;
   max_rows: number;
   refresh_seconds: number;
@@ -508,6 +514,7 @@ export type MatrixRuntimeConfigSave = {
   animation_mode: MatrixAnimationMode;
   animation_speed: number;
   status_animation_enabled: boolean;
+  show_gate_info: boolean;
   palette: MatrixPaletteId;
   options: MatrixRuntimeOptions;
 };

@@ -150,16 +150,16 @@ def _build_splash(QtCore: Any, QtGui: Any, QtWidgets: Any) -> Any:
 
     mark = QtWidgets.QLabel()
     mark.setAlignment(QtCore.Qt.AlignCenter)
-    pixmap = pixmap_from_media(QtCore, QtGui, "ui", "static", "splash_mark.svg", width=220, height=108)
+    pixmap = pixmap_from_media(QtCore, QtGui, "ui", "static", "localflight-logo.svg", width=160, height=160)
     if pixmap.isNull():
-        pixmap = pixmap_from_media(QtCore, QtGui, "assets", "icon_circle.svg", width=96, height=96)
+        pixmap = pixmap_from_media(QtCore, QtGui, "assets", "localflight-logo.svg", width=96, height=96)
     if pixmap.isNull():
         mark.setText("Local Flight")
-        mark.setObjectName("Title")
+        mark.setObjectName("BrandTitle")
     else:
         mark.setPixmap(pixmap)
 
-    title = label(QtWidgets, "Local Flight", "Title")
+    title = label(QtWidgets, "Local Flight", "BrandTitle")
     title.setAlignment(QtCore.Qt.AlignCenter)
     version_label = label(QtWidgets, f"v{_app_version()} native shell", "Muted")
     version_label.setAlignment(QtCore.Qt.AlignCenter)
@@ -417,7 +417,7 @@ def launch_native_app(
     apply_app_font_defaults(QtGui, app)
     app_icon = icon_from_media(QtGui, "assets", "icon.ico")
     if app_icon.isNull():
-        app_icon = icon_from_media(QtGui, "assets", "icon_square.svg")
+        app_icon = icon_from_media(QtGui, "assets", "localflight-logo.svg")
     if not app_icon.isNull():
         app.setWindowIcon(app_icon)
     splash = _build_splash(QtCore, QtGui, QtWidgets)
@@ -629,9 +629,9 @@ class NativeMainWindow:  # pragma: no cover - exercised with optional Qt
                 brand_mark = QtWidgets.QLabel()
                 brand_mark.setObjectName("BrandMark")
                 brand_mark.setAlignment(QtCore.Qt.AlignCenter)
-                brand_pixmap = pixmap_from_media(QtCore, QtGui, "ui", "static", "brand_mark.svg", width=26, height=26)
+                brand_pixmap = pixmap_from_media(QtCore, QtGui, "ui", "static", "localflight-logo.svg", width=26, height=26)
                 if brand_pixmap.isNull():
-                    brand_pixmap = pixmap_from_media(QtCore, QtGui, "assets", "icon_square.svg", width=26, height=26)
+                    brand_pixmap = pixmap_from_media(QtCore, QtGui, "assets", "localflight-logo.svg", width=26, height=26)
                 if brand_pixmap.isNull():
                     brand_mark.setText("*")
                 else:
@@ -1040,7 +1040,7 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
         brand = QtWidgets.QHBoxLayout()
         if self.QtGui is not None:
             logo = QtWidgets.QLabel()
-            pixmap = pixmap_from_media(self.QtCore, self.QtGui, "ui", "static", "splash_mark.svg", width=48, height=48)
+            pixmap = pixmap_from_media(self.QtCore, self.QtGui, "ui", "static", "localflight-logo.svg", width=48, height=48)
             if pixmap is not None and not pixmap.isNull():
                 logo.setPixmap(pixmap)
             else:
@@ -1050,7 +1050,8 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
         else:
             brand.addWidget(label(QtWidgets, "\u2708", "Metric"))
         title_stack = QtWidgets.QVBoxLayout()
-        title_stack.addWidget(label(QtWidgets, "Local Flight Setup", "Title"))
+        title_stack.addWidget(label(QtWidgets, "Local Flight", "BrandTitle"))
+        title_stack.addWidget(label(QtWidgets, "Setup", "Title"))
         title_stack.addWidget(label(QtWidgets, "Native privacy-first display shell", "Muted"))
         brand.addLayout(title_stack, 1)
         brand.addStretch(1)

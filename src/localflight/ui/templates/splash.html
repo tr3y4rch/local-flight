@@ -121,10 +121,11 @@
 
   .splash-title {
     margin: 0;
+    font-family: var(--font-brand);
     font-size: clamp(2.3rem, 8vw, 4.9rem);
-    line-height: 0.9;
-    letter-spacing: -0.08em;
-    font-weight: 900;
+    line-height: 1;
+    letter-spacing: 0.02em;
+    font-weight: 400;
     text-transform: uppercase;
   }
 
@@ -255,10 +256,10 @@
 
   <a class="splash-card" href="{{ next_url }}" aria-label="Continue to Local Flight">
     <div class="splash-mark-wrap" aria-hidden="true">
-      <img class="splash-mark" src="/static/splash_mark.svg" alt="" />
+      <img class="splash-mark" src="/static/localflight-logo.svg" alt="" />
     </div>
     <p class="splash-kicker">Local-first FIDS</p>
-    <h1 class="splash-title">Local Flight</h1>
+    <h1 class="splash-title">LOCAL FLIGHT</h1>
     <p class="splash-sub">Booting the board, checking the runway lights, and warming up the radar sweep.</p>
     <div class="splash-version">v{{ app_version }}</div>
     <div class="splash-status" aria-live="polite">

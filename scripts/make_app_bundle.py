@@ -48,9 +48,7 @@ def _make_icns(root: Path, iconset_dir: Path) -> Path:
 
     # 1. Try cairosvg
     svg_candidates = [
-        assets / "icon_macos.svg",
-        assets / "icon_square.svg",
-        assets / "icon_circle.svg",
+        assets / "localflight-logo.svg",
     ]
     svg = next((candidate for candidate in svg_candidates if candidate.exists()), None)
     if svg is not None:
@@ -60,14 +58,13 @@ def _make_icns(root: Path, iconset_dir: Path) -> Path:
             data = cairosvg.svg2png(url=str(svg), output_width=1024, output_height=1024)
             img = Image.open(io.BytesIO(data)).convert("RGBA")
             print(f"  Icon: rendered from {svg.name} (cairosvg)")
-        except ImportError:
+        except Exception:
             pass
 
     # 2. Fall back to pre-rendered PNG
     if img is None:
         png_candidates = [
-            assets / "icon_macos.png",
-            assets / "icon_square.png",
+            assets / "icon.png",
         ]
         png = next((candidate for candidate in png_candidates if candidate.exists()), None)
         if png is not None:

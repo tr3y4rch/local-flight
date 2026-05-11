@@ -28,8 +28,17 @@
   font-display: swap;
 }
 
+@font-face {
+  font-family: "Audiowide";
+  src: url("/static/fonts/Audiowide-Regular.ttf") format("truetype");
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
+
 :root {
   --font-ui: "DM Sans", system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-brand: "Audiowide", var(--font-ui);
   --font-board: "Space Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
   --font-mono: var(--font-board);
   --font-log: "Space Mono", Consolas, "Liberation Mono", "Courier New", monospace;

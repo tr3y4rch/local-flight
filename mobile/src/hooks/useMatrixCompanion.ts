@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { getFids, getMatrixConfig, normalizeServerUrl, saveMatrixConfig } from "../api/client";
-import type { FidsRow, FlightView, MatrixRuntimeConfigSave } from "../api/types";
-import { DEFAULT_MATRIX_CONFIG } from "../domain/constants";
+import type { FidsRow, FlightView, MatrixPresetId, MatrixRuntimeConfigSave } from "../api/types";
+import { DEFAULT_MATRIX_CONFIG, MATRIX_PRESETS } from "../domain/constants";
 import {
   matrixConfigsEqual,
+  normalizeMatrixPreset,
   normalizeMatrixRuntimeConfig,
   normalizeMatrixSkin
 } from "../domain/matrix";
@@ -18,6 +19,7 @@ export function useMatrixCompanion(serverUrl: string) {
   const [draftConfig, setDraftConfig] = useState<MatrixRuntimeConfigSave>(DEFAULT_MATRIX_CONFIG);
   const [serverSkin, setServerSkin] = useState<MobileSkin>("standard");
   const [saving, setSaving] = useState(false);
+  const [applyingPreset, setApplyingPreset] = useState<MatrixPresetId | null>(null);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [saveTone, setSaveTone] = useState<FeedbackTone>("ok");
 
@@ -105,6 +107,54 @@ export function useMatrixCompanion(serverUrl: string) {
     }
   }, [fetchRuntime, serverUrl]);
 
+  const applyPreset = useCallback(async (preset: MatrixPresetId) => {
+    const normalized = normalizeServerUrl(serverUrl);
+    if (!normalized) {
+      setSaveTone("error");
+      setSaveMessage("Set the Local Flight server URL first.");
+      return;
+    }
+
+    const presetConfig = MATRIX_PRESETS.find((item) => item.id === preset) || MATRIX_PRESETS[0]!;
+    const current = draftRef.current;
+    const palette = presetConfig.palettes.includes(current.palette)
+      ? current.palette
+      : presetConfig.palettes[0] || DEFAULT_MATRIX_CONFIG.palette;
+    const showWeather = Boolean(current.options.show_metar ?? current.options.show_weather ?? true);
+    const nextConfig = normalizeMatrixRuntimeConfig({
+      ...current,
+      preset,
+      palette,
+      show_gate_info: presetConfig.showGateInfo,
+      options: {
+        ...current.options,
+        palette,
+        show_metar: showWeather,
+        show_weather: showWeather,
+        show_gate_info: presetConfig.showGateInfo,
+        animation_mode: current.animation_mode
+      }
+    });
+
+    setDraftConfig(nextConfig);
+    setApplyingPreset(preset);
+    setSaving(true);
+    setSaveTone("ok");
+    setSaveMessage(`Applying ${presetConfig.label} preset...`);
+
+    try {
+      await saveMatrixConfig(normalized, nextConfig);
+      await fetchRuntime(normalized, true);
+      setSaveMessage(`${presetConfig.label} preset saved. Board picks up in about 60 seconds.`);
+    } catch (exc) {
+      setSaveTone("error");
+      setSaveMessage(errorMessage(exc));
+    } finally {
+      setApplyingPreset(null);
+      setSaving(false);
+    }
+  }, [fetchRuntime, serverUrl]);
+
   const runtime = normalizeMatrixRuntimeConfig(draftConfig);
   const dirty = savedConfig ? !matrixConfigsEqual(draftConfig, savedConfig) : false;
 
@@ -114,14 +164,17 @@ export function useMatrixCompanion(serverUrl: string) {
     draftConfig,
     runtime,
     serverSkin,
+    preset: normalizeMatrixPreset(runtime.preset),
     dirty,
     saving,
+    applyingPreset,
     saveMessage,
     saveTone,
     fetchRuntime,
     fetchRows,
     updateDraft,
     resetDraft,
-    saveDraft
+    saveDraft,
+    applyPreset
   };
 }

@@ -33,10 +33,17 @@ export function routeMeta(row: FidsRow): string {
 
 export function statusTone(status: string): StatusTone {
   const value = status.toLowerCase();
-  if (value.includes("board") || value.includes("land") || value.includes("arriv")) return "boarding";
-  if (value.includes("delay")) return "delayed";
-  if (value.includes("depart") || value.includes("dept")) return "departed";
   if (value.includes("cancel")) return "cancelled";
+  if (value.includes("delay") || value.includes("late")) return "delayed";
+  if (value.includes("depart") || value.includes("dept")) return "departed";
+  if (
+    value.includes("board") ||
+    value.includes("gate") ||
+    value.includes("land") ||
+    value.includes("arriv") ||
+    value.includes("approach") ||
+    value.includes("on time")
+  ) return "boarding";
   return "scheduled";
 }
 

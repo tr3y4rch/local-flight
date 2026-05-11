@@ -42,7 +42,7 @@ def main() -> None:
         apply_app_font_defaults(QtGui, app)
         app_icon = icon_from_media(QtGui, "assets", "icon.ico")
         if app_icon.isNull():
-            app_icon = icon_from_media(QtGui, "assets", "icon_square.svg")
+            app_icon = icon_from_media(QtGui, "assets", "localflight-logo.svg")
         if not app_icon.isNull():
             app.setWindowIcon(app_icon)
         window = NetworkAdminWindow(QtCore, QtWidgets)
@@ -1234,8 +1234,9 @@ QLabel#BrandMark {
 }
 QLabel#Brand {
   color: #edf6ff;
+  font-family: "Audiowide", "DM Sans", sans-serif;
   font-size: 15px;
-  font-weight: 900;
+  font-weight: 400;
   letter-spacing: 1px;
   text-transform: uppercase;
 }

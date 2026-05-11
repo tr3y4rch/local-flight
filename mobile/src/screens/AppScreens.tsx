@@ -4,13 +4,17 @@ import {
   Animated,
   FlatList,
   Image,
+  Keyboard,
+  KeyboardAvoidingView,
   Linking,
   Modal,
+  Platform,
   Pressable,
   RefreshControl,
   ScrollView,
   Text,
   TextInput,
+  useWindowDimensions,
   View
 } from "react-native";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
@@ -34,6 +38,7 @@ import type {
   HistoryStats,
   MatrixAnimationMode,
   MatrixPaletteId,
+  MatrixPresetId,
   Metar,
   RadarBlip,
   RadarMapFeature,
@@ -47,6 +52,7 @@ import {
   MATRIX_ANIMATION_MODES,
   MATRIX_ANIMATION_SPEEDS,
   MATRIX_BRIGHTNESS,
+  MATRIX_PRESETS,
   MATRIX_PALETTE_OPTIONS,
   MATRIX_REFRESH_SECONDS,
   MATRIX_ROTATION_SECONDS,
@@ -77,6 +83,12 @@ import {
 } from "../domain/formatting";
 import { MATRIX_LED_PALETTES, matrixPreviewLines } from "../domain/matrix";
 import { projectBlip, projectLatLonToScope, type ProjectedRadarPoint } from "../domain/radar";
+import {
+  SUPPORT_WEB_FALLBACK_URL,
+  supportProductPlaceholders,
+  supportStubProvider,
+  type SupportProduct
+} from "../domain/support";
 import type { FeedbackTone, HistoryWindow, ProjectedBlip, RadarRadius, StatusTone } from "../domain/types";
 import { type ConfigProfile, type MobileDiagnosticsMode, type MobileWeatherDisplayMode, saveProfiles } from "../storage/settings";
 import { palette, styles } from "../theme/styleBridge";
@@ -123,6 +135,14 @@ const DOC_SOURCES: Record<DocSlug, { title: string; detail: string; githubUrl: s
     githubUrl: "https://github.com/tr3y4rch/local-flight/blob/main/CHANGELOG.md"
   }
 };
+
+function solidButtonInk(): string {
+  return palette.themeMode === "light" && palette.skin === "high_contrast" ? "#ffffff" : "#051009";
+}
+
+function blueButtonInk(): string {
+  return palette.themeMode === "light" && ["standard", "technical", "high_contrast"].includes(palette.skin) ? "#ffffff" : "#051009";
+}
 const RADAR_GROUND_CLIP_ID = "mobile-radar-ground-clip";
 
 export function ScreenActivity({ activity }: { activity: ActivityStatus | null | undefined }) {
@@ -152,6 +172,13 @@ export function ScreenActivity({ activity }: { activity: ActivityStatus | null |
 type AdminSettingsSection = "health" | "devices" | "reports" | "developer";
 type MatrixSettingsSection = "status" | "look" | "runtime" | "motion";
 type CompanionSetupStep = "welcome" | "server" | "diagnostics" | "ready";
+type SetupUrlCheckState = "idle" | "checking" | "ok" | "error" | "invalid";
+type DocHeading = {
+  id: string;
+  level: 1 | 2;
+  title: string;
+  index: number;
+};
 type CompanionSetupResult = {
   serverUrl: string;
   diagnosticsMode: MobileDiagnosticsMode;
@@ -234,6 +261,52 @@ function profileKey(row: ConfigProfile, index: number): string {
   ].join(":");
 }
 
+type RowInfoFrame = {
+  label: string;
+  value: string;
+  tone?: "accent" | "muted" | "warn";
+};
+
+function cleanInfoValue(value?: string | number | null): string {
+  const text = String(value ?? "").trim();
+  if (!text || text === "-" || text.toLowerCase() === "none") return "";
+  return text;
+}
+
+function uniqueInfoFrames(frames: Array<RowInfoFrame | null | undefined>): RowInfoFrame[] {
+  const seen = new Set<string>();
+  const result: RowInfoFrame[] = [];
+  for (const frame of frames) {
+    const label = cleanInfoValue(frame?.label).toUpperCase();
+    const value = cleanInfoValue(frame?.value);
+    if (!label || !value) continue;
+    const key = `${label}:${value.toUpperCase()}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push({ label, value, tone: frame?.tone });
+  }
+  return result;
+}
+
+function airlineInfoFrames(row: FidsRow): RowInfoFrame[] {
+  return uniqueInfoFrames([
+    row.airline_display ? { label: "AIRLINE", value: row.airline_display, tone: "accent" } : null,
+    row.codeshare_display ? { label: "ALSO", value: row.codeshare_display.replace(/^also\s+/i, ""), tone: "muted" } : null,
+    row.callsign && row.callsign !== row.flight_display ? { label: "CALLSIGN", value: row.callsign, tone: "muted" } : null
+  ]);
+}
+
+function rowDetailFrames(row: FidsRow, gateLabel: string): RowInfoFrame[] {
+  return uniqueInfoFrames([
+    gateLabel ? { label: "GATE", value: gateLabel, tone: "accent" } : null,
+    row.aircraft_type ? { label: "A/C", value: row.aircraft_type.toUpperCase(), tone: "accent" } : null,
+    row.time_delta_text ? { label: "TIME", value: row.time_delta_text, tone: row.delay_kind === "bad" ? "warn" : "muted" } : null,
+    row.live_hint ? { label: "LIVE", value: row.live_hint, tone: "muted" } : null,
+    row.source_hint ? { label: "DATA", value: row.source_hint, tone: "muted" } : null,
+    row.codeshare_display ? { label: "CODESHARE", value: row.codeshare_display.replace(/^also\s+/i, ""), tone: "muted" } : null
+  ]);
+}
+
 function metarAccentColor(category: string): string {
   switch (category.toUpperCase()) {
     case "VFR":  return palette.green;
@@ -244,11 +317,24 @@ function metarAccentColor(category: string): string {
   }
 }
 
-const WEATHER_DISPLAY_OPTIONS: Array<{ id: MobileWeatherDisplayMode; label: string; meta: string }> = [
-  { id: "friendly", label: "Friendly", meta: "Pax wording" },
-  { id: "light", label: "Light", meta: "Aviation chips" },
-  { id: "raw", label: "Raw", meta: "METAR text" }
+type WeatherDisplayOption = { id: MobileWeatherDisplayMode; label: string; meta: string; detail: string };
+
+const PASSENGER_WEATHER_DISPLAY_OPTION: WeatherDisplayOption = {
+  id: "passenger",
+  label: "PAX",
+  meta: "Friendly",
+  detail: "Decoded weather for passengers and boards."
+};
+
+const WEATHER_DISPLAY_OPTIONS: WeatherDisplayOption[] = [
+  PASSENGER_WEATHER_DISPLAY_OPTION,
+  { id: "pilot", label: "PILOT", meta: "Brief", detail: "Wind, visibility, cloud, temp, and QNH chips." },
+  { id: "vatsim", label: "VATSIM", meta: "Raw", detail: "Controller-style METAR text where space allows." }
 ];
+
+function weatherModeOption(mode: MobileWeatherDisplayMode): WeatherDisplayOption {
+  return WEATHER_DISPLAY_OPTIONS.find((item) => item.id === mode) || PASSENGER_WEATHER_DISPLAY_OPTION;
+}
 
 function metarCategory(metar: Metar | null | undefined): string {
   return metar?.flight_category || metar?.category || "--";
@@ -294,8 +380,8 @@ function weatherIconName(metar: Metar | null | undefined): MaterialIconName {
 
 function weatherSummaryForMode(metar: Metar | null | undefined, mode: MobileWeatherDisplayMode): string {
   if (!metar) return "Asking Local Flight";
-  if (mode === "raw") return metar.raw_text || "Raw METAR unavailable";
-  if (mode === "light") {
+  if (mode === "vatsim") return metar.raw_text || "Raw METAR unavailable";
+  if (mode === "pilot") {
     const chips = parseMetarChips(metar.raw_text || metar.decoded_summary || "");
     const visible = chips.slice(0, 3).map((chip) => `${chip.label} ${chip.value}`);
     return visible.length ? visible.join(" · ") : metar.decoded_summary || metar.raw_text || "Weather available";
@@ -331,6 +417,7 @@ export function Header({
   localTime,
   metar,
   weatherDisplayMode,
+  snapshotPulse,
   rowCount,
   view,
   pinnedRow,
@@ -339,6 +426,7 @@ export function Header({
   onOpenActions,
   onTogglePin,
   onOpenConfig,
+  onOpenWeather,
 }: {
   airportCode: string;
   airportIcao: string;
@@ -352,6 +440,7 @@ export function Header({
   localTime: string;
   metar: Metar | null;
   weatherDisplayMode: MobileWeatherDisplayMode;
+  snapshotPulse?: Animated.Value;
   rowCount: number;
   view: FlightView;
   pinnedRow: FidsRow | null;
@@ -360,9 +449,11 @@ export function Header({
   onOpenActions: (row: FidsRow) => void;
   onTogglePin: (row: FidsRow) => void;
   onOpenConfig: () => void;
+  onOpenWeather: () => void;
 }) {
   const category = metarCategory(metar);
   const accent = metarAccentColor(category);
+  const longAirportName = airportName.length > 24;
   const effectiveConnectionState = connectionState || (!live ? "offline" : error ? "offline" : "live");
   const connectionAccent =
     effectiveConnectionState === "live"
@@ -394,16 +485,24 @@ export function Header({
     <View style={styles.header}>
       <View style={[styles.headerAccentBar, { backgroundColor: accent }]} />
 
-      <View style={styles.airportHeroRow}>
-        <Pressable style={styles.airportHeroPressable} onPress={onOpenConfig}>
-          <View style={styles.airportHeroTopline}>
+      <View style={[styles.airportHeroRow, longAirportName && styles.airportHeroRowStacked]}>
+        <Pressable
+          style={[styles.airportHeroPressable, longAirportName && styles.airportHeroPressableStacked]}
+          onPress={onOpenConfig}
+        >
+          <View style={[styles.airportHeroTopline, longAirportName && styles.airportHeroToplineStacked]}>
             <Text style={styles.airportHeroKicker}>LOCAL FLIGHT AIRPORT</Text>
-            <View style={styles.airportCodeBadges}>
+            <View style={[styles.airportCodeBadges, longAirportName && styles.airportCodeBadgesStacked]}>
               <Text style={[styles.airportCodeBadge, { borderColor: `${accent}55`, color: accent }]}>{airportCode}</Text>
               {airportIcao ? <Text style={styles.airportCodeBadge}>{airportIcao}</Text> : null}
             </View>
           </View>
-          <Text style={[styles.airportHeroName, { color: accent }]} numberOfLines={2}>
+          <Text
+            style={[styles.airportHeroName, longAirportName && styles.airportHeroNameCompact, { color: accent }]}
+            numberOfLines={2}
+            adjustsFontSizeToFit
+            minimumFontScale={0.64}
+          >
             {airportName}
           </Text>
           {airportLocation ? (
@@ -426,6 +525,22 @@ export function Header({
               <Animated.View style={[styles.liveDot, { backgroundColor: connectionAccent, opacity: dotOpacity }]} />
               <Text style={[styles.liveText, { color: connectionAccent }]}>{connectionLabel}</Text>
             </View>
+            {snapshotPulse ? (
+              <Animated.View
+                style={[
+                  styles.snapshotPulseDot,
+                  {
+                    opacity: snapshotPulse,
+                    transform: [{
+                      scale: snapshotPulse.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [0.65, 1.85]
+                      })
+                    }]
+                  }
+                ]}
+              />
+            ) : null}
             <View style={styles.sourcePill}>
               <Text style={styles.sourceText}>{sourceLabel.toUpperCase()}</Text>
             </View>
@@ -437,11 +552,16 @@ export function Header({
           </View>
         </Pressable>
 
-        <View style={styles.headerWeatherRail}>
+        <Pressable
+          style={[styles.headerWeatherRail, longAirportName && styles.headerWeatherRailStacked]}
+          onPress={onOpenWeather}
+        >
+          <View style={longAirportName ? styles.headerClockStackInline : undefined}>
           <Text style={styles.utcTime}>{utcTime}<Text style={styles.utcSuffix}>Z</Text></Text>
           <Text style={styles.localTime}>{localTime} <Text style={styles.localSuffix}>LOC</Text></Text>
+          </View>
           <CompactWeatherCapsule metar={metar} mode={weatherDisplayMode} accent={accent} />
-        </View>
+        </Pressable>
       </View>
 
       <FlightIsland
@@ -468,12 +588,12 @@ function CompactWeatherCapsule({
 }) {
   const category = metarCategory(metar);
   const temp = metarTemperature(metar);
-  const label = mode === "raw" ? "RAW" : category;
+  const label = mode === "vatsim" ? "VATSIM" : mode === "pilot" ? "PILOT" : category;
   const detail =
-    mode === "raw"
+    mode === "vatsim"
       ? (metar?.raw_text || "METAR wait").replace(/^METAR\s+/, "").slice(0, 18)
-      : mode === "light"
-        ? weatherSummaryForMode(metar, "light")
+      : mode === "pilot"
+        ? weatherSummaryForMode(metar, "pilot")
         : weatherCondition(metar);
 
   return (
@@ -572,6 +692,8 @@ export function FullscreenFidsDisplay({
   sourceLabel,
   utcTime,
   localTime,
+  metar,
+  weatherDisplayMode,
   pinnedCallsign
 }: {
   rows: FidsRow[];
@@ -584,8 +706,19 @@ export function FullscreenFidsDisplay({
   sourceLabel: string;
   utcTime: string;
   localTime: string;
+  metar: Metar | null;
+  weatherDisplayMode: MobileWeatherDisplayMode;
   pinnedCallsign: string;
 }) {
+  const { width, height } = useWindowDimensions();
+  const listRef = useRef<FlatList<FidsRow>>(null);
+  const autoScrollIndex = useRef(0);
+  const [infoCycleTick, setInfoCycleTick] = useState(0);
+  const compactLandscape = height < 430 || width < 780;
+  const tabletLandscape = width >= 900 && height >= 560;
+  const targetVisibleRows = tabletLandscape ? 6 : compactLandscape ? 3 : 4;
+  const rowHeight = compactLandscape ? 48 : tabletLandscape ? 64 : 58;
+  const rowGap = compactLandscape ? 4 : 5;
   const pinned = pinnedCallsign
     ? rows.find((row) => flightPinKey(row) === pinnedCallsign) || null
     : null;
@@ -600,14 +733,53 @@ export function FullscreenFidsDisplay({
       ? "NO FLIGHTS ON BOARD"
       : "LOCAL SERVER OFFLINE";
   const emptyDetail = error || "Rows will appear here after the next Local Flight snapshot.";
+  const autoScrollEnabled = displayRows.length > targetVisibleRows;
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setInfoCycleTick((value) => value + 1);
+    }, 2800);
+    return () => clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    autoScrollIndex.current = 0;
+    listRef.current?.scrollToOffset({ offset: 0, animated: false });
+    if (!autoScrollEnabled) return;
+
+    const timer = setInterval(() => {
+      const next = (autoScrollIndex.current + 1) % displayRows.length;
+      autoScrollIndex.current = next;
+      if (next === 0) {
+        listRef.current?.scrollToOffset({ offset: 0, animated: true });
+        return;
+      }
+      listRef.current?.scrollToIndex({
+        index: next,
+        animated: true,
+        viewPosition: 0
+      });
+    }, 3600);
+
+    return () => clearInterval(timer);
+  }, [autoScrollEnabled, displayRows.length, view]);
 
   return (
-    <View style={styles.fullscreenFidsShell}>
-      <View style={styles.fullscreenFidsTop}>
+    <View style={[styles.fullscreenFidsShell, compactLandscape && styles.fullscreenFidsShellCompact]}>
+      <View style={[styles.fullscreenFidsTop, compactLandscape && styles.fullscreenFidsTopCompact]}>
         <View style={styles.fullscreenFidsIdentity}>
-          <Text style={styles.fullscreenFidsKicker}>{airportCode} LOCAL FLIGHT</Text>
-          <Text style={styles.fullscreenFidsTitle}>{boardTitle}</Text>
-          <Text style={styles.fullscreenFidsAirport} numberOfLines={1}>{airportName}</Text>
+          <View style={styles.fullscreenFidsKickerRow}>
+            <Text style={styles.fullscreenFidsKicker}>{airportCode}</Text>
+            <Text style={styles.fullscreenFidsBoardBadge}>{boardTitle}</Text>
+          </View>
+          <Text
+            style={[styles.fullscreenFidsTitle, compactLandscape && styles.fullscreenFidsTitleCompact]}
+            numberOfLines={compactLandscape ? 1 : 2}
+            adjustsFontSizeToFit
+            minimumFontScale={compactLandscape ? 0.58 : 0.72}
+          >
+            {airportName}
+          </Text>
         </View>
 
         <View style={styles.fullscreenFidsMeta}>
@@ -620,30 +792,98 @@ export function FullscreenFidsDisplay({
         </View>
       </View>
 
-      <View style={styles.fullscreenFidsColumns}>
-        <Text style={[styles.fullscreenFidsColumnText, styles.fullscreenFidsTimeColumn]}>TIME</Text>
-        <Text style={[styles.fullscreenFidsColumnText, styles.fullscreenFidsFlightColumn]}>FLIGHT</Text>
+      <FullscreenWeatherHero metar={metar} mode={weatherDisplayMode} compact={compactLandscape} />
+
+      <View style={[styles.fullscreenFidsColumns, compactLandscape && styles.fullscreenFidsColumnsCompact]}>
+        <Text style={[styles.fullscreenFidsColumnText, styles.fullscreenFidsTimeColumn, compactLandscape && styles.fullscreenFidsTimeColumnCompact]}>TIME</Text>
+        <Text style={[styles.fullscreenFidsColumnText, styles.fullscreenFidsFlightColumn, compactLandscape && styles.fullscreenFidsFlightColumnCompact]}>FLIGHT</Text>
         <Text style={[styles.fullscreenFidsColumnText, styles.fullscreenFidsRouteColumn]}>{routeHeading}</Text>
-        <Text style={[styles.fullscreenFidsColumnText, styles.fullscreenFidsStatusColumn]}>STATUS</Text>
-        <Text style={[styles.fullscreenFidsColumnText, styles.fullscreenFidsAircraftColumn]}>A/C</Text>
+        <Text style={[styles.fullscreenFidsColumnText, styles.fullscreenFidsStatusColumn, compactLandscape && styles.fullscreenFidsStatusColumnCompact]}>STATUS</Text>
+        {compactLandscape ? (
+          <Text style={[styles.fullscreenFidsColumnText, styles.fullscreenFidsInfoColumn]}>INFO</Text>
+        ) : (
+          <>
+            <Text style={[styles.fullscreenFidsColumnText, styles.fullscreenFidsAircraftColumn]}>A/C</Text>
+            <Text style={[styles.fullscreenFidsColumnText, styles.fullscreenFidsGateColumn]}>GATE</Text>
+          </>
+        )}
       </View>
 
       <FlatList<FidsRow>
+        ref={listRef}
         data={displayRows}
         keyExtractor={fidsRowKey}
-        renderItem={({ item }) => (
-          <FullscreenFidsRow row={item} isPinned={flightPinKey(item) === pinnedCallsign} />
+        renderItem={({ item, index }) => (
+          <FullscreenFidsRow
+            row={item}
+            index={index}
+            compact={compactLandscape}
+            cycleTick={infoCycleTick}
+            rowHeight={rowHeight}
+            isPinned={flightPinKey(item) === pinnedCallsign}
+          />
         )}
         style={styles.fullscreenFidsList}
-        contentContainerStyle={styles.fullscreenFidsListContent}
+        contentContainerStyle={[styles.fullscreenFidsListContent, { gap: rowGap }]}
+        getItemLayout={(_, index) => ({
+          length: rowHeight + rowGap,
+          offset: (rowHeight + rowGap) * index,
+          index
+        })}
         ListEmptyComponent={
           <View style={styles.fullscreenFidsEmpty}>
             <Text style={styles.fullscreenFidsEmptyTitle}>{emptyTitle}</Text>
             <Text style={styles.fullscreenFidsEmptyDetail}>{emptyDetail}</Text>
           </View>
         }
+        onScrollToIndexFailed={({ index, averageItemLength }) => {
+          listRef.current?.scrollToOffset({
+            offset: Math.max(0, index * Math.max(averageItemLength || rowHeight + rowGap, rowHeight + rowGap)),
+            animated: true
+          });
+        }}
         showsVerticalScrollIndicator={false}
       />
+    </View>
+  );
+}
+
+function FullscreenWeatherHero({
+  metar,
+  mode,
+  compact
+}: {
+  metar: Metar | null;
+  mode: MobileWeatherDisplayMode;
+  compact?: boolean;
+}) {
+  const category = metarCategory(metar);
+  const accent = metarAccentColor(category);
+  const summary = weatherSummaryForMode(metar, mode);
+  const chips = weatherChips(metar).slice(0, compact ? 2 : 5);
+  const modeOption = weatherModeOption(mode);
+
+  return (
+    <View style={[styles.fullscreenWeatherHero, compact && styles.fullscreenWeatherHeroCompact, { borderColor: `${accent}34`, backgroundColor: `${accent}0f` }]}>
+      <View style={[styles.fullscreenWeatherIcon, compact && styles.fullscreenWeatherIconCompact, { borderColor: `${accent}44`, backgroundColor: `${accent}18` }]}>
+        <MaterialCommunityIcons name={weatherIconName(metar)} size={compact ? 18 : 24} color={accent} />
+      </View>
+      <View style={styles.fullscreenWeatherCopy}>
+        <View style={styles.fullscreenWeatherTitleRow}>
+          <Text style={[styles.fullscreenWeatherCategory, compact && styles.fullscreenWeatherCategoryCompact, { color: accent }]}>{category}</Text>
+          <Text style={styles.fullscreenWeatherTemp}>{metarTemperature(metar)}</Text>
+          <Text style={styles.fullscreenWeatherMode}>{modeOption.label}</Text>
+        </View>
+        {!compact ? <Text style={styles.fullscreenWeatherSummary} numberOfLines={1}>{summary}</Text> : null}
+      </View>
+      <View style={styles.fullscreenWeatherChips}>
+        {chips.map((chip, index) => (
+          <View key={`fullscreen-weather-${chip.label}-${chip.value}-${index}`} style={styles.fullscreenWeatherChip}>
+            <Text style={styles.fullscreenWeatherChipLabel}>{chip.label}</Text>
+            <Text style={styles.fullscreenWeatherChipValue}>{chip.value}</Text>
+          </View>
+        ))}
+      </View>
     </View>
   );
 }
@@ -679,6 +919,9 @@ export function FidsScreen({
   pinnedCallsign: string;
   contentPaddingBottom: number;
 }) {
+  const { width } = useWindowDimensions();
+  const compactRows = width < 700;
+  const [infoCycleTick, setInfoCycleTick] = useState(0);
   const pinned = pinnedCallsign
     ? rows.find((row) => flightPinKey(row) === pinnedCallsign) || null
     : null;
@@ -686,14 +929,24 @@ export function FidsScreen({
     ? [pinned, ...rows.filter((row) => flightPinKey(row) !== pinnedCallsign)]
     : rows;
 
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setInfoCycleTick((value) => value + 1);
+    }, 2800);
+    return () => clearInterval(timer);
+  }, []);
+
   return (
     <FlatList<FidsRow>
       data={displayRows}
       keyExtractor={fidsRowKey}
-      renderItem={({ item }) => (
+      renderItem={({ item, index }) => (
         <View style={styles.fidsListItem}>
           <FidsRowView
             row={item}
+            index={index}
+            compact={compactRows}
+            cycleTick={infoCycleTick}
             isPinned={flightPinKey(item) === pinnedCallsign}
             onOpenDetail={onOpenDetail}
             onOpenActions={onOpenActions}
@@ -732,9 +985,13 @@ export function FidsScreen({
             <Text style={[styles.fidsHeaderText, styles.fidsColTime]}>TIME</Text>
             <Text style={[styles.fidsHeaderText, styles.fidsColFlight]}>FLIGHT</Text>
             <Text style={[styles.fidsHeaderText, styles.fidsColRoute]}>{view === "arrivals" ? "FROM" : "TO"}</Text>
-            <Text style={[styles.fidsHeaderText, styles.fidsColStatusText]}>STATUS</Text>
-            <Text style={[styles.fidsHeaderText, styles.fidsColAircraft]}>A/C</Text>
-            <Text style={[styles.fidsHeaderText, styles.fidsColGateText]}>GATE</Text>
+            <Text style={[styles.fidsHeaderText, styles.fidsColStatusText, compactRows && styles.fidsColStatusTextCompact]}>STATUS</Text>
+            {!compactRows ? (
+              <>
+                <Text style={[styles.fidsHeaderText, styles.fidsColAircraft]}>A/C</Text>
+                <Text style={[styles.fidsHeaderText, styles.fidsColGateText]}>GATE</Text>
+              </>
+            ) : null}
           </View>
         </>
       }
@@ -1209,7 +1466,8 @@ function RadarWeatherCard({ metar, mode }: { metar: Metar | null; mode: MobileWe
   const chips = weatherChips(metar);
   const raw = metar?.raw_text || "Raw METAR unavailable";
   const summary = weatherSummaryForMode(metar, mode);
-  const body = mode === "raw" ? raw : summary;
+  const modeOption = weatherModeOption(mode);
+  const body = mode === "vatsim" ? raw : summary;
 
   return (
     <View style={[styles.radarWeatherCard, { borderColor: `${accent}38` }]}>
@@ -1218,8 +1476,8 @@ function RadarWeatherCard({ metar, mode }: { metar: Metar | null; mode: MobileWe
           <MaterialCommunityIcons name={weatherIconName(metar)} size={21} color={accent} />
         </View>
         <View style={styles.radarWeatherTitleWrap}>
-          <Text style={styles.radarWeatherTitle}>AIRPORT WEATHER</Text>
-          <Text style={styles.radarWeatherBody} numberOfLines={mode === "raw" ? 3 : 2}>{body}</Text>
+          <Text style={styles.radarWeatherTitle}>{modeOption.label} WEATHER</Text>
+          <Text style={styles.radarWeatherBody}>{body}</Text>
         </View>
         <View style={[styles.radarWeatherCategory, { backgroundColor: `${accent}18`, borderColor: `${accent}44` }]}>
           <Text style={[styles.radarWeatherCategoryText, { color: accent }]}>{category}</Text>
@@ -1227,7 +1485,7 @@ function RadarWeatherCard({ metar, mode }: { metar: Metar | null; mode: MobileWe
         </View>
       </View>
 
-      {mode === "raw" ? (
+      {mode === "vatsim" ? (
         <Text style={styles.radarWeatherRaw}>{raw}</Text>
       ) : (
         <View style={styles.radarWeatherChips}>
@@ -1255,6 +1513,8 @@ export function MatrixScreen({
   statusAnimationEnabled,
   showWeather,
   matrixPalette,
+  preset,
+  applyingPreset,
   matrixEnabled,
   matrixLastSeen,
   dirty,
@@ -1277,6 +1537,7 @@ export function MatrixScreen({
   onStatusAnimationChange,
   onShowWeatherChange,
   onMatrixPaletteChange,
+  onApplyPreset,
   onSave,
   onReset,
   onBackSettings,
@@ -1293,6 +1554,8 @@ export function MatrixScreen({
   statusAnimationEnabled: boolean;
   showWeather: boolean;
   matrixPalette: MatrixPaletteId;
+  preset: MatrixPresetId;
+  applyingPreset: MatrixPresetId | null;
   matrixEnabled: boolean;
   matrixLastSeen: string | null;
   dirty: boolean;
@@ -1315,6 +1578,7 @@ export function MatrixScreen({
   onStatusAnimationChange: (value: boolean) => void;
   onShowWeatherChange: (value: boolean) => void;
   onMatrixPaletteChange: (value: MatrixPaletteId) => void;
+  onApplyPreset: (value: MatrixPresetId) => void;
   onSave: () => void;
   onReset: () => void;
   onBackSettings: () => void;
@@ -1353,6 +1617,35 @@ export function MatrixScreen({
           <Text style={styles.moduleIntro}>
             Tune the physical board in focused passes. Save after each pass and the board will pull the update shortly.
           </Text>
+          <View style={styles.matrixPresetRow}>
+            {MATRIX_PRESETS.map((item) => {
+              const active = preset === item.id;
+              const applying = applyingPreset === item.id;
+              const disabled = saving || applyingPreset !== null;
+              return (
+                <Pressable
+                  key={item.id}
+                  style={[
+                    styles.matrixPresetChip,
+                    active && styles.matrixPresetChipActive,
+                    disabled && !applying && styles.matrixPresetChipDisabled
+                  ]}
+                  onPress={() => onApplyPreset(item.id)}
+                  disabled={disabled}
+                >
+                  <View style={styles.matrixPresetTop}>
+                    <Text style={[styles.matrixPresetLabel, active && styles.matrixPresetLabelActive]}>{item.label}</Text>
+                    {applying ? (
+                      <ActivityIndicator size="small" color={palette.blue2} />
+                    ) : active ? (
+                      <MaterialCommunityIcons name="check-circle" size={14} color={palette.green} />
+                    ) : null}
+                  </View>
+                  <Text style={styles.matrixPresetMeta}>{item.meta}</Text>
+                </Pressable>
+              );
+            })}
+          </View>
           <View style={styles.settingsSectionGrid}>
             {([
               ["status", "Status", dirty ? "Draft" : "Saved"],
@@ -1591,7 +1884,7 @@ function MatrixSavePanel({
           onPress={onSave}
           disabled={saving}
         >
-          {saving ? <ActivityIndicator size="small" color={palette.bg} /> : <Text style={styles.matrixActionPrimaryText}>SAVE TO SERVER</Text>}
+          {saving ? <ActivityIndicator size="small" color={blueButtonInk()} /> : <Text style={styles.matrixActionPrimaryText}>SAVE TO SERVER</Text>}
         </Pressable>
       </View>
 
@@ -1645,11 +1938,17 @@ function OptionChip({
 
 function FidsRowView({
   row,
+  index,
+  compact,
+  cycleTick,
   isPinned,
   onOpenDetail,
   onOpenActions
 }: {
   row: FidsRow;
+  index: number;
+  compact: boolean;
+  cycleTick: number;
   isPinned: boolean;
   onOpenDetail: (callsign: string) => void;
   onOpenActions: (row: FidsRow) => void;
@@ -1660,6 +1959,11 @@ function FidsRowView({
     : row.delay_kind === "bad" ? styles.fidsDelayTagBad
     : null;
   const gateLabel = row.terminal_gate_display || row.gate_display || row.gate;
+  const airlineFrames = airlineInfoFrames(row);
+  const detailFrames = rowDetailFrames(row, gateLabel);
+  const routePrimary = cleanInfoValue(row.route_primary) || routeName(row.route_display);
+  const routeSecondary = cleanInfoValue(row.route_code) || cleanInfoValue(row.route_caption) || routeMeta(row);
+  const rowOffset = index % 3;
 
   return (
     <Pressable
@@ -1668,60 +1972,178 @@ function FidsRowView({
       onLongPress={() => onOpenActions(row)}
       onPress={() => onOpenDetail(row.callsign)}
     >
-      <View style={[styles.fidsTimeCell, styles.fidsColTime]}>
-        <Text style={styles.fidsTime}>{row.time_primary || row.display_time || "--:--"}</Text>
-        {row.time_delta_label && delayTagStyle ? (
-          <Text style={[styles.fidsDelayTag, delayTagStyle]}>{row.time_delta_label}</Text>
-        ) : null}
-      </View>
-      <View style={[styles.fidsFlightWrap, styles.fidsColFlight]}>
-        <View style={styles.fidsFlightTopRow}>
-          <Text style={styles.fidsFlight} numberOfLines={1}>{row.flight_display || row.callsign || "-"}</Text>
-          {isPinned ? <MaterialCommunityIcons name="pin" size={11} color={palette.amber} /> : null}
+      <View style={styles.fidsRowMain}>
+        <View style={[styles.fidsTimeCell, styles.fidsColTime]}>
+          <Text style={styles.fidsTime}>{row.time_primary || row.display_time || "--:--"}</Text>
+          {row.time_delta_label && delayTagStyle ? (
+            <Text style={[styles.fidsDelayTag, delayTagStyle]}>{row.time_delta_label}</Text>
+          ) : null}
         </View>
-        {(row.airline_display || row.codeshare_display) ? (
-          <Text style={styles.fidsAirlineLine} numberOfLines={1}>{row.airline_display || row.codeshare_display}</Text>
+        <View style={[styles.fidsFlightWrap, styles.fidsColFlight]}>
+          <View style={styles.fidsFlightTopRow}>
+            <Text style={styles.fidsFlight} numberOfLines={1}>{row.flight_display || row.callsign || "-"}</Text>
+            {isPinned ? <MaterialCommunityIcons name="pin" size={11} color={palette.amber} /> : null}
+          </View>
+          {airlineFrames.length ? (
+            <RotatingInfoLine
+              frames={airlineFrames}
+              cycleTick={cycleTick}
+              offset={rowOffset}
+              showLabel={false}
+              valueStyle={styles.fidsAirlineLine}
+              labelStyle={styles.fidsAirlineLineLabel}
+            />
+          ) : null}
+        </View>
+        <View style={[styles.fidsDest, styles.fidsColRoute]}>
+          <Text style={styles.fidsDestName} numberOfLines={1}>{routePrimary}</Text>
+          <Text style={styles.fidsDestCode} numberOfLines={1}>{routeSecondary}</Text>
+        </View>
+        <View style={[styles.fidsColStatus, compact && styles.fidsColStatusCompact]}>
+          <StatusBadge status={row.status_display} statusClass={row.status_class} compact />
+        </View>
+        {!compact ? (
+          <>
+            <Text style={[styles.fidsAircraft, styles.fidsColAircraft]} numberOfLines={1}>{row.aircraft_type || "-"}</Text>
+            <View style={styles.fidsColGate}>
+              {gateLabel ? (
+                <Text style={styles.fidsGateVal} numberOfLines={1}>{gateLabel}</Text>
+              ) : (
+                <Text style={styles.fidsGateEmpty}>-</Text>
+              )}
+            </View>
+          </>
         ) : null}
       </View>
-      <View style={[styles.fidsDest, styles.fidsColRoute]}>
-        <Text style={styles.fidsDestName} numberOfLines={1}>{routeName(row.route_display)}</Text>
-        <Text style={styles.fidsDestCode}>{routeMeta(row)}</Text>
-      </View>
-      <View style={styles.fidsColStatus}>
-        <StatusBadge status={row.status_display} statusClass={row.status_class} compact />
-      </View>
-      <Text style={[styles.fidsAircraft, styles.fidsColAircraft]} numberOfLines={1}>{row.aircraft_type || "-"}</Text>
-      <View style={styles.fidsColGate}>
-        {gateLabel ? (
-          <Text style={styles.fidsGateVal} numberOfLines={1}>{gateLabel}</Text>
-        ) : (
-          <Text style={styles.fidsGateEmpty}>-</Text>
-        )}
-      </View>
+      {compact && detailFrames.length ? (
+        <RotatingInfoLine
+          frames={detailFrames}
+          cycleTick={cycleTick}
+          offset={rowOffset + 1}
+          containerStyle={styles.fidsInfoRail}
+          labelStyle={styles.fidsInfoLabel}
+          valueStyle={styles.fidsInfoValue}
+        />
+      ) : null}
     </Pressable>
   );
 }
 
-function FullscreenFidsRow({ row, isPinned }: { row: FidsRow; isPinned: boolean }) {
+function RotatingInfoLine({
+  frames,
+  cycleTick,
+  offset,
+  containerStyle,
+  labelStyle,
+  valueStyle,
+  showLabel = true
+}: {
+  frames: RowInfoFrame[];
+  cycleTick: number;
+  offset: number;
+  containerStyle?: any;
+  labelStyle?: any;
+  valueStyle?: any;
+  showLabel?: boolean;
+}) {
+  const opacity = useRef(new Animated.Value(1)).current;
+  const frame = frames.length ? frames[Math.abs(cycleTick + offset) % frames.length] : null;
+  const frameKey = frame ? `${frame.label}:${frame.value}` : "empty";
+
+  useEffect(() => {
+    opacity.setValue(0);
+    Animated.timing(opacity, { toValue: 1, duration: 240, useNativeDriver: true }).start();
+  }, [frameKey, opacity]);
+
+  if (!frame) return null;
+
+  const lift = opacity.interpolate({ inputRange: [0, 1], outputRange: [4, 0] });
+  const toneStyle =
+    frame.tone === "warn"
+      ? styles.fidsInfoValueWarn
+      : frame.tone === "accent"
+        ? styles.fidsInfoValueAccent
+        : null;
+
   return (
-    <View style={[styles.fullscreenFidsRow, isPinned && styles.fullscreenFidsRowPinned]}>
-      <Text style={[styles.fullscreenFidsTime, styles.fullscreenFidsTimeColumn]}>{row.display_time || "--:--"}</Text>
-      <View style={[styles.fullscreenFidsFlightCell, styles.fullscreenFidsFlightColumn]}>
+    <Animated.View style={[styles.fidsInfoLine, containerStyle, { opacity, transform: [{ translateY: lift }] }]}>
+      {showLabel ? <Text style={[styles.fidsInfoLabel, labelStyle]} numberOfLines={1}>{frame.label}</Text> : null}
+      <Text style={[styles.fidsInfoValue, toneStyle, valueStyle]} numberOfLines={1}>{frame.value}</Text>
+    </Animated.View>
+  );
+}
+
+function FullscreenFidsRow({
+  row,
+  index,
+  compact,
+  cycleTick,
+  rowHeight,
+  isPinned
+}: {
+  row: FidsRow;
+  index: number;
+  compact: boolean;
+  cycleTick: number;
+  rowHeight: number;
+  isPinned: boolean;
+}) {
+  const gateLabel = row.terminal_gate_display || row.gate_display || row.gate;
+  const airlineFrames = airlineInfoFrames(row);
+  const detailFrames = rowDetailFrames(row, gateLabel);
+  const routePrimary = cleanInfoValue(row.route_primary) || routeName(row.route_display);
+  const routeSecondary = cleanInfoValue(row.route_code) || cleanInfoValue(row.route_caption) || routeMeta(row);
+  const rowOffset = index % 3;
+
+  return (
+    <View style={[styles.fullscreenFidsRow, compact && styles.fullscreenFidsRowCompact, isPinned && styles.fullscreenFidsRowPinned, { minHeight: rowHeight }]}>
+      <Text style={[styles.fullscreenFidsTime, styles.fullscreenFidsTimeColumn, compact && styles.fullscreenFidsTimeColumnCompact]}>{row.time_primary || row.display_time || "--:--"}</Text>
+      <View style={[styles.fullscreenFidsFlightCell, styles.fullscreenFidsFlightColumn, compact && styles.fullscreenFidsFlightColumnCompact]}>
         <Text style={styles.fullscreenFidsFlight} numberOfLines={1}>{row.flight_display || row.callsign || "-"}</Text>
-        <Text style={styles.fullscreenFidsAirline} numberOfLines={1}>
-          {row.airline_display || row.codeshare_display || row.callsign || "LOCAL FLIGHT"}
-        </Text>
+        {airlineFrames.length ? (
+          <RotatingInfoLine
+            frames={airlineFrames}
+            cycleTick={cycleTick}
+            offset={rowOffset}
+            showLabel={false}
+            valueStyle={styles.fullscreenFidsAirline}
+          />
+        ) : (
+          <Text style={styles.fullscreenFidsAirline} numberOfLines={1}>{row.callsign || "LOCAL FLIGHT"}</Text>
+        )}
       </View>
       <View style={[styles.fullscreenFidsRouteCell, styles.fullscreenFidsRouteColumn]}>
-        <Text style={styles.fullscreenFidsRouteName} numberOfLines={1}>{routeName(row.route_display)}</Text>
-        <Text style={styles.fullscreenFidsRouteMeta} numberOfLines={1}>{routeMeta(row)}</Text>
+        <Text style={styles.fullscreenFidsRouteName} numberOfLines={1}>{routePrimary}</Text>
+        <Text style={styles.fullscreenFidsRouteMeta} numberOfLines={1}>{routeSecondary}</Text>
       </View>
-      <View style={styles.fullscreenFidsStatusCell}>
+      <View style={[styles.fullscreenFidsStatusCell, compact && styles.fullscreenFidsStatusColumnCompact]}>
         <StatusBadge status={row.status_display} statusClass={row.status_class} />
       </View>
-      <Text style={[styles.fullscreenFidsAircraft, styles.fullscreenFidsAircraftColumn]} numberOfLines={1}>
-        {row.aircraft_type || "-"}
-      </Text>
+      {compact ? (
+        <View style={styles.fullscreenFidsInfoColumn}>
+          {detailFrames.length ? (
+            <RotatingInfoLine
+              frames={detailFrames}
+              cycleTick={cycleTick}
+              offset={rowOffset + 1}
+              containerStyle={styles.fullscreenFidsInfoMini}
+              labelStyle={styles.fullscreenFidsInfoLabel}
+              valueStyle={styles.fullscreenFidsInfoValue}
+            />
+          ) : (
+            <Text style={styles.fullscreenFidsInfoValue} numberOfLines={1}>-</Text>
+          )}
+        </View>
+      ) : (
+        <>
+          <Text style={[styles.fullscreenFidsAircraft, styles.fullscreenFidsAircraftColumn]} numberOfLines={1}>
+            {row.aircraft_type || "-"}
+          </Text>
+          <Text style={[styles.fullscreenFidsGate, styles.fullscreenFidsGateColumn]} numberOfLines={1}>
+            {gateLabel || "-"}
+          </Text>
+        </>
+      )}
     </View>
   );
 }
@@ -2586,6 +3008,7 @@ export function AdminScreen({
   companionIdentity,
   connected,
   error,
+  weatherDisplayMode,
   feedbackTitle,
   feedbackDescription,
   feedbackSending,
@@ -2597,6 +3020,7 @@ export function AdminScreen({
   onSubmitFeedback,
   onSendAutoReportTest,
   onOpenMatrix,
+  onOpenSupport,
   onBackSettings
 }: {
   snapshot: DashboardSnapshot;
@@ -2604,6 +3028,7 @@ export function AdminScreen({
   companionIdentity: CompanionIdentity | null;
   connected: boolean;
   error: string | null;
+  weatherDisplayMode: MobileWeatherDisplayMode;
   feedbackTitle: string;
   feedbackDescription: string;
   feedbackSending: boolean;
@@ -2615,6 +3040,7 @@ export function AdminScreen({
   onSubmitFeedback: () => void;
   onSendAutoReportTest: () => void;
   onOpenMatrix: () => void;
+  onOpenSupport: () => void;
   onBackSettings: () => void;
 }) {
   const budget = snapshot.budget?.aviationstack;
@@ -2628,6 +3054,9 @@ export function AdminScreen({
     ? `V${snapshot.updates.latest || "NEW"} READY`
     : `V${snapshot.updates?.current || snapshot.system?.version || APP_VERSION}`;
   const platformPair = platformPairLabel(snapshot.system?.platform, companionIdentity?.mobileOs);
+  const weatherMode = weatherModeOption(weatherDisplayMode);
+  const adminWeatherSummary = weatherSummaryForMode(snapshot.metar, weatherDisplayMode);
+  const adminWeatherChips = weatherChips(snapshot.metar);
   const [section, setSection] = useState<AdminSettingsSection>("health");
   const feedbackContext = [
     `Reporter      ${companionIdentity?.clientName || "Local Flight Companion"}`,
@@ -2728,14 +3157,27 @@ export function AdminScreen({
                 </Text>
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={styles.adminMetarTitle}>{snapshot.metar.flight_category || "UNKNOWN"}</Text>
-                <Text style={styles.adminMetarSub} numberOfLines={2}>{snapshot.metar.decoded_summary || snapshot.metar.raw_text || "No METAR data"}</Text>
+                <View style={styles.adminMetarTitleRow}>
+                  <Text style={styles.adminMetarTitle}>{snapshot.metar.flight_category || "UNKNOWN"}</Text>
+                  <View style={styles.adminMetarModePill}>
+                    <Text style={styles.adminMetarModeText}>{weatherMode.label}</Text>
+                  </View>
+                </View>
+                <Text style={styles.adminMetarSub}>{adminWeatherSummary || "No METAR data"}</Text>
+                <View style={styles.adminMetarChipRow}>
+                  {adminWeatherChips.slice(0, 5).map((chip, index) => (
+                    <View key={`admin-weather-${chip.label}-${chip.value}-${index}`} style={styles.adminMetarChip}>
+                      <Text style={styles.adminMetarChipText}>{chip.label} {chip.value}</Text>
+                    </View>
+                  ))}
+                </View>
               </View>
             </View>
+            <InfoLine label="Display style" value={`${weatherMode.label} · ${weatherMode.detail}`} />
             <InfoLine label="Wind" value={snapshot.metar.wind || "—"} />
             <InfoLine label="Temperature" value={snapshot.metar.temperature_c != null ? `${snapshot.metar.temperature_c}°C` : "—"} />
             <InfoLine label="QNH" value={snapshot.metar.qnh_hpa != null ? `${snapshot.metar.qnh_hpa} hPa` : "—"} />
-            {snapshot.metar.raw_text ? (
+            {snapshot.metar.raw_text && weatherDisplayMode !== "vatsim" ? (
               <InfoLine label="Raw METAR" value={snapshot.metar.raw_text} />
             ) : null}
           </>
@@ -2804,12 +3246,18 @@ export function AdminScreen({
           <Text style={styles.feedbackContextText}>{feedbackContext}</Text>
         </View>
         <Pressable style={[styles.connectButton, feedbackSending && styles.connectButtonDisabled]} onPress={onSubmitFeedback} disabled={feedbackSending}>
-          {feedbackSending ? <ActivityIndicator color="#000" /> : <Text style={styles.connectButtonText}>SEND REPORT</Text>}
+          {feedbackSending ? <ActivityIndicator color={solidButtonInk()} /> : <Text style={styles.connectButtonText}>SEND REPORT</Text>}
         </Pressable>
         {feedbackMessage ? (
           <Text style={[styles.feedbackMessage, feedbackTone === "ok" ? styles.feedbackMessageOk : styles.feedbackMessageError]}>
             {feedbackMessage}
           </Text>
+        ) : null}
+        {feedbackMessage && feedbackTone === "ok" ? (
+          <Pressable style={styles.feedbackSupportHint} onPress={onOpenSupport}>
+            <Text style={styles.feedbackSupportText}>Thanks for helping Local Flight improve.</Text>
+            <Text style={styles.feedbackSupportAction}>SUPPORT</Text>
+          </Pressable>
         ) : null}
       </View>
       ) : null}
@@ -2860,6 +3308,8 @@ export function CompanionSetupScreen({
   const [finishing, setFinishing] = useState(false);
   const [setupError, setSetupError] = useState<string | null>(null);
   const [setupProgress, setSetupProgress] = useState<string | null>(null);
+  const [urlCheckState, setUrlCheckState] = useState<SetupUrlCheckState>("idle");
+  const [urlCheckMessage, setUrlCheckMessage] = useState("Enter the LAN URL shown by the desktop or Pi app.");
   const [serverSummary, setServerSummary] = useState<CompanionSetupResult | null>(null);
   const stepAnim = useRef(new Animated.Value(1)).current;
 
@@ -2882,15 +3332,60 @@ export function CompanionSetupScreen({
     }).start();
   }, [step, stepAnim]);
 
+  useEffect(() => {
+    if (step !== "server") return;
+
+    const input = serverInput.trim();
+    if (!input) {
+      setUrlCheckState("idle");
+      setUrlCheckMessage("Enter the LAN URL shown by the desktop or Pi app.");
+      return;
+    }
+
+    const urlProblem = companionSetupUrlProblem(input);
+    if (urlProblem) {
+      setUrlCheckState("invalid");
+      setUrlCheckMessage(urlProblem);
+      return;
+    }
+
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      const normalizedUrl = normalizeServerUrl(input);
+      setUrlCheckState("checking");
+      setUrlCheckMessage("Checking /api/health on the Local Flight server...");
+      void getHealth(normalizedUrl)
+        .then(() => {
+          if (cancelled) return;
+          setUrlCheckState("ok");
+          setUrlCheckMessage("Server health answered. You can run the full setup test.");
+        })
+        .catch((exc) => {
+          if (cancelled) return;
+          setUrlCheckState("error");
+          setUrlCheckMessage(companionSetupErrorMessage(exc));
+        });
+    }, 650);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [serverInput, step]);
+
   const testServer = useCallback(async () => {
     const urlProblem = companionSetupUrlProblem(serverInput);
     if (urlProblem) {
       setSetupError(urlProblem);
+      setUrlCheckState("invalid");
+      setUrlCheckMessage(urlProblem);
       return;
     }
 
     setTesting(true);
     setSetupError(null);
+    setUrlCheckState("checking");
+    setUrlCheckMessage("Running the full Local Flight setup check...");
     let rootHealthOk = false;
     try {
       const normalizedUrl = normalizeServerUrl(serverInput);
@@ -2910,13 +3405,22 @@ export function CompanionSetupScreen({
       };
       setSetupProgress("Server answered. Moving to diagnostics...");
       setServerInput(normalizedUrl);
+      setUrlCheckState("ok");
+      setUrlCheckMessage("Server and companion APIs are ready.");
       setServerSummary(summary);
       setStep("diagnostics");
     } catch (exc) {
+      const message = rootHealthOk
+        ? "Local Flight answered /health, but setup APIs are not ready. Finish Local Flight setup on the desktop/Pi first, then return here."
+        : companionSetupErrorMessage(exc);
       setSetupError(
+        message
+      );
+      setUrlCheckState("error");
+      setUrlCheckMessage(
         rootHealthOk
-          ? "Local Flight answered /health, but setup APIs are not ready. Finish Local Flight setup on the desktop/Pi first, then return here."
-          : companionSetupErrorMessage(exc)
+          ? "Server health answered, but the companion APIs are not ready yet."
+          : message
       );
     } finally {
       setTesting(false);
@@ -2959,12 +3463,15 @@ export function CompanionSetupScreen({
             <View style={styles.companionSetupLogoRing} />
             <View style={styles.companionSetupLogoRingOuter} />
             <Image
-              source={require("../../assets/icon_circle.png")}
+              source={require("../../assets/localflight-logo.png")}
               resizeMode="contain"
               style={styles.companionSetupLogoMark}
             />
           </View>
-          <Text style={styles.companionSetupEyebrow}>LOCAL FLIGHT COMPANION</Text>
+          <Text style={styles.companionSetupEyebrow}>
+            <Text style={styles.companionSetupBrandText}>LOCAL FLIGHT</Text>
+            <Text style={styles.companionSetupEyebrowSuffix}> COMPANION</Text>
+          </Text>
           <Text style={styles.companionSetupTitle}>Set up your flight board</Text>
           <Text style={styles.companionSetupBody}>
             Pair this device with your already-configured desktop or Pi server. The companion stays on this guided setup until LAN pairing and diagnostics consent are done.
@@ -3008,7 +3515,7 @@ export function CompanionSetupScreen({
               <SetupInfoTile label="Next" value="Test server URL" />
             </View>
             <Pressable style={styles.companionSetupPrimary} onPress={() => setStep("server")}>
-              <MaterialCommunityIcons name="arrow-right" size={16} color="#051009" />
+              <MaterialCommunityIcons name="arrow-right" size={16} color={solidButtonInk()} />
               <Text style={styles.companionSetupPrimaryText}>START SETUP</Text>
             </Pressable>
           </Animated.View>
@@ -3025,16 +3532,45 @@ export function CompanionSetupScreen({
               <Text style={styles.companionSetupExampleText}>http://localflight.local:8000</Text>
               <Text style={styles.companionSetupExampleText}>http://192.168.1.42:8000</Text>
             </View>
-            <TextInput
-              autoCapitalize="none"
-              autoCorrect={false}
-              keyboardType="url"
-              placeholder="http://localflight.local:8000"
-              placeholderTextColor={palette.textDim}
-              value={serverInput}
-              onChangeText={setServerInput}
-              style={styles.companionSetupInput}
-            />
+            <View
+              style={[
+                styles.companionSetupInputWrap,
+                urlCheckState === "ok" && styles.companionSetupInputWrapOk,
+                urlCheckState === "checking" && styles.companionSetupInputWrapChecking,
+                (urlCheckState === "error" || urlCheckState === "invalid") && styles.companionSetupInputWrapError
+              ]}
+            >
+              <TextInput
+                autoCapitalize="none"
+                autoCorrect={false}
+                keyboardType="url"
+                placeholder="http://localflight.local:8000"
+                placeholderTextColor={palette.textDim}
+                value={serverInput}
+                onChangeText={setServerInput}
+                style={styles.companionSetupInput}
+              />
+              <View style={styles.companionSetupInputStatus}>
+                {urlCheckState === "checking" ? (
+                  <ActivityIndicator size="small" color={palette.blue2} />
+                ) : (
+                  <MaterialCommunityIcons
+                    name={setupUrlCheckIcon(urlCheckState)}
+                    size={16}
+                    color={setupUrlCheckColor(urlCheckState)}
+                  />
+                )}
+              </View>
+            </View>
+            <Text
+              style={[
+                styles.companionSetupUrlHint,
+                urlCheckState === "ok" && styles.companionSetupUrlHintOk,
+                (urlCheckState === "error" || urlCheckState === "invalid") && styles.companionSetupUrlHintError
+              ]}
+            >
+              {urlCheckMessage}
+            </Text>
             <SetupProgressRail
               active={testing}
               label={setupProgress || "Waiting to test the server URL."}
@@ -3045,7 +3581,7 @@ export function CompanionSetupScreen({
               onPress={() => void testServer()}
               disabled={testing}
             >
-              {testing ? <ActivityIndicator color="#000" /> : <MaterialCommunityIcons name="lan-connect" size={16} color="#051009" />}
+              {testing ? <ActivityIndicator color={solidButtonInk()} /> : <MaterialCommunityIcons name="lan-connect" size={16} color={solidButtonInk()} />}
               <Text style={styles.companionSetupPrimaryText}>{testing ? "TESTING SERVER" : "TEST SERVER"}</Text>
             </Pressable>
             <Pressable style={styles.companionSetupSecondary} onPress={() => setStep("welcome")}>
@@ -3083,7 +3619,7 @@ export function CompanionSetupScreen({
               ))}
             </View>
             <Pressable style={styles.companionSetupPrimary} onPress={() => setStep("ready")}>
-              <MaterialCommunityIcons name="clipboard-check-outline" size={16} color="#051009" />
+              <MaterialCommunityIcons name="clipboard-check-outline" size={16} color={solidButtonInk()} />
               <Text style={styles.companionSetupPrimaryText}>REVIEW SETUP</Text>
             </Pressable>
             <Pressable style={styles.companionSetupSecondary} onPress={() => setStep("server")}>
@@ -3109,7 +3645,7 @@ export function CompanionSetupScreen({
               onPress={() => void finishSetup()}
               disabled={finishing}
             >
-              {finishing ? <ActivityIndicator color="#000" /> : <MaterialCommunityIcons name="airplane-takeoff" size={16} color="#051009" />}
+              {finishing ? <ActivityIndicator color={solidButtonInk()} /> : <MaterialCommunityIcons name="airplane-takeoff" size={16} color={solidButtonInk()} />}
               <Text style={styles.companionSetupPrimaryText}>{finishing ? "SAVING SETUP" : "FINISH SETUP"}</Text>
             </Pressable>
             <Pressable style={styles.companionSetupSecondary} onPress={() => setStep("diagnostics")}>
@@ -3171,6 +3707,34 @@ function SetupInfoTile({ label, value }: { label: string; value: string }) {
   );
 }
 
+function setupUrlCheckIcon(state: SetupUrlCheckState): MaterialIconName {
+  switch (state) {
+    case "ok":
+      return "check-circle";
+    case "error":
+    case "invalid":
+      return "alert-circle";
+    case "checking":
+      return "progress-clock";
+    default:
+      return "link-variant";
+  }
+}
+
+function setupUrlCheckColor(state: SetupUrlCheckState): string {
+  switch (state) {
+    case "ok":
+      return palette.green;
+    case "error":
+    case "invalid":
+      return palette.red;
+    case "checking":
+      return palette.blue2;
+    default:
+      return palette.textDim;
+  }
+}
+
 function setupStepRank(step: CompanionSetupStep): number {
   return { welcome: 0, server: 1, diagnostics: 2, ready: 3 }[step];
 }
@@ -3223,6 +3787,9 @@ export function SettingsScreen({
   skin,
   weatherDisplayMode,
   mobileDiagnosticsMode,
+  profiles,
+  activeProfileId,
+  applyingProfileId,
   outputs,
   refreshSeconds,
   schedulerRestarting,
@@ -3231,11 +3798,12 @@ export function SettingsScreen({
   onSkinChange,
   onWeatherDisplayModeChange,
   onMobileDiagnosticsModeChange,
+  onApplyProfile,
   onOpenHistory,
   onOpenAdmin,
   onOpenMatrix,
   onOpenDoc,
-  onOpenCoffee,
+  onOpenSupport,
   onRestartScheduler,
   onRerunSetup,
   onChangeUrl,
@@ -3251,6 +3819,9 @@ export function SettingsScreen({
   skin: MobileSkin;
   weatherDisplayMode: MobileWeatherDisplayMode;
   mobileDiagnosticsMode: MobileDiagnosticsMode;
+  profiles: ConfigProfile[];
+  activeProfileId: string | null;
+  applyingProfileId: string | null;
   outputs: string[];
   refreshSeconds: number | null;
   schedulerRestarting: boolean;
@@ -3259,11 +3830,12 @@ export function SettingsScreen({
   onSkinChange: (value: MobileSkin) => void;
   onWeatherDisplayModeChange: (value: MobileWeatherDisplayMode) => void;
   onMobileDiagnosticsModeChange: (value: MobileDiagnosticsMode) => void;
+  onApplyProfile: (profile: ConfigProfile) => void;
   onOpenHistory: () => void;
   onOpenAdmin: () => void;
   onOpenMatrix: () => void;
   onOpenDoc: (slug: DocSlug) => void;
-  onOpenCoffee: () => void;
+  onOpenSupport: () => void;
   onRestartScheduler: () => void;
   onRerunSetup: () => void;
   onChangeUrl: (value: string) => void;
@@ -3293,6 +3865,52 @@ export function SettingsScreen({
         <InfoLine label="Companion build" value={APP_VERSION} />
         <InfoLine label="Layout" value={isTablet ? `iPad ${isLandscape ? "landscape" : "portrait"}` : "iPhone"} />
 
+        {profiles.length > 1 ? (
+          <View style={styles.settingsProfileBlock}>
+            <View style={styles.settingsProfileHeader}>
+              <Text style={styles.settingsProfileTitle}>AIRPORT PROFILES</Text>
+              <Text style={styles.settingsProfileHint}>one-tap switch</Text>
+            </View>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.settingsProfileChips}
+            >
+              {profiles.map((profile, index) => {
+                const active = profile.id === activeProfileId;
+                const applying = profile.id === applyingProfileId;
+                const disabled = applyingProfileId !== null;
+                return (
+                  <Pressable
+                    key={profileKey(profile, index)}
+                    style={[
+                      styles.settingsProfileChip,
+                      active && styles.settingsProfileChipActive,
+                      disabled && !applying && styles.settingsProfileChipDisabled
+                    ]}
+                    onPress={() => onApplyProfile(profile)}
+                    disabled={disabled}
+                  >
+                    <View style={styles.settingsProfileChipTop}>
+                      <Text style={[styles.settingsProfileName, active && styles.settingsProfileNameActive]} numberOfLines={1}>
+                        {profile.name}
+                      </Text>
+                      {applying ? (
+                        <ActivityIndicator size="small" color={palette.blue2} />
+                      ) : active ? (
+                        <MaterialCommunityIcons name="check-circle" size={14} color={palette.green} />
+                      ) : null}
+                    </View>
+                    <Text style={styles.settingsProfileMeta} numberOfLines={1}>
+                      {profile.iata} · {profile.source === "virtual" ? "VATSIM" : "REAL"} · {formatInterval(profile.refresh_seconds)}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          </View>
+        ) : null}
+
         <View style={styles.settingsInlineActions}>
           <Pressable style={styles.settingsCompactButton} onPress={() => setServerExpanded((value) => !value)}>
             <Text style={styles.settingsCompactButtonText}>{serverExpanded ? "HIDE SERVER" : "CHANGE SERVER"}</Text>
@@ -3319,7 +3937,7 @@ export function SettingsScreen({
               style={styles.serverInput}
             />
             <Pressable style={styles.connectButton} onPress={onConnect} disabled={loading}>
-              {loading ? <ActivityIndicator color="#000" /> : <Text style={styles.connectButtonText}>CONNECT</Text>}
+              {loading ? <ActivityIndicator color={solidButtonInk()} /> : <Text style={styles.connectButtonText}>CONNECT</Text>}
             </Pressable>
             <Text style={styles.settingsHelp}>
               Use the LAN IP of the machine running Local Flight. On a physical iPhone, localhost points at the phone itself.
@@ -3336,7 +3954,7 @@ export function SettingsScreen({
           <SettingsQuickAction
             icon="palette-outline"
             label="Mobile Look"
-            value={`${themeMode} · ${skin} · ${weatherDisplayMode} WX`}
+            value={`${themeMode} · ${skin} · ${weatherModeOption(weatherDisplayMode).label} WX`}
             onPress={() => setAppearanceVisible(true)}
           />
           <SettingsQuickAction
@@ -3423,17 +4041,13 @@ export function SettingsScreen({
           value="github.com/tr3y4rch/local-flight"
           onPress={() => void Linking.openURL("https://github.com/tr3y4rch/local-flight")}
         />
-        <Pressable style={styles.coffeeCard} onPress={onOpenCoffee}>
-          <View style={styles.coffeeIcon}>
-            <MaterialCommunityIcons name="coffee" size={19} color="#111" />
-          </View>
-          <View style={styles.coffeeCopy}>
-            <Text style={styles.coffeeTitle}>BUY ME A COFFEE</Text>
-            <Text style={styles.coffeeBody}>Support Local Flight and keep the boards glowing.</Text>
-          </View>
-          <MaterialCommunityIcons name="open-in-new" size={16} color={palette.amber} />
-        </Pressable>
       </View>
+
+      <Pressable style={styles.supportFooter} onPress={onOpenSupport}>
+        <MaterialCommunityIcons name="heart-outline" size={15} color={palette.amber} />
+        <Text style={styles.supportFooterText}>Support Local Flight</Text>
+        <MaterialCommunityIcons name="chevron-up" size={13} color={palette.textDim} />
+      </Pressable>
 
       <AppearanceSheet
         visible={appearanceVisible}
@@ -3464,11 +4078,16 @@ export function DocsScreen({
   const [document, setDocument] = useState<DocDocument | null>(null);
   const [loadingDoc, setLoadingDoc] = useState(true);
   const [docError, setDocError] = useState<string | null>(null);
+  const [tocVisible, setTocVisible] = useState(false);
+  const [docCardY, setDocCardY] = useState(0);
+  const headingOffsets = useRef<Record<string, number>>({});
+  const scrollRef = useRef<ScrollView>(null);
 
   const loadDoc = useCallback(async () => {
     setLoadingDoc(true);
     setDocError(null);
     setDocument(null);
+    headingOffsets.current = {};
     try {
       setDocument(await getDoc(serverUrl, slug));
     } catch (exc) {
@@ -3485,9 +4104,25 @@ export function DocsScreen({
   const title = document?.title || source.title;
   const detail = document?.summary || source.detail;
   const githubUrl = document?.github_url || source.githubUrl;
+  const headings = extractDocHeadings(document?.content || "");
+
+  const jumpToHeading = useCallback((heading: DocHeading) => {
+    setTocVisible(false);
+    const headingY = headingOffsets.current[heading.id];
+    if (typeof headingY !== "number") return;
+    scrollRef.current?.scrollTo({
+      y: Math.max(0, docCardY + headingY - 12),
+      animated: true
+    });
+  }, [docCardY]);
+
+  const onHeadingLayout = useCallback((id: string, y: number) => {
+    headingOffsets.current[id] = y;
+  }, []);
 
   return (
     <ScrollView
+      ref={scrollRef}
       style={styles.screenScroll}
       contentContainerStyle={[styles.screenContent, { paddingBottom: contentPaddingBottom }]}
       refreshControl={<RefreshControl refreshing={loadingDoc} tintColor={palette.blue} onRefresh={loadDoc} />}
@@ -3501,7 +4136,14 @@ export function DocsScreen({
           onBack={onBackSettings}
         />
 
-        <View style={styles.docsCard}>
+        <View style={styles.docsCard} onLayout={(event) => setDocCardY(event.nativeEvent.layout.y)}>
+          {!loadingDoc && !docError && headings.length ? (
+            <Pressable style={styles.docTocPill} onPress={() => setTocVisible(true)}>
+              <MaterialCommunityIcons name="format-list-bulleted" size={15} color={palette.blue2} />
+              <Text style={styles.docTocPillText}>JUMP TO</Text>
+              <Text style={styles.docTocPillCount}>{headings.length} SECTIONS</Text>
+            </Pressable>
+          ) : null}
           <ScreenActivity
             activity={
               loadingDoc
@@ -3526,14 +4168,33 @@ export function DocsScreen({
               />
             </>
           ) : null}
-          {!loadingDoc && !docError ? <MarkdownDocument content={document?.content || ""} /> : null}
+          {!loadingDoc && !docError ? (
+            <MarkdownDocument
+              content={document?.content || ""}
+              onHeadingLayout={onHeadingLayout}
+            />
+          ) : null}
         </View>
       </View>
+
+      <DocTocSheet
+        visible={tocVisible}
+        title={title}
+        headings={headings}
+        onClose={() => setTocVisible(false)}
+        onSelect={jumpToHeading}
+      />
     </ScrollView>
   );
 }
 
-function MarkdownDocument({ content }: { content: string }) {
+function MarkdownDocument({
+  content,
+  onHeadingLayout
+}: {
+  content: string;
+  onHeadingLayout?: (id: string, y: number) => void;
+}) {
   const nodes: ReactNode[] = [];
   const lines = content.split(/\r?\n/);
   let codeLines: string[] = [];
@@ -3569,11 +4230,23 @@ function MarkdownDocument({ content }: { content: string }) {
       return;
     }
     if (line.startsWith("# ")) {
-      nodes.push(<Text key={`doc-title-${index}`} style={styles.docTitle}>{cleanMarkdownInline(line.replace(/^#\s+/, ""))}</Text>);
+      const title = cleanMarkdownInline(line.replace(/^#\s+/, ""));
+      const id = docHeadingId(title, index);
+      nodes.push(
+        <View key={`doc-title-${index}`} onLayout={(event) => onHeadingLayout?.(id, event.nativeEvent.layout.y)}>
+          <Text style={styles.docTitle}>{title}</Text>
+        </View>
+      );
       return;
     }
     if (line.startsWith("## ")) {
-      nodes.push(<Text key={`doc-heading-${index}`} style={styles.docHeading}>{cleanMarkdownInline(line.replace(/^##\s+/, ""))}</Text>);
+      const title = cleanMarkdownInline(line.replace(/^##\s+/, ""));
+      const id = docHeadingId(title, index);
+      nodes.push(
+        <View key={`doc-heading-${index}`} onLayout={(event) => onHeadingLayout?.(id, event.nativeEvent.layout.y)}>
+          <Text style={styles.docHeading}>{title}</Text>
+        </View>
+      );
       return;
     }
     if (line.startsWith("### ")) {
@@ -3610,6 +4283,80 @@ function MarkdownDocument({ content }: { content: string }) {
   return <>{nodes}</>;
 }
 
+function DocTocSheet({
+  visible,
+  title,
+  headings,
+  onClose,
+  onSelect
+}: {
+  visible: boolean;
+  title: string;
+  headings: DocHeading[];
+  onClose: () => void;
+  onSelect: (heading: DocHeading) => void;
+}) {
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <View style={styles.sheetBackdrop}>
+        <Pressable style={styles.sheetBackdropPress} onPress={onClose} />
+        <View style={styles.docTocSheet}>
+          <View style={styles.sheetHandle} />
+          <View style={styles.docTocHeader}>
+            <View style={styles.sheetHeaderText}>
+              <Text style={styles.sheetEyebrow}>DOCUMENT SECTIONS</Text>
+              <Text style={styles.sheetTitle}>{title}</Text>
+            </View>
+            <Pressable style={styles.sheetAction} onPress={onClose}>
+              <Text style={styles.sheetActionText}>DONE</Text>
+            </Pressable>
+          </View>
+          <ScrollView style={styles.sheetScroll} contentContainerStyle={styles.docTocContent}>
+            {headings.map((heading) => (
+              <Pressable
+                key={heading.id}
+                style={[styles.docTocItem, heading.level === 2 && styles.docTocItemNested]}
+                onPress={() => onSelect(heading)}
+              >
+                <Text style={styles.docTocItemLevel}>H{heading.level}</Text>
+                <Text style={styles.docTocItemText} numberOfLines={2}>{heading.title}</Text>
+              </Pressable>
+            ))}
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+function extractDocHeadings(content: string): DocHeading[] {
+  const headings: DocHeading[] = [];
+  let inCode = false;
+  content.split(/\r?\n/).forEach((rawLine, index) => {
+    const line = rawLine.trimEnd();
+    if (line.startsWith("```")) {
+      inCode = !inCode;
+      return;
+    }
+    if (inCode) return;
+    const match = line.match(/^(#{1,2})\s+(.+)$/);
+    if (!match) return;
+    const title = cleanMarkdownInline(match[2] || "");
+    if (!title) return;
+    headings.push({
+      id: docHeadingId(title, index),
+      level: match[1] === "#" ? 1 : 2,
+      title,
+      index
+    });
+  });
+  return headings;
+}
+
+function docHeadingId(title: string, index: number): string {
+  return `${index}-${title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "section"}`;
+}
+
 function cleanMarkdownInline(value: string): string {
   return value
     .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
@@ -3622,7 +4369,6 @@ function AppearancePreviewStrip() {
     <View style={styles.appearancePreview}>
       <View style={styles.appearancePreviewCard}>
         <Text style={styles.appearancePreviewTitle}>LOCAL FLIGHT</Text>
-        <Text style={styles.appearancePreviewBody}>Theme the companion without changing the server display.</Text>
       </View>
       <View style={styles.appearancePreviewRail}>
         <View style={[styles.appearancePreviewDot, { backgroundColor: palette.blue }]} />
@@ -3663,7 +4409,6 @@ function AppearanceSheet({
             <View style={styles.sheetHeaderText}>
               <Text style={styles.sheetEyebrow}>MOBILE LOOK</Text>
               <Text style={styles.sheetTitle}>Companion Appearance</Text>
-              <Text style={styles.sheetSubtitle}>Theme the phone without changing the server display.</Text>
             </View>
             <Pressable style={styles.sheetAction} onPress={onClose}>
               <Text style={styles.sheetActionText}>DONE</Text>
@@ -3713,6 +4458,124 @@ function AppearanceSheet({
             </FilterSection>
 
             <AppearancePreviewStrip />
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+export function SupportSheet({
+  visible,
+  onClose
+}: {
+  visible: boolean;
+  onClose: () => void;
+}) {
+  const [products, setProducts] = useState<SupportProduct[]>(() => supportProductPlaceholders());
+  const [busyTier, setBusyTier] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const showWebFallback = __DEV__;
+
+  useEffect(() => {
+    if (!visible) return;
+    let cancelled = false;
+    setMessage(null);
+    supportStubProvider.loadProducts()
+      .then((loaded) => {
+        if (!cancelled) {
+          setProducts(loaded);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setProducts(supportProductPlaceholders().map((item) => ({
+            ...item,
+            availability: "unavailable",
+            statusLabel: "Unavailable"
+          })));
+          setMessage("Support products could not be loaded in this build.");
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [visible]);
+
+  const handleTierPress = useCallback(async (tier: SupportProduct) => {
+    setBusyTier(tier.id);
+    try {
+      const result = await supportStubProvider.purchaseTier(tier);
+      setMessage(result.message);
+    } finally {
+      setBusyTier(null);
+    }
+  }, []);
+
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <View style={styles.sheetBackdrop}>
+        <Pressable style={styles.sheetBackdropPress} onPress={onClose} />
+        <View style={styles.sheetCard}>
+          <View style={styles.sheetHandle} />
+          <View style={styles.sheetHeader}>
+            <View style={styles.sheetHeaderText}>
+              <Text style={styles.sheetEyebrow}>TIP JAR</Text>
+              <Text style={styles.sheetTitle}>Support Local Flight</Text>
+            </View>
+            <Pressable style={styles.sheetAction} onPress={onClose}>
+              <Text style={styles.sheetActionText}>DONE</Text>
+            </Pressable>
+          </View>
+
+          <ScrollView style={styles.sheetScroll} contentContainerStyle={styles.sheetContent}>
+            <View style={styles.supportHero}>
+              <View style={styles.supportHeroIcon}>
+                <MaterialCommunityIcons name="heart-outline" size={23} color={palette.amber} />
+              </View>
+              <View style={styles.supportHeroCopy}>
+                <Text style={styles.supportHeroTitle}>Optional tips help keep the boards glowing.</Text>
+                <Text style={styles.supportHeroBody}>Local Flight stays fully usable either way.</Text>
+              </View>
+            </View>
+
+            <View style={styles.supportTierGrid}>
+              {products.map((tier) => {
+                const busy = busyTier === tier.id;
+                return (
+                  <Pressable
+                    key={tier.productId}
+                    style={styles.supportTierCard}
+                    onPress={() => void handleTierPress(tier)}
+                    disabled={busyTier !== null}
+                  >
+                    <View style={styles.supportTierTop}>
+                      <Text style={styles.supportTierAmount}>{tier.priceLabel}</Text>
+                      {busy ? (
+                        <ActivityIndicator size="small" color={palette.amber} />
+                      ) : (
+                        <Text style={styles.supportTierStatus}>{tier.statusLabel}</Text>
+                      )}
+                    </View>
+                    <Text style={styles.supportTierLabel}>{tier.label}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+
+            {message ? <Text style={styles.supportMessage}>{message}</Text> : null}
+
+            <Text style={styles.supportFinePrint}>No features are locked behind support.</Text>
+
+            {showWebFallback ? (
+              <Pressable
+                style={styles.supportDevFallback}
+                onPress={() => void Linking.openURL(SUPPORT_WEB_FALLBACK_URL)}
+              >
+                <Text style={styles.supportDevFallbackText}>DEV WEB SUPPORT FALLBACK</Text>
+                <MaterialCommunityIcons name="open-in-new" size={13} color={palette.textDim} />
+              </Pressable>
+            ) : null}
           </ScrollView>
         </View>
       </View>
@@ -3934,6 +4797,7 @@ export function AirportConfigSheet({
   );
 
   const apply = useCallback(async () => {
+    Keyboard.dismiss();
     setApplying(true);
     setApplyError(null);
     try {
@@ -3953,6 +4817,7 @@ export function AirportConfigSheet({
 
   const saveProfile = useCallback(async () => {
     if (!profileName.trim() || !selectedAirport) return;
+    Keyboard.dismiss();
     const next: ConfigProfile[] = [
       ...profiles.filter((p) => p.name !== profileName.trim()),
       {
@@ -3981,6 +4846,7 @@ export function AirportConfigSheet({
 
   const applyProfile = useCallback(
     async (p: ConfigProfile) => {
+      Keyboard.dismiss();
       setApplyingProfileId(p.id);
       setApplyError(null);
       try {
@@ -4007,19 +4873,37 @@ export function AirportConfigSheet({
       transparent
       animationType="slide"
       presentationStyle="pageSheet"
-      onRequestClose={onClose}
+      onRequestClose={() => {
+        Keyboard.dismiss();
+        onClose();
+      }}
     >
+      <KeyboardAvoidingView
+        style={styles.configSheetKeyboard}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+      >
       <View style={styles.configSheetBg}>
         <View style={styles.configSheet}>
           <View style={styles.configSheetHandle} />
           <View style={styles.configSheetHeader}>
             <Text style={styles.configSheetTitle}>CONFIGURE SERVER</Text>
-            <Pressable onPress={onClose} style={styles.configSheetClose}>
+            <Pressable
+              onPress={() => {
+                Keyboard.dismiss();
+                onClose();
+              }}
+              style={styles.configSheetClose}
+            >
               <MaterialCommunityIcons name="close" size={20} color={palette.textMuted} />
             </Pressable>
           </View>
 
-          <ScrollView style={styles.configSheetScroll} keyboardShouldPersistTaps="handled">
+          <ScrollView
+            style={styles.configSheetScroll}
+            contentContainerStyle={styles.configSheetScrollContent}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="interactive"
+          >
             <Text style={styles.configSectionLabel}>AIRPORT</Text>
             <TextInput
               style={styles.configSearchInput}
@@ -4039,7 +4923,12 @@ export function AirportConfigSheet({
                       styles.configSearchRow,
                       selectedAirport?.iata === r.iata && styles.configSearchRowSelected
                     ]}
-                    onPress={() => { setSelectedAirport(r); setQuery(""); setSearchResults([]); }}
+                    onPress={() => {
+                      Keyboard.dismiss();
+                      setSelectedAirport(r);
+                      setQuery("");
+                      setSearchResults([]);
+                    }}
                   >
                     <Text style={styles.configSearchIata}>{r.iata}</Text>
                     <View style={styles.configSearchInfo}>
@@ -4152,7 +5041,7 @@ export function AirportConfigSheet({
               disabled={applying}
             >
               {applying
-                ? <ActivityIndicator size="small" color={palette.bg} />
+                ? <ActivityIndicator size="small" color={blueButtonInk()} />
                 : <Text style={styles.configApplyBtnText}>APPLY TO SERVER</Text>
               }
             </Pressable>
@@ -4160,6 +5049,7 @@ export function AirportConfigSheet({
           </ScrollView>
         </View>
       </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }

@@ -2481,8 +2481,8 @@ def test_native_settings_surface_check_feedback(monkeypatch: pytest.MonkeyPatch)
 def test_native_media_and_docs_are_resolvable() -> None:
     from localflight.native.design import bundled_doc, resolve_media_path
 
-    assert resolve_media_path("ui", "static", "splash_mark.svg") is not None
-    assert resolve_media_path("assets", "icon_circle.svg") is not None
+    assert resolve_media_path("ui", "static", "localflight-logo.svg") is not None
+    assert resolve_media_path("assets", "localflight-logo.svg") is not None
     assert resolve_media_path("docs", "previews", "fids-preview.svg") is not None
 
     readme = bundled_doc("readme")
@@ -2498,10 +2498,12 @@ def test_native_media_and_docs_are_resolvable() -> None:
 
 
 def test_native_theme_and_skin_tokens_cover_web_choices() -> None:
-    from localflight.native.design import colors_for, native_stylesheet
+    from localflight.core.settings_options import SKIN_IDS
+    from localflight.native.design import colors_for, contrast_ratio, native_stylesheet
 
     for theme in ("dark", "light"):
-        for skin in ("standard", "technical", "neon", "cyan", "crt"):
+        standard = colors_for(theme, "standard")
+        for skin in SKIN_IDS:
             colors = colors_for(theme, skin)
             sheet = native_stylesheet(theme=theme, skin=skin)
 
@@ -2511,6 +2513,33 @@ def test_native_theme_and_skin_tokens_cover_web_choices() -> None:
             assert colors["blue"] in sheet
             assert "QFrame#TopNav" in sheet
             assert "QTableWidget#FidsTable" in sheet
+            assert contrast_ratio(colors["text"], colors["bg"]) >= 4.5
+            assert contrast_ratio(colors["text"], colors["panel"]) >= 4.5
+            assert contrast_ratio(colors["muted"], colors["panel"]) >= 3.0
+            if skin != "standard":
+                assert (colors["bg"], colors["panel"], colors["line"]) != (
+                    standard["bg"],
+                    standard["panel"],
+                    standard["line"],
+                )
+
+
+def test_native_skins_tint_content_without_tinting_chrome_controls() -> None:
+    from localflight.native.design import colors_for, native_stylesheet
+
+    sheet = native_stylesheet(theme="dark", skin="solari_amber")
+    skin_colors = colors_for("dark", "solari_amber")
+    neutral_colors = colors_for("dark", "standard")
+
+    assert f"QFrame#Card, QFrame#Panel {{\n  background: {skin_colors['panel']};" in sheet
+    combo_menu_rule = sheet.split("QComboBox QAbstractItemView {", 1)[1].split("}", 1)[0]
+    nav_rule = sheet.split("QFrame#TopNav {", 1)[1].split("}", 1)[0]
+
+    assert f"background: {neutral_colors['panel']};" in combo_menu_rule
+    assert f"border: 1px solid {neutral_colors['line']};" in combo_menu_rule
+    assert skin_colors["panel"] not in combo_menu_rule
+    assert "rgba(8,12,18,0.92)" in nav_rule
+    assert skin_colors["bg"] not in nav_rule
 
 
 def test_native_fonts_match_web_kiosk_families(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -2519,6 +2548,7 @@ def test_native_fonts_match_web_kiosk_families(monkeypatch: pytest.MonkeyPatch) 
     from PySide6 import QtWidgets
     from localflight.native.design import (
         BOARD_FONT_FAMILY,
+        BRAND_FONT_FAMILY,
         UI_FONT_FAMILY,
         apply_app_font_defaults,
         native_stylesheet,
@@ -2532,9 +2562,28 @@ def test_native_fonts_match_web_kiosk_families(monkeypatch: pytest.MonkeyPatch) 
 
     assert UI_FONT_FAMILY in loaded
     assert BOARD_FONT_FAMILY in loaded
+    assert BRAND_FONT_FAMILY in loaded
     assert app.font().family() == UI_FONT_FAMILY
     assert f'font-family: "{UI_FONT_FAMILY}"' in sheet
     assert f'font-family: "{BOARD_FONT_FAMILY}"' in sheet
+    assert f'font-family: "{BRAND_FONT_FAMILY}"' in sheet
+
+
+def test_web_brand_font_is_bundled_and_scoped_to_brand_surfaces() -> None:
+    from pathlib import Path
+
+    fonts_css = Path("src/localflight/ui/static/fonts.css").read_text(encoding="utf-8")
+    base_template = Path("src/localflight/ui/templates/base.html").read_text(encoding="utf-8")
+    splash_template = Path("src/localflight/ui/templates/splash.html").read_text(encoding="utf-8")
+    setup_template = Path("src/localflight/ui/templates/setup.html").read_text(encoding="utf-8")
+
+    assert 'font-family: "Audiowide"' in fonts_css
+    assert 'src: url("/static/fonts/Audiowide-Regular.ttf")' in fonts_css
+    assert '--font-brand: "Audiowide", var(--font-ui);' in fonts_css
+    assert "font-family: var(--font-brand)" in base_template
+    assert "font-family: var(--font-brand)" in splash_template
+    assert "setup-brand-wordmark" in setup_template
+    assert "font-family: var(--font-brand)" not in Path("src/localflight/ui/static/app.css").read_text(encoding="utf-8")
 
 
 def test_native_light_theme_keeps_nav_and_core_text_readable() -> None:
@@ -2557,6 +2606,7 @@ def test_native_window_applies_config_skin(monkeypatch: pytest.MonkeyPatch) -> N
     pytest.importorskip("PySide6")
     from PySide6 import QtWidgets
     from localflight.native.app import NativeMainWindow
+    from localflight.native.design import colors_for
     from localflight.native.qt_compat import import_qt
 
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
@@ -2567,7 +2617,7 @@ def test_native_window_applies_config_skin(monkeypatch: pytest.MonkeyPatch) -> N
     assert app is not None
     assert window.theme == "light"
     assert window.skin == "crt"
-    assert "#9aff6b" in window.styleSheet()
+    assert colors_for("light", "crt")["blue"] in window.styleSheet()
 
 
 def test_native_settings_embeds_public_docs(monkeypatch: pytest.MonkeyPatch) -> None:

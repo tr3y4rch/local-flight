@@ -13,7 +13,7 @@ export const radius = {
 };
 
 export type MobileThemeMode = "dark" | "light";
-export type MobileSkin = "standard" | "technical" | "neon" | "cyan" | "crt";
+export type MobileSkin = "standard" | "technical" | "neon" | "cyan" | "crt" | "high_contrast";
 export type StatusPalette = {
   scheduled: string;
   departed: string;
@@ -26,6 +26,8 @@ export type MobileAppearance = {
   key: string;
   themeMode: MobileThemeMode;
   skin: MobileSkin;
+  brand: string;
+  ui: string;
   mono: string;
   bg: string;
   shell: string;
@@ -45,18 +47,22 @@ export type MobileAppearance = {
   status: StatusPalette;
 };
 
-const MONO = "Menlo";
+export const UI_FONT_FAMILY = "DM Sans";
+export const BOARD_FONT_FAMILY = "Space Mono";
+export const BRAND_FONT_FAMILY = "Audiowide";
 
 function defineAppearance(
   themeMode: MobileThemeMode,
   skin: MobileSkin,
-  values: Omit<MobileAppearance, "key" | "themeMode" | "skin" | "mono">
+  values: Omit<MobileAppearance, "key" | "themeMode" | "skin" | "brand" | "ui" | "mono">
 ): MobileAppearance {
   return {
     key: `${themeMode}:${skin}`,
     themeMode,
     skin,
-    mono: MONO,
+    brand: BRAND_FONT_FAMILY,
+    ui: UI_FONT_FAMILY,
+    mono: BOARD_FONT_FAMILY,
     ...values
   };
 }
@@ -301,6 +307,54 @@ const MOBILE_APPEARANCES: Record<string, MobileAppearance> = {
       delayed: "#d9ad00",
       cancelled: "#d25c35"
     }
+  }),
+  "dark:high_contrast": defineAppearance("dark", "high_contrast", {
+    bg: "#000000",
+    shell: "#050505",
+    header: "#000000",
+    line: "#ffffff",
+    lineSoft: "rgba(255,255,255,0.30)",
+    row: "rgba(255,255,255,0.08)",
+    rowAlt: "rgba(255,255,255,0.14)",
+    text: "#ffffff",
+    textMuted: "#e6e6e6",
+    textDim: "#b8b8b8",
+    blue: "#4fc3ff",
+    blue2: "#9be2ff",
+    green: "#00ff73",
+    amber: "#ffd400",
+    red: "#ff4b4b",
+    status: {
+      scheduled: "#4fc3ff",
+      departed: "#ffffff",
+      boarding: "#00ff73",
+      delayed: "#ffd400",
+      cancelled: "#ff4b4b"
+    }
+  }),
+  "light:high_contrast": defineAppearance("light", "high_contrast", {
+    bg: "#ffffff",
+    shell: "#ffffff",
+    header: "#f2f2f2",
+    line: "#000000",
+    lineSoft: "rgba(0,0,0,0.28)",
+    row: "rgba(0,0,0,0.05)",
+    rowAlt: "rgba(0,0,0,0.10)",
+    text: "#000000",
+    textMuted: "#202020",
+    textDim: "#4a4a4a",
+    blue: "#004cff",
+    blue2: "#0030a8",
+    green: "#007a32",
+    amber: "#8a6500",
+    red: "#b00020",
+    status: {
+      scheduled: "#004cff",
+      departed: "#000000",
+      boarding: "#007a32",
+      delayed: "#8a6500",
+      cancelled: "#b00020"
+    }
   })
 };
 
@@ -314,7 +368,8 @@ export const MOBILE_SKIN_OPTIONS: Array<{ id: MobileSkin; label: string }> = [
   { id: "technical", label: "Technical" },
   { id: "neon", label: "Neon" },
   { id: "cyan", label: "Cyan" },
-  { id: "crt", label: "CRT" }
+  { id: "crt", label: "CRT" },
+  { id: "high_contrast", label: "High Contrast" }
 ];
 
 export const DEFAULT_THEME_MODE: MobileThemeMode = "dark";

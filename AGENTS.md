@@ -196,6 +196,20 @@ Linear issue filed (deduplicated per 6h via ~/.localflight/linear_dedup.json)
 - FIDS/Radar/Admin/mobile refresh on push events and still keep lightweight fallback polling
 - Clients reconnect with exponential backoff
 
+### Relay heartbeat and Network Admin routing
+- This is an operator-only visibility path, not a user-facing feature and not a billing/usage signal. Keep details in `AGENTS.md`, `DEV_README.md`, `CLAUDE.md`, tests, and operator tooling only.
+- Local app startup creates the async heartbeat task from `ui/server.py` lifespan. The sender lives in `sources/web/relay_beat.py`; the safe metadata builder lives in `sources/web/relay_heartbeat.py`.
+- Normal heartbeat cadence is intentionally low: one startup attempt after roughly 45s plus jitter, then about every 30 minutes with ±5 minutes jitter. Do not shorten this interval for convenience; we do not want a hobbyist app hammering Fly.io or the relay with keepalive traffic.
+- Heartbeats should stay silent-failure, fire-and-forget, and non-blocking. A failed relay heartbeat must never break setup, FIDS, radar, scheduler, matrix, mobile, or local LAN browser behavior.
+- Heartbeats are meant for real-source community relay installs after setup is complete. BYOK users, virtual/VATSIM-only users, and incomplete setup should not need periodic relay presence pings.
+- Current immediate heartbeat triggers exist after first-run setup completion and desktop settings saves so Network Admin can notice changed client shape sooner. They must pass the same local eligibility gate as the periodic loop and a sender-side 5-minute debounce before any outbound call reaches Fly.
+- The relay endpoint is `POST /v1/heartbeat`. It validates the raw install UUID, records only coarse install-profile metadata, and has a relay-side cooldown of 5 minutes per install via `_HEARTBEAT_MIN_INTERVAL_S`. It does not write to `request_log` and does not count as schedule/radar/report usage.
+- Heartbeat payload metadata is intentionally coarse: app version, OS family/version, arch, requested/effective GUI mode, source mode, diagnostics mode, companion count, matrix count, and matrix online count. Never add raw IPs, raw activation tokens, local paths, API keys, flight history, airport history, logs, report bodies, or companion device IDs to heartbeat payloads.
+- Relay stores heartbeat freshness in `install_profiles.last_seen`. Network Admin reads this through redacted `/admin/api/fleet` and `/admin/api/overview` payloads; it shows public install fingerprints/action refs only, never raw install IDs.
+- Network Admin routing stays split from the public relay. Public clients use `/v1/*` endpoints such as schedule, radar, airport surface, reports, activation, client check-in, and heartbeat. Operator UI uses Basic-Auth/admin-host-gated `/admin/api/*` read/action endpoints and must remain redacted.
+- Fleet "active" means seen within roughly 24 hours from heartbeat, relay usage, client interest, activation token, or activation request timestamps. Treat it as coarse operational presence, not an exact online status.
+- Heartbeat hardening test coverage currently lives in `tests/test_relay_beat.py` and `tests/test_heartbeat_relay.py`: local eligibility/debounce, silent client failures, relay cooldown, install-profile writes, malformed install rejection, and "do not log heartbeat to request_log".
+
 ### Setup gate
 - `SetupGateMiddleware` in `server.py` redirects all routes to `/setup` until `~/.localflight/setup_complete` exists
 - Exempt paths: `/setup`, `/api/setup/*`, `/api/airports/search`, `/static`, `/health`, `/ws`

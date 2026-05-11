@@ -11,11 +11,13 @@ from localflight.native.design import apply_app_font_defaults, icon_from_media, 
 from localflight.native.qt_compat import import_qt
 
 
-EXPECTED_FAMILIES = ("DM Sans", "Space Mono")
+EXPECTED_FAMILIES = ("Audiowide", "DM Sans", "Space Mono")
 FONT_FILES = (
+    "Audiowide-Regular.ttf",
     "DMSans.ttf",
     "SpaceMono-Regular.ttf",
     "SpaceMono-Bold.ttf",
+    "OFL-Audiowide.txt",
     "OFL-DMSans.txt",
     "OFL-SpaceMono.txt",
 )
@@ -55,7 +57,7 @@ def main(argv: list[str] | None = None) -> int:
     if smoke_only:
         return 0
 
-    icon = icon_from_media(QtGui, "assets", "icon_circle.svg")
+    icon = icon_from_media(QtGui, "assets", "localflight-logo.svg")
     if not icon.isNull():
         app.setWindowIcon(icon)
 
@@ -70,8 +72,8 @@ def main(argv: list[str] | None = None) -> int:
     layout.setSpacing(12)
 
     title = QtWidgets.QLabel("Local Flight Typography")
-    title.setObjectName("Title")
-    title.setFont(_font_label(QtGui, "DM Sans", 22, bold=True))
+    title.setObjectName("BrandTitle")
+    title.setFont(_font_label(QtGui, "Audiowide", 22))
     layout.addWidget(title)
 
     body = QtWidgets.QLabel("DM Sans drives readable setup, settings, admin, and document views.")

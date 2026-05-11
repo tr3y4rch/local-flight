@@ -14,8 +14,10 @@ from typing import Any
 
 UI_FONT_FAMILY = "DM Sans"
 BOARD_FONT_FAMILY = "Space Mono"
+BRAND_FONT_FAMILY = "Audiowide"
 UI_FONT_STACK = f'"{UI_FONT_FAMILY}", "Segoe UI", "Helvetica Neue", sans-serif'
 BOARD_FONT_STACK = f'"{BOARD_FONT_FAMILY}", Consolas, monospace'
+BRAND_FONT_STACK = f'"{BRAND_FONT_FAMILY}", {UI_FONT_STACK}'
 
 
 @dataclass(frozen=True)
@@ -40,6 +42,14 @@ class SkinTokens:
     warn: str
     bad: str
     sweep: str
+
+
+@dataclass(frozen=True)
+class SkinSurfaceTokens:
+    bg: str
+    panel: str
+    text: str
+    muted: str
 
 
 THEME_TOKENS: dict[str, ThemeTokens] = {
@@ -72,20 +82,34 @@ THEME_TOKENS: dict[str, ThemeTokens] = {
 
 SKIN_TOKENS: dict[str, SkinTokens] = {
     "standard": SkinTokens("#4a9eda", "#7ce7ff", "#00c040", "#f0b429", "#ff6060", "#4a9eda"),
-    "pax_blue": SkinTokens("#1d8cff", "#65e7ff", "#1d8cff", "#ffbd45", "#ff4d5f", "#65e7ff"),
-    "solari_amber": SkinTokens("#ffad2f", "#ffd06c", "#ffad2f", "#ffe15c", "#ff5538", "#ffd06c"),
+    "pax_blue": SkinTokens("#1d8cff", "#65e7ff", "#65e7ff", "#ffbd45", "#ff4d5f", "#65e7ff"),
+    "solari_amber": SkinTokens("#ffad2f", "#ffd06c", "#ffd06c", "#ffe15c", "#ff5538", "#ffd06c"),
     "tower_scope": SkinTokens("#38ff75", "#4deaff", "#38ff75", "#ffd84a", "#ff4c4c", "#38ff75"),
     "vatsim_scope": SkinTokens("#74ff5f", "#6bdcff", "#74ff5f", "#ffe066", "#ff5b5b", "#74ff5f"),
     "night_ops": SkinTokens("#4bb8ff", "#49f0c8", "#4bb8ff", "#f4c95d", "#ff5d7a", "#49f0c8"),
-    "sunset_terminal": SkinTokens("#ff7a3d", "#ff4fd8", "#ff7a3d", "#ffd166", "#ff3864", "#ff4fd8"),
-    "ice_white": SkinTokens("#bde9ff", "#66d9ff", "#bde9ff", "#ffd35a", "#ff5252", "#66d9ff"),
-    "technical": SkinTokens("#7ab0d8", "#9cd6f4", "#8ce99a", "#ffd166", "#ff6b6b", "#9cd6f4"),
-    "cyan": SkinTokens("#3ddcff", "#b9f8ff", "#00d084", "#ffbd2e", "#ff5d73", "#3ddcff"),
-    "crt": SkinTokens("#9aff6b", "#d5ff9b", "#7dff5b", "#ffd166", "#ff6b6b", "#9aff6b"),
-    "neon": SkinTokens("#00f5ff", "#ff4dff", "#39ff14", "#ffd60a", "#ff3864", "#00f5ff"),
+    "sunset_terminal": SkinTokens("#ff7a3d", "#ff4fd8", "#ffb05f", "#ffd166", "#ff3864", "#ff4fd8"),
+    "ice_white": SkinTokens("#1688bf", "#66d9ff", "#087f5b", "#a56500", "#b4233c", "#1688bf"),
+    "technical": SkinTokens("#4a9eda", "#7ce7ff", "#3a9a6a", "#d4a020", "#c04040", "#7ce7ff"),
+    "cyan": SkinTokens("#00ccff", "#00ffcc", "#00ffcc", "#ffcc00", "#ff4060", "#00ccff"),
+    "crt": SkinTokens("#ffcc44", "#ffaa00", "#ffaa00", "#ffdd00", "#ff4020", "#ffcc44"),
+    "neon": SkinTokens("#00ff50", "#aaff00", "#00ff50", "#aaff00", "#ff4040", "#00ff50"),
     "amber": SkinTokens("#ffae2e", "#ffc56b", "#ffae2e", "#ffdf55", "#ff5738", "#ffc56b"),
     "green": SkinTokens("#28f76e", "#55e7ff", "#28f76e", "#ffc94a", "#ff4d4d", "#28f76e"),
     "white": SkinTokens("#d8f1ff", "#8fdcff", "#d8f1ff", "#ffd35a", "#ff5757", "#8fdcff"),
+}
+
+SKIN_SURFACE_TOKENS: dict[str, SkinSurfaceTokens] = {
+    "pax_blue": SkinSurfaceTokens("#071829", "#0b2137", "#d9f4ff", "#6aaed8"),
+    "solari_amber": SkinSurfaceTokens("#201000", "#2a1703", "#fff0bf", "#c98d30"),
+    "tower_scope": SkinSurfaceTokens("#06170d", "#0b2012", "#dfffe8", "#58a878"),
+    "vatsim_scope": SkinSurfaceTokens("#07130b", "#0c1d12", "#e4ffe0", "#68a86b"),
+    "night_ops": SkinSurfaceTokens("#07111f", "#0c1b2d", "#d8f3ff", "#619cc4"),
+    "sunset_terminal": SkinSurfaceTokens("#20100b", "#2b1710", "#ffe8d8", "#c9825f"),
+    "ice_white": SkinSurfaceTokens("#f5fbff", "#ffffff", "#0c2433", "#486d82"),
+    "technical": SkinSurfaceTokens("#0a0e14", "#111820", "#c8d8e8", "#5a7a9a"),
+    "cyan": SkinSurfaceTokens("#00080f", "#001220", "#00ccff", "#006688"),
+    "crt": SkinSurfaceTokens("#0a0600", "#150c00", "#ffaa00", "#7a5000"),
+    "neon": SkinSurfaceTokens("#000d00", "#001800", "#00ff50", "#007a28"),
 }
 
 
@@ -99,10 +123,112 @@ def _normalized_skin(skin: str | None) -> str:
     return value if value in SKIN_TOKENS else "standard"
 
 
+def _hex_to_rgb(hex_color: str, fallback: tuple[int, int, int] = (74, 158, 218)) -> tuple[int, int, int]:
+    value = str(hex_color or "").strip().lstrip("#")
+    if len(value) == 3:
+        value = "".join(ch * 2 for ch in value)
+    if len(value) != 6:
+        return fallback
+    try:
+        return int(value[0:2], 16), int(value[2:4], 16), int(value[4:6], 16)
+    except ValueError:
+        return fallback
+
+
+def _rgb_to_hex(rgb: tuple[int, int, int]) -> str:
+    r, g, b = (max(0, min(255, int(round(channel)))) for channel in rgb)
+    return f"#{r:02x}{g:02x}{b:02x}"
+
+
+def _mix_hex(base: str, overlay: str, amount: float) -> str:
+    amount = max(0.0, min(1.0, amount))
+    base_rgb = _hex_to_rgb(base)
+    overlay_rgb = _hex_to_rgb(overlay)
+    return _rgb_to_hex(
+        tuple(base_channel * (1.0 - amount) + overlay_channel * amount for base_channel, overlay_channel in zip(base_rgb, overlay_rgb))
+    )
+
+
+def _relative_luminance(hex_color: str) -> float:
+    def _linear(channel: int) -> float:
+        value = channel / 255
+        return value / 12.92 if value <= 0.03928 else ((value + 0.055) / 1.055) ** 2.4
+
+    r, g, b = (_linear(channel) for channel in _hex_to_rgb(hex_color))
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b
+
+
+def _contrast_ratio(foreground: str, background: str) -> float:
+    light = max(_relative_luminance(foreground), _relative_luminance(background))
+    dark = min(_relative_luminance(foreground), _relative_luminance(background))
+    return (light + 0.05) / (dark + 0.05)
+
+
+def contrast_ratio(foreground: str, background: str) -> float:
+    """Return the WCAG contrast ratio for native palette validation."""
+    return _contrast_ratio(foreground, background)
+
+
+def _ensure_contrast(foreground: str, background: str, *, minimum: float = 4.5) -> str:
+    if _contrast_ratio(foreground, background) >= minimum:
+        return foreground
+    dark = "#101923"
+    light = "#f8fbff"
+    return dark if _contrast_ratio(dark, background) >= _contrast_ratio(light, background) else light
+
+
+def _skin_aware_theme_tokens(theme: str, skin: str, theme_tokens: ThemeTokens, skin_tokens: SkinTokens) -> ThemeTokens:
+    if skin == "standard":
+        return theme_tokens
+
+    surface = SKIN_SURFACE_TOKENS.get(skin)
+    if theme == "dark" and surface is not None and skin != "ice_white":
+        bg = surface.bg
+        panel = surface.panel
+        panel_2 = _mix_hex(panel, bg, 0.38)
+        card = _mix_hex(panel, "#ffffff", 0.02)
+        line = _mix_hex(panel, skin_tokens.accent, 0.42)
+        line_soft = _mix_hex(panel, skin_tokens.accent, 0.24)
+        input_bg = _mix_hex(panel, bg, 0.46)
+        text = _ensure_contrast(surface.text, bg)
+        muted = _ensure_contrast(surface.muted, panel, minimum=3.0)
+        dim = _ensure_contrast(_mix_hex(surface.muted, bg, 0.18), panel, minimum=3.0)
+        return ThemeTokens(bg, panel, panel_2, card, line, line_soft, input_bg, text, muted, dim)
+
+    if theme == "light" and skin == "ice_white" and surface is not None:
+        bg = surface.bg
+        panel = surface.panel
+        panel_2 = "#eef6fc"
+        card = surface.panel
+        line = "#9ac7e2"
+        line_soft = "#c8e0ee"
+        input_bg = "#ffffff"
+        text = _ensure_contrast(surface.text, bg)
+        muted = _ensure_contrast(surface.muted, panel, minimum=3.0)
+        dim = _ensure_contrast("#647b8a", panel, minimum=3.0)
+        return ThemeTokens(bg, panel, panel_2, card, line, line_soft, input_bg, text, muted, dim)
+
+    accent = skin_tokens.accent
+    bg = _mix_hex(theme_tokens.bg, accent, 0.06)
+    panel = _mix_hex(theme_tokens.panel, accent, 0.045)
+    panel_2 = _mix_hex(theme_tokens.panel_2, accent, 0.075)
+    card = _mix_hex(theme_tokens.card, accent, 0.035)
+    line = _mix_hex(theme_tokens.line, accent, 0.28)
+    line_soft = _mix_hex(theme_tokens.line_soft, accent, 0.18)
+    input_bg = _mix_hex(theme_tokens.input_bg, accent, 0.025)
+    text = _ensure_contrast(theme_tokens.text, bg)
+    muted = _ensure_contrast(_mix_hex(theme_tokens.muted, accent, 0.10), panel, minimum=3.0)
+    dim = _ensure_contrast(_mix_hex(theme_tokens.dim, accent, 0.10), panel, minimum=3.0)
+    return ThemeTokens(bg, panel, panel_2, card, line, line_soft, input_bg, text, muted, dim)
+
+
 def colors_for(theme: str | None = "dark", skin: str | None = "standard") -> dict[str, str]:
     """Return a Qt-friendly color map matching the browser theme/skin model."""
-    theme_tokens = THEME_TOKENS[_normalized_theme(theme)]
-    skin_tokens = SKIN_TOKENS[_normalized_skin(skin)]
+    normalized_theme = _normalized_theme(theme)
+    normalized_skin = _normalized_skin(skin)
+    base_theme_tokens = THEME_TOKENS[normalized_theme]
+    skin_tokens = SKIN_TOKENS[normalized_skin]
+    theme_tokens = _skin_aware_theme_tokens(normalized_theme, normalized_skin, base_theme_tokens, skin_tokens)
     return {
         "bg": theme_tokens.bg,
         "panel": theme_tokens.panel,
@@ -181,23 +307,26 @@ def native_stylesheet(
     normalized_theme = _normalized_theme(theme)
     is_light = normalized_theme == "light"
     colors = colors_for(normalized_theme, skin)
+    control_colors = colors_for(normalized_theme, "standard")
     accent = colors["amber"] if operator else colors["blue"]
     accent_soft = _rgba(accent, 0.18)
     accent_border = _rgba(accent, 0.42)
     subtle_surface = _rgba("#000000" if is_light else "#ffffff", 0.04)
     soft_surface = _rgba("#000000" if is_light else "#ffffff", 0.07)
     strong_surface = _rgba("#000000" if is_light else "#ffffff", 0.10)
-    nav_bg = _rgba("#ffffff", 0.92) if is_light else _rgba("#000000", 0.25)
+    control_subtle_surface = _rgba("#000000" if is_light else "#ffffff", 0.04)
+    control_soft_surface = _rgba("#000000" if is_light else "#ffffff", 0.07)
+    nav_bg = _rgba(control_colors["panel"], 0.94) if is_light else _rgba(control_colors["bg"], 0.92)
     nav_border = _rgba("#000000", 0.10) if is_light else _rgba("#ffffff", 0.07)
-    button_bg = _rgba(accent, 0.14) if is_light else "#12324d"
-    button_hover_bg = _rgba(accent, 0.22) if is_light else "#1a4d72"
-    button_border = _rgba(accent, 0.40) if is_light else "#2b648d"
-    button_text = colors["text"] if is_light else "#ffffff"
-    checked_text = colors["text"] if is_light else "#ffffff"
-    nav_text = colors["muted"] if is_light else _rgba(colors["text"], 0.68)
+    button_bg = _mix_hex(colors["panel"], accent, 0.17 if is_light else 0.22)
+    button_hover_bg = _mix_hex(colors["panel"], accent, 0.26 if is_light else 0.32)
+    button_border = _mix_hex(colors["line"], accent, 0.48)
+    button_text = _ensure_contrast(colors["text"], button_bg)
+    checked_text = colors["text"]
+    nav_text = control_colors["muted"] if is_light else _rgba(control_colors["text"], 0.68)
     muted_panel_text = colors["dim"] if is_light else colors["muted"]
     danger_text = "#9f1239" if is_light else "#ffc7c7"
-    table_header_text = colors["dim"] if is_light else "#9cd6f4"
+    table_header_text = _ensure_contrast(colors["dim"], colors["panel_2"], minimum=3.0)
     return f"""
 QWidget {{
   background: {colors["bg"]};
@@ -310,8 +439,17 @@ QDialog#NativeModal {{
 }}
 QLabel#Brand {{
   color: {colors["text"]};
-  font-weight: 800;
+  font-family: {BRAND_FONT_STACK};
+  font-weight: 400;
   font-size: 15px;
+  letter-spacing: 1px;
+}}
+QLabel#BrandTitle {{
+  color: {colors["text"]};
+  font-family: {BRAND_FONT_STACK};
+  font-weight: 400;
+  font-size: 26px;
+  letter-spacing: 1px;
 }}
 QLabel#BrandMark {{
   background: transparent;
@@ -319,17 +457,23 @@ QLabel#BrandMark {{
   border-radius: 0;
   padding: 0;
 }}
+QFrame#TopNav QLabel#Brand {{
+  color: {control_colors["text"]};
+}}
+QFrame#TopNav QLabel#Version {{
+  color: {control_colors["dim"]};
+}}
 QLabel#Version {{
   color: {colors["dim"]};
   font-family: {BOARD_FONT_STACK};
   font-size: 10px;
 }}
 QLabel#ClockChip {{
-  background: {subtle_surface};
-  border: 1px solid {soft_surface};
+  background: {control_subtle_surface};
+  border: 1px solid {control_soft_surface};
   border-radius: 8px;
   padding: 4px 8px;
-  color: {colors["muted"]};
+  color: {control_colors["muted"]};
   font-family: {BOARD_FONT_STACK};
 }}
 QLabel#ClockChip[connected="true"] {{
@@ -398,11 +542,16 @@ QPushButton:checked, QPushButton#NavButton:checked, QPushButton#SegmentButton:ch
   color: {checked_text};
 }}
 QPushButton#NavButton {{
-  background: {subtle_surface};
+  background: {control_subtle_surface};
   border: 1px solid transparent;
   border-radius: 6px;
   padding: 6px 10px;
   color: {nav_text};
+}}
+QPushButton#NavButton:checked {{
+  background: {_rgba(accent, 0.12)};
+  border-color: {accent};
+  color: {control_colors["text"]};
 }}
 QPushButton#SegmentButton {{
   background: {subtle_surface};
@@ -422,18 +571,45 @@ QPushButton#Quiet, QToolButton#Quiet {{
   border-color: {strong_surface};
   color: {colors["muted"]};
 }}
-QLineEdit, QPlainTextEdit, QTextEdit, QSpinBox, QComboBox, QTableWidget, QTableView, QListWidget, QTabWidget::pane {{
+QLineEdit, QSpinBox, QComboBox {{
+  background: {control_colors["input_bg"]};
+  border: 1px solid {control_colors["line"]};
+  border-radius: 8px;
+  color: {control_colors["text"]};
+}}
+QLineEdit:focus, QSpinBox:focus, QComboBox:focus {{
+  border-color: {accent};
+}}
+QPlainTextEdit, QTextEdit, QTableWidget, QTableView, QListWidget, QTabWidget::pane {{
   background: {colors["input_bg"]};
   border: 1px solid {colors["line"]};
   border-radius: 8px;
   color: {colors["text"]};
 }}
 QComboBox QAbstractItemView {{
-  background: {colors["panel"]};
-  color: {colors["text"]};
+  background: {control_colors["panel"]};
+  color: {control_colors["text"]};
   selection-background-color: {accent_soft};
-  selection-color: {colors["text"]};
-  border: 1px solid {colors["line"]};
+  selection-color: {control_colors["text"]};
+  border: 1px solid {control_colors["line"]};
+}}
+QMenu {{
+  background: {control_colors["panel"]};
+  color: {control_colors["text"]};
+  border: 1px solid {control_colors["line"]};
+}}
+QMenu::item {{
+  background: transparent;
+  padding: 7px 20px;
+}}
+QMenu::item:selected {{
+  background: {accent_soft};
+  color: {control_colors["text"]};
+}}
+QToolTip {{
+  background: {control_colors["panel"]};
+  color: {control_colors["text"]};
+  border: 1px solid {control_colors["line"]};
 }}
 QPlainTextEdit, QTextEdit {{
   font-family: {BOARD_FONT_STACK};
@@ -520,12 +696,7 @@ QScrollBar::handle {{
 
 
 def _rgba(hex_color: str, alpha: float) -> str:
-    value = hex_color.lstrip("#")
-    if len(value) != 6:
-        return f"rgba(74,158,218,{alpha:.2f})"
-    r = int(value[0:2], 16)
-    g = int(value[2:4], 16)
-    b = int(value[4:6], 16)
+    r, g, b = _hex_to_rgb(hex_color)
     return f"rgba({r},{g},{b},{alpha:.2f})"
 
 
@@ -568,6 +739,7 @@ def resolve_media_path(*parts: str) -> Path | None:
 
 
 FONT_FILES = (
+    ("Audiowide-Regular.ttf", BRAND_FONT_FAMILY),
     ("DMSans.ttf", UI_FONT_FAMILY),
     ("SpaceMono-Regular.ttf", BOARD_FONT_FAMILY),
     ("SpaceMono-Bold.ttf", BOARD_FONT_FAMILY),

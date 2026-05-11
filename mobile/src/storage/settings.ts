@@ -27,7 +27,7 @@ export type ConfigProfile = {
 };
 
 export type MobileDiagnosticsMode = "unset" | "manual" | "auto" | "auto_logs";
-export type MobileWeatherDisplayMode = "friendly" | "light" | "raw";
+export type MobileWeatherDisplayMode = "passenger" | "pilot" | "vatsim";
 export type MobileSetupMode = "lan_companion";
 
 export type MobileSetupState = {
@@ -103,6 +103,7 @@ function normalizeSkin(value: string | null | undefined): MobileSkin {
     case "neon":
     case "cyan":
     case "crt":
+    case "high_contrast":
       return value;
     default:
       return DEFAULT_SKIN;
@@ -122,11 +123,17 @@ function normalizeDiagnosticsMode(value: string | null | undefined): MobileDiagn
 
 function normalizeWeatherDisplayMode(value: string | null | undefined): MobileWeatherDisplayMode {
   switch (value) {
+    case "pilot":
     case "light":
+      return "pilot";
+    case "vatsim":
     case "raw":
-      return value;
+      return "vatsim";
+    case "passenger":
+    case "friendly":
+      return "passenger";
     default:
-      return "friendly";
+      return "passenger";
   }
 }
 

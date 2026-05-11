@@ -2522,6 +2522,7 @@ _MATRIX_CONFIG_DEFAULTS: Dict[str, Any] = {
 }
 
 _MATRIX_V1_FIELDS = {
+    "preset",
     "brightness",
     "max_rows",
     "refresh_seconds",
@@ -2774,6 +2775,7 @@ def _load_matrix_config() -> Dict[str, Any]:
 
 
 class MatrixConfigIn(BaseModel):
+    preset: Optional[str] = None
     brightness: float = Field(0.8, ge=0.0, le=1.0)
     max_rows: int = Field(4, ge=1, le=8)
     refresh_seconds: int = Field(60, ge=10, le=3600)
@@ -2841,6 +2843,7 @@ def api_matrix_config_post(body: MatrixConfigIn) -> Dict[str, Any]:
     store = _load_matrix_store()
     cfg = _matrix_config_by_id(store, store.get("default_config_id"))
     updates = {
+        "preset": body.preset or cfg.get("preset") or _MATRIX_CONFIG_DEFAULTS["preset"],
         "brightness": round(float(body.brightness), 2),
         "max_rows": int(body.max_rows),
         "refresh_seconds": int(body.refresh_seconds),

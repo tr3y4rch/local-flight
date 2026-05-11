@@ -6,7 +6,7 @@
     "scheme": "localflight",
     "orientation": "default",
     "userInterfaceStyle": "automatic",
-    "icon": "./assets/icon_circle.png",
+    "icon": "./assets/localflight-icon.png",
     "platforms": [
       "ios",
       "android"
@@ -16,12 +16,12 @@
         "expo-splash-screen",
         {
           "backgroundColor": "#080c12",
-          "image": "./assets/icon_circle.png",
+          "image": "./assets/localflight-logo.png",
           "imageWidth": 172,
           "resizeMode": "contain",
           "dark": {
             "backgroundColor": "#080c12",
-            "image": "./assets/icon_circle.png"
+            "image": "./assets/localflight-logo.png"
           }
         }
       ],

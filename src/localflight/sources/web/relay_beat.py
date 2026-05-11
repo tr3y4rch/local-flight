@@ -5,6 +5,8 @@ import asyncio
 import logging
 import os
 import random
+import threading
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -13,6 +15,9 @@ _HEARTBEAT_JITTER_S = 5 * 60  # ±5 minutes uniform
 _STARTUP_DELAY_S = 45  # wait after startup before first beat
 _STARTUP_JITTER_S = 30  # ±30s startup spread
 _HTTP_TIMEOUT_S = 8
+_LOCAL_MIN_INTERVAL_S = 5 * 60  # sender-side backstop matching the relay cooldown
+_last_send_at = 0.0
+_send_guard = threading.Lock()
 
 
 def _jitter(base: int, spread: int) -> float:
@@ -41,6 +46,17 @@ def _should_send() -> bool:
         return not _is_byok()
     except Exception:
         return False
+
+
+def _claim_send_slot() -> bool:
+    """Return True when the local sender may emit one heartbeat now."""
+    global _last_send_at
+    now = time.monotonic()
+    with _send_guard:
+        if _last_send_at and (now - _last_send_at) < _LOCAL_MIN_INTERVAL_S:
+            return False
+        _last_send_at = now
+        return True
 
 
 def _send_now() -> None:
@@ -72,7 +88,7 @@ async def _heartbeat_loop() -> None:
     """Asyncio task: startup beat after jitter delay, then every ~30 min forever."""
     await asyncio.sleep(_jitter(_STARTUP_DELAY_S, _STARTUP_JITTER_S))
     while True:
-        if _should_send():
+        if _should_send() and _claim_send_slot():
             await asyncio.get_event_loop().run_in_executor(None, _send_now)
         await asyncio.sleep(_jitter(_HEARTBEAT_INTERVAL_S, _HEARTBEAT_JITTER_S))
 
@@ -81,7 +97,7 @@ def fire_heartbeat() -> None:
     """Fire one immediate heartbeat (on config change or setup complete). Non-blocking."""
     try:
         loop = asyncio.get_event_loop()
-        if loop.is_running():
+        if loop.is_running() and _should_send() and _claim_send_slot():
             asyncio.ensure_future(loop.run_in_executor(None, _send_now))
     except Exception:
         pass

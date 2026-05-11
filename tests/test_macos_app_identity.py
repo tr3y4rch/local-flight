@@ -32,10 +32,10 @@ def test_source_macos_bundle_plist_has_dock_identity(tmp_path: Path) -> None:
 
 
 def test_macos_icon_source_is_rounded_square_asset() -> None:
-    icon = (ROOT / "assets" / "icon_macos.svg").read_text(encoding="utf-8")
+    icon = (ROOT / "assets" / "localflight-logo.svg").read_text(encoding="utf-8")
 
-    assert "Local Flight macOS app icon" in icon
-    assert 'rx="206"' in icon
+    assert "Local Flight master logo" in icon
+    assert 'rx="196"' in icon
     assert "LOCAL FLIGHT" not in icon
 
 

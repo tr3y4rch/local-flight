@@ -346,6 +346,7 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
         self.skin.currentIndexChanged.connect(lambda _idx: self._preview_design())
         layout.addWidget(label(self.QtWidgets, "Skins affect native, LAN browser, and board surfaces without changing flight data.", "Muted", wrap=True))
         layout.addLayout(swatches)
+        self._sync_skin_buttons("standard")
         return box
 
     def _build_radar_devices(self) -> Any:
@@ -593,12 +594,14 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
 
     def _sync_skin_buttons(self, skin: str | None = None) -> None:
         active = skin or self._combo_value(self.skin, "standard")
+        theme = self._combo_value(self.theme, "dark")
         for key, button in self._skin_buttons.items():
             checked = key == active
             button.setChecked(checked)
-            fg = str(button.property("skin_fg") or "#e8f0fe")
-            bg = str(button.property("skin_bg") or "#0d1520")
-            accent = str(button.property("skin_accent") or "#4a9eda")
+            colors = colors_for(theme, key)
+            fg = colors.get("text", "#e8f0fe")
+            bg = colors.get("panel", "#0d1520")
+            accent = colors.get("blue", "#4a9eda")
             border = 2 if checked else 1
             button.setStyleSheet(
                 f"QPushButton {{ background: {bg}; color: {fg}; border: {border}px solid {accent}; }}"

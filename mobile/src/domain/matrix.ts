@@ -3,11 +3,12 @@ import type {
   FlightView,
   MatrixAnimationMode,
   MatrixPaletteId,
+  MatrixPresetId,
   MatrixRuntimeConfig,
   MatrixRuntimeConfigSave
 } from "../api/types";
 import type { MobileSkin } from "../theme/tokens";
-import { DEFAULT_MATRIX_CONFIG, MATRIX_PALETTE_OPTIONS } from "./constants";
+import { DEFAULT_MATRIX_CONFIG, MATRIX_PALETTE_OPTIONS, MATRIX_PRESETS } from "./constants";
 import { routeCode, routeName, statusShort } from "./flights";
 
 export const MATRIX_SKIN_PALETTES: Record<MobileSkin, {
@@ -23,7 +24,8 @@ export const MATRIX_SKIN_PALETTES: Record<MobileSkin, {
   technical: { off: "#040608", green: "#4a9eda", white: "#c8d8e8", dim: "#1a3a5a", amber: "#d4a020", red: "#c04040", cyan: "#4a9eda" },
   neon: { off: "#000d00", green: "#00ff50", white: "#00ff50", dim: "#007a28", amber: "#aaff00", red: "#ff4040", cyan: "#00ff50" },
   cyan: { off: "#00080f", green: "#00ccff", white: "#00ffcc", dim: "#006688", amber: "#ffcc00", red: "#ff4060", cyan: "#00ccff" },
-  crt: { off: "#060400", green: "#ffaa00", white: "#ffcc44", dim: "#7a5000", amber: "#ffdd00", red: "#ff4020", cyan: "#ffaa00" }
+  crt: { off: "#060400", green: "#ffaa00", white: "#ffcc44", dim: "#7a5000", amber: "#ffdd00", red: "#ff4020", cyan: "#ffaa00" },
+  high_contrast: { off: "#000000", green: "#00ff73", white: "#ffffff", dim: "#9a9a9a", amber: "#ffd400", red: "#ff4b4b", cyan: "#4fc3ff" }
 };
 
 export const MATRIX_LED_PALETTES = Object.fromEntries(
@@ -49,6 +51,7 @@ export function normalizeMatrixSkin(value?: string | null): MobileSkin {
     case "neon":
     case "cyan":
     case "crt":
+    case "high_contrast":
       return value;
     default:
       return "standard";
@@ -59,6 +62,12 @@ export function normalizeMatrixPalette(value?: string | null): MatrixPaletteId {
   return MATRIX_PALETTE_OPTIONS.some((item) => item.id === value)
     ? value as MatrixPaletteId
     : DEFAULT_MATRIX_CONFIG.palette;
+}
+
+export function normalizeMatrixPreset(value?: string | null): MatrixPresetId {
+  return MATRIX_PRESETS.some((item) => item.id === value)
+    ? value as MatrixPresetId
+    : DEFAULT_MATRIX_CONFIG.preset;
 }
 
 export function normalizeMatrixAnimationMode(value?: string | null): MatrixAnimationMode {
@@ -80,17 +89,27 @@ function normalizeMatrixShowWeather(value?: MatrixRuntimeConfig | MatrixRuntimeC
   return Boolean(DEFAULT_MATRIX_CONFIG.options.show_metar);
 }
 
+function normalizeMatrixGateInfo(value?: MatrixRuntimeConfig | MatrixRuntimeConfigSave | null, preset?: MatrixPresetId): boolean {
+  if (typeof value?.show_gate_info === "boolean") return value.show_gate_info;
+  if (typeof value?.options?.show_gate_info === "boolean") return value.options.show_gate_info;
+  const presetConfig = MATRIX_PRESETS.find((item) => item.id === preset);
+  return presetConfig?.showGateInfo ?? DEFAULT_MATRIX_CONFIG.show_gate_info;
+}
+
 export function normalizeMatrixRuntimeConfig(
   value?: MatrixRuntimeConfig | MatrixRuntimeConfigSave | null
 ): MatrixRuntimeConfigSave {
+  const preset = normalizeMatrixPreset(value?.preset);
   const palette = normalizeMatrixPalette(value?.palette || value?.options?.palette);
   const animationEnabled = value?.animation_enabled ?? DEFAULT_MATRIX_CONFIG.animation_enabled;
   const animationMode = animationEnabled === false
     ? "static"
     : normalizeMatrixAnimationMode(value?.animation_mode || value?.options?.animation_mode);
   const showWeather = normalizeMatrixShowWeather(value);
+  const showGateInfo = normalizeMatrixGateInfo(value, preset);
 
   return {
+    preset,
     brightness: Math.max(0.05, Math.min(1, Number(value?.brightness ?? DEFAULT_MATRIX_CONFIG.brightness) || DEFAULT_MATRIX_CONFIG.brightness)),
     max_rows: Math.max(1, Math.min(8, Number(value?.max_rows ?? DEFAULT_MATRIX_CONFIG.max_rows) || DEFAULT_MATRIX_CONFIG.max_rows)),
     refresh_seconds: Math.max(10, Math.min(3600, Number(value?.refresh_seconds ?? DEFAULT_MATRIX_CONFIG.refresh_seconds) || DEFAULT_MATRIX_CONFIG.refresh_seconds)),
@@ -100,12 +119,14 @@ export function normalizeMatrixRuntimeConfig(
     animation_mode: animationMode,
     animation_speed: Math.max(1, Math.min(5, Number(value?.animation_speed ?? DEFAULT_MATRIX_CONFIG.animation_speed) || DEFAULT_MATRIX_CONFIG.animation_speed)),
     status_animation_enabled: value?.status_animation_enabled ?? DEFAULT_MATRIX_CONFIG.status_animation_enabled,
+    show_gate_info: showGateInfo,
     palette,
     options: {
       ...(value?.options || {}),
       palette,
       show_metar: showWeather,
       show_weather: showWeather,
+      show_gate_info: showGateInfo,
       animation_mode: animationMode
     }
   };
@@ -118,6 +139,7 @@ export function matrixConfigsEqual(
   if (!left && !right) return true;
   if (!left || !right) return false;
   return (
+    left.preset === right.preset &&
     left.brightness === right.brightness &&
     left.max_rows === right.max_rows &&
     left.refresh_seconds === right.refresh_seconds &&
@@ -127,6 +149,7 @@ export function matrixConfigsEqual(
     left.animation_mode === right.animation_mode &&
     left.animation_speed === right.animation_speed &&
     left.status_animation_enabled === right.status_animation_enabled &&
+    left.show_gate_info === right.show_gate_info &&
     left.palette === right.palette &&
     Boolean(left.options.show_metar) === Boolean(right.options.show_metar)
   );

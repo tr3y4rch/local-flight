@@ -2034,6 +2034,7 @@ def test_matrix_config_endpoint_round_trip(tmp_path: Path, monkeypatch) -> None:
     assert response.status_code == 200
     assert response.json() == {
         "ok": True,
+        "preset": "real_fids",
         "brightness": 0.55,
         "max_rows": 6,
         "refresh_seconds": 90,

@@ -50,7 +50,7 @@ class NativeSetupWindow:  # pragma: no cover - exercised with optional Qt
                 self.setStyleSheet(native_stylesheet())
                 app_icon = icon_from_media(QtGui, "assets", "icon.ico")
                 if app_icon.isNull():
-                    app_icon = icon_from_media(QtGui, "assets", "icon_square.svg")
+                    app_icon = icon_from_media(QtGui, "assets", "localflight-logo.svg")
                 if not app_icon.isNull():
                     self.setWindowIcon(app_icon)
                 self.setup_screen = SetupScreen(
@@ -247,7 +247,7 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
 
     def _build_welcome_page(self) -> None:
         _page, layout = self._page(
-            "Welcome to Local Flight",
+            'Welcome to <span style="font-family: Audiowide; font-weight: 400; letter-spacing: 1px;">Local Flight</span>',
             "This setup gets the local display running without making you understand every backend detail first.",
         )
         logo = self.QtWidgets.QLabel()
@@ -256,15 +256,15 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
         logo.setObjectName("SetupBrandMark")
         self.logo_label = logo
         if self.QtGui is not None:
-            pixmap = pixmap_from_media(self.QtCore, self.QtGui, "ui", "static", "brand_mark.svg", width=132, height=132)
+            pixmap = pixmap_from_media(self.QtCore, self.QtGui, "ui", "static", "localflight-logo.svg", width=132, height=132)
             if not pixmap.isNull():
                 logo.setPixmap(pixmap)
             else:
                 logo.setText("Local Flight")
-                logo.setObjectName("Title")
+                logo.setObjectName("BrandTitle")
         else:
             logo.setText("Local Flight")
-            logo.setObjectName("Title")
+            logo.setObjectName("BrandTitle")
         layout.addWidget(logo)
         cards = self.QtWidgets.QGridLayout()
         cards.setHorizontalSpacing(10)

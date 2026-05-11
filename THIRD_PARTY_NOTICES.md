@@ -6,6 +6,15 @@ from a CDN at runtime.
 
 ## Bundled Fonts
 
+### Audiowide
+
+- Files: `src/localflight/ui/static/fonts/Audiowide-Regular.ttf`
+- Designer: Astigmatic
+- Copyright: Copyright 2012 Brian J. Bonislawsky DBA Astigmatic (AOETI)
+- Source: https://github.com/google/fonts/tree/main/ofl/audiowide
+- License: SIL Open Font License 1.1
+- Local license copy: `src/localflight/ui/static/fonts/OFL-Audiowide.txt`
+
 ### DM Sans
 
 - Files: `src/localflight/ui/static/fonts/DMSans.ttf`

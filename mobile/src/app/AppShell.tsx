@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Animated,
-  Linking,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -16,7 +15,7 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 
 import { BottomNav } from "../components/BottomNav";
 import { LaunchOverlay } from "../components/LaunchOverlay";
-import { AdminScreen, AirportConfigSheet, CompanionSetupScreen, ConnectPrompt, DocsScreen, FidsScreen, FlightActionSheet, FlightDetailSheet, FullscreenFidsDisplay, Header, HistoryScreen, MatrixScreen, RadarScreen, ScreenActivity, ScreenError, SettingsScreen, type ActivityStatus, type ConnectionState, type DocSlug } from "../screens/AppScreens";
+import { AdminScreen, AirportConfigSheet, CompanionSetupScreen, ConnectPrompt, DocsScreen, FidsScreen, FlightActionSheet, FlightDetailSheet, FullscreenFidsDisplay, Header, HistoryScreen, MatrixScreen, RadarScreen, ScreenActivity, ScreenError, SettingsScreen, SupportSheet, type ActivityStatus, type ConnectionState, type DocSlug } from "../screens/AppScreens";
 import {
   getAdminSystem,
   getBudget,
@@ -32,6 +31,7 @@ import {
   getRadarGround,
   getUpdates,
   normalizeServerUrl,
+  patchConfig,
   resolveAirport,
   restartScheduler,
   sendCompanionCheckin,
@@ -42,6 +42,7 @@ import {
 import type {
   AppConfig,
   AirportResolved,
+  ConfigPatch,
   DashboardSnapshot,
   FidsRow,
   FlightView,
@@ -49,6 +50,7 @@ import type {
   HistoryResponse,
   HistorySummary,
   HistoryStats,
+  Metar,
   RadarMapResponse,
   RadarResponse
 } from "../api/types";
@@ -102,6 +104,7 @@ import { hapticLight, hapticSuccess, hapticWarning } from "../utils/haptics";
 import { useResponsiveLayout } from "../utils/layout";
 
 let palette: MobileAppearance = DEFAULT_MOBILE_APPEARANCE;
+let brand = DEFAULT_MOBILE_APPEARANCE.brand;
 let mono = DEFAULT_MOBILE_APPEARANCE.mono;
 
 void SplashScreen.preventAutoHideAsync().catch(() => {
@@ -192,9 +195,11 @@ export function AppShell() {
   const [actionRow, setActionRow] = useState<FidsRow | null>(null);
   const [configSheetVisible, setConfigSheetVisible] = useState(false);
   const [profiles, setProfiles] = useState<ConfigProfile[]>([]);
+  const [applyingProfileId, setApplyingProfileId] = useState<string | null>(null);
+  const [supportVisible, setSupportVisible] = useState(false);
   const [companionIdentity, setCompanionIdentity] = useState<CompanionIdentity | null>(null);
   const [mobileDiagnosticsMode, setMobileDiagnosticsMode] = useState<MobileDiagnosticsMode>("unset");
-  const [weatherDisplayMode, setWeatherDisplayMode] = useState<MobileWeatherDisplayMode>("friendly");
+  const [weatherDisplayMode, setWeatherDisplayMode] = useState<MobileWeatherDisplayMode>("passenger");
   const [mobileSetupState, setMobileSetupState] = useState<MobileSetupState>(() => incompleteMobileSetupState());
   const [launchHydrated, setLaunchHydrated] = useState(false);
 
@@ -202,20 +207,24 @@ export function AppShell() {
   const radarGroundCacheRef = useRef<Map<string, RadarMapResponse>>(new Map());
   const screenOpacity = useRef(new Animated.Value(1)).current;
   const screenLift = useRef(new Animated.Value(0)).current;
+  const snapshotPulse = useRef(new Animated.Value(0)).current;
   const flightDetail = useFlightDetail(serverUrl, setError);
   const matrix = useMatrixCompanion(serverUrl);
   const {
     rows: matrixRows,
     runtime: matrixRuntime,
+    preset: matrixPreset,
     dirty: matrixDirty,
     saving: matrixSaving,
+    applyingPreset: matrixApplyingPreset,
     saveMessage: matrixSaveMessage,
     saveTone: matrixSaveTone,
     fetchRows: fetchMatrixRows,
     fetchRuntime: fetchMatrixRuntime,
     updateDraft: updateMatrixDraft,
     resetDraft: resetMatrixDraft,
-    saveDraft: saveMatrixDraftNow
+    saveDraft: saveMatrixDraftNow,
+    applyPreset: applyMatrixPreset
   } = matrix;
   const {
     visible: detailVisible,
@@ -234,18 +243,31 @@ export function AppShell() {
 
   if (palette.key !== appearance.key) {
     palette = appearance;
+    brand = appearance.brand;
     mono = appearance.mono;
     styles = createStyles();
     setStyleBridge(styles, palette);
   }
 
+  const currentAirportDetail =
+    airportDetail &&
+    (
+      (airportDetail.iata && airportDetail.iata === (snapshot.config?.airport_iata || "")) ||
+      (airportDetail.icao && airportDetail.icao === (snapshot.config?.airport_icao || ""))
+    )
+      ? airportDetail
+      : null;
+  const airportTimeZone = currentAirportDetail?.timezone || snapshot.config?.timezone || undefined;
+
   useEffect(() => {
-    const timer = setInterval(() => {
+    const updateClock = () => {
       setUtcTime(formatUtc());
-      setLocalTime(formatLocalTime());
-    }, 1000);
+      setLocalTime(formatLocalTime(airportTimeZone));
+    };
+    updateClock();
+    const timer = setInterval(updateClock, 1000);
     return () => clearInterval(timer);
-  }, []);
+  }, [airportTimeZone]);
 
   useEffect(() => {
     screenOpacity.setValue(0);
@@ -341,10 +363,11 @@ export function AppShell() {
     }
 
     let resolvedAirport: AirportResolved | null = null;
-    const airportQuery = config.airport_iata || config.airport_icao;
-    if (airportQuery) {
+    const airportQueries = Array.from(new Set([config.airport_iata, config.airport_icao].filter(Boolean)));
+    for (const airportQuery of airportQueries) {
       try {
         resolvedAirport = await resolveAirport(normalized, airportQuery);
+        break;
       } catch {
         resolvedAirport = null;
       }
@@ -605,6 +628,43 @@ export function AppShell() {
     }
   }, [refreshScreen, screen, serverUrl]);
 
+  const applySettingsProfile = useCallback(async (profile: ConfigProfile) => {
+    const normalized = normalizeServerUrl(serverUrl);
+    if (!normalized) {
+      setError("Set the Local Flight server URL first.");
+      return;
+    }
+
+    const patch: ConfigPatch = {
+      airport_iata: profile.iata,
+      airport_icao: profile.icao,
+      timezone: profile.timezone,
+      source: profile.source,
+      refresh_seconds: profile.refresh_seconds
+    };
+
+    setApplyingProfileId(profile.id);
+    setActivity({
+      label: `Switching to ${profile.name}`,
+      detail: "Saving the profile on the Local Flight server and requesting a fresh fetch."
+    });
+    setError(null);
+
+    try {
+      const newConfig = await patchConfig(normalized, patch);
+      setSnapshot((prev) => ({ ...prev, config: newConfig }));
+      setSchedulerMessage(`Profile "${profile.name}" saved. Asking the Pi for a fresh fetch...`);
+      hapticSuccess();
+      await restartSchedulerNow();
+    } catch (exc) {
+      setError(errorMessage(exc));
+      hapticWarning();
+    } finally {
+      setApplyingProfileId(null);
+      setActivity(null);
+    }
+  }, [restartSchedulerNow, serverUrl]);
+
   const sendFeedbackReport = useCallback(async () => {
     const normalized = normalizeServerUrl(serverUrl);
     if (!normalized) {
@@ -675,6 +735,15 @@ export function AppShell() {
     openFlightDetail(callsign);
   }, [openFlightDetail]);
 
+  const triggerSnapshotPulse = useCallback(() => {
+    snapshotPulse.stopAnimation();
+    snapshotPulse.setValue(0);
+    Animated.sequence([
+      Animated.timing(snapshotPulse, { toValue: 1, duration: 120, useNativeDriver: true }),
+      Animated.timing(snapshotPulse, { toValue: 0, duration: 260, useNativeDriver: true })
+    ]).start();
+  }, [snapshotPulse]);
+
   useEffect(() => {
     if (!landscapeFidsActive) return;
 
@@ -715,6 +784,7 @@ export function AppShell() {
           ok?: boolean;
         };
         if (message.type === "snapshot_updated") {
+          triggerSnapshotPulse();
           void refreshScreen({ target: screen });
           if (detailVisible && detailCallsign) {
             refreshFlightDetail();
@@ -744,10 +814,18 @@ export function AppShell() {
         socketRef.current = null;
       }
     };
-  }, [connected, detailCallsign, detailVisible, refreshFlightDetail, refreshScreen, screen, serverUrl]);
+  }, [connected, detailCallsign, detailVisible, refreshFlightDetail, refreshScreen, screen, serverUrl, triggerSnapshotPulse]);
 
   const cfg = snapshot.config;
   const state = snapshot.state;
+  const activeProfileId =
+    profiles.find((profile) =>
+      profile.iata === cfg?.airport_iata &&
+      profile.icao === cfg?.airport_icao &&
+      profile.timezone === cfg?.timezone &&
+      profile.source === cfg?.source &&
+      profile.refresh_seconds === cfg?.refresh_seconds
+    )?.id || null;
   const airportCode = cfg?.airport_iata || "---";
   const airportIcao = cfg?.airport_icao || "";
   const fallbackDisplayName =
@@ -756,8 +834,8 @@ export function AppShell() {
       : cfg?.airport_icao
         ? `${cfg.airport_icao} Local Flight`
         : "Connect your server";
-  const airportName = airportDetail?.name || fallbackDisplayName;
-  const airportLocation = [airportDetail?.city, airportDetail?.country].filter(Boolean).join(" · ");
+  const airportName = currentAirportDetail?.name || fallbackDisplayName;
+  const airportLocation = [currentAirportDetail?.city, currentAirportDetail?.country].filter(Boolean).join(" · ");
   const sourceLabel = state?.source_name || cfg?.source || "VATSIM";
   const isLive = connected && state?.ok !== false;
   const connectionState: ConnectionState = error
@@ -859,6 +937,8 @@ export function AppShell() {
         sourceLabel={sourceLabel}
         utcTime={utcTime}
         localTime={localTime}
+        metar={snapshot.metar}
+        weatherDisplayMode={weatherDisplayMode}
         pinnedCallsign={pinnedCallsign}
       />
     );
@@ -881,6 +961,7 @@ export function AppShell() {
           localTime={localTime}
           metar={snapshot.metar}
           weatherDisplayMode={weatherDisplayMode}
+          snapshotPulse={snapshotPulse}
           rowCount={rows.length}
           view={view}
           pinnedRow={islandRow}
@@ -889,6 +970,7 @@ export function AppShell() {
           onOpenActions={setActionRow}
           onTogglePin={togglePinnedFlight}
           onOpenConfig={() => setConfigSheetVisible(true)}
+          onOpenWeather={() => setScreen("admin")}
         />
 
         <Animated.View
@@ -979,6 +1061,8 @@ export function AppShell() {
               statusAnimationEnabled={matrixRuntime.status_animation_enabled}
               showWeather={matrixShowWeather}
               matrixPalette={matrixPalette}
+              preset={matrixPreset}
+              applyingPreset={matrixApplyingPreset}
               matrixEnabled={snapshot.config?.display_outputs?.includes("matrix") || false}
               matrixLastSeen={snapshot.connections?.matrix_last_seen || null}
               dirty={matrixDirty}
@@ -1010,6 +1094,7 @@ export function AppShell() {
                 palette: value,
                 options: { ...matrixRuntime.options, palette: value }
               })}
+              onApplyPreset={applyMatrixPreset}
               onSave={saveMatrixDraftNow}
               onReset={resetMatrixDraft}
               onBackSettings={() => setScreen("settings")}
@@ -1059,6 +1144,7 @@ export function AppShell() {
                   companionIdentity={companionIdentity}
                   connected={isLive}
                   error={error}
+                  weatherDisplayMode={weatherDisplayMode}
                   feedbackTitle={feedbackTitle}
                   feedbackDescription={feedbackDescription}
                   feedbackSending={feedbackSending}
@@ -1070,6 +1156,7 @@ export function AppShell() {
                   onSubmitFeedback={sendFeedbackReport}
                   onSendAutoReportTest={sendAutoReportTest}
                   onOpenMatrix={() => setScreen("matrix")}
+                  onOpenSupport={() => setSupportVisible(true)}
                   onBackSettings={() => setScreen("settings")}
                 />
               ) : null}
@@ -1086,6 +1173,9 @@ export function AppShell() {
                   skin={skin}
                   weatherDisplayMode={weatherDisplayMode}
                   mobileDiagnosticsMode={mobileDiagnosticsMode}
+                  profiles={profiles}
+                  activeProfileId={activeProfileId}
+                  applyingProfileId={applyingProfileId}
                   outputs={snapshot.config?.display_outputs || []}
                   refreshSeconds={snapshot.config?.refresh_seconds ?? null}
                   schedulerRestarting={schedulerRestarting}
@@ -1094,11 +1184,12 @@ export function AppShell() {
                   onSkinChange={setSkin}
                   onWeatherDisplayModeChange={chooseWeatherDisplayMode}
                   onMobileDiagnosticsModeChange={chooseMobileDiagnosticsMode}
+                  onApplyProfile={(profile) => void applySettingsProfile(profile)}
                   onOpenHistory={() => setScreen("history")}
                   onOpenAdmin={() => setScreen("admin")}
                   onOpenMatrix={() => setScreen("matrix")}
                   onOpenDoc={openDoc}
-                  onOpenCoffee={() => void Linking.openURL("https://buymeacoffee.com/localflight")}
+                  onOpenSupport={() => setSupportVisible(true)}
                   onRestartScheduler={restartSchedulerNow}
                   onRerunSetup={rerunCompanionSetup}
                   onChangeUrl={setDraftUrl}
@@ -1117,6 +1208,11 @@ export function AppShell() {
           styles={styles}
         />
       </View>
+
+      <SupportSheet
+        visible={supportVisible}
+        onClose={() => setSupportVisible(false)}
+      />
 
       <FlightDetailSheet
         visible={detailVisible}
@@ -1180,6 +1276,8 @@ function LandscapeFidsMode({
   sourceLabel,
   utcTime,
   localTime,
+  metar,
+  weatherDisplayMode,
   pinnedCallsign
 }: {
   rows: FidsRow[];
@@ -1192,26 +1290,55 @@ function LandscapeFidsMode({
   sourceLabel: string;
   utcTime: string;
   localTime: string;
+  metar: Metar | null;
+  weatherDisplayMode: MobileWeatherDisplayMode;
   pinnedCallsign: string;
 }) {
   useKeepAwake("localflight-landscape-fids", { suppressDeactivateWarnings: true });
+  const landscapeOpacity = useRef(new Animated.Value(0)).current;
+  const landscapeScale = useRef(new Animated.Value(0.985)).current;
+
+  useEffect(() => {
+    Animated.parallel([
+      Animated.timing(landscapeOpacity, { toValue: 1, duration: 180, useNativeDriver: true }),
+      Animated.spring(landscapeScale, {
+        toValue: 1,
+        damping: 18,
+        stiffness: 180,
+        mass: 0.7,
+        useNativeDriver: true
+      })
+    ]).start();
+  }, [landscapeOpacity, landscapeScale]);
 
   return (
     <SafeAreaView style={styles.landscapeSafe} edges={["left", "right"]}>
       <StatusBar hidden />
-      <FullscreenFidsDisplay
-        rows={rows}
-        view={view}
-        loading={loading}
-        error={error}
-        live={live}
-        airportCode={airportCode}
-        airportName={airportName}
-        sourceLabel={sourceLabel}
-        utcTime={utcTime}
-        localTime={localTime}
-        pinnedCallsign={pinnedCallsign}
-      />
+      <Animated.View
+        style={[
+          styles.landscapeFidsTransition,
+          {
+            opacity: landscapeOpacity,
+            transform: [{ scale: landscapeScale }]
+          }
+        ]}
+      >
+        <FullscreenFidsDisplay
+          rows={rows}
+          view={view}
+          loading={loading}
+          error={error}
+          live={live}
+          airportCode={airportCode}
+          airportName={airportName}
+          sourceLabel={sourceLabel}
+          utcTime={utcTime}
+          localTime={localTime}
+          metar={metar}
+          weatherDisplayMode={weatherDisplayMode}
+          pinnedCallsign={pinnedCallsign}
+        />
+      </Animated.View>
     </SafeAreaView>
   );
 }
@@ -1226,6 +1353,7 @@ function createStyles() {
   const accent16 = hexToRgba(palette.blue, 0.16);
   const accent18 = hexToRgba(palette.blue, 0.18);
   const accent20 = hexToRgba(palette.blue, 0.20);
+  const accent25 = hexToRgba(palette.blue, 0.25);
   const accent30 = hexToRgba(palette.blue, 0.30);
   const accent40 = hexToRgba(palette.blue, 0.40);
   const accent42 = hexToRgba(palette.blue, 0.42);
@@ -1246,6 +1374,18 @@ function createStyles() {
   const error12 = hexToRgba(palette.red, 0.12);
   const error18 = hexToRgba(palette.red, 0.18);
   const error25 = hexToRgba(palette.red, 0.25);
+  const lightMode = palette.themeMode === "light";
+  const hairline = lightMode ? palette.lineSoft : "rgba(255,255,255,0.08)";
+  const hairlineSoft = lightMode ? hexToRgba(palette.line, 0.42) : "rgba(255,255,255,0.05)";
+  const softPanel = lightMode ? palette.row : "rgba(255,255,255,0.03)";
+  const softPanelStrong = lightMode ? palette.rowAlt : "rgba(255,255,255,0.045)";
+  const fieldPanel = lightMode ? palette.rowAlt : "rgba(0,0,0,0.18)";
+  const scopePanel = lightMode ? palette.rowAlt : "rgba(9,15,23,0.88)";
+  const scopeField = lightMode ? palette.shell : "rgba(0,0,0,0.18)";
+  const modalPanel = palette.shell;
+  const handleColor = lightMode ? hexToRgba(palette.line, 0.5) : "rgba(255,255,255,0.18)";
+  const onGreenText = lightMode && palette.skin === "high_contrast" ? "#ffffff" : "#051009";
+  const onBlueText = lightMode && ["standard", "technical", "high_contrast"].includes(palette.skin) ? "#ffffff" : "#051009";
   return StyleSheet.create({
   safe: {
     flex: 1,
@@ -1255,6 +1395,9 @@ function createStyles() {
   landscapeSafe: {
     flex: 1,
     backgroundColor: palette.bg
+  },
+  landscapeFidsTransition: {
+    flex: 1
   },
   setupSafe: {
     flex: 1,
@@ -1304,7 +1447,7 @@ function createStyles() {
     borderRadius: 28,
     borderWidth: 1,
     borderColor: accent16,
-    backgroundColor: "rgba(255,255,255,0.045)",
+    backgroundColor: softPanelStrong,
     shadowColor: "#000",
     shadowOpacity: 0.18,
     shadowRadius: 24,
@@ -1331,7 +1474,7 @@ function createStyles() {
     height: 132,
     borderRadius: 999,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.08)",
+    borderColor: hairline,
     borderTopColor: success25,
     borderRightColor: warn24
   },
@@ -1340,7 +1483,6 @@ function createStyles() {
     height: 86
   },
   companionSetupEyebrow: {
-    fontFamily: mono,
     color: palette.blue2,
     fontSize: 10,
     fontWeight: "800",
@@ -1383,8 +1525,8 @@ function createStyles() {
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.10)",
-    backgroundColor: "rgba(255,255,255,0.06)"
+    borderColor: hairline,
+    backgroundColor: softPanelStrong
   },
   companionSetupStepDotActive: {
     borderColor: success25,
@@ -1501,7 +1643,7 @@ function createStyles() {
     borderRadius: 16,
     borderWidth: 1,
     borderColor: accent14,
-    backgroundColor: "rgba(0,0,0,0.16)"
+    backgroundColor: fieldPanel
   },
   companionSetupExampleLabel: {
     fontFamily: mono,
@@ -1518,16 +1660,58 @@ function createStyles() {
     fontSize: 12,
     fontWeight: "800"
   },
-  companionSetupInput: {
+  companionSetupInputWrap: {
     minHeight: 48,
-    paddingHorizontal: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingLeft: 14,
+    paddingRight: 8,
     borderRadius: 14,
     borderWidth: 1,
     borderColor: accent18,
-    backgroundColor: palette.row,
+    backgroundColor: palette.row
+  },
+  companionSetupInputWrapOk: {
+    borderColor: success25,
+    backgroundColor: success08
+  },
+  companionSetupInputWrapChecking: {
+    borderColor: accent30,
+    backgroundColor: accent08
+  },
+  companionSetupInputWrapError: {
+    borderColor: error25,
+    backgroundColor: error08
+  },
+  companionSetupInput: {
+    flex: 1,
+    minWidth: 0,
+    minHeight: 48,
+    paddingVertical: 0,
     color: palette.text,
     fontFamily: mono,
     fontSize: 13
+  },
+  companionSetupInputStatus: {
+    width: 32,
+    height: 32,
+    borderRadius: 999,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: fieldPanel
+  },
+  companionSetupUrlHint: {
+    marginTop: -4,
+    color: palette.textMuted,
+    fontSize: 11,
+    lineHeight: 16
+  },
+  companionSetupUrlHintOk: {
+    color: palette.green
+  },
+  companionSetupUrlHintError: {
+    color: palette.red
   },
   companionSetupPrimary: {
     minHeight: 48,
@@ -1541,7 +1725,7 @@ function createStyles() {
   },
   companionSetupPrimaryText: {
     fontFamily: mono,
-    color: "#051009",
+    color: onGreenText,
     fontSize: 12,
     fontWeight: "900",
     letterSpacing: 1.2,
@@ -1558,7 +1742,7 @@ function createStyles() {
     borderRadius: 999,
     borderWidth: 1,
     borderColor: accent14,
-    backgroundColor: "rgba(255,255,255,0.035)"
+    backgroundColor: softPanel
   },
   companionSetupSecondaryText: {
     fontFamily: mono,
@@ -1575,8 +1759,8 @@ function createStyles() {
     padding: 12,
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.08)",
-    backgroundColor: "rgba(255,255,255,0.035)"
+    borderColor: hairline,
+    backgroundColor: softPanel
   },
   companionSetupProgressRailActive: {
     borderColor: accent30,
@@ -1605,13 +1789,13 @@ function createStyles() {
     paddingHorizontal: 9,
     paddingVertical: 6,
     borderRadius: 999,
-    backgroundColor: "rgba(255,255,255,0.045)"
+    backgroundColor: softPanelStrong
   },
   companionSetupProgressDot: {
     width: 6,
     height: 6,
     borderRadius: 999,
-    backgroundColor: "rgba(255,255,255,0.22)"
+    backgroundColor: palette.textDim
   },
   companionSetupProgressDotActive: {
     backgroundColor: palette.green
@@ -1633,8 +1817,8 @@ function createStyles() {
     padding: 14,
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.08)",
-    backgroundColor: "rgba(255,255,255,0.03)"
+    borderColor: hairline,
+    backgroundColor: softPanel
   },
   companionSetupOptionActive: {
     borderColor: success25,
@@ -1723,7 +1907,7 @@ function createStyles() {
     borderRadius: 999,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "rgba(0,0,0,0.14)"
+    backgroundColor: fieldPanel
   },
   activityCopy: {
     flex: 1,
@@ -1756,9 +1940,7 @@ function createStyles() {
     zIndex: 40,
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: 22,
-    paddingTop: 54,
-    paddingBottom: 26,
+    gap: 16,
     backgroundColor: palette.bg,
     overflow: "hidden"
   },
@@ -1773,7 +1955,7 @@ function createStyles() {
   },
   launchGridLine: {
     height: 1,
-    backgroundColor: "rgba(255,255,255,0.045)"
+    backgroundColor: palette.lineSoft
   },
   launchHalo: {
     position: "absolute",
@@ -1803,52 +1985,85 @@ function createStyles() {
     opacity: 0.48
   },
   launchRunwayPerspective: {
-    width: "74%",
-    maxWidth: 620,
-    height: 210,
+    width: "78%",
+    maxWidth: 520,
+    height: 104,
     flexDirection: "row",
     justifyContent: "center",
-    gap: 24,
-    transform: [{ perspective: 650 }, { rotateX: "58deg" }]
+    gap: 28,
+    transform: [{ perspective: 720 }, { rotateX: "56deg" }]
   },
   launchRunwayEdge: {
     width: 2,
     height: "100%",
-    backgroundColor: accent18
+    borderRadius: 999,
+    backgroundColor: accent25
   },
   launchRunwayCenter: {
-    width: 6,
+    width: 18,
     height: "100%",
+    alignItems: "center",
+    justifyContent: "space-evenly"
+  },
+  launchRunwayCenterMark: {
+    width: 6,
+    height: 12,
     borderRadius: 999,
-    backgroundColor: warn22
+    backgroundColor: warn38
   },
   launchStage: {
-    flex: 1,
+    flexGrow: 1,
+    flexShrink: 1,
     width: "100%",
-    maxWidth: 520,
     alignItems: "center",
-    justifyContent: "center",
+    justifyContent: "flex-end",
     gap: 16,
-    paddingVertical: 20
+    paddingTop: 10,
+    paddingBottom: 0
   },
   launchStageCompact: {
     gap: 10,
     paddingVertical: 10
   },
+  launchContentStack: {
+    width: "100%",
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center"
+  },
+  launchScene: {
+    width: "100%",
+    borderRadius: 30,
+    borderWidth: 1,
+    borderColor: hairline,
+    backgroundColor: fieldPanel,
+    overflow: "hidden",
+    gap: 16,
+    shadowColor: "#000",
+    shadowOpacity: 0.24,
+    shadowRadius: 28,
+    shadowOffset: { width: 0, height: 18 }
+  },
+  launchSceneCompact: {
+    borderRadius: 24,
+    gap: 10
+  },
   launchTopBar: {
     width: "100%",
-    maxWidth: 560,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: 2
+    paddingHorizontal: 2,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: palette.lineSoft
   },
   launchTopCode: {
-    fontFamily: mono,
+    fontFamily: brand,
     color: palette.textDim,
     fontSize: 10,
-    fontWeight: "900",
-    letterSpacing: 2.2,
+    fontWeight: "400",
+    letterSpacing: 0.8,
     includeFontPadding: false
   },
   launchTopVersion: {
@@ -1857,7 +2072,7 @@ function createStyles() {
     borderRadius: 999,
     borderWidth: 1,
     borderColor: accent18,
-    backgroundColor: "rgba(0,0,0,0.22)",
+    backgroundColor: fieldPanel,
     fontFamily: mono,
     color: palette.textMuted,
     fontSize: 10,
@@ -1868,13 +2083,15 @@ function createStyles() {
   launchHeroCard: {
     width: "100%",
     alignItems: "center",
-    gap: 16,
-    paddingHorizontal: 18,
-    paddingVertical: 22,
-    borderRadius: 28,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.08)",
-    backgroundColor: "rgba(0,0,0,0.18)"
+    gap: 14,
+    paddingHorizontal: 4,
+    paddingTop: 2,
+    paddingBottom: 0
+  },
+  launchHeroCardWide: {
+    flexDirection: "row",
+    justifyContent: "center",
+    gap: 24
   },
   launchMarkWrap: {
     alignItems: "center",
@@ -1891,17 +2108,33 @@ function createStyles() {
     position: "absolute",
     borderRadius: 999,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.08)",
+    borderColor: hairline,
     borderLeftColor: accent30,
     borderBottomColor: success25
   },
+  launchSweepRotor: {
+    position: "absolute",
+    alignItems: "center"
+  },
   launchSweep: {
     position: "absolute",
+    top: "9%",
     width: 2,
     borderRadius: 999,
     backgroundColor: "rgba(41,226,135,0.72)"
   },
+  launchMarkCrop: {
+    borderRadius: 999,
+    overflow: "hidden",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: palette.bg,
+    borderWidth: 1,
+    borderColor: "rgba(122,176,216,0.24)"
+  },
   launchMark: {
+    width: "122%",
+    height: "122%",
     shadowColor: palette.blue,
     shadowOpacity: 0.18,
     shadowRadius: 24,
@@ -1912,23 +2145,37 @@ function createStyles() {
     maxWidth: 390,
     alignItems: "center"
   },
+  launchCopyWide: {
+    flex: 1,
+    maxWidth: 470,
+    alignItems: "flex-start"
+  },
   launchEyebrow: {
-    fontFamily: mono,
+    fontFamily: brand,
     color: palette.blue2,
     fontSize: 11,
-    fontWeight: "700",
-    letterSpacing: 2.4
+    fontWeight: "400",
+    letterSpacing: 0.8
   },
   launchTitle: {
     marginTop: 8,
+    fontFamily: brand,
     color: palette.text,
     fontSize: 34,
-    fontWeight: "900",
-    letterSpacing: 2.2,
-    textAlign: "center"
+    lineHeight: 38,
+    fontWeight: "400",
+    letterSpacing: 0.8,
+    textAlign: "center",
+    includeFontPadding: false
   },
   launchTitleCompact: {
-    fontSize: 28
+    fontSize: 28,
+    lineHeight: 32
+  },
+  launchTitleWide: {
+    fontSize: 42,
+    lineHeight: 46,
+    textAlign: "left"
   },
   launchSubtitle: {
     marginTop: 8,
@@ -1936,6 +2183,11 @@ function createStyles() {
     fontSize: 13,
     lineHeight: 18,
     textAlign: "center"
+  },
+  launchSubtitleWide: {
+    textAlign: "left",
+    fontSize: 14,
+    lineHeight: 20
   },
   launchVersion: {
     marginTop: 10,
@@ -1953,13 +2205,12 @@ function createStyles() {
   },
   launchBoard: {
     width: "100%",
-    maxWidth: 430,
-    marginTop: 0,
-    padding: 12,
-    borderRadius: 18,
+    marginTop: 10,
+    padding: 10,
+    borderRadius: 16,
     borderWidth: 1,
-    borderColor: accent18,
-    backgroundColor: "rgba(0,0,0,0.26)"
+    borderColor: hairlineSoft,
+    backgroundColor: fieldPanel
   },
   launchBoardRow: {
     flexDirection: "row",
@@ -1992,6 +2243,48 @@ function createStyles() {
   launchBoardLedAmber: {
     backgroundColor: palette.amber
   },
+  launchRunwayDeck: {
+    width: "100%",
+    minHeight: 138,
+    paddingHorizontal: 14,
+    paddingTop: 12,
+    paddingBottom: 12,
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: accent16,
+    backgroundColor: fieldPanel,
+    overflow: "hidden",
+    alignItems: "center",
+    justifyContent: "center"
+  },
+  launchRunwayDeckCompact: {
+    minHeight: 106,
+    paddingTop: 10,
+    paddingBottom: 10
+  },
+  launchRunwayDeckHeader: {
+    width: "100%",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 2
+  },
+  launchRunwayDeckKicker: {
+    fontFamily: mono,
+    color: palette.blue2,
+    fontSize: 9,
+    fontWeight: "900",
+    letterSpacing: 1.8,
+    includeFontPadding: false
+  },
+  launchRunwayDeckMeta: {
+    fontFamily: mono,
+    color: palette.textDim,
+    fontSize: 9,
+    fontWeight: "900",
+    letterSpacing: 1.1,
+    includeFontPadding: false
+  },
   launchStatusDot: {
     width: 7,
     height: 7,
@@ -2019,7 +2312,7 @@ function createStyles() {
     marginTop: 12,
     overflow: "hidden",
     borderRadius: 999,
-    backgroundColor: "rgba(255,255,255,0.09)"
+    backgroundColor: softPanelStrong
   },
   launchProgressFill: {
     height: "100%",
@@ -2038,7 +2331,7 @@ function createStyles() {
     paddingVertical: 5,
     borderRadius: 999,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.08)",
+    borderColor: hairline,
     fontFamily: mono,
     color: palette.textDim,
     fontSize: 8,
@@ -2051,8 +2344,8 @@ function createStyles() {
     padding: 14,
     borderRadius: 22,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.08)",
-    backgroundColor: "rgba(0,0,0,0.24)"
+    borderColor: hairline,
+    backgroundColor: fieldPanel
   },
   launchBottomBoard: {
     position: "absolute",
@@ -2069,8 +2362,8 @@ function createStyles() {
     justifyContent: "center",
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.08)",
-    backgroundColor: "rgba(0,0,0,0.22)"
+    borderColor: hairline,
+    backgroundColor: fieldPanel
   },
   launchBottomLabel: {
     fontFamily: mono,
@@ -2280,6 +2573,16 @@ function createStyles() {
   liveTextIssue: {
     color: palette.amber
   },
+  snapshotPulseDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 999,
+    backgroundColor: palette.green,
+    shadowColor: palette.green,
+    shadowOpacity: 0.65,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 0 }
+  },
   sourcePill: {
     paddingHorizontal: 9,
     paddingVertical: 5,
@@ -2313,11 +2616,11 @@ function createStyles() {
     paddingHorizontal: 10,
     paddingVertical: 8,
     borderRadius: 8,
-    backgroundColor: "rgba(255,255,255,0.03)"
+    backgroundColor: softPanel
   },
   metarCat: {
     fontFamily: mono,
-    color: "#000",
+    color: onGreenText,
     backgroundColor: palette.green,
     fontSize: 9,
     fontWeight: "700",
@@ -2346,8 +2649,18 @@ function createStyles() {
     justifyContent: "space-between",
     gap: 12
   },
+  airportHeroRowStacked: {
+    flexDirection: "column",
+    alignItems: "stretch",
+    gap: 10
+  },
   airportHeroPressable: {
     flex: 1,
+    minWidth: 0
+  },
+  airportHeroPressableStacked: {
+    flex: 0,
+    width: "100%",
     minWidth: 0
   },
   airportHeroTopline: {
@@ -2355,6 +2668,9 @@ function createStyles() {
     alignItems: "center",
     justifyContent: "space-between",
     gap: 8
+  },
+  airportHeroToplineStacked: {
+    alignItems: "flex-start"
   },
   airportHeroKicker: {
     fontFamily: mono,
@@ -2369,6 +2685,11 @@ function createStyles() {
     alignItems: "center",
     gap: 6,
     flexShrink: 0
+  },
+  airportCodeBadgesStacked: {
+    flexShrink: 1,
+    flexWrap: "wrap",
+    justifyContent: "flex-end"
   },
   airportCodeBadge: {
     paddingHorizontal: 7,
@@ -2389,6 +2710,11 @@ function createStyles() {
     lineHeight: 29,
     fontWeight: "900",
     letterSpacing: 0.2
+  },
+  airportHeroNameCompact: {
+    fontSize: 21,
+    lineHeight: 25,
+    letterSpacing: 0
   },
   airportHeroLocation: {
     marginTop: 4,
@@ -2429,6 +2755,17 @@ function createStyles() {
     width: 136,
     alignItems: "flex-end",
     gap: 6
+  },
+  headerWeatherRailStacked: {
+    width: "100%",
+    alignItems: "stretch",
+    gap: 8
+  },
+  headerClockStackInline: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12
   },
   utcSuffix: {
     fontFamily: mono,
@@ -2495,8 +2832,8 @@ function createStyles() {
     paddingVertical: 5,
     borderRadius: 999,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.12)",
-    backgroundColor: "rgba(255,255,255,0.05)"
+    borderColor: hairline,
+    backgroundColor: softPanelStrong
   },
   countText: {
     fontFamily: mono,
@@ -2548,8 +2885,8 @@ function createStyles() {
     paddingHorizontal: 12,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.05)",
-    backgroundColor: palette.row
+    borderColor: hairlineSoft,
+    backgroundColor: palette.rowAlt
   },
   radarLegendHeader: {
     flexDirection: "row",
@@ -2559,7 +2896,7 @@ function createStyles() {
   },
   radarLegendTitle: {
     fontFamily: mono,
-    color: palette.line,
+    color: palette.textDim,
     fontSize: 9,
     fontWeight: "700",
     letterSpacing: 1.4
@@ -2662,7 +2999,9 @@ function createStyles() {
     marginTop: 12,
     padding: 10,
     borderRadius: 12,
-    backgroundColor: "rgba(0,0,0,0.22)",
+    borderWidth: 1,
+    borderColor: hairlineSoft,
+    backgroundColor: fieldPanel,
     fontFamily: mono,
     color: palette.textMuted,
     fontSize: 10,
@@ -2757,8 +3096,8 @@ function createStyles() {
     paddingVertical: 10,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.08)",
-    backgroundColor: "rgba(255,255,255,0.03)",
+    borderColor: hairline,
+    backgroundColor: softPanel,
     justifyContent: "center"
   },
   optionChipActive: {
@@ -2771,8 +3110,8 @@ function createStyles() {
     paddingVertical: 10,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.08)",
-    backgroundColor: "rgba(255,255,255,0.03)"
+    borderColor: hairline,
+    backgroundColor: softPanel
   },
   paletteDots: {
     flexDirection: "row",
@@ -2813,7 +3152,7 @@ function createStyles() {
     marginBottom: 10,
     padding: 3,
     borderRadius: 8,
-    backgroundColor: "rgba(255,255,255,0.04)"
+    backgroundColor: softPanelStrong
   },
   dirButton: {
     flex: 1,
@@ -2856,6 +3195,11 @@ function createStyles() {
     paddingBottom: 10,
     backgroundColor: palette.bg
   },
+  fullscreenFidsShellCompact: {
+    paddingHorizontal: 12,
+    paddingTop: 8,
+    paddingBottom: 6
+  },
   fullscreenFidsTop: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -2866,9 +3210,20 @@ function createStyles() {
     borderBottomWidth: 1,
     borderBottomColor: palette.lineSoft
   },
+  fullscreenFidsTopCompact: {
+    gap: 10,
+    marginBottom: 7,
+    paddingBottom: 7
+  },
   fullscreenFidsIdentity: {
     flex: 1,
     minWidth: 0
+  },
+  fullscreenFidsKickerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    flexWrap: "wrap"
   },
   fullscreenFidsKicker: {
     fontFamily: mono,
@@ -2877,14 +3232,35 @@ function createStyles() {
     fontWeight: "800",
     letterSpacing: 2.6
   },
+  fullscreenFidsBoardBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: accent18,
+    backgroundColor: accent08,
+    fontFamily: mono,
+    color: palette.textMuted,
+    fontSize: 10,
+    fontWeight: "900",
+    letterSpacing: 1.4,
+    includeFontPadding: false,
+    lineHeight: 12
+  },
   fullscreenFidsTitle: {
-    marginTop: 2,
+    marginTop: 5,
     fontFamily: mono,
     color: palette.text,
-    fontSize: 34,
-    lineHeight: 38,
+    fontSize: 28,
+    lineHeight: 32,
     fontWeight: "800",
-    letterSpacing: 2
+    letterSpacing: 0.8
+  },
+  fullscreenFidsTitleCompact: {
+    marginTop: 3,
+    fontSize: 20,
+    lineHeight: 23,
+    letterSpacing: 0.3
   },
   fullscreenFidsAirport: {
     marginTop: 2,
@@ -2925,16 +3301,151 @@ function createStyles() {
     color: palette.textMuted,
     fontSize: 11
   },
+  fullscreenWeatherHero: {
+    minHeight: 62,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    marginBottom: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 14,
+    borderWidth: 1
+  },
+  fullscreenWeatherHeroCompact: {
+    minHeight: 44,
+    gap: 8,
+    marginBottom: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 12
+  },
+  fullscreenWeatherIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0
+  },
+  fullscreenWeatherIconCompact: {
+    width: 32,
+    height: 32,
+    borderRadius: 10
+  },
+  fullscreenWeatherCopy: {
+    flex: 1,
+    minWidth: 0
+  },
+  fullscreenWeatherTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    flexWrap: "wrap"
+  },
+  fullscreenWeatherCategory: {
+    fontFamily: mono,
+    fontSize: 14,
+    fontWeight: "900",
+    letterSpacing: 1.1,
+    includeFontPadding: false,
+    lineHeight: 16
+  },
+  fullscreenWeatherCategoryCompact: {
+    fontSize: 12,
+    lineHeight: 14
+  },
+  fullscreenWeatherTemp: {
+    fontFamily: mono,
+    color: palette.text,
+    fontSize: 14,
+    fontWeight: "900",
+    includeFontPadding: false,
+    lineHeight: 16
+  },
+  fullscreenWeatherMode: {
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: accent18,
+    backgroundColor: softPanelStrong,
+    fontFamily: mono,
+    color: palette.textDim,
+    fontSize: 8,
+    fontWeight: "900",
+    letterSpacing: 0.9,
+    includeFontPadding: false,
+    lineHeight: 10
+  },
+  fullscreenWeatherSummary: {
+    marginTop: 5,
+    color: palette.textMuted,
+    fontSize: 13,
+    lineHeight: 17
+  },
+  fullscreenWeatherChips: {
+    maxWidth: 420,
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    flexWrap: "wrap",
+    gap: 6,
+    flexShrink: 0
+  },
+  fullscreenWeatherChip: {
+    minWidth: 58,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    borderRadius: 9,
+    borderWidth: 1,
+    borderColor: hairline,
+    backgroundColor: softPanelStrong,
+    alignItems: "center"
+  },
+  fullscreenWeatherChipLabel: {
+    fontFamily: mono,
+    color: palette.textDim,
+    fontSize: 8,
+    fontWeight: "900",
+    letterSpacing: 0.8,
+    includeFontPadding: false,
+    lineHeight: 10
+  },
+  fullscreenWeatherChipValue: {
+    marginTop: 3,
+    fontFamily: mono,
+    color: palette.text,
+    fontSize: 11,
+    fontWeight: "900",
+    includeFontPadding: false,
+    lineHeight: 13
+  },
   fullscreenFidsColumns: {
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
     paddingHorizontal: 12,
-    paddingBottom: 7
+    paddingTop: 7,
+    paddingBottom: 7,
+    marginBottom: 6,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: hairlineSoft,
+    backgroundColor: palette.header,
+    zIndex: 2
+  },
+  fullscreenFidsColumnsCompact: {
+    gap: 7,
+    paddingHorizontal: 9,
+    paddingTop: 5,
+    paddingBottom: 5,
+    marginBottom: 4,
+    borderRadius: 8
   },
   fullscreenFidsColumnText: {
     fontFamily: mono,
-    color: palette.line,
+    color: palette.textDim,
     fontSize: 9,
     fontWeight: "800",
     letterSpacing: 1.4
@@ -2942,8 +3453,14 @@ function createStyles() {
   fullscreenFidsTimeColumn: {
     width: 78
   },
+  fullscreenFidsTimeColumnCompact: {
+    width: 60
+  },
   fullscreenFidsFlightColumn: {
     width: 170
+  },
+  fullscreenFidsFlightColumnCompact: {
+    width: 132
   },
   fullscreenFidsRouteColumn: {
     flex: 1,
@@ -2951,6 +3468,9 @@ function createStyles() {
   },
   fullscreenFidsStatusColumn: {
     width: 150
+  },
+  fullscreenFidsStatusColumnCompact: {
+    width: 116
   },
   fullscreenFidsStatusCell: {
     width: 150,
@@ -2960,12 +3480,20 @@ function createStyles() {
     width: 82,
     textAlign: "right"
   },
+  fullscreenFidsGateColumn: {
+    width: 64,
+    textAlign: "right"
+  },
+  fullscreenFidsInfoColumn: {
+    width: 92,
+    minWidth: 0,
+    alignItems: "flex-end"
+  },
   fullscreenFidsList: {
     flex: 1
   },
   fullscreenFidsListContent: {
-    paddingBottom: 16,
-    gap: 5
+    paddingBottom: 16
   },
   fullscreenFidsRow: {
     minHeight: 58,
@@ -2976,8 +3504,14 @@ function createStyles() {
     paddingVertical: 8,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.035)",
+    borderColor: hairlineSoft,
     backgroundColor: palette.row
+  },
+  fullscreenFidsRowCompact: {
+    gap: 7,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    borderRadius: 8
   },
   fullscreenFidsRowPinned: {
     borderColor: warn24,
@@ -3000,31 +3534,57 @@ function createStyles() {
     letterSpacing: 0.8
   },
   fullscreenFidsAirline: {
+    flex: 1,
+    minWidth: 0,
     marginTop: 2,
+    fontFamily: mono,
     color: palette.textDim,
     fontSize: 10,
+    fontWeight: "700",
     letterSpacing: 0.3
   },
   fullscreenFidsRouteCell: {
     minWidth: 0
   },
   fullscreenFidsRouteName: {
-    color: "#b6d2ef",
+    color: palette.text,
     fontSize: 17,
     fontWeight: "700"
   },
   fullscreenFidsRouteMeta: {
     marginTop: 2,
     fontFamily: mono,
-    color: "#4c7daa",
+    color: palette.textMuted,
     fontSize: 10,
     letterSpacing: 0.6
   },
   fullscreenFidsAircraft: {
     fontFamily: mono,
-    color: "#6d8eb0",
+    color: palette.textDim,
     fontSize: 12,
     fontWeight: "700"
+  },
+  fullscreenFidsGate: {
+    fontFamily: mono,
+    color: palette.text,
+    fontSize: 12,
+    fontWeight: "800"
+  },
+  fullscreenFidsInfoMini: {
+    justifyContent: "flex-end",
+    gap: 4,
+    maxWidth: "100%"
+  },
+  fullscreenFidsInfoLabel: {
+    color: palette.textDim,
+    fontSize: 7,
+    letterSpacing: 0.7
+  },
+  fullscreenFidsInfoValue: {
+    flexShrink: 1,
+    color: palette.blue2,
+    fontSize: 9,
+    textAlign: "right"
   },
   fullscreenFidsEmpty: {
     flex: 1,
@@ -3062,7 +3622,7 @@ function createStyles() {
   },
   fidsHeaderText: {
     fontFamily: mono,
-    color: palette.line,
+    color: palette.textDim,
     fontSize: 8,
     fontWeight: "700",
     letterSpacing: 1
@@ -3081,9 +3641,15 @@ function createStyles() {
     width: 86,
     alignItems: "center"
   },
+  fidsColStatusCompact: {
+    width: 80
+  },
   fidsColStatusText: {
     width: 86,
     textAlign: "center"
+  },
+  fidsColStatusTextCompact: {
+    width: 80
   },
   fidsColAircraft: {
     width: 20,
@@ -3105,17 +3671,20 @@ function createStyles() {
     paddingHorizontal: 12
   },
   fidsRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
     minHeight: 55,
     paddingHorizontal: 10,
     paddingVertical: 9,
     marginBottom: 3,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.03)",
+    borderColor: hairlineSoft,
     backgroundColor: palette.row
+  },
+  fidsRowMain: {
+    width: "100%",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5
   },
   fidsRowPinned: {
     borderColor: warn24,
@@ -3165,9 +3734,16 @@ function createStyles() {
     gap: 4
   },
   fidsAirlineLine: {
+    flex: 1,
     color: palette.textMuted,
+    fontFamily: mono,
     fontSize: 9,
+    fontWeight: "700",
+    letterSpacing: 0.2,
     marginTop: 1
+  },
+  fidsAirlineLineLabel: {
+    color: palette.textDim
   },
   fidsFlight: {
     fontFamily: mono,
@@ -3182,7 +3758,7 @@ function createStyles() {
   },
   fidsGateEmpty: {
     fontFamily: mono,
-    color: palette.line,
+    color: palette.textDim,
     fontSize: 9,
     textAlign: "center"
   },
@@ -3191,19 +3767,55 @@ function createStyles() {
     minWidth: 0
   },
   fidsDestName: {
-    color: "#8aaccc",
+    color: palette.textMuted,
     fontSize: 12
   },
   fidsDestCode: {
     marginTop: 1,
     fontFamily: mono,
-    color: "#3a6a9a",
+    color: palette.textDim,
     fontSize: 9
+  },
+  fidsInfoLine: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    minWidth: 0
+  },
+  fidsInfoRail: {
+    width: "100%",
+    marginTop: 7,
+    paddingTop: 6,
+    borderTopWidth: 1,
+    borderTopColor: hairlineSoft
+  },
+  fidsInfoLabel: {
+    flexShrink: 0,
+    fontFamily: mono,
+    color: palette.textDim,
+    fontSize: 8,
+    fontWeight: "900",
+    letterSpacing: 0.8
+  },
+  fidsInfoValue: {
+    flex: 1,
+    minWidth: 0,
+    fontFamily: mono,
+    color: palette.textMuted,
+    fontSize: 9,
+    fontWeight: "800",
+    letterSpacing: 0.2
+  },
+  fidsInfoValueAccent: {
+    color: palette.blue2
+  },
+  fidsInfoValueWarn: {
+    color: palette.amber
   },
   fidsAircraft: {
     textAlign: "right",
     fontFamily: mono,
-    color: "#2a4a6a",
+    color: palette.textDim,
     fontSize: 9
   },
   historyGap: {
@@ -3216,7 +3828,7 @@ function createStyles() {
     padding: 14,
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.05)",
+    borderColor: hairlineSoft,
     backgroundColor: palette.row
   },
   historyTimeBox: {
@@ -3276,8 +3888,8 @@ function createStyles() {
     height: 34,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.10)",
-    backgroundColor: "rgba(255,255,255,0.04)",
+    borderColor: hairline,
+    backgroundColor: fieldPanel,
     color: palette.text,
     fontFamily: mono,
     fontSize: 11,
@@ -3293,7 +3905,7 @@ function createStyles() {
   },
   historyApplyButtonText: {
     fontFamily: mono,
-    color: "#000",
+    color: onBlueText,
     fontSize: 10,
     fontWeight: "700"
   },
@@ -3310,7 +3922,7 @@ function createStyles() {
     padding: 10,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.05)",
+    borderColor: hairlineSoft,
     backgroundColor: palette.row,
     alignItems: "flex-start"
   },
@@ -3339,12 +3951,12 @@ function createStyles() {
     padding: 12,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.05)",
+    borderColor: hairlineSoft,
     backgroundColor: palette.row
   },
   historyPanelTitle: {
     fontFamily: mono,
-    color: palette.line,
+    color: palette.textDim,
     fontSize: 8,
     fontWeight: "700",
     letterSpacing: 1,
@@ -3355,7 +3967,7 @@ function createStyles() {
     height: 8,
     borderRadius: 99,
     overflow: "hidden",
-    backgroundColor: "rgba(255,255,255,0.06)",
+    backgroundColor: softPanelStrong,
     marginBottom: 10
   },
   historyBarRow: {
@@ -3373,7 +3985,7 @@ function createStyles() {
   historyBarTrack: {
     flex: 1,
     height: 6,
-    backgroundColor: "rgba(255,255,255,0.06)",
+    backgroundColor: softPanelStrong,
     borderRadius: 99,
     overflow: "hidden"
   },
@@ -3391,7 +4003,7 @@ function createStyles() {
   },
   adminSubTitle: {
     fontFamily: mono,
-    color: palette.line,
+    color: palette.textDim,
     fontSize: 8,
     fontWeight: "700",
     letterSpacing: 1,
@@ -3402,7 +4014,7 @@ function createStyles() {
     height: 5,
     borderRadius: 99,
     overflow: "hidden",
-    backgroundColor: "rgba(255,255,255,0.06)",
+    backgroundColor: softPanelStrong,
     marginTop: 8
   },
   adminMetarHero: {
@@ -3412,15 +4024,15 @@ function createStyles() {
     padding: 10,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: "rgba(74,158,218,0.18)",
-    backgroundColor: "rgba(74,158,218,0.07)",
+    borderColor: accent18,
+    backgroundColor: accent08,
     marginBottom: 8
   },
   adminMetarIcon: {
     width: 40,
     height: 40,
     borderRadius: 12,
-    backgroundColor: "rgba(255,255,255,0.07)",
+    backgroundColor: softPanelStrong,
     alignItems: "center",
     justifyContent: "center",
     flexShrink: 0
@@ -3434,11 +4046,56 @@ function createStyles() {
     fontSize: 13,
     fontWeight: "900"
   },
+  adminMetarTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexWrap: "wrap",
+    gap: 7
+  },
+  adminMetarModePill: {
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: accent18,
+    backgroundColor: accent08
+  },
+  adminMetarModeText: {
+    fontFamily: mono,
+    color: palette.blue2,
+    fontSize: 8,
+    fontWeight: "900",
+    letterSpacing: 0.8,
+    includeFontPadding: false,
+    lineHeight: 10
+  },
   adminMetarSub: {
     color: palette.textMuted,
     fontSize: 11,
     lineHeight: 16,
     marginTop: 2
+  },
+  adminMetarChipRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+    marginTop: 9
+  },
+  adminMetarChip: {
+    paddingHorizontal: 7,
+    paddingVertical: 4,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: hairline,
+    backgroundColor: softPanelStrong
+  },
+  adminMetarChipText: {
+    fontFamily: mono,
+    color: palette.textMuted,
+    fontSize: 9,
+    fontWeight: "800",
+    includeFontPadding: false,
+    lineHeight: 11
   },
   scopeCard: {
     marginHorizontal: 12,
@@ -3447,7 +4104,7 @@ function createStyles() {
     borderRadius: 18,
     borderWidth: 1,
     borderColor: accent14,
-    backgroundColor: "rgba(9,15,23,0.88)"
+    backgroundColor: scopePanel
   },
   scopeTitle: {
     marginBottom: 12,
@@ -3464,7 +4121,7 @@ function createStyles() {
     borderRadius: 999,
     borderWidth: 1,
     borderColor: accent18,
-    backgroundColor: "rgba(0,0,0,0.18)",
+    backgroundColor: scopeField,
     overflow: "hidden"
   },
   scopeGroundSvg: {
@@ -3552,28 +4209,29 @@ function createStyles() {
     paddingHorizontal: 8,
     paddingVertical: 5,
     borderRadius: 5,
+    borderWidth: 1,
     alignItems: "center"
   },
   statusBadgeCompact: {
     width: 78,
     paddingHorizontal: 5
   },
-  status_scheduled: { backgroundColor: accent10 },
-  status_departed: { backgroundColor: accent06, opacity: 0.68 },
-  status_boarding: { backgroundColor: success12 },
-  status_delayed: { backgroundColor: warn11 },
-  status_cancelled: { backgroundColor: error12 },
+  status_scheduled: { backgroundColor: accent08, borderColor: accent25 },
+  status_departed: { backgroundColor: success18, borderColor: success25 },
+  status_boarding: { backgroundColor: success18, borderColor: success25 },
+  status_delayed: { backgroundColor: warn18, borderColor: warn38 },
+  status_cancelled: { backgroundColor: error18, borderColor: error25 },
   statusBadgeText: {
     fontFamily: mono,
     fontSize: 8,
     fontWeight: "700",
     letterSpacing: 0.5
   },
-  statusText_scheduled: { color: palette.status.scheduled },
-  statusText_departed: { color: palette.status.departed },
-  statusText_boarding: { color: palette.status.boarding },
-  statusText_delayed: { color: palette.status.delayed },
-  statusText_cancelled: { color: palette.status.cancelled },
+  statusText_scheduled: { color: palette.blue2 },
+  statusText_departed: { color: palette.green },
+  statusText_boarding: { color: palette.green },
+  statusText_delayed: { color: palette.amber },
+  statusText_cancelled: { color: palette.red },
   loader: {
     marginTop: 28
   },
@@ -3614,7 +4272,7 @@ function createStyles() {
     padding: 14,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.05)",
+    borderColor: hairlineSoft,
     backgroundColor: palette.row
   },
   infoLabel: {
@@ -3651,6 +4309,89 @@ function createStyles() {
     flexWrap: "wrap",
     gap: 8,
     marginTop: 14
+  },
+  settingsProfileBlock: {
+    marginTop: 14,
+    padding: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: accent14,
+    backgroundColor: "rgba(255,255,255,0.025)"
+  },
+  settingsProfileHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+    marginBottom: 10
+  },
+  settingsProfileTitle: {
+    fontFamily: mono,
+    color: palette.text,
+    fontSize: 10,
+    fontWeight: "800",
+    letterSpacing: 1.1,
+    includeFontPadding: false,
+    lineHeight: 12
+  },
+  settingsProfileHint: {
+    fontFamily: mono,
+    color: palette.textDim,
+    fontSize: 9,
+    fontWeight: "700",
+    letterSpacing: 0.7,
+    includeFontPadding: false,
+    lineHeight: 11
+  },
+  settingsProfileChips: {
+    gap: 8,
+    paddingRight: 4
+  },
+  settingsProfileChip: {
+    width: 142,
+    minHeight: 58,
+    justifyContent: "center",
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: accent14,
+    backgroundColor: accent06
+  },
+  settingsProfileChipActive: {
+    borderColor: success25,
+    backgroundColor: success08
+  },
+  settingsProfileChipDisabled: {
+    opacity: 0.42
+  },
+  settingsProfileChipTop: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8
+  },
+  settingsProfileName: {
+    flex: 1,
+    minWidth: 0,
+    color: palette.text,
+    fontSize: 12,
+    fontWeight: "800",
+    includeFontPadding: false,
+    lineHeight: 15
+  },
+  settingsProfileNameActive: {
+    color: palette.green
+  },
+  settingsProfileMeta: {
+    marginTop: 6,
+    fontFamily: mono,
+    color: palette.textMuted,
+    fontSize: 9,
+    fontWeight: "700",
+    letterSpacing: 0.5,
+    includeFontPadding: false,
+    lineHeight: 11
   },
   settingsInlineActions: {
     flexDirection: "row",
@@ -3693,7 +4434,7 @@ function createStyles() {
     borderRadius: 15,
     borderWidth: 1,
     borderColor: accent14,
-    backgroundColor: "rgba(255,255,255,0.035)"
+    backgroundColor: softPanel
   },
   settingsQuickIcon: {
     width: 34,
@@ -3731,7 +4472,7 @@ function createStyles() {
     borderRadius: 999,
     borderWidth: 1,
     borderColor: accent14,
-    backgroundColor: "rgba(255,255,255,0.03)"
+    backgroundColor: softPanel
   },
   settingsPillDisabled: {
     opacity: 0.72
@@ -3785,9 +4526,11 @@ function createStyles() {
     minWidth: 0
   },
   hiddenToolTitle: {
+    fontFamily: mono,
     color: palette.text,
     fontSize: 16,
-    fontWeight: "800"
+    fontWeight: "800",
+    letterSpacing: 0.3
   },
   hiddenToolDetail: {
     marginTop: 3,
@@ -3803,7 +4546,7 @@ function createStyles() {
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: 999,
-    backgroundColor: "rgba(255,255,255,0.04)"
+    backgroundColor: softPanelStrong
   },
   hiddenToolBackText: {
     fontFamily: mono,
@@ -3812,49 +4555,168 @@ function createStyles() {
     fontWeight: "700",
     letterSpacing: 0.8
   },
-  coffeeCard: {
-    marginHorizontal: 12,
+  supportFooter: {
+    alignSelf: "center",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 7,
+    marginTop: 4,
+    marginBottom: 18,
+    paddingHorizontal: 13,
+    paddingVertical: 8,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: warn18,
+    backgroundColor: warn07,
+    opacity: 0.88
+  },
+  supportFooterText: {
+    fontFamily: mono,
+    color: palette.amber,
+    fontSize: 9,
+    fontWeight: "800",
+    letterSpacing: 0.9,
+    includeFontPadding: false,
+    lineHeight: 11,
+    textTransform: "uppercase"
+  },
+  supportHero: {
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
     padding: 14,
-    borderRadius: 14,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: warn18,
+    backgroundColor: warn07
+  },
+  supportHeroIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 999,
+    alignItems: "center",
+    justifyContent: "center",
     borderWidth: 1,
     borderColor: warn22,
     backgroundColor: warn08
   },
-  coffeeIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 999,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: palette.amber
-  },
-  coffeeCopy: {
+  supportHeroCopy: {
     flex: 1,
     minWidth: 0
   },
-  coffeeTitle: {
-    fontFamily: mono,
-    color: palette.amber,
-    fontSize: 11,
-    fontWeight: "700",
-    letterSpacing: 1
+  supportHeroTitle: {
+    color: palette.text,
+    fontSize: 14,
+    fontWeight: "800",
+    lineHeight: 19
   },
-  coffeeBody: {
+  supportHeroBody: {
     marginTop: 3,
     color: palette.textMuted,
-    fontSize: 11
+    fontSize: 12,
+    lineHeight: 17
+  },
+  supportTierGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 9,
+    marginTop: 14
+  },
+  supportTierCard: {
+    width: "48%",
+    minHeight: 94,
+    padding: 12,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: accent14,
+    backgroundColor: softPanel
+  },
+  supportTierTop: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 8
+  },
+  supportTierAmount: {
+    fontFamily: mono,
+    color: palette.text,
+    fontSize: 22,
+    fontWeight: "900",
+    includeFontPadding: false,
+    lineHeight: 26
+  },
+  supportTierStatus: {
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 999,
+    overflow: "hidden",
+    backgroundColor: warn08,
+    fontFamily: mono,
+    color: palette.amber,
+    fontSize: 7,
+    fontWeight: "900",
+    letterSpacing: 0.7,
+    textTransform: "uppercase"
+  },
+  supportTierLabel: {
+    marginTop: 12,
+    color: palette.textMuted,
+    fontSize: 12,
+    fontWeight: "800",
+    lineHeight: 16
+  },
+  supportMessage: {
+    marginTop: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: warn18,
+    backgroundColor: warn07,
+    color: palette.text,
+    fontSize: 12,
+    lineHeight: 18
+  },
+  supportFinePrint: {
+    marginTop: 12,
+    color: palette.textMuted,
+    fontSize: 11,
+    lineHeight: 16,
+    textAlign: "center"
+  },
+  supportDevFallback: {
+    alignSelf: "center",
+    minHeight: 34,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 7,
+    marginTop: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: hairline,
+    backgroundColor: softPanel
+  },
+  supportDevFallbackText: {
+    fontFamily: mono,
+    color: palette.textDim,
+    fontSize: 8,
+    fontWeight: "900",
+    letterSpacing: 0.8,
+    includeFontPadding: false,
+    lineHeight: 10
   },
   serverInput: {
     minHeight: 46,
     paddingHorizontal: 12,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.08)",
+    borderColor: hairline,
     color: palette.text,
-    backgroundColor: "rgba(0,0,0,0.18)",
+    backgroundColor: fieldPanel,
     fontFamily: mono,
     fontSize: 12
   },
@@ -3877,7 +4739,7 @@ function createStyles() {
   },
   connectButtonText: {
     fontFamily: mono,
-    color: "#000",
+    color: onGreenText,
     fontWeight: "700",
     fontSize: 11,
     letterSpacing: 1,
@@ -3895,7 +4757,7 @@ function createStyles() {
     marginTop: 12,
     paddingTop: 10,
     borderTopWidth: 1,
-    borderTopColor: "rgba(255,255,255,0.05)"
+    borderTopColor: palette.lineSoft
   },
   infoLineLabel: {
     fontFamily: mono,
@@ -3923,6 +4785,98 @@ function createStyles() {
     borderWidth: 1,
     borderColor: accent14,
     backgroundColor: palette.row
+  },
+  docTocPill: {
+    alignSelf: "flex-start",
+    minHeight: 34,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: accent18,
+    backgroundColor: accent08
+  },
+  docTocPillText: {
+    fontFamily: mono,
+    color: palette.blue2,
+    fontSize: 10,
+    fontWeight: "900",
+    letterSpacing: 1,
+    includeFontPadding: false,
+    lineHeight: 12
+  },
+  docTocPillCount: {
+    fontFamily: mono,
+    color: palette.textDim,
+    fontSize: 9,
+    fontWeight: "800",
+    letterSpacing: 0.8,
+    includeFontPadding: false,
+    lineHeight: 11
+  },
+  docTocSheet: {
+    maxHeight: "72%",
+    marginHorizontal: 12,
+    marginBottom: 12,
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: accent16,
+    backgroundColor: palette.shell,
+    paddingTop: 10,
+    overflow: "hidden"
+  },
+  docTocHeader: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 12,
+    paddingHorizontal: 18,
+    paddingTop: 16,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: palette.lineSoft
+  },
+  docTocContent: {
+    padding: 14,
+    paddingBottom: 24,
+    gap: 8
+  },
+  docTocItem: {
+    minHeight: 48,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: accent14,
+    backgroundColor: softPanel
+  },
+  docTocItemNested: {
+    marginLeft: 14,
+    backgroundColor: softPanelStrong
+  },
+  docTocItemLevel: {
+    width: 24,
+    fontFamily: mono,
+    color: palette.green,
+    fontSize: 9,
+    fontWeight: "900",
+    letterSpacing: 0.8,
+    includeFontPadding: false
+  },
+  docTocItemText: {
+    flex: 1,
+    minWidth: 0,
+    color: palette.text,
+    fontSize: 13,
+    fontWeight: "700",
+    lineHeight: 18
   },
   docTitle: {
     marginBottom: 12,
@@ -3971,7 +4925,7 @@ function createStyles() {
     borderRadius: 10,
     borderWidth: 1,
     borderColor: accent14,
-    backgroundColor: "rgba(0,0,0,0.20)"
+    backgroundColor: fieldPanel
   },
   docCodeText: {
     fontFamily: mono,
@@ -3993,7 +4947,7 @@ function createStyles() {
     borderRadius: 10,
     borderWidth: 1,
     borderColor: accent14,
-    backgroundColor: "rgba(0,0,0,0.18)"
+    backgroundColor: fieldPanel
   },
   feedbackContextText: {
     fontFamily: mono,
@@ -4020,6 +4974,35 @@ function createStyles() {
     backgroundColor: error10,
     borderWidth: 1,
     borderColor: error18
+  },
+  feedbackSupportHint: {
+    marginTop: 8,
+    minHeight: 34,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+    paddingHorizontal: 11,
+    paddingVertical: 8,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: warn18,
+    backgroundColor: warn07
+  },
+  feedbackSupportText: {
+    flex: 1,
+    minWidth: 0,
+    color: palette.textMuted,
+    fontSize: 11
+  },
+  feedbackSupportAction: {
+    fontFamily: mono,
+    color: palette.amber,
+    fontSize: 9,
+    fontWeight: "900",
+    letterSpacing: 0.9,
+    includeFontPadding: false,
+    lineHeight: 11
   },
   matrixToolShell: {
     marginHorizontal: 12,
@@ -4138,7 +5121,7 @@ function createStyles() {
     borderTopRightRadius: 28,
     borderWidth: 1,
     borderColor: accent16,
-    backgroundColor: "#0b121c",
+    backgroundColor: modalPanel,
     paddingTop: 10
   },
   actionSheetCard: {
@@ -4148,13 +5131,15 @@ function createStyles() {
     borderRadius: 24,
     borderWidth: 1,
     borderColor: accent16,
-    backgroundColor: "#0b121c"
+    backgroundColor: modalPanel
   },
   actionSheetTitle: {
     marginTop: 8,
+    fontFamily: mono,
     color: palette.text,
     fontSize: 20,
-    fontWeight: "800"
+    fontWeight: "800",
+    letterSpacing: 0.4
   },
   actionSheetSubtitle: {
     marginTop: 4,
@@ -4173,8 +5158,8 @@ function createStyles() {
     paddingHorizontal: 14,
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.06)",
-    backgroundColor: "rgba(255,255,255,0.035)"
+    borderColor: hairlineSoft,
+    backgroundColor: softPanel
   },
   actionButtonText: {
     fontFamily: mono,
@@ -4188,7 +5173,7 @@ function createStyles() {
     width: 54,
     height: 5,
     borderRadius: 999,
-    backgroundColor: "rgba(255,255,255,0.18)"
+    backgroundColor: handleColor
   },
   sheetHeader: {
     flexDirection: "row",
@@ -4198,7 +5183,7 @@ function createStyles() {
     paddingTop: 16,
     paddingBottom: 12,
     borderBottomWidth: 1,
-    borderBottomColor: "rgba(255,255,255,0.05)"
+    borderBottomColor: palette.lineSoft
   },
   sheetHeaderText: {
     flex: 1,
@@ -4213,9 +5198,11 @@ function createStyles() {
   },
   sheetTitle: {
     marginTop: 4,
+    fontFamily: mono,
     color: palette.text,
     fontSize: 20,
-    fontWeight: "800"
+    fontWeight: "800",
+    letterSpacing: 0.4
   },
   sheetSubtitle: {
     marginTop: 4,
@@ -4294,9 +5281,9 @@ function createStyles() {
   },
   sheetDelayBadgeOnTime: {
     color: palette.text,
-    backgroundColor: "rgba(255,255,255,0.04)",
+    backgroundColor: softPanelStrong,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.10)"
+    borderColor: hairline
   },
   sheetDelayBadgeWarn: {
     color: palette.amber,
@@ -4316,13 +5303,13 @@ function createStyles() {
   sheetSkeletonBar: {
     height: 18,
     borderRadius: 6,
-    backgroundColor: "rgba(255,255,255,0.08)"
+    backgroundColor: softPanelStrong
   },
   sheetSkeletonCard: {
     flex: 1,
     height: 56,
     borderRadius: 14,
-    backgroundColor: "rgba(255,255,255,0.05)"
+    backgroundColor: softPanelStrong
   },
   sheetMetricRow: {
     flexDirection: "row",
@@ -4334,8 +5321,8 @@ function createStyles() {
     padding: 14,
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.05)",
-    backgroundColor: "rgba(255,255,255,0.025)"
+    borderColor: hairlineSoft,
+    backgroundColor: softPanel
   },
   sheetMetricLabel: {
     fontFamily: mono,
@@ -4362,7 +5349,7 @@ function createStyles() {
   sheetHistoryRow: {
     paddingVertical: 10,
     borderTopWidth: 1,
-    borderTopColor: "rgba(255,255,255,0.05)"
+    borderTopColor: palette.lineSoft
   },
   sheetHistoryDate: {
     fontFamily: mono,
@@ -4391,6 +5378,9 @@ function createStyles() {
     justifyContent: "flex-end",
     backgroundColor: "rgba(0,0,0,0.5)"
   },
+  configSheetKeyboard: {
+    flex: 1
+  },
   configSheet: {
     backgroundColor: palette.shell,
     borderTopLeftRadius: 24,
@@ -4407,7 +5397,7 @@ function createStyles() {
     width: 36,
     height: 4,
     borderRadius: 2,
-    backgroundColor: "rgba(255,255,255,0.16)"
+    backgroundColor: handleColor
   },
   configSheetHeader: {
     flexDirection: "row",
@@ -4430,7 +5420,11 @@ function createStyles() {
     padding: 6
   },
   configSheetScroll: {
+    flexGrow: 0,
     paddingHorizontal: 20
+  },
+  configSheetScrollContent: {
+    paddingBottom: 48
   },
   configSectionLabel: {
     fontFamily: mono,
@@ -4442,7 +5436,7 @@ function createStyles() {
     marginBottom: 8
   },
   configSearchInput: {
-    backgroundColor: "rgba(255,255,255,0.05)",
+    backgroundColor: fieldPanel,
     borderWidth: 1,
     borderColor: palette.line,
     borderRadius: 10,
@@ -4522,7 +5516,7 @@ function createStyles() {
     paddingVertical: 10,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "rgba(255,255,255,0.03)"
+    backgroundColor: softPanel
   },
   configSegOptionActive: {
     backgroundColor: accent16
@@ -4554,7 +5548,7 @@ function createStyles() {
     borderRadius: 8,
     borderWidth: 1,
     borderColor: palette.line,
-    backgroundColor: "rgba(255,255,255,0.03)"
+    backgroundColor: softPanel
   },
   configIntervalCellActive: {
     borderColor: accent40,
@@ -4617,7 +5611,7 @@ function createStyles() {
   },
   configProfileInput: {
     flex: 1,
-    backgroundColor: "rgba(255,255,255,0.05)",
+    backgroundColor: fieldPanel,
     borderWidth: 1,
     borderColor: palette.line,
     borderRadius: 10,
@@ -4672,7 +5666,7 @@ function createStyles() {
   },
   configApplyBtnText: {
     fontFamily: mono,
-    color: palette.bg,
+    color: onBlueText,
     fontSize: 13,
     fontWeight: "800",
     letterSpacing: 1.2,
@@ -4727,6 +5721,55 @@ function createStyles() {
   scopeChipTextActive: {
     color: palette.blue
   },
+  matrixPresetRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginTop: 14
+  },
+  matrixPresetChip: {
+    width: "31.5%",
+    minWidth: 96,
+    minHeight: 76,
+    justifyContent: "center",
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: accent14,
+    backgroundColor: accent06
+  },
+  matrixPresetChipActive: {
+    borderColor: success25,
+    backgroundColor: success08
+  },
+  matrixPresetChipDisabled: {
+    opacity: 0.45
+  },
+  matrixPresetTop: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 6
+  },
+  matrixPresetLabel: {
+    flex: 1,
+    minWidth: 0,
+    color: palette.text,
+    fontSize: 11,
+    fontWeight: "800",
+    includeFontPadding: false,
+    lineHeight: 14
+  },
+  matrixPresetLabelActive: {
+    color: palette.green
+  },
+  matrixPresetMeta: {
+    marginTop: 6,
+    color: palette.textMuted,
+    fontSize: 10,
+    lineHeight: 14
+  },
   matrixActionRow: {
     flexDirection: "row",
     gap: 10,
@@ -4748,12 +5791,12 @@ function createStyles() {
     borderColor: accent30
   },
   matrixActionSecondary: {
-    backgroundColor: "rgba(255,255,255,0.03)",
+    backgroundColor: softPanel,
     borderColor: accent16
   },
   matrixActionPrimaryText: {
     fontFamily: mono,
-    color: palette.bg,
+    color: onBlueText,
     fontSize: 11,
     fontWeight: "700",
     letterSpacing: 0.8,
@@ -4800,9 +5843,11 @@ function createStyles() {
   },
   diagnosticsTitle: {
     marginTop: 8,
+    fontFamily: mono,
     color: palette.text,
     fontSize: 21,
-    fontWeight: "800"
+    fontWeight: "800",
+    letterSpacing: 0.4
   },
   diagnosticsBody: {
     marginTop: 10,
@@ -4848,11 +5893,21 @@ function createStyles() {
     backgroundColor: palette.row
   },
   appearancePreviewTitle: {
-    fontFamily: mono,
+    fontFamily: brand,
     color: palette.blue2,
     fontSize: 11,
-    fontWeight: "700",
-    letterSpacing: 1
+    fontWeight: "400",
+    letterSpacing: 0.6
+  },
+  companionSetupBrandText: {
+    fontFamily: brand,
+    fontWeight: "400",
+    letterSpacing: 0.8
+  },
+  companionSetupEyebrowSuffix: {
+    fontFamily: brand,
+    fontWeight: "400",
+    letterSpacing: 0.8
   },
   appearancePreviewBody: {
     marginTop: 5,

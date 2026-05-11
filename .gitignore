@@ -98,8 +98,6 @@ assets/*.ico
 assets/*.icns
 assets/*.iconset
 assets/*.png
-!assets/icon_circle.png
-!assets/icon_square.png
 linear_dedup.json
 
 # Claude Code local settings

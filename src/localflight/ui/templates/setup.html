@@ -41,6 +41,12 @@
       filter: drop-shadow(0 18px 30px rgba(0,0,0,.35));
     }
     .setup-header h1 { margin: 0 0 6px 0; font-size: clamp(1.35rem, 2vw, 1.9rem); }
+    .setup-brand-wordmark {
+      font-family: var(--font-brand);
+      font-weight: 400;
+      letter-spacing: 0.02em;
+      white-space: nowrap;
+    }
     .setup-header p  { margin: 0; opacity: 0.68; font-size: 0.9rem; line-height: 1.5; }
     .steps {
       display: flex;
@@ -287,9 +293,9 @@
 <body>
 <div class="setup-card">
   <div class="setup-header">
-    <img class="setup-mark" src="/static/brand_mark.svg" alt="" />
+    <img class="setup-mark" src="/static/localflight-logo.svg" alt="" />
     <div>
-      <h1>Welcome to Local Flight</h1>
+      <h1>Welcome to <span class="setup-brand-wordmark">Local Flight</span></h1>
       <p>Set the airport, choose the connection mode, and only fill the keys that actually belong to that setup.</p>
     </div>
   </div>

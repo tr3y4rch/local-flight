@@ -1,4 +1,4 @@
-import type { DashboardSnapshot, MatrixAnimationMode, MatrixPaletteId, MatrixRuntimeConfigSave } from "../api/types";
+import type { DashboardSnapshot, MatrixAnimationMode, MatrixPaletteId, MatrixPresetId, MatrixRuntimeConfigSave } from "../api/types";
 import { appVersion } from "../device/identity";
 import type { HistoryWindow, RadarRadius } from "./types";
 
@@ -13,6 +13,40 @@ export const MATRIX_BRIGHTNESS = [0.4, 0.6, 0.8, 1];
 export const MATRIX_REFRESH_SECONDS = [30, 60, 120, 300];
 export const MATRIX_ROTATION_SECONDS = [5, 8, 10, 15, 30];
 export const MATRIX_ANIMATION_SPEEDS = [1, 2, 3, 4, 5];
+
+export const MATRIX_PRESETS: Array<{
+  id: MatrixPresetId;
+  label: string;
+  meta: string;
+  detail: string;
+  palettes: MatrixPaletteId[];
+  showGateInfo: boolean;
+}> = [
+  {
+    id: "real_fids",
+    label: "Real FIDS",
+    meta: "Passenger board",
+    detail: "Routes, gates, status, and compact weather for physical display.",
+    palettes: ["pax_blue", "solari_amber", "ice_white", "sunset_terminal"],
+    showGateInfo: true
+  },
+  {
+    id: "vatsim_pilot",
+    label: "VATSIM Pilot",
+    meta: "Virtual flying",
+    detail: "Callsign-focused board with quieter virtual flight context.",
+    palettes: ["vatsim_scope", "tower_scope", "night_ops"],
+    showGateInfo: false
+  },
+  {
+    id: "vatsim_atc",
+    label: "VATSIM ATC",
+    meta: "Controller view",
+    detail: "Cycles departures, arrivals, and weather for ATC-style ops.",
+    palettes: ["tower_scope", "vatsim_scope", "night_ops"],
+    showGateInfo: false
+  }
+];
 
 export const MATRIX_ANIMATION_MODES: Array<{ id: MatrixAnimationMode; label: string; meta: string }> = [
   { id: "split_flap", label: "Split-flap", meta: "classic" },
@@ -115,6 +149,7 @@ export const EMPTY_SNAPSHOT: DashboardSnapshot = {
 };
 
 export const DEFAULT_MATRIX_CONFIG: MatrixRuntimeConfigSave = {
+  preset: "real_fids",
   brightness: 0.8,
   max_rows: 4,
   refresh_seconds: 60,
@@ -124,11 +159,13 @@ export const DEFAULT_MATRIX_CONFIG: MatrixRuntimeConfigSave = {
   animation_mode: "split_flap",
   animation_speed: 3,
   status_animation_enabled: true,
+  show_gate_info: true,
   palette: "pax_blue",
   options: {
     palette: "pax_blue",
     show_metar: true,
     show_weather: true,
+    show_gate_info: true,
     animation_mode: "split_flap"
   }
 };

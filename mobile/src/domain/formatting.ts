@@ -22,12 +22,26 @@ export function formatUtc(): string {
   });
 }
 
-export function formatLocalTime(): string {
-  return new Date().toLocaleTimeString([], {
+export function formatLocalTime(timeZone?: string | null): string {
+  const options: Intl.DateTimeFormatOptions = {
     hour: "2-digit",
     minute: "2-digit",
     hour12: false
-  });
+  };
+
+  if (timeZone) {
+    options.timeZone = timeZone;
+  }
+
+  try {
+    return new Date().toLocaleTimeString([], options);
+  } catch {
+    return new Date().toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false
+    });
+  }
 }
 
 export function formatRelative(value?: string | null): string {
