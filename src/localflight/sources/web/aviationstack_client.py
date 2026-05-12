@@ -88,8 +88,30 @@ def _has_enabled_byok_key() -> bool:
     return _has_api_key() and _is_enabled()
 
 
+def _has_enabled_aerodatabox_byok_key() -> bool:
+    key_present = bool(os.getenv("AERODATABOX_API_KEY", "").strip())
+    if not key_present:
+        return False
+    raw = os.getenv("LOCALFLIGHT_AERODATABOX_ENABLED", "").strip().lower()
+    if not raw:
+        return True
+    return raw in {"1", "true", "yes", "on"}
+
+
+def _get_real_schedule_provider() -> str:
+    raw = os.getenv("LOCALFLIGHT_REAL_SCHEDULE_PROVIDER", "auto").strip().lower()
+    return raw if raw in {"auto", "aerodatabox", "aviationstack"} else "auto"
+
+
+def _get_aerodatabox_units_limit() -> int:
+    try:
+        return max(0, int(os.getenv("LOCALFLIGHT_AERODATABOX_MONTHLY_UNITS_LIMIT", "24000")))
+    except (ValueError, TypeError):
+        return 24000
+
+
 def _is_relay_mode() -> bool:
-    return not _has_enabled_byok_key()
+    return not (_has_enabled_byok_key() or _has_enabled_aerodatabox_byok_key())
 
 
 def _get_byok_limit() -> int:
@@ -97,6 +119,18 @@ def _get_byok_limit() -> int:
         return int(os.getenv("LOCALFLIGHT_AVIATIONSTACK_MONTHLY_LIMIT", str(_DEFAULT_BYOK_LIMIT)))
     except (ValueError, TypeError):
         return _DEFAULT_BYOK_LIMIT
+
+
+def _daily_from_monthly(monthly_limit: int) -> int:
+    return max(0, (max(0, int(monthly_limit)) + 29) // 30)
+
+
+def _get_byok_daily_limit() -> int:
+    monthly = _get_byok_limit()
+    try:
+        return max(0, int(os.getenv("LOCALFLIGHT_AVIATIONSTACK_DAILY_LIMIT", str(_daily_from_monthly(monthly)))))
+    except (ValueError, TypeError):
+        return _daily_from_monthly(monthly)
 
 
 def _get_relay_url() -> str:
@@ -151,6 +185,15 @@ def _save_usage(data: Dict[str, Any]) -> None:
 
 def _month_key() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m")
+
+
+def _local_sqlite_counter(service: str, period: Optional[str] = None) -> int:
+    try:
+        from localflight.sources.web import local_usage
+
+        return int(local_usage.get_counter(service, period or _month_key()) or 0)
+    except Exception:
+        return 0
 
 
 def _utc_now() -> datetime:
@@ -239,6 +282,31 @@ def _increment_budget(bucket: str, limit: int, n_calls: int = 1) -> None:
     month_data = usage.setdefault(bucket, {})
     current = int(month_data.get(month, 0) or 0)
 
+    if bucket == "aviationstack":
+        try:
+            from localflight.sources.web import local_usage
+        except Exception:
+            local_usage = None
+
+        if local_usage is not None:
+            try:
+                local_usage.ensure_counter_at_least("aviationstack", month, current)
+                new_count = local_usage.check_and_increment(
+                    "aviationstack",
+                    n_calls,
+                    monthly_limit=limit,
+                    daily_limit=_get_byok_daily_limit(),
+                )
+                current = max(current, int(new_count or 0) - int(n_calls))
+            except local_usage.LocalBudgetExceeded as exc:
+                raise AviationstackBudgetExceeded(
+                    f"AviationStack {exc.period} budget exceeded: "
+                    f"{exc.current}/{exc.limit} calls used, {exc.requested} requested."
+                ) from exc
+            except Exception:
+                # Fall through to the legacy JSON guard if SQLite is unavailable.
+                pass
+
     if current + n_calls > limit:
         if bucket == "relay":
             raise AviationstackBudgetExceeded(
@@ -252,7 +320,7 @@ def _increment_budget(bucket: str, limit: int, n_calls: int = 1) -> None:
             f"to increase, or wait until next month."
         )
 
-    month_data[month] = current + n_calls
+    month_data[month] = max(int(month_data.get(month, 0) or 0), current + n_calls)
     for old in sorted(month_data.keys(), reverse=True)[3:]:
         del month_data[old]
     _save_usage(usage)
@@ -372,7 +440,7 @@ def _relay_uses_shared_schedule(source: Optional[str] = None) -> bool:
     source_name = (source or "real").strip().lower() or "real"
     if source_name == "virtual":
         return False
-    if _has_enabled_byok_key():
+    if _has_enabled_byok_key() or _has_enabled_aerodatabox_byok_key():
         return False
     if _has_activation_token():
         return True
@@ -470,7 +538,7 @@ def _active_mode(source: Optional[str]) -> str:
     source_name = (source or "real").strip().lower() or "real"
     if source_name == "virtual":
         return "virtual"
-    if _has_enabled_byok_key():
+    if _has_enabled_byok_key() or _has_enabled_aerodatabox_byok_key():
         return "byok"
     if _has_activation_token():
         return "managed"
@@ -1272,7 +1340,24 @@ def get_usage_stats(source: Optional[str] = None) -> Dict[str, Any]:
     managed_limit = int(relay_managed_limits.get(month, _managed_schedule_limit_fallback()) or _managed_schedule_limit_fallback())
     managed_calls = int(usage.get("relay_managed", {}).get(month, 0) or 0)
     byok_limit = _get_byok_limit()
-    byok_calls = int(usage.get("aviationstack", {}).get(month, 0) or 0)
+    byok_calls = max(
+        int(usage.get("aviationstack", {}).get(month, 0) or 0),
+        _local_sqlite_counter("aviationstack", month),
+    )
+    aerodatabox_limit = _get_aerodatabox_units_limit()
+    aerodatabox_units = max(
+        int(usage.get("aerodatabox_units", {}).get(month, 0) or 0),
+        _local_sqlite_counter("aerodatabox_units", month),
+    )
+    aerodatabox_requests = max(
+        int(usage.get("aerodatabox_requests", {}).get(month, 0) or 0),
+        _local_sqlite_counter("aerodatabox_requests", month),
+    )
+    provider_choice = _get_real_schedule_provider()
+    aerodatabox_active = (
+        _has_enabled_aerodatabox_byok_key()
+        and provider_choice in {"auto", "aerodatabox"}
+    )
     cost_estimate = estimate_schedule_cost(source_name)
     cached_snapshot = _load_relay_snapshot_info()
 
@@ -1345,17 +1430,39 @@ def get_usage_stats(source: Optional[str] = None) -> Dict[str, Any]:
         "shared_snapshot": shared_snapshot,
     }
     byok = {
-        "configured": _has_api_key(),
-        "enabled": _is_enabled(),
+        "configured": _has_api_key() or bool(os.getenv("AERODATABOX_API_KEY", "").strip()),
+        "enabled": _is_enabled() or _has_enabled_aerodatabox_byok_key(),
         "month": month,
-        "calls_this_month": byok_calls,
-        "monthly_limit": byok_limit,
+        "provider": "aerodatabox" if aerodatabox_active else "aviationstack",
+        "calls_this_month": aerodatabox_units if aerodatabox_active else byok_calls,
+        "monthly_limit": aerodatabox_limit if aerodatabox_active else byok_limit,
         "ui_monthly_max": _BYOK_PLAN_MAX,
-        "remaining": max(0, byok_limit - byok_calls),
+        "remaining": max(
+            0,
+            (aerodatabox_limit - aerodatabox_units) if aerodatabox_active else (byok_limit - byok_calls),
+        ),
         "plan_remaining": max(0, _BYOK_PLAN_MAX - byok_calls),
-        "budget_ok": byok_calls < byok_limit,
+        "budget_ok": aerodatabox_units < aerodatabox_limit if aerodatabox_active else byok_calls < byok_limit,
         "safety_reserve": max(0, _BYOK_PLAN_MAX - byok_limit),
         "cost_estimate": cost_estimate,
+        "aviationstack": {
+            "configured": _has_api_key(),
+            "enabled": _is_enabled(),
+            "calls_this_month": byok_calls,
+            "monthly_limit": byok_limit,
+            "remaining": max(0, byok_limit - byok_calls),
+            "budget_ok": byok_calls < byok_limit,
+        },
+        "aerodatabox": {
+            "configured": bool(os.getenv("AERODATABOX_API_KEY", "").strip()),
+            "enabled": _has_enabled_aerodatabox_byok_key(),
+            "provider_selected": provider_choice,
+            "units_this_month": aerodatabox_units,
+            "requests_this_month": aerodatabox_requests,
+            "monthly_units_limit": aerodatabox_limit,
+            "remaining_units": max(0, aerodatabox_limit - aerodatabox_units),
+            "budget_ok": aerodatabox_units < aerodatabox_limit,
+        },
     }
 
     if active_mode == "community":

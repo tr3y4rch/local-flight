@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 
 import localflight.scheduler.jobs as jobs
@@ -413,6 +414,46 @@ def test_api_fids_uses_sparse_departure_fallback_when_window_is_empty(monkeypatc
 
     assert len(rows) == 2
     assert [row.callsign for row in rows] == ["SWR100", "SWR101"]
+
+
+def test_api_fids_compiles_fused_aerodatabox_rows_for_web(monkeypatch) -> None:
+    now = datetime(2026, 5, 1, 9, 0, tzinfo=timezone.utc)
+    flight = replace(
+        _flight("SWR100", now + timedelta(hours=1), gate="A42", terminal="1", aircraft_type="A320"),
+        source="aerodatabox+aviationstack",
+        delay_minutes=7,
+        codeshares=("BA7100", "UA9000"),
+    )
+
+    monkeypatch.setattr(
+        ui_api,
+        "load_config",
+        lambda: AppConfig(
+            airport_iata="ZRH",
+            airport_icao="LSZH",
+            timezone="UTC",
+            web_row_limit=10,
+            display_grace_minutes=60,
+            display_horizon_hours=24,
+        ),
+    )
+    monkeypatch.setattr(ui_api, "_load_latest_flights", lambda airport_iata: ([flight], now))
+
+    rows = ui_api.api_fids(view="departures", limit=10)
+
+    assert len(rows) == 1
+    row = rows[0]
+    assert row.callsign == "SWR100"
+    assert row.flight_display == "LX 100"
+    assert row.airline_display == "Swiss"
+    assert row.codeshare_display == "Also BA7100 / UA9000"
+    assert row.route_display == "London (LHR)"
+    assert row.gate_display == "A42"
+    assert row.terminal_display == "1"
+    assert row.terminal_gate_display == "1 A42"
+    assert row.aircraft_type == "A320"
+    assert row.status_display == "DELAYED +7M"
+    assert row.source_hint == "aerodatabox+aviationstack"
 
 
 def test_byok_and_relay_fair_fetch_normalize_equivalently(monkeypatch) -> None:

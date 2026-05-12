@@ -48,6 +48,7 @@ Read the detailed guides:
 ## What It Does
 
 - Guided setup with **Community Relay**, **Bring your own keys**, and **VATSIM** paths
+- Real schedule support designed around cached shared snapshots, AeroDataBox/AviationStack provider compatibility, and stale-safe serving when live providers are slow or capped
 - Passenger-style FIDS boards with arrivals/departures, airport-local time, status/gate chips, codeshare grouping, pinned flights, and live refresh
 - Radar with real/VATSIM traffic, METAR weather, range controls, optional runway/surface/map/terrain context, and richer aircraft/status detail
 - Native Qt desktop shell with Display, FIDS, Radar, Matrix, Settings, Admin, History, Logs, Report, and local docs
@@ -133,7 +134,7 @@ Setup asks for:
 4. Diagnostics choice
 5. Finish confirmation
 
-Community Relay is the recommended first path. BYOK is for users who already have provider keys. VATSIM is the no-key virtual traffic path.
+Community Relay is the recommended first path. It uses cached shared schedule snapshots so many installs can watch the same airport without each one calling a paid provider. BYOK is for users who already have provider keys such as AeroDataBox, AviationStack, RapidAPI ADS-B Exchange, or OpenSky. VATSIM is the no-key virtual traffic path.
 
 ---
 
@@ -177,6 +178,6 @@ Windows, macOS, and Pi source installers are documented in [docs/install.md](doc
 - **Native by default on desktop:** the main desktop app does not need a browser profile, webview, online font, CDN, extension, or sync surface.
 - **LAN browser UI stays supported:** useful for headless installs, remote viewing, kiosk displays, and recovery.
 - **Server-mediated companions:** mobile and Matrix talk through your Local Flight server.
-- **Budget-aware:** provider and relay usage is tracked and guarded.
+- **Budget-aware:** provider and relay usage is cached, tracked, and guarded before paid calls are made.
 
 For display-choice philosophy, see [docs/display-modes.md](docs/display-modes.md).

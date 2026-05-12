@@ -11,15 +11,17 @@ Built with: Python 3.11+, FastAPI, uvicorn, SQLite, WebSocket, Jinja2, PIL, and 
 
 ---
 
-## Current 0.2.6 handoff snapshot (2026-05-10)
+## Current 0.2.6 handoff snapshot (2026-05-12)
 
 - Active package target: `0.2.6` as the temporary client-polish/release-candidate line. `pyproject.toml` remains the source of truth; keep runtime fallbacks, native docs, mobile metadata, and preview/release docs aligned with it.
 - Windows-side validation is green from this tree: `pip check`, `pip list --outdated --format=json` returned `[]`, `python -m compileall -q src relay installers scripts tests`, and `python -m pytest tests -q` returned `293 passed`.
+- Current Mac/Codex workspace validation after the AeroDataBox relay/cache work: `.venv/bin/python -m pytest tests -q` returned `333 passed`; focused web/Qt fused-provider tests returned `124 passed`.
 - Windows and Pi artifacts have been rebuilt from the current Windows workspace:
   - `dist/LocalFlight-windows.zip` — SHA256 `bc5c76a4ec5a43e3a0f2f170d5362dd300872670a9c97aca1f064febdb37ef27`
   - `dist/LocalFlight-pi-source-0.2.6.zip` — SHA256 `85ac55de8bd0c82bb607ba2f66c880b0c33cb9420e059f8748eac36ec40a3204`
 - macOS still needs its own pull/validation/package pass from the same state before publishing the GitHub release. Do not reuse stale `0.2.5b5` macOS/Pi handoff notes.
 - Recent client-facing changes to preserve in Mac/Pi smoke tests: native/browser History analytics dashboard, Matrix configurator parity, compact Matrix weather header, real-only Matrix gate labels, Settings/setup dashboard polish, FIDS/Radar current-source intelligence details, and LAN radar parity with Qt radar behavior.
+- Schedule-provider work to preserve in relay/client smoke tests: AeroDataBox primary FIDS source, AviationStack sparse fill/fallback, hard upstream caps, 24h stale-cache serving, source-cache re-merge, canonical provider meta, and fused rows compiling through both `/api/fids` and Qt `FlightBoardModel`.
 - Separation of power still applies: public docs stay user-focused; relay operator/admin details belong only in `AGENTS.md`, `DEV_README.md`, `CLAUDE.md`, and operator tooling.
 
 ---
@@ -49,19 +51,23 @@ local-flight/
 │   │   ├── normalize.py         # Raw records → Flight objects
 │   │   ├── opensky.py           # OpenSky enrichment
 │   │   └── mappings/
-│   │       └── aviationstack.py
+│   │       ├── aviationstack.py
+│   │       └── aerodatabox.py
 │   ├── display/
 │   │   └── fids_from_flights.py # PAX-friendly flight number formatting
 │   ├── render/
 │   │   └── fids.py              # Build Jinja2 template context
 │   ├── scheduler/
-│   │   ├── jobs.py              # Main fetch job — AviationStack + enrichment chain
+│   │   ├── jobs.py              # Main fetch job — AeroDataBox/AviationStack + enrichment chain
 │   │   ├── runtime.py           # run_loop(); stop_event-aware sleeps + crash reporting
 │   │   ├── control.py           # In-process scheduler start/status/restart controller
 │   │   └── run_scheduler.py
 │   ├── sources/
 │   │   ├── web/
 │   │   │   ├── aviationstack_client.py  # BYOK + community relay budget guard; activation token; lazy env reads
+│   │   │   ├── aerodatabox_client.py    # BYOK AeroDataBox FIDS client + local atomic budget guard
+│   │   │   ├── schedule_fusion.py       # AeroDataBox primary + AviationStack fill merge policy
+│   │   │   ├── local_usage.py           # Local SQLite usage counters for direct provider caps
 │   │   │   ├── aviationstack_mock.py
 │   │   │   ├── adsbexchange_client.py   # RapidAPI + relay radar proxy; primary position enrichment
 │   │   │   ├── opensky_radar.py         # fetch_radar_blips(), bounding_box()
@@ -174,7 +180,11 @@ Native/Chrome-free additions:
 
 ### Data enrichment chain (source=real)
 ```
-AviationStack (schedule: times, gates, status) [90 calls/month budget guard]
+AeroDataBox FIDS (primary schedule: dense airport board, times/status, gates/terminals/aircraft when present)
+    ↓ sparse/missing-field fill
+AviationStack (conditional schedule fill/fallback; fills empty board fields without overwriting AeroDataBox times/status)
+    ↓
+Schedule fusion (canonical Local Flight rows; deterministic flight identity; source evidence kept in meta)
     ↓
 ADS-B Exchange via RapidAPI (primary: position + aircraft type + registration)
     ↓ fallback
@@ -186,6 +196,8 @@ Dedupe codeshares → save JSON snapshot → write SQLite history → WebSocket 
     ↓ on error
 Linear issue filed (deduplicated per 6h via ~/.localflight/linear_dedup.json)
 ```
+
+Provider selection stays inside `source=real`: `LOCALFLIGHT_REAL_SCHEDULE_PROVIDER` / `RELAY_SCHEDULE_PROVIDER` can be `auto`, `aerodatabox`, or `aviationstack`. `auto` prefers AeroDataBox when configured/enabled and uses AviationStack only as sparse fill or fallback. The public app mode remains `real|virtual`.
 
 ### WebSocket live push
 - `ConnectionManager` in `server.py` tracks connections, drains async queue
@@ -218,11 +230,13 @@ Linear issue filed (deduplicated per 6h via ~/.localflight/linear_dedup.json)
 - `/api/setup/reset` deletes the marker — triggers re-run wizard. Button in Settings footer.
 
 ### API call budget
-- AviationStack BYOK default: 90 calls/month, tracked in `~/.localflight/api_usage.json`
+- Local direct-provider budgets are enforced before outbound calls. New code uses SQLite counters in `~/.localflight/api_usage.sqlite` and keeps legacy `~/.localflight/api_usage.json` readable for display/backward compatibility.
+- AeroDataBox BYOK default: enabled only when `AERODATABOX_API_KEY` and `LOCALFLIGHT_AERODATABOX_ENABLED=1` are present. Default local monthly unit cap is `LOCALFLIGHT_AERODATABOX_MONTHLY_UNITS_LIMIT=24000`, with daily cap defaulting to `ceil(monthly/30)` unless `LOCALFLIGHT_AERODATABOX_DAILY_UNITS_LIMIT` is set. FIDS Tier 2 requests count as 2 units each.
+- AviationStack BYOK default: 90 calls/month unless `LOCALFLIGHT_AVIATIONSTACK_MONTHLY_LIMIT` is set. Local direct calls are now guarded atomically per request/page.
 - Community relay default: 50 relay schedule accesses/month per install
-- Community and managed relay-backed installs now share airport snapshots on the relay; upstream AviationStack pulls are counted separately from per-install accesses
+- Community and managed relay-backed installs share airport snapshots on the relay; upstream AeroDataBox units/requests and AviationStack pages are counted separately from per-install accesses and guarded before each upstream call.
 - ADS-B Exchange / RapidAPI default: 10,000 calls/month
-- Enforced in `aviationstack_client.py` via `_check_and_increment_budget()` before each request
+- Relay schedule admission is cache-first and fail-closed: unknown airports are rejected, windows are bucketed, cheap RPM/new-key limits run before DB-heavy work, provider monthly/daily caps are checked before upstream, and cap exhaustion is handled like an upstream outage so stale cache can serve.
 - All env vars read lazily at call time (not module import time) to avoid race with `_load_dotenv()`
 
 ### Linear issue tracker
@@ -272,6 +286,12 @@ LOCALFLIGHT_AVIATIONSTACK_ENABLED=1
 LOCALFLIGHT_AVIATIONSTACK_MONTHLY_LIMIT=90
 LOCALFLIGHT_RELAY_MONTHLY_LIMIT=50
 
+# BYOK AeroDataBox schedule provider
+AERODATABOX_API_KEY=
+LOCALFLIGHT_AERODATABOX_ENABLED=0
+LOCALFLIGHT_AERODATABOX_MONTHLY_UNITS_LIMIT=24000
+LOCALFLIGHT_REAL_SCHEDULE_PROVIDER=auto
+
 OPENSKY_CLIENT_ID=
 OPENSKY_CLIENT_SECRET=
 
@@ -279,7 +299,9 @@ RAPIDAPI_KEY=
 LOCALFLIGHT_RAPIDAPI_MONTHLY_LIMIT=10000
 ```
 
-Relay server env vars (relay/.env): `RELAY_ADMIN_PASSWORD`, `DB_PATH`, `RELAY_PUBLIC_HOST`, `RELAY_ADMIN_HOST`, `RELAY_COMMUNITY_SCHEDULE_LIMIT`, `RELAY_RADAR_MONTHLY_LIMIT`, `RELAY_MANAGED_SCHEDULE_LIMIT`, `RELAY_MANAGED_RADAR_LIMIT`, `RELAY_RADAR_CACHE_SECONDS`, `RELAY_AIRPORT_SURFACE_ENABLED`, `RELAY_AIRPORT_SURFACE_CACHE_HOURS`, `RELAY_AIRPORT_SURFACE_STALE_DAYS`, `RELAY_OVERPASS_URL`, `RELAY_AUTO_ACTIVATION_NETWORK_DAILY_LIMIT`, `RELAY_AUTO_ACTIVATION_NETWORK_INSTALLS_DAILY_LIMIT`, `LINEAR_REPORTER_API_KEY`, `LINEAR_TEAM_IOS_ID`, `LINEAR_TEAM_DESKTOP_ID`, `LINEAR_TEAM_SERVER_ID`, `LINEAR_TEAM_RELAY_ID`, `LINEAR_TEAM_DEFAULT_ID`
+Optional local direct-provider daily caps: `LOCALFLIGHT_AERODATABOX_DAILY_UNITS_LIMIT` and `LOCALFLIGHT_AVIATIONSTACK_DAILY_LIMIT`; both default to `ceil(monthly/30)`.
+
+Relay server env vars (relay/.env / Fly secrets): `RELAY_ADMIN_PASSWORD`, `DB_PATH`, `RELAY_PUBLIC_HOST`, `RELAY_ADMIN_HOST`, `AERODATABOX_API_KEY`, `AVIATIONSTACK_API_KEY`, `RELAY_SCHEDULE_PROVIDER`, `RELAY_AERODATABOX_UPSTREAM_MONTHLY_UNITS_LIMIT`, `RELAY_AERODATABOX_UPSTREAM_DAILY_UNITS_LIMIT`, `RELAY_AERODATABOX_FIDS_TIER2_UNITS`, `RELAY_AVIATIONSTACK_UPSTREAM_MONTHLY_LIMIT`, `RELAY_AVIATIONSTACK_UPSTREAM_DAILY_LIMIT`, `RELAY_SCHEDULE_STALE_IF_ERROR_HOURS`, `RELAY_SCHEDULE_NETWORK_RPM_LIMIT`, `RELAY_SCHEDULE_INSTALL_RPM_LIMIT`, `RELAY_SCHEDULE_GLOBAL_RPM_LIMIT`, `RELAY_SCHEDULE_NEW_KEYS_NETWORK_DAILY_LIMIT`, `RELAY_SCHEDULE_NEW_KEYS_GLOBAL_DAILY_LIMIT`, `RELAY_PROVIDER_FAILURE_COOLDOWN_SECONDS`, `RELAY_COMMUNITY_SCHEDULE_LIMIT`, `RELAY_RADAR_MONTHLY_LIMIT`, `RELAY_MANAGED_SCHEDULE_LIMIT`, `RELAY_MANAGED_RADAR_LIMIT`, `RELAY_RADAR_CACHE_SECONDS`, `RELAY_AIRPORT_SURFACE_ENABLED`, `RELAY_AIRPORT_SURFACE_CACHE_HOURS`, `RELAY_AIRPORT_SURFACE_STALE_DAYS`, `RELAY_OVERPASS_URL`, `RELAY_AUTO_ACTIVATION_NETWORK_DAILY_LIMIT`, `RELAY_AUTO_ACTIVATION_NETWORK_INSTALLS_DAILY_LIMIT`, `LINEAR_REPORTER_API_KEY`, `LINEAR_TEAM_IOS_ID`, `LINEAR_TEAM_DESKTOP_ID`, `LINEAR_TEAM_SERVER_ID`, `LINEAR_TEAM_RELAY_ID`, `LINEAR_TEAM_DEFAULT_ID`
 
 ---
 
@@ -291,23 +313,60 @@ Use this when moving back to the Windows dev machine and deploying the relay/rep
 - Work from a clean/current checkout of `https://github.com/tr3y4rch/local-flight`.
 - Confirm Fly CLI is installed and authenticated: `fly auth login`
 - Confirm the target app exists: `fly status -a localflight-community-relay`
-- Relay deploys from the `relay/` directory because `relay/fly.toml` and `relay/Dockerfile` are scoped there.
-- Do not put Linear secrets in `.env`, `fly.toml`, GitHub, desktop code, mobile code, or docs. They belong only in Fly secrets / dashboard env.
+- Relay deploys from the repo root with explicit config/dockerfile paths. Do not deploy from inside `relay/`; the Dockerfile copies `src/localflight`, so the build context must be the repo root.
+- Do not put provider or Linear secrets in `.env`, `fly.toml`, GitHub, desktop code, mobile code, or docs. They belong only in Fly secrets / dashboard env.
+- Do not publish operator-only relay/admin routes, provider quotas, or Fly secret names in public docs. Public docs may say the hosted relay uses cached shared schedule snapshots and multiple providers.
 
 ### Deploy updated relay code
 
 ```powershell
-cd relay
-fly deploy --remote-only
-cd ..
+fly deploy --remote-only --config relay/fly.toml --dockerfile relay/Dockerfile -a localflight-community-relay
 ```
 
-If Fly asks which app to use, choose `localflight-community-relay`. If in doubt, use the explicit form:
+If Fly asks which app to use, choose `localflight-community-relay`. The GitHub Actions deploy workflow must use the same repo-root shape:
+
+```yaml
+flyctl deploy --remote-only --config relay/fly.toml --dockerfile relay/Dockerfile
+```
+
+### Add/update schedule provider secrets
+
+Set these in the Fly dashboard for `localflight-community-relay` or through the CLI. Values are examples for the current paid tiers; keep the actual provider keys only in Fly secrets.
+
+Required/expected schedule-provider secrets:
+- `AERODATABOX_API_KEY`
+- `RELAY_SCHEDULE_PROVIDER=auto`
+- `RELAY_AERODATABOX_UPSTREAM_MONTHLY_UNITS_LIMIT=24000`
+- `RELAY_AERODATABOX_FIDS_TIER2_UNITS=2`
+- `RELAY_AVIATIONSTACK_UPSTREAM_MONTHLY_LIMIT=10000`
+- `RELAY_SCHEDULE_STALE_IF_ERROR_HOURS=24`
+
+Optional hardening overrides:
+- `RELAY_AERODATABOX_UPSTREAM_DAILY_UNITS_LIMIT` default `ceil(monthly/30)`
+- `RELAY_AVIATIONSTACK_UPSTREAM_DAILY_LIMIT` default `ceil(monthly/30)`
+- `RELAY_SCHEDULE_NETWORK_RPM_LIMIT=120`
+- `RELAY_SCHEDULE_INSTALL_RPM_LIMIT=30`
+- `RELAY_SCHEDULE_GLOBAL_RPM_LIMIT=600`
+- `RELAY_SCHEDULE_NEW_KEYS_NETWORK_DAILY_LIMIT=20`
+- `RELAY_SCHEDULE_NEW_KEYS_GLOBAL_DAILY_LIMIT=200`
+- `RELAY_PROVIDER_FAILURE_COOLDOWN_SECONDS=600`
+
+PowerShell CLI form:
 
 ```powershell
-cd relay
-fly deploy --remote-only -a localflight-community-relay
-cd ..
+fly secrets set -a localflight-community-relay `
+  AERODATABOX_API_KEY="<aerodatabox-api-key>" `
+  RELAY_SCHEDULE_PROVIDER="auto" `
+  RELAY_AERODATABOX_UPSTREAM_MONTHLY_UNITS_LIMIT="24000" `
+  RELAY_AERODATABOX_FIDS_TIER2_UNITS="2" `
+  RELAY_AVIATIONSTACK_UPSTREAM_MONTHLY_LIMIT="10000" `
+  RELAY_SCHEDULE_STALE_IF_ERROR_HOURS="24"
+```
+
+Confirm secret names are present without printing values:
+
+```powershell
+fly secrets list -a localflight-community-relay
 ```
 
 ### Add/update Linear reporting secrets
@@ -340,12 +399,10 @@ PowerShell line-continuation backticks must be the final character on the line; 
 fly secrets list -a localflight-community-relay
 ```
 
-Fly secrets are injected as runtime environment variables at machine boot. `fly secrets set` normally restarts/updates Machines; if secrets were staged or added via dashboard without a restart, redeploy from the relay folder:
+Fly secrets are injected as runtime environment variables at machine boot. `fly secrets set` normally restarts/updates Machines; if secrets were staged or added via dashboard without a restart, redeploy from the repo root:
 
 ```powershell
-cd relay
-fly deploy --remote-only -a localflight-community-relay
-cd ..
+fly deploy --remote-only --config relay/fly.toml --dockerfile relay/Dockerfile -a localflight-community-relay
 ```
 
 ### Verify relay health
@@ -355,6 +412,20 @@ curl.exe -I --max-time 20 https://localflight-community-relay.fly.dev/health
 ```
 
 Expected: HTTP `200`.
+
+Then smoke a fresh schedule lane. If an old cached lane already exists, either choose another known airport/window bucket or clear shared schedule snapshots through the operator maintenance flow before testing provider selection.
+
+```powershell
+$installId = [guid]::NewGuid().ToString()
+$uri = "https://localflight-community-relay.fly.dev/v1/schedule?airport_iata=ZRH&timezone=Europe%2FZurich&display_grace_minutes=120&display_horizon_hours=24&refresh_seconds=3600&install_id=$installId&app_version=0.2.6-smoke&os_family=windows&requested_gui=native&effective_gui=native&source_mode=real&diagnostics_mode=manual"
+$schedule = Invoke-RestMethod -Method Get -Uri $uri
+$schedule.provider
+$schedule.cache_state
+$schedule.meta.schedule_provider_mode
+$schedule.meta.provider_record_counts
+```
+
+Expected after the AeroDataBox relay build is live: provider is `aerodatabox` or `aerodatabox+aviationstack`, `meta.schedule_provider_mode` is `auto`, and `meta.provider_record_counts` is present. If a cache miss still returns `provider=aviationstack` with `planner_version=fair-v3` and no provider-fusion meta, the app is still serving the older AviationStack-only relay build.
 
 Optional synthetic report smoke test after secrets are live:
 
@@ -573,8 +644,8 @@ npm run ios
 - Community relay root is live at `https://localflight-community-relay.fly.dev`. The client derives `/v1/schedule`, `/v1/radar`, `/v1/airport-surface`, `/v1/reports`, and activation routes internally; `/v1/flights` is raw-provider debug only.
 - Relay admin panel: prefer Fly dashboard/CLI or `fly ssh console`. The local `start_network.bat` helper is operator-only and gitignored. Public admin access is optional and must stay password-protected; do not publish operator-only entrypoints in public docs.
 - Chrome-free GUI foundation is now native-first by default: blank/invalid `LOCALFLIGHT_GUI_MODE` resolves to `native`, `platform/gui_launcher.py` verifies PySide6/Qt before native launch, display-attached Pi/Linux can use native fullscreen when installed through `--native-kiosk`, and browser/kiosk mode remains a supported LAN/browser display path for users who prefer or need it. Source installers now expose the display choice directly: Windows `install.ps1 -DisplayMode Native|Browser|Headless`, macOS `install.sh --display native|browser|headless`, and Pi `install.sh` prompts when no flag is passed while preserving `--headless`, `--native-kiosk`, and `--kiosk`. The native client now mirrors the browser/LAN UI structure with a top nav and user pages, loads the shared SVG splash/brand/preview media, embeds the public README/privacy/changelog reader inside Settings, has native setup/matrix/logs/traffic/report controls wired to declared local routes, connects to local `/ws` via QtWebSockets, and includes a required first-run Diagnostics step that saves `diagnostics_mode` through `/api/setup/complete` before the Display shell opens. Its design layer maps the same dark/light theme plus standard/technical/neon/cyan/crt skins into Qt styling and native canvas painters, so FIDS/Radar/Matrix no longer drift into a single debug palette. Native local API calls use a short TTL cache for duplicate-safe GET routes, mutate actions clear that cache, hidden canvases pause animation timers, and active-page polling is intentionally lighter than the browser UI. Network Admin remains a separate operator-only Qt shell backed by styled `/admin/api/*` relay read/action endpoints.
-- Fly deployment: one warm machine in `fra`, one SQLite volume (`relay_data`), host-based public/admin gating in `relay/main.py`. Shared-schedule relay deploys now need the repo-root command `fly deploy --config relay/fly.toml --dockerfile relay/Dockerfile --remote-only` so the image includes `src/localflight`.
-- Live shared schedule planner is currently `fair-v3`: date-scoped fair paging, adaptive continuation, and an undated rescue fallback. Cold relay rebuilds may take longer, so relay-backed desktop fetches now allow `60s`.
+- Fly deployment: one warm machine in `fra`, one SQLite volume (`relay_data`), host-based public/admin gating in `relay/main.py`. Shared-schedule relay deploys must use the repo-root command `fly deploy --config relay/fly.toml --dockerfile relay/Dockerfile --remote-only -a localflight-community-relay` so the image includes `src/localflight`.
+- AeroDataBox relay handoff: local code and tests now support AeroDataBox primary schedule, AviationStack sparse fill/fallback, hard upstream caps, provider source caches, stale merged cache serving, and web/Qt canonical FIDS compilation. The deployed Fly relay was last observed still serving the older AviationStack-only `fair-v3` shape; after redeploy, verify a fresh cache lane returns `provider=aerodatabox` or `aerodatabox+aviationstack` plus `meta.schedule_provider_mode=auto`.
 - Mobile Expo/TypeScript validation belongs on the Mac/Xcode side after `npm install` unless Node/npm are installed on the current dev machine.
 - Desktop resume on Windows: run `.\start.bat`, confirm Community setup preloads the hosted relay URL, then verify FIDS/radar/admin against the live relay contract.
 - Release resume: Windows and Pi artifacts were rebuilt from the current `0.2.6` Windows checkout; macOS still needs a fresh Mac build before creating GitHub release `v0.2.6`. If any source changes land after this note, rebuild all affected artifacts and matching `.sha256` files.
@@ -755,7 +826,7 @@ npm run ios
 - [ ] Build the macOS artifact from the same `0.2.6` source state, then create the GitHub release `v0.2.6` and attach Windows, macOS, and Pi artifacts plus all matching `.sha256` files.
 - [ ] Register custom domain and wire the public relay hostname plus operator admin hostname DNS to `localflight-community-relay.fly.dev`; run `fly certs add` for both.
 - [ ] End-to-end community client activation test against live relay.
-- [ ] Decide the next step for sparse AviationStack airports: second provider merge, sparse-board warning UX, or a deliberate stale-board fallback instead of an empty departures page.
+- [x] Sparse AviationStack airport next step is implemented as the AeroDataBox/fusion/cache-hardening path: AeroDataBox is primary when configured, AviationStack is sparse fill/fallback, and stale merged cache can serve instead of replacing a healthy board with suspiciously thin data.
 - [ ] Mobile — resolve Expo SDK 55 vs Xcode compatibility, then test in iOS simulator/dev build.
 - [ ] Validate the companion runtime flows on-device/simulator: connection setup, FIDS/Radar/History/Settings, appearance persistence, Matrix save/reset, landscape split, radar pinch zoom, feedback, crash gating, and WebSocket refresh.
 - [ ] Notification system (Pushover/Telegram) — ~50 lines, hooks into scheduler after `_broadcast_update()`

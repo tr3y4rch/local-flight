@@ -25,6 +25,7 @@ from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from pydantic import BaseModel, Field, field_validator
 
 AVIATIONSTACK_URL = "https://api.aviationstack.com/v1/flights"
+AERODATABOX_URL = "https://aerodatabox.p.rapidapi.com"
 ADSBX_URL = "https://adsbexchange-com1.p.rapidapi.com/v2"
 
 _UUID_RE = re.compile(
@@ -34,6 +35,7 @@ _UUID_RE = re.compile(
 _AIRPORT_RE = re.compile(r"^[A-Z0-9]{2,4}$")
 
 _SETTING_AVIATIONSTACK_KEY = "provider_aviationstack_key"
+_SETTING_AERODATABOX_KEY = "provider_aerodatabox_key"
 _SETTING_RAPIDAPI_KEY = "provider_rapidapi_key"
 _SETTING_PROVIDER_REVISION = "provider_revision"
 _SETTING_NETWORK_SECRET = "network_secret"
@@ -47,11 +49,13 @@ _REQUEST_STATUS_DISMISSED = "dismissed"
 _AUTO_ACTIVATION_NETWORK_DAILY_LIMIT = 6
 _AUTO_ACTIVATION_NETWORK_INSTALLS_DAILY_LIMIT = 4
 _SHARED_SCHEDULE_PROVIDER = "aviationstack"
-_SHARED_SCHEDULE_PLANNER_VERSION = "fair-v3"
+_SHARED_SCHEDULE_PLANNER_VERSION = "fair-v5"
 _SHARED_SCHEDULE_SCHEMA_VERSION = "canonical-raw-v1"
 _SHARED_SCHEDULE_LOCK_WAIT_S = 4.0
 _SHARED_SCHEDULE_MIN_FRESH_TTL_S = 900
 _COMMUNITY_SCHEDULE_MIN_FRESH_TTL_S = 3600
+_SCHEDULE_GRACE_BUCKETS = (0, 30, 60, 120, 180)
+_SCHEDULE_HORIZON_BUCKETS = (6, 12, 18, 24)
 _AIRPORT_SURFACE_SCHEMA_VERSION = "osm-surface-v1"
 _AIRPORT_SURFACE_LOCK_WAIT_S = 4.0
 
@@ -89,7 +93,7 @@ _REPORT_TEAM_ENV = {
 }
 
 _SECRET_PATTERNS = (
-    (re.compile(r"(AVIATIONSTACK_API_KEY|RAPIDAPI_KEY|OPENSKY_CLIENT_SECRET|LINEAR_API_KEY|LINEAR_REPORTER_API_KEY)=\S+", re.I), r"\1=[redacted]"),
+    (re.compile(r"(AVIATIONSTACK_API_KEY|AERODATABOX_API_KEY|RAPIDAPI_KEY|OPENSKY_CLIENT_SECRET|LINEAR_API_KEY|LINEAR_REPORTER_API_KEY)=\S+", re.I), r"\1=[redacted]"),
     (re.compile(r"(access_key=)[^&\s]+", re.I), r"\1[redacted]"),
     (re.compile(r"(X-RapidAPI-Key['\":\s]+)[A-Za-z0-9._-]+", re.I), r"\1[redacted]"),
     (re.compile(r"lin_api_[A-Za-z0-9_]+", re.I), "[redacted-linear-token]"),
@@ -101,8 +105,41 @@ _SECRET_PATTERNS = (
 )
 
 
+class UpstreamBudgetExceeded(HTTPException):
+    def __init__(
+        self,
+        *,
+        provider: str,
+        service: str,
+        current: int,
+        limit: int,
+        requested: int,
+        period: str = "monthly",
+    ) -> None:
+        self.provider = provider
+        self.service = service
+        self.current = int(current)
+        self.limit = int(limit)
+        self.requested = int(requested)
+        self.period = period
+        super().__init__(
+            status_code=429,
+            detail=(
+                f"{provider} upstream {period} budget capped: "
+                f"{current}/{limit} used, {requested} requested."
+            ),
+        )
+
+
 def _env(key: str, default: str = "") -> str:
     return os.environ.get(key, default).strip()
+
+
+def _int_env(key: str, default: int, *, minimum: int = 0) -> int:
+    try:
+        return max(minimum, int(_env(key, str(default))))
+    except (TypeError, ValueError):
+        return max(minimum, int(default))
 
 
 def _public_host() -> str:
@@ -445,6 +482,36 @@ def _ensure_schema() -> None:
     )
     conn.execute(
         """
+        CREATE TABLE IF NOT EXISTS provider_schedule_snapshots (
+            cache_key               TEXT PRIMARY KEY,
+            provider                TEXT NOT NULL,
+            airport_iata            TEXT NOT NULL,
+            timezone                TEXT NOT NULL,
+            display_grace_minutes   INTEGER NOT NULL,
+            display_horizon_hours   INTEGER NOT NULL,
+            policy_version          TEXT NOT NULL,
+            generated_at            TEXT NOT NULL,
+            updated_at              TEXT NOT NULL,
+            meta_json               TEXT NOT NULL,
+            records_json            TEXT NOT NULL,
+            refresh_count           INTEGER DEFAULT 0,
+            last_error              TEXT
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS provider_circuit_breakers (
+            provider       TEXT PRIMARY KEY,
+            failure_count  INTEGER DEFAULT 0,
+            opened_until   TEXT,
+            last_error     TEXT,
+            updated_at     TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute(
+        """
         CREATE TABLE IF NOT EXISTS airport_surface_snapshots (
             cache_key        TEXT PRIMARY KEY,
             airport_iata     TEXT NOT NULL,
@@ -563,6 +630,8 @@ def _ensure_schema() -> None:
     conn.execute("CREATE INDEX IF NOT EXISTS idx_report_events_network ON report_events (network_tag, ts)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_report_dedupe_seen ON report_dedupe (last_seen)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_schedule_snapshots_airport ON schedule_snapshots (airport_iata, updated_at DESC)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_provider_schedule_snapshots_airport ON provider_schedule_snapshots (provider, airport_iata, updated_at DESC)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_provider_circuit_breakers_open ON provider_circuit_breakers (opened_until)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_airport_surface_updated ON airport_surface_snapshots (airport_iata, updated_at DESC)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_client_interests_last_seen ON client_interests (last_seen DESC)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_install_profiles_last_seen ON install_profiles (last_seen DESC)")
@@ -577,6 +646,10 @@ def _month_key() -> str:
 
 def _day_key() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+
+def _minute_key() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%MZ")
 
 
 def _utc_now() -> str:
@@ -622,6 +695,48 @@ def _normalize_timezone_name(value: str) -> str:
         return ZoneInfo(clean).key
     except (ZoneInfoNotFoundError, ValueError):
         return "UTC"
+
+
+def _bucket_at_least(value: int, buckets: tuple[int, ...]) -> int:
+    number = int(value)
+    for bucket in buckets:
+        if number <= int(bucket):
+            return int(bucket)
+    return int(buckets[-1])
+
+
+def _bucket_schedule_window(display_grace_minutes: int, display_horizon_hours: int) -> tuple[int, int]:
+    return (
+        _bucket_at_least(max(0, int(display_grace_minutes)), _SCHEDULE_GRACE_BUCKETS),
+        _bucket_at_least(max(1, int(display_horizon_hours)), _SCHEDULE_HORIZON_BUCKETS),
+    )
+
+
+def _canonical_schedule_airport(value: str) -> Dict[str, str]:
+    airport_iata = _clean_airport(value)
+    try:
+        from localflight.core.airports import get_airport_timezone, lookup_airport
+    except Exception:
+        lookup_airport = None
+        get_airport_timezone = None
+
+    rec = lookup_airport(iata=airport_iata) if lookup_airport is not None else None
+    if rec is None and lookup_airport is not None:
+        rec = lookup_airport(icao=airport_iata)
+    if rec is None:
+        raise HTTPException(status_code=400, detail="unknown airport_iata")
+    canonical_iata = str(rec.iata or airport_iata).upper().strip()
+    if not canonical_iata:
+        raise HTTPException(status_code=400, detail="unknown airport_iata")
+    airport_timezone = "UTC"
+    if get_airport_timezone is not None:
+        airport_timezone = get_airport_timezone(str(rec.country or ""), str(rec.region or ""))
+    timezone_name = _normalize_timezone_name(airport_timezone)
+    return {
+        "iata": canonical_iata,
+        "icao": str(rec.icao or "").upper().strip(),
+        "timezone": timezone_name,
+    }
 
 
 def _validate_install_id(install_id: str) -> str:
@@ -752,11 +867,89 @@ def _aviationstack_key() -> str:
     return key
 
 
+def _aerodatabox_key() -> str:
+    key, _source = _provider_status(_SETTING_AERODATABOX_KEY, "AERODATABOX_API_KEY")
+    if not key:
+        raise RuntimeError("AeroDataBox provider key is not configured in relay admin or environment")
+    return key
+
+
+def _has_aerodatabox_key() -> bool:
+    key, _source = _provider_status(_SETTING_AERODATABOX_KEY, "AERODATABOX_API_KEY")
+    return bool(key)
+
+
+def _has_aviationstack_key() -> bool:
+    try:
+        return bool(_aviationstack_key())
+    except RuntimeError:
+        return False
+
+
 def _rapidapi_key() -> str:
     key, _source = _provider_status(_SETTING_RAPIDAPI_KEY, "RAPIDAPI_KEY")
     if not key:
         raise RuntimeError("RapidAPI ADS-B provider key is not configured in relay admin or environment")
     return key
+
+
+def _schedule_provider_mode() -> str:
+    value = _env("RELAY_SCHEDULE_PROVIDER", "auto").lower()
+    return value if value in {"auto", "aerodatabox", "aviationstack"} else "auto"
+
+
+def _aerodatabox_upstream_units_limit() -> int:
+    return _int_env("RELAY_AERODATABOX_UPSTREAM_MONTHLY_UNITS_LIMIT", 24_000, minimum=0)
+
+
+def _aerodatabox_fids_units() -> int:
+    return _int_env("RELAY_AERODATABOX_FIDS_TIER2_UNITS", 2, minimum=1)
+
+
+def _aviationstack_upstream_monthly_limit() -> int:
+    return _int_env("RELAY_AVIATIONSTACK_UPSTREAM_MONTHLY_LIMIT", 10_000, minimum=0)
+
+
+def _ceil_monthly_daily(monthly: int) -> int:
+    return max(0, (max(0, int(monthly)) + 29) // 30)
+
+
+def _aerodatabox_upstream_daily_units_limit() -> int:
+    monthly = _aerodatabox_upstream_units_limit()
+    return _int_env("RELAY_AERODATABOX_UPSTREAM_DAILY_UNITS_LIMIT", _ceil_monthly_daily(monthly), minimum=0)
+
+
+def _aviationstack_upstream_daily_limit() -> int:
+    monthly = _aviationstack_upstream_monthly_limit()
+    return _int_env("RELAY_AVIATIONSTACK_UPSTREAM_DAILY_LIMIT", _ceil_monthly_daily(monthly), minimum=0)
+
+
+def _provider_failure_cooldown_seconds() -> int:
+    return _int_env("RELAY_PROVIDER_FAILURE_COOLDOWN_SECONDS", 600, minimum=0)
+
+
+def _schedule_network_rpm_limit() -> int:
+    return _int_env("RELAY_SCHEDULE_NETWORK_RPM_LIMIT", 120, minimum=1)
+
+
+def _schedule_install_rpm_limit() -> int:
+    return _int_env("RELAY_SCHEDULE_INSTALL_RPM_LIMIT", 30, minimum=1)
+
+
+def _schedule_global_rpm_limit() -> int:
+    return _int_env("RELAY_SCHEDULE_GLOBAL_RPM_LIMIT", 600, minimum=1)
+
+
+def _schedule_new_keys_network_daily_limit() -> int:
+    return _int_env("RELAY_SCHEDULE_NEW_KEYS_NETWORK_DAILY_LIMIT", 20, minimum=1)
+
+
+def _schedule_new_keys_global_daily_limit() -> int:
+    return _int_env("RELAY_SCHEDULE_NEW_KEYS_GLOBAL_DAILY_LIMIT", 200, minimum=1)
+
+
+def _schedule_stale_if_error_seconds() -> int:
+    return _int_env("RELAY_SCHEDULE_STALE_IF_ERROR_HOURS", 24, minimum=1) * 3600
 
 
 def _mask_secret(value: str) -> str:
@@ -826,6 +1019,129 @@ def _increment_usage(
     conn.commit()
     conn.close()
     return int(row["calls"] or 0) if row else 1
+
+
+def _check_and_increment_usage_counters(
+    *,
+    provider: str,
+    counters: list[Dict[str, Any]],
+) -> Dict[str, int]:
+    normalized: list[Dict[str, Any]] = []
+    for counter in counters:
+        requested = max(1, int(counter.get("n_calls", counter.get("calls", 1)) or 1))
+        limit_raw = counter.get("limit")
+        limit = None if limit_raw is None else max(0, int(limit_raw))
+        normalized.append(
+            {
+                "subject_key": str(counter.get("subject_key") or "shared:upstream"),
+                "service": str(counter.get("service") or ""),
+                "period": str(counter.get("period") or _month_key()),
+                "plan": str(counter.get("plan") or "shared"),
+                "install_id": counter.get("install_id"),
+                "n_calls": requested,
+                "limit": limit,
+                "budget_service": str(counter.get("budget_service") or counter.get("service") or ""),
+                "budget_period_label": str(counter.get("budget_period_label") or "monthly"),
+            }
+        )
+    if not normalized:
+        return {}
+
+    conn = _connect()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        current_by_key: dict[tuple[str, str, str], int] = {}
+        for counter in normalized:
+            key = (counter["subject_key"], counter["service"], counter["period"])
+            if key not in current_by_key:
+                row = conn.execute(
+                    "SELECT calls FROM usage WHERE subject_key=? AND service=? AND month=?",
+                    key,
+                ).fetchone()
+                current_by_key[key] = int(row["calls"] or 0) if row else 0
+            current = current_by_key[key]
+            limit = counter["limit"]
+            if limit is not None and current + counter["n_calls"] > limit:
+                conn.rollback()
+                raise UpstreamBudgetExceeded(
+                    provider=provider,
+                    service=counter["budget_service"],
+                    current=current,
+                    limit=limit,
+                    requested=counter["n_calls"],
+                    period=counter["budget_period_label"],
+                )
+        now = _utc_now()
+        new_counts: Dict[str, int] = {}
+        for counter in normalized:
+            key = (counter["subject_key"], counter["service"], counter["period"])
+            conn.execute(
+                """
+                INSERT INTO usage (subject_key, service, month, calls, last_seen, plan, install_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(subject_key, service, month) DO UPDATE SET
+                    calls = calls + excluded.calls,
+                    last_seen = excluded.last_seen,
+                    plan = excluded.plan,
+                    install_id = excluded.install_id
+                """,
+                (
+                    counter["subject_key"],
+                    counter["service"],
+                    counter["period"],
+                    counter["n_calls"],
+                    now,
+                    counter["plan"],
+                    counter["install_id"],
+                ),
+            )
+            current_by_key[key] = current_by_key[key] + counter["n_calls"]
+            new_counts[counter["service"]] = current_by_key[key]
+        conn.commit()
+        return new_counts
+    except Exception:
+        if conn.in_transaction:
+            conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def _check_and_increment_upstream_budget(
+    *,
+    provider: str,
+    service: str,
+    n_calls: int,
+    monthly_limit: int,
+    daily_limit: Optional[int] = None,
+) -> int:
+    requested = max(1, int(n_calls))
+    limit = max(0, int(monthly_limit))
+    subject_key = "shared:upstream"
+    counters = [
+        {
+            "subject_key": subject_key,
+            "service": service,
+            "period": _month_key(),
+            "n_calls": requested,
+            "limit": limit,
+            "budget_service": service,
+            "budget_period_label": "monthly",
+        }
+    ]
+    if daily_limit is not None:
+        counters.append(
+            {
+                "subject_key": subject_key,
+                "service": f"{service}:day",
+                "period": _day_key(),
+                "n_calls": requested,
+                "limit": max(0, int(daily_limit)),
+                "budget_service": service,
+                "budget_period_label": "daily",
+            }
+        )
+    return _check_and_increment_usage_counters(provider=provider, counters=counters).get(service, requested)
 
 
 def _log_request(
@@ -1136,6 +1452,138 @@ def _check_and_increment_community_daily_limit(*, service: str, network_tag: str
                 (subject_key, scoped_service, day, now, plan_name),
             )
         conn.commit()
+    finally:
+        conn.close()
+
+
+def _check_and_increment_schedule_rpm_limits(*, install_id: str, network_tag: str) -> None:
+    minute = _minute_key()
+    checks = [
+        (
+            f"schedule-network:{network_tag or 'unknown'}",
+            "schedule:network-minute",
+            _schedule_network_rpm_limit(),
+            "Network schedule rate limit reached; try again shortly.",
+            "network-minute",
+        ),
+        (
+            f"schedule-install:{install_id}",
+            "schedule:install-minute",
+            _schedule_install_rpm_limit(),
+            "Install schedule rate limit reached; try again shortly.",
+            "install-minute",
+        ),
+        (
+            "schedule-global",
+            "schedule:global-minute",
+            _schedule_global_rpm_limit(),
+            "Relay schedule safety rate limit reached; try again shortly.",
+            "global-minute",
+        ),
+    ]
+    conn = _connect()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        for subject, service, limit, message, _plan in checks:
+            row = conn.execute(
+                "SELECT calls FROM usage WHERE subject_key=? AND service=? AND month=?",
+                (subject, service, minute),
+            ).fetchone()
+            current = int(row["calls"] or 0) if row else 0
+            if current >= int(limit):
+                conn.rollback()
+                raise HTTPException(status_code=429, detail=message)
+        now = _utc_now()
+        for subject, service, _limit, _message, plan in checks:
+            conn.execute(
+                """
+                INSERT INTO usage (subject_key, service, month, calls, last_seen, plan, install_id)
+                VALUES (?, ?, ?, 1, ?, ?, ?)
+                ON CONFLICT(subject_key, service, month) DO UPDATE SET
+                    calls = calls + 1,
+                    last_seen = excluded.last_seen,
+                    plan = excluded.plan,
+                    install_id = excluded.install_id
+                """,
+                (subject, service, minute, now, plan, install_id),
+            )
+        conn.commit()
+    except Exception:
+        if conn.in_transaction:
+            conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def _check_and_mark_new_schedule_cache_key(*, network_tag: str, cache_key: str) -> None:
+    day = _day_key()
+    network_subject = f"schedule-new-key-network:{network_tag or 'unknown'}"
+    global_subject = "schedule-new-key-global"
+    marker_subject = f"schedule-new-key:{cache_key}"
+    marker_service = "schedule:new-cache-key-marker"
+    network_service = "schedule:new-cache-key-network-day"
+    global_service = "schedule:new-cache-key-global-day"
+    conn = _connect()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        marker = conn.execute(
+            "SELECT calls FROM usage WHERE subject_key=? AND service=? AND month=?",
+            (marker_subject, marker_service, day),
+        ).fetchone()
+        if marker:
+            conn.commit()
+            return
+        checks = [
+            (
+                network_subject,
+                network_service,
+                _schedule_new_keys_network_daily_limit(),
+                "Network schedule cache-key daily limit reached; try again tomorrow.",
+                "new-key-network",
+            ),
+            (
+                global_subject,
+                global_service,
+                _schedule_new_keys_global_daily_limit(),
+                "Relay schedule cache-key safety limit reached; try again tomorrow.",
+                "new-key-global",
+            ),
+        ]
+        for subject, service, limit, message, _plan in checks:
+            row = conn.execute(
+                "SELECT calls FROM usage WHERE subject_key=? AND service=? AND month=?",
+                (subject, service, day),
+            ).fetchone()
+            current = int(row["calls"] or 0) if row else 0
+            if current >= int(limit):
+                conn.rollback()
+                raise HTTPException(status_code=429, detail=message)
+        now = _utc_now()
+        conn.execute(
+            """
+            INSERT INTO usage (subject_key, service, month, calls, last_seen, plan, install_id)
+            VALUES (?, ?, ?, 1, ?, 'new-key-marker', NULL)
+            """,
+            (marker_subject, marker_service, day, now),
+        )
+        for subject, service, _limit, _message, plan in checks:
+            conn.execute(
+                """
+                INSERT INTO usage (subject_key, service, month, calls, last_seen, plan, install_id)
+                VALUES (?, ?, ?, 1, ?, ?, NULL)
+                ON CONFLICT(subject_key, service, month) DO UPDATE SET
+                    calls = calls + 1,
+                    last_seen = excluded.last_seen,
+                    plan = excluded.plan
+                """,
+                (subject, service, day, now, plan),
+            )
+        conn.commit()
+    except Exception:
+        if conn.in_transaction:
+            conn.rollback()
+        raise
     finally:
         conn.close()
 
@@ -1486,6 +1934,28 @@ def _schedule_cache_key(
     return "sch_" + hashlib.sha256(payload.encode("utf-8")).hexdigest()[:24]
 
 
+def _provider_schedule_cache_key(
+    *,
+    provider: str,
+    airport_iata: str,
+    timezone_name: str,
+    display_grace_minutes: int,
+    display_horizon_hours: int,
+) -> str:
+    payload = "|".join(
+        [
+            provider.lower().strip(),
+            airport_iata.upper().strip(),
+            timezone_name.strip(),
+            str(int(display_grace_minutes)),
+            str(int(display_horizon_hours)),
+            _SHARED_SCHEDULE_PLANNER_VERSION,
+            _SHARED_SCHEDULE_SCHEMA_VERSION,
+        ]
+    )
+    return "psch_" + hashlib.sha256(payload.encode("utf-8")).hexdigest()[:24]
+
+
 def _parse_utc_dt(value: Any) -> Optional[datetime]:
     if not value:
         return None
@@ -1607,6 +2077,173 @@ def _load_schedule_snapshot_conn(conn: sqlite3.Connection, cache_key: str) -> Op
         "SELECT * FROM schedule_snapshots WHERE cache_key=?",
         (cache_key,),
     ).fetchone()
+
+
+def _snapshot_stale_if_error_state(row: Optional[sqlite3.Row]) -> bool:
+    if row is None:
+        return False
+    age_s = _snapshot_age_seconds(str(row["generated_at"] or ""))
+    return age_s is not None and age_s <= _schedule_stale_if_error_seconds()
+
+
+def _schedule_snapshot_is_suspiciously_sparse(payload: Dict[str, Any], previous: Optional[sqlite3.Row]) -> bool:
+    if previous is None:
+        return False
+    previous_records = _load_json_blob(previous["records_json"], [])
+    new_records = list(payload.get("records") or [])
+    previous_count = len(previous_records) if isinstance(previous_records, list) else 0
+    new_count = len(new_records)
+    if previous_count < 8:
+        return False
+    if new_count == 0:
+        return True
+    sparse_floor = max(3, int(previous_count * 0.25))
+    if new_count < sparse_floor:
+        return True
+    meta = payload.get("meta") if isinstance(payload.get("meta"), dict) else {}
+    provider_errors = meta.get("provider_errors") if isinstance(meta, dict) else {}
+    budget_limited = meta.get("budget_limited_providers") if isinstance(meta, dict) else []
+    return bool((provider_errors or budget_limited) and new_count < max(5, int(previous_count * 0.5)))
+
+
+def _store_provider_schedule_snapshot(
+    *,
+    provider: str,
+    airport_iata: str,
+    timezone_name: str,
+    display_grace_minutes: int,
+    display_horizon_hours: int,
+    records: list[Dict[str, Any]],
+    meta: Dict[str, Any],
+    generated_at: str,
+    last_error: str = "",
+) -> None:
+    cache_key = _provider_schedule_cache_key(
+        provider=provider,
+        airport_iata=airport_iata,
+        timezone_name=timezone_name,
+        display_grace_minutes=display_grace_minutes,
+        display_horizon_hours=display_horizon_hours,
+    )
+    conn = _connect()
+    now_iso = _utc_now()
+    conn.execute(
+        """
+        INSERT INTO provider_schedule_snapshots (
+            cache_key, provider, airport_iata, timezone, display_grace_minutes,
+            display_horizon_hours, policy_version, generated_at, updated_at,
+            meta_json, records_json, refresh_count, last_error
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)
+        ON CONFLICT(cache_key) DO UPDATE SET
+            provider = excluded.provider,
+            airport_iata = excluded.airport_iata,
+            timezone = excluded.timezone,
+            display_grace_minutes = excluded.display_grace_minutes,
+            display_horizon_hours = excluded.display_horizon_hours,
+            policy_version = excluded.policy_version,
+            generated_at = excluded.generated_at,
+            updated_at = excluded.updated_at,
+            meta_json = excluded.meta_json,
+            records_json = excluded.records_json,
+            refresh_count = provider_schedule_snapshots.refresh_count + 1,
+            last_error = excluded.last_error
+        """,
+        (
+            cache_key,
+            provider,
+            airport_iata,
+            timezone_name,
+            int(display_grace_minutes),
+            int(display_horizon_hours),
+            _SHARED_SCHEDULE_PLANNER_VERSION,
+            generated_at,
+            now_iso,
+            json.dumps(meta, ensure_ascii=False),
+            json.dumps(records, ensure_ascii=False),
+            last_error.strip(),
+        ),
+    )
+    conn.commit()
+    conn.close()
+
+
+def _load_provider_schedule_snapshot_conn(
+    conn: sqlite3.Connection,
+    *,
+    provider: str,
+    airport_iata: str,
+    timezone_name: str,
+    display_grace_minutes: int,
+    display_horizon_hours: int,
+) -> Optional[sqlite3.Row]:
+    cache_key = _provider_schedule_cache_key(
+        provider=provider,
+        airport_iata=airport_iata,
+        timezone_name=timezone_name,
+        display_grace_minutes=display_grace_minutes,
+        display_horizon_hours=display_horizon_hours,
+    )
+    return conn.execute(
+        "SELECT * FROM provider_schedule_snapshots WHERE cache_key=?",
+        (cache_key,),
+    ).fetchone()
+
+
+def _provider_source_payload_from_row(row: sqlite3.Row, *, stale_reason: str = "") -> Dict[str, Any]:
+    meta = _load_json_blob(row["meta_json"], {})
+    records = _load_json_blob(row["records_json"], [])
+    meta = dict(meta) if isinstance(meta, dict) else {}
+    records = list(records) if isinstance(records, list) else []
+    if "pages_fetched" in meta:
+        meta["source_cache_pages_fetched"] = int(meta.get("pages_fetched", 0) or 0)
+        meta["pages_fetched"] = 0
+    if "units_spent" in meta:
+        meta["source_cache_units_spent"] = int(meta.get("units_spent", 0) or 0)
+        meta["units_spent"] = 0
+    if "request_count" in meta:
+        meta["source_cache_request_count"] = int(meta.get("request_count", 0) or 0)
+        meta["request_count"] = 0
+    meta["source_cache_state"] = "stale"
+    meta["source_cache_generated_at"] = str(row["generated_at"] or "")
+    if stale_reason:
+        meta["source_cache_reason"] = stale_reason
+    if row["last_error"]:
+        meta["source_cache_last_error"] = str(row["last_error"])
+    return {
+        "generated_at": str(row["generated_at"] or _utc_now()),
+        "provider": str(row["provider"] or ""),
+        "meta": meta,
+        "records": records,
+    }
+
+
+def _load_provider_source_payload(
+    *,
+    provider: str,
+    airport_iata: str,
+    timezone_name: str,
+    display_grace_minutes: int,
+    display_horizon_hours: int,
+    stale_reason: str,
+) -> Optional[Dict[str, Any]]:
+    conn = _connect()
+    try:
+        row = _load_provider_schedule_snapshot_conn(
+            conn,
+            provider=provider,
+            airport_iata=airport_iata,
+            timezone_name=timezone_name,
+            display_grace_minutes=display_grace_minutes,
+            display_horizon_hours=display_horizon_hours,
+        )
+        if row is None:
+            return None
+        age_s = _snapshot_age_seconds(str(row["generated_at"] or ""))
+        if age_s is None or age_s > _schedule_stale_if_error_seconds():
+            return None
+        return _provider_source_payload_from_row(row, stale_reason=stale_reason)
+    finally:
+        conn.close()
 
 
 def _store_schedule_snapshot(
@@ -2034,7 +2671,128 @@ def _merge_schedule_meta(primary: Dict[str, Any], extra: Dict[str, Any]) -> Dict
     return merged
 
 
-def _fetch_shared_schedule_from_upstream(
+def _provider_circuit_open_exc(provider: str, opened_until: str) -> HTTPException:
+    return HTTPException(
+        status_code=503,
+        detail=f"{provider} upstream is cooling down after repeated failures until {opened_until}",
+    )
+
+
+def _provider_circuit_raise_if_open(provider: str) -> None:
+    conn = _connect()
+    try:
+        row = conn.execute(
+            "SELECT opened_until FROM provider_circuit_breakers WHERE provider=?",
+            (provider,),
+        ).fetchone()
+    finally:
+        conn.close()
+    opened_until = str(row["opened_until"] or "") if row else ""
+    opened_dt = _parse_utc_dt(opened_until)
+    if opened_dt is not None and opened_dt > datetime.now(timezone.utc):
+        raise _provider_circuit_open_exc(provider, opened_until)
+
+
+def _provider_circuit_record_success(provider: str) -> None:
+    conn = _connect()
+    try:
+        conn.execute(
+            """
+            INSERT INTO provider_circuit_breakers (provider, failure_count, opened_until, last_error, updated_at)
+            VALUES (?, 0, NULL, NULL, ?)
+            ON CONFLICT(provider) DO UPDATE SET
+                failure_count = 0,
+                opened_until = NULL,
+                last_error = NULL,
+                updated_at = excluded.updated_at
+            """,
+            (provider, _utc_now()),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _provider_circuit_record_failure(provider: str, error: Any) -> None:
+    cooldown = _provider_failure_cooldown_seconds()
+    conn = _connect()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute(
+            "SELECT failure_count FROM provider_circuit_breakers WHERE provider=?",
+            (provider,),
+        ).fetchone()
+        failure_count = (int(row["failure_count"] or 0) if row else 0) + 1
+        opened_until = None
+        if cooldown > 0 and failure_count >= 3:
+            opened_until = (datetime.now(timezone.utc) + timedelta(seconds=cooldown)).isoformat()
+        conn.execute(
+            """
+            INSERT INTO provider_circuit_breakers (provider, failure_count, opened_until, last_error, updated_at)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(provider) DO UPDATE SET
+                failure_count = excluded.failure_count,
+                opened_until = excluded.opened_until,
+                last_error = excluded.last_error,
+                updated_at = excluded.updated_at
+            """,
+            (provider, failure_count, opened_until, _collapse(str(error), limit=240), _utc_now()),
+        )
+        conn.commit()
+    except Exception:
+        if conn.in_transaction:
+            conn.rollback()
+    finally:
+        conn.close()
+
+
+def _aviationstack_upstream_payload(params: Dict[str, Any]) -> Dict[str, Any]:
+    _provider_circuit_raise_if_open("aviationstack")
+    _check_and_increment_upstream_budget(
+        provider="aviationstack",
+        service="aviationstack_upstream",
+        n_calls=1,
+        monthly_limit=_aviationstack_upstream_monthly_limit(),
+        daily_limit=_aviationstack_upstream_daily_limit(),
+    )
+    try:
+        response = _req.get(
+            AVIATIONSTACK_URL,
+            params=params,
+            headers={"User-Agent": "localflight-relay/1.0"},
+            timeout=25,
+        )
+    except Exception as exc:
+        _provider_circuit_record_failure("aviationstack", exc)
+        raise HTTPException(status_code=502, detail=f"AviationStack unreachable: {exc}")
+
+    if response.status_code >= 400:
+        try:
+            payload = response.json()
+            detail = payload.get("error") if isinstance(payload, dict) else None
+            info = detail.get("info") if isinstance(detail, dict) else ""
+        except Exception:
+            info = ""
+        suffix = f": {info}" if info else ""
+        _provider_circuit_record_failure("aviationstack", f"HTTP {response.status_code}{suffix}")
+        raise HTTPException(status_code=502, detail=f"AviationStack upstream HTTP {response.status_code}{suffix}")
+
+    try:
+        payload = response.json()
+    except Exception as exc:
+        _provider_circuit_record_failure("aviationstack", exc)
+        raise HTTPException(status_code=502, detail=f"AviationStack returned invalid JSON: {exc}")
+    if not isinstance(payload, dict):
+        _provider_circuit_record_failure("aviationstack", "response shape invalid")
+        raise HTTPException(status_code=502, detail="AviationStack response shape invalid")
+    if not isinstance(payload.get("data"), list):
+        _provider_circuit_record_failure("aviationstack", "missing data rows")
+        raise HTTPException(status_code=502, detail="AviationStack response missing data rows")
+    _provider_circuit_record_success("aviationstack")
+    return payload
+
+
+def _fetch_aviationstack_schedule_source_from_upstream(
     *,
     airport_iata: str,
     timezone_name: str,
@@ -2112,36 +2870,8 @@ def _fetch_shared_schedule_from_upstream(
         if req.arr_iata:
             params["arr_iata"] = req.arr_iata
 
-        try:
-            response = _req.get(
-                AVIATIONSTACK_URL,
-                params=params,
-                headers={"User-Agent": "localflight-relay/1.0"},
-                timeout=25,
-            )
-        except Exception as exc:
-            raise HTTPException(status_code=502, detail=f"AviationStack unreachable: {exc}")
-
-        if response.status_code >= 400:
-            try:
-                payload = response.json()
-                detail = payload.get("error") if isinstance(payload, dict) else None
-                info = detail.get("info") if isinstance(detail, dict) else ""
-            except Exception:
-                info = ""
-            suffix = f": {info}" if info else ""
-            raise HTTPException(status_code=502, detail=f"AviationStack upstream HTTP {response.status_code}{suffix}")
-
-        try:
-            payload = response.json()
-        except Exception as exc:
-            raise HTTPException(status_code=502, detail=f"AviationStack returned invalid JSON: {exc}")
-
-        if not isinstance(payload, dict):
-            raise HTTPException(status_code=502, detail="AviationStack response shape invalid")
+        payload = _aviationstack_upstream_payload(params)
         page_rows = payload.get("data")
-        if not isinstance(page_rows, list):
-            raise HTTPException(status_code=502, detail="AviationStack response missing data rows")
 
         pages_fetched += 1
         raw_rows += len(page_rows)
@@ -2189,36 +2919,8 @@ def _fetch_shared_schedule_from_upstream(
             if template.arr_iata:
                 params["arr_iata"] = template.arr_iata
 
-            try:
-                response = _req.get(
-                    AVIATIONSTACK_URL,
-                    params=params,
-                    headers={"User-Agent": "localflight-relay/1.0"},
-                    timeout=25,
-                )
-            except Exception as exc:
-                raise HTTPException(status_code=502, detail=f"AviationStack unreachable: {exc}")
-
-            if response.status_code >= 400:
-                try:
-                    payload = response.json()
-                    detail = payload.get("error") if isinstance(payload, dict) else None
-                    info = detail.get("info") if isinstance(detail, dict) else ""
-                except Exception:
-                    info = ""
-                suffix = f": {info}" if info else ""
-                raise HTTPException(status_code=502, detail=f"AviationStack upstream HTTP {response.status_code}{suffix}")
-
-            try:
-                payload = response.json()
-            except Exception as exc:
-                raise HTTPException(status_code=502, detail=f"AviationStack returned invalid JSON: {exc}")
-
-            if not isinstance(payload, dict):
-                raise HTTPException(status_code=502, detail="AviationStack response shape invalid")
+            payload = _aviationstack_upstream_payload(params)
             page_rows = payload.get("data")
-            if not isinstance(page_rows, list):
-                raise HTTPException(status_code=502, detail="AviationStack response missing data rows")
 
             pages_fetched += 1
             adaptive_extra_pages += 1
@@ -2251,6 +2953,7 @@ def _fetch_shared_schedule_from_upstream(
         "record_count": len(records),
         "planner_version": _SHARED_SCHEDULE_PLANNER_VERSION,
         "schema_version": _SHARED_SCHEDULE_SCHEMA_VERSION,
+        "upstream_usage_precounted": True,
         "pages_by_scope": {
             f"{mode}:{flight_date or 'undated'}": count
             for (mode, flight_date), count in pages_by_scope.items()
@@ -2292,36 +2995,8 @@ def _fetch_shared_schedule_from_upstream(
                 params["dep_iata"] = req.dep_iata
             if req.arr_iata:
                 params["arr_iata"] = req.arr_iata
-            try:
-                response = _req.get(
-                    AVIATIONSTACK_URL,
-                    params=params,
-                    headers={"User-Agent": "localflight-relay/1.0"},
-                    timeout=25,
-                )
-            except Exception as exc:
-                raise HTTPException(status_code=502, detail=f"AviationStack unreachable: {exc}")
-
-            if response.status_code >= 400:
-                try:
-                    payload = response.json()
-                    detail = payload.get("error") if isinstance(payload, dict) else None
-                    info = detail.get("info") if isinstance(detail, dict) else ""
-                except Exception:
-                    info = ""
-                suffix = f": {info}" if info else ""
-                raise HTTPException(status_code=502, detail=f"AviationStack upstream HTTP {response.status_code}{suffix}")
-
-            try:
-                payload = response.json()
-            except Exception as exc:
-                raise HTTPException(status_code=502, detail=f"AviationStack returned invalid JSON: {exc}")
-
-            if not isinstance(payload, dict):
-                raise HTTPException(status_code=502, detail="AviationStack response shape invalid")
+            payload = _aviationstack_upstream_payload(params)
             page_rows = payload.get("data")
-            if not isinstance(page_rows, list):
-                raise HTTPException(status_code=502, detail="AviationStack response missing data rows")
 
             fallback_rows.extend(page_rows)
             fallback_pages += 1
@@ -2340,36 +3015,8 @@ def _fetch_shared_schedule_from_upstream(
                 params["dep_iata"] = airport_iata
             else:
                 params["arr_iata"] = airport_iata
-            try:
-                response = _req.get(
-                    AVIATIONSTACK_URL,
-                    params=params,
-                    headers={"User-Agent": "localflight-relay/1.0"},
-                    timeout=25,
-                )
-            except Exception as exc:
-                raise HTTPException(status_code=502, detail=f"AviationStack unreachable: {exc}")
-
-            if response.status_code >= 400:
-                try:
-                    payload = response.json()
-                    detail = payload.get("error") if isinstance(payload, dict) else None
-                    info = detail.get("info") if isinstance(detail, dict) else ""
-                except Exception:
-                    info = ""
-                suffix = f": {info}" if info else ""
-                raise HTTPException(status_code=502, detail=f"AviationStack upstream HTTP {response.status_code}{suffix}")
-
-            try:
-                payload = response.json()
-            except Exception as exc:
-                raise HTTPException(status_code=502, detail=f"AviationStack returned invalid JSON: {exc}")
-
-            if not isinstance(payload, dict):
-                raise HTTPException(status_code=502, detail="AviationStack response shape invalid")
+            payload = _aviationstack_upstream_payload(params)
             page_rows = payload.get("data")
-            if not isinstance(page_rows, list):
-                raise HTTPException(status_code=502, detail="AviationStack response missing data rows")
 
             fallback_rows.extend(page_rows)
             fallback_pages += 1
@@ -2409,10 +3056,397 @@ def _fetch_shared_schedule_from_upstream(
     meta["undated_fallback_used"] = undated_fallback_used
     return {
         "generated_at": generated_at,
-        "provider": _SHARED_SCHEDULE_PROVIDER,
+        "provider": "aviationstack",
         "meta": meta,
         "records": records,
     }
+
+
+def _aerodatabox_upstream_payload(
+    *,
+    airport_iata: str,
+    display_grace_minutes: int,
+    display_horizon_hours: int,
+) -> Dict[str, Any]:
+    units = _aerodatabox_fids_units()
+    _provider_circuit_raise_if_open("aerodatabox")
+    _check_and_increment_usage_counters(
+        provider="aerodatabox",
+        counters=[
+            {
+                "subject_key": "shared:upstream",
+                "service": "aerodatabox_upstream_units",
+                "period": _month_key(),
+                "n_calls": units,
+                "limit": _aerodatabox_upstream_units_limit(),
+                "budget_service": "aerodatabox_upstream_units",
+                "budget_period_label": "monthly",
+            },
+            {
+                "subject_key": "shared:upstream",
+                "service": "aerodatabox_upstream_units:day",
+                "period": _day_key(),
+                "n_calls": units,
+                "limit": _aerodatabox_upstream_daily_units_limit(),
+                "budget_service": "aerodatabox_upstream_units",
+                "budget_period_label": "daily",
+            },
+            {
+                "subject_key": "shared:upstream",
+                "service": "aerodatabox_upstream_requests",
+                "period": _month_key(),
+                "n_calls": 1,
+                "limit": None,
+            },
+            {
+                "subject_key": "shared:upstream",
+                "service": "aerodatabox_upstream_requests:day",
+                "period": _day_key(),
+                "n_calls": 1,
+                "limit": None,
+            },
+        ],
+    )
+    offset_minutes = -max(0, int(display_grace_minutes))
+    duration_minutes = max(60, max(0, int(display_grace_minutes)) + max(1, int(display_horizon_hours)) * 60)
+    try:
+        response = _req.get(
+            f"{AERODATABOX_URL}/flights/airports/iata/{airport_iata.upper().strip()}",
+            params={
+                "offsetMinutes": offset_minutes,
+                "durationMinutes": duration_minutes,
+                "direction": "Both",
+                "withLeg": "true",
+                "withCancelled": "true",
+                "withCodeshared": "true",
+                "withCargo": "false",
+                "withPrivate": "false",
+                "withLocation": "false",
+            },
+            headers={
+                "X-RapidAPI-Key": _aerodatabox_key(),
+                "X-RapidAPI-Host": "aerodatabox.p.rapidapi.com",
+                "Accept": "application/json",
+                "User-Agent": "localflight-relay/1.0",
+            },
+            timeout=25,
+        )
+    except Exception as exc:
+        _provider_circuit_record_failure("aerodatabox", exc)
+        raise HTTPException(status_code=502, detail=f"AeroDataBox unreachable: {exc}")
+
+    if response.status_code == 204:
+        _provider_circuit_record_success("aerodatabox")
+        return {"departures": [], "arrivals": []}
+    if response.status_code == 429:
+        _provider_circuit_record_failure("aerodatabox", "HTTP 429")
+        raise HTTPException(status_code=502, detail="AeroDataBox upstream quota rejected the request")
+    if response.status_code >= 400:
+        _provider_circuit_record_failure("aerodatabox", f"HTTP {response.status_code}")
+        raise HTTPException(status_code=502, detail=f"AeroDataBox upstream HTTP {response.status_code}")
+    try:
+        payload = response.json()
+    except Exception as exc:
+        _provider_circuit_record_failure("aerodatabox", exc)
+        raise HTTPException(status_code=502, detail=f"AeroDataBox returned invalid JSON: {exc}")
+    if not isinstance(payload, dict):
+        _provider_circuit_record_failure("aerodatabox", "response shape invalid")
+        raise HTTPException(status_code=502, detail="AeroDataBox response shape invalid")
+    _provider_circuit_record_success("aerodatabox")
+    return payload
+
+
+def _fetch_aerodatabox_schedule_source_from_upstream(
+    *,
+    airport_iata: str,
+    timezone_name: str,
+    display_grace_minutes: int,
+    display_horizon_hours: int,
+) -> Dict[str, Any]:
+    from localflight.decode.mappings.aerodatabox import aerodatabox_to_raw_records
+
+    generated_at = datetime.now(timezone.utc).isoformat()
+    payload = _aerodatabox_upstream_payload(
+        airport_iata=airport_iata,
+        display_grace_minutes=display_grace_minutes,
+        display_horizon_hours=display_horizon_hours,
+    )
+    records = aerodatabox_to_raw_records(
+        payload,
+        airport_iata=airport_iata,
+        mode="both",
+    )
+    meta = {
+        "request_count": 1,
+        "units_spent": _aerodatabox_fids_units(),
+        "raw_rows": len(payload.get("departures") or []) + len(payload.get("arrivals") or []),
+        "record_count": len(records),
+        "planner_version": _SHARED_SCHEDULE_PLANNER_VERSION,
+        "schema_version": _SHARED_SCHEDULE_SCHEMA_VERSION,
+        "upstream_usage_precounted": True,
+    }
+    return {
+        "generated_at": generated_at,
+        "provider": "aerodatabox",
+        "meta": meta,
+        "records": records,
+    }
+
+
+def _store_provider_source_payload(
+    payload: Dict[str, Any],
+    *,
+    airport_iata: str,
+    timezone_name: str,
+    display_grace_minutes: int,
+    display_horizon_hours: int,
+) -> None:
+    provider = str(payload.get("provider") or "")
+    if provider not in {"aerodatabox", "aviationstack"}:
+        return
+    _store_provider_schedule_snapshot(
+        provider=provider,
+        airport_iata=airport_iata,
+        timezone_name=timezone_name,
+        display_grace_minutes=display_grace_minutes,
+        display_horizon_hours=display_horizon_hours,
+        records=list(payload.get("records") or []),
+        meta=dict(payload.get("meta") or {}),
+        generated_at=str(payload.get("generated_at") or _utc_now()),
+    )
+
+
+def _provider_error_text(exc: BaseException) -> str:
+    detail = getattr(exc, "detail", None)
+    return str(detail or exc)
+
+
+def _fetch_shared_schedule_from_upstream(
+    *,
+    airport_iata: str,
+    timezone_name: str,
+    display_grace_minutes: int,
+    display_horizon_hours: int,
+) -> Dict[str, Any]:
+    from localflight.sources.web.schedule_fusion import (
+        merge_schedule_records,
+        schedule_records_need_fill,
+    )
+
+    mode = _schedule_provider_mode()
+    provider_errors: Dict[str, str] = {}
+    budget_limited: list[str] = []
+    source_cache_providers: list[str] = []
+
+    def _source_cache(provider: str, reason: str) -> Optional[Dict[str, Any]]:
+        cached = _load_provider_source_payload(
+            provider=provider,
+            airport_iata=airport_iata,
+            timezone_name=timezone_name,
+            display_grace_minutes=display_grace_minutes,
+            display_horizon_hours=display_horizon_hours,
+            stale_reason=reason,
+        )
+        if cached is not None:
+            source_cache_providers.append(provider)
+        return cached
+
+    def _finish(payload: Dict[str, Any], *, provider: str, extra_meta: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        records = list(payload.get("records") or [])
+        meta = dict(payload.get("meta") or {})
+        if extra_meta:
+            meta.update(extra_meta)
+        if not meta.get("stale_reason") and meta.get("source_cache_reason"):
+            meta["stale_reason"] = str(meta.get("source_cache_reason") or "")
+        meta.setdefault("providers_used", [provider])
+        meta.setdefault("provider_record_counts", {provider: len(records), "merged": len(records)})
+        meta["provider_errors"] = provider_errors
+        meta["budget_limited_providers"] = sorted(set(budget_limited))
+        meta["source_cache_providers"] = sorted(set(source_cache_providers))
+        meta["schedule_provider_mode"] = mode
+        meta["planner_version"] = _SHARED_SCHEDULE_PLANNER_VERSION
+        meta["schema_version"] = _SHARED_SCHEDULE_SCHEMA_VERSION
+        return {
+            "generated_at": str(payload.get("generated_at") or _utc_now()),
+            "provider": provider,
+            "meta": meta,
+            "records": records,
+        }
+
+    if mode == "aviationstack":
+        if not _has_aviationstack_key():
+            cached = _source_cache("aviationstack", "provider_not_configured")
+            if cached is not None:
+                return _finish(cached, provider="aviationstack", extra_meta={"stale_reason": "provider_not_configured"})
+            raise HTTPException(status_code=503, detail="AviationStack schedule provider is selected but not configured")
+        try:
+            payload = _fetch_aviationstack_schedule_source_from_upstream(
+                airport_iata=airport_iata,
+                timezone_name=timezone_name,
+                display_grace_minutes=display_grace_minutes,
+                display_horizon_hours=display_horizon_hours,
+            )
+            _store_provider_source_payload(
+                payload,
+                airport_iata=airport_iata,
+                timezone_name=timezone_name,
+                display_grace_minutes=display_grace_minutes,
+                display_horizon_hours=display_horizon_hours,
+            )
+            return _finish(payload, provider="aviationstack", extra_meta={"fill_reason": "provider_selected"})
+        except UpstreamBudgetExceeded as exc:
+            budget_limited.append("aviationstack")
+            provider_errors["aviationstack"] = _provider_error_text(exc)
+            cached = _source_cache("aviationstack", "budget_limited")
+            if cached is not None:
+                return _finish(cached, provider="aviationstack", extra_meta={"stale_reason": "budget_limited"})
+            raise
+        except (HTTPException, RuntimeError) as exc:
+            provider_errors["aviationstack"] = _provider_error_text(exc)
+            cached = _source_cache("aviationstack", "upstream_error")
+            if cached is not None:
+                return _finish(cached, provider="aviationstack", extra_meta={"stale_reason": "upstream_error"})
+            if isinstance(exc, HTTPException):
+                raise
+            raise HTTPException(status_code=503, detail="AviationStack schedule provider is unavailable") from exc
+
+    primary: Optional[Dict[str, Any]] = None
+    if _has_aerodatabox_key():
+        try:
+            primary = _fetch_aerodatabox_schedule_source_from_upstream(
+                airport_iata=airport_iata,
+                timezone_name=timezone_name,
+                display_grace_minutes=display_grace_minutes,
+                display_horizon_hours=display_horizon_hours,
+            )
+            _store_provider_source_payload(
+                primary,
+                airport_iata=airport_iata,
+                timezone_name=timezone_name,
+                display_grace_minutes=display_grace_minutes,
+                display_horizon_hours=display_horizon_hours,
+            )
+        except UpstreamBudgetExceeded as exc:
+            budget_limited.append("aerodatabox")
+            provider_errors["aerodatabox"] = _provider_error_text(exc)
+            primary = _source_cache("aerodatabox", "budget_limited")
+            if primary is None and mode == "aerodatabox":
+                raise
+        except HTTPException as exc:
+            provider_errors["aerodatabox"] = _provider_error_text(exc)
+            primary = _source_cache("aerodatabox", "upstream_error")
+            if primary is None and mode == "aerodatabox":
+                raise
+    elif mode == "aerodatabox":
+        primary = _source_cache("aerodatabox", "provider_not_configured")
+        if primary is None:
+            raise HTTPException(status_code=503, detail="AeroDataBox schedule provider is selected but not configured")
+
+    if primary is not None:
+        primary_records = list(primary.get("records") or [])
+        fill_reason = "primary_sparse" if schedule_records_need_fill(primary_records) else "not_needed"
+        if mode == "auto" and fill_reason == "primary_sparse" and _has_aviationstack_key():
+            try:
+                fill = _fetch_aviationstack_schedule_source_from_upstream(
+                    airport_iata=airport_iata,
+                    timezone_name=timezone_name,
+                    display_grace_minutes=display_grace_minutes,
+                    display_horizon_hours=display_horizon_hours,
+                )
+                _store_provider_source_payload(
+                    fill,
+                    airport_iata=airport_iata,
+                    timezone_name=timezone_name,
+                    display_grace_minutes=display_grace_minutes,
+                    display_horizon_hours=display_horizon_hours,
+                )
+                merged_records, fusion_meta = merge_schedule_records(
+                    primary_records,
+                    list(fill.get("records") or []),
+                    primary_provider="aerodatabox",
+                    fill_provider="aviationstack",
+                )
+                fill_meta = dict(fill.get("meta") or {})
+                fusion_meta["pages_fetched"] = int(fill_meta.get("pages_fetched", 0) or 0)
+                fusion_meta["aviationstack_meta"] = fill_meta
+                fusion_meta["aerodatabox_meta"] = dict(primary.get("meta") or {})
+                fusion_meta["upstream_usage_precounted"] = True
+                fusion_meta["fill_reason"] = fill_reason
+                return _finish(
+                    {
+                        "generated_at": primary.get("generated_at") or _utc_now(),
+                        "provider": "aerodatabox+aviationstack",
+                        "meta": fusion_meta,
+                        "records": merged_records,
+                    },
+                    provider="aerodatabox+aviationstack",
+                )
+            except UpstreamBudgetExceeded as exc:
+                budget_limited.append("aviationstack")
+                provider_errors["aviationstack"] = _provider_error_text(exc)
+                fill = _source_cache("aviationstack", "budget_limited")
+            except (HTTPException, RuntimeError) as exc:
+                provider_errors["aviationstack"] = _provider_error_text(exc)
+                fill = _source_cache("aviationstack", "upstream_error")
+            if fill is not None:
+                merged_records, fusion_meta = merge_schedule_records(
+                    primary_records,
+                    list(fill.get("records") or []),
+                    primary_provider="aerodatabox",
+                    fill_provider="aviationstack",
+                )
+                fill_meta = dict(fill.get("meta") or {})
+                fusion_meta["pages_fetched"] = int(fill_meta.get("pages_fetched", 0) or 0)
+                fusion_meta["aviationstack_meta"] = fill_meta
+                fusion_meta["aerodatabox_meta"] = dict(primary.get("meta") or {})
+                fusion_meta["upstream_usage_precounted"] = True
+                fusion_meta["fill_reason"] = f"{fill_reason}_source_cache"
+                return _finish(
+                    {
+                        "generated_at": primary.get("generated_at") or _utc_now(),
+                        "provider": "aerodatabox+aviationstack",
+                        "meta": fusion_meta,
+                        "records": merged_records,
+                    },
+                    provider="aerodatabox+aviationstack",
+                )
+        return _finish(primary, provider="aerodatabox", extra_meta={"fill_reason": fill_reason})
+
+    try:
+        if not _has_aviationstack_key():
+            cached = _source_cache("aviationstack", "provider_not_configured")
+            if cached is not None:
+                return _finish(cached, provider="aviationstack", extra_meta={"stale_reason": "provider_not_configured"})
+            raise HTTPException(status_code=503, detail="No configured real schedule provider is available")
+        fallback = _fetch_aviationstack_schedule_source_from_upstream(
+            airport_iata=airport_iata,
+            timezone_name=timezone_name,
+            display_grace_minutes=display_grace_minutes,
+            display_horizon_hours=display_horizon_hours,
+        )
+        _store_provider_source_payload(
+            fallback,
+            airport_iata=airport_iata,
+            timezone_name=timezone_name,
+            display_grace_minutes=display_grace_minutes,
+            display_horizon_hours=display_horizon_hours,
+        )
+        return _finish(fallback, provider="aviationstack", extra_meta={"fill_reason": "primary_unavailable"})
+    except UpstreamBudgetExceeded as exc:
+        budget_limited.append("aviationstack")
+        provider_errors["aviationstack"] = _provider_error_text(exc)
+        cached = _source_cache("aviationstack", "budget_limited")
+        if cached is not None:
+            return _finish(cached, provider="aviationstack", extra_meta={"stale_reason": "budget_limited"})
+        raise
+    except (RuntimeError, HTTPException) as exc:
+        provider_errors["aviationstack"] = _provider_error_text(exc)
+        cached = _source_cache("aviationstack", "upstream_error")
+        if cached is not None:
+            return _finish(cached, provider="aviationstack", extra_meta={"stale_reason": "upstream_error"})
+        if isinstance(exc, HTTPException):
+            raise
+        raise HTTPException(status_code=503, detail="No configured real schedule provider is available") from exc
 
 
 def _airport_surface_fresh_ttl_s() -> int:
@@ -3760,6 +4794,11 @@ def _render_admin_legacy(username: str, *, created_token: str = "", message: str
             """
         ).fetchall()
     ]
+    aerodatabox_key, aerodatabox_source = _provider_status(
+        _SETTING_AERODATABOX_KEY,
+        "AERODATABOX_API_KEY",
+        conn=conn,
+    )
     aviationstack_key, aviationstack_source = _provider_status(
         _SETTING_AVIATIONSTACK_KEY,
         "AVIATIONSTACK_API_KEY",
@@ -4068,6 +5107,7 @@ def _render_admin_legacy(username: str, *, created_token: str = "", message: str
       <div>
         <h2>Provider keys</h2>
         <div class="kicker">Managed clients do not receive raw vendor keys. Key changes take effect on the next relay request and advance the provider revision.</div>
+        <div class="provider-line"><span>AeroDataBox</span><span>{html.escape(_mask_secret(aerodatabox_key))} <span class="tiny">({html.escape(aerodatabox_source)})</span></span></div>
         <div class="provider-line"><span>AviationStack</span><span>{html.escape(_mask_secret(aviationstack_key))} <span class="tiny">({html.escape(aviationstack_source)})</span></span></div>
         <div class="provider-line"><span>RapidAPI ADS-B</span><span>{html.escape(_mask_secret(rapidapi_key))} <span class="tiny">({html.escape(rapidapi_source)})</span></span></div>
         <div class="provider-line"><span>Community schedule cap</span><span>{_community_schedule_limit()} relay accesses per install / 30-day window</span></div>
@@ -4077,6 +5117,9 @@ def _render_admin_legacy(username: str, *, created_token: str = "", message: str
         <div class="provider-line"><span>Activation privacy</span><span>Anonymous network tags only</span></div>
       </div>
       <form method="post" action="/admin/providers/save">
+        <label>AeroDataBox key
+          <input name="aerodatabox_key" placeholder="Paste a replacement key to store in the relay" />
+        </label>
         <label>AviationStack key
           <input name="aviationstack_key" placeholder="Paste a replacement key to store in the relay" />
         </label>
@@ -4086,6 +5129,7 @@ def _render_admin_legacy(username: str, *, created_token: str = "", message: str
         <button type="submit">Save provider keys</button>
       </form>
       <div>
+        {_post_form('/admin/providers/clear', {'provider': 'aerodatabox'}, 'Clear AeroDataBox override', 'slate')}
         {_post_form('/admin/providers/clear', {'provider': 'aviationstack'}, 'Clear AviationStack override', 'slate')}
         {_post_form('/admin/providers/clear', {'provider': 'rapidapi'}, 'Clear RapidAPI override', 'slate')}
       </div>
@@ -4511,6 +5555,11 @@ def _render_admin(username: str, *, created_token: str = "", message: str = "") 
             """
         ).fetchall()
     ]
+    aerodatabox_key, aerodatabox_source = _provider_status(
+        _SETTING_AERODATABOX_KEY,
+        "AERODATABOX_API_KEY",
+        conn=conn,
+    )
     aviationstack_key, aviationstack_source = _provider_status(
         _SETTING_AVIATIONSTACK_KEY,
         "AVIATIONSTACK_API_KEY",
@@ -4523,7 +5572,13 @@ def _render_admin(username: str, *, created_token: str = "", message: str = "") 
     )
     conn.close()
 
-    service_order = {"aviationstack": 0, "aviationstack_upstream": 1, "radar": 2}
+    service_order = {
+        "aviationstack": 0,
+        "aerodatabox_upstream_units": 1,
+        "aerodatabox_upstream_requests": 2,
+        "aviationstack_upstream": 3,
+        "radar": 4,
+    }
     plan_order = {"community": 0, "managed": 1, "shared": 2}
     service_breakdown.sort(
         key=lambda row: (
@@ -5547,6 +6602,7 @@ def _render_admin(username: str, *, created_token: str = "", message: str = "") 
       </div>
       <div class="stat-list">
         <div class="stat-row"><span>Provider revision</span><strong>{html.escape(str(provider_revision))}</strong></div>
+        <div class="stat-row"><span>AeroDataBox</span><strong>{html.escape(_mask_secret(aerodatabox_key))} <span class="tiny">({html.escape(aerodatabox_source)})</span></strong></div>
         <div class="stat-row"><span>AviationStack</span><strong>{html.escape(_mask_secret(aviationstack_key))} <span class="tiny">({html.escape(aviationstack_source)})</span></strong></div>
         <div class="stat-row"><span>RapidAPI ADS-B</span><strong>{html.escape(_mask_secret(rapidapi_key))} <span class="tiny">({html.escape(rapidapi_source)})</span></strong></div>
         <div class="stat-row"><span>Community schedule cap</span><strong>{_community_schedule_limit()} accesses / install / 30-day window</strong></div>
@@ -5558,6 +6614,9 @@ def _render_admin(username: str, *, created_token: str = "", message: str = "") 
         <div class="stat-row"><span>Activation privacy</span><strong>Anonymous network tags only | no raw IP storage</strong></div>
       </div>
       <form method="post" action="/admin/providers/save">
+        <label>AeroDataBox key
+          <input name="aerodatabox_key" placeholder="Paste a replacement key to store in the relay" />
+        </label>
         <label>AviationStack key
           <input name="aviationstack_key" placeholder="Paste a replacement key to store in the relay" />
         </label>
@@ -5567,6 +6626,7 @@ def _render_admin(username: str, *, created_token: str = "", message: str = "") 
         <button type="submit">Save provider keys</button>
       </form>
       <div>
+        {_post_form('/admin/providers/clear', {'provider': 'aerodatabox'}, 'Clear AeroDataBox override', 'slate')}
         {_post_form('/admin/providers/clear', {'provider': 'aviationstack'}, 'Clear AviationStack override', 'slate')}
         {_post_form('/admin/providers/clear', {'provider': 'rapidapi'}, 'Clear RapidAPI override', 'slate')}
       </div>
@@ -6018,10 +7078,11 @@ def _admin_text(value: Any) -> str:
 
 
 class AdminProviderKeysIn(BaseModel):
+    aerodatabox_key: str = Field("", max_length=240)
     aviationstack_key: str = Field("", max_length=240)
     rapidapi_key: str = Field("", max_length=240)
 
-    @field_validator("aviationstack_key", "rapidapi_key", mode="before")
+    @field_validator("aerodatabox_key", "aviationstack_key", "rapidapi_key", mode="before")
     @classmethod
     def _coerce_optional_text(cls, value: Any) -> str:
         return _admin_text(value)
@@ -6128,6 +7189,7 @@ def _build_client_status(
         label = ""
 
     conn = _connect()
+    aerodatabox_key, _ = _provider_status(_SETTING_AERODATABOX_KEY, "AERODATABOX_API_KEY", conn=conn)
     aviationstack_key, _ = _provider_status(_SETTING_AVIATIONSTACK_KEY, "AVIATIONSTACK_API_KEY", conn=conn)
     rapidapi_key, _ = _provider_status(_SETTING_RAPIDAPI_KEY, "RAPIDAPI_KEY", conn=conn)
     revision = _provider_revision(conn)
@@ -6144,6 +7206,7 @@ def _build_client_status(
         "label": label,
         "app_version": (app_version or "").strip(),
         "providers": {
+            "aerodatabox": bool(aerodatabox_key),
             "aviationstack": bool(aviationstack_key),
             "adsbexchange": bool(rapidapi_key),
         },
@@ -6508,8 +7571,19 @@ def relay_schedule(
     matrix_online_count: int = Query(0, ge=0, le=100_000),
 ) -> JSONResponse:
     install_id = _validate_install_id(install_id)
-    airport_iata = _clean_airport(airport_iata)
-    timezone_name = _normalize_timezone_name(timezone)
+    requested_timezone_name = _normalize_timezone_name(timezone)
+    requested_grace_minutes = int(display_grace_minutes)
+    requested_horizon_hours = int(display_horizon_hours)
+    airport_info = _canonical_schedule_airport(airport_iata)
+    airport_iata = airport_info["iata"]
+    airport_icao = airport_info["icao"]
+    timezone_name = airport_info["timezone"]
+    display_grace_minutes, display_horizon_hours = _bucket_schedule_window(
+        requested_grace_minutes,
+        requested_horizon_hours,
+    )
+    network_tag = _network_tag(_client_ip(request))
+    _check_and_increment_schedule_rpm_limits(install_id=install_id, network_tag=network_tag)
 
     access = _resolve_access(install_id=install_id, activation_token=activation_token, service="aviationstack")
     _record_install_profile(
@@ -6531,8 +7605,23 @@ def relay_schedule(
     if plan == "community":
         _check_and_increment_community_daily_limit(
             service="aviationstack",
-            network_tag=_network_tag(_client_ip(request)),
+            network_tag=network_tag,
         )
+
+    cache_key = _schedule_cache_key(
+        airport_iata=airport_iata,
+        timezone_name=timezone_name,
+        display_grace_minutes=display_grace_minutes,
+        display_horizon_hours=display_horizon_hours,
+    )
+    lock = _get_schedule_lock(cache_key)
+
+    conn = _connect()
+    snapshot_row = _load_schedule_snapshot_conn(conn, cache_key)
+    conn.close()
+    if snapshot_row is None:
+        _check_and_mark_new_schedule_cache_key(network_tag=network_tag, cache_key=cache_key)
+
     _record_client_interest(
         install_id=install_id,
         plan=str(access["plan"] or "community"),
@@ -6560,14 +7649,6 @@ def relay_schedule(
             headers=_quota_headers("aviationstack", current, access["limit"], access["plan"]),
         )
 
-    cache_key = _schedule_cache_key(
-        airport_iata=airport_iata,
-        timezone_name=timezone_name,
-        display_grace_minutes=display_grace_minutes,
-        display_horizon_hours=display_horizon_hours,
-    )
-    lock = _get_schedule_lock(cache_key)
-
     def _quota_headers_for_access(used_count: int) -> Dict[str, str]:
         return _quota_headers("aviationstack", used_count, access["limit"], access["plan"])
 
@@ -6579,11 +7660,25 @@ def relay_schedule(
         count_cache_hit: bool = False,
         count_stale: bool = False,
         used_count: int,
+        stale_reason: str = "",
+        budget_limited_providers: Optional[list[str]] = None,
     ) -> JSONResponse:
         payload = _snapshot_payload_from_row(row, cache_state=cache_state)
         payload["meta"]["served_via"] = served_via
         payload["meta"]["requested_refresh_seconds"] = int(refresh_seconds)
         payload["meta"]["effective_min_fresh_ttl_seconds"] = int(min_fresh_ttl_s)
+        payload["meta"]["canonical_airport_iata"] = airport_iata
+        payload["meta"]["canonical_airport_icao"] = airport_icao
+        payload["meta"]["canonical_timezone"] = timezone_name
+        payload["meta"]["canonical_display_grace_minutes"] = int(display_grace_minutes)
+        payload["meta"]["canonical_display_horizon_hours"] = int(display_horizon_hours)
+        payload["meta"]["requested_timezone"] = requested_timezone_name
+        payload["meta"]["requested_display_grace_minutes"] = int(requested_grace_minutes)
+        payload["meta"]["requested_display_horizon_hours"] = int(requested_horizon_hours)
+        if stale_reason:
+            payload["meta"]["stale_reason"] = stale_reason
+        if budget_limited_providers:
+            payload["meta"]["budget_limited_providers"] = sorted(set(budget_limited_providers))
         if plan == "community":
             payload["meta"]["relay_policy"] = "community schedule snapshots refresh at most once per hour"
         _record_schedule_access(
@@ -6602,14 +7697,11 @@ def relay_schedule(
         install_id=install_id,
     )
 
-    conn = _connect()
-    snapshot_row = _load_schedule_snapshot_conn(conn, cache_key)
     state = _snapshot_lifecycle_state(
         snapshot_row,
         refresh_seconds=refresh_seconds,
         min_fresh_ttl_s=min_fresh_ttl_s,
     )
-    conn.close()
 
     if snapshot_row is not None and state == "fresh":
         _log_request(
@@ -6630,7 +7722,7 @@ def relay_schedule(
 
     acquired = lock.acquire(blocking=False)
     if not acquired:
-        if snapshot_row is not None and state == "stale":
+        if snapshot_row is not None and (state == "stale" or _snapshot_stale_if_error_state(snapshot_row)):
             _log_request(
                 install_id=install_id,
                 scope="shared_schedule",
@@ -6645,6 +7737,7 @@ def relay_schedule(
                 served_via="stale-fallback",
                 count_stale=True,
                 used_count=used,
+                stale_reason="refresh_in_progress",
             )
 
         waited = lock.acquire(timeout=_SHARED_SCHEDULE_LOCK_WAIT_S)
@@ -6658,7 +7751,8 @@ def relay_schedule(
             min_fresh_ttl_s=min_fresh_ttl_s,
         )
         conn.close()
-        if latest is not None and latest_state in {"fresh", "stale"}:
+        if latest is not None and (latest_state in {"fresh", "stale"} or _snapshot_stale_if_error_state(latest)):
+            public_latest_state = "fresh" if latest_state == "fresh" else "stale"
             _log_request(
                 install_id=install_id,
                 scope="shared_schedule",
@@ -6669,11 +7763,12 @@ def relay_schedule(
             )
             return _serve_snapshot(
                 latest,
-                cache_state="fresh" if latest_state == "fresh" else "stale",
-                served_via="awaited-refresh" if latest_state == "fresh" else "stale-fallback",
+                cache_state=public_latest_state,
+                served_via="awaited-refresh" if public_latest_state == "fresh" else "stale-fallback",
                 count_cache_hit=latest_state == "fresh",
-                count_stale=latest_state == "stale",
+                count_stale=public_latest_state == "stale",
                 used_count=used,
+                stale_reason="" if public_latest_state == "fresh" else "refresh_in_progress",
             )
         raise HTTPException(status_code=503, detail="Relay schedule refresh is already in progress")
 
@@ -6711,7 +7806,36 @@ def relay_schedule(
             display_horizon_hours=display_horizon_hours,
         )
         latency_ms = int((time.monotonic() - t0) * 1000)
+        if _schedule_snapshot_is_suspiciously_sparse(snapshot, latest):
+            sparse_detail = "suspiciously sparse provider refresh blocked from replacing healthy cache"
+            conn = _connect()
+            conn.execute(
+                "UPDATE schedule_snapshots SET last_error=?, updated_at=? WHERE cache_key=?",
+                (sparse_detail, _utc_now(), cache_key),
+            )
+            conn.commit()
+            stale_row = _load_schedule_snapshot_conn(conn, cache_key)
+            conn.close()
+            if stale_row is not None and _snapshot_stale_if_error_state(stale_row):
+                _log_request(
+                    install_id=install_id,
+                    scope="shared_schedule",
+                    status=200,
+                    latency_ms=latency_ms,
+                    service="aviationstack",
+                    plan=access["plan"],
+                )
+                return _serve_snapshot(
+                    stale_row,
+                    cache_state="stale",
+                    served_via="stale-on-sparse-refresh",
+                    count_stale=True,
+                    used_count=used,
+                    stale_reason="suspicious_sparse_refresh",
+                )
+            raise HTTPException(status_code=503, detail="Schedule refresh returned suspiciously sparse data")
         pages_fetched = int(((snapshot.get("meta") or {}).get("pages_fetched", 0) or 0))
+        upstream_usage_precounted = bool((snapshot.get("meta") or {}).get("upstream_usage_precounted"))
         _store_schedule_snapshot(
             cache_key=cache_key,
             airport_iata=airport_iata,
@@ -6721,7 +7845,7 @@ def relay_schedule(
             payload=snapshot,
             pages_fetched=pages_fetched,
         )
-        if pages_fetched > 0:
+        if pages_fetched > 0 and not upstream_usage_precounted:
             _increment_usage(
                 subject_key=f"shared:{cache_key}",
                 service="aviationstack_upstream",
@@ -6743,16 +7867,27 @@ def relay_schedule(
         conn.close()
         if fresh_row is None:
             raise HTTPException(status_code=500, detail="Relay snapshot storage failed")
-        public_state = "miss" if snapshot_row is None else "fresh"
+        fresh_state = _snapshot_lifecycle_state(
+            fresh_row,
+            refresh_seconds=refresh_seconds,
+            min_fresh_ttl_s=min_fresh_ttl_s,
+        )
+        meta = snapshot.get("meta") if isinstance(snapshot.get("meta"), dict) else {}
+        public_state = "miss" if snapshot_row is None and fresh_state == "fresh" else fresh_state
+        if public_state not in {"fresh", "stale", "miss"}:
+            public_state = "stale" if _snapshot_stale_if_error_state(fresh_row) else "fresh"
         return _serve_snapshot(
             fresh_row,
             cache_state=public_state,
             served_via="cold-fill" if public_state == "miss" else "refresh",
+            count_stale=public_state == "stale",
             used_count=used,
+            stale_reason=str(meta.get("stale_reason") or "") if public_state == "stale" else "",
         )
     except HTTPException as exc:
         latency_ms = int((time.monotonic() - t0) * 1000)
-        if snapshot_row is not None and state == "stale":
+        budget_limited = [exc.provider] if isinstance(exc, UpstreamBudgetExceeded) else []
+        if snapshot_row is not None and _snapshot_stale_if_error_state(snapshot_row):
             conn = _connect()
             conn.execute(
                 "UPDATE schedule_snapshots SET last_error=?, updated_at=? WHERE cache_key=?",
@@ -6776,7 +7911,17 @@ def relay_schedule(
                     served_via="stale-on-error",
                     count_stale=True,
                     used_count=used,
+                    stale_reason="budget_limited" if budget_limited else "upstream_error",
+                    budget_limited_providers=budget_limited,
                 )
+        if isinstance(exc, UpstreamBudgetExceeded):
+            exc = HTTPException(
+                status_code=503,
+                detail=(
+                    "No usable schedule cache is available and the upstream provider budget is capped. "
+                    "Try again after the monthly window resets or configure another provider."
+                ),
+            )
         _log_request(
             install_id=install_id,
             scope="shared_schedule",
@@ -6785,7 +7930,7 @@ def relay_schedule(
             service="aviationstack",
             plan=access["plan"],
         )
-        raise
+        raise exc
     finally:
         lock.release()
 
@@ -7114,6 +8259,7 @@ def admin_api_overview(username: str = Depends(_require_admin)) -> Dict[str, Any
     conn = _connect()
     month = _month_key()
     try:
+        aerodatabox = _provider_admin_state(conn, _SETTING_AERODATABOX_KEY, "AERODATABOX_API_KEY")
         aviationstack = _provider_admin_state(conn, _SETTING_AVIATIONSTACK_KEY, "AVIATIONSTACK_API_KEY")
         rapidapi = _provider_admin_state(conn, _SETTING_RAPIDAPI_KEY, "RAPIDAPI_KEY")
         fleet_rows = _admin_fleet_rows(conn, month)
@@ -7143,6 +8289,7 @@ def admin_api_overview(username: str = Depends(_require_admin)) -> Dict[str, Any
             "month": month,
             "provider_revision": _provider_revision(conn),
             "providers": {
+                "aerodatabox": aerodatabox,
                 "aviationstack": aviationstack,
                 "rapidapi": rapidapi,
             },
@@ -7151,6 +8298,9 @@ def admin_api_overview(username: str = Depends(_require_admin)) -> Dict[str, Any
                 "community_radar": _community_radar_limit(),
                 "managed_schedule_default": _managed_schedule_limit(),
                 "managed_radar_default": _managed_radar_limit(),
+                "aerodatabox_upstream_units": _aerodatabox_upstream_units_limit(),
+                "aerodatabox_fids_units": _aerodatabox_fids_units(),
+                "aviationstack_upstream": _aviationstack_upstream_monthly_limit(),
             },
             "features": {
                 "raw_provider_debug": _raw_provider_debug_enabled(),
@@ -7544,6 +8694,9 @@ def admin_api_save_provider_keys(
     conn = _connect()
     changes: list[str] = []
     try:
+        if body.aerodatabox_key.strip():
+            _setting_set_conn(conn, _SETTING_AERODATABOX_KEY, body.aerodatabox_key.strip())
+            changes.append("AeroDataBox")
         if body.aviationstack_key.strip():
             _setting_set_conn(conn, _SETTING_AVIATIONSTACK_KEY, body.aviationstack_key.strip())
             changes.append("AviationStack")
@@ -7569,6 +8722,7 @@ def admin_api_clear_provider_key(
     username: str = Depends(_require_admin),
 ) -> Dict[str, Any]:
     mapping = {
+        "aerodatabox": (_SETTING_AERODATABOX_KEY, "AeroDataBox"),
         "aviationstack": (_SETTING_AVIATIONSTACK_KEY, "AviationStack"),
         "rapidapi": (_SETTING_RAPIDAPI_KEY, "RapidAPI ADS-B"),
     }
@@ -7916,6 +9070,8 @@ def admin_api_clean_trial_state(username: str = Depends(_require_admin)) -> Dict
         "request_log",
         "client_interests",
         "schedule_snapshots",
+        "provider_schedule_snapshots",
+        "provider_circuit_breakers",
         "airport_surface_snapshots",
         "activation_requests",
         "report_events",
@@ -7960,12 +9116,16 @@ def admin_signed_out() -> str:
 
 @app.post("/admin/providers/save")
 def admin_save_provider_keys(
+    aerodatabox_key: str = Form(""),
     aviationstack_key: str = Form(""),
     rapidapi_key: str = Form(""),
     username: str = Depends(_require_admin),
 ) -> HTMLResponse:
     conn = _connect()
     changes: list[str] = []
+    if aerodatabox_key.strip():
+        _setting_set_conn(conn, _SETTING_AERODATABOX_KEY, aerodatabox_key.strip())
+        changes.append("AeroDataBox")
     if aviationstack_key.strip():
         _setting_set_conn(conn, _SETTING_AVIATIONSTACK_KEY, aviationstack_key.strip())
         changes.append("AviationStack")
@@ -7989,6 +9149,7 @@ def admin_clear_provider_key(
     username: str = Depends(_require_admin),
 ) -> HTMLResponse:
     mapping = {
+        "aerodatabox": (_SETTING_AERODATABOX_KEY, "AeroDataBox"),
         "aviationstack": (_SETTING_AVIATIONSTACK_KEY, "AviationStack"),
         "rapidapi": (_SETTING_RAPIDAPI_KEY, "RapidAPI ADS-B"),
     }
@@ -8286,6 +9447,8 @@ def admin_clean_trial_state(username: str = Depends(_require_admin)) -> HTMLResp
         "request_log",
         "client_interests",
         "schedule_snapshots",
+        "provider_schedule_snapshots",
+        "provider_circuit_breakers",
         "airport_surface_snapshots",
         "activation_requests",
         "report_events",

@@ -360,6 +360,8 @@
     if (value.includes("community") && value.includes("key")) return "Local community key";
     if (value.includes("byok")) return "Your own AviationStack key";
     if (value.includes("vatsim")) return "VATSIM only";
+    if (value.includes("aerodatabox") && value.includes("aviationstack")) return "AeroDataBox + AviationStack schedule";
+    if (value.includes("aerodatabox")) return "AeroDataBox schedule";
     if (value.includes("aviationstack")) return "AviationStack schedule";
     return raw;
   }

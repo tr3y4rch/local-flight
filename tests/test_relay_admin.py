@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import types
@@ -629,12 +630,26 @@ def test_admin_api_provider_and_token_actions(tmp_path: Path, monkeypatch) -> No
         "/admin/api/providers/save",
         headers=headers,
         auth=auth,
-        json={"aviationstack_key": "stored-avi-test", "rapidapi_key": "stored-radar-test"},
+        json={
+            "aerodatabox_key": "stored-aero-test",
+            "aviationstack_key": "stored-avi-test",
+            "rapidapi_key": "stored-radar-test",
+        },
     )
     assert save.status_code == 200
     overview = client.get("/admin/api/overview", headers=headers, auth=auth).json()
+    assert overview["providers"]["aerodatabox"]["configured"] is True
     assert overview["providers"]["aviationstack"]["configured"] is True
+    assert "stored-aero-test" not in json.dumps(overview)
     assert "stored-avi-test" not in json.dumps(overview)
+
+    clear_aero = client.post(
+        "/admin/api/providers/clear",
+        headers=headers,
+        auth=auth,
+        json={"provider": "aerodatabox"},
+    )
+    assert clear_aero.status_code == 200
 
     clear = client.post(
         "/admin/api/providers/clear",
@@ -1459,7 +1474,7 @@ def test_community_shared_schedule_enforces_hourly_upstream_cadence(
 
     monkeypatch.setattr(relay_main, "_fetch_shared_schedule_from_upstream", fake_shared_fetch)
     params = {
-        "airport_iata": "EGLL",
+        "airport_iata": "LHR",
         "timezone": "Europe/London",
         "display_grace_minutes": 30,
         "display_horizon_hours": 12,
@@ -1505,14 +1520,14 @@ def test_shared_schedule_rechecks_cache_after_winning_refresh_lock(
     _use_temp_db(tmp_path, monkeypatch)
     client = TestClient(relay_main.app)
     cache_key = relay_main._schedule_cache_key(
-        airport_iata="EGLL",
+        airport_iata="LHR",
         timezone_name="Europe/London",
         display_grace_minutes=30,
         display_horizon_hours=12,
     )
     relay_main._store_schedule_snapshot(
         cache_key=cache_key,
-        airport_iata="EGLL",
+        airport_iata="LHR",
         timezone_name="Europe/London",
         display_grace_minutes=30,
         display_horizon_hours=12,
@@ -1534,7 +1549,7 @@ def test_shared_schedule_rechecks_cache_after_winning_refresh_lock(
     response = client.get(
         "/v1/schedule",
         params={
-            "airport_iata": "EGLL",
+            "airport_iata": "LHR",
             "timezone": "Europe/London",
             "display_grace_minutes": 30,
             "display_horizon_hours": 12,
@@ -1655,17 +1670,18 @@ def test_shared_schedule_invalid_timezones_share_normalized_cache_key(
     assert first.status_code == 200
     assert second.status_code == 200
     assert len(upstream_calls) == 1
-    assert upstream_calls[0]["timezone_name"] == "UTC"
+    assert upstream_calls[0]["timezone_name"] == "Europe/Zurich"
 
     conn = relay_main._connect()
     row = conn.execute("SELECT COUNT(*) AS n, MIN(timezone) AS timezone FROM schedule_snapshots").fetchone()
     conn.close()
     assert row is not None
     assert int(row["n"] or 0) == 1
-    assert row["timezone"] == "UTC"
+    assert row["timezone"] == "Europe/Zurich"
 
 
-def test_shared_schedule_upstream_fetch_adds_adaptive_pages_for_busy_departures(monkeypatch) -> None:
+def test_shared_schedule_upstream_fetch_adds_adaptive_pages_for_busy_departures(tmp_path: Path, monkeypatch) -> None:
+    _use_temp_db(tmp_path, monkeypatch)
     monkeypatch.setattr(relay_main, "_aviationstack_key", lambda: "relay-key-123")
     start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
     flight_date = start.date().isoformat()
@@ -1710,7 +1726,11 @@ def test_shared_schedule_upstream_fetch_adds_adaptive_pages_for_busy_departures(
     )
 
 
-def test_shared_schedule_upstream_fetch_falls_back_to_undated_when_date_scope_is_empty_on_board(monkeypatch) -> None:
+def test_shared_schedule_upstream_fetch_falls_back_to_undated_when_date_scope_is_empty_on_board(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    _use_temp_db(tmp_path, monkeypatch)
     monkeypatch.setattr(relay_main, "_aviationstack_key", lambda: "relay-key-123")
     early = _aviationstack_departure("100", datetime(2026, 5, 1, 5, 0, tzinfo=timezone.utc))
     rescue = _aviationstack_departure("200", datetime(2026, 5, 1, 15, 0, tzinfo=timezone.utc))
@@ -1846,6 +1866,458 @@ def test_shared_schedule_returns_error_when_no_snapshot_exists_and_upstream_fail
 
     assert response.status_code == 502
     assert response.json()["detail"] == "upstream down"
+
+
+def _aerodatabox_departure(scheduled: datetime, *, gate: object = None, aircraft: object = None) -> dict[str, object]:
+    stamp = scheduled.astimezone(timezone.utc).replace(second=0, microsecond=0).isoformat()
+    return {
+        "number": "LX100",
+        "callSign": "SWR100",
+        "status": "Scheduled",
+        "departure": {
+            "airport": {"iata": "ZRH", "icao": "LSZH"},
+            "scheduledTime": {"utc": stamp},
+            "revisedTime": {"utc": stamp},
+            "gate": gate,
+            "terminal": None,
+        },
+        "arrival": {
+            "airport": {"iata": "LHR", "icao": "EGLL"},
+            "scheduledTime": {"utc": stamp},
+        },
+        "airline": {"name": "Swiss", "iata": "LX", "icao": "SWR"},
+        "aircraft": {"icaoCode": aircraft} if aircraft else {},
+    }
+
+
+def test_aerodatabox_units_cap_blocks_before_outbound(tmp_path: Path, monkeypatch) -> None:
+    _use_temp_db(tmp_path, monkeypatch)
+    monkeypatch.setenv("AERODATABOX_API_KEY", "adb-test")
+    monkeypatch.setenv("RELAY_SCHEDULE_PROVIDER", "aerodatabox")
+    monkeypatch.setenv("RELAY_AERODATABOX_UPSTREAM_MONTHLY_UNITS_LIMIT", "1")
+    client = TestClient(relay_main.app)
+    outbound: list[object] = []
+
+    def fake_get(*args, **kwargs):
+        outbound.append((args, kwargs))
+        raise AssertionError("cap should block before outbound HTTP")
+
+    monkeypatch.setattr(relay_main._req, "get", fake_get)
+    response = client.get(
+        "/v1/schedule",
+        params={
+            "airport_iata": "ZRH",
+            "timezone": "Europe/Zurich",
+            "display_grace_minutes": 30,
+            "display_horizon_hours": 12,
+            "refresh_seconds": 3600,
+            "install_id": "00000000-0000-0000-0000-000000000430",
+        },
+    )
+
+    assert response.status_code == 503
+    assert outbound == []
+
+
+def test_aerodatabox_daily_units_cap_blocks_before_outbound(tmp_path: Path, monkeypatch) -> None:
+    _use_temp_db(tmp_path, monkeypatch)
+    monkeypatch.setenv("AERODATABOX_API_KEY", "adb-test")
+    monkeypatch.setenv("RELAY_AERODATABOX_UPSTREAM_MONTHLY_UNITS_LIMIT", "24000")
+    monkeypatch.setenv("RELAY_AERODATABOX_UPSTREAM_DAILY_UNITS_LIMIT", "1")
+    outbound: list[object] = []
+
+    def fake_get(*args, **kwargs):
+        outbound.append((args, kwargs))
+        raise AssertionError("daily cap should block before outbound HTTP")
+
+    monkeypatch.setattr(relay_main._req, "get", fake_get)
+
+    with pytest.raises(relay_main.UpstreamBudgetExceeded) as excinfo:
+        relay_main._aerodatabox_upstream_payload(
+            airport_iata="ZRH",
+            display_grace_minutes=30,
+            display_horizon_hours=12,
+        )
+
+    assert excinfo.value.period == "daily"
+    assert outbound == []
+
+
+def test_provider_circuit_breaker_blocks_before_budget_and_outbound(tmp_path: Path, monkeypatch) -> None:
+    _use_temp_db(tmp_path, monkeypatch)
+    monkeypatch.setenv("AERODATABOX_API_KEY", "adb-test")
+    monkeypatch.setenv("RELAY_PROVIDER_FAILURE_COOLDOWN_SECONDS", "600")
+    outbound: list[object] = []
+
+    def fake_get(*args, **kwargs):
+        outbound.append((args, kwargs))
+        raise AssertionError("open circuit should block before outbound HTTP")
+
+    monkeypatch.setattr(relay_main._req, "get", fake_get)
+    for _ in range(3):
+        relay_main._provider_circuit_record_failure("aerodatabox", "boom")
+
+    with pytest.raises(HTTPException) as excinfo:
+        relay_main._aerodatabox_upstream_payload(
+            airport_iata="ZRH",
+            display_grace_minutes=30,
+            display_horizon_hours=12,
+        )
+
+    assert excinfo.value.status_code == 503
+    assert outbound == []
+    conn = relay_main._connect()
+    units = conn.execute("SELECT calls FROM usage WHERE service='aerodatabox_upstream_units'").fetchone()
+    conn.close()
+    assert units is None
+
+
+def test_schedule_unknown_airport_rejects_before_usage_or_upstream(tmp_path: Path, monkeypatch) -> None:
+    _use_temp_db(tmp_path, monkeypatch)
+    client = TestClient(relay_main.app)
+    monkeypatch.setattr(
+        relay_main,
+        "_fetch_shared_schedule_from_upstream",
+        lambda **kwargs: pytest.fail("unknown airport must not reach upstream"),
+    )
+
+    response = client.get(
+        "/v1/schedule",
+        params={
+            "airport_iata": "ZZZZ",
+            "timezone": "UTC",
+            "display_grace_minutes": 30,
+            "display_horizon_hours": 12,
+            "refresh_seconds": 3600,
+            "install_id": "00000000-0000-0000-0000-000000000440",
+        },
+    )
+
+    assert response.status_code == 400
+    conn = relay_main._connect()
+    usage_count = conn.execute("SELECT COUNT(*) FROM usage").fetchone()[0]
+    snapshot_count = conn.execute("SELECT COUNT(*) FROM schedule_snapshots").fetchone()[0]
+    conn.close()
+    assert usage_count == 0
+    assert snapshot_count == 0
+
+
+def test_schedule_admission_buckets_windows_into_one_cache_key(tmp_path: Path, monkeypatch) -> None:
+    _use_temp_db(tmp_path, monkeypatch)
+    client = TestClient(relay_main.app)
+    upstream_calls: list[dict[str, object]] = []
+
+    def fake_shared_fetch(**kwargs):
+        upstream_calls.append(dict(kwargs))
+        return _shared_snapshot_payload(pages_fetched=1)
+
+    monkeypatch.setattr(relay_main, "_fetch_shared_schedule_from_upstream", fake_shared_fetch)
+    base = {
+        "airport_iata": "ZRH",
+        "timezone": "Etc/DefinitelyWrong",
+        "refresh_seconds": 3600,
+        "install_id": "00000000-0000-0000-0000-000000000441",
+    }
+
+    first = client.get("/v1/schedule", params={**base, "display_grace_minutes": 31, "display_horizon_hours": 11})
+    second = client.get("/v1/schedule", params={**base, "display_grace_minutes": 60, "display_horizon_hours": 12})
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert len(upstream_calls) == 1
+    assert upstream_calls[0]["timezone_name"] == "Europe/Zurich"
+    assert upstream_calls[0]["display_grace_minutes"] == 60
+    assert upstream_calls[0]["display_horizon_hours"] == 12
+    assert second.json()["cache_state"] == "fresh"
+
+
+def test_schedule_install_rpm_limit_rejects_before_cache_or_upstream(tmp_path: Path, monkeypatch) -> None:
+    _use_temp_db(tmp_path, monkeypatch)
+    monkeypatch.setenv("RELAY_SCHEDULE_INSTALL_RPM_LIMIT", "1")
+    client = TestClient(relay_main.app)
+    upstream_calls: list[dict[str, object]] = []
+
+    def fake_shared_fetch(**kwargs):
+        upstream_calls.append(dict(kwargs))
+        return _shared_snapshot_payload(pages_fetched=1)
+
+    monkeypatch.setattr(relay_main, "_fetch_shared_schedule_from_upstream", fake_shared_fetch)
+    params = {
+        "airport_iata": "ZRH",
+        "timezone": "Europe/Zurich",
+        "display_grace_minutes": 30,
+        "display_horizon_hours": 12,
+        "refresh_seconds": 3600,
+        "install_id": "00000000-0000-0000-0000-000000000442",
+    }
+
+    first = client.get("/v1/schedule", params=params)
+    second = client.get("/v1/schedule", params=params)
+
+    assert first.status_code == 200
+    assert second.status_code == 429
+    assert len(upstream_calls) == 1
+
+
+def test_schedule_new_cache_key_daily_limit_blocks_miss_explosions(tmp_path: Path, monkeypatch) -> None:
+    _use_temp_db(tmp_path, monkeypatch)
+    monkeypatch.setenv("RELAY_SCHEDULE_NEW_KEYS_NETWORK_DAILY_LIMIT", "1")
+    client = TestClient(relay_main.app)
+    upstream_calls: list[dict[str, object]] = []
+
+    def fake_shared_fetch(**kwargs):
+        upstream_calls.append(dict(kwargs))
+        return _shared_snapshot_payload(pages_fetched=1)
+
+    monkeypatch.setattr(relay_main, "_fetch_shared_schedule_from_upstream", fake_shared_fetch)
+    base = {
+        "timezone": "UTC",
+        "display_grace_minutes": 30,
+        "display_horizon_hours": 12,
+        "refresh_seconds": 3600,
+        "install_id": "00000000-0000-0000-0000-000000000443",
+    }
+
+    first = client.get("/v1/schedule", params={**base, "airport_iata": "ZRH"})
+    second = client.get("/v1/schedule", params={**base, "airport_iata": "LHR"})
+
+    assert first.status_code == 200
+    assert second.status_code == 429
+    assert len(upstream_calls) == 1
+
+
+def test_aerodatabox_fresh_cache_avoids_upstream(tmp_path: Path, monkeypatch) -> None:
+    _use_temp_db(tmp_path, monkeypatch)
+    monkeypatch.setenv("AERODATABOX_API_KEY", "adb-test")
+    monkeypatch.setenv("RELAY_SCHEDULE_PROVIDER", "aerodatabox")
+    client = TestClient(relay_main.app)
+    scheduled = datetime(2026, 5, 12, 10, 0, tzinfo=timezone.utc)
+    outbound: list[str] = []
+
+    def fake_get(url, *, params, headers, timeout):
+        outbound.append(url)
+        return types.SimpleNamespace(
+            status_code=200,
+            json=lambda: {"departures": [_aerodatabox_departure(scheduled, gate="A42", aircraft="A333")], "arrivals": []},
+        )
+
+    monkeypatch.setattr(relay_main._req, "get", fake_get)
+    params = {
+        "airport_iata": "ZRH",
+        "timezone": "Europe/Zurich",
+        "display_grace_minutes": 30,
+        "display_horizon_hours": 12,
+        "refresh_seconds": 3600,
+        "install_id": "00000000-0000-0000-0000-000000000431",
+    }
+
+    first = client.get("/v1/schedule", params=params)
+    second = client.get("/v1/schedule", params=params)
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert first.json()["provider"] == "aerodatabox"
+    assert second.json()["cache_state"] == "fresh"
+    assert len(outbound) == 1
+
+
+def test_aerodatabox_stale_cache_served_when_capped(tmp_path: Path, monkeypatch) -> None:
+    _use_temp_db(tmp_path, monkeypatch)
+    monkeypatch.setenv("AERODATABOX_API_KEY", "adb-test")
+    monkeypatch.setenv("RELAY_SCHEDULE_PROVIDER", "aerodatabox")
+    monkeypatch.setenv("RELAY_AERODATABOX_UPSTREAM_MONTHLY_UNITS_LIMIT", "2")
+    monkeypatch.setenv("RELAY_AERODATABOX_UPSTREAM_DAILY_UNITS_LIMIT", "2")
+    client = TestClient(relay_main.app)
+    scheduled = datetime(2026, 5, 12, 10, 0, tzinfo=timezone.utc)
+    outbound: list[str] = []
+
+    def fake_get(url, *, params, headers, timeout):
+        outbound.append(url)
+        return types.SimpleNamespace(
+            status_code=200,
+            json=lambda: {"departures": [_aerodatabox_departure(scheduled, gate="A42", aircraft="A333")], "arrivals": []},
+        )
+
+    monkeypatch.setattr(relay_main._req, "get", fake_get)
+    params = {
+        "airport_iata": "ZRH",
+        "timezone": "Europe/Zurich",
+        "display_grace_minutes": 30,
+        "display_horizon_hours": 12,
+        "refresh_seconds": 3600,
+        "install_id": "00000000-0000-0000-0000-000000000432",
+    }
+    seed = client.get("/v1/schedule", params=params)
+    assert seed.status_code == 200
+
+    stale_at = (relay_main.datetime.now(relay_main.timezone.utc) - relay_main.timedelta(minutes=70)).isoformat()
+    conn = relay_main._connect()
+    conn.execute("UPDATE schedule_snapshots SET generated_at=?, updated_at=?", (stale_at, relay_main._utc_now()))
+    conn.execute("UPDATE provider_schedule_snapshots SET generated_at=?, updated_at=?", (stale_at, relay_main._utc_now()))
+    conn.commit()
+    conn.close()
+
+    stale = client.get("/v1/schedule", params=params)
+
+    assert stale.status_code == 200
+    payload = stale.json()
+    assert payload["cache_state"] == "stale"
+    assert payload["meta"]["stale_reason"] == "budget_limited"
+    assert payload["meta"]["budget_limited_providers"] == ["aerodatabox"]
+    assert len(outbound) == 1
+
+
+def test_sparse_schedule_refresh_does_not_overwrite_healthy_cache(tmp_path: Path, monkeypatch) -> None:
+    _use_temp_db(tmp_path, monkeypatch)
+    client = TestClient(relay_main.app)
+    records = []
+    for idx in range(12):
+        row = dict(_shared_snapshot_payload(pages_fetched=1)["records"][0])
+        row["callsign"] = f"SWR{100 + idx}"
+        row["flight_number"] = f"LX{100 + idx}"
+        row["scheduled"] = f"2026-05-01T{10 + (idx % 8):02d}:00:00+00:00"
+        records.append(row)
+    cache_key = relay_main._schedule_cache_key(
+        airport_iata="ZRH",
+        timezone_name="Europe/Zurich",
+        display_grace_minutes=30,
+        display_horizon_hours=12,
+    )
+    healthy = _shared_snapshot_payload(pages_fetched=1)
+    healthy["records"] = records
+    relay_main._store_schedule_snapshot(
+        cache_key=cache_key,
+        airport_iata="ZRH",
+        timezone_name="Europe/Zurich",
+        display_grace_minutes=30,
+        display_horizon_hours=12,
+        payload=healthy,
+        pages_fetched=1,
+    )
+    stale_at = (relay_main.datetime.now(relay_main.timezone.utc) - relay_main.timedelta(minutes=70)).isoformat()
+    conn = relay_main._connect()
+    conn.execute("UPDATE schedule_snapshots SET generated_at=?, updated_at=?", (stale_at, relay_main._utc_now()))
+    conn.commit()
+    conn.close()
+
+    sparse = _shared_snapshot_payload(pages_fetched=1)
+    sparse["records"] = [records[0]]
+    monkeypatch.setattr(relay_main, "_fetch_shared_schedule_from_upstream", lambda **kwargs: sparse)
+
+    response = client.get(
+        "/v1/schedule",
+        params={
+            "airport_iata": "ZRH",
+            "timezone": "Europe/Zurich",
+            "display_grace_minutes": 30,
+            "display_horizon_hours": 12,
+            "refresh_seconds": 3600,
+            "install_id": "00000000-0000-0000-0000-000000000444",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["cache_state"] == "stale"
+    assert payload["meta"]["stale_reason"] == "suspicious_sparse_refresh"
+    assert len(payload["records"]) == 12
+    conn = relay_main._connect()
+    row = conn.execute("SELECT records_json, last_error FROM schedule_snapshots WHERE cache_key=?", (cache_key,)).fetchone()
+    conn.close()
+    assert row is not None
+    assert len(json.loads(row["records_json"])) == 12
+    assert "sparse" in str(row["last_error"])
+
+
+def test_aerodatabox_auto_fuses_aviationstack_fill(tmp_path: Path, monkeypatch) -> None:
+    _use_temp_db(tmp_path, monkeypatch)
+    monkeypatch.setenv("AERODATABOX_API_KEY", "adb-test")
+    monkeypatch.setenv("AVIATIONSTACK_API_KEY", "avi-test")
+    monkeypatch.setenv("RELAY_SCHEDULE_PROVIDER", "auto")
+    scheduled = datetime.now(timezone.utc).replace(second=0, microsecond=0)
+
+    def fake_get(url, *, params, headers, timeout):
+        if "aerodatabox" in url:
+            return types.SimpleNamespace(
+                status_code=200,
+                json=lambda: {"departures": [_aerodatabox_departure(scheduled)], "arrivals": []},
+            )
+        rows = []
+        if params.get("dep_iata") == "ZRH" and params.get("flight_date") == scheduled.date().isoformat() and int(params.get("offset", 0) or 0) == 0:
+            rows = [_aviationstack_departure("100", scheduled)]
+        return types.SimpleNamespace(status_code=200, json=lambda: {"data": rows})
+
+    monkeypatch.setattr(relay_main._req, "get", fake_get)
+    payload = relay_main._fetch_shared_schedule_from_upstream(
+        airport_iata="ZRH",
+        timezone_name="UTC",
+        display_grace_minutes=30,
+        display_horizon_hours=12,
+    )
+
+    assert payload["provider"] == "aerodatabox+aviationstack"
+    assert payload["meta"]["providers_used"] == ["aerodatabox", "aviationstack"]
+    assert payload["meta"]["provider_record_counts"]["aerodatabox"] == 1
+    assert payload["meta"]["provider_record_counts"]["aviationstack"] >= 1
+    assert payload["records"][0]["gate"] == "A1"
+    assert payload["records"][0]["aircraft_type"] == "A320"
+    assert payload["records"][0]["status"] == "scheduled"
+
+
+def test_upstream_budget_guard_is_atomic(tmp_path: Path, monkeypatch) -> None:
+    _use_temp_db(tmp_path, monkeypatch)
+    results: list[str] = []
+
+    def consume() -> None:
+        try:
+            relay_main._check_and_increment_upstream_budget(
+                provider="aerodatabox",
+                service="aerodatabox_upstream_units",
+                n_calls=1,
+                monthly_limit=2,
+            )
+            results.append("ok")
+        except relay_main.UpstreamBudgetExceeded:
+            results.append("capped")
+
+    threads = [threading.Thread(target=consume) for _ in range(6)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    conn = relay_main._connect()
+    row = conn.execute("SELECT calls FROM usage WHERE service='aerodatabox_upstream_units'").fetchone()
+    conn.close()
+    assert results.count("ok") == 2
+    assert results.count("capped") == 4
+    assert row is not None and int(row["calls"] or 0) == 2
+
+
+def test_aviationstack_upstream_cap_blocks_adaptive_pages_before_outbound(tmp_path: Path, monkeypatch) -> None:
+    _use_temp_db(tmp_path, monkeypatch)
+    monkeypatch.setenv("RELAY_AVIATIONSTACK_UPSTREAM_MONTHLY_LIMIT", "1")
+    monkeypatch.setattr(relay_main, "_aviationstack_key", lambda: "relay-key-123")
+    captured: list[dict[str, object]] = []
+    scheduled = datetime.now(timezone.utc).replace(second=0, microsecond=0)
+
+    def fake_get(url, *, params, headers, timeout):
+        captured.append(dict(params))
+        return types.SimpleNamespace(
+            status_code=200,
+            json=lambda: {"data": [_aviationstack_departure("100", scheduled) for _ in range(int(params.get("limit", 100) or 100))]},
+        )
+
+    monkeypatch.setattr(relay_main._req, "get", fake_get)
+    with pytest.raises(relay_main.UpstreamBudgetExceeded):
+        relay_main._fetch_aviationstack_schedule_source_from_upstream(
+            airport_iata="ZRH",
+            timezone_name="UTC",
+            display_grace_minutes=30,
+            display_horizon_hours=12,
+        )
+
+    assert len(captured) == 1
 
 
 def test_client_checkin_records_interest_and_exposes_schedule_cache(tmp_path: Path, monkeypatch) -> None:

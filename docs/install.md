@@ -174,11 +174,11 @@ Setup asks for:
 
 ### Data Access Choices
 
-- **Community Relay**: recommended first path. Uses shared hosted schedule snapshots so you do not need a paid schedule key on day one.
-- **Bring your own keys**: use your own AviationStack key, plus optional RapidAPI ADS-B Exchange and OpenSky credentials.
+- **Community Relay**: recommended first path. Uses shared hosted schedule snapshots so you do not need a paid schedule key on day one. The relay is cache-first and may combine compatible real schedule providers behind the scenes to keep boards populated.
+- **Bring your own keys**: use your own AeroDataBox or AviationStack schedule key, plus optional RapidAPI ADS-B Exchange and OpenSky credentials.
 - **VATSIM**: no real-world schedule key. Uses virtual network data.
 
-Community Relay protects shared provider usage, so a local 15 or 30 minute refresh setting may still reuse a cached shared airport snapshot for about one hour.
+Community Relay protects shared provider usage, so a local 15 or 30 minute refresh setting may still reuse a cached shared airport snapshot for about one hour. If a live provider is unavailable, Local Flight can keep serving the latest safe cached board instead of replacing it with a bad empty refresh.
 
 ---
 
@@ -203,7 +203,7 @@ Provider keys live in your local `.env` when you choose the BYOK path.
 - If mobile cannot connect, confirm the phone and server are on the same WiFi and use `http://localflight.local:8000` or the server LAN IP.
 - If `localflight.local` does not resolve, use the LAN IP address.
 - If a Pi display stays blank, confirm whether you installed `--native-kiosk`, `--kiosk`, or `--headless`.
-- If a real-data board looks sparse, try a busier airport or wait for the next fetch. Provider coverage varies by airport and lane.
+- If a real-data board looks sparse, try a busier airport or wait for the next fetch. Provider coverage varies by airport and lane, and cached relay snapshots may intentionally remain in place when a live provider returns suspiciously thin data.
 - If a Matrix board looks cramped, pick the closest panel preset first. Compact boards prioritize airport/lane, UTC/LT, weather, rows, and real-world gate/status information in that order.
 - If diagnostics are off, manual reports still work from the Report page.
 

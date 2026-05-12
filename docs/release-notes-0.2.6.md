@@ -93,6 +93,20 @@ Local Flight reuses data it already has:
 
 This does not add new paid providers and does not create surprise per-row provider calls when opening a detail panel.
 
+### Real Schedule Resilience
+
+The real-world schedule path is being hardened so the hosted Community Relay and bring-your-own-key installs can keep boards populated without careless provider spending.
+
+This pass adds the foundations for:
+
+- AeroDataBox as a first-class real schedule source
+- AviationStack as a compatible fill/fallback source when rows are sparse or key board fields are missing
+- cache-first schedule serving from shared airport snapshots
+- stale schedule serving when a provider is capped, unavailable, or slow
+- one canonical FIDS row shape for native Qt, LAN/browser, Matrix, mobile, History, and local APIs
+
+For users, the visible mode remains **Real**. Local Flight chooses the configured real schedule provider behind the scenes and keeps the board output compatible across the desktop app and browser UI.
+
 ### Privacy Notes
 
 The privacy model stays the same:

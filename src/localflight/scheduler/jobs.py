@@ -24,6 +24,7 @@ Pipeline for "real":
 from __future__ import annotations
 
 import logging
+import os
 from datetime import datetime, timezone
 from typing import List, Optional
 
@@ -109,13 +110,59 @@ def _broadcast_update(flights: List[Flight], cfg: AppConfig) -> None:
         log.debug("WS broadcast failed (non-fatal): %s", exc)
 
 
-# ── AviationStack fetch ────────────────────────────────────────────────────────
+# ── Real schedule fetch ────────────────────────────────────────────────────────
+
+def _local_schedule_provider() -> str:
+    raw = os.getenv("LOCALFLIGHT_REAL_SCHEDULE_PROVIDER", "auto").strip().lower()
+    if raw in {"auto", "aerodatabox", "aviationstack"}:
+        return raw
+    return "auto"
+
+
+def _fetch_aviationstack_records_windowed(cfg: AppConfig, *, now: datetime) -> tuple[list[dict], dict]:
+    from localflight.sources.web.aviationstack_client import (
+        fetch_flights_windowed,
+        record_fetch_cycle_stats,
+    )
+
+    raw_dep, dep_meta = fetch_flights_windowed(
+        airport_iata=cfg.airport_iata,
+        timezone_name=cfg.timezone,
+        mode="departures",
+        display_grace_minutes=cfg.display_grace_minutes,
+        display_horizon_hours=cfg.display_horizon_hours,
+        return_meta=True,
+        now=now,
+    )
+    raw_arr, arr_meta = fetch_flights_windowed(
+        airport_iata=cfg.airport_iata,
+        timezone_name=cfg.timezone,
+        mode="arrivals",
+        display_grace_minutes=cfg.display_grace_minutes,
+        display_horizon_hours=cfg.display_horizon_hours,
+        return_meta=True,
+        now=now,
+    )
+    record_fetch_cycle_stats(dep_meta, arr_meta)
+
+    records = aviationstack_to_raw_records(raw_dep, airport_iata=cfg.airport_iata, mode="dep")
+    records += aviationstack_to_raw_records(raw_arr, airport_iata=cfg.airport_iata, mode="arr")
+    meta = {
+        "provider": "aviationstack",
+        "dep_raw": len(raw_dep.get("data") or []),
+        "arr_raw": len(raw_arr.get("data") or []),
+        "dep_pages": dep_meta.get("pages_fetched"),
+        "arr_pages": arr_meta.get("pages_fetched"),
+        "dep_extra": dep_meta.get("adaptive_extra_pages", 0),
+        "arr_extra": arr_meta.get("adaptive_extra_pages", 0),
+    }
+    return records, meta
+
 
 def _fetch_aviationstack(cfg: AppConfig) -> List[Flight]:
     from localflight.sources.web.aviationstack_client import (
         fetch_relay_schedule_records,
-        fetch_flights_windowed,
-        record_fetch_cycle_stats,
+        _has_enabled_byok_key,
         _relay_uses_shared_schedule,
     )
 
@@ -135,7 +182,7 @@ def _fetch_aviationstack(cfg: AppConfig) -> List[Flight]:
             records,
             airport_iata=airport_iata,
             airport_icao=airport_icao,
-            source_name="aviationstack",
+            source_name=str(_relay_meta.get("provider") or "aviationstack"),
         )
         log.info(
             "AviationStack relay snapshot: %s canonical records -> %d flights (%s, provider=%s, pages=%s, adaptive_extra=%s)",
@@ -149,29 +196,77 @@ def _fetch_aviationstack(cfg: AppConfig) -> List[Flight]:
         return _dedupe_identical_flights(flights)
 
     now = datetime.now(timezone.utc)
+    provider_choice = _local_schedule_provider()
 
-    raw_dep, dep_meta = fetch_flights_windowed(
-        airport_iata=airport_iata,
-        timezone_name=cfg.timezone,
-        mode="departures",
-        display_grace_minutes=cfg.display_grace_minutes,
-        display_horizon_hours=cfg.display_horizon_hours,
-        return_meta=True,
-        now=now,
-    )
-    raw_arr, arr_meta = fetch_flights_windowed(
-        airport_iata=airport_iata,
-        timezone_name=cfg.timezone,
-        mode="arrivals",
-        display_grace_minutes=cfg.display_grace_minutes,
-        display_horizon_hours=cfg.display_horizon_hours,
-        return_meta=True,
-        now=now,
-    )
-    record_fetch_cycle_stats(dep_meta, arr_meta)
+    if provider_choice in {"auto", "aerodatabox"}:
+        from localflight.sources.web.aerodatabox_client import (
+            AeroDataBoxBudgetExceeded,
+            AeroDataBoxError,
+            fetch_schedule_records,
+            has_enabled_key as aerodatabox_has_enabled_key,
+        )
+        from localflight.sources.web.schedule_fusion import (
+            merge_schedule_records,
+            schedule_records_need_fill,
+        )
 
-    records = aviationstack_to_raw_records(raw_dep, airport_iata=airport_iata, mode="dep")
-    records += aviationstack_to_raw_records(raw_arr, airport_iata=airport_iata, mode="arr")
+        if aerodatabox_has_enabled_key():
+            try:
+                primary_records, aero_meta = fetch_schedule_records(
+                    airport_iata=airport_iata,
+                    airport_icao=airport_icao,
+                    timezone_name=cfg.timezone,
+                    display_grace_minutes=cfg.display_grace_minutes,
+                    display_horizon_hours=cfg.display_horizon_hours,
+                    timeout_s=25,
+                    now=now,
+                    return_meta=True,
+                )
+            except (AeroDataBoxBudgetExceeded, AeroDataBoxError) as exc:
+                if provider_choice == "aerodatabox" or not _has_enabled_byok_key():
+                    raise
+                log.warning("AeroDataBox primary unavailable; falling back to AviationStack: %s", exc)
+            else:
+                records = primary_records
+                source_name = "aerodatabox"
+                fill_meta: dict = {}
+                if (
+                    provider_choice == "auto"
+                    and _has_enabled_byok_key()
+                    and schedule_records_need_fill(primary_records)
+                ):
+                    try:
+                        fill_records, fill_fetch_meta = _fetch_aviationstack_records_windowed(cfg, now=now)
+                        records, fill_meta = merge_schedule_records(
+                            primary_records,
+                            fill_records,
+                            primary_provider="aerodatabox",
+                            fill_provider="aviationstack",
+                        )
+                        source_name = "aerodatabox+aviationstack"
+                        fill_meta["aviationstack_fetch"] = fill_fetch_meta
+                    except Exception as exc:
+                        log.warning("AviationStack fill unavailable after AeroDataBox primary: %s", exc)
+
+                flights = normalize_flights(
+                    records,
+                    airport_iata=airport_iata,
+                    airport_icao=airport_icao,
+                    source_name=source_name,
+                )
+                log.info(
+                    "Real schedule %s: aero_records=%d normalized=%d units=%s fill=%s",
+                    source_name,
+                    len(primary_records),
+                    len(flights),
+                    aero_meta.get("units_spent"),
+                    fill_meta.get("provider_record_counts", {}),
+                )
+                return _dedupe_identical_flights(flights)
+        elif provider_choice == "aerodatabox":
+            raise RuntimeError("LOCALFLIGHT_REAL_SCHEDULE_PROVIDER=aerodatabox but AERODATABOX_API_KEY is not enabled")
+
+    records, fetch_meta = _fetch_aviationstack_records_windowed(cfg, now=now)
 
     flights = normalize_flights(
         records,
@@ -181,13 +276,13 @@ def _fetch_aviationstack(cfg: AppConfig) -> List[Flight]:
     )
     log.info(
         "AviationStack fair-fetch: dep raw=%d arr raw=%d normalized=%d dep_pages=%s arr_pages=%s dep_extra=%s arr_extra=%s",
-        len(raw_dep.get("data") or []),
-        len(raw_arr.get("data") or []),
+        fetch_meta.get("dep_raw"),
+        fetch_meta.get("arr_raw"),
         len(flights),
-        dep_meta.get("pages_fetched"),
-        arr_meta.get("pages_fetched"),
-        dep_meta.get("adaptive_extra_pages", 0),
-        arr_meta.get("adaptive_extra_pages", 0),
+        fetch_meta.get("dep_pages"),
+        fetch_meta.get("arr_pages"),
+        fetch_meta.get("dep_extra", 0),
+        fetch_meta.get("arr_extra", 0),
     )
     return _dedupe_identical_flights(flights)
 

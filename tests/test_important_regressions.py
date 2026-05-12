@@ -16,6 +16,7 @@ import localflight.scheduler.jobs as jobs
 import localflight.scheduler.runtime as runtime
 import localflight.__main__ as localflight_main
 import localflight.sources.web.adsbexchange_client as adsbexchange_client
+import localflight.sources.web.aerodatabox_client as aerodatabox_client
 import localflight.sources.web.aviationstack_client as aviationstack_client
 import localflight.sources.web.airport_surface as airport_surface
 import localflight.sources.web.bug_reporter as bug_reporter
@@ -691,6 +692,32 @@ def test_community_budget_uses_rolling_30_day_window(monkeypatch) -> None:
     assert relay["calls"] == 1
     assert relay["limit"] == 50
     assert relay["period_days"] == 30
+
+
+def test_aviationstack_byok_daily_cap_uses_atomic_sqlite_counter(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(storage_config, "config_path", lambda: tmp_path / "config.json")
+    monkeypatch.setenv("LOCALFLIGHT_AVIATIONSTACK_DAILY_LIMIT", "1")
+
+    with pytest.raises(aviationstack_client.AviationstackBudgetExceeded):
+        aviationstack_client._increment_budget("aviationstack", 100, n_calls=2)
+
+    from localflight.sources.web import local_usage
+
+    assert local_usage.get_counter("aviationstack") == 0
+
+
+def test_aerodatabox_byok_daily_cap_uses_atomic_sqlite_counter(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(storage_config, "config_path", lambda: tmp_path / "config.json")
+    monkeypatch.setenv("LOCALFLIGHT_AERODATABOX_MONTHLY_UNITS_LIMIT", "100")
+    monkeypatch.setenv("LOCALFLIGHT_AERODATABOX_DAILY_UNITS_LIMIT", "1")
+
+    with pytest.raises(aerodatabox_client.AeroDataBoxBudgetExceeded):
+        aerodatabox_client._increment_units(2)
+
+    from localflight.sources.web import local_usage
+
+    assert local_usage.get_counter("aerodatabox_units") == 0
+    assert local_usage.get_counter("aerodatabox_requests") == 0
 
 
 def test_virtual_mode_does_not_clear_community_budget_memory(monkeypatch) -> None:

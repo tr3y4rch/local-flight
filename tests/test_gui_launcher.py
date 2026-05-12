@@ -3163,6 +3163,27 @@ def test_native_table_models_expose_common_rows(monkeypatch: pytest.MonkeyPatch)
             }
         ],
     )
+    fused = FlightBoardModel(
+        QtCore,
+        [
+            {
+                "display_time": "10:00 (+7)",
+                "flight_display": "LX 100",
+                "airline_display": "Swiss",
+                "codeshare_display": "Also BA7100 / UA9000",
+                "route_display": "London (LHR)",
+                "status_display": "DELAYED +7M",
+                "status_class": "delayed-warn",
+                "delay_minutes": 7,
+                "gate": "A42",
+                "terminal_display": "1",
+                "terminal_gate_display": "1 A42",
+                "aircraft_type": "A320",
+                "callsign": "SWR100",
+                "source_hint": "aerodatabox+aviationstack",
+            }
+        ],
+    )
     history = HistoryModel(QtCore, [{"callsign": "SWR1"}])
     requests = RequestLogModel(QtCore, [{"method": "GET", "path": "/api/fids"}])
 
@@ -3175,6 +3196,11 @@ def test_native_table_models_expose_common_rows(monkeypatch: pytest.MonkeyPatch)
     assert styled.headerData(4, QtCore.Qt.Horizontal, QtCore.Qt.DisplayRole) == "Gate"
     assert styled.data(styled.index(0, 3), QtCore.Qt.DisplayRole) == "BOARDING"
     assert "UA 9000 / AC 7000" in styled.data(styled.index(0, 1), QtCore.Qt.DisplayRole)
+    assert fused.data(fused.index(0, 1), QtCore.Qt.DisplayRole).startswith("LX 100\nSwiss")
+    assert "BA 7100 / UA 9000" in fused.data(fused.index(0, 1), QtCore.Qt.DisplayRole)
+    assert fused.data(fused.index(0, 3), QtCore.Qt.DisplayRole) == "DELAYED +7M"
+    assert fused.data(fused.index(0, 4), QtCore.Qt.DisplayRole) == "1 A42"
+    assert fused.row_at(0)["source_hint"] == "aerodatabox+aviationstack"
     assert history.headerData(3, QtCore.Qt.Horizontal, QtCore.Qt.DisplayRole) == "Callsign"
     assert requests.data(requests.index(0, 1), QtCore.Qt.DisplayRole) == "GET"
     model.set_rows([])

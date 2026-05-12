@@ -49,6 +49,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Radar information and drawing behavior from the native client have been carried into the LAN/browser radar path so blip status, layering, surface context, and detail wording stay aligned.
 - No new paid provider or surprise per-row detail fetches were added for this intelligence pass.
 
+### Schedule Relay And Real Data
+- AeroDataBox is staged as a first-class real schedule provider for hosted relay and bring-your-own-key installs, while `source=real` remains the public app mode.
+- AviationStack can act as compatible sparse fill/fallback for real schedule rows, filling empty board fields without overwriting primary provider times or status.
+- The schedule pipeline now has hard upstream budget guards, provider source caches, stale merged-cache serving, and canonical provider metadata for cache/fusion visibility.
+- Native Qt and LAN/browser FIDS paths now have regression coverage for fused AeroDataBox/AviationStack rows compiling into the same passenger-board row shape.
+
 ### Privacy And Docs
 - Public docs now describe `0.2.6` as a temporary client-polish target and keep `0.2.5` as the beta baseline it builds on.
 - Privacy copy now clarifies that richer detail drawers reuse already-fetched local/server data and that Matrix gate display is real-FIDS-only, with VATSIM gate placeholders suppressed by design.

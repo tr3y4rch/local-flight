@@ -112,7 +112,7 @@ function render(key, payload) {
   }
 }
 function renderStatic(key) {
-  if (key === "providers") panel(key,"Providers","Save or clear relay provider key overrides.","Operate",`<div class="filters"><input id="aviKey" type="password" placeholder="Replacement AviationStack key"><input id="rapidKey" type="password" placeholder="Replacement RapidAPI key"><button data-action="saveProviders">Save keys</button><button data-action="clearAviation">Clear AviationStack</button><button data-action="clearRapid">Clear RapidAPI</button></div>`);
+  if (key === "providers") panel(key,"Providers","Save or clear relay provider key overrides.","Operate",`<div class="filters"><input id="aeroKey" type="password" placeholder="Replacement AeroDataBox key"><input id="aviKey" type="password" placeholder="Replacement AviationStack key"><input id="rapidKey" type="password" placeholder="Replacement RapidAPI key"><button data-action="saveProviders">Save keys</button><button data-action="clearAero">Clear AeroDataBox</button><button data-action="clearAviation">Clear AviationStack</button><button data-action="clearRapid">Clear RapidAPI</button></div>`);
   if (key === "maintenance") panel(key,"Maintenance","Danger Zone actions stay separated from monitoring.","Danger Zone",`<div class="filters"><button data-action="resetAll">Reset all monthly counters</button><button data-action="resetLogs">Clear request log</button><input id="scheduleTotal" type="number" min="0" placeholder="Known schedule total"><button data-action="correctSchedule">Correct schedule total</button><button data-action="cleanTrial">Clean setup trial state</button></div>`);
 }
 function openDrawer(kind, row) {
@@ -154,7 +154,8 @@ document.addEventListener("click", async ev => {
   if (button?.dataset.clear) { const key = button.dataset.clear; state[key].cursor = ""; state[key].filters = {}; load(key).catch(e => notice(e.message)); return; }
   if (button?.dataset.next) { const key = button.dataset.next; state[key].cursor = state[key].last.next_cursor || ""; load(key).catch(e => notice(e.message)); return; }
   if (button?.dataset.prev) { const key = button.dataset.prev; state[key].cursor = ""; load(key).catch(e => notice(e.message)); return; }
-  if (button?.dataset.action === "saveProviders") return post("/admin/api/providers/save",{aviationstack_key:aviKey.value,rapidapi_key:rapidKey.value},"Save replacement provider keys?");
+  if (button?.dataset.action === "saveProviders") return post("/admin/api/providers/save",{aerodatabox_key:aeroKey.value,aviationstack_key:aviKey.value,rapidapi_key:rapidKey.value},"Save replacement provider keys?");
+  if (button?.dataset.action === "clearAero") return post("/admin/api/providers/clear",{provider:"aerodatabox"},"Clear AeroDataBox override?");
   if (button?.dataset.action === "clearAviation") return post("/admin/api/providers/clear",{provider:"aviationstack"},"Clear AviationStack override?");
   if (button?.dataset.action === "clearRapid") return post("/admin/api/providers/clear",{provider:"rapidapi"},"Clear RapidAPI override?");
   if (button?.dataset.action === "resetAll") return post("/admin/api/counters/reset",{scope:"all"},"Reset all monthly counters?");
