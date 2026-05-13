@@ -21,7 +21,7 @@ from fastapi.templating import Jinja2Templates
 
 from localflight.ui.api import router as api_router
 from localflight.ui.matrix_guidance import matrix_guidance_payload
-from localflight.core.airports import best_label
+from localflight.core.airports import best_label, city_country_label
 from localflight.core.settings_options import settings_options_context
 from localflight.sources.web.relay_defaults import default_public_relay_url, relay_endpoint_url, validate_public_relay_url
 from localflight.storage.config import (
@@ -1215,7 +1215,7 @@ def fids(request: Request, view: str = "arrivals", embedded: bool = Query(False)
     view = "departures" if view == "departures" else "arrivals"
     cfg = load_config()
     state = load_state()
-    airport_label = best_label(iata=cfg.airport_iata, icao=cfg.airport_icao) or cfg.airport_iata
+    airport_label = city_country_label(iata=cfg.airport_iata, icao=cfg.airport_icao) or cfg.airport_iata
 
     snap_path = load_latest_snapshot_path(cfg.airport_iata)
     if snap_path:

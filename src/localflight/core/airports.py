@@ -170,11 +170,64 @@ _COUNTRY_TZ: dict[str, str] = {
     "ZW": "Africa/Harare",
 }
 
+_COUNTRY_DISPLAY_NAMES: dict[str, str] = {
+    "AE": "United Arab Emirates",
+    "AR": "Argentina",
+    "AT": "Austria",
+    "AU": "Australia",
+    "BE": "Belgium",
+    "BR": "Brazil",
+    "CA": "Canada",
+    "CH": "Switzerland",
+    "CL": "Chile",
+    "CN": "China",
+    "CO": "Colombia",
+    "DE": "Germany",
+    "DK": "Denmark",
+    "EG": "Egypt",
+    "ES": "Spain",
+    "FI": "Finland",
+    "FR": "France",
+    "GB": "United Kingdom",
+    "GR": "Greece",
+    "HK": "Hong Kong",
+    "ID": "Indonesia",
+    "IE": "Ireland",
+    "IL": "Israel",
+    "IN": "India",
+    "IT": "Italy",
+    "JP": "Japan",
+    "KR": "South Korea",
+    "MX": "Mexico",
+    "MY": "Malaysia",
+    "NL": "Netherlands",
+    "NO": "Norway",
+    "NZ": "New Zealand",
+    "PH": "Philippines",
+    "PL": "Poland",
+    "PT": "Portugal",
+    "QA": "Qatar",
+    "SA": "Saudi Arabia",
+    "SE": "Sweden",
+    "SG": "Singapore",
+    "TH": "Thailand",
+    "TR": "Turkey",
+    "TW": "Taiwan",
+    "US": "United States",
+    "VN": "Vietnam",
+    "ZA": "South Africa",
+}
+
 
 def get_airport_timezone(country: str, region: str) -> str:
     """Return IANA timezone for a given OurAirports country + region pair."""
     tz = _REGION_TZ.get(region.upper()) or _COUNTRY_TZ.get(country.upper())
     return tz or "UTC"
+
+
+def country_display_name(country: str | None) -> str:
+    code = _norm(country)
+    return _COUNTRY_DISPLAY_NAMES.get(code, code)
 
 
 @dataclass(frozen=True, slots=True)
@@ -295,3 +348,23 @@ def best_label(
         return f"{base} ({c})"
 
     return base
+
+
+def city_country_label(
+    *,
+    iata: str | None = None,
+    icao: str | None = None,
+    city: str | None = None,
+    country: str | None = None,
+) -> str:
+    """Return a passenger-facing airport display label: City, Country."""
+    ap = lookup_airport(iata=iata, icao=icao)
+    city_text = str(city or (ap.city if ap else "") or "").strip()
+    country_text = country_display_name(country or (ap.country if ap else ""))
+    if city_text and country_text:
+        return f"{city_text}, {country_text}"
+    if city_text:
+        return city_text
+    if country_text:
+        return country_text
+    return _norm(iata or icao) or "LOCAL"

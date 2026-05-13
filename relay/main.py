@@ -576,6 +576,9 @@ def _ensure_schema() -> None:
             install_id           TEXT PRIMARY KEY,
             first_seen           TEXT NOT NULL,
             last_seen            TEXT NOT NULL,
+            last_heartbeat_at    TEXT,
+            last_checkin_at      TEXT,
+            last_relay_activity_at TEXT,
             app_version          TEXT,
             os_family            TEXT,
             os_version           TEXT,
@@ -618,6 +621,9 @@ def _ensure_schema() -> None:
     _ensure_column(conn, "airport_surface_snapshots", "last_cache_state TEXT")
     _ensure_column(conn, "airport_surface_snapshots", "last_error TEXT")
     _ensure_column(conn, "install_profiles", "app_version TEXT")
+    _ensure_column(conn, "install_profiles", "last_heartbeat_at TEXT")
+    _ensure_column(conn, "install_profiles", "last_checkin_at TEXT")
+    _ensure_column(conn, "install_profiles", "last_relay_activity_at TEXT")
     _ensure_column(conn, "install_profiles", "os_family TEXT")
     _ensure_column(conn, "install_profiles", "os_version TEXT")
     _ensure_column(conn, "install_profiles", "arch TEXT")
@@ -2030,6 +2036,37 @@ def _parse_utc_dt(value: Any) -> Optional[datetime]:
     return dt.astimezone(timezone.utc)
 
 
+def _latest_presence(
+    *,
+    heartbeat_at: str = "",
+    checkin_at: str = "",
+    relay_activity_at: str = "",
+) -> tuple[str, str]:
+    candidates = [
+        ("heartbeat", heartbeat_at),
+        ("checkin", checkin_at),
+        ("relay_activity", relay_activity_at),
+    ]
+    dated = [(source, stamp) for source, stamp in candidates if _parse_utc_dt(stamp)]
+    if not dated:
+        return "unknown", ""
+    source, stamp = max(dated, key=lambda item: _parse_utc_dt(item[1]) or datetime.min.replace(tzinfo=timezone.utc))
+    return source, stamp
+
+
+def _presence_status(stamp: str, *, now: Optional[datetime] = None) -> str:
+    dt = _parse_utc_dt(stamp)
+    if not dt:
+        return "unknown"
+    current = now or datetime.now(timezone.utc)
+    age = current - dt
+    if age <= timedelta(minutes=45):
+        return "fresh"
+    if age <= timedelta(hours=24):
+        return "recent"
+    return "stale"
+
+
 def _schedule_ttls(refresh_seconds: int, *, min_fresh_ttl_s: Optional[int] = None) -> tuple[int, int]:
     try:
         refresh = max(60, int(refresh_seconds))
@@ -2478,6 +2515,7 @@ def _coarse_admin_int(value: Any, *, minimum: int = 0, maximum: int = 100_000) -
 def _record_install_profile(
     *,
     install_id: str,
+    presence_event: str = "",
     app_version: str = "",
     os_family: str = "",
     os_version: str = "",
@@ -2492,17 +2530,25 @@ def _record_install_profile(
 ) -> None:
     install_id = _validate_install_id(install_id)
     now = _utc_now()
+    event = (presence_event or "").strip().lower()
+    heartbeat_at = now if event == "heartbeat" else ""
+    checkin_at = now if event == "checkin" else ""
+    relay_activity_at = now if event == "relay_activity" else ""
     conn = _connect()
     try:
         conn.execute(
             """
             INSERT INTO install_profiles (
-                install_id, first_seen, last_seen, app_version, os_family, os_version, arch,
+                install_id, first_seen, last_seen, last_heartbeat_at, last_checkin_at, last_relay_activity_at,
+                app_version, os_family, os_version, arch,
                 requested_gui, effective_gui, source_mode, diagnostics_mode,
                 companion_count, matrix_count, matrix_online_count
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(install_id) DO UPDATE SET
                 last_seen = excluded.last_seen,
+                last_heartbeat_at = COALESCE(NULLIF(excluded.last_heartbeat_at, ''), install_profiles.last_heartbeat_at),
+                last_checkin_at = COALESCE(NULLIF(excluded.last_checkin_at, ''), install_profiles.last_checkin_at),
+                last_relay_activity_at = COALESCE(NULLIF(excluded.last_relay_activity_at, ''), install_profiles.last_relay_activity_at),
                 app_version = COALESCE(NULLIF(excluded.app_version, ''), install_profiles.app_version),
                 os_family = COALESCE(NULLIF(excluded.os_family, ''), install_profiles.os_family),
                 os_version = COALESCE(NULLIF(excluded.os_version, ''), install_profiles.os_version),
@@ -2519,6 +2565,9 @@ def _record_install_profile(
                 install_id,
                 now,
                 now,
+                heartbeat_at,
+                checkin_at,
+                relay_activity_at,
                 _coarse_admin_text(app_version, limit=40),
                 _coarse_admin_text(os_family, limit=40),
                 _coarse_admin_text(os_version, limit=80),
@@ -2565,13 +2614,14 @@ def _backfill_install_profiles(conn: sqlite3.Connection) -> None:
         last_seen = str(row["last_seen"] or first_seen)
         conn.execute(
             """
-            INSERT INTO install_profiles (install_id, first_seen, last_seen)
-            VALUES (?, ?, ?)
+            INSERT INTO install_profiles (install_id, first_seen, last_seen, last_relay_activity_at)
+            VALUES (?, ?, ?, ?)
             ON CONFLICT(install_id) DO UPDATE SET
                 first_seen = COALESCE(install_profiles.first_seen, excluded.first_seen),
-                last_seen = MAX(install_profiles.last_seen, excluded.last_seen)
+                last_seen = MAX(install_profiles.last_seen, excluded.last_seen),
+                last_relay_activity_at = COALESCE(install_profiles.last_relay_activity_at, excluded.last_relay_activity_at)
             """,
-            (install_id, first_seen, last_seen),
+            (install_id, first_seen, last_seen, last_seen),
         )
 
 
@@ -3972,6 +4022,21 @@ def _admin_fleet_rows(conn: sqlite3.Connection, month: str) -> list[Dict[str, An
         ).fetchone()
         block = conn.execute("SELECT reason, created_at FROM blocked_installs WHERE install_id=?", (install_id,)).fetchone()
 
+        profile_heartbeat = str(profile["last_heartbeat_at"] or "") if profile else ""
+        profile_checkin = str(profile["last_checkin_at"] or "") if profile else ""
+        legacy_relay_values = [
+            str(profile["last_relay_activity_at"] or "") if profile else "",
+            str(usage["usage_last_seen"] or "") if usage else "",
+            str(token["last_seen"] or "") if token else "",
+            str(latest_request["last_seen"] or latest_request["updated_at"] or "") if latest_request else "",
+        ]
+        last_relay_activity_at = max([value for value in legacy_relay_values if value] or [""])
+        presence_source, presence_seen_at = _latest_presence(
+            heartbeat_at=profile_heartbeat,
+            checkin_at=profile_checkin,
+            relay_activity_at=last_relay_activity_at,
+        )
+        presence_status = _presence_status(presence_seen_at, now=now)
         seen_values = [
             str((profile or {}).get("last_seen") or "") if isinstance(profile, dict) else (str(profile["last_seen"] or "") if profile else ""),
             str(interest["last_seen"] or "") if interest else "",
@@ -4018,6 +4083,11 @@ def _admin_fleet_rows(conn: sqlite3.Connection, month: str) -> list[Dict[str, An
                 "action_ref": _admin_action_ref(conn, "inst", install_id),
                 "first_seen": first_seen,
                 "last_seen": last_seen,
+                "last_heartbeat_at": profile_heartbeat,
+                "last_checkin_at": profile_checkin,
+                "last_relay_activity_at": last_relay_activity_at,
+                "presence_source": presence_source,
+                "presence_status": presence_status,
                 "status": status,
                 "plan": plan,
                 "managed": bool(token and not token["revoked_at"]),
@@ -4051,6 +4121,10 @@ def _admin_fleet_metrics(rows: list[Dict[str, Any]]) -> Dict[str, Any]:
     return {
         "known_installs": len(rows),
         "active_installs_24h": len(active),
+        "presence_fresh": sum(1 for row in rows if row.get("presence_status") == "fresh"),
+        "presence_recent": sum(1 for row in rows if row.get("presence_status") == "recent"),
+        "presence_stale": sum(1 for row in rows if row.get("presence_status") == "stale"),
+        "presence_unknown": sum(1 for row in rows if row.get("presence_status") == "unknown"),
         "managed_installs": sum(1 for row in rows if row.get("managed")),
         "blocked_installs": sum(1 for row in rows if row.get("blocked")),
         "companion_installs": sum(1 for row in rows if int(row.get("companion_count") or 0) > 0),
@@ -4058,6 +4132,25 @@ def _admin_fleet_metrics(rows: list[Dict[str, Any]]) -> Dict[str, Any]:
         "os": _admin_count_values(rows, "os_family"),
         "gui": _admin_count_values(rows, "effective_gui"),
         "plans": _admin_count_values(rows, "plan"),
+    }
+
+
+def _admin_heartbeat_summary(rows: list[Dict[str, Any]]) -> Dict[str, Any]:
+    latest_heartbeat = max([str(row.get("last_heartbeat_at") or "") for row in rows if row.get("last_heartbeat_at")] or [""])
+    latest_checkin = max([str(row.get("last_checkin_at") or "") for row in rows if row.get("last_checkin_at")] or [""])
+    latest_activity = max(
+        [str(row.get("last_relay_activity_at") or "") for row in rows if row.get("last_relay_activity_at")] or [""]
+    )
+    return {
+        "cadence_seconds": 30 * 60,
+        "cooldown_seconds": _HEARTBEAT_MIN_INTERVAL_S,
+        "fresh": sum(1 for row in rows if row.get("presence_status") == "fresh"),
+        "recent": sum(1 for row in rows if row.get("presence_status") == "recent"),
+        "stale": sum(1 for row in rows if row.get("presence_status") == "stale"),
+        "unknown": sum(1 for row in rows if row.get("presence_status") == "unknown"),
+        "latest_heartbeat_at": latest_heartbeat,
+        "latest_checkin_at": latest_checkin,
+        "latest_relay_activity_at": latest_activity,
     }
 
 
@@ -4177,6 +4270,8 @@ def _admin_fleet_facets(rows: list[Dict[str, Any]]) -> Dict[str, Any]:
         "plan": _admin_count_values(rows, "plan"),
         "airport_iata": _admin_count_values(rows, "current_lane.airport_iata"),
         "status": _admin_count_values(rows, "status"),
+        "presence_status": _admin_count_values(rows, "presence_status"),
+        "presence_source": _admin_count_values(rows, "presence_source"),
         "has_companion": {
             "yes": sum(1 for row in rows if int(row.get("companion_count") or 0) > 0),
             "no": sum(1 for row in rows if int(row.get("companion_count") or 0) <= 0),
@@ -4205,6 +4300,8 @@ def _admin_filter_fleet_rows(
     os_family: str = "",
     effective_gui: str = "",
     app_version: str = "",
+    presence_status: str = "",
+    presence_source: str = "",
     airport_iata: str = "",
     has_companion: Any = None,
     has_matrix: Any = None,
@@ -4220,6 +4317,8 @@ def _admin_filter_fleet_rows(
         "os_family": _admin_clean_query(os_family, limit=48).lower(),
         "effective_gui": _admin_clean_query(effective_gui, limit=48).lower(),
         "app_version": _admin_clean_query(app_version, limit=48),
+        "presence_status": _admin_clean_query(presence_status, limit=48).lower(),
+        "presence_source": _admin_clean_query(presence_source, limit=48).lower(),
         "airport_iata": _admin_clean_query(airport_iata, limit=8).upper(),
         "has_companion": _admin_bool_param(has_companion),
         "has_matrix": _admin_bool_param(has_matrix),
@@ -4241,6 +4340,10 @@ def _admin_filter_fleet_rows(
         if filters["effective_gui"] and str(row.get("effective_gui") or row.get("requested_gui") or "").lower() != filters["effective_gui"]:
             continue
         if filters["app_version"] and str(row.get("app_version") or "") != filters["app_version"]:
+            continue
+        if filters["presence_status"] and str(row.get("presence_status") or "").lower() != filters["presence_status"]:
+            continue
+        if filters["presence_source"] and str(row.get("presence_source") or "").lower() != filters["presence_source"]:
             continue
         if filters["airport_iata"] and str(_admin_nested_value(row, "current_lane.airport_iata") or "").upper() != filters["airport_iata"]:
             continue
@@ -7396,29 +7499,27 @@ def relay_client_status(
     matrix_online_count: int = Query(0, ge=0, le=100_000),
 ) -> Dict[str, Any]:
     install_id = _validate_install_id(install_id)
-    if any(
-        str(value or "").strip()
-        for value in (app_version, os_family, os_version, arch, requested_gui, effective_gui, source_mode, diagnostics_mode)
-    ) or companion_count or matrix_count or matrix_online_count:
-        _record_install_profile(
-            install_id=install_id,
-            app_version=app_version,
-            os_family=os_family,
-            os_version=os_version,
-            arch=arch,
-            requested_gui=requested_gui,
-            effective_gui=effective_gui,
-            source_mode=source_mode,
-            diagnostics_mode=diagnostics_mode,
-            companion_count=companion_count,
-            matrix_count=matrix_count,
-            matrix_online_count=matrix_online_count,
-        )
-    return _build_client_status(
+    status_payload = _build_client_status(
         install_id=install_id,
         activation_token=(activation_token or "").strip(),
         app_version=app_version,
     )
+    _record_install_profile(
+        install_id=install_id,
+        presence_event="relay_activity",
+        app_version=app_version,
+        os_family=os_family,
+        os_version=os_version,
+        arch=arch,
+        requested_gui=requested_gui,
+        effective_gui=effective_gui,
+        source_mode=source_mode,
+        diagnostics_mode=diagnostics_mode,
+        companion_count=companion_count,
+        matrix_count=matrix_count,
+        matrix_online_count=matrix_online_count,
+    )
+    return status_payload
 
 
 @app.post("/v1/client/checkin")
@@ -7431,6 +7532,7 @@ def relay_client_checkin(body: ClientStatusIn) -> Dict[str, Any]:
     )
     _record_install_profile(
         install_id=install_id,
+        presence_event="checkin",
         app_version=body.app_version,
         os_family=body.os_family,
         os_version=body.os_version,
@@ -7470,6 +7572,7 @@ def relay_heartbeat(body: HeartbeatIn) -> Dict[str, Any]:
         raise HTTPException(status_code=429, detail="Heartbeat cooldown: minimum 5 minutes between beats")
     _record_install_profile(
         install_id=install_id,
+        presence_event="heartbeat",
         app_version=body.app_version,
         os_family=body.os_family,
         os_version=body.os_version,
@@ -7649,6 +7752,7 @@ def relay_schedule(
     access = _resolve_access(install_id=install_id, activation_token=activation_token, service="aviationstack")
     _record_install_profile(
         install_id=install_id,
+        presence_event="relay_activity",
         app_version=app_version,
         os_family=os_family,
         os_version=os_version,
@@ -8253,6 +8357,7 @@ def relay_radar(
     access = _resolve_access(install_id=install_id, activation_token=activation_token, service="radar")
     _record_install_profile(
         install_id=install_id,
+        presence_event="relay_activity",
         app_version=app_version,
         os_family=os_family,
         os_version=os_version,
@@ -8334,6 +8439,7 @@ def admin_api_overview(username: str = Depends(_require_admin)) -> Dict[str, Any
         rapidapi = _provider_admin_state(conn, _SETTING_RAPIDAPI_KEY, "RAPIDAPI_KEY")
         fleet_rows = _admin_fleet_rows(conn, month)
         fleet_metrics = _admin_fleet_metrics(fleet_rows)
+        heartbeat_summary = _admin_heartbeat_summary(fleet_rows)
         snapshot_totals = conn.execute(
             """
             SELECT COALESCE(SUM(client_accesses), 0) AS client_accesses,
@@ -8403,6 +8509,7 @@ def admin_api_overview(username: str = Depends(_require_admin)) -> Dict[str, Any
                 "reports_24h": _admin_count(conn, "SELECT COUNT(*) FROM report_events WHERE ts>=?", (_hours_ago(24),)),
             },
             "fleet": fleet_metrics,
+            "heartbeat": heartbeat_summary,
             "shared_schedule": {
                 "client_accesses": int(snapshot_totals["client_accesses"] or 0),
                 "upstream_pulls": int(snapshot_totals["upstream_pulls"] or 0),
@@ -8529,6 +8636,8 @@ def admin_api_fleet(
     os_family: str = Query(""),
     effective_gui: str = Query(""),
     app_version: str = Query(""),
+    presence_status: str = Query(""),
+    presence_source: str = Query(""),
     airport_iata: str = Query(""),
     has_companion: Optional[bool] = Query(None),
     has_matrix: Optional[bool] = Query(None),
@@ -8553,6 +8662,8 @@ def admin_api_fleet(
             os_family=os_family,
             effective_gui=effective_gui,
             app_version=app_version,
+            presence_status=presence_status,
+            presence_source=presence_source,
             airport_iata=airport_iata,
             has_companion=has_companion,
             has_matrix=has_matrix,
@@ -8577,6 +8688,7 @@ def admin_api_fleet(
             "operator": username,
             "month": month,
             "metrics": _admin_fleet_metrics(rows),
+            "heartbeat": _admin_heartbeat_summary(rows),
             "installs": page["rows"],
             "rows": page["rows"],
             "next_cursor": page["next_cursor"],

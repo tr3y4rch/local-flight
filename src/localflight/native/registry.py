@@ -70,7 +70,7 @@ PAGE_SPECS: tuple[NativePageSpec, ...] = (
         "localflight.native.pages.matrix",
         "MatrixScreen",
         "matrix_preview.html",
-        "primary",
+        "utility",
         "manual",
         (
             "/api/matrix/config",

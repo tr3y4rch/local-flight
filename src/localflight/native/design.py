@@ -398,6 +398,11 @@ QFrame#WeatherChip {{
   border: 1px solid {_rgba(accent, 0.24)};
   border-radius: 12px;
 }}
+QFrame#WeatherHero {{
+  background: {_rgba(colors["green"], 0.08)};
+  border: 1px solid {_rgba(colors["green"], 0.24)};
+  border-radius: 14px;
+}}
 QFrame#WeatherStrip[tone="good"] {{
   background: {_rgba(colors["green"], 0.10)};
   border-color: {_rgba(colors["green"], 0.28)};
@@ -405,6 +410,10 @@ QFrame#WeatherStrip[tone="good"] {{
 QFrame#WeatherChip[tone="good"] {{
   background: {_rgba(colors["green"], 0.08)};
   border-color: {_rgba(colors["green"], 0.26)};
+}}
+QFrame#WeatherHero[tone="good"] {{
+  background: {_rgba(colors["green"], 0.10)};
+  border-color: {_rgba(colors["green"], 0.30)};
 }}
 QFrame#WeatherStrip[tone="caution"] {{
   background: {_rgba(colors["amber"], 0.11)};
@@ -414,6 +423,10 @@ QFrame#WeatherChip[tone="caution"] {{
   background: {_rgba(colors["amber"], 0.09)};
   border-color: {_rgba(colors["amber"], 0.30)};
 }}
+QFrame#WeatherHero[tone="caution"] {{
+  background: {_rgba(colors["amber"], 0.10)};
+  border-color: {_rgba(colors["amber"], 0.32)};
+}}
 QFrame#WeatherStrip[tone="bad"] {{
   background: {_rgba(colors["red"], 0.11)};
   border-color: {_rgba(colors["red"], 0.34)};
@@ -422,10 +435,38 @@ QFrame#WeatherChip[tone="bad"] {{
   background: {_rgba(colors["red"], 0.09)};
   border-color: {_rgba(colors["red"], 0.34)};
 }}
+QFrame#WeatherHero[tone="bad"] {{
+  background: {_rgba(colors["red"], 0.10)};
+  border-color: {_rgba(colors["red"], 0.36)};
+}}
 QFrame#FidsHeader {{
   background: {subtle_surface};
   border: 1px solid {_rgba(accent, 0.18)};
   border-radius: 14px;
+}}
+QFrame#AirportHero {{
+  background: {_rgba(accent, 0.10)};
+  border: 1px solid {_rgba(accent, 0.28)};
+  border-radius: 14px;
+}}
+QFrame#FidsHeaderActions {{
+  background: transparent;
+  border: none;
+}}
+QLabel#FidsAirportCode {{
+  color: {colors["text"]};
+  font-size: 18px;
+  font-weight: 900;
+}}
+QLabel#FidsTitle {{
+  color: {colors["muted"]};
+  font-size: 11px;
+  font-weight: 800;
+}}
+QFrame#ClockDivider {{
+  background: {_rgba(colors["panel_2"], 0.86)};
+  border: 1px solid {colors["line"]};
+  border-radius: 12px;
 }}
 QFrame#InfoBanner {{
   background: {_rgba(accent, 0.10)};
@@ -536,7 +577,9 @@ QLabel#ClockChip[connected="true"] {{
 QFrame#SyncChip {{
   background: {control_subtle_surface};
   border: 1px solid {control_soft_surface};
-  border-radius: 10px;
+  border-radius: 9px;
+  min-width: 20px;
+  max-width: 26px;
 }}
 QFrame#SyncChip[connected="true"] {{
   border-color: {_rgba(colors["green"], 0.42)};
@@ -739,15 +782,22 @@ QPushButton#Quiet, QToolButton#Quiet {{
   color: {colors["muted"]};
 }}
 QPushButton#FooterLink {{
-  background: {_rgba(accent, 0.08)};
-  border: 1px solid {_rgba(accent, 0.22)};
-  border-radius: 8px;
+  background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 {_rgba(accent, 0.12)}, stop:1 {control_subtle_surface});
+  border: 1px solid {_rgba(accent, 0.28)};
+  border-radius: 9px;
   color: {_ensure_contrast(colors["muted"], colors["bg"], minimum=3.0)};
-  padding: 6px 10px;
+  padding: 5px;
+  font-size: 11px;
+  font-family: {BOARD_FONT_STACK};
+  font-weight: 900;
 }}
 QPushButton#FooterLink:hover {{
-  background: {_rgba(accent, 0.15)};
+  background: {_rgba(accent, 0.18)};
+  border-color: {_rgba(accent, 0.48)};
   color: {colors["text"]};
+}}
+QPushButton#FooterLink:focus {{
+  border-color: {accent};
 }}
 QLineEdit, QSpinBox, QComboBox {{
   background: {control_colors["input_bg"]};

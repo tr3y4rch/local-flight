@@ -44,13 +44,14 @@ def test_heartbeat_writes_install_profile(tmp_path, monkeypatch):
     _beat(client, app_version="0.2.6", os_family="Linux")
     conn = relay_main._connect()
     row = conn.execute(
-        "SELECT install_id, app_version, os_family FROM install_profiles WHERE install_id=?",
+        "SELECT install_id, app_version, os_family, last_heartbeat_at FROM install_profiles WHERE install_id=?",
         (_VALID_UUID,),
     ).fetchone()
     conn.close()
     assert row is not None
     assert row["app_version"] == "0.2.6"
     assert row["os_family"] == "Linux"
+    assert row["last_heartbeat_at"]
 
 
 def test_heartbeat_updates_last_seen(tmp_path, monkeypatch):
@@ -59,12 +60,13 @@ def test_heartbeat_updates_last_seen(tmp_path, monkeypatch):
     before = relay_main._utc_now()
     _beat(client)
     conn = relay_main._connect()
-    last_seen = conn.execute(
-        "SELECT last_seen FROM install_profiles WHERE install_id=?",
+    row = conn.execute(
+        "SELECT last_seen, last_heartbeat_at FROM install_profiles WHERE install_id=?",
         (_VALID_UUID,),
-    ).fetchone()["last_seen"]
+    ).fetchone()
     conn.close()
-    assert last_seen >= before
+    assert row["last_seen"] >= before
+    assert row["last_heartbeat_at"] >= before
 
 
 def test_heartbeat_rate_limited_within_cooldown(tmp_path, monkeypatch):

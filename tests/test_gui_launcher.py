@@ -177,15 +177,16 @@ def test_native_client_window_exposes_real_user_pages(monkeypatch: pytest.Monkey
         "Display",
         "FIDS",
         "Radar",
-        "Matrix",
     ]
     assert [window.utility_nav_layout.itemAt(i).widget().property("lf_label") for i in range(window.utility_nav_layout.count())] == [
+        "Matrix",
         "Settings",
         "Admin",
         "History",
         "Logs",
         "Report",
     ]
+    assert window.clock_nav_group.findChildren(QtWidgets.QLabel) == [window.utc_clock, window.local_clock]
     assert window.stack.count() == 10
     assert window.screens[0] is not None
     assert all(screen is None for screen in window.screens[1:])
@@ -211,9 +212,24 @@ def test_native_client_window_footer_links(monkeypatch: pytest.MonkeyPatch) -> N
     window.footer_coffee_button.click()
 
     assert app is not None
-    assert window.footer_github_button.text() == "GitHub"
-    assert window.footer_coffee_button.text() == "Buy Me a Coffee"
+    assert not window.footer_github_button.icon().isNull() or window.footer_github_button.text()
+    assert not window.footer_coffee_button.icon().isNull() or window.footer_coffee_button.text()
+    assert window.footer_github_button.text() != "GitHub"
+    assert window.footer_coffee_button.text() != "Buy Me a Coffee"
+    assert window.footer_github_button.toolTip() == "GitHub"
+    assert window.footer_coffee_button.toolTip() == "Buy Me a Coffee"
+    assert window.footer_github_button.accessibleName() == "GitHub"
+    assert window.footer_coffee_button.accessibleName() == "Buy Me a Coffee"
+    assert window.footer_status_label.text().endswith("Local-first \u00b7 private by design")
+    assert window.footer_status_label.text().startswith("v")
     assert opened == [legacy_app.GITHUB_URL, legacy_app.COFFEE_URL]
+
+
+def test_native_footer_support_assets_resolve() -> None:
+    from localflight.native.design import resolve_media_path
+
+    assert resolve_media_path("ui", "static", "support-repository.svg") is not None
+    assert resolve_media_path("ui", "static", "support-coffee.svg") is not None
 
 
 def test_native_shell_responsive_nav_density(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -232,25 +248,47 @@ def test_native_shell_responsive_nav_density(monkeypatch: pytest.MonkeyPatch) ->
     assert window.utility_nav_group.isHidden()
     assert window.live_status.isHidden()
     assert not window.sync_chip.isHidden()
+    assert not window.live_status.isVisible()
     assert window.quit_button.text() == chr(0x23FB)
     assert window._nav_buttons["display"].text() == window._nav_buttons["display"].property("lf_glyph")
     assert window._nav_buttons["settings"].toolTip() == "Settings"
     assert [action.text() for action in window.nav_more_menu.actions()] == [
         f"{window._nav_buttons[key].property('lf_glyph')} {window._nav_buttons[key].property('lf_label')}".strip()
-        for key in ["settings", "admin", "history", "logs", "feedback"]
+        for key in ["matrix", "settings", "admin", "history", "logs", "feedback"]
     ]
 
     window._apply_nav_density(1100)
     assert window.nav_more_button.isHidden()
     assert not window.utility_nav_group.isHidden()
     assert window._nav_buttons["display"].text().endswith("Display")
+    assert window._nav_buttons["matrix"].text() == window._nav_buttons["matrix"].property("lf_glyph")
     assert window._nav_buttons["settings"].text() == window._nav_buttons["settings"].property("lf_glyph")
     assert not window.version_label.isVisible()
+    assert not window.clock_nav_group.isHidden()
 
     window._apply_nav_density(1800)
+    assert window._nav_buttons["matrix"].text().endswith("Matrix")
     assert window._nav_buttons["settings"].text().endswith("Settings")
     assert not window.version_label.isHidden()
-    assert not window.live_status.isHidden()
+    assert window.live_status.isHidden()
+
+
+def test_native_shell_live_status_is_tooltip_only(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    pytest.importorskip("PySide6")
+    from PySide6 import QtWidgets
+    from localflight.native.app import NativeMainWindow
+    from localflight.native.qt_compat import import_qt
+
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    window = NativeMainWindow(*import_qt(), base_url="http://127.0.0.1:9", first_launch=False)
+    window._set_live_status("live push connected", True)
+
+    assert app is not None
+    assert window.live_status.text() == "Live updates"
+    assert window.live_status.isHidden()
+    assert "Live updates" in window.sync_chip.toolTip()
+    assert window.live_dot.property("connected") is True
 
 
 def test_native_visual_density_breakpoints() -> None:
@@ -1888,15 +1926,20 @@ def test_native_weather_line_translates_icons_and_keeps_keys_hidden() -> None:
     from localflight.native.app import _weather_icon_glyph, _weather_line
 
     line = _weather_line(
-        {"weather_icon": "rain", "flight_cat": "VFR", "temperature_c": 12, "decoded_summary": "Light rain"},
+        {"weather_icon": "rain", "flight_cat": "VFR", "temp_c": 12, "decoded_summary": "Light rain"},
         raw=False,
     )
+    clear_line = _weather_line({"weather_icon": "sun", "flight_cat": "VFR", "temp_c": 30, "weather_label": "Clear"}, raw=False)
 
     assert _weather_icon_glyph("rain") == chr(0x2614)
     assert line.startswith(chr(0x2614))
     assert "rain VFR" not in line
     assert "Light rain" in line
     assert "|" not in line
+    assert "Clear skies" in clear_line
+    assert "30" in clear_line
+    assert "good visibility" in clear_line
+    assert " VFR" not in clear_line
     assert "12°C" in line
 
 
@@ -1914,11 +1957,16 @@ def test_native_fids_header_keeps_actions_readable(monkeypatch: pytest.MonkeyPat
     assert app is not None
     assert screen.widget.findChild(QtWidgets.QFrame, "FidsHeader") is not None
     assert screen.widget.findChild(QtWidgets.QScrollArea, "NavScroll") is None
-    assert screen.weather.objectName() == "WeatherChip"
+    assert screen.widget.findChild(QtWidgets.QFrame, "AirportHero") is not None
+    assert screen.widget.findChild(QtWidgets.QFrame, "FidsHeaderActions") is not None
+    assert screen.weather.objectName() == "WeatherHero"
     assert screen.arr_btn.minimumHeight() >= 36
     assert screen.dep_btn.minimumHeight() >= 36
     assert screen.refresh_button.objectName() == "FidsActionButton"
     assert screen.refresh_button.minimumHeight() >= 36
+    assert screen.widget.findChild(QtWidgets.QLabel, "LiveDot") is None
+    assert "LT" not in screen.last_updated.text()
+    assert screen.last_updated.text() == ""
 
 
 def test_native_fids_detail_splits_real_and_virtual(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -2073,12 +2121,76 @@ def test_native_fids_empty_board_shows_user_focused_waiting_message(monkeypatch:
     progress = screen.info_banner.findChild(QtWidgets.QProgressBar, "LoadingProgress")
 
     assert app is not None
+    assert screen.airport.text() == "Zurich, Switzerland"
+    assert screen.title.text() == "Departures"
+    assert "Clear skies" in screen.weather.body_label.text()
+    assert "12°C" in screen.weather.body_label.text()
+    assert "good visibility" in screen.weather.body_label.text()
     assert not screen.info_banner.isHidden()
     assert label_widget is not None
     assert "local flight will keep checking" in label_widget.text().lower()
     assert "relay" not in label_widget.text().lower()
     assert progress is not None
     assert progress.isHidden()
+
+
+def test_native_embedded_fids_keeps_airport_hero_visible(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    pytest.importorskip("PySide6")
+    from PySide6 import QtWidgets
+    from localflight.native.app import FidsScreen
+    from localflight.native.qt_compat import import_qt
+
+    QtCore, QtGui, QtWidgets2 = import_qt()
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    screen = FidsScreen(QtCore, QtGui, QtWidgets2, client=object(), embedded=True)
+    screen._apply_board(
+        {
+            "view": "arrivals",
+            "cfg": {"airport_iata": "GRU", "source": "real", "web_row_limit": 20, "web_rotation_seconds": 8},
+            "payload": [],
+            "weather": {"weather_icon": "sun", "flight_cat": "VFR", "temperature_c": 22, "decoded_summary": "Clear"},
+        }
+    )
+    airport_hero = screen.widget.findChild(QtWidgets.QFrame, "AirportHero")
+
+    assert app is not None
+    assert airport_hero is not None
+    assert not airport_hero.isHidden()
+    assert screen.airport.text()
+    assert screen.title.text() == "Arrivals"
+
+
+def test_native_fids_airport_hero_elides_long_names(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    pytest.importorskip("PySide6")
+    from PySide6 import QtWidgets
+    from localflight.native.app import FidsScreen
+    from localflight.native.qt_compat import import_qt
+
+    QtCore, QtGui, QtWidgets2 = import_qt()
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    long_name = "Sao Paulo/Guarulhos-Governor Andre Franco Montoro International Airport"
+    screen = FidsScreen(QtCore, QtGui, QtWidgets2, client=object())
+    screen.airport_hero.resize(180, 60)
+    screen._apply_board(
+        {
+            "view": "departures",
+            "cfg": {
+                "airport_iata": "GRU",
+                "airport_display_name": long_name,
+                "source": "real",
+                "web_row_limit": 20,
+                "web_rotation_seconds": 8,
+            },
+            "payload": [],
+            "weather": {"weather_icon": "sun", "flight_cat": "VFR", "temperature_c": 22, "decoded_summary": "Clear"},
+        }
+    )
+
+    assert app is not None
+    assert screen.airport.text() == "GRU"
+    assert screen.airport.toolTip() == "São Paulo, Brazil"
 
 
 def test_native_fids_loading_banner_uses_busy_progress(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -2906,6 +3018,7 @@ def test_native_network_admin_visible_actions_are_route_declared(monkeypatch: py
             "counts": {"usage_rows": 1, "schedule_snapshots": 1, "surface_snapshots": 1, "activation_requests_pending": 1, "reports_24h": 1},
             "shared_schedule": {"cache_hits": 4, "upstream_pulls": 2, "client_accesses": 8},
             "surface_cache": {"cache_hits": 3},
+            "heartbeat": {"fresh": 1, "recent": 0, "stale": 0, "unknown": 0},
             "providers": {
                 "aviationstack": {"configured": True, "source": "relay", "masked": "av..."},
                 "rapidapi": {"configured": False, "source": "unset", "masked": ""},
@@ -2993,6 +3106,8 @@ def test_native_network_admin_fleet_saved_view_sets_server_filters(monkeypatch: 
         "fleet": {
             "metrics": {},
             "facets": {
+                "presence_status": {"fresh": 1, "stale": 1},
+                "presence_source": {"heartbeat": 1, "checkin": 1},
                 "status": {"active": 1},
                 "plan": {"community": 1},
                 "os_family": {"macos": 1, "windows": 1},
@@ -3008,10 +3123,14 @@ def test_native_network_admin_fleet_saved_view_sets_server_filters(monkeypatch: 
     window._render_fleet()
     quick = window.findChild(QtWidgets.QComboBox, "FleetQuickView")
     os_filter = window.findChild(QtWidgets.QComboBox, "FleetFilter_os_family")
+    presence_filter = window.findChild(QtWidgets.QComboBox, "FleetFilter_presence_status")
 
     assert app is not None
     assert quick is not None
     assert os_filter is not None
+    assert presence_filter is not None
+    assert quick.findText("Missing heartbeat") >= 0
+    assert quick.findText("Stale heartbeat") >= 0
     idx = quick.findText("macOS native")
     assert idx >= 0
     quick.setCurrentIndex(idx)
@@ -3096,14 +3215,26 @@ def test_native_main_window_uses_page_registry_for_refresh_groups(monkeypatch: p
     from PySide6 import QtWidgets
     from localflight.native.app import NativeMainWindow
     from localflight.native.qt_compat import import_qt
-    from localflight.native.registry import PAGE_SPECS, primary_page_keys
+    from localflight.native.registry import PAGE_SPECS
 
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     window = NativeMainWindow(*import_qt(), base_url="http://127.0.0.1:9", first_launch=False)
 
     assert app is not None
     assert window.screen_keys == [spec.key for spec in PAGE_SPECS]
-    assert [window.primary_nav_layout.itemAt(i).widget().property("lf_key") for i in range(window.primary_nav_layout.count())] == list(primary_page_keys())
+    assert [window.primary_nav_layout.itemAt(i).widget().property("lf_key") for i in range(window.primary_nav_layout.count())] == [
+        "display",
+        "fids",
+        "radar",
+    ]
+    assert [window.utility_nav_layout.itemAt(i).widget().property("lf_key") for i in range(window.utility_nav_layout.count())] == [
+        "matrix",
+        "settings",
+        "admin",
+        "history",
+        "logs",
+        "feedback",
+    ]
     assert window._fallback_refresh_keys == {"display", "fids", "radar"}
 
 

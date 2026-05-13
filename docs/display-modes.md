@@ -36,7 +36,8 @@ What it gives you:
 
 - Display, FIDS, Radar, Matrix, Settings, Admin, History, Logs, and Report pages
 - Native first-run setup
-- Native FIDS and radar drawing with the same current-source detail model as the LAN browser UI
+- Native FIDS with city/country airport headers, passenger-friendly weather, and the same current-source detail model as the LAN browser UI
+- Native radar drawing with the same layered blip/status/surface behavior as the LAN browser UI
 - History dashboard analytics, Matrix board configuration, and user-facing Settings cards
 - Local docs and diagnostics
 - Same local API and WebSocket events as the browser UI

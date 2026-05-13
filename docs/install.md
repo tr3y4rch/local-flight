@@ -9,7 +9,7 @@ If you are unsure, use the packaged Windows or macOS app on a desktop first. It 
 ## Before You Start
 
 - Local Flight is meant for your own trusted LAN, not the open internet.
-- First launch opens a guided setup wizard before the normal app.
+- First launch opens a six-step guided setup wizard before the normal app.
 - You can choose **Community Relay**, **Bring your own keys**, or **VATSIM**.
 - Diagnostics are optional. Manual reports stay available even if automatic diagnostics are off.
 - The current client target is `0.2.7`. It is still beta software, but the client paths are now intended to work across the supported display types.
@@ -23,7 +23,7 @@ Use this path for the easiest Windows desktop setup.
 1. Download `LocalFlight-windows.zip` from the latest GitHub release.
 2. Unzip it to any folder.
 3. Double-click `LocalFlight.exe`.
-4. Complete the setup wizard.
+4. Complete the setup wizard: Welcome, Airport, Flight Data, Optional Keys, Diagnostics, and Review & Launch.
 
 Windows may show a SmartScreen warning because the app is not signed yet. Click **More info**, then **Run anyway** if you trust the download source.
 
@@ -52,7 +52,7 @@ Use this path for the easiest macOS desktop setup.
 2. Unzip it.
 3. Drag `LocalFlight.app` to Applications.
 4. Right-click **LocalFlight.app** and choose **Open** the first time if Gatekeeper warns about an unsigned app.
-5. Complete the setup wizard.
+5. Complete the setup wizard: Welcome, Airport, Flight Data, Optional Keys, Diagnostics, and Review & Launch.
 
 The app launches the native Qt desktop shell. The LAN browser UI remains available from the local server while the app is running.
 

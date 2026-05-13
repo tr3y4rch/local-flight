@@ -319,9 +319,11 @@ class NetworkAdminWindow:  # pragma: no cover - optional Qt runtime
                     layout.addWidget(self._label(detail, "Muted"))
                 return box, layout
 
-            def _card(self, title: str, value: str, detail: str = "") -> Any:
+            def _card(self, title: str, value: str, detail: str = "", *, tone: str = "") -> Any:
                 box = self.QtWidgets.QFrame()
                 box.setObjectName("Card")
+                if tone:
+                    box.setProperty("tone", tone)
                 layout = self.QtWidgets.QVBoxLayout(box)
                 layout.addWidget(self._label(title, "Kicker"))
                 layout.addWidget(self._label(value, "Metric"))
@@ -654,7 +656,33 @@ class NetworkAdminWindow:  # pragma: no cover - optional Qt runtime
                 layout.addWidget(self._label(title, "Title"))
                 text = self.QtWidgets.QPlainTextEdit()
                 text.setReadOnly(True)
-                text.setPlainText(json.dumps(row, indent=2, ensure_ascii=False, default=str))
+                if title.lower().startswith("fleet"):
+                    lines = [
+                        "Summary",
+                        f"  Install: {row.get('install_fingerprint') or '-'}",
+                        f"  Presence: {row.get('presence_status') or 'unknown'} via {row.get('presence_source') or 'unknown'}",
+                        f"  Access: {row.get('status') or 'unknown'} | Plan: {row.get('plan') or 'community'}",
+                        "",
+                        "Activity",
+                        f"  Heartbeat: {row.get('last_heartbeat_at') or '-'}",
+                        f"  Check-in: {row.get('last_checkin_at') or '-'}",
+                        f"  Relay activity: {row.get('last_relay_activity_at') or '-'}",
+                        f"  Last seen: {row.get('last_seen') or '-'}",
+                        "",
+                        "Metadata",
+                        f"  OS: {row.get('os_family') or '-'} {row.get('os_version') or ''}".strip(),
+                        f"  GUI: {row.get('effective_gui') or row.get('requested_gui') or '-'}",
+                        f"  App: {row.get('app_version') or '-'} | Arch: {row.get('arch') or '-'}",
+                        f"  Source: {row.get('source_mode') or '-'} | Diagnostics: {row.get('diagnostics_mode') or '-'}",
+                        "",
+                        "Companion / Matrix",
+                        f"  Companions: {row.get('companion_count') or 0}",
+                        f"  Matrix: {row.get('matrix_online_count') or 0} / {row.get('matrix_count') or 0}",
+                        f"  Airport: {_value_at(row, 'current_lane.airport_iata') or '-'}",
+                    ]
+                    text.setPlainText("\n".join(lines))
+                else:
+                    text.setPlainText(json.dumps(row, indent=2, ensure_ascii=False, default=str))
                 layout.addWidget(text, 1)
                 buttons = self.QtWidgets.QDialogButtonBox(self.QtWidgets.QDialogButtonBox.Close)
                 buttons.rejected.connect(dialog.reject)
@@ -758,9 +786,10 @@ class NetworkAdminWindow:  # pragma: no cover - optional Qt runtime
                 schedule = overview.get("shared_schedule") if isinstance(overview.get("shared_schedule"), dict) else {}
                 surface = overview.get("surface_cache") if isinstance(overview.get("surface_cache"), dict) else {}
                 providers = overview.get("providers") if isinstance(overview.get("providers"), dict) else {}
+                heartbeat = overview.get("heartbeat") if isinstance(overview.get("heartbeat"), dict) else {}
 
                 layout.addWidget(self._label("Network Overview", "Title"))
-                layout.addWidget(self._label("Fleet health, provider readiness, shared caches, activations, and report gateway state. Counts marked 24h are last-seen windows, not live concurrency.", "Muted"))
+                layout.addWidget(self._label("Card-first launch health. Presence is heartbeat/check-in/relay activity, not live concurrency.", "Muted"))
                 grid = self.QtWidgets.QGridLayout()
                 schedule_hits = int(schedule.get("cache_hits", 0) or 0)
                 upstream_pulls = int(schedule.get("upstream_pulls", 0) or 0)
@@ -768,6 +797,7 @@ class NetworkAdminWindow:  # pragma: no cover - optional Qt runtime
                 savings = max(0, accesses - upstream_pulls)
                 configured = sum(1 for value in providers.values() if isinstance(value, dict) and value.get("configured"))
                 cards = [
+                    self._card("Heartbeat pipeline", f"{heartbeat.get('fresh', 0)} fresh", f"{heartbeat.get('recent', 0)} recent / {heartbeat.get('stale', 0)} stale / {heartbeat.get('unknown', 0)} unknown", tone="warn" if int(heartbeat.get("stale", 0) or 0) else "good"),
                     self._card("Relay month", str(overview.get("month", "-")), f"{counts.get('usage_rows', 0)} usage rows"),
                     self._card("Known installs", str(fleet_metrics.get("known_installs", counts.get("known_installs", 0))), "Fleet rows with relay activity"),
                     self._card("Seen ≤24h", str(fleet_metrics.get("active_installs_24h", counts.get("active_installs_24h", 0))), "Heartbeat or relay activity"),
@@ -824,6 +854,8 @@ class NetworkAdminWindow:  # pragma: no cover - optional Qt runtime
                         "fleet",
                         [
                             ("q", "Search fleet", "text", []),
+                            ("presence_status", "Presence", "select", self._facet_options(fleet, "presence_status")),
+                            ("presence_source", "Source", "select", self._facet_options(fleet, "presence_source")),
                             ("status", "Status", "select", self._facet_options(fleet, "status")),
                             ("plan", "Plan", "select", self._facet_options(fleet, "plan")),
                             ("os_family", "OS", "select", self._facet_options(fleet, "os_family")),
@@ -836,6 +868,8 @@ class NetworkAdminWindow:  # pragma: no cover - optional Qt runtime
                             ("managed", "Managed", "select", ["true", "false"]),
                         ],
                         quick_views=[
+                            ("Missing heartbeat", {"presence_status": "unknown"}),
+                            ("Stale heartbeat", {"presence_status": "stale"}),
                             ("Recently seen (≤24h)", {"status": "active"}),
                             ("Blocked/revoked", {"blocked": "true"}),
                             ("Companion users", {"has_companion": "true"}),
@@ -846,7 +880,10 @@ class NetworkAdminWindow:  # pragma: no cover - optional Qt runtime
                     )
                 )
                 grid = self.QtWidgets.QGridLayout()
+                heartbeat = fleet.get("heartbeat") if isinstance(fleet.get("heartbeat"), dict) else {}
                 cards = [
+                    self._card("Heartbeat fresh", str(heartbeat.get("fresh", metrics.get("presence_fresh", 0))), f"{heartbeat.get('recent', metrics.get('presence_recent', 0))} recent / {heartbeat.get('stale', metrics.get('presence_stale', 0))} stale", tone="warn" if int(heartbeat.get("stale", metrics.get("presence_stale", 0)) or 0) else "good"),
+                    self._card("Missing heartbeat", str(heartbeat.get("unknown", metrics.get("presence_unknown", 0))), "No heartbeat/check-in yet", tone="missing" if int(heartbeat.get("unknown", metrics.get("presence_unknown", 0)) or 0) else ""),
                     self._card("Known installs", str(metrics.get("known_installs", len(rows))), "All tracked relay installs"),
                     self._card("Seen ≤24h", str(metrics.get("active_installs_24h", 0)), "Heartbeat or relay activity"),
                     self._card("Managed", str(metrics.get("managed_installs", 0)), "Bound managed tokens"),
@@ -861,8 +898,10 @@ class NetworkAdminWindow:  # pragma: no cover - optional Qt runtime
                     rows,
                     [
                         ("install_fingerprint", "Install"),
-                        ("first_seen", "First seen"),
-                        ("last_seen", "Last seen"),
+                        ("presence_status", "Presence"),
+                        ("presence_source", "Source"),
+                        ("last_heartbeat_at", "Heartbeat"),
+                        ("last_checkin_at", "Check-in"),
                         ("os_family", "OS"),
                         ("effective_gui", "GUI"),
                         ("app_version", "Version"),
@@ -1333,6 +1372,18 @@ QFrame#Card {
   border: 1px solid #23364a;
   border-left: 2px solid #ffbf59;
   border-radius: 10px;
+}
+QFrame#Card[tone="good"] {
+  border-left: 2px solid #2ad07f;
+  border-color: rgba(42,208,127,0.45);
+}
+QFrame#Card[tone="warn"] {
+  border-left: 2px solid #ffbf59;
+  border-color: rgba(255,191,89,0.45);
+}
+QFrame#Card[tone="missing"] {
+  border-left: 2px solid #647b92;
+  border-color: rgba(145,167,192,0.38);
 }
 QLineEdit, QComboBox, QSpinBox {
   background: #0d1722;

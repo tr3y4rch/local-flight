@@ -11,16 +11,15 @@ Built with: Python 3.11+, FastAPI, uvicorn, SQLite, WebSocket, Jinja2, PIL, and 
 
 ---
 
-## Current 0.2.6 handoff snapshot (2026-05-12)
+## Current 0.2.7 handoff snapshot (2026-05-13)
 
-- Active package target: `0.2.6` as the temporary client-polish/release-candidate line. `pyproject.toml` remains the source of truth; keep runtime fallbacks, native docs, mobile metadata, and preview/release docs aligned with it.
-- Windows-side validation is green from this tree: `pip check`, `pip list --outdated --format=json` returned `[]`, `python -m compileall -q src relay installers scripts tests`, and `python -m pytest tests -q` returned `293 passed`.
-- Current Mac/Codex workspace validation after the AeroDataBox relay/cache work: `.venv/bin/python -m pytest tests -q` returned `333 passed`; focused web/Qt fused-provider tests returned `124 passed`.
+- Active package target: `0.2.7` as the client-polish/release-candidate line. `pyproject.toml` remains the source of truth; keep runtime fallbacks, native docs, mobile metadata, and preview/release docs aligned with it.
+- Current Windows workspace validation after the native shell/FIDS polish: `python -m compileall -q src relay installers scripts tests` passed and `python -m pytest tests -q` returned `373 passed`.
 - Windows and Pi artifacts have been rebuilt from the current Windows workspace:
-  - `dist/LocalFlight-windows.zip` — SHA256 `bc5c76a4ec5a43e3a0f2f170d5362dd300872670a9c97aca1f064febdb37ef27`
-  - `dist/LocalFlight-pi-source-0.2.6.zip` — SHA256 `85ac55de8bd0c82bb607ba2f66c880b0c33cb9420e059f8748eac36ec40a3204`
-- macOS still needs its own pull/validation/package pass from the same state before publishing the GitHub release. Do not reuse stale `0.2.5b5` macOS/Pi handoff notes.
-- Recent client-facing changes to preserve in Mac/Pi smoke tests: native/browser History analytics dashboard, Matrix configurator parity, compact Matrix weather header, real-only Matrix gate labels, Settings/setup dashboard polish, FIDS/Radar current-source intelligence details, and LAN radar parity with Qt radar behavior.
+  - `dist/LocalFlight-windows.zip` — SHA256 `7a62b910980af5fc8f40ed8f11a051ea0990848b3f2fbac0f592582597fec9c5`
+  - `dist/LocalFlight-pi-source-0.2.7.zip` — SHA256 `4fe9a798145c1d3fe9f5d0f89bad4a207ac94679f57658bc261caa3869b322b9`
+- macOS still needs its own pull/validation/package pass from the same `0.2.7` source state before publishing the GitHub release. Do not reuse stale `0.2.5b5` or `0.2.6` macOS/Pi handoff notes.
+- Recent client-facing changes to preserve in Mac/Pi smoke tests: native shell top-bar grouping and footer support icons, city/country FIDS title, passenger-friendly weather hero, long-title clamping, native/browser History analytics dashboard, Matrix configurator parity, compact Matrix weather header, real-only Matrix gate labels, Settings/setup dashboard polish, FIDS/Radar current-source intelligence details, and LAN radar parity with Qt radar behavior.
 - Schedule-provider work to preserve in relay/client smoke tests: AeroDataBox primary FIDS source, AviationStack sparse fill/fallback, hard upstream caps, 24h stale-cache serving, source-cache re-merge, canonical provider meta, and fused rows compiling through both `/api/fids` and Qt `FlightBoardModel`.
 - Separation of power still applies: public docs stay user-focused; relay operator/admin details belong only in `AGENTS.md`, `DEV_README.md`, `CLAUDE.md`, and operator tooling.
 
@@ -246,9 +245,9 @@ Two separate integrations — do not confuse them:
 
 ### Version
 - Single source of truth: `version` field in `pyproject.toml`
-- Read at runtime via `importlib.metadata.version("localflight")` with `"0.2.6"` fallback
+- Read at runtime via `importlib.metadata.version("localflight")` with `"0.2.7"` fallback
 - Injected as `app_version` Jinja2 global in `server.py` → available in all templates
-- Shown in nav bar (`v0.2.6`) and Admin → System card
+- Shown in the native footer/brand surfaces and Admin → System card (`v0.2.7`)
 - `LocalFlight.spec` reads it from `pyproject.toml` at build time for macOS `CFBundleShortVersionString`
 
 ### Auto-update check
@@ -420,7 +419,7 @@ Then smoke a fresh schedule lane. If an old cached lane already exists, either c
 
 ```powershell
 $installId = [guid]::NewGuid().ToString()
-$uri = "https://localflight-community-relay.fly.dev/v1/schedule?airport_iata=ZRH&timezone=Europe%2FZurich&display_grace_minutes=120&display_horizon_hours=24&refresh_seconds=3600&install_id=$installId&app_version=0.2.6-smoke&os_family=windows&requested_gui=native&effective_gui=native&source_mode=real&diagnostics_mode=manual"
+$uri = "https://localflight-community-relay.fly.dev/v1/schedule?airport_iata=ZRH&timezone=Europe%2FZurich&display_grace_minutes=120&display_horizon_hours=24&refresh_seconds=3600&install_id=$installId&app_version=0.2.7-smoke&os_family=windows&requested_gui=native&effective_gui=native&source_mode=real&diagnostics_mode=manual"
 $schedule = Invoke-RestMethod -Method Get -Uri $uri
 $schedule.provider
 $schedule.cache_state
@@ -440,7 +439,7 @@ $body = @{
   install_fingerprint = "11e594f48195"
   title = "Relay smoke test"
   description = "Safe test from deployment checklist"
-  app_version = "0.2.6"
+  app_version = "0.2.7"
   platform = "Windows"
   diagnostics_mode = "manual"
 } | ConvertTo-Json
@@ -608,7 +607,7 @@ npm run ios
 
 ## Current handoff for macOS / dev machine
 
-- **macOS handoff focus (2026-05-10 / 0.2.6):** get the Mac onto the exact same source state as this Windows workspace before running the installer or packaging. If the Windows workspace still has uncommitted/unpushed native FIDS, radar, Matrix, Settings, installer, or docs changes, `git pull` on macOS will not see them. Push the branch/commit first, or transfer an explicit patch bundle; otherwise the Mac installer can rebuild an old app with missing FIDS details, missing radar ground/context drawings, stale Matrix/settings screens, or stale docs.
+- **macOS handoff focus (2026-05-13 / 0.2.7):** get the Mac onto the exact same source state as this Windows workspace before running the installer or packaging. If the Windows workspace still has uncommitted/unpushed native FIDS, radar, Matrix, Settings, installer, or docs changes, `git pull` on macOS will not see them. Push the branch/commit first, or transfer an explicit patch bundle; otherwise the Mac installer can rebuild an old app with missing FIDS details, missing radar ground/context drawings, stale Matrix/settings screens, or stale docs.
 - **Stale Mac artifact warning:** do not trust an existing `~/Applications/LocalFlight.app`, old `.venv`, old `dist/LocalFlight.app`, or a previous editable install when validating current UI. If the Mac shows old FIDS behavior, no radar ground/context drawing, or old Settings layout, stop and confirm the Mac `git rev-parse --short HEAD` matches the expected Windows/current branch before debugging UI code.
 - Start the Mac session with:
   ```bash
@@ -625,9 +624,9 @@ npm run ios
   ```
 - Native GUI is the recommended primary desktop shell now. On macOS, test `LOCALFLIGHT_GUI_MODE=native python -m localflight` or `./installers/macos/start.sh`; browser mode remains supported for LAN/browser display validation via `LOCALFLIGHT_GUI_MODE=browser`. The native window title should be `Local Flight`, not `Local Flight Native`.
 - Native first-run setup is intentionally a standalone guided window before the main Display shell. It must keep the Diagnostics step, save `diagnostics_mode` through `/api/setup/complete`, preload the hosted relay root, and avoid exposing `/v1/flights` to users.
-- Latest Windows-side native/browser polish to carry forward on Mac: setup/settings are dashboard-card based, FIDS and Radar details consume the shared current-source intelligence model, LAN radar matches the Qt layering/status behavior, History now shares the browser/native `/api/history/summary` analytics contract for filters, KPIs, delay buckets, status mix, airline delay quotas, route/aircraft stats, daily/hourly volume, and sortable recent rows, Matrix has panel presets/live preview feedback/compact weather header/gate display parity, and VATSIM Matrix hides unreliable gate placeholders. Focused verification after this pass: `.venv\Scripts\python.exe -m compileall -q src relay installers scripts tests` passed and `.venv\Scripts\python.exe -m pytest tests -q` returned `293 passed`.
+- Latest Windows-side native/browser polish to carry forward on Mac: setup/settings are dashboard-card based, the native shell uses the current grouped navbar/footer icon layout, FIDS displays city/country titles with passenger-friendly weather, FIDS and Radar details consume the shared current-source intelligence model, LAN radar matches the Qt layering/status behavior, History now shares the browser/native `/api/history/summary` analytics contract for filters, KPIs, delay buckets, status mix, airline delay quotas, route/aircraft stats, daily/hourly volume, and sortable recent rows, Matrix has panel presets/live preview feedback/compact weather header/gate display parity, and VATSIM Matrix hides unreliable gate placeholders. Focused verification after this pass: `.venv\Scripts\python.exe -m compileall -q src relay installers scripts tests` passed and `.venv\Scripts\python.exe -m pytest tests -q` returned `373 passed`.
 - Native UI freshness checks on Mac after install/build:
-  - FIDS must show airport-local time labels and the current styled/detail behavior, not the old host-clock/debug-table layout.
+  - FIDS must show city/country titles, passenger-friendly weather, airport-local row time labels, and the current styled/detail behavior, not the old host-clock/debug-table layout.
   - Radar must expose the current ground/context drawing path and surface-aware rendering; if the canvas lacks the current ground layer entirely, the Mac app is stale.
   - Matrix must show panel-preset choices, live preview feedback, compact weather header behavior, and real-only gate display controls; if it looks like the old long technical form, the Mac app is stale.
   - Settings must show the current dashboard-card/user-facing sections and display-mode wording; if it looks like the old crowded/dev Settings page, the Mac app is stale.
@@ -640,10 +639,10 @@ npm run ios
   test -f dist/LocalFlight-macos.zip
   shasum -a 256 -c dist/LocalFlight-macos.zip.sha256
   ```
-- Pi source release was rebuilt on Windows as `dist/LocalFlight-pi-source-0.2.6.zip`; rebuild it on the Mac only if new changes land after this handoff. The Pi bundle intentionally excludes `AGENTS.md`, `CLAUDE.md`, and `DEV_README.md`.
+- Pi source release was rebuilt from the current tree as `dist/LocalFlight-pi-source-0.2.7.zip`. The Pi bundle intentionally excludes `AGENTS.md`, `CLAUDE.md`, and `DEV_README.md`.
 - Mobile companion validation belongs on the Mac/Xcode machine: `cd mobile`, `npm install`, `npx expo install --fix`, `npm run typecheck`, `npm run doctor`, then `npm run ios`. Use a LAN server URL such as `http://localflight.local:8000` or the desktop/Pi IP; do not use phone-local `localhost`.
 - Keep public/internal separation intact during the Mac pass: public docs may describe the native privacy-first GUI and user reporting, but should not expose operator Network Admin routes, Fly secrets, `DEV_README.md`, `AGENTS.md`, or raw relay admin paths.
-- Active version is `0.2.6`: `pyproject.toml`, runtime fallbacks, mobile package metadata, Expo `extra.localFlightVersion`, bundled release notes, and docs should all agree.
+- Active desktop/server version is `0.2.7`: `pyproject.toml`, runtime fallbacks, bundled release notes, and docs should all agree. Mobile companion metadata is still a separate developer-preview follow-up unless deliberately swept for the same release.
 - Community relay root is live at `https://localflight-community-relay.fly.dev`. The client derives `/v1/schedule`, `/v1/radar`, `/v1/airport-surface`, `/v1/reports`, and activation routes internally; `/v1/flights` is raw-provider debug only.
 - Relay admin panel: prefer Fly dashboard/CLI or `fly ssh console`. The local `start_network.bat` helper is operator-only and gitignored. Public admin access is optional and must stay password-protected; do not publish operator-only entrypoints in public docs.
 - Chrome-free GUI foundation is now native-first by default: blank/invalid `LOCALFLIGHT_GUI_MODE` resolves to `native`, `platform/gui_launcher.py` verifies PySide6/Qt before native launch, display-attached Pi/Linux can use native fullscreen when installed through `--native-kiosk`, and browser/kiosk mode remains a supported LAN/browser display path for users who prefer or need it. Source installers now expose the display choice directly: Windows `install.ps1 -DisplayMode Native|Browser|Headless`, macOS `install.sh --display native|browser|headless`, and Pi `install.sh` prompts when no flag is passed while preserving `--headless`, `--native-kiosk`, and `--kiosk`. The native client now mirrors the browser/LAN UI structure with a top nav and user pages, loads the shared SVG splash/brand/preview media, embeds the public README/privacy/changelog reader inside Settings, has native setup/matrix/logs/traffic/report controls wired to declared local routes, connects to local `/ws` via QtWebSockets, and includes a required first-run Diagnostics step that saves `diagnostics_mode` through `/api/setup/complete` before the Display shell opens. Its design layer maps the same dark/light theme plus standard/technical/neon/cyan/crt skins into Qt styling and native canvas painters, so FIDS/Radar/Matrix no longer drift into a single debug palette. Native local API calls use a short TTL cache for duplicate-safe GET routes, mutate actions clear that cache, hidden canvases pause animation timers, and active-page polling is intentionally lighter than the browser UI. Network Admin remains a separate operator-only Qt shell backed by styled `/admin/api/*` relay read/action endpoints.
@@ -651,12 +650,12 @@ npm run ios
 - AeroDataBox relay handoff: local code and tests now support AeroDataBox primary schedule, AviationStack sparse fill/fallback, hard upstream caps, provider source caches, stale merged cache serving, and web/Qt canonical FIDS compilation. The deployed Fly relay was last observed still serving the older AviationStack-only `fair-v3` shape; after redeploy, verify a fresh cache lane returns `provider=aerodatabox` or `aerodatabox+aviationstack` plus `meta.schedule_provider_mode=auto`.
 - Mobile Expo/TypeScript validation belongs on the Mac/Xcode side after `npm install` unless Node/npm are installed on the current dev machine.
 - Desktop resume on Windows: run `.\start.bat`, confirm Community setup preloads the hosted relay URL, then verify FIDS/radar/admin against the live relay contract.
-- Release resume: Windows and Pi artifacts were rebuilt from the current `0.2.6` Windows checkout; macOS still needs a fresh Mac build before creating GitHub release `v0.2.6`. If any source changes land after this note, rebuild all affected artifacts and matching `.sha256` files.
+- Release resume: Windows and Pi artifacts were rebuilt from the current `0.2.7` Windows checkout; macOS still needs a fresh Mac build before creating GitHub release `v0.2.7`. Older `0.2.6` artifacts and checksums are stale after the native shell/FIDS polish.
 - Windows/Pi release installer policy: Windows source installs are native Qt first unless `-DisplayMode Browser|Headless` is selected and always write a client-only `.env`; Pi installs default/prompt to headless, write `LOCALFLIGHT_GUI_MODE=native` only for `--native-kiosk`, and keep the backend service forced headless while the user-session Qt service uses `LOCALFLIGHT_NATIVE_FULLSCREEN=1` plus `LOCALFLIGHT_NATIVE_UI_ONLY=1`. `--kiosk` starts only the Chromium browser display service while the Python app stays headless.
 - `scripts/package_pi_source.py` now excludes internal handoff-only files (`AGENTS.md`, `CLAUDE.md`, `DEV_README.md`) from the Pi source zip even if they are tracked locally, and includes non-ignored local additions so pre-release hardware bundles do not miss newly added modules before commit.
 - Settings now split install/relay state, flight setup, app controls, and diagnostics/resources into clearer sections; the community relay card now reports active relay usage truthfully, and the docs buttons open bundled local files through `/docs/readme`, `/docs/install`, `/docs/display-modes`, `/docs/privacy`, and `/docs/changelog`.
-- macOS packaging still needs a fresh 0.2.6 pass on the Mac workspace: `python build.py --clean`, verify `dist/LocalFlight.app`, `dist/LocalFlight-macos.zip`, and `.sha256`, then smoke the native app for the latest History/Matrix/Settings/FIDS/Radar behavior. The macOS artifact is expected to be unsigned Apple Silicon/ARM64 unless signing/universal packaging is deliberately added later.
-- Mobile companion metadata is current at `0.2.6`; independent mobile appearance, server-backed Matrix runtime editor, landscape split display, responsive radar, and pinch zoom are implemented in code.
+- macOS packaging still needs a fresh `0.2.7` pass on the Mac workspace: `python build.py --clean`, verify `dist/LocalFlight.app`, `dist/LocalFlight-macos.zip`, and `.sha256`, then smoke the native app for the latest History/Matrix/Settings/FIDS/Radar behavior. The macOS artifact is expected to be unsigned Apple Silicon/ARM64 unless signing/universal packaging is deliberately added later.
+- Mobile companion metadata remains at `0.2.6` until the companion gets its own release sweep; independent mobile appearance, server-backed Matrix runtime editor, landscape split display, responsive radar, and pinch zoom are implemented in code.
 - Mobile companion polish pass is in progress on top of that: main nav is now FIDS/Radar/Settings only, History/Matrix/Admin/Docs are Settings-launched tools, the pinned-flight island is compact and theme-aware, Settings is sectioned, docs read inside the app, airport/profile saves request a scheduler restart, and flight details consume the expanded `/api/fids/detail` contract.
 - Desktop flight-detail enrichment pass started first: `/api/fids/detail` now returns richer stored snapshot metadata for live track/source coverage without new external calls, and the desktop FIDS drawer renders operations/aircraft, source confidence/freshness, and position fields more clearly.
 - VATSIM detail completeness pass keeps useful filed-plan fields in canonical snapshots: flight rules, planned route, cruise altitude/TAS, planned departure/arrival, enroute time, alternate, and assigned transponder. Intentionally does not store pilot names/CIDs.
@@ -671,9 +670,19 @@ npm run ios
 - Mobile resume on Mac/Xcode: resolve the Xcode/Expo SDK compatibility issue first, then run `npm run doctor` and `npm run ios`. Expo Go may reject SDK 55 depending on installed Expo Go; simulator/dev build is the safer path.
 - Windows-side AviationStack reliability pass is now documented in public/internal docs. Important: the local board/filter bug is fixed, but some live airports can still show sparse future departures because AviationStack itself does not return enough near-term rows even after fair paging plus undated rescue. Current observed example: `ZRH` on `2026-05-01`.
 - Sparse-board UX fallback is now active on the client: if a real-data lane has no rows inside the live window, the board shows the nearest available real flights instead of an empty departures page. Current live local check after the patch: `/api/fids?view=departures` returned `20` rows again.
-- Verification after the 0.2.6 package/docs sweep is green on this Windows workspace: `.venv\Scripts\python.exe -m compileall -q src relay installers scripts tests`, `.venv\Scripts\python.exe -m pytest tests -q` (`293 passed`), `pip check`, and `pip list --outdated --format=json` (`[]`). Windows and Pi artifacts were rebuilt after this sweep; macOS remains the missing platform artifact.
+- Verification after the `0.2.7` native shell/FIDS polish is green on this Windows workspace: `.venv\Scripts\python.exe -m compileall -q src relay installers scripts tests`, `.venv\Scripts\python.exe -m pytest tests -q` (`373 passed`), `pip check`, and `pip list --outdated --format=json` (`[]`). Windows and Pi artifacts were rebuilt after this sweep; macOS remains the missing platform artifact.
 
-## What was done in the latest session (v0.2.6)
+## What was done in the latest session (v0.2.7)
+
+- Native shell composition was polished around grouped nav, centered UTC/LT clocks, tooltip-only sync status, icon-only support links, and a compact version/privacy footer.
+- FIDS header behavior now uses city/country display names only, passenger-friendly weather, readable ARR/DEP/Refresh actions, long-label clamping, operating-first flight identity, and compact aircraft codes on the board.
+- Native and browser/LAN History, Matrix, Settings, Setup, FIDS details, Radar details, and Matrix generated MicroPython paths remain the release-candidate parity areas.
+- Current-source flight intelligence remains the shared detail direction for FIDS/Radar/History: current schedule, live motion, aircraft, airport ops, weather context, source evidence, and recent history are merged from existing sources without new paid calls.
+- Public release notes, README, install/display-mode docs, and handoff docs were refreshed for the `0.2.7` client-polish release candidate.
+- Verification from the Windows workspace: `python -m compileall -q src relay installers scripts tests` passed and `python -m pytest tests -q` returned `373 passed`.
+- Windows and Pi artifacts were rebuilt after the final `0.2.7` polish; macOS still needs a fresh package pass before a full cross-platform GitHub release.
+
+## Archived latest-session notes from v0.2.6
 
 - ✅ Version sweep completed to `0.2.6` across Python metadata/runtime fallbacks, PyInstaller fallback/spec docs, mobile metadata/package lock, preview/release docs, README, privacy notes, changelog, and bundled docs.
 - ✅ Native and browser/LAN History now share a richer analytics contract: filters, KPIs, delay buckets, status mix, airline delay quotas, top routes/aircraft, daily/hourly volume, sortable recent rows, and cleaner detail surfaces.
@@ -824,9 +833,9 @@ npm run ios
 
 ## Pending / next up
 
-- [x] Build the Windows artifact on the Windows dev machine for `v0.2.6`: `python build.py --clean`, verify `dist/LocalFlight-windows.zip.sha256`, and confirm the zip carries `localflight-0.2.6.dist-info`.
-- [x] Build the Pi source artifact for `v0.2.6`: `python scripts/package_pi_source.py`, verify `dist/LocalFlight-pi-source-0.2.6.zip.sha256`, and confirm internal handoff docs are excluded.
-- [ ] Build the macOS artifact from the same `0.2.6` source state, then create the GitHub release `v0.2.6` and attach Windows, macOS, and Pi artifacts plus all matching `.sha256` files.
+- [x] Build the Windows artifact on the Windows dev machine for `v0.2.7`: `python build.py --clean`, verify `dist/LocalFlight-windows.zip.sha256`, and confirm the zip carries `localflight-0.2.7.dist-info`.
+- [x] Build the Pi source artifact for `v0.2.7`: `python scripts/package_pi_source.py`, verify `dist/LocalFlight-pi-source-0.2.7.zip.sha256`, and confirm internal handoff docs are excluded.
+- [ ] Build the macOS artifact from the same `0.2.7` source state, then create the GitHub release `v0.2.7` and attach Windows, macOS, and Pi artifacts plus all matching `.sha256` files.
 - [ ] Register custom domain and wire the public relay hostname plus operator admin hostname DNS to `localflight-community-relay.fly.dev`; run `fly certs add` for both.
 - [ ] End-to-end community client activation test against live relay.
 - [x] Sparse AviationStack airport next step is implemented as the AeroDataBox/fusion/cache-hardening path: AeroDataBox is primary when configured, AviationStack is sparse fill/fallback, and stale merged cache can serve instead of replacing a healthy board with suspiciously thin data.

@@ -662,9 +662,6 @@ class NativeMainWindow:  # pragma: no cover - exercised with optional Qt
                 left_layout.addWidget(brand_mark)
                 left_layout.addWidget(brand)
                 left_layout.addWidget(ver)
-                left_layout.addSpacing(6)
-                left_layout.addWidget(self.utc_clock)
-                left_layout.addWidget(self.local_clock)
                 left_group.setSizePolicy(QtWidgets.QSizePolicy.Maximum, QtWidgets.QSizePolicy.Preferred)
                 self.left_nav_group = left_group
 
@@ -672,11 +669,23 @@ class NativeMainWindow:  # pragma: no cover - exercised with optional Qt
                 self.primary_nav_layout = QtWidgets.QHBoxLayout(center_group)
                 self.primary_nav_layout.setContentsMargins(0, 0, 0, 0)
                 self.primary_nav_layout.setSpacing(4)
+                center_group.setSizePolicy(QtWidgets.QSizePolicy.Maximum, QtWidgets.QSizePolicy.Preferred)
+
+                clock_group = QtWidgets.QFrame()
+                clock_group.setObjectName("ClockDivider")
+                clock_layout = QtWidgets.QHBoxLayout(clock_group)
+                clock_layout.setContentsMargins(6, 0, 6, 0)
+                clock_layout.setSpacing(6)
+                clock_layout.addWidget(self.utc_clock)
+                clock_layout.addWidget(self.local_clock)
+                clock_group.setSizePolicy(QtWidgets.QSizePolicy.Maximum, QtWidgets.QSizePolicy.Preferred)
+                self.clock_nav_group = clock_group
 
                 right_group = QtWidgets.QWidget()
                 self.utility_nav_layout = QtWidgets.QHBoxLayout(right_group)
                 self.utility_nav_layout.setContentsMargins(0, 0, 0, 0)
                 self.utility_nav_layout.setSpacing(4)
+                right_group.setSizePolicy(QtWidgets.QSizePolicy.Maximum, QtWidgets.QSizePolicy.Preferred)
 
                 self.nav_more_menu = QtWidgets.QMenu(nav)
                 self._nav_more_actions: dict[str, Any] = {}
@@ -689,13 +698,14 @@ class NativeMainWindow:  # pragma: no cover - exercised with optional Qt
                 sync_chip = QtWidgets.QFrame()
                 sync_chip.setObjectName("SyncChip")
                 sync_layout = QtWidgets.QHBoxLayout(sync_chip)
-                sync_layout.setContentsMargins(8, 4, 9, 4)
-                sync_layout.setSpacing(5)
+                sync_layout.setContentsMargins(7, 4, 7, 4)
+                sync_layout.setSpacing(0)
                 self.live_dot = QtWidgets.QLabel(chr(9679))
                 self.live_dot.setObjectName("SyncDot")
-                self.live_status = QtWidgets.QLabel("Syncing")
+                self.live_status = QtWidgets.QLabel("")
                 self.live_status.setObjectName("SyncText")
                 self.live_status.setMinimumWidth(0)
+                self.live_status.hide()
                 sync_layout.addWidget(self.live_dot)
                 sync_layout.addWidget(self.live_status)
                 sync_chip.setToolTip("Local Flight live updates")
@@ -710,9 +720,11 @@ class NativeMainWindow:  # pragma: no cover - exercised with optional Qt
                 layout.addWidget(left_group)
                 layout.addWidget(center_group, 0)
                 layout.addStretch(1)
-                layout.addWidget(sync_chip)
+                layout.addWidget(clock_group, 0)
+                layout.addStretch(1)
                 layout.addWidget(right_group, 0)
                 layout.addWidget(self.nav_more_button)
+                layout.addWidget(sync_chip)
                 layout.addWidget(quit_btn)
                 self.nav = nav
                 self.primary_nav_group = center_group
@@ -725,19 +737,37 @@ class NativeMainWindow:  # pragma: no cover - exercised with optional Qt
                 layout = QtWidgets.QHBoxLayout(footer)
                 layout.setContentsMargins(14, 4, 14, 5)
                 layout.setSpacing(10)
-                status = QtWidgets.QLabel(f"Local-first display  |  v{_app_version()}")
+                status = QtWidgets.QLabel(f"v{_app_version()} \u00b7 Local-first \u00b7 private by design")
                 status.setObjectName("FooterStatus")
-                tagline = QtWidgets.QLabel("Private by design. Browser UI still available on your LAN.")
+                tagline = QtWidgets.QLabel("")
                 tagline.setObjectName("FooterTagline")
                 tagline.setMinimumWidth(0)
                 tagline.setSizePolicy(QtWidgets.QSizePolicy.Ignored, QtWidgets.QSizePolicy.Preferred)
-                github = QtWidgets.QPushButton("GitHub")
+                github = QtWidgets.QPushButton("")
                 github.setObjectName("FooterLink")
-                github.setToolTip("Open the Local Flight project on GitHub")
+                github.setToolTip("GitHub")
+                github.setAccessibleName("GitHub")
+                github.setMinimumSize(36, 30)
+                github.setMaximumWidth(38)
+                github_icon = icon_from_media(QtGui, "ui", "static", "support-repository.svg")
+                if github_icon.isNull():
+                    github.setText("repo")
+                else:
+                    github.setIcon(github_icon)
+                    github.setIconSize(QtCore.QSize(19, 19))
                 github.clicked.connect(lambda: webbrowser.open(GITHUB_URL))
-                coffee = QtWidgets.QPushButton("Buy Me a Coffee")
+                coffee = QtWidgets.QPushButton("")
                 coffee.setObjectName("FooterLink")
-                coffee.setToolTip("Optional support for Local Flight")
+                coffee.setToolTip("Buy Me a Coffee")
+                coffee.setAccessibleName("Buy Me a Coffee")
+                coffee.setMinimumSize(36, 30)
+                coffee.setMaximumWidth(38)
+                coffee_icon = icon_from_media(QtGui, "ui", "static", "support-coffee.svg")
+                if coffee_icon.isNull():
+                    coffee.setText(chr(0x2615))
+                else:
+                    coffee.setIcon(coffee_icon)
+                    coffee.setIconSize(QtCore.QSize(19, 19))
                 coffee.clicked.connect(lambda: webbrowser.open(COFFEE_URL))
                 self.footer_status_label = status
                 self.footer_tagline_label = tagline
@@ -799,7 +829,7 @@ class NativeMainWindow:  # pragma: no cover - exercised with optional Qt
             def _nav_button_text(self, key: str, glyph: str, label_text: str, density: str) -> str:
                 if density == "compact":
                     return glyph or label_text[:1]
-                if density == "medium" and key not in {"display", "fids", "radar", "matrix"}:
+                if density == "medium" and key not in {"display", "fids", "radar"}:
                     return glyph or label_text[:1]
                 return f"{glyph} {label_text}".strip()
 
@@ -815,15 +845,13 @@ class NativeMainWindow:  # pragma: no cover - exercised with optional Qt
                 self.utc_clock.setVisible(True)
                 self.local_clock.setVisible(not compact)
                 self.sync_chip.setVisible(True)
-                self.live_status.setVisible(not compact)
+                self.live_status.setVisible(False)
                 self.utility_nav_group.setVisible(not compact)
                 self.nav_more_button.setVisible(compact)
                 self.nav_more_button.setText(chr(0x2630) if compact else "More")
                 self.nav_more_button.setMinimumWidth(40 if compact else 72)
-                if hasattr(self, "footer_tagline_label"):
-                    self.footer_tagline_label.setVisible(not compact)
                 if hasattr(self, "footer_status_label"):
-                    self.footer_status_label.setText("Local-first" if compact else f"Local-first display  |  v{_app_version()}")
+                    self.footer_status_label.setText(f"v{_app_version()} \u00b7 Local-first \u00b7 private by design")
 
                 self.quit_button.setText(chr(0x23FB) if compact else "Power")
                 self.quit_button.setMinimumWidth(42 if compact else 68)
@@ -1000,6 +1028,7 @@ class NativeMainWindow:  # pragma: no cover - exercised with optional Qt
                 self.sync_chip.setToolTip(tooltip)
                 self.live_dot.setToolTip(tooltip)
                 self.live_status.setToolTip(tooltip)
+                self.live_status.setVisible(False)
                 self.sync_chip.setProperty("connected", connected_value)
                 self.live_dot.setProperty("connected", connected_value)
                 self.live_status.setProperty("connected", connected_value)
@@ -5391,9 +5420,9 @@ def _weather_line(payload: dict[str, Any], *, raw: bool) -> str:
     cat = str(payload.get("flight_cat") or "").strip().upper()
     temp_text = str(payload.get("temperature_short") or payload.get("temperature_display") or "").strip()
     if not temp_text:
-        temp = payload.get("temperature_c")
+        temp = payload.get("temperature_c", payload.get("temp_c"))
         temp_text = f"{temp}°C" if temp is not None else ""
-    summary = (
+    summary = _passenger_weather_label(
         payload.get("condition_display")
         or payload.get("weather_label")
         or payload.get("weather_display")
@@ -5401,14 +5430,65 @@ def _weather_line(payload: dict[str, Any], *, raw: bool) -> str:
         or payload.get("decoded_summary")
         or "Weather observed"
     )
-    parts = [icon, str(summary).strip()]
+    parts = [icon, summary]
     if temp_text:
-        parts.append(temp_text.replace(" C", "°C"))
+        parts.append(_clean_temperature_text(temp_text))
     if cat:
-        parts.append(cat)
+        parts.append(_flight_category_hint(cat))
     raw_text = payload.get("raw_text") or payload.get("raw") or ""
     line = " · ".join(part for part in parts if part)
     return line + (f" · METAR {raw_text}" if raw and raw_text else "")
+
+
+def _passenger_weather_label(value: Any) -> str:
+    text = str(value or "").strip()
+    normalized = re.sub(r"[_-]+", " ", text).strip().lower()
+    mapping = {
+        "clear": "Clear skies",
+        "sunny": "Sunny",
+        "partly": "Partly cloudy",
+        "partly cloudy": "Partly cloudy",
+        "cloud": "Cloudy",
+        "cloudy": "Cloudy",
+        "rain": "Rain nearby",
+        "light rain": "Light rain",
+        "snow": "Snow",
+        "fog": "Foggy",
+        "fog / haze": "Fog or haze",
+        "low visibility": "Low visibility",
+        "windy": "Windy",
+        "storm": "Storm nearby",
+        "thunderstorm": "Thunderstorm nearby",
+    }
+    if normalized in mapping:
+        return mapping[normalized]
+    if "clear" in normalized:
+        return "Clear skies"
+    if "partly" in normalized:
+        return "Partly cloudy"
+    if "rain" in normalized:
+        return "Rain nearby"
+    if "fog" in normalized or "haze" in normalized:
+        return "Fog or haze"
+    if "snow" in normalized:
+        return "Snow"
+    return text or "Weather observed"
+
+
+def _flight_category_hint(category: str) -> str:
+    return {
+        "VFR": "good visibility",
+        "MVFR": "reduced visibility",
+        "IFR": "low cloud or visibility",
+        "LIFR": "very low visibility",
+    }.get(category.upper(), "")
+
+
+def _clean_temperature_text(value: Any) -> str:
+    text = str(value or "").strip()
+    text = text.replace(" C", "°C").replace("C", "°C")
+    text = text.replace("°°C", "°C")
+    return text
 
 
 def _weather_icon_glyph(icon_name: Any) -> str:

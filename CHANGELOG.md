@@ -6,13 +6,27 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [0.2.7] - 2026-05-11
+## [0.2.7] - 2026-05-13
 
-> Polish pass on top of the `0.2.6` baseline. Operator-facing changes; client behavior unchanged.
+> Client-polish release-candidate pass on top of the `0.2.6` baseline.
 > For the user-facing summary, see [docs/release-notes-0.2.7.md](docs/release-notes-0.2.7.md).
 
+### Native Client UX
+- Reworked the native top bar into three clear groups: brand and primary pages, centered UTC/LT clock divider, then utility pages, sync indicator, and Power.
+- Replaced the large live-status banner with a tooltip-only sync dot and restored the footer to `v0.2.7 - Local-first - private by design` plus icon-only support links.
+- Rebuilt the FIDS header around a city/country airport hero, passenger-friendly weather, and readable ARR/DEP/Refresh actions.
+- FIDS display titles now intentionally show city and country only; long formal airport names and IATA/ICAO descriptors stay out of the main passenger board.
+- Weather on the main board now favors friendly condition, temperature, and visibility wording instead of raw METAR fragments.
+
+### FIDS, Details, Matrix, Settings
+- Operating-first flight identity is now the board rule, so the main FIDS row favors the operating carrier while marketed/codeshare identities remain visible as sold-as detail.
+- Aircraft types stay compact on the FIDS board while fuller aircraft/source detail is kept in the click-through detail surfaces.
+- Matrix configuration now uses a guided i75W/HUB75 workflow with panel presets, live preview feedback, compact weather headers, real-only gate display, and generated MicroPython `main.py` parity.
+- History, Settings, Setup, and Matrix are aligned around dashboard-card layouts in native Qt and LAN/browser surfaces.
+- Native and LAN FIDS/Radar/History/Matrix detail surfaces share the current-source flight intelligence model without adding per-click provider calls.
+
 ### Network Admin (operator-only)
-- Reframed fleet/overview copy as coarse heartbeat presence, not live online status. "Seen ≤24h" replaces "Active installs" wherever the count referred to a 24-hour last-seen window. Applies to both the HTML admin SPA and the native Qt console.
+- Reframed fleet/overview copy as coarse heartbeat presence, not live online status. "Seen <=24h" replaces "Active installs" wherever the count referred to a 24-hour last-seen window. Applies to both the HTML admin SPA and the native Qt console.
 - Added `POST /admin/api/logout` (returns 401 with a rotated `WWW-Authenticate` realm to invalidate the cached basic-auth credential in Chrome / Firefox / Edge) plus an open `GET /admin/signed-out` page.
 - Idle auto-logoff on both surfaces, default 15 minutes, configurable via `LOCALFLIGHT_NETWORK_ADMIN_IDLE_S` (seconds, min 60). HTML shows a 60-second warning toast before signing out; Qt clears the client and password silently and shows a status message.
 - Native Qt console gained explicit Disconnect (clear credentials, return to login state) and Quit (`QApplication.quit()`) buttons. Hero split into a connection row and a controls row; removed the decorative `MONITOR / INVESTIGATE / OPERATE` chip.
@@ -25,6 +39,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Privacy
 - PRIVACY.md now lists the heartbeat install-profile fields explicitly (app version, OS family/version/architecture, GUI mode, source mode, diagnostics mode, companion count, matrix count) so operator-side fleet shape visibility is transparent.
+- VATSIM privacy rules remain strict: virtual traffic details do not expose pilot names, CIDs, controller names, server names, or other person-identifying fields.
 
 ---
 

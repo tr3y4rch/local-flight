@@ -2597,6 +2597,14 @@ def test_client_checkin_records_interest_and_exposes_schedule_cache(tmp_path: Pa
     assert payload["interest"]["airport_iata"] == "ZRH"
     assert payload["schedule_cache"]["provider"] == "aviationstack"
     assert payload["schedule_cache"]["meta"]["shared_stats"]["client_accesses"] >= 1
+    conn = relay_main._connect()
+    row = conn.execute(
+        "SELECT last_checkin_at, last_relay_activity_at FROM install_profiles WHERE install_id=?",
+        (install_id,),
+    ).fetchone()
+    conn.close()
+    assert row["last_checkin_at"]
+    assert row["last_relay_activity_at"]
 
 
 def test_client_checkin_records_redacted_fleet_profile_and_preserves_first_seen(tmp_path: Path, monkeypatch) -> None:
@@ -2638,6 +2646,10 @@ def test_client_checkin_records_redacted_fleet_profile_and_preserves_first_seen(
     assert row["companion_count"] == 1
     assert row["matrix_online_count"] == 1
     assert row["current_lane"]["airport_iata"] == "ZRH"
+    assert row["last_checkin_at"]
+    assert row["presence_source"] == "checkin"
+    assert row["presence_status"] == "fresh"
+    assert row["last_heartbeat_at"] == ""
     assert install_id not in json.dumps(fleet_first)
 
     second = client.post(
@@ -2651,6 +2663,7 @@ def test_client_checkin_records_redacted_fleet_profile_and_preserves_first_seen(
     assert updated["first_seen"] == row["first_seen"]
     assert updated["last_seen"] >= row["last_seen"]
     assert updated["app_version"] == "0.2.6"
+    assert updated["last_checkin_at"] >= row["last_checkin_at"]
 
 
 def test_admin_fleet_install_refs_support_actions(tmp_path: Path, monkeypatch) -> None:
@@ -2682,6 +2695,30 @@ def test_admin_fleet_install_refs_support_actions(tmp_path: Path, monkeypatch) -
     assert reset.status_code == 200
     after = client.get("/admin/api/fleet", headers=headers, auth=auth).json()
     assert after["installs"][0]["blocked"] is True
+
+
+def test_admin_overview_exposes_heartbeat_summary_without_private_ids(tmp_path: Path, monkeypatch) -> None:
+    _use_temp_db(tmp_path, monkeypatch)
+    monkeypatch.setenv("RELAY_ADMIN_PASSWORD", "correct-horse")
+    client = TestClient(relay_main.app)
+    headers = {"host": "network.localflight.app"}
+    auth = ("admin", "correct-horse")
+    install_id = "00000000-0000-0000-0000-000000000408"
+
+    heartbeat = client.post(
+        "/v1/heartbeat",
+        json={"install_id": install_id, "app_version": "0.2.7", "os_family": "Windows"},
+    )
+    assert heartbeat.status_code == 200
+
+    overview = client.get("/admin/api/overview", headers=headers, auth=auth).json()
+    combined = json.dumps(overview)
+
+    assert overview["heartbeat"]["fresh"] == 1
+    assert overview["heartbeat"]["latest_heartbeat_at"]
+    assert overview["heartbeat"]["cadence_seconds"] == 1800
+    assert overview["heartbeat"]["cooldown_seconds"] == relay_main._HEARTBEAT_MIN_INTERVAL_S
+    assert install_id not in combined
 
 
 def test_admin_fleet_supports_server_filters_pagination_and_facets(tmp_path: Path, monkeypatch) -> None:
@@ -2746,8 +2783,17 @@ def test_admin_fleet_supports_server_filters_pagination_and_facets(tmp_path: Pat
     assert filtered["rows"][0]["effective_gui"] == "native"
     assert filtered["rows"][0]["current_lane"]["airport_iata"] == "ZRH"
     assert filtered["facets"]["os_family"] == {"macos": 1}
+    assert filtered["facets"]["presence_status"] == {"fresh": 1}
+    assert filtered["rows"][0]["presence_source"] == "checkin"
     assert filtered["facets"]["has_companion"]["yes"] == 1
     assert "00000000-0000-0000-0000-000000001003" not in combined
+
+    presence_filtered = client.get(
+        "/admin/api/fleet?presence_status=fresh&presence_source=checkin",
+        headers=headers,
+        auth=auth,
+    ).json()
+    assert presence_filtered["filtered_estimate"] == 4
 
     block_ref = filtered["rows"][0]["action_ref"]
     blocked = client.post(
@@ -2771,6 +2817,10 @@ def test_admin_html_is_lazy_query_driven_shell(tmp_path: Path, monkeypatch) -> N
 
     assert response.status_code == 200
     assert "Presence is coarse" in text
+    assert "statusRailEl" in text
+    assert "Heartbeat pipeline" in text
+    assert "Missing heartbeat" in text
+    assert "detail-block" in text
     assert '"/admin/api/fleet"' in text
     assert "quickViewDefs" in text
     assert "data-filter" in text

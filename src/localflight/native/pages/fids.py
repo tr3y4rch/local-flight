@@ -15,6 +15,7 @@ from html import escape as html_escape
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from localflight.core.airports import city_country_label
 from localflight.native.api_client import LocalApiClient, NativeApiError
 from localflight.native.async_tools import AsyncFetchMixin
 from localflight.native.design import colors_for, format_value, label, list_payload, value_at
@@ -879,6 +880,8 @@ class FidsScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
         self.view = "departures"
         self.rows: list[dict[str, Any]] = []
         self.visible_rows: list[dict[str, Any]] = []
+        self._airport_full_title = "LOCAL"
+        self._airport_code = "LOCAL"
         self.row_limit = 20
         self.rotation_seconds = 8
         self.page_index = 0
@@ -911,19 +914,33 @@ class FidsScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
         header_widget.setObjectName("FidsHeader")
         header_widget.setMinimumWidth(0)
         header = QtWidgets.QVBoxLayout(header_widget)
-        header.setContentsMargins(12, 10, 12, 10)
-        header.setSpacing(8)
+        header.setContentsMargins(12, 9, 12, 9)
+        header.setSpacing(0)
         title_row = QtWidgets.QHBoxLayout()
         title_row.setContentsMargins(0, 0, 0, 0)
-        title_row.setSpacing(10)
+        title_row.setSpacing(12)
         title_box = QtWidgets.QVBoxLayout()
-        title_box.setSpacing(1)
-        title_container = QtWidgets.QWidget()
+        title_box.setContentsMargins(10, 7, 10, 7)
+        title_box.setSpacing(2)
+        screen_ref = self
+
+        class _AirportHeroFrame(QtWidgets.QFrame):
+            def resizeEvent(self, event: Any) -> None:
+                super().resizeEvent(event)
+                screen_ref._sync_airport_hero_text()
+
+        title_container = _AirportHeroFrame()
+        title_container.setObjectName("AirportHero")
         title_container.setLayout(title_box)
+        title_container.setMinimumWidth(205 if not embedded else 150)
+        title_container.setMaximumWidth(520 if not embedded else 360)
+        title_container.setSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Preferred)
+        self.airport_hero = title_container
         self.airport = QtWidgets.QLabel("LOCAL")
         self.airport.setObjectName("FidsAirportCode")
-        airport_font = QtGui.QFont("Space Mono")
-        airport_font.setPointSize(20 if not embedded else 14)
+        self.airport.setWordWrap(True)
+        airport_font = QtGui.QFont()
+        airport_font.setPointSize(17 if not embedded else 13)
         airport_font.setBold(True)
         self.airport.setFont(airport_font)
         self.title = QtWidgets.QLabel("Departures")
@@ -932,30 +949,26 @@ class FidsScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
         title_font.setPointSize(11)
         title_font.setBold(True)
         self.title.setFont(title_font)
-        if embedded:
-            title_container.hide()
         title_box.addWidget(self.airport)
         title_box.addWidget(self.title)
-        title_row.addWidget(title_container)
+        title_row.addWidget(title_container, 2)
 
         self.weather = WeatherStrip(QtWidgets, "Weather loading...")
-        self.weather.setObjectName("WeatherChip")
-        self.weather.setMaximumHeight(46 if not embedded else 40)
-        self.weather.setMaximumWidth(520 if not embedded else 430)
+        self.weather.setObjectName("WeatherHero")
+        self.weather.setMinimumHeight(48 if not embedded else 40)
+        self.weather.setMaximumHeight(56 if not embedded else 44)
+        self.weather.setMinimumWidth(220 if not embedded else 170)
+        self.weather.setMaximumWidth(760 if not embedded else 520)
         self.weather.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Preferred)
-        title_row.addWidget(self.weather, 1)
+        title_row.addWidget(self.weather, 3)
 
-        live_box = QtWidgets.QWidget()
-        live_layout = QtWidgets.QHBoxLayout(live_box)
-        live_layout.setContentsMargins(0, 0, 0, 0)
-        live_layout.setSpacing(6)
-        self.live_dot = label(QtWidgets, chr(9679), "LiveDot")
-        self.last_updated = label(QtWidgets, "Airport LT --:--", "Muted")
-        live_layout.addWidget(self.live_dot)
-        live_layout.addWidget(self.last_updated)
-        title_row.addWidget(live_box)
+        self.last_updated = label(QtWidgets, "", "Muted")
+        self.last_updated.hide()
 
-        controls_row = QtWidgets.QHBoxLayout()
+        controls_frame = QtWidgets.QFrame()
+        controls_frame.setObjectName("FidsHeaderActions")
+        controls_frame.setSizePolicy(QtWidgets.QSizePolicy.Maximum, QtWidgets.QSizePolicy.Preferred)
+        controls_row = QtWidgets.QHBoxLayout(controls_frame)
         controls_row.setContentsMargins(0, 0, 0, 0)
         controls_row.setSpacing(8)
         self.arr_btn = self._segment_button("ARR", "arrivals")
@@ -970,10 +983,9 @@ class FidsScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
         controls_row.addWidget(self.arr_btn)
         controls_row.addWidget(self.dep_btn)
         controls_row.addWidget(refresh)
-        controls_row.addStretch(1)
         controls_row.addWidget(self.scan_indicator)
+        title_row.addWidget(controls_frame, 0, QtCore.Qt.AlignRight | QtCore.Qt.AlignVCenter)
         header.addLayout(title_row)
-        header.addLayout(controls_row)
 
         self.error_banner = _banner(QtWidgets, "Data fetch error", "ErrorBanner")
         self.info_banner = _banner(
@@ -1017,6 +1029,20 @@ class FidsScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self.widget, name)
+
+    def _sync_airport_hero_text(self) -> None:
+        if not hasattr(self, "airport"):
+            return
+        full_title = str(getattr(self, "_airport_full_title", "") or "LOCAL").strip()
+        airport_code = str(getattr(self, "_airport_code", "") or "LOCAL").strip().upper()
+        available = max(120, int(getattr(self, "airport_hero", self.widget).width()) - 24)
+        metrics = self.QtGui.QFontMetrics(self.airport.font())
+        if available < 210:
+            display = airport_code
+        else:
+            display = metrics.elidedText(full_title, self.QtCore.Qt.ElideRight, available)
+        self.airport.setText(display)
+        self.airport.setToolTip(full_title if display != full_title else "")
 
     def apply_theme(self, theme: str, skin: str) -> None:
         self.colors = colors_for(theme, skin)
@@ -1144,9 +1170,10 @@ class FidsScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
         airport = str(cfg.get("airport_iata") or cfg.get("airport_icao") or "LOCAL").upper()
         source = str(cfg.get("source") or "real").upper()
         self._set_airport_timezone(str(cfg.get("timezone") or "UTC"))
-        self.airport.setText(airport)
-        if not self.embedded:
-            self.title.setText("Arrivals" if view == "arrivals" else "Departures")
+        self._airport_code = airport
+        self._airport_full_title = _airport_title(cfg, airport)
+        self._sync_airport_hero_text()
+        self.title.setText("Arrivals" if view == "arrivals" else "Departures")
         if hasattr(self.model, "set_route_label"):
             self.model.set_route_label("From" if view == "arrivals" else "To")
         self.rows = self._ordered_board_rows(list_payload(result.get("payload")))
@@ -1161,9 +1188,9 @@ class FidsScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
                 True,
                 busy=False,
             )
-        self.last_updated.setText(f"{airport} LT " + datetime.now(self.airport_tz).strftime("%H:%M:%S"))
+        self.last_updated.setText("")
         page_count = max(1, math.ceil(len(self.rows) / max(1, self.row_limit)))
-        self.status.setText(f"{len(self.rows)} {view} loaded | {source} source | page 1/{page_count} | airport-local time")
+        self.status.setText(f"{len(self.rows)} {view} loaded | {source} source | page 1/{page_count} | updated now")
         if len(self.rows) > self.row_limit and self._active:
             self.page_timer.start(self.rotation_seconds * 1000)
         else:
@@ -1860,9 +1887,9 @@ def _weather_line(payload: dict[str, Any], *, raw: bool) -> str:
     cat = str(payload.get("flight_cat") or "").strip().upper()
     temp_text = str(payload.get("temperature_short") or payload.get("temperature_display") or "").strip()
     if not temp_text:
-        temp = payload.get("temperature_c")
+        temp = payload.get("temperature_c", payload.get("temp_c"))
         temp_text = f"{temp}°C" if temp is not None else ""
-    summary = (
+    summary = _passenger_weather_label(
         payload.get("condition_display")
         or payload.get("weather_label")
         or payload.get("weather_display")
@@ -1870,14 +1897,74 @@ def _weather_line(payload: dict[str, Any], *, raw: bool) -> str:
         or payload.get("decoded_summary")
         or "Weather observed"
     )
-    parts = [str(summary).strip()]
+    parts = [summary]
     if temp_text:
-        parts.append(temp_text.replace(" C", "°C"))
+        parts.append(_clean_temperature_text(temp_text))
     if cat:
-        parts.append(cat)
+        parts.append(_flight_category_hint(cat))
     raw_text = payload.get("raw_text") or payload.get("raw") or ""
     line = " · ".join(part for part in parts if part)
     return line + (f" · METAR {raw_text}" if raw and raw_text else "")
+
+
+def _airport_title(cfg: dict[str, Any], airport_code: str) -> str:
+    return city_country_label(
+        iata=str(cfg.get("airport_iata") or airport_code),
+        icao=str(cfg.get("airport_icao") or ""),
+        city=str(cfg.get("airport_city") or ""),
+        country=str(cfg.get("airport_country") or cfg.get("country") or ""),
+    )
+
+
+def _passenger_weather_label(value: Any) -> str:
+    text = str(value or "").strip()
+    normalized = re.sub(r"[_-]+", " ", text).strip().lower()
+    mapping = {
+        "clear": "Clear skies",
+        "sunny": "Sunny",
+        "partly": "Partly cloudy",
+        "partly cloudy": "Partly cloudy",
+        "cloud": "Cloudy",
+        "cloudy": "Cloudy",
+        "rain": "Rain nearby",
+        "light rain": "Light rain",
+        "snow": "Snow",
+        "fog": "Foggy",
+        "fog / haze": "Fog or haze",
+        "low visibility": "Low visibility",
+        "windy": "Windy",
+        "storm": "Storm nearby",
+        "thunderstorm": "Thunderstorm nearby",
+    }
+    if normalized in mapping:
+        return mapping[normalized]
+    if "clear" in normalized:
+        return "Clear skies"
+    if "partly" in normalized:
+        return "Partly cloudy"
+    if "rain" in normalized:
+        return "Rain nearby"
+    if "fog" in normalized or "haze" in normalized:
+        return "Fog or haze"
+    if "snow" in normalized:
+        return "Snow"
+    return text or "Weather observed"
+
+
+def _flight_category_hint(category: str) -> str:
+    return {
+        "VFR": "good visibility",
+        "MVFR": "reduced visibility",
+        "IFR": "low cloud or visibility",
+        "LIFR": "very low visibility",
+    }.get(category.upper(), "")
+
+
+def _clean_temperature_text(value: Any) -> str:
+    text = str(value or "").strip()
+    text = text.replace(" C", "°C").replace("C", "°C")
+    text = text.replace("°°C", "°C")
+    return text
 
 
 def _weather_icon_glyph(icon_name: Any) -> str:

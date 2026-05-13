@@ -12,15 +12,13 @@ The recommended desktop client is now the native Qt app. The LAN browser UI, Pi 
 
 ## Status
 
-`0.2.7` is the current client target — a polish pass on top of the `0.2.6` beta baseline. It is still beta software, but this pass treats Local Flight as a working multi-client app:
+`0.2.7` is the current client-polish release-candidate target on top of the `0.2.6` beta baseline. It is still beta software, but this pass treats Local Flight as a working multi-client app:
 
 - Native desktop app for Windows and macOS
 - LAN browser UI for remote viewing, headless installs, and browser-mode displays
 - Raspberry Pi headless server, native Qt HDMI kiosk, or Chromium HDMI kiosk
 - iOS-first mobile companion developer preview
 - Interstate 75 W / HUB75 Matrix client and preview tools
-
-Package/dependency upgrades are intentionally not part of this docs/copy sweep.
 
 ---
 
@@ -49,7 +47,7 @@ Read the detailed guides:
 
 - Guided setup with **Community Relay**, **Bring your own keys**, and **VATSIM** paths
 - Real schedule support designed around cached shared snapshots, AeroDataBox/AviationStack provider compatibility, and stale-safe serving when live providers are slow or capped
-- Passenger-style FIDS boards with arrivals/departures, airport-local time, status/gate chips, codeshare grouping, pinned flights, and live refresh
+- Passenger-style FIDS boards with city/country airport headers, arrivals/departures, airport-local time, status/gate chips, codeshare grouping, pinned flights, and live refresh
 - Radar with real/VATSIM traffic, METAR weather, range controls, optional runway/surface/map/terrain context, and richer aircraft/status detail
 - Native Qt desktop shell with Display, FIDS, Radar, Matrix, Settings, Admin, History, Logs, Report, and local docs
 - LAN browser UI for headless installs, remote screens, tablets, and browser-mode displays
@@ -126,13 +124,14 @@ For full setup details, see [docs/install.md](docs/install.md).
 
 First launch opens setup before the normal app.
 
-Setup asks for:
+Setup guides you through:
 
-1. Airport
-2. Data access path
-3. Optional provider keys
-4. Diagnostics choice
-5. Finish confirmation
+1. Welcome
+2. Airport
+3. Flight data
+4. Optional provider keys
+5. Diagnostics choice
+6. Review and launch
 
 Community Relay is the recommended first path. It uses cached shared schedule snapshots so many installs can watch the same airport without each one calling a paid provider. Community Relay schedule refresh choices are hourly-or-slower in the client UI; BYOK and VATSIM can still use the standard local refresh choices. BYOK is for users who already have provider keys such as AeroDataBox through API.Market or RapidAPI, AviationStack, RapidAPI ADS-B Exchange, or OpenSky. VATSIM is the no-key virtual traffic path.
 

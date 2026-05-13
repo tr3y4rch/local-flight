@@ -1,86 +1,110 @@
 # Local Flight 0.2.7 Client Notes
 
-`0.2.7` is a polish pass on top of the `0.2.6` baseline. The user-facing client
-behavior is unchanged — this release reshapes the operator/admin surface and
-clarifies the privacy contract for the periodic relay heartbeat.
+`0.2.7` is the next client-polish release candidate after the `0.2.6`
+baseline. The focus is the public Local Flight experience: the native Qt shell
+is calmer, FIDS reads more like a passenger board, setup/settings/history/matrix
+are friendlier, and the LAN browser UI remains a supported access surface.
 
-If you only run the native desktop app, the LAN browser UI, the Pi kiosk, the
-mobile companion, or the Matrix board, you can upgrade or skip this release
-without losing or gaining any feature. Update only if you also run the operator
-Network Admin console, or if you want the explicit heartbeat-metadata
-disclosure in `PRIVACY.md`.
-
----
-
-## What Changed
-
-### Privacy disclosure (everyone)
-
-`PRIVACY.md` now lists the periodic-heartbeat install profile explicitly:
-
-- app version
-- OS family / version / architecture
-- GUI mode (native / browser)
-- source mode (real / VATSIM / BYOK)
-- diagnostics mode
-- companion device count
-- matrix device count
-
-The heartbeat already existed in `0.2.6`. The doc change makes the fields
-visible so operator-side fleet shape (which versions and OSes are out there) is
-transparent. Heartbeats remain ~30 min cadence with jitter, real-source installs
-only, BYOK and incomplete-setup installs do not heartbeat.
-
-### Network Admin (operator-only)
-
-If you do not run the operator Network Admin console, the rest of this page does
-not affect you.
-
-- **Coarse-presence framing.** "Active installs" / "Active 24h" relabeled as
-  "Seen ≤24h" with "Heartbeat or relay activity" sublabel on both the HTML
-  admin SPA and the native Qt console. The `Last seen` column is now labeled
-  consistently. Filter values (`status="active"`) and JSON contract are
-  unchanged — display only.
-- **Sign-out flow.** New `POST /admin/api/logout` endpoint returns 401 with a
-  rotated `WWW-Authenticate` realm to invalidate the cached basic-auth
-  credential in Chrome / Firefox / Edge. Safari sometimes clings; the new open
-  `GET /admin/signed-out` page tells you to close the tab if so.
-- **Idle auto-logoff.** Both surfaces auto-sign-out after 15 minutes of
-  inactivity by default. Configurable via
-  `LOCALFLIGHT_NETWORK_ADMIN_IDLE_S` (seconds, minimum 60). HTML shows a 60s
-  warning toast before signing out.
-- **Qt console buttons.** Native Network Admin now has explicit Disconnect
-  (clears credentials, returns to the login state) and Quit (closes the
-  window) buttons in the topbar.
-- **Calmer styling.** Stripped the CRT scanlines, glow underlines, shimmer
-  overlays, and multi-stop gradients from both surfaces. Same color identity,
-  much less visual noise.
-
-### Relay internals
-
-- The admin SPA is now served from `relay/admin/admin.{html,css,js}` instead
-  of being inlined in `relay/main.py`. No behavioral difference; future
-  redesign iterations are easier to review.
-- AeroDataBox schedule fetching now supports API.Market keys by default, with
-  RapidAPI still available through the explicit marketplace setting. This keeps
-  the fused schedule path compatible with the key source selected during setup.
+This release does not change the basic setup choices. You can still use
+Community Relay, bring your own provider keys, or run VATSIM-only virtual
+traffic.
 
 ---
 
-## Upgrade Notes
+## Highlights
 
-- No client setup changes. Existing installs upgrade transparently.
-- Operator installs that bind the `LOCALFLIGHT_NETWORK_ADMIN_IDLE_S` env var
-  in their launcher / env file get the configurable idle threshold; everyone
-  else gets the 15-minute default.
-- The relay container needs to be redeployed for the new admin SPA and the
-  logout endpoint to be live. The native Qt console works against any reachable
-  relay regardless.
+- **Native Qt shell polish.** The main window now has clearer navigation:
+  Display/FIDS/Radar as core viewing pages, UTC/LT as the centered divider,
+  Matrix/Settings/Admin/History/Logs/Report as tools, and a small sync dot near
+  Power instead of a large "live" banner.
+- **Cleaner FIDS header.** FIDS now shows a city/country display name such as
+  `Zurich, Switzerland` or `Miami, United States`. It no longer uses long
+  formal airport names or IATA/ICAO descriptors in the title.
+- **Passenger-friendly weather.** The main FIDS weather card now favors plain
+  wording, temperature, and visibility hints instead of raw METAR fragments.
+- **Long-name protection.** Very long airport labels are clamped safely and keep
+  the full value as a tooltip in the native GUI.
+- **Footer support icons.** The footer now keeps the version/privacy phrase
+  compact and uses icon-only GitHub / coffee support buttons with tooltips.
+- **Shared app typography and assets.** Native, LAN browser, and mobile surfaces
+  use bundled local fonts and local support assets instead of online font/CDN
+  dependencies.
 
 ---
 
-## Next
+## FIDS And Flight Details
 
-The next pass will likely revisit the admin SPA layout itself (path-routed
-views, calmer hero, accessibility audit) now that the assets are extracted and
-reviewable on their own.
+- FIDS title display is now deliberately passenger-facing: city plus country,
+  with no airport-name wall of text and no technical code suffix.
+- Operating-flight identity remains the main board identity, with marketed or
+  sold-as flights shown as secondary/codeshare detail.
+- Aircraft type display stays compact on the board, while richer aircraft,
+  source, timing, live-motion, and history context stays in the detail drawer.
+- Native and LAN/browser detail views continue to use the shared
+  current-source intelligence model. Opening a detail panel reuses data already
+  fetched or cached by Local Flight; it should not cause surprise per-row paid
+  provider calls.
+
+---
+
+## Matrix
+
+- Matrix setup/config is now presented as a guided "choose panel, tune preview,
+  apply live config, generate main.py" workflow.
+- Panel presets, startup lane, row count, weather, gate/stand, brightness,
+  palette, animation, and live preview behavior are aligned across native Qt,
+  LAN browser, and generated MicroPython.
+- Compact Matrix FIDS headers keep weather inside the existing header space so
+  small boards such as `128x128` do not lose a flight row.
+- Real-world Matrix boards can show gate/stand data when available. VATSIM
+  presets hide gate placeholders because that source does not provide reliable
+  gate data.
+
+---
+
+## History, Settings, Setup
+
+- History is a dashboard-first view: filters, KPIs, delay buckets, airline
+  delay quotas, route/aircraft stats, recent flights, and clean detail panels.
+- Settings is organized around normal user tasks first: airport/source,
+  appearance, outputs/radar, and profiles, with diagnostics/docs/advanced
+  controls tucked away.
+- First-run setup is a six-step wizard with Local Flight branding, airport
+  search, source choice, optional keys, diagnostics choice, and launch review.
+  The LAN browser setup is supported wording-wise, not described as a lesser
+  path.
+
+---
+
+## Data And Relay Notes
+
+- AeroDataBox remains the staged primary real-schedule path, with AviationStack
+  available as compatible sparse fill/fallback where configured.
+- Community Relay remains cache-first and may keep serving the last safe shared
+  airport snapshot if a live provider is slow, capped, or suspiciously sparse.
+- Public client docs continue to avoid operator-only relay/admin details.
+
+---
+
+## Operator-Only Network Admin
+
+The separate Network Admin console also received polish in this line:
+
+- coarse "seen within 24h" fleet wording instead of live-online wording
+- clearer disconnect/quit behavior
+- idle auto-logoff
+- calmer operator UI styling
+- extracted relay admin SPA assets
+
+This operator console is not part of the normal public client navigation.
+
+---
+
+## Release Packaging
+
+Windows and Raspberry Pi artifacts should be built from the current `0.2.7`
+tree. Older `0.2.6` artifact hashes should be treated as stale after the
+client-polish changes.
+
+macOS still needs its own packaging and smoke-test pass on a Mac before a full
+cross-platform GitHub release.

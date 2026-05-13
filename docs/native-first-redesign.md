@@ -7,6 +7,17 @@ For user-facing install and display-choice guidance, use:
 - [Install Guide](install.md)
 - [Display Modes](display-modes.md)
 
+## Current Checkpoint
+
+As of the `0.2.7` client-polish line on 2026-05-13:
+
+- Native Qt remains the intended primary desktop/display shell; LAN browser UI remains a supported access/display surface.
+- The native main shell now groups brand/primary pages, a centered UTC/LT clock divider, and utility pages/sync/power as separate visual regions.
+- FIDS now uses a passenger-facing city/country title, compact weather hero, readable ARR/DEP/Refresh actions, operating-first flight identity, compact aircraft codes on the board, and richer detail drawers.
+- History, Matrix, Settings, Setup, Radar details, and LAN/browser parity are current release-candidate smoke areas.
+- Current Windows validation after the native shell/FIDS polish: `python -m compileall -q src relay installers scripts tests` passed and `python -m pytest tests -q` returned `373 passed`.
+- Release packages must be rebuilt from the current `0.2.7` tree; older `0.2.6` artifact hashes are stale after this polish pass.
+
 ## Goal
 
 Redesign the PySide6 app as the recommended primary desktop GUI while keeping the browser/LAN UI as a permanent supported access and display surface.
