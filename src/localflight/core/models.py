@@ -82,9 +82,17 @@ class Flight:
     airline:      AirlineRef    = field(default_factory=AirlineRef)
     flight_number: Optional[str] = None
     codeshares:   tuple[str, ...] = field(default_factory=tuple)
+    sold_as:      tuple[str, ...] = field(default_factory=tuple)
+    marketing_airline_name: Optional[str] = None
+    marketing_airline_iata: Optional[str] = None
+    marketing_airline_icao: Optional[str] = None
+    marketing_flight_number: Optional[str] = None
+    operating_callsign: Optional[str] = None
+    identity_source: Optional[str] = None
     origin:       Optional[AirportRef] = None
     destination:  Optional[AirportRef] = None
     aircraft_type: Optional[str] = None
+    aircraft_type_full: Optional[str] = None
     aircraft_registration: Optional[str] = None
     gate:         Optional[str]  = None
     terminal:     Optional[str]  = None

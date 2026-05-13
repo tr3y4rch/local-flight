@@ -373,8 +373,9 @@
           </label>
         </div>
         <div class="cadence-help">
-          <strong>Available choices:</strong> 15, 30, 45, and 60 minutes, then 2, 4, 8, 12, or 24 hours.
-          Community Relay can reuse a shared airport snapshot and keeps an hourly upstream refresh floor, so local checks can be frequent without forcing provider calls every time.
+          <strong>Available choices:</strong>
+          {% for option in settings_options.refresh %}{{ option.label }}{% if not loop.last %}, {% endif %}{% endfor %}.
+          {{ schedule_policy.reason or "Shorter values keep local displays fresh; longer values are kinder to schedule providers." }}
         </div>
       </div>
 

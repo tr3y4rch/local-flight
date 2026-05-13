@@ -134,7 +134,7 @@ Setup asks for:
 4. Diagnostics choice
 5. Finish confirmation
 
-Community Relay is the recommended first path. It uses cached shared schedule snapshots so many installs can watch the same airport without each one calling a paid provider. BYOK is for users who already have provider keys such as AeroDataBox, AviationStack, RapidAPI ADS-B Exchange, or OpenSky. VATSIM is the no-key virtual traffic path.
+Community Relay is the recommended first path. It uses cached shared schedule snapshots so many installs can watch the same airport without each one calling a paid provider. Community Relay schedule refresh choices are hourly-or-slower in the client UI; BYOK and VATSIM can still use the standard local refresh choices. BYOK is for users who already have provider keys such as AeroDataBox through API.Market or RapidAPI, AviationStack, RapidAPI ADS-B Exchange, or OpenSky. VATSIM is the no-key virtual traffic path.
 
 ---
 

@@ -18,15 +18,20 @@ from localflight.native.design import (
     scroll_page,
 )
 from localflight.native.service import NativeApiService
+from localflight.ui.setup_guidance import (
+    DIAGNOSTICS_OPTIONS,
+    PROVIDER_LINKS as SETUP_PROVIDER_LINKS,
+    SOURCE_OPTIONS,
+    STEP_NAMES,
+    STEP_SHORT_LABELS,
+    WELCOME_CARDS,
+    diagnostics_option,
+    source_option,
+)
 
 
 DEFAULT_RELAY_URL = "https://localflight-community-relay.fly.dev"
-PROVIDER_LINKS: tuple[tuple[str, str], ...] = (
-    ("Get AviationStack key", "https://aviationstack.com/signup"),
-    ("ADS-B Exchange on RapidAPI", "https://rapidapi.com/adsbx/api/adsbexchange-com1"),
-    ("OpenSky account", "https://opensky-network.org/login?view=registration"),
-    ("VATSIM status", "https://network-status.vatsim.net/"),
-)
+PROVIDER_LINKS: tuple[tuple[str, str], ...] = tuple((item["label"], item["url"]) for item in SETUP_PROVIDER_LINKS)
 
 
 class NativeSetupWindow:  # pragma: no cover - exercised with optional Qt
@@ -106,9 +111,11 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
         screen = self.QtWidgets.QApplication.primaryScreen()
         available = screen.availableGeometry() if screen is not None else None
         available_width = available.width() if available is not None else 1200
-        self.setup_max_width = 900 if available_width >= 900 else max(560, available_width - 48)
-        self.card_columns = 1 if available_width < 760 else 3
-        self.step_names = ["Welcome", "Airport", "Data Access", "Provider Keys", "Diagnostics", "Finish"]
+        self.setup_max_width = min(1080, max(540, available_width - 32))
+        self.compact_setup = available_width < 900
+        self.card_columns = 1 if available_width < 900 else 2 if available_width < 1220 else 3
+        self.step_names = list(STEP_NAMES)
+        self.step_short_labels = list(STEP_SHORT_LABELS)
         self.step_buttons: list[Any] = []
         self.source_buttons: dict[str, Any] = {}
         self.diagnostics_buttons: dict[str, Any] = {}
@@ -116,13 +123,11 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
 
         self.widget, layout = scroll_page(QtWidgets)
         self.widget.setMinimumWidth(0)
-        layout.setContentsMargins(18, 18, 18, 18)
-        layout.setSpacing(14)
-        self.status = label(
-            QtWidgets,
+        layout.setContentsMargins(14, 14, 14, 14)
+        layout.setSpacing(12)
+        self.status = self._status_chip(
             "Setup is local-first. You can change these choices later in Settings.",
-            "Muted",
-            wrap=True,
+            "muted",
         )
 
         self.tabs = QtWidgets.QStackedWidget()
@@ -153,7 +158,6 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
         self.loading_indicator.setMaximumWidth(self.setup_max_width)
         self.loading_indicator.hide()
         layout.addWidget(self.loading_indicator, 0, QtCore.Qt.AlignHCenter)
-        layout.addWidget(self.status, 0, QtCore.Qt.AlignHCenter)
         layout.addLayout(self._navigation())
         layout.addStretch(1)
 
@@ -170,93 +174,161 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
         steps_wrap = self.QtWidgets.QWidget()
         steps_wrap.setMinimumWidth(0)
         steps_wrap.setMaximumWidth(self.setup_max_width)
-        steps = self.QtWidgets.QHBoxLayout(steps_wrap)
+        columns = 3 if self.compact_setup else 6
+        steps = self.QtWidgets.QGridLayout(steps_wrap)
         steps.setContentsMargins(0, 0, 0, 0)
-        steps.setSpacing(6)
+        steps.setHorizontalSpacing(8)
+        steps.setVerticalSpacing(8)
         for idx, name in enumerate(self.step_names):
-            button = self.QtWidgets.QPushButton(f"{idx + 1}. {name}")
-            button.setObjectName("SegmentButton")
+            short = self.step_short_labels[idx] if idx < len(self.step_short_labels) else name
+            button = self.QtWidgets.QPushButton(f"{idx + 1}  {short}")
+            button.setObjectName("SetupStepButton")
             button.setCheckable(True)
+            button.setMinimumHeight(34)
+            button.setToolTip(name)
             button.clicked.connect(lambda _checked=False, i=idx: self._set_step(i))
             self.step_buttons.append(button)
-            steps.addWidget(button)
-        steps_scroll = self.QtWidgets.QScrollArea()
-        steps_scroll.setObjectName("NavScroll")
-        steps_scroll.setWidgetResizable(True)
-        steps_scroll.setFrameShape(self.QtWidgets.QFrame.NoFrame)
-        steps_scroll.setHorizontalScrollBarPolicy(self.QtCore.Qt.ScrollBarAsNeeded)
-        steps_scroll.setVerticalScrollBarPolicy(self.QtCore.Qt.ScrollBarAlwaysOff)
-        steps_scroll.setMinimumWidth(0)
-        steps_scroll.setMaximumWidth(self.setup_max_width)
-        steps_scroll.setMaximumHeight(52)
-        steps_scroll.setWidget(steps_wrap)
-        wrap.addWidget(steps_scroll, 1)
+            steps.addWidget(button, idx // columns, idx % columns)
+        wrap.addWidget(steps_wrap, 1)
         wrap.addStretch(1)
         return wrap
 
     def _navigation(self) -> Any:
-        wrap = self.QtWidgets.QHBoxLayout()
+        wrap = self.QtWidgets.QVBoxLayout()
         wrap.setContentsMargins(0, 0, 0, 0)
+        wrap.setSpacing(8)
+        self.status.setAlignment(self.QtCore.Qt.AlignCenter)
+        self.status.setMaximumWidth(self.setup_max_width)
+        wrap.addWidget(self.status, 0, self.QtCore.Qt.AlignHCenter)
         nav_wrap = self.QtWidgets.QWidget()
         nav_wrap.setMinimumWidth(0)
         nav_wrap.setMaximumWidth(self.setup_max_width)
-        nav = self.QtWidgets.QHBoxLayout(nav_wrap)
+        nav = self.QtWidgets.QGridLayout(nav_wrap)
         nav.setContentsMargins(0, 0, 0, 0)
-        self.web_fallback_btn = self.QtWidgets.QPushButton("Open browser setup")
+        nav.setHorizontalSpacing(8)
+        nav.setVerticalSpacing(8)
+        self.web_fallback_btn = self.QtWidgets.QPushButton("Open LAN browser setup")
         self.web_fallback_btn.setObjectName("Quiet")
         self.back_btn = self.QtWidgets.QPushButton("Back")
         self.back_btn.setObjectName("Quiet")
         self.next_btn = self.QtWidgets.QPushButton("Next")
         self.finish_btn = self.QtWidgets.QPushButton("Finish setup")
+        for button in (self.web_fallback_btn, self.back_btn, self.next_btn, self.finish_btn):
+            button.setMinimumHeight(36)
+            button.setSizePolicy(self.QtWidgets.QSizePolicy.MinimumExpanding, self.QtWidgets.QSizePolicy.Fixed)
         self.back_btn.clicked.connect(self._previous_step)
         self.next_btn.clicked.connect(self._next_step)
         self.finish_btn.clicked.connect(self.finish_setup)
         self.web_fallback_btn.clicked.connect(lambda: webbrowser.open(f"{self.base_url}/setup"))
-        nav.addWidget(self.web_fallback_btn)
-        nav.addStretch(1)
-        nav.addWidget(self.back_btn)
-        nav.addWidget(self.next_btn)
-        nav.addWidget(self.finish_btn)
-        nav_scroll = self.QtWidgets.QScrollArea()
-        nav_scroll.setObjectName("NavScroll")
-        nav_scroll.setWidgetResizable(True)
-        nav_scroll.setFrameShape(self.QtWidgets.QFrame.NoFrame)
-        nav_scroll.setHorizontalScrollBarPolicy(self.QtCore.Qt.ScrollBarAsNeeded)
-        nav_scroll.setVerticalScrollBarPolicy(self.QtCore.Qt.ScrollBarAlwaysOff)
-        nav_scroll.setMinimumWidth(0)
-        nav_scroll.setMaximumWidth(self.setup_max_width)
-        nav_scroll.setMaximumHeight(52)
-        nav_scroll.setWidget(nav_wrap)
-        wrap.addStretch(1)
-        wrap.addWidget(nav_scroll, 1)
-        wrap.addStretch(1)
+        if self.compact_setup:
+            nav.addWidget(self.web_fallback_btn, 0, 0, 1, 3)
+            nav.addWidget(self.back_btn, 1, 0)
+            nav.addWidget(self.next_btn, 1, 1)
+            nav.addWidget(self.finish_btn, 1, 2)
+        else:
+            nav.addWidget(self.web_fallback_btn, 0, 0)
+            spacer = self.QtWidgets.QSpacerItem(20, 1, self.QtWidgets.QSizePolicy.Expanding, self.QtWidgets.QSizePolicy.Minimum)
+            nav.addItem(spacer, 0, 1)
+            nav.addWidget(self.back_btn, 0, 2)
+            nav.addWidget(self.next_btn, 0, 3)
+            nav.addWidget(self.finish_btn, 0, 4)
+        wrap.addWidget(nav_wrap, 0, self.QtCore.Qt.AlignHCenter)
         return wrap
 
     def _page(self, title: str, text: str) -> tuple[Any, Any]:
         page = self.QtWidgets.QFrame()
-        page.setObjectName("Panel")
+        page.setObjectName("SetupPanel")
         page.setMinimumWidth(0)
         page.setMaximumWidth(self.setup_max_width)
         layout = self.QtWidgets.QVBoxLayout(page)
-        layout.setContentsMargins(20, 18, 20, 18)
+        layout.setContentsMargins(18, 16, 18, 16)
         layout.setSpacing(12)
-        layout.addWidget(label(self.QtWidgets, title, "Title"))
-        layout.addWidget(label(self.QtWidgets, text, "Muted", wrap=True))
+        title_label = label(self.QtWidgets, title, "SetupTitle", wrap=True)
+        title_label.setTextFormat(self.QtCore.Qt.RichText)
+        layout.addWidget(title_label)
+        layout.addWidget(label(self.QtWidgets, text, "SetupMuted", wrap=True))
         self.tabs.addWidget(page)
         return page, layout
+
+    def _repolish(self, widget: Any) -> None:
+        try:
+            widget.style().unpolish(widget)
+            widget.style().polish(widget)
+        except Exception:
+            pass
+
+    def _status_chip(self, text: str, tone: str = "muted") -> Any:
+        chip = label(self.QtWidgets, text, "SetupStatusChip", wrap=True)
+        chip.setProperty("tone", tone)
+        return chip
+
+    def _set_chip(self, chip: Any, text: str, tone: str = "muted") -> None:
+        chip.setText(text)
+        chip.setProperty("tone", tone)
+        self._repolish(chip)
+
+    def _option_card(
+        self,
+        *,
+        icon: str,
+        title: str,
+        body: str,
+        click: Callable[[], None] | None = None,
+        selected: bool = False,
+    ) -> Any:
+        card = self.QtWidgets.QFrame()
+        card.setObjectName("SetupOptionCard")
+        card.setProperty("selected", bool(selected))
+        card.setMinimumHeight(122)
+        if click is not None:
+            card.setCursor(self.QtCore.Qt.PointingHandCursor)
+        card.setSizePolicy(self.QtWidgets.QSizePolicy.Expanding, self.QtWidgets.QSizePolicy.Preferred)
+        layout = self.QtWidgets.QVBoxLayout(card)
+        layout.setContentsMargins(14, 12, 14, 12)
+        layout.setSpacing(7)
+        row = self.QtWidgets.QHBoxLayout()
+        row.setContentsMargins(0, 0, 0, 0)
+        badge = label(self.QtWidgets, icon, "SetupBadge")
+        badge.setAlignment(self.QtCore.Qt.AlignCenter)
+        row.addWidget(badge, 0, self.QtCore.Qt.AlignLeft | self.QtCore.Qt.AlignVCenter)
+        row.addStretch(1)
+        layout.addLayout(row)
+        layout.addWidget(label(self.QtWidgets, title, "SetupCardTitle", wrap=True))
+        layout.addWidget(label(self.QtWidgets, body, "SetupCardBody", wrap=True), 1)
+        if click is not None:
+            card.mousePressEvent = lambda _event, fn=click: fn()
+        return card
+
+    def _set_card_selected(self, card: Any, selected: bool) -> None:
+        card.setProperty("selected", bool(selected))
+        self._repolish(card)
+
+    def _summary_card(self, title: str, value: str, *, tone: str = "muted") -> Any:
+        card = self.QtWidgets.QFrame()
+        card.setObjectName("SetupSummaryCard")
+        card.setProperty("tone", tone)
+        layout = self.QtWidgets.QVBoxLayout(card)
+        layout.setContentsMargins(12, 10, 12, 10)
+        layout.setSpacing(5)
+        layout.addWidget(label(self.QtWidgets, title, "Kicker", wrap=True))
+        value_label = label(self.QtWidgets, value, "SetupSummaryValue", wrap=True)
+        layout.addWidget(value_label)
+        card.value_label = value_label
+        return card
 
     def _build_welcome_page(self) -> None:
         _page, layout = self._page(
             'Welcome to <span style="font-family: Audiowide; font-weight: 400; letter-spacing: 1px;">Local Flight</span>',
-            "This setup gets the local display running without making you understand every backend detail first.",
+            "A guided first launch for your local airport board. Pick the airport, choose the flight data path, and decide how diagnostics should behave.",
         )
         logo = self.QtWidgets.QLabel()
         logo.setAlignment(self.QtCore.Qt.AlignCenter)
-        logo.setMinimumHeight(120)
+        logo.setMinimumHeight(94 if self.compact_setup else 120)
         logo.setObjectName("SetupBrandMark")
         self.logo_label = logo
         if self.QtGui is not None:
-            pixmap = pixmap_from_media(self.QtCore, self.QtGui, "ui", "static", "localflight-logo.svg", width=132, height=132)
+            logo_size = 104 if self.compact_setup else 132
+            pixmap = pixmap_from_media(self.QtCore, self.QtGui, "ui", "static", "localflight-logo.svg", width=logo_size, height=logo_size)
             if not pixmap.isNull():
                 logo.setPixmap(pixmap)
             else:
@@ -267,16 +339,14 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
             logo.setObjectName("BrandTitle")
         layout.addWidget(logo)
         cards = self.QtWidgets.QGridLayout()
-        cards.setHorizontalSpacing(10)
-        cards.setVerticalSpacing(10)
-        for index, (title, body) in enumerate(
-            (
-            ("Local first", "Native GUI, local backend, LAN browser fallback."),
-            ("Community default", "Start with the hosted relay; add your own keys only if you want them."),
-            ("Private by design", "Secrets stay masked and diagnostics are an explicit setup choice."),
+        cards.setHorizontalSpacing(12)
+        cards.setVerticalSpacing(12)
+        for index, card in enumerate(WELCOME_CARDS):
+            cards.addWidget(
+                self._mini_card(card["title"], card["body"], icon=card.get("icon", "")),
+                index // self.card_columns,
+                index % self.card_columns,
             )
-        ):
-            cards.addWidget(self._mini_card(title, body), index // self.card_columns, index % self.card_columns)
         layout.addLayout(cards)
         self.start_btn = self.QtWidgets.QPushButton("Start setup")
         self.start_btn.clicked.connect(lambda: self._set_step(1))
@@ -286,14 +356,8 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
         layout.addLayout(start_row)
         layout.addStretch(1)
 
-    def _mini_card(self, title: str, body: str) -> Any:
-        box = self.QtWidgets.QFrame()
-        box.setObjectName("PreviewCard")
-        layout = self.QtWidgets.QVBoxLayout(box)
-        layout.setContentsMargins(14, 12, 14, 12)
-        layout.addWidget(label(self.QtWidgets, title, "Kicker", wrap=True))
-        layout.addWidget(label(self.QtWidgets, body, "Muted", wrap=True))
-        return box
+    def _mini_card(self, title: str, body: str, *, icon: str = "") -> Any:
+        return self._option_card(icon=icon, title=title, body=body)
 
     def _build_airport_page(self) -> None:
         _page, layout = self._page(
@@ -304,9 +368,10 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
         self.airport_search.setPlaceholderText("Search airport, city, IATA, or ICAO...")
         self.airport_search.textChanged.connect(lambda _text: self.search_timer.start(250))
         self.airport_results = self.QtWidgets.QListWidget()
-        self.airport_results.setMinimumHeight(170)
+        self.airport_results.setMinimumHeight(150 if self.compact_setup else 170)
         self.airport_results.itemClicked.connect(self._select_airport_item)
-        self.airport_selected = label(self.QtWidgets, "Selected: ZRH / LSZH | Europe/Zurich", "Muted", wrap=True)
+        self.airport_search_status = self._status_chip("Type at least two characters to search the built-in airport database.", "muted")
+        self.airport_selected = self._status_chip("Selected: ZRH / LSZH | Europe/Zurich", "good")
         self.display_name = self.QtWidgets.QLineEdit("Local Flight")
         self.airport_iata = self.QtWidgets.QLineEdit("ZRH")
         self.airport_icao = self.QtWidgets.QLineEdit("LSZH")
@@ -320,44 +385,36 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
         form.addRow("Airport ICAO", self.airport_icao)
         form.addRow("Timezone", self.timezone)
         layout.addWidget(self.airport_search)
+        layout.addWidget(self.airport_search_status)
         layout.addWidget(self.airport_results)
         layout.addWidget(self.airport_selected)
         layout.addLayout(form)
 
     def _build_source_page(self) -> None:
         _page, layout = self._page(
-            "Choose Data Access",
-            "Community Relay is the guided default. BYOK is for direct provider accounts. VATSIM is the no-key virtual path.",
+            "Choose Flight Data",
+            "Pick the path you actually want. Community Relay stays simple, BYOK is for direct provider accounts, and VATSIM is the no-key virtual path.",
         )
         self.setup_mode = self.QtWidgets.QComboBox()
-        for label_text, mode in (
-            ("Community relay", "community"),
-            ("Bring your own AviationStack key", "byok"),
-            ("Virtual / VATSIM", "virtual"),
-        ):
-            self.setup_mode.addItem(label_text, mode)
+        for option in SOURCE_OPTIONS:
+            self.setup_mode.addItem(option["title"], option["mode"])
         self.setup_mode.hide()
 
         cards = self.QtWidgets.QGridLayout()
-        cards.setHorizontalSpacing(10)
-        cards.setVerticalSpacing(10)
-        for index, (mode, title, body) in enumerate(
-            (
-                ("community", "Community Relay", "Recommended. Shared real-flight snapshots through the hosted relay."),
-                ("byok", "Use My Own Keys", "For AviationStack users who want direct quota ownership."),
-                ("virtual", "VATSIM", "No schedule key. Virtual traffic with privacy-safe details."),
+        cards.setHorizontalSpacing(12)
+        cards.setVerticalSpacing(12)
+        for index, option in enumerate(SOURCE_OPTIONS):
+            mode = option["mode"]
+            card = self._option_card(
+                icon=option["icon"],
+                title=option["title"],
+                body=option["body"],
+                click=lambda m=mode: self._set_mode(m),
             )
-        ):
-            button = self.QtWidgets.QPushButton(f"{title}\n{body}")
-            button.setObjectName("SegmentButton")
-            button.setCheckable(True)
-            button.setMinimumHeight(112)
-            button.setSizePolicy(self.QtWidgets.QSizePolicy.Expanding, self.QtWidgets.QSizePolicy.Preferred)
-            button.clicked.connect(lambda _checked=False, m=mode: self._set_mode(m))
-            self.source_buttons[mode] = button
-            cards.addWidget(button, index // self.card_columns, index % self.card_columns)
+            self.source_buttons[mode] = card
+            cards.addWidget(card, index // self.card_columns, index % self.card_columns)
         layout.addLayout(cards)
-        self.mode_help = label(self.QtWidgets, "", "Muted", wrap=True)
+        self.mode_help = self._status_chip("", "muted")
         layout.addWidget(self.mode_help)
 
         self.relay_box, relay_layout = panel(self.QtWidgets, "Relay Access")
@@ -366,17 +423,25 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
         self.activation_token = self.QtWidgets.QLineEdit()
         self.activation_token.setEchoMode(self.QtWidgets.QLineEdit.Password)
         self.activation_token.setPlaceholderText("Paste activation token only if one was given to you")
-        token_toggle = self.QtWidgets.QPushButton("Show token")
-        token_toggle.setObjectName("Quiet")
-        token_toggle.clicked.connect(lambda: self._toggle_secret(self.activation_token, token_toggle, "token"))
+        self.token_toggle = self.QtWidgets.QPushButton("Show token")
+        self.token_toggle.setObjectName("Quiet")
+        self.token_toggle.clicked.connect(lambda: self._toggle_secret(self.activation_token, self.token_toggle, "token"))
         token_row = self.QtWidgets.QHBoxLayout()
         token_row.addWidget(self.activation_token, 1)
-        token_row.addWidget(token_toggle)
+        token_row.addWidget(self.token_toggle)
         relay_form = self.QtWidgets.QFormLayout()
         relay_form.setFieldGrowthPolicy(self.QtWidgets.QFormLayout.AllNonFixedFieldsGrow)
         relay_form.addRow("Relay host", self.relay_url)
-        relay_form.addRow("Activation token", token_row)
         relay_layout.addLayout(relay_form)
+        self.token_box = self.QtWidgets.QFrame()
+        self.token_box.setObjectName("PreviewCard")
+        token_box_layout = self.QtWidgets.QVBoxLayout(self.token_box)
+        token_box_layout.setContentsMargins(12, 10, 12, 10)
+        token_box_layout.setSpacing(7)
+        token_box_layout.addWidget(label(self.QtWidgets, "Manual token", "Kicker", wrap=True))
+        token_box_layout.addWidget(label(self.QtWidgets, "Only paste a token here if the relay operator gave you one. Stored relay links stay local and do not need to be pasted again.", "SetupMuted", wrap=True))
+        token_box_layout.addLayout(token_row)
+        relay_layout.addWidget(self.token_box)
         relay_actions = self.QtWidgets.QHBoxLayout()
         self.request_activation_btn = self.QtWidgets.QPushButton("Request activation")
         self.check_relay_status_btn = self.QtWidgets.QPushButton("Check relay status")
@@ -384,12 +449,13 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
         self.request_activation_btn.clicked.connect(self.request_activation)
         self.check_relay_status_btn.clicked.connect(self.check_activation_status)
         self.test_token_btn.clicked.connect(self.test_activation)
-        relay_actions.addWidget(self.request_activation_btn)
-        relay_actions.addWidget(self.check_relay_status_btn)
-        relay_actions.addWidget(self.test_token_btn)
+        for idx, button in enumerate((self.request_activation_btn, self.check_relay_status_btn, self.test_token_btn)):
+            button.setMinimumHeight(34)
+            relay_actions.addWidget(button)
         relay_actions.addStretch(1)
-        self.relay_status = label(self.QtWidgets, "Relay is the beginner path. Token values stay hidden.", "Muted", wrap=True)
-        self.relay_action_status = label(self.QtWidgets, "Relay check ready.", "Muted", wrap=True)
+        self.relay_status = self._status_chip("Relay is the beginner path. Token values stay hidden.", "muted")
+        self.relay_action_status = self._status_chip("", "muted")
+        self.relay_action_status.hide()
         relay_layout.addLayout(relay_actions)
         relay_layout.addWidget(self.relay_status)
         relay_layout.addWidget(self.relay_action_status)
@@ -399,9 +465,9 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
     def _build_keys_page(self) -> None:
         _page, layout = self._page(
             "Optional Provider Keys",
-            "Only BYOK needs AviationStack. ADS-B Exchange and OpenSky are optional enrichment sources.",
+            "Only BYOK needs AviationStack. ADS-B Exchange and OpenSky are optional enrichment sources; Community Relay and VATSIM can skip this page.",
         )
-        self.keys_hint = label(self.QtWidgets, "Community Relay and VATSIM can skip this page.", "Muted", wrap=True)
+        self.keys_hint = self._status_chip("Community Relay and VATSIM can skip this page.", "muted")
         layout.addWidget(self.keys_hint)
         self.aviationstack_key = self.QtWidgets.QLineEdit()
         self.rapidapi_key = self.QtWidgets.QLineEdit()
@@ -438,7 +504,7 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
         tests.addWidget(self.test_rapidapi_btn)
         tests.addStretch(1)
         layout.addLayout(tests)
-        self.provider_action_status = label(self.QtWidgets, "Provider key checks ready.", "Muted", wrap=True)
+        self.provider_action_status = self._status_chip("Provider key checks ready.", "muted")
         layout.addWidget(self.provider_action_status)
         layout.addStretch(1)
 
@@ -448,38 +514,27 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
             "Choose how Local Flight may help report problems. Manual reports are always available.",
         )
         self.diagnostics_mode = self.QtWidgets.QComboBox()
-        for label_text, mode in (
-            ("Manual reports only", "manual"),
-            ("Auto crash reports", "auto"),
-            ("Auto crash reports + local logs", "auto_logs"),
-        ):
-            self.diagnostics_mode.addItem(label_text, mode)
+        for option in DIAGNOSTICS_OPTIONS:
+            self.diagnostics_mode.addItem(option["title"], option["mode"])
         self.diagnostics_mode.hide()
         layout.addWidget(self.diagnostics_mode)
         cards = self.QtWidgets.QGridLayout()
-        cards.setHorizontalSpacing(10)
-        cards.setVerticalSpacing(10)
-        for index, (mode, title, body) in enumerate(
-            (
-                ("manual", "Manual", "Nothing is sent unless you submit a report."),
-                ("auto", "Auto crashes", "Send sanitized exception details for native crashes."),
-                ("auto_logs", "Auto + logs", "Also attach a short local log tail for hard-to-track issues."),
+        cards.setHorizontalSpacing(12)
+        cards.setVerticalSpacing(12)
+        for index, option in enumerate(DIAGNOSTICS_OPTIONS):
+            mode = option["mode"]
+            card = self._option_card(
+                icon=option["icon"],
+                title=option["title"],
+                body=option["body"],
+                click=lambda m=mode: self._set_diagnostics_mode(m),
             )
-        ):
-            button = self.QtWidgets.QPushButton(f"{title}\n{body}")
-            button.setObjectName("SegmentButton")
-            button.setCheckable(True)
-            button.setMinimumHeight(106)
-            button.setSizePolicy(self.QtWidgets.QSizePolicy.Expanding, self.QtWidgets.QSizePolicy.Preferred)
-            button.clicked.connect(lambda _checked=False, m=mode: self._set_diagnostics_mode(m))
-            self.diagnostics_buttons[mode] = button
-            cards.addWidget(button, index // self.card_columns, index % self.card_columns)
+            self.diagnostics_buttons[mode] = card
+            cards.addWidget(card, index // self.card_columns, index % self.card_columns)
         layout.addLayout(cards)
-        self.diagnostics_help = label(
-            self.QtWidgets,
+        self.diagnostics_help = self._status_chip(
             "Privacy rule: no provider keys, activation tokens, raw install IDs, pilot identities, or internal secrets are shown here or sent from the client UI.",
-            "Muted",
-            wrap=True,
+            "muted",
         )
         layout.addWidget(self.diagnostics_help)
         layout.addStretch(1)
@@ -487,17 +542,29 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
 
     def _build_finish_page(self) -> None:
         _page, layout = self._page(
-            "Ready to Launch",
-            "Review the simple version. Finish saves the local setup and opens the native display.",
+            "Review & Launch",
+            "Review the simple version. Finish saves the local setup and opens Local Flight.",
         )
+        self.finish_grid = self.QtWidgets.QGridLayout()
+        self.finish_grid.setHorizontalSpacing(10)
+        self.finish_grid.setVerticalSpacing(10)
+        self.finish_cards: dict[str, Any] = {
+            "airport": self._summary_card("Airport", "ZRH / LSZH"),
+            "timezone": self._summary_card("Timezone", "Europe/Zurich"),
+            "source": self._summary_card("Flight data", "Community Relay", tone="good"),
+            "relay": self._summary_card("Relay access", "Token needed or pending"),
+            "keys": self._summary_card("Provider keys", "No provider keys saved"),
+            "diagnostics": self._summary_card("Diagnostics", "Manual reports only"),
+        }
+        for index, card in enumerate(self.finish_cards.values()):
+            self.finish_grid.addWidget(card, index // max(1, min(2, self.card_columns)), index % max(1, min(2, self.card_columns)))
+        layout.addLayout(self.finish_grid)
         self.finish_summary = label(self.QtWidgets, "", "Muted", wrap=True)
-        self.diagnostics_note = label(
-            self.QtWidgets,
+        self.finish_summary.hide()
+        self.diagnostics_note = self._status_chip(
             "Diagnostics can be changed later in Settings. Provider keys and tokens are never displayed in this summary.",
-            "Muted",
-            wrap=True,
+            "muted",
         )
-        layout.addWidget(self.finish_summary)
         layout.addWidget(self.diagnostics_note)
         layout.addWidget(self._link_button("Open VATSIM status", "https://network-status.vatsim.net/"))
         layout.addStretch(1)
@@ -543,8 +610,8 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
         idx = self.setup_mode.findData(mode)
         self.setup_mode.setCurrentIndex(idx if idx >= 0 else self.setup_mode.findData("community"))
         active_mode = self._current_mode()
-        for key, button in self.source_buttons.items():
-            button.setChecked(key == active_mode)
+        for key, card in self.source_buttons.items():
+            self._set_card_selected(card, key == active_mode)
         self._sync_mode_ui()
         self._update_finish_summary()
 
@@ -552,44 +619,29 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
         idx = self.diagnostics_mode.findData(mode)
         self.diagnostics_mode.setCurrentIndex(idx if idx >= 0 else 0)
         active_mode = self._current_diagnostics_mode()
-        for key, button in self.diagnostics_buttons.items():
-            button.setChecked(key == active_mode)
-        if active_mode == "auto_logs":
-            text = "Auto + logs is helpful during beta testing. Reports stay sanitized and include only a short local log tail."
-        elif active_mode == "auto":
-            text = "Auto crash reports send sanitized exception details only when diagnostics allow it."
-        else:
-            text = "Manual mode is privacy-first: reports are sent only when you press Submit in the Report screen."
-        self.diagnostics_help.setText(text)
+        for key, card in self.diagnostics_buttons.items():
+            self._set_card_selected(card, key == active_mode)
+        self._set_chip(self.diagnostics_help, diagnostics_option(active_mode)["note"], "good" if active_mode == "manual" else "warn")
         self._update_finish_summary()
 
     def _sync_mode_ui(self) -> None:
         mode = self._current_mode()
         self.relay_box.setVisible(mode == "community")
+        self.mode_help.setText(source_option(mode)["note"])
         if mode == "community":
-            self.mode_help.setText("Recommended first path. Uses hosted community snapshots when this install has access. VATSIM remains available as the no-key virtual path.")
-            self.keys_hint.setText("Community Relay mode skips provider keys. You can add your own keys later in Settings.")
+            self._set_chip(self.keys_hint, "Community Relay mode skips provider keys. You can add your own keys later in Settings.", "good")
         elif mode == "byok":
-            self.mode_help.setText("Direct provider mode. Use this when you want AviationStack calls from this device and you own the provider quota.")
-            self.keys_hint.setText("Paste an AviationStack key. ADS-B Exchange on RapidAPI and OpenSky are optional enrichment helpers.")
+            self._set_chip(self.keys_hint, "Paste an AviationStack key. ADS-B Exchange on RapidAPI and OpenSky are optional enrichment helpers.", "warn")
         else:
-            self.mode_help.setText("VATSIM mode uses virtual flight-network data. It needs no schedule key and never displays pilot identities.")
-            self.keys_hint.setText("VATSIM needs no provider keys. This setup saves source=virtual.")
+            self._set_chip(self.keys_hint, "VATSIM needs no provider keys. This setup saves source=virtual.", "good")
 
     def _mode_label(self, mode: str) -> str:
-        return {
-            "community": "Community Relay",
-            "byok": "Bring your own keys",
-            "virtual": "Virtual / VATSIM",
-        }.get(mode, mode)
+        return source_option(mode)["title"]
 
     def _diagnostics_label(self, mode: str) -> str:
-        return {
-            "manual": "Manual reports only",
-            "auto": "Auto crash reports",
-            "auto_logs": "Auto crash reports + local logs",
-            "unset": "Not chosen",
-        }.get(mode, mode)
+        if mode == "unset":
+            return "Not chosen"
+        return diagnostics_option(mode)["title"]
 
     def _update_finish_summary(self) -> None:
         if not hasattr(self, "finish_summary"):
@@ -601,17 +653,36 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
             relay_state = "not used"
         key_state = "AviationStack key will be saved" if mode == "byok" and self.aviationstack_key.text().strip() else "no provider keys saved"
         diagnostics = self._current_diagnostics_mode()
+        rows = {
+            "airport": f"{self.airport_iata.text().strip().upper() or 'ZRH'} / {self.airport_icao.text().strip().upper() or 'LSZH'}",
+            "timezone": self.timezone.text().strip() or "Europe/Zurich",
+            "source": self._mode_label(mode),
+            "relay": relay_state,
+            "keys": key_state,
+            "diagnostics": self._diagnostics_label(diagnostics),
+        }
+        if hasattr(self, "finish_cards"):
+            for key, value in rows.items():
+                card = self.finish_cards.get(key)
+                if card is not None:
+                    card.value_label.setText(value)
+            self.finish_cards["source"].setProperty("tone", "good" if mode in {"community", "virtual"} else "warn")
+            self.finish_cards["relay"].setProperty("tone", "good" if relay_state == "connected" else "muted")
+            self.finish_cards["keys"].setProperty("tone", "warn" if mode == "byok" and "will be saved" in key_state else "muted")
+            self.finish_cards["diagnostics"].setProperty("tone", "good" if diagnostics == "manual" else "warn")
+            for card in self.finish_cards.values():
+                self._repolish(card)
         self.finish_summary.setText(
             "\n".join(
                 [
-                    f"Airport: {self.airport_iata.text().strip().upper() or 'ZRH'} / {self.airport_icao.text().strip().upper() or 'LSZH'}",
-                    f"Timezone: {self.timezone.text().strip() or 'Europe/Zurich'}",
+                    f"Airport: {rows['airport']}",
+                    f"Timezone: {rows['timezone']}",
                     f"Display name: {self.display_name.text().strip() or 'Local Flight'}",
-                    f"Data path: {self._mode_label(mode)}",
+                    f"Data path: {rows['source']}",
                     f"Source saved as: {source}",
-                    f"Relay access: {relay_state}",
-                    f"Provider keys: {key_state}",
-                    f"Diagnostics: {self._diagnostics_label(diagnostics)}",
+                    f"Relay access: {rows['relay']}",
+                    f"Provider keys: {rows['keys']}",
+                    f"Diagnostics: {rows['diagnostics']}",
                 ]
             )
         )
@@ -631,10 +702,12 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
         if self._stored_activation:
             self.activation_token.clear()
             self.activation_token.setPlaceholderText(f"Stored token linked ({prefix or 'hidden'}...)")
-            self.relay_status.setText("Relay access is connected. You can finish Community Relay setup without pasting a token.")
+            self._set_chip(self.relay_status, "Relay access is connected. You can finish Community Relay setup without pasting a token.", "good")
+            self.token_box.hide()
         else:
             self.activation_token.setPlaceholderText("Paste activation token only if one was given to you")
-            self.relay_status.setText("Relay access is not linked yet. Request or test a token, or choose VATSIM to continue without one.")
+            self._set_chip(self.relay_status, "Relay access is not linked yet. Request or test a token, or choose VATSIM to continue without one.", "warn")
+            self.token_box.show()
         if not self._mode_initialized:
             self._set_mode("community")
             self._mode_initialized = True
@@ -655,24 +728,25 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
 
     def _set_status(self, text: str, role: str = "Muted", *, busy: bool = False) -> None:
         self.status.setText(text)
-        self.status.setObjectName(role)
+        self.status.setProperty("tone", self._tone_for_role(role))
         self.loading_indicator.setVisible(bool(busy))
-        try:
-            self.status.style().unpolish(self.status)
-            self.status.style().polish(self.status)
-        except Exception:
-            pass
+        self._repolish(self.status)
         if busy:
             self.QtWidgets.QApplication.processEvents()
 
+    def _tone_for_role(self, role: str = "Muted") -> str:
+        return {
+            "StatusGood": "good",
+            "StatusWarn": "warn",
+            "StatusBad": "bad",
+            "Muted": "muted",
+        }.get(role, "muted")
+
     def _set_relay_action_status(self, text: str, role: str = "Muted", *, busy: bool = False) -> None:
         self.relay_action_status.setText(text)
-        self.relay_action_status.setObjectName(role)
-        try:
-            self.relay_action_status.style().unpolish(self.relay_action_status)
-            self.relay_action_status.style().polish(self.relay_action_status)
-        except Exception:
-            pass
+        self.relay_action_status.setProperty("tone", self._tone_for_role(role))
+        self.relay_action_status.setVisible(bool(text))
+        self._repolish(self.relay_action_status)
         self._set_status(text, role, busy=busy)
 
     def _set_relay_buttons_enabled(self, enabled: bool) -> None:
@@ -681,12 +755,8 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
 
     def _set_provider_action_status(self, text: str, role: str = "Muted", *, busy: bool = False) -> None:
         self.provider_action_status.setText(text)
-        self.provider_action_status.setObjectName(role)
-        try:
-            self.provider_action_status.style().unpolish(self.provider_action_status)
-            self.provider_action_status.style().polish(self.provider_action_status)
-        except Exception:
-            pass
+        self.provider_action_status.setProperty("tone", self._tone_for_role(role))
+        self._repolish(self.provider_action_status)
         self._set_status(text, role, busy=busy)
 
     def _set_provider_buttons_enabled(self, enabled: bool) -> None:
@@ -696,6 +766,7 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
     def _start_airport_search(self) -> None:
         query = self.airport_search.text().strip()
         if len(query) < 2:
+            self._set_airport_status("Type at least two characters to search the built-in airport database.")
             return
         query_key = query.casefold()
         if query_key == self._last_airport_query:
@@ -705,6 +776,7 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
             return
         self.airport_results.clear()
         self.airport_results.addItem("Searching airports...")
+        self._set_airport_status("Searching airports...", "Muted")
         self._airport_search_future = API_EXECUTOR.submit(lambda: self.service.airport_search(query, limit=12))
         self.search_poll_timer.start()
 
@@ -719,12 +791,15 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
         except Exception as exc:
             self.airport_results.clear()
             self.airport_results.addItem(f"Search failed: {exc}")
+            self._set_airport_status(f"Search failed: {exc}", "StatusBad")
             return
         self.airport_results.clear()
         rows = list_payload(payload)
         if not rows:
             self.airport_results.addItem("No airport matches found.")
+            self._set_airport_status("No airport matches found. Try a city, IATA, or ICAO code.", "StatusWarn")
             return
+        self._set_airport_status(f"{len(rows)} airport matches found. Pick the correct airport from the list.", "StatusGood")
         for row in rows:
             item = self.QtWidgets.QListWidgetItem(
                 f"{row.get('iata') or '---'} / {row.get('icao') or '----'}  {row.get('name') or ''} - {row.get('city') or row.get('municipality') or ''}"
@@ -748,7 +823,15 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
         self.airport_search.setText(f"{iata or '---'} / {icao or '----'}")
         self.airport_search.blockSignals(False)
         self.airport_selected.setText(f"Selected: {name}" + (f" - {city}" if city else "") + f" | {timezone}")
+        self._set_airport_status(f"Airport selected: {iata or '---'} / {icao or '----'} | {timezone}", "StatusGood")
         self._update_finish_summary()
+
+    def _set_airport_status(self, text: str, role: str = "Muted") -> None:
+        if not hasattr(self, "airport_search_status"):
+            return
+        self.airport_search_status.setText(text)
+        self.airport_search_status.setProperty("tone", self._tone_for_role(role))
+        self._repolish(self.airport_search_status)
 
     def _activation_payload(self) -> dict[str, Any]:
         return {
@@ -775,7 +858,8 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
             self._stored_activation = True
             self.activation_token.clear()
             self.activation_token.setPlaceholderText(f"Stored token linked ({result.get('activation_token_prefix')}...)")
-            self.relay_status.setText("Relay access is connected. Token stored locally.")
+            self._set_chip(self.relay_status, "Relay access is connected. Token stored locally.", "good")
+            self.token_box.hide()
             self._set_relay_action_status("Relay access is connected. Token stored locally.", "StatusGood")
         elif result.get("ok") is False:
             self._set_relay_action_status(format_value(result.get("error") or result.get("message") or result), "StatusBad")
@@ -862,14 +946,14 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
             "opensky_secret": self.opensky_secret.text().strip() if mode == "byok" else "",
         }
         self._set_setup_buttons_enabled(False)
-        self._set_status("Saving setup and preparing the native display...", busy=True)
+        self._set_status("Saving setup and preparing Local Flight...", busy=True)
         try:
             result = self.service.setup_complete(payload)
         except Exception as exc:
             self._set_status(f"Setup failed: {exc}", "StatusBad")
             self._set_setup_buttons_enabled(True)
             return
-        self._set_status("Setup complete. Opening the native display..." if result.get("ok", True) else format_value(result), "StatusGood" if result.get("ok", True) else "StatusWarn")
+        self._set_status("Setup complete. Opening Local Flight..." if result.get("ok", True) else format_value(result), "StatusGood" if result.get("ok", True) else "StatusWarn")
         if result.get("ok", True):
             try:
                 self.service.clear_cache()

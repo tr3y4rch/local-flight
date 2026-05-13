@@ -7,530 +7,704 @@
   <link rel="stylesheet" href="/static/fonts.css" />
   <link rel="stylesheet" href="/static/app.css" />
   <style>
+    :root {
+      --setup-bg: #080c12;
+      --setup-panel: rgba(14, 22, 32, .96);
+      --setup-panel-2: rgba(9, 16, 25, .82);
+      --setup-card: rgba(255, 255, 255, .035);
+      --setup-line: rgba(74, 158, 218, .34);
+      --setup-line-soft: rgba(255, 255, 255, .08);
+      --setup-text: #e8f0fe;
+      --setup-muted: #82afd0;
+      --setup-blue: #4a9eda;
+      --setup-cyan: #7ce7ff;
+      --setup-good: #00e84a;
+      --setup-warn: #f0b429;
+      --setup-bad: #ff6060;
+    }
+    * { box-sizing: border-box; }
     body {
+      min-height: 100vh;
+      margin: 0;
+      padding: clamp(12px, 2vw, 28px);
       display: flex;
       align-items: center;
       justify-content: center;
-      min-height: 100vh;
-      padding: 20px;
+      color: var(--setup-text);
       background:
-        radial-gradient(circle at 18% 12%, rgba(74,158,218,.16), transparent 32%),
-        radial-gradient(circle at 82% 88%, rgba(0,192,64,.10), transparent 36%),
+        linear-gradient(rgba(255,255,255,.018) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,.018) 1px, transparent 1px),
+        radial-gradient(circle at 18% 12%, rgba(74,158,218,.22), transparent 30%),
+        radial-gradient(circle at 82% 86%, rgba(0,232,74,.12), transparent 34%),
         #080c12;
+      background-size: 42px 42px, 42px 42px, auto, auto, auto;
+      font-family: var(--font-ui);
     }
-    .setup-card {
-      width: min(920px, calc(100vw - 32px));
-      max-height: calc(100vh - 40px);
+    .setup-shell {
+      width: min(1120px, 100%);
+      max-height: calc(100vh - 24px);
       overflow: auto;
-      background: rgba(18,22,27,.96);
-      border: 1px solid #1e3a5a;
-      border-radius: 20px;
-      padding: clamp(18px, 3vw, 30px);
-      box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+      border: 1px solid var(--setup-line);
+      border-radius: 26px;
+      background: linear-gradient(145deg, rgba(15,24,35,.98), rgba(8,13,20,.98));
+      box-shadow: 0 26px 80px rgba(0,0,0,.55);
     }
-    .setup-header {
+    .setup-top {
       display: grid;
-      grid-template-columns: auto 1fr;
+      grid-template-columns: auto 1fr auto;
       gap: 16px;
       align-items: center;
-      margin-bottom: 22px;
+      padding: clamp(18px, 3vw, 30px);
+      border-bottom: 1px solid rgba(255,255,255,.07);
+      background:
+        radial-gradient(circle at 10% 0%, rgba(124,231,255,.15), transparent 36%),
+        rgba(255,255,255,.018);
     }
     .setup-mark {
-      width: 72px;
-      height: 72px;
-      filter: drop-shadow(0 18px 30px rgba(0,0,0,.35));
+      width: 76px;
+      height: 76px;
+      filter: drop-shadow(0 20px 34px rgba(0,0,0,.38));
     }
-    .setup-header h1 { margin: 0 0 6px 0; font-size: clamp(1.35rem, 2vw, 1.9rem); }
+    .setup-eyebrow {
+      margin: 0 0 4px;
+      color: var(--setup-cyan);
+      font-family: var(--font-board);
+      font-size: .72rem;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+    }
+    .setup-top h1 {
+      margin: 0;
+      font-size: clamp(1.55rem, 3vw, 2.5rem);
+      line-height: 1.05;
+    }
     .setup-brand-wordmark {
       font-family: var(--font-brand);
       font-weight: 400;
-      letter-spacing: 0.02em;
+      letter-spacing: .02em;
       white-space: nowrap;
     }
-    .setup-header p  { margin: 0; opacity: 0.68; font-size: 0.9rem; line-height: 1.5; }
-    .steps {
-      display: flex;
-      justify-content: center;
-      gap: 6px;
-      margin-bottom: 28px;
+    .setup-top p {
+      margin: 8px 0 0;
+      max-width: 680px;
+      color: var(--setup-muted);
+      font-size: .94rem;
+      line-height: 1.55;
     }
-    .step-dot {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      background: rgba(255,255,255,0.15);
-      transition: background 0.2s;
+    .setup-chip {
+      padding: 9px 12px;
+      border: 1px solid rgba(0,232,74,.35);
+      border-radius: 999px;
+      color: var(--setup-good);
+      background: rgba(0,232,74,.08);
+      font-family: var(--font-board);
+      font-size: .72rem;
+      white-space: nowrap;
     }
-    .step-dot.active { background: #00e84a; }
-    .step-dot.complete { background: rgba(0,232,74,0.45); }
+    .step-strip {
+      display: grid;
+      grid-template-columns: repeat(6, minmax(86px, 1fr));
+      gap: 8px;
+      padding: 14px clamp(16px, 3vw, 30px);
+      border-bottom: 1px solid rgba(255,255,255,.06);
+      background: rgba(0,0,0,.12);
+    }
+    .step-pill {
+      min-width: 0;
+      border: 1px solid var(--setup-line-soft);
+      border-radius: 12px;
+      padding: 9px 10px;
+      color: rgba(232,240,254,.62);
+      background: rgba(255,255,255,.025);
+      font-family: var(--font-board);
+      font-size: clamp(.62rem, 1vw, .75rem);
+      text-align: center;
+      overflow-wrap: anywhere;
+      transition: border-color .16s, color .16s, background .16s;
+    }
+    .step-pill.active {
+      border-color: var(--setup-blue);
+      color: #fff;
+      background: rgba(74,158,218,.18);
+    }
+    .step-pill.complete {
+      border-color: rgba(0,232,74,.32);
+      color: var(--setup-good);
+      background: rgba(0,232,74,.055);
+    }
+    .setup-body {
+      padding: clamp(18px, 3vw, 30px);
+    }
     .panel { display: none; }
-    .panel.active { display: block; }
-    .panel h2 { margin: 0 0 6px 0; font-size: 1.05rem; }
-    .panel .sub {
-      opacity: 0.55;
-      font-size: 0.82rem;
-      margin-bottom: 20px;
-      line-height: 1.5;
+    .panel.active { display: block; animation: setupFade .16s ease-out; }
+    @keyframes setupFade {
+      from { opacity: 0; transform: translateY(4px); }
+      to { opacity: 1; transform: translateY(0); }
     }
-    .field { margin-bottom: 16px; }
+    .panel-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 18px;
+      margin-bottom: 18px;
+    }
+    .panel h2 {
+      margin: 0 0 7px;
+      font-size: clamp(1.2rem, 2vw, 1.65rem);
+    }
+    .sub {
+      max-width: 760px;
+      margin: 0;
+      color: var(--setup-muted);
+      font-size: .9rem;
+      line-height: 1.55;
+    }
+    .hero-grid, .mode-grid, .diagnostics-grid, .provider-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 12px;
+    }
+    .promise-card, .mode-card, .diagnostics-card, .setup-box, .field-card {
+      border: 1px solid var(--setup-line-soft);
+      border-radius: 16px;
+      background: var(--setup-card);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.03);
+    }
+    .promise-card, .mode-card, .diagnostics-card {
+      padding: 16px;
+    }
+    .mode-card, .diagnostics-card {
+      cursor: pointer;
+      transition: border-color .16s, background .16s, transform .16s;
+    }
+    .mode-card:hover, .diagnostics-card:hover {
+      border-color: rgba(124,231,255,.36);
+      transform: translateY(-1px);
+    }
+    .mode-card.selected, .diagnostics-card.selected {
+      border-color: rgba(0,232,74,.62);
+      background: rgba(0,232,74,.07);
+    }
+    .card-icon {
+      display: inline-grid;
+      min-width: 40px;
+      height: 32px;
+      margin-bottom: 10px;
+      padding: 0 10px;
+      place-items: center;
+      border-radius: 999px;
+      color: var(--setup-cyan);
+      background: rgba(74,158,218,.14);
+      border: 1px solid rgba(74,158,218,.28);
+      font-family: var(--font-board);
+      font-size: .72rem;
+      line-height: 1;
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .mode-card.selected .card-icon, .diagnostics-card.selected .card-icon {
+      color: #07120c;
+      background: var(--setup-good);
+      border-color: var(--setup-good);
+    }
+    .card-title {
+      font-weight: 900;
+      font-size: 1rem;
+      margin-bottom: 6px;
+      overflow-wrap: anywhere;
+    }
+    .card-body {
+      color: var(--setup-muted);
+      font-size: .82rem;
+      line-height: 1.5;
+      overflow-wrap: anywhere;
+    }
+    .field {
+      margin-bottom: 14px;
+    }
     .field label {
       display: block;
-      font-size: 0.82rem;
-      font-weight: 600;
       margin-bottom: 6px;
-      opacity: 0.82;
+      font-weight: 800;
+      font-size: .82rem;
     }
     .field input, .field select {
       width: 100%;
+      min-height: 40px;
+      border: 1px solid rgba(74,158,218,.35);
+      border-radius: 10px;
       padding: 10px 12px;
-      border-radius: 8px;
-      border: 1px solid #263241;
-      background: #0f1318;
-      color: #e7edf3;
-      font-size: 0.9rem;
-      box-sizing: border-box;
+      color: var(--setup-text);
+      background: rgba(5, 11, 18, .82);
+      font: inherit;
     }
     .field input:focus, .field select:focus {
       outline: none;
-      border-color: #00e84a;
+      border-color: var(--setup-good);
+      box-shadow: 0 0 0 3px rgba(0,232,74,.08);
     }
-    .field .hint {
-      margin-top: 5px;
-      font-size: 0.75rem;
-      opacity: 0.55;
+    .hint {
+      margin-top: 6px;
+      color: rgba(130,175,208,.82);
+      font-size: .76rem;
+      line-height: 1.45;
     }
-    .field .hint a { color: inherit; }
-    .key-wrap { position: relative; }
-    .key-wrap input { padding-right: 44px; font-family: var(--font-board); }
-    .key-toggle {
-      position: absolute;
-      right: 10px;
-      top: 50%;
-      transform: translateY(-50%);
-      background: none;
-      border: none;
-      cursor: pointer;
-      opacity: 0.55;
-      color: inherit;
-      padding: 0;
-    }
-    .key-toggle:hover { opacity: 0.9; }
-    .optional {
-      display: inline-block;
-      font-size: 0.65rem;
-      padding: 1px 6px;
-      border-radius: 4px;
-      background: rgba(255,255,255,0.08);
-      margin-left: 6px;
-      vertical-align: middle;
-      font-weight: 400;
-      opacity: 0.72;
-    }
+    .hint a { color: var(--setup-cyan); }
     .airport-picker { position: relative; }
     .airport-dropdown {
       display: none;
       position: absolute;
-      z-index: 100;
+      z-index: 20;
       width: 100%;
-      border: 1px solid #263241;
-      border-radius: 8px;
-      margin-top: 4px;
       max-height: 240px;
-      overflow-y: auto;
-      background: #0f1318;
+      overflow: auto;
+      margin-top: 5px;
+      border: 1px solid rgba(74,158,218,.38);
+      border-radius: 12px;
+      background: #0b141f;
+      box-shadow: 0 16px 36px rgba(0,0,0,.35);
     }
     .airport-dropdown.open { display: block; }
     .airport-option {
-      padding: 10px 14px;
+      padding: 11px 13px;
       cursor: pointer;
-      border-bottom: 1px solid rgba(255,255,255,0.04);
-      font-size: 0.85rem;
+      border-bottom: 1px solid rgba(255,255,255,.06);
     }
-    .airport-option:last-child { border-bottom: none; }
-    .airport-option:hover { background: rgba(255,255,255,0.06); }
-    .airport-option .codes { font-weight: 700; }
-    .airport-option .detail { opacity: 0.55; font-size: 0.75rem; margin-top: 2px; }
-    .test-result {
-      margin-top: 10px;
-      padding: 10px 12px;
-      border-radius: 8px;
-      font-size: 0.82rem;
-      display: none;
-    }
-    .test-result.ok  { background: rgba(0,192,64,0.1); border: 1px solid rgba(0,192,64,0.3); color: #00c040; }
-    .test-result.err { background: rgba(255,64,64,0.1); border: 1px solid rgba(255,64,64,0.3); color: #ff6060; }
-    .btn-row {
-      display: flex;
-      gap: 10px;
-      margin-top: 24px;
-      justify-content: space-between;
-      align-items: center;
-    }
-    .btn {
-      padding: 11px 24px;
-      border-radius: 8px;
-      font-weight: 700;
-      font-size: 0.88rem;
-      cursor: pointer;
-      border: none;
-      transition: filter 0.15s;
-    }
-    .btn:hover { filter: brightness(1.08); }
-    .btn-primary { background: #00e84a; color: #000; }
-    .btn-secondary { background: rgba(255,255,255,0.08); color: #e7edf3; }
-    .btn-skip { background: none; color: #e7edf3; opacity: 0.45; font-size: 0.8rem; border: none; cursor: pointer; }
-    .btn-skip:hover { opacity: 0.72; }
-    .mode-grid {
+    .airport-option:hover { background: rgba(74,158,218,.12); }
+    .airport-option .codes { font-family: var(--font-board); font-weight: 900; }
+    .airport-option .detail { color: var(--setup-muted); font-size: .78rem; margin-top: 3px; }
+    .two-col {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
-      gap: 10px;
-      margin-bottom: 10px;
-    }
-    .mode-card {
-      padding: 14px;
-      border-radius: 10px;
-      cursor: pointer;
-      border: 2px solid rgba(255,255,255,0.08);
-      background: rgba(255,255,255,0.03);
-      transition: border-color 0.15s, background 0.15s;
-    }
-    .mode-card:hover { border-color: rgba(255,255,255,0.2); }
-    .mode-card.selected { border-color: #00e84a; background: rgba(0,232,74,0.06); }
-    .mode-card .title { font-weight: 700; font-size: 0.9rem; margin-bottom: 4px; }
-    .mode-card .desc  { font-size: 0.75rem; opacity: 0.58; line-height: 1.4; }
-    .mode-list { display: grid; gap: 8px; margin: 14px 0 0; }
-    .mode-item {
-      padding: 10px 12px;
-      border-radius: 8px;
-      border: 1px solid rgba(255,255,255,0.08);
-      background: rgba(255,255,255,0.025);
-      font-size: 0.78rem;
-      line-height: 1.45;
-    }
-    .mode-item strong { display: block; margin-bottom: 2px; font-size: 0.8rem; color: #e7edf3; }
-    .mode-item span { opacity: 0.58; }
-    .mode-note {
-      margin-top: 14px;
-      padding: 10px 12px;
-      border-radius: 8px;
-      background: rgba(0,232,74,0.06);
-      border: 1px solid rgba(0,232,74,0.18);
-      font-size: 0.78rem;
-      line-height: 1.45;
-      opacity: 0.92;
+      grid-template-columns: minmax(0, 1.08fr) minmax(260px, .92fr);
+      gap: 14px;
+      align-items: start;
     }
     .setup-box {
-      margin-top: 14px;
-      padding: 12px;
-      border-radius: 10px;
-      border: 1px solid rgba(255,255,255,0.08);
-      background: rgba(255,255,255,0.025);
+      padding: 15px;
     }
     .setup-box h3 {
-      margin: 0 0 10px 0;
-      font-size: 0.82rem;
+      margin: 0 0 10px;
+      font-family: var(--font-board);
+      font-size: .78rem;
+      letter-spacing: .08em;
       text-transform: uppercase;
-      letter-spacing: 0.04em;
-      opacity: 0.72;
+      color: var(--setup-cyan);
     }
     .info-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
       gap: 10px;
     }
     .info-cell {
-      padding: 10px 12px;
-      border-radius: 8px;
-      background: rgba(255,255,255,0.03);
-      border: 1px solid rgba(255,255,255,0.06);
-      font-size: 0.8rem;
-      line-height: 1.45;
+      padding: 11px 12px;
+      border: 1px solid rgba(255,255,255,.06);
+      border-radius: 12px;
+      background: rgba(0,0,0,.18);
+      color: var(--setup-muted);
+      font-size: .8rem;
     }
     .info-cell strong {
       display: block;
       margin-bottom: 4px;
-      font-size: 0.72rem;
-      letter-spacing: 0.03em;
+      color: var(--setup-text);
+      font-size: .72rem;
       text-transform: uppercase;
-      opacity: 0.62;
+      letter-spacing: .06em;
     }
-    .mono-readonly {
-      font-family: var(--font-board);
-      word-break: break-all;
+    .mono-readonly { font-family: var(--font-board); word-break: break-word; }
+    .key-wrap { position: relative; }
+    .key-wrap input { padding-right: 58px; font-family: var(--font-board); }
+    .key-toggle {
+      position: absolute;
+      top: 50%;
+      right: 10px;
+      transform: translateY(-50%);
+      border: 0;
+      background: transparent;
+      color: var(--setup-muted);
+      cursor: pointer;
+      font-weight: 800;
     }
-    .mini-actions {
+    .mini-actions, .provider-actions {
       display: flex;
-      gap: 10px;
       flex-wrap: wrap;
+      gap: 10px;
       margin-top: 12px;
     }
-    .mini-actions .btn {
-      padding: 9px 14px;
-      font-size: 0.8rem;
-    }
-    .finish-list { list-style: none; padding: 0; margin: 16px 0; }
-    .finish-list li {
+    .btn-row {
       display: flex;
+      justify-content: space-between;
       align-items: center;
-      gap: 8px;
-      padding: 6px 0;
-      font-size: 0.85rem;
-      opacity: 0.82;
+      gap: 10px;
+      margin-top: 24px;
+      padding-top: 18px;
+      border-top: 1px solid rgba(255,255,255,.07);
     }
-    .finish-list li::before { content: "OK"; color: #00e84a; font-weight: 700; font-size: 0.72rem; }
-    @media (max-width: 760px) {
-      body { align-items: flex-start; padding: 10px; }
-      .setup-card { width: calc(100vw - 20px); max-height: none; }
-      .setup-header { grid-template-columns: 1fr; text-align: center; }
-      .setup-mark { margin: 0 auto; width: 64px; height: 64px; }
-      .btn-row { flex-wrap: wrap; }
-      .btn-row .btn { flex: 1 1 150px; }
-      .mode-grid { grid-template-columns: 1fr; }
-      .info-grid { grid-template-columns: 1fr; }
+    .btn-row .right { display: flex; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
+    .btn {
+      min-height: 40px;
+      padding: 10px 18px;
+      border: 1px solid rgba(74,158,218,.45);
+      border-radius: 11px;
+      color: #fff;
+      background: rgba(20,75,112,.76);
+      font-weight: 900;
+      cursor: pointer;
+      transition: filter .15s, transform .15s, opacity .15s;
+    }
+    .btn:hover { filter: brightness(1.08); transform: translateY(-1px); }
+    .btn:disabled { opacity: .48; cursor: wait; transform: none; }
+    .btn-primary {
+      border-color: rgba(0,232,74,.55);
+      color: #051009;
+      background: var(--setup-good);
+    }
+    .btn-secondary {
+      background: rgba(255,255,255,.055);
+      border-color: rgba(255,255,255,.11);
+    }
+    .btn-quiet {
+      background: transparent;
+      border-color: rgba(255,255,255,.09);
+      color: var(--setup-muted);
+    }
+    .test-result, .status-pill {
+      display: none;
+      margin-top: 10px;
+      padding: 10px 12px;
+      border-radius: 12px;
+      border: 1px solid rgba(255,255,255,.09);
+      background: rgba(255,255,255,.035);
+      color: var(--setup-muted);
+      font-size: .82rem;
+      line-height: 1.45;
+    }
+    .status-pill { display: block; }
+    .test-result.loading { display: block; border-color: rgba(74,158,218,.35); color: var(--setup-cyan); }
+    .test-result.ok, .status-pill.ok { display: block; border-color: rgba(0,232,74,.3); color: var(--setup-good); background: rgba(0,232,74,.08); }
+    .test-result.warn, .status-pill.warn { display: block; border-color: rgba(240,180,41,.35); color: var(--setup-warn); background: rgba(240,180,41,.08); }
+    .test-result.err, .status-pill.err { display: block; border-color: rgba(255,96,96,.35); color: var(--setup-bad); background: rgba(255,96,96,.08); }
+    .link-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+      gap: 8px;
+      margin-top: 10px;
+    }
+    .resource-link {
+      display: block;
+      padding: 10px 12px;
+      border: 1px solid rgba(255,255,255,.09);
+      border-radius: 11px;
+      color: var(--setup-cyan);
+      background: rgba(255,255,255,.03);
+      text-decoration: none;
+      font-weight: 800;
+      font-size: .82rem;
+    }
+    .finish-list {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 10px;
+      list-style: none;
+      padding: 0;
+      margin: 16px 0 0;
+    }
+    .finish-list li {
+      padding: 12px 13px;
+      border: 1px solid rgba(255,255,255,.08);
+      border-radius: 13px;
+      background: rgba(255,255,255,.035);
+      color: var(--setup-muted);
+      line-height: 1.35;
+    }
+    .finish-list strong {
+      display: block;
+      color: var(--setup-text);
+      margin-bottom: 4px;
+    }
+    @media (max-width: 820px) {
+      body { align-items: flex-start; }
+      .setup-shell { max-height: none; }
+      .setup-top { grid-template-columns: 1fr; text-align: center; }
+      .setup-mark { margin: 0 auto; }
+      .setup-chip { justify-self: center; }
+      .step-strip { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .two-col { grid-template-columns: 1fr; }
+      .btn-row { align-items: stretch; flex-direction: column; }
+      .btn-row .right, .btn-row .btn { width: 100%; }
+    }
+    @media (max-width: 520px) {
+      .step-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .setup-body { padding: 14px; }
+      .promise-card, .mode-card, .diagnostics-card { padding: 13px; }
     }
   </style>
 </head>
 <body>
-<div class="setup-card">
-  <div class="setup-header">
+<main class="setup-shell">
+  <header class="setup-top">
     <img class="setup-mark" src="/static/localflight-logo.svg" alt="" />
     <div>
+      <p class="setup-eyebrow">First launch wizard</p>
       <h1>Welcome to <span class="setup-brand-wordmark">Local Flight</span></h1>
-      <p>Set the airport, choose the connection mode, and only fill the keys that actually belong to that setup.</p>
+      <p>Your local airport board, guided from zero to first display. Choose an airport, pick a flight-data path, and decide how much diagnostic help you want.</p>
     </div>
-  </div>
+    <div class="setup-chip" id="globalStatus">Ready</div>
+  </header>
 
-  <div class="steps" id="stepDots"></div>
+  <nav class="step-strip" aria-label="Setup progress">
+    {% for step in setup_guidance.step_names %}
+      <div class="step-pill{% if loop.first %} active{% endif %}" id="step-{{ loop.index0 }}" title="{{ step }}">{{ loop.index }}. {{ setup_guidance.step_short_labels[loop.index0] }}</div>
+    {% endfor %}
+  </nav>
 
-  <div class="panel active" id="panel-0">
-    <h2>Your Airport</h2>
-    <p class="sub">Which airport should this install monitor? You can change it later in Settings.</p>
-
-    <div class="field">
-      <label>Search airport</label>
-      <div class="airport-picker">
-        <input type="text" id="airportSearch" placeholder="Type IATA, ICAO, city or airport name..." autocomplete="off" />
-        <div class="airport-dropdown" id="airportDropdown"></div>
-      </div>
-      <div class="hint">Examples: ZRH, LSZH, Zurich, Heathrow, JFK</div>
-    </div>
-
-    <div class="field" id="airportSelected" style="display:none; padding:10px 12px; background:rgba(0,232,74,0.06); border:1px solid rgba(0,232,74,0.2); border-radius:8px; font-size:0.85rem;"></div>
-
-    <input type="hidden" id="airportIata" value="" />
-    <input type="hidden" id="airportIcao" value="" />
-    <input type="hidden" id="airportTz" value="" />
-
-    <div class="btn-row">
-      <span></span>
-      <button class="btn btn-primary" onclick="nextStep()" id="btn0">Continue -></button>
-    </div>
-  </div>
-
-  <div class="panel" id="panel-1">
-    <h2>Connection Mode</h2>
-    <p class="sub">Pick the path you actually want. Community and VATSIM stay simple. Bring your own key is the only path that asks for personal API keys.</p>
-
-    <div class="mode-grid">
-      <div class="mode-card" id="mode-community" onclick="selectMode('community')">
-        <div class="title">Community</div>
-        <div class="desc">Use the shared real-flight path through the relay. This install gets 50 schedule requests per 30 days, so it should be used with care.</div>
-      </div>
-      <div class="mode-card" id="mode-byok" onclick="selectMode('byok')">
-        <div class="title">Bring your own keys</div>
-        <div class="desc">Use your own AviationStack key for schedules and optionally your own RapidAPI ADS-B key for radar.</div>
-      </div>
-      <div class="mode-card selected" id="mode-virtual" onclick="selectMode('virtual')">
-        <div class="title">Virtual (VATSIM)</div>
-        <div class="desc">No real-data keys at all. Good for testing, simulator traffic, or the quickest first launch.</div>
-      </div>
-    </div>
-
-    <div class="mode-list">
-      <div class="mode-item">
-        <strong>Community</strong>
-        <span>Choose this when you want real schedules without putting your own API key on the client. The shared allowance is 50 requests per 30 days per install.</span>
-      </div>
-      <div class="mode-item">
-        <strong>Bring your own keys</strong>
-        <span>Choose this when you want direct subscriptions. AviationStack is required here. RapidAPI ADS-B remains optional.</span>
-      </div>
-    </div>
-
-    <div class="mode-note" id="setupModeNote">
-      Virtual traffic is selected. If you continue like this, Local Flight skips the real-data keys and connects straight to VATSIM.
-    </div>
-
-    <div class="setup-box" id="relaySetupBox">
-      <h3>Community Relay</h3>
-      <div class="info-grid">
-        <div class="info-cell">
-          <strong>Machine ID</strong>
-          <div class="mono-readonly" id="machineFingerprint">Loading...</div>
-        </div>
-        <div class="info-cell">
-          <strong>Install UUID</strong>
-          <div class="mono-readonly" id="machineUuid">Loading...</div>
+  <section class="setup-body">
+    <div class="panel active" id="panel-0">
+      <div class="panel-head">
+        <div>
+          <h2>Set up your airport board</h2>
+          <p class="sub">This is the friendly path. You can change these choices later from Settings, so no need to overthink the first pass.</p>
         </div>
       </div>
-      <div class="field" style="margin-top:12px; margin-bottom:0;">
-        <label>Relay URL <span class="optional">optional</span></label>
-        <input type="text" id="relayUrl" placeholder="{{ relay_url_default or 'https://localflight-community-relay.fly.dev' }}" />
-        <div class="hint">Leave this on the default relay unless you run your own community endpoint. BYOK and VATSIM do not need this.</div>
-      </div>
-      <div class="mini-actions" id="managedActions">
-        <button class="btn btn-secondary" type="button" onclick="connectManagedRelay()">Connect to relay</button>
-        <button class="btn btn-secondary" type="button" onclick="checkManagedStatus()">Refresh relay status</button>
-        <button class="btn btn-secondary" type="button" onclick="verifyManagedActivation()">Verify relay path</button>
-      </div>
-      <div class="test-result" id="activationRequestStatus" style="margin-top:12px;"></div>
-    </div>
-
-    <div class="field" style="display:none;" id="activationTokenField">
-      <label>Relay token <span class="optional">advanced token field</span></label>
-      <div class="key-wrap">
-        <input type="password" id="activationToken" placeholder="Stored automatically when the relay links this install." />
-        <button class="key-toggle" onclick="toggleKey('activationToken', this)">show</button>
-      </div>
-    </div>
-    <div class="test-result" id="activationVerifyStatus"></div>
-
-    <input type="hidden" id="sourceInput" value="virtual" />
-    <input type="hidden" id="setupModeInput" value="virtual" />
-
-    <div class="btn-row">
-      <button class="btn btn-secondary" onclick="prevStep()"><- Back</button>
-      <button class="btn btn-primary" onclick="nextStep()">Continue -></button>
-    </div>
-  </div>
-
-  <div class="panel" id="panel-2">
-    <h2>AviationStack API Key</h2>
-    <p class="sub">
-      This step belongs only to the BYOK path. AviationStack drives the real schedule data.
-      Local Flight defaults BYOK usage to 90 calls per month so a 100-call plan keeps 10 in reserve.<br><br>
-      <a href="https://aviationstack.com/product" target="_blank" style="color:#00e84a;">-> See AviationStack plans</a>
-    </p>
-
-    <div class="field" id="aviationstackField">
-      <label>API Key</label>
-      <div class="key-wrap">
-        <input type="password" id="aviationstackKey" placeholder="Paste your AviationStack key here..." />
-        <button class="key-toggle" onclick="toggleKey('aviationstackKey', this)">show</button>
-      </div>
-      <div class="hint">Required for the BYOK path. This key stays on this machine and is written to the local .env file.</div>
-    </div>
-
-    <button class="btn btn-secondary" onclick="testAviationstack()" style="width:100%; margin-top:0;">Test connection</button>
-    <div class="test-result" id="aviationstackTest"></div>
-
-    <div class="btn-row">
-      <button class="btn btn-secondary" onclick="prevStep()"><- Back</button>
-      <button class="btn btn-primary" onclick="nextStep()">Continue -></button>
-    </div>
-  </div>
-
-  <div class="panel" id="panel-3">
-    <h2>ADS-B Exchange <span class="optional">optional</span></h2>
-    <p class="sub">
-      This step also belongs only to the BYOK path. RapidAPI ADS-B Exchange adds live positions, registrations, and radar data.
-      Leave it blank if you only want schedules or OpenSky fallback.<br><br>
-      <a href="https://rapidapi.com/adsbx/api/adsbexchange-com1" target="_blank" style="color:#00e84a;">-> Subscribe at RapidAPI</a>
-    </p>
-
-    <div class="field">
-      <label>RapidAPI Key <span class="optional">optional</span></label>
-      <div class="key-wrap">
-        <input type="password" id="rapidapiKey" placeholder="Paste your RapidAPI key..." />
-        <button class="key-toggle" onclick="toggleKey('rapidapiKey', this)">show</button>
-      </div>
-      <div class="hint">Optional for BYOK. Recommended when you want direct ADS-B Exchange live radar.</div>
-    </div>
-
-    <button class="btn btn-secondary" onclick="testRapidapi()" style="width:100%; margin-top:0;">Test connection</button>
-    <div class="test-result" id="rapidapiTest"></div>
-
-    <div class="btn-row">
-      <button class="btn btn-secondary" onclick="prevStep()"><- Back</button>
-      <div style="display:flex; gap:10px; align-items:center;">
-        <button class="btn-skip" onclick="nextStep()">Skip</button>
-        <button class="btn btn-primary" onclick="nextStep()">Continue -></button>
-      </div>
-    </div>
-  </div>
-
-  <div class="panel" id="panel-4">
-    <h2>OpenSky Network <span class="optional">optional</span></h2>
-    <p class="sub">
-      OpenSky is the optional fallback position source for the BYOK path if ADS-B Exchange is unavailable.<br><br>
-      <a href="https://opensky-network.org/login?view=registration" target="_blank" style="color:#00e84a;">-> Register at OpenSky</a>
-    </p>
-
-    <div class="field">
-      <label>Client ID <span class="optional">optional</span></label>
-      <input type="text" id="openskyId" placeholder="Your OpenSky username or client ID" />
-    </div>
-    <div class="field">
-      <label>Client Secret <span class="optional">optional</span></label>
-      <div class="key-wrap">
-        <input type="password" id="openskySecret" placeholder="Your OpenSky client secret" />
-        <button class="key-toggle" onclick="toggleKey('openskySecret', this)">show</button>
+      <div class="hero-grid">
+        {% for card in setup_guidance.welcome_cards %}
+          <article class="promise-card">
+            <div class="card-icon">{{ card.icon }}</div>
+            <div class="card-title">{{ card.title }}</div>
+            <div class="card-body">{{ card.body }}</div>
+          </article>
+        {% endfor %}
       </div>
     </div>
 
-    <div class="btn-row">
-      <button class="btn btn-secondary" onclick="prevStep()"><- Back</button>
-      <div style="display:flex; gap:10px; align-items:center;">
-        <button class="btn-skip" onclick="nextStep()">Skip</button>
-        <button class="btn btn-primary" onclick="nextStep()">Continue -></button>
+    <div class="panel" id="panel-1">
+      <div class="panel-head">
+        <div>
+          <h2>Choose your airport</h2>
+          <p class="sub">Search by city, airport name, IATA, or ICAO. Selecting a result fills the airport-local timezone used by FIDS, radar, history, and Matrix.</p>
+        </div>
+      </div>
+      <div class="two-col">
+        <div class="field-card setup-box">
+          <h3>Airport search</h3>
+          <div class="field">
+            <label for="airportSearch">Airport</label>
+            <div class="airport-picker">
+              <input type="text" id="airportSearch" placeholder="Try ZRH, LSZH, Zurich, Heathrow, JFK..." autocomplete="off" />
+              <div class="airport-dropdown" id="airportDropdown"></div>
+            </div>
+            <div class="hint">Pick the exact airport from the list so codes and timezone are filled safely.</div>
+          </div>
+          <div class="test-result loading" id="airportStatus" style="display:block;">Type at least two characters to search the built-in airport database.</div>
+        </div>
+        <aside class="setup-box">
+          <h3>Selected airport</h3>
+          <div class="status-pill warn" id="airportSelected">No airport selected yet.</div>
+          <div class="hint">This is the airport the board watches first. Profiles can save more airports later.</div>
+        </aside>
+      </div>
+      <input type="hidden" id="airportIata" value="" />
+      <input type="hidden" id="airportIcao" value="" />
+      <input type="hidden" id="airportTz" value="" />
+    </div>
+
+    <div class="panel" id="panel-2">
+      <div class="panel-head">
+        <div>
+          <h2>Pick the flight-data path</h2>
+          <p class="sub">Community Relay is the guided real-flight path, BYOK is for your own provider keys, and VATSIM is virtual traffic with no real-data keys.</p>
+        </div>
+      </div>
+      <div class="mode-grid">
+        {% for option in setup_guidance.source_options %}
+          <article class="mode-card{% if option.mode == 'community' %} selected{% endif %}" id="mode-{{ option.mode }}" data-mode="{{ option.mode }}" data-title="{{ option.title }}" data-note="{{ option.note }}" data-finish-label="{{ option.finish_label }}" onclick="selectMode('{{ option.mode }}')">
+            <div class="card-icon">{{ option.icon }}</div>
+            <div class="card-title">{{ option.title }}</div>
+            <div class="card-body">{{ option.body }}</div>
+          </article>
+        {% endfor %}
+      </div>
+      <div class="test-result ok" id="setupModeNote" style="display:block;">Community Relay is selected. Local Flight keeps this client keyless and uses the shared schedule allowance for this install.</div>
+
+      <div class="setup-box" id="relaySetupBox">
+        <h3>Community Relay</h3>
+        <div class="info-grid">
+          <div class="info-cell">
+            <strong>Support ID</strong>
+            <div class="mono-readonly" id="machineFingerprint">Loading...</div>
+          </div>
+          <div class="info-cell">
+            <strong>Relay link</strong>
+            <div class="mono-readonly" id="relayLinkState">Checking...</div>
+          </div>
+        </div>
+        <div class="field" style="margin-top:12px; margin-bottom:0;">
+          <label for="relayUrl">Relay host</label>
+          <input type="text" id="relayUrl" placeholder="{{ relay_url_default or 'https://localflight-community-relay.fly.dev' }}" />
+          <div class="hint">Leave this on the hosted community relay unless you run your own relay. Only the relay root is shown here.</div>
+        </div>
+        <div class="mini-actions" id="managedActions">
+          <button class="btn btn-secondary" type="button" id="connectRelayBtn" onclick="connectManagedRelay()">Connect this install</button>
+          <button class="btn btn-secondary" type="button" id="checkRelayBtn" onclick="checkManagedStatus()">Refresh relay status</button>
+          <button class="btn btn-secondary" type="button" id="verifyRelayBtn" onclick="verifyManagedActivation()">Verify relay path</button>
+        </div>
+        <div class="test-result" id="activationRequestStatus"></div>
+      </div>
+
+      <div class="field" style="display:none;" id="activationTokenField">
+        <label for="activationToken">Relay token <span class="hint">advanced token field</span></label>
+        <div class="key-wrap">
+          <input type="password" id="activationToken" placeholder="Stored automatically when the relay links this install." />
+          <button class="key-toggle" type="button" onclick="toggleKey('activationToken', this)">show</button>
+        </div>
+      </div>
+      <div class="test-result" id="activationVerifyStatus"></div>
+      <input type="hidden" id="sourceInput" value="real" />
+      <input type="hidden" id="setupModeInput" value="community" />
+    </div>
+
+    <div class="panel" id="panel-3">
+      <div class="panel-head">
+        <div>
+          <h2>Optional provider keys</h2>
+          <p class="sub">This step is only required for BYOK. AviationStack is required there; ADS-B Exchange and OpenSky are optional enrichment sources.</p>
+        </div>
+      </div>
+      <div class="two-col">
+        <div class="setup-box">
+          <h3>BYOK keys</h3>
+          <div class="field">
+            <label for="aviationstackKey">AviationStack API key</label>
+            <div class="key-wrap">
+              <input type="password" id="aviationstackKey" placeholder="Required for BYOK schedules..." />
+              <button class="key-toggle" type="button" onclick="toggleKey('aviationstackKey', this)">show</button>
+            </div>
+            <div class="hint">Required only for BYOK. This key stays on this machine.</div>
+          </div>
+          <div class="provider-actions">
+            <button class="btn btn-secondary" type="button" id="testAsBtn" onclick="testAviationstack()">Test AviationStack</button>
+          </div>
+          <div class="test-result" id="aviationstackTest"></div>
+
+          <div class="field" style="margin-top:18px;">
+            <label for="rapidapiKey">RapidAPI ADS-B Exchange key <span class="hint">optional</span></label>
+            <div class="key-wrap">
+              <input type="password" id="rapidapiKey" placeholder="Optional live radar key..." />
+              <button class="key-toggle" type="button" onclick="toggleKey('rapidapiKey', this)">show</button>
+            </div>
+            <div class="hint">Recommended for direct ADS-B Exchange radar when you own the quota.</div>
+          </div>
+          <div class="provider-actions">
+            <button class="btn btn-secondary" type="button" id="testRapidBtn" onclick="testRapidapi()">Test RapidAPI</button>
+          </div>
+          <div class="test-result" id="rapidapiTest"></div>
+        </div>
+
+        <aside class="setup-box">
+          <h3>Optional enrichment</h3>
+          <div class="field">
+            <label for="openskyId">OpenSky client ID</label>
+            <input type="text" id="openskyId" placeholder="Optional OpenSky client ID" />
+          </div>
+          <div class="field">
+            <label for="openskySecret">OpenSky client secret</label>
+            <div class="key-wrap">
+              <input type="password" id="openskySecret" placeholder="Optional OpenSky client secret" />
+              <button class="key-toggle" type="button" onclick="toggleKey('openskySecret', this)">show</button>
+            </div>
+          </div>
+          <div class="hint">OpenSky can help as an optional position source if ADS-B Exchange is unavailable.</div>
+          <div class="link-grid">
+            {% for link in setup_guidance.provider_links %}
+              <a class="resource-link" href="{{ link.url }}" target="_blank" rel="noreferrer">{{ link.label }}</a>
+            {% endfor %}
+          </div>
+        </aside>
       </div>
     </div>
-  </div>
 
-  <div class="panel" id="panel-5">
-    <h2 style="text-align:center;">You are ready to launch</h2>
-    <p class="sub" style="text-align:center;">Local Flight will save this setup mode and start the matching data path.</p>
-    <ul class="finish-list" id="finishList"></ul>
-    <div class="btn-row" style="justify-content:center;">
-      <button class="btn btn-primary" onclick="finish()" id="finishBtn" style="padding:14px 40px;">Launch Local Flight -></button>
+    <div class="panel" id="panel-4">
+      <div class="panel-head">
+        <div>
+          <h2>Diagnostics and reports</h2>
+          <p class="sub">Choose how Local Flight may help when something breaks. Manual reporting is always available later from the Report screen.</p>
+        </div>
+      </div>
+      <div class="diagnostics-grid">
+        {% for option in setup_guidance.diagnostics_options %}
+          <article class="diagnostics-card{% if option.mode == 'manual' %} selected{% endif %}" id="diagnostics-{{ option.mode }}" data-mode="{{ option.mode }}" data-title="{{ option.title }}" data-note="{{ option.note }}" onclick="selectDiagnostics('{{ option.mode }}')">
+            <div class="card-icon">{{ option.icon }}</div>
+            <div class="card-title">{{ option.title }}</div>
+            <div class="card-body">{{ option.body }}</div>
+          </article>
+        {% endfor %}
+      </div>
+      <div class="test-result ok" id="diagnosticsNote" style="display:block;">Manual mode is privacy-first: reports are sent only when you press Submit in the Report screen.</div>
+      <div class="hint">Privacy rule: no provider keys, activation tokens, raw install IDs, pilot identities, or internal secrets are shown here or sent from the client UI.</div>
+      <input type="hidden" id="diagnosticsModeInput" value="manual" />
     </div>
-  </div>
-</div>
+
+    <div class="panel" id="panel-5">
+      <div class="panel-head">
+        <div>
+          <h2>Review and launch</h2>
+          <p class="sub">This saves the local setup and opens the main Local Flight display. You can adjust airport, source, appearance, and diagnostics later in Settings.</p>
+        </div>
+      </div>
+      <ul class="finish-list" id="finishList"></ul>
+      <div class="test-result" id="finishStatus"></div>
+    </div>
+
+    <footer class="btn-row">
+      <button class="btn btn-quiet" type="button" id="backBtn" onclick="prevStep()">Back</button>
+      <div class="right">
+        <button class="btn btn-secondary" type="button" id="skipKeysBtn" onclick="nextStep()" style="display:none;">Skip optional keys</button>
+        <button class="btn btn-primary" type="button" id="nextBtn" onclick="nextStep()">Start guided setup</button>
+        <button class="btn btn-primary" type="button" id="finishBtn" onclick="finish()" style="display:none;">Launch Local Flight</button>
+      </div>
+    </footer>
+  </section>
+</main>
 
 <script>
 (function () {
   const TOTAL_STEPS = 6;
   let currentStep = 0;
   let managedVerified = false;
-
-  const dotsEl = document.getElementById("stepDots");
-  for (let i = 0; i < TOTAL_STEPS; i++) {
-    const d = document.createElement("div");
-    d.className = "step-dot" + (i === 0 ? " active" : "");
-    d.id = `dot-${i}`;
-    dotsEl.appendChild(d);
-  }
+  let results = [];
+  let debounce = null;
 
   function el(id) {
     return document.getElementById(id);
   }
 
+  const searchEl = el("airportSearch");
+  const dropEl = el("airportDropdown");
+  const selectedEl = el("airportSelected");
+  const iataEl = el("airportIata");
+  const icaoEl = el("airportIcao");
+  const tzEl = el("airportTz");
+
   function mode() {
-    return el("setupModeInput").value || "virtual";
+    return el("setupModeInput").value || "community";
   }
 
-  function updateDots() {
-    for (let i = 0; i < TOTAL_STEPS; i++) {
-      const d = el(`dot-${i}`);
-      d.className = "step-dot" + (i < currentStep ? " complete" : i === currentStep ? " active" : "");
-    }
+  function diagnosticsMode() {
+    return el("diagnosticsModeInput").value || "manual";
   }
 
-  function showPanel(idx) {
-    document.querySelectorAll(".panel").forEach((p, i) => {
-      p.classList.toggle("active", i === idx);
-    });
-    updateDots();
+  function cleanRelayDisplay(value) {
+    let clean = String(value || "").trim().replace(/\/+$/, "");
+    clean = clean.replace(/\/(?:v1\/)?(?:flights|schedule)$/i, "");
+    return clean || "{{ relay_url_default or 'https://localflight-community-relay.fly.dev' }}";
+  }
+
+  function setGlobal(text, kind) {
+    const chip = el("globalStatus");
+    chip.textContent = text;
+    chip.style.color = kind === "bad" ? "var(--setup-bad)" : kind === "warn" ? "var(--setup-warn)" : "var(--setup-good)";
+    chip.style.borderColor = kind === "bad" ? "rgba(255,96,96,.35)" : kind === "warn" ? "rgba(240,180,41,.35)" : "rgba(0,232,74,.35)";
   }
 
   function setResult(id, kind, text) {
@@ -543,104 +717,103 @@
       return;
     }
     box.style.display = "block";
-    box.className = `test-result ${kind}`;
+    box.className = `test-result ${kind || "loading"}`;
     box.textContent = text;
   }
 
-  function setManagedVerified(ok) {
-    managedVerified = !!ok;
+  function setButtons(ids, enabled) {
+    ids.forEach((id) => {
+      const button = el(id);
+      if (button) button.disabled = !enabled;
+    });
+  }
+
+  function updateSteps() {
+    for (let i = 0; i < TOTAL_STEPS; i++) {
+      const step = el(`step-${i}`);
+      step.className = "step-pill" + (i < currentStep ? " complete" : i === currentStep ? " active" : "");
+    }
+  }
+
+  function showPanel(index) {
+    currentStep = Math.max(0, Math.min(TOTAL_STEPS - 1, index));
+    document.querySelectorAll(".panel").forEach((panel, panelIndex) => {
+      panel.classList.toggle("active", panelIndex === currentStep);
+    });
+    updateSteps();
+    el("backBtn").style.visibility = currentStep === 0 ? "hidden" : "visible";
+    el("nextBtn").style.display = currentStep === TOTAL_STEPS - 1 ? "none" : "inline-flex";
+    el("finishBtn").style.display = currentStep === TOTAL_STEPS - 1 ? "inline-flex" : "none";
+    el("skipKeysBtn").style.display = currentStep === 3 ? "inline-flex" : "none";
+    el("nextBtn").textContent = currentStep === 0 ? "Start guided setup" : "Continue";
+    if (currentStep === 5) buildFinishSummary();
   }
 
   function validateCurrentStep() {
-    if (currentStep === 0 && !el("airportIata").value) {
-      el("airportSearch").style.outline = "2px solid #ff4040";
-      setTimeout(() => { el("airportSearch").style.outline = ""; }, 1800);
+    if (currentStep === 1 && !iataEl.value) {
+      setResult("airportStatus", "err", "Pick an airport from the search results before continuing.");
+      searchEl.focus();
       return false;
     }
-    if (currentStep === 2 && mode() === "byok" && !el("aviationstackKey").value.trim()) {
-      alert("BYOK mode needs an AviationStack key before it can continue.");
+    if (currentStep === 3 && mode() === "byok" && !el("aviationstackKey").value.trim()) {
+      setResult("aviationstackTest", "err", "BYOK mode needs an AviationStack key before launch.");
+      el("aviationstackKey").focus();
       return false;
     }
     return true;
   }
 
   function nextPanelFor(step, currentMode) {
-    if (step === 1) {
-      return currentMode === "byok" ? 2 : 5;
-    }
-    if (step === 2) {
-      return 3;
-    }
-    if (step === 3) {
-      return 4;
-    }
-    if (step === 4) {
-      return 5;
-    }
+    if (step === 2) return currentMode === "byok" ? 3 : 4;
     return Math.min(TOTAL_STEPS - 1, step + 1);
   }
 
   function prevPanelFor(step, currentMode) {
-    if (step === 5) {
-      return currentMode === "byok" ? 4 : 1;
-    }
-    if (step === 4) return 3;
-    if (step === 3) return 2;
-    if (step === 2) return 1;
+    if (step === 4) return currentMode === "byok" ? 3 : 2;
     return Math.max(0, step - 1);
   }
 
   window.nextStep = function () {
     if (!validateCurrentStep()) return;
-    currentStep = nextPanelFor(currentStep, mode());
-    if (currentStep === 5) buildFinishSummary();
-    showPanel(currentStep);
+    showPanel(nextPanelFor(currentStep, mode()));
   };
 
   window.prevStep = function () {
-    if (currentStep === 0) return;
-    currentStep = prevPanelFor(currentStep, mode());
-    showPanel(currentStep);
+    showPanel(prevPanelFor(currentStep, mode()));
   };
 
-  function setModeNote(currentMode) {
-    const note = el("setupModeNote");
-    if (currentMode === "community") {
-      note.textContent = "Community is selected. Local Flight skips the personal-key screens, keeps the client keyless, and uses the shared 50-request / 30-day schedule allowance for this install. If this machine is already relay-linked, that path is used automatically.";
-    } else if (currentMode === "byok") {
-      note.textContent = "Bring-your-own-keys selected. Local Flight will ask for your AviationStack key next, then optional radar and OpenSky details.";
-    } else {
-      note.textContent = "Virtual traffic is selected. If you continue like this, Local Flight skips the real-data keys and connects straight to VATSIM.";
-    }
+  function selectedModeCard() {
+    return document.querySelector(`.mode-card[data-mode="${mode()}"]`);
   }
 
-  function updateModeVisibility(selectedMode) {
-    const relayBox = el("relaySetupBox");
-    const managedActions = el("managedActions");
-    const activationField = el("activationTokenField");
-    const activationVerify = el("activationVerifyStatus");
-    const activationRequest = el("activationRequestStatus");
-
-    relayBox.style.display = selectedMode === "community" ? "block" : "none";
-    managedActions.style.display = selectedMode === "community" ? "flex" : "none";
-    activationField.style.display = "none";
-    activationVerify.style.display = selectedMode === "community" && activationVerify.textContent ? "block" : "none";
-    activationRequest.style.display = selectedMode === "community" && activationRequest.textContent ? "block" : "none";
-
-    if (selectedMode !== "community") {
-      setManagedVerified(false);
-      setResult("activationVerifyStatus", "", "");
-    }
+  function selectedDiagnosticsCard() {
+    return document.querySelector(`.diagnostics-card[data-mode="${diagnosticsMode()}"]`);
   }
 
   window.selectMode = function (selectedMode) {
     el("setupModeInput").value = selectedMode;
     el("sourceInput").value = selectedMode === "virtual" ? "virtual" : "real";
-    ["community", "byok", "virtual"].forEach((name) => {
-      el(`mode-${name}`).classList.toggle("selected", name === selectedMode);
+    document.querySelectorAll(".mode-card").forEach((card) => {
+      card.classList.toggle("selected", card.dataset.mode === selectedMode);
     });
-    setModeNote(selectedMode);
-    updateModeVisibility(selectedMode);
+    const card = selectedModeCard();
+    setResult("setupModeNote", "ok", card ? card.dataset.note : "Flight data path selected.");
+    const showRelay = selectedMode === "community";
+    el("relaySetupBox").style.display = showRelay ? "block" : "none";
+    el("activationVerifyStatus").style.display = showRelay && el("activationVerifyStatus").textContent ? "block" : "none";
+    if (!showRelay) {
+      managedVerified = false;
+      setResult("activationVerifyStatus", "", "");
+    }
+  };
+
+  window.selectDiagnostics = function (modeValue) {
+    el("diagnosticsModeInput").value = modeValue;
+    document.querySelectorAll(".diagnostics-card").forEach((card) => {
+      card.classList.toggle("selected", card.dataset.mode === modeValue);
+    });
+    const card = selectedDiagnosticsCard();
+    setResult("diagnosticsNote", "ok", card ? card.dataset.note : "Diagnostics choice selected.");
   };
 
   window.toggleKey = function (inputId, btn) {
@@ -654,16 +827,6 @@
     }
   };
 
-  const searchEl = el("airportSearch");
-  const dropEl = el("airportDropdown");
-  const selectedEl = el("airportSelected");
-  const iataEl = el("airportIata");
-  const icaoEl = el("airportIcao");
-  const tzEl = el("airportTz");
-
-  let debounce = null;
-  let results = [];
-
   function showDropdown(items) {
     results = items;
     dropEl.innerHTML = "";
@@ -674,7 +837,7 @@
     items.forEach((r) => {
       const div = document.createElement("div");
       div.className = "airport-option";
-      div.innerHTML = `<div class="codes">${r.iata || "---"} / ${r.icao || "----"}</div><div class="detail">${r.name} · ${r.city}, ${r.country}</div>`;
+      div.innerHTML = `<div class="codes">${r.iata || "---"} / ${r.icao || "----"}</div><div class="detail">${r.name || "Airport"} - ${r.city || r.municipality || ""}${r.country ? ", " + r.country : ""}</div>`;
       div.addEventListener("mousedown", (e) => {
         e.preventDefault();
         selectAirport(r);
@@ -684,331 +847,290 @@
     dropEl.classList.add("open");
   }
 
-  function selectAirport(r) {
-    iataEl.value = r.iata || "";
-    icaoEl.value = r.icao || "";
-    tzEl.value = r.timezone || "UTC";
-    searchEl.value = `${r.iata || "---"} / ${r.icao || "----"}`;
-    selectedEl.innerHTML = `<strong>${r.iata || "---"} / ${r.icao || "----"}</strong> - ${r.name}<br><span style="opacity:0.6">${r.city}, ${r.country}</span>`;
-    selectedEl.style.display = "block";
+  function selectAirport(row) {
+    iataEl.value = row.iata || "";
+    icaoEl.value = row.icao || "";
+    tzEl.value = row.timezone || row.tz || "UTC";
+    searchEl.value = `${row.iata || "---"} / ${row.icao || "----"}`;
+    selectedEl.className = "status-pill ok";
+    selectedEl.innerHTML = `<strong>${row.iata || "---"} / ${row.icao || "----"}</strong><br>${row.name || "Airport"}${row.city ? " - " + row.city : ""}<br><span style="color:var(--setup-muted)">${tzEl.value}</span>`;
     dropEl.classList.remove("open");
+    setResult("airportStatus", "ok", `Airport selected: ${row.iata || "---"} / ${row.icao || "----"} | ${tzEl.value}`);
   }
 
   searchEl.addEventListener("input", () => {
     clearTimeout(debounce);
     iataEl.value = "";
     icaoEl.value = "";
-    selectedEl.style.display = "none";
-    const q = searchEl.value.trim();
-    if (q.length < 2) {
+    selectedEl.className = "status-pill warn";
+    selectedEl.textContent = "No airport selected yet.";
+    const query = searchEl.value.trim();
+    if (query.length < 2) {
       dropEl.classList.remove("open");
+      setResult("airportStatus", "loading", "Type at least two characters to search the built-in airport database.");
       return;
     }
+    setResult("airportStatus", "loading", "Searching airports...");
     debounce = setTimeout(async () => {
       try {
-        const r = await fetch(`/api/airports/search?q=${encodeURIComponent(q)}&limit=6`);
-        showDropdown(await r.json());
-      } catch {
+        const response = await fetch(`/api/airports/search?q=${encodeURIComponent(query)}&limit=8`);
+        const payload = await response.json();
+        if (!Array.isArray(payload) || !payload.length) {
+          showDropdown([]);
+          setResult("airportStatus", "warn", "No airport matches found. Try IATA, ICAO, city, or airport name.");
+          return;
+        }
+        showDropdown(payload);
+        setResult("airportStatus", "ok", `${payload.length} airport matches found. Pick the correct one from the list.`);
+      } catch (error) {
         dropEl.classList.remove("open");
+        setResult("airportStatus", "err", error.message || "Airport search failed.");
       }
-    }, 200);
+    }, 220);
   });
-  searchEl.addEventListener("blur", () => setTimeout(() => dropEl.classList.remove("open"), 200));
+  searchEl.addEventListener("blur", () => setTimeout(() => dropEl.classList.remove("open"), 180));
   searchEl.addEventListener("focus", () => {
     if (results.length) dropEl.classList.add("open");
   });
 
-  el("activationToken").addEventListener("input", () => {
-    setManagedVerified(false);
-    setResult("activationVerifyStatus", "", "");
+  el("relayUrl").addEventListener("blur", () => {
+    el("relayUrl").value = cleanRelayDisplay(el("relayUrl").value);
   });
-  el("relayUrl").addEventListener("input", () => {
-    setManagedVerified(false);
+  el("activationToken").addEventListener("input", () => {
+    managedVerified = false;
     setResult("activationVerifyStatus", "", "");
   });
 
   async function loadClientInfo() {
+    setGlobal("Checking setup", "good");
     try {
-      const r = await fetch("/api/setup/client-info");
-      const data = await r.json();
-      el("machineFingerprint").textContent = data.install_fingerprint || "-";
-      el("machineUuid").textContent = data.install_id || "-";
-      el("relayUrl").value = data.relay_url || "";
+      const response = await fetch("/api/setup/client-info");
+      const data = await response.json();
+      el("machineFingerprint").textContent = data.install_fingerprint || "Unavailable";
+      el("relayUrl").value = cleanRelayDisplay(data.relay_url || "");
       if (data.activation_token_present) {
         el("activationToken").dataset.prefix = data.activation_token_prefix || "";
-        setResult(
-          "activationRequestStatus",
-          "ok",
-          `This install already has a relay link stored${data.activation_token_prefix ? ` (${data.activation_token_prefix}...)` : ""}. Community mode will use it automatically.`
-        );
+        el("relayLinkState").textContent = data.activation_token_prefix ? `Linked (${data.activation_token_prefix}...)` : "Linked";
+        setResult("activationRequestStatus", "ok", "This install already has a stored relay link. Community Relay can use it automatically.");
+      } else {
+        el("relayLinkState").textContent = "Not linked yet";
+        setResult("activationRequestStatus", "warn", "Community Relay can request a link if this install is not active yet.");
       }
-    } catch {
+      setGlobal("Ready", "good");
+    } catch (error) {
       el("machineFingerprint").textContent = "Unavailable";
-      el("machineUuid").textContent = "Unavailable";
+      el("relayLinkState").textContent = "Could not check";
+      setResult("activationRequestStatus", "warn", "Setup can continue, but relay status could not be checked yet.");
+      setGlobal("Relay check skipped", "warn");
     }
   }
 
   window.connectManagedRelay = async function () {
-    const relayUrl = el("relayUrl").value.trim();
-    setResult("activationRequestStatus", "", "Contacting relay...");
+    setButtons(["connectRelayBtn", "checkRelayBtn", "verifyRelayBtn"], false);
+    setResult("activationRequestStatus", "loading", "Contacting the relay...");
     try {
-      const r = await fetch("/api/setup/activate", {
+      const response = await fetch("/api/setup/activate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          relay_url: relayUrl,
-          airport_iata: "",
-          airport_icao: "",
+          relay_url: cleanRelayDisplay(el("relayUrl").value),
+          airport_iata: iataEl.value || "",
+          airport_icao: icaoEl.value || "",
           display_name: "Local Flight install",
           requested_mode: "community",
         }),
       });
-      const d = await r.json();
-      if (!r.ok || !d.ok) {
-        setManagedVerified(false);
-        setResult("activationRequestStatus", "err", d.error || d.decision_note || "Relay activation failed");
+      const data = await response.json();
+      if (!response.ok || !data.ok) {
+        managedVerified = false;
+        setResult("activationRequestStatus", "err", data.error || data.decision_note || "Relay activation failed.");
         return;
       }
-      if (d.status === "manual_review") {
-        setManagedVerified(false);
-        setResult(
-          "activationRequestStatus",
-          "err",
-          d.decision_note || "The relay paused automatic linking for this install."
-        );
+      if (data.status === "manual_review") {
+        managedVerified = false;
+        setResult("activationRequestStatus", "warn", data.decision_note || "The relay paused automatic linking for this install and queued a review.");
         return;
       }
-      if (d.activation_token_prefix) {
-        el("activationToken").dataset.prefix = d.activation_token_prefix;
-      }
-      setResult(
-        "activationRequestStatus",
-        "ok",
-        `Relay access is active for machine ${d.install_fingerprint || el("machineFingerprint").textContent}. Community mode can use the relay link on this machine.`
-      );
+      if (data.activation_token_prefix) el("activationToken").dataset.prefix = data.activation_token_prefix;
+      el("relayLinkState").textContent = data.activation_token_prefix ? `Linked (${data.activation_token_prefix}...)` : "Linked";
+      setResult("activationRequestStatus", "ok", "Relay access is active for this install. Community Relay can be used.");
       await window.verifyManagedActivation();
-    } catch (e) {
-      setManagedVerified(false);
-      setResult("activationRequestStatus", "err", e.message || "Relay activation failed");
+    } catch (error) {
+      managedVerified = false;
+      setResult("activationRequestStatus", "err", error.message || "Relay activation failed.");
+    } finally {
+      setButtons(["connectRelayBtn", "checkRelayBtn", "verifyRelayBtn"], true);
     }
   };
 
   window.checkManagedStatus = async function () {
-    const relayUrl = el("relayUrl").value.trim();
-    setResult("activationRequestStatus", "", "Checking relay status...");
+    setButtons(["connectRelayBtn", "checkRelayBtn", "verifyRelayBtn"], false);
+    setResult("activationRequestStatus", "loading", "Checking relay status...");
     try {
-      const r = await fetch("/api/setup/client-status", {
+      const response = await fetch("/api/setup/client-status", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          relay_url: relayUrl,
+          relay_url: cleanRelayDisplay(el("relayUrl").value),
           activation_token: el("activationToken").value.trim(),
         }),
       });
-      const d = await r.json();
-      if (!r.ok || !d.ok) {
-        setManagedVerified(false);
-        setResult("activationRequestStatus", "err", d.error || "Relay status check failed");
+      const data = await response.json();
+      if (!response.ok || !data.ok) {
+        managedVerified = false;
+        setResult("activationRequestStatus", "err", data.error || "Relay status check failed.");
         return;
       }
-      if ((d.plan || "") === "managed") {
-        if (d.token_prefix) el("activationToken").dataset.prefix = d.token_prefix;
-        setResult(
-          "activationRequestStatus",
-          "ok",
-          `Relay is reachable. Machine ${d.install_fingerprint || el("machineFingerprint").textContent} is linked and ready for the community path.`
-        );
-        return;
+      if ((data.plan || "") === "managed" || data.ok) {
+        if (data.token_prefix) el("activationToken").dataset.prefix = data.token_prefix;
+        el("relayLinkState").textContent = data.token_prefix ? `Linked (${data.token_prefix}...)` : "Linked";
+        setResult("activationRequestStatus", "ok", "Relay is reachable and this install is ready for Community Relay.");
+      } else {
+        managedVerified = false;
+        setResult("activationRequestStatus", "warn", "No stored relay link was confirmed yet. You can request one or continue with another data path.");
       }
-      setManagedVerified(false);
-      setResult("activationRequestStatus", "err", "No relay link is stored on this machine yet. Community mode can still use the shared path.");
-    } catch (e) {
-      setManagedVerified(false);
-      setResult("activationRequestStatus", "err", e.message || "Relay status check failed");
+    } catch (error) {
+      managedVerified = false;
+      setResult("activationRequestStatus", "err", error.message || "Relay status check failed.");
+    } finally {
+      setButtons(["connectRelayBtn", "checkRelayBtn", "verifyRelayBtn"], true);
     }
   };
 
   window.verifyManagedActivation = async function () {
-    const relayUrl = el("relayUrl").value.trim();
-    const activationToken = el("activationToken").value.trim();
-    const tokenPrefix = el("activationToken").dataset.prefix || "";
-    if (!activationToken && !tokenPrefix) {
-      setResult("activationVerifyStatus", "err", "Connect this machine to the relay first.");
-      setManagedVerified(false);
+    const token = el("activationToken").value.trim();
+    const prefix = el("activationToken").dataset.prefix || "";
+    if (!token && !prefix) {
+      managedVerified = false;
+      setResult("activationVerifyStatus", "warn", "No stored relay token was found yet. Connect this install first if Community Relay needs activation.");
       return;
     }
-    setResult("activationVerifyStatus", "", "Verifying relay path...");
+    setButtons(["connectRelayBtn", "checkRelayBtn", "verifyRelayBtn"], false);
+    setResult("activationVerifyStatus", "loading", "Verifying relay path...");
     try {
-      const r = await fetch("/api/setup/test-activation", {
+      const response = await fetch("/api/setup/test-activation", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ relay_url: relayUrl, activation_token: activationToken }),
+        body: JSON.stringify({ relay_url: cleanRelayDisplay(el("relayUrl").value), activation_token: token }),
       });
-      const d = await r.json();
-      if (!r.ok || !d.ok) {
-        setManagedVerified(false);
-        setResult("activationVerifyStatus", "err", d.error || "Relay verification failed");
+      const data = await response.json();
+      if (!response.ok || !data.ok) {
+        managedVerified = false;
+        setResult("activationVerifyStatus", "err", data.error || "Relay verification failed.");
         return;
       }
-      setManagedVerified(true);
-      const providers = d.providers || {};
-      const scheduleLimit = (d.limits || {}).schedule || "n/a";
-      const parts = [
-        `Verified for machine ${d.install_fingerprint || el("machineFingerprint").textContent}.`,
-        `Relay link ${d.token_prefix || tokenPrefix || activationToken.slice(0, 10)} is active.`,
-        `Client allowance ${scheduleLimit}.`,
-        providers.aviationstack ? "AviationStack ready." : "AviationStack missing.",
-        providers.adsbexchange ? "ADS-B ready." : "ADS-B missing.",
-      ];
-      setResult("activationVerifyStatus", "ok", parts.join(" "));
-    } catch (e) {
-      setManagedVerified(false);
-      setResult("activationVerifyStatus", "err", e.message || "Relay verification failed");
+      managedVerified = true;
+      const limit = (data.limits || {}).schedule || "n/a";
+      setResult("activationVerifyStatus", "ok", `Relay path verified. Client allowance: ${limit}.`);
+    } catch (error) {
+      managedVerified = false;
+      setResult("activationVerifyStatus", "err", error.message || "Relay verification failed.");
+    } finally {
+      setButtons(["connectRelayBtn", "checkRelayBtn", "verifyRelayBtn"], true);
     }
   };
 
-  window.testAviationstack = async function () {
-    const key = el("aviationstackKey").value.trim();
-    const result = el("aviationstackTest");
+  async function testKey(buttonId, resultId, inputId, path, label) {
+    const key = el(inputId).value.trim();
     if (!key) {
-      result.className = "test-result err";
-      result.style.display = "block";
-      result.textContent = "Please enter an AviationStack key first.";
+      setResult(resultId, "warn", `Paste a ${label} key first.`);
       return;
     }
-    result.className = "test-result";
-    result.style.display = "block";
-    result.textContent = "Testing...";
+    setButtons([buttonId], false);
+    setResult(resultId, "loading", `Checking ${label} key...`);
     try {
-      const r = await fetch("/api/setup/test-aviationstack", {
+      const response = await fetch(path, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ key }),
       });
-      const d = await r.json();
-      if (d.ok) {
-        result.className = "test-result ok";
-        result.textContent = "Connected - AviationStack key is valid";
+      const data = await response.json();
+      if (data.ok) {
+        setResult(resultId, "ok", `${label} key works.`);
       } else {
-        result.className = "test-result err";
-        result.textContent = d.error || "Connection failed";
+        setResult(resultId, "err", data.error || `${label} key could not be verified.`);
       }
-    } catch (e) {
-      result.className = "test-result err";
-      result.textContent = e.message;
+    } catch (error) {
+      setResult(resultId, "err", error.message || `${label} check failed.`);
+    } finally {
+      setButtons([buttonId], true);
     }
+  }
+
+  window.testAviationstack = function () {
+    testKey("testAsBtn", "aviationstackTest", "aviationstackKey", "/api/setup/test-aviationstack", "AviationStack");
   };
 
-  window.testRapidapi = async function () {
-    const key = el("rapidapiKey").value.trim();
-    const result = el("rapidapiTest");
-    if (!key) {
-      result.className = "test-result err";
-      result.style.display = "block";
-      result.textContent = "Please enter a RapidAPI key first.";
-      return;
-    }
-    result.className = "test-result";
-    result.style.display = "block";
-    result.textContent = "Testing...";
-    try {
-      const r = await fetch("/api/setup/test-rapidapi", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ key }),
-      });
-      const d = await r.json();
-      if (d.ok) {
-        result.className = "test-result ok";
-        result.textContent = "Connected - RapidAPI key is valid";
-      } else {
-        result.className = "test-result err";
-        result.textContent = d.error || "Connection failed";
-      }
-    } catch (e) {
-      result.className = "test-result err";
-      result.textContent = e.message;
-    }
+  window.testRapidapi = function () {
+    testKey("testRapidBtn", "rapidapiTest", "rapidapiKey", "/api/setup/test-rapidapi", "RapidAPI");
   };
 
   function buildFinishSummary() {
     const selectedMode = mode();
-    const iata = iataEl.value || "-";
-    const icao = icaoEl.value || "-";
-    const relayUrl = el("relayUrl").value.trim();
-    const hasAct = !!el("activationToken").value.trim();
-    const hasAS = !!el("aviationstackKey").value.trim();
-    const hasRP = !!el("rapidapiKey").value.trim();
-    const hasOS = !!el("openskyId").value.trim();
-
-    const modeLabel = selectedMode === "community"
-      ? "Community"
-      : selectedMode === "byok"
-        ? "Bring your own keys"
-        : "Virtual (VATSIM)";
-
-    const items = [`Airport: ${iata} / ${icao}`, `Mode: ${modeLabel}`];
-
+    const modeCard = selectedModeCard();
+    const diagnosticsCard = selectedDiagnosticsCard();
+    const items = [
+      ["Airport", `${iataEl.value || "ZRH"} / ${icaoEl.value || "LSZH"} - ${tzEl.value || "Europe/Zurich"}`],
+      ["Flight data", modeCard ? modeCard.dataset.title : selectedMode],
+      ["Diagnostics", diagnosticsCard ? diagnosticsCard.dataset.title : diagnosticsMode()],
+    ];
     if (selectedMode === "community") {
-      items.push(`Community real-flight path: enabled${relayUrl ? " via relay" : ""}`);
-      items.push((hasAct || !!el("activationToken").dataset.prefix) ? "Relay link on this machine: ready" : "Relay link on this machine: not stored");
-      items.push("Community schedule cap: 50 calls per 30 days");
-      items.push("Personal API keys on client: not used");
+      items.push(["Relay", (managedVerified || el("activationToken").dataset.prefix) ? "Stored relay link ready" : "Community Relay selected"]);
+      items.push(["Client keys", "No personal schedule key required"]);
     } else if (selectedMode === "byok") {
-      items.push(hasAS ? "AviationStack key: set" : "AviationStack key: missing");
-      items.push(hasRP ? "ADS-B Exchange key: set" : "ADS-B Exchange key: not set");
-      items.push(hasOS ? "OpenSky fallback: set" : "OpenSky fallback: not set");
+      items.push(["AviationStack", el("aviationstackKey").value.trim() ? "Key will be saved locally" : "Missing"]);
+      items.push(["Radar enrichment", el("rapidapiKey").value.trim() ? "RapidAPI key will be saved locally" : "Optional key not set"]);
+      items.push(["OpenSky", el("openskyId").value.trim() ? "Optional credentials set" : "Optional credentials not set"]);
     } else {
-      items.push("Source: VATSIM virtual traffic");
-      items.push("Real-data keys: not used");
+      items.push(["Virtual mode", "VATSIM traffic; no real-data keys"]);
+      items.push(["Privacy", "Pilot identities stay hidden in Local Flight views"]);
     }
-
-    el("finishList").innerHTML = items.map((item) => `<li>${item}</li>`).join("");
+    el("finishList").innerHTML = items.map(([label, value]) => `<li><strong>${label}</strong>${value}</li>`).join("");
   }
 
   window.finish = async function () {
-    const btn = el("finishBtn");
     const selectedMode = mode();
-
     if (selectedMode === "byok" && !el("aviationstackKey").value.trim()) {
-      alert("BYOK mode needs an AviationStack key.");
+      setResult("finishStatus", "err", "BYOK mode needs an AviationStack key before launch.");
+      showPanel(3);
       return;
     }
-
-    btn.disabled = true;
-    btn.textContent = "Saving...";
-
+    setButtons(["backBtn", "nextBtn", "finishBtn", "skipKeysBtn"], false);
+    setResult("finishStatus", "loading", "Saving setup and preparing Local Flight...");
     const payload = {
       airport_iata: iataEl.value || "ZRH",
       airport_icao: icaoEl.value || "LSZH",
       timezone: tzEl.value || "Europe/Zurich",
+      display_name: "Local Flight",
       setup_mode: selectedMode,
       source: selectedMode === "virtual" ? "virtual" : "real",
-      relay_url: selectedMode === "community" ? el("relayUrl").value.trim() : "",
+      diagnostics_mode: diagnosticsMode(),
+      relay_url: selectedMode === "community" ? cleanRelayDisplay(el("relayUrl").value) : "",
       activation_token: selectedMode === "community" ? el("activationToken").value.trim() : "",
       aviationstack_key: selectedMode === "byok" ? el("aviationstackKey").value.trim() : "",
       rapidapi_key: selectedMode === "byok" ? el("rapidapiKey").value.trim() : "",
       opensky_id: selectedMode === "byok" ? el("openskyId").value.trim() : "",
       opensky_secret: selectedMode === "byok" ? el("openskySecret").value.trim() : "",
     };
-
     try {
-      const r = await fetch("/api/setup/complete", {
+      const response = await fetch("/api/setup/complete", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      setResult("finishStatus", "ok", "Setup saved. Opening Local Flight...");
       window.location.href = "/display";
-    } catch (e) {
-      btn.disabled = false;
-      btn.textContent = "Launch Local Flight ->";
-      alert(`Setup failed: ${e.message}`);
+    } catch (error) {
+      setResult("finishStatus", "err", error.message || "Setup failed.");
+      setButtons(["backBtn", "nextBtn", "finishBtn", "skipKeysBtn"], true);
     }
   };
 
   loadClientInfo();
-  selectMode("virtual");
+  selectMode("community");
+  selectDiagnostics("manual");
+  showPanel(0);
 })();
 </script>
 </body>

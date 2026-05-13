@@ -83,7 +83,7 @@ The relay does **not** store:
 
 Community relay traffic has per-install quotas plus network/global safety caps. Duplicate reports are deduplicated before routing, so one noisy install should not spam every triage area.
 
-For public safety, the community relay also controls how often a shared airport snapshot can trigger a new upstream schedule fetch. If an airport/window is already cached, the relay can reuse that snapshot for about one hour even when a local display checks every 15 or 30 minutes. This keeps the public relay usable when many people watch the same busy airport at the same time.
+For public safety, the community relay also controls how often a shared airport snapshot can trigger a new upstream schedule fetch. Community Relay schedule choices are hourly-or-slower, and the relay can ask clients to back off when shared safety limits are reached. This keeps the public relay usable when many people watch the same busy airport at the same time.
 
 ### Bring Your Own Keys
 
@@ -182,6 +182,7 @@ When Local Flight fetches data, it may communicate with:
 
 | Service | What is sent | Their privacy policy |
 |---|---|---|
+| AeroDataBox through API.Market or RapidAPI | BYOK/direct path: API key, airport IATA code, and requested board window. Relay-backed path: the hosted relay makes the upstream request with its own provider key and shared cache. | [api.market privacy](https://api.market/privacy_policy), [rapidapi.com/privacy](https://rapidapi.com/privacy/) |
 | AviationStack | BYOK/direct path: API key, airport IATA code, date/window request details. Relay-backed path: the hosted relay makes the upstream request with its own provider key and shared cache. | [aviationstack.com/privacy](https://aviationstack.com/privacy-policy) |
 | ADS-B Exchange via RapidAPI | Direct path: API key and radar search coordinates. Relay-backed path: the hosted relay makes the upstream request when relay access is available. | [rapidapi.com/privacy](https://rapidapi.com/privacy/) |
 | OpenSky Network | Radar search coordinates | [opensky-network.org/about/privacy](https://opensky-network.org/about/privacy) |

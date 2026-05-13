@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 import requests
+from localflight.core.aircraft import short_aircraft_type
 from localflight.sources.web.relay_defaults import default_public_relay_url, relay_radar_url
 
 log = logging.getLogger(__name__)
@@ -329,7 +330,8 @@ def enrich_flights_with_adsbexchange(
             last_contact=_dt.now(timezone.utc),
         )
 
-        aircraft_type = flight.aircraft_type or ac.get("t") or None
+        aircraft_type = flight.aircraft_type or short_aircraft_type(ac.get("t")) or None
+        aircraft_type_full = flight.aircraft_type_full
         registration = flight.aircraft_registration or ac.get("r") or None
         enriched.append(
             Flight(
@@ -339,9 +341,17 @@ def enrich_flights_with_adsbexchange(
                 airline=flight.airline,
                 flight_number=flight.flight_number,
                 codeshares=flight.codeshares,
+                sold_as=flight.sold_as,
+                marketing_airline_name=flight.marketing_airline_name,
+                marketing_airline_iata=flight.marketing_airline_iata,
+                marketing_airline_icao=flight.marketing_airline_icao,
+                marketing_flight_number=flight.marketing_flight_number,
+                operating_callsign=flight.operating_callsign,
+                identity_source=flight.identity_source,
                 origin=flight.origin,
                 destination=flight.destination,
                 aircraft_type=aircraft_type,
+                aircraft_type_full=aircraft_type_full,
                 aircraft_registration=registration,
                 gate=flight.gate,
                 terminal=flight.terminal,

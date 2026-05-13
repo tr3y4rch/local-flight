@@ -289,8 +289,8 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
         for option in SOURCE_OPTIONS:
             self.source.addItem(option.label, option.value)
         self.refresh_seconds = self.QtWidgets.QComboBox()
-        for option in REFRESH_OPTIONS:
-            self.refresh_seconds.addItem(option.label, option.value)
+        self._populate_refresh_options("real")
+        self.source.currentIndexChanged.connect(lambda _idx: self._populate_refresh_options(self._combo_value(self.source, "real")))
         form.addRow("IATA", self.airport_iata)
         form.addRow("ICAO", self.airport_icao)
         form.addRow("Timezone", self.timezone)
@@ -300,7 +300,7 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
         layout.addWidget(
             label(
                 self.QtWidgets,
-                "Community relay installs may reuse a cached airport snapshot even when the native client checks more often.",
+                "Community Relay shows hourly-or-slower refresh choices when it is the active schedule mode.",
                 "Muted",
                 wrap=True,
             )
@@ -589,6 +589,31 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
         if idx >= 0:
             combo.setCurrentIndex(idx)
 
+    def _refresh_options_for_source(self, source: str) -> list[Any]:
+        try:
+            from localflight.sources.web.aviationstack_client import schedule_policy
+
+            policy = schedule_policy(source)
+            allowed = {int(value) for value in (policy.get("allowed_refresh_seconds") or [])}
+            if allowed:
+                return [option for option in REFRESH_OPTIONS if int(option.value) in allowed]
+        except Exception:
+            pass
+        return list(REFRESH_OPTIONS)
+
+    def _populate_refresh_options(self, source: str) -> None:
+        current = self.refresh_seconds.currentData()
+        self.refresh_seconds.blockSignals(True)
+        self.refresh_seconds.clear()
+        options = self._refresh_options_for_source(source)
+        for option in options:
+            self.refresh_seconds.addItem(option.label, option.value)
+        if current is not None and self.refresh_seconds.findData(current) >= 0:
+            self._set_combo_value(self.refresh_seconds, current)
+        elif self.refresh_seconds.findData(3600) >= 0:
+            self._set_combo_value(self.refresh_seconds, 3600)
+        self.refresh_seconds.blockSignals(False)
+
     def _select_skin(self, skin: str) -> None:
         self._set_combo_value(self.skin, skin)
 
@@ -654,6 +679,7 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
         )
         self.display_name.setText(str(cfg.get("display_name") or "Local Flight"))
         self._set_combo_value(self.source, str(cfg.get("source") or "real"))
+        self._populate_refresh_options(str(cfg.get("source") or "real"))
         self._set_combo_value(self.theme, str(cfg.get("theme") or "dark"))
         skin = str(cfg.get("skin") or "standard")
         if self.skin.findData(skin) < 0:

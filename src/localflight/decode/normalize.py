@@ -9,7 +9,8 @@ from localflight.core.models import (
     AirlineRef,
     FlightTime,
 )
-from localflight.decode.mappings.airlines import normalize_airline
+from localflight.core.aircraft import aircraft_full_label, short_aircraft_type
+from localflight.decode.identity import resolve_flight_identity
 
 
 def parse_time(value: str | None) -> datetime | None:
@@ -69,7 +70,12 @@ def normalize_flights(
     flights: List[Flight] = []
 
     for record in raw_flights:
-        callsign = record["callsign"]
+        identity = resolve_flight_identity(
+            record,
+            airport_iata=airport_iata,
+            airport_icao=airport_icao,
+        )
+        callsign = identity.callsign or str(record["callsign"]).strip().upper()
         direction_raw = record["direction"]
         status_raw = record.get("status", "unknown")
         delay_raw = record.get("delay_minutes")
@@ -93,12 +99,10 @@ def normalize_flights(
             estimated=parse_time(record.get("estimated")),
             actual=parse_time(record.get("actual")),
         )
-        airline = normalize_airline(
-            name=record.get("airline_name"),
-            iata=record.get("airline_iata"),
-            icao=record.get("airline_icao"),
-            callsign=callsign,
-            flight_number=record.get("flight_number"),
+        aircraft_short = short_aircraft_type(record.get("aircraft_type"))
+        aircraft_full = record.get("aircraft_type_full") or aircraft_full_label(
+            record.get("aircraft_type"),
+            short_code=aircraft_short,
         )
 
         flight = Flight(
@@ -106,12 +110,19 @@ def normalize_flights(
             airport=airport,
             callsign=callsign,
             airline=AirlineRef(
-                name=airline.get("name"),
-                iata=airline.get("iata"),
-                icao=airline.get("icao"),
+                name=identity.airline_name,
+                iata=identity.airline_iata,
+                icao=identity.airline_icao,
             ),
-            flight_number=record.get("flight_number"),
-            codeshares=_parse_codeshares(record.get("codeshares")),
+            flight_number=identity.flight_number,
+            codeshares=identity.codeshares,
+            sold_as=identity.sold_as,
+            marketing_airline_name=identity.marketing_airline_name,
+            marketing_airline_iata=identity.marketing_airline_iata,
+            marketing_airline_icao=identity.marketing_airline_icao,
+            marketing_flight_number=identity.marketing_flight_number,
+            operating_callsign=identity.operating_callsign,
+            identity_source=identity.identity_source,
             origin=AirportRef(
                 iata=record.get("origin_iata"),
                 icao=record.get("origin_icao"),
@@ -120,7 +131,8 @@ def normalize_flights(
                 iata=record.get("destination_iata"),
                 icao=record.get("destination_icao"),
             ) if record.get("destination_iata") or record.get("destination_icao") else None,
-            aircraft_type=record.get("aircraft_type"),
+            aircraft_type=aircraft_short or None,
+            aircraft_type_full=aircraft_full or None,
             aircraft_registration=record.get("aircraft_registration"),
             gate=record.get("gate"),
             terminal=record.get("terminal"),

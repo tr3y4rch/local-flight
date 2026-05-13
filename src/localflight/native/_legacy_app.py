@@ -53,13 +53,20 @@ from localflight.native.design import (
     table,
     value_at,
 )
-from localflight.native.geometry import default_display_mode, fitted_window_size
+from localflight.native.geometry import default_display_mode, fitted_window_size, native_visual_density
 from localflight.native.loader import lazy_symbol
 from localflight.native.live import LiveStatus, NativeLiveBus, native_ws_url
 from localflight.native.qt_compat import import_qt
 from localflight.native.registry import PAGE_SPECS, NativePageSpec, fallback_refresh_page_keys
 from localflight.native.service import NativeApiService
 from localflight.storage.profiles import list_profiles
+from localflight.ui.matrix_guidance import (
+    MATRIX_ADVANCED_FLOW,
+    MATRIX_GUIDE_STEPS,
+    MATRIX_LIVE_SETTINGS,
+    MATRIX_REFLASH_SETTINGS,
+    MATRIX_SAFE_NOTES,
+)
 
 COFFEE_URL = "https://buymeacoffee.com/localflight"
 GITHUB_URL = "https://github.com/tr3y4rch/local-flight"
@@ -584,7 +591,7 @@ class NativeMainWindow:  # pragma: no cover - exercised with optional Qt
 
                 self.refresh_timer = QtCore.QTimer(self)
                 self.refresh_timer.timeout.connect(self._fallback_refresh_active)
-                self.refresh_timer.start(60_000)
+                self.refresh_timer.setSingleShot(True)
 
                 self._ws_bridge = None
                 try:
@@ -601,6 +608,7 @@ class NativeMainWindow:  # pragma: no cover - exercised with optional Qt
                     self._ws_bridge.start()
                 except Exception:
                     self._set_live_status("live push unavailable", False)
+                self._schedule_fallback_refresh()
 
             def _factory_for_spec(self, spec: NativePageSpec, base_url: str) -> Callable[[], Any]:
                 def _factory() -> Any:
@@ -623,8 +631,8 @@ class NativeMainWindow:  # pragma: no cover - exercised with optional Qt
                 nav = QtWidgets.QFrame()
                 nav.setObjectName("TopNav")
                 layout = QtWidgets.QHBoxLayout(nav)
-                layout.setContentsMargins(14, 7, 14, 7)
-                layout.setSpacing(10)
+                layout.setContentsMargins(12, 7, 12, 7)
+                layout.setSpacing(8)
 
                 brand_mark = QtWidgets.QLabel()
                 brand_mark.setObjectName("BrandMark")
@@ -646,13 +654,11 @@ class NativeMainWindow:  # pragma: no cover - exercised with optional Qt
                 self.utc_clock.setObjectName("ClockChip")
                 self.local_clock = QtWidgets.QLabel("LT --:--:--")
                 self.local_clock.setObjectName("ClockChip")
-                self.live_status = QtWidgets.QLabel("LIVE --")
-                self.live_status.setObjectName("ClockChip")
 
                 left_group = QtWidgets.QWidget()
                 left_layout = QtWidgets.QHBoxLayout(left_group)
                 left_layout.setContentsMargins(0, 0, 0, 0)
-                left_layout.setSpacing(8)
+                left_layout.setSpacing(7)
                 left_layout.addWidget(brand_mark)
                 left_layout.addWidget(brand)
                 left_layout.addWidget(ver)
@@ -660,6 +666,7 @@ class NativeMainWindow:  # pragma: no cover - exercised with optional Qt
                 left_layout.addWidget(self.utc_clock)
                 left_layout.addWidget(self.local_clock)
                 left_group.setSizePolicy(QtWidgets.QSizePolicy.Maximum, QtWidgets.QSizePolicy.Preferred)
+                self.left_nav_group = left_group
 
                 center_group = QtWidgets.QWidget()
                 self.primary_nav_layout = QtWidgets.QHBoxLayout(center_group)
@@ -671,59 +678,73 @@ class NativeMainWindow:  # pragma: no cover - exercised with optional Qt
                 self.utility_nav_layout.setContentsMargins(0, 0, 0, 0)
                 self.utility_nav_layout.setSpacing(4)
 
+                self.nav_more_menu = QtWidgets.QMenu(nav)
+                self._nav_more_actions: dict[str, Any] = {}
+                self.nav_more_button = QtWidgets.QPushButton("More")
+                self.nav_more_button.setObjectName("Quiet")
+                self.nav_more_button.setToolTip("More Local Flight pages")
+                self.nav_more_button.setMenu(self.nav_more_menu)
+                self.nav_more_button.hide()
+
+                sync_chip = QtWidgets.QFrame()
+                sync_chip.setObjectName("SyncChip")
+                sync_layout = QtWidgets.QHBoxLayout(sync_chip)
+                sync_layout.setContentsMargins(8, 4, 9, 4)
+                sync_layout.setSpacing(5)
+                self.live_dot = QtWidgets.QLabel(chr(9679))
+                self.live_dot.setObjectName("SyncDot")
+                self.live_status = QtWidgets.QLabel("Syncing")
+                self.live_status.setObjectName("SyncText")
+                self.live_status.setMinimumWidth(0)
+                sync_layout.addWidget(self.live_dot)
+                sync_layout.addWidget(self.live_status)
+                sync_chip.setToolTip("Local Flight live updates")
+                self.sync_chip = sync_chip
+
                 quit_btn = QtWidgets.QPushButton("Power")
                 quit_btn.setObjectName("Quiet")
                 quit_btn.setToolTip("Shut down Local Flight")
                 quit_btn.clicked.connect(self._quit_app)
-
-                nav_controls = QtWidgets.QWidget()
-                nav_controls.setMinimumWidth(0)
-                nav_controls_layout = QtWidgets.QHBoxLayout(nav_controls)
-                nav_controls_layout.setContentsMargins(0, 0, 0, 0)
-                nav_controls_layout.setSpacing(6)
-                nav_controls_layout.addWidget(center_group)
-                nav_controls_layout.addStretch(1)
-                nav_controls_layout.addWidget(self.live_status)
-                nav_controls_layout.addWidget(right_group)
-                nav_controls_layout.addWidget(quit_btn)
-
-                nav_scroll = QtWidgets.QScrollArea()
-                nav_scroll.setObjectName("NavScroll")
-                nav_scroll.setWidgetResizable(True)
-                nav_scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
-                nav_scroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAsNeeded)
-                nav_scroll.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
-                nav_scroll.setMinimumWidth(180)
-                nav_scroll.setMaximumHeight(54)
-                nav_scroll.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Preferred)
-                nav_scroll.setWidget(nav_controls)
+                self.quit_button = quit_btn
 
                 layout.addWidget(left_group)
-                layout.addWidget(nav_scroll, 1)
+                layout.addWidget(center_group, 0)
+                layout.addStretch(1)
+                layout.addWidget(sync_chip)
+                layout.addWidget(right_group, 0)
+                layout.addWidget(self.nav_more_button)
+                layout.addWidget(quit_btn)
+                self.nav = nav
+                self.primary_nav_group = center_group
+                self.utility_nav_group = right_group
                 return nav
 
             def _build_footer(self) -> Any:
                 footer = QtWidgets.QFrame()
                 footer.setObjectName("AppFooter")
                 layout = QtWidgets.QHBoxLayout(footer)
-                layout.setContentsMargins(14, 5, 14, 6)
-                layout.setSpacing(8)
-                tagline = QtWidgets.QLabel("Built local-first, fueled by runway snacks.")
-                tagline.setObjectName("Dim")
+                layout.setContentsMargins(14, 4, 14, 5)
+                layout.setSpacing(10)
+                status = QtWidgets.QLabel(f"Local-first display  |  v{_app_version()}")
+                status.setObjectName("FooterStatus")
+                tagline = QtWidgets.QLabel("Private by design. Browser UI still available on your LAN.")
+                tagline.setObjectName("FooterTagline")
                 tagline.setMinimumWidth(0)
                 tagline.setSizePolicy(QtWidgets.QSizePolicy.Ignored, QtWidgets.QSizePolicy.Preferred)
                 github = QtWidgets.QPushButton("GitHub")
-                github.setObjectName("Quiet")
+                github.setObjectName("FooterLink")
                 github.setToolTip("Open the Local Flight project on GitHub")
                 github.clicked.connect(lambda: webbrowser.open(GITHUB_URL))
                 coffee = QtWidgets.QPushButton("Buy Me a Coffee")
-                coffee.setObjectName("Quiet")
+                coffee.setObjectName("FooterLink")
                 coffee.setToolTip("Optional support for Local Flight")
                 coffee.clicked.connect(lambda: webbrowser.open(COFFEE_URL))
+                self.footer_status_label = status
+                self.footer_tagline_label = tagline
                 self.footer_github_button = github
                 self.footer_coffee_button = coffee
-                layout.addWidget(tagline)
-                layout.addStretch(1)
+                layout.addWidget(status)
+                layout.addWidget(tagline, 1)
                 layout.addWidget(github)
                 layout.addWidget(coffee)
                 return footer
@@ -769,6 +790,63 @@ class NativeMainWindow:  # pragma: no cover - exercised with optional Qt
                     target_layout = self.primary_nav_layout if nav_group == "primary" else self.utility_nav_layout
                     target_layout.addWidget(button)
                     self._nav_buttons[key] = button
+                    if nav_group == "utility":
+                        action = self.nav_more_menu.addAction(f"{glyph} {label_text}".strip())
+                        action.triggered.connect(lambda _checked=False, k=key: self._show_page(k))
+                        self._nav_more_actions[key] = action
+                    self._apply_nav_density(self.width())
+
+            def _nav_button_text(self, key: str, glyph: str, label_text: str, density: str) -> str:
+                if density == "compact":
+                    return glyph or label_text[:1]
+                if density == "medium" and key not in {"display", "fids", "radar", "matrix"}:
+                    return glyph or label_text[:1]
+                return f"{glyph} {label_text}".strip()
+
+            def _apply_nav_density(self, width: int | None = None) -> None:
+                density = native_visual_density(width or self.width())
+                self._nav_density = density
+                compact = density == "compact"
+                medium = density == "medium"
+                presentation = density == "presentation"
+
+                self.brand_label.setVisible(not compact or (width or self.width()) >= 720)
+                self.version_label.setVisible(density in {"wide", "presentation"})
+                self.utc_clock.setVisible(True)
+                self.local_clock.setVisible(not compact)
+                self.sync_chip.setVisible(True)
+                self.live_status.setVisible(not compact)
+                self.utility_nav_group.setVisible(not compact)
+                self.nav_more_button.setVisible(compact)
+                self.nav_more_button.setText(chr(0x2630) if compact else "More")
+                self.nav_more_button.setMinimumWidth(40 if compact else 72)
+                if hasattr(self, "footer_tagline_label"):
+                    self.footer_tagline_label.setVisible(not compact)
+                if hasattr(self, "footer_status_label"):
+                    self.footer_status_label.setText("Local-first" if compact else f"Local-first display  |  v{_app_version()}")
+
+                self.quit_button.setText(chr(0x23FB) if compact else "Power")
+                self.quit_button.setMinimumWidth(42 if compact else 68)
+
+                primary_spacing = 3 if compact else 4
+                utility_spacing = 3 if medium else 4
+                self.primary_nav_layout.setSpacing(primary_spacing)
+                self.utility_nav_layout.setSpacing(utility_spacing)
+
+                for key, button in self._nav_buttons.items():
+                    glyph = str(button.property("lf_glyph") or "")
+                    label_text = str(button.property("lf_label") or "")
+                    text = self._nav_button_text(key, glyph, label_text, density)
+                    button.setText(text)
+                    button.setToolTip(label_text)
+                    button.setAccessibleName(label_text)
+                    glyph_only = text == glyph or text == label_text[:1]
+                    button.setMinimumWidth(36 if glyph_only else (72 if presentation else 58))
+                    button.setMaximumWidth(56 if glyph_only else 154)
+                    action = self._nav_more_actions.get(key)
+                    if action is not None:
+                        action.setText(f"{glyph} {label_text}".strip())
+                        action.setVisible(compact)
 
             def _ensure_screen(self, key: str) -> Any:
                 if key not in self.screen_keys:
@@ -813,6 +891,7 @@ class NativeMainWindow:  # pragma: no cover - exercised with optional Qt
                 self._dirty_screens.discard(key)
                 if should_refresh:
                     self._refresh_active(force=True)
+                self._schedule_fallback_refresh()
                 self._log_runtime_diagnostics(f"show:{key}")
 
             def _load_design_from_config(self) -> None:
@@ -836,8 +915,13 @@ class NativeMainWindow:  # pragma: no cover - exercised with optional Qt
             def _update_clocks(self) -> None:
                 now_utc = datetime.now(timezone.utc)
                 now_local = datetime.now().astimezone()
-                self.utc_clock.setText("UTC " + now_utc.strftime("%H:%M:%S"))
-                self.local_clock.setText("LT " + now_local.strftime("%H:%M:%S"))
+                density = getattr(self, "_nav_density", native_visual_density(self.width()))
+                if density == "compact":
+                    self.utc_clock.setText("UTC " + now_utc.strftime("%H:%M"))
+                    self.local_clock.setText("LT " + now_local.strftime("%H:%M"))
+                else:
+                    self.utc_clock.setText("UTC " + now_utc.strftime("%H:%M:%S"))
+                    self.local_clock.setText("LT " + now_local.strftime("%H:%M:%S"))
 
             def _refresh_active(self, *, force: bool = False) -> None:
                 index = self.stack.currentIndex()
@@ -846,10 +930,35 @@ class NativeMainWindow:  # pragma: no cover - exercised with optional Qt
                 screen = self.screens[index] if 0 <= index < len(self.screens) else None
                 if hasattr(screen, "refresh"):
                     screen.refresh()
+                self._schedule_fallback_refresh()
 
             def _fallback_refresh_active(self) -> None:
                 if self.current_screen_key in self._fallback_refresh_keys:
                     self._refresh_active(force=True)
+
+            def _fallback_interval_ms(self) -> int | None:
+                key = self.current_screen_key
+                if key not in self._fallback_refresh_keys:
+                    return None
+                if key in {"display", "fids"}:
+                    return 300_000
+                if key == "radar":
+                    screen = self._ensure_screen(key)
+                    payload = getattr(screen, "_last_payload", {}) if screen is not None else {}
+                    try:
+                        refresh_after = int(float(payload.get("refresh_after_s") or 0))
+                    except Exception:
+                        refresh_after = 0
+                    return max(60_000, refresh_after * 1000)
+                return 300_000
+
+            def _schedule_fallback_refresh(self) -> None:
+                if not hasattr(self, "refresh_timer"):
+                    return
+                interval = self._fallback_interval_ms()
+                self.refresh_timer.stop()
+                if interval is not None:
+                    self.refresh_timer.start(interval)
 
             def _log_runtime_diagnostics(self, reason: str) -> None:
                 constructed = [key for key, screen in zip(self.screen_keys, self.screens) if screen is not None]
@@ -885,10 +994,28 @@ class NativeMainWindow:  # pragma: no cover - exercised with optional Qt
                 else:
                     text = status
                     connected_value = bool(connected)
-                self.live_status.setText(("LIVE" if connected_value else "SYNC") + " " + text.replace("live push ", ""))
+                display_text = self._friendly_live_status(text, connected_value)
+                self.live_status.setText(display_text)
+                tooltip = f"Live updates: {display_text}"
+                self.sync_chip.setToolTip(tooltip)
+                self.live_dot.setToolTip(tooltip)
+                self.live_status.setToolTip(tooltip)
+                self.sync_chip.setProperty("connected", connected_value)
+                self.live_dot.setProperty("connected", connected_value)
                 self.live_status.setProperty("connected", connected_value)
-                self.live_status.style().unpolish(self.live_status)
-                self.live_status.style().polish(self.live_status)
+                for widget in (self.sync_chip, self.live_dot, self.live_status):
+                    widget.style().unpolish(widget)
+                    widget.style().polish(widget)
+
+            def _friendly_live_status(self, text: str, connected: bool) -> str:
+                normalized = str(text or "").replace("live push", "").strip().lower()
+                if connected:
+                    return "Live updates"
+                if "connect" in normalized or "reconnect" in normalized:
+                    return "Reconnecting"
+                if "offline" in normalized or "unavailable" in normalized:
+                    return "Local refresh"
+                return "Syncing"
 
             def _handle_live_event(self, payload: dict[str, Any]) -> None:
                 event_type = str(payload.get("type") or "").strip()
@@ -981,20 +1108,8 @@ class NativeMainWindow:  # pragma: no cover - exercised with optional Qt
 
             def resizeEvent(self, event: Any) -> None:
                 super().resizeEvent(event)
-                compact = self.width() < 1160
-                tiny = self.width() < 760
-                self.brand_label.setVisible(self.width() >= 620)
-                self.version_label.setVisible(self.width() >= 900)
-                self.utc_clock.setVisible(not tiny)
-                self.local_clock.setVisible(not tiny)
-                self.live_status.setVisible(self.width() >= 640)
-                for key, button in self._nav_buttons.items():
-                    glyph = str(button.property("lf_glyph") or "")
-                    text = str(button.property("lf_label") or "")
-                    core = key in {"display", "fids", "radar", "matrix"}
-                    glyph_only = glyph and (tiny or (compact and not core))
-                    button.setText(glyph if glyph_only else f"{glyph} {text}".strip())
-                    button.setMinimumWidth(38 if glyph_only else 68)
+                self._apply_nav_density(self.width())
+                self._update_clocks()
 
         return _Window()
 
@@ -2335,7 +2450,9 @@ class MatrixCanvas:  # pragma: no cover - optional Qt runtime
                     self.display_lines = list(self.target_lines)
 
             def _clean_flight_number(self, value: Any) -> str:
-                text = (format_value(value) or "").replace("Also ", "").replace("ALSO ", "").replace(",", " ").replace("|", " ").strip()
+                text = (format_value(value) or "")
+                text = text.replace("Sold as ", "").replace("SOLD AS ", "")
+                text = text.replace("Also ", "").replace("ALSO ", "").replace(",", " ").replace("|", " ").strip()
                 if not text or text.startswith("+"):
                     return ""
                 parts = text.split()
@@ -2349,7 +2466,16 @@ class MatrixCanvas:  # pragma: no cover - optional Qt runtime
                     raw = row.get(key)
                     if not raw:
                         continue
-                    parts = raw if isinstance(raw, list) else str(raw).replace("Also ", "").replace("ALSO ", "").split("/")
+                    parts = raw if isinstance(raw, list) else (
+                        str(raw)
+                        .replace("Sold as ", "")
+                        .replace("SOLD AS ", "")
+                        .replace("Also ", "")
+                        .replace("ALSO ", "")
+                        .replace("|", "/")
+                        .replace(",", "/")
+                        .split("/")
+                    )
                     for part in parts:
                         code = self._clean_flight_number(part)
                         if code and code not in values:
@@ -2825,39 +2951,19 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
         self.devices: list[dict[str, Any]] = []
         self.default_config_id = "default"
         self.widget, layout = scroll_page(QtWidgets)
+        self._busy_buttons: list[Any] = []
 
-        header = QtWidgets.QHBoxLayout()
-        header.addWidget(label(QtWidgets, "Matrix Board", "Title"))
-        header.addStretch(1)
-        for text, slot, quiet in (
-            ("Refresh", self.refresh, False),
-            ("Save config", self.save_config, False),
-            ("Generate main.py", self.generate_script, False),
-            ("Save main.py...", self.save_script_file, False),
-            ("Demo", self.trigger_demo, True),
-        ):
-            button = QtWidgets.QPushButton(text)
-            if quiet:
-                button.setObjectName("Quiet")
-            button.clicked.connect(slot)
-            header.addWidget(button)
         self.status = label(QtWidgets, "Choose a panel, preview the exact board, apply live settings, and generate main.py for the i75W.", "Muted", wrap=True)
         self.loading_indicator = _loading_indicator(QtWidgets)
         self.board_status = label(QtWidgets, "I75W status: not checked yet.", "Muted", wrap=True)
         self.action_status = label(QtWidgets, "Ready.", "Muted", wrap=True)
-        self.tabs = QtWidgets.QTabWidget()
-        layout.addLayout(header)
-        layout.addWidget(self.loading_indicator)
-        layout.addWidget(self.status)
-        layout.addWidget(self.board_status)
-        layout.addWidget(self.action_status)
-        layout.addWidget(self.tabs, 1)
+        self.feed_refresh_timer = QtCore.QTimer(self.widget)
+        self.feed_refresh_timer.setSingleShot(True)
+        self.feed_refresh_timer.setInterval(250)
+        self.feed_refresh_timer.timeout.connect(self.refresh_feed_only)
 
         self._build_shared_controls(QtCore)
-        self._build_preview_tab(QtCore, QtGui, QtWidgets2)
-        self._build_configs_tab()
-        self._build_devices_tab()
-        self._build_flash_tab()
+        self._build_dashboard(layout, QtCore, QtGui, QtWidgets2)
         self._connect_shared_controls()
         self._sync_canvas_options()
 
@@ -2873,6 +2979,205 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
                 timer.start(250)
         else:
             timer.stop()
+
+    def _build_dashboard(self, layout: Any, QtCore: Any, QtGui: Any, QtWidgets2: Any) -> None:
+        header = self.QtWidgets.QHBoxLayout()
+        title_box = self.QtWidgets.QVBoxLayout()
+        title_box.addWidget(label(self.QtWidgets, "Matrix Board", "Title"))
+        title_box.addWidget(label(self.QtWidgets, "Flash once, then tune the i75W board live from Local Flight.", "Muted", wrap=True))
+        header.addLayout(title_box, 1)
+        for text, slot, quiet in (
+            ("Refresh", self.refresh, False),
+            ("Apply live config", self.save_config, False),
+            ("Generate main.py", self.generate_script, False),
+            ("Demo", self.trigger_demo, True),
+        ):
+            button = self.QtWidgets.QPushButton(text)
+            if quiet:
+                button.setObjectName("Quiet")
+            button.clicked.connect(slot)
+            header.addWidget(button)
+            if not quiet:
+                self._busy_buttons.append(button)
+        layout.addLayout(header)
+        layout.addWidget(self.loading_indicator)
+        layout.addWidget(self.status)
+
+        summary, summary_layout = panel(self.QtWidgets, "Board status")
+        status_row = self.QtWidgets.QHBoxLayout()
+        self.summary_labels: dict[str, Any] = {}
+        for key, title, value in (
+            ("matrix", "Matrix", "Not checked"),
+            ("config", "Config", "Default"),
+            ("board", "Board", "No i75W seen"),
+            ("panel", "Panel", "256 x 64"),
+            ("mode", "Mode", "Real FIDS"),
+        ):
+            item = card(self.QtWidgets, title, value)
+            metric = item.findChild(self.QtWidgets.QLabel, "Metric")
+            if metric is not None:
+                self.summary_labels[key] = metric
+            status_row.addWidget(item)
+        summary_layout.addLayout(status_row)
+        summary_layout.addWidget(self.board_status)
+        summary_layout.addWidget(self.action_status)
+        layout.addWidget(summary)
+
+        guide, guide_layout = panel(self.QtWidgets, "i75W setup assistant")
+        step_row = self.QtWidgets.QHBoxLayout()
+        for step in MATRIX_GUIDE_STEPS:
+            step_row.addWidget(card(self.QtWidgets, str(step["title"]), str(step["body"])))
+        guide_layout.addLayout(step_row)
+        note_row = self.QtWidgets.QHBoxLayout()
+        note_row.addWidget(card(self.QtWidgets, "Live after Apply", ", ".join(MATRIX_LIVE_SETTINGS[:4]), ", ".join(MATRIX_LIVE_SETTINGS[4:])))
+        note_row.addWidget(card(self.QtWidgets, "Regenerate main.py when", ", ".join(MATRIX_REFLASH_SETTINGS[:2]), ", ".join(MATRIX_REFLASH_SETTINGS[2:])))
+        guide_layout.addLayout(note_row)
+        layout.addWidget(guide)
+
+        main_row = self.QtWidgets.QHBoxLayout()
+        controls, controls_layout = panel(self.QtWidgets, "Board setup")
+        controls_layout.addWidget(label(self.QtWidgets, "These controls change the saved board config and the preview immediately.", "Muted", wrap=True))
+        form_layout = self.QtWidgets.QFormLayout()
+        form_layout.addRow("Selected config", self.config_select)
+        form_layout.addRow("Config name", self.config_name)
+        form_layout.addRow("Board mode", self.preset_select)
+        form_layout.addRow("Panel combo", self.panel_preset)
+        form_layout.addRow("Custom size", self._panel_size_row())
+        form_layout.addRow("Startup lane", self.default_view_select)
+        form_layout.addRow("Rows shown", self.max_rows)
+        form_layout.addRow("Refresh", self.refresh_seconds)
+        form_layout.addRow("Page rotation", self.rotation_seconds)
+        form_layout.addRow("Brightness", self._slider_row(self.brightness, self.brightness_value))
+        form_layout.addRow("Preview zoom", self._slider_row(self.zoom, self.zoom_value))
+        form_layout.addRow("Palette", self.palette)
+        form_layout.addRow("Motion", self.animation_mode)
+        form_layout.addRow("Motion speed", self.animation_speed)
+        form_layout.addRow("Status motion", self.status_animation)
+        form_layout.addRow("Weather", self.weather_toggle)
+        form_layout.addRow("Gate/stand", self.gate_toggle)
+        controls_layout.addLayout(form_layout)
+        main_row.addWidget(controls, 1)
+
+        self.canvas = lazy_symbol("localflight.native.canvas.matrix", "MatrixCanvas")(QtCore, QtGui, QtWidgets2)
+        preview, preview_layout = panel(self.QtWidgets, "Live preview")
+        preview_layout.addWidget(label(self.QtWidgets, "Same feed, compact layout, palette, and gate/weather rules used by generated main.py.", "Muted", wrap=True))
+        preview_layout.addWidget(self.canvas, 1)
+        main_row.addWidget(preview, 2)
+        layout.addLayout(main_row, 1)
+
+        self.flash_group, flash_layout = self._collapsible_panel("One-time board file", checked=False)
+        self._build_flash_contents(flash_layout)
+        layout.addWidget(self.flash_group)
+
+        self.devices_group, devices_layout = self._collapsible_panel("Connected boards", checked=False)
+        self._build_devices_contents(devices_layout)
+        layout.addWidget(self.devices_group)
+
+        self.configs_group, configs_layout = self._collapsible_panel("Multiple configs", checked=False)
+        self._build_configs_contents(configs_layout)
+        layout.addWidget(self.configs_group)
+
+        self.advanced_group, advanced_layout = self._collapsible_panel("Advanced: how the board talks to Local Flight", checked=False)
+        advanced_layout.addWidget(label(self.QtWidgets, "The board is a LAN client. No cloud account is involved for Matrix control.", "Muted", wrap=True))
+        for item in MATRIX_ADVANCED_FLOW:
+            advanced_layout.addWidget(label(self.QtWidgets, f"- {item}", "Muted", wrap=True))
+        for item in MATRIX_SAFE_NOTES:
+            advanced_layout.addWidget(label(self.QtWidgets, f"- {item}", "Muted", wrap=True))
+        layout.addWidget(self.advanced_group)
+        layout.addStretch(1)
+
+    def _collapsible_panel(self, title: str, *, checked: bool) -> tuple[Any, Any]:
+        group = self.QtWidgets.QGroupBox(title)
+        group.setCheckable(True)
+        group.setChecked(checked)
+        body = self.QtWidgets.QWidget()
+        body_layout = self.QtWidgets.QVBoxLayout(body)
+        body_layout.setContentsMargins(0, 4, 0, 0)
+        outer = self.QtWidgets.QVBoxLayout(group)
+        outer.setContentsMargins(14, 18, 14, 12)
+        outer.addWidget(body)
+        body.setVisible(checked)
+        group.toggled.connect(body.setVisible)
+        return group, body_layout
+
+    def _build_flash_contents(self, layout: Any) -> None:
+        layout.addWidget(label(self.QtWidgets, "Use this once to create the file that joins Wi-Fi and points the i75W at this Local Flight server.", "Muted", wrap=True))
+        self.wifi_ssid = self.QtWidgets.QLineEdit()
+        self.wifi_ssid.setPlaceholderText("Wi-Fi network name")
+        self.wifi_password = self.QtWidgets.QLineEdit()
+        self.wifi_password.setPlaceholderText("Wi-Fi password")
+        self.wifi_password.setEchoMode(self.QtWidgets.QLineEdit.Password)
+        self.api_host = self.QtWidgets.QLineEdit("localflight.local")
+        self.api_host.setPlaceholderText("localflight.local or LAN IP")
+        self.api_port = self.QtWidgets.QSpinBox()
+        self.api_port.setRange(1, 65535)
+        self.api_port.setValue(8000)
+        flash_form = self.QtWidgets.QFormLayout()
+        flash_form.addRow("Wi-Fi name", self.wifi_ssid)
+        flash_form.addRow("Wi-Fi password", self.wifi_password)
+        flash_form.addRow("Server host", self.api_host)
+        flash_form.addRow("Server port", self.api_port)
+        layout.addLayout(flash_form)
+        flash_actions = self.QtWidgets.QHBoxLayout()
+        generate = self.QtWidgets.QPushButton("Generate main.py")
+        generate.clicked.connect(self.generate_script)
+        save = self.QtWidgets.QPushButton("Save main.py...")
+        save.clicked.connect(self.save_script_file)
+        self._busy_buttons.extend([generate, save])
+        flash_actions.addWidget(generate)
+        flash_actions.addWidget(save)
+        flash_actions.addStretch(1)
+        layout.addLayout(flash_actions)
+        self.script_summary = label(self.QtWidgets, "No main.py generated yet.", "Muted", wrap=True)
+        layout.addWidget(self.script_summary)
+        self.script_preview = self.QtWidgets.QPlainTextEdit()
+        self.script_preview.setReadOnly(True)
+        self.script_preview.setPlaceholderText("Generated MicroPython main.py appears here.")
+        self.script_preview.setMinimumHeight(220)
+        layout.addWidget(self.script_preview, 1)
+
+    def _build_devices_contents(self, layout: Any) -> None:
+        row = self.QtWidgets.QHBoxLayout()
+        self.device_list = self.QtWidgets.QListWidget()
+        editor, editor_layout = panel(self.QtWidgets, "Device assignment")
+        self.device_label = self.QtWidgets.QLineEdit()
+        self.device_config = self.QtWidgets.QComboBox()
+        self.device_meta = label(self.QtWidgets, "No matrix device selected.", "Muted", wrap=True)
+        form = self.QtWidgets.QFormLayout()
+        form.addRow("Board label", self.device_label)
+        form.addRow("Assigned config", self.device_config)
+        editor_layout.addLayout(form)
+        assign = self.QtWidgets.QPushButton("Save board assignment")
+        assign.clicked.connect(self.save_device_assignment)
+        self._busy_buttons.append(assign)
+        editor_layout.addWidget(assign)
+        editor_layout.addWidget(self.device_meta)
+        row.addWidget(self.device_list, 1)
+        row.addWidget(editor, 2)
+        layout.addLayout(row)
+
+    def _build_configs_contents(self, layout: Any) -> None:
+        row = self.QtWidgets.QHBoxLayout()
+        self.config_list = self.QtWidgets.QListWidget()
+        editor, editor_layout = panel(self.QtWidgets, "Config tools")
+        self.config_preset_hint = label(self.QtWidgets, "Edit the selected config in the main Board setup section above.", "Muted", wrap=True)
+        editor_layout.addWidget(self.config_preset_hint)
+        actions = self.QtWidgets.QHBoxLayout()
+        for text, slot in (
+            ("New config", self.create_config),
+            ("Duplicate", self.duplicate_config),
+            ("Delete", self.delete_config),
+            ("Set default", self.set_default_config),
+        ):
+            button = self.QtWidgets.QPushButton(text)
+            button.clicked.connect(slot)
+            actions.addWidget(button)
+            self._busy_buttons.append(button)
+        actions.addStretch(1)
+        editor_layout.addLayout(actions)
+        row.addWidget(self.config_list, 1)
+        row.addWidget(editor, 2)
+        layout.addLayout(row)
 
     def _build_shared_controls(self, QtCore: Any) -> None:
         self.config_select = self.QtWidgets.QComboBox()
@@ -3089,17 +3394,18 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
         self.status_animation.toggled.connect(self._sync_canvas_options)
         self.weather_toggle.toggled.connect(self._sync_canvas_options)
         self.gate_toggle.toggled.connect(self._sync_canvas_options)
-        self.default_view_select.currentIndexChanged.connect(lambda *_args: self.refresh_feed_only())
-        self.preset_select.currentIndexChanged.connect(lambda *_args: self.refresh_feed_only())
-        self.max_rows.valueChanged.connect(lambda *_args: self.refresh_feed_only())
-        self.weather_toggle.toggled.connect(lambda *_args: self.refresh_feed_only())
-        self.gate_toggle.toggled.connect(lambda *_args: self.refresh_feed_only())
+        self.default_view_select.currentIndexChanged.connect(lambda *_args: self.schedule_feed_refresh())
+        self.preset_select.currentIndexChanged.connect(lambda *_args: self.schedule_feed_refresh())
+        self.max_rows.valueChanged.connect(lambda *_args: self.schedule_feed_refresh())
+        self.weather_toggle.toggled.connect(lambda *_args: self.schedule_feed_refresh())
+        self.gate_toggle.toggled.connect(lambda *_args: self.schedule_feed_refresh())
 
     def apply_theme(self, theme: str, skin: str) -> None:
         if hasattr(self.canvas, "apply_theme"):
             self.canvas.apply_theme(theme, skin)
 
     def refresh(self) -> None:
+        self._set_busy(True)
         _set_native_feedback(self, "Loading matrix configuration and feed...", busy=True)
         try:
             self._load_v2_state()
@@ -3112,6 +3418,7 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
         self._populate_v2_lists()
         self.refresh_feed_only()
         _set_native_feedback(self, f"Matrix V2 loaded: {len(self.configs)} configs, {len(self.devices)} devices.", "StatusGood")
+        self._set_busy(False)
 
     def _load_v2_state(self) -> None:
         state = self.service.matrix_state()
@@ -3130,12 +3437,43 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
             rows = self.service.matrix_compat_rows(view=self.feed_view, limit=32)
         except NativeApiError as exc:
             _set_native_feedback(self, f"Matrix preview offline: {exc}", "StatusBad")
+            self._set_busy(False)
             return
         rows = rows[: max(1, int(self.max_rows.value()))]
         self.canvas.set_rows(rows)
         self._sync_canvas_options()
         self.board_status.setText("Matrix V2 unavailable; using compatibility config.")
         _set_native_feedback(self, "Matrix compatibility preview loaded.", "StatusWarn")
+        self._set_busy(False)
+
+    def schedule_feed_refresh(self) -> None:
+        if self._v2_available:
+            self.action_status.setText("Preview update queued...")
+            self.feed_refresh_timer.start()
+
+    def _set_busy(self, busy: bool) -> None:
+        self.loading_indicator.setVisible(bool(busy))
+        for button in getattr(self, "_busy_buttons", []):
+            try:
+                button.setEnabled(not busy)
+            except Exception:
+                continue
+
+    def _sync_summary(self) -> None:
+        labels = getattr(self, "summary_labels", {})
+        if not labels:
+            return
+        config_name = self.config_name.text().strip() if hasattr(self, "config_name") else ""
+        labels.get("matrix", self.status).setText("V2 ready" if self._v2_available else "Compatibility")
+        labels.get("config", self.status).setText(config_name or "Default Board")
+        width, height = self._panel_size()
+        labels.get("panel", self.status).setText(f"{width} x {height}")
+        labels.get("mode", self.status).setText(self.preset_select.currentText() or "Real FIDS")
+        if self.devices:
+            seen = sum(1 for device in self.devices if device.get("last_seen"))
+            labels.get("board", self.status).setText(f"{seen}/{len(self.devices)} seen")
+        else:
+            labels.get("board", self.status).setText("No i75W seen")
 
     def refresh_feed_only(self) -> None:
         if not self._v2_available:
@@ -3151,14 +3489,16 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
         try:
             # Service keeps the browser-parity preview route: /api/matrix/v2/devices/preview/feed
             payload, rows = self.service.matrix_feed(params=params)
-        except NativeApiError:
+        except NativeApiError as exc:
             payload = {}
             rows = []
+            self.action_status.setText(f"Preview feed unavailable: {exc}")
         self.canvas.set_rows(rows[: max(1, int(self.max_rows.value()))])
         if hasattr(self.canvas, "set_matrix_payload"):
             self.canvas.set_matrix_payload(payload if isinstance(payload, dict) else {})
         self._sync_canvas_options()
-        self.action_status.setText(f"Preview updated from {payload.get('view', self.feed_view) if isinstance(payload, dict) else self.feed_view}.")
+        if payload:
+            self.action_status.setText(f"Preview updated from {payload.get('view', self.feed_view) if isinstance(payload, dict) else self.feed_view}.")
 
     def _populate_v2_lists(self) -> None:
         self._populate_panel_presets()
@@ -3184,6 +3524,7 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
             self.config_list.setCurrentRow(0)
             self._populate_config(self.configs[0])
         self._populate_device(0 if self.devices else -1)
+        self._sync_summary()
 
     def _populate_panel_presets(self) -> None:
         if not self.panel_presets:
@@ -3224,6 +3565,7 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
         if row < 0 or row >= len(self.devices):
             self.device_label.setText("")
             self.device_meta.setText("No matrix device selected.")
+            self._sync_summary()
             return
         device = self.devices[row]
         self.device_label.setText(str(device.get("label") or device.get("device_id")))
@@ -3237,6 +3579,7 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
             f"firmware {device.get('firmware') or '-'} | renderers {renderers or '-'}"
         )
         self.board_status.setText(f"Selected board: {device.get('label')} | last seen {device.get('last_seen') or 'never'}")
+        self._sync_summary()
 
     def _populate_config(self, cfg: dict[str, Any]) -> None:
         for widget in (self.brightness, self.max_rows, self.refresh_seconds, self.rotation_seconds, self.default_view_select, self.animation_mode, self.animation_speed, self.palette, self.preset_select, self.status_animation, self.weather_toggle, self.gate_toggle, self.panel_preset, self.panel_w, self.panel_h):
@@ -3277,6 +3620,7 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
             widget.blockSignals(False)
         self._sync_value_labels()
         self._sync_canvas_options()
+        self._sync_summary()
 
     def _current_config_id(self) -> str | None:
         data = self.config_select.currentData()
@@ -3309,6 +3653,7 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
                 widget.blockSignals(was_blocked)
         if sync:
             self._sync_canvas_options()
+            self._sync_summary()
 
     def _apply_panel_preset_index(self, index: int) -> None:
         data = self.panel_preset.itemData(index)
@@ -3325,6 +3670,7 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
             self.panel_preset.setCurrentIndex(idx)
             self.panel_preset.blockSignals(old)
         self._sync_canvas_options()
+        self._sync_summary()
 
     def _config_payload(self) -> dict[str, Any]:
         w, h = self._panel_size()
@@ -3384,6 +3730,7 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
             max_rows=int(self.max_rows.value()),
         )
         self.canvas.apply_theme("dark", self.palette.currentText())
+        self._sync_summary()
 
     def _sync_value_labels(self) -> None:
         self.zoom_value.setText(f"{int(self.zoom.value())}px")
@@ -3409,6 +3756,7 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
 
     def save_config(self) -> None:
         payload = self._config_payload()
+        self._set_busy(True)
         _set_native_feedback(self, "Saving matrix configuration...", busy=True)
         self.action_status.setText("Saving Matrix config to the local server...")
         try:
@@ -3418,12 +3766,14 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
                 v2_available=self._v2_available,
             )
         except NativeApiError as exc:
+            self._set_busy(False)
             _set_native_feedback(self, f"Matrix save failed: {exc}", "StatusBad")
             self.action_status.setText(f"Save failed: {exc}")
             return
         _set_native_feedback(self, "Matrix config saved." if result.get("ok") else format_value(result), "StatusGood" if result.get("ok") else "StatusWarn")
         self.action_status.setText("Saved. A connected board will pick this up on its next config refresh.")
         self.refresh()
+        self._set_busy(False)
 
     def create_config(self) -> None:
         payload = {**self._config_payload(), "name": self.config_name.text().strip() or "New Matrix Config"}
@@ -3482,12 +3832,34 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
             return
         self.refresh()
 
+    def _script_validation_error(self) -> str:
+        ssid = self.wifi_ssid.text().strip()
+        host = self.api_host.text().strip()
+        loopback_hosts = {"localhost", "127.0.0.1", "::1", "[::1]"}
+        if not ssid:
+            return "Enter the Wi-Fi network name before generating main.py."
+        if not host:
+            return "Enter a Local Flight server host such as localflight.local or a LAN IP."
+        if host.lower() in loopback_hosts:
+            return "Use a LAN host the board can reach, not localhost or 127.0.0.1."
+        width, height = self._panel_size()
+        if width <= 0 or height <= 0:
+            return "Choose the physical panel size before generating main.py."
+        return ""
+
     def generate_script(self) -> None:
+        validation_error = self._script_validation_error()
+        if validation_error:
+            self.flash_group.setChecked(True)
+            self.action_status.setText(validation_error)
+            self.script_summary.setText(validation_error)
+            _set_native_feedback(self, validation_error, "StatusWarn")
+            return
         w, h = self._panel_size()
         payload = {
-            "wifi_ssid": self.wifi_ssid.text().strip() or "your_wifi_name",
+            "wifi_ssid": self.wifi_ssid.text().strip(),
             "wifi_password": self.wifi_password.text(),
-            "api_host": self.api_host.text().strip() or "localflight.local",
+            "api_host": self.api_host.text().strip(),
             "api_port": int(self.api_port.value()),
             "device_label": self.device_label.text().strip() or "Interstate 75 W",
             "panel_w": w,
@@ -3506,19 +3878,27 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
             "preset": str(self.preset_select.currentData() or "real_fids"),
             "palette": self.palette.currentText(),
         }
+        self._set_busy(True)
         _set_native_feedback(self, "Generating Matrix main.py preview...", busy=True)
         self.action_status.setText("Generating main.py preview...")
         try:
             text = self.service.matrix_generate_script(payload)
         except NativeApiError as exc:
+            self._set_busy(False)
             _set_native_feedback(self, f"Script generation failed: {exc}", "StatusBad")
             self.action_status.setText(f"main.py generation failed: {exc}")
+            self.script_summary.setText(f"Generation failed: {exc}")
             return
         self._last_script = text
         self.script_preview.setPlainText(text)
-        self.tabs.setCurrentIndex(3)
+        self.flash_group.setChecked(True)
+        self.script_summary.setText(
+            f"Generated for Wi-Fi '{payload['wifi_ssid']}' | server {payload['api_host']}:{payload['api_port']} | "
+            f"{w} x {h} | {payload['preset']} | {payload['palette']} | {payload['default_view']} | {payload['refresh_seconds']}s refresh."
+        )
         self.action_status.setText("main.py generated. Save it to the board as main.py.")
         _set_native_feedback(self, "Generated V2 matrix main.py preview.", "StatusGood")
+        self._set_busy(False)
 
     def save_script_file(self) -> None:
         if not self._last_script:
@@ -3646,7 +4026,7 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
         layout.addWidget(
             label(
                 self.QtWidgets,
-                "Refresh choices are 15, 30, 45, and 60 minutes, then 2, 4, 8, 12, or 24 hours. Shorter values keep local displays fresh; longer values are kinder to schedule providers. Community Relay may reuse an already-cached airport snapshot for about one hour even when the client polls more often.",
+                "Refresh choices are 15, 30, 45, and 60 minutes, then 2, 4, 8, 12, or 24 hours. Shorter values keep local displays fresh; longer values are kinder to schedule providers.",
                 "Muted",
                 wrap=True,
             )
@@ -4678,7 +5058,8 @@ class HistoryScreen:  # pragma: no cover - optional Qt runtime
                 ("Direction", row.get("direction")),
                 ("Gate", row.get("gate")),
                 ("Terminal", row.get("terminal")),
-                ("Aircraft", row.get("aircraft_type")),
+                ("A/C code", row.get("aircraft_type")),
+                ("Aircraft type", aircraft.get("model") or aircraft.get("full_type")),
             ]),
             ("Timing", [
                 ("Scheduled", row.get("sched_time")),
@@ -5007,12 +5388,27 @@ def _banner(QtWidgets: Any, text: str, role: str) -> Any:
 
 def _weather_line(payload: dict[str, Any], *, raw: bool) -> str:
     icon = _weather_icon_glyph(payload.get("weather_icon"))
-    cat = payload.get("flight_cat") or "?"
-    temp = payload.get("temperature_c")
-    temp_text = f"{temp} C" if temp is not None else "-- C"
-    summary = payload.get("decoded_summary") or payload.get("weather_summary") or payload.get("weather_label") or ""
+    cat = str(payload.get("flight_cat") or "").strip().upper()
+    temp_text = str(payload.get("temperature_short") or payload.get("temperature_display") or "").strip()
+    if not temp_text:
+        temp = payload.get("temperature_c")
+        temp_text = f"{temp}°C" if temp is not None else ""
+    summary = (
+        payload.get("condition_display")
+        or payload.get("weather_label")
+        or payload.get("weather_display")
+        or payload.get("weather_summary")
+        or payload.get("decoded_summary")
+        or "Weather observed"
+    )
+    parts = [icon, str(summary).strip()]
+    if temp_text:
+        parts.append(temp_text.replace(" C", "°C"))
+    if cat:
+        parts.append(cat)
     raw_text = payload.get("raw_text") or payload.get("raw") or ""
-    return f"{icon} {cat} | {temp_text} | {summary}" + (f" | {raw_text}" if raw and raw_text else "")
+    line = " · ".join(part for part in parts if part)
+    return line + (f" · METAR {raw_text}" if raw and raw_text else "")
 
 
 def _weather_icon_glyph(icon_name: Any) -> str:

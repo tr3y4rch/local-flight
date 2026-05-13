@@ -21,6 +21,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Relay
 - Extracted the admin SPA from `relay/main.py` into `relay/admin/{admin.html,admin.css,admin.js}`, loaded once at module import with `__BOOT__` / `__ADMIN_CSS__` / `__ADMIN_JS__` substitution. No new dependency and no extra HTTP requests; render output stays byte-equivalent. The Dockerfile now copies the new asset directory into the Fly image.
 - Removed ~330 lines of dead legacy admin renderer (`_render_admin_legacy`) that was no longer wired to any route.
+- AeroDataBox transport now supports API.Market keys by default while preserving an explicit RapidAPI gateway mode for existing RapidAPI subscriptions.
 
 ### Privacy
 - PRIVACY.md now lists the heartbeat install-profile fields explicitly (app version, OS family/version/architecture, GUI mode, source mode, diagnostics mode, companion count, matrix count) so operator-side fleet shape visibility is transparent.

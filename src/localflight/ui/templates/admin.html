@@ -675,10 +675,44 @@
   }
 
 
-  function refreshAll() {
-    loadHealth(); loadBudget(); loadWSCount();
-    loadHistoryStats(); loadSystem(); loadMETAR();
-    el("refreshChip").textContent = `Last refreshed ${new Date().toUTCString().slice(17,25)} UTC | refreshes every 10s`;
+  const ADMIN_FALLBACK_MS = 60 * 1000;
+  const ADMIN_HIDDEN_FALLBACK_MS = 900 * 1000;
+  const ADMIN_JITTER_RATIO = 0.2;
+  let adminFallbackTimer = null;
+  let adminRefreshing = false;
+
+  function adminJitteredDelay(baseMs) {
+    const spread = Math.max(0, baseMs * ADMIN_JITTER_RATIO);
+    return Math.max(1000, Math.round(baseMs + (Math.random() * 2 - 1) * spread));
+  }
+
+  function scheduleAdminFallback(delayMs) {
+    if (adminFallbackTimer) window.clearTimeout(adminFallbackTimer);
+    const base = delayMs || (document.hidden ? ADMIN_HIDDEN_FALLBACK_MS : ADMIN_FALLBACK_MS);
+    adminFallbackTimer = window.setTimeout(refreshAll, adminJitteredDelay(base));
+  }
+
+  async function refreshAll() {
+    if (adminRefreshing) return;
+    adminRefreshing = true;
+    if (adminFallbackTimer) {
+      window.clearTimeout(adminFallbackTimer);
+      adminFallbackTimer = null;
+    }
+    try {
+      await Promise.allSettled([
+        loadHealth(),
+        loadBudget(),
+        loadWSCount(),
+        loadHistoryStats(),
+        loadSystem(),
+        loadMETAR(),
+      ]);
+      el("refreshChip").textContent = `Last refreshed ${new Date().toUTCString().slice(17,25)} UTC | event-first fallback`;
+    } finally {
+      adminRefreshing = false;
+      scheduleAdminFallback();
+    }
   }
 
   applyAdminCopy();
@@ -705,7 +739,7 @@
   }
 
   connectWS();
-  setInterval(refreshAll, 10000);
+  document.addEventListener("visibilitychange", () => scheduleAdminFallback());
 })();
 
 </script>

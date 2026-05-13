@@ -149,6 +149,7 @@ def aviationstack_to_raw_records(
         dep = f.get("departure") or {}
         arr = f.get("arrival") or {}
         airline = f.get("airline") or {}
+        operating_airline = f.get("operating_airline") or f.get("operatingAirline") or f.get("operator") or {}
         flight = f.get("flight") or {}
         aircraft = f.get("aircraft") or {}
 
@@ -224,6 +225,13 @@ def aviationstack_to_raw_records(
             "airline_name": airline.get("name"),
             "airline_iata": airline_iata,
             "airline_icao": airline_icao,
+            "marketing_airline_name": airline.get("name"),
+            "marketing_airline_iata": airline_iata,
+            "marketing_airline_icao": airline_icao,
+            "marketing_flight_number": _pick(flight_iata, flight_icao),
+            "operating_airline_name": operating_airline.get("name") if isinstance(operating_airline, dict) else None,
+            "operating_airline_iata": operating_airline.get("iata") if isinstance(operating_airline, dict) else None,
+            "operating_airline_icao": operating_airline.get("icao") if isinstance(operating_airline, dict) else None,
             "flight_number": _pick(flight_iata, flight_icao),
             "codeshares": _codeshare_identifiers(flight),
             "origin_iata": dep.get("iata"),

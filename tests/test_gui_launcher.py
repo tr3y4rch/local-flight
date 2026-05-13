@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 import importlib
+import types
 
 import pytest
 
@@ -213,6 +214,52 @@ def test_native_client_window_footer_links(monkeypatch: pytest.MonkeyPatch) -> N
     assert window.footer_github_button.text() == "GitHub"
     assert window.footer_coffee_button.text() == "Buy Me a Coffee"
     assert opened == [legacy_app.GITHUB_URL, legacy_app.COFFEE_URL]
+
+
+def test_native_shell_responsive_nav_density(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    pytest.importorskip("PySide6")
+    from PySide6 import QtWidgets
+    from localflight.native.app import NativeMainWindow
+    from localflight.native.qt_compat import import_qt
+
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    window = NativeMainWindow(*import_qt(), base_url="http://127.0.0.1:9", first_launch=False)
+
+    window._apply_nav_density(800)
+    assert app is not None
+    assert not window.nav_more_button.isHidden()
+    assert window.utility_nav_group.isHidden()
+    assert window.live_status.isHidden()
+    assert not window.sync_chip.isHidden()
+    assert window.quit_button.text() == chr(0x23FB)
+    assert window._nav_buttons["display"].text() == window._nav_buttons["display"].property("lf_glyph")
+    assert window._nav_buttons["settings"].toolTip() == "Settings"
+    assert [action.text() for action in window.nav_more_menu.actions()] == [
+        f"{window._nav_buttons[key].property('lf_glyph')} {window._nav_buttons[key].property('lf_label')}".strip()
+        for key in ["settings", "admin", "history", "logs", "feedback"]
+    ]
+
+    window._apply_nav_density(1100)
+    assert window.nav_more_button.isHidden()
+    assert not window.utility_nav_group.isHidden()
+    assert window._nav_buttons["display"].text().endswith("Display")
+    assert window._nav_buttons["settings"].text() == window._nav_buttons["settings"].property("lf_glyph")
+    assert not window.version_label.isVisible()
+
+    window._apply_nav_density(1800)
+    assert window._nav_buttons["settings"].text().endswith("Settings")
+    assert not window.version_label.isHidden()
+    assert not window.live_status.isHidden()
+
+
+def test_native_visual_density_breakpoints() -> None:
+    from localflight.native.geometry import native_visual_density
+
+    assert native_visual_density(800) == "compact"
+    assert native_visual_density(1024) == "medium"
+    assert native_visual_density(1440) == "wide"
+    assert native_visual_density(3840) == "presentation"
 
 
 def test_native_history_stats_render_code_labels(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -570,6 +617,32 @@ def test_native_main_window_constructs_pages_lazily(monkeypatch: pytest.MonkeyPa
     assert "localflight.native.pages.settings" in sys.modules
 
 
+def test_native_main_window_uses_page_aware_fallback_intervals(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    pytest.importorskip("PySide6")
+    from PySide6 import QtWidgets
+    from localflight.native.app import NativeMainWindow
+    from localflight.native.qt_compat import import_qt
+
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    window = NativeMainWindow(*import_qt(), base_url="http://127.0.0.1:9", first_launch=False)
+
+    assert app is not None
+    assert window.refresh_timer.isSingleShot()
+    assert window.current_screen_key == "display"
+    assert window._fallback_interval_ms() == 300_000
+
+    window.current_screen_key = "settings"
+    assert window._fallback_interval_ms() is None
+
+    radar_payload = types.SimpleNamespace(_last_payload={"refresh_after_s": 120})
+    monkeypatch.setattr(window, "_ensure_screen", lambda key: radar_payload)
+    window.current_screen_key = "radar"
+    assert window._fallback_interval_ms() == 120_000
+    radar_payload._last_payload = {"refresh_after_s": 10}
+    assert window._fallback_interval_ms() == 60_000
+
+
 def test_native_parity_screens_construct_core_controls(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
     pytest.importorskip("PySide6")
@@ -595,20 +668,29 @@ def test_native_parity_screens_construct_core_controls(monkeypatch: pytest.Monke
 
     assert app is not None
     assert setup.tabs.count() == 6
-    assert setup.step_names[0] == "Welcome"
+    assert setup.step_names == ["Welcome", "Airport", "Flight Data", "Optional Keys", "Diagnostics", "Review & Launch"]
     assert setup.relay_url.text() == "https://localflight-community-relay.fly.dev"
+    assert setup.web_fallback_btn.text() == "Open LAN browser setup"
     assert setup.loading_indicator.isVisible() is False
     assert setup.provider_action_status.text()
     assert setup.setup_mode.currentData() == "community"
     assert setup.diagnostics_mode.currentData() == "manual"
     assert setup.finish_btn.isVisible() is False
+    assert [button.text() for button in setup.step_buttons] == ["1  Welcome", "2  Airport", "3  Data", "4  Keys", "5  Reports", "6  Launch"]
+    assert all(button.objectName() == "SetupStepButton" for button in setup.step_buttons)
+    assert all(card.objectName() == "SetupOptionCard" for card in setup.source_buttons.values())
     assert matrix.canvas is not None
     assert matrix.loading_indicator.isVisible() is False
     assert matrix.script_preview.isReadOnly()
+    assert matrix.flash_group.isCheckable()
+    assert matrix.devices_group.isCheckable()
+    assert matrix.configs_group.isCheckable()
+    assert matrix.advanced_group.isCheckable()
+    assert matrix.summary_labels["panel"].text()
     assert matrix.zoom_value.text().endswith("px")
     assert matrix.brightness_value.text().endswith("%")
     assert matrix.animation_mode.currentData() == "split_flap"
-    assert any(button.text() == "Generate code" for button in matrix.widget.findChildren(QtWidgets.QPushButton))
+    assert any(button.text() == "Generate main.py" for button in matrix.widget.findChildren(QtWidgets.QPushButton))
     assert logs.file_combo is not None
     assert logs.live_tail.text() == "Live tail"
     assert logs.loading_indicator.isVisible() is False
@@ -678,9 +760,43 @@ def test_native_matrix_controls_drive_preview_and_script(monkeypatch: pytest.Mon
     assert screen.zoom_value.text() == "7px"
     screen.save_config()
     assert client.saved["animation_enabled"] is False
+    screen.wifi_ssid.setText("BoardNet")
+    screen.api_host.setText("localflight.local")
     screen.generate_script()
     assert client.script_payload["animation_enabled"] is False
     assert "ANIMATION_ENABLED" in screen.script_preview.toPlainText()
+
+
+def test_native_matrix_generator_validation_blocks_unsafe_hosts(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    pytest.importorskip("PySide6")
+    from PySide6 import QtWidgets
+    from localflight.native.app import MatrixScreen
+    from localflight.native.qt_compat import import_qt
+
+    class _Client:
+        def __init__(self) -> None:
+            self.called = False
+
+        def post_text(self, path: str, payload: dict[str, object]) -> str:
+            self.called = True
+            return "generated"
+
+    _QtCore, _QtGui, QtWidgets2 = import_qt()
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    client = _Client()
+    screen = MatrixScreen(QtWidgets2, client)
+
+    screen.generate_script()
+    assert client.called is False
+    assert "Wi-Fi network name" in screen.action_status.text()
+
+    screen.wifi_ssid.setText("BoardNet")
+    screen.api_host.setText("localhost")
+    screen.generate_script()
+    assert client.called is False
+    assert "not localhost" in screen.action_status.text()
+    assert app is not None
 
 
 def test_native_matrix_canvas_timer_stops_when_screen_hidden(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -760,7 +876,8 @@ def test_native_setup_defaults_to_community_without_token(monkeypatch: pytest.Mo
     assert setup.tabs.count() == 6
     assert setup.setup_mode.currentData() == "community"
     assert "not linked" in setup.relay_status.text().lower()
-    assert setup.logo_label.minimumHeight() >= 120
+    assert setup.logo_label.minimumHeight() >= 90
+    assert setup.relay_status.property("tone") == "warn"
 
 
 def test_native_setup_airport_selection_updates_finish_summary(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -856,17 +973,18 @@ def test_native_setup_relay_actions_show_local_status(monkeypatch: pytest.Monkey
 
     setup.request_activation()
     assert app is not None
-    assert setup.relay_action_status.objectName() == "StatusGood"
+    assert setup.relay_action_status.objectName() == "SetupStatusChip"
+    assert setup.relay_action_status.property("tone") == "good"
     assert "connected" in setup.relay_action_status.text().lower()
     assert setup.request_activation_btn.isEnabled()
 
     setup.check_activation_status()
-    assert setup.relay_action_status.objectName() == "StatusGood"
+    assert setup.relay_action_status.property("tone") == "good"
     assert "active" in setup.relay_action_status.text().lower()
     assert setup.check_relay_status_btn.isEnabled()
 
     setup.test_activation()
-    assert setup.relay_action_status.objectName() == "StatusGood"
+    assert setup.relay_action_status.property("tone") == "good"
     assert "token works" in setup.relay_action_status.text().lower()
     assert setup.test_token_btn.isEnabled()
 
@@ -900,12 +1018,13 @@ def test_native_setup_provider_key_actions_show_feedback(monkeypatch: pytest.Mon
 
     setup.test_aviationstack()
     assert app is not None
-    assert setup.provider_action_status.objectName() == "StatusWarn"
+    assert setup.provider_action_status.objectName() == "SetupStatusChip"
+    assert setup.provider_action_status.property("tone") == "warn"
     assert "paste" in setup.provider_action_status.text().lower()
 
     setup.aviationstack_key.setText("secret-test-key")
     setup.test_aviationstack()
-    assert setup.provider_action_status.objectName() == "StatusGood"
+    assert setup.provider_action_status.property("tone") == "good"
     assert "works" in setup.provider_action_status.text().lower()
     assert setup.test_as_btn.isEnabled()
     assert setup.loading_indicator.isVisible() is False
@@ -1777,6 +1896,29 @@ def test_native_weather_line_translates_icons_and_keeps_keys_hidden() -> None:
     assert line.startswith(chr(0x2614))
     assert "rain VFR" not in line
     assert "Light rain" in line
+    assert "|" not in line
+    assert "12°C" in line
+
+
+def test_native_fids_header_keeps_actions_readable(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    pytest.importorskip("PySide6")
+    from PySide6 import QtWidgets
+    from localflight.native.app import FidsScreen
+    from localflight.native.qt_compat import import_qt
+
+    QtCore, QtGui, QtWidgets2 = import_qt()
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    screen = FidsScreen(QtCore, QtGui, QtWidgets2, client=object())
+
+    assert app is not None
+    assert screen.widget.findChild(QtWidgets.QFrame, "FidsHeader") is not None
+    assert screen.widget.findChild(QtWidgets.QScrollArea, "NavScroll") is None
+    assert screen.weather.objectName() == "WeatherChip"
+    assert screen.arr_btn.minimumHeight() >= 36
+    assert screen.dep_btn.minimumHeight() >= 36
+    assert screen.refresh_button.objectName() == "FidsActionButton"
+    assert screen.refresh_button.minimumHeight() >= 36
 
 
 def test_native_fids_detail_splits_real_and_virtual(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -2377,6 +2519,44 @@ def test_native_settings_config_payload_preserves_fields(monkeypatch: pytest.Mon
     assert payload["display_outputs"] == ["web"]
 
 
+def test_native_settings_filters_community_relay_refresh_options(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    pytest.importorskip("PySide6")
+    from PySide6 import QtWidgets
+    from localflight.native.app import SettingsScreen
+    from localflight.native.qt_compat import import_qt
+    import localflight.sources.web.aviationstack_client as aviationstack_client
+
+    monkeypatch.setattr(aviationstack_client, "_has_enabled_byok_key", lambda: False)
+    monkeypatch.setattr(aviationstack_client, "_has_enabled_aerodatabox_byok_key", lambda: False)
+    monkeypatch.setattr(aviationstack_client, "_has_activation_token", lambda: False)
+    monkeypatch.setattr(aviationstack_client, "_has_community_api_key", lambda: False)
+
+    QtCore, QtGui, QtWidgets2 = import_qt()
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    screen = SettingsScreen(QtCore, QtGui, QtWidgets2, client=object(), base_url="http://127.0.0.1:9")
+    screen._populate_config(
+        {
+            "airport_iata": "ZRH",
+            "airport_icao": "LSZH",
+            "timezone": "Europe/Zurich",
+            "display_name": "Local Flight",
+            "source": "real",
+            "refresh_seconds": 900,
+        }
+    )
+
+    values = [
+        int(screen.refresh_seconds.itemData(index))
+        for index in range(screen.refresh_seconds.count())
+    ]
+
+    assert app is not None
+    assert values[0] == 3600
+    assert 900 not in values
+    assert int(screen.refresh_seconds.currentData()) == 3600
+
+
 def test_native_settings_actions_use_native_service(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
     pytest.importorskip("PySide6")
@@ -2583,7 +2763,32 @@ def test_web_brand_font_is_bundled_and_scoped_to_brand_surfaces() -> None:
     assert "font-family: var(--font-brand)" in base_template
     assert "font-family: var(--font-brand)" in splash_template
     assert "setup-brand-wordmark" in setup_template
+    assert "First launch wizard" in setup_template
+    assert "setup_guidance.step_short_labels" in setup_template
+    assert "diagnosticsModeInput" in setup_template
+    assert "Open LAN browser setup" not in setup_template
+    assert "/v1/flights" not in setup_template
+    assert "/v1/schedule" not in setup_template
+    assert "browser fallback" not in setup_template.lower()
+    assert "legacy" not in setup_template.lower()
     assert "font-family: var(--font-brand)" not in Path("src/localflight/ui/static/app.css").read_text(encoding="utf-8")
+
+
+def test_setup_guidance_copy_is_shared_and_user_facing() -> None:
+    from localflight.ui.setup_guidance import DIAGNOSTICS_OPTIONS, SOURCE_OPTIONS, STEP_NAMES, STEP_SHORT_LABELS, WELCOME_CARDS
+
+    assert STEP_NAMES == ("Welcome", "Airport", "Flight Data", "Optional Keys", "Diagnostics", "Review & Launch")
+    assert STEP_SHORT_LABELS == ("Welcome", "Airport", "Data", "Keys", "Reports", "Launch")
+    assert {option["mode"] for option in SOURCE_OPTIONS} == {"community", "byok", "virtual"}
+    assert {option["mode"] for option in DIAGNOSTICS_OPTIONS} == {"manual", "auto", "auto_logs"}
+    joined = " ".join(
+        [*STEP_NAMES]
+        + [card["body"] for card in WELCOME_CARDS]
+        + [option["body"] for option in SOURCE_OPTIONS]
+        + [option["body"] for option in DIAGNOSTICS_OPTIONS]
+    ).lower()
+    assert "browser fallback" not in joined
+    assert "legacy" not in joined
 
 
 def test_native_light_theme_keeps_nav_and_core_text_readable() -> None:
@@ -3105,6 +3310,7 @@ def test_native_service_adapters_cover_native_actions() -> None:
         "refresh_seconds": 60,
         "page_rotation_seconds": 10,
         "animation_enabled": True,
+        "show_gate_info": False,
     }
 
     service.clear_cache()
@@ -3134,6 +3340,8 @@ def test_native_service_adapters_cover_native_actions() -> None:
     assert "/api/matrix/v2/configs/cfg1" in paths
     assert "/api/matrix/config" in paths
     assert "/api/matrix/script" in paths
+    compat_payload = next(payload for method, path, payload in client.calls if method == "post_json" and path == "/api/matrix/config")
+    assert compat_payload["show_gate_info"] is False
     assert "/api/admin/scheduler/restart" in paths
     assert "/profiles/save" in paths
     assert "/profiles/load" in paths

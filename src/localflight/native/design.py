@@ -334,6 +334,9 @@ QWidget {{
   font-family: {UI_FONT_STACK};
   font-size: 13px;
 }}
+QLabel {{
+  background: transparent;
+}}
 QMainWindow {{
   background: {colors["bg"]};
 }}
@@ -358,22 +361,71 @@ QFrame#Card, QFrame#Panel {{
   border: 1px solid {colors["line"]};
   border-radius: 14px;
 }}
+QFrame#SetupPanel {{
+  background: {colors["panel"]};
+  border: 1px solid {colors["line"]};
+  border-radius: 18px;
+}}
+QFrame#SetupOptionCard {{
+  background: {subtle_surface};
+  border: 1px solid {soft_surface};
+  border-radius: 14px;
+}}
+QFrame#SetupOptionCard[selected="true"] {{
+  background: {_rgba(accent, 0.16)};
+  border-color: {accent};
+}}
+QFrame#SetupSummaryCard {{
+  background: {subtle_surface};
+  border: 1px solid {soft_surface};
+  border-radius: 13px;
+}}
+QFrame#SetupSummaryCard[tone="good"] {{
+  background: {_rgba(colors["green"], 0.08)};
+  border-color: {_rgba(colors["green"], 0.30)};
+}}
+QFrame#SetupSummaryCard[tone="warn"] {{
+  background: {_rgba(colors["amber"], 0.08)};
+  border-color: {_rgba(colors["amber"], 0.30)};
+}}
 QFrame#WeatherStrip {{
   background: {subtle_surface};
   border: 1px solid {_rgba(accent, 0.22)};
   border-radius: 10px;
 }}
+QFrame#WeatherChip {{
+  background: {_rgba(accent, 0.08)};
+  border: 1px solid {_rgba(accent, 0.24)};
+  border-radius: 12px;
+}}
 QFrame#WeatherStrip[tone="good"] {{
   background: {_rgba(colors["green"], 0.10)};
   border-color: {_rgba(colors["green"], 0.28)};
+}}
+QFrame#WeatherChip[tone="good"] {{
+  background: {_rgba(colors["green"], 0.08)};
+  border-color: {_rgba(colors["green"], 0.26)};
 }}
 QFrame#WeatherStrip[tone="caution"] {{
   background: {_rgba(colors["amber"], 0.11)};
   border-color: {_rgba(colors["amber"], 0.30)};
 }}
+QFrame#WeatherChip[tone="caution"] {{
+  background: {_rgba(colors["amber"], 0.09)};
+  border-color: {_rgba(colors["amber"], 0.30)};
+}}
 QFrame#WeatherStrip[tone="bad"] {{
   background: {_rgba(colors["red"], 0.11)};
   border-color: {_rgba(colors["red"], 0.34)};
+}}
+QFrame#WeatherChip[tone="bad"] {{
+  background: {_rgba(colors["red"], 0.09)};
+  border-color: {_rgba(colors["red"], 0.34)};
+}}
+QFrame#FidsHeader {{
+  background: {subtle_surface};
+  border: 1px solid {_rgba(accent, 0.18)};
+  border-radius: 14px;
 }}
 QFrame#InfoBanner {{
   background: {_rgba(accent, 0.10)};
@@ -481,10 +533,91 @@ QLabel#ClockChip[connected="true"] {{
   border-color: {colors["green"]};
   background: {_rgba(colors["green"], 0.12)};
 }}
+QFrame#SyncChip {{
+  background: {control_subtle_surface};
+  border: 1px solid {control_soft_surface};
+  border-radius: 10px;
+}}
+QFrame#SyncChip[connected="true"] {{
+  border-color: {_rgba(colors["green"], 0.42)};
+  background: {_rgba(colors["green"], 0.08)};
+}}
+QLabel#SyncDot {{
+  color: {colors["amber"]};
+  font-size: 14px;
+}}
+QLabel#SyncDot[connected="true"] {{
+  color: {colors["green"]};
+}}
+QLabel#SyncText {{
+  color: {control_colors["muted"]};
+  font-family: {BOARD_FONT_STACK};
+  font-size: 11px;
+}}
+QLabel#SyncText[connected="true"] {{
+  color: {_ensure_contrast(colors["green"], control_subtle_surface, minimum=3.0)};
+}}
 QLabel#Title {{
   font-size: 24px;
   font-weight: 900;
   color: {colors["text"]};
+}}
+QLabel#SetupTitle {{
+  font-size: 24px;
+  font-weight: 900;
+  color: {colors["text"]};
+}}
+QLabel#SetupMuted {{
+  color: {muted_panel_text};
+  font-size: 13px;
+}}
+QLabel#SetupBadge {{
+  color: {_ensure_contrast(colors["text"], accent_soft, minimum=3.0)};
+  background: {accent_soft};
+  border: 1px solid {accent_border};
+  border-radius: 12px;
+  padding: 5px 10px;
+  font-family: {BOARD_FONT_STACK};
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+}}
+QLabel#SetupCardTitle {{
+  color: {colors["text"]};
+  font-weight: 900;
+  font-size: 15px;
+}}
+QLabel#SetupCardBody {{
+  color: {muted_panel_text};
+  font-size: 12px;
+  line-height: 1.35;
+}}
+QLabel#SetupStatusChip {{
+  color: {muted_panel_text};
+  background: {subtle_surface};
+  border: 1px solid {soft_surface};
+  border-radius: 10px;
+  padding: 8px 10px;
+}}
+QLabel#SetupStatusChip[tone="good"] {{
+  color: {_ensure_contrast(colors["green"], colors["panel"], minimum=3.0)};
+  background: {_rgba(colors["green"], 0.08)};
+  border-color: {_rgba(colors["green"], 0.28)};
+}}
+QLabel#SetupStatusChip[tone="warn"] {{
+  color: {_ensure_contrast(colors["amber"], colors["panel"], minimum=3.0)};
+  background: {_rgba(colors["amber"], 0.08)};
+  border-color: {_rgba(colors["amber"], 0.30)};
+}}
+QLabel#SetupStatusChip[tone="bad"] {{
+  color: {_ensure_contrast(colors["red"], colors["panel"], minimum=3.0)};
+  background: {_rgba(colors["red"], 0.08)};
+  border-color: {_rgba(colors["red"], 0.32)};
+}}
+QLabel#SetupSummaryValue {{
+  color: {colors["text"]};
+  font-weight: 900;
+  font-size: 14px;
 }}
 QLabel#AirportCode {{
   font-family: {BOARD_FONT_STACK};
@@ -498,6 +631,15 @@ QLabel#Subtle, QLabel#Muted {{
 }}
 QLabel#Dim {{
   color: {colors["dim"]};
+}}
+QLabel#FooterStatus {{
+  color: {colors["muted"]};
+  font-family: {BOARD_FONT_STACK};
+  font-size: 10px;
+}}
+QLabel#FooterTagline {{
+  color: {colors["dim"]};
+  font-size: 11px;
 }}
 QLabel#Kicker, QLabel#Section {{
   color: {colors["dim"]};
@@ -541,6 +683,21 @@ QPushButton:checked, QPushButton#NavButton:checked, QPushButton#SegmentButton:ch
   border-color: {accent};
   color: {checked_text};
 }}
+QPushButton#SetupStepButton {{
+  background: {subtle_surface};
+  border: 1px solid {soft_surface};
+  border-radius: 9px;
+  padding: 7px 10px;
+  color: {muted_panel_text};
+  font-family: {BOARD_FONT_STACK};
+  font-size: 10px;
+  font-weight: 900;
+}}
+QPushButton#SetupStepButton:checked {{
+  background: {accent_soft};
+  border-color: {accent};
+  color: {checked_text};
+}}
 QPushButton#NavButton {{
   background: {control_subtle_surface};
   border: 1px solid transparent;
@@ -557,9 +714,19 @@ QPushButton#SegmentButton {{
   background: {subtle_surface};
   border: 1px solid {soft_surface};
   border-radius: 7px;
-  padding: 6px 10px;
+  padding: 8px 12px;
   font-family: {BOARD_FONT_STACK};
   font-size: 11px;
+}}
+QPushButton#FidsActionButton {{
+  background: {button_bg};
+  border: 1px solid {button_border};
+  border-radius: 8px;
+  padding: 8px 14px;
+  color: {button_text};
+  font-family: {BOARD_FONT_STACK};
+  font-size: 11px;
+  font-weight: 900;
 }}
 QPushButton#Danger {{
   background: rgba(239,68,68,0.18);
@@ -570,6 +737,17 @@ QPushButton#Quiet, QToolButton#Quiet {{
   background: transparent;
   border-color: {strong_surface};
   color: {colors["muted"]};
+}}
+QPushButton#FooterLink {{
+  background: {_rgba(accent, 0.08)};
+  border: 1px solid {_rgba(accent, 0.22)};
+  border-radius: 8px;
+  color: {_ensure_contrast(colors["muted"], colors["bg"], minimum=3.0)};
+  padding: 6px 10px;
+}}
+QPushButton#FooterLink:hover {{
+  background: {_rgba(accent, 0.15)};
+  color: {colors["text"]};
 }}
 QLineEdit, QSpinBox, QComboBox {{
   background: {control_colors["input_bg"]};

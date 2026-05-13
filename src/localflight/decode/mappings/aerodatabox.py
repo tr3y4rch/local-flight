@@ -3,6 +3,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
+from localflight.core.aircraft import aircraft_full_label, short_aircraft_type
+
 
 def _s(value: Any) -> str:
     return "" if value is None else str(value)
@@ -112,12 +114,18 @@ def _codeshare_identifiers(row: Dict[str, Any]) -> List[str]:
     for block in blocks:
         if not isinstance(block, dict):
             continue
+        airline = _dict(block.get("airline") or block.get("Airline"))
+        number = _pick(block.get("number"), block.get("flightNumber"))
+        airline_iata = _pick(block.get("airlineIata"), block.get("airline_iata"), airline.get("iata"), airline.get("IATA"))
+        airline_icao = _pick(block.get("airlineIcao"), block.get("airline_icao"), airline.get("icao"), airline.get("ICAO"))
         candidates = (
             block.get("number"),
             block.get("flightNumber"),
             block.get("iata"),
             block.get("icao"),
             block.get("callSign"),
+            f"{airline_iata}{number}" if airline_iata and number else None,
+            f"{airline_icao}{number}" if airline_icao and number else None,
         )
         for candidate in candidates:
             text = _s(candidate).replace(" ", "").upper()
@@ -190,9 +198,33 @@ def aerodatabox_to_raw_records(
             if not row:
                 continue
             airline = _dict(row.get("airline") or row.get("Airline"))
+            operating_airline = _dict(
+                row.get("operatingAirline")
+                or row.get("OperatingAirline")
+                or row.get("operating_airline")
+                or row.get("operator")
+                or row.get("operatedBy")
+            )
             aircraft = _dict(row.get("aircraft") or row.get("Aircraft"))
             dep, arr = _movement_blocks(row, direction)
             time_block = dep if direction == "DEP" else arr
+            aircraft_short = short_aircraft_type(
+                aircraft.get("icaoCode"),
+                aircraft.get("icao"),
+                aircraft.get("iataCode"),
+                aircraft.get("iata"),
+                aircraft.get("model"),
+                aircraft.get("type"),
+                aircraft.get("name"),
+            )
+            aircraft_full = aircraft_full_label(
+                aircraft.get("model"),
+                aircraft.get("type"),
+                aircraft.get("name"),
+                aircraft.get("icaoCode"),
+                aircraft.get("icao"),
+                short_code=aircraft_short,
+            )
 
             flight_number = _flight_number(row, airline)
             callsign = _callsign(row, airline, flight_number)
@@ -219,18 +251,21 @@ def aerodatabox_to_raw_records(
                     "airline_name": _pick(airline.get("name"), airline.get("Name")),
                     "airline_iata": _pick(airline.get("iata"), airline.get("IATA")),
                     "airline_icao": _pick(airline.get("icao"), airline.get("ICAO")),
+                    "marketing_airline_name": _pick(airline.get("name"), airline.get("Name")),
+                    "marketing_airline_iata": _pick(airline.get("iata"), airline.get("IATA")),
+                    "marketing_airline_icao": _pick(airline.get("icao"), airline.get("ICAO")),
+                    "marketing_flight_number": flight_number,
+                    "operating_airline_name": _pick(operating_airline.get("name"), operating_airline.get("Name")),
+                    "operating_airline_iata": _pick(operating_airline.get("iata"), operating_airline.get("IATA")),
+                    "operating_airline_icao": _pick(operating_airline.get("icao"), operating_airline.get("ICAO")),
                     "flight_number": flight_number,
                     "codeshares": _codeshare_identifiers(row),
                     "origin_iata": origin_iata,
                     "origin_icao": origin_icao,
                     "destination_iata": destination_iata,
                     "destination_icao": destination_icao,
-                    "aircraft_type": _pick(
-                        aircraft.get("icaoCode"),
-                        aircraft.get("icao"),
-                        aircraft.get("model"),
-                        aircraft.get("type"),
-                    ),
+                    "aircraft_type": aircraft_short or None,
+                    "aircraft_type_full": aircraft_full or None,
                     "aircraft_registration": _pick(aircraft.get("reg"), aircraft.get("registration")),
                     "gate": _pick(time_block.get("gate"), time_block.get("Gate")),
                     "stand": _pick(time_block.get("stand"), time_block.get("parkingPosition")),

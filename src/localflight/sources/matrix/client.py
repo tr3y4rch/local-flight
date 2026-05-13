@@ -41,6 +41,7 @@ STATUS_ANIMATION_ENABLED = True
 SHOW_WEATHER    = True
 SHOW_GATE_INFO  = True
 PRESET           = "real_fids"
+PALETTE          = "pax_blue"
 RENDERER         = "modern_fids"
 MATRIX_CONFIG_REV = 0
 
@@ -169,7 +170,7 @@ def apply_skin(name):
     AMBER_BREATH = [graphics.create_pen(*_scaled_rgb(p[3], s)) for s in (0.38, 0.56, 0.74, 0.92, 1.0, 0.92, 0.74, 0.56)]
     _active_skin = name
 
-apply_skin("pax_blue")
+apply_skin(PALETTE)
 
 _GLYPHS = {
     "dep": ["00100", "01110", "10101", "00100", "01010"],
@@ -427,7 +428,9 @@ def _text_field(value, fallback=""):
         return str(fallback)
 
 def _clean_flight_number(value):
-    text = _text_field(value).replace("Also ", "").replace("ALSO ", "").strip()
+    text = _text_field(value)
+    text = text.replace("Sold as ", "").replace("SOLD AS ", "")
+    text = text.replace("Also ", "").replace("ALSO ", "").strip()
     text = text.replace(",", " ").replace("|", " ").replace("  ", " ")
     if not text or text.startswith("+"):
         return ""
@@ -447,7 +450,16 @@ def _codeshare_flights(row):
         if isinstance(raw, list):
             parts = raw
         else:
-            parts = str(raw).replace("Also ", "").replace("ALSO ", "").split("/")
+            parts = (
+                str(raw)
+                .replace("Sold as ", "")
+                .replace("SOLD AS ", "")
+                .replace("Also ", "")
+                .replace("ALSO ", "")
+                .replace("|", "/")
+                .replace(",", "/")
+                .split("/")
+            )
         for part in parts:
             code = _clean_flight_number(part)
             if code and code not in values:
@@ -778,7 +790,7 @@ def checkin_matrix_device():
 def fetch_matrix_config():
     global MAX_ROWS, REFRESH_S, PAGE_ROTATION_S, BRIGHTNESS, DEFAULT_VIEW
     global ANIMATION_ENABLED, ANIMATION_MODE, ANIMATION_SPEED, STATUS_ANIMATION_ENABLED
-    global SHOW_WEATHER, SHOW_GATE_INFO, PRESET, RENDERER, MATRIX_CONFIG_REV, _airport_iata, _airport_label
+    global SHOW_WEATHER, SHOW_GATE_INFO, PRESET, PALETTE, RENDERER, MATRIX_CONFIG_REV, _airport_iata, _airport_label
     data = _get_json(f"/api/matrix/v2/devices/{device_id()}/config", timeout=8)
     if not isinstance(data, dict):
         data = _get_json("/api/matrix/config", timeout=8)
@@ -810,9 +822,9 @@ def fetch_matrix_config():
     if _is_vatsim_preset():
         SHOW_GATE_INFO = False
     MATRIX_CONFIG_REV = data.get("config_rev", MATRIX_CONFIG_REV)
-    skin = data.get("palette") or data.get("skin") or "pax_blue"
-    if skin != _active_skin:
-        apply_skin(skin)
+    PALETTE = data.get("palette") or data.get("skin") or PALETTE or "pax_blue"
+    if PALETTE != _active_skin:
+        apply_skin(PALETTE)
     try:
         i75.set_brightness(BRIGHTNESS)
     except Exception:

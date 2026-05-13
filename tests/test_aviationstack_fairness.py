@@ -446,7 +446,7 @@ def test_api_fids_compiles_fused_aerodatabox_rows_for_web(monkeypatch) -> None:
     assert row.callsign == "SWR100"
     assert row.flight_display == "LX 100"
     assert row.airline_display == "Swiss"
-    assert row.codeshare_display == "Also BA7100 / UA9000"
+    assert row.codeshare_display == "Also BA 7100 / UA 9000"
     assert row.route_display == "London (LHR)"
     assert row.gate_display == "A42"
     assert row.terminal_display == "1"

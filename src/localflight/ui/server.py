@@ -20,6 +20,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from localflight.ui.api import router as api_router
+from localflight.ui.matrix_guidance import matrix_guidance_payload
 from localflight.core.airports import best_label
 from localflight.core.settings_options import settings_options_context
 from localflight.sources.web.relay_defaults import default_public_relay_url, relay_endpoint_url, validate_public_relay_url
@@ -52,6 +53,47 @@ SCHEDULER_SYNC_FIELDS = (
     "display_grace_minutes",
     "display_horizon_hours",
 )
+
+
+def _schedule_policy_for_source(source: Optional[str]) -> Dict[str, Any]:
+    try:
+        from localflight.sources.web.aviationstack_client import schedule_policy
+
+        return schedule_policy(source or load_config().source)
+    except Exception:
+        allowed = sorted(ALLOWED_REFRESH_SECONDS)
+        return {
+            "shared_relay": False,
+            "active_mode": "unknown",
+            "community_shared": False,
+            "min_refresh_seconds": min(allowed) if allowed else DEFAULT_REFRESH_SECONDS,
+            "allowed_refresh_seconds": allowed,
+            "reason": "",
+            "cooldown_remaining_seconds": 0,
+        }
+
+
+def _coerce_refresh_for_policy(refresh_seconds: int, source: Optional[str]) -> int:
+    policy = _schedule_policy_for_source(source)
+    allowed = [int(value) for value in (policy.get("allowed_refresh_seconds") or []) if int(value) in ALLOWED_REFRESH_SECONDS]
+    if not allowed:
+        allowed = sorted(ALLOWED_REFRESH_SECONDS)
+    refresh = int(refresh_seconds)
+    if refresh in allowed:
+        return refresh
+    minimum = int(policy.get("min_refresh_seconds") or min(allowed))
+    for value in sorted(allowed):
+        if value >= max(refresh, minimum):
+            return value
+    return max(allowed)
+
+
+def _settings_options_for_policy(policy: Dict[str, Any]) -> Dict[str, Any]:
+    options = settings_options_context()
+    allowed = {int(value) for value in (policy.get("allowed_refresh_seconds") or [])}
+    if allowed:
+        options["refresh"] = [option for option in options["refresh"] if int(option.get("value", 0)) in allowed]
+    return options
 
 
 def _scheduler_config_changed(before: AppConfig, after: AppConfig) -> bool:
@@ -459,10 +501,12 @@ async def websocket_endpoint(ws: WebSocket) -> None:
 
 @app.get("/setup", response_class=HTMLResponse)
 def setup_page(request: Request) -> HTMLResponse:
+    from localflight.ui.setup_guidance import guidance_context
+
     return templates.TemplateResponse(
         request=request,
         name="setup.html",
-        context={"relay_url_default": _relay_url_default()},
+        context={"relay_url_default": _relay_url_default(), "setup_guidance": guidance_context()},
     )
 
 
@@ -851,7 +895,7 @@ async def setup_complete(request: Request, background_tasks: BackgroundTasks) ->
         timezone=timezone_str,
         source=source,
         display_name=str(data.get("display_name") or "Local Flight").strip()[:40] or "Local Flight",
-        refresh_seconds=28800 if source == "real" else 900,
+        refresh_seconds=_coerce_refresh_for_policy(28800 if source == "real" else 900, source),
         diagnostics_mode=diagnostics_mode,
     )
     save_config(cfg)
@@ -904,6 +948,7 @@ def settings_page(
     cfg = load_config()
     state = load_state()
     profiles = list_profiles()
+    schedule_policy = _schedule_policy_for_source(cfg.source)
     return templates.TemplateResponse(
         request=request,
         name="settings.html",
@@ -911,7 +956,8 @@ def settings_page(
             "cfg": cfg,
             "state": state,
             "profiles": profiles,
-            "settings_options": settings_options_context(),
+            "settings_options": _settings_options_for_policy(schedule_policy),
+            "schedule_policy": schedule_policy,
             "saved": (saved == "1"),
             "profile_msg": profile_msg,
         },
@@ -1031,11 +1077,11 @@ async def save_settings(
     display_horizon_hours: int = Form(DEFAULT_DISPLAY_HORIZON_HOURS),
     radar_surface_enabled: Optional[str] = Form(None),
 ) -> RedirectResponse:
-    rs = int(refresh_seconds) if int(refresh_seconds) in ALLOWED_REFRESH_SECONDS else DEFAULT_REFRESH_SECONDS
-
     src = (source or DEFAULT_SOURCE).strip().lower()
     if src not in ALLOWED_SOURCES:
         src = DEFAULT_SOURCE
+    rs = int(refresh_seconds) if int(refresh_seconds) in ALLOWED_REFRESH_SECONDS else DEFAULT_REFRESH_SECONDS
+    rs = _coerce_refresh_for_policy(rs, src)
 
     sk = (skin or DEFAULT_SKIN).strip().lower()
     if sk not in ALLOWED_SKINS:
@@ -1274,6 +1320,7 @@ def matrix_preview(
             "pixel_size": pixel_size,
             "view": view,
             "rows": rows,
+            "matrix_guidance": matrix_guidance_payload(),
         },
     )
 

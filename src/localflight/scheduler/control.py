@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import os
 import threading
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -14,6 +15,8 @@ _thread: Optional[threading.Thread] = None
 _stop_event: Optional[threading.Event] = None
 _started_at: Optional[str] = None
 _generation = 0
+_last_restart_request_monotonic: Optional[float] = None
+_RESTART_COALESCE_S = 60.0
 
 
 def _utc_now() -> str:
@@ -113,10 +116,26 @@ def scheduler_status() -> Dict[str, Any]:
         }
 
 
-def restart_scheduler(timeout: float = 5.0) -> Dict[str, Any]:
-    global _thread, _stop_event
+def restart_scheduler(timeout: float = 5.0, *, coalesce_seconds: float = _RESTART_COALESCE_S) -> Dict[str, Any]:
+    global _thread, _stop_event, _last_restart_request_monotonic
 
     with _lock:
+        now = time.monotonic()
+        if _last_restart_request_monotonic is not None and coalesce_seconds > 0:
+            age_s = now - _last_restart_request_monotonic
+            if age_s < coalesce_seconds:
+                retry_after = max(1, int(coalesce_seconds - age_s))
+                log.info("Scheduler restart coalesced; retry_after=%ss", retry_after)
+                return {
+                    **scheduler_status(),
+                    "ok": False,
+                    "status": "rate_limited",
+                    "message": f"Scheduler restart was requested recently. Try again in {retry_after}s.",
+                    "was_running": bool(_thread and _thread.is_alive()),
+                    "started": False,
+                    "retry_after_s": retry_after,
+                }
+        _last_restart_request_monotonic = now
         old_thread = _thread
         old_stop = _stop_event
         was_running = bool(old_thread and old_thread.is_alive())

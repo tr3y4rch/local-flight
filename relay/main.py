@@ -25,7 +25,8 @@ from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from pydantic import BaseModel, Field, field_validator
 
 AVIATIONSTACK_URL = "https://api.aviationstack.com/v1/flights"
-AERODATABOX_URL = "https://aerodatabox.p.rapidapi.com"
+AERODATABOX_RAPIDAPI_URL = "https://aerodatabox.p.rapidapi.com"
+AERODATABOX_APIMARKET_URL = "https://prod.api.market/api/v1/aedbx/aerodatabox"
 ADSBX_URL = "https://adsbexchange-com1.p.rapidapi.com/v2"
 
 _UUID_RE = re.compile(
@@ -33,6 +34,8 @@ _UUID_RE = re.compile(
     re.IGNORECASE,
 )
 _AIRPORT_RE = re.compile(r"^[A-Z0-9]{2,4}$")
+_SCHEDULE_CACHE_KEY_RE = re.compile(r"^sch_[0-9a-f]{24}$")
+_NETWORK_TAG_RE = re.compile(r"^net_[0-9a-f]{14}$")
 
 _SETTING_AVIATIONSTACK_KEY = "provider_aviationstack_key"
 _SETTING_AERODATABOX_KEY = "provider_aerodatabox_key"
@@ -56,6 +59,7 @@ _SHARED_SCHEDULE_MIN_FRESH_TTL_S = 900
 _COMMUNITY_SCHEDULE_MIN_FRESH_TTL_S = 3600
 _SCHEDULE_GRACE_BUCKETS = (0, 30, 60, 120, 180)
 _SCHEDULE_HORIZON_BUCKETS = (6, 12, 18, 24)
+_AERODATABOX_MAX_FIDS_DURATION_MINUTES = 720
 _AIRPORT_SURFACE_SCHEMA_VERSION = "osm-surface-v1"
 _AIRPORT_SURFACE_LOCK_WAIT_S = 4.0
 
@@ -96,6 +100,7 @@ _SECRET_PATTERNS = (
     (re.compile(r"(AVIATIONSTACK_API_KEY|AERODATABOX_API_KEY|RAPIDAPI_KEY|OPENSKY_CLIENT_SECRET|LINEAR_API_KEY|LINEAR_REPORTER_API_KEY)=\S+", re.I), r"\1=[redacted]"),
     (re.compile(r"(access_key=)[^&\s]+", re.I), r"\1[redacted]"),
     (re.compile(r"(X-RapidAPI-Key['\":\s]+)[A-Za-z0-9._-]+", re.I), r"\1[redacted]"),
+    (re.compile(r"(x-magicapi-key['\":\s]+)[A-Za-z0-9._-]+", re.I), r"\1[redacted]"),
     (re.compile(r"lin_api_[A-Za-z0-9_]+", re.I), "[redacted-linear-token]"),
     (re.compile(r"lfm_[A-Za-z0-9._-]+", re.I), "[redacted-activation-token]"),
     (re.compile(r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b", re.I), "[redacted-uuid]"),
@@ -203,14 +208,14 @@ def _surface_allows_path(surface: str, path: str) -> bool:
 
 def _community_schedule_limit() -> int:
     try:
-        return int(_env("RELAY_COMMUNITY_SCHEDULE_LIMIT", _env("RELAY_MONTHLY_LIMIT", "50")))
+        return max(0, int(_env("RELAY_COMMUNITY_SCHEDULE_LIMIT", _env("RELAY_MONTHLY_LIMIT", "50"))))
     except ValueError:
         return 50
 
 
 def _community_radar_limit() -> int:
     try:
-        return int(_env("RELAY_RADAR_MONTHLY_LIMIT", "600"))
+        return max(0, int(_env("RELAY_RADAR_MONTHLY_LIMIT", "600")))
     except ValueError:
         return 600
 
@@ -226,7 +231,7 @@ def _community_daily_limit(service: str, scope: str) -> int:
     }
     default = defaults[(service_key, scope_key)]
     try:
-        return max(1, int(_env(f"RELAY_COMMUNITY_{service_key}_{scope_key}_DAILY_LIMIT", str(default))))
+        return max(0, int(_env(f"RELAY_COMMUNITY_{service_key}_{scope_key}_DAILY_LIMIT", str(default))))
     except ValueError:
         return default
 
@@ -335,6 +340,7 @@ def _db_path() -> Path:
 def _connect() -> sqlite3.Connection:
     conn = sqlite3.connect(str(_db_path()))
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA busy_timeout=5000")
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA synchronous=NORMAL")
     return conn
@@ -874,6 +880,34 @@ def _aerodatabox_key() -> str:
     return key
 
 
+def _aerodatabox_marketplace() -> str:
+    raw = _env("RELAY_AERODATABOX_MARKETPLACE", _env("AERODATABOX_MARKETPLACE", "apimarket"))
+    value = raw.lower().replace("_", "-")
+    if value in {"rapid", "rapid-api", "rapidapi"}:
+        return "rapidapi"
+    return "apimarket"
+
+
+def _aerodatabox_request_url(airport_iata: str) -> str:
+    base = AERODATABOX_RAPIDAPI_URL if _aerodatabox_marketplace() == "rapidapi" else AERODATABOX_APIMARKET_URL
+    return f"{base}/flights/airports/iata/{airport_iata.upper().strip()}"
+
+
+def _aerodatabox_request_headers() -> Dict[str, str]:
+    if _aerodatabox_marketplace() == "rapidapi":
+        return {
+            "X-RapidAPI-Key": _aerodatabox_key(),
+            "X-RapidAPI-Host": "aerodatabox.p.rapidapi.com",
+            "Accept": "application/json",
+            "User-Agent": "localflight-relay/0.2.7",
+        }
+    return {
+        "x-magicapi-key": _aerodatabox_key(),
+        "Accept": "application/json",
+        "User-Agent": "localflight-relay/0.2.7",
+    }
+
+
 def _has_aerodatabox_key() -> bool:
     key, _source = _provider_status(_SETTING_AERODATABOX_KEY, "AERODATABOX_API_KEY")
     return bool(key)
@@ -929,23 +963,23 @@ def _provider_failure_cooldown_seconds() -> int:
 
 
 def _schedule_network_rpm_limit() -> int:
-    return _int_env("RELAY_SCHEDULE_NETWORK_RPM_LIMIT", 120, minimum=1)
+    return _int_env("RELAY_SCHEDULE_NETWORK_RPM_LIMIT", 120, minimum=0)
 
 
 def _schedule_install_rpm_limit() -> int:
-    return _int_env("RELAY_SCHEDULE_INSTALL_RPM_LIMIT", 30, minimum=1)
+    return _int_env("RELAY_SCHEDULE_INSTALL_RPM_LIMIT", 30, minimum=0)
 
 
 def _schedule_global_rpm_limit() -> int:
-    return _int_env("RELAY_SCHEDULE_GLOBAL_RPM_LIMIT", 600, minimum=1)
+    return _int_env("RELAY_SCHEDULE_GLOBAL_RPM_LIMIT", 600, minimum=0)
 
 
 def _schedule_new_keys_network_daily_limit() -> int:
-    return _int_env("RELAY_SCHEDULE_NEW_KEYS_NETWORK_DAILY_LIMIT", 20, minimum=1)
+    return _int_env("RELAY_SCHEDULE_NEW_KEYS_NETWORK_DAILY_LIMIT", 20, minimum=0)
 
 
 def _schedule_new_keys_global_daily_limit() -> int:
-    return _int_env("RELAY_SCHEDULE_NEW_KEYS_GLOBAL_DAILY_LIMIT", 200, minimum=1)
+    return _int_env("RELAY_SCHEDULE_NEW_KEYS_GLOBAL_DAILY_LIMIT", 200, minimum=0)
 
 
 def _schedule_stale_if_error_seconds() -> int:
@@ -987,6 +1021,15 @@ def _get_usage(subject_key: str, service: str, month: str) -> int:
     ).fetchone()
     conn.close()
     return int(row["calls"] or 0) if row else 0
+
+
+def _usage_calls(row: Optional[sqlite3.Row]) -> int:
+    if row is None:
+        return 0
+    try:
+        return max(0, int(row["calls"] or 0))
+    except (KeyError, TypeError, ValueError):
+        return 0
 
 
 def _increment_usage(
@@ -1407,13 +1450,15 @@ def _check_and_increment_community_daily_limit(*, service: str, network_tag: str
     day = _day_key()
     network_limit = _community_daily_limit(service, "network")
     global_limit = _community_daily_limit(service, "global")
-    network_subject = f"community-network:{network_tag or 'unknown'}"
+    network_bucket = network_tag if _NETWORK_TAG_RE.fullmatch(network_tag or "") else "unknown"
+    network_subject = f"community-network:{network_bucket}"
     global_subject = "community-global"
     network_service = f"{service}:network-day"
     global_service = f"{service}:global-day"
 
     conn = _connect()
     try:
+        conn.execute("BEGIN IMMEDIATE")
         network_row = conn.execute(
             "SELECT calls FROM usage WHERE subject_key=? AND service=? AND month=?",
             (network_subject, network_service, day),
@@ -1422,17 +1467,21 @@ def _check_and_increment_community_daily_limit(*, service: str, network_tag: str
             "SELECT calls FROM usage WHERE subject_key=? AND service=? AND month=?",
             (global_subject, global_service, day),
         ).fetchone()
-        network_current = int(network_row["calls"] or 0) if network_row else 0
-        global_current = int(global_row["calls"] or 0) if global_row else 0
+        network_current = _usage_calls(network_row)
+        global_current = _usage_calls(global_row)
         if network_current >= network_limit:
+            conn.rollback()
             raise HTTPException(
                 status_code=429,
                 detail=f"Community relay {service_label} network daily limit reached; try again tomorrow.",
+                headers={"Retry-After": "86400"},
             )
         if global_current >= global_limit:
+            conn.rollback()
             raise HTTPException(
                 status_code=429,
                 detail=f"Community relay {service_label} daily safety limit reached; try again tomorrow.",
+                headers={"Retry-After": "86400"},
             )
 
         now = _utc_now()
@@ -1452,6 +1501,10 @@ def _check_and_increment_community_daily_limit(*, service: str, network_tag: str
                 (subject_key, scoped_service, day, now, plan_name),
             )
         conn.commit()
+    except Exception:
+        if conn.in_transaction:
+            conn.rollback()
+        raise
     finally:
         conn.close()
 
@@ -1492,7 +1545,7 @@ def _check_and_increment_schedule_rpm_limits(*, install_id: str, network_tag: st
             current = int(row["calls"] or 0) if row else 0
             if current >= int(limit):
                 conn.rollback()
-                raise HTTPException(status_code=429, detail=message)
+                raise HTTPException(status_code=429, detail=message, headers={"Retry-After": "60"})
         now = _utc_now()
         for subject, service, _limit, _message, plan in checks:
             conn.execute(
@@ -1517,8 +1570,13 @@ def _check_and_increment_schedule_rpm_limits(*, install_id: str, network_tag: st
 
 
 def _check_and_mark_new_schedule_cache_key(*, network_tag: str, cache_key: str) -> None:
+    cache_key = (cache_key or "").strip().lower()
+    if not _SCHEDULE_CACHE_KEY_RE.fullmatch(cache_key):
+        raise HTTPException(status_code=400, detail="Invalid schedule cache key")
+
     day = _day_key()
-    network_subject = f"schedule-new-key-network:{network_tag or 'unknown'}"
+    network_bucket = network_tag if _NETWORK_TAG_RE.fullmatch(network_tag or "") else "unknown"
+    network_subject = f"schedule-new-key-network:{network_bucket}"
     global_subject = "schedule-new-key-global"
     marker_subject = f"schedule-new-key:{cache_key}"
     marker_service = "schedule:new-cache-key-marker"
@@ -1555,18 +1613,22 @@ def _check_and_mark_new_schedule_cache_key(*, network_tag: str, cache_key: str) 
                 "SELECT calls FROM usage WHERE subject_key=? AND service=? AND month=?",
                 (subject, service, day),
             ).fetchone()
-            current = int(row["calls"] or 0) if row else 0
+            current = _usage_calls(row)
             if current >= int(limit):
                 conn.rollback()
-                raise HTTPException(status_code=429, detail=message)
+                raise HTTPException(status_code=429, detail=message, headers={"Retry-After": "86400"})
         now = _utc_now()
-        conn.execute(
+        marker_insert = conn.execute(
             """
             INSERT INTO usage (subject_key, service, month, calls, last_seen, plan, install_id)
             VALUES (?, ?, ?, 1, ?, 'new-key-marker', NULL)
+            ON CONFLICT(subject_key, service, month) DO NOTHING
             """,
             (marker_subject, marker_service, day, now),
         )
+        if marker_insert.rowcount == 0:
+            conn.commit()
+            return
         for subject, service, _limit, _message, plan in checks:
             conn.execute(
                 """
@@ -3108,10 +3170,13 @@ def _aerodatabox_upstream_payload(
         ],
     )
     offset_minutes = -max(0, int(display_grace_minutes))
-    duration_minutes = max(60, max(0, int(display_grace_minutes)) + max(1, int(display_horizon_hours)) * 60)
+    duration_minutes = min(
+        _AERODATABOX_MAX_FIDS_DURATION_MINUTES,
+        max(60, max(0, int(display_grace_minutes)) + max(1, int(display_horizon_hours)) * 60),
+    )
     try:
         response = _req.get(
-            f"{AERODATABOX_URL}/flights/airports/iata/{airport_iata.upper().strip()}",
+            _aerodatabox_request_url(airport_iata),
             params={
                 "offsetMinutes": offset_minutes,
                 "durationMinutes": duration_minutes,
@@ -3123,12 +3188,7 @@ def _aerodatabox_upstream_payload(
                 "withPrivate": "false",
                 "withLocation": "false",
             },
-            headers={
-                "X-RapidAPI-Key": _aerodatabox_key(),
-                "X-RapidAPI-Host": "aerodatabox.p.rapidapi.com",
-                "Accept": "application/json",
-                "User-Agent": "localflight-relay/1.0",
-            },
+            headers=_aerodatabox_request_headers(),
             timeout=25,
         )
     except Exception as exc:
@@ -3181,6 +3241,7 @@ def _fetch_aerodatabox_schedule_source_from_upstream(
         "units_spent": _aerodatabox_fids_units(),
         "raw_rows": len(payload.get("departures") or []) + len(payload.get("arrivals") or []),
         "record_count": len(records),
+        "marketplace": _aerodatabox_marketplace(),
         "planner_version": _SHARED_SCHEDULE_PLANNER_VERSION,
         "schema_version": _SHARED_SCHEDULE_SCHEMA_VERSION,
         "upstream_usage_precounted": True,
@@ -7635,6 +7696,9 @@ def relay_schedule(
     month = _month_key()
     current = _get_usage(access["subject_key"], "aviationstack", month)
     if current >= access["limit"]:
+        headers = _quota_headers("aviationstack", current, access["limit"], access["plan"])
+        if access["plan"] == "community":
+            headers["Retry-After"] = "86400"
         return JSONResponse(
             {
                 "error": {
@@ -7646,7 +7710,7 @@ def relay_schedule(
                 }
             },
             status_code=429,
-            headers=_quota_headers("aviationstack", current, access["limit"], access["plan"]),
+            headers=headers,
         )
 
     def _quota_headers_for_access(used_count: int) -> Dict[str, str]:
@@ -7958,6 +8022,9 @@ def relay_flights(
     month = _month_key()
     current = _get_usage(access["subject_key"], "aviationstack", month)
     if current >= access["limit"]:
+        headers = _quota_headers("aviationstack", current, access["limit"], access["plan"])
+        if access["plan"] == "community":
+            headers["Retry-After"] = "86400"
         return JSONResponse(
             {
                 "error": {
@@ -7966,7 +8033,7 @@ def relay_flights(
                 }
             },
             status_code=429,
-            headers=_quota_headers("aviationstack", current, access["limit"], access["plan"]),
+            headers=headers,
         )
 
     try:
@@ -8206,6 +8273,9 @@ def relay_radar(
     month = _month_key()
     current = _get_usage(access["subject_key"], "radar", month)
     if current >= access["limit"]:
+        headers = _quota_headers("radar", current, access["limit"], access["plan"])
+        if access["plan"] == "community":
+            headers["Retry-After"] = "86400"
         return JSONResponse(
             {
                 "error": {
@@ -8214,7 +8284,7 @@ def relay_radar(
                 }
             },
             status_code=429,
-            headers=_quota_headers("radar", current, access["limit"], access["plan"]),
+            headers=headers,
         )
 
     t0 = time.monotonic()

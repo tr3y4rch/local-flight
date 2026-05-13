@@ -48,3 +48,17 @@ def default_display_mode(available_width: int | None) -> str:
     if available_width is not None and available_width < 1320:
         return "fids"
     return "split"
+
+
+def native_visual_density(available_width: int | None) -> str:
+    """Return a named density bucket for the native shell chrome."""
+    if available_width is None:
+        return "wide"
+    width = max(1, int(available_width))
+    if width < 900:
+        return "compact"
+    if width < 1320:
+        return "medium"
+    if width >= 2200:
+        return "presentation"
+    return "wide"

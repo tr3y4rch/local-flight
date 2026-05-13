@@ -123,12 +123,32 @@ export type SchedulerRestartResponse = {
 };
 
 export type Budget = {
+  client_polling_policy?: {
+    mode?: string;
+    jitter_ratio?: number;
+    fids_fallback_seconds?: number;
+    admin_fallback_seconds?: number;
+    hidden_fallback_seconds?: number;
+    radar_visible_min_seconds?: number;
+    radar_hidden_min_seconds?: number;
+    mobile_min_fallback_seconds?: number;
+  };
+  schedule_policy?: {
+    shared_relay?: boolean;
+    active_mode?: string;
+    community_shared?: boolean;
+    min_refresh_seconds?: number;
+    allowed_refresh_seconds?: number[];
+    reason?: string;
+    cooldown_remaining_seconds?: number;
+  };
   aviationstack?: {
     mode?: "community" | "managed" | "relay" | "byok" | "virtual" | string;
     active_mode?: "community" | "managed" | "relay" | "byok" | "virtual" | string;
     relay_url?: string;
     enabled?: boolean;
     shared_relay?: boolean;
+    schedule_policy?: Budget["schedule_policy"];
     shared_snapshot?: {
       generated_at?: string;
       cache_state?: string;

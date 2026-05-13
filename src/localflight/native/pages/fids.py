@@ -907,13 +907,19 @@ class FidsScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
         board_layout.setContentsMargins(18, 18, 18, 18)
         board_layout.setSpacing(10)
 
-        header_widget = QtWidgets.QWidget()
+        header_widget = QtWidgets.QFrame()
+        header_widget.setObjectName("FidsHeader")
         header_widget.setMinimumWidth(0)
-        header = QtWidgets.QHBoxLayout(header_widget)
-        header.setContentsMargins(0, 0, 0, 0)
-        header.setSpacing(10)
+        header = QtWidgets.QVBoxLayout(header_widget)
+        header.setContentsMargins(12, 10, 12, 10)
+        header.setSpacing(8)
+        title_row = QtWidgets.QHBoxLayout()
+        title_row.setContentsMargins(0, 0, 0, 0)
+        title_row.setSpacing(10)
         title_box = QtWidgets.QVBoxLayout()
         title_box.setSpacing(1)
+        title_container = QtWidgets.QWidget()
+        title_container.setLayout(title_box)
         self.airport = QtWidgets.QLabel("LOCAL")
         self.airport.setObjectName("FidsAirportCode")
         airport_font = QtGui.QFont("Space Mono")
@@ -927,32 +933,48 @@ class FidsScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
         title_font.setBold(True)
         self.title.setFont(title_font)
         if embedded:
-            self.airport.hide()
-            self.title.hide()
+            title_container.hide()
         title_box.addWidget(self.airport)
         title_box.addWidget(self.title)
-        header.addLayout(title_box)
-        if not embedded:
-            header.addStretch(1)
+        title_row.addWidget(title_container)
+
+        self.weather = WeatherStrip(QtWidgets, "Weather loading...")
+        self.weather.setObjectName("WeatherChip")
+        self.weather.setMaximumHeight(46 if not embedded else 40)
+        self.weather.setMaximumWidth(520 if not embedded else 430)
+        self.weather.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Preferred)
+        title_row.addWidget(self.weather, 1)
+
+        live_box = QtWidgets.QWidget()
+        live_layout = QtWidgets.QHBoxLayout(live_box)
+        live_layout.setContentsMargins(0, 0, 0, 0)
+        live_layout.setSpacing(6)
+        self.live_dot = label(QtWidgets, chr(9679), "LiveDot")
+        self.last_updated = label(QtWidgets, "Airport LT --:--", "Muted")
+        live_layout.addWidget(self.live_dot)
+        live_layout.addWidget(self.last_updated)
+        title_row.addWidget(live_box)
+
+        controls_row = QtWidgets.QHBoxLayout()
+        controls_row.setContentsMargins(0, 0, 0, 0)
+        controls_row.setSpacing(8)
         self.arr_btn = self._segment_button("ARR", "arrivals")
         self.dep_btn = self._segment_button("DEP", "departures")
         self.dep_btn.setChecked(True)
         refresh = QtWidgets.QPushButton("Refresh")
+        refresh.setObjectName("FidsActionButton")
+        refresh.setMinimumHeight(36)
+        self.refresh_button = refresh
         refresh.clicked.connect(self.refresh)
-        self.live_dot = label(QtWidgets, chr(9679), "LiveDot")
-        self.last_updated = label(QtWidgets, "Airport LT --:--:--", "Muted")
         self.scan_indicator = label(QtWidgets, "", "Dim")
-        header.addWidget(self.live_dot)
-        header.addWidget(self.last_updated)
-        header.addWidget(self.scan_indicator)
-        header.addWidget(self.arr_btn)
-        header.addWidget(self.dep_btn)
-        header.addWidget(refresh)
-        if embedded:
-            header.addStretch(1)
+        controls_row.addWidget(self.arr_btn)
+        controls_row.addWidget(self.dep_btn)
+        controls_row.addWidget(refresh)
+        controls_row.addStretch(1)
+        controls_row.addWidget(self.scan_indicator)
+        header.addLayout(title_row)
+        header.addLayout(controls_row)
 
-        self.weather = WeatherStrip(QtWidgets, "Weather loading...")
-        self.weather.setMaximumHeight(48 if not embedded else 42)
         self.error_banner = _banner(QtWidgets, "Data fetch error", "ErrorBanner")
         self.info_banner = _banner(
             QtWidgets,
@@ -981,18 +1003,7 @@ class FidsScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
         self.codeshare_timer.setInterval(1350)
         self.codeshare_timer.timeout.connect(self._advance_codeshare_frames)
 
-        header_scroll = QtWidgets.QScrollArea()
-        header_scroll.setObjectName("NavScroll")
-        header_scroll.setWidgetResizable(True)
-        header_scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
-        header_scroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAsNeeded)
-        header_scroll.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
-        header_scroll.setMaximumHeight(72 if not embedded else 52)
-        header_scroll.setMinimumWidth(0)
-        header_scroll.setWidget(header_widget)
-
-        board_layout.addWidget(header_scroll)
-        board_layout.addWidget(self.weather)
+        board_layout.addWidget(header_widget)
         board_layout.addWidget(self.error_banner)
         board_layout.addWidget(self.info_banner)
         board_layout.addWidget(self.status)
@@ -1037,6 +1048,8 @@ class FidsScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
         button = self.QtWidgets.QPushButton(text)
         button.setObjectName("SegmentButton")
         button.setCheckable(True)
+        button.setMinimumHeight(36)
+        button.setMinimumWidth(56)
         button.clicked.connect(lambda _checked=False, v=view: self.set_view(v))
         return button
 
@@ -1450,13 +1463,16 @@ class FidsScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
             f"<div class='hero-sub'>{self._h(airline or source)}</div>",
             f"<div class='hero-route'><span>{self._h(route[0])}</span><b>&#8594;</b><span>{self._h(route[1])}</span></div>",
             f"<div class='hero-chips'><span class='chip status {status_class}'>{self._h(status)}</span><span class='chip gate'>&#9635; {self._h(gate)}</span><span class='chip aircraft'>&#9992; {self._h(aircraft)}</span></div>",
+            self._hero_pills_html(detail),
             "</div>",
         ]
+        parts.append(self._detail_card_html("Flight Identity", "&#9673;", self._identity_fields(detail), wide=True))
         if virtual:
             parts.append(self._detail_card_html("Virtual Flight", "&#9992;", [
                 ("Callsign", detail.get("callsign")),
                 ("Flight", detail.get("flight_display") or detail.get("flight_number")),
-                ("Aircraft", detail.get("aircraft_type")),
+                ("A/C code", detail.get("aircraft_type")),
+                ("Aircraft type", detail.get("aircraft_type_full") or value_at(detail, "intel.aircraft.model") or value_at(detail, "intel.aircraft.full_type")),
                 ("Status", detail.get("status") or detail.get("status_display")),
                 ("Source", source),
             ]))
@@ -1485,11 +1501,16 @@ class FidsScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
             parts.append(self._detail_card_html("Operations & Aircraft", "&#9635;", [
                 ("Terminal", detail.get("terminal")),
                 ("Gate", detail.get("gate")),
-                ("Aircraft", detail.get("aircraft_type")),
+                ("Stand", detail.get("stand") or value_at(detail, "intel.operations.stand")),
+                ("Direction", "Departure" if detail.get("direction") == "DEP" else "Arrival" if detail.get("direction") == "ARR" else detail.get("direction")),
+                ("A/C code", detail.get("aircraft_type")),
+                ("Aircraft type", detail.get("aircraft_type_full") or value_at(detail, "intel.aircraft.model") or value_at(detail, "intel.aircraft.full_type")),
+                ("Aircraft category", value_at(detail, "intel.aircraft.category")),
                 ("Registration", detail.get("aircraft_registration")),
+                ("ICAO24", value_at(detail, "intel.aircraft.icao24") or value_at(detail, "position.icao24")),
+                ("Squawk", value_at(detail, "intel.aircraft.squawk") or value_at(detail, "position.squawk")),
                 ("Callsign", detail.get("callsign")),
                 ("Airline", airline),
-                ("Codeshares", ", ".join(detail.get("codeshares") or [])),
             ]))
             parts.append(self._detail_card_html("Source Confidence", "&#9679;", [
                 ("Schedule", source),
@@ -1501,6 +1522,53 @@ class FidsScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
         parts.append(self._history_html(history))
         parts.append("</div>")
         return "".join(parts)
+
+    def _hero_pills_html(self, detail: dict[str, Any]) -> str:
+        items = [
+            ("gate", self._terminal_gate_line(detail)),
+            ("aircraft", self._aircraft_line(detail) or detail.get("aircraft_type_full") or value_at(detail, "intel.aircraft.model")),
+            ("track", "track available" if value_at(detail, "position.lat") or value_at(detail, "intel.motion.has_position") else "schedule only"),
+            ("source", detail.get("enriched_by") or detail.get("source")),
+        ]
+        pills = [f"<span class='mini-pill'><em>{self._h(label)}</em>{self._h(value)}</span>" for label, value in items if format_value(value)]
+        if not pills:
+            return ""
+        return "<div class='mini-pill-row'>" + "".join(pills) + "</div>"
+
+    def _identity_fields(self, detail: dict[str, Any]) -> list[tuple[str, Any]]:
+        sold_as = self._flight_identifier_list(detail.get("sold_as"))
+        sold_compact = {str(item).replace(" ", "") for item in sold_as}
+        codeshares = [
+            item
+            for item in self._flight_identifier_list(detail.get("codeshares"))
+            if str(item).replace(" ", "") not in sold_compact
+        ]
+        marketed = ", ".join(sold_as) or self._flight_identifier(detail.get("marketing_flight_number"))
+        if codeshares and marketed:
+            marketed = f"{marketed} | also {', '.join(codeshares[:4])}"
+        elif codeshares:
+            marketed = ", ".join(codeshares[:4])
+        return [
+            ("Operating flight", detail.get("flight_display") or self._flight_identifier(detail.get("flight_number")) or detail.get("callsign")),
+            ("Operating airline", detail.get("airline_display") or detail.get("airline_name") or detail.get("airline_iata") or detail.get("airline_icao")),
+            ("ATC callsign", detail.get("operating_callsign") or detail.get("callsign")),
+            ("Sold as / marketed", marketed),
+            ("Provider evidence", str(detail.get("identity_source") or value_at(detail, "intel.identity.identity_source") or "provider").replace("_", " ").upper()),
+        ]
+
+    def _flight_identifier_list(self, values: Any) -> list[str]:
+        if not values:
+            return []
+        raw_values = values if isinstance(values, (list, tuple, set)) else [values]
+        out: list[str] = []
+        for value in raw_values:
+            text = self._flight_identifier(value)
+            if text and text not in out:
+                out.append(text)
+        return out
+
+    def _flight_identifier(self, value: Any) -> str:
+        return _format_codeshare_number(value)
 
     def _history_html(self, history: list[dict[str, Any]]) -> str:
         if not history:
@@ -1551,13 +1619,31 @@ class FidsScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
             ("Altitude", self._altitude(value_at(detail, "position.altitude_m"))),
             ("Ground speed", self._speed(value_at(detail, "position.speed_ms"))),
             ("Heading", self._heading(value_at(detail, "position.heading"))),
+            ("Vertical rate", self._vertical_rate(value_at(detail, "position.vertical_rate") or value_at(detail, "intel.motion.vertical_rate_ms"))),
             ("On ground", value_at(detail, "position.on_ground")),
+            ("Distance", self._nm(value_at(detail, "intel.motion.distance_nm"))),
+            ("Radar status", value_at(detail, "intel.motion.radar_status")),
+            ("Track quality", str(value_at(detail, "intel.motion.source_quality") or "").replace("_", " ").upper()),
             ("Squawk", value_at(detail, "position.squawk")),
             ("Last contact", value_at(detail, "position.last_contact")),
         ]
         if not any(format_value(value) for _name, value in rows):
             return ""
         return self._detail_card_html(title, "&#8982;", rows)
+
+    def _vertical_rate(self, value: Any) -> str:
+        try:
+            fpm = float(value) * 196.8504
+        except (TypeError, ValueError):
+            return ""
+        sign = "+" if fpm >= 0 else ""
+        return f"{sign}{fpm:,.0f} fpm"
+
+    def _nm(self, value: Any) -> str:
+        try:
+            return f"{float(value):.1f} NM"
+        except (TypeError, ValueError):
+            return ""
 
     def _detail_card_html(self, title: str, icon: str, fields: list[tuple[str, Any]], *, quiet: bool = False, wide: bool = False) -> str:
         rows = [(name, format_value(value)) for name, value in fields if format_value(value)]
@@ -1614,6 +1700,7 @@ class FidsScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
 
     def _real_detail_sections(self, detail: dict[str, Any]) -> list[tuple[str, list[tuple[str, Any]]]]:
         return [
+            ("Flight Identity", self._identity_fields(detail)),
             ("Times (UTC)", [
                 ("Scheduled", detail.get("sched_time")),
                 ("Estimated", detail.get("est_time")),
@@ -1625,11 +1712,11 @@ class FidsScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
                 ("Destination", self._airport_line(detail, "dest")),
                 ("Terminal", detail.get("terminal")),
                 ("Gate", detail.get("gate")),
-                ("Aircraft", detail.get("aircraft_type")),
+                ("A/C code", detail.get("aircraft_type")),
+                ("Aircraft type", detail.get("aircraft_type_full") or value_at(detail, "intel.aircraft.model") or value_at(detail, "intel.aircraft.full_type")),
                 ("Registration", detail.get("aircraft_registration")),
                 ("Callsign", detail.get("callsign")),
                 ("Airline", detail.get("airline_display") or detail.get("airline_name") or detail.get("airline_iata")),
-                ("Codeshares", ", ".join(detail.get("codeshares") or [])),
             ]),
             ("Source Confidence", [
                 ("Schedule", value_at(detail, "data_sources.schedule") or detail.get("source")),
@@ -1653,7 +1740,8 @@ class FidsScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
             ("Virtual Flight", [
                 ("Callsign", detail.get("callsign")),
                 ("Flight", detail.get("flight_display") or detail.get("flight_number")),
-                ("Aircraft", detail.get("aircraft_type")),
+                ("A/C code", detail.get("aircraft_type")),
+                ("Aircraft type", detail.get("aircraft_type_full") or value_at(detail, "intel.aircraft.model") or value_at(detail, "intel.aircraft.full_type")),
                 ("Status", detail.get("status") or detail.get("status_display")),
                 ("Source", value_at(detail, "data_sources.schedule") or detail.get("source")),
             ]),
@@ -1769,12 +1857,27 @@ def _blend_qcolor(QtGui: Any, first: Any, second: Any, amount: float) -> Any:
 
 
 def _weather_line(payload: dict[str, Any], *, raw: bool) -> str:
-    cat = payload.get("flight_cat") or "?"
-    temp = payload.get("temperature_c")
-    temp_text = f"{temp} C" if temp is not None else "-- C"
-    summary = payload.get("decoded_summary") or payload.get("weather_summary") or payload.get("weather_label") or ""
+    cat = str(payload.get("flight_cat") or "").strip().upper()
+    temp_text = str(payload.get("temperature_short") or payload.get("temperature_display") or "").strip()
+    if not temp_text:
+        temp = payload.get("temperature_c")
+        temp_text = f"{temp}°C" if temp is not None else ""
+    summary = (
+        payload.get("condition_display")
+        or payload.get("weather_label")
+        or payload.get("weather_display")
+        or payload.get("weather_summary")
+        or payload.get("decoded_summary")
+        or "Weather observed"
+    )
+    parts = [str(summary).strip()]
+    if temp_text:
+        parts.append(temp_text.replace(" C", "°C"))
+    if cat:
+        parts.append(cat)
     raw_text = payload.get("raw_text") or payload.get("raw") or ""
-    return f"{cat} | {temp_text} | {summary}" + (f" | {raw_text}" if raw and raw_text else "")
+    line = " · ".join(part for part in parts if part)
+    return line + (f" · METAR {raw_text}" if raw and raw_text else "")
 
 
 def _weather_icon_glyph(icon_name: Any) -> str:
@@ -1821,7 +1924,7 @@ def _split_codeshare_text(value: str) -> list[str]:
     text = re.sub(r"(?i)\balso\b", " ", text)
     text = re.sub(r"(?i)\bsold\s+as\b", " ", text)
     text = re.sub(r"\+\s*\d+\b", " ", text)
-    return [part.strip() for part in re.split(r"[/,;|]+", text) if part.strip()]
+    return [part.strip() for part in re.split(r"[/,;|Â·]+", text) if part.strip()]
 
 
 def _split_display_delay(value: str) -> tuple[str, str]:
@@ -1947,6 +2050,9 @@ def _detail_css(colors: dict[str, str]) -> str:
         ".hero-chips{margin-top:6px;}"
         f".chip,.delay-chip{{border:1px solid {card_border};background:{chip_bg};color:{blue};border-radius:999px;padding:4px 8px;margin-right:5px;font:800 10px 'Space Mono','Consolas',monospace;text-transform:uppercase;}}"
         f".chip.gate,.chip.aircraft{{color:{text};background:{_css_rgba(blue, 0.10)};}}"
+        ".mini-pill-row{margin-top:10px;display:flex;flex-wrap:wrap;gap:5px;}"
+        f".mini-pill{{display:inline-block;border:1px solid {card_border};background:{_css_rgba(blue, 0.10)};color:{blue};border-radius:999px;padding:4px 8px;font:800 10px 'Space Mono','Consolas',monospace;text-transform:uppercase;}}"
+        f".mini-pill em{{font:800 8px 'DM Sans','Segoe UI',sans-serif;letter-spacing:.10em;color:{muted};font-style:normal;margin-right:5px;}}"
         f".status.good,.delay-chip.good{{border-color:{_css_rgba(green, 0.55)};background:{_css_rgba(green, 0.14)};color:{green};}}"
         f".status.warn,.delay-chip.warn{{border-color:{_css_rgba(amber, 0.60)};background:{_css_rgba(amber, 0.15)};color:{amber};}}"
         f".status.bad,.delay-chip.bad{{border-color:{_css_rgba(red, 0.60)};background:{_css_rgba(red, 0.15)};color:{red};}}"
@@ -1956,7 +2062,7 @@ def _detail_css(colors: dict[str, str]) -> str:
         f".time-strip{{border:1px solid {divider};background:{panel};border-radius:10px;padding:10px 10px 6px 10px;margin:0 0 12px 0;}}"
         f".time-key,.detail-row td:first-child,.route-line span{{color:{muted};font:700 9px 'Space Mono','Consolas',monospace;text-transform:uppercase;letter-spacing:.08em;}}"
         f".time-val,.detail-row b,.route-line b{{color:{text};font-weight:800;}}"
-        f".detail-card{{border:1px solid {divider};background:{panel};border-radius:10px;padding:11px;margin:0 0 12px 0;}}"
+        f".detail-card{{border:1px solid {divider};background:linear-gradient(180deg,{_css_rgba(blue, 0.045)},transparent 70%),{panel};border-radius:11px;padding:11px;margin:0 0 12px 0;}}"
         f".detail-card.quiet{{background:{card_bg};border-color:{card_border};}}"
         ".detail-card.wide .detail-row b{font-size:11px;}"
         f".detail-row td,.time-table td{{padding:6px 0;border-bottom:1px solid {divider};}}"

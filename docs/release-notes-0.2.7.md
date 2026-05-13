@@ -61,6 +61,9 @@ not affect you.
 - The admin SPA is now served from `relay/admin/admin.{html,css,js}` instead
   of being inlined in `relay/main.py`. No behavioral difference; future
   redesign iterations are easier to review.
+- AeroDataBox schedule fetching now supports API.Market keys by default, with
+  RapidAPI still available through the explicit marketplace setting. This keeps
+  the fused schedule path compatible with the key source selected during setup.
 
 ---
 

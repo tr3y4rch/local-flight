@@ -20,6 +20,7 @@ export type RefreshOptions = {
   nextHistoryHours?: HistoryWindow;
   nextRadarRadius?: RadarRadius;
   forceRadarGround?: boolean;
+  includeDashboard?: boolean;
 };
 
 export type ProjectedBlip = {

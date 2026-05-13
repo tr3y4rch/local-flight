@@ -25,6 +25,7 @@ import type {
   AppConfig,
   AppState,
   AirportResult,
+  Budget,
   ConfigPatch,
   DashboardSnapshot,
   DocDocument,
@@ -4732,6 +4733,7 @@ export function AirportConfigSheet({
   visible,
   serverUrl,
   currentConfig,
+  budget,
   profiles,
   onClose,
   onApplied,
@@ -4740,6 +4742,7 @@ export function AirportConfigSheet({
   visible: boolean;
   serverUrl: string;
   currentConfig: AppConfig | null;
+  budget: Budget | null;
   profiles: ConfigProfile[];
   onClose: () => void;
   onApplied: (config: AppConfig) => void;
@@ -4755,6 +4758,13 @@ export function AirportConfigSheet({
   const [profileName, setProfileName] = useState("");
   const [applyingProfileId, setApplyingProfileId] = useState<string | null>(null);
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const schedulePolicy = budget?.schedule_policy ?? budget?.aviationstack?.schedule_policy;
+  const policyAllowed = source === "real" && schedulePolicy?.community_shared
+    ? new Set((schedulePolicy.allowed_refresh_seconds ?? []).map((value) => Number(value)))
+    : null;
+  const refreshOptions = policyAllowed
+    ? REFRESH_OPTIONS.filter((opt) => policyAllowed.has(opt.seconds))
+    : REFRESH_OPTIONS;
 
   useEffect(() => {
     if (!visible) return;
@@ -4778,6 +4788,15 @@ export function AirportConfigSheet({
     setApplyError(null);
     setProfileName("");
   }, [visible, currentConfig]);
+
+  useEffect(() => {
+    if (refreshOptions.length > 0 && !refreshOptions.some((opt) => opt.seconds === refreshSecs)) {
+      const minimum = Number(schedulePolicy?.min_refresh_seconds ?? 3600);
+      const fallback = refreshOptions[0]?.seconds ?? 3600;
+      const next = refreshOptions.find((opt) => opt.seconds >= minimum)?.seconds ?? fallback;
+      setRefreshSecs(next);
+    }
+  }, [refreshOptions, refreshSecs, schedulePolicy?.min_refresh_seconds]);
 
   const doSearch = useCallback(
     (text: string) => {
@@ -4967,7 +4986,7 @@ export function AirportConfigSheet({
 
             <Text style={styles.configSectionLabel}>REFRESH INTERVAL</Text>
             <View style={styles.configIntervalGrid}>
-              {REFRESH_OPTIONS.map((opt) => (
+              {refreshOptions.map((opt) => (
                 <Pressable
                   key={opt.seconds}
                   style={[styles.configIntervalCell, refreshSecs === opt.seconds && styles.configIntervalCellActive]}
@@ -4980,7 +4999,9 @@ export function AirportConfigSheet({
               ))}
             </View>
             <Text style={styles.configPolicyText}>
-              Choices are 15, 30, 45, and 60 minutes, then 2, 4, 8, 12, or 24 hours. Shorter values keep local displays fresh; longer values are kinder to schedule providers. Community Relay may reuse an already-cached airport snapshot for about one hour even when this client checks more often.
+              {schedulePolicy?.community_shared && source === "real"
+                ? schedulePolicy.reason || "Community Relay uses hourly-or-slower shared schedule snapshots to protect upstream providers."
+                : "Refresh choices are 15, 30, 45, and 60 minutes, then longer options. Shorter values keep local displays fresh; longer values are kinder to schedule providers."}
             </Text>
 
             <Text style={styles.configSectionLabel}>PROFILES</Text>

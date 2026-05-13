@@ -175,10 +175,10 @@ Setup asks for:
 ### Data Access Choices
 
 - **Community Relay**: recommended first path. Uses shared hosted schedule snapshots so you do not need a paid schedule key on day one. The relay is cache-first and may combine compatible real schedule providers behind the scenes to keep boards populated.
-- **Bring your own keys**: use your own AeroDataBox or AviationStack schedule key, plus optional RapidAPI ADS-B Exchange and OpenSky credentials.
+- **Bring your own keys**: use your own AeroDataBox schedule key (API.Market by default, RapidAPI if selected by env), AviationStack schedule key, plus optional RapidAPI ADS-B Exchange and OpenSky credentials.
 - **VATSIM**: no real-world schedule key. Uses virtual network data.
 
-Community Relay protects shared provider usage, so a local 15 or 30 minute refresh setting may still reuse a cached shared airport snapshot for about one hour. If a live provider is unavailable, Local Flight can keep serving the latest safe cached board instead of replacing it with a bad empty refresh.
+Community Relay protects shared provider usage, so real schedule refresh choices are hourly-or-slower when the app is using the hosted shared relay. If a live provider is unavailable or the relay asks clients to back off, Local Flight can keep serving the latest safe cached board instead of replacing it with a bad empty refresh.
 
 ---
 

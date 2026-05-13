@@ -5,13 +5,16 @@ import sys
 import threading
 import types
 import xml.etree.ElementTree as ET
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import pytest
+from fastapi import BackgroundTasks
 from fastapi.testclient import TestClient
 
+import localflight.scheduler.control as scheduler_control
 import localflight.scheduler.jobs as jobs
 import localflight.scheduler.runtime as runtime
 import localflight.__main__ as localflight_main
@@ -31,7 +34,9 @@ import relay.main as relay_main
 from localflight.core.models import AirportRef, Flight, FlightDirection, FlightPosition, FlightTime
 from localflight.decode.metar import decorate_metar
 from localflight.decode.dedupe import dedupe_codeshares
+from localflight.decode.mappings.aerodatabox import aerodatabox_to_raw_records
 from localflight.decode.normalize import normalize_flights
+from localflight.display.fids_from_flights import flight_to_fids_row
 from localflight.native.api_client import _normalize_relay_base_url
 from localflight.platform.detect import Platform
 from localflight.platform.gui_mode import resolve_gui_mode
@@ -248,6 +253,7 @@ def test_fids_decodes_airline_names_and_links_codeshares() -> None:
             "scheduled": scheduled,
             "airline_icao": "UAL",
             "flight_number": "UAL100",
+            "codeshares": ["SWR100"],
             "destination_iata": "JFK",
         },
     ]
@@ -271,7 +277,244 @@ def test_fids_decodes_airline_names_and_links_codeshares() -> None:
     row = ctx["rows"][0]
     assert row.flight_display == "LX 100"
     assert row.airline_display == "SWISS"
-    assert row.codeshare_display == "Also UA 100"
+    assert row.codeshare_display == "Sold as UA 100"
+
+
+def test_omdb_operating_callsign_becomes_primary_and_marketed_is_sold_as() -> None:
+    scheduled = datetime(2026, 5, 1, 12, 0, tzinfo=timezone.utc).isoformat()
+    records = [
+        {
+            "callsign": "FDB2MY",
+            "direction": "DEP",
+            "status": "scheduled",
+            "scheduled": scheduled,
+            "airline_iata": "EK",
+            "airline_name": "Emirates",
+            "flight_number": "EK2131",
+            "destination_iata": "KHI",
+        }
+    ]
+
+    flights = normalize_flights(records, airport_iata="DXB", airport_icao="OMDB", source_name="test")
+
+    assert len(flights) == 1
+    flight = flights[0]
+    assert flight.airline.iata == "FZ"
+    assert flight.airline.name == "flydubai"
+    assert flight.flight_number == "FZ2MY"
+    assert flight.operating_callsign == "FDB2MY"
+    assert flight.marketing_flight_number == "EK2131"
+    assert "EK2131" in flight.sold_as
+    row = flight_to_fids_row(flight, view="departures", display_tz=ZoneInfo("UTC"))
+    assert row.flight_display == "FZ 2MY"
+    assert row.airline_display == "flydubai"
+    assert row.codeshare_display == "Sold as EK 2131"
+
+
+def test_omdb_flydubai_codeshare_becomes_primary_when_provider_markets_ek() -> None:
+    scheduled = datetime(2026, 5, 1, 12, 0, tzinfo=timezone.utc).isoformat()
+    records = [
+        {
+            "callsign": "UAE2426",
+            "direction": "DEP",
+            "status": "scheduled",
+            "scheduled": scheduled,
+            "airline_iata": "EK",
+            "airline_name": "Emirates",
+            "flight_number": "EK2426",
+            "codeshares": ["FZ315"],
+            "destination_iata": "KHI",
+        }
+    ]
+
+    flight = normalize_flights(records, airport_iata="DXB", airport_icao="OMDB", source_name="test")[0]
+
+    assert flight.airline.iata == "FZ"
+    assert flight.flight_number == "FZ315"
+    assert flight.identity_source == "airport_codeshare_hint"
+    assert "EK2426" in flight.sold_as
+    row = flight_to_fids_row(flight, view="departures", display_tz=ZoneInfo("UTC"))
+    assert row.flight_display == "FZ 315"
+    assert row.codeshare_display == "Sold as EK 2426"
+
+
+def test_fids_api_rows_expose_structured_operating_identity() -> None:
+    scheduled = datetime(2026, 5, 1, 12, 0, tzinfo=timezone.utc).isoformat()
+    flight = normalize_flights(
+        [
+            {
+                "callsign": "UAE2426",
+                "direction": "DEP",
+                "status": "scheduled",
+                "scheduled": scheduled,
+                "airline_iata": "EK",
+                "airline_name": "Emirates",
+                "flight_number": "EK2426",
+                "codeshares": ["FZ315"],
+                "destination_iata": "KHI",
+            }
+        ],
+        airport_iata="DXB",
+        airport_icao="OMDB",
+        source_name="test",
+    )[0]
+
+    rows = ui_api._fids_rows_from_flights(
+        cfg=AppConfig(airport_iata="DXB", airport_icao="OMDB", timezone="UTC"),
+        flights=[flight],
+        view="departures",
+        limit=10,
+        last_refreshed=datetime(2026, 5, 1, 10, 0, tzinfo=timezone.utc),
+    )
+
+    payload = rows[0].model_dump()
+    assert payload["flight_display"] == "FZ 315"
+    assert payload["flight_number"] == "FZ315"
+    assert payload["airline_iata"] == "FZ"
+    assert payload["sold_as"] == ["EK2426"]
+    assert payload["marketing_flight_number"] == "EK2426"
+    assert payload["identity_source"] == "airport_codeshare_hint"
+
+
+def test_matrix_payload_preserves_operating_identity_from_fids_row() -> None:
+    scheduled = datetime(2026, 5, 1, 12, 0, tzinfo=timezone.utc).isoformat()
+    flight = normalize_flights(
+        [
+            {
+                "callsign": "FDB2MY",
+                "direction": "DEP",
+                "status": "scheduled",
+                "scheduled": scheduled,
+                "airline_iata": "EK",
+                "airline_name": "Emirates",
+                "flight_number": "EK2131",
+                "destination_iata": "KHI",
+            }
+        ],
+        airport_iata="DXB",
+        airport_icao="OMDB",
+        source_name="test",
+    )[0]
+    row = flight_to_fids_row(flight, view="departures", display_tz=ZoneInfo("UTC"))
+
+    payload = ui_api._matrix_row_payload(row, preset="real_fids", show_gate_info=True)
+
+    assert payload["flight_display"] == "FZ 2MY"
+    assert payload["flight_number"] == "FZ2MY"
+    assert payload["airline_iata"] == "FZ"
+    assert payload["sold_as"] == ["EK2131"]
+    assert payload["codeshare_display"] == "Sold as EK 2131"
+    assert payload["marketing_flight_number"] == "EK2131"
+    assert payload["operating_callsign"] == "FDB2MY"
+    assert payload["identity_source"] == "callsign"
+
+
+def test_identity_aware_dedupe_collapses_marketed_rows_for_same_operating_flight() -> None:
+    scheduled = datetime(2026, 5, 1, 12, 0, tzinfo=timezone.utc).isoformat()
+    records = [
+        {
+            "callsign": "UAE2426",
+            "direction": "DEP",
+            "status": "scheduled",
+            "scheduled": scheduled,
+            "airline_iata": "EK",
+            "airline_name": "Emirates",
+            "flight_number": "EK2426",
+            "codeshares": ["FZ315"],
+            "destination_iata": "KHI",
+        },
+        {
+            "callsign": "UAL6506",
+            "direction": "DEP",
+            "status": "scheduled",
+            "scheduled": scheduled,
+            "airline_iata": "UA",
+            "airline_name": "United Airlines",
+            "flight_number": "UA6506",
+            "codeshares": ["FZ315", "EK2426"],
+            "destination_iata": "KHI",
+        },
+    ]
+
+    flights = normalize_flights(records, airport_iata="DXB", airport_icao="OMDB", source_name="test")
+    deduped = dedupe_codeshares(flights)
+
+    assert len(deduped) == 1
+    primary = deduped[0]
+    assert primary.airline.iata == "FZ"
+    assert primary.flight_number == "FZ315"
+    assert set(primary.sold_as) >= {"EK 2426", "UA 6506"}
+    assert set(primary.codeshares) >= {"EK 2426", "UA 6506"}
+
+
+def test_identity_aware_dedupe_prefers_explicit_operating_provider_row() -> None:
+    scheduled = datetime(2026, 5, 1, 12, 0, tzinfo=timezone.utc).isoformat()
+    records = [
+        {
+            "callsign": "FDB315",
+            "direction": "DEP",
+            "status": "scheduled",
+            "scheduled": scheduled,
+            "airline_iata": "FZ",
+            "airline_name": "flydubai",
+            "flight_number": "FZ315",
+            "codeshares": ["EK2426"],
+            "destination_iata": "KHI",
+            "gate": "A5",
+        },
+        {
+            "callsign": "UAE2426",
+            "direction": "DEP",
+            "status": "scheduled",
+            "scheduled": scheduled,
+            "airline_iata": "EK",
+            "airline_name": "Emirates",
+            "flight_number": "EK2426",
+            "codeshares": ["FZ315"],
+            "destination_iata": "KHI",
+            "gate": "B9",
+        },
+    ]
+
+    flights = normalize_flights(records, airport_iata="DXB", airport_icao="OMDB", source_name="test")
+    deduped = dedupe_codeshares(flights)
+
+    assert len(deduped) == 1
+    primary = deduped[0]
+    assert primary.callsign == "FDB315"
+    assert primary.flight_number == "FZ315"
+    assert primary.gate == "A5"
+    assert "EK 2426" in primary.sold_as
+
+
+def test_identity_aware_dedupe_keeps_unlinked_same_route_and_time_flights_separate() -> None:
+    scheduled = datetime(2026, 5, 1, 12, 0, tzinfo=timezone.utc).isoformat()
+    records = [
+        {
+            "callsign": "SWR100",
+            "direction": "DEP",
+            "status": "scheduled",
+            "scheduled": scheduled,
+            "airline_icao": "SWR",
+            "flight_number": "SWR100",
+            "destination_iata": "JFK",
+        },
+        {
+            "callsign": "UAL100",
+            "direction": "DEP",
+            "status": "scheduled",
+            "scheduled": scheduled,
+            "airline_icao": "UAL",
+            "flight_number": "UAL100",
+            "destination_iata": "JFK",
+        },
+    ]
+
+    flights = normalize_flights(records, airport_iata="ZRH", airport_icao="LSZH", source_name="test")
+    deduped = dedupe_codeshares(flights, preferred_airline_iata=["LX"])
+
+    assert len(deduped) == 2
+    assert {flight.flight_number for flight in deduped} == {"LX100", "UA100"}
 
 
 def test_fids_delay_visual_thresholds_and_early_arrivals() -> None:
@@ -464,6 +707,131 @@ def test_api_config_get_route_is_registered_once() -> None:
 
     assert len(routes) == 1
     assert routes[0].endpoint.__name__ == "api_get_config"
+
+
+def test_api_config_coerces_community_relay_refresh_to_hourly(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(storage_config, "config_path", lambda: tmp_path / "config.json")
+    storage_config.save_config(AppConfig(source="real", refresh_seconds=3600))
+    monkeypatch.setattr(aviationstack_client, "_has_enabled_byok_key", lambda: False)
+    monkeypatch.setattr(aviationstack_client, "_has_enabled_aerodatabox_byok_key", lambda: False)
+    monkeypatch.setattr(aviationstack_client, "_has_activation_token", lambda: False)
+    monkeypatch.setattr(aviationstack_client, "_has_community_api_key", lambda: False)
+
+    result = ui_api.api_patch_config(
+        ui_api.ConfigPatch(refresh_seconds=900),
+        BackgroundTasks(),
+    )
+
+    assert result["refresh_seconds"] == 3600
+    assert storage_config.load_config().refresh_seconds == 3600
+
+
+def test_api_config_keeps_byok_and_virtual_fast_refresh(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(storage_config, "config_path", lambda: tmp_path / "config.json")
+    storage_config.save_config(AppConfig(source="real", refresh_seconds=3600))
+    monkeypatch.setattr(aviationstack_client, "_has_enabled_byok_key", lambda: True)
+    monkeypatch.setattr(aviationstack_client, "_has_enabled_aerodatabox_byok_key", lambda: False)
+    monkeypatch.setattr(aviationstack_client, "_has_activation_token", lambda: False)
+    monkeypatch.setattr(aviationstack_client, "_has_community_api_key", lambda: False)
+
+    byok = ui_api.api_patch_config(ui_api.ConfigPatch(refresh_seconds=900), BackgroundTasks())
+    virtual = ui_api.api_patch_config(
+        ui_api.ConfigPatch(source="virtual", refresh_seconds=900),
+        BackgroundTasks(),
+    )
+
+    assert byok["refresh_seconds"] == 900
+    assert virtual["source"] == "virtual"
+    assert virtual["refresh_seconds"] == 900
+
+
+def test_admin_budget_exposes_schedule_policy(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(storage_config, "config_path", lambda: tmp_path / "config.json")
+    storage_config.save_config(AppConfig(source="real", refresh_seconds=3600))
+    monkeypatch.setattr(aviationstack_client, "_has_enabled_byok_key", lambda: False)
+    monkeypatch.setattr(aviationstack_client, "_has_enabled_aerodatabox_byok_key", lambda: False)
+    monkeypatch.setattr(aviationstack_client, "_has_activation_token", lambda: False)
+    monkeypatch.setattr(aviationstack_client, "_has_community_api_key", lambda: False)
+    monkeypatch.setattr(aviationstack_client, "_fetch_managed_status", lambda timeout_s=8: {"ok": False})
+
+    payload = ui_api.api_admin_budget()
+
+    assert payload["schedule_policy"]["community_shared"] is True
+    assert payload["schedule_policy"]["min_refresh_seconds"] == 3600
+    assert payload["schedule_policy"]["allowed_refresh_seconds"][0] == 3600
+    assert payload["aviationstack"]["schedule_policy"]["community_shared"] is True
+    assert payload["client_polling_policy"]["mode"] == "event_first"
+    assert payload["client_polling_policy"]["fids_fallback_seconds"] == 300
+    assert payload["client_polling_policy"]["mobile_min_fallback_seconds"] == 300
+
+
+def test_community_relay_cooldown_suppresses_repeated_schedule_requests(monkeypatch) -> None:
+    usage: dict[str, object] = {}
+    calls: list[str] = []
+
+    monkeypatch.setattr(aviationstack_client, "_load_usage", lambda: dict(usage))
+    monkeypatch.setattr(aviationstack_client, "_save_usage", lambda data: usage.clear() or usage.update(data))
+    monkeypatch.setattr(aviationstack_client, "_increment_community_budget", lambda limit, n_calls=1: None)
+    monkeypatch.setattr(aviationstack_client, "_get_activation_token", lambda: "")
+    monkeypatch.setattr(aviationstack_client, "_get_relay_limit", lambda: 50)
+    monkeypatch.setattr(storage_install, "get_install_id", lambda: "00000000-0000-0000-0000-000000000555")
+
+    def fake_get(url, *, params, headers, timeout):
+        calls.append(url)
+        return types.SimpleNamespace(
+            status_code=429,
+            headers={"Retry-After": "120"},
+            json=lambda: {"error": {"code": "quota_exceeded", "info": "slow down"}},
+        )
+
+    monkeypatch.setattr(aviationstack_client.requests, "get", fake_get)
+
+    with pytest.raises(aviationstack_client.AviationstackBudgetExceeded) as first:
+        aviationstack_client.fetch_relay_schedule_records(
+            airport_iata="ZRH",
+            timezone_name="Europe/Zurich",
+            return_meta=True,
+        )
+    with pytest.raises(aviationstack_client.AviationstackRelayCooldown) as second:
+        aviationstack_client.fetch_relay_schedule_records(
+            airport_iata="ZRH",
+            timezone_name="Europe/Zurich",
+            return_meta=True,
+        )
+
+    assert first.value.retry_after_s == 120
+    assert second.value.retry_after_s is not None and second.value.retry_after_s > 0
+    assert len(calls) == 1
+    assert "relay_cooldown" in usage
+
+
+def test_scheduler_restart_coalesces_repeated_background_requests(monkeypatch) -> None:
+    calls: list[str] = []
+
+    class _Thread:
+        name = "scheduler-test"
+
+        def is_alive(self) -> bool:
+            return True
+
+    monkeypatch.setattr(scheduler_control, "_thread", None)
+    monkeypatch.setattr(scheduler_control, "_stop_event", None)
+    monkeypatch.setattr(scheduler_control, "_last_restart_request_monotonic", None)
+
+    def _start() -> _Thread:
+        calls.append("start")
+        return _Thread()
+
+    monkeypatch.setattr(scheduler_control, "start_scheduler_thread", _start)
+
+    first = scheduler_control.restart_scheduler(coalesce_seconds=60)
+    second = scheduler_control.restart_scheduler(coalesce_seconds=60)
+
+    assert first["ok"] is True
+    assert second["ok"] is False
+    assert second["status"] == "rate_limited"
+    assert second["retry_after_s"] > 0
+    assert calls == ["start"]
 
 
 def test_windowed_pyinstaller_stdio_fallback_is_writable(tmp_path: Path, monkeypatch) -> None:
@@ -720,6 +1088,106 @@ def test_aerodatabox_byok_daily_cap_uses_atomic_sqlite_counter(tmp_path: Path, m
     assert local_usage.get_counter("aerodatabox_requests") == 0
 
 
+def test_aerodatabox_byok_uses_apimarket_gateway_by_default(monkeypatch) -> None:
+    monkeypatch.setenv("AERODATABOX_API_KEY", "adb-test")
+    monkeypatch.setenv("LOCALFLIGHT_AERODATABOX_ENABLED", "1")
+    monkeypatch.delenv("LOCALFLIGHT_AERODATABOX_MARKETPLACE", raising=False)
+    monkeypatch.delenv("AERODATABOX_MARKETPLACE", raising=False)
+    monkeypatch.setattr(aerodatabox_client, "_increment_units", lambda units: None)
+    captured: dict[str, object] = {}
+
+    def fake_get(url, *, params, headers, timeout):
+        captured.update({"url": url, "params": params, "headers": headers, "timeout": timeout})
+        return types.SimpleNamespace(status_code=200, json=lambda: {"departures": [], "arrivals": []})
+
+    monkeypatch.setattr(aerodatabox_client.requests, "get", fake_get)
+
+    payload = aerodatabox_client._request_payload(
+        airport_iata="ZRH",
+        display_grace_minutes=30,
+        display_horizon_hours=12,
+        timeout_s=7,
+    )
+
+    assert payload == {"departures": [], "arrivals": []}
+    assert str(captured["url"]).startswith("https://prod.api.market/api/v1/aedbx/aerodatabox/")
+    params = captured["params"]
+    assert isinstance(params, dict)
+    assert params["durationMinutes"] == 720
+    headers = captured["headers"]
+    assert isinstance(headers, dict)
+    assert headers["x-magicapi-key"] == "adb-test"
+    assert "X-RapidAPI-Key" not in headers
+
+
+def test_aerodatabox_aircraft_model_keeps_fids_code_short() -> None:
+    scheduled = datetime(2026, 5, 12, 10, 0, tzinfo=timezone.utc)
+    payload = {
+        "departures": [
+            {
+                "number": "100",
+                "callSign": "SWR100",
+                "status": "Scheduled",
+                "departure": {
+                    "airport": {"iata": "ZRH", "icao": "LSZH"},
+                    "scheduledTime": {"utc": scheduled.isoformat()},
+                },
+                "arrival": {
+                    "airport": {"iata": "JFK", "icao": "KJFK"},
+                    "scheduledTime": {"utc": scheduled.isoformat()},
+                },
+                "airline": {"name": "Swiss", "iata": "LX", "icao": "SWR"},
+                "aircraft": {"icaoCode": "A359", "model": "Airbus A350-900", "reg": "HB-JHA"},
+            }
+        ],
+        "arrivals": [],
+    }
+
+    records = aerodatabox_to_raw_records(payload, airport_iata="ZRH", airport_icao="LSZH")
+    flights = normalize_flights(records, airport_iata="ZRH", airport_icao="LSZH", source_name="aerodatabox")
+    row = flight_to_fids_row(flights[0], view="departures", display_tz=ZoneInfo("Europe/Zurich"))
+
+    assert records[0]["aircraft_type"] == "A359"
+    assert records[0]["aircraft_type_full"] == "Airbus A350-900"
+    assert flights[0].aircraft_type == "A359"
+    assert flights[0].aircraft_type_full == "Airbus A350-900"
+    assert row.aircraft_type == "A359"
+
+
+def test_aerodatabox_verbose_aircraft_model_is_mapped_for_board_display() -> None:
+    scheduled = datetime(2026, 5, 12, 10, 0, tzinfo=timezone.utc)
+    payload = {
+        "departures": [
+            {
+                "number": "200",
+                "callSign": "SWR200",
+                "status": "Scheduled",
+                "departure": {
+                    "airport": {"iata": "ZRH", "icao": "LSZH"},
+                    "scheduledTime": {"utc": scheduled.isoformat()},
+                },
+                "arrival": {
+                    "airport": {"iata": "SIN", "icao": "WSSS"},
+                    "scheduledTime": {"utc": scheduled.isoformat()},
+                },
+                "airline": {"name": "Swiss", "iata": "LX", "icao": "SWR"},
+                "aircraft": {"model": "Airbus A350-941"},
+            }
+        ],
+        "arrivals": [],
+    }
+
+    records = aerodatabox_to_raw_records(payload, airport_iata="ZRH", airport_icao="LSZH")
+    flights = normalize_flights(records, airport_iata="ZRH", airport_icao="LSZH", source_name="aerodatabox")
+    row = flight_to_fids_row(flights[0], view="departures", display_tz=ZoneInfo("Europe/Zurich"))
+
+    assert records[0]["aircraft_type"] == "A359"
+    assert records[0]["aircraft_type_full"] == "Airbus A350-941"
+    assert flights[0].aircraft_type == "A359"
+    assert flights[0].aircraft_type_full == "Airbus A350-941"
+    assert row.aircraft_type == "A359"
+
+
 def test_virtual_mode_does_not_clear_community_budget_memory(monkeypatch) -> None:
     monkeypatch.setattr(
         aviationstack_client,
@@ -822,6 +1290,64 @@ def test_api_radar_virtual_uses_vatsim_only(monkeypatch) -> None:
     assert result["blips"][0]["radar_status_label"] == "Departing"
     assert "name" not in result["blips"][0]
     assert "cid" not in result["blips"][0]
+
+
+def test_api_radar_snapshot_blips_preserve_operating_identity(monkeypatch) -> None:
+    scheduled = datetime(2026, 5, 1, 12, 0, tzinfo=timezone.utc).isoformat()
+    flight = normalize_flights(
+        [
+            {
+                "callsign": "UAE2426",
+                "direction": "DEP",
+                "status": "scheduled",
+                "scheduled": scheduled,
+                "airline_iata": "EK",
+                "airline_name": "Emirates",
+                "flight_number": "EK2426",
+                "codeshares": ["FZ315"],
+                "destination_iata": "KHI",
+            }
+        ],
+        airport_iata="DXB",
+        airport_icao="OMDB",
+        source_name="test",
+    )[0]
+    flight = replace(
+        flight,
+        position=FlightPosition(
+            lat=25.2528,
+            lon=55.3644,
+            altitude_baro=0,
+            heading=270,
+            speed_ms=4,
+            on_ground=True,
+            icao24="8960ab",
+        ),
+    )
+
+    monkeypatch.setattr(
+        ui_api,
+        "load_config",
+        lambda: AppConfig(airport_iata="DXB", airport_icao="OMDB", source="real"),
+    )
+    monkeypatch.setattr(
+        ui_api,
+        "lookup_airport",
+        lambda **kwargs: types.SimpleNamespace(lat=25.2532, lon=55.3657, icao="OMDB"),
+    )
+    monkeypatch.setattr(ui_api, "_load_latest_flights", lambda airport_iata: ([flight], datetime.now(timezone.utc)))
+    monkeypatch.setattr(adsbexchange_client, "is_available", lambda: False)
+
+    result = ui_api.api_radar(5.0)
+    blip = result["blips"][0]
+
+    assert result["source"] == "snapshot_positions"
+    assert blip["flight_number"] == "FZ315"
+    assert blip["airline_iata"] == "FZ"
+    assert blip["sold_as"] == ["EK2426"]
+    assert blip["codeshares"] == ["EK2426"]
+    assert blip["marketing_flight_number"] == "EK2426"
+    assert blip["identity_source"] == "airport_codeshare_hint"
 
 
 def test_api_radar_virtual_uses_exact_circular_range(monkeypatch) -> None:
@@ -1123,6 +1649,7 @@ def test_api_radar_surface_falls_back_to_local_stale_cache(monkeypatch) -> None:
         center_lon=8.55,
         radius_nm=20,
         cache_state="fresh",
+        generated_at=(datetime.now(timezone.utc) - timedelta(days=30)).isoformat(),
         features=[
             {
                 "kind": "runway",
@@ -1158,6 +1685,46 @@ def test_api_radar_surface_falls_back_to_local_stale_cache(monkeypatch) -> None:
     assert result["features"][0]["validation"]["validated_by"] == ["openstreetmap", "ourairports-center"]
     assert result["features"][0]["validation"]["heading_deg"] is not None
     assert result["meta"]["validation"]["runway_count"] == 1
+
+
+def test_api_radar_surface_serves_fresh_local_cache_without_relay(monkeypatch) -> None:
+    cfg = AppConfig(airport_iata="ZRH", airport_icao="LSZH", radar_surface_enabled=True)
+    cached = airport_surface.build_surface_payload(
+        airport_iata="ZRH",
+        airport_icao="LSZH",
+        center_lat=47.45,
+        center_lon=8.55,
+        radius_nm=5,
+        cache_state="fresh",
+        features=[
+            {
+                "kind": "runway",
+                "id": "way:1",
+                "label": "16/34",
+                "closed": False,
+                "points": [[47.45, 8.55], [47.46, 8.56]],
+            }
+        ],
+    )
+
+    monkeypatch.setattr(ui_api, "load_config", lambda: cfg)
+    monkeypatch.setattr(
+        ui_api,
+        "lookup_airport",
+        lambda **kwargs: types.SimpleNamespace(lat=47.45, lon=8.55, icao="LSZH"),
+    )
+    monkeypatch.setattr(ui_api, "_load_local_surface_cache", lambda cfg: cached)
+    monkeypatch.setattr(
+        ui_api._req,
+        "get",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("fresh local surface cache should avoid relay")),
+    )
+
+    result = ui_api.api_radar_surface(5.0)
+
+    assert result["cache_state"] == "fresh"
+    assert result["meta"]["served_via"] == "local-surface-cache"
+    assert result["features"][0]["label"] == "16/34"
 
 
 def test_api_radar_surface_returns_estimated_first_run_overlay(monkeypatch) -> None:
@@ -1864,6 +2431,60 @@ def test_api_radar_tiny_views_reuse_minimum_adsb_provider_payload(monkeypatch) -
     assert second["source"] == "adsbexchange_cached"
 
 
+def test_api_radar_coalesces_concurrent_adsb_cache_misses(monkeypatch) -> None:
+    ui_api._adsbx_radar_cache.clear()
+    ui_api._opensky_radar_cache.clear()
+    ui_api._radar_fetch_locks.clear()
+    monkeypatch.setattr(
+        ui_api,
+        "load_config",
+        lambda: AppConfig(airport_iata="ZRH", airport_icao="LSZH", source="real"),
+    )
+    monkeypatch.setattr(
+        ui_api,
+        "lookup_airport",
+        lambda **kwargs: types.SimpleNamespace(lat=47.45, lon=8.55, icao="LSZH"),
+    )
+    monkeypatch.setattr(ui_api, "_radar_map_payload_for_request", lambda *args, **kwargs: {"runways": []})
+
+    calls: list[float] = []
+    start = threading.Barrier(2)
+    adsbx_module = types.ModuleType("localflight.sources.web.adsbexchange_client")
+    adsbx_module.is_available = lambda: True
+
+    def _fetch_aircraft(lat, lon, radius_nm, timeout_s=10):
+        calls.append(radius_nm)
+        return [{"hex": "abc123"}]
+
+    adsbx_module.fetch_aircraft = _fetch_aircraft
+    adsbx_module.aircraft_to_blips = lambda aircraft, center_lat, center_lon, radius_nm=50.0: [
+        {
+            "callsign": "SWR100",
+            "lat": 47.46,
+            "lon": 8.56,
+            "altitude_m": 1200,
+            "speed_ms": 115,
+            "on_ground": False,
+        }
+    ]
+    monkeypatch.setitem(sys.modules, "localflight.sources.web.adsbexchange_client", adsbx_module)
+
+    results: list[dict[str, object]] = []
+
+    def _worker() -> None:
+        start.wait()
+        results.append(ui_api.api_radar(20.0))
+
+    threads = [threading.Thread(target=_worker) for _ in range(2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert calls == [20.0]
+    assert sorted(result["source"] for result in results) == ["adsbexchange_cached", "adsbexchange_live"]
+
+
 def test_api_radar_filters_ground_blips_for_real_sources(monkeypatch) -> None:
     ui_api._adsbx_radar_cache.clear()
     ui_api._opensky_radar_cache.clear()
@@ -1903,7 +2524,7 @@ def test_history_summary_adds_delay_buckets_and_filtered_analytics(tmp_path: Pat
     config_file.parent.mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(history, "config_path", lambda: config_file)
 
-    now = datetime.now(timezone.utc).replace(microsecond=0)
+    now = datetime.now(timezone.utc).replace(hour=12, minute=0, second=0, microsecond=0)
     rows = []
     delays = [-5, -4, 4, 5, 15, 16, None]
     for idx, delay in enumerate(delays):
@@ -1964,6 +2585,41 @@ def test_history_summary_adds_delay_buckets_and_filtered_analytics(tmp_path: Pat
     assert summary["status_mix"][0]["count"] >= 3
     assert summary["daily_volume"][0]["total"] == 7
     assert history.query_recent("ZRH", direction="DEP", callsign="LX10", status="scheduled", airline_iata="LX", hours=24, limit=10)
+
+
+def test_history_persists_resolved_operating_identity(tmp_path: Path, monkeypatch) -> None:
+    import localflight.storage.history as history
+
+    config_file = tmp_path / ".localflight" / "config.json"
+    config_file.parent.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(history, "config_path", lambda: config_file)
+
+    flight = normalize_flights(
+        [
+            {
+                "callsign": "UAE2426",
+                "direction": "DEP",
+                "status": "scheduled",
+                "scheduled": datetime.now(timezone.utc).isoformat(),
+                "airline_iata": "EK",
+                "airline_name": "Emirates",
+                "flight_number": "EK2426",
+                "codeshares": ["FZ315"],
+                "destination_iata": "KHI",
+            }
+        ],
+        airport_iata="DXB",
+        airport_icao="OMDB",
+        source_name="test",
+    )[0]
+
+    history.write_snapshot_to_history([flight], AppConfig(airport_iata="DXB", airport_icao="OMDB"))
+    rows = history.query_recent("DXB", hours=1, direction="DEP", limit=10, airline_iata="FZ")
+
+    assert len(rows) == 1
+    assert rows[0]["flight_number"] == "FZ315"
+    assert rows[0]["airline_iata"] == "FZ"
+    assert rows[0]["callsign"] == "UAE2426"
 
 
 def test_api_history_forwards_dashboard_filters(monkeypatch) -> None:
@@ -2155,6 +2811,79 @@ def test_matrix_v2_migrates_flat_config_and_registers_device(tmp_path: Path, mon
     assert resolved["renderer"] == "modern_fids"
     assert resolved["device_id"] == "i75w-test"
     assert resolved["show_gate_info"] is True
+
+
+def test_matrix_device_feed_uses_assigned_config_and_exposes_board_contract(tmp_path: Path, monkeypatch) -> None:
+    matrix_config = tmp_path / "matrix_config.json"
+    monkeypatch.setattr(ui_api, "_matrix_config_path", lambda: matrix_config)
+    monkeypatch.setattr(
+        ui_api,
+        "load_config",
+        lambda: AppConfig(airport_iata="ZRH", airport_icao="LSZH", timezone="Europe/Zurich"),
+    )
+    client = TestClient(ui_api.app)
+
+    default_id = client.get("/api/matrix/v2/configs").json()["default_config_id"]
+    created = client.post(
+        "/api/matrix/v2/configs",
+        json={
+            "id": "tiny-arr",
+            "name": "Tiny arrivals",
+            "preset": "real_fids",
+            "panel_w": 128,
+            "panel_h": 128,
+            "max_rows": 2,
+            "default_view": "arrivals",
+            "show_gate_info": True,
+            "palette": "tower_scope",
+        },
+    ).json()["config"]
+    checkin = client.post(
+        "/api/matrix/v2/devices/checkin",
+        json={"device_id": "board-a", "label": "Gate Board", "panel_w": 128, "panel_h": 128, "firmware": "2.0"},
+    )
+    assert checkin.status_code == 200
+    assert checkin.json()["assigned_config_id"] == default_id
+    assigned = client.patch("/api/matrix/v2/devices/board-a", json={"assigned_config_id": created["id"]})
+    assert assigned.status_code == 200
+
+    captured: dict[str, object] = {}
+
+    def fake_fids(view: str, limit: int) -> list[dict[str, str]]:
+        captured.update({"view": view, "limit": limit})
+        return [
+            {
+                "id": "arrival-1",
+                "display_time": "13:20",
+                "flight_display": "LX 42",
+                "flight_number": "LX42",
+                "airline_iata": "LX",
+                "route_display": "Zurich (LSZH)",
+                "status_display": "ARRIVED",
+                "status_class": "landed",
+                "gate": "A42",
+                "gate_display": "A42",
+                "terminal_gate_display": "T1 / A42",
+            }
+        ]
+
+    monkeypatch.setattr(ui_api, "api_fids", fake_fids)
+    monkeypatch.setattr(ui_api, "api_metar", lambda: {})
+
+    config = client.get("/api/matrix/v2/devices/board-a/config")
+    feed = client.get("/api/matrix/v2/devices/board-a/feed")
+
+    assert config.status_code == 200
+    assert config.json()["id"] == "tiny-arr"
+    assert config.json()["panel_w"] == 128
+    assert config.json()["palette"] == "tower_scope"
+    assert feed.status_code == 200
+    assert captured == {"view": "arrivals", "limit": 8}
+    payload = feed.json()
+    assert payload["view"] == "arrivals"
+    assert payload["show_gate_info"] is True
+    assert payload["rows"][0]["gate_label"] == "T1 / A42"
+    assert payload["rows"][0]["flight_number"] == "LX42"
 
 
 def test_matrix_v2_legacy_presets_are_removed_from_public_profiles(tmp_path: Path, monkeypatch) -> None:
@@ -2516,6 +3245,7 @@ def test_matrix_script_endpoint_renders_from_canonical_template(tmp_path: Path, 
                 "SHOW_GATE_INFO = True",
                 'PRESET = "real_fids"',
                 'PALETTE = "pax_blue"',
+                'RENDERER = "modern_fids"',
             ]
         ),
         encoding="utf-8",
@@ -2569,6 +3299,7 @@ def test_matrix_script_endpoint_renders_from_canonical_template(tmp_path: Path, 
     assert "SHOW_GATE_INFO = False" in response.text
     assert 'PRESET        = "vatsim_pilot"' in response.text
     assert 'PALETTE       = "tower_scope"' in response.text
+    assert 'RENDERER      = "vatsim_pilot"' in response.text
 
 
 def test_matrix_script_endpoint_uses_current_i75w_client_template() -> None:
@@ -2626,6 +3357,8 @@ def test_matrix_script_endpoint_uses_current_i75w_client_template() -> None:
     assert "\"real_fids\"" in script
     assert "\"vatsim_pilot\"" in script
     assert "\"vatsim_atc\"" in script
+    assert 'PALETTE       = "pax_blue"' in script
+    assert 'RENDERER      = "modern_fids"' in script
     assert ".ljust(" not in script
     assert "DISPLAY, DISPLAY_PANELS = _display_for_size(PANEL_W, PANEL_H)" in script
     assert "Unsupported Interstate 75 display size" in script
@@ -2694,6 +3427,15 @@ def test_matrix_preview_download_payload_uses_defined_animation_state() -> None:
     assert 'id="statusMotionToggle"' in template
     assert "Toggle without reflashing" in template
     assert "Reflash when these change" in template
+    assert "matrix-status-grid" in template
+    assert "One-time board file" in template
+    assert "Connected boards" in template
+    assert "Multiple configs" in template
+    assert "Advanced: how the board talks to Local Flight" in template
+    assert "matrix_guidance.steps" in template
+    assert "MATRIX_DEVICES" in template
+    assert "scheduleRowsFetch" in template
+    assert "/api/matrix/v2/devices" in template
     assert "Apply to board" in template
     assert "about 60 seconds" in template
     assert "function setPreviewPalette(name)" in template
@@ -3172,13 +3914,48 @@ def test_default_public_relay_url_matches_live_installer_default(monkeypatch) ->
 def test_client_settings_explain_refresh_cadence_and_relay_policy() -> None:
     root = Path(__file__).resolve().parents[1]
     web_settings = (root / "src" / "localflight" / "ui" / "templates" / "settings.html").read_text(encoding="utf-8")
-    native_settings = (root / "src" / "localflight" / "native" / "_legacy_app.py").read_text(encoding="utf-8")
+    native_settings = "\n".join(
+        [
+            (root / "src" / "localflight" / "native" / "_legacy_app.py").read_text(encoding="utf-8"),
+            (root / "src" / "localflight" / "native" / "pages" / "settings.py").read_text(encoding="utf-8"),
+        ]
+    )
     mobile_settings = (root / "mobile" / "src" / "screens" / "AppScreens.tsx").read_text(encoding="utf-8")
 
-    for text in (web_settings, native_settings, mobile_settings):
+    assert "settings_options.refresh" in web_settings
+    assert "schedule_policy.reason" in web_settings
+    for text in (native_settings, mobile_settings):
         assert "15, 30, 45, and 60 minutes" in text
+    assert "schedule_policy" in web_settings
+    for text in (native_settings, mobile_settings):
         assert "Community Relay" in text
-        assert "one hour" in text or "hourly" in text
+        assert "hourly" in text or "hourly-or-slower" in text or "schedule_policy" in text
+
+
+def test_event_first_client_polling_static_contracts() -> None:
+    root = Path(__file__).resolve().parents[1]
+    fids = (root / "src" / "localflight" / "ui" / "templates" / "fids.html").read_text(encoding="utf-8")
+    radar = (root / "src" / "localflight" / "ui" / "templates" / "radar.html").read_text(encoding="utf-8")
+    admin = (root / "src" / "localflight" / "ui" / "templates" / "admin.html").read_text(encoding="utf-8")
+    matrix = (root / "src" / "localflight" / "ui" / "templates" / "matrix_preview.html").read_text(encoding="utf-8")
+    mobile_shell = (root / "mobile" / "src" / "app" / "AppShell.tsx").read_text(encoding="utf-8")
+    mobile_formatting = (root / "mobile" / "src" / "domain" / "formatting.ts").read_text(encoding="utf-8")
+
+    assert "setInterval(refreshFIDS, 60000)" not in fids
+    assert "scheduleFidsFallback" in fids
+    assert "FIDS_FALLBACK_MS = 300 * 1000" in fids
+    assert "setInterval(refreshAll, 10000)" not in admin
+    assert "scheduleAdminFallback" in admin
+    assert "ADMIN_FALLBACK_MS = 60 * 1000" in admin
+    assert "RADAR_VISIBLE_MIN_MS = 60 * 1000" in radar
+    assert "RADAR_HIDDEN_MIN_MS = 300 * 1000" in radar
+    assert "radarFetching" in radar
+    assert "setInterval(fetchRows, POLL_MS)" not in matrix
+    assert "MATRIX_PREVIEW_MIN_POLL_MS = 60 * 1000" in matrix
+    assert "refreshInFlightRef" in mobile_shell
+    assert "lastRadarRefreshAfterRef" in mobile_shell
+    assert "includeDashboard: false" in mobile_shell
+    assert "Math.max(300, seconds || 300)" in mobile_formatting
 
 
 def test_public_preview_gallery_includes_matrix_artwork() -> None:

@@ -14,9 +14,11 @@ from localflight.sources.web.aviationstack_plan import (
     DEFAULT_DISPLAY_HORIZON_HOURS,
 )
 
-AERODATABOX_BASE_URL = "https://aerodatabox.p.rapidapi.com"
+AERODATABOX_RAPIDAPI_BASE_URL = "https://aerodatabox.p.rapidapi.com"
+AERODATABOX_APIMARKET_BASE_URL = "https://prod.api.market/api/v1/aedbx/aerodatabox"
 _DEFAULT_MONTHLY_UNITS_LIMIT = 24_000
 _DEFAULT_FIDS_TIER2_UNITS = 2
+_MAX_FIDS_DURATION_MINUTES = 720
 
 
 class AeroDataBoxError(RuntimeError):
@@ -59,6 +61,38 @@ def _api_key() -> str:
     if not key:
         raise AeroDataBoxError("AERODATABOX_API_KEY not set")
     return key
+
+
+def _marketplace() -> str:
+    raw = (
+        os.getenv("LOCALFLIGHT_AERODATABOX_MARKETPLACE", "")
+        or os.getenv("AERODATABOX_MARKETPLACE", "")
+        or "apimarket"
+    )
+    value = raw.strip().lower().replace("_", "-")
+    if value in {"rapid", "rapid-api", "rapidapi"}:
+        return "rapidapi"
+    return "apimarket"
+
+
+def _request_url(airport_iata: str) -> str:
+    base = AERODATABOX_RAPIDAPI_BASE_URL if _marketplace() == "rapidapi" else AERODATABOX_APIMARKET_BASE_URL
+    return f"{base}/flights/airports/iata/{airport_iata.upper().strip()}"
+
+
+def _request_headers() -> Dict[str, str]:
+    if _marketplace() == "rapidapi":
+        return {
+            "X-RapidAPI-Key": _api_key(),
+            "X-RapidAPI-Host": "aerodatabox.p.rapidapi.com",
+            "Accept": "application/json",
+            "User-Agent": "local-flight/0.2.7 (+https://github.com/tr3y4rch/local-flight)",
+        }
+    return {
+        "x-magicapi-key": _api_key(),
+        "Accept": "application/json",
+        "User-Agent": "local-flight/0.2.7 (+https://github.com/tr3y4rch/local-flight)",
+    }
 
 
 def has_enabled_key() -> bool:
@@ -168,11 +202,14 @@ def _request_payload(
         )
 
     offset_minutes = -max(0, int(display_grace_minutes))
-    duration_minutes = max(60, max(0, int(display_grace_minutes)) + max(1, int(display_horizon_hours)) * 60)
+    duration_minutes = min(
+        _MAX_FIDS_DURATION_MINUTES,
+        max(60, max(0, int(display_grace_minutes)) + max(1, int(display_horizon_hours)) * 60),
+    )
     _increment_units(_fids_units())
     try:
         response = requests.get(
-            f"{AERODATABOX_BASE_URL}/flights/airports/iata/{airport_iata.upper().strip()}",
+            _request_url(airport_iata),
             params={
                 "offsetMinutes": offset_minutes,
                 "durationMinutes": duration_minutes,
@@ -184,12 +221,7 @@ def _request_payload(
                 "withPrivate": "false",
                 "withLocation": "false",
             },
-            headers={
-                "X-RapidAPI-Key": _api_key(),
-                "X-RapidAPI-Host": "aerodatabox.p.rapidapi.com",
-                "Accept": "application/json",
-                "User-Agent": "local-flight/1.0 (+https://localflight.invalid)",
-            },
+            headers=_request_headers(),
             timeout=timeout_s,
         )
     except requests.RequestException as exc:
@@ -239,6 +271,7 @@ def fetch_schedule_records(
         "requested_at": (now or datetime.now(timezone.utc)).astimezone(timezone.utc).isoformat(),
         "units_spent": _fids_units(),
         "request_count": 1,
+        "marketplace": _marketplace(),
         "raw_rows": len(payload.get("departures") or []) + len(payload.get("arrivals") or []),
         "record_count": len(records),
     }

@@ -1943,6 +1943,36 @@ def test_aerodatabox_daily_units_cap_blocks_before_outbound(tmp_path: Path, monk
     assert outbound == []
 
 
+def test_relay_aerodatabox_uses_apimarket_gateway_by_default(tmp_path: Path, monkeypatch) -> None:
+    _use_temp_db(tmp_path, monkeypatch)
+    monkeypatch.setenv("AERODATABOX_API_KEY", "adb-test")
+    monkeypatch.delenv("RELAY_AERODATABOX_MARKETPLACE", raising=False)
+    monkeypatch.delenv("AERODATABOX_MARKETPLACE", raising=False)
+    captured: dict[str, object] = {}
+
+    def fake_get(url, *, params, headers, timeout):
+        captured.update({"url": url, "params": params, "headers": headers, "timeout": timeout})
+        return types.SimpleNamespace(status_code=200, json=lambda: {"departures": [], "arrivals": []})
+
+    monkeypatch.setattr(relay_main._req, "get", fake_get)
+
+    payload = relay_main._aerodatabox_upstream_payload(
+        airport_iata="ZRH",
+        display_grace_minutes=30,
+        display_horizon_hours=12,
+    )
+
+    assert payload == {"departures": [], "arrivals": []}
+    assert str(captured["url"]).startswith("https://prod.api.market/api/v1/aedbx/aerodatabox/")
+    params = captured["params"]
+    assert isinstance(params, dict)
+    assert params["durationMinutes"] == 720
+    headers = captured["headers"]
+    assert isinstance(headers, dict)
+    assert headers["x-magicapi-key"] == "adb-test"
+    assert "X-RapidAPI-Key" not in headers
+
+
 def test_provider_circuit_breaker_blocks_before_budget_and_outbound(tmp_path: Path, monkeypatch) -> None:
     _use_temp_db(tmp_path, monkeypatch)
     monkeypatch.setenv("AERODATABOX_API_KEY", "adb-test")
@@ -2084,6 +2114,215 @@ def test_schedule_new_cache_key_daily_limit_blocks_miss_explosions(tmp_path: Pat
     assert first.status_code == 200
     assert second.status_code == 429
     assert len(upstream_calls) == 1
+
+
+def test_community_schedule_zero_limit_rejects_before_upstream(tmp_path: Path, monkeypatch) -> None:
+    _use_temp_db(tmp_path, monkeypatch)
+    monkeypatch.setenv("RELAY_COMMUNITY_SCHEDULE_LIMIT", "0")
+    client = TestClient(relay_main.app)
+    upstream_calls: list[dict[str, object]] = []
+    monkeypatch.setattr(relay_main, "_fetch_shared_schedule_from_upstream", lambda **kwargs: upstream_calls.append(kwargs))
+
+    response = client.get(
+        "/v1/schedule",
+        params={
+            "airport_iata": "ZRH",
+            "timezone": "Europe/Zurich",
+            "display_grace_minutes": 30,
+            "display_horizon_hours": 12,
+            "refresh_seconds": 3600,
+            "install_id": "00000000-0000-0000-0000-000000000447",
+        },
+    )
+
+    assert response.status_code == 429
+    assert response.headers["Retry-After"] == "86400"
+    assert upstream_calls == []
+
+
+def test_schedule_new_cache_key_zero_limit_blocks_unknown_lanes_before_upstream(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    _use_temp_db(tmp_path, monkeypatch)
+    monkeypatch.setenv("RELAY_SCHEDULE_NEW_KEYS_NETWORK_DAILY_LIMIT", "0")
+    client = TestClient(relay_main.app)
+    upstream_calls: list[dict[str, object]] = []
+    monkeypatch.setattr(relay_main, "_fetch_shared_schedule_from_upstream", lambda **kwargs: upstream_calls.append(kwargs))
+
+    response = client.get(
+        "/v1/schedule",
+        params={
+            "airport_iata": "ZRH",
+            "timezone": "Europe/Zurich",
+            "display_grace_minutes": 30,
+            "display_horizon_hours": 12,
+            "refresh_seconds": 3600,
+            "install_id": "00000000-0000-0000-0000-000000000448",
+        },
+    )
+
+    assert response.status_code == 429
+    assert response.headers["Retry-After"] == "86400"
+    assert upstream_calls == []
+
+
+def test_schedule_rpm_limit_includes_retry_after(tmp_path: Path, monkeypatch) -> None:
+    _use_temp_db(tmp_path, monkeypatch)
+    monkeypatch.setenv("RELAY_SCHEDULE_INSTALL_RPM_LIMIT", "0")
+    client = TestClient(relay_main.app)
+
+    response = client.get(
+        "/v1/schedule",
+        params={
+            "airport_iata": "ZRH",
+            "timezone": "Europe/Zurich",
+            "display_grace_minutes": 30,
+            "display_horizon_hours": 12,
+            "refresh_seconds": 3600,
+            "install_id": "00000000-0000-0000-0000-000000000449",
+        },
+    )
+
+    assert response.status_code == 429
+    assert response.headers["Retry-After"] == "60"
+
+
+def test_schedule_new_cache_key_marker_is_idempotent_and_sanitized(tmp_path: Path, monkeypatch) -> None:
+    _use_temp_db(tmp_path, monkeypatch)
+    monkeypatch.setenv("RELAY_SCHEDULE_NEW_KEYS_NETWORK_DAILY_LIMIT", "1")
+    cache_key = relay_main._schedule_cache_key(
+        airport_iata="ZRH",
+        timezone_name="Europe/Zurich",
+        display_grace_minutes=30,
+        display_horizon_hours=12,
+    )
+
+    relay_main._check_and_mark_new_schedule_cache_key(network_tag="not a real tag", cache_key=cache_key.upper())
+    relay_main._check_and_mark_new_schedule_cache_key(network_tag="also-bad", cache_key=cache_key)
+
+    day = relay_main._day_key()
+    conn = relay_main._connect()
+    rows = {
+        (row["subject_key"], row["service"]): int(row["calls"] or 0)
+        for row in conn.execute("SELECT subject_key, service, calls FROM usage WHERE month=?", (day,)).fetchall()
+    }
+    conn.close()
+
+    assert rows[(f"schedule-new-key:{cache_key}", "schedule:new-cache-key-marker")] == 1
+    assert rows[("schedule-new-key-network:unknown", "schedule:new-cache-key-network-day")] == 1
+    assert rows[("schedule-new-key-global", "schedule:new-cache-key-global-day")] == 1
+
+
+def test_schedule_new_cache_key_guard_rejects_malformed_keys_without_counters(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    _use_temp_db(tmp_path, monkeypatch)
+
+    with pytest.raises(HTTPException) as excinfo:
+        relay_main._check_and_mark_new_schedule_cache_key(
+            network_tag="net_1234567890abcd",
+            cache_key="../not-a-cache-key",
+        )
+
+    assert excinfo.value.status_code == 400
+    conn = relay_main._connect()
+    count = conn.execute("SELECT COUNT(*) AS n FROM usage").fetchone()
+    conn.close()
+    assert count is not None
+    assert int(count["n"] or 0) == 0
+
+
+def test_schedule_new_cache_key_marker_survives_concurrent_first_seen(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    _use_temp_db(tmp_path, monkeypatch)
+    monkeypatch.setenv("RELAY_SCHEDULE_NEW_KEYS_NETWORK_DAILY_LIMIT", "1")
+    cache_key = relay_main._schedule_cache_key(
+        airport_iata="LHR",
+        timezone_name="Europe/London",
+        display_grace_minutes=30,
+        display_horizon_hours=12,
+    )
+    errors: list[BaseException] = []
+
+    def mark() -> None:
+        try:
+            relay_main._check_and_mark_new_schedule_cache_key(
+                network_tag="net_1234567890abcd",
+                cache_key=cache_key,
+            )
+        except BaseException as exc:
+            errors.append(exc)
+
+    threads = [threading.Thread(target=mark) for _ in range(8)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert errors == []
+    day = relay_main._day_key()
+    conn = relay_main._connect()
+    rows = {
+        (row["subject_key"], row["service"]): int(row["calls"] or 0)
+        for row in conn.execute("SELECT subject_key, service, calls FROM usage WHERE month=?", (day,)).fetchall()
+    }
+    conn.close()
+    assert rows[(f"schedule-new-key:{cache_key}", "schedule:new-cache-key-marker")] == 1
+    assert rows[("schedule-new-key-network:net_1234567890abcd", "schedule:new-cache-key-network-day")] == 1
+    assert rows[("schedule-new-key-global", "schedule:new-cache-key-global-day")] == 1
+
+
+def test_relay_schedule_cache_tables_have_expected_working_columns(tmp_path: Path, monkeypatch) -> None:
+    _use_temp_db(tmp_path, monkeypatch)
+    conn = relay_main._connect()
+    schedule_columns = relay_main._table_columns(conn, "schedule_snapshots")
+    provider_columns = relay_main._table_columns(conn, "provider_schedule_snapshots")
+    interest_columns = relay_main._table_columns(conn, "client_interests")
+    usage_indexes = [
+        str(row["name"])
+        for row in conn.execute("PRAGMA index_list(usage)").fetchall()
+    ]
+    conn.close()
+
+    assert {
+        "cache_key",
+        "airport_iata",
+        "timezone",
+        "display_grace_minutes",
+        "display_horizon_hours",
+        "planner_version",
+        "schema_version",
+        "provider",
+        "generated_at",
+        "meta_json",
+        "records_json",
+        "client_accesses",
+        "upstream_pulls",
+        "refresh_count",
+        "cache_hits",
+        "stale_serves",
+        "last_cache_state",
+        "last_error",
+    }.issubset(schedule_columns)
+    assert {
+        "cache_key",
+        "provider",
+        "airport_iata",
+        "timezone",
+        "display_grace_minutes",
+        "display_horizon_hours",
+        "policy_version",
+        "meta_json",
+        "records_json",
+        "refresh_count",
+        "last_error",
+    }.issubset(provider_columns)
+    assert {"install_id", "plan", "airport_iata", "refresh_seconds", "last_seen"}.issubset(interest_columns)
+    assert any("sqlite_autoindex_usage" in name for name in usage_indexes)
 
 
 def test_aerodatabox_fresh_cache_avoids_upstream(tmp_path: Path, monkeypatch) -> None:

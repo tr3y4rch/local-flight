@@ -205,6 +205,8 @@ export function AppShell() {
 
   const socketRef = useRef<WebSocket | null>(null);
   const radarGroundCacheRef = useRef<Map<string, RadarMapResponse>>(new Map());
+  const refreshInFlightRef = useRef<Map<string, Promise<void>>>(new Map());
+  const lastRadarRefreshAfterRef = useRef<number | null>(null);
   const screenOpacity = useRef(new Animated.Value(1)).current;
   const screenLift = useRef(new Animated.Value(0)).current;
   const snapshotPulse = useRef(new Animated.Value(0)).current;
@@ -423,6 +425,7 @@ export function AppShell() {
       detail: `Asking the Local Flight server for tracks inside ${nextRadius} NM.`
     });
     const data = await getRadar(normalized, nextRadius);
+    lastRadarRefreshAfterRef.current = Number(data.refresh_after_s || 0) || null;
     setRadarData(data);
 
     const cacheKey = [
@@ -461,52 +464,78 @@ export function AppShell() {
       nextHistoryDirection = historyDirection,
       nextHistoryHours = historyHours,
       nextRadarRadius = radarRadius,
-      forceRadarGround = false
+      forceRadarGround = false,
+      includeDashboard = true
     }: RefreshOptions = {}) => {
       const normalized = normalizeServerUrl(nextUrl);
       if (!normalized) {
         setError("Enter the Local Flight server URL in Settings.");
         return;
       }
-
-      setRefreshing(true);
-      setActivity({
-        label: "Talking to Local Flight",
-        detail: "Checking server health, config, budget, and live connections."
-      });
-      setError(null);
-
-      try {
-        await fetchDashboard(normalized);
-      } catch (exc) {
-        setConnected(false);
-        setError(errorMessage(exc));
-        setRefreshing(false);
-        setActivity(null);
+      const refreshKey = [
+        normalized,
+        target,
+        nextView,
+        nextHistoryDirection,
+        nextHistoryHours,
+        historyCallsign,
+        historyAirline,
+        nextRadarRadius,
+        forceRadarGround ? "ground" : "normal",
+        includeDashboard ? "dashboard" : "screen"
+      ].join("|");
+      const existing = refreshInFlightRef.current.get(refreshKey);
+      if (existing) {
+        await existing;
         return;
       }
 
-      try {
-        setActivity(refreshActivityForTarget(target, landscapeFidsActive));
-        if (landscapeFidsActive) {
-          await fetchFidsData(normalized, nextView);
-        } else if (target === "fids") {
-          await fetchFidsData(normalized, nextView);
-        } else if (target === "history") {
-          await fetchHistoryData(normalized, nextHistoryDirection, nextHistoryHours, historyCallsign, historyAirline);
-        } else if (target === "radar") {
-          await fetchRadarData(normalized, nextRadarRadius, forceRadarGround);
-        } else if (target === "matrix") {
-          await Promise.all([
-            fetchMatrixRows(normalized, matrixRuntime.default_view, matrixRuntime.max_rows),
-            fetchMatrixRuntime(normalized)
-          ]);
+      const task = (async () => {
+        setRefreshing(true);
+        setActivity(includeDashboard ? {
+          label: "Talking to Local Flight",
+          detail: "Checking server health, config, budget, and live connections."
+        } : refreshActivityForTarget(target, landscapeFidsActive));
+        setError(null);
+
+        if (includeDashboard) {
+          try {
+            await fetchDashboard(normalized);
+          } catch (exc) {
+            setConnected(false);
+            setError(errorMessage(exc));
+            return;
+          }
         }
-      } catch (exc) {
-        setError(errorMessage(exc));
+
+        try {
+          setActivity(refreshActivityForTarget(target, landscapeFidsActive));
+          if (landscapeFidsActive) {
+            await fetchFidsData(normalized, nextView);
+          } else if (target === "fids") {
+            await fetchFidsData(normalized, nextView);
+          } else if (target === "history") {
+            await fetchHistoryData(normalized, nextHistoryDirection, nextHistoryHours, historyCallsign, historyAirline);
+          } else if (target === "radar") {
+            await fetchRadarData(normalized, nextRadarRadius, forceRadarGround);
+          } else if (target === "matrix") {
+            await Promise.all([
+              fetchMatrixRows(normalized, matrixRuntime.default_view, matrixRuntime.max_rows),
+              fetchMatrixRuntime(normalized)
+            ]);
+          }
+        } catch (exc) {
+          setError(errorMessage(exc));
+        } finally {
+          setRefreshing(false);
+          setActivity(null);
+        }
+      })();
+      refreshInFlightRef.current.set(refreshKey, task);
+      try {
+        await task;
       } finally {
-        setRefreshing(false);
-        setActivity(null);
+        refreshInFlightRef.current.delete(refreshKey);
       }
     },
     [
@@ -785,7 +814,7 @@ export function AppShell() {
         };
         if (message.type === "snapshot_updated") {
           triggerSnapshotPulse();
-          void refreshScreen({ target: screen });
+          void refreshScreen({ target: screen, includeDashboard: false });
           if (detailVisible && detailCallsign) {
             refreshFlightDetail();
           }
@@ -799,7 +828,7 @@ export function AppShell() {
           void refreshScreen({ target: screen });
         } else if (message.type === "scheduler_restarted") {
           setSchedulerMessage(message.message || (message.ok ? "Scheduler restarted." : "Scheduler is still stopping."));
-          void refreshScreen({ target: screen });
+          void refreshScreen({ target: screen, includeDashboard: false });
         }
       } catch {
         // Ignore non-JSON messages.
@@ -841,12 +870,16 @@ export function AppShell() {
   const connectionState: ConnectionState = error
     ? refreshing ? "retrying" : "offline"
     : isLive ? "live" : "offline";
-  const syncIntervalMs = companionSyncMs(cfg?.refresh_seconds);
+  const radarSyncIntervalMs = Math.min(
+    30 * 60 * 1000,
+    Math.max(60 * 1000, (lastRadarRefreshAfterRef.current || 60) * 1000)
+  );
+  const syncIntervalMs = screen === "radar" ? radarSyncIntervalMs : companionSyncMs(cfg?.refresh_seconds);
 
   useEffect(() => {
     if (!serverUrl || !connected) return;
     const timer = setInterval(() => {
-      void refreshScreen({ target: screen });
+      void refreshScreen({ target: screen, includeDashboard: screen === "admin" });
     }, syncIntervalMs);
     return () => clearInterval(timer);
   }, [connected, refreshScreen, screen, serverUrl, syncIntervalMs]);
@@ -1240,6 +1273,7 @@ export function AppShell() {
         visible={configSheetVisible}
         serverUrl={serverUrl}
         currentConfig={snapshot.config}
+        budget={snapshot.budget}
         profiles={profiles}
         onClose={() => setConfigSheetVisible(false)}
         onApplied={(newConfig) => {

@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import math
+import re
 from datetime import datetime
 from typing import Literal, Optional
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from localflight.core.aircraft import short_aircraft_type
 from localflight.core.models import Flight, FlightDirection, FlightStatus
 from localflight.decode.mappings.airlines import format_flight_identifier
 from localflight.decode.mappings.airports import format_airport
@@ -52,12 +54,12 @@ def _route_display_from_code(code: str) -> str:
 
 
 def _format_flight_number(f: Flight) -> str:
-    return format_flight_identifier(
+    return _space_flight_token(format_flight_identifier(
         flight_number=f.flight_number,
         callsign=f.callsign,
         airline_iata=f.airline.iata if f.airline else None,
         airline_icao=f.airline.icao if f.airline else None,
-    )
+    ))
 
 
 def _airline_display(f: Flight) -> str:
@@ -69,13 +71,36 @@ def _airline_display(f: Flight) -> str:
 
 
 def _codeshare_display(f: Flight) -> str:
-    values = [str(item or "").strip().upper() for item in f.codeshares]
-    values = [item for item in values if item]
-    if not values:
+    sold_as = [_format_secondary_identifier(item) for item in f.sold_as]
+    sold_as = [item for item in sold_as if item]
+    sold_compact = {item.replace(" ", "") for item in sold_as}
+    also = [_format_secondary_identifier(item) for item in f.codeshares]
+    also = [item for item in also if item and item.replace(" ", "") not in sold_compact]
+    if not sold_as and not also:
         return ""
-    shown = values[:4]
-    suffix = f" +{len(values) - len(shown)}" if len(values) > len(shown) else ""
+    if sold_as:
+        shown_sold = sold_as[:3]
+        suffix = f" +{len(sold_as) - len(shown_sold)}" if len(sold_as) > len(shown_sold) else ""
+        if also:
+            shown_also = also[:2]
+            also_suffix = f" +{len(also) - len(shown_also)}" if len(also) > len(shown_also) else ""
+            return "Sold as " + " / ".join(shown_sold) + suffix + " · Also " + " / ".join(shown_also) + also_suffix
+        return "Sold as " + " / ".join(shown_sold) + suffix
+    shown = also[:4]
+    suffix = f" +{len(also) - len(shown)}" if len(also) > len(shown) else ""
     return "Also " + " / ".join(shown) + suffix
+
+
+def _format_secondary_identifier(value: object) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    return _space_flight_token(format_flight_identifier(flight_number=raw).strip().upper())
+
+
+def _space_flight_token(value: str) -> str:
+    text = str(value or "").strip().upper()
+    return re.sub(r"^([A-Z0-9]{2,3})\s*([0-9][A-Z0-9]*)$", r"\1 \2", text)
 
 
 def _delay_class(delay_minutes: Optional[int]) -> str:
@@ -197,7 +222,7 @@ def flight_to_fids_row(
     route_display = _route_display_from_code(other.code() if other else "")
 
     gate          = f.gate or "-"
-    aircraft_type = f.aircraft_type or "-"
+    aircraft_type = short_aircraft_type(f.aircraft_type) or "-"
     fid = f"{f.source or 'src'}:{f.callsign}:{t.isoformat() if t else 'notime'}"
 
     status_display, status_class = _compute_status(f, airport_lat, airport_lon)
@@ -226,6 +251,17 @@ def flight_to_fids_row(
         gate=gate,
         aircraft_type=aircraft_type,
         callsign=f.callsign or "",
+        flight_number=f.flight_number or "",
+        airline_iata=f.airline.iata or "",
+        airline_icao=f.airline.icao or "",
+        codeshares=tuple(f.codeshares or ()),
+        sold_as=tuple(f.sold_as or ()),
+        marketing_airline_name=f.marketing_airline_name or "",
+        marketing_airline_iata=f.marketing_airline_iata or "",
+        marketing_airline_icao=f.marketing_airline_icao or "",
+        marketing_flight_number=f.marketing_flight_number or "",
+        operating_callsign=f.operating_callsign or "",
+        identity_source=f.identity_source or "",
         delay_minutes=dly if isinstance(dly, int) else None,
         delay_class=delay_class,
         time_primary=time_primary,

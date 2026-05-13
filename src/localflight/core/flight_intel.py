@@ -192,6 +192,13 @@ def build_flight_intel(
             "airline_iata": airline.iata if airline else None,
             "airline_icao": airline.icao if airline else None,
             "codeshares": list(flight.codeshares) if flight else [],
+            "sold_as": list(flight.sold_as) if flight else [],
+            "marketing_airline_name": flight.marketing_airline_name if flight else None,
+            "marketing_airline_iata": flight.marketing_airline_iata if flight else None,
+            "marketing_airline_icao": flight.marketing_airline_icao if flight else None,
+            "marketing_flight_number": flight.marketing_flight_number if flight else None,
+            "operating_callsign": flight.operating_callsign if flight else None,
+            "identity_source": flight.identity_source if flight else None,
         },
         "route": {
             "origin": _airport_dict(flight, "origin"),
@@ -216,6 +223,8 @@ def build_flight_intel(
         },
         "aircraft": {
             "type": flight.aircraft_type if flight else None,
+            "model": flight.aircraft_type_full if flight else None,
+            "full_type": flight.aircraft_type_full if flight else None,
             "registration": flight.aircraft_registration if flight and not virtual else None,
             "icao24": pos.icao24 if pos and not virtual else None,
             "squawk": pos.squawk if pos else (flight.assigned_transponder if flight else None),
@@ -269,7 +278,7 @@ def _available_fields(flight: Flight | None, pos: FlightPosition | None, weather
             fields.append("airport_ops")
         if flight.flight_rules or flight.planned_route:
             fields.append("flight_plan")
-        if flight.aircraft_type or flight.aircraft_registration:
+        if flight.aircraft_type or flight.aircraft_type_full or flight.aircraft_registration:
             fields.append("aircraft")
     if pos:
         fields.append("live_motion")

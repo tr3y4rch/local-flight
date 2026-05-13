@@ -36,6 +36,9 @@ _BYOK_PLAN_MAX = 100
 _DEFAULT_RELAY_LIMIT = 50
 _MANAGED_STATUS_CACHE_TTL_S = 60
 _COMMUNITY_WINDOW_DAYS = 30
+_COMMUNITY_RELAY_MIN_REFRESH_SECONDS = 3600
+_RELAY_COOLDOWN_DEFAULT_S = 15 * 60
+_RELAY_COOLDOWN_MAX_S = 24 * 60 * 60
 _FETCH_STATS_MAX_SAMPLES = 24
 _MAX_FAIR_PAGES_PER_DATE = DEFAULT_AUDIT_PAGES_PER_DATE
 
@@ -47,6 +50,19 @@ class AviationstackError(RuntimeError):
 
 
 class AviationstackBudgetExceeded(AviationstackError):
+    def __init__(
+        self,
+        message: str,
+        *,
+        retry_after_s: Optional[int] = None,
+        status_code: Optional[int] = None,
+    ) -> None:
+        super().__init__(message)
+        self.retry_after_s = retry_after_s
+        self.status_code = status_code
+
+
+class AviationstackRelayCooldown(AviationstackBudgetExceeded):
     pass
 
 
@@ -181,6 +197,60 @@ def _save_usage(data: Dict[str, Any]) -> None:
         )
     except Exception:
         pass
+
+
+def _parse_retry_after(value: Any, default_s: int = _RELAY_COOLDOWN_DEFAULT_S) -> int:
+    try:
+        seconds = int(str(value or "").strip())
+    except Exception:
+        seconds = default_s
+    return max(60, min(_RELAY_COOLDOWN_MAX_S, seconds))
+
+
+def _relay_cooldown_until() -> Optional[datetime]:
+    usage = _load_usage()
+    cooldown = usage.get("relay_cooldown")
+    if not isinstance(cooldown, dict):
+        return None
+    until = _parse_utc(cooldown.get("until"))
+    if until is None:
+        return None
+    now = _utc_now()
+    if until <= now:
+        usage.pop("relay_cooldown", None)
+        _save_usage(usage)
+        return None
+    return until
+
+
+def _relay_cooldown_remaining_s() -> int:
+    until = _relay_cooldown_until()
+    if until is None:
+        return 0
+    return max(1, int((until - _utc_now()).total_seconds()))
+
+
+def _record_relay_cooldown(*, retry_after_s: int, reason: str) -> None:
+    usage = _load_usage()
+    now = _utc_now()
+    retry_after_s = _parse_retry_after(retry_after_s)
+    usage["relay_cooldown"] = {
+        "until": (now + timedelta(seconds=retry_after_s)).isoformat(),
+        "reason": str(reason or "relay_throttled")[:160],
+        "retry_after_s": retry_after_s,
+        "recorded_at": now.isoformat(),
+    }
+    _save_usage(usage)
+
+
+def _raise_if_relay_cooling_down() -> None:
+    remaining = _relay_cooldown_remaining_s()
+    if remaining > 0:
+        raise AviationstackRelayCooldown(
+            f"Community relay cooling down for {remaining}s after throttling.",
+            retry_after_s=remaining,
+            status_code=429,
+        )
 
 
 def _month_key() -> str:
@@ -447,6 +517,39 @@ def _relay_uses_shared_schedule(source: Optional[str] = None) -> bool:
     return not _has_community_api_key()
 
 
+def schedule_policy(source: Optional[str] = None) -> Dict[str, Any]:
+    source_name = (source or "real").strip().lower() or "real"
+    shared_relay = _relay_uses_shared_schedule(source_name)
+    active_mode = _active_mode(source_name)
+    community_shared = bool(shared_relay and active_mode == "community")
+    allowed = [
+        900,
+        1800,
+        2700,
+        3600,
+        7200,
+        14400,
+        28800,
+        43200,
+        86400,
+    ]
+    if community_shared:
+        allowed = [value for value in allowed if value >= _COMMUNITY_RELAY_MIN_REFRESH_SECONDS]
+    return {
+        "shared_relay": shared_relay,
+        "active_mode": active_mode,
+        "community_shared": community_shared,
+        "min_refresh_seconds": _COMMUNITY_RELAY_MIN_REFRESH_SECONDS if community_shared else 900,
+        "allowed_refresh_seconds": allowed,
+        "reason": (
+            "Community Relay shares hourly-or-slower schedule snapshots to protect upstream providers."
+            if community_shared
+            else "Current schedule mode can use the standard local refresh choices."
+        ),
+        "cooldown_remaining_seconds": _relay_cooldown_remaining_s() if community_shared else 0,
+    }
+
+
 def _load_relay_snapshot_info() -> Dict[str, Any]:
     usage = _load_usage()
     snapshot = usage.get("relay_snapshot")
@@ -551,6 +654,7 @@ def _request_json(
     params: Dict[str, Any],
     headers: Optional[Dict[str, str]] = None,
     timeout_s: int,
+    relay_response: bool = False,
 ) -> Dict[str, Any]:
     try:
         response = requests.get(
@@ -567,7 +671,19 @@ def _request_json(
         raise AviationstackError(f"Request failed: {exc}") from exc
 
     if response.status_code == 429:
-        raise AviationstackBudgetExceeded("Community relay quota exceeded.")
+        retry_after = _parse_retry_after(response.headers.get("Retry-After") if response.headers else None)
+        raise AviationstackBudgetExceeded(
+            "Community relay quota exceeded." if relay_response else "AviationStack quota exceeded.",
+            retry_after_s=retry_after,
+            status_code=response.status_code,
+        )
+    if relay_response and response.status_code == 503:
+        retry_after = _parse_retry_after(response.headers.get("Retry-After") if response.headers else None)
+        raise AviationstackBudgetExceeded(
+            "Community relay temporarily unavailable.",
+            retry_after_s=retry_after,
+            status_code=response.status_code,
+        )
     if response.status_code >= 400:
         msg = f"HTTP {response.status_code}"
         try:
@@ -712,9 +828,18 @@ def _fetch_relay(
     if activation_token:
         params["activation_token"] = activation_token
     else:
+        _raise_if_relay_cooling_down()
         _increment_community_budget(_get_relay_limit())
 
-    result = _request_json(_get_relay_url(), params=params, timeout_s=timeout_s)
+    try:
+        result = _request_json(_get_relay_url(), params=params, timeout_s=timeout_s, relay_response=True)
+    except AviationstackBudgetExceeded as exc:
+        if not activation_token:
+            _record_relay_cooldown(
+                retry_after_s=exc.retry_after_s or _RELAY_COOLDOWN_DEFAULT_S,
+                reason=str(exc),
+            )
+        raise
     _sync_relay_quota_from_headers(result["headers"])
     data = result["data"]
     if not isinstance(data, dict) or "data" not in data:
@@ -748,9 +873,18 @@ def fetch_relay_schedule_records(
     if activation_token:
         params["activation_token"] = activation_token
     else:
+        _raise_if_relay_cooling_down()
         _increment_community_budget(_get_relay_limit())
 
-    result = _request_json(_relay_schedule_url(), params=params, timeout_s=timeout_s)
+    try:
+        result = _request_json(_relay_schedule_url(), params=params, timeout_s=timeout_s, relay_response=True)
+    except AviationstackBudgetExceeded as exc:
+        if not activation_token:
+            _record_relay_cooldown(
+                retry_after_s=exc.retry_after_s or _RELAY_COOLDOWN_DEFAULT_S,
+                reason=str(exc),
+            )
+        raise
     _sync_relay_quota_from_headers(result["headers"])
     data = result["data"]
     if not isinstance(data, dict):
@@ -1324,6 +1458,7 @@ def get_usage_stats(source: Optional[str] = None) -> Dict[str, Any]:
     active_mode = _active_mode(source_name)
     community_transport = "local_key" if _has_community_api_key() else "relay"
     shared_relay = _relay_uses_shared_schedule(source_name)
+    policy = schedule_policy(source_name)
     cfg = None
     try:
         from localflight.storage.config import load_config
@@ -1491,6 +1626,7 @@ def get_usage_stats(source: Optional[str] = None) -> Dict[str, Any]:
         "enabled": active_mode != "virtual",
         "cost_estimate": cost_estimate,
         "shared_relay": shared_relay,
+        "schedule_policy": policy,
         "shared_snapshot": shared_snapshot,
         "community": community,
         "managed": managed,

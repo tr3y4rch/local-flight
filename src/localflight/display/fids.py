@@ -6,6 +6,7 @@ import re
 from typing import Any, Literal, Optional
 from zoneinfo import ZoneInfo
 
+from localflight.core.aircraft import short_aircraft_type
 from localflight.decode.mappings.airports import format_airport
 
 FidsView = Literal["arrivals", "departures"]
@@ -27,6 +28,17 @@ class FIDSRow:
     callsign:       str = ""
     airline_display: str = ""  # "SWISS"
     codeshare_display: str = ""  # "Also UA 123 / AC 456"
+    flight_number: str = ""
+    airline_iata: str = ""
+    airline_icao: str = ""
+    codeshares: tuple[str, ...] = ()
+    sold_as: tuple[str, ...] = ()
+    marketing_airline_name: str = ""
+    marketing_airline_iata: str = ""
+    marketing_airline_icao: str = ""
+    marketing_flight_number: str = ""
+    operating_callsign: str = ""
+    identity_source: str = ""
     delay_minutes: Optional[int] = None
     delay_class: str = ""  # early | warn | bad
     time_primary: str = ""
@@ -321,7 +333,7 @@ def decoded_to_fids_row(decoded: dict[str, Any], *, view: FidsView) -> FIDSRow:
     elif status_class == "on-time":
         status_class = "scheduled"
 
-    aircraft_type = str(decoded.get("aircraft_type") or "").strip() or "-"
+    aircraft_type = short_aircraft_type(decoded.get("aircraft_type")) or "-"
     flight_display = str(decoded.get("flight_display") or "").strip() or "-"
     flight_date = str(decoded.get("flight_date") or "").strip() or "unknown"
     flight_key = str(decoded.get("flight_key") or "").strip() or flight_display.replace(" ", "")

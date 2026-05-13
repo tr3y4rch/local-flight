@@ -95,7 +95,7 @@ The screenshot script builds a self-contained simulator app and captures portrai
 - Dashboard data from `/api/admin/system`, `/api/config`, `/api/health`, `/api/admin/budget`, `/api/admin/connections`, `/api/admin/updates`, and `/api/metar`
 - Native FIDS list from `/api/fids`
 - Flight details from `/api/fids/detail`, including the server's shared current-source detail model for real vs VATSIM schedule, motion, aircraft, weather, source confidence, and history fields when available
-- Airport, source, and refresh interval editing. The server offers 15, 30, 45, and 60 minute choices plus longer 2, 4, 8, 12, and 24 hour choices. Community Relay may still reuse already-cached airport snapshots for about one hour to protect shared upstream schedule access.
+- Airport, source, and refresh interval editing. The server offers 15, 30, 45, and 60 minute choices plus longer 2, 4, 8, 12, and 24 hour choices where the active schedule mode allows them. Community Relay shows hourly-or-slower choices because shared airport snapshots protect upstream schedule access.
 - Pinned flight island with pin/unpin and tap-for-detail behavior
 - WebSocket listener for `/ws` `snapshot_updated`, `config_updated`, and `scheduler_restarted` events
 - Independent mobile appearance with dark/light theme plus `standard`, `technical`, `neon`, `cyan`, and `crt` skins

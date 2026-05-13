@@ -526,10 +526,20 @@
   let lastRadarPayload = null;
 
   let radarPollTimer = null;
+  let radarFetching = false;
+  let radarRefreshQueued = false;
+  const RADAR_VISIBLE_MIN_MS = 60 * 1000;
+  const RADAR_HIDDEN_MIN_MS = 300 * 1000;
+  const RADAR_JITTER_RATIO = 0.2;
+
+  function jitteredPollDelay(baseMs) {
+    const spread = Math.max(0, baseMs * RADAR_JITTER_RATIO);
+    return Math.max(1000, Math.round(baseMs + (Math.random() * 2 - 1) * spread));
+  }
 
   function scheduleBlipFetch(delayMs) {
     if (radarPollTimer) window.clearTimeout(radarPollTimer);
-    radarPollTimer = window.setTimeout(fetchBlips, Math.max(5000, delayMs));
+    radarPollTimer = window.setTimeout(fetchBlips, jitteredPollDelay(Math.max(5000, delayMs)));
   }
 
   function nextPollDelayMs(data) {
@@ -538,9 +548,9 @@
     let baseMs = refreshAfterS > 0 ? refreshAfterS * 1000 : POLL_MS;
     if (!refreshAfterS && source === "vatsim") baseMs = POLL_MS;
     if (document.hidden) {
-      return Math.max(baseMs, 120000);
+      return Math.max(baseMs, RADAR_HIDDEN_MIN_MS);
     }
-    return baseMs;
+    return Math.max(baseMs, RADAR_VISIBLE_MIN_MS);
   }
 
   async function fetchBlipsLegacy() {
@@ -660,6 +670,15 @@
   }
 
   async function fetchBlips() {
+    if (radarFetching) {
+      radarRefreshQueued = true;
+      return;
+    }
+    radarFetching = true;
+    if (radarPollTimer) {
+      window.clearTimeout(radarPollTimer);
+      radarPollTimer = null;
+    }
     try {
       const params = radarQueryParams();
       const r=await fetch(`/api/radar?${params.toString()}`); if(!r.ok) throw new Error(`HTTP ${r.status}`);
@@ -671,7 +690,12 @@
       scheduleBlipFetch(nextPollDelayMs(data));
     } catch(e){
       status.innerHTML=`<span class="live-dot offline" id="liveDot"></span> Radar fetch failed: ${escapeHtml(e.message)}`;
-      scheduleBlipFetch(document.hidden ? 120000 : 60000);
+      scheduleBlipFetch(document.hidden ? RADAR_HIDDEN_MIN_MS : RADAR_VISIBLE_MIN_MS);
+    } finally {
+      radarFetching = false;
+      const queued = radarRefreshQueued;
+      radarRefreshQueued = false;
+      if (queued) window.setTimeout(fetchBlips, 250);
     }
   }
 

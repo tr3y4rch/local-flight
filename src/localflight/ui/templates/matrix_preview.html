@@ -36,6 +36,36 @@
   .preview-header h1 { margin: 0; font-size: 1rem; color: #e0e4ec; }
   .preview-header .sub { opacity: 0.55; font-size: 0.78rem; margin-top: 3px; }
 
+  .matrix-status-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 8px;
+    margin: -4px 0 16px;
+  }
+
+  .matrix-chip {
+    border: 1px solid #2a3040;
+    background: #181b22;
+    border-radius: 10px;
+    padding: 10px 12px;
+  }
+
+  .matrix-chip span {
+    display: block;
+    color: #6eaee8;
+    font-family: var(--font-board);
+    font-size: 0.68rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin-bottom: 4px;
+  }
+
+  .matrix-chip strong {
+    display: block;
+    color: #e0e4ec;
+    font-size: 0.86rem;
+  }
+
   /* ── Controls ── */
   .controls {
     display: flex;
@@ -379,6 +409,39 @@
     display: block;
     margin-bottom: 3px;
   }
+
+  details.matrix-section {
+    margin-top: 14px;
+    border: 1px solid #2a3040;
+    border-radius: 12px;
+    background: #161a21;
+    overflow: hidden;
+  }
+
+  details.matrix-section > summary {
+    cursor: pointer;
+    padding: 12px 14px;
+    color: #e0e4ec;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+  }
+
+  details.matrix-section > summary span {
+    display: block;
+    margin-top: 3px;
+    color: #667080;
+    font-weight: 500;
+    font-size: 0.76rem;
+    letter-spacing: 0;
+  }
+
+  details.matrix-section[open] > summary {
+    border-bottom: 1px solid #2a3040;
+  }
+
+  .matrix-section-body {
+    padding: 14px;
+  }
 {% endblock %}
 
 {% block body %}
@@ -389,6 +452,25 @@
     <div>
       <h1>Matrix Preview — {{ airport_label }}</h1>
       <div class="sub" id="panelSubtitle">{{ panel_w }}×{{ panel_h }} · Interstate 75 W · style: pax_blue</div>
+    </div>
+  </div>
+
+  <div class="matrix-status-grid">
+    <div class="matrix-chip">
+      <span>Board status</span>
+      <strong id="matrixBoardSeen">Not checked yet</strong>
+    </div>
+    <div class="matrix-chip">
+      <span>Selected config</span>
+      <strong id="matrixConfigName">Default Board</strong>
+    </div>
+    <div class="matrix-chip">
+      <span>Panel combo</span>
+      <strong id="matrixPanelStatus">{{ panel_w }} x {{ panel_h }}</strong>
+    </div>
+    <div class="matrix-chip">
+      <span>Board mode</span>
+      <strong id="matrixModeStatus">Real FIDS</strong>
     </div>
   </div>
 
@@ -546,34 +628,31 @@
     <div class="setup-intro">
       <p>Flash once with Wi-Fi and the Local Flight server address. After that, normal board changes are saved here and pulled by the board over your LAN.</p>
       <div class="setup-checklist">
+        {% for step in matrix_guidance.steps %}
         <div class="setup-step">
-          <strong>1. Download main.py</strong>
-          The file stores Wi-Fi, server host, and physical panel size for the MicroPython board.
+          <strong>{{ step.title }}</strong>
+          {{ step.body }}
         </div>
-        <div class="setup-step">
-          <strong>2. Save in Thonny</strong>
-          Open Thonny, connect the board, then save the file to the device as <code>main.py</code>.
-        </div>
-        <div class="setup-step">
-          <strong>3. Tune live</strong>
-          Style, rows, brightness, mode, motion, weather, and rotation update from this page after saving.
-        </div>
+        {% endfor %}
       </div>
       <div class="guide-grid">
         <div class="guide-pill">
           <strong>Toggle without reflashing</strong>
-          Board mode, style, brightness, rows, refresh, rotation, weather, gate/stand labels, status motion, and animation mode/speed.
+          {{ matrix_guidance.live_settings | join(", ") }}.
         </div>
         <div class="guide-pill">
           <strong>Reflash when these change</strong>
-          Wi-Fi name/password, server host/port, physical panel size/wiring, or a new board client feature.
+          {{ matrix_guidance.reflash_settings | join(", ") }}.
         </div>
       </div>
       <div class="setup-note">
-        <strong>What it talks to:</strong> the board checks in at <code>/api/matrix/v2/devices/checkin</code>, reads settings from <code>/api/matrix/v2/devices/{id}/config</code>, then fetches display rows from <code>/api/matrix/v2/devices/{id}/feed</code>. Wi-Fi details stay only inside the downloaded file.
+        <strong>Beginner-safe notes:</strong> {{ matrix_guidance.safe_notes | join(" ") }}
       </div>
     </div>
 
+    <details class="matrix-section" open>
+      <summary>One-time board file <span>Only needed for Wi-Fi, server address, physical panel wiring, or new board-client code.</span></summary>
+      <div class="matrix-section-body">
     <div class="setup-row">
       <div class="setup-col">
         <div class="setup-label">Create the board file</div>
@@ -612,6 +691,52 @@
         </div>
       </div>
     </div>
+      </div>
+    </details>
+
+    <details class="matrix-section">
+      <summary>Connected boards <span>After a board checks in, it appears here in the native app and uses its assigned config.</span></summary>
+      <div class="matrix-section-body">
+        <div class="guide-grid">
+          <div class="guide-pill">
+            <strong>Board status</strong>
+            Watch the status chip above after the i75W boots. If it stays unseen, confirm Wi-Fi, server host, and that Local Flight is reachable from the same LAN.
+          </div>
+          <div class="guide-pill">
+            <strong>Assignments</strong>
+            Use the native Matrix page for board labels and per-board config assignment. This LAN page keeps the essential single-board path simple.
+          </div>
+        </div>
+      </div>
+    </details>
+
+    <details class="matrix-section">
+      <summary>Multiple configs <span>Use one default config for most installs; create more only when different boards need different looks.</span></summary>
+      <div class="matrix-section-body">
+        <div class="guide-grid">
+          <div class="guide-pill">
+            <strong>Default config</strong>
+            The selected config dropdown controls which saved profile this page edits.
+          </div>
+          <div class="guide-pill">
+            <strong>Live tuning</strong>
+            Apply live settings after changes; the board pulls the saved config on its next refresh.
+          </div>
+        </div>
+      </div>
+    </details>
+
+    <details class="matrix-section">
+      <summary>Advanced: how the board talks to Local Flight <span>Useful when debugging connectivity; not needed for normal setup.</span></summary>
+      <div class="matrix-section-body">
+        <div class="setup-note">
+          {% for item in matrix_guidance.advanced_flow %}
+          <div>{{ item }}</div>
+          {% endfor %}
+          <div>Wi-Fi details stay only inside the downloaded file.</div>
+        </div>
+      </div>
+    </details>
 
   </div>
 </main>
@@ -646,6 +771,7 @@
   let SHOW_GATE_INFO = true;
   let MATRIX_PALETTE = "pax_blue";
   let MATRIX_CONFIGS = [];
+  let MATRIX_DEVICES = [];
   let MATRIX_PRESETS = [];
   let MATRIX_PALETTE_OPTIONS = [];
   let MATRIX_PANEL_PRESETS = [];
@@ -654,7 +780,13 @@
   let MATRIX_PAGES = null;
   let MATRIX_WEATHER_PAGE = null;
   let MATRIX_MESSAGE = "";
-  const POLL_MS     = 15000;
+  const MATRIX_PREVIEW_MIN_POLL_MS = 60 * 1000;
+  const MATRIX_PREVIEW_HIDDEN_POLL_MS = 900 * 1000;
+  const MATRIX_PREVIEW_JITTER_RATIO = 0.2;
+  let matrixPreviewPollTimer = null;
+  let matrixRowsFetching = false;
+  let matrixRowsQueued = false;
+  let matrixRowsDebounceTimer = null;
   const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "::1", "[::1]"]);
   const DEFAULT_SERVER_HOST = LOOPBACK_HOSTS.has(window.location.hostname)
     ? "localflight.local"
@@ -690,11 +822,26 @@
         .map(color => `<span class="palette-dot" style="background:${color}"></span>`)
         .join("");
     }
+    updateMatrixStatusChips();
     const sub = document.getElementById("panelSubtitle");
     if (sub) sub.textContent = `${PANEL_W}x${PANEL_H} · Interstate 75 W · style: ${MATRIX_PALETTE}`;
   }
 
   // ── Bitmap 5x7 font ────────────────────────────────────────────────────────
+  function updateMatrixStatusChips() {
+    const currentConfig = MATRIX_CONFIGS.find(c => c.id === CURRENT_CONFIG_ID) || MATRIX_CONFIGS[0] || {};
+    const currentPreset = MATRIX_PRESETS.find(p => p.id === MATRIX_PRESET) || {};
+    const seen = MATRIX_DEVICES.filter(d => d && d.last_seen).length;
+    const boardSeen = document.getElementById("matrixBoardSeen");
+    const configName = document.getElementById("matrixConfigName");
+    const panelStatus = document.getElementById("matrixPanelStatus");
+    const modeStatus = document.getElementById("matrixModeStatus");
+    if (boardSeen) boardSeen.textContent = MATRIX_DEVICES.length ? `${seen}/${MATRIX_DEVICES.length} seen` : "No i75W seen";
+    if (configName) configName.textContent = currentConfig.name || currentConfig.id || "Default Board";
+    if (panelStatus) panelStatus.textContent = `${PANEL_W} x ${PANEL_H}`;
+    if (modeStatus) modeStatus.textContent = currentPreset.label || MATRIX_PRESET || "Real FIDS";
+  }
+
   const FONT = {
     " ":[0,0,0,0,0],
     "A":[0x7e,0x11,0x11,0x11,0x7e],"B":[0x7f,0x49,0x49,0x49,0x36],
@@ -785,7 +932,6 @@
     step() {
       if (this.frame >= this.frames) {
         this.current = this.target;
-        return;
       }
       const progress = this.frame / this.frames;
       const speed    = Math.max(1, Math.floor((1-progress)*3));
@@ -904,7 +1050,7 @@
 
   // ── Row text builder ───────────────────────────────────────────────────────
   function cleanFlightNumber(value) {
-    const text = String(value || "").replace(/^Also\s+/i, "").replace(/[|,]/g, " ").trim();
+    const text = String(value || "").replace(/^Sold\s+as\s+/i, "").replace(/^Also\s+/i, "").replace(/[|,]/g, " ").trim();
     if (!text || text.startsWith("+")) return "";
     const parts = text.split(/\s+/).filter(Boolean);
     return parts.length >= 2 ? `${parts[0]} ${parts[1]}` : (parts[0] || "");
@@ -915,7 +1061,7 @@
     for (const key of ["codeshares", "codeshare_display", "codeshare", "sold_as"]) {
       const raw = row[key];
       if (!raw) continue;
-      const parts = Array.isArray(raw) ? raw : String(raw).replace(/^Also\s+/i, "").split("/");
+      const parts = Array.isArray(raw) ? raw : String(raw).replace(/^Sold\s+as\s+/i, "").replace(/^Also\s+/i, "").replace(/[|,]/g, "/").split("/");
       for (const part of parts) {
         const code = cleanFlightNumber(part);
         if (code && !values.includes(code)) values.push(code);
@@ -1457,7 +1603,25 @@
   };
 
   // ── Fetch ──────────────────────────────────────────────────────────────────
+  function scheduleRowsFetch(delayMs = 250) {
+    if (matrixRowsDebounceTimer) window.clearTimeout(matrixRowsDebounceTimer);
+    status.textContent = "Preview update queued...";
+    matrixRowsDebounceTimer = window.setTimeout(() => {
+      matrixRowsDebounceTimer = null;
+      fetchRows();
+    }, delayMs);
+  }
+
   async function fetchRows() {
+    if (matrixRowsFetching) {
+      matrixRowsQueued = true;
+      return;
+    }
+    matrixRowsFetching = true;
+    if (matrixPreviewPollTimer) {
+      window.clearTimeout(matrixPreviewPollTimer);
+      matrixPreviewPollTimer = null;
+    }
     try {
       const fetchLimit = Math.min(visibleRows() * 4, 32);
       status.textContent = "Loading Matrix preview feed...";
@@ -1494,15 +1658,33 @@
       if (data.length === 0) {
         applyFlightData([]);
         status.textContent = "No flight data available — click Demo to preview animation";
-        return;
-      }
-      applyFlightData(data);
-      const pageCount = flightPages.length;
+      } else {
+        applyFlightData(data);
+        const pageCount = flightPages.length;
       status.textContent = `${data.length} flights · ${VIEW} · ${PANEL_W}×${PANEL_H}px · ${pageCount > 1 ? `pages ${pageCount} · ` : ""}updated ${new Date().toUTCString().slice(17,25)} UTC`;
+      }
     } catch (e) {
       status.textContent = `Fetch failed: ${e.message} — click Demo to preview animation`;
     }
+    matrixRowsFetching = false;
+    const queued = matrixRowsQueued;
+    matrixRowsQueued = false;
+    scheduleMatrixPreviewPoll();
+    if (queued) window.setTimeout(() => fetchRows(), 250);
     updateCfgBlock();
+  }
+
+  function matrixPreviewDelayMs() {
+    const base = document.hidden
+      ? MATRIX_PREVIEW_HIDDEN_POLL_MS
+      : Math.max(MATRIX_PREVIEW_MIN_POLL_MS, Number(REFRESH_S_SRV || 60) * 1000);
+    const spread = Math.max(0, base * MATRIX_PREVIEW_JITTER_RATIO);
+    return Math.max(MATRIX_PREVIEW_MIN_POLL_MS, Math.round(base + (Math.random() * 2 - 1) * spread));
+  }
+
+  function scheduleMatrixPreviewPoll() {
+    if (matrixPreviewPollTimer) window.clearTimeout(matrixPreviewPollTimer);
+    matrixPreviewPollTimer = window.setTimeout(() => fetchRows(), matrixPreviewDelayMs());
   }
 
   // ── Animation loop ─────────────────────────────────────────────────────────
@@ -1572,7 +1754,7 @@
     document.getElementById("rowsVal").textContent = v;
     updateCfgBlock();
     applyFlightData(allFlightData);
-    fetchRows();
+    scheduleRowsFetch();
   };
 
   window.setBrightness = function(v) {
@@ -1624,7 +1806,7 @@
     const sel = document.getElementById("viewSelect");
     if (sel) sel.value = VIEW;
     updateCfgBlock();
-    fetchRows();
+    scheduleRowsFetch();
   };
 
   window.setPageRotation = function(v) {
@@ -1637,7 +1819,7 @@
     if (!v || v === "custom") return;
     const [w,h] = v.split("x").map(Number);
     syncPanelGeometry(w, h);
-    fetchRows();
+    scheduleRowsFetch();
     updateCfgBlock();
   };
 
@@ -1645,7 +1827,7 @@
     const widthInput = document.getElementById("panelWidthInput");
     const heightInput = document.getElementById("panelHeightInput");
     syncPanelGeometry(widthInput?.value, heightInput?.value);
-    fetchRows();
+    scheduleRowsFetch();
     updateCfgBlock();
   };
 
@@ -1757,6 +1939,8 @@ Board reads: /api/config -> /api/matrix/v2/devices/{id}/config -> /api/matrix/v2
       "def fit_text(value, length):",
       "def _clock_hhmm(offset_minutes=0):",
       "ACTIVE_BREATH",
+      "PALETTE",
+      "RENDERER",
       '"pax_blue"',
       '"tower_scope"',
     ];
@@ -1828,17 +2012,20 @@ Board reads: /api/config -> /api/matrix/v2/devices/{id}/config -> /api/matrix/v2
   // ── Load saved matrix config from server ────────────────────────────────
   async function loadMatrixConfig() {
     try {
-      const [presetRes, configRes] = await Promise.all([
+      const [presetRes, configRes, devicesRes] = await Promise.all([
         fetch("/api/matrix/v2/presets"),
         fetch("/api/matrix/v2/configs"),
+        fetch("/api/matrix/v2/devices"),
       ]);
       if (presetRes.ok && configRes.ok) {
         const presetPayload = await presetRes.json();
         const configPayload = await configRes.json();
+        const devicesPayload = devicesRes.ok ? await devicesRes.json() : {};
         MATRIX_PRESETS = Array.isArray(presetPayload.presets) ? presetPayload.presets : [];
         MATRIX_PALETTE_OPTIONS = Array.isArray(presetPayload.palettes) ? presetPayload.palettes : [];
         MATRIX_PANEL_PRESETS = Array.isArray(presetPayload.panel_presets) ? presetPayload.panel_presets : [];
         MATRIX_CONFIGS = Array.isArray(configPayload.configs) ? configPayload.configs : [];
+        MATRIX_DEVICES = Array.isArray(devicesPayload.devices) ? devicesPayload.devices : [];
         CURRENT_CONFIG_ID = configPayload.default_config_id || (MATRIX_CONFIGS[0] && MATRIX_CONFIGS[0].id) || "";
         populateMatrixV2Selectors();
         const selected = MATRIX_CONFIGS.find(c => c.id === CURRENT_CONFIG_ID) || MATRIX_CONFIGS[0];
@@ -1889,6 +2076,7 @@ Board reads: /api/config -> /api/matrix/v2/devices/{id}/config -> /api/matrix/v2
         `<optgroup label="${group}">${items.map(p => `<option value="${p.panel_w}x${p.panel_h}">${p.label || `${p.panel_w} x ${p.panel_h}`}</option>`).join("")}</optgroup>`
       ).join("");
     }
+    updateMatrixStatusChips();
   }
 
   function applyMatrixConfig(d) {
@@ -1960,7 +2148,8 @@ Board reads: /api/config -> /api/matrix/v2/devices/{id}/config -> /api/matrix/v2
       const viewSel = document.getElementById("viewSelect");
       if (viewSel) viewSel.value = VIEW;
     }
-    fetchRows();
+    updateMatrixStatusChips();
+    scheduleRowsFetch();
   }
 
   window.applyMatrixConfigSelection = function(id) {
@@ -1977,14 +2166,15 @@ Board reads: /api/config -> /api/matrix/v2/devices/{id}/config -> /api/matrix/v2
     }
     syncGateToggleForPreset();
     updateCfgBlock();
-    fetchRows();
+    updateMatrixStatusChips();
+    scheduleRowsFetch();
   };
 
   window.toggleWeather = function() {
     SHOW_WEATHER = !SHOW_WEATHER;
     document.getElementById("weatherToggle")?.classList.toggle("active", SHOW_WEATHER);
     updateCfgBlock();
-    fetchRows();
+    scheduleRowsFetch();
   };
 
   function syncGateToggleForPreset() {
@@ -2014,7 +2204,7 @@ Board reads: /api/config -> /api/matrix/v2/devices/{id}/config -> /api/matrix/v2
     syncGateToggleForPreset();
     updateCfgBlock();
     applyVisiblePage(flightData);
-    fetchRows();
+    scheduleRowsFetch();
   };
 
   window.toggleStatusMotion = function() {
@@ -2102,14 +2292,15 @@ Board reads: /api/config -> /api/matrix/v2/devices/{id}/config -> /api/matrix/v2
   setPreviewPalette(MATRIX_PALETTE);
   syncGateToggleForPreset();
   updateCfgBlock();
+  updateMatrixStatusChips();
 
   // Start demo animation immediately so there's something to see
   triggerDemo();
 
   // Load saved config from server (populates controls + updates cfgBlock)
-  loadMatrixConfig().then(() => { updateCfgBlock(); fetchRows(); });
+  loadMatrixConfig().then(() => { updateCfgBlock(); scheduleRowsFetch(0); });
 
-  setInterval(fetchRows, POLL_MS);
+  document.addEventListener("visibilitychange", () => scheduleMatrixPreviewPoll());
 
   requestAnimationFrame(loop);
 })();

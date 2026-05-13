@@ -113,6 +113,6 @@ export function formatInterval(seconds: number): string {
 }
 
 export function companionSyncMs(seconds?: number | null): number {
-  const serverMs = Math.max(60, seconds || 60) * 1000;
+  const serverMs = Math.max(300, seconds || 300) * 1000;
   return Math.min(serverMs, 30 * 60 * 1000);
 }

@@ -27,9 +27,11 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, Field
 
+from localflight.core.aircraft import aircraft_full_label, short_aircraft_type
 from localflight.core.airports import _load_index, best_label, lookup_airport
 from localflight.core.flight_intel import build_flight_intel
 from localflight.core.models import Flight, FlightDirection, FlightPosition
+from localflight.decode.identity import resolve_flight_identity
 from localflight.display.fids import enrich_presentation_fields
 from localflight.render.fids import build_fids_context
 from localflight.storage.config import (
@@ -76,6 +78,52 @@ _COMPANION_STALE_SECONDS = 15 * 60
 _COMPANION_RETENTION_DAYS = 30
 
 
+def _schedule_policy_for_config(source: Optional[str] = None) -> Dict[str, Any]:
+    try:
+        from localflight.sources.web.aviationstack_client import schedule_policy
+
+        return schedule_policy(source or load_config().source)
+    except Exception:
+        allowed = sorted(ALLOWED_REFRESH_SECONDS)
+        return {
+            "shared_relay": False,
+            "active_mode": "unknown",
+            "community_shared": False,
+            "min_refresh_seconds": min(allowed) if allowed else 900,
+            "allowed_refresh_seconds": allowed,
+            "reason": "",
+            "cooldown_remaining_seconds": 0,
+        }
+
+
+def _coerce_refresh_for_schedule_policy(refresh_seconds: int, source: Optional[str] = None) -> int:
+    policy = _schedule_policy_for_config(source)
+    allowed = [int(value) for value in (policy.get("allowed_refresh_seconds") or []) if int(value) in ALLOWED_REFRESH_SECONDS]
+    if not allowed:
+        allowed = sorted(ALLOWED_REFRESH_SECONDS)
+    refresh = int(refresh_seconds)
+    if refresh in allowed:
+        return refresh
+    minimum = int(policy.get("min_refresh_seconds") or min(allowed))
+    for value in sorted(allowed):
+        if value >= max(refresh, minimum):
+            return value
+    return max(allowed)
+
+
+def client_polling_policy() -> Dict[str, Any]:
+    return {
+        "mode": "event_first",
+        "jitter_ratio": 0.2,
+        "fids_fallback_seconds": 300,
+        "admin_fallback_seconds": 60,
+        "hidden_fallback_seconds": 900,
+        "radar_visible_min_seconds": 60,
+        "radar_hidden_min_seconds": 300,
+        "mobile_min_fallback_seconds": 300,
+    }
+
+
 def _network_tools_enabled() -> bool:
     import os
     return os.getenv("LOCALFLIGHT_ENABLE_NETWORK_TOOLS", "").strip().lower() in {"1", "true", "yes", "on"}
@@ -85,9 +133,13 @@ def _network_tools_enabled() -> bool:
 _adsbx_radar_cache: Dict[str, tuple[float, List[Dict[str, Any]]]] = {}
 _opensky_radar_cache: Dict[str, tuple[float, List[Dict[str, Any]]]] = {}
 _radar_map_cache: Dict[str, tuple[float, Dict[str, Any]]] = {}
+_radar_fetch_locks: Dict[str, Lock] = {}
+_radar_fetch_locks_lock = Lock()
 _DEFAULT_ADSBX_RADAR_CACHE_TTL_S = 300
 _OPENSKY_RADAR_CACHE_TTL_S = 60
 _RADAR_MAP_CACHE_TTL_S = 300
+_SURFACE_CACHE_TTL_S = 60 * 60 * 24 * 14
+_SURFACE_MISS_TTL_S = 60 * 60
 _MIN_PROVIDER_RADAR_RADIUS_NM = 5.0
 _SURFACE_RELAY_TIMEOUT_S = 3.0
 _MAP_CONTEXT_TIMEOUT_S = 8.0
@@ -122,6 +174,15 @@ def _radar_refresh_after_s(source_used: str) -> int:
     if source_name == "snapshot_positions":
         return 60
     return 15
+
+
+def _get_radar_fetch_lock(cache_key: str) -> Lock:
+    with _radar_fetch_locks_lock:
+        lock = _radar_fetch_locks.get(cache_key)
+        if lock is None:
+            lock = Lock()
+            _radar_fetch_locks[cache_key] = lock
+        return lock
 
 
 def _vatsim_client_module():
@@ -463,6 +524,31 @@ def _dict_to_flight(d: dict) -> Flight:
 
     times_d   = d.get("times")   or {}
     airline_d = d.get("airline") or {}
+    airport_d = d.get("airport") or {}
+    identity = resolve_flight_identity(
+        {
+            "callsign": d.get("operating_callsign") or d.get("callsign"),
+            "airline_name": airline_d.get("name"),
+            "airline_iata": airline_d.get("iata"),
+            "airline_icao": airline_d.get("icao"),
+            "flight_number": d.get("flight_number"),
+            "codeshares": d.get("codeshares"),
+            "sold_as": d.get("sold_as"),
+            "marketing_airline_name": d.get("marketing_airline_name"),
+            "marketing_airline_iata": d.get("marketing_airline_iata"),
+            "marketing_airline_icao": d.get("marketing_airline_icao"),
+            "marketing_flight_number": d.get("marketing_flight_number"),
+            "operating_callsign": d.get("operating_callsign"),
+            "identity_source": d.get("identity_source"),
+        },
+        airport_iata=airport_d.get("iata") or "",
+        airport_icao=airport_d.get("icao") or "",
+    )
+    aircraft_short = short_aircraft_type(d.get("aircraft_type"))
+    aircraft_full = d.get("aircraft_type_full") or aircraft_full_label(
+        d.get("aircraft_type"),
+        short_code=aircraft_short,
+    )
 
     return Flight(
         direction=direction,
@@ -470,17 +556,25 @@ def _dict_to_flight(d: dict) -> Flight:
             iata=(d.get("airport") or {}).get("iata"),
             icao=(d.get("airport") or {}).get("icao"),
         ),
-        callsign=d["callsign"],
+        callsign=identity.callsign or d["callsign"],
         airline=AirlineRef(
-            name=airline_d.get("name"),
-            iata=airline_d.get("iata"),
-            icao=airline_d.get("icao"),
+            name=identity.airline_name,
+            iata=identity.airline_iata,
+            icao=identity.airline_icao,
         ),
-        flight_number=d.get("flight_number"),
-        codeshares=_codeshares(d.get("codeshares")),
+        flight_number=identity.flight_number,
+        codeshares=identity.codeshares,
+        sold_as=identity.sold_as,
+        marketing_airline_name=identity.marketing_airline_name,
+        marketing_airline_iata=identity.marketing_airline_iata,
+        marketing_airline_icao=identity.marketing_airline_icao,
+        marketing_flight_number=identity.marketing_flight_number,
+        operating_callsign=identity.operating_callsign,
+        identity_source=identity.identity_source,
         origin=_airport(d.get("origin")),
         destination=_airport(d.get("destination")),
-        aircraft_type=d.get("aircraft_type"),
+        aircraft_type=aircraft_short or None,
+        aircraft_type_full=aircraft_full or None,
         aircraft_registration=d.get("aircraft_registration"),
         gate=d.get("gate"),
         terminal=d.get("terminal"),
@@ -560,6 +654,17 @@ class FIDSRowOut(BaseModel):
     flight_display: str
     airline_display: str = ""
     codeshare_display: str = ""
+    flight_number: str = ""
+    airline_iata: str = ""
+    airline_icao: str = ""
+    codeshares: List[str] = Field(default_factory=list)
+    sold_as: List[str] = Field(default_factory=list)
+    marketing_airline_name: str = ""
+    marketing_airline_iata: str = ""
+    marketing_airline_icao: str = ""
+    marketing_flight_number: str = ""
+    operating_callsign: str = ""
+    identity_source: str = ""
     route_display:  str
     status_display: str
     status_class:   str
@@ -613,6 +718,17 @@ def _fids_rows_from_flights(
             status_display=r.status_display, status_class=r.status_class,
             gate=r.gate, aircraft_type=r.aircraft_type,
             callsign=r.callsign,
+            flight_number=r.flight_number,
+            airline_iata=r.airline_iata,
+            airline_icao=r.airline_icao,
+            codeshares=list(r.codeshares),
+            sold_as=list(r.sold_as),
+            marketing_airline_name=r.marketing_airline_name,
+            marketing_airline_iata=r.marketing_airline_iata,
+            marketing_airline_icao=r.marketing_airline_icao,
+            marketing_flight_number=r.marketing_flight_number,
+            operating_callsign=r.operating_callsign,
+            identity_source=r.identity_source,
             delay_minutes=r.delay_minutes,
             delay_class=r.delay_class,
             time_primary=r.time_primary,
@@ -659,6 +775,13 @@ def api_patch_config(patch: ConfigPatch, background_tasks: BackgroundTasks) -> D
             raise HTTPException(status_code=422, detail=f"diagnostics_mode must be one of {sorted(ALLOWED_DIAGNOSTICS_MODES)}")
         data["diagnostics_mode"] = mode
     current_cfg = load_config()
+    source_for_policy = str(data.get("source") or current_cfg.source)
+    if "refresh_seconds" in data:
+        data["refresh_seconds"] = _coerce_refresh_for_schedule_policy(int(data["refresh_seconds"]), source_for_policy)
+    else:
+        coerced_refresh = _coerce_refresh_for_schedule_policy(int(current_cfg.refresh_seconds), source_for_policy)
+        if coerced_refresh != int(current_cfg.refresh_seconds):
+            data["refresh_seconds"] = coerced_refresh
     current = asdict(current_cfg)
     scheduler_fields = {
         "airport_iata",
@@ -761,6 +884,13 @@ def api_fids_detail(callsign: str = Query(..., min_length=1, max_length=20)) -> 
             "airline_iata":  flight.airline.iata if flight.airline else None,
             "airline_icao":  flight.airline.icao if flight.airline else None,
             "codeshares":    list(flight.codeshares),
+            "sold_as":       list(flight.sold_as),
+            "marketing_airline_name": flight.marketing_airline_name,
+            "marketing_airline_iata": flight.marketing_airline_iata,
+            "marketing_airline_icao": flight.marketing_airline_icao,
+            "marketing_flight_number": flight.marketing_flight_number,
+            "operating_callsign": flight.operating_callsign,
+            "identity_source": flight.identity_source,
             "origin_iata":   flight.origin.iata        if flight.origin      else None,
             "origin_icao":   flight.origin.icao        if flight.origin      else None,
             "origin_name":   flight.origin.name        if flight.origin      else None,
@@ -773,7 +903,9 @@ def api_fids_detail(callsign: str = Query(..., min_length=1, max_length=20)) -> 
             "delay_minutes": flight.delay_minutes,
             "gate":          flight.gate,
             "terminal":      flight.terminal,
+            "stand":         flight.stand,
             "aircraft_type": flight.aircraft_type,
+            "aircraft_type_full": flight.aircraft_type_full,
             "aircraft_registration": flight.aircraft_registration,
             "direction":     flight.direction.value,
             "status":        flight.status.value,
@@ -1258,6 +1390,14 @@ def api_radar_surface(
         )
 
     cached = _load_local_surface_cache(cfg)
+    if cached and _timed_cache_fresh(cached, ttl_s=_SURFACE_CACHE_TTL_S, miss_ttl_s=_SURFACE_MISS_TTL_S):
+        payload = dict(cached)
+        payload["cache_state"] = "fresh"
+        payload.setdefault("meta", {})
+        if isinstance(payload["meta"], dict):
+            payload["meta"]["served_via"] = "local-surface-cache"
+        return _with_surface_validation(cfg, payload, airport)
+
     relay_error = ""
     try:
         response = _req.get(
@@ -1585,27 +1725,42 @@ def api_radar(
                         radius_nm,
                     )
                 else:
-                    source_used = "adsbexchange_live"
-                    aircraft = fetch_aircraft(
-                        lat=center_lat,
-                        lon=center_lon,
-                        radius_nm=provider_radius_nm,
-                    )
-                    adsbx_raw_count = len(aircraft)
-                    blips = aircraft_to_blips(
-                        aircraft=aircraft,
-                        center_lat=center_lat,
-                        center_lon=center_lon,
-                        radius_nm=radius_nm,
-                    )
-                    _adsbx_radar_cache[adsbx_cache_key] = (now_ts, aircraft)
-                    log.info(
-                        "ADS-B Exchange radar: fetched %d raw aircraft at %.1fnm provider radius; %d visible at %.1fnm",
-                        adsbx_raw_count,
-                        provider_radius_nm,
-                        len(blips),
-                        radius_nm,
-                    )
+                    lock = _get_radar_fetch_lock(f"adsbx:{adsbx_cache_key}")
+                    with lock:
+                        now_ts = time.monotonic()
+                        cached = _adsbx_radar_cache.get(adsbx_cache_key)
+                        if cached and (now_ts - cached[0]) < ttl_s:
+                            aircraft = cached[1]
+                            adsbx_raw_count = len(aircraft)
+                            blips = aircraft_to_blips(
+                                aircraft=aircraft,
+                                center_lat=center_lat,
+                                center_lon=center_lon,
+                                radius_nm=radius_nm,
+                            )
+                            source_used = "adsbexchange_cached"
+                        else:
+                            source_used = "adsbexchange_live"
+                            aircraft = fetch_aircraft(
+                                lat=center_lat,
+                                lon=center_lon,
+                                radius_nm=provider_radius_nm,
+                            )
+                            adsbx_raw_count = len(aircraft)
+                            blips = aircraft_to_blips(
+                                aircraft=aircraft,
+                                center_lat=center_lat,
+                                center_lon=center_lon,
+                                radius_nm=radius_nm,
+                            )
+                            _adsbx_radar_cache[adsbx_cache_key] = (now_ts, aircraft)
+                            log.info(
+                                "ADS-B Exchange radar: fetched %d raw aircraft at %.1fnm provider radius; %d visible at %.1fnm",
+                                adsbx_raw_count,
+                                provider_radius_nm,
+                                len(blips),
+                                radius_nm,
+                            )
         except Exception as exc:
             log.warning("ADS-B Exchange live radar unavailable, trying fallback: %s", exc)
 
@@ -1629,6 +1784,14 @@ def api_radar(
                     "icao24":        f.position.icao24,
                     "squawk":        f.position.squawk,
                     "flight_number": f.flight_number,
+                    "airline_name":  f.airline.name,
+                    "airline_iata":  f.airline.iata,
+                    "airline_icao":  f.airline.icao,
+                    "codeshares":    list(f.codeshares),
+                    "sold_as":       list(f.sold_as),
+                    "operating_callsign": f.operating_callsign,
+                    "marketing_flight_number": f.marketing_flight_number,
+                    "identity_source": f.identity_source,
                     "status":        f.status.value,
                     "source":        f.source,
                     "aircraft_type": f.aircraft_type,
@@ -1651,22 +1814,31 @@ def api_radar(
                 source_used = "opensky_live_cached"
                 log.debug("OpenSky radar: serving cached blips for %s", cache_key)
             else:
-                log.info("No position data in snapshot â€” falling back to live OpenSky fetch")
-                source_used = "opensky_live"
-                try:
-                    from localflight.sources.web.opensky_radar import fetch_radar_blips
-                    raw_blips = fetch_radar_blips(
-                        lat=center_lat, lon=center_lon, radius_nm=radius_nm,
-                    )
-                    for b in raw_blips:
-                        b["enriched"] = False
-                        b["source"] = b.get("source") or "opensky"
-                        b["source_quality"] = "opensky-state-vector"
-                    blips = [enrich_blip_display_fields(b) for b in raw_blips]
-                    _opensky_radar_cache[cache_key] = (now_ts, blips)
-                except Exception as exc:
-                    log.warning("OpenSky live radar fallback failed: %s", exc)
-                    raise HTTPException(status_code=503, detail=f"Radar data unavailable: {exc}")
+                lock = _get_radar_fetch_lock(f"opensky:{cache_key}")
+                with lock:
+                    now_ts = time.monotonic()
+                    cached = _opensky_radar_cache.get(cache_key)
+                    if cached and (now_ts - cached[0]) < _OPENSKY_RADAR_CACHE_TTL_S:
+                        blips = cached[1]
+                        source_used = "opensky_live_cached"
+                        log.debug("OpenSky radar: serving cached blips for %s", cache_key)
+                    else:
+                        log.info("No position data in snapshot â€” falling back to live OpenSky fetch")
+                        source_used = "opensky_live"
+                        try:
+                            from localflight.sources.web.opensky_radar import fetch_radar_blips
+                            raw_blips = fetch_radar_blips(
+                                lat=center_lat, lon=center_lon, radius_nm=radius_nm,
+                            )
+                            for b in raw_blips:
+                                b["enriched"] = False
+                                b["source"] = b.get("source") or "opensky"
+                                b["source_quality"] = "opensky-state-vector"
+                            blips = [enrich_blip_display_fields(b) for b in raw_blips]
+                            _opensky_radar_cache[cache_key] = (now_ts, blips)
+                        except Exception as exc:
+                            log.warning("OpenSky live radar fallback failed: %s", exc)
+                            raise HTTPException(status_code=503, detail=f"Radar data unavailable: {exc}")
 
     ground_filtered = 0
     airborne_filtered = 0
@@ -1977,12 +2149,15 @@ def api_admin_budget() -> Dict[str, Any]:
  
     result: Dict[str, Any] = {}
     cfg = load_config()
+    result["client_polling_policy"] = client_polling_policy()
  
     try:
-        from localflight.sources.web.aviationstack_client import get_usage_stats
+        from localflight.sources.web.aviationstack_client import get_usage_stats, schedule_policy
         result["aviationstack"] = get_usage_stats(cfg.source)
+        result["schedule_policy"] = schedule_policy(cfg.source)
     except Exception as exc:
         result["aviationstack"] = {"error": str(exc)}
+        result["schedule_policy"] = _schedule_policy_for_config(cfg.source)
  
     return result
  
@@ -3088,8 +3263,53 @@ def _matrix_gate_label(
     return ""
 
 
+def _matrix_identifier_list(value: Any) -> List[str]:
+    if value is None:
+        return []
+    if isinstance(value, (list, tuple, set)):
+        raw_values = list(value)
+    else:
+        text = str(value or "").strip()
+        if not text:
+            return []
+        text = re.sub(r"\b(Sold\s+as|Also)\b", "", text, flags=re.IGNORECASE)
+        text = text.replace("·", "/").replace("|", "/").replace(",", "/")
+        raw_values = text.split("/")
+    values: List[str] = []
+    seen: set[str] = set()
+    for raw in raw_values:
+        item = str(raw or "").strip()
+        if not item or item == "-":
+            continue
+        compact = re.sub(r"[^A-Za-z0-9]", "", item).upper()
+        if not compact or compact in seen:
+            continue
+        seen.add(compact)
+        values.append(item)
+    return values
+
+
+def _matrix_secondary_label(sold_as: List[str], codeshares: List[str]) -> str:
+    if sold_as:
+        shown = sold_as[:3]
+        suffix = f" +{len(sold_as) - len(shown)}" if len(sold_as) > len(shown) else ""
+        return "Sold as " + " / ".join(shown) + suffix
+    if codeshares:
+        shown = codeshares[:4]
+        suffix = f" +{len(codeshares) - len(shown)}" if len(codeshares) > len(shown) else ""
+        return "Also " + " / ".join(shown) + suffix
+    return ""
+
+
 def _matrix_row_payload(row: Any, *, preset: Any = "real_fids", show_gate_info: bool = True) -> Dict[str, Any]:
-    data = row.model_dump() if hasattr(row, "model_dump") else row.dict() if hasattr(row, "dict") else dict(row)
+    if hasattr(row, "model_dump"):
+        data = row.model_dump()
+    elif hasattr(row, "dict"):
+        data = row.dict()
+    elif hasattr(row, "__dataclass_fields__"):
+        data = asdict(row)
+    else:
+        data = dict(row)
     data = enrich_presentation_fields(data)
     status = str(data.get("status_display") or "")
     lowered = status.lower()
@@ -3107,7 +3327,9 @@ def _matrix_row_payload(row: Any, *, preset: Any = "real_fids", show_gate_info: 
         )
     flight = data.get("flight_display") or data.get("callsign") or "-"
     operator = data.get("airline_display") or ""
-    codeshare = data.get("codeshare_display") or ""
+    codeshares = _matrix_identifier_list(data.get("codeshares"))
+    sold_as = _matrix_identifier_list(data.get("sold_as"))
+    codeshare = str(data.get("codeshare_display") or "").strip() or _matrix_secondary_label(sold_as, codeshares)
     route_display = data.get("route_display") or "-"
     route_fields = _matrix_route_fields(route_display)
     hide_gate_fields = _matrix_is_vatsim_preset(preset)
@@ -3134,7 +3356,7 @@ def _matrix_row_payload(row: Any, *, preset: Any = "real_fids", show_gate_info: 
         "display_time": data.get("display_time") or "--:--",
         "flight": flight,
         "flight_display": flight,
-        "flight_number": flight,
+        "flight_number": data.get("flight_number") or flight,
         "route": route_display,
         "route_display": route_display,
         **route_fields,
@@ -3156,9 +3378,18 @@ def _matrix_row_payload(row: Any, *, preset: Any = "real_fids", show_gate_info: 
         "operator": operator,
         "operating_airline": operator,
         "airline_display": operator,
-        "codeshare": codeshare,
+        "airline_iata": data.get("airline_iata") or "",
+        "airline_icao": data.get("airline_icao") or "",
+        "codeshares": codeshares,
+        "codeshare": " / ".join(codeshares),
         "codeshare_display": codeshare,
-        "sold_as": codeshare,
+        "sold_as": sold_as,
+        "marketing_airline_name": data.get("marketing_airline_name") or "",
+        "marketing_airline_iata": data.get("marketing_airline_iata") or "",
+        "marketing_airline_icao": data.get("marketing_airline_icao") or "",
+        "marketing_flight_number": data.get("marketing_flight_number") or "",
+        "operating_callsign": data.get("operating_callsign") or "",
+        "identity_source": data.get("identity_source") or "",
         "status_class": data.get("status_class") or kind,
         "status_kind": data.get("status_kind") or kind,
         "source_hint": data.get("source_hint") or "",
@@ -3500,6 +3731,7 @@ def _render_matrix_client_script(body: MatrixScriptIn) -> str:
         animation_mode = "static"
     palette = body.palette if body.palette in _MATRIX_PALETTES else "pax_blue"
     preset = body.preset if body.preset in _MATRIX_PRESETS else "real_fids"
+    renderer = str(_MATRIX_PRESETS.get(preset, _MATRIX_PRESETS["real_fids"]).get("renderer") or "modern_fids")
     show_gate_info = bool(body.show_gate_info) and not _matrix_is_vatsim_preset(preset)
     host = _normalize_matrix_api_host(body.api_host)
     text = _matrix_client_template_path().read_text(encoding="utf-8")
@@ -3523,6 +3755,7 @@ def _render_matrix_client_script(body: MatrixScriptIn) -> str:
         "SHOW_WEATHER": "True" if body.show_weather else "False",
         "SHOW_GATE_INFO": "True" if show_gate_info else "False",
         "PRESET": json.dumps(preset),
+        "RENDERER": json.dumps(renderer),
     }
     replacements["PALETTE"] = json.dumps(palette)
     for key, value in replacements.items():
