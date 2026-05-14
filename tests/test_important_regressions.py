@@ -407,6 +407,51 @@ def test_matrix_payload_preserves_operating_identity_from_fids_row() -> None:
     assert payload["marketing_flight_number"] == "EK2131"
     assert payload["operating_callsign"] == "FDB2MY"
     assert payload["identity_source"] == "callsign"
+    assert payload["matrix_flight_label"] == "FZ 2MY"
+
+
+def test_matrix_payload_exposes_stable_display_contract_for_compact_boards() -> None:
+    payload = ui_api._matrix_row_payload(
+        {
+            "id": "ams-arr-ua841",
+            "display_time": "16:31 (+8)",
+            "time_primary": "+8",
+            "flight_display": "UA 841",
+            "flight_number": "UA841",
+            "callsign": "UAL841",
+            "codeshares": ["LH 9876", "AC 1234"],
+            "route_display": "Paris (CDG)",
+            "status_display": "Arrived",
+            "gate": "F4",
+            "aircraft_type": "B738",
+        },
+        preset="real_fids",
+        show_gate_info=True,
+    )
+
+    assert payload["matrix_time_label"] == "16:31"
+    assert payload["matrix_flight_label"] == "UA 841"
+    assert payload["matrix_route_label"] == "PARIS CDG"
+    assert payload["matrix_status_label"] == "ARRIVED +8"
+    assert payload["matrix_gate_label"] == "F4"
+    assert payload["matrix_aircraft_label"] == "B738"
+    assert payload["codeshares"] == ["LH 9876", "AC 1234"]
+
+
+def test_matrix_payload_uses_callsign_only_when_no_flight_number_exists() -> None:
+    payload = ui_api._matrix_row_payload(
+        {
+            "display_time": "09:05",
+            "callsign": "BGA4726A",
+            "route_display": "Toulouse (TLS)",
+            "status_display": "scheduled",
+        },
+        preset="real_fids",
+        show_gate_info=True,
+    )
+
+    assert payload["matrix_flight_label"] == "BGA4726A"
+    assert payload["matrix_time_label"] == "09:05"
 
 
 def test_identity_aware_dedupe_collapses_marketed_rows_for_same_operating_flight() -> None:
@@ -3325,6 +3370,7 @@ def test_matrix_script_endpoint_uses_current_i75w_client_template() -> None:
     script = response.text
     compile(script, "generated-main.py", "exec")
     assert 'CLIENT_VER       = "2.0"' in script
+    assert 'CLIENT_RENDERER_REV = "matrix-display-contract-v2"' in script
     assert "import interstate75 as interstate75_module" in script
     assert "def update_display():" in script
     assert "def fit_text(value, length):" in script
@@ -3341,6 +3387,8 @@ def test_matrix_script_endpoint_uses_current_i75w_client_template() -> None:
     assert "def marquee(value, width, step=None):" in script
     assert "def draw_glyph(name, x, y, color):" in script
     assert "route_matrix_label" in script
+    assert "matrix_flight_label" in script
+    assert "matrix_weather_icon" in script
     assert "def _weather_line(chars=18):" in script
     assert "SHOW_WEATHER" in script
     assert "SHOW_GATE_INFO" in script
@@ -3348,6 +3396,7 @@ def test_matrix_script_endpoint_uses_current_i75w_client_template() -> None:
     assert "def _status_or_gate_chunk(row, chars):" in script
     assert "_airport_label" in script
     assert '"temp": ["00100", "01010", "01010", "10001", "01110"]' in script
+    assert '"snow": ["10101", "01010", "10101", "01010", "10101"]' in script
     assert '"WX "' not in script
     assert "def _weather_temp_text():" in script
     assert "def draw_weather_mini(x, y, max_width):" in script
@@ -3410,6 +3459,9 @@ def test_matrix_payloads_use_city_label_and_decoded_weather_display() -> None:
     assert metar["condition_display"] == "Clear"
     assert metar["temperature_short"] == "30C"
     assert metar["weather_display"] == "Clear 30C"
+    assert metar["matrix_weather_icon"] == "sun"
+    assert metar["matrix_weather_temp"] == "30C"
+    assert metar["matrix_weather_label"] == "Clear"
 
 
 def test_matrix_preview_download_payload_uses_defined_animation_state() -> None:
@@ -3441,6 +3493,9 @@ def test_matrix_preview_download_payload_uses_defined_animation_state() -> None:
     assert "function setPreviewPalette(name)" in template
     assert "MATRIX_PALETTE_OPTIONS" in template
     assert "MATRIX_PANEL_PRESETS" in template
+    assert "row.matrix_flight_label" in template
+    assert "MATRIX_METAR?.matrix_weather_icon" in template
+    assert "const choices = [primary" not in template
     assert "palette: MATRIX_PALETTE" in template
     assert "default_view: VIEW" in template
     assert "status_animation_enabled: STATUS_ANIMATION_ENABLED" in template

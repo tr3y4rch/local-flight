@@ -31,7 +31,7 @@ PANEL_H          = 64    # total physical pixel height
 MAX_ROWS         = 4     # flight rows to display
 REFRESH_S        = 60    # flight data fetch interval in seconds
 PAGE_ROTATION_S  = 10    # rotate to the next local board page when overflow exists
-CODE_SHARE_ROTATION_S = 4 # rotate codeshare flight numbers in the flight column
+CODE_SHARE_ROTATION_S = 4 # legacy setting retained; matrix flight labels stay stable
 BRIGHTNESS       = 0.8   # 0.0 – 1.0
 DEFAULT_VIEW     = "departures"
 ANIMATION_ENABLED = True
@@ -48,6 +48,7 @@ MATRIX_CONFIG_REV = 0
 CONFIG_REFRESH_S = 60    # re-read server config every minute
 PING_S           = 600   # ping server every 10 min
 CLIENT_VER       = "2.0"
+CLIENT_RENDERER_REV = "matrix-display-contract-v2"
 SUPPORTED_RENDERERS = ["modern_fids", "vatsim_pilot", "vatsim_atc"]
 SUPPORTED_ANIMATIONS = ["split_flap", "slide_left", "slide_right", "static"]
 # ──────────────────────────────────────────────────────────────────────────────
@@ -182,6 +183,7 @@ _GLYPHS = {
     "rain": ["01110", "11111", "00000", "01010", "10100"],
     "storm": ["01110", "11111", "00100", "01000", "10000"],
     "mist": ["00000", "11110", "00000", "01111", "00000"],
+    "snow": ["10101", "01010", "10101", "01010", "10101"],
     "temp": ["00100", "01010", "01010", "10001", "01110"],
     "unknown": ["11111", "10001", "00110", "00000", "00100"],
 }
@@ -467,35 +469,35 @@ def _codeshare_flights(row):
     return values
 
 def _flight_cycle_display(row):
-    primary = _clean_flight_number(row.get("flight_display") or row.get("flight") or row.get("flight_number") or row.get("callsign")) or "-"
-    codeshares = [code for code in _codeshare_flights(row) if code != primary]
-    choices = [primary] + codeshares
-    if len(choices) <= 1:
+    if not isinstance(row, dict):
+        return "-"
+    # Matrix boards need a stable operating-first identity. Codeshares stay in
+    # the payload/details, but never rotate through the primary flight column.
+    primary = _clean_flight_number(
+        row.get("matrix_flight_label")
+        or row.get("flight_display")
+        or row.get("flight")
+        or row.get("flight_number")
+    )
+    if primary:
         return primary
-    try:
-        slot = int(time.time() // max(1, CODE_SHARE_ROTATION_S))
-    except Exception:
-        slot = 0
-    return choices[slot % len(choices)]
+    return _clean_flight_number(row.get("operating_callsign") or row.get("callsign")) or "-"
 
 def _page_has_codeshares(rows):
-    for row in rows or []:
-        if isinstance(row, dict) and _codeshare_flights(row):
-            return True
     return False
 
 def _route_code(row):
     return _upper_text(row.get("route_code") or "")
 
 def _route_label(row):
-    return _upper_text(row.get("route_matrix_label") or row.get("route_display") or row.get("route") or "-")
+    return _upper_text(row.get("matrix_route_label") or row.get("route_matrix_label") or row.get("route_display") or row.get("route") or "-")
 
 def _route_chunk(row, chars):
     return cycle_chunks(_route_label(row), chars, _route_code(row)).rstrip()
 
 def _status_chunk(row, chars):
     delta = row.get("time_delta_label") or ""
-    status = row.get("status_display") or row.get("status") or "-"
+    status = row.get("matrix_status_label") or row.get("status_display") or row.get("status") or "-"
     if delta and "delay" not in str(status).lower() and "early" not in str(status).lower():
         status = "{} {}".format(status, delta)
     return cycle_chunks(status, chars).rstrip()
@@ -506,7 +508,7 @@ def _is_vatsim_preset():
 def _gate_label(row):
     if _is_vatsim_preset() or not SHOW_GATE_INFO or not isinstance(row, dict):
         return ""
-    for key in ("gate_label", "terminal_gate_display", "gate_display", "gate"):
+    for key in ("matrix_gate_label", "gate_label", "terminal_gate_display", "gate_display", "gate"):
         value = _upper_text(row.get(key) or "").strip()
         if value and value != "-":
             return value
@@ -529,17 +531,17 @@ def _status_or_gate_chunk(row, chars):
     return _status_chunk(row, chars)
 
 def build_row_text(row):
-    time_s   = fit_text(_text_field(row.get("time_primary") or row.get("display_time") or row.get("time"), "--:--"), 5)
+    time_s   = fit_text(_text_field(row.get("matrix_time_label") or row.get("display_time") or row.get("time"), "--:--"), 5)
     flight_s = fit_text(_flight_cycle_display(row), 8)
     dest_s   = fit_text(_route_label(row), 12)
-    status_s = fit_text(_text_field(row.get("status_display") or row.get("status")), 10)
+    status_s = fit_text(_text_field(row.get("matrix_status_label") or row.get("status_display") or row.get("status")), 10)
     gate_s   = fit_text(_gate_label(row), 4)
     return f"{time_s} {flight_s} {dest_s} {status_s} {gate_s}"
 
 def build_detail_text(row):
     op = row.get("operating_airline") or row.get("operator") or row.get("airline_display") or ""
     sold = row.get("sold_as") or row.get("codeshare") or row.get("codeshare_display") or ""
-    aircraft = row.get("aircraft") or row.get("aircraft_type") or ""
+    aircraft = row.get("matrix_aircraft_label") or row.get("aircraft") or row.get("aircraft_type") or ""
     parts = []
     if op:
         parts.append("OP " + op)
@@ -781,6 +783,7 @@ def checkin_matrix_device():
         "panel_w": PANEL_W,
         "panel_h": PANEL_H,
         "firmware": CLIENT_VER,
+        "renderer_revision": CLIENT_RENDERER_REV,
         "renderers": SUPPORTED_RENDERERS,
     }
     data = _post_json("/api/matrix/v2/devices/checkin", payload, timeout=8)
@@ -868,6 +871,7 @@ def ping_server():
         "panel_w": PANEL_W,
         "panel_h": PANEL_H,
         "firmware": CLIENT_VER,
+        "renderer_revision": CLIENT_RENDERER_REV,
         "renderers": SUPPORTED_RENDERERS,
     }, timeout=5)
 
@@ -884,7 +888,8 @@ def _weather_glyph_name():
     if not isinstance(_matrix_metar, dict):
         return "unknown"
     icon = _upper_text(
-        _matrix_metar.get("weather_icon")
+        _matrix_metar.get("matrix_weather_icon")
+        or _matrix_metar.get("weather_icon")
         or _matrix_metar.get("condition_display")
         or _matrix_metar.get("weather_label")
         or _matrix_metar.get("summary")
@@ -893,6 +898,8 @@ def _weather_glyph_name():
         return "storm"
     if "rain" in icon or "shower" in icon:
         return "rain"
+    if "snow" in icon:
+        return "snow"
     if "mist" in icon or "fog" in icon or "haze" in icon:
         return "mist"
     if "cloud" in icon or "overcast" in icon:
@@ -907,13 +914,15 @@ def _weather_line(chars=18):
     if not isinstance(_matrix_metar, dict):
         return ""
     condition = _upper_text(
-        _matrix_metar.get("condition_display")
+        _matrix_metar.get("matrix_weather_label")
+        or _matrix_metar.get("condition_display")
         or _matrix_metar.get("weather_label")
         or _matrix_metar.get("summary")
         or _matrix_metar.get("weather_display")
     )
     temp = (
-        _matrix_metar.get("temperature_short")
+        _matrix_metar.get("matrix_weather_temp")
+        or _matrix_metar.get("temperature_short")
         or _matrix_metar.get("temperature_display")
         or _matrix_metar.get("temp_c")
         or _matrix_metar.get("temperature_c")
@@ -930,7 +939,8 @@ def _weather_temp_text():
     if not SHOW_WEATHER or not isinstance(_matrix_metar, dict):
         return ""
     temp = (
-        _matrix_metar.get("temperature_short")
+        _matrix_metar.get("matrix_weather_temp")
+        or _matrix_metar.get("temperature_short")
         or _matrix_metar.get("temperature_display")
         or _matrix_metar.get("temp_c")
         or _matrix_metar.get("temperature_c")
@@ -962,12 +972,14 @@ def draw_weather_compact(x, y, max_width):
         return 0
     glyph = _weather_glyph_name()
     condition = _upper_text(
-        _matrix_metar.get("condition_display")
+        _matrix_metar.get("matrix_weather_label")
+        or _matrix_metar.get("condition_display")
         or _matrix_metar.get("weather_label")
         or _matrix_metar.get("summary")
     )
     temp = (
-        _matrix_metar.get("temperature_short")
+        _matrix_metar.get("matrix_weather_temp")
+        or _matrix_metar.get("temperature_short")
         or _matrix_metar.get("temperature_display")
         or _matrix_metar.get("temp_c")
         or _matrix_metar.get("temperature_c")
@@ -1154,10 +1166,12 @@ def draw_row(flap_row, row_data, y, row_h):
         graphics.set_font("bitmap8")
         glyph = "arr" if DEFAULT_VIEW == "arrivals" else "dep"
         draw_glyph("warn" if cancelled else glyph, 0, y + 1, RED if cancelled else DIM)
+        time_label = fit_text(_text_field(row_data.get("matrix_time_label") or row_data.get("display_time") or row_data.get("time"), "--:--"), 5)
+        flight_label = fit_text(_flight_cycle_display(row_data), 8)
         graphics.set_pen(WHITE if cancel_flash else GREEN)
-        graphics.text(text[0:5], 8, y, 42, 1)
+        graphics.text(time_label, 8, y, 42, 1)
         graphics.set_pen(WHITE)
-        graphics.text(text[6:14], 50, y, 62, 1)
+        graphics.text(flight_label, 50, y, 62, 1)
 
         if row_h >= 18:
             graphics.set_pen(WHITE)
@@ -1215,15 +1229,17 @@ def draw_modern_fids(flap_rows, page_data, view):
         if not row:
             continue
         text = flap_rows[i].get_text() if flap_rows else build_row_text(row)
+        time_label = fit_text(_text_field(row.get("matrix_time_label") or row.get("display_time") or row.get("time"), "--:--"), 5)
+        flight_label = fit_text(_flight_cycle_display(row), 8)
         cancelled = is_cancelled(row)
         if cancelled and _blink_fast():
             graphics.set_pen(RED)
             graphics.rectangle(0, y - 1, WIDTH, max(9, row_h - 1))
         draw_glyph("arr" if view == "arrivals" else "dep", 0, y + 1, DIM)
         graphics.set_pen(GREEN if not cancelled else WHITE)
-        graphics.text(text[0:5], 8, y, 44, 1)
+        graphics.text(time_label, 8, y, 44, 1)
         graphics.set_pen(WHITE)
-        graphics.text(text[6:14], 52, y, 64, 1)
+        graphics.text(flight_label, 52, y, 64, 1)
         if compact:
             route_y = y + 8
             status_y = y + 16

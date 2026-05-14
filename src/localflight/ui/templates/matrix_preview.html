@@ -955,6 +955,7 @@
     rain: ["01110","11111","00000","01010","10100"],
     storm: ["01110","11111","00100","01000","10000"],
     mist: ["00000","11110","00000","01111","00000"],
+    snow: ["10101","01010","10101","01010","10101"],
     temp: ["00100","01010","01010","10001","01110"],
     unknown: ["11111","10001","00110","00000","00100"],
   };
@@ -1071,15 +1072,14 @@
   }
 
   function flightCycleDisplay(row) {
-    const primary = cleanFlightNumber(row.flight_display || row.flight || row.flight_number || row.callsign) || "-";
-    const choices = [primary, ...codeshareFlightNumbers(row).filter(code => code !== primary)];
-    if (choices.length <= 1) return primary;
-    const slot = Math.floor(Date.now() / 4000);
-    return choices[slot % choices.length];
+    if (!row) return "-";
+    const primary = cleanFlightNumber(row.matrix_flight_label || row.flight_display || row.flight || row.flight_number);
+    if (primary) return primary;
+    return cleanFlightNumber(row.operating_callsign || row.callsign) || "-";
   }
 
   function pageHasCodeshares(rows) {
-    return (rows || []).some(row => codeshareFlightNumbers(row).length > 0);
+    return false;
   }
 
   function asciiText(value) {
@@ -1130,13 +1130,13 @@
   }
 
   function routeFields(row) {
-    const text = asciiText(row.route_matrix_label || row.route_display || row.route || "-").trim();
+    const text = asciiText(row.matrix_route_label || row.route_matrix_label || row.route_display || row.route || "-").trim();
     let code = asciiText(row.route_code || "").trim().toUpperCase();
     let city = asciiText(row.route_city || "").trim();
     const match = text.toUpperCase().match(/\(([A-Z0-9]{3,4})\)\s*$/);
     if (!code && match) code = match[1];
     if (!city && match) city = text.replace(/\s*\([A-Za-z0-9]{3,4}\)\s*$/, "").trim();
-    const label = String(row.route_matrix_label || [city || text.replace(/\s*\([A-Za-z0-9]{3,4}\)\s*$/, ""), code].filter(Boolean).join(" ") || text).toUpperCase();
+    const label = String(row.matrix_route_label || row.route_matrix_label || [city || text.replace(/\s*\([A-Za-z0-9]{3,4}\)\s*$/, ""), code].filter(Boolean).join(" ") || text).toUpperCase();
     return { label, code };
   }
 
@@ -1146,7 +1146,7 @@
   }
 
   function statusChunk(row, chars) {
-    return cycleChunks(row?.status_display || row?.status || "-", chars).trim();
+    return cycleChunks(row?.matrix_status_label || row?.status_display || row?.status || "-", chars).trim();
   }
 
   function isVatsimPreset() {
@@ -1159,7 +1159,7 @@
 
   function gateLabel(row) {
     if (!gateInfoEnabled() || !row) return "";
-    for (const key of ["gate_label", "terminal_gate_display", "gate_display", "gate"]) {
+    for (const key of ["matrix_gate_label", "gate_label", "terminal_gate_display", "gate_display", "gate"]) {
       const value = String(row[key] || "").trim().toUpperCase();
       if (value && value !== "-") return value;
     }
@@ -1181,10 +1181,10 @@
   const code_preserve = codePreserve;
 
   function buildRowText(row) {
-    const t  = ((row.display_time || row.time || "--:--")+"     ").slice(0,5);
+    const t  = ((row.matrix_time_label || row.display_time || row.time || "--:--")+"     ").slice(0,5);
     const fn = ((flightCycleDisplay(row))+"        ").slice(0,8);
     const rt = fit(routeFields(row).label, 14);
-    const st = ((row.status_display || row.status || "")+"          ").slice(0,10);
+    const st = ((row.matrix_status_label || row.status_display || row.status || "")+"          ").slice(0,10);
     const gt = ((gateLabel(row))+"    ").slice(0,4);
     return `${t} ${fn} ${rt} ${st} ${gt}`;
   }
@@ -1192,7 +1192,7 @@
   function detailText(row) {
     const operator = row.operating_airline || row.operator || row.airline_display || "";
     const sold = row.sold_as || row.codeshare || row.codeshare_display || "";
-    const aircraft = row.aircraft || row.aircraft_type || "";
+    const aircraft = row.matrix_aircraft_label || row.aircraft || row.aircraft_type || "";
     return [
       operator ? `OP ${operator}` : "",
       sold ? `SOLD ${String(sold).replace(/^Also /, "")}` : "",
@@ -1247,6 +1247,7 @@
 
   function weatherGlyphName() {
     const text = String(
+      MATRIX_METAR?.matrix_weather_icon ||
       MATRIX_METAR?.weather_icon ||
       MATRIX_METAR?.condition_display ||
       MATRIX_METAR?.weather_label ||
@@ -1255,6 +1256,7 @@
     ).toLowerCase();
     if (text.includes("storm") || text.includes("thunder")) return "storm";
     if (text.includes("rain") || text.includes("shower")) return "rain";
+    if (text.includes("snow")) return "snow";
     if (text.includes("mist") || text.includes("fog") || text.includes("haze")) return "mist";
     if (text.includes("cloud") || text.includes("overcast")) return "cloud";
     if (text.includes("sun") || text.includes("clear") || text.includes("vfr")) return "sun";
@@ -1264,13 +1266,14 @@
   function weatherLine(chars = 18) {
     if (!SHOW_WEATHER || !MATRIX_METAR) return "";
     const condition = String(
+      MATRIX_METAR.matrix_weather_label ||
       MATRIX_METAR.condition_display ||
       MATRIX_METAR.weather_label ||
       MATRIX_METAR.summary ||
       MATRIX_METAR.weather_display ||
       ""
     ).toUpperCase();
-    const rawTemp = MATRIX_METAR.temperature_short || MATRIX_METAR.temperature_display || MATRIX_METAR.temp_c || MATRIX_METAR.temperature_c || "";
+    const rawTemp = MATRIX_METAR.matrix_weather_temp || MATRIX_METAR.temperature_short || MATRIX_METAR.temperature_display || MATRIX_METAR.temp_c || MATRIX_METAR.temperature_c || "";
     const temp = rawTemp === "" ? "" : String(rawTemp).replace(" C", "C").replace(/\s+/g, "").toUpperCase().replace(/([^C])$/, "$1C");
     const text = [condition, temp].filter(Boolean).join(" ").trim();
     return text.length > chars ? marquee(text, chars).trim() : text.slice(0, chars);
@@ -1278,7 +1281,7 @@
 
   function weatherTempText() {
     if (!SHOW_WEATHER || !MATRIX_METAR) return "";
-    const rawTemp = MATRIX_METAR.temperature_short || MATRIX_METAR.temperature_display || MATRIX_METAR.temp_c || MATRIX_METAR.temperature_c || "";
+    const rawTemp = MATRIX_METAR.matrix_weather_temp || MATRIX_METAR.temperature_short || MATRIX_METAR.temperature_display || MATRIX_METAR.temp_c || MATRIX_METAR.temperature_c || "";
     return rawTemp === "" ? "" : String(rawTemp).replace(" C", "C").replace(/\s+/g, "").toUpperCase().replace(/([^C])$/, "$1C");
   }
 
@@ -1298,9 +1301,9 @@
     if (!SHOW_WEATHER || !MATRIX_METAR) return;
     const glyph = weatherGlyphName();
     drawGlyph(glyph, x, y + 1, glyph === "sun" || glyph === "storm" ? C.amber : C.dim);
-    const rawTemp = MATRIX_METAR.temperature_short || MATRIX_METAR.temperature_display || MATRIX_METAR.temp_c || MATRIX_METAR.temperature_c || "";
+    const rawTemp = MATRIX_METAR.matrix_weather_temp || MATRIX_METAR.temperature_short || MATRIX_METAR.temperature_display || MATRIX_METAR.temp_c || MATRIX_METAR.temperature_c || "";
     const temp = rawTemp === "" ? "" : String(rawTemp).replace(" C", "C").replace(/\s+/g, "").toUpperCase().replace(/([^C])$/, "$1C");
-    const condition = String(MATRIX_METAR.condition_display || MATRIX_METAR.weather_label || MATRIX_METAR.summary || "").toUpperCase();
+    const condition = String(MATRIX_METAR.matrix_weather_label || MATRIX_METAR.condition_display || MATRIX_METAR.weather_label || MATRIX_METAR.summary || "").toUpperCase();
     let chars = Math.max(3, Math.floor((maxW - 14) / 6));
     if (temp) chars = Math.max(3, chars - temp.length - 1);
     const label = condition.length > chars ? marquee(condition, chars).trim() : condition.slice(0, chars);
@@ -1488,9 +1491,11 @@
 
       if (compact) {
         const chars = Math.max(8, Math.floor(PANEL_W / 6));
+        const timeLabel = String(row?.matrix_time_label || row?.display_time || row?.time || txt.slice(0,5) || "--:--").padEnd(5, " ").slice(0,5);
+        const flightLabel = String(flightCycleDisplay(row || {})).padEnd(8, " ").slice(0,8);
         drawGlyph(cancelled ? "warn" : (renderView === "arrivals" ? "arr" : "dep"), 0, y + 1, cancelled ? C.red : C.dim);
-        drawString(txt.slice(0,5), 8, y, cancelled ? C.white : C.green);
-        drawString(txt.slice(6,14), 50, y, C.white);
+        drawString(timeLabel, 8, y, cancelled ? C.white : C.green);
+        drawString(flightLabel, 50, y, C.white);
 
         const sc = row ? statusColor(row) : (flightColors[ri] || C.green);
         let statusY = y + 8;

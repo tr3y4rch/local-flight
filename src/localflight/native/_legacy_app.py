@@ -2512,7 +2512,7 @@ class MatrixCanvas:  # pragma: no cover - optional Qt runtime
                 return values
 
             def _page_has_codeshares(self) -> bool:
-                return any(self._codeshare_flights(row) for row in self.rows[: self.max_rows])
+                return False
 
             def _visible_rows(self) -> int:
                 if self.panel_w < 180:
@@ -2520,13 +2520,15 @@ class MatrixCanvas:  # pragma: no cover - optional Qt runtime
                 return self.max_rows
 
             def _flight_cycle_display(self, row: dict[str, Any]) -> str:
-                primary = self._clean_flight_number(row.get("flight_display") or row.get("flight") or row.get("flight_number") or row.get("callsign")) or "-"
-                codeshares = [code for code in self._codeshare_flights(row) if code != primary]
-                choices = [primary] + codeshares
-                if len(choices) <= 1:
+                primary = self._clean_flight_number(
+                    row.get("matrix_flight_label")
+                    or row.get("flight_display")
+                    or row.get("flight")
+                    or row.get("flight_number")
+                )
+                if primary:
                     return primary
-                slot = max(0, self.codeshare_cycle)
-                return choices[slot % len(choices)]
+                return self._clean_flight_number(row.get("operating_callsign") or row.get("callsign")) or "-"
 
             def fit(self, value: Any, length: int) -> str:
                 return self._ascii(value).upper().ljust(length)[:length]
@@ -2574,7 +2576,7 @@ class MatrixCanvas:  # pragma: no cover - optional Qt runtime
                 return self.code_preserve(chunks[slot], code_text if slot == len(chunks) - 1 else "", width)
 
             def _route_fields(self, row: dict[str, Any]) -> tuple[str, str]:
-                label = self._ascii(row.get("route_matrix_label") or row.get("route_display") or row.get("route") or "-")
+                label = self._ascii(row.get("matrix_route_label") or row.get("route_matrix_label") or row.get("route_display") or row.get("route") or "-")
                 code = self._ascii(row.get("route_code") or "")
                 if not code:
                     match = re.search(r"\(([A-Z0-9]{3,4})\)\s*$", label.upper())
@@ -2607,14 +2609,16 @@ class MatrixCanvas:  # pragma: no cover - optional Qt runtime
                 if not self.show_weather or not isinstance(self.metar, dict):
                     return ""
                 condition = (
-                    self.metar.get("condition_display")
+                    self.metar.get("matrix_weather_label")
+                    or self.metar.get("condition_display")
                     or self.metar.get("weather_label")
                     or self.metar.get("summary")
                     or self.metar.get("weather_display")
                     or ""
                 )
                 temp = (
-                    self.metar.get("temperature_short")
+                    self.metar.get("matrix_weather_temp")
+                    or self.metar.get("temperature_short")
                     or self.metar.get("temperature_display")
                     or self.metar.get("temp_c")
                     or self.metar.get("temperature_c")
@@ -2632,7 +2636,8 @@ class MatrixCanvas:  # pragma: no cover - optional Qt runtime
                 if not isinstance(self.metar, dict):
                     return "unknown"
                 text = str(
-                    self.metar.get("weather_icon")
+                    self.metar.get("matrix_weather_icon")
+                    or self.metar.get("weather_icon")
                     or self.metar.get("condition_display")
                     or self.metar.get("weather_label")
                     or self.metar.get("summary")
@@ -2642,6 +2647,8 @@ class MatrixCanvas:  # pragma: no cover - optional Qt runtime
                     return "storm"
                 if "rain" in text or "shower" in text:
                     return "rain"
+                if "snow" in text:
+                    return "snow"
                 if "mist" in text or "fog" in text or "haze" in text:
                     return "fog"
                 if "cloud" in text or "overcast" in text:
@@ -2654,7 +2661,8 @@ class MatrixCanvas:  # pragma: no cover - optional Qt runtime
                 if not self.show_weather or not isinstance(self.metar, dict):
                     return ""
                 temp = (
-                    self.metar.get("temperature_short")
+                    self.metar.get("matrix_weather_temp")
+                    or self.metar.get("temperature_short")
                     or self.metar.get("temperature_display")
                     or self.metar.get("temp_c")
                     or self.metar.get("temperature_c")
@@ -2668,7 +2676,16 @@ class MatrixCanvas:  # pragma: no cover - optional Qt runtime
             def _weather_compact_token(self, max_chars: int = 8) -> str:
                 temp = self._weather_temp_text()
                 if temp:
-                    return f"{_weather_icon_glyph(self._weather_glyph_name())} {temp}"[:max_chars]
+                    icon = {
+                        "sun": "SUN",
+                        "cloud": "CLD",
+                        "rain": "RAIN",
+                        "storm": "STRM",
+                        "fog": "MIST",
+                        "mist": "MIST",
+                        "snow": "SNOW",
+                    }.get(self._weather_glyph_name(), "WX")
+                    return f"{icon} {temp}"[:max_chars]
                 return self._weather_line(max_chars)
 
             def _header_height(self) -> int:
@@ -2681,7 +2698,7 @@ class MatrixCanvas:  # pragma: no cover - optional Qt runtime
                 return self.cycle_chunks(label_text, chars, code_text).strip()
 
             def _status_chunk(self, row: dict[str, Any], chars: int) -> str:
-                return self.cycle_chunks(row.get("status_display") or row.get("status") or "-", chars).strip()
+                return self.cycle_chunks(row.get("matrix_status_label") or row.get("status_display") or row.get("status") or "-", chars).strip()
 
             def _is_vatsim_preset(self) -> bool:
                 return str(self.preset or "").lower().startswith("vatsim_")
@@ -2689,7 +2706,7 @@ class MatrixCanvas:  # pragma: no cover - optional Qt runtime
             def _gate_label(self, row: dict[str, Any]) -> str:
                 if self._is_vatsim_preset() or not self.show_gate_info:
                     return ""
-                for key in ("gate_label", "terminal_gate_display", "gate_display", "gate"):
+                for key in ("matrix_gate_label", "gate_label", "terminal_gate_display", "gate_display", "gate"):
                     value = (format_value(row.get(key)) or "").strip().upper()
                     if value and value != "-":
                         return value
@@ -2725,10 +2742,10 @@ class MatrixCanvas:  # pragma: no cover - optional Qt runtime
                 return pages[int(time.monotonic() // 10) % len(pages)]
 
             def _row_line(self, row: dict[str, Any]) -> str:
-                time_text = (format_value(row.get("display_time")) or format_value(row.get("time")) or "--:--")[:5].ljust(5)
+                time_text = (format_value(row.get("matrix_time_label")) or format_value(row.get("display_time")) or format_value(row.get("time")) or "--:--")[:5].ljust(5)
                 flight = self._flight_cycle_display(row)[:8].ljust(8)
                 route = self.fit(self._route_fields(row)[0], 12)
-                status = (format_value(row.get("status_display")) or format_value(row.get("status")) or "-")[:10].ljust(10)
+                status = (format_value(row.get("matrix_status_label")) or format_value(row.get("status_display")) or format_value(row.get("status")) or "-")[:10].ljust(10)
                 gate = (self._gate_label(row) or "")[:4].ljust(4)
                 return f"{time_text} {flight} {route} {status} {gate}".upper()
 

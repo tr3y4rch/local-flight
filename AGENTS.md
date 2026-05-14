@@ -11,15 +11,15 @@ Built with: Python 3.11+, FastAPI, uvicorn, SQLite, WebSocket, Jinja2, PIL, and 
 
 ---
 
-## Current 0.2.7 handoff snapshot (2026-05-13)
+## Current 0.2.7 handoff snapshot (2026-05-14)
 
 - Active package target: `0.2.7` as the client-polish/release-candidate line. `pyproject.toml` remains the source of truth; keep runtime fallbacks, native docs, mobile metadata, and preview/release docs aligned with it.
-- Current Windows workspace validation after the native shell/FIDS polish: `python -m compileall -q src relay installers scripts tests` passed and `python -m pytest tests -q` returned `373 passed`.
+- Current Windows workspace validation after the Matrix display-integrity repack: `python -m compileall -q src relay installers scripts tests` passed and `python -m pytest tests -q` returned `376 passed`.
 - Windows and Pi artifacts have been rebuilt from the current Windows workspace:
-  - `dist/LocalFlight-windows.zip` — SHA256 `7a62b910980af5fc8f40ed8f11a051ea0990848b3f2fbac0f592582597fec9c5`
-  - `dist/LocalFlight-pi-source-0.2.7.zip` — SHA256 `4fe9a798145c1d3fe9f5d0f89bad4a207ac94679f57658bc261caa3869b322b9`
+  - `dist/LocalFlight-windows.zip` — SHA256 `a0d64c8c272800507a5ee9d8c771cc2e10a63d7c253f9092ba0f725259af66d8`
+  - `dist/LocalFlight-pi-source-0.2.7.zip` — SHA256 `67bb84b3fe8be0d5a260f147c5a8e3a394dbe2332d4e4b0f6b2274e7fa24dcd3`
 - macOS still needs its own pull/validation/package pass from the same `0.2.7` source state before publishing the GitHub release. Do not reuse stale `0.2.5b5` or `0.2.6` macOS/Pi handoff notes.
-- Recent client-facing changes to preserve in Mac/Pi smoke tests: native shell top-bar grouping and footer support icons, city/country FIDS title, passenger-friendly weather hero, long-title clamping, native/browser History analytics dashboard, Matrix configurator parity, compact Matrix weather header, real-only Matrix gate labels, Settings/setup dashboard polish, FIDS/Radar current-source intelligence details, and LAN radar parity with Qt radar behavior.
+- Recent client-facing changes to preserve in Mac/Pi smoke tests: native shell top-bar grouping and footer support icons, city/country FIDS title, passenger-friendly weather hero, long-title clamping, native/browser History analytics dashboard, Matrix configurator parity, compact Matrix weather header, Matrix display-contract labels/weather icons in Qt/LAN/MicroPython, real-only Matrix gate labels, Settings/setup dashboard polish, FIDS/Radar current-source intelligence details, and LAN radar parity with Qt radar behavior.
 - Schedule-provider work to preserve in relay/client smoke tests: AeroDataBox primary FIDS source, AviationStack sparse fill/fallback, hard upstream caps, 24h stale-cache serving, source-cache re-merge, canonical provider meta, and fused rows compiling through both `/api/fids` and Qt `FlightBoardModel`.
 - Separation of power still applies: public docs stay user-focused; relay operator/admin details belong only in `AGENTS.md`, `DEV_README.md`, `CLAUDE.md`, and operator tooling.
 
@@ -624,7 +624,7 @@ npm run ios
   ```
 - Native GUI is the recommended primary desktop shell now. On macOS, test `LOCALFLIGHT_GUI_MODE=native python -m localflight` or `./installers/macos/start.sh`; browser mode remains supported for LAN/browser display validation via `LOCALFLIGHT_GUI_MODE=browser`. The native window title should be `Local Flight`, not `Local Flight Native`.
 - Native first-run setup is intentionally a standalone guided window before the main Display shell. It must keep the Diagnostics step, save `diagnostics_mode` through `/api/setup/complete`, preload the hosted relay root, and avoid exposing `/v1/flights` to users.
-- Latest Windows-side native/browser polish to carry forward on Mac: setup/settings are dashboard-card based, the native shell uses the current grouped navbar/footer icon layout, FIDS displays city/country titles with passenger-friendly weather, FIDS and Radar details consume the shared current-source intelligence model, LAN radar matches the Qt layering/status behavior, History now shares the browser/native `/api/history/summary` analytics contract for filters, KPIs, delay buckets, status mix, airline delay quotas, route/aircraft stats, daily/hourly volume, and sortable recent rows, Matrix has panel presets/live preview feedback/compact weather header/gate display parity, and VATSIM Matrix hides unreliable gate placeholders. Focused verification after this pass: `.venv\Scripts\python.exe -m compileall -q src relay installers scripts tests` passed and `.venv\Scripts\python.exe -m pytest tests -q` returned `373 passed`.
+- Latest Windows-side native/browser polish to carry forward on Mac: setup/settings are dashboard-card based, the native shell uses the current grouped navbar/footer icon layout, FIDS displays city/country titles with passenger-friendly weather, FIDS and Radar details consume the shared current-source intelligence model, LAN radar matches the Qt layering/status behavior, History now shares the browser/native `/api/history/summary` analytics contract for filters, KPIs, delay buckets, status mix, airline delay quotas, route/aircraft stats, daily/hourly volume, and sortable recent rows, Matrix has panel presets/live preview feedback/compact weather header/gate display parity, stable Matrix flight labels/weather icons, and VATSIM Matrix hides unreliable gate placeholders. Focused verification after this pass: `.venv\Scripts\python.exe -m compileall -q src relay installers scripts tests` passed and `.venv\Scripts\python.exe -m pytest tests -q` returned `376 passed`.
 - Native UI freshness checks on Mac after install/build:
   - FIDS must show city/country titles, passenger-friendly weather, airport-local row time labels, and the current styled/detail behavior, not the old host-clock/debug-table layout.
   - Radar must expose the current ground/context drawing path and surface-aware rendering; if the canvas lacks the current ground layer entirely, the Mac app is stale.
@@ -670,7 +670,7 @@ npm run ios
 - Mobile resume on Mac/Xcode: resolve the Xcode/Expo SDK compatibility issue first, then run `npm run doctor` and `npm run ios`. Expo Go may reject SDK 55 depending on installed Expo Go; simulator/dev build is the safer path.
 - Windows-side AviationStack reliability pass is now documented in public/internal docs. Important: the local board/filter bug is fixed, but some live airports can still show sparse future departures because AviationStack itself does not return enough near-term rows even after fair paging plus undated rescue. Current observed example: `ZRH` on `2026-05-01`.
 - Sparse-board UX fallback is now active on the client: if a real-data lane has no rows inside the live window, the board shows the nearest available real flights instead of an empty departures page. Current live local check after the patch: `/api/fids?view=departures` returned `20` rows again.
-- Verification after the `0.2.7` native shell/FIDS polish is green on this Windows workspace: `.venv\Scripts\python.exe -m compileall -q src relay installers scripts tests`, `.venv\Scripts\python.exe -m pytest tests -q` (`373 passed`), `pip check`, and `pip list --outdated --format=json` (`[]`). Windows and Pi artifacts were rebuilt after this sweep; macOS remains the missing platform artifact.
+- Verification after the `0.2.7` native shell/FIDS polish and Matrix display-integrity repack is green on this Windows workspace: `.venv\Scripts\python.exe -m compileall -q src relay installers scripts tests`, `.venv\Scripts\python.exe -m pytest tests -q` (`376 passed`), `pip check`, and `pip list --outdated --format=json` (`[]`). Windows and Pi artifacts were rebuilt after this sweep; macOS remains the missing platform artifact.
 
 ## What was done in the latest session (v0.2.7)
 
@@ -679,7 +679,7 @@ npm run ios
 - Native and browser/LAN History, Matrix, Settings, Setup, FIDS details, Radar details, and Matrix generated MicroPython paths remain the release-candidate parity areas.
 - Current-source flight intelligence remains the shared detail direction for FIDS/Radar/History: current schedule, live motion, aircraft, airport ops, weather context, source evidence, and recent history are merged from existing sources without new paid calls.
 - Public release notes, README, install/display-mode docs, and handoff docs were refreshed for the `0.2.7` client-polish release candidate.
-- Verification from the Windows workspace: `python -m compileall -q src relay installers scripts tests` passed and `python -m pytest tests -q` returned `373 passed`.
+- Verification from the Windows workspace: `python -m compileall -q src relay installers scripts tests` passed and `python -m pytest tests -q` returned `376 passed`.
 - Windows and Pi artifacts were rebuilt after the final `0.2.7` polish; macOS still needs a fresh package pass before a full cross-platform GitHub release.
 
 ## Archived latest-session notes from v0.2.6

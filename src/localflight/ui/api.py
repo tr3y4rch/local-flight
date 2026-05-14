@@ -3301,6 +3301,101 @@ def _matrix_secondary_label(sold_as: List[str], codeshares: List[str]) -> str:
     return ""
 
 
+def _matrix_compact_time_label(data: Dict[str, Any]) -> str:
+    for key in ("matrix_time_label", "display_time", "time", "time_primary"):
+        text = _matrix_ascii(data.get(key)).strip()
+        if not text:
+            continue
+        match = re.search(r"\b(\d{1,2})[:.](\d{2})\b", text)
+        if match:
+            return f"{int(match.group(1)):02d}:{match.group(2)}"
+    return "--:--"
+
+
+def _matrix_format_flight_label(value: Any, *, callsign: bool = False) -> str:
+    text = _matrix_ascii(value).upper().strip()
+    if not text or text == "-":
+        return ""
+    text = re.sub(r"\b(SOLD\s+AS|ALSO)\b", "", text, flags=re.IGNORECASE)
+    text = text.replace("|", " ").replace(",", " ").replace("/", " ")
+    text = re.sub(r"\s+", " ", text).strip()
+    if not text or text.startswith("+"):
+        return ""
+    compact = re.sub(r"[^A-Z0-9]", "", text)
+    if callsign:
+        return compact[:10]
+    parts = text.split()
+    if len(parts) >= 2 and re.fullmatch(r"[A-Z0-9]{2,3}", parts[0]) and re.match(r"\d", parts[1]):
+        return f"{parts[0]} {parts[1]}"[:10].strip()
+    match = re.fullmatch(r"([A-Z0-9]{2,3})(\d[A-Z0-9]*)", compact)
+    if match:
+        return f"{match.group(1)} {match.group(2)}"[:10].strip()
+    return compact[:10]
+
+
+def _matrix_flight_label(data: Dict[str, Any]) -> str:
+    for key in ("matrix_flight_label", "flight_display", "flight_number", "flight"):
+        label = _matrix_format_flight_label(data.get(key))
+        if label:
+            return label
+    for key in ("operating_callsign", "callsign"):
+        label = _matrix_format_flight_label(data.get(key), callsign=True)
+        if label:
+            return label
+    return "-"
+
+
+def _matrix_clean_display_label(value: Any, *, fallback: str = "-") -> str:
+    text = _matrix_ascii(value).upper().strip()
+    text = re.sub(r"\s+", " ", text)
+    return text if text and text != "-" else fallback
+
+
+def _matrix_status_label(data: Dict[str, Any]) -> str:
+    status = _matrix_clean_display_label(data.get("status_display") or data.get("status"), fallback="-")
+    delta = _matrix_clean_display_label(data.get("time_delta_label"), fallback="")
+    lowered = status.lower()
+    if delta and "delay" not in lowered and "early" not in lowered:
+        status = f"{status} {delta}".strip()
+    return status
+
+
+_MATRIX_WEATHER_ICON_ALIASES = {
+    "clear": "sun",
+    "sun": "sun",
+    "sunny": "sun",
+    "vfr": "sun",
+    "partly_cloudy": "cloud",
+    "partly cloudy": "cloud",
+    "cloud": "cloud",
+    "cloudy": "cloud",
+    "overcast": "cloud",
+    "rain": "rain",
+    "showers": "rain",
+    "shower": "rain",
+    "drizzle": "rain",
+    "storm": "storm",
+    "thunder": "storm",
+    "thunderstorm": "storm",
+    "mist": "mist",
+    "fog": "mist",
+    "haze": "mist",
+    "snow": "snow",
+}
+
+
+def _matrix_weather_icon(value: Any) -> str:
+    text = _matrix_ascii(value).lower().strip().replace("-", "_")
+    if not text:
+        return "unknown"
+    if text in _MATRIX_WEATHER_ICON_ALIASES:
+        return _MATRIX_WEATHER_ICON_ALIASES[text]
+    for needle, icon in _MATRIX_WEATHER_ICON_ALIASES.items():
+        if needle in text:
+            return icon
+    return "unknown"
+
+
 def _matrix_row_payload(row: Any, *, preset: Any = "real_fids", show_gate_info: bool = True) -> Dict[str, Any]:
     if hasattr(row, "model_dump"):
         data = row.model_dump()
@@ -3350,6 +3445,12 @@ def _matrix_row_payload(row: Any, *, preset: Any = "real_fids", show_gate_info: 
         preset=preset,
         show_gate_info=show_gate_info,
     )
+    matrix_time_label = _matrix_compact_time_label(data)
+    matrix_flight = _matrix_flight_label(data)
+    matrix_route = route_fields["route_matrix_label"]
+    matrix_status = _matrix_status_label(data)
+    matrix_gate = _matrix_clean_display_label(gate_label, fallback="") if gate_label else ""
+    matrix_aircraft = _matrix_clean_display_label(data.get("aircraft_type") or data.get("aircraft"), fallback="")
     return {
         "id": data.get("id"),
         "time": data.get("display_time") or "--:--",
@@ -3374,6 +3475,12 @@ def _matrix_row_payload(row: Any, *, preset: Any = "real_fids", show_gate_info: 
         "gate_label": gate_label,
         "aircraft": data.get("aircraft_type") or "",
         "aircraft_type": data.get("aircraft_type") or "",
+        "matrix_time_label": matrix_time_label,
+        "matrix_flight_label": matrix_flight,
+        "matrix_route_label": matrix_route,
+        "matrix_status_label": matrix_status,
+        "matrix_gate_label": matrix_gate,
+        "matrix_aircraft_label": matrix_aircraft,
         "callsign": data.get("callsign") or "",
         "operator": operator,
         "operating_airline": operator,
@@ -3425,6 +3532,7 @@ def _matrix_metar_payload(metar: Optional[Dict[str, Any]]) -> Optional[Dict[str,
         or metar.get("flight_cat")
     )
     condition = str(condition or "").strip()
+    weather_icon = _matrix_weather_icon(metar.get("weather_icon") or condition or metar.get("flight_cat"))
     return {
         "category": metar.get("flight_cat"),
         "flight_cat": metar.get("flight_cat"),
@@ -3434,6 +3542,9 @@ def _matrix_metar_payload(metar: Optional[Dict[str, Any]]) -> Optional[Dict[str,
         "weather_display": " ".join(part for part in (condition, temp_short) if part),
         "weather_label": metar.get("weather_label"),
         "weather_icon": metar.get("weather_icon"),
+        "matrix_weather_icon": weather_icon,
+        "matrix_weather_temp": temp_short or None,
+        "matrix_weather_label": condition or None,
         "raw": metar.get("raw_text"),
         "raw_text": metar.get("raw_text"),
         "wind": metar.get("wind_display") or metar.get("wind"),
