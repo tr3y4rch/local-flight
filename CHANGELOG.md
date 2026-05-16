@@ -133,6 +133,51 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - FIDS style registry returns `['classic', 'pax', 'vatsim', 'nerd']` with `classic` as the default.
 - Full Mac/Codex validation after the mobile Standalone pass, Claude UI rescue, native FIDS painter polish, and docs pass: `.venv/bin/python -m pytest tests -q` returned `385 passed`; focused Qt column compatibility check returned `1 passed`; `.venv/bin/python -m py_compile src/localflight/native/pages/fids.py src/localflight/native/pages/fids_styles.py` passed; `cd mobile && npm run typecheck && npm run doctor` passed with Expo Doctor `18/18`; `git diff --check` passed.
 
+### Mobile companion — tip jar redesign + setup wizard polish
+
+Third targeted redesign pass focusing on the two surfaces that needed more
+work after the screen audit: the tip jar (SupportSheet) and the setup wizard.
+
+**Tip jar (SupportSheet)**:
+- New `SupportTierRow` component replaces the 2×2 grid. Tiers now render as
+  full-width rows with an amount chip + label + tagline + perk line + forward
+  chevron. Easier to scan, less cramped on narrow phones.
+- The $10 tier is highlighted with a "POPULAR" badge and amber accent ring.
+- `SUPPORT_TIP_TIERS` reworked: names are now passenger-friendly
+  (`Small tip`, `Nice tip`, `Generous`, `Captain`) with separate `tagline` and
+  `perk` fields (e.g. "A coffee for the dev" / "Supporter badge · gold accent").
+- Hero redesigned: bigger centered heart icon with soft amber glow halo,
+  centered title + body, optional tagline below.
+- New `supportContextStrip` shows where tips go (Servers · New features · Maintenance)
+  as a horizontal row with mono-uppercase labels and dividers.
+- Success card upgraded: bigger halo, divider, perk line ("Your Supporter badge
+  will appear next to your airport code"), explicit Continue button so users
+  can dismiss the celebration when they're ready instead of it sitting forever.
+- Existing supporter banner (shown to returning supporters) now wraps the star
+  in a proper badge circle for visual parity with the post-purchase card.
+- Message card now flexes a small info icon next to the text and uses a blue
+  tint instead of amber so it reads as informational rather than celebratory.
+- Fine print compressed to a single dot-separated line.
+
+**Setup wizard polish**:
+- Text trim across all five steps: welcome / mode / server / privacy / ready
+  body copy reduced by ~50 % each. Walls-of-text replaced with one-line summaries.
+- New `SetupInfoBubble` collapsible "ⓘ + label + chevron" component — exposes
+  technical detail on demand (What is Local Flight? · Where do I find this? ·
+  What gets sent?) without cluttering the main panel copy. Each bubble springs
+  open/closed with an animated chevron rotation.
+- Mode cards reworded: "RECOMMENDED" / "JUST EXPLORING" badge tone instead of
+  "FULL FEATURES" / "NO SERVER NEEDED". Description switched from third-person
+  to first-person ("I have a Local Flight server running.").
+- New `launching` step + `SetupLaunchCelebration` component: when the user taps
+  LAUNCH APP, the wizard transitions to a dedicated celebration screen with
+  three concentric expanding rings around a green check icon, a "You're all set"
+  headline, and a green progress bar. The celebration holds for ~900 ms before
+  `onComplete` fires and the main app opens.
+- `hapticSuccess()` fires on the LAUNCH APP press for a richer confirmation.
+- Step rail label `launching: "Launch"` added so the dedicated step has a name
+  if/when it ever appears in the visible rail (currently kept out of the rail).
+
 ### Mobile companion — full UI/UX redesign (style registry + screen pass)
 
 Second redesign pass completing the visual overhaul started in the seven-phase session above.
