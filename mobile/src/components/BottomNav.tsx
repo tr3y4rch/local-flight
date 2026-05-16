@@ -74,7 +74,7 @@ function NavItem({
 }
 
 export function BottomNav({ active, onChange, insetBottom, palette, styles, standalone = false }: BottomNavProps) {
-  const items: Array<{ id: Extract<Screen, "fids" | "radar" | "history" | "control" | "help" | "settings">; icon: LocalFlightIconName; label: string }> = standalone
+  const items: Array<{ id: Extract<Screen, "fids" | "radar" | "history" | "control" | "settings">; icon: LocalFlightIconName; label: string }> = standalone
     ? [
         { id: "fids",     icon: NAV_ICONS.fids,     label: "BOARD" },
         { id: "radar",    icon: NAV_ICONS.radar,    label: "RADAR" },
@@ -85,8 +85,7 @@ export function BottomNav({ active, onChange, insetBottom, palette, styles, stan
         { id: "fids",    icon: NAV_ICONS.fids,    label: "BOARD" },
         { id: "radar",   icon: NAV_ICONS.radar,   label: "RADAR" },
         { id: "history", icon: NAV_ICONS.history, label: "HISTORY" },
-        { id: "control", icon: NAV_ICONS.control, label: "CONTROL" },
-        { id: "help",    icon: NAV_ICONS.help,    label: "HELP" }
+        { id: "control", icon: NAV_ICONS.control, label: "CONTROL" }
       ];
 
   return (

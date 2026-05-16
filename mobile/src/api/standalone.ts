@@ -7,6 +7,8 @@ import type {
   FidsRow,
   FlightView,
   Metar,
+  RadarMapResponse,
+  RadarSurfaceResponse,
   RadarResponse
 } from "./types";
 import { LocalFlightApiError, normalizeServerUrl } from "./client";
@@ -154,6 +156,54 @@ export async function getStandaloneRadar(
   const params = await standaloneParams(credentials);
   params.set("radius_nm", String(radiusNm));
   return fetchRelayJson<RadarResponse>(credentials.relayUrl, `/v1/mobile/radar?${params}`);
+}
+
+function radarMapFromSurface(surface: RadarSurfaceResponse, radiusNm: number): RadarMapResponse {
+  const features = surface.features || [];
+  const runways = features.filter((feature) => String(feature.kind || "").toLowerCase() === "runway");
+  const surfaceFeatures = features.filter((feature) => String(feature.kind || "").toLowerCase() !== "runway");
+  return {
+    center: surface.center,
+    radius_nm: radiusNm,
+    schema_version: "mobile-standalone-surface-v1",
+    runways,
+    surface_features: surfaceFeatures,
+    map_features: [],
+    attribution: surface.attribution ? [surface.attribution] : [],
+    sources: {
+      runways: runways.length ? "relay-surface" : "none",
+      surface: surface.provider || "relay-surface",
+      surface_cache_state: surface.cache_state || "unknown",
+      map: "none",
+      map_cache_state: "standalone-off",
+      terrain: "none",
+      terrain_cache_state: "standalone-off"
+    },
+    confidence: {
+      runway_count: runways.length,
+      surface_feature_count: surfaceFeatures.length,
+      standalone: true
+    }
+  };
+}
+
+export async function getStandaloneRadarGround(
+  credentials: StandaloneCredentials,
+  radiusNm = 5
+): Promise<RadarMapResponse> {
+  const airport = credentials.airport;
+  if (airport.lat == null || airport.lon == null) {
+    throw new LocalFlightApiError("Standalone airport coordinates are not available for radar drawings.");
+  }
+  const params = new URLSearchParams({
+    airport_iata: airport.iata,
+    airport_icao: airport.icao || "",
+    lat: String(airport.lat),
+    lon: String(airport.lon),
+    radius_nm: String(Math.max(1, Math.min(5, radiusNm)))
+  });
+  const surface = await fetchRelayJson<RadarSurfaceResponse>(credentials.relayUrl, `/v1/airport-surface?${params}`);
+  return radarMapFromSurface(surface, radiusNm);
 }
 
 export async function getStandaloneMetar(credentials: StandaloneCredentials): Promise<Metar> {

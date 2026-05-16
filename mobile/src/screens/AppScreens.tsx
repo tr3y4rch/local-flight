@@ -18,7 +18,8 @@ import {
   useWindowDimensions,
   View
 } from "react-native";
-import Svg, { Circle, ClipPath, Defs, G, Polygon, Polyline, Text as SvgText } from "react-native-svg";
+import Svg, { Circle, ClipPath, Defs, G, Line, Path, Polygon, Polyline, Text as SvgText } from "react-native-svg";
+import { CameraView, useCameraPermissions, type BarcodeScanningResult } from "expo-camera";
 
 import { getConfig, getDoc, getHealth, getRootHealth, normalizeServerUrl, patchConfig, searchAirports } from "../api/client";
 import { activateStandalone, searchStandaloneAirports } from "../api/standalone";
@@ -86,6 +87,7 @@ import {
   parseMetarChips
 } from "../domain/formatting";
 import { MATRIX_LED_PALETTES, matrixPreviewLines } from "../domain/matrix";
+import { pairingServerUrlProblem, parsePairingLink } from "../domain/pairing";
 import { projectBlip, projectLatLonToScope, type ProjectedRadarPoint } from "../domain/radar";
 import {
   SUPPORT_WEB_FALLBACK_URL,
@@ -98,6 +100,7 @@ import {
   loadMobileRelayInstallId,
   type ConfigProfile,
   type MobileDiagnosticsMode,
+  type MobileRadarDrawingLayers,
   type MobileSetupMode,
   type MobileWeatherDisplayMode,
   type StandaloneAirport,
@@ -167,6 +170,8 @@ function blueButtonInk(): string {
   return palette.themeMode === "light" && ["standard", "technical", "high_contrast"].includes(palette.skin) ? "#ffffff" : "#051009";
 }
 const RADAR_GROUND_CLIP_ID = "mobile-radar-ground-clip";
+const RADAR_SWEEP_CLIP_ID = "mobile-radar-sweep-clip";
+const RADAR_SWEEP_WIDTH_DEG = 72;
 
 export function ScreenActivity({ activity }: { activity: ActivityStatus | null | undefined }) {
   if (!activity) return null;
@@ -189,6 +194,118 @@ export function ScreenActivity({ activity }: { activity: ActivityStatus | null |
         {activity.detail ? <Text style={styles.activityDetail}>{activity.detail}</Text> : null}
       </View>
     </View>
+  );
+}
+
+function pairingUrlFromQrPayload(rawValue: string): { serverUrl: string } | { error: string } {
+  const trimmed = String(rawValue || "").trim();
+  const parsed = parsePairingLink(rawValue);
+  if (!parsed && !/^https?:\/\//i.test(trimmed)) {
+    return { error: "QR did not contain a Local Flight pairing link or LAN server URL." };
+  }
+  const serverUrl = parsed?.serverUrl || normalizeServerUrl(trimmed);
+  const problem = pairingServerUrlProblem(serverUrl);
+  if (problem) {
+    return { error: problem };
+  }
+  return { serverUrl };
+}
+
+function PairingScannerSheet({
+  visible,
+  onClose,
+  onPairingUrl
+}: {
+  visible: boolean;
+  onClose: () => void;
+  onPairingUrl: (serverUrl: string) => void;
+}) {
+  const [permission, requestPermission] = useCameraPermissions();
+  const [scanned, setScanned] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!visible) return;
+    setScanned(false);
+    setMessage(null);
+  }, [visible]);
+
+  const ensurePermission = useCallback(async () => {
+    const result = await requestPermission();
+    if (!result.granted) {
+      setMessage("Camera access is needed only to scan the Local Flight pairing QR. You can still enter the server URL manually.");
+    }
+  }, [requestPermission]);
+
+  useEffect(() => {
+    if (!visible || permission?.granted || permission?.canAskAgain === false) return;
+    void ensurePermission();
+  }, [ensurePermission, permission?.canAskAgain, permission?.granted, visible]);
+
+  const handleScan = useCallback((result: BarcodeScanningResult) => {
+    if (scanned) return;
+    setScanned(true);
+    const parsed = pairingUrlFromQrPayload(result.data || "");
+    if ("error" in parsed) {
+      setMessage(parsed.error);
+      setScanned(false);
+      hapticSelection();
+      return;
+    }
+    hapticLight();
+    onPairingUrl(parsed.serverUrl);
+  }, [onPairingUrl, scanned]);
+
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <View style={styles.sheetBackdrop}>
+        <Pressable style={styles.sheetBackdropPress} onPress={onClose} />
+        <View style={[styles.sheetCard, styles.pairingScannerSheet]}>
+          <View style={styles.sheetHandle} />
+          <View style={styles.sheetHeader}>
+            <View style={styles.sheetHeaderText}>
+              <Text style={styles.sheetEyebrow}>PAIR COMPANION</Text>
+              <Text style={styles.sheetTitle}>Scan Local Flight QR</Text>
+            </View>
+            <Pressable style={styles.sheetAction} onPress={onClose}>
+              <Text style={styles.sheetActionText}>CLOSE</Text>
+            </Pressable>
+          </View>
+
+          <View style={styles.pairingScannerBody}>
+            {permission?.granted ? (
+              <View style={styles.pairingCameraFrame}>
+                <CameraView
+                  style={styles.pairingCamera}
+                  facing="back"
+                  barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
+                  onBarcodeScanned={scanned ? undefined : handleScan}
+                />
+                <View style={styles.pairingScannerReticle} pointerEvents="none">
+                  <View style={styles.pairingScannerCorner} />
+                </View>
+              </View>
+            ) : (
+              <View style={styles.pairingPermissionCard}>
+                <LocalFlightIcon name={SETUP_ICONS.scan} size={28} color={palette.blue2} />
+                <Text style={styles.pairingPermissionTitle}>Camera permission</Text>
+                <Text style={styles.pairingPermissionBody}>
+                  Scan the QR shown by the desktop or Pi app, or close this sheet and enter the LAN URL manually.
+                </Text>
+                <Pressable style={styles.connectButton} onPress={() => void ensurePermission()}>
+                  <Text style={styles.connectButtonText}>ALLOW CAMERA</Text>
+                </Pressable>
+              </View>
+            )}
+
+            <Text style={styles.pairingScannerHint}>
+              Point the camera at the Local Flight pairing QR. The QR should contain a localflight:// pairing link or a plain LAN server URL.
+            </Text>
+            {message ? <Text style={[styles.feedbackMessage, styles.feedbackMessageError]}>{message}</Text> : null}
+          </View>
+        </View>
+      </View>
+    </Modal>
   );
 }
 
@@ -1427,6 +1544,54 @@ function RadarLegendOverlay({ source, ageSeconds }: { source?: string | null; ag
   );
 }
 
+function RadarLayerControls({
+  layers,
+  standalone,
+  onChange
+}: {
+  layers: MobileRadarDrawingLayers;
+  standalone: boolean;
+  onChange: (value: MobileRadarDrawingLayers) => void;
+}) {
+  const options: Array<{ key: keyof MobileRadarDrawingLayers; label: string; detail: string }> = [
+    { key: "runways", label: "Runways", detail: "Airport runway geometry" },
+    { key: "surface", label: "Surface", detail: "Aprons, stands and taxiway hints" },
+    { key: "terrain", label: "Terrain", detail: "Relief/context, Companion only" }
+  ];
+
+  return (
+    <View style={styles.radarLayerPanel}>
+      <View style={styles.radarLayerHeader}>
+        <Text style={styles.radarLayerTitle}>RADAR DRAWINGS</Text>
+        <Text style={styles.radarLayerHint}>
+          {standalone ? "Standalone uses runway and surface snapshots only." : "Choose which map layers the companion draws."}
+        </Text>
+      </View>
+      <View style={styles.radarLayerChips}>
+        {options.filter((item) => !standalone || item.key !== "terrain").map((item) => {
+          const active = Boolean(layers[item.key]);
+          return (
+            <Pressable
+              key={item.key}
+              style={[styles.radarLayerChip, active && styles.radarLayerChipActive]}
+              onPress={() => {
+                hapticSelection();
+                onChange({ ...layers, [item.key]: !active });
+              }}
+            >
+              <View style={[styles.radarLayerDot, active && styles.radarLayerDotActive]} />
+              <View style={styles.radarLayerCopy}>
+                <Text style={[styles.radarLayerLabel, active && styles.radarLayerLabelActive]}>{item.label}</Text>
+                <Text style={styles.radarLayerDetail}>{item.detail}</Text>
+              </View>
+            </Pressable>
+          );
+        })}
+      </View>
+    </View>
+  );
+}
+
 export function RadarScreen({
   data,
   groundData,
@@ -1442,6 +1607,9 @@ export function RadarScreen({
   onOpenSettings,
   onRefresh,
   onRadiusChange,
+  drawingLayers,
+  standalone = false,
+  onDrawingLayersChange,
   onOpenDetail,
   compact = false,
   radiusOptions = RADAR_RADII,
@@ -1461,13 +1629,19 @@ export function RadarScreen({
   onOpenSettings: () => void;
   onRefresh: () => void;
   onRadiusChange: (value: RadarRadius) => void;
+  drawingLayers: MobileRadarDrawingLayers;
+  standalone?: boolean;
+  onDrawingLayersChange: (value: MobileRadarDrawingLayers) => void;
   onOpenDetail: (callsign: string) => void;
   compact?: boolean;
   radiusOptions?: RadarRadius[];
   contentPaddingBottom: number;
 }) {
   const blips = data?.blips || [];
-  const groundFeatureCount = radarGroundFeatureCount(groundData);
+  const effectiveLayerCount = standalone
+    ? { runways: drawingLayers.runways, surface: drawingLayers.surface, terrain: false }
+    : drawingLayers;
+  const groundFeatureCount = radarGroundFeatureCount(groundData, effectiveLayerCount);
   const groundUnavailable = radarGroundUnavailable(groundData, groundError);
 
   const [fetchedAt, setFetchedAt] = useState<number | null>(null);
@@ -1532,12 +1706,20 @@ export function RadarScreen({
 
           <RadarLegendOverlay source={data?.source} ageSeconds={ageSeconds} />
 
+          <RadarLayerControls
+            layers={drawingLayers}
+            standalone={standalone}
+            onChange={onDrawingLayersChange}
+          />
+
           <RadarScope
             data={data}
             groundData={groundData}
             groundError={groundError}
             radiusNm={radiusNm}
             radiusOptions={radiusOptions}
+            drawingLayers={drawingLayers}
+            standalone={standalone}
             onRadiusChange={onRadiusChange}
             onOpenDetail={onOpenDetail}
             compact={compact}
@@ -2363,6 +2545,8 @@ function RadarScope({
   groundError,
   radiusNm,
   radiusOptions = RADAR_RADII,
+  drawingLayers,
+  standalone = false,
   onRadiusChange,
   compact = false,
   onOpenDetail
@@ -2372,13 +2556,18 @@ function RadarScope({
   groundError: string | null;
   radiusNm: RadarRadius;
   radiusOptions?: RadarRadius[];
+  drawingLayers: MobileRadarDrawingLayers;
+  standalone?: boolean;
   onRadiusChange: (value: RadarRadius) => void;
   compact?: boolean;
   onOpenDetail: (callsign: string) => void;
 }) {
   const [scopeSize, setScopeSize] = useState(280);
   const pinchRef = useRef<{ distance: number; index: number } | null>(null);
-  const groundFeatureCount = radarGroundFeatureCount(groundData);
+  const effectiveLayers = standalone
+    ? { runways: drawingLayers.runways, surface: drawingLayers.surface, terrain: false }
+    : drawingLayers;
+  const groundFeatureCount = radarGroundFeatureCount(groundData, effectiveLayers);
   const groundUnavailable = radarGroundUnavailable(groundData, groundError);
   const groundStatus = groundFeatureCount
     ? `${groundFeatureCount} ground drawings`
@@ -2459,7 +2648,9 @@ function RadarScope({
           center={data?.center || groundData?.center || null}
           radiusNm={radiusNm}
           scopeSize={scopeSize}
+          drawingLayers={effectiveLayers}
         />
+        <RadarSweepLayer scopeSize={scopeSize} />
         <View style={styles.scopeRingOuter} />
         <View style={styles.scopeRingMid} />
         <View style={styles.scopeRingInner} />
@@ -2511,24 +2702,96 @@ function RadarScope({
   );
 }
 
+function RadarSweepLayer({ scopeSize }: { scopeSize: number }) {
+  const sweepProgress = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    const animation = Animated.loop(
+      Animated.timing(sweepProgress, {
+        toValue: 1,
+        duration: 3200,
+        easing: Easing.linear,
+        useNativeDriver: true
+      })
+    );
+    animation.start();
+    return () => animation.stop();
+  }, [sweepProgress]);
+
+  const rotate = sweepProgress.interpolate({
+    inputRange: [0, 1],
+    outputRange: ["0deg", "360deg"]
+  });
+  const center = scopeSize / 2;
+  const radius = scopeSize * 0.44;
+  const closing = radarSweepPoint(scopeSize, RADAR_SWEEP_WIDTH_DEG);
+
+  return (
+    <Animated.View
+      pointerEvents="none"
+      style={[
+        styles.scopeSweepLayer,
+        {
+          width: scopeSize,
+          height: scopeSize,
+          transform: [{ rotate }]
+        }
+      ]}
+    >
+      <Svg width={scopeSize} height={scopeSize} viewBox={`0 0 ${scopeSize} ${scopeSize}`}>
+        <Defs>
+          <ClipPath id={RADAR_SWEEP_CLIP_ID}>
+            <Circle cx={center} cy={center} r={radius} />
+          </ClipPath>
+        </Defs>
+        <G clipPath={`url(#${RADAR_SWEEP_CLIP_ID})`}>
+          <Path d={radarSweepSectorPath(scopeSize)} fill={hexToRgba(palette.blue2, 0.16)} />
+          <Path d={radarSweepSectorPath(scopeSize)} fill={hexToRgba(palette.text, 0.035)} />
+          <Line
+            x1={center}
+            y1={center}
+            x2={center}
+            y2={center - radius}
+            stroke={hexToRgba(palette.blue2, 0.58)}
+            strokeWidth={1.4}
+            strokeLinecap="round"
+          />
+          <Line
+            x1={center}
+            y1={center}
+            x2={closing.x}
+            y2={closing.y}
+            stroke={hexToRgba(palette.blue2, 0.28)}
+            strokeWidth={1}
+            strokeLinecap="round"
+          />
+        </G>
+      </Svg>
+    </Animated.View>
+  );
+}
+
 function RadarGroundLayer({
   groundData,
   center,
   radiusNm,
-  scopeSize
+  scopeSize,
+  drawingLayers
 }: {
   groundData: RadarMapResponse | null;
   center: RadarResponse["center"] | null;
   radiusNm: RadarRadius;
   scopeSize: number;
+  drawingLayers: MobileRadarDrawingLayers;
 }) {
   if (!groundData || !center) {
     return null;
   }
 
-  const surfaceFeatures = radarDrawableFeatures(groundData.surface_features);
-  const runwayFeatures = radarDrawableFeatures(groundData.runways);
-  if (!surfaceFeatures.length && !runwayFeatures.length) {
+  const surfaceFeatures = drawingLayers.surface ? radarDrawableFeatures(groundData.surface_features) : [];
+  const runwayFeatures = drawingLayers.runways ? radarDrawableFeatures(groundData.runways) : [];
+  const terrainFeatures = drawingLayers.terrain ? radarDrawableFeatures(groundData.terrain?.features) : [];
+  if (!surfaceFeatures.length && !runwayFeatures.length && !terrainFeatures.length) {
     return null;
   }
 
@@ -2546,6 +2809,16 @@ function RadarGroundLayer({
         </ClipPath>
       </Defs>
       <G clipPath={`url(#${RADAR_GROUND_CLIP_ID})`}>
+        {terrainFeatures.map((feature, index) => (
+          <RadarGroundFeature
+            key={radarGroundFeatureKey(feature, index, "terrain")}
+            feature={feature}
+            center={center}
+            radiusNm={radiusNm}
+            scopeSize={scopeSize}
+            layer="terrain"
+          />
+        ))}
         {surfaceFeatures.map((feature, index) => (
           <RadarGroundFeature
             key={radarGroundFeatureKey(feature, index, "surface")}
@@ -2591,7 +2864,7 @@ function RadarGroundFeature({
   center: RadarResponse["center"];
   radiusNm: RadarRadius;
   scopeSize: number;
-  layer: "surface" | "runway";
+  layer: "surface" | "runway" | "terrain";
 }) {
   const projected = projectRadarFeature(feature, center, radiusNm, scopeSize);
   if (projected.length < 2) {
@@ -2664,6 +2937,30 @@ function RadarRunwayLabel({
   );
 }
 
+function radarSweepSectorPath(scopeSize: number): string {
+  const center = scopeSize / 2;
+  const radius = scopeSize * 0.44;
+  const start = radarSweepPoint(scopeSize, 0);
+  const end = radarSweepPoint(scopeSize, RADAR_SWEEP_WIDTH_DEG);
+  const largeArc = RADAR_SWEEP_WIDTH_DEG > 180 ? 1 : 0;
+  return [
+    `M ${center.toFixed(1)} ${center.toFixed(1)}`,
+    `L ${start.x.toFixed(1)} ${start.y.toFixed(1)}`,
+    `A ${radius.toFixed(1)} ${radius.toFixed(1)} 0 ${largeArc} 1 ${end.x.toFixed(1)} ${end.y.toFixed(1)}`,
+    "Z"
+  ].join(" ");
+}
+
+function radarSweepPoint(scopeSize: number, clockwiseDegreesFromNorth: number): { x: number; y: number } {
+  const center = scopeSize / 2;
+  const radius = scopeSize * 0.44;
+  const radians = ((clockwiseDegreesFromNorth - 90) * Math.PI) / 180;
+  return {
+    x: center + Math.cos(radians) * radius,
+    y: center + Math.sin(radians) * radius
+  };
+}
+
 function radarDrawableFeatures(features: RadarMapFeature[] | undefined): RadarMapFeature[] {
   return (features || []).filter((feature) => {
     const points = feature.points || [];
@@ -2671,11 +2968,15 @@ function radarDrawableFeatures(features: RadarMapFeature[] | undefined): RadarMa
   });
 }
 
-function radarGroundFeatureCount(groundData: RadarMapResponse | null): number {
+function radarGroundFeatureCount(groundData: RadarMapResponse | null, layers: MobileRadarDrawingLayers): number {
   if (!groundData) {
     return 0;
   }
-  return radarDrawableFeatures(groundData.runways).length + radarDrawableFeatures(groundData.surface_features).length;
+  return (
+    (layers.runways ? radarDrawableFeatures(groundData.runways).length : 0) +
+    (layers.surface ? radarDrawableFeatures(groundData.surface_features).length : 0) +
+    (layers.terrain ? radarDrawableFeatures(groundData.terrain?.features).length : 0)
+  );
 }
 
 function radarGroundUnavailable(groundData: RadarMapResponse | null, groundError: string | null): boolean {
@@ -2725,10 +3026,17 @@ function radarProjectedMidpoint(points: ProjectedRadarPoint[]): ProjectedRadarPo
 
 function radarGroundPaint(
   feature: RadarMapFeature,
-  layer: "surface" | "runway",
+  layer: "surface" | "runway" | "terrain",
   radiusNm: RadarRadius
 ): { fill: string; stroke: string; strokeWidth: number } {
   const kind = String(feature.kind || "").toLowerCase();
+  if (layer === "terrain") {
+    return {
+      fill: hexToRgba(palette.green, 0.055),
+      stroke: hexToRgba(palette.green, radiusNm <= 5 ? 0.18 : 0.12),
+      strokeWidth: radiusNm <= 5 ? 1 : 0.7
+    };
+  }
   if (layer === "runway") {
     return {
       fill: "none",
@@ -3569,6 +3877,7 @@ export function CompanionSetupScreen({
   const [urlCheckState, setUrlCheckState] = useState<SetupUrlCheckState>("idle");
   const [urlCheckMessage, setUrlCheckMessage] = useState("Enter the LAN URL shown by the desktop or Pi app.");
   const [serverSummary, setServerSummary] = useState<CompanionSetupResult | null>(null);
+  const [scannerVisible, setScannerVisible] = useState(false);
   const stepAnim = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
@@ -3714,6 +4023,16 @@ export function CompanionSetupScreen({
   const testServer = useCallback(async () => {
     await runServerTest(serverInput);
   }, [runServerTest, serverInput]);
+
+  const handleScannedServer = useCallback((nextUrl: string) => {
+    setScannerVisible(false);
+    setServerInput(nextUrl);
+    setStep("server");
+    setSetupError(null);
+    setUrlCheckState("checking");
+    setUrlCheckMessage("Pairing QR loaded. Testing this Local Flight server...");
+    void runServerTest(nextUrl);
+  }, [runServerTest]);
 
   useEffect(() => {
     if (!pairingUrl || pairingNonce <= 0) return;
@@ -3884,6 +4203,26 @@ export function CompanionSetupScreen({
             <Text style={styles.companionSetupBody}>
               Use the LAN address shown by the desktop or Pi app. On a physical iPhone, localhost points at the phone, not the Local Flight server.
             </Text>
+            <View style={styles.pairingChoiceRow}>
+              <Pressable style={styles.pairingChoiceCard} onPress={() => setScannerVisible(true)}>
+                <View style={styles.pairingChoiceIcon}>
+                  <LocalFlightIcon name={SETUP_ICONS.scan} size={18} color={palette.blue2} />
+                </View>
+                <View style={styles.pairingChoiceCopy}>
+                  <Text style={styles.pairingChoiceTitle}>Scan QR</Text>
+                  <Text style={styles.pairingChoiceBody}>Use the pairing code shown in Local Flight Settings.</Text>
+                </View>
+              </Pressable>
+              <View style={styles.pairingChoiceCard}>
+                <View style={styles.pairingChoiceIcon}>
+                  <LocalFlightIcon name={SETUP_ICONS.keyboard} size={18} color={palette.blue2} />
+                </View>
+                <View style={styles.pairingChoiceCopy}>
+                  <Text style={styles.pairingChoiceTitle}>Enter URL</Text>
+                  <Text style={styles.pairingChoiceBody}>Paste localflight.local or the desktop/Pi LAN IP below.</Text>
+                </View>
+              </View>
+            </View>
             <View style={styles.companionSetupExampleBox}>
               <Text style={styles.companionSetupExampleLabel}>GOOD EXAMPLES</Text>
               <Text style={styles.companionSetupExampleText}>http://localflight.local:8000</Text>
@@ -3944,6 +4283,11 @@ export function CompanionSetupScreen({
             <Pressable style={styles.companionSetupSecondary} onPress={() => setStep("welcome")}>
               <Text style={styles.companionSetupSecondaryText}>BACK</Text>
             </Pressable>
+            <PairingScannerSheet
+              visible={scannerVisible}
+              onClose={() => setScannerVisible(false)}
+              onPairingUrl={handleScannedServer}
+            />
           </Animated.View>
         ) : null}
 
@@ -4526,6 +4870,13 @@ export function ControlScreen({
   matrixSaving,
   matrixSaveMessage,
   matrixSaveTone,
+  companionIdentity,
+  connected,
+  feedbackTitle,
+  feedbackDescription,
+  feedbackSending,
+  feedbackMessage,
+  feedbackTone,
   onThemeModeChange,
   onSkinChange,
   onWeatherDisplayModeChange,
@@ -4539,12 +4890,15 @@ export function ControlScreen({
   onMatrixReset,
   onApplyProfile,
   onOpenConfig,
-  onOpenHelp,
   onOpenSupport,
   onRestartScheduler,
   onRerunSetup,
   onChangeUrl,
-  onConnect
+  onPairingUrl,
+  onConnect,
+  onFeedbackTitleChange,
+  onFeedbackDescriptionChange,
+  onSubmitFeedback
 }: {
   snapshot: DashboardSnapshot;
   serverUrl: string;
@@ -4571,6 +4925,13 @@ export function ControlScreen({
   matrixSaving: boolean;
   matrixSaveMessage: string | null;
   matrixSaveTone: FeedbackTone;
+  companionIdentity: CompanionIdentity | null;
+  connected: boolean;
+  feedbackTitle: string;
+  feedbackDescription: string;
+  feedbackSending: boolean;
+  feedbackMessage: string | null;
+  feedbackTone: FeedbackTone;
   onThemeModeChange: (value: MobileThemeMode) => void;
   onSkinChange: (value: MobileSkin) => void;
   onWeatherDisplayModeChange: (value: MobileWeatherDisplayMode) => void;
@@ -4584,30 +4945,27 @@ export function ControlScreen({
   onMatrixReset: () => void;
   onApplyProfile: (profile: ConfigProfile) => void;
   onOpenConfig: () => void;
-  onOpenHelp: () => void;
   onOpenSupport: () => void;
   onRestartScheduler: () => void;
   onRerunSetup: () => void;
   onChangeUrl: (value: string) => void;
+  onPairingUrl: (value: string) => void;
   onConnect: () => void;
+  onFeedbackTitleChange: (value: string) => void;
+  onFeedbackDescriptionChange: (value: string) => void;
+  onSubmitFeedback: () => void;
 }) {
-  const [serverExpanded, setServerExpanded] = useState(!serverUrl);
-  const [diagnosticsExpanded, setDiagnosticsExpanded] = useState(false);
-  const [appearanceVisible, setAppearanceVisible] = useState(false);
-  const [matrixVisible, setMatrixVisible] = useState(false);
+  const [activeSheet, setActiveSheet] = useState<"connection" | "appearance" | "diagnostics" | "matrix" | "help" | null>(null);
   const outputValue = outputs.length ? outputs.join(", ").toUpperCase() : "WEB";
   const schedulerRunning = snapshot.scheduler?.running ?? false;
   const hostDiagnostics = snapshot.system?.client?.diagnostics_mode || snapshot.config?.diagnostics_mode || "manual";
   const companionCount = snapshot.connections?.companion_count ?? 0;
   const matrixPaletteOption = MATRIX_PALETTE_OPTIONS.find((item) => item.id === matrixRuntime.palette) || MATRIX_PALETTE_OPTIONS[0]!;
   const matrixShowWeather = Boolean(matrixRuntime.options.show_metar ?? matrixRuntime.options.show_weather);
-  const updateValue = snapshot.updates?.update_available
-    ? `V${snapshot.updates.latest || "NEW"} READY`
-    : `V${snapshot.updates?.current || snapshot.system?.version || APP_VERSION}`;
 
   useEffect(() => {
     if (serverPanelRequest) {
-      setServerExpanded(true);
+      setActiveSheet("connection");
     }
   }, [serverPanelRequest]);
 
@@ -4630,34 +4988,207 @@ export function ControlScreen({
         <InfoLine label="Airport" value={snapshot.config?.airport_iata || "---"} />
         <InfoLine label="Source" value={snapshot.state?.source_name || snapshot.config?.source || "Unknown"} />
         <InfoLine label="Last successful fetch" value={formatRelative(snapshot.state?.last_success_utc)} />
-        <InfoLine label="Host diagnostics" value={String(hostDiagnostics).replace(/_/g, " ").toUpperCase()} />
-        <InfoLine label="Current version" value={updateValue} />
       </View>
 
       <View style={styles.settingsCard}>
-        <Text style={styles.settingsTitle}>HOST ACTIONS</Text>
+        <Text style={styles.settingsTitle}>FLIGHT BOARD</Text>
         <SettingsToolPill
           icon={TOOL_ICONS.control}
           label="Airport & source"
-          value="Change airport, source, and fetch cadence"
+          value={`Airport, source, refresh${profiles.length ? ` · ${profiles.length} profiles` : ""}`}
           onPress={onOpenConfig}
         />
+        <InfoLine
+          label="Current board"
+          value={`${snapshot.config?.airport_iata || "---"} · ${snapshot.config?.source || "unknown"} · ${refreshSeconds ? formatInterval(refreshSeconds) : "waiting"}`}
+        />
+      </View>
+
+      <View style={styles.settingsCard}>
+        <Text style={styles.settingsTitle}>CONNECTION</Text>
+        <SettingsToolPill
+          icon={TOOL_ICONS.setup}
+          label="Server pairing"
+          value={`${serverUrl ? "Saved server" : "Scan QR or edit LAN URL"} · ${outputValue}`}
+          onPress={() => setActiveSheet("connection")}
+          loading={schedulerRestarting}
+        />
+        <InfoLine label="Saved server" value={serverUrl || "Not paired yet"} />
+      </View>
+
+      <View style={styles.settingsCard}>
+        <Text style={styles.settingsTitle}>DISPLAYS</Text>
         <SettingsToolPill
           icon={TOOL_ICONS.matrix}
           label="Matrix board"
-          value={`${matrixRuntime.default_view === "arrivals" ? "Arrivals" : "Departures"} · ${matrixPaletteOption.label} · WX ${matrixShowWeather ? "on" : "off"}`}
-          onPress={() => setMatrixVisible(true)}
+          value={`Brightness, rows, weather · ${matrixPaletteOption.label} · WX ${matrixShowWeather ? "on" : "off"}`}
+          onPress={() => setActiveSheet("matrix")}
         />
         <SettingsToolPill
-          icon={TOOL_ICONS.setup}
-          label="Server & scheduler"
-          value={`${serverUrl ? "Server saved" : "Needs pairing"} · ${refreshSeconds ? formatInterval(refreshSeconds) : "waiting"} · ${outputValue}`}
-          onPress={() => setServerExpanded((value) => !value)}
-          loading={schedulerRestarting}
+          icon={TOOL_ICONS.appearance}
+          label="Companion look"
+          value={`${themeMode} · ${skin} · ${weatherModeOption(weatherDisplayMode).label} weather`}
+          onPress={() => setActiveSheet("appearance")}
         />
 
-        {serverExpanded ? (
-          <View style={styles.settingsProfileBlock}>
+      </View>
+
+      <View style={styles.settingsCard}>
+        <Text style={styles.settingsTitle}>COMPANION</Text>
+        <SettingsToolPill
+          icon={TOOL_ICONS.report}
+          label="Diagnostics & setup"
+          value={`Reports ${mobileDiagnosticsMode.replace(/_/g, " ")} · host ${String(hostDiagnostics).replace(/_/g, " ")}`}
+          onPress={() => setActiveSheet("diagnostics")}
+        />
+        <SettingsToolPill
+          icon={TOOL_ICONS.report}
+          label="Help & reports"
+          value="Troubleshooting, pairing details, and bug reports"
+          onPress={() => setActiveSheet("help")}
+        />
+      </View>
+
+      <ConnectionPairingSheet
+        visible={activeSheet === "connection"}
+        snapshot={snapshot}
+        serverUrl={serverUrl}
+        draftUrl={draftUrl}
+        error={error}
+        loading={loading}
+        isTablet={isTablet}
+        isLandscape={isLandscape}
+        outputs={outputs}
+        refreshSeconds={refreshSeconds}
+        schedulerRestarting={schedulerRestarting}
+        schedulerMessage={schedulerMessage}
+        pairingNotice={pairingNotice}
+        onClose={() => setActiveSheet(null)}
+        onRestartScheduler={onRestartScheduler}
+        onChangeUrl={onChangeUrl}
+        onPairingUrl={onPairingUrl}
+        onConnect={onConnect}
+      />
+
+      <DiagnosticsSheet
+        visible={activeSheet === "diagnostics"}
+        mobileDiagnosticsMode={mobileDiagnosticsMode}
+        hostDiagnostics={hostDiagnostics}
+        onClose={() => setActiveSheet(null)}
+        onMobileDiagnosticsModeChange={onMobileDiagnosticsModeChange}
+        onRerunSetup={onRerunSetup}
+      />
+
+      <HelpControlSheet
+        visible={activeSheet === "help"}
+        snapshot={snapshot}
+        companionIdentity={companionIdentity}
+        connected={connected}
+        error={error}
+        feedbackTitle={feedbackTitle}
+        feedbackDescription={feedbackDescription}
+        feedbackSending={feedbackSending}
+        feedbackMessage={feedbackMessage}
+        feedbackTone={feedbackTone}
+        onClose={() => setActiveSheet(null)}
+        onFeedbackTitleChange={onFeedbackTitleChange}
+        onFeedbackDescriptionChange={onFeedbackDescriptionChange}
+        onSubmitFeedback={onSubmitFeedback}
+        onOpenSupport={onOpenSupport}
+      />
+
+      <AppearanceSheet
+        visible={activeSheet === "appearance"}
+        themeMode={themeMode}
+        skin={skin}
+        weatherDisplayMode={weatherDisplayMode}
+        onClose={() => setActiveSheet(null)}
+        onThemeModeChange={onThemeModeChange}
+        onSkinChange={onSkinChange}
+        onWeatherDisplayModeChange={onWeatherDisplayModeChange}
+      />
+      <MatrixLiveSheet
+        visible={activeSheet === "matrix"}
+        matrixRuntime={matrixRuntime}
+        matrixDirty={matrixDirty}
+        matrixSaving={matrixSaving}
+        matrixSaveMessage={matrixSaveMessage}
+        matrixSaveTone={matrixSaveTone}
+        onClose={() => setActiveSheet(null)}
+        onMatrixViewChange={onMatrixViewChange}
+        onMatrixWeatherToggle={onMatrixWeatherToggle}
+        onMatrixPaletteChange={onMatrixPaletteChange}
+        onMatrixBrightnessChange={onMatrixBrightnessChange}
+        onMatrixRefreshChange={onMatrixRefreshChange}
+        onMatrixSave={onMatrixSave}
+        onMatrixReset={onMatrixReset}
+      />
+    </View>
+  );
+}
+
+function ConnectionPairingSheet({
+  visible,
+  snapshot,
+  serverUrl,
+  draftUrl,
+  error,
+  loading,
+  isTablet,
+  isLandscape,
+  outputs,
+  refreshSeconds,
+  schedulerRestarting,
+  schedulerMessage,
+  pairingNotice,
+  onClose,
+  onRestartScheduler,
+  onChangeUrl,
+  onPairingUrl,
+  onConnect
+}: {
+  visible: boolean;
+  snapshot: DashboardSnapshot;
+  serverUrl: string;
+  draftUrl: string;
+  error: string | null;
+  loading: boolean;
+  isTablet: boolean;
+  isLandscape: boolean;
+  outputs: string[];
+  refreshSeconds: number | null;
+  schedulerRestarting: boolean;
+  schedulerMessage: string | null;
+  pairingNotice?: string | null;
+  onClose: () => void;
+  onRestartScheduler: () => void;
+  onChangeUrl: (value: string) => void;
+  onPairingUrl: (value: string) => void;
+  onConnect: () => void;
+}) {
+  const [scannerVisible, setScannerVisible] = useState(false);
+  const outputValue = outputs.length ? outputs.join(", ").toUpperCase() : "WEB";
+
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <View style={styles.sheetBackdrop}>
+        <Pressable style={styles.sheetBackdropPress} onPress={onClose} />
+        <View style={styles.sheetCard}>
+          <View style={styles.sheetHandle} />
+          <View style={styles.sheetHeader}>
+            <View style={styles.sheetHeaderText}>
+              <Text style={styles.sheetEyebrow}>CONNECTION</Text>
+              <Text style={styles.sheetTitle}>Pair Server & Refresh</Text>
+            </View>
+            <Pressable style={styles.sheetAction} onPress={onClose}>
+              <Text style={styles.sheetActionText}>DONE</Text>
+            </Pressable>
+          </View>
+
+          <ScrollView style={styles.sheetScroll} contentContainerStyle={styles.sheetContent}>
+            <Text style={styles.moduleIntro}>
+              Scan the QR from Local Flight Settings or enter the LAN URL manually. Both paths save the same companion connection.
+            </Text>
             <View style={styles.metricRow}>
               <InfoCard label="REFRESH" value={refreshSeconds ? formatInterval(refreshSeconds).toUpperCase() : "WAIT"} />
               <InfoCard label="OUTPUTS" value={outputValue} tone="blue" />
@@ -4668,59 +5199,21 @@ export function ControlScreen({
             <InfoLine label="Companion build" value={APP_VERSION} />
             {pairingNotice ? <Text style={[styles.feedbackMessage, styles.feedbackMessageOk]}>{pairingNotice}</Text> : null}
 
-            {profiles.length > 1 ? (
-              <View style={styles.settingsProfileBlock}>
-                <View style={styles.settingsProfileHeader}>
-                  <Text style={styles.settingsProfileTitle}>AIRPORT PROFILES</Text>
-                  <Text style={styles.settingsProfileHint}>one-tap switch</Text>
-                </View>
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={styles.settingsProfileChips}
-                >
-                  {profiles.map((profile, index) => {
-                    const active = profile.id === activeProfileId;
-                    const applying = profile.id === applyingProfileId;
-                    const disabled = applyingProfileId !== null;
-                    return (
-                      <Pressable
-                        key={profileKey(profile, index)}
-                        style={[
-                          styles.settingsProfileChip,
-                          active && styles.settingsProfileChipActive,
-                          disabled && !applying && styles.settingsProfileChipDisabled
-                        ]}
-                        onPress={() => onApplyProfile(profile)}
-                        disabled={disabled}
-                      >
-                        <View style={styles.settingsProfileChipTop}>
-                          <Text style={[styles.settingsProfileName, active && styles.settingsProfileNameActive]} numberOfLines={1}>
-                            {profile.name}
-                          </Text>
-                          {applying ? (
-                            <ActivityIndicator size="small" color={palette.blue2} />
-                          ) : active ? (
-                            <LocalFlightIcon name={ACTION_ICONS.configured} size={14} color={palette.green} />
-                          ) : null}
-                        </View>
-                        <Text style={styles.settingsProfileMeta} numberOfLines={1}>
-                          {profile.iata} · {profile.source === "virtual" ? "VATSIM" : "REAL"} · {formatInterval(profile.refresh_seconds)}
-                        </Text>
-                      </Pressable>
-                    );
-                  })}
-                </ScrollView>
-              </View>
-            ) : null}
-
             <View style={styles.settingsInlineActions}>
+              <Pressable style={styles.settingsCompactButton} onPress={() => setScannerVisible(true)}>
+                <LocalFlightIcon name={SETUP_ICONS.scan} size={14} color={palette.blue2} />
+                <Text style={styles.settingsCompactButtonText}>SCAN QR</Text>
+              </Pressable>
               <Pressable
                 style={[styles.settingsCompactButton, schedulerRestarting && styles.connectButtonDisabled]}
                 onPress={onRestartScheduler}
                 disabled={schedulerRestarting}
               >
-                {schedulerRestarting ? <ActivityIndicator size="small" color={palette.blue} /> : <Text style={styles.settingsCompactButtonText}>RESTART FETCH</Text>}
+                {schedulerRestarting ? (
+                  <ActivityIndicator size="small" color={palette.blue} />
+                ) : (
+                  <Text style={styles.settingsCompactButtonText}>RESTART FETCH</Text>
+                )}
               </Pressable>
             </View>
 
@@ -4738,33 +5231,62 @@ export function ControlScreen({
               {loading ? <ActivityIndicator color={solidButtonInk()} /> : <Text style={styles.connectButtonText}>CONNECT</Text>}
             </Pressable>
             <Text style={styles.settingsHelp}>
-              Use the LAN IP of the machine running Local Flight. On a physical iPhone, localhost points at the phone itself.
+              Use the LAN IP of the machine running Local Flight. On a physical phone, localhost points at the phone itself.
             </Text>
             {schedulerMessage ? <Text style={[styles.feedbackMessage, styles.feedbackMessageOk]}>{schedulerMessage}</Text> : null}
             {error ? <Text style={styles.errorText}>{error}</Text> : null}
-          </View>
-        ) : null}
-      </View>
 
-      <View style={styles.settingsCard}>
-        <Text style={styles.settingsTitle}>COMPANION TOOLS</Text>
-        <SettingsToolPill
-          icon={TOOL_ICONS.appearance}
-          label="Companion look"
-          value={`${themeMode} · ${skin} · ${weatherModeOption(weatherDisplayMode).label} weather`}
-          onPress={() => setAppearanceVisible(true)}
-        />
-        <SettingsToolPill
-          icon={TOOL_ICONS.report}
-          label="Diagnostics mode"
-          value={`Mobile ${mobileDiagnosticsMode.replace(/_/g, " ")} · host ${String(hostDiagnostics).replace(/_/g, " ")}`}
-          onPress={() => setDiagnosticsExpanded((value) => !value)}
-        />
-        {diagnosticsExpanded ? (
-          <View style={styles.settingsProfileBlock}>
+            <PairingScannerSheet
+              visible={scannerVisible}
+              onClose={() => setScannerVisible(false)}
+              onPairingUrl={(nextUrl) => {
+                setScannerVisible(false);
+                onPairingUrl(nextUrl);
+              }}
+            />
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+function DiagnosticsSheet({
+  visible,
+  mobileDiagnosticsMode,
+  hostDiagnostics,
+  onClose,
+  onMobileDiagnosticsModeChange,
+  onRerunSetup
+}: {
+  visible: boolean;
+  mobileDiagnosticsMode: MobileDiagnosticsMode;
+  hostDiagnostics: string;
+  onClose: () => void;
+  onMobileDiagnosticsModeChange: (value: MobileDiagnosticsMode) => void;
+  onRerunSetup: () => void;
+}) {
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <View style={styles.sheetBackdrop}>
+        <Pressable style={styles.sheetBackdropPress} onPress={onClose} />
+        <View style={styles.sheetCard}>
+          <View style={styles.sheetHandle} />
+          <View style={styles.sheetHeader}>
+            <View style={styles.sheetHeaderText}>
+              <Text style={styles.sheetEyebrow}>COMPANION</Text>
+              <Text style={styles.sheetTitle}>Diagnostics & Setup</Text>
+            </View>
+            <Pressable style={styles.sheetAction} onPress={onClose}>
+              <Text style={styles.sheetActionText}>DONE</Text>
+            </Pressable>
+          </View>
+
+          <ScrollView style={styles.sheetScroll} contentContainerStyle={styles.sheetContent}>
             <Text style={styles.moduleIntro}>
               Manual reporting is always available. Automatic mobile reports still honor the host diagnostics choice.
             </Text>
+            <InfoLine label="Host diagnostics" value={String(hostDiagnostics).replace(/_/g, " ").toUpperCase()} />
             <FilterSection title="MOBILE DIAGNOSTICS">
               <View style={styles.filterRow}>
                 {([
@@ -4781,61 +5303,76 @@ export function ControlScreen({
                 ))}
               </View>
             </FilterSection>
-          </View>
-        ) : null}
-        <SettingsToolPill
-          icon={TOOL_ICONS.report}
-          label="Open help & report problem"
-          value="Troubleshooting, pairing details, and bug reports"
-          onPress={onOpenHelp}
-        />
-        <SettingsToolPill
-          icon={TOOL_ICONS.github}
-          label="Source & releases"
-          value="github.com/tr3y4rch/local-flight"
-          onPress={() => void Linking.openURL("https://github.com/tr3y4rch/local-flight")}
-        />
-        <SettingsToolPill
-          icon={TOOL_ICONS.setup}
-          label="Rerun companion setup"
-          value="Revisit pairing and diagnostics consent"
-          onPress={onRerunSetup}
-        />
+            <Pressable style={[styles.connectButton, styles.crashButton]} onPress={onRerunSetup}>
+              <Text style={styles.connectButtonText}>RERUN COMPANION SETUP</Text>
+            </Pressable>
+          </ScrollView>
+        </View>
       </View>
+    </Modal>
+  );
+}
 
-      <Pressable style={styles.supportFooter} onPress={onOpenSupport}>
-        <LocalFlightIcon name={SUPPORT_ICONS.support} size={15} color={palette.amber} />
-        <Text style={styles.supportFooterText}>Support Local Flight</Text>
-        <LocalFlightIcon name={ACTION_ICONS.supportExpand} size={13} color={palette.textDim} />
-      </Pressable>
-
-      <AppearanceSheet
-        visible={appearanceVisible}
-        themeMode={themeMode}
-        skin={skin}
-        weatherDisplayMode={weatherDisplayMode}
-        onClose={() => setAppearanceVisible(false)}
-        onThemeModeChange={onThemeModeChange}
-        onSkinChange={onSkinChange}
-        onWeatherDisplayModeChange={onWeatherDisplayModeChange}
-      />
-      <MatrixLiveSheet
-        visible={matrixVisible}
-        matrixRuntime={matrixRuntime}
-        matrixDirty={matrixDirty}
-        matrixSaving={matrixSaving}
-        matrixSaveMessage={matrixSaveMessage}
-        matrixSaveTone={matrixSaveTone}
-        onClose={() => setMatrixVisible(false)}
-        onMatrixViewChange={onMatrixViewChange}
-        onMatrixWeatherToggle={onMatrixWeatherToggle}
-        onMatrixPaletteChange={onMatrixPaletteChange}
-        onMatrixBrightnessChange={onMatrixBrightnessChange}
-        onMatrixRefreshChange={onMatrixRefreshChange}
-        onMatrixSave={onMatrixSave}
-        onMatrixReset={onMatrixReset}
-      />
-    </View>
+function HelpControlSheet({
+  visible,
+  snapshot,
+  companionIdentity,
+  connected,
+  error,
+  feedbackTitle,
+  feedbackDescription,
+  feedbackSending,
+  feedbackMessage,
+  feedbackTone,
+  onClose,
+  onFeedbackTitleChange,
+  onFeedbackDescriptionChange,
+  onSubmitFeedback,
+  onOpenSupport
+}: {
+  visible: boolean;
+  snapshot: DashboardSnapshot;
+  companionIdentity: CompanionIdentity | null;
+  connected: boolean;
+  error: string | null;
+  feedbackTitle: string;
+  feedbackDescription: string;
+  feedbackSending: boolean;
+  feedbackMessage: string | null;
+  feedbackTone: FeedbackTone;
+  onClose: () => void;
+  onFeedbackTitleChange: (value: string) => void;
+  onFeedbackDescriptionChange: (value: string) => void;
+  onSubmitFeedback: () => void;
+  onOpenSupport: () => void;
+}) {
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <View style={styles.sheetBackdrop}>
+        <Pressable style={styles.sheetBackdropPress} onPress={onClose} />
+        <View style={styles.sheetCard}>
+          <View style={styles.sheetHandle} />
+          <ScrollView style={styles.sheetScroll} contentContainerStyle={styles.sheetContent}>
+            <HelpScreen
+              snapshot={snapshot}
+              companionIdentity={companionIdentity}
+              connected={connected}
+              error={error}
+              feedbackTitle={feedbackTitle}
+              feedbackDescription={feedbackDescription}
+              feedbackSending={feedbackSending}
+              feedbackMessage={feedbackMessage}
+              feedbackTone={feedbackTone}
+              onFeedbackTitleChange={onFeedbackTitleChange}
+              onFeedbackDescriptionChange={onFeedbackDescriptionChange}
+              onSubmitFeedback={onSubmitFeedback}
+              onOpenSupport={onOpenSupport}
+              onBackControl={onClose}
+            />
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
   );
 }
 
@@ -4853,7 +5390,8 @@ export function HelpScreen({
   onFeedbackTitleChange,
   onFeedbackDescriptionChange,
   onSubmitFeedback,
-  onOpenSupport
+  onOpenSupport,
+  onBackControl
 }: {
   snapshot: DashboardSnapshot;
   companionIdentity: CompanionIdentity | null;
@@ -4869,6 +5407,7 @@ export function HelpScreen({
   onFeedbackDescriptionChange: (value: string) => void;
   onSubmitFeedback: () => void;
   onOpenSupport: () => void;
+  onBackControl?: () => void;
 }) {
   const [helpPanel, setHelpPanel] = useState<"pairing" | "troubleshooting" | "report" | null>(null);
   const updateValue = snapshot.updates?.update_available
@@ -4902,7 +5441,17 @@ export function HelpScreen({
   return (
     <View style={styles.cardStack}>
       <View style={styles.settingsCard}>
-        <Text style={styles.settingsTitle}>HELP</Text>
+        <View style={styles.helpHeaderRow}>
+          <View style={styles.helpHeaderCopy}>
+            <Text style={styles.settingsTitle}>HELP</Text>
+          </View>
+          {onBackControl ? (
+            <Pressable style={styles.helpBackButton} onPress={onBackControl}>
+              <LocalFlightIcon name={ACTION_ICONS.back} size={14} color={palette.blue2} />
+              <Text style={styles.helpBackText}>CONTROL</Text>
+            </Pressable>
+          ) : null}
+        </View>
         <Text style={styles.moduleIntro}>
           {standalone
             ? "Standalone relay status, lightweight troubleshooting, and report flow for this mobile install."

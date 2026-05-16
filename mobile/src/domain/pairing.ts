@@ -13,6 +13,15 @@ export function parsePairingLink(rawUrl: string): PairingLinkResult | null {
     return null;
   }
 
+  if (["http:", "https:"].includes(parsed.protocol)) {
+    const normalized = normalizeServerUrl(rawUrl);
+    if (!normalized) return null;
+    return {
+      serverUrl: normalized,
+      source: "qr"
+    };
+  }
+
   const route = parsed.hostname || parsed.pathname.replace(/^\/+/, "");
   if (parsed.protocol !== "localflight:" || route !== "pair") {
     return null;

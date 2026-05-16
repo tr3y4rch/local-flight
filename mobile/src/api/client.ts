@@ -340,11 +340,12 @@ export function getRadar(
 
 export function getRadarMap(
   serverUrl: string,
-  radiusNm = 20
+  radiusNm = 20,
+  terrain = false
 ): Promise<RadarMapResponse> {
   return fetchJson<RadarMapResponse>(
     serverUrl,
-    `/api/radar/map?radius_nm=${radiusNm}&terrain=false`
+    `/api/radar/map?radius_nm=${radiusNm}&terrain=${terrain ? "true" : "false"}`
   );
 }
 
@@ -390,10 +391,11 @@ function radarMapFromSurface(surface: RadarSurfaceResponse, radiusNm: number): R
 
 export async function getRadarGround(
   serverUrl: string,
-  radiusNm = 20
+  radiusNm = 20,
+  terrain = false
 ): Promise<RadarMapResponse> {
   try {
-    return await getRadarMap(serverUrl, radiusNm);
+    return await getRadarMap(serverUrl, radiusNm, terrain);
   } catch {
     return radarMapFromSurface(await getRadarSurface(serverUrl, Math.min(5, radiusNm)), radiusNm);
   }

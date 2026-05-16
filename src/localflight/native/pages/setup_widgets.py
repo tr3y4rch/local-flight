@@ -342,15 +342,6 @@ def build_hero(
                 f"color: {muted_hex}; font-size: 13px; letter-spacing: 0.02em;"
             )
             layout.addWidget(self.tagline)
-            self._opacity = QtWidgets.QGraphicsOpacityEffect(self.tagline)
-            self.tagline.setGraphicsEffect(self._opacity)
-            self._opacity.setOpacity(0.0)
-            self._fade = QtCore.QPropertyAnimation(self._opacity, b"opacity")
-            self._fade.setDuration(700)
-            self._fade.setStartValue(0.0)
-            self._fade.setEndValue(1.0)
-            self._fade.setEasingCurve(QtCore.QEasingCurve.OutCubic)
-            QtCore.QTimer.singleShot(220, self._fade.start)
 
         def _tick(self) -> None:
             self._bob = (self._bob + 0.018) % 1.0

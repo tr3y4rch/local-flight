@@ -1361,6 +1361,8 @@ def _issue_token_for_install(
 ) -> tuple[str, str, str]:
     existing = _activation_row_for_install(conn, install_id)
     token = _new_activation_token()
+    resolved_schedule_limit = schedule_limit if schedule_limit is not None else _managed_schedule_limit()
+    resolved_radar_limit = radar_limit if radar_limit is not None else _managed_radar_limit()
     if existing:
         old_hash = str(existing["token_hash"] or "")
         new_hash = _token_hash(token)
@@ -1370,6 +1372,8 @@ def _issue_token_for_install(
             SET token_hash=?,
                 token_prefix=?,
                 label=?,
+                schedule_limit=?,
+                radar_limit=?,
                 last_seen=?,
                 revoked_at=NULL,
                 created_by=?
@@ -1379,6 +1383,8 @@ def _issue_token_for_install(
                 new_hash,
                 token[:10],
                 label.strip() or str(existing["label"] or "") or None,
+                resolved_schedule_limit,
+                resolved_radar_limit,
                 _utc_now(),
                 created_by,
                 old_hash,
@@ -1394,12 +1400,18 @@ def _issue_token_for_install(
         conn,
         token=token,
         label=label,
-        schedule_limit=schedule_limit if schedule_limit is not None else _managed_schedule_limit(),
-        radar_limit=radar_limit if radar_limit is not None else _managed_radar_limit(),
+        schedule_limit=resolved_schedule_limit,
+        radar_limit=resolved_radar_limit,
         created_by=created_by,
         bound_install_id=install_id,
     )
     return token, token[:10], "issued"
+
+
+def _activation_limits_for_requested_mode(requested_mode: str) -> tuple[Optional[int], Optional[int]]:
+    if _is_mobile_standalone(requested_mode):
+        return _standalone_schedule_limit(), _standalone_radar_limit()
+    return None, None
 
 
 def _recent_activation_counts(
@@ -1449,6 +1461,8 @@ def _record_activation_event(
     decision_note: str,
     token_hash: str = "",
     token_prefix: str = "",
+    airport_iata: str = "",
+    airport_icao: str = "",
 ) -> str:
     request_id = _new_request_id()
     now = _utc_now()
@@ -1465,8 +1479,8 @@ def _record_activation_event(
             install_id,
             install_fingerprint,
             network_tag,
-            None,
-            None,
+            airport_iata or None,
+            airport_icao or None,
             display_name or None,
             requested_mode,
             app_version,
@@ -7793,18 +7807,22 @@ def relay_activate(body: ActivationRequestIn, request: Request) -> Dict[str, Any
     app_version = (body.app_version or "").strip()[:32]
     network_tag = _network_tag(_client_ip(request))
     standalone_activation = requested_mode == "mobile_standalone"
+    airport_iata = _clean_airport(body.airport_iata) or ""
+    airport_icao = _clean_airport(body.airport_icao) or ""
+    schedule_limit, radar_limit = _activation_limits_for_requested_mode(requested_mode)
 
     blocked_reason = _blocked_reason(install_id)
     if blocked_reason:
         raise HTTPException(status_code=403, detail=f"Install access revoked: {blocked_reason}")
 
     conn = _connect()
+    known_install = _activation_row_for_install(conn, install_id) is not None
     counts = _recent_activation_counts(conn, install_id=install_id, network_tag=network_tag)
     manual_review = counts["network_requests"] >= _auto_activation_network_daily_limit() or counts[
         "network_installs"
     ] >= _auto_activation_network_installs_daily_limit()
 
-    if manual_review:
+    if manual_review and not known_install:
         existing = conn.execute(
             """
             SELECT request_id, install_fingerprint, decision_note
@@ -7832,6 +7850,8 @@ def relay_activate(body: ActivationRequestIn, request: Request) -> Dict[str, Any
             display_name=display_name or f"Local Flight {expected_fingerprint}",
             requested_mode=requested_mode,
             app_version=app_version,
+            airport_iata=airport_iata,
+            airport_icao=airport_icao,
             status=_REQUEST_STATUS_MANUAL_REVIEW,
             decision_source="auto-safety-net",
             decision_note="manual review required",
@@ -7851,23 +7871,82 @@ def relay_activate(body: ActivationRequestIn, request: Request) -> Dict[str, Any
         install_id=install_id,
         label=display_name or f"Local Flight {expected_fingerprint}",
         created_by="auto-issue",
-        schedule_limit=_standalone_schedule_limit() if standalone_activation else None,
-        radar_limit=_standalone_radar_limit() if standalone_activation else None,
+        schedule_limit=schedule_limit,
+        radar_limit=radar_limit,
     )
-    request_id = _record_activation_event(
-        conn,
-        install_id=install_id,
-        install_fingerprint=install_fingerprint,
-        network_tag=network_tag,
-        display_name=display_name or f"Local Flight {expected_fingerprint}",
-        requested_mode=requested_mode,
-        app_version=app_version,
-        status=_REQUEST_STATUS_ISSUED,
-        decision_source="auto",
-        decision_note=issuance,
-        token_hash=_token_hash(token),
-        token_prefix=token_prefix,
-    )
+    response_note = "Relay access issued instantly for this installation."
+    pending_request = None
+    if manual_review and known_install:
+        pending_request = conn.execute(
+            """
+            SELECT request_id
+            FROM activation_requests
+            WHERE install_id=? AND status=?
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            (install_id, _REQUEST_STATUS_MANUAL_REVIEW),
+        ).fetchone()
+        response_note = "Relay access reissued for this existing installation after setup reset."
+
+    if pending_request:
+        request_id = str(pending_request["request_id"] or "")
+        now = _utc_now()
+        conn.execute(
+            """
+            UPDATE activation_requests
+            SET status=?,
+                updated_at=?,
+                approved_at=?,
+                last_seen=?,
+                network_tag=?,
+                airport_iata=?,
+                airport_icao=?,
+                display_name=?,
+                requested_mode=?,
+                app_version=?,
+                decision_source=?,
+                decision_note=?,
+                token_hash=?,
+                token_prefix=?,
+                issued_token=NULL
+            WHERE request_id=?
+            """,
+            (
+                _REQUEST_STATUS_ISSUED,
+                now,
+                now,
+                now,
+                network_tag,
+                airport_iata or None,
+                airport_icao or None,
+                display_name or f"Local Flight {expected_fingerprint}",
+                requested_mode,
+                app_version,
+                "auto-existing-install",
+                "existing install reissued after setup reset",
+                _token_hash(token),
+                token_prefix,
+                request_id,
+            ),
+        )
+    else:
+        request_id = _record_activation_event(
+            conn,
+            install_id=install_id,
+            install_fingerprint=install_fingerprint,
+            network_tag=network_tag,
+            display_name=display_name or f"Local Flight {expected_fingerprint}",
+            requested_mode=requested_mode,
+            app_version=app_version,
+            airport_iata=airport_iata,
+            airport_icao=airport_icao,
+            status=_REQUEST_STATUS_ISSUED,
+            decision_source="auto-existing-install" if known_install and manual_review else "auto",
+            decision_note="existing install reissued after setup reset" if known_install and manual_review else issuance,
+            token_hash=_token_hash(token),
+            token_prefix=token_prefix,
+        )
     conn.commit()
     conn.close()
     status = _build_client_status(install_id=install_id, activation_token=token, app_version=app_version)
@@ -7877,8 +7956,8 @@ def relay_activate(body: ActivationRequestIn, request: Request) -> Dict[str, Any
             presence_event="relay_activity",
             client_kind="mobile_standalone",
             device_type=body.device_type or "phone",
-            airport_iata=body.airport_iata,
-            airport_icao=body.airport_icao,
+            airport_iata=airport_iata,
+            airport_icao=airport_icao,
             timezone_name=body.timezone,
             app_version=app_version,
             requested_gui=requested_mode,
@@ -7890,7 +7969,7 @@ def relay_activate(body: ActivationRequestIn, request: Request) -> Dict[str, Any
             "request_id": request_id,
             "status": _REQUEST_STATUS_ISSUED,
             "activation_token": token,
-            "decision_note": "Relay access issued instantly for this installation.",
+            "decision_note": response_note,
         }
     )
     return status
@@ -9841,11 +9920,14 @@ def admin_api_activation_request_action(
                 return _admin_action_response("Activation row is no longer waiting for manual review.", operator=username)
             install_id = str(row["install_id"] or "").strip()
             label = str(row["display_name"] or row["install_fingerprint"] or "Managed install")
+            schedule_limit, radar_limit = _activation_limits_for_requested_mode(str(row["requested_mode"] or ""))
             token, token_prefix, _issuance = _issue_token_for_install(
                 conn,
                 install_id=install_id,
                 label=label,
                 created_by=username,
+                schedule_limit=schedule_limit,
+                radar_limit=radar_limit,
             )
             now = _utc_now()
             conn.execute(
@@ -10181,11 +10263,14 @@ def admin_activation_request_approve(
 
     install_id = str(row["install_id"] or "").strip()
     label = str(row["display_name"] or row["install_fingerprint"] or "Managed install")
+    schedule_limit, radar_limit = _activation_limits_for_requested_mode(str(row["requested_mode"] or ""))
     token, token_prefix, _issuance = _issue_token_for_install(
         conn,
         install_id=install_id,
         label=label,
         created_by=username,
+        schedule_limit=schedule_limit,
+        radar_limit=radar_limit,
     )
     now = _utc_now()
     conn.execute(

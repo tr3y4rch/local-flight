@@ -2017,24 +2017,42 @@ class RadarCanvas:  # pragma: no cover - optional Qt runtime
                 return max(45, int(255 - ((age - 30.0) / 310.0) * 210))
 
             def _draw_sweep(self, painter: Any, QtCore: Any, QtGui: Any, cx: float, cy: float, radius: float) -> None:
+                sweep_width_deg = 72.0
                 painter.save()
                 painter.translate(cx, cy)
                 painter.rotate(self.sweep_angle)
-                for idx in range(18):
+
+                painter.setCompositionMode(QtGui.QPainter.CompositionMode_Screen)
+                slice_count = 18
+                slice_deg = sweep_width_deg / slice_count
+                for idx in range(slice_count):
                     color = QtGui.QColor(self.colors["sweep"])
-                    color.setAlpha(max(0, int((1 - idx / 18) * 28)))
+                    color.setAlpha(max(0, int((1 - idx / slice_count) * 30)))
                     painter.setBrush(color)
                     painter.setPen(QtCore.Qt.NoPen)
                     path = QtGui.QPainterPath()
                     path.moveTo(0, 0)
-                    path.arcTo(-radius, -radius, radius * 2, radius * 2, -idx * 4, -4)
+                    path.arcTo(-radius, -radius, radius * 2, radius * 2, 90 - idx * slice_deg, -slice_deg)
                     path.closeSubpath()
                     painter.drawPath(path)
+                painter.setCompositionMode(QtGui.QPainter.CompositionMode_SourceOver)
+
                 line = QtGui.QColor(self.colors["sweep"])
                 line.setAlpha(180)
                 painter.setBrush(QtCore.Qt.NoBrush)
-                painter.setPen(QtGui.QPen(line, 1.5))
+                lead_pen = QtGui.QPen(line, 1.4)
+                lead_pen.setCapStyle(QtCore.Qt.RoundCap)
+                painter.setPen(lead_pen)
                 painter.drawLine(0, 0, 0, -radius)
+                painter.save()
+                painter.rotate(sweep_width_deg)
+                trailing = QtGui.QColor(line)
+                trailing.setAlpha(max(42, int(line.alpha() * 0.48)))
+                trail_pen = QtGui.QPen(trailing, 1.0)
+                trail_pen.setCapStyle(QtCore.Qt.RoundCap)
+                painter.setPen(trail_pen)
+                painter.drawLine(0, 0, 0, -radius)
+                painter.restore()
                 painter.restore()
 
             def _draw_surface(self, painter: Any, QtCore: Any, QtGui: Any, cx: float, cy: float, radius: float) -> None:
@@ -3018,7 +3036,7 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
         self.widget, layout = scroll_page(QtWidgets)
         self._busy_buttons: list[Any] = []
 
-        self.status = label(QtWidgets, "Choose a panel, preview the exact board, apply live settings, and generate main.py for the i75W.", "Muted", wrap=True)
+        self.status = label(QtWidgets, "Live Matrix config is ready. Use the setup guide only when wiring or flashing a board.", "Muted", wrap=True)
         self.loading_indicator = _loading_indicator(QtWidgets)
         self.board_status = label(QtWidgets, "I75W status: not checked yet.", "Muted", wrap=True)
         self.action_status = label(QtWidgets, "Ready.", "Muted", wrap=True)
@@ -3054,8 +3072,7 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
         for text, slot, quiet in (
             ("Refresh", self.refresh, False),
             ("Apply live config", self.save_config, False),
-            ("Generate main.py", self.generate_script, False),
-            ("Demo", self.trigger_demo, True),
+            ("Preview animation", self.trigger_demo, True),
         ):
             button = self.QtWidgets.QPushButton(text)
             if quiet:
@@ -3088,7 +3105,7 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
         summary_layout.addWidget(self.action_status)
         layout.addWidget(summary)
 
-        guide, guide_layout = panel(self.QtWidgets, "i75W setup assistant")
+        self.guide_group, guide_layout = self._collapsible_panel("Setup guide", checked=False)
         step_row = self.QtWidgets.QHBoxLayout()
         for step in MATRIX_GUIDE_STEPS:
             step_row.addWidget(card(self.QtWidgets, str(step["title"]), str(step["body"])))
@@ -3097,7 +3114,7 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
         note_row.addWidget(card(self.QtWidgets, "Live after Apply", ", ".join(MATRIX_LIVE_SETTINGS[:4]), ", ".join(MATRIX_LIVE_SETTINGS[4:])))
         note_row.addWidget(card(self.QtWidgets, "Regenerate main.py when", ", ".join(MATRIX_REFLASH_SETTINGS[:2]), ", ".join(MATRIX_REFLASH_SETTINGS[2:])))
         guide_layout.addLayout(note_row)
-        layout.addWidget(guide)
+        layout.addWidget(self.guide_group)
 
         main_row = self.QtWidgets.QHBoxLayout()
         controls, controls_layout = panel(self.QtWidgets, "Board setup")
@@ -3130,7 +3147,7 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
         main_row.addWidget(preview, 2)
         layout.addLayout(main_row, 1)
 
-        self.flash_group, flash_layout = self._collapsible_panel("One-time board file", checked=False)
+        self.flash_group, flash_layout = self._collapsible_panel("One-time main.py creator", checked=False)
         self._build_flash_contents(flash_layout)
         layout.addWidget(self.flash_group)
 
@@ -3988,9 +4005,14 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
             {"display_time": "09:35", "flight_display": "U2 8465", "route_display": "London", "status_display": "DELAYED", "status_kind": "delayed", "gate": "C03", "airline_display": "easyJet"},
             {"display_time": "09:50", "flight_display": "QR 96", "route_display": "Doha", "status_display": "CANCELLED", "status_kind": "cancelled", "gate": "-", "airline_display": "Qatar Airways", "codeshare_display": "Also BA 7006"},
         ]
+        # Restart the transition even if the same demo rows were already loaded.
+        if hasattr(self.canvas, "display_lines"):
+            self.canvas.display_lines = []
+        if hasattr(self.canvas, "slide_source_lines"):
+            self.canvas.slide_source_lines = []
         self.canvas.set_rows(demo_rows[: int(self.max_rows.value())])
         self._sync_canvas_options()
-        _set_native_feedback(self, "Demo rows loaded locally.", "StatusGood")
+        _set_native_feedback(self, "Animation preview loaded locally.", "StatusGood")
 
 
 class SettingsScreen:  # pragma: no cover - optional Qt runtime

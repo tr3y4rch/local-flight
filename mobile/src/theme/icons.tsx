@@ -94,6 +94,8 @@ export const SETUP_ICONS = {
   server: "server-network",
   lan: "wifi",
   privacy: "shield-check",
+  scan: "qrcode-scan",
+  keyboard: "keyboard-outline",
   link: "link-variant",
   ok: "check-circle",
   error: "alert-circle",

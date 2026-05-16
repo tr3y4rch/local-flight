@@ -8,6 +8,7 @@ const COMPANION_ID_KEY = "localflight.companionId";
 const APPEARANCE_THEME_KEY = "localflight.mobileTheme";
 const APPEARANCE_SKIN_KEY = "localflight.mobileSkin";
 const WEATHER_DISPLAY_KEY = "localflight.weatherDisplayMode";
+const RADAR_DRAWING_LAYERS_KEY = "localflight.radarDrawingLayers";
 const MOBILE_DIAGNOSTICS_KEY = "localflight.mobileDiagnosticsMode";
 const MOBILE_SETUP_STATE_KEY = "localflight.mobileSetupState";
 const MOBILE_RELAY_INSTALL_ID_KEY = "localflight.mobileRelayInstallId";
@@ -33,6 +34,17 @@ export type ConfigProfile = {
 export type MobileDiagnosticsMode = "unset" | "manual" | "auto" | "auto_logs";
 export type MobileWeatherDisplayMode = "passenger" | "pilot" | "vatsim";
 export type MobileSetupMode = "lan_companion" | "standalone";
+export type MobileRadarDrawingLayers = {
+  runways: boolean;
+  surface: boolean;
+  terrain: boolean;
+};
+
+const DEFAULT_RADAR_DRAWING_LAYERS: MobileRadarDrawingLayers = {
+  runways: true,
+  surface: true,
+  terrain: false
+};
 
 export type StandaloneAirport = {
   iata: string;
@@ -234,6 +246,18 @@ function normalizeWeatherDisplayMode(value: string | null | undefined): MobileWe
   }
 }
 
+function normalizeRadarDrawingLayers(value: unknown): MobileRadarDrawingLayers {
+  if (!value || typeof value !== "object") {
+    return { ...DEFAULT_RADAR_DRAWING_LAYERS };
+  }
+  const raw = value as Partial<MobileRadarDrawingLayers>;
+  return {
+    runways: raw.runways !== false,
+    surface: raw.surface !== false,
+    terrain: raw.terrain === true
+  };
+}
+
 export function incompleteMobileSetupState(
   serverUrl = "",
   diagnosticsMode: MobileDiagnosticsMode = "unset"
@@ -367,6 +391,22 @@ export async function loadWeatherDisplayMode(): Promise<MobileWeatherDisplayMode
 
 export async function saveWeatherDisplayMode(value: MobileWeatherDisplayMode): Promise<void> {
   await SecureStore.setItemAsync(WEATHER_DISPLAY_KEY, normalizeWeatherDisplayMode(value));
+}
+
+export async function loadRadarDrawingLayers(): Promise<MobileRadarDrawingLayers> {
+  const raw = await SecureStore.getItemAsync(RADAR_DRAWING_LAYERS_KEY);
+  if (!raw) {
+    return { ...DEFAULT_RADAR_DRAWING_LAYERS };
+  }
+  try {
+    return normalizeRadarDrawingLayers(JSON.parse(raw));
+  } catch {
+    return { ...DEFAULT_RADAR_DRAWING_LAYERS };
+  }
+}
+
+export async function saveRadarDrawingLayers(value: MobileRadarDrawingLayers): Promise<void> {
+  await SecureStore.setItemAsync(RADAR_DRAWING_LAYERS_KEY, JSON.stringify(normalizeRadarDrawingLayers(value)));
 }
 
 export async function loadMobileDiagnosticsMode(): Promise<MobileDiagnosticsMode> {

@@ -226,6 +226,10 @@ def test_activate_mobile_standalone_uses_standalone_limits(tmp_path: Path, monke
         "SELECT client_kind, device_type, airport_iata, airport_icao, timezone FROM install_profiles WHERE install_id=?",
         (install_id,),
     ).fetchone()
+    request_row = conn.execute(
+        "SELECT airport_iata, airport_icao FROM activation_requests WHERE request_id=?",
+        (payload["request_id"],),
+    ).fetchone()
     conn.close()
     assert token is not None
     assert int(token["schedule_limit"]) == 600
@@ -235,6 +239,139 @@ def test_activate_mobile_standalone_uses_standalone_limits(tmp_path: Path, monke
     assert profile["airport_iata"] == "ZRH"
     assert profile["airport_icao"] == "LSZH"
     assert profile["timezone"] == "Europe/Zurich"
+    assert request_row["airport_iata"] == "ZRH"
+    assert request_row["airport_icao"] == "LSZH"
+
+
+def test_mobile_standalone_known_install_reissues_during_network_review(tmp_path: Path, monkeypatch) -> None:
+    _use_temp_db(tmp_path, monkeypatch)
+    monkeypatch.setattr(relay_main, "_AUTO_ACTIVATION_NETWORK_DAILY_LIMIT", 1)
+    monkeypatch.setattr(relay_main, "_AUTO_ACTIVATION_NETWORK_INSTALLS_DAILY_LIMIT", 1)
+    client = TestClient(relay_main.app)
+    install_id = "00000000-0000-0000-0000-000000000902"
+    pending_id = "lfr_existing_pending"
+    headers = {"fly-client-ip": "198.51.100.88"}
+
+    first = client.post(
+        "/v1/activate",
+        json={
+            "install_id": install_id,
+            "install_fingerprint": relay_main._install_fingerprint(install_id),
+            "airport_iata": "ZRH",
+            "airport_icao": "LSZH",
+            "timezone": "Europe/Zurich",
+            "device_type": "phone",
+            "display_name": "Mobile standalone",
+            "requested_mode": "mobile_standalone",
+            "app_version": "0.2.6",
+        },
+        headers=headers,
+    )
+    assert first.status_code == 200
+    first_payload = first.json()
+    first_token = first_payload["activation_token"]
+
+    now = relay_main._utc_now()
+    conn = relay_main._connect()
+    conn.execute(
+        """
+        INSERT INTO activation_requests (
+            request_id, install_id, install_fingerprint, network_tag, airport_iata, airport_icao,
+            display_name, requested_mode, app_version, status, created_at, updated_at, last_seen,
+            decision_source, decision_note
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            pending_id,
+            install_id,
+            relay_main._install_fingerprint(install_id),
+            "net_pending",
+            "ZRH",
+            "LSZH",
+            "Mobile standalone",
+            "mobile_standalone",
+            "0.2.6",
+            relay_main._REQUEST_STATUS_MANUAL_REVIEW,
+            now,
+            now,
+            now,
+            "auto-safety-net",
+            "manual review required",
+        ),
+    )
+    conn.commit()
+    conn.close()
+
+    reissued = client.post(
+        "/v1/activate",
+        json={
+            "install_id": install_id,
+            "install_fingerprint": relay_main._install_fingerprint(install_id),
+            "airport_iata": "ZRH",
+            "airport_icao": "LSZH",
+            "timezone": "Europe/Zurich",
+            "device_type": "phone",
+            "display_name": "Mobile standalone reset",
+            "requested_mode": "mobile_standalone",
+            "app_version": "0.2.6",
+        },
+        headers=headers,
+    )
+
+    assert reissued.status_code == 200
+    reissued_payload = reissued.json()
+    assert reissued_payload["status"] == "issued"
+    assert reissued_payload["request_id"] == pending_id
+    assert reissued_payload["activation_token"].startswith("lfm_")
+    assert reissued_payload["activation_token"] != first_token
+    assert reissued_payload["limits"]["schedule"] == 600
+    assert reissued_payload["limits"]["radar"] == 3000
+    assert "reissued" in reissued_payload["decision_note"]
+
+    old_status = client.get(
+        "/v1/client/status",
+        params={"install_id": install_id, "activation_token": first_token},
+        headers={"host": "relay.localflight.app"},
+    )
+    new_status = client.get(
+        "/v1/client/status",
+        params={"install_id": install_id, "activation_token": reissued_payload["activation_token"]},
+        headers={"host": "relay.localflight.app"},
+    )
+    assert old_status.status_code == 403
+    assert new_status.status_code == 200
+    assert new_status.json()["limits"]["schedule"] == 600
+    assert new_status.json()["limits"]["radar"] == 3000
+
+    unknown_install = "00000000-0000-0000-0000-000000000903"
+    unknown = client.post(
+        "/v1/activate",
+        json={
+            "install_id": unknown_install,
+            "install_fingerprint": relay_main._install_fingerprint(unknown_install),
+            "airport_iata": "ZRH",
+            "airport_icao": "LSZH",
+            "display_name": "Unknown standalone",
+            "requested_mode": "mobile_standalone",
+            "app_version": "0.2.6",
+        },
+        headers=headers,
+    )
+    assert unknown.status_code == 200
+    assert unknown.json()["status"] == "manual_review"
+    assert "activation_token" not in unknown.json()
+
+    conn = relay_main._connect()
+    row = conn.execute(
+        "SELECT status, decision_source, token_prefix, airport_iata, airport_icao FROM activation_requests WHERE request_id=?",
+        (pending_id,),
+    ).fetchone()
+    conn.close()
+    assert row["status"] == "issued"
+    assert row["decision_source"] == "auto-existing-install"
+    assert row["token_prefix"] == reissued_payload["token_prefix"]
+    assert row["airport_iata"] == "ZRH"
+    assert row["airport_icao"] == "LSZH"
 
 
 def test_activate_uses_manual_review_after_anonymous_network_burst(tmp_path: Path, monkeypatch) -> None:
@@ -800,6 +937,60 @@ def test_admin_api_activation_request_action_issues_token(tmp_path: Path, monkey
     assert status.json()["plan"] == "managed"
 
 
+def test_admin_api_activation_request_action_uses_standalone_limits(tmp_path: Path, monkeypatch) -> None:
+    _use_temp_db(tmp_path, monkeypatch)
+    monkeypatch.setenv("RELAY_ADMIN_PASSWORD", "correct-horse")
+    client = TestClient(relay_main.app)
+    headers = {"host": "network.localflight.app"}
+    auth = ("admin", "correct-horse")
+    install_id = "00000000-0000-0000-0000-000000000618"
+    request_id = "req_mobile_standalone_manual"
+    now = relay_main._utc_now()
+    conn = relay_main._connect()
+    conn.execute(
+        """
+        INSERT INTO activation_requests (
+            request_id, install_id, install_fingerprint, network_tag, status, requested_mode,
+            created_at, updated_at, last_seen, app_version
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            request_id,
+            install_id,
+            relay_main._install_fingerprint(install_id),
+            "net_admin_api",
+            relay_main._REQUEST_STATUS_MANUAL_REVIEW,
+            "mobile_standalone",
+            now,
+            now,
+            now,
+            "test",
+        ),
+    )
+    conn.commit()
+    conn.close()
+
+    issued = client.post(
+        "/admin/api/activation/request-action",
+        headers=headers,
+        auth=auth,
+        json={"request_id": request_id, "action": "approve"},
+    )
+
+    assert issued.status_code == 200
+    payload = issued.json()
+    assert payload["activation_token"].startswith("lfm_")
+    status = client.get(
+        "/v1/client/status",
+        params={"install_id": install_id, "activation_token": payload["activation_token"]},
+        headers={"host": "relay.localflight.app"},
+    )
+    assert status.status_code == 200
+    assert status.json()["limits"]["schedule"] == 600
+    assert status.json()["limits"]["radar"] == 3000
+
+
 def test_admin_api_write_actions_tolerate_blank_optional_text(tmp_path: Path, monkeypatch) -> None:
     _use_temp_db(tmp_path, monkeypatch)
     monkeypatch.setenv("RELAY_ADMIN_PASSWORD", "correct-horse")
@@ -955,7 +1146,7 @@ def test_admin_auth_throttles_repeated_bad_passwords(tmp_path: Path, monkeypatch
     assert third.status_code == 429
 
 
-def test_activation_requests_do_not_persist_airport_fields(tmp_path: Path, monkeypatch) -> None:
+def test_activation_requests_persist_review_airport_fields(tmp_path: Path, monkeypatch) -> None:
     _use_temp_db(tmp_path, monkeypatch)
     client = TestClient(relay_main.app)
     install_id = "00000000-0000-0000-0000-000000000777"
@@ -983,8 +1174,8 @@ def test_activation_requests_do_not_persist_airport_fields(tmp_path: Path, monke
     conn.close()
 
     assert row is not None
-    assert row["airport_iata"] is None
-    assert row["airport_icao"] is None
+    assert row["airport_iata"] == "ZRH"
+    assert row["airport_icao"] == "LSZH"
     assert row["display_name"] == "Privacy test"
 
 

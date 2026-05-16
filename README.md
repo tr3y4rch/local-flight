@@ -77,7 +77,7 @@ Open [docs/previews/index.html](docs/previews/index.html) locally for the standa
 </p>
 
 <p align="center">
-  <img src="docs/previews/matrix-preview-0.2.7.svg" alt="Local Flight LED matrix preview" width="48%">
+  <img src="docs/previews/matrix-preview.svg" alt="Local Flight LED matrix preview" width="48%">
   <img src="docs/previews/mobile-board-preview-0.2.7.svg" alt="Local Flight mobile board preview" width="48%">
 </p>
 

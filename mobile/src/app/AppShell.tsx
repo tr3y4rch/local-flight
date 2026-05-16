@@ -35,6 +35,7 @@ import {
   wsUrl
 } from "../api/client";
 import {
+  getStandaloneRadarGround,
   getStandaloneFids,
   getStandaloneRadar,
   getStandaloneSummary,
@@ -87,7 +88,9 @@ import {
   completeStandaloneMobileSetupState,
   incompleteMobileSetupState,
   isMobileSetupComplete,
+  loadRadarDrawingLayers,
   loadWeatherDisplayMode,
+  type MobileRadarDrawingLayers,
   type MobileDiagnosticsMode,
   type MobileSetupState,
   type MobileWeatherDisplayMode,
@@ -95,6 +98,7 @@ import {
   saveMobileRelayActivationToken,
   saveMobileSetupState,
   savePinnedFlight,
+  saveRadarDrawingLayers,
   saveServerUrl,
   saveStandaloneAirport,
   saveWeatherDisplayMode
@@ -210,6 +214,11 @@ export function AppShell() {
   const [companionIdentity, setCompanionIdentity] = useState<CompanionIdentity | null>(null);
   const [mobileDiagnosticsMode, setMobileDiagnosticsMode] = useState<MobileDiagnosticsMode>("unset");
   const [weatherDisplayMode, setWeatherDisplayMode] = useState<MobileWeatherDisplayMode>("passenger");
+  const [radarDrawingLayers, setRadarDrawingLayers] = useState<MobileRadarDrawingLayers>({
+    runways: true,
+    surface: true,
+    terrain: false
+  });
   const [mobileSetupState, setMobileSetupState] = useState<MobileSetupState>(() => incompleteMobileSetupState());
   const [launchHydrated, setLaunchHydrated] = useState(false);
   const [pairingUrl, setPairingUrl] = useState("");
@@ -423,9 +432,10 @@ export function AppShell() {
 
   useEffect(() => {
     let alive = true;
-    void loadWeatherDisplayMode().then((mode) => {
+    void Promise.all([loadWeatherDisplayMode(), loadRadarDrawingLayers()]).then(([mode, layers]) => {
       if (alive) {
         setWeatherDisplayMode(mode);
+        setRadarDrawingLayers(layers);
       }
     });
     return () => {
@@ -551,8 +561,32 @@ export function AppShell() {
       const data = await getStandaloneRadar(standaloneCredentials, nextRadius);
       lastRadarRefreshAfterRef.current = Number(data.refresh_after_s || 0) || null;
       setRadarData(data);
-      setRadarGroundData(null);
-      setRadarGroundError(null);
+      const cacheKey = [
+        "standalone",
+        standaloneCredentials.airport.iata || standaloneCredentials.airport.icao,
+        nextRadius,
+        Number(data.center?.lat || standaloneCredentials.airport.lat || 0).toFixed(5),
+        Number(data.center?.lon || standaloneCredentials.airport.lon || 0).toFixed(5)
+      ].join("|");
+      const cachedGround = radarGroundCacheRef.current.get(cacheKey) || null;
+      if (cachedGround && !forceGround) {
+        setRadarGroundData(cachedGround);
+        setRadarGroundError(null);
+        return;
+      }
+      try {
+        setActivity({
+          label: "Loading runway and surface layer",
+          detail: "Fetching the relay's shared airport surface snapshot."
+        });
+        const ground = await getStandaloneRadarGround(standaloneCredentials, Math.min(5, nextRadius));
+        radarGroundCacheRef.current.set(cacheKey, ground);
+        setRadarGroundData(ground);
+        setRadarGroundError(null);
+      } catch (exc) {
+        setRadarGroundData(cachedGround);
+        setRadarGroundError(cachedGround ? null : errorMessage(exc));
+      }
       return;
     }
     const data = await getRadar(normalized, nextRadius);
@@ -563,7 +597,8 @@ export function AppShell() {
       normalized,
       nextRadius,
       Number(data.center?.lat || 0).toFixed(5),
-      Number(data.center?.lon || 0).toFixed(5)
+      Number(data.center?.lon || 0).toFixed(5),
+      radarDrawingLayers.terrain ? "terrain" : "no-terrain"
     ].join("|");
     const cachedGround = radarGroundCacheRef.current.get(cacheKey) || null;
     if (cachedGround && !forceGround) {
@@ -577,7 +612,7 @@ export function AppShell() {
         label: "Loading airport ground layer",
         detail: "Fetching runway and surface geometry through the Local Flight server."
       });
-      const ground = await getRadarGround(normalized, nextRadius);
+      const ground = await getRadarGround(normalized, nextRadius, radarDrawingLayers.terrain);
       radarGroundCacheRef.current.set(cacheKey, ground);
       setRadarGroundData(ground);
       setRadarGroundError(null);
@@ -585,7 +620,7 @@ export function AppShell() {
       setRadarGroundData(cachedGround);
       setRadarGroundError(cachedGround ? null : errorMessage(exc));
     }
-  }, [standaloneCredentials]);
+  }, [radarDrawingLayers.terrain, standaloneCredentials]);
 
   const refreshScreen = useCallback(
     async ({
@@ -693,8 +728,8 @@ export function AppShell() {
     ]
   );
 
-  const connect = useCallback(async () => {
-    const normalized = normalizeServerUrl(draftUrl);
+  const connect = useCallback(async (candidateUrl = draftUrl) => {
+    const normalized = normalizeServerUrl(candidateUrl);
     setLoading(true);
     setActivity({
       label: "Testing server URL",
@@ -725,6 +760,29 @@ export function AppShell() {
       setActivity(null);
     }
   }, [draftUrl, mobileDiagnosticsMode]);
+
+  const connectPairingUrl = useCallback((nextUrl: string) => {
+    setDraftUrl(nextUrl);
+    setPairingUrl(nextUrl);
+    setPairingNonce((value) => value + 1);
+    setPairingNotice(`Pairing QR loaded. Connecting this companion to ${nextUrl}.`);
+    void connect(nextUrl);
+  }, [connect]);
+
+  const chooseRadarDrawingLayers = useCallback(async (next: MobileRadarDrawingLayers) => {
+    const normalized = {
+      runways: next.runways,
+      surface: next.surface,
+      terrain: isStandalone ? false : next.terrain
+    };
+    await saveRadarDrawingLayers(normalized);
+    const terrainChanged = normalized.terrain !== radarDrawingLayers.terrain;
+    setRadarDrawingLayers(normalized);
+    if (screen === "radar" && dataReady && terrainChanged) {
+      radarGroundCacheRef.current.clear();
+      void refreshScreen({ target: "radar", forceRadarGround: true, includeDashboard: false });
+    }
+  }, [dataReady, isStandalone, radarDrawingLayers.terrain, refreshScreen, screen]);
 
   const completeCompanionSetup = useCallback(async ({
     mode,
@@ -1061,9 +1119,11 @@ export function AppShell() {
   const fallbackDisplayName =
     cfg?.display_name && cfg.display_name !== "Local Flight"
       ? cfg.display_name
-      : cfg?.airport_icao
-        ? `${cfg.airport_icao} Local Flight`
-        : "Connect your server";
+      : cfg?.airport_iata || cfg?.airport_icao
+        ? [cfg?.airport_iata, cfg?.airport_icao].filter(Boolean).join(" / ")
+        : rows.length || serverUrl || isStandalone
+          ? "Local Flight"
+          : "Connect your server";
   const airportName = currentAirportDetail?.name || fallbackDisplayName;
   const airportLocation = [currentAirportDetail?.city, currentAirportDetail?.country].filter(Boolean).join(" · ");
   const sourceLabel = state?.source_name || cfg?.source || "VATSIM";
@@ -1133,6 +1193,9 @@ export function AppShell() {
   const matrixBrightness = matrixRuntime.brightness;
   const matrixPalette = matrixRuntime.palette;
   const matrixShowWeather = Boolean(matrixRuntime.options.show_metar ?? matrixRuntime.options.show_weather);
+  const effectiveRadarDrawingLayers = isStandalone
+    ? { runways: radarDrawingLayers.runways, surface: radarDrawingLayers.surface, terrain: false }
+    : radarDrawingLayers;
   const statusBarStyle = themeMode === "light" ? "dark-content" : "light-content";
 
   if (!mobileSetupComplete) {
@@ -1282,6 +1345,9 @@ export function AppShell() {
               onRefresh={() => { hapticLight(); refreshScreen({ target: "radar", forceRadarGround: true }); }}
               onRadiusChange={setRadarRadius}
               radiusOptions={isStandalone ? [1, 3, 5, 10] : undefined}
+              drawingLayers={effectiveRadarDrawingLayers}
+              standalone={isStandalone}
+              onDrawingLayersChange={chooseRadarDrawingLayers}
               onOpenDetail={openFlightDetail}
               compact={false}
               contentPaddingBottom={screenContentPadding}
@@ -1424,6 +1490,13 @@ export function AppShell() {
                   matrixSaving={matrixSaving}
                   matrixSaveMessage={matrixSaveMessage}
                   matrixSaveTone={matrixSaveTone}
+                  companionIdentity={companionIdentity}
+                  connected={isLive}
+                  feedbackTitle={feedbackTitle}
+                  feedbackDescription={feedbackDescription}
+                  feedbackSending={feedbackSending}
+                  feedbackMessage={feedbackMessage}
+                  feedbackTone={feedbackTone}
                   onThemeModeChange={setThemeMode}
                   onSkinChange={setSkin}
                   onWeatherDisplayModeChange={chooseWeatherDisplayMode}
@@ -1449,12 +1522,15 @@ export function AppShell() {
                   onMatrixReset={() => void resetMatrixDraft()}
                   onApplyProfile={(profile) => void applySettingsProfile(profile)}
                   onOpenConfig={() => setConfigSheetVisible(true)}
-                  onOpenHelp={() => setScreen("help")}
                   onOpenSupport={() => setSupportVisible(true)}
                   onRestartScheduler={restartSchedulerNow}
                   onRerunSetup={rerunCompanionSetup}
                   onChangeUrl={setDraftUrl}
-                  onConnect={connect}
+                  onPairingUrl={connectPairingUrl}
+                  onConnect={() => void connect()}
+                  onFeedbackTitleChange={setFeedbackTitle}
+                  onFeedbackDescriptionChange={setFeedbackDescription}
+                  onSubmitFeedback={sendFeedbackReport}
                 />
               ) : null}
 
@@ -1473,6 +1549,7 @@ export function AppShell() {
                   onFeedbackDescriptionChange={setFeedbackDescription}
                   onSubmitFeedback={sendFeedbackReport}
                   onOpenSupport={() => setSupportVisible(true)}
+                  onBackControl={() => setScreen("control")}
                 />
               ) : null}
             </ScrollView>
@@ -1480,7 +1557,7 @@ export function AppShell() {
         </Animated.View>
 
         <BottomNav
-          active={screen}
+          active={screen === "help" && !isStandalone ? "control" : screen}
           onChange={setScreen}
           insetBottom={insets.bottom}
           palette={palette}
@@ -3224,6 +3301,88 @@ function createStyles() {
     fontWeight: "700",
     letterSpacing: 0.8
   },
+  radarLayerPanel: {
+    marginHorizontal: 12,
+    marginBottom: 12,
+    padding: 12,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: accent14,
+    backgroundColor: softPanel
+  },
+  radarLayerHeader: {
+    marginBottom: 10
+  },
+  radarLayerTitle: {
+    fontFamily: mono,
+    color: palette.blue2,
+    fontSize: 9,
+    fontWeight: "900",
+    letterSpacing: 1.2,
+    includeFontPadding: false
+  },
+  radarLayerHint: {
+    marginTop: 3,
+    color: palette.textMuted,
+    fontSize: 11,
+    lineHeight: 15
+  },
+  radarLayerChips: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8
+  },
+  radarLayerChip: {
+    minWidth: 118,
+    flexGrow: 1,
+    flexBasis: "30%",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 9,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: accent14,
+    backgroundColor: fieldPanel
+  },
+  radarLayerChipActive: {
+    borderColor: accent40,
+    backgroundColor: accent10
+  },
+  radarLayerDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: palette.textDim,
+    backgroundColor: "transparent"
+  },
+  radarLayerDotActive: {
+    borderColor: palette.green,
+    backgroundColor: palette.green
+  },
+  radarLayerCopy: {
+    flex: 1,
+    minWidth: 0
+  },
+  radarLayerLabel: {
+    fontFamily: mono,
+    color: palette.textMuted,
+    fontSize: 10,
+    fontWeight: "900",
+    letterSpacing: 0.8,
+    includeFontPadding: false
+  },
+  radarLayerLabelActive: {
+    color: palette.blue2
+  },
+  radarLayerDetail: {
+    marginTop: 2,
+    color: palette.textDim,
+    fontSize: 10,
+    lineHeight: 13
+  },
   radarWeatherHeader: {
     flexDirection: "row",
     alignItems: "center",
@@ -4437,6 +4596,11 @@ function createStyles() {
     left: 0,
     top: 0
   },
+  scopeSweepLayer: {
+    position: "absolute",
+    left: 0,
+    top: 0
+  },
   scopeRingOuter: {
     position: "absolute",
     width: "100%",
@@ -4616,6 +4780,37 @@ function createStyles() {
     letterSpacing: 1.2,
     marginBottom: 10
   },
+  helpHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    marginBottom: 6
+  },
+  helpHeaderCopy: {
+    flex: 1,
+    minWidth: 0
+  },
+  helpBackButton: {
+    minHeight: 34,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 10,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: accent18,
+    backgroundColor: accent08
+  },
+  helpBackText: {
+    fontFamily: mono,
+    color: palette.blue2,
+    fontSize: 10,
+    fontWeight: "800",
+    letterSpacing: 0.8,
+    includeFontPadding: false,
+    lineHeight: 12
+  },
   settingsSectionGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -4733,6 +4928,53 @@ function createStyles() {
     textAlign: "center",
     includeFontPadding: false,
     lineHeight: 12
+  },
+  pairingChoiceRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+    marginTop: 14,
+    marginBottom: 12
+  },
+  pairingChoiceCard: {
+    flex: 1,
+    minWidth: 180,
+    minHeight: 76,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    padding: 12,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: accent18,
+    backgroundColor: accent08
+  },
+  pairingChoiceIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: accent12
+  },
+  pairingChoiceCopy: {
+    flex: 1,
+    minWidth: 0
+  },
+  pairingChoiceTitle: {
+    fontFamily: mono,
+    color: palette.text,
+    fontSize: 12,
+    fontWeight: "800",
+    letterSpacing: 0.8,
+    includeFontPadding: false,
+    lineHeight: 15
+  },
+  pairingChoiceBody: {
+    marginTop: 5,
+    color: palette.textMuted,
+    fontSize: 11,
+    lineHeight: 15
   },
   settingsQuickGrid: {
     flexDirection: "row",
@@ -5435,6 +5677,77 @@ function createStyles() {
     borderColor: accent16,
     backgroundColor: modalPanel,
     paddingTop: 10
+  },
+  pairingScannerSheet: {
+    minHeight: "72%"
+  },
+  pairingScannerBody: {
+    paddingHorizontal: 18,
+    paddingBottom: 20,
+    gap: 12
+  },
+  pairingCameraFrame: {
+    height: 330,
+    overflow: "hidden",
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: accent25,
+    backgroundColor: scopePanel
+  },
+  pairingCamera: {
+    flex: 1
+  },
+  pairingScannerReticle: {
+    position: "absolute",
+    left: 46,
+    right: 46,
+    top: 58,
+    bottom: 58,
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: accent40,
+    backgroundColor: "rgba(0,0,0,0.02)"
+  },
+  pairingScannerCorner: {
+    position: "absolute",
+    left: -1,
+    top: -1,
+    width: 38,
+    height: 38,
+    borderLeftWidth: 4,
+    borderTopWidth: 4,
+    borderColor: palette.blue,
+    borderTopLeftRadius: 24
+  },
+  pairingPermissionCard: {
+    minHeight: 260,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 12,
+    padding: 18,
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: accent18,
+    backgroundColor: accent06
+  },
+  pairingPermissionTitle: {
+    fontFamily: mono,
+    color: palette.text,
+    fontSize: 15,
+    fontWeight: "800",
+    letterSpacing: 0.8,
+    textAlign: "center"
+  },
+  pairingPermissionBody: {
+    color: palette.textMuted,
+    fontSize: 12,
+    lineHeight: 17,
+    textAlign: "center"
+  },
+  pairingScannerHint: {
+    color: palette.textMuted,
+    fontSize: 11,
+    lineHeight: 16
   },
   actionSheetCard: {
     marginHorizontal: 12,

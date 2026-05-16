@@ -723,6 +723,8 @@ def test_native_parity_screens_construct_core_controls(monkeypatch: pytest.Monke
     assert matrix.loading_indicator.isVisible() is False
     assert matrix.script_preview.isReadOnly()
     assert matrix.flash_group.isCheckable()
+    assert matrix.guide_group.isCheckable()
+    assert matrix.guide_group.isChecked() is False
     assert matrix.devices_group.isCheckable()
     assert matrix.configs_group.isCheckable()
     assert matrix.advanced_group.isCheckable()
@@ -730,7 +732,14 @@ def test_native_parity_screens_construct_core_controls(monkeypatch: pytest.Monke
     assert matrix.zoom_value.text().endswith("px")
     assert matrix.brightness_value.text().endswith("%")
     assert matrix.animation_mode.currentData() == "split_flap"
-    assert any(button.text() == "Generate main.py" for button in matrix.widget.findChildren(QtWidgets.QPushButton))
+    matrix_buttons = matrix.widget.findChildren(QtWidgets.QPushButton)
+    assert any(button.text() == "Preview animation" for button in matrix_buttons)
+    generate_buttons = [button for button in matrix_buttons if button.text() == "Generate main.py"]
+    assert len(generate_buttons) == 1
+    parent = generate_buttons[0].parent()
+    while parent is not None and parent is not matrix.flash_group:
+        parent = parent.parent()
+    assert parent is matrix.flash_group
     assert logs.file_combo is not None
     assert logs.live_tail.text().endswith("Live tail")
     assert logs.loading_indicator.isVisible() is False
@@ -796,14 +805,26 @@ def test_native_matrix_controls_drive_preview_and_script(monkeypatch: pytest.Mon
     assert screen.max_rows.value() == 3
     assert screen.animation_mode.currentData() == "static"
     assert screen.canvas.animation_mode == "static"
+    split_idx = screen.animation_mode.findData("split_flap")
+    screen.animation_mode.setCurrentIndex(split_idx)
+    screen.trigger_demo()
+    assert screen.canvas.animation_mode == "split_flap"
+    assert screen.canvas.animate is True
+    before_tick = list(screen.canvas.display_lines)
+    assert before_tick != screen.canvas.target_lines
+    screen.canvas._tick()
+    assert screen.canvas.display_lines != before_tick
     screen.zoom.setValue(7)
     assert screen.zoom_value.text() == "7px"
     screen.save_config()
-    assert client.saved["animation_enabled"] is False
+    assert client.saved["animation_enabled"] is True
+    assert client.saved["animation_mode"] == "split_flap"
+    screen.animation_mode.setCurrentIndex(split_idx)
     screen.wifi_ssid.setText("BoardNet")
     screen.api_host.setText("localflight.local")
     screen.generate_script()
-    assert client.script_payload["animation_enabled"] is False
+    assert client.script_payload["animation_enabled"] is True
+    assert client.script_payload["animation_mode"] == "split_flap"
     assert "ANIMATION_ENABLED" in screen.script_preview.toPlainText()
 
 

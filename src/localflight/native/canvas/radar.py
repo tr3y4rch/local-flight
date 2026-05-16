@@ -786,23 +786,52 @@ class RadarCanvas:  # pragma: no cover - optional Qt runtime
                 return 0
 
             def _draw_sweep(self, painter: Any, QtCore: Any, QtGui: Any, viewport: RadarViewport) -> None:
+                sweep_width_deg = 72.0
                 painter.save()
                 painter.translate(viewport.cx, viewport.cy)
                 painter.rotate(self.sweep_angle)
-                for idx in range(16):
-                    color = QtGui.QColor(self.colors["panel_2"])
-                    color.setAlpha(max(0, int((1 - idx / 16) * (32 if self._is_light_mode() else 42))))
+
+                if not self._is_light_mode():
+                    painter.setCompositionMode(QtGui.QPainter.CompositionMode_Screen)
+                slice_count = 18
+                slice_deg = sweep_width_deg / slice_count
+                for idx in range(slice_count):
+                    color = self._radar_color(
+                        QtGui,
+                        "blip",
+                        max(0, int((1 - idx / slice_count) * (26 if self._is_light_mode() else 34))),
+                    )
                     painter.setBrush(color)
                     painter.setPen(QtCore.Qt.NoPen)
                     path = QtGui.QPainterPath()
                     path.moveTo(0, 0)
-                    path.arcTo(-viewport.radius, -viewport.radius, viewport.radius * 2, viewport.radius * 2, -idx * 4.5, -4.5)
+                    path.arcTo(
+                        -viewport.radius,
+                        -viewport.radius,
+                        viewport.radius * 2,
+                        viewport.radius * 2,
+                        90 - idx * slice_deg,
+                        -slice_deg,
+                    )
                     path.closeSubpath()
                     painter.drawPath(path)
+                painter.setCompositionMode(QtGui.QPainter.CompositionMode_SourceOver)
+
                 line = self._radar_color(QtGui, "blip", 145 if self._is_light_mode() else 120)
                 painter.setBrush(QtCore.Qt.NoBrush)
-                painter.setPen(QtGui.QPen(line, 1.5))
+                lead_pen = QtGui.QPen(line, 1.4)
+                lead_pen.setCapStyle(QtCore.Qt.RoundCap)
+                painter.setPen(lead_pen)
                 painter.drawLine(0, 0, 0, -viewport.radius)
+                painter.save()
+                painter.rotate(sweep_width_deg)
+                trailing = QtGui.QColor(line)
+                trailing.setAlpha(max(42, int(line.alpha() * 0.48)))
+                trail_pen = QtGui.QPen(trailing, 1.0)
+                trail_pen.setCapStyle(QtCore.Qt.RoundCap)
+                painter.setPen(trail_pen)
+                painter.drawLine(0, 0, 0, -viewport.radius)
+                painter.restore()
                 painter.restore()
 
             def _draw_map_inlay(self, painter: Any, QtCore: Any, QtGui: Any, viewport: RadarViewport) -> None:

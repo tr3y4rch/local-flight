@@ -685,6 +685,15 @@ export type RadarMapResponse = {
   runways?: RadarMapFeature[];
   surface_features?: RadarMapFeature[];
   map_features?: RadarMapFeature[];
+  terrain?: {
+    available?: boolean;
+    enabled?: boolean;
+    provider?: string;
+    label?: string;
+    features?: RadarMapFeature[];
+    cache_state?: string;
+    note?: string;
+  };
   attribution?: RadarMapAttribution[];
   sources?: {
     runways?: string[] | string;

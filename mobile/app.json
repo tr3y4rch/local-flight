@@ -27,12 +27,19 @@
       ],
       "expo-font",
       "expo-sqlite",
-      "expo-secure-store"
+      "expo-secure-store",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Local Flight scans pairing QR codes shown by your Local Flight desktop or Pi app."
+        }
+      ]
     ],
     "ios": {
       "bundleIdentifier": "com.localflight.companion",
       "supportsTablet": true,
       "infoPlist": {
+        "NSCameraUsageDescription": "Local Flight scans pairing QR codes shown by your Local Flight desktop or Pi app.",
         "NSLocalNetworkUsageDescription": "Local Flight Companion connects to your Local Flight server on your local network.",
         "NSBonjourServices": [
           "_http._tcp"
@@ -44,7 +51,10 @@
       }
     },
     "android": {
-      "package": "com.localflight.companion"
+      "package": "com.localflight.companion",
+      "permissions": [
+        "CAMERA"
+      ]
     },
     "extra": {
       "localFlightServerHint": "http://192.168.1.10:8000",

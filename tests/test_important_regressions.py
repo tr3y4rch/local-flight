@@ -3496,6 +3496,9 @@ def test_matrix_script_endpoint_uses_current_i75w_client_template() -> None:
     assert "return 30 if HEIGHT >= 96 and _weather_line(8) else 20" not in script
     assert "def draw_vatsim_weather_page():" in script
     assert "def draw_vatsim_atc(flap_rows, fallback_rows, fallback_view):" in script
+    assert "time_label = fit_text(text[0:5].strip()" in script
+    assert "flight_label = fit_text(text[6:14].strip()" in script
+    assert "status = text[28:38].strip()" in script
     assert "\"real_fids\"" in script
     assert "\"vatsim_pilot\"" in script
     assert "\"vatsim_atc\"" in script
@@ -3570,10 +3573,12 @@ def test_matrix_preview_download_payload_uses_defined_animation_state() -> None:
     assert 'id="paletteSelect"' in template
     assert 'id="animationSpeedSelect"' in template
     assert 'id="statusMotionToggle"' in template
-    assert "Toggle without reflashing" in template
-    assert "Reflash when these change" in template
+    assert "Live after Apply" in template
+    assert "Regenerate main.py when" in template
     assert "matrix-status-grid" in template
-    assert "One-time board file" in template
+    assert "Setup guide" in template
+    assert "One-time main.py creator" in template
+    assert '<details class="matrix-section" open>' not in template
     assert "Connected boards" in template
     assert "Multiple configs" in template
     assert "Advanced: how the board talks to Local Flight" in template
@@ -3581,12 +3586,17 @@ def test_matrix_preview_download_payload_uses_defined_animation_state() -> None:
     assert "MATRIX_DEVICES" in template
     assert "scheduleRowsFetch" in template
     assert "/api/matrix/v2/devices" in template
-    assert "Apply to board" in template
+    assert "Apply live config" in template
+    assert "Preview animation" in template
+    assert "Apply to board" not in template
     assert "about 60 seconds" in template
     assert "function setPreviewPalette(name)" in template
     assert "MATRIX_PALETTE_OPTIONS" in template
     assert "MATRIX_PANEL_PRESETS" in template
     assert "row.matrix_flight_label" in template
+    assert "txt.slice(0,5).trim()" in template
+    assert "txt.slice(6,14).trim()" in template
+    assert "txt.slice(28,38).trim()" in template
     assert "MATRIX_METAR?.matrix_weather_icon" in template
     assert "const choices = [primary" not in template
     assert "palette: MATRIX_PALETTE" in template
@@ -4114,8 +4124,8 @@ def test_public_preview_gallery_includes_matrix_artwork() -> None:
 
     assert "docs/previews/matrix-preview.svg" in readme
     assert "matrix-preview.svg" in gallery
-    assert readme.count("<img src=\"docs/previews/") == 7
-    assert gallery.count("<article class=\"card\">") == 7
+    assert readme.count("<img src=\"docs/previews/") == 8
+    assert gallery.count("<article class=\"card\">") == 8
     assert matrix_preview.exists()
     ET.parse(matrix_preview)
 

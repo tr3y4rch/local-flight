@@ -24,7 +24,6 @@ from localflight.native.pages.setup_widgets import (
     build_info_button,
     build_spinner,
     build_stepper,
-    fade_in_widget,
 )
 from localflight.native.service import NativeApiService
 from localflight.ui.setup_guidance import (
@@ -751,9 +750,12 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
                 f"Step {index + 1} of {len(self.step_names)} · {name}"
             )
         # Brief fade-in of the new page for a softer transition.
+        # Avoid QGraphicsOpacityEffect on setup pages: they contain animated
+        # custom-painted widgets, and Qt can otherwise try to snapshot a page
+        # while it is already painting.
         current_page = self.tabs.currentWidget()
-        if current_page is not None and self.QtGui is not None:
-            fade_in_widget(self.QtCore, self.QtWidgets, current_page, duration_ms=200)
+        if current_page is not None:
+            current_page.update()
         self.back_btn.setEnabled(index > 0)
         self.next_btn.setVisible(index < self.tabs.count() - 1)
         self.finish_btn.setVisible(index == self.tabs.count() - 1)

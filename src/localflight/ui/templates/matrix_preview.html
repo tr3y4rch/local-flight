@@ -476,7 +476,7 @@
 
   <!-- ── Controls ── -->
   <div class="setup-hint" style="margin: -4px 0 10px 0;">
-    Live board settings. Press <strong>Apply to board</strong>; a flashed v2 board picks them up over Wi-Fi in about 60 seconds.
+    Live board settings. Press <strong>Apply live config</strong>; a flashed v2 board picks them up over Wi-Fi in about 60 seconds.
   </div>
   <div class="controls">
     <div class="ctrl-group">
@@ -611,7 +611,10 @@
     <button class="toggle-btn active" id="weatherToggle" onclick="toggleWeather()">Weather</button>
     <button class="toggle-btn active" id="gateToggle" onclick="toggleGateInfo()">Gate/stand</button>
     <button class="toggle-btn active" id="statusMotionToggle" onclick="toggleStatusMotion()">Status motion</button>
-    <button class="toggle-btn" onclick="triggerDemo()">Demo</button>
+    <button class="toggle-btn" onclick="triggerDemo()">Preview animation</button>
+    <button class="toggle-btn" onclick="refreshMatrixPreview()">Refresh</button>
+    <button class="toggle-btn active" id="saveConfigBtn" onclick="saveMatrixConfig()">Apply live config</button>
+    <span id="saveConfigMsg" class="save-msg"></span>
   </div>
 
   <!-- ── Canvas ── -->
@@ -625,33 +628,38 @@
 
   <!-- ── Setup section ── -->
   <div class="setup-section">
-    <div class="setup-intro">
-      <p>Flash once with Wi-Fi and the Local Flight server address. After that, normal board changes are saved here and pulled by the board over your LAN.</p>
-      <div class="setup-checklist">
-        {% for step in matrix_guidance.steps %}
-        <div class="setup-step">
-          <strong>{{ step.title }}</strong>
-          {{ step.body }}
+    <details class="matrix-section">
+      <summary>Setup guide <span>Open this when wiring or flashing an i75W board.</span></summary>
+      <div class="matrix-section-body">
+        <div class="setup-intro">
+          <p>Flash once with Wi-Fi and the Local Flight server address. After that, normal board changes are saved here and pulled by the board over your LAN.</p>
+          <div class="setup-checklist">
+            {% for step in matrix_guidance.steps %}
+            <div class="setup-step">
+              <strong>{{ step.title }}</strong>
+              {{ step.body }}
+            </div>
+            {% endfor %}
+          </div>
+          <div class="guide-grid">
+            <div class="guide-pill">
+              <strong>Live after Apply</strong>
+              {{ matrix_guidance.live_settings | join(", ") }}.
+            </div>
+            <div class="guide-pill">
+              <strong>Regenerate main.py when</strong>
+              {{ matrix_guidance.reflash_settings | join(", ") }}.
+            </div>
+          </div>
+          <div class="setup-note">
+            <strong>Beginner-safe notes:</strong> {{ matrix_guidance.safe_notes | join(" ") }}
+          </div>
         </div>
-        {% endfor %}
       </div>
-      <div class="guide-grid">
-        <div class="guide-pill">
-          <strong>Toggle without reflashing</strong>
-          {{ matrix_guidance.live_settings | join(", ") }}.
-        </div>
-        <div class="guide-pill">
-          <strong>Reflash when these change</strong>
-          {{ matrix_guidance.reflash_settings | join(", ") }}.
-        </div>
-      </div>
-      <div class="setup-note">
-        <strong>Beginner-safe notes:</strong> {{ matrix_guidance.safe_notes | join(" ") }}
-      </div>
-    </div>
+    </details>
 
-    <details class="matrix-section" open>
-      <summary>One-time board file <span>Only needed for Wi-Fi, server address, physical panel wiring, or new board-client code.</span></summary>
+    <details class="matrix-section">
+      <summary>One-time main.py creator <span>Only needed for Wi-Fi, server address, physical panel wiring, or new board-client code.</span></summary>
       <div class="matrix-section-body">
     <div class="setup-row">
       <div class="setup-col">
@@ -678,17 +686,6 @@
         </div>
         <div class="setup-hint" id="downloadHint">Use a LAN name or IP the board can reach. Do not use localhost.</div>
         <div class="cfg-block" id="cfgBlock">Loading...</div>
-      </div>
-
-      <div class="setup-divider"></div>
-
-      <div class="setup-col">
-        <div class="setup-label">Apply live settings</div>
-        <div class="setup-hint">The saved board pulls these settings about once a minute. Use this for color, motion, rows, weather, brightness, refresh, and board mode.</div>
-        <div style="margin-top:12px; display:flex; align-items:center; gap:12px; flex-wrap:wrap">
-          <button class="toggle-btn active" id="saveConfigBtn" onclick="saveMatrixConfig()">Apply to board</button>
-          <span id="saveConfigMsg" class="save-msg"></span>
-        </div>
       </div>
     </div>
       </div>
@@ -1491,8 +1488,8 @@
 
       if (compact) {
         const chars = Math.max(8, Math.floor(PANEL_W / 6));
-        const timeLabel = String(row?.matrix_time_label || row?.display_time || row?.time || txt.slice(0,5) || "--:--").padEnd(5, " ").slice(0,5);
-        const flightLabel = String(flightCycleDisplay(row || {})).padEnd(8, " ").slice(0,8);
+        const timeLabel = String(txt.slice(0,5).trim() || row?.matrix_time_label || row?.display_time || row?.time || "--:--").padEnd(5, " ").slice(0,5);
+        const flightLabel = String(txt.slice(6,14).trim() || flightCycleDisplay(row || {})).padEnd(8, " ").slice(0,8);
         drawGlyph(cancelled ? "warn" : (renderView === "arrivals" ? "arr" : "dep"), 0, y + 1, cancelled ? C.red : C.dim);
         drawString(timeLabel, 8, y, cancelled ? C.white : C.green);
         drawString(flightLabel, 50, y, C.white);
@@ -1500,11 +1497,11 @@
         const sc = row ? statusColor(row) : (flightColors[ri] || C.green);
         let statusY = y + 8;
         if (rowH >= 18) {
-          drawString(row ? routeChunk(row, chars) : txt.slice(15,27), 0, y + 8, C.white, PANEL_W);
+          drawString((txt.slice(15,27).trim() || (row ? routeChunk(row, chars) : "")).slice(0, chars), 0, y + 8, C.white, PANEL_W);
           statusY = y + 16;
         }
         if (statusY + 7 <= y + rowH) {
-          let statusText = row ? statusOrGateChunk(row, chars) : txt.slice(28,38);
+          let statusText = txt.slice(28,38).trim() || (row ? statusOrGateChunk(row, chars) : "");
           const gate = gateLabel(row);
           const aircraft = String(row?.aircraft_type || row?.aircraft || "").toUpperCase();
           if (rowH >= 27 && aircraft && !gate) {
@@ -1616,6 +1613,11 @@
       fetchRows();
     }, delayMs);
   }
+
+  window.refreshMatrixPreview = function() {
+    status.textContent = "Refreshing Matrix config and preview...";
+    loadMatrixConfig().then(() => scheduleRowsFetch(0));
+  };
 
   async function fetchRows() {
     if (matrixRowsFetching) {
@@ -2286,7 +2288,7 @@ Board reads: /api/config -> /api/matrix/v2/devices/{id}/config -> /api/matrix/v2
       msg.style.color = "#ff6060";
     }
     btn.disabled = false;
-    btn.textContent = "Apply to board";
+    btn.textContent = "Apply live config";
     setTimeout(() => { msg.textContent = ""; msg.style.color = ""; }, 5000);
   };
 
