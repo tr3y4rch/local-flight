@@ -271,6 +271,22 @@ Two separate integrations — do not confuse them:
 - Admin mutating controls are still intentionally limited until QR pairing and per-device tokens exist; scheduler restart/config changes are the current trusted-LAN exception.
 - Current Windows workspace has no Node/npm; run `npm install`, `npx expo install --fix`, and iOS device checks on the Mac/Xcode machine unless Node is installed on the dev PC.
 
+### Mobile companion iconset streamlining plan (Mac/Xcode handoff)
+- Goal: make the Expo companion use the same visual language as the native Qt and LAN/browser clients without scattering icon choices across screens. Use a hybrid icon registry: semantic mobile icon names backed by `@expo/vector-icons` for UI glyphs, plus bundled Local Flight/support assets for brand surfaces. Keep the companion native-feeling; do not add webviews or online icon/font/CDN dependencies.
+- Scope for the next Mac pass: whole companion, not only bottom nav. Cover bottom nav, launch overlay, Settings tools, FIDS/Radar/History/Matrix/Admin entrypoints, report/diagnostics actions, weather/status icons, source-mode icons, GitHub/support links, and empty/error/loading states.
+- Add `mobile/src/theme/icons.tsx` as the only place that imports `@expo/vector-icons/MaterialCommunityIcons`. Export `LocalFlightIconName`, `LocalFlightIcon`, and small helper maps for nav, actions, status, source modes, weather, support links, and Matrix/Admin tools. After the pass, direct `MaterialCommunityIcons` imports should not remain in `mobile/src/components/` or `mobile/src/screens/`.
+- Keep brand assets separate from generic icons. Prefer the existing companion PNG assets for Expo app icon/splash until a deliberate metadata sweep is done. For in-app brand/support surfaces, add or mirror bundled local assets under `mobile/assets/brand/` only if the React Native asset pipeline can load them cleanly; otherwise use the semantic icon wrapper as a safe first pass. Do not redraw/recolor third-party GitHub or Buy Me a Coffee marks unless using their official provided variants.
+- Align weather icon naming with desktop semantics. The server remains the source of truth for weather condition/category where available; mobile should map those semantic values to companion icons instead of hardcoding one-off icon names in screens. Missing weather should show a neutral unavailable icon, not a broken glyph or raw METAR fragment.
+- Suggested implementation order on macOS:
+  1. `cd mobile && npm install && npx expo install --fix`
+  2. Create `src/theme/icons.tsx` with the semantic registry and `LocalFlightIcon` wrapper.
+  3. Replace direct icon usages in `src/components/BottomNav.tsx`, `src/components/LaunchOverlay.tsx`, and `src/screens/AppScreens.tsx`.
+  4. Move any weather-icon helper in screens into the registry or a tiny `theme/weatherIcons.ts` module that uses the registry.
+  5. Keep the current companion navigation shape from the latest source state; this pass is icon consistency, not a nav IA rewrite.
+  6. Run `npm run typecheck`, then search for stray direct imports with `rg "MaterialCommunityIcons" mobile/src`.
+  7. Run `npm run doctor` and `npm run ios` on the Mac/Xcode machine. If Expo doctor still only fails on the known Xcode/SDK compatibility issue, document that as environment-only.
+- Acceptance check: companion icon choices should read as the same Local Flight product family as Qt/LAN, support dark/light plus existing skins through mobile theme tokens, keep tooltips/accessibility labels where applicable, and not duplicate icon/color decisions in individual screens.
+
 ## Environment variables (.env)
 
 ```

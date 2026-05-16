@@ -6,12 +6,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [0.2.8b1] - 2026-05-16
+## [0.2.7] - 2026-05-16
 
-> Native GUI visual-refresh pass. Same data, same pages, but a unified design
-> language across the setup wizard and main shell: animated stepper, rotating
-> spinner, page-fade transitions, status pills, toasts, info bubbles, color
-> emoji nav glyphs, and four FIDS board styles (Classic / PAX / VATSIM / Nerd).
+> Client-polish release-candidate pass on top of the `0.2.6` baseline.
+> This release folds in the native GUI visual-refresh work: unified setup and
+> shell styling, animated stepper, rotating spinner, page-fade transitions,
+> status pills, toasts, info bubbles, color emoji nav glyphs, and four FIDS
+> board styles (Classic / PAX / VATSIM / Nerd).
+> For the user-facing summary, see [docs/release-notes-0.2.7.md](docs/release-notes-0.2.7.md).
 
 ### Native first-run setup wizard
 - Replaced the row of numbered step buttons with an animated horizontal stepper: numbered circles connected by a fill line that glides as you advance, current step has a pulsing accent halo, done steps show ✓, hovering a node shows a soft ring.
@@ -74,22 +76,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `src/localflight/native/pages/fids_styles.py` — `FidsStyle` dataclass + `CLASSIC` / `PAX` / `VATSIM` / `NERD` descriptors + `translate_status` helper.
 - `src/localflight/ui/static/support-repository.svg`, `support-repository-dark.svg`, `support-coffee.svg`, `support-coffee-button.svg` — official GitHub + Buy Me a Coffee brand assets.
 
-### Phase 4 (not in this release — see AGENTS.md "Pending / next up" for details)
-Deferred polish that is intentionally NOT in 0.2.8b1: animated KPI counters on Admin/History cards, matrix flap-board boot animation, top-nav sliding underline indicator, per-page empty-state cards, per-column custom paint methods in the FIDS delegate for the VATSIM/Nerd-only columns (callsign / alt_speed / phase / squawk / source — they currently fall back to plain text rendering), honoring `style.row_height` and `style.font_scale` in the delegate's `sizeHint`, and broader toast coverage (theme change, save, network status).
-
-### Verification
-- `python -m py_compile` clean across every modified file (`design.py`, `shell_widgets.py`, `_legacy_app.py`, `models.py`, `pages/fids.py`, `pages/fids_styles.py`, `pages/setup.py`, `pages/setup_widgets.py`, `pages/radar.py`, `pages/settings.py`, `ui/setup_guidance.py`).
-- Generated stylesheet contains all new selectors (`Pill[tone="good"]`, `PageHero`, `ShellSpinner`, `ShellInfoButton`, `ShellToast`, `PrimaryCTA`, `FidsStyleButton`, `SetupSpinner`, `SetupInfoButton`, `SetupEyeButton`, `SetupPrimary`, `SetupOptionCard:hover`).
-- FIDS style registry returns `['classic', 'pax', 'vatsim', 'nerd']` with `classic` as the default.
-
----
-
-## [0.2.7] - 2026-05-13
-
-> Client-polish release-candidate pass on top of the `0.2.6` baseline.
-> For the user-facing summary, see [docs/release-notes-0.2.7.md](docs/release-notes-0.2.7.md).
-
-### Native Client UX
+### Native client layout and data polish
 - Reworked the native top bar into three clear groups: brand and primary pages, centered UTC/LT clock divider, then utility pages, sync indicator, and Power.
 - Replaced the large live-status banner with a tooltip-only sync dot and restored the footer to `v0.2.7 - Local-first - private by design` plus icon-only support links.
 - Rebuilt the FIDS header around a city/country airport hero, passenger-friendly weather, and readable ARR/DEP/Refresh actions.
@@ -118,6 +105,14 @@ Deferred polish that is intentionally NOT in 0.2.8b1: animated KPI counters on A
 ### Privacy
 - PRIVACY.md now lists the heartbeat install-profile fields explicitly (app version, OS family/version/architecture, GUI mode, source mode, diagnostics mode, companion count, matrix count) so operator-side fleet shape visibility is transparent.
 - VATSIM privacy rules remain strict: virtual traffic details do not expose pilot names, CIDs, controller names, server names, or other person-identifying fields.
+
+### Deferred polish
+- Not in 0.2.7: animated KPI counters on Admin/History cards, matrix flap-board boot animation, top-nav sliding underline indicator, per-page empty-state cards, custom-painted VATSIM/Nerd-only FIDS columns, style-specific delegate row sizing, and broader toast coverage for theme/save/network-state changes.
+
+### Verification
+- `python -m py_compile` clean across every modified native visual-refresh file.
+- Generated stylesheet contains the new shared selectors for pills, page heroes, spinners, info buttons, toasts, primary actions, FIDS style buttons, and setup option cards.
+- FIDS style registry returns `['classic', 'pax', 'vatsim', 'nerd']` with `classic` as the default.
 
 ---
 
