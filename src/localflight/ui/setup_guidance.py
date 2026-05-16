@@ -24,17 +24,17 @@ STEP_SHORT_LABELS: tuple[str, ...] = (
 
 WELCOME_CARDS: tuple[dict[str, str], ...] = (
     {
-        "icon": "Board",
+        "icon": "\U0001F4FA",  # 📺
         "title": "Local first",
         "body": "Your airport board runs from this machine. The LAN browser interface stays available for phones, tablets, and other screens.",
     },
     {
-        "icon": "Data",
+        "icon": "\U0001F4E1",  # 📡
         "title": "Pick your data path",
         "body": "Start with hosted community access, use your own provider keys, or run VATSIM-only virtual traffic.",
     },
     {
-        "icon": "Privacy",
+        "icon": "\U0001F510",  # 🔐
         "title": "Private by design",
         "body": "Keys stay masked, tokens stay local, and diagnostics are an explicit choice before first launch.",
     },
@@ -45,7 +45,7 @@ SOURCE_OPTIONS: tuple[dict[str, str], ...] = (
         "mode": "community",
         "title": "Community Relay",
         "short_title": "Community",
-        "icon": "Relay",
+        "icon": "\U0001F4E1",  # 📡
         "body": "Recommended first run. Uses shared real-flight snapshots through the hosted relay without personal schedule keys.",
         "note": "Community Relay is selected. Local Flight keeps this client keyless and uses the shared schedule allowance for this install.",
         "finish_label": "Community real-flight path",
@@ -54,7 +54,7 @@ SOURCE_OPTIONS: tuple[dict[str, str], ...] = (
         "mode": "byok",
         "title": "Bring Your Own Keys",
         "short_title": "BYOK",
-        "icon": "Keys",
+        "icon": "\U0001F511",  # 🔑
         "body": "Use direct provider accounts when you want quota ownership and your own real-data keys on this machine.",
         "note": "Bring Your Own Keys is selected. The next step collects AviationStack and optional radar/enrichment keys.",
         "finish_label": "Direct provider keys",
@@ -63,7 +63,7 @@ SOURCE_OPTIONS: tuple[dict[str, str], ...] = (
         "mode": "virtual",
         "title": "Virtual / VATSIM",
         "short_title": "VATSIM",
-        "icon": "VATSIM",
+        "icon": "\U0001F6E9",  # 🛩
         "body": "No real-data keys. Good for simulator traffic, testing, or a quick privacy-first first launch.",
         "note": "VATSIM is selected. Local Flight skips real-data keys and uses privacy-safe virtual network data.",
         "finish_label": "VATSIM virtual traffic",
@@ -75,7 +75,7 @@ DIAGNOSTICS_OPTIONS: tuple[dict[str, str], ...] = (
         "mode": "manual",
         "title": "Manual reports only",
         "short_title": "Manual",
-        "icon": "Manual",
+        "icon": "✋",  # ✋
         "body": "Nothing is sent unless you submit a report from the Report screen.",
         "note": "Manual mode is privacy-first: reports are sent only when you press Submit in the Report screen.",
     },
@@ -83,7 +83,7 @@ DIAGNOSTICS_OPTIONS: tuple[dict[str, str], ...] = (
         "mode": "auto",
         "title": "Auto crash reports",
         "short_title": "Auto crashes",
-        "icon": "Crash",
+        "icon": "\U0001F4A5",  # 💥
         "body": "Send sanitized native/server crash details when something breaks.",
         "note": "Auto crash reports send sanitized exception details only when diagnostics allow it.",
     },
@@ -91,7 +91,7 @@ DIAGNOSTICS_OPTIONS: tuple[dict[str, str], ...] = (
         "mode": "auto_logs",
         "title": "Auto + local logs",
         "short_title": "Auto + logs",
-        "icon": "Logs",
+        "icon": "\U0001F4DC",  # 📜
         "body": "Also attach a short local log tail for harder beta issues.",
         "note": "Auto + logs is helpful during beta testing. Reports stay sanitized and include only a short local log tail.",
     },

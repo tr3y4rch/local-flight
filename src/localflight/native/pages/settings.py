@@ -21,7 +21,17 @@ from localflight.core.settings_options import (
 )
 from localflight.native.api_client import LocalApiClient
 from localflight.native.async_tools import API_EXECUTOR
-from localflight.native.design import colors_for, bundled_doc, label, list_payload, native_stylesheet, panel, scroll_page
+from localflight.native.design import (
+    SECTION_EMOJI,
+    bundled_doc,
+    colors_for,
+    label,
+    list_payload,
+    native_stylesheet,
+    paint_emoji,
+    panel,
+    scroll_page,
+)
 from localflight.native.service import NativeApiService
 from localflight.storage.profiles import list_profiles
 
@@ -106,7 +116,7 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
         head = self.QtWidgets.QHBoxLayout()
         title_col = self.QtWidgets.QVBoxLayout()
         title_col.setSpacing(4)
-        title_col.addWidget(label(self.QtWidgets, "Settings", "Title"))
+        title_col.addWidget(label(self.QtWidgets, "⚙️  Settings", "Title"))
         title_col.addWidget(
             label(
                 self.QtWidgets,
@@ -127,7 +137,7 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
         self.layout.addLayout(head)
 
     def _build_status_band(self) -> None:
-        box, band = panel(self.QtWidgets, "Client State")
+        box, band = panel(self.QtWidgets, "\U0001F4CB  Client State")
         grid = self.QtWidgets.QGridLayout()
         grid.setHorizontalSpacing(8)
         grid.setVerticalSpacing(8)
@@ -203,63 +213,19 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
                 rect = self.rect().adjusted(3, 3, -3, -3)
                 colors = colors_for(outer._current_theme, outer._current_skin)
                 accent = QtGui.QColor(colors["blue"])
-                muted = QtGui.QColor(colors["muted"])
                 bg = QtGui.QColor(colors["blue"])
                 bg.setAlpha(26)
                 painter.setPen(QtGui.QPen(accent, 1.4))
                 painter.setBrush(bg)
                 painter.drawRoundedRect(rect, 8, 8)
-                painter.setBrush(QtCore.Qt.NoBrush)
-                cx = rect.center().x()
-                cy = rect.center().y()
-                kind_value = self.icon_kind
-                if kind_value == "airport":
-                    path = QtGui.QPainterPath()
-                    path.moveTo(cx, rect.top() + 6)
-                    path.lineTo(cx + 7, cy + 5)
-                    path.lineTo(cx + 2, cy + 5)
-                    path.lineTo(cx + 1, rect.bottom() - 4)
-                    path.lineTo(cx - 1, rect.bottom() - 4)
-                    path.lineTo(cx - 2, cy + 5)
-                    path.lineTo(cx - 7, cy + 5)
-                    path.closeSubpath()
-                    painter.setBrush(muted)
-                    painter.drawPath(path)
-                elif kind_value == "source":
-                    painter.drawEllipse(QtCore.QPointF(cx - 5, cy), 2.5, 2.5)
-                    painter.drawEllipse(QtCore.QPointF(cx + 5, cy), 2.5, 2.5)
-                    painter.drawLine(cx - 2, cy, cx + 2, cy)
-                elif kind_value == "clock":
-                    painter.drawEllipse(QtCore.QPointF(cx, cy), 7, 7)
-                    painter.drawLine(cx, cy, cx, cy - 5)
-                    painter.drawLine(cx, cy, cx + 4, cy + 2)
-                elif kind_value == "relay":
-                    painter.drawArc(rect.adjusted(6, 6, -6, -6), 35 * 16, 110 * 16)
-                    painter.drawArc(rect.adjusted(2, 2, -2, -2), 30 * 16, 120 * 16)
-                    painter.drawEllipse(QtCore.QPointF(cx, cy + 5), 2, 2)
-                elif kind_value == "radar":
-                    painter.drawEllipse(QtCore.QPointF(cx, cy), 8, 8)
-                    painter.drawLine(cx, cy, cx + 7, cy - 5)
-                    painter.drawEllipse(QtCore.QPointF(cx, cy), 2, 2)
-                elif kind_value == "palette":
-                    painter.drawEllipse(QtCore.QPointF(cx, cy), 8, 7)
-                    painter.drawEllipse(QtCore.QPointF(cx - 4, cy - 2), 1.6, 1.6)
-                    painter.drawEllipse(QtCore.QPointF(cx + 2, cy - 4), 1.6, 1.6)
-                    painter.drawEllipse(QtCore.QPointF(cx + 4, cy + 2), 1.6, 1.6)
-                elif kind_value == "profile":
-                    painter.drawEllipse(QtCore.QPointF(cx, cy - 4), 4, 4)
-                    painter.drawRoundedRect(QtCore.QRectF(cx - 7, cy + 2, 14, 8), 4, 4)
-                elif kind_value == "docs":
-                    painter.drawRect(QtCore.QRectF(cx - 6, cy - 8, 12, 16))
-                    painter.drawLine(cx - 3, cy - 2, cx + 4, cy - 2)
-                    painter.drawLine(cx - 3, cy + 3, cx + 4, cy + 3)
-                else:
-                    painter.drawEllipse(QtCore.QPointF(cx, cy), 6, 6)
+                emoji = SECTION_EMOJI.get(self.icon_kind, "")
+                if emoji:
+                    paint_emoji(QtCore, QtGui, painter, rect, emoji, point_size=14)
 
         return _SettingsIcon(kind)
 
     def _build_airport_data(self) -> Any:
-        box, layout = panel(self.QtWidgets, "Airport & Source")
+        box, layout = panel(self.QtWidgets, "\U0001F6EC  Airport & Source")
         layout.addWidget(
             label(
                 self.QtWidgets,
@@ -308,7 +274,7 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
         return box
 
     def _build_appearance(self) -> Any:
-        box, layout = panel(self.QtWidgets, "Appearance")
+        box, layout = panel(self.QtWidgets, "\U0001F3A8  Appearance")
         form = self.QtWidgets.QFormLayout()
         form.setFieldGrowthPolicy(self.QtWidgets.QFormLayout.AllNonFixedFieldsGrow)
         self.display_name = self.QtWidgets.QLineEdit()
@@ -350,7 +316,7 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
         return box
 
     def _build_radar_devices(self) -> Any:
-        box, layout = panel(self.QtWidgets, "Outputs & Radar")
+        box, layout = panel(self.QtWidgets, "\U0001F6F0  Outputs & Radar")
         self.surface = self.QtWidgets.QCheckBox("Runway and airport surface overlay")
         self.surface.stateChanged.connect(self._surface_changed)
         layout.addWidget(self.surface)
@@ -391,7 +357,7 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
         return box
 
     def _build_profiles(self) -> None:
-        box, layout = panel(self.QtWidgets, "Profiles")
+        box, layout = panel(self.QtWidgets, "\U0001F464  Profiles")
         layout.addWidget(label(self.QtWidgets, "Save airport and board presets for quick swaps.", "Muted", wrap=True))
         row = self.QtWidgets.QHBoxLayout()
         self.profile_combo = self.QtWidgets.QComboBox()

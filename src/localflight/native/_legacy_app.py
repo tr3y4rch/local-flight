@@ -641,7 +641,7 @@ class NativeMainWindow:  # pragma: no cover - exercised with optional Qt
                 if brand_pixmap.isNull():
                     brand_pixmap = pixmap_from_media(QtCore, QtGui, "assets", "localflight-logo.svg", width=26, height=26)
                 if brand_pixmap.isNull():
-                    brand_mark.setText("*")
+                    brand_mark.setText("\U0001F6EB")
                 else:
                     brand_mark.setPixmap(brand_pixmap)
                 brand = QtWidgets.QLabel("Local Flight")
@@ -749,12 +749,18 @@ class NativeMainWindow:  # pragma: no cover - exercised with optional Qt
                 github.setAccessibleName("GitHub")
                 github.setMinimumSize(36, 30)
                 github.setMaximumWidth(38)
-                github_icon = icon_from_media(QtGui, "ui", "static", "support-repository.svg")
+                # Theme-aware: white invertocat on dark theme, black on light.
+                gh_file = (
+                    "support-repository-dark.svg"
+                    if self.theme == "light"
+                    else "support-repository.svg"
+                )
+                github_icon = icon_from_media(QtGui, "ui", "static", gh_file)
                 if github_icon.isNull():
                     github.setText("repo")
                 else:
                     github.setIcon(github_icon)
-                    github.setIconSize(QtCore.QSize(19, 19))
+                    github.setIconSize(QtCore.QSize(20, 20))
                 github.clicked.connect(lambda: webbrowser.open(GITHUB_URL))
                 coffee = QtWidgets.QPushButton("")
                 coffee.setObjectName("FooterLink")
@@ -848,7 +854,7 @@ class NativeMainWindow:  # pragma: no cover - exercised with optional Qt
                 self.live_status.setVisible(False)
                 self.utility_nav_group.setVisible(not compact)
                 self.nav_more_button.setVisible(compact)
-                self.nav_more_button.setText(chr(0x2630) if compact else "More")
+                self.nav_more_button.setText("⋯" if compact else "More")
                 self.nav_more_button.setMinimumWidth(40 if compact else 72)
                 if hasattr(self, "footer_status_label"):
                     self.footer_status_label.setText(f"v{_app_version()} \u00b7 Local-first \u00b7 private by design")
@@ -910,7 +916,12 @@ class NativeMainWindow:  # pragma: no cover - exercised with optional Qt
                 screen = self._ensure_screen(key)
                 self.current_screen_key = key
                 index = self.screen_keys.index(key)
-                self.stack.setCurrentIndex(index)
+                try:
+                    from localflight.native.shell_widgets import fade_swap
+
+                    fade_swap(QtCore, QtWidgets, self.stack, index, duration_ms=180)
+                except Exception:
+                    self.stack.setCurrentIndex(index)
                 for page_key, button in self._nav_buttons.items():
                     button.setChecked(page_key == key)
                 if hasattr(screen, "set_active"):
@@ -936,6 +947,19 @@ class NativeMainWindow:  # pragma: no cover - exercised with optional Qt
                 self.skin = skin
                 self.colors = colors_for(theme, skin)
                 self.setStyleSheet(native_stylesheet(theme=theme, skin=skin))
+                # Theme-aware GitHub mark: white on dark, black on light.
+                if hasattr(self, "footer_github_button"):
+                    try:
+                        gh_file = (
+                            "support-repository-dark.svg"
+                            if theme == "light"
+                            else "support-repository.svg"
+                        )
+                        gh_icon = icon_from_media(QtGui, "ui", "static", gh_file)
+                        if not gh_icon.isNull():
+                            self.footer_github_button.setIcon(gh_icon)
+                    except Exception:
+                        pass
                 for screen in self._constructed_screens():
                     if hasattr(screen, "apply_theme"):
                         screen.apply_theme(theme, skin)
@@ -1333,9 +1357,9 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
         cards.setVerticalSpacing(10)
         for col, (mode, title, body, glyph) in enumerate(
             (
-                ("community", "Community Relay", "Shared airport snapshots through the hosted community relay.", NAV_GLYPHS.get("radar", "")),
-                ("byok", "BYOK AviationStack", "Use your own API key and keep provider calls local.", NAV_GLYPHS.get("settings", "")),
-                ("virtual", "Virtual / VATSIM", "No paid schedule key. Uses live VATSIM flight-network data.", NAV_GLYPHS.get("fids", "")),
+                ("community", "Community Relay", "Shared airport snapshots through the hosted community relay.", "\U0001F4E1"),
+                ("byok", "BYOK AviationStack", "Use your own API key and keep provider calls local.", "\U0001F511"),
+                ("virtual", "Virtual / VATSIM", "No paid schedule key. Uses live VATSIM flight-network data.", "\U0001F6E9"),
             )
         ):
             button = self.QtWidgets.QPushButton(f"{glyph} {title}\n{body}".strip())
@@ -2210,7 +2234,7 @@ class DisplayScreen:  # pragma: no cover - optional Qt runtime
         layout.setSpacing(8)
         top = QtWidgets.QHBoxLayout()
         self.mode_buttons: dict[str, Any] = {}
-        for key, text in (("fids", "FIDS"), ("split", "Split"), ("radar", "Radar")):
+        for key, text in (("fids", "\U0001F6EB  FIDS"), ("split", "\U0001F4FA  Split"), ("radar", "\U0001F6F0  Radar")):
             button = QtWidgets.QPushButton(text)
             button.setObjectName("SegmentButton")
             button.setCheckable(True)
@@ -4461,16 +4485,27 @@ class AdminSummaryScreen:  # pragma: no cover - optional Qt runtime
         self.navigate = navigate
         self.widget, self.layout = scroll_page(QtWidgets)
         self.layout.setContentsMargins(28, 22, 28, 22)
-        head = QtWidgets.QHBoxLayout()
-        title_col = QtWidgets.QVBoxLayout()
-        title_col.addWidget(label(QtWidgets, "System Overview", "Title"))
-        self.header_subtitle = label(QtWidgets, "Local user-facing status, access, connected devices, history, and weather.", "Muted", wrap=True)
-        title_col.addWidget(self.header_subtitle)
-        head.addLayout(title_col, 1)
-        head.addStretch(1)
-        refresh = QtWidgets.QPushButton("Refresh overview")
+        # PageHero replaces the legacy title/subtitle/refresh row.
+        from localflight.native.shell_widgets import make_page_hero
+        from localflight.native.qt_compat import import_qt as _import_qt
+
+        _QtCore, _QtGui, _QtWidgets = _import_qt()
+        refresh = QtWidgets.QPushButton("\U0001F504  Refresh overview")
+        refresh.setObjectName("PrimaryCTA")
         refresh.clicked.connect(self.refresh)
-        head.addWidget(refresh)
+        self.hero = make_page_hero(
+            _QtCore,
+            _QtGui,
+            QtWidgets,
+            emoji="\U0001F4CA",
+            title="System Overview",
+            subtitle="Local user-facing status, access, connected devices, history, and weather.",
+            info_text="This page lives entirely on this machine. Numbers come from your own local APIs.",
+            actions=(refresh,),
+            show_last_refreshed=True,
+        )
+        # Keep the public attribute name so existing _set_native_feedback hooks work.
+        self.header_subtitle = self.hero._subtitle  # type: ignore[attr-defined]
         self.status = label(QtWidgets, "Ready.", "Muted", wrap=True)
         self.loading_indicator = _loading_indicator(QtWidgets)
         self.grid = QtWidgets.QGridLayout()
@@ -4479,7 +4514,7 @@ class AdminSummaryScreen:  # pragma: no cover - optional Qt runtime
         self.detail_layout = QtWidgets.QVBoxLayout()
         self.footer = label(QtWidgets, "", "Muted", wrap=True)
         self.footer.setAlignment(QtCore.Qt.AlignCenter)
-        self.layout.addLayout(head)
+        self.layout.addWidget(self.hero)
         self.layout.addSpacing(4)
         self.layout.addLayout(self.grid)
         self.layout.addLayout(self.detail_layout)
@@ -4516,7 +4551,7 @@ class AdminSummaryScreen:  # pragma: no cover - optional Qt runtime
         self.header_subtitle.setText(f"{display_name} | {airport} | local user-facing panel")
         cards = [
             self._stats_panel(
-                "Flight Refresh",
+                "✈️  Flight Refresh",
                 [
                     ("Health", scheduler.get("state") or scheduler.get("status") or "unknown"),
                     ("Airport", airport),
@@ -4526,10 +4561,10 @@ class AdminSummaryScreen:  # pragma: no cover - optional Qt runtime
                     ("Current issue", scheduler.get("last_error") or "No issues"),
                 ],
             ),
-            self._budget_panel("Schedule Access", active_mode, schedule_bucket, aviation),
+            self._budget_panel("\U0001F4E1  Schedule Access", active_mode, schedule_bucket, aviation),
             self._devices_panel(connections),
             self._stats_panel(
-                "Flight History",
+                "\U0001F4C5  Flight History",
                 [
                     ("Total rows", history.get("rows") or history.get("row_count") or 0),
                     ("Oldest record", history.get("oldest") or history.get("oldest_record") or "-"),
@@ -4538,7 +4573,7 @@ class AdminSummaryScreen:  # pragma: no cover - optional Qt runtime
                 ],
             ),
             self._stats_panel(
-                "App & Device",
+                "\U0001F527  App & Device",
                 [
                     ("Version", system.get("version") or _app_version()),
                     ("Latest release", updates.get("latest_version") or updates.get("status") or "-"),
@@ -4551,8 +4586,23 @@ class AdminSummaryScreen:  # pragma: no cover - optional Qt runtime
         ]
         for idx, widget in enumerate(cards):
             self.grid.addWidget(widget, idx // 3, idx % 3)
-        self.detail_layout.addWidget(progress_card(self.QtWidgets, "Schedule Access Budget", schedule_bucket.get("calls_this_month"), schedule_bucket.get("monthly_limit"), _budget_detail(schedule_bucket)))
-        _set_native_feedback(self, f"Last refreshed {datetime.now().strftime('%H:%M:%S')} | local user-facing admin APIs.", "StatusGood")
+        self.detail_layout.addWidget(progress_card(self.QtWidgets, "\U0001F4C8  Schedule Access Budget", schedule_bucket.get("calls_this_month"), schedule_bucket.get("monthly_limit"), _budget_detail(schedule_bucket)))
+        now = datetime.now().strftime('%H:%M:%S')
+        _set_native_feedback(self, f"Last refreshed {now} | local user-facing admin APIs.", "StatusGood")
+        if hasattr(self, "hero"):
+            try:
+                self.hero.set_last_refreshed(f"Updated {now}")
+                self.hero.set_status("Live", tone="good")
+            except Exception:
+                pass
+        try:
+            from localflight.native.qt_compat import import_qt as _import_qt
+            from localflight.native.shell_widgets import show_toast
+
+            _QtCore, _QtGui, _QtWidgets = _import_qt()
+            show_toast(_QtCore, _QtGui, _QtWidgets, self.widget, text="Admin overview refreshed", tone="good")
+        except Exception:
+            pass
         self.footer.setText(f"Local Flight is free. If this little airport gremlin helps, coffee lives here: {COFFEE_URL}")
 
     def _stats_panel(self, title: str, rows: list[tuple[str, Any]]) -> Any:
@@ -4594,7 +4644,7 @@ class AdminSummaryScreen:  # pragma: no cover - optional Qt runtime
         return box
 
     def _devices_panel(self, connections: dict[str, Any]) -> Any:
-        box, layout = panel(self.QtWidgets, "Connected Screens")
+        box, layout = panel(self.QtWidgets, "\U0001F5A5️  Connected Screens")
         count = connections.get("count", 0)
         companions = connections.get("companion_count", 0)
         matrix_count = int(connections.get("matrix_device_count") or 0)
@@ -4622,7 +4672,7 @@ class AdminSummaryScreen:  # pragma: no cover - optional Qt runtime
         return box
 
     def _weather_panel(self, weather: dict[str, Any]) -> Any:
-        box, layout = panel(self.QtWidgets, "Airport Weather")
+        box, layout = panel(self.QtWidgets, "\U0001F324️  Airport Weather")
         hero = self.QtWidgets.QFrame()
         hero.setObjectName("WeatherStrip")
         hero_layout = self.QtWidgets.QHBoxLayout(hero)
@@ -4645,7 +4695,7 @@ class AdminSummaryScreen:  # pragma: no cover - optional Qt runtime
         return box
 
     def _quick_tools_panel(self) -> Any:
-        box, layout = panel(self.QtWidgets, "Quick Tools")
+        box, layout = panel(self.QtWidgets, "\U0001F6E0️  Quick Tools")
         grid = self.QtWidgets.QGridLayout()
         tools = [
             ("Open display", "Show the split board with flights and radar.", "display"),
@@ -4677,20 +4727,30 @@ class RequestsScreen:  # pragma: no cover - optional Qt runtime
         self.client = client
         self.service = NativeApiService(client)
         self.widget, self.layout = scroll_page(QtWidgets)
-        head = QtWidgets.QHBoxLayout()
-        head.addWidget(label(QtWidgets, "Traffic Log", "Title"))
-        head.addStretch(1)
         self.hours = QtWidgets.QComboBox()
         for value, text in ((1, "Last hour"), (6, "Last 6h"), (24, "Last 24h"), (168, "Last 7d")):
             self.hours.addItem(text, value)
         self.client_type = QtWidgets.QComboBox()
         for label_text, value in (("all clients", "all"), ("web", "web"), ("native", "native"), ("mobile", "mobile"), ("matrix", "matrix"), ("api", "api")):
             self.client_type.addItem(label_text, value)
-        refresh = QtWidgets.QPushButton("Refresh traffic")
+        refresh = QtWidgets.QPushButton("\U0001F504  Refresh traffic")
+        refresh.setObjectName("PrimaryCTA")
         refresh.clicked.connect(self.refresh)
-        head.addWidget(self.hours)
-        head.addWidget(self.client_type)
-        head.addWidget(refresh)
+        from localflight.native.shell_widgets import make_page_hero as _make_hero_r
+        from localflight.native.qt_compat import import_qt as _import_qt_r
+
+        _QtCore_r, _QtGui_r, _QtWidgets_r = _import_qt_r()
+        self.hero = _make_hero_r(
+            _QtCore_r,
+            _QtGui_r,
+            QtWidgets,
+            emoji="\U0001F310",
+            title="Traffic Log",
+            subtitle="Anonymized local API requests. Hidden unless network tools are enabled.",
+            info_text="Nothing here leaves this device. Useful for spotting noisy clients on your LAN.",
+            actions=(self.hours, self.client_type, refresh),
+            show_last_refreshed=True,
+        )
         self.status = label(QtWidgets, "Local anonymized request log. Hidden unless network tools are enabled.", "Muted", wrap=True)
         self.loading_indicator = _loading_indicator(QtWidgets)
         self.summary_grid = QtWidgets.QGridLayout()
@@ -4698,7 +4758,7 @@ class RequestsScreen:  # pragma: no cover - optional Qt runtime
         self.table.verticalHeader().setVisible(False)
         self.table.setAlternatingRowColors(True)
         self.table.horizontalHeader().setStretchLastSection(True)
-        self.layout.addLayout(head)
+        self.layout.addWidget(self.hero)
         self.layout.addWidget(self.loading_indicator)
         self.layout.addWidget(self.status)
         self.layout.addLayout(self.summary_grid)
@@ -4722,9 +4782,9 @@ class RequestsScreen:  # pragma: no cover - optional Qt runtime
         clear_layout(self.summary_grid)
         summary = request_log.summary
         cards = [
-            card(self.QtWidgets, "Requests", summary.get("total_requests") or summary.get("total") or len(request_log.rows)),
-            card(self.QtWidgets, "Clients", summary.get("clients") or summary.get("client_count") or "-"),
-            card(self.QtWidgets, "Errors", summary.get("errors") or summary.get("error_count") or 0),
+            card(self.QtWidgets, "\U0001F4E8  Requests", summary.get("total_requests") or summary.get("total") or len(request_log.rows)),
+            card(self.QtWidgets, "\U0001F464  Clients", summary.get("clients") or summary.get("client_count") or "-"),
+            card(self.QtWidgets, "⚠️  Errors", summary.get("errors") or summary.get("error_count") or 0),
         ]
         for idx, widget in enumerate(cards):
             self.summary_grid.addWidget(widget, 0, idx)
@@ -4745,6 +4805,12 @@ class RequestsScreen:  # pragma: no cover - optional Qt runtime
             ],
         )
         _set_native_feedback(self, f"{len(rows)} anonymized local request rows loaded.", "StatusGood")
+        if hasattr(self, "hero"):
+            try:
+                self.hero.set_last_refreshed(f"Updated {datetime.now().strftime('%H:%M:%S')}")
+                self.hero.set_status(f"{len(rows)} rows", tone="info")
+            except Exception:
+                pass
 
 
 class HistoryScreen:  # pragma: no cover - optional Qt runtime
@@ -4760,17 +4826,34 @@ class HistoryScreen:  # pragma: no cover - optional Qt runtime
         body, layout = scroll_page(QtWidgets)
         layout.setSpacing(12)
 
-        header = QtWidgets.QHBoxLayout()
-        title_col = QtWidgets.QVBoxLayout()
-        title_col.addWidget(label(QtWidgets, "Flight History", "Title"))
-        title_col.addWidget(label(QtWidgets, "Airport-board analytics: delay quotas, airline performance, routes, aircraft, and recent matching flights.", "Muted", wrap=True))
-        header.addLayout(title_col, 1)
-        header.addStretch(1)
-        self.last_refresh = label(QtWidgets, "Not loaded yet", "Muted")
-        header.addWidget(self.last_refresh)
-        layout.addLayout(header)
+        from localflight.native.shell_widgets import make_page_hero as _make_hero
+        from localflight.native.qt_compat import import_qt as _import_qt_h
 
-        filters, filter_layout = panel(QtWidgets, "Filters")
+        _QtCore_h, _QtGui_h, _QtWidgets_h = _import_qt_h()
+        self.hero = _make_hero(
+            _QtCore_h,
+            _QtGui_h,
+            QtWidgets,
+            emoji="\U0001F4C5",
+            title="Flight History",
+            subtitle="Airport-board analytics: delay quotas, airline performance, routes, aircraft, and recent matching flights.",
+            info_text="History is a 90-day local rolling window stored on this machine only.",
+            actions=(),
+            show_last_refreshed=True,
+        )
+        # Back-compat shim: code below still references self.last_refresh.setText(...)
+        class _LastRefreshShim:
+            def __init__(self, hero: Any) -> None:
+                self._hero = hero
+            def setText(self, value: str) -> None:  # noqa: N802 - matches QLabel API
+                try:
+                    self._hero.set_last_refreshed(value)
+                except Exception:
+                    pass
+        self.last_refresh = _LastRefreshShim(self.hero)
+        layout.addWidget(self.hero)
+
+        filters, filter_layout = panel(QtWidgets, "\U0001F50D  Filters")
         filter_grid = QtWidgets.QGridLayout()
         self.callsign = QtWidgets.QLineEdit()
         self.callsign.setPlaceholderText("Callsign, e.g. LX1952")
@@ -4818,12 +4901,12 @@ class HistoryScreen:  # pragma: no cover - optional Qt runtime
         self.kpi_grid = QtWidgets.QGridLayout()
         self.kpi_cards: dict[str, tuple[Any, Any]] = {}
         for idx, (key, title, note) in enumerate((
-            ("total", "Flights tracked", "local DB"),
-            ("departures", "Departures", "outbound rows"),
-            ("arrivals", "Arrivals", "inbound rows"),
-            ("on_time_pct", "On time", "-4m to +4m"),
-            ("delayed_pct", "Delayed", "5m or more"),
-            ("avg_delay_minutes", "Avg delay", "when late"),
+            ("total", "✈️  Flights tracked", "local DB"),
+            ("departures", "\U0001F6EB  Departures", "outbound rows"),
+            ("arrivals", "\U0001F6EC  Arrivals", "inbound rows"),
+            ("on_time_pct", "⏰  On time", "-4m to +4m"),
+            ("delayed_pct", "\U0001F40C  Delayed", "5m or more"),
+            ("avg_delay_minutes", "⏱️  Avg delay", "when late"),
         )):
             box, value_label = self._metric_card(title, note)
             self.kpi_cards[key] = (box, value_label)
@@ -4839,7 +4922,7 @@ class HistoryScreen:  # pragma: no cover - optional Qt runtime
         self.stats_outer_layout.addWidget(self.stats_content)
         layout.addWidget(self.stats_body)
 
-        layout.addWidget(section_label(QtWidgets, "Recent matching flights"))
+        layout.addWidget(section_label(QtWidgets, "\U0001F4CB  Recent matching flights"))
         self.table = QtWidgets.QTableWidget(0, 12)
         self.table.setObjectName("FidsTable")
         self.table.verticalHeader().setVisible(False)
@@ -4926,6 +5009,14 @@ class HistoryScreen:  # pragma: no cover - optional Qt runtime
         self.status.setText(f"{len(self.rows)} records in this filter | {airport} | showing first {visible} to keep the view light")
         self.last_refresh.setText(f"Updated {datetime.now().strftime('%H:%M:%S')}")
         _set_native_feedback(self, f"{len(self.rows)} history records loaded.", "StatusGood")
+        try:
+            from localflight.native.qt_compat import import_qt as _import_qt_ht
+            from localflight.native.shell_widgets import show_toast as _toast_ht
+
+            _QtCore_ht, _QtGui_ht, _QtWidgets_ht = _import_qt_ht()
+            _toast_ht(_QtCore_ht, _QtGui_ht, _QtWidgets_ht, self.widget, text=f"{len(self.rows)} flights loaded", tone="good")
+        except Exception:
+            pass
 
     def search_callsign(self) -> None:
         self.refresh()
@@ -5000,12 +5091,12 @@ class HistoryScreen:  # pragma: no cover - optional Qt runtime
 
         clear_layout(self.stats_layout)
         specs = [
-            ("Delay quota", self._delay_rows(summary), 0, 0),
-            ("Daily volume", self._daily_rows(summary), 0, 1),
-            ("Status mix", self._status_rows(summary), 0, 2),
-            ("Airline delay quota", self._airline_rows(summary), 1, 0),
-            ("Top routes", self._route_rows(summary), 1, 1),
-            ("Top aircraft", self._normalize_stat_rows(list_payload(summary, "top_aircraft"), ("aircraft_type", "code", "label")), 1, 2),
+            ("⏱️  Delay quota", self._delay_rows(summary), 0, 0),
+            ("\U0001F4CA  Daily volume", self._daily_rows(summary), 0, 1),
+            ("\U0001F3AF  Status mix", self._status_rows(summary), 0, 2),
+            ("\U0001F6EB  Airline delay quota", self._airline_rows(summary), 1, 0),
+            ("\U0001F30D  Top routes", self._route_rows(summary), 1, 1),
+            ("✈️  Top aircraft", self._normalize_stat_rows(list_payload(summary, "top_aircraft"), ("aircraft_type", "code", "label")), 1, 2),
         ]
         for title, rows, r, c in specs:
             box, box_layout = panel(self.QtWidgets, title)
@@ -5165,27 +5256,32 @@ class LogsScreen:  # pragma: no cover - optional Qt runtime
         QtCore, _QtGui, _QtWidgets = import_qt()
         self._known_files: list[str] = []
         self.widget, layout = scroll_page(QtWidgets)
-        head = QtWidgets.QHBoxLayout()
-        title_col = QtWidgets.QVBoxLayout()
-        title_col.addWidget(label(QtWidgets, "Logs & Diagnostics", "Title"))
-        title_col.addWidget(label(QtWidgets, "Browse retained local logs or enable a live tail while reproducing an issue.", "Muted", wrap=True))
-        head.addLayout(title_col, 1)
-        head.addStretch(1)
         self.file_combo = QtWidgets.QComboBox()
         self.file_combo.setMinimumWidth(180)
         self.file_combo.currentTextChanged.connect(lambda _name: self.refresh())
-        self.live_tail = QtWidgets.QCheckBox("Live tail")
+        self.live_tail = QtWidgets.QCheckBox("\U0001F7E2  Live tail")
         self.live_tail.setChecked(False)
         self.live_tail.toggled.connect(self._toggle_live)
         self.auto_scroll = QtWidgets.QCheckBox("Scroll to bottom")
         self.auto_scroll.setChecked(True)
-        refresh = QtWidgets.QPushButton("Refresh logs")
+        refresh = QtWidgets.QPushButton("\U0001F504  Refresh logs")
+        refresh.setObjectName("PrimaryCTA")
         refresh.clicked.connect(self.refresh)
-        head.addWidget(label(QtWidgets, "Log file", "Muted"))
-        head.addWidget(self.file_combo)
-        head.addWidget(self.live_tail)
-        head.addWidget(self.auto_scroll)
-        head.addWidget(refresh)
+        from localflight.native.shell_widgets import make_page_hero as _make_hero_l
+        from localflight.native.qt_compat import import_qt as _import_qt_l
+
+        _QtCore_l, _QtGui_l, _QtWidgets_l = _import_qt_l()
+        self.hero = _make_hero_l(
+            _QtCore_l,
+            _QtGui_l,
+            QtWidgets,
+            emoji="\U0001F4DC",
+            title="Logs & Diagnostics",
+            subtitle="Browse retained local logs or enable a live tail while reproducing an issue.",
+            info_text="Logs never leave this device. Live tail polls the file every 2.5 seconds while enabled.",
+            actions=(self.file_combo, self.live_tail, self.auto_scroll, refresh),
+            show_last_refreshed=True,
+        )
         self.status = label(QtWidgets, "Choose any retained Local Flight log. Nothing leaves this device unless you send a report.", "Muted", wrap=True)
         self.loading_indicator = _loading_indicator(QtWidgets)
         self.meta = label(QtWidgets, "No log metadata loaded yet.", "Muted")
@@ -5195,7 +5291,7 @@ class LogsScreen:  # pragma: no cover - optional Qt runtime
         self.timer = QtCore.QTimer()
         self.timer.setInterval(2500)
         self.timer.timeout.connect(self.refresh)
-        layout.addLayout(head)
+        layout.addWidget(self.hero)
         layout.addWidget(self.loading_indicator)
         layout.addWidget(self.status)
         self.summary_grid = QtWidgets.QGridLayout()
@@ -5223,11 +5319,18 @@ class LogsScreen:  # pragma: no cover - optional Qt runtime
         total = tail.total
         shown = min(len(lines), 500)
         clear_layout(self.summary_grid)
-        self.summary_grid.addWidget(card(self.QtWidgets, "Selected file", selected or "default"), 0, 0)
-        self.summary_grid.addWidget(card(self.QtWidgets, "Lines shown", shown, f"{total} retained"), 0, 1)
-        self.summary_grid.addWidget(card(self.QtWidgets, "Live tail", "on" if self.live_tail.isChecked() else "off"), 0, 2)
+        self.summary_grid.addWidget(card(self.QtWidgets, "\U0001F4C1  Selected file", selected or "default"), 0, 0)
+        self.summary_grid.addWidget(card(self.QtWidgets, "\U0001F4DD  Lines shown", shown, f"{total} retained"), 0, 1)
+        self.summary_grid.addWidget(card(self.QtWidgets, "\U0001F7E2  Live tail", "on" if self.live_tail.isChecked() else "off"), 0, 2)
+        now = datetime.now().strftime('%H:%M:%S')
         _set_native_feedback(self, f"{selected or 'default log'} | {total} lines available | showing last {shown}", "StatusGood")
-        self.meta.setText(f"Updated {datetime.now().strftime('%H:%M:%S')} | files retained locally | live tail {'on' if self.live_tail.isChecked() else 'off'}")
+        self.meta.setText(f"Updated {now} | files retained locally | live tail {'on' if self.live_tail.isChecked() else 'off'}")
+        if hasattr(self, "hero"):
+            try:
+                self.hero.set_last_refreshed(f"Updated {now}")
+                self.hero.set_status("Live tail" if self.live_tail.isChecked() else "Idle", tone="good" if self.live_tail.isChecked() else "muted")
+            except Exception:
+                pass
 
     def _sync_file_combo(self, files: list[Any], selected: str) -> None:
         names = [str(file) for file in files if file]
@@ -5260,8 +5363,22 @@ class FeedbackScreen:  # pragma: no cover - optional Qt runtime
         self._last_system: dict[str, Any] = {}
         self._last_client_info: dict[str, Any] = {}
         self.widget, layout = scroll_page(QtWidgets)
-        layout.addWidget(label(QtWidgets, "Report an Issue", "Title"))
-        layout.addWidget(label(QtWidgets, "Your report is sanitized locally, forwarded through the hosted relay reporting gateway, and filed into the developer issue inbox.", "Muted", wrap=True))
+        from localflight.native.shell_widgets import make_page_hero as _make_hero_f
+        from localflight.native.qt_compat import import_qt as _import_qt_f
+
+        _QtCore_f, _QtGui_f, _QtWidgets_f = _import_qt_f()
+        self.hero = _make_hero_f(
+            _QtCore_f,
+            _QtGui_f,
+            QtWidgets,
+            emoji="\U0001F4AC",
+            title="Report an Issue",
+            subtitle="Your report is sanitized locally, forwarded through the hosted relay reporting gateway, and filed into the developer issue inbox.",
+            info_text="Provider keys, activation tokens, raw install IDs, and other secrets are never included in reports.",
+            actions=(),
+            show_last_refreshed=False,
+        )
+        layout.addWidget(self.hero)
         self.summary = QtWidgets.QLineEdit()
         self.summary.setPlaceholderText("Short summary, e.g. Radar not loading")
         self.body = QtWidgets.QPlainTextEdit()
@@ -5273,11 +5390,11 @@ class FeedbackScreen:  # pragma: no cover - optional Qt runtime
         self.loading_indicator = _loading_indicator(QtWidgets)
         self.send_button = QtWidgets.QPushButton("Send Report")
         self.send_button.clicked.connect(self.send)
-        layout.addWidget(section_label(QtWidgets, "What went wrong?"))
+        layout.addWidget(section_label(QtWidgets, "⚠️  What went wrong?"))
         layout.addWidget(self.summary)
-        layout.addWidget(section_label(QtWidgets, "Details"))
+        layout.addWidget(section_label(QtWidgets, "\U0001F4DD  Details"))
         layout.addWidget(self.body, 1)
-        layout.addWidget(section_label(QtWidgets, "Attached automatically"))
+        layout.addWidget(section_label(QtWidgets, "\U0001F4CE  Attached automatically"))
         layout.addWidget(self.sysinfo)
         layout.addWidget(self.send_button)
         layout.addWidget(self.loading_indicator)
@@ -5333,6 +5450,22 @@ class FeedbackScreen:  # pragma: no cover - optional Qt runtime
             return
         _set_native_feedback(self, self._status_message(result), "StatusGood" if result.get("ok", True) else "StatusWarn")
         self.send_button.setEnabled(True)
+        try:
+            from localflight.native.qt_compat import import_qt as _import_qt_fb
+            from localflight.native.shell_widgets import show_toast as _toast_fb
+
+            _QtCore_fb, _QtGui_fb, _QtWidgets_fb = _import_qt_fb()
+            ok = bool(result.get("ok", True))
+            _toast_fb(
+                _QtCore_fb,
+                _QtGui_fb,
+                _QtWidgets_fb,
+                self.widget,
+                text="Report sent. Thank you!" if ok else "Report submission warning",
+                tone="good" if ok else "warn",
+            )
+        except Exception:
+            pass
 
     def _client_context(self) -> str:
         cfg = self._last_cfg or {}
@@ -5393,13 +5526,25 @@ def _strip(QtWidgets: Any, text: str) -> Any:
 
 
 def _loading_indicator(QtWidgets: Any) -> Any:
-    progress = QtWidgets.QProgressBar()
-    progress.setObjectName("LoadingProgress")
-    progress.setRange(0, 0)
-    progress.setTextVisible(False)
-    progress.setFixedHeight(7)
-    progress.hide()
-    return progress
+    """Unified rotating-glyph spinner that replaces the old marquee bar.
+
+    Falls back to a thin QProgressBar marquee only if the spinner cannot
+    be constructed (headless / very early init).
+    """
+    try:
+        from localflight.native.qt_compat import import_qt
+        from localflight.native.shell_widgets import make_spinner
+
+        QtCore, QtGui, _QtWidgets = import_qt()
+        return make_spinner(QtCore, QtGui, QtWidgets)
+    except Exception:
+        progress = QtWidgets.QProgressBar()
+        progress.setObjectName("LoadingProgress")
+        progress.setRange(0, 0)
+        progress.setTextVisible(False)
+        progress.setFixedHeight(7)
+        progress.hide()
+        return progress
 
 
 def _set_native_feedback(screen: Any, text: str, role: str = "Muted", *, busy: bool = False) -> None:
@@ -5509,19 +5654,10 @@ def _clean_temperature_text(value: Any) -> str:
 
 
 def _weather_icon_glyph(icon_name: Any) -> str:
+    from localflight.native.design import WEATHER_EMOJI
+
     icon = str(icon_name or "unknown").strip().lower()
-    return {
-        "sun": chr(0x2600),
-        "partly": chr(0x26C5),
-        "cloud": chr(0x2601),
-        "rain": chr(0x2614),
-        "snow": chr(0x2744),
-        "fog": chr(0x224B),
-        "storm": chr(0x26A1),
-        "wind": chr(0x21C1),
-        "ice": chr(0x25C7),
-        "unknown": chr(0x2022),
-    }.get(icon, chr(0x2022))
+    return WEATHER_EMOJI.get(icon, WEATHER_EMOJI["unknown"])
 
 
 def _active_schedule_budget(aviation: dict[str, Any]) -> dict[str, Any]:

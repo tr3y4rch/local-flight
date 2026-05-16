@@ -285,17 +285,101 @@ DOC_PAGES = {
 }
 
 NAV_GLYPHS = {
-    "display": chr(9635),
-    "fids": chr(9776),
-    "radar": chr(9678),
-    "matrix": chr(9638),
-    "settings": chr(9881),
-    "admin": chr(9874),
-    "history": chr(9716),
-    "logs": chr(8801),
-    "feedback": chr(9888),
-    "setup": chr(9881),
+    "display": "\U0001F4FA",   # 📺
+    "fids": "\U0001F6EB",      # 🛫
+    "radar": "\U0001F6F0",     # 🛰
+    "matrix": "\U0001F7E9",    # 🟩
+    "settings": "⚙️",  # ⚙️
+    "admin": "\U0001F6E0",     # 🛠
+    "history": "\U0001F4C5",   # 📅
+    "logs": "\U0001F4DC",      # 📜
+    "feedback": "\U0001F4AC",  # 💬
+    "setup": "\U0001F527",     # 🔧
 }
+
+# Single source of truth for weather strip icons (previously duplicated in
+# fids.py, radar.py, and _legacy_app.py).
+WEATHER_EMOJI = {
+    "sun": "☀️",       # ☀️
+    "partly": "⛅",          # ⛅
+    "cloud": "☁️",     # ☁️
+    "rain": "\U0001F327",        # 🌧
+    "snow": "❄️",      # ❄️
+    "fog": "\U0001F32B",         # 🌫
+    "storm": "⛈",           # ⛈
+    "wind": "\U0001F32C",        # 🌬
+    "ice": "\U0001F9CA",         # 🧊
+    "unknown": "❓",          # ❓
+}
+
+# Emoji used to prefix section headers, status-card icons, and option cards
+# across the utility pages (Admin, Settings, Logs, History, Feedback, Requests).
+SECTION_EMOJI = {
+    "overview": "\U0001F4CA",    # 📊
+    "network": "\U0001F310",     # 🌐
+    "palette": "\U0001F3A8",     # 🎨
+    "profile": "\U0001F464",     # 👤
+    "docs": "\U0001F4C4",        # 📄
+    "airport": "\U0001F6EC",     # 🛬
+    "source": "\U0001F517",      # 🔗
+    "relay": "\U0001F4E1",       # 📡
+    "clock": "⏱️",     # ⏱
+    "live": "\U0001F7E2",        # 🟢
+    "error": "⚠️",     # ⚠️
+    "success": "✅",         # ✅
+    "schedule": "\U0001F5D3",    # 🗓
+    "tracker": "\U0001F4CD",     # 📍
+    "delay": "\U0001F40C",       # 🐌
+    "ontime": "⏰",          # ⏰
+    "file": "\U0001F4C1",        # 📁
+    "lines": "\U0001F4DD",       # 📝
+    "details": "\U0001F4AC",     # 💬
+    "attachment": "\U0001F4CE",  # 📎
+    "warn": "⚠️",      # ⚠️
+    "radar": "\U0001F6F0",       # 🛰
+    "aircraft": "✈️",  # ✈️
+    "departure": "\U0001F6EB",   # 🛫
+    "arrival": "\U0001F6EC",     # 🛬
+    "gate": "\U0001F6AA",        # 🚪
+    "route": "↔️",     # ↔️
+    "codeshare": "\U0001F517",   # 🔗
+    "community": "\U0001F4E1",   # 📡
+    "byok": "\U0001F511",        # 🔑
+    "virtual": "\U0001F6E9",     # 🛩
+}
+
+
+def paint_emoji(
+    QtCore: Any,
+    QtGui: Any,
+    painter: Any,
+    rect: Any,
+    emoji: str,
+    *,
+    point_size: int | None = None,
+) -> None:
+    """Render an emoji centered inside ``rect`` using the platform color-emoji
+    font. Caller is responsible for painter.save()/restore() around this call
+    if it needs to preserve font/pen state."""
+    if not emoji:
+        return
+    try:
+        emoji_font = QtGui.QFont("Segoe UI Emoji")
+        emoji_font.setStyleStrategy(QtGui.QFont.PreferAntialias)
+        size = point_size
+        if size is None:
+            # Roughly fit the rect height; fall back to 12pt on weird rects.
+            try:
+                height = int(rect.height())
+            except Exception:
+                height = 0
+            size = max(8, min(28, int(height * 0.65))) if height else 12
+        emoji_font.setPointSize(size)
+        painter.setFont(emoji_font)
+        painter.drawText(rect, QtCore.Qt.AlignCenter, emoji)
+    except Exception:
+        # Never blow up the paint pipeline on emoji issues.
+        pass
 
 
 def native_stylesheet(
@@ -371,9 +455,21 @@ QFrame#SetupOptionCard {{
   border: 1px solid {soft_surface};
   border-radius: 14px;
 }}
+QFrame#SetupOptionCard:hover {{
+  background: {_rgba(accent, 0.10)};
+  border-color: {_rgba(accent, 0.55)};
+}}
 QFrame#SetupOptionCard[selected="true"] {{
   background: {_rgba(accent, 0.16)};
   border-color: {accent};
+}}
+QFrame#SetupOptionCard[selected="true"]:hover {{
+  background: {_rgba(accent, 0.22)};
+}}
+QFrame#SetupSpinner {{
+  background: {_rgba(accent, 0.10)};
+  border: 1px solid {_rgba(accent, 0.32)};
+  border-radius: 12px;
 }}
 QFrame#SetupSummaryCard {{
   background: {subtle_surface};
@@ -661,6 +757,191 @@ QLabel#SetupSummaryValue {{
   color: {colors["text"]};
   font-weight: 900;
   font-size: 14px;
+}}
+QLabel#SetupStepCaption {{
+  color: {muted_panel_text};
+  font-family: {BOARD_FONT_STACK};
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+}}
+QLabel#SetupFieldLabel {{
+  color: {colors["text"]};
+  font-size: 13px;
+  font-weight: 700;
+}}
+QToolButton#SetupInfoButton {{
+  color: {_ensure_contrast(accent, colors["panel"], minimum=3.0)};
+  background: {_rgba(accent, 0.12)};
+  border: 1px solid {_rgba(accent, 0.32)};
+  border-radius: 11px;
+  font-weight: 900;
+  font-size: 13px;
+  padding: 0;
+}}
+QToolButton#SetupInfoButton:hover {{
+  background: {_rgba(accent, 0.22)};
+  border-color: {accent};
+}}
+QToolButton#SetupEyeButton {{
+  background: {subtle_surface};
+  border: 1px solid {soft_surface};
+  border-radius: 8px;
+  font-size: 14px;
+  padding: 0;
+}}
+QToolButton#SetupEyeButton:hover {{
+  background: {_rgba(accent, 0.14)};
+  border-color: {_rgba(accent, 0.42)};
+}}
+QPushButton#SetupPrimary {{
+  background: {accent};
+  border: 1px solid {accent};
+  border-radius: 10px;
+  padding: 10px 18px;
+  color: {_ensure_contrast(colors["bg"], accent, minimum=4.5)};
+  font-size: 13px;
+  font-weight: 900;
+  letter-spacing: 0.02em;
+}}
+QPushButton#SetupPrimary:hover {{
+  background: {_mix_hex(accent, colors["text"], 0.16)};
+}}
+QPushButton#SetupPrimary:disabled {{
+  background: {_rgba(accent, 0.45)};
+  color: {_rgba(colors["text"], 0.55)};
+}}
+QPushButton#PrimaryCTA {{
+  background: {accent};
+  border: 1px solid {accent};
+  border-radius: 9px;
+  padding: 8px 16px;
+  color: {_ensure_contrast(colors["bg"], accent, minimum=4.5)};
+  font-size: 12px;
+  font-weight: 900;
+}}
+QPushButton#PrimaryCTA:hover {{
+  background: {_mix_hex(accent, colors["text"], 0.16)};
+}}
+/* ---- FIDS style selector segments ---- */
+QPushButton#FidsStyleButton {{
+  background: {subtle_surface};
+  border: 1px solid {soft_surface};
+  border-radius: 8px;
+  padding: 5px 10px;
+  color: {muted_panel_text};
+  font-size: 11px;
+  font-weight: 800;
+}}
+QPushButton#FidsStyleButton:hover {{
+  background: {_rgba(accent, 0.10)};
+  border-color: {_rgba(accent, 0.42)};
+}}
+QPushButton#FidsStyleButton:checked {{
+  background: {_rgba(accent, 0.18)};
+  border-color: {accent};
+  color: {colors["text"]};
+}}
+/* ---- Pill (status chip) ---- */
+QLabel#Pill {{
+  color: {muted_panel_text};
+  background: {subtle_surface};
+  border: 1px solid {soft_surface};
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}}
+QLabel#Pill[tone="good"] {{
+  color: {_ensure_contrast(colors["green"], colors["panel"], minimum=3.0)};
+  background: {_rgba(colors["green"], 0.10)};
+  border-color: {_rgba(colors["green"], 0.34)};
+}}
+QLabel#Pill[tone="warn"] {{
+  color: {_ensure_contrast(colors["amber"], colors["panel"], minimum=3.0)};
+  background: {_rgba(colors["amber"], 0.10)};
+  border-color: {_rgba(colors["amber"], 0.34)};
+}}
+QLabel#Pill[tone="bad"] {{
+  color: {_ensure_contrast(colors["red"], colors["panel"], minimum=3.0)};
+  background: {_rgba(colors["red"], 0.10)};
+  border-color: {_rgba(colors["red"], 0.36)};
+}}
+QLabel#Pill[tone="info"] {{
+  color: {_ensure_contrast(accent, colors["panel"], minimum=3.0)};
+  background: {_rgba(accent, 0.10)};
+  border-color: {_rgba(accent, 0.34)};
+}}
+/* ---- Page hero (per-page header band) ---- */
+QFrame#PageHero {{
+  background: {subtle_surface};
+  border: 1px solid {soft_surface};
+  border-radius: 14px;
+}}
+QLabel#PageHeroEmoji {{
+  font-size: 22px;
+}}
+QLabel#PageHeroTitle {{
+  font-size: 19px;
+  font-weight: 900;
+  color: {colors["text"]};
+  letter-spacing: 0.01em;
+}}
+QLabel#PageHeroSubtitle {{
+  font-size: 12px;
+  color: {muted_panel_text};
+}}
+/* ---- Shell spinner (replaces page progress marquees) ---- */
+QFrame#ShellSpinner {{
+  background: {_rgba(accent, 0.10)};
+  border: 1px solid {_rgba(accent, 0.32)};
+  border-radius: 12px;
+}}
+/* ---- Shell info button (ⓘ helper) ---- */
+QToolButton#ShellInfoButton {{
+  color: {_ensure_contrast(accent, colors["panel"], minimum=3.0)};
+  background: {_rgba(accent, 0.12)};
+  border: 1px solid {_rgba(accent, 0.32)};
+  border-radius: 11px;
+  font-weight: 900;
+  font-size: 12px;
+  padding: 0;
+}}
+QToolButton#ShellInfoButton:hover {{
+  background: {_rgba(accent, 0.22)};
+  border-color: {accent};
+}}
+/* ---- Toast notification ---- */
+QFrame#ShellToast {{
+  background: {colors["panel"]};
+  border: 1px solid {soft_surface};
+  border-radius: 12px;
+}}
+QFrame#ShellToast[tone="good"] {{
+  border-color: {_rgba(colors["green"], 0.50)};
+  background: {_rgba(colors["green"], 0.08)};
+}}
+QFrame#ShellToast[tone="warn"] {{
+  border-color: {_rgba(colors["amber"], 0.55)};
+  background: {_rgba(colors["amber"], 0.10)};
+}}
+QFrame#ShellToast[tone="bad"] {{
+  border-color: {_rgba(colors["red"], 0.55)};
+  background: {_rgba(colors["red"], 0.10)};
+}}
+QFrame#ShellToast[tone="info"] {{
+  border-color: {_rgba(accent, 0.45)};
+  background: {_rgba(accent, 0.08)};
+}}
+QLabel#ShellToastIcon {{
+  font-size: 18px;
+}}
+QLabel#ShellToastText {{
+  color: {colors["text"]};
+  font-size: 12px;
+  font-weight: 700;
 }}
 QLabel#AirportCode {{
   font-family: {BOARD_FONT_STACK};

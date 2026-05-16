@@ -13,7 +13,7 @@ from typing import Any
 from localflight.native.api_client import LocalApiClient
 from localflight.native.async_tools import AsyncFetchMixin
 from localflight.native.canvas.radar import RadarCanvas
-from localflight.native.design import label
+from localflight.native.design import WEATHER_EMOJI, label
 from localflight.native.service import NativeApiService
 from localflight.native.widgets import WeatherStrip
 
@@ -922,18 +922,7 @@ def _weather_line(payload: dict[str, Any], *, raw: bool) -> str:
 
 def _weather_icon_glyph(icon_name: Any) -> str:
     icon = str(icon_name or "unknown").strip().lower()
-    return {
-        "sun": chr(0x2600),
-        "partly": chr(0x26C5),
-        "cloud": chr(0x2601),
-        "rain": chr(0x2614),
-        "snow": chr(0x2744),
-        "fog": chr(0x224B),
-        "storm": chr(0x26A1),
-        "wind": chr(0x21C1),
-        "ice": chr(0x25C7),
-        "unknown": chr(0x2022),
-    }.get(icon, chr(0x2022))
+    return WEATHER_EMOJI.get(icon, WEATHER_EMOJI["unknown"])
 
 
 __all__ = ["RadarScreen"]

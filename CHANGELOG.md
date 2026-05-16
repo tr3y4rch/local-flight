@@ -6,6 +6,84 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.2.8b1] - 2026-05-16
+
+> Native GUI visual-refresh pass. Same data, same pages, but a unified design
+> language across the setup wizard and main shell: animated stepper, rotating
+> spinner, page-fade transitions, status pills, toasts, info bubbles, color
+> emoji nav glyphs, and four FIDS board styles (Classic / PAX / VATSIM / Nerd).
+
+### Native first-run setup wizard
+- Replaced the row of numbered step buttons with an animated horizontal stepper: numbered circles connected by a fill line that glides as you advance, current step has a pulsing accent halo, done steps show ✓, hovering a node shows a soft ring.
+- Welcome page now shows an animated hero: floating logo with concentric "radar rings" pulsing behind it and a tagline that fades in.
+- Page transitions fade in for ~200 ms instead of swapping instantly.
+- The thin marquee progress bar was replaced with a rotating-glyph spinner (◐◓◑◒) plus a live caption synced to the busy status.
+- Every form field now has an inline `ⓘ` info bubble with extra context (display name, IATA/ICAO, timezone, AviationStack, RapidAPI, OpenSky).
+- All four masked secret fields (AviationStack, RapidAPI, OpenSky secret, activation token) have a 👁/🙈 eye toggle.
+- Nav and action buttons carry emoji prefixes for clarity: 🚀 Start setup · ▶ Next · ◀ Back · ✅ Finish · 🌐 Open LAN browser setup · 📨 Request activation · 🔄 Check relay status · 🧪 Test token / Test AviationStack / Test RapidAPI · 🔗 every provider link.
+- "Start setup" / "Next" / "Finish" carry a new `SetupPrimary` object name so they pop visually over the muted/Quiet buttons.
+- Source option cards (Community Relay / BYOK / VATSIM) now hover-lift with an accent border glow.
+- Hitting Finish plays a 260 ms ✅ celebration overlay before handing off to the main app.
+- Setup-guidance descriptors got real emoji icons (📺 / 📡 / 🔐 for welcome; 📡 / 🔑 / 🛩 for source; ✋ / 💥 / 📜 for diagnostics).
+
+### Native main shell — unified design language
+- Page switching now fades the old page out and the new page in (`fade_swap` in `shell_widgets.py`).
+- The `_loading_indicator` factory used by every utility page now returns the same rotating-glyph spinner the setup wizard uses.
+- New `shell_widgets.py` module: `make_pill`, `set_pill`, `make_spinner`, `make_info_button`, `make_page_hero`, `show_toast`, `fade_swap` — reusable across every page.
+- Admin / History / Logs / Feedback / Requests pages now use a unified `PageHero` band: emoji + title + subtitle + inline `ⓘ` info bubble + "Last refreshed HH:MM:SS" pill + status pill + action buttons on the right.
+- Toast notifications slide in from the bottom-right on Admin / History / Logs / Feedback / Requests refresh and on Feedback submit, then auto-fade.
+- Status chips/pills consolidated into a single `Pill[tone="good|warn|bad|info|muted"]` QSS look across pages.
+- Top nav: power button keeps `⏻`, sync dot keeps `●`, but the compact "More" menu now uses `⋯` instead of `☰` to avoid colliding with the FIDS nav glyph.
+- The brand-mark fallback (when the logo SVG is missing) is now `🛫` instead of `*`.
+
+### FIDS board — four switchable styles
+- New `fids_styles.py` module with descriptors for four board layouts: **Classic** (default — the original Local Flight board, unchanged behavior for upgrades), **PAX** (passenger-friendly: bigger rows, friendly status verbs like "Boarding now" / "Running late", high-contrast colors), **VATSIM** (sim-network: callsign-first, flight rules, phase TAXI/CLIMB/CRUISE/DESCENT, alt/GS compact field), **Nerd** (dense operator view: every available column, monospace, code-style status tokens like BRD/DEP/LND/CXL).
+- 4-segment selector in the FIDS header (🛬 Classic · 🧳 PAX · 🛩 VATSIM · 🤓 Nerd) with hover and checked states.
+- Active style persists per-install via `QSettings("LocalFlight", "Native").value("fids/style", ...)`. Fresh installs default to Classic so existing users see no change.
+- `FlightBoardModel` is now style-aware: takes `columns` and `status_vocabulary` per instance, gained `set_columns()` and `set_status_vocabulary()`; status text routes through `translate_status` to produce friendly / phase / code variants when not in Classic.
+- `_display_value` handles the new column keys used by PAX/VATSIM/Nerd: `callsign`, `flight_display`, `registration`, `altitude_ft`, `ground_speed_kt`, `alt_speed` (formatted `FL120 / 412kt`), `squawk`, `flight_rules`, `phase`, `delay_label`, `source`.
+
+### Icons, glyphs, and official brand assets
+- Centralised three emoji dicts in `design.py`: `NAV_GLYPHS` (page nav), `WEATHER_EMOJI` (weather strip — single source of truth replacing three duplicates), `SECTION_EMOJI` (31 entries for section headers, status cards, FIDS row icons, setup option cards). Plus a `paint_emoji` helper that renders emoji into a `QPainter` rect using Segoe UI Emoji.
+- Replaced the obscure-Unicode `NAV_GLYPHS` (`◴` / `≡` / `▣` / `≋` / `⇁`) with color emoji per page: 📺 Display · 🛫 FIDS · 🛰 Radar · 🟩 Matrix · ⚙️ Settings · 🛠 Admin · 📅 History · 📜 Logs · 💬 Feedback · 🔧 Setup.
+- Weather strip glyphs now use color emoji (☀️ ⛅ ☁️ 🌧 ❄️ 🌫 ⛈ 🌬 🧊 ❓) from a single dict — previously duplicated in `fids.py`, `radar.py`, and `_legacy_app.py`.
+- FIDS row icons (aircraft / gate / route / clock / codeshare / arrival / departure) now render color emoji via `paint_emoji` instead of monochrome QPainter shapes.
+- Settings page status-card icons (airport / source / clock / relay / radar / palette / profile / docs) now render color emoji in the existing rounded accent badges.
+- Section headers across Admin / History / Logs / Feedback / Requests / Settings carry emoji prefixes for instant scanability.
+- **Official brand assets** bundled in `src/localflight/ui/static/`:
+  - `support-repository.svg` — official GitHub Invertocat (white) for the dark theme footer button.
+  - `support-repository-dark.svg` — official GitHub Invertocat (black) for the light theme footer button. Auto-selected by `_apply_design_from_config` on theme change.
+  - `support-coffee.svg` — official Buy Me a Coffee cup logo.
+  - `support-coffee-button.svg` — official BMC button SVG (available for any larger CTA placement).
+
+### QSS additions in `design.py`
+- `QFrame#Pill` plus `[tone="good|warn|bad|info"]` — single rounded chip used everywhere.
+- `QFrame#PageHero`, `QLabel#PageHeroEmoji`, `QLabel#PageHeroTitle`, `QLabel#PageHeroSubtitle` — unified page header band.
+- `QFrame#ShellSpinner`, `QFrame#SetupSpinner` — accent-tinted card around the rotating glyph.
+- `QToolButton#ShellInfoButton`, `QToolButton#SetupInfoButton` — small accent-tinted ⓘ helpers with hover state.
+- `QToolButton#SetupEyeButton` — squared eye toggle for password fields.
+- `QFrame#ShellToast` plus `[tone="*"]` — bottom-right transient notification with soft tinted border.
+- `QPushButton#PrimaryCTA`, `QPushButton#SetupPrimary` — solid-accent call-to-action with contrast-correct text, hover lift, and disabled state.
+- `QPushButton#FidsStyleButton` — segmented selector for the FIDS style choice.
+- `QFrame#SetupOptionCard:hover` — accent tint + glowing border on hover; deeper state when `selected="true"`.
+- `QLabel#SetupStepCaption`, `QLabel#SetupFieldLabel` — uppercase BOARD-font step caption and bolder form field labels.
+
+### Files added
+- `src/localflight/native/shell_widgets.py` — shared visual primitives for the main shell.
+- `src/localflight/native/pages/setup_widgets.py` — setup-wizard widgets (stepper, hero, spinner, info button, celebration overlay, page-fade helper).
+- `src/localflight/native/pages/fids_styles.py` — `FidsStyle` dataclass + `CLASSIC` / `PAX` / `VATSIM` / `NERD` descriptors + `translate_status` helper.
+- `src/localflight/ui/static/support-repository.svg`, `support-repository-dark.svg`, `support-coffee.svg`, `support-coffee-button.svg` — official GitHub + Buy Me a Coffee brand assets.
+
+### Phase 4 (not in this release — see AGENTS.md "Pending / next up" for details)
+Deferred polish that is intentionally NOT in 0.2.8b1: animated KPI counters on Admin/History cards, matrix flap-board boot animation, top-nav sliding underline indicator, per-page empty-state cards, per-column custom paint methods in the FIDS delegate for the VATSIM/Nerd-only columns (callsign / alt_speed / phase / squawk / source — they currently fall back to plain text rendering), honoring `style.row_height` and `style.font_scale` in the delegate's `sizeHint`, and broader toast coverage (theme change, save, network status).
+
+### Verification
+- `python -m py_compile` clean across every modified file (`design.py`, `shell_widgets.py`, `_legacy_app.py`, `models.py`, `pages/fids.py`, `pages/fids_styles.py`, `pages/setup.py`, `pages/setup_widgets.py`, `pages/radar.py`, `pages/settings.py`, `ui/setup_guidance.py`).
+- Generated stylesheet contains all new selectors (`Pill[tone="good"]`, `PageHero`, `ShellSpinner`, `ShellInfoButton`, `ShellToast`, `PrimaryCTA`, `FidsStyleButton`, `SetupSpinner`, `SetupInfoButton`, `SetupEyeButton`, `SetupPrimary`, `SetupOptionCard:hover`).
+- FIDS style registry returns `['classic', 'pax', 'vatsim', 'nerd']` with `classic` as the default.
+
+---
+
 ## [0.2.7] - 2026-05-13
 
 > Client-polish release-candidate pass on top of the `0.2.6` baseline.

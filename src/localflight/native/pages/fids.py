@@ -18,7 +18,16 @@ from zoneinfo import ZoneInfo
 from localflight.core.airports import city_country_label
 from localflight.native.api_client import LocalApiClient, NativeApiError
 from localflight.native.async_tools import AsyncFetchMixin
-from localflight.native.design import colors_for, format_value, label, list_payload, value_at
+from localflight.native.design import (
+    SECTION_EMOJI,
+    WEATHER_EMOJI,
+    colors_for,
+    format_value,
+    label,
+    list_payload,
+    paint_emoji,
+    value_at,
+)
 from localflight.native.models import FlightBoardModel
 from localflight.native.service import NativeApiService
 from localflight.native.widgets import DetailDrawer, WeatherStrip
@@ -284,51 +293,9 @@ class _FidsBoardDelegate:  # pragma: no cover - visual Qt delegate
 
             def _draw_icon(self, painter: Any, rect: Any, kind: str, color: Any) -> None:
                 painter.save()
-                icon_color = QtGui.QColor(color)
-                icon_color.setAlpha(max(90, icon_color.alpha()))
-                painter.setPen(QtGui.QPen(icon_color, 1.4))
-                painter.setBrush(QtCore.Qt.NoBrush)
-                cx = rect.center().x()
-                cy = rect.center().y()
-                w = rect.width()
-                h = rect.height()
-                if kind in {"arrival", "departure"}:
-                    painter.drawLine(QtCore.QPointF(rect.left() + w * 0.10, cy), QtCore.QPointF(rect.right() - w * 0.10, cy))
-                    painter.drawLine(QtCore.QPointF(cx, rect.top() + h * 0.12), QtCore.QPointF(cx, rect.bottom() - h * 0.12))
-                    if kind == "arrival":
-                        painter.drawLine(QtCore.QPointF(rect.left() + w * 0.20, rect.bottom() - h * 0.18), QtCore.QPointF(rect.right() - w * 0.16, rect.top() + h * 0.20))
-                    else:
-                        painter.drawLine(QtCore.QPointF(rect.left() + w * 0.20, rect.top() + h * 0.18), QtCore.QPointF(rect.right() - w * 0.16, rect.bottom() - h * 0.20))
-                elif kind == "clock":
-                    painter.drawEllipse(rect.adjusted(1.5, 1.5, -1.5, -1.5))
-                    painter.drawLine(QtCore.QPointF(cx, cy), QtCore.QPointF(cx, rect.top() + h * 0.26))
-                    painter.drawLine(QtCore.QPointF(cx, cy), QtCore.QPointF(rect.right() - w * 0.26, cy))
-                elif kind == "route":
-                    painter.drawEllipse(QtCore.QRectF(rect.left() + 1, cy - 3, 6, 6))
-                    painter.drawEllipse(QtCore.QRectF(rect.right() - 7, cy - 3, 6, 6))
-                    painter.drawLine(QtCore.QPointF(rect.left() + 7, cy), QtCore.QPointF(rect.right() - 7, cy))
-                elif kind == "gate":
-                    painter.drawRoundedRect(rect.adjusted(1, 1, -1, -1), 2, 2)
-                    painter.drawLine(QtCore.QPointF(cx, rect.top() + 3), QtCore.QPointF(cx, rect.bottom() - 3))
-                elif kind == "codeshare":
-                    painter.drawEllipse(rect.adjusted(1, 1, -1, -1))
-                    painter.drawLine(QtCore.QPointF(rect.left() + 3, cy), QtCore.QPointF(rect.right() - 3, cy))
-                elif kind == "aircraft":
-                    path = QtGui.QPainterPath(QtCore.QPointF(cx, rect.top() + 1))
-                    path.lineTo(QtCore.QPointF(cx + w * 0.18, cy + h * 0.10))
-                    path.lineTo(QtCore.QPointF(rect.right() - 1, cy + h * 0.05))
-                    path.lineTo(QtCore.QPointF(cx + w * 0.16, cy + h * 0.22))
-                    path.lineTo(QtCore.QPointF(cx + w * 0.08, rect.bottom() - 1))
-                    path.lineTo(QtCore.QPointF(cx, cy + h * 0.30))
-                    path.lineTo(QtCore.QPointF(cx - w * 0.08, rect.bottom() - 1))
-                    path.lineTo(QtCore.QPointF(cx - w * 0.16, cy + h * 0.22))
-                    path.lineTo(QtCore.QPointF(rect.left() + 1, cy + h * 0.05))
-                    path.lineTo(QtCore.QPointF(cx - w * 0.18, cy + h * 0.10))
-                    path.closeSubpath()
-                    fill = QtGui.QColor(icon_color)
-                    fill.setAlpha(80)
-                    painter.setBrush(fill)
-                    painter.drawPath(path)
+                emoji = SECTION_EMOJI.get(kind, "")
+                if emoji:
+                    paint_emoji(QtCore, QtGui, painter, rect, emoji)
                 painter.restore()
 
             def _status_class(self, row: dict[str, Any]) -> str:
@@ -821,49 +788,9 @@ class FidsBoardView:  # pragma: no cover - optional Qt runtime
 
             def _draw_icon(self, painter: Any, QtCore: Any, QtGui: Any, rect: Any, kind: str, color: Any) -> None:
                 painter.save()
-                icon_color = QtGui.QColor(color)
-                icon_color.setAlpha(max(100, icon_color.alpha()))
-                painter.setPen(QtGui.QPen(icon_color, 1.5))
-                painter.setBrush(QtCore.Qt.NoBrush)
-                cx = rect.center().x()
-                cy = rect.center().y()
-                w = rect.width()
-                h = rect.height()
-                if kind in {"arrival", "departure"}:
-                    painter.drawLine(QtCore.QPointF(rect.left() + w * 0.10, cy), QtCore.QPointF(rect.right() - w * 0.10, cy))
-                    painter.drawLine(QtCore.QPointF(cx, rect.top() + h * 0.12), QtCore.QPointF(cx, rect.bottom() - h * 0.12))
-                    if kind == "arrival":
-                        painter.drawLine(QtCore.QPointF(rect.left() + w * 0.18, rect.bottom() - h * 0.16), QtCore.QPointF(rect.right() - w * 0.12, rect.top() + h * 0.18))
-                    else:
-                        painter.drawLine(QtCore.QPointF(rect.left() + w * 0.18, rect.top() + h * 0.16), QtCore.QPointF(rect.right() - w * 0.12, rect.bottom() - h * 0.18))
-                elif kind == "clock":
-                    painter.drawEllipse(rect.adjusted(1.5, 1.5, -1.5, -1.5))
-                    painter.drawLine(QtCore.QPointF(cx, cy), QtCore.QPointF(cx, rect.top() + h * 0.26))
-                    painter.drawLine(QtCore.QPointF(cx, cy), QtCore.QPointF(rect.right() - w * 0.26, cy))
-                elif kind == "route":
-                    painter.drawEllipse(QtCore.QRectF(rect.left() + 1, cy - 3, 6, 6))
-                    painter.drawEllipse(QtCore.QRectF(rect.right() - 7, cy - 3, 6, 6))
-                    painter.drawLine(QtCore.QPointF(rect.left() + 7, cy), QtCore.QPointF(rect.right() - 7, cy))
-                elif kind == "gate":
-                    painter.drawRoundedRect(rect.adjusted(1, 1, -1, -1), 2, 2)
-                    painter.drawLine(QtCore.QPointF(cx, rect.top() + 3), QtCore.QPointF(cx, rect.bottom() - 3))
-                elif kind == "codeshare":
-                    painter.drawEllipse(rect.adjusted(1, 1, -1, -1))
-                    painter.drawLine(QtCore.QPointF(rect.left() + 3, cy), QtCore.QPointF(rect.right() - 3, cy))
-                elif kind == "aircraft":
-                    path = QtGui.QPainterPath(QtCore.QPointF(cx, rect.top() + 1))
-                    path.lineTo(QtCore.QPointF(rect.right() - 1, cy + h * 0.05))
-                    path.lineTo(QtCore.QPointF(cx + w * 0.14, cy + h * 0.22))
-                    path.lineTo(QtCore.QPointF(cx + w * 0.07, rect.bottom() - 1))
-                    path.lineTo(QtCore.QPointF(cx, cy + h * 0.30))
-                    path.lineTo(QtCore.QPointF(cx - w * 0.07, rect.bottom() - 1))
-                    path.lineTo(QtCore.QPointF(cx - w * 0.14, cy + h * 0.22))
-                    path.lineTo(QtCore.QPointF(rect.left() + 1, cy + h * 0.05))
-                    path.closeSubpath()
-                    fill = QtGui.QColor(icon_color)
-                    fill.setAlpha(86)
-                    painter.setBrush(fill)
-                    painter.drawPath(path)
+                emoji = SECTION_EMOJI.get(kind, "")
+                if emoji:
+                    paint_emoji(QtCore, QtGui, painter, rect, emoji)
                 painter.restore()
 
         return _Board()
@@ -974,11 +901,28 @@ class FidsScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
         self.arr_btn = self._segment_button("ARR", "arrivals")
         self.dep_btn = self._segment_button("DEP", "departures")
         self.dep_btn.setChecked(True)
-        refresh = QtWidgets.QPushButton("Refresh")
+        refresh = QtWidgets.QPushButton("\U0001F504  Refresh")
         refresh.setObjectName("FidsActionButton")
         refresh.setMinimumHeight(36)
         self.refresh_button = refresh
         refresh.clicked.connect(self.refresh)
+        # FIDS style selector: 4 segment buttons (🛬 Classic · 🧳 PAX · 🛩 VATSIM · 🤓 Nerd)
+        from localflight.native.pages.fids_styles import STYLES, style_for
+
+        settings = QtCore.QSettings("LocalFlight", "Native")
+        saved_style = str(settings.value("fids/style", "classic") or "classic")
+        self._fids_style = style_for(saved_style)
+        self._fids_style_buttons: dict[str, Any] = {}
+        for fs in STYLES:
+            btn = QtWidgets.QPushButton(f"{fs.emoji} {fs.label}")
+            btn.setObjectName("FidsStyleButton")
+            btn.setCheckable(True)
+            btn.setChecked(fs.key == self._fids_style.key)
+            btn.setToolTip(fs.description)
+            btn.setMinimumHeight(32)
+            btn.clicked.connect(lambda _checked=False, k=fs.key: self.set_fids_style(k))
+            self._fids_style_buttons[fs.key] = btn
+            controls_row.addWidget(btn)
         self.scan_indicator = label(QtWidgets, "", "Dim")
         controls_row.addWidget(self.arr_btn)
         controls_row.addWidget(self.dep_btn)
@@ -995,7 +939,15 @@ class FidsScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
         )
         self.status = label(QtWidgets, "Waiting for first board refresh...", "Muted")
 
-        self.model = FlightBoardModel(QtCore, [], QtGui=QtGui, route_label="To", colors=self.colors)
+        self.model = FlightBoardModel(
+            QtCore,
+            [],
+            QtGui=QtGui,
+            route_label="To",
+            colors=self.colors,
+            columns=self._fids_style.columns,
+            status_vocabulary=self._fids_style.status_vocabulary,
+        )
         self.delegate = _FidsBoardDelegate(QtCore, QtGui, QtWidgets, lambda: self.colors)
         self.board = FidsBoardView(QtCore, QtGui, QtWidgets, lambda: self.colors)
         self.board.setMinimumWidth(0)
@@ -1103,6 +1055,38 @@ class FidsScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
         elif event_type == "scheduler_restarted":
             self.status.setText("Scheduler restarted. Refreshing board...")
             self.refresh()
+
+    def set_fids_style(self, key: str) -> None:
+        """Switch the FIDS board style (classic / pax / vatsim / nerd).
+
+        Persists via QSettings("display/fids_style"), reshapes the model
+        columns, updates header tooltips, and triggers a board refresh.
+        """
+        from localflight.native.pages.fids_styles import style_for
+
+        style = style_for(key)
+        self._fids_style = style
+        for k, btn in getattr(self, "_fids_style_buttons", {}).items():
+            try:
+                btn.setChecked(k == style.key)
+            except Exception:
+                pass
+        try:
+            settings = self.QtCore.QSettings("LocalFlight", "Native")
+            settings.setValue("fids/style", style.key)
+        except Exception:
+            pass
+        try:
+            self.model.set_columns(style.columns)
+            if hasattr(self.model, "set_status_vocabulary"):
+                self.model.set_status_vocabulary(style.status_vocabulary)
+        except Exception:
+            pass
+        try:
+            if hasattr(self.board, "viewport"):
+                self.board.viewport().update()
+        except Exception:
+            pass
 
     def set_active(self, active: bool) -> None:
         self._active = active
@@ -1969,18 +1953,7 @@ def _clean_temperature_text(value: Any) -> str:
 
 def _weather_icon_glyph(icon_name: Any) -> str:
     icon = str(icon_name or "unknown").strip().lower()
-    return {
-        "sun": chr(0x2600),
-        "partly": chr(0x26C5),
-        "cloud": chr(0x2601),
-        "rain": chr(0x2614),
-        "snow": chr(0x2744),
-        "fog": chr(0x224B),
-        "storm": chr(0x26A1),
-        "wind": chr(0x21C1),
-        "ice": chr(0x25C7),
-        "unknown": chr(0x2022),
-    }.get(icon, chr(0x2022))
+    return WEATHER_EMOJI.get(icon, WEATHER_EMOJI["unknown"])
 
 
 def _codeshare_frames(row: dict[str, Any]) -> list[str]:

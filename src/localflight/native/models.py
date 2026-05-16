@@ -76,28 +76,33 @@ class FlightBoardModel:
         QtGui: Any | None = None,  # noqa: N803 - QtGui follows Qt naming
         route_label: str = "Route",
         colors: dict[str, str] | None = None,
+        columns: tuple[tuple[str, str], ...] | None = None,
+        status_vocabulary: str = "standard",
     ):
-        columns = cls.columns
+        initial_columns = tuple(columns) if columns else cls.columns
 
         class _Model(QtCore.QAbstractTableModel):
             def __init__(self, initial_rows: list[dict[str, Any]] | None = None) -> None:
                 super().__init__()
-                self.columns = columns
+                self.columns = initial_columns
                 self._rows = list(initial_rows or [])
                 self._route_label = route_label
                 self._colors = dict(colors or {})
+                self._status_vocabulary = status_vocabulary
 
             def rowCount(self, _parent: Any = None) -> int:
                 return len(self._rows)
 
             def columnCount(self, _parent: Any = None) -> int:
-                return len(columns)
+                return len(self.columns)
 
             def data(self, index: Any, role: int = 0) -> Any:
                 if not index.isValid():
                     return None
                 row = self._rows[index.row()]
-                key, _label = columns[index.column()]
+                if not (0 <= index.column() < len(self.columns)):
+                    return None
+                key, _label = self.columns[index.column()]
                 if role == QtCore.Qt.DisplayRole:
                     return self._display_value(row, key)
                 if role == QtCore.Qt.ToolTipRole:
@@ -118,8 +123,8 @@ class FlightBoardModel:
             def headerData(self, section: int, orientation: Any, role: int = 0) -> Any:
                 if role != QtCore.Qt.DisplayRole:
                     return None
-                if orientation == QtCore.Qt.Horizontal and 0 <= section < len(columns):
-                    key, label = columns[section]
+                if orientation == QtCore.Qt.Horizontal and 0 <= section < len(self.columns):
+                    key, label = self.columns[section]
                     return self._route_label if key == "route_display" else label
                 return section + 1
 
@@ -133,8 +138,24 @@ class FlightBoardModel:
 
             def set_route_label(self, label: str) -> None:
                 self._route_label = label or "Route"
-                if columns:
-                    self.headerDataChanged.emit(QtCore.Qt.Horizontal, 0, len(columns) - 1)
+                if self.columns:
+                    self.headerDataChanged.emit(QtCore.Qt.Horizontal, 0, len(self.columns) - 1)
+
+            def set_columns(self, new_columns: tuple[tuple[str, str], ...]) -> None:
+                """Switch the column list (used when the user changes FIDS style)."""
+                next_columns = tuple(new_columns) if new_columns else initial_columns
+                if next_columns == self.columns:
+                    return
+                self.beginResetModel()
+                self.columns = next_columns
+                self.endResetModel()
+
+            def set_status_vocabulary(self, vocabulary: str) -> None:
+                self._status_vocabulary = str(vocabulary or "standard")
+                if self._rows and self.columns:
+                    top_left = self.index(0, 0)
+                    bottom_right = self.index(len(self._rows) - 1, len(self.columns) - 1)
+                    self.dataChanged.emit(top_left, bottom_right)
 
             def set_theme(self, next_colors: dict[str, str]) -> None:
                 self._colors = dict(next_colors or {})
@@ -166,6 +187,14 @@ class FlightBoardModel:
                     elif status_cls == "early" and "early" not in status.lower():
                         delay = _delay_minutes(row)
                         status = f"EARLY {abs(delay)}M" if isinstance(delay, int) else "EARLY"
+                    vocab = self._status_vocabulary
+                    if vocab and vocab != "standard":
+                        try:
+                            from localflight.native.pages.fids_styles import translate_status
+
+                            return translate_status(status, status_cls, vocabulary=vocab)
+                        except Exception:
+                            pass
                     return status.upper()
                 if key == "route_display":
                     route = format_value(row.get("route_primary")) or format_value(row.get("route_display"))
@@ -173,6 +202,58 @@ class FlightBoardModel:
                     return f"{route}\n{code}" if route and code and code not in route else route or "-"
                 if key == "gate":
                     return format_value(row.get("terminal_gate_display") or row.get("gate_display") or row.get("gate")) or "-"
+                # Extended fields for PAX / VATSIM / NERD styles
+                if key == "callsign":
+                    return format_value(row.get("callsign") or row.get("flight_display")) or "-"
+                if key == "flight_display":
+                    return format_value(row.get("flight_display") or row.get("flight_number") or row.get("callsign")) or "-"
+                if key == "registration":
+                    return format_value(row.get("registration") or row.get("aircraft_reg")) or "-"
+                if key == "altitude_ft":
+                    alt = row.get("altitude_ft") or row.get("alt") or row.get("altitude")
+                    return f"{int(float(alt)):,}" if alt not in (None, "", "-") else "-"
+                if key == "ground_speed_kt":
+                    gs = row.get("ground_speed_kt") or row.get("speed_kt") or row.get("speed")
+                    try:
+                        return f"{int(float(gs))}kt" if gs not in (None, "", "-") else "-"
+                    except (TypeError, ValueError):
+                        return "-"
+                if key == "alt_speed":
+                    alt = row.get("altitude_ft") or row.get("alt")
+                    gs = row.get("ground_speed_kt") or row.get("speed_kt") or row.get("speed")
+                    try:
+                        alt_str = f"FL{int(float(alt))//100:03d}" if alt not in (None, "", "-") else "—"
+                    except (TypeError, ValueError):
+                        alt_str = "—"
+                    try:
+                        gs_str = f"{int(float(gs))}kt" if gs not in (None, "", "-") else "—"
+                    except (TypeError, ValueError):
+                        gs_str = "—"
+                    return f"{alt_str} / {gs_str}"
+                if key == "squawk":
+                    return format_value(row.get("squawk") or row.get("transponder")) or "-"
+                if key == "flight_rules":
+                    rules = format_value(row.get("flight_rules") or row.get("rules"))
+                    return (rules[:1].upper() if rules else "")
+                if key == "phase":
+                    cls = self._status_class(row)
+                    try:
+                        from localflight.native.pages.fids_styles import translate_status
+
+                        return translate_status(format_value(row.get("status_display") or row.get("status")) or "", cls, vocabulary="phase")
+                    except Exception:
+                        return cls.upper() or "PLAN"
+                if key == "delay_label":
+                    delay = _delay_minutes(row)
+                    if delay is None:
+                        return "-"
+                    if abs(delay) < 5:
+                        return "on time"
+                    if delay < 0:
+                        return f"-{abs(delay)}m"
+                    return f"+{delay}m"
+                if key == "source":
+                    return format_value(row.get("source") or row.get("provider")) or "-"
                 return format_value(value_at(row, key)) or "-"
 
             def _tooltip_value(self, row: dict[str, Any], key: str) -> str:

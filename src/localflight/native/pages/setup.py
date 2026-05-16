@@ -8,6 +8,7 @@ from typing import Any, Callable
 from localflight.native.api_client import LocalApiClient
 from localflight.native.async_tools import API_EXECUTOR
 from localflight.native.design import (
+    colors_for,
     format_value,
     icon_from_media,
     label,
@@ -16,6 +17,14 @@ from localflight.native.design import (
     panel,
     pixmap_from_media,
     scroll_page,
+)
+from localflight.native.pages.setup_widgets import (
+    build_celebration,
+    build_hero,
+    build_info_button,
+    build_spinner,
+    build_stepper,
+    fade_in_widget,
 )
 from localflight.native.service import NativeApiService
 from localflight.ui.setup_guidance import (
@@ -116,7 +125,6 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
         self.card_columns = 1 if available_width < 900 else 2 if available_width < 1220 else 3
         self.step_names = list(STEP_NAMES)
         self.step_short_labels = list(STEP_SHORT_LABELS)
-        self.step_buttons: list[Any] = []
         self.source_buttons: dict[str, Any] = {}
         self.diagnostics_buttons: dict[str, Any] = {}
         self.provider_link_buttons: dict[str, Any] = {}
@@ -150,13 +158,27 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
 
         layout.addLayout(self._step_header())
         layout.addWidget(self.tabs, 1, QtCore.Qt.AlignHCenter)
-        self.loading_indicator = QtWidgets.QProgressBar()
-        self.loading_indicator.setObjectName("LoadingProgress")
-        self.loading_indicator.setRange(0, 0)
-        self.loading_indicator.setTextVisible(False)
-        self.loading_indicator.setFixedHeight(7)
+        # Replace the thin marquee with a rotating-glyph spinner. The widget
+        # exposes show()/hide()/setVisible() so existing callers keep working.
+        colors = colors_for()
+        if QtGui is not None:
+            self.loading_indicator = build_spinner(
+                QtCore,
+                QtGui,
+                QtWidgets,
+                accent_hex=colors.get("blue", "#4a9eda"),
+                text_hex=colors.get("text", "#e8f0fe"),
+            )
+        else:
+            # Headless preview path keeps the old QProgressBar so tests can
+            # introspect the widget tree without optional Qt assets.
+            self.loading_indicator = QtWidgets.QProgressBar()
+            self.loading_indicator.setObjectName("LoadingProgress")
+            self.loading_indicator.setRange(0, 0)
+            self.loading_indicator.setTextVisible(False)
+            self.loading_indicator.setFixedHeight(7)
+            self.loading_indicator.hide()
         self.loading_indicator.setMaximumWidth(self.setup_max_width)
-        self.loading_indicator.hide()
         layout.addWidget(self.loading_indicator, 0, QtCore.Qt.AlignHCenter)
         layout.addLayout(self._navigation())
         layout.addStretch(1)
@@ -171,25 +193,52 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
         wrap = self.QtWidgets.QHBoxLayout()
         wrap.setContentsMargins(0, 0, 0, 0)
         wrap.addStretch(1)
-        steps_wrap = self.QtWidgets.QWidget()
-        steps_wrap.setMinimumWidth(0)
-        steps_wrap.setMaximumWidth(self.setup_max_width)
-        columns = 3 if self.compact_setup else 6
-        steps = self.QtWidgets.QGridLayout(steps_wrap)
-        steps.setContentsMargins(0, 0, 0, 0)
-        steps.setHorizontalSpacing(8)
-        steps.setVerticalSpacing(8)
-        for idx, name in enumerate(self.step_names):
-            short = self.step_short_labels[idx] if idx < len(self.step_short_labels) else name
-            button = self.QtWidgets.QPushButton(f"{idx + 1}  {short}")
-            button.setObjectName("SetupStepButton")
-            button.setCheckable(True)
-            button.setMinimumHeight(34)
-            button.setToolTip(name)
-            button.clicked.connect(lambda _checked=False, i=idx: self._set_step(i))
-            self.step_buttons.append(button)
-            steps.addWidget(button, idx // columns, idx % columns)
-        wrap.addWidget(steps_wrap, 1)
+        colors = colors_for()
+        accent = colors.get("blue", "#4a9eda")
+        text_hex = colors.get("text", "#e8f0fe")
+        muted_hex = colors.get("muted", "#9aa3b2")
+        line_hex = colors.get("line", "#1d2733")
+        if self.QtGui is None:
+            # Headless / preview-only path — fall back to a static caption.
+            placeholder = self.QtWidgets.QLabel(
+                f"Step 1 of {len(self.step_names)} · {self.step_names[0]}"
+            )
+            placeholder.setObjectName("SetupStepperFallback")
+            wrap.addWidget(placeholder, 1)
+            wrap.addStretch(1)
+            self.stepper = placeholder
+            return wrap
+        stepper = build_stepper(
+            self.QtCore,
+            self.QtGui,
+            self.QtWidgets,
+            step_names=self.step_names,
+            step_short_labels=self.step_short_labels,
+            on_step_clicked=lambda idx: self._set_step(idx),
+            accent_hex=accent,
+            text_hex=text_hex,
+            muted_hex=muted_hex,
+            line_hex=line_hex,
+            compact=self.compact_setup,
+        )
+        stepper.setMaximumWidth(self.setup_max_width)
+        stepper.setMinimumWidth(min(540, self.setup_max_width))
+        stepper.setSizePolicy(
+            self.QtWidgets.QSizePolicy.Expanding,
+            self.QtWidgets.QSizePolicy.Fixed,
+        )
+        self.stepper = stepper
+
+        # Caption above the stepper for clarity: "Step 1 of 6 · Welcome".
+        self.step_caption = self.QtWidgets.QLabel("")
+        self.step_caption.setObjectName("SetupStepCaption")
+        self.step_caption.setAlignment(self.QtCore.Qt.AlignCenter)
+        column = self.QtWidgets.QVBoxLayout()
+        column.setContentsMargins(0, 0, 0, 0)
+        column.setSpacing(4)
+        column.addWidget(self.step_caption, 0, self.QtCore.Qt.AlignHCenter)
+        column.addWidget(stepper, 0)
+        wrap.addLayout(column, 1)
         wrap.addStretch(1)
         return wrap
 
@@ -207,12 +256,14 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
         nav.setContentsMargins(0, 0, 0, 0)
         nav.setHorizontalSpacing(8)
         nav.setVerticalSpacing(8)
-        self.web_fallback_btn = self.QtWidgets.QPushButton("Open LAN browser setup")
+        self.web_fallback_btn = self.QtWidgets.QPushButton("\U0001F310  Open LAN browser setup")
         self.web_fallback_btn.setObjectName("Quiet")
-        self.back_btn = self.QtWidgets.QPushButton("Back")
+        self.back_btn = self.QtWidgets.QPushButton("◀  Back")
         self.back_btn.setObjectName("Quiet")
-        self.next_btn = self.QtWidgets.QPushButton("Next")
-        self.finish_btn = self.QtWidgets.QPushButton("Finish setup")
+        self.next_btn = self.QtWidgets.QPushButton("Next  ▶")
+        self.next_btn.setObjectName("SetupPrimary")
+        self.finish_btn = self.QtWidgets.QPushButton("✅  Finish setup")
+        self.finish_btn.setObjectName("SetupPrimary")
         for button in (self.web_fallback_btn, self.back_btn, self.next_btn, self.finish_btn):
             button.setMinimumHeight(36)
             button.setSizePolicy(self.QtWidgets.QSizePolicy.MinimumExpanding, self.QtWidgets.QSizePolicy.Fixed)
@@ -321,23 +372,42 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
             'Welcome to <span style="font-family: Audiowide; font-weight: 400; letter-spacing: 1px;">Local Flight</span>',
             "A guided first launch for your local airport board. Pick the airport, choose the flight data path, and decide how diagnostics should behave.",
         )
-        logo = self.QtWidgets.QLabel()
-        logo.setAlignment(self.QtCore.Qt.AlignCenter)
-        logo.setMinimumHeight(94 if self.compact_setup else 120)
-        logo.setObjectName("SetupBrandMark")
-        self.logo_label = logo
+        # Animated hero block (radar rings + floating logo + tagline). Falls
+        # back to a static brand label when QtGui is unavailable.
         if self.QtGui is not None:
             logo_size = 104 if self.compact_setup else 132
-            pixmap = pixmap_from_media(self.QtCore, self.QtGui, "ui", "static", "localflight-logo.svg", width=logo_size, height=logo_size)
-            if not pixmap.isNull():
-                logo.setPixmap(pixmap)
-            else:
-                logo.setText("Local Flight")
-                logo.setObjectName("BrandTitle")
+            pixmap = pixmap_from_media(
+                self.QtCore,
+                self.QtGui,
+                "ui",
+                "static",
+                "localflight-logo.svg",
+                width=logo_size,
+                height=logo_size,
+            )
+            colors = colors_for()
+            hero = build_hero(
+                self.QtCore,
+                self.QtGui,
+                self.QtWidgets,
+                pixmap=pixmap,
+                accent_hex=colors.get("blue", "#4a9eda"),
+                text_hex=colors.get("text", "#e8f0fe"),
+                muted_hex=colors.get("muted", "#9aa3b2"),
+                tagline=(
+                    "Your local airport board — pixel-perfect, private, and yours."
+                ),
+                compact=self.compact_setup,
+            )
+            self.logo_label = hero
+            layout.addWidget(hero)
         else:
-            logo.setText("Local Flight")
+            logo = self.QtWidgets.QLabel("Local Flight")
+            logo.setAlignment(self.QtCore.Qt.AlignCenter)
+            logo.setMinimumHeight(94 if self.compact_setup else 120)
             logo.setObjectName("BrandTitle")
-        layout.addWidget(logo)
+            self.logo_label = logo
+            layout.addWidget(logo)
         cards = self.QtWidgets.QGridLayout()
         cards.setHorizontalSpacing(12)
         cards.setVerticalSpacing(12)
@@ -348,7 +418,9 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
                 index % self.card_columns,
             )
         layout.addLayout(cards)
-        self.start_btn = self.QtWidgets.QPushButton("Start setup")
+        self.start_btn = self.QtWidgets.QPushButton("\U0001F680  Start setup")
+        self.start_btn.setObjectName("SetupPrimary")
+        self.start_btn.setMinimumHeight(40)
         self.start_btn.clicked.connect(lambda: self._set_step(1))
         start_row = self.QtWidgets.QHBoxLayout()
         start_row.addStretch(1)
@@ -380,10 +452,34 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
             field.setReadOnly(True)
         form = self.QtWidgets.QFormLayout()
         form.setFieldGrowthPolicy(self.QtWidgets.QFormLayout.AllNonFixedFieldsGrow)
-        form.addRow("Display name", self.display_name)
-        form.addRow("Airport IATA", self.airport_iata)
-        form.addRow("Airport ICAO", self.airport_icao)
-        form.addRow("Timezone", self.timezone)
+        form.addRow(
+            self._field_label(
+                "Display name",
+                "Friendly title shown on the FIDS board, e.g. your home airport name.",
+            ),
+            self.display_name,
+        )
+        form.addRow(
+            self._field_label(
+                "Airport IATA",
+                "3-letter airline code (e.g. ZRH). Filled automatically from the search result.",
+            ),
+            self.airport_iata,
+        )
+        form.addRow(
+            self._field_label(
+                "Airport ICAO",
+                "4-letter ICAO code (e.g. LSZH). Used for METAR and ATC lookups. Filled automatically.",
+            ),
+            self.airport_icao,
+        )
+        form.addRow(
+            self._field_label(
+                "Timezone",
+                "Local timezone of the airport. Used for the FIDS board clock and history grouping.",
+            ),
+            self.timezone,
+        )
         layout.addWidget(self.airport_search)
         layout.addWidget(self.airport_search_status)
         layout.addWidget(self.airport_results)
@@ -443,9 +539,9 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
         token_box_layout.addLayout(token_row)
         relay_layout.addWidget(self.token_box)
         relay_actions = self.QtWidgets.QHBoxLayout()
-        self.request_activation_btn = self.QtWidgets.QPushButton("Request activation")
-        self.check_relay_status_btn = self.QtWidgets.QPushButton("Check relay status")
-        self.test_token_btn = self.QtWidgets.QPushButton("Test token")
+        self.request_activation_btn = self.QtWidgets.QPushButton("\U0001F4E8  Request activation")
+        self.check_relay_status_btn = self.QtWidgets.QPushButton("\U0001F504  Check relay status")
+        self.test_token_btn = self.QtWidgets.QPushButton("\U0001F9EA  Test token")
         self.request_activation_btn.clicked.connect(self.request_activation)
         self.check_relay_status_btn.clicked.connect(self.check_activation_status)
         self.test_token_btn.clicked.connect(self.test_activation)
@@ -481,10 +577,34 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
         self.opensky_secret.setPlaceholderText("OpenSky client secret")
         form = self.QtWidgets.QFormLayout()
         form.setFieldGrowthPolicy(self.QtWidgets.QFormLayout.AllNonFixedFieldsGrow)
-        form.addRow("AviationStack", self.aviationstack_key)
-        form.addRow("RapidAPI", self.rapidapi_key)
-        form.addRow("OpenSky ID", self.opensky_id)
-        form.addRow("OpenSky Secret", self.opensky_secret)
+        form.addRow(
+            self._field_label(
+                "AviationStack",
+                "BYOK schedule provider. Free tier has ~500 calls/month. Required for BYOK mode.",
+            ),
+            self._secret_row(self.aviationstack_key, "AviationStack key"),
+        )
+        form.addRow(
+            self._field_label(
+                "RapidAPI",
+                "Optional: ADS-B Exchange via RapidAPI for live aircraft positions on the radar.",
+            ),
+            self._secret_row(self.rapidapi_key, "RapidAPI key"),
+        )
+        form.addRow(
+            self._field_label(
+                "OpenSky ID",
+                "Optional OpenSky client ID for free anonymous radar enrichment.",
+            ),
+            self.opensky_id,
+        )
+        form.addRow(
+            self._field_label(
+                "OpenSky Secret",
+                "Pair with the OpenSky client ID above. Stored encrypted on this machine only.",
+            ),
+            self._secret_row(self.opensky_secret, "OpenSky secret"),
+        )
         layout.addLayout(form)
 
         link_grid = self.QtWidgets.QGridLayout()
@@ -496,8 +616,8 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
             link_grid.addWidget(button, idx // 2, idx % 2)
         layout.addLayout(link_grid)
         tests = self.QtWidgets.QHBoxLayout()
-        self.test_as_btn = self.QtWidgets.QPushButton("Test AviationStack")
-        self.test_rapidapi_btn = self.QtWidgets.QPushButton("Test RapidAPI")
+        self.test_as_btn = self.QtWidgets.QPushButton("\U0001F9EA  Test AviationStack")
+        self.test_rapidapi_btn = self.QtWidgets.QPushButton("\U0001F9EA  Test RapidAPI")
         self.test_as_btn.clicked.connect(self.test_aviationstack)
         self.test_rapidapi_btn.clicked.connect(self.test_rapidapi)
         tests.addWidget(self.test_as_btn)
@@ -570,17 +690,72 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
         layout.addStretch(1)
 
     def _link_button(self, text: str, url: str) -> Any:
-        button = self.QtWidgets.QPushButton(text)
+        button = self.QtWidgets.QPushButton("\U0001F517  " + text)
         button.setObjectName("Quiet")
         button.setProperty("url", url)
         button.clicked.connect(lambda _checked=False, u=url: webbrowser.open(u))
         return button
 
+    def _field_label(self, text: str, help_text: str) -> Any:
+        """Build a form-row label with an inline info bubble."""
+        container = self.QtWidgets.QWidget()
+        layout = self.QtWidgets.QHBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(6)
+        text_label = self.QtWidgets.QLabel(text)
+        text_label.setObjectName("SetupFieldLabel")
+        layout.addWidget(text_label)
+        if self.QtGui is not None:
+            layout.addWidget(
+                build_info_button(self.QtCore, self.QtGui, self.QtWidgets, text=help_text)
+            )
+        layout.addStretch(1)
+        return container
+
+    def _secret_row(self, field: Any, label_text: str = "secret") -> Any:
+        """Wrap a password QLineEdit with an eye toggle button."""
+        container = self.QtWidgets.QWidget()
+        layout = self.QtWidgets.QHBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(6)
+        layout.addWidget(field, 1)
+        eye = self.QtWidgets.QToolButton()
+        eye.setObjectName("SetupEyeButton")
+        eye.setText("\U0001F441")  # 👁
+        eye.setToolTip("Show / hide the value")
+        eye.setFixedSize(30, 28)
+        eye.setCursor(self.QtCore.Qt.PointingHandCursor)
+
+        def _toggle() -> None:
+            is_password = field.echoMode() == self.QtWidgets.QLineEdit.Password
+            field.setEchoMode(
+                self.QtWidgets.QLineEdit.Normal if is_password else self.QtWidgets.QLineEdit.Password
+            )
+            eye.setText("\U0001F648" if is_password else "\U0001F441")  # 🙈 / 👁
+            eye.setToolTip("Hide the value" if is_password else "Show the value")
+
+        eye.clicked.connect(_toggle)
+        layout.addWidget(eye)
+        return container
+
     def _set_step(self, index: int) -> None:
         index = max(0, min(index, self.tabs.count() - 1))
         self.tabs.setCurrentIndex(index)
-        for idx, button in enumerate(self.step_buttons):
-            button.setChecked(idx == index)
+        # Drive the animated stepper if available.
+        if hasattr(self, "stepper") and hasattr(self.stepper, "set_active"):
+            try:
+                self.stepper.set_active(index)
+            except Exception:
+                pass
+        if hasattr(self, "step_caption"):
+            name = self.step_names[index] if index < len(self.step_names) else ""
+            self.step_caption.setText(
+                f"Step {index + 1} of {len(self.step_names)} · {name}"
+            )
+        # Brief fade-in of the new page for a softer transition.
+        current_page = self.tabs.currentWidget()
+        if current_page is not None and self.QtGui is not None:
+            fade_in_widget(self.QtCore, self.QtWidgets, current_page, duration_ms=200)
         self.back_btn.setEnabled(index > 0)
         self.next_btn.setVisible(index < self.tabs.count() - 1)
         self.finish_btn.setVisible(index == self.tabs.count() - 1)
@@ -729,6 +904,12 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
     def _set_status(self, text: str, role: str = "Muted", *, busy: bool = False) -> None:
         self.status.setText(text)
         self.status.setProperty("tone", self._tone_for_role(role))
+        # Keep the spinner caption in sync with the live status when busy.
+        if busy and hasattr(self.loading_indicator, "set_text"):
+            try:
+                self.loading_indicator.set_text(text or "Working…")
+            except Exception:
+                pass
         self.loading_indicator.setVisible(bool(busy))
         self._repolish(self.status)
         if busy:
@@ -959,8 +1140,28 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
                 self.service.clear_cache()
             except Exception:
                 pass
+            # Play the celebration overlay before handing off to the main app.
+            if self.QtGui is not None:
+                try:
+                    colors = colors_for()
+                    fire = build_celebration(
+                        self.QtCore,
+                        self.QtGui,
+                        self.QtWidgets,
+                        self.widget,
+                        accent_hex=colors.get("blue", "#4a9eda"),
+                        text_hex=colors.get("text", "#e8f0fe"),
+                        bg_hex=colors.get("bg", "#0b0f15"),
+                    )
+                    fire()
+                except Exception:
+                    pass
             if self.on_setup_complete:
-                self.on_setup_complete()
+                # Give the celebration a moment to be seen before launching.
+                if self.QtGui is not None and hasattr(self.QtCore, "QTimer"):
+                    self.QtCore.QTimer.singleShot(650, self.on_setup_complete)
+                else:
+                    self.on_setup_complete()
         else:
             self._set_setup_buttons_enabled(True)
 
