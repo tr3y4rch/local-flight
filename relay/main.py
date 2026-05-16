@@ -2998,7 +2998,11 @@ def _aviationstack_upstream_payload(params: Dict[str, Any]) -> Dict[str, Any]:
         try:
             payload = response.json()
             detail = payload.get("error") if isinstance(payload, dict) else None
-            info = detail.get("info") if isinstance(detail, dict) else ""
+            info = (detail.get("info") or detail.get("message") or "") if isinstance(detail, dict) else ""
+            context = detail.get("context") if isinstance(detail, dict) else None
+            if isinstance(context, dict) and context:
+                context_text = ", ".join(f"{key}: {value}" for key, value in sorted(context.items()))
+                info = f"{info} ({context_text})" if info else context_text
         except Exception:
             info = ""
         suffix = f": {info}" if info else ""

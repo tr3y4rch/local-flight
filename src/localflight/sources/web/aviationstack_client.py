@@ -690,7 +690,13 @@ def _request_json(
             payload = response.json()
             error = payload.get("error") if isinstance(payload, dict) else None
             if isinstance(error, dict):
-                msg += f" ({error.get('code')}): {error.get('info')}"
+                detail = error.get("info") or error.get("message") or ""
+                context = error.get("context")
+                if isinstance(context, dict) and context:
+                    context_text = ", ".join(f"{key}: {value}" for key, value in sorted(context.items()))
+                    detail = f"{detail} ({context_text})" if detail else context_text
+                code = error.get("code") or "provider_error"
+                msg += f" ({code}): {detail or 'No provider detail'}"
         except Exception:
             pass
         raise AviationstackError(msg)

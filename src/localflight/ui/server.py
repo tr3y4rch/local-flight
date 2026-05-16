@@ -546,6 +546,24 @@ class ActivationTokenTestIn(BaseModel):
     activation_token: str = Field("", max_length=256)
 
 
+def _provider_error_text(payload: Any, fallback: str) -> str:
+    if not isinstance(payload, dict):
+        return fallback
+    error = payload.get("error")
+    if not isinstance(error, dict):
+        return fallback
+    code = str(error.get("code") or "").strip()
+    message = str(error.get("message") or error.get("info") or "").strip()
+    context = error.get("context")
+    if isinstance(context, dict) and context:
+        context_text = ", ".join(f"{key}: {value}" for key, value in sorted(context.items()))
+        if context_text:
+            message = f"{message} ({context_text})" if message else context_text
+    if code and message:
+        return f"{code}: {message}"
+    return message or code or fallback
+
+
 async def _test_aviationstack_key(key: str) -> Dict[str, Any]:
     """Test an AviationStack API key without saving it."""
     import requests as _req
@@ -558,10 +576,13 @@ async def _test_aviationstack_key(key: str) -> Dict[str, Any]:
         if r.status_code == 200:
             data = r.json()
             if "error" in data:
-                err = data["error"]
-                return {"ok": False, "error": err.get("info", "Invalid key")}
+                return {"ok": False, "error": _provider_error_text(data, "Invalid key")}
             return {"ok": True}
-        return {"ok": False, "error": f"HTTP {r.status_code}"}
+        try:
+            data = r.json()
+        except Exception:
+            data = {}
+        return {"ok": False, "error": _provider_error_text(data, f"HTTP {r.status_code}")}
     except Exception as exc:
         return {"ok": False, "error": str(exc)}
 
