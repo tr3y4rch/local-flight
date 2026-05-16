@@ -708,14 +708,16 @@ def test_native_parity_screens_construct_core_controls(monkeypatch: pytest.Monke
     assert setup.tabs.count() == 6
     assert setup.step_names == ["Welcome", "Airport", "Flight Data", "Optional Keys", "Diagnostics", "Review & Launch"]
     assert setup.relay_url.text() == "https://localflight-community-relay.fly.dev"
-    assert setup.web_fallback_btn.text() == "Open LAN browser setup"
+    assert setup.web_fallback_btn.text().endswith("Open LAN browser setup")
     assert setup.loading_indicator.isVisible() is False
     assert setup.provider_action_status.text()
     assert setup.setup_mode.currentData() == "community"
     assert setup.diagnostics_mode.currentData() == "manual"
     assert setup.finish_btn.isVisible() is False
-    assert [button.text() for button in setup.step_buttons] == ["1  Welcome", "2  Airport", "3  Data", "4  Keys", "5  Reports", "6  Launch"]
-    assert all(button.objectName() == "SetupStepButton" for button in setup.step_buttons)
+    assert setup.stepper is not None
+    step_caption = setup.__dict__.get("step_caption") or setup.stepper
+    assert step_caption.text().startswith("Step 1 of 6")
+    assert step_caption.text().endswith("Welcome")
     assert all(card.objectName() == "SetupOptionCard" for card in setup.source_buttons.values())
     assert matrix.canvas is not None
     assert matrix.loading_indicator.isVisible() is False
@@ -730,7 +732,7 @@ def test_native_parity_screens_construct_core_controls(monkeypatch: pytest.Monke
     assert matrix.animation_mode.currentData() == "split_flap"
     assert any(button.text() == "Generate main.py" for button in matrix.widget.findChildren(QtWidgets.QPushButton))
     assert logs.file_combo is not None
-    assert logs.live_tail.text() == "Live tail"
+    assert logs.live_tail.text().endswith("Live tail")
     assert logs.loading_indicator.isVisible() is False
     assert requests.client_type.currentText() == "all clients"
     assert requests.loading_indicator.isVisible() is False
@@ -1924,6 +1926,7 @@ def test_native_radar_selected_panel_shows_safe_fids_detail(monkeypatch: pytest.
 
 def test_native_weather_line_translates_icons_and_keeps_keys_hidden() -> None:
     from localflight.native.app import _weather_icon_glyph, _weather_line
+    from localflight.native.design import WEATHER_EMOJI
 
     line = _weather_line(
         {"weather_icon": "rain", "flight_cat": "VFR", "temp_c": 12, "decoded_summary": "Light rain"},
@@ -1931,8 +1934,8 @@ def test_native_weather_line_translates_icons_and_keeps_keys_hidden() -> None:
     )
     clear_line = _weather_line({"weather_icon": "sun", "flight_cat": "VFR", "temp_c": 30, "weather_label": "Clear"}, raw=False)
 
-    assert _weather_icon_glyph("rain") == chr(0x2614)
-    assert line.startswith(chr(0x2614))
+    assert _weather_icon_glyph("rain") == WEATHER_EMOJI["rain"]
+    assert line.startswith(WEATHER_EMOJI["rain"])
     assert "rain VFR" not in line
     assert "Light rain" in line
     assert "|" not in line
@@ -2558,6 +2561,9 @@ def test_native_settings_has_airport_search_picker(monkeypatch: pytest.MonkeyPat
     assert screen.apply_surface_button.text() == "Apply radar overlay"
     assert "Surface overlay" in screen.surface_status.text()
     assert screen.surface_progress.isVisible() is False
+    assert screen.companion_group.isChecked() is True
+    assert "localflight://pair" in screen.companion_pairing_url_label.text()
+    assert "Scan this from each iPhone/iPad" in screen.companion_body.findChild(QtWidgets.QLabel).text()
     assert screen.help_docs_group.isChecked() is False
     assert screen.help_docs_body.isVisible() is False
     assert screen.maintenance_group.isChecked() is False

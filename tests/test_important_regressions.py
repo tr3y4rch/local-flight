@@ -32,6 +32,7 @@ import localflight.ui.api as ui_api
 import localflight.ui.server as ui_server
 import relay.main as relay_main
 from localflight.core.models import AirportRef, Flight, FlightDirection, FlightPosition, FlightTime
+from localflight.companion_pairing import build_pairing_deep_link, pairing_gateway_payload
 from localflight.decode.metar import decorate_metar
 from localflight.decode.dedupe import dedupe_codeshares
 from localflight.decode.mappings.aerodatabox import aerodatabox_to_raw_records
@@ -2120,6 +2121,53 @@ def test_mobile_companion_checkin_is_exposed_in_connections(monkeypatch, tmp_pat
     assert payload["companions"][0]["platform_pair"].endswith("/ iOS 18.5 (phone)")
 
 
+def test_multi_companion_checkins_remain_distinct_and_update_by_id(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(ui_server, "_setup_complete", lambda: True)
+    monkeypatch.setattr(ui_api, "_companion_presence_path", lambda: tmp_path / "companion_clients.json")
+
+    client = TestClient(app)
+    first = {
+        "companion_id": "lfc_test_mobile_phone",
+        "client_name": "Local Flight Companion",
+        "app_version": "0.2.6",
+        "mobile_os": "iOS 18.5 (phone)",
+        "device_type": "phone",
+    }
+    second = {
+        "companion_id": "lfc_test_mobile_ipad",
+        "client_name": "Local Flight Companion",
+        "app_version": "0.2.6",
+        "mobile_os": "iPadOS 18.5 (tablet)",
+        "device_type": "tablet",
+    }
+
+    assert client.post("/api/admin/companion/checkin", json=first).status_code == 200
+    assert client.post("/api/admin/companion/checkin", json=second).status_code == 200
+    assert client.post(
+        "/api/admin/companion/checkin",
+        json={**first, "app_version": "0.2.7", "mobile_os": "iOS 19.0 (phone)"},
+    ).status_code == 200
+
+    payload = client.get("/api/admin/connections").json()
+    assert payload["companion_count"] == 2
+    by_id = {item["companion_id"]: item for item in payload["companions"]}
+    assert set(by_id) == {"lfc_test_mobile_phone", "lfc_test_mobile_ipad"}
+    assert by_id["lfc_test_mobile_phone"]["app_version"] == "0.2.7"
+    assert by_id["lfc_test_mobile_phone"]["mobile_os"] == "iOS 19.0 (phone)"
+    assert by_id["lfc_test_mobile_ipad"]["device_type"] == "tablet"
+
+
+def test_companion_pairing_gateway_uses_reusable_deep_link(monkeypatch) -> None:
+    monkeypatch.setattr("localflight.companion_pairing._local_ipv4_addresses", lambda: ["192.168.1.77"])
+
+    payload = pairing_gateway_payload(base_url="http://127.0.0.1:8000")
+
+    assert payload["preferred_url"] == "http://localflight.local:8000"
+    assert payload["manual_urls"][:2] == ["http://localflight.local:8000", "http://192.168.1.77:8000"]
+    assert payload["deep_link"] == build_pairing_deep_link("http://localflight.local:8000", source="qt")
+    assert "server=http%3A%2F%2Flocalflight.local%3A8000" in str(payload["deep_link"])
+
+
 def test_mobile_summary_rolls_up_companion_host_status(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setattr(ui_server, "_setup_complete", lambda: True)
     monkeypatch.setattr(ui_api, "_companion_presence_path", lambda: tmp_path / "companion_clients.json")
@@ -2149,6 +2197,8 @@ def test_mobile_summary_rolls_up_companion_host_status(monkeypatch, tmp_path: Pa
     assert "budget" in payload
     assert "scheduler" in payload
     assert "metar" in payload
+    assert "requests" not in payload
+    assert set(payload["scheduler"]).issuperset({"running"})
     assert payload["connections"]["companion_count"] == 1
     assert payload["connections"]["companions"][0]["companion_id"] == "lfc_test_mobile_002"
     assert "running" in payload["scheduler"]
@@ -2343,6 +2393,9 @@ def test_fids_detail_exposes_live_track_metadata(monkeypatch, tmp_path: Path) ->
     assert detail["data_sources"]["confidence"] == "live_position_matched"
     assert isinstance(detail["data_sources"]["snapshot_age_seconds"], int)
     assert response.json()["intel"]["schema_version"] == "flight-intel-v1"
+    assert detail["intel"]["schema_version"] == "flight-intel-v1"
+    assert response.json()["intel"]["identity"]["callsign"] == "SWR10"
+    assert response.json()["intel"]["route"]["route_display"] == "ZRH → LHR"
     assert detail["intel"]["aircraft"]["registration"] == "HB-JCA"
     assert detail["intel"]["motion"]["altitude_ft"] == 10000
     assert detail["intel"]["source_evidence"]["confidence"] == "live_position_matched"
@@ -2629,6 +2682,10 @@ def test_history_summary_adds_delay_buckets_and_filtered_analytics(tmp_path: Pat
             delay,
             "LX",
         ))
+    for duplicate_idx in (0, 3):
+        duplicate = list(rows[duplicate_idx])
+        duplicate[17] = (now + timedelta(minutes=90 + duplicate_idx)).isoformat()
+        rows.append(tuple(duplicate))
 
     conn = history._connect()
     history._ensure_schema(conn)
@@ -2650,6 +2707,8 @@ def test_history_summary_adds_delay_buckets_and_filtered_analytics(tmp_path: Pat
     summary = history.query_summary("ZRH", hours=24)
     buckets = {row["bucket"]: row["count"] for row in summary["delay_buckets"]}
 
+    assert summary["sample_rows"] == 9
+    assert summary["total"] == 7
     assert buckets == {
         "early": 1,
         "on_time": 2,

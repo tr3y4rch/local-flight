@@ -14,9 +14,57 @@ from PyInstaller.utils.hooks import collect_all, collect_data_files
 _pyproject = Path(SPECPATH) / "pyproject.toml"
 _ver_match = re.search(r'^version\s*=\s*"([^"]+)"', _pyproject.read_text(), re.MULTILINE)
 _VERSION = _ver_match.group(1) if _ver_match else "0.2.7"
+_APP_NAME = "Local Flight"
+_BUNDLE_IDENTIFIER = "com.localflight.app"
 
 is_win = sys.platform == "win32"
 is_mac = sys.platform == "darwin"
+
+
+def _windows_version_tuple(version):
+    parts = [int(part) for part in re.findall(r"\d+", version)[:4]]
+    return tuple((parts + [0, 0, 0, 0])[:4])
+
+
+_WINDOWS_VERSION_FILE = None
+if is_win:
+    version_tuple = _windows_version_tuple(_VERSION)
+    _WINDOWS_VERSION_FILE = Path(SPECPATH) / "build" / "localflight_version_info.txt"
+    _WINDOWS_VERSION_FILE.parent.mkdir(parents=True, exist_ok=True)
+    _WINDOWS_VERSION_FILE.write_text(
+        f"""# UTF-8
+VSVersionInfo(
+  ffi=FixedFileInfo(
+    filevers={version_tuple},
+    prodvers={version_tuple},
+    mask=0x3f,
+    flags=0x0,
+    OS=0x40004,
+    fileType=0x1,
+    subtype=0x0,
+    date=(0, 0)
+  ),
+  kids=[
+    StringFileInfo([
+      StringTable(
+        '040904B0',
+        [
+          StringStruct('CompanyName', 'Local Flight'),
+          StringStruct('FileDescription', 'Local Flight'),
+          StringStruct('FileVersion', '{_VERSION}'),
+          StringStruct('InternalName', 'LocalFlight'),
+          StringStruct('OriginalFilename', 'LocalFlight.exe'),
+          StringStruct('ProductName', 'Local Flight'),
+          StringStruct('ProductVersion', '{_VERSION}')
+        ]
+      )
+    ]),
+    VarFileInfo([VarStruct('Translation', [1033, 1200])])
+  ]
+)
+""",
+        encoding="utf-8",
+    )
 
 # â”€â”€ Collect packages that use dynamic/string-based internal imports â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 uvi_d,      uvi_b,      uvi_h      = collect_all("uvicorn")
@@ -84,6 +132,7 @@ a = Analysis(
         "localflight.native.canvas.matrix",
         "localflight.native.canvas.radar",
         "localflight.native.design",
+        "localflight.native.identity",
         "localflight.native.live",
         "localflight.native.loader",
         "localflight.native.models",
@@ -150,6 +199,7 @@ exe = EXE(
     upx=is_win,       # UPX works on Windows; skip on macOS (arm64 incompatible)
     console=False,    # No terminal window on launch
     icon="assets/icon.ico" if is_win else ("assets/icon.icns" if is_mac else None),
+    version=str(_WINDOWS_VERSION_FILE) if is_win else None,
 )
 
 coll = COLLECT(
@@ -169,15 +219,23 @@ if is_mac:
         coll,
         name="LocalFlight.app",
         icon="assets/icon.icns",
-        bundle_identifier="com.localflight.app",
+        bundle_identifier=_BUNDLE_IDENTIFIER,
         info_plist={
+            "CFBundleExecutable": "LocalFlight",
+            "CFBundleGetInfoString": f"{_APP_NAME} {_VERSION}",
+            "CFBundleIconFile": "icon.icns",
+            "CFBundleIdentifier": _BUNDLE_IDENTIFIER,
+            "CFBundleInfoDictionaryVersion": "6.0",
+            "CFBundleName": _APP_NAME,
+            "CFBundleDisplayName": _APP_NAME,
+            "CFBundlePackageType": "APPL",
             "NSHighResolutionCapable": True,
+            "NSHumanReadableCopyright": "MIT License - Philipp Schumacher",
+            "NSPrincipalClass": "NSApplication",
             "LSApplicationCategoryType": "public.app-category.utilities",
             "LSMinimumSystemVersion": "12.0",
             "NSAppTransportSecurity": {"NSAllowsLocalNetworking": True},
             "CFBundleVersion": _VERSION,
             "CFBundleShortVersionString": _VERSION,
-            "CFBundleName": "Local Flight",
-            "CFBundleDisplayName": "Local Flight",
         },
     )

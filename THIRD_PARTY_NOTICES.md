@@ -1,14 +1,14 @@
 # Third-Party Notices
 
 Local Flight bundles a small number of open-source font files so the native,
-web kiosk, and mobile design language can stay consistent without loading fonts
-from a CDN at runtime.
+LAN browser, kiosk, and mobile design language can stay consistent without
+loading fonts from a CDN at runtime.
 
 ## Bundled Fonts
 
 ### Audiowide
 
-- Files: `src/localflight/ui/static/fonts/Audiowide-Regular.ttf`
+- Files: `src/localflight/ui/static/fonts/Audiowide-Regular.ttf`, `mobile/assets/fonts/Audiowide-Regular.ttf`
 - Designer: Astigmatic
 - Copyright: Copyright 2012 Brian J. Bonislawsky DBA Astigmatic (AOETI)
 - Source: https://github.com/google/fonts/tree/main/ofl/audiowide
@@ -17,7 +17,7 @@ from a CDN at runtime.
 
 ### DM Sans
 
-- Files: `src/localflight/ui/static/fonts/DMSans.ttf`
+- Files: `src/localflight/ui/static/fonts/DMSans.ttf`, `mobile/assets/fonts/DMSans.ttf`
 - Designer: Colophon Foundry
 - Copyright: Copyright 2014 The DM Sans Project Authors
 - Source: https://github.com/googlefonts/dm-fonts
@@ -26,7 +26,7 @@ from a CDN at runtime.
 
 ### Space Mono
 
-- Files: `src/localflight/ui/static/fonts/SpaceMono-Regular.ttf`, `src/localflight/ui/static/fonts/SpaceMono-Bold.ttf`
+- Files: `src/localflight/ui/static/fonts/SpaceMono-Regular.ttf`, `src/localflight/ui/static/fonts/SpaceMono-Bold.ttf`, `mobile/assets/fonts/SpaceMono-Regular.ttf`, `mobile/assets/fonts/SpaceMono-Bold.ttf`
 - Designer: Colophon Foundry
 - Copyright: Copyright 2016 The Space Mono Project Authors
 - Source: https://github.com/googlefonts/spacemono

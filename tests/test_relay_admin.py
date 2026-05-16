@@ -191,6 +191,52 @@ def test_activate_auto_issues_and_client_status_verifies(tmp_path: Path, monkeyp
     assert "203.0.113.42" not in str(request_row["network_tag"])
 
 
+def test_activate_mobile_standalone_uses_standalone_limits(tmp_path: Path, monkeypatch) -> None:
+    _use_temp_db(tmp_path, monkeypatch)
+    client = TestClient(relay_main.app)
+    install_id = "00000000-0000-0000-0000-000000000901"
+
+    response = client.post(
+        "/v1/activate",
+        json={
+            "install_id": install_id,
+            "install_fingerprint": relay_main._install_fingerprint(install_id),
+            "airport_iata": "ZRH",
+            "airport_icao": "LSZH",
+            "timezone": "Europe/Zurich",
+            "device_type": "phone",
+            "display_name": "Mobile standalone",
+            "requested_mode": "mobile_standalone",
+            "app_version": "0.2.6",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["activation_token"].startswith("lfm_")
+    assert payload["limits"]["schedule"] == 600
+    assert payload["limits"]["radar"] == 3000
+
+    conn = relay_main._connect()
+    token = conn.execute(
+        "SELECT schedule_limit, radar_limit FROM activation_tokens WHERE bound_install_id=?",
+        (install_id,),
+    ).fetchone()
+    profile = conn.execute(
+        "SELECT client_kind, device_type, airport_iata, airport_icao, timezone FROM install_profiles WHERE install_id=?",
+        (install_id,),
+    ).fetchone()
+    conn.close()
+    assert token is not None
+    assert int(token["schedule_limit"]) == 600
+    assert int(token["radar_limit"]) == 3000
+    assert profile["client_kind"] == "mobile_standalone"
+    assert profile["device_type"] == "phone"
+    assert profile["airport_iata"] == "ZRH"
+    assert profile["airport_icao"] == "LSZH"
+    assert profile["timezone"] == "Europe/Zurich"
+
+
 def test_activate_uses_manual_review_after_anonymous_network_burst(tmp_path: Path, monkeypatch) -> None:
     _use_temp_db(tmp_path, monkeypatch)
     monkeypatch.setattr(relay_main, "_AUTO_ACTIVATION_NETWORK_DAILY_LIMIT", 2)
@@ -2664,6 +2710,155 @@ def test_client_checkin_records_redacted_fleet_profile_and_preserves_first_seen(
     assert updated["last_seen"] >= row["last_seen"]
     assert updated["app_version"] == "0.2.6"
     assert updated["last_checkin_at"] >= row["last_checkin_at"]
+
+
+def test_relay_airport_search_and_resolve_for_mobile_setup(tmp_path: Path, monkeypatch) -> None:
+    _use_temp_db(tmp_path, monkeypatch)
+    client = TestClient(relay_main.app)
+
+    search = client.get("/v1/airports/search", params={"q": "Zurich"})
+    assert search.status_code == 200
+    assert any(row["iata"] == "ZRH" and row["timezone"] for row in search.json())
+
+    resolved = client.get("/v1/airports/resolve", params={"q": "ZRH"})
+    assert resolved.status_code == 200
+    payload = resolved.json()
+    assert payload["iata"] == "ZRH"
+    assert payload["icao"] == "LSZH"
+    assert payload["lat"] is not None
+    assert payload["lon"] is not None
+
+
+def _activate_mobile_standalone(client: TestClient, install_id: str) -> str:
+    response = client.post(
+        "/v1/activate",
+        json={
+            "install_id": install_id,
+            "install_fingerprint": relay_main._install_fingerprint(install_id),
+            "airport_iata": "ZRH",
+            "airport_icao": "LSZH",
+            "timezone": "Europe/Zurich",
+            "device_type": "phone",
+            "display_name": "Mobile standalone",
+            "requested_mode": "mobile_standalone",
+            "app_version": "0.2.6",
+        },
+    )
+    assert response.status_code == 200
+    return str(response.json()["activation_token"])
+
+
+def test_mobile_standalone_fids_uses_shared_schedule_and_three_hour_policy(tmp_path: Path, monkeypatch) -> None:
+    _use_temp_db(tmp_path, monkeypatch)
+    client = TestClient(relay_main.app)
+    install_id = "00000000-0000-0000-0000-000000000902"
+    token = _activate_mobile_standalone(client, install_id)
+
+    def fake_shared_fetch(**kwargs):
+        payload = _shared_snapshot_payload()
+        stamp = (datetime.now(timezone.utc) + timedelta(hours=1)).replace(microsecond=0).isoformat()
+        for row in payload["records"]:
+            row["scheduled"] = stamp
+            row["estimated"] = stamp
+        return payload
+
+    monkeypatch.setattr(relay_main, "_fetch_shared_schedule_from_upstream", fake_shared_fetch)
+
+    response = client.get(
+        "/v1/mobile/fids",
+        params={
+            "install_id": install_id,
+            "activation_token": token,
+            "app_version": "0.2.6",
+            "client_kind": "mobile_standalone",
+            "airport_iata": "ZRH",
+            "timezone": "Europe/Zurich",
+            "view": "departures",
+        },
+    )
+
+    assert response.status_code == 200
+    rows = response.json()
+    assert rows and rows[0]["callsign"] == "SWR100"
+
+    conn = relay_main._connect()
+    interest = conn.execute(
+        "SELECT client_kind, refresh_seconds FROM client_interests WHERE install_id=?",
+        (install_id,),
+    ).fetchone()
+    conn.close()
+    assert interest["client_kind"] == "mobile_standalone"
+    assert int(interest["refresh_seconds"]) == 10800
+
+
+def test_mobile_standalone_rejects_non_uuid_install_ids(tmp_path: Path, monkeypatch) -> None:
+    _use_temp_db(tmp_path, monkeypatch)
+    client = TestClient(relay_main.app)
+
+    response = client.get(
+        "/v1/mobile/fids",
+        params={
+            "install_id": "not-a-uuid",
+            "activation_token": "lfm_fake",
+            "app_version": "0.2.6",
+            "client_kind": "mobile_standalone",
+            "airport_iata": "ZRH",
+            "timezone": "Europe/Zurich",
+            "view": "departures",
+        },
+    )
+
+    assert response.status_code == 400
+
+
+def test_mobile_standalone_radar_limits_radii_and_serves_cache(tmp_path: Path, monkeypatch) -> None:
+    _use_temp_db(tmp_path, monkeypatch)
+    client = TestClient(relay_main.app)
+    install_id = "00000000-0000-0000-0000-000000000903"
+    token = _activate_mobile_standalone(client, install_id)
+    upstream_calls: list[tuple[float, float, float]] = []
+
+    def fake_adsbx(lat: float, lon: float, radius_nm: float) -> bytes:
+        upstream_calls.append((lat, lon, radius_nm))
+        return json.dumps({
+            "ac": [
+                {
+                    "flight": "SWR42",
+                    "hex": "4b1800",
+                    "lat": 47.46,
+                    "lon": 8.56,
+                    "alt_baro": 3000,
+                    "gs": 140,
+                    "track": 90,
+                }
+            ]
+        }).encode("utf-8")
+
+    monkeypatch.setattr(relay_main, "_fetch_adsbx_payload", fake_adsbx)
+    params = {
+        "install_id": install_id,
+        "activation_token": token,
+        "app_version": "0.2.6",
+        "client_kind": "mobile_standalone",
+        "airport_iata": "ZRH",
+        "radius_nm": 3,
+    }
+
+    rejected = client.get("/v1/mobile/radar", params={**params, "radius_nm": 20})
+    assert rejected.status_code == 422
+
+    first = client.get("/v1/mobile/radar", params=params)
+    second = client.get("/v1/mobile/radar", params=params)
+    unauthenticated_cache_probe = client.get("/v1/mobile/radar", params={**params, "activation_token": ""})
+
+    assert first.status_code == 200
+    assert first.json()["radius_nm"] == 3
+    assert first.json()["refresh_after_s"] == 300
+    assert first.json()["count"] == 1
+    assert second.status_code == 200
+    assert second.headers["x-lf-mobile-standalone-cache"] == "hit"
+    assert unauthenticated_cache_probe.status_code == 403
+    assert len(upstream_calls) == 1
 
 
 def test_admin_fleet_install_refs_support_actions(tmp_path: Path, monkeypatch) -> None:

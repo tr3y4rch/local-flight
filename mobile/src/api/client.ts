@@ -24,7 +24,8 @@ import type {
   RadarResponse,
   RadarSurfaceResponse,
   RequestLogResponse,
-  SchedulerRestartResponse
+  SchedulerRestartResponse,
+  SchedulerStatus
 } from "./types";
 import { getCompanionIdentity } from "../device/identity";
 
@@ -184,8 +185,57 @@ export function getBudget(serverUrl: string): Promise<Budget> {
   return fetchJson<Budget>(serverUrl, "/api/admin/budget");
 }
 
-export function getMobileSummary(serverUrl: string): Promise<DashboardSnapshot> {
-  return fetchJson<DashboardSnapshot>(serverUrl, "/api/mobile/summary");
+async function optionalJson<T>(request: Promise<T>): Promise<T | null> {
+  try {
+    return await request;
+  } catch {
+    return null;
+  }
+}
+
+export function getSchedulerStatus(serverUrl: string): Promise<SchedulerStatus> {
+  return fetchJson<SchedulerStatus>(serverUrl, "/api/admin/scheduler");
+}
+
+export async function getMobileSummary(serverUrl: string): Promise<DashboardSnapshot> {
+  try {
+    return await fetchJson<DashboardSnapshot>(serverUrl, "/api/mobile/summary");
+  } catch (error) {
+    if (!(error instanceof LocalFlightApiError) || error.status !== 404) {
+      throw error;
+    }
+  }
+
+  const [
+    config,
+    state,
+    system,
+    connections,
+    updates,
+    budget,
+    scheduler,
+    metar
+  ] = await Promise.all([
+    getConfig(serverUrl),
+    optionalJson(getHealth(serverUrl)),
+    optionalJson(getAdminSystem(serverUrl)),
+    optionalJson(getConnections(serverUrl)),
+    optionalJson(getUpdates(serverUrl)),
+    optionalJson(getBudget(serverUrl)),
+    optionalJson(getSchedulerStatus(serverUrl)),
+    optionalJson(getMetar(serverUrl))
+  ]);
+
+  return {
+    config,
+    state,
+    system,
+    connections,
+    updates,
+    budget,
+    scheduler,
+    metar
+  };
 }
 
 export function restartScheduler(serverUrl: string): Promise<SchedulerRestartResponse> {

@@ -25,6 +25,7 @@ dependencies = [
   "psutil",
   "pystray",
   "pillow",
+  "qrcode",
   "python-multipart",
 ]
 

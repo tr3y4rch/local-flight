@@ -113,6 +113,8 @@ def _write_info_plist(contents: Path, version: str) -> None:
     <string>Local Flight</string>
     <key>CFBundleIdentifier</key>
     <string>com.localflight.app</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
     <key>CFBundleVersion</key>
     <string>{version}</string>
     <key>CFBundleShortVersionString</key>
@@ -123,6 +125,12 @@ def _write_info_plist(contents: Path, version: str) -> None:
     <string>AppIcon</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
+    <key>CFBundleGetInfoString</key>
+    <string>Local Flight {version}</string>
+    <key>NSHumanReadableCopyright</key>
+    <string>MIT License - Philipp Schumacher</string>
+    <key>NSPrincipalClass</key>
+    <string>NSApplication</string>
     <key>LSApplicationCategoryType</key>
     <string>public.app-category.utilities</string>
     <key>LSMinimumSystemVersion</key>
@@ -166,7 +174,7 @@ def _write_launcher(macos_dir: Path, project_root: Path, venv: Path) -> None:
             export LOCALFLIGHT_GUI_MODE="native"
         fi
 
-        exec "$VENV/bin/python" -m localflight
+        exec -a "Local Flight" "$VENV/bin/python" -m localflight
     """)
     sh = macos_dir / "launcher.sh"
     sh.write_text(script, encoding="utf-8")

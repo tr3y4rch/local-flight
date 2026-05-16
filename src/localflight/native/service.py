@@ -437,3 +437,6 @@ class NativeApiService:
             history_stats=self.history_stats(),
             weather=weather,
         )
+
+    def connections(self) -> dict[str, Any]:
+        return self.client.get_json("/api/admin/connections")

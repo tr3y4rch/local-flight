@@ -2,7 +2,7 @@
   "expo": {
     "name": "Local Flight Companion",
     "slug": "localflight-companion",
-    "version": "0.2.6",
+    "version": "0.2.7",
     "scheme": "localflight",
     "orientation": "default",
     "userInterfaceStyle": "automatic",
@@ -25,7 +25,9 @@
           }
         }
       ],
-      "expo-font"
+      "expo-font",
+      "expo-sqlite",
+      "expo-secure-store"
     ],
     "ios": {
       "bundleIdentifier": "com.localflight.companion",
@@ -46,7 +48,7 @@
     },
     "extra": {
       "localFlightServerHint": "http://192.168.1.10:8000",
-      "localFlightVersion": "0.2.6"
+      "localFlightVersion": "0.2.7"
     }
   }
 }

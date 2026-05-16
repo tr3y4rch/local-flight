@@ -3,7 +3,8 @@
 `0.2.7` is the next client-polish release candidate after the `0.2.6`
 baseline. The focus is the public Local Flight experience: the native Qt shell
 is calmer, FIDS reads more like a passenger board, setup/settings/history/matrix
-are friendlier, and the LAN browser UI remains a supported access surface.
+are friendlier, the LAN browser UI remains a supported access surface, and the
+mobile app now has a clear LAN Companion vs Standalone shape.
 
 This release does not change the basic setup choices. You can still use
 Community Relay, bring your own provider keys, or run VATSIM-only virtual
@@ -29,6 +30,9 @@ traffic.
 - **Shared app typography and assets.** Native, LAN browser, and mobile surfaces
   use bundled local fonts and local support assets instead of online font/CDN
   dependencies.
+- **Mobile Standalone preview.** The same Expo app can now be set up as either
+  a LAN Companion for your desktop/Pi server or as a simplified Standalone phone
+  board through the hosted relay.
 
 ---
 
@@ -62,6 +66,26 @@ traffic.
 
 ---
 
+## Mobile
+
+- First-run mobile setup now asks whether the device should be a **LAN
+  Companion** or **Standalone** install.
+- LAN Companion keeps the current paired-server behavior: WebSocket updates,
+  server settings/control surfaces where allowed, server-mediated reporting, and
+  the full Local Flight desktop/Pi relationship.
+- Standalone registers its own mobile relay install, stores its relay activation
+  token and airport locally, and talks to relay `/v1/mobile/*` endpoints without
+  needing a desktop or Pi on the LAN.
+- Standalone is intentionally simpler: FIDS refreshes no faster than every 3
+  hours, radar refreshes no faster than every 5 minutes, radar ranges are `1`,
+  `3`, `5`, and `10` NM, and Matrix/Admin/server-control tools are hidden.
+- Standalone History is local on the device through Expo SQLite and retains 30
+  days or 1,000 rows, whichever is smaller.
+- Standalone manual/crash reports go directly to the relay reporting gateway.
+  Automatic reports require the mobile diagnostics choice to allow them.
+
+---
+
 ## History, Settings, Setup
 
 - History is a dashboard-first view: filters, KPIs, delay buckets, airline
@@ -82,6 +106,8 @@ traffic.
   available as compatible sparse fill/fallback where configured.
 - Community Relay remains cache-first and may keep serving the last safe shared
   airport snapshot if a live provider is slow, capped, or suspiciously sparse.
+- Mobile Standalone uses the same relay provider policy as Community Relay, but
+  adds stricter mobile-specific cadence and radar-range limits.
 - Public client docs continue to avoid operator-only relay/admin details.
 
 ---
@@ -103,8 +129,8 @@ This operator console is not part of the normal public client navigation.
 ## Release Packaging
 
 Windows and Raspberry Pi artifacts should be built from the current `0.2.7`
-tree. Older `0.2.6` artifact hashes should be treated as stale after the
-client-polish changes.
+tree. Older `0.2.6` artifacts and any pre-Standalone `0.2.7` artifacts should
+be treated as stale after the client-polish changes.
 
 macOS still needs its own packaging and smoke-test pass on a Mac before a full
 cross-platform GitHub release.

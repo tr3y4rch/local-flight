@@ -1,10 +1,13 @@
 # Local Flight Companion
 
-React Native / Expo companion app for Local Flight.
+React Native / Expo mobile app for Local Flight.
 
-The companion is an iOS-first developer preview. It is not on the App Store, TestFlight, Play Store, or available as an APK yet, but it is now a real LAN companion instead of a bare prototype.
+The mobile app is an iOS-first developer preview. It is not on the App Store, TestFlight, Play Store, or available as an APK yet, but it now supports two first-run paths:
 
-The Python/FastAPI desktop or Pi app remains the server of record. The mobile app reads that server's APIs, listens for WebSocket updates, and keeps its own mobile-only appearance and diagnostics choices.
+- **LAN Companion:** pair with the Local Flight desktop or Raspberry Pi server on your Wi-Fi/LAN. This keeps the full companion behavior.
+- **Standalone:** use the hosted Local Flight relay directly for a simplified phone board. This is intentionally rate-limited to protect shared relay/API tokens.
+
+For most home setups, start with LAN Companion. Use Standalone when you want a light mobile FIDS/Radar/History app without running your own Local Flight server.
 
 ---
 
@@ -13,7 +16,8 @@ The Python/FastAPI desktop or Pi app remains the server of record. The mobile ap
 - macOS with an Xcode version compatible with Expo SDK 55
 - Node.js 20 LTS or newer
 - iPhone/iPad connected for device builds, or an iOS simulator
-- Local Flight already running on the same WiFi/LAN
+- For LAN Companion: Local Flight already running on the same Wi-Fi/LAN
+- For Standalone: internet access to the hosted relay
 
 Expo SDK 55 targets React Native 0.83 and React 19.2. Run `npm run doctor` after install on the Mac to confirm the active Xcode, CocoaPods, and package versions are compatible.
 
@@ -66,13 +70,38 @@ cd mobile
 npm run ios:device
 ```
 
-In the app, enter the Local Flight server URL from your LAN, for example:
+On first launch, choose how this device should work.
+
+### LAN Companion
+
+Choose **LAN Companion** when you already run Local Flight on Windows, macOS, or Raspberry Pi.
+
+Enter the Local Flight server URL from your LAN, for example:
 
 ```text
 http://192.168.1.42:8000
 ```
 
 Do not use `localhost` on a physical iPhone. `localhost` means the phone itself, not your Mac, Windows PC, or Raspberry Pi.
+
+### Standalone
+
+Choose **Standalone** when this phone should use the hosted relay directly.
+
+Standalone setup asks for:
+
+1. Airport
+2. Mobile diagnostics choice
+3. Relay activation
+
+Standalone mode is deliberately simpler than the full companion:
+
+- FIDS auto-refreshes no faster than every 3 hours.
+- Radar refreshes no faster than every 5 minutes.
+- Radar range choices are `1`, `3`, `5`, and `10` NM only.
+- No WebSocket connection is opened.
+- Matrix, Admin, scheduler restart, server URL tools, and other server-control features are hidden.
+- History is stored locally on the phone with Expo SQLite and retained for 30 days or 1,000 rows, whichever is smaller.
 
 Deep geometry QA is optional and intentionally slow:
 
@@ -87,29 +116,31 @@ The screenshot script builds a self-contained simulator app and captures portrai
 
 ## What Works Now
 
-- FIDS and Radar as the main daily-use companion screens
-- Settings as the main tool hub for server connection, appearance, matrix, admin summary, docs, feedback, and local profiles
-- History, Matrix, Admin, and Docs launched from Settings instead of crowding the bottom nav
-- SecureStore persistence for server URL, companion ID, mobile diagnostics mode, and mobile appearance choices
-- Connection checks against `/api/health`
-- Dashboard data from `/api/admin/system`, `/api/config`, `/api/health`, `/api/admin/budget`, `/api/admin/connections`, `/api/admin/updates`, and `/api/metar`
-- Native FIDS list from `/api/fids`
+- First-run setup choice for LAN Companion or Standalone
+- FIDS/Board, Radar, History, and Settings as the daily-use mobile surfaces
+- SecureStore persistence for setup mode, server URL, companion ID, standalone relay install ID, standalone activation token, standalone airport, mobile diagnostics mode, pinned flight, profiles, and mobile appearance choices
+- LAN Companion connection checks against `/api/health`
+- LAN Companion dashboard data from `/api/mobile/summary` plus the existing local APIs
+- Standalone summary, FIDS, Radar, and METAR data from relay `/v1/mobile/*` endpoints
+- Native FIDS list from local `/api/fids` in LAN Companion mode and relay `/v1/mobile/fids` in Standalone mode
 - Flight details from `/api/fids/detail`, including the server's shared current-source detail model for real vs VATSIM schedule, motion, aircraft, weather, source confidence, and history fields when available
 - Airport, source, and refresh interval editing. The server offers 15, 30, 45, and 60 minute choices plus longer 2, 4, 8, 12, and 24 hour choices where the active schedule mode allows them. Community Relay shows hourly-or-slower choices because shared airport snapshots protect upstream schedule access.
 - Pinned flight island with pin/unpin and tap-for-detail behavior
-- WebSocket listener for `/ws` `snapshot_updated`, `config_updated`, and `scheduler_restarted` events
+- WebSocket listener for `/ws` `snapshot_updated`, `config_updated`, and `scheduler_restarted` events in LAN Companion mode only
 - Independent mobile appearance with dark/light theme plus `standard`, `technical`, `neon`, `cyan`, and `crt` skins
 - Server-backed Matrix runtime editor using `/api/matrix/config`, with local-only panel preview presets. Real-world Matrix feeds can expose gate/stand labels when available; VATSIM Matrix presets intentionally hide gate placeholders.
 - Fullscreen landscape FIDS from any screen, with normal portrait state restored when rotating back
-- Mobile-owned radar radius controls with server-mediated runway and airport-surface drawing
-- In-app Markdown reader for README, Privacy, and Changelog
-- Feedback and crash reporting through the connected Local Flight server
+- Mobile-owned radar radius controls. LAN Companion uses the paired server for runway and airport-surface drawing; Standalone uses the relay mobile radar response for this pass.
+- Local standalone history database with Expo SQLite
+- Feedback and crash reporting through the connected Local Flight server in LAN Companion mode, or directly through the hosted relay in Standalone mode
+
+Standalone deliberately hides Matrix, Admin, scheduler restart, server-control panels, and LAN companion check-in. The goal is a useful mobile board, not a mini desktop clone.
 
 ---
 
 ## Privacy Model
 
-The companion is server-mediated:
+### LAN Companion
 
 - It talks to your Local Flight server over your LAN.
 - It does not call AviationStack, ADS-B Exchange, RapidAPI, OpenSky, VATSIM, or the hosted relay directly.
@@ -117,17 +148,28 @@ The companion is server-mediated:
 - Manual reports remain available from the app.
 - Expo JS/React errors are covered by the current crash reporter. Native iOS crashes before JavaScript starts are not covered without a native crash-reporting service or Apple crash logs.
 
-The companion ID is install-scoped. It is there so reports and connection logs can say "this came from the phone" without needing an account.
+### Standalone
+
+- It talks directly to the hosted Local Flight relay.
+- It registers a separate relay install UUID and activation token for this mobile install.
+- It stores the selected airport and local flight history on the device.
+- Manual reports go directly to relay `/v1/reports`.
+- Automatic reports only send when the mobile diagnostics choice is `auto` or `auto_logs`.
+- It does not store phone-local history on the relay.
+
+The companion ID and standalone relay install ID are install-scoped. They are there so reports, quotas, and troubleshooting can say "this came from this app install" without needing an account.
 
 ---
 
 ## Structure
 
 - `App.tsx` is only the provider entrypoint.
-- `src/app/AppShell.tsx` coordinates connection state, refresh flow, WebSocket handling, and shared app chrome.
+- `src/app/AppShell.tsx` coordinates setup mode, connection state, refresh flow, WebSocket handling, standalone relay flow, and shared app chrome.
+- `src/api/standalone.ts` is the relay-backed mobile data/report client for Standalone mode.
 - `src/domain/` contains pure helpers and constants for flights, formatting, radar, matrix, and feedback context.
 - `src/hooks/` contains stateful behavior such as launch/bootstrap, dashboard refresh, flight detail loading, and Matrix draft/save/reset.
 - `src/screens/AppScreens.tsx` contains the main screens and sheets.
+- `src/storage/standaloneHistory.ts` stores successful standalone FIDS rows locally with Expo SQLite.
 - `src/theme/` contains mobile appearance tokens, runtime appearance storage, and the style bridge used by extracted screens.
 
 ---
@@ -139,6 +181,7 @@ The companion ID is install-scoped. It is there so reports and connection logs c
 - QR pairing and per-device tokens
 - Production-ready admin permission model
 - Native crash capture before JavaScript starts
+- Full standalone flight-detail endpoint parity; Standalone currently focuses on Board, Radar, History, Settings, and reports
 
 ---
 
@@ -147,5 +190,6 @@ The companion ID is install-scoped. It is there so reports and connection logs c
 - QR pairing and per-device tokens before broader mutating admin controls
 - Android test pass after the iOS companion stabilizes
 - Real navigation stack once screen history/deep links justify it
-- iPad keep-awake/display-mode polish
+- iPad and landscape display-mode polish
+- Standalone on-device UX pass on a real iPhone after relay deployment
 - Native radar rendering polish around labels, density, and tablet geometry

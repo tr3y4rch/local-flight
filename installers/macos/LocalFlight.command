@@ -32,4 +32,4 @@ if [ "${LOCALFLIGHT_GUI_MODE:-native}" != "browser" ] && [ "${LOCALFLIGHT_GUI_MO
 fi
 "$VENV/bin/python" -m pip install -e "$INSTALL_TARGET" -q
 
-exec "$VENV/bin/python" -m localflight
+exec -a "Local Flight" "$VENV/bin/python" -m localflight

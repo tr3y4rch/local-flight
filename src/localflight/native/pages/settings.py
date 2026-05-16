@@ -8,8 +8,10 @@ from __future__ import annotations
 
 import webbrowser
 from concurrent.futures import Future
+from datetime import datetime, timezone
 from typing import Any
 
+from localflight.companion_pairing import pairing_gateway_payload, pairing_qr_png_bytes
 from localflight.core.settings_options import (
     DIAGNOSTICS_OPTIONS,
     OUTPUT_OPTIONS,
@@ -379,6 +381,7 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
         self.layout.addWidget(box)
 
     def _build_help_privacy(self) -> None:
+        self._build_companion_pairing()
         self._build_relay_details()
         self._build_help_docs()
         self._build_diagnostics_maintenance()
@@ -427,6 +430,57 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
             cell = self._detail_cell(title, value)
             grid.addWidget(cell, index // 2, index % 2)
         layout.addLayout(grid)
+
+    def _build_companion_pairing(self) -> None:
+        self.companion_group, self.companion_body, layout = self._collapsible_section("Pair Companion")
+        self.companion_group.setChecked(True)
+        layout.addWidget(
+            label(
+                self.QtWidgets,
+                "Scan this from each iPhone/iPad you want to pair. The same QR can be reused by multiple companions on the same LAN.",
+                "Muted",
+                wrap=True,
+            )
+        )
+
+        row = self.QtWidgets.QHBoxLayout()
+        row.setSpacing(14)
+        self.companion_qr_label = self.QtWidgets.QLabel("QR loading...")
+        self.companion_qr_label.setObjectName("PreviewCard")
+        self.companion_qr_label.setAlignment(self.QtCore.Qt.AlignCenter)
+        self.companion_qr_label.setFixedSize(204, 204)
+        row.addWidget(self.companion_qr_label)
+
+        details = self.QtWidgets.QVBoxLayout()
+        details.setSpacing(8)
+        self.companion_count_label = label(self.QtWidgets, "0 paired", "Section")
+        self.companion_pairing_url_label = label(self.QtWidgets, "Pairing link loading...", "Muted", wrap=True)
+        self.companion_manual_url_label = label(self.QtWidgets, "Manual URL loading...", "Muted", wrap=True)
+        self.companion_entries_label = label(self.QtWidgets, "No companion check-ins yet.", "Muted", wrap=True)
+        details.addWidget(self.companion_count_label)
+        details.addWidget(self.companion_pairing_url_label)
+        details.addWidget(self.companion_manual_url_label)
+        details.addWidget(self.companion_entries_label, 1)
+
+        controls = self.QtWidgets.QHBoxLayout()
+        refresh = self.QtWidgets.QPushButton("Refresh paired devices")
+        refresh.setObjectName("Quiet")
+        refresh.clicked.connect(self._refresh_companion_gateway)
+        copy_pair = self.QtWidgets.QPushButton("Copy pairing link")
+        copy_pair.setObjectName("Quiet")
+        copy_pair.clicked.connect(self._copy_pairing_link)
+        copy_url = self.QtWidgets.QPushButton("Copy LAN URL")
+        copy_url.setObjectName("Quiet")
+        copy_url.clicked.connect(self._copy_manual_pairing_url)
+        controls.addWidget(refresh)
+        controls.addWidget(copy_pair)
+        controls.addWidget(copy_url)
+        controls.addStretch(1)
+        details.addLayout(controls)
+
+        row.addLayout(details, 1)
+        layout.addLayout(row)
+        self._render_pairing_payload()
 
     def _build_help_docs(self) -> None:
         self.help_docs_group, self.help_docs_body, layout = self._collapsible_section("Diagnostics & Docs")
@@ -632,7 +686,86 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
         self._refresh_current(cfg)
         self._refresh_install()
         self._refresh_profiles()
+        self._refresh_companion_gateway()
         self._set_status("Current local settings loaded.", "StatusGood")
+
+    def _pairing_payload(self) -> dict[str, object]:
+        return pairing_gateway_payload(base_url=self.base_url)
+
+    def _render_pairing_payload(self) -> None:
+        payload = self._pairing_payload()
+        self._current_pairing_link = str(payload.get("deep_link") or "")
+        self._current_manual_pairing_url = str(payload.get("preferred_url") or "")
+        self.companion_pairing_url_label.setText(f"Deep link: {self._current_pairing_link}")
+        manual_urls = payload.get("manual_urls") if isinstance(payload.get("manual_urls"), list) else []
+        manual_text = "\n".join(str(item) for item in manual_urls[:3]) or self._current_manual_pairing_url
+        self.companion_manual_url_label.setText(f"Manual URL:\n{manual_text}")
+
+        png = pairing_qr_png_bytes(self._current_pairing_link, size=190)
+        if png:
+            pixmap = self.QtGui.QPixmap()
+            if pixmap.loadFromData(png, "PNG"):
+                self.companion_qr_label.setPixmap(pixmap)
+                self.companion_qr_label.setText("")
+                return
+        self.companion_qr_label.setPixmap(self.QtGui.QPixmap())
+        self.companion_qr_label.setText("QR unavailable\nCopy the pairing link below.")
+
+    def _refresh_companion_gateway(self) -> None:
+        self._render_pairing_payload()
+        try:
+            payload = self.service.connections()
+        except Exception as exc:
+            self.companion_count_label.setText("Pairing status unavailable")
+            self.companion_entries_label.setText(f"Could not read paired companions: {exc}")
+            return
+
+        companions = payload.get("companions") if isinstance(payload.get("companions"), list) else []
+        count = int(payload.get("companion_count") or len(companions) or 0)
+        self.companion_count_label.setText("1 paired" if count == 1 else f"{count} paired")
+        if not companions:
+            self.companion_entries_label.setText("No companion check-ins yet. Scan the QR from each iPhone/iPad to pair.")
+            return
+
+        lines = []
+        for item in companions[:5]:
+            device = str(item.get("device_type") or "device").title()
+            os_label = str(item.get("mobile_os") or "Unknown OS")
+            version = str(item.get("app_version") or "unknown")
+            seen = self._relative_time(str(item.get("last_seen") or ""))
+            lines.append(f"{device} - {os_label} - v{version} - {seen}")
+        self.companion_entries_label.setText("\n".join(lines))
+
+    def _copy_pairing_link(self) -> None:
+        self._render_pairing_payload()
+        self.QtWidgets.QApplication.clipboard().setText(getattr(self, "_current_pairing_link", ""))
+        self._set_status("Pairing link copied. Reuse it for any companion on this LAN.", "StatusGood")
+
+    def _copy_manual_pairing_url(self) -> None:
+        self._render_pairing_payload()
+        self.QtWidgets.QApplication.clipboard().setText(getattr(self, "_current_manual_pairing_url", ""))
+        self._set_status("Manual LAN URL copied for companion setup.", "StatusGood")
+
+    def _relative_time(self, value: str) -> str:
+        if not value:
+            return "not seen yet"
+        try:
+            seen = datetime.fromisoformat(value)
+            if seen.tzinfo is None:
+                seen = seen.replace(tzinfo=timezone.utc)
+            delta = datetime.now(timezone.utc) - seen
+        except Exception:
+            return value
+        seconds = max(0, int(delta.total_seconds()))
+        if seconds < 90:
+            return f"{seconds}s ago"
+        minutes = seconds // 60
+        if minutes < 90:
+            return f"{minutes}m ago"
+        hours = minutes // 60
+        if hours < 48:
+            return f"{hours}h ago"
+        return f"{hours // 24}d ago"
 
     def _populate_config(self, cfg: dict[str, Any]) -> None:
         self.airport_iata.setText(str(cfg.get("airport_iata") or ""))

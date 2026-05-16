@@ -14,9 +14,17 @@ def test_pyinstaller_macos_bundle_is_foreground_app() -> None:
     spec = (ROOT / "LocalFlight.spec").read_text(encoding="utf-8")
 
     assert '"LSUIElement"' not in spec
+    assert 'bundle_identifier=_BUNDLE_IDENTIFIER' in spec
+    assert '"CFBundleExecutable": "LocalFlight"' in spec
+    assert '"CFBundlePackageType": "APPL"' in spec
+    assert '"NSPrincipalClass": "NSApplication"' in spec
     assert '"CFBundleVersion": _VERSION' in spec
     assert '"LSApplicationCategoryType": "public.app-category.utilities"' in spec
     assert 'icon="assets/icon.icns"' in spec
+    assert "localflight_version_info.txt" in spec
+    assert "SetCurrentProcessExplicitAppUserModelID" in (
+        ROOT / "src" / "localflight" / "native" / "identity.py"
+    ).read_text(encoding="utf-8")
 
 
 def test_source_macos_bundle_plist_has_dock_identity(tmp_path: Path) -> None:
@@ -26,9 +34,20 @@ def test_source_macos_bundle_plist_has_dock_identity(tmp_path: Path) -> None:
 
     assert "LSUIElement" not in plist
     assert plist["CFBundleDisplayName"] == "Local Flight"
+    assert plist["CFBundleExecutable"] == "LocalFlight"
     assert plist["CFBundleIconFile"] == "AppIcon"
     assert plist["CFBundlePackageType"] == "APPL"
+    assert plist["NSPrincipalClass"] == "NSApplication"
     assert plist["LSApplicationCategoryType"] == "public.app-category.utilities"
+
+
+def test_source_macos_launchers_use_local_flight_process_title() -> None:
+    for launcher in (
+        ROOT / "scripts" / "make_app_bundle.py",
+        ROOT / "installers" / "macos" / "LocalFlight.command",
+        ROOT / "installers" / "macos" / "start.sh",
+    ):
+        assert 'exec -a "Local Flight" "$VENV/bin/python" -m localflight' in launcher.read_text(encoding="utf-8")
 
 
 def test_macos_icon_source_is_rounded_square_asset() -> None:

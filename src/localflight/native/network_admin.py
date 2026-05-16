@@ -13,8 +13,9 @@ from typing import Any, Callable
 from urllib.parse import urlencode
 
 from localflight.native.api_client import NativeApiError, RelayAdminClient
-from localflight.native.design import apply_app_font_defaults, icon_from_media, native_stylesheet
+from localflight.native.design import apply_app_font_defaults, native_stylesheet
 from localflight.native.geometry import fitted_window_size
+from localflight.native.identity import configure_qt_app_identity, localflight_app_icon
 from localflight.native.qt_compat import import_qt
 from localflight.native.routes import NETWORK_ADMIN_ROUTES
 
@@ -34,15 +35,16 @@ def main() -> None:
     try:
         QtCore, QtGui, QtWidgets = import_qt()
         app = QtWidgets.QApplication.instance() or QtWidgets.QApplication(sys.argv[:1])
-        app.setApplicationName("Local Flight Network Admin")
-        if hasattr(app, "setApplicationDisplayName"):
-            app.setApplicationDisplayName("Local Flight Network Admin")
-        app.setOrganizationName("Local Flight")
-        app.setOrganizationDomain("localflight.app")
+        configure_qt_app_identity(
+            QtCore,
+            QtGui,
+            app,
+            display_name="Local Flight Network Admin",
+            app_id="com.localflight.network-admin",
+            desktop_file_name="localflight-network-admin",
+        )
         apply_app_font_defaults(QtGui, app)
-        app_icon = icon_from_media(QtGui, "assets", "icon.ico")
-        if app_icon.isNull():
-            app_icon = icon_from_media(QtGui, "assets", "localflight-logo.svg")
+        app_icon = localflight_app_icon(QtGui)
         if not app_icon.isNull():
             app.setWindowIcon(app_icon)
         window = NetworkAdminWindow(QtCore, QtWidgets)

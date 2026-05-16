@@ -52,4 +52,4 @@ echo " Dependencies OK"
 echo " Launching Local Flight..."
 echo " GUI mode: ${LOCALFLIGHT_GUI_MODE:-auto}"
 echo ""
-exec "$VENV/bin/python" -m localflight
+exec -a "Local Flight" "$VENV/bin/python" -m localflight

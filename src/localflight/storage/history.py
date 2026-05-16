@@ -306,6 +306,17 @@ def _status_label(status: str) -> str:
     return cleaned.title() if cleaned else "Unknown"
 
 
+def _movement_key_expr() -> str:
+    """Stable movement key used to collapse repeated snapshot observations."""
+    return """
+        COALESCE(NULLIF(UPPER(flight_number), ''), NULLIF(UPPER(callsign), ''), 'ROW:' || id)
+        || '|' || COALESCE(direction, '')
+        || '|' || COALESCE(origin_iata, '')
+        || '|' || COALESCE(dest_iata, '')
+        || '|' || COALESCE(SUBSTR(sched_time, 1, 16), SUBSTR(actual_time, 1, 16), SUBSTR(snapshot_ts, 1, 13), '')
+    """
+
+
 def query_flight_history(callsign: str, days: int = 7) -> List[Dict[str, Any]]:
     """Return all records for a specific callsign over the last N days."""
     cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
@@ -357,17 +368,30 @@ def query_summary(
             row = conn.execute(sql, tuple(params) + extra).fetchone()
             return row[0] if row else None
 
-        total = int(_one(f"SELECT COUNT(*) FROM flights WHERE {where}") or 0)
-        dep_count = int(_one(f"SELECT COUNT(*) FROM flights WHERE {where} AND direction='DEP'") or 0)
-        arr_count = int(_one(f"SELECT COUNT(*) FROM flights WHERE {where} AND direction='ARR'") or 0)
-        delayed = int(_one(f"SELECT COUNT(*) FROM flights WHERE {where} AND delay_minutes >= 5") or 0)
-        on_time = int(_one(f"SELECT COUNT(*) FROM flights WHERE {where} AND delay_minutes BETWEEN -4 AND 4") or 0)
-        avg_delay = _one(f"SELECT AVG(delay_minutes) FROM flights WHERE {where} AND delay_minutes > 0")
+        raw_sample_rows = int(_one(f"SELECT COUNT(*) FROM flights WHERE {where}") or 0)
+        summary_source = f"""
+            (
+                SELECT f.*
+                FROM flights f
+                JOIN (
+                    SELECT MAX(id) AS id
+                    FROM flights
+                    WHERE {where}
+                    GROUP BY {_movement_key_expr()}
+                ) latest ON latest.id = f.id
+            )
+        """
+
+        total = int(_one(f"SELECT COUNT(*) FROM {summary_source}") or 0)
+        dep_count = int(_one(f"SELECT COUNT(*) FROM {summary_source} WHERE direction='DEP'") or 0)
+        arr_count = int(_one(f"SELECT COUNT(*) FROM {summary_source} WHERE direction='ARR'") or 0)
+        delayed = int(_one(f"SELECT COUNT(*) FROM {summary_source} WHERE delay_minutes >= 5") or 0)
+        on_time = int(_one(f"SELECT COUNT(*) FROM {summary_source} WHERE delay_minutes BETWEEN -4 AND 4") or 0)
+        avg_delay = _one(f"SELECT AVG(delay_minutes) FROM {summary_source} WHERE delay_minutes > 0")
 
         bucket_rows = _rows(f"""
             SELECT {_delay_bucket_case()} AS bucket, COUNT(*) as count
-            FROM flights
-            WHERE {where}
+            FROM {summary_source}
             GROUP BY bucket
         """)
         bucket_counts = {str(row.get("bucket")): int(row.get("count") or 0) for row in bucket_rows}
@@ -383,8 +407,7 @@ def query_summary(
 
         status_rows = _rows(f"""
             SELECT LOWER(COALESCE(NULLIF(status, ''), 'unknown')) as status, COUNT(*) as count
-            FROM flights
-            WHERE {where}
+            FROM {summary_source}
             GROUP BY LOWER(COALESCE(NULLIF(status, ''), 'unknown'))
             ORDER BY count DESC
         """)
@@ -405,8 +428,8 @@ def query_summary(
                 SUM(CASE WHEN delay_minutes >= 5 THEN 1 ELSE 0 END) as delayed_count,
                 SUM(CASE WHEN delay_minutes BETWEEN -4 AND 4 THEN 1 ELSE 0 END) as on_time_count,
                 AVG(CASE WHEN delay_minutes > 0 THEN delay_minutes END) as avg_delay_minutes
-            FROM flights
-            WHERE {where} AND airline_iata IS NOT NULL AND airline_iata!=''
+            FROM {summary_source}
+            WHERE airline_iata IS NOT NULL AND airline_iata!=''
             GROUP BY airline_iata ORDER BY count DESC LIMIT 10
         """)
         for row in top_airlines:
@@ -418,20 +441,20 @@ def query_summary(
 
         top_destinations = _rows(f"""
             SELECT dest_iata as code, COUNT(*) as count
-            FROM flights
-            WHERE {where} AND direction='DEP' AND dest_iata IS NOT NULL AND dest_iata!=''
+            FROM {summary_source}
+            WHERE direction='DEP' AND dest_iata IS NOT NULL AND dest_iata!=''
             GROUP BY dest_iata ORDER BY count DESC LIMIT 10
         """)
         top_origins = _rows(f"""
             SELECT origin_iata as code, COUNT(*) as count
-            FROM flights
-            WHERE {where} AND direction='ARR' AND origin_iata IS NOT NULL AND origin_iata!=''
+            FROM {summary_source}
+            WHERE direction='ARR' AND origin_iata IS NOT NULL AND origin_iata!=''
             GROUP BY origin_iata ORDER BY count DESC LIMIT 10
         """)
         top_aircraft = _rows(f"""
             SELECT aircraft_type, COUNT(*) as count
-            FROM flights
-            WHERE {where} AND aircraft_type IS NOT NULL AND aircraft_type!=''
+            FROM {summary_source}
+            WHERE aircraft_type IS NOT NULL AND aircraft_type!=''
             GROUP BY aircraft_type ORDER BY count DESC LIMIT 10
         """)
 
@@ -442,9 +465,8 @@ def query_summary(
                 direction,
                 COUNT(*) as count,
                 SUM(CASE WHEN delay_minutes >= 5 THEN 1 ELSE 0 END) as delayed_count
-            FROM flights
-            WHERE {where}
-              AND origin_iata IS NOT NULL AND origin_iata!=''
+            FROM {summary_source}
+            WHERE origin_iata IS NOT NULL AND origin_iata!=''
               AND dest_iata IS NOT NULL AND dest_iata!=''
             GROUP BY origin_iata, dest_iata, direction
             ORDER BY count DESC LIMIT 10
@@ -460,8 +482,8 @@ def query_summary(
                 SUM(CASE WHEN direction='ARR' THEN 1 ELSE 0 END) as arrivals,
                 COUNT(*) as total,
                 SUM(CASE WHEN delay_minutes >= 5 THEN 1 ELSE 0 END) as delayed
-            FROM flights
-            WHERE {where} AND COALESCE(sched_time, snapshot_ts) IS NOT NULL
+            FROM {summary_source}
+            WHERE COALESCE(sched_time, snapshot_ts) IS NOT NULL
             GROUP BY date
             ORDER BY date ASC
         """)
@@ -473,8 +495,8 @@ def query_summary(
                 SUM(CASE WHEN direction='ARR' THEN 1 ELSE 0 END) as arrivals,
                 COUNT(*) as total,
                 SUM(CASE WHEN delay_minutes >= 5 THEN 1 ELSE 0 END) as delayed
-            FROM flights
-            WHERE {where} AND COALESCE(sched_time, snapshot_ts) IS NOT NULL
+            FROM {summary_source}
+            WHERE COALESCE(sched_time, snapshot_ts) IS NOT NULL
             GROUP BY hour
             ORDER BY hour ASC
         """)
@@ -485,6 +507,7 @@ def query_summary(
             "airport_iata":       airport_iata,
             "hours":              hours,
             "total":              total,
+            "sample_rows":        raw_sample_rows,
             "departures":         dep_count,
             "arrivals":           arr_count,
             "delayed":            delayed,

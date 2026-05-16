@@ -10,7 +10,7 @@ For Windows and macOS, use the **native Qt desktop shell**.
 
 It is the recommended primary desktop client because it opens a real app window without depending on Chrome, Edge, Chromium, browser profiles, browser sync, extensions, cookies, browsing history, webviews, online fonts, or CDN assets.
 
-The native app still starts the same local FastAPI server. That means the LAN browser UI, mobile companion, Matrix board, and API clients continue to work while the native shell is running.
+The native app still starts the same local FastAPI server. That means the LAN browser UI, mobile LAN Companion, Matrix board, and API clients continue to work while the native shell is running.
 
 ---
 
@@ -23,7 +23,8 @@ The native app still starts the same local FastAPI server. That means the LAN br
 | Always-on Pi server with no screen | Pi headless |
 | Pi attached to an HDMI display without a browser process | Native Qt kiosk |
 | Pi attached to an HDMI display using the web board | Chromium kiosk display |
-| iPhone or iPad companion | Mobile companion |
+| iPhone or iPad paired to your Local Flight server | Mobile LAN Companion |
+| iPhone-only simplified board | Mobile Standalone |
 | LED passenger board | Interstate 75 W Matrix client |
 
 ---
@@ -83,7 +84,7 @@ It runs:
 - Scheduler
 - WebSocket updates
 - LAN browser UI
-- Mobile companion API
+- Mobile LAN Companion API
 - Matrix feed/API
 
 It does not open a local window on the Pi.
@@ -118,13 +119,15 @@ This is useful when the browser UI fits your display setup better or native Qt k
 
 ---
 
-## Mobile Companion
+## Mobile App
 
-The mobile companion is a LAN client for iPhone, iPad, and simulator testing.
+The mobile app is an iOS-first developer preview for iPhone, iPad, and simulator testing. It has two modes.
 
-It talks only to your Local Flight server. It does not call AviationStack, ADS-B Exchange, RapidAPI, OpenSky, VATSIM, or the hosted relay directly.
+### LAN Companion
 
-Use it for:
+LAN Companion talks to your Local Flight server over your Wi-Fi/LAN. It does not call AviationStack, ADS-B Exchange, RapidAPI, OpenSky, VATSIM, or the hosted relay directly.
+
+Use LAN Companion for:
 
 - FIDS and pinned flight view
 - Radar with mobile-owned range rings
@@ -133,6 +136,25 @@ Use it for:
 - Matrix/Admin status
 - Server-mediated docs
 - Manual feedback and diagnostics, with mobile/server double-consent for automatic reports
+
+### Standalone
+
+Standalone talks directly to the hosted Local Flight relay and does not need your own desktop/Pi server online. It is simplified on purpose so a phone install cannot burn through shared relay/provider tokens.
+
+Use Standalone for:
+
+- FIDS/Board
+- Radar
+- Local on-device History
+- Lightweight Settings
+- Manual reports and diagnostics consent
+
+Standalone limits:
+
+- FIDS auto-refresh: 3 hours minimum
+- Radar refresh: 5 minutes minimum
+- Radar ranges: `1`, `3`, `5`, and `10` NM
+- No Matrix, Admin, scheduler restart, server URL controls, LAN check-in, or WebSocket connection
 
 ---
 
@@ -166,6 +188,8 @@ You can use any display mode with:
 
 Changing display mode does not change your data source by itself.
 
+Mobile Standalone is the one special case: because there is no paired local server, it always uses the hosted relay's current shared real-data policy and local on-device history. It does not expose BYOK or VATSIM controls in this first pass.
+
 ---
 
 ## Privacy Philosophy
@@ -174,7 +198,8 @@ Local Flight keeps the display shell separate from the aviation data sources you
 
 - Native Qt is recommended for desktop because it avoids extra browser-vendor surfaces for the main app window.
 - LAN browser UI remains supported because it is useful for headless installs, remote viewing, kiosk displays, and recovery.
-- Mobile and Matrix stay server-mediated through your Local Flight instance.
+- LAN Companion and Matrix stay server-mediated through your Local Flight instance.
+- Mobile Standalone is relay-mediated, simplified, and rate-limited by design.
 - Diagnostics are consent-based and sanitized before leaving the machine.
 
 For install commands, see [Install Guide](install.md).

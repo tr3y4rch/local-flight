@@ -13,12 +13,14 @@ This is a hobbyist/open-source project, not a legal document, but the app is des
 - Your config, API keys, snapshots, history, and logs stay on your own machine.
 - The desktop native GUI is a real Qt shell, not a webview. The primary client does not launch Chrome, Edge, Chromium, QWebEngine, or a browser profile.
 - Native mode avoids browser sync, extensions, cookies, browsing history, default-browser behavior, online fonts, and CDN assets for the main Local Flight window.
-- The LAN browser UI, mobile companion, and Matrix board talk to your Local Flight server over your LAN. The mobile and Matrix clients do not call AviationStack, ADS-B Exchange, RapidAPI, OpenSky, VATSIM, or the hosted relay directly.
+- The LAN browser UI, LAN Companion mode, and Matrix board talk to your Local Flight server over your LAN. LAN Companion and Matrix do not call AviationStack, ADS-B Exchange, RapidAPI, OpenSky, VATSIM, or the hosted relay directly.
+- Mobile Standalone mode is the exception: it talks directly to the hosted relay as a simplified, rate-limited phone board.
 - Community mode can use the hosted Local Flight relay for shared schedules and relay-backed radar. Optional radar runway/surface/map/terrain layers use cached public data where available, stay opt-in/visual-only, and do not create Local Flight accounts or user profiles.
 - Richer FIDS/Radar/History detail views reuse data Local Flight already fetched or stored locally. Opening a detail panel should not trigger surprise per-flight paid provider calls.
 - Matrix gate/stand display uses existing real-world schedule fields when available. VATSIM Matrix presets hide gate data instead of inventing placeholders.
 - Manual reports are always your choice. First-run setup asks how diagnostics should work, saves that choice locally, and defaults to manual-only reporting.
-- Mobile automatic diagnostics require two yeses: the mobile app's local diagnostics choice and the connected server's diagnostics mode.
+- LAN Companion automatic diagnostics require two yeses: the mobile app's local diagnostics choice and the connected server's diagnostics mode.
+- Mobile Standalone automatic diagnostics require the phone-local diagnostics choice because there is no paired server.
 - Developer reporting credentials are kept on the hosted relay, not in the desktop package, mobile app, installers, or docs.
 
 ---
@@ -27,13 +29,14 @@ This is a hobbyist/open-source project, not a legal document, but the app is des
 
 - Flight snapshots, config, history, and logs stay under `~/.localflight/`.
 - Your airport settings, display preferences, and personal API keys stay in your local config and `.env`.
-- The native GUI, LAN browser UI, mobile companion, and matrix board all talk to your local Local Flight server first. Native mode does not fetch online fonts, CDN assets, or a webview shell for the main UI.
+- The native GUI, LAN browser UI, LAN Companion, and matrix board all talk to your local Local Flight server first. Native mode does not fetch online fonts, CDN assets, or a webview shell for the main UI.
 - The optional local traffic log at `~/.localflight/requests.db` is visible only on your own Local Flight instance and is only enabled for explicit local network diagnostics.
 - Optional radar map data is simplified and cached locally for display use. It is not stored as raw provider payloads in reports or ordinary UI surfaces.
 - The Interstate 75 W board talks to your Local Flight server over your LAN. Its runtime settings live in `~/.localflight/matrix_config.json`.
 - Matrix V2 device check-ins store only board identity, label, size, renderer support, assigned config, and last-seen time locally so the admin page can show whether the board is alive.
 - VATSIM-specific matrix presets require source `virtual` and use VATSIM-backed rows/weather only; they do not quietly switch to real-world FIDS or real METAR data.
 - Flight intelligence shown in FIDS, Radar, History, and Matrix is assembled from the current local snapshot, live radar cache, METAR/weather context, airport/surface context, and local history database. It is a display model, not a new background data-harvesting layer.
+- Mobile Standalone stores its setup mode, relay install UUID, activation token, selected airport, appearance, diagnostics choice, pinned flight, and local FIDS history on the device. Standalone history is not stored on the hosted relay.
 
 When you use the Matrix page to download a ready-to-flash `main.py`, the Wi-Fi details and server host are sent to your own Local Flight instance only long enough to render that file. They are not stored in `matrix_config.json`, the hosted relay, or crash reports.
 
@@ -70,7 +73,7 @@ The relay stores the minimum metadata needed to run that shared service safely:
 - one-way anonymous network tags for abuse protection
 - short-lived "current interest" rows, such as airport and display window, so shared schedule snapshots can be reused
 - short-lived shared schedule snapshots containing Local Flight canonical schedule records and cache metadata
-- a small coarse install profile sent with periodic heartbeats: app version, OS family/version/architecture, GUI mode, source mode (real / VATSIM / BYOK), diagnostics mode, companion device count, and matrix device count. This profile lets the relay operator see fleet shape (how many installs are on which version/OS) without identifying individuals.
+- a small coarse install profile sent with periodic heartbeats or relay activity: app version, OS family/version/architecture, GUI mode, source mode (real / VATSIM / BYOK), diagnostics mode, companion device count, matrix device count, and for standalone mobile clients the selected airport/timezone plus coarse device type. This profile lets the relay operator see fleet shape (how many installs are on which version/OS or mobile/desktop kind) without identifying individuals.
 - if the operator explicitly enables the optional surface/map overlay path: short-lived airport-surface and map-geometry cache entries derived from OpenStreetMap/Overpass so many installs looking at the same airport do not repeatedly query public map infrastructure
 
 The relay does **not** store:
@@ -79,11 +82,14 @@ The relay does **not** store:
 - personal API keys from your install
 - readable personal identifiers
 - your local flight history database
+- your phone's standalone local history database
 - your local app logs, unless you explicitly allow diagnostic reports with sanitized logs
 
 Community relay traffic has per-install quotas plus network/global safety caps. Duplicate reports are deduplicated before routing, so one noisy install should not spam every triage area.
 
 For public safety, the community relay also controls how often a shared airport snapshot can trigger a new upstream schedule fetch. Community Relay schedule choices are hourly-or-slower, and the relay can ask clients to back off when shared safety limits are reached. This keeps the public relay usable when many people watch the same busy airport at the same time.
+
+Mobile Standalone uses the same hosted relay but with stricter product limits: FIDS auto-refresh is 3 hours minimum, radar refresh is 5 minutes minimum, and radar ranges are limited to `1`, `3`, `5`, and `10` NM.
 
 ### Bring Your Own Keys
 
@@ -122,8 +128,8 @@ When you send a report yourself, Local Flight sends:
 - Python version
 - configured airport and source mode
 - schedule mode, diagnostics mode, and display window settings
-- the reporting surface, such as native GUI, LAN browser UI, server, or mobile companion
-- optional mobile companion context if the report came from the companion flow
+- the reporting surface, such as native GUI, LAN browser UI, server, LAN Companion, or Mobile Standalone
+- optional mobile context if the report came from LAN Companion or Mobile Standalone
 
 Manual reports are sanitized locally, forwarded to the hosted relay reporting gateway, deduplicated/rate-limited there, and then filed for developer triage.
 
@@ -157,13 +163,17 @@ Automatic diagnostics do **not** intentionally contain:
 - full local logs
 - account data, because there are no Local Flight accounts
 
-Expo JS/React errors in the mobile companion are covered by the current crash reporter. Native iOS crashes before JavaScript starts are not covered without adding a native crash-reporting service or relying on Apple crash logs.
+Expo JS/React errors in the mobile app are covered by the current crash reporter. Native iOS crashes before JavaScript starts are not covered without adding a native crash-reporting service or relying on Apple crash logs.
 
 ---
 
-## Mobile Companion
+## Mobile App
 
-The mobile companion stores its server URL, companion ID, appearance choice, pinned flight, local profiles, and mobile diagnostics choice locally on the device with Expo storage APIs.
+The mobile app stores its setup choice locally on the device with Expo storage APIs.
+
+### LAN Companion
+
+LAN Companion stores its server URL, companion ID, appearance choice, pinned flight, local profiles, and mobile diagnostics choice locally on the device.
 
 When it connects to your Local Flight server, it reports a companion-specific ID plus platform/device labels so companion-originated actions can be distinguished from desktop/server actions. That ID is install-scoped. It is not a login, an account, or a person profile.
 
@@ -173,6 +183,22 @@ Automatic companion reports only send when:
 - the connected Local Flight server diagnostics mode also allows automatic reports
 
 If either side is set to manual or unset, automatic mobile reporting stays off.
+
+### Standalone
+
+Standalone stores a separate relay install UUID, activation token, selected airport, appearance choice, pinned flight, diagnostics choice, and on-device history database locally on the device.
+
+Standalone sends relay requests with:
+
+- install UUID for relay rate limits
+- activation token for access
+- app version
+- client kind `mobile_standalone`
+- coarse device type, such as phone or tablet
+- selected airport/timezone
+- diagnostics mode
+
+Standalone does not send local phone history to the relay. Manual reports go directly to the relay reporting gateway. Automatic standalone reports only send when the mobile diagnostics choice is `auto` or `auto_logs`.
 
 ---
 
@@ -206,7 +232,7 @@ Local Flight is designed to avoid collecting personal data in normal use:
 - no ad tracking
 - no raw IP storage in the hosted relay
 
-Technical identifiers, such as install fingerprints and companion IDs, can still be personal data in some contexts. Local Flight keeps them short-lived or install-scoped where practical, uses them for rate limiting and troubleshooting, and avoids turning them into account profiles.
+Technical identifiers, such as install fingerprints, companion IDs, and standalone mobile relay install IDs, can still be personal data in some contexts. Local Flight keeps them short-lived or install-scoped where practical, uses them for rate limiting and troubleshooting, and avoids turning them into account profiles.
 
 Your local data is under your control. To wipe local app data, stop Local Flight and remove `~/.localflight/`.
 
@@ -219,8 +245,10 @@ Your local data is under your control. To wipe local app data, stop Local Flight
 | Flight snapshots | Your machine | You |
 | Config and personal API keys | Your machine | You |
 | Native GUI state and appearance | Your machine | You |
+| Mobile appearance/setup choices | Your phone/tablet | You |
+| Standalone mobile history | Your phone/tablet | You |
 | Local traffic log | Your machine | You, if network tools are enabled |
 | Flight history | Your machine | You |
 | Manual reports and automatic diagnostics | Hosted relay reporting gateway, then developer triage inbox | Developer |
-| Community relay usage metadata and short-lived shared schedule cache | Relay server | Relay operator |
+| Community/standalone relay usage metadata and short-lived shared schedule/radar cache | Relay server | Relay operator |
 | Cached radar surface/map/terrain geometry | Your machine and, for relay-backed surface/map data, short-lived hosted relay cache when optional overlays are enabled | You and relay operator |

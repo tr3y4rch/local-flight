@@ -1,13 +1,11 @@
-import { useEffect, useRef, type ComponentProps } from "react";
+import { useEffect, useRef } from "react";
 import { Animated, Pressable, Text, View } from "react-native";
-import { MaterialCommunityIcons } from "@expo/vector-icons";
 
 import type { Screen } from "../domain/types";
+import { LocalFlightIcon, NAV_ICONS, type LocalFlightIconName } from "../theme/icons";
 import type { MobileAppearance } from "../theme/tokens";
 import { hapticSelection } from "../utils/haptics";
 import { usePressScale } from "../utils/usePressScale";
-
-type MaterialIconName = ComponentProps<typeof MaterialCommunityIcons>["name"];
 
 type BottomNavProps = {
   active: Screen;
@@ -15,6 +13,7 @@ type BottomNavProps = {
   insetBottom: number;
   palette: MobileAppearance;
   styles: Record<string, any>;
+  standalone?: boolean;
 };
 
 function NavItem({
@@ -27,7 +26,7 @@ function NavItem({
   onChange
 }: {
   id: Screen;
-  icon: MaterialIconName;
+  icon: LocalFlightIconName;
   label: string;
   selected: boolean;
   palette: MobileAppearance;
@@ -60,7 +59,7 @@ function NavItem({
     >
       <Animated.View style={{ alignItems: "center", transform: [{ scale }] }}>
         <View style={[styles.navIcon, selected && styles.navIconActive]}>
-          <MaterialCommunityIcons
+          <LocalFlightIcon
             name={icon}
             size={15}
             color={selected ? palette.blue : palette.textDim}
@@ -74,14 +73,21 @@ function NavItem({
   );
 }
 
-export function BottomNav({ active, onChange, insetBottom, palette, styles }: BottomNavProps) {
-  const items: Array<{ id: Screen; icon: MaterialIconName; label: string }> = [
-    { id: "fids",    icon: "airplane-takeoff", label: "BOARD" },
-    { id: "radar",   icon: "radar",             label: "RADAR" },
-    { id: "history", icon: "history",           label: "HISTORY" },
-    { id: "control", icon: "tune-variant",      label: "CONTROL" },
-    { id: "help",    icon: "lifebuoy",          label: "HELP" }
-  ];
+export function BottomNav({ active, onChange, insetBottom, palette, styles, standalone = false }: BottomNavProps) {
+  const items: Array<{ id: Extract<Screen, "fids" | "radar" | "history" | "control" | "help" | "settings">; icon: LocalFlightIconName; label: string }> = standalone
+    ? [
+        { id: "fids",     icon: NAV_ICONS.fids,     label: "BOARD" },
+        { id: "radar",    icon: NAV_ICONS.radar,    label: "RADAR" },
+        { id: "history",  icon: NAV_ICONS.history,  label: "HISTORY" },
+        { id: "settings", icon: NAV_ICONS.settings, label: "SETTINGS" }
+      ]
+    : [
+        { id: "fids",    icon: NAV_ICONS.fids,    label: "BOARD" },
+        { id: "radar",   icon: NAV_ICONS.radar,   label: "RADAR" },
+        { id: "history", icon: NAV_ICONS.history, label: "HISTORY" },
+        { id: "control", icon: NAV_ICONS.control, label: "CONTROL" },
+        { id: "help",    icon: NAV_ICONS.help,    label: "HELP" }
+      ];
 
   return (
     <View style={[styles.bottomNav, { paddingBottom: Math.max(insetBottom, 10) }]}>

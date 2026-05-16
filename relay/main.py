@@ -12,6 +12,7 @@ import threading
 import time
 import uuid
 from contextlib import asynccontextmanager
+from dataclasses import asdict
 from datetime import date, datetime, time as dt_time, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -42,6 +43,8 @@ _SETTING_AERODATABOX_KEY = "provider_aerodatabox_key"
 _SETTING_RAPIDAPI_KEY = "provider_rapidapi_key"
 _SETTING_PROVIDER_REVISION = "provider_revision"
 _SETTING_NETWORK_SECRET = "network_secret"
+_CLIENT_KINDS = {"desktop", "mobile_companion", "mobile_standalone", "matrix", "unknown"}
+_DEVICE_TYPES = {"phone", "tablet", "desktop", "unknown"}
 _REQUEST_STATUS_PENDING = "pending"
 _REQUEST_STATUS_APPROVED = "approved"
 _REQUEST_STATUS_REJECTED = "rejected"
@@ -82,6 +85,11 @@ _COMMUNITY_SCHEDULE_NETWORK_DAILY_LIMIT = 240
 _COMMUNITY_SCHEDULE_GLOBAL_DAILY_LIMIT = 1000
 _COMMUNITY_RADAR_NETWORK_DAILY_LIMIT = 600
 _COMMUNITY_RADAR_GLOBAL_DAILY_LIMIT = 3000
+_STANDALONE_SCHEDULE_LIMIT = 600
+_STANDALONE_RADAR_LIMIT = 3000
+_STANDALONE_SCHEDULE_MIN_REFRESH_SECONDS = 3 * 60 * 60
+_STANDALONE_RADAR_MIN_REFRESH_SECONDS = 5 * 60
+_STANDALONE_RADAR_RADII_NM = (1, 3, 5, 10)
 _ADMIN_AUTH_FAILURE_LIMIT = 8
 _ADMIN_AUTH_WINDOW_SECONDS = 5 * 60
 _LINEAR_GRAPHQL_URL = "https://api.linear.app/graphql"
@@ -280,6 +288,45 @@ def _managed_radar_limit() -> int:
         return 10000
 
 
+def _standalone_schedule_limit() -> int:
+    try:
+        return max(1, int(_env("RELAY_STANDALONE_SCHEDULE_LIMIT", str(_STANDALONE_SCHEDULE_LIMIT))))
+    except ValueError:
+        return _STANDALONE_SCHEDULE_LIMIT
+
+
+def _standalone_radar_limit() -> int:
+    try:
+        return max(1, int(_env("RELAY_STANDALONE_RADAR_LIMIT", str(_STANDALONE_RADAR_LIMIT))))
+    except ValueError:
+        return _STANDALONE_RADAR_LIMIT
+
+
+def _standalone_schedule_min_refresh_seconds() -> int:
+    try:
+        return max(
+            _shared_schedule_min_fresh_ttl_seconds(),
+            int(
+                _env(
+                    "RELAY_STANDALONE_SCHEDULE_MIN_REFRESH_SECONDS",
+                    str(_STANDALONE_SCHEDULE_MIN_REFRESH_SECONDS),
+                )
+            ),
+        )
+    except ValueError:
+        return max(_shared_schedule_min_fresh_ttl_seconds(), _STANDALONE_SCHEDULE_MIN_REFRESH_SECONDS)
+
+
+def _standalone_radar_min_refresh_seconds() -> int:
+    try:
+        return max(
+            _radar_cache_seconds(),
+            int(_env("RELAY_STANDALONE_RADAR_MIN_REFRESH_SECONDS", str(_STANDALONE_RADAR_MIN_REFRESH_SECONDS))),
+        )
+    except ValueError:
+        return max(_radar_cache_seconds(), _STANDALONE_RADAR_MIN_REFRESH_SECONDS)
+
+
 def _radar_cache_seconds() -> int:
     try:
         return max(30, int(_env("RELAY_RADAR_CACHE_SECONDS", "300")))
@@ -323,6 +370,20 @@ def _schedule_min_fresh_ttl_seconds_for_plan(plan: Any) -> int:
         if str(plan or "community").lower() == "community"
         else _shared_schedule_min_fresh_ttl_seconds()
     )
+
+
+def _clean_client_kind(value: Any) -> str:
+    kind = re.sub(r"[^a-z0-9_]", "", str(value or "").strip().lower())
+    return kind if kind in _CLIENT_KINDS else "unknown"
+
+
+def _clean_device_type(value: Any) -> str:
+    device = re.sub(r"[^a-z0-9_]", "", str(value or "").strip().lower())
+    return device if device in _DEVICE_TYPES else "unknown"
+
+
+def _is_mobile_standalone(value: Any) -> bool:
+    return _clean_client_kind(value) == "mobile_standalone"
 
 
 def _airport_surface_enabled() -> bool:
@@ -561,7 +622,9 @@ def _ensure_schema() -> None:
         CREATE TABLE IF NOT EXISTS client_interests (
             install_id               TEXT PRIMARY KEY,
             plan                     TEXT NOT NULL,
+            client_kind              TEXT,
             airport_iata             TEXT,
+            airport_icao             TEXT,
             timezone                 TEXT,
             display_grace_minutes    INTEGER,
             display_horizon_hours    INTEGER,
@@ -579,6 +642,11 @@ def _ensure_schema() -> None:
             last_heartbeat_at    TEXT,
             last_checkin_at      TEXT,
             last_relay_activity_at TEXT,
+            client_kind          TEXT,
+            device_type          TEXT,
+            airport_iata         TEXT,
+            airport_icao         TEXT,
+            timezone             TEXT,
             app_version          TEXT,
             os_family            TEXT,
             os_version           TEXT,
@@ -590,6 +658,18 @@ def _ensure_schema() -> None:
             companion_count      INTEGER DEFAULT 0,
             matrix_count         INTEGER DEFAULT 0,
             matrix_online_count  INTEGER DEFAULT 0
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS mobile_standalone_cache (
+            install_id   TEXT NOT NULL,
+            service      TEXT NOT NULL,
+            cache_key    TEXT NOT NULL,
+            last_seen    TEXT NOT NULL,
+            payload_json TEXT NOT NULL,
+            PRIMARY KEY (install_id, service, cache_key)
         )
         """
     )
@@ -624,6 +704,11 @@ def _ensure_schema() -> None:
     _ensure_column(conn, "install_profiles", "last_heartbeat_at TEXT")
     _ensure_column(conn, "install_profiles", "last_checkin_at TEXT")
     _ensure_column(conn, "install_profiles", "last_relay_activity_at TEXT")
+    _ensure_column(conn, "install_profiles", "client_kind TEXT")
+    _ensure_column(conn, "install_profiles", "device_type TEXT")
+    _ensure_column(conn, "install_profiles", "airport_iata TEXT")
+    _ensure_column(conn, "install_profiles", "airport_icao TEXT")
+    _ensure_column(conn, "install_profiles", "timezone TEXT")
     _ensure_column(conn, "install_profiles", "os_family TEXT")
     _ensure_column(conn, "install_profiles", "os_version TEXT")
     _ensure_column(conn, "install_profiles", "arch TEXT")
@@ -634,6 +719,8 @@ def _ensure_schema() -> None:
     _ensure_column(conn, "install_profiles", "companion_count INTEGER DEFAULT 0")
     _ensure_column(conn, "install_profiles", "matrix_count INTEGER DEFAULT 0")
     _ensure_column(conn, "install_profiles", "matrix_online_count INTEGER DEFAULT 0")
+    _ensure_column(conn, "client_interests", "client_kind TEXT")
+    _ensure_column(conn, "client_interests", "airport_icao TEXT")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_usage_month_service ON usage (month, service, calls DESC)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_activation_revoked ON activation_tokens (revoked_at)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_activation_requests_status ON activation_requests (status, created_at DESC)")
@@ -647,6 +734,7 @@ def _ensure_schema() -> None:
     conn.execute("CREATE INDEX IF NOT EXISTS idx_airport_surface_updated ON airport_surface_snapshots (airport_iata, updated_at DESC)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_client_interests_last_seen ON client_interests (last_seen DESC)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_install_profiles_last_seen ON install_profiles (last_seen DESC)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_mobile_standalone_cache_seen ON mobile_standalone_cache (service, last_seen DESC)")
     _backfill_install_profiles(conn)
     conn.commit()
     conn.close()
@@ -1268,6 +1356,8 @@ def _issue_token_for_install(
     install_id: str,
     label: str,
     created_by: str,
+    schedule_limit: Optional[int] = None,
+    radar_limit: Optional[int] = None,
 ) -> tuple[str, str, str]:
     existing = _activation_row_for_install(conn, install_id)
     token = _new_activation_token()
@@ -1304,8 +1394,8 @@ def _issue_token_for_install(
         conn,
         token=token,
         label=label,
-        schedule_limit=_managed_schedule_limit(),
-        radar_limit=_managed_radar_limit(),
+        schedule_limit=schedule_limit if schedule_limit is not None else _managed_schedule_limit(),
+        radar_limit=radar_limit if radar_limit is not None else _managed_radar_limit(),
         created_by=created_by,
         bound_install_id=install_id,
     )
@@ -2460,7 +2550,9 @@ def _record_client_interest(
     *,
     install_id: str,
     plan: str,
+    client_kind: str = "",
     airport_iata: str,
+    airport_icao: str = "",
     timezone_name: str,
     display_grace_minutes: int,
     display_horizon_hours: int,
@@ -2471,12 +2563,14 @@ def _record_client_interest(
     conn.execute(
         """
         INSERT INTO client_interests (
-            install_id, plan, airport_iata, timezone, display_grace_minutes,
+            install_id, plan, client_kind, airport_iata, airport_icao, timezone, display_grace_minutes,
             display_horizon_hours, refresh_seconds, last_seen
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(install_id) DO UPDATE SET
             plan = excluded.plan,
+            client_kind = COALESCE(NULLIF(excluded.client_kind, ''), client_interests.client_kind),
             airport_iata = excluded.airport_iata,
+            airport_icao = COALESCE(NULLIF(excluded.airport_icao, ''), client_interests.airport_icao),
             timezone = excluded.timezone,
             display_grace_minutes = excluded.display_grace_minutes,
             display_horizon_hours = excluded.display_horizon_hours,
@@ -2486,7 +2580,9 @@ def _record_client_interest(
         (
             install_id,
             plan,
+            _clean_client_kind(client_kind) if str(client_kind or "").strip() else "",
             airport_iata.upper().strip() or None,
+            airport_icao.upper().strip() or None,
             timezone_name.strip() or None,
             int(display_grace_minutes),
             int(display_horizon_hours),
@@ -2516,6 +2612,11 @@ def _record_install_profile(
     *,
     install_id: str,
     presence_event: str = "",
+    client_kind: str = "",
+    device_type: str = "",
+    airport_iata: str = "",
+    airport_icao: str = "",
+    timezone_name: str = "",
     app_version: str = "",
     os_family: str = "",
     os_version: str = "",
@@ -2540,15 +2641,21 @@ def _record_install_profile(
             """
             INSERT INTO install_profiles (
                 install_id, first_seen, last_seen, last_heartbeat_at, last_checkin_at, last_relay_activity_at,
+                client_kind, device_type, airport_iata, airport_icao, timezone,
                 app_version, os_family, os_version, arch,
                 requested_gui, effective_gui, source_mode, diagnostics_mode,
                 companion_count, matrix_count, matrix_online_count
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(install_id) DO UPDATE SET
                 last_seen = excluded.last_seen,
                 last_heartbeat_at = COALESCE(NULLIF(excluded.last_heartbeat_at, ''), install_profiles.last_heartbeat_at),
                 last_checkin_at = COALESCE(NULLIF(excluded.last_checkin_at, ''), install_profiles.last_checkin_at),
                 last_relay_activity_at = COALESCE(NULLIF(excluded.last_relay_activity_at, ''), install_profiles.last_relay_activity_at),
+                client_kind = COALESCE(NULLIF(excluded.client_kind, ''), install_profiles.client_kind),
+                device_type = COALESCE(NULLIF(excluded.device_type, ''), install_profiles.device_type),
+                airport_iata = COALESCE(NULLIF(excluded.airport_iata, ''), install_profiles.airport_iata),
+                airport_icao = COALESCE(NULLIF(excluded.airport_icao, ''), install_profiles.airport_icao),
+                timezone = COALESCE(NULLIF(excluded.timezone, ''), install_profiles.timezone),
                 app_version = COALESCE(NULLIF(excluded.app_version, ''), install_profiles.app_version),
                 os_family = COALESCE(NULLIF(excluded.os_family, ''), install_profiles.os_family),
                 os_version = COALESCE(NULLIF(excluded.os_version, ''), install_profiles.os_version),
@@ -2568,6 +2675,11 @@ def _record_install_profile(
                 heartbeat_at,
                 checkin_at,
                 relay_activity_at,
+                _clean_client_kind(client_kind) if str(client_kind or "").strip() else "",
+                _clean_device_type(device_type) if str(device_type or "").strip() else "",
+                _coarse_admin_text(airport_iata, limit=4).upper(),
+                _coarse_admin_text(airport_icao, limit=4).upper(),
+                _coarse_admin_text(timezone_name, limit=64),
                 _coarse_admin_text(app_version, limit=40),
                 _coarse_admin_text(os_family, limit=40),
                 _coarse_admin_text(os_version, limit=80),
@@ -2628,7 +2740,7 @@ def _backfill_install_profiles(conn: sqlite3.Connection) -> None:
 def _client_interest_snapshot(conn: sqlite3.Connection, install_id: str) -> Optional[Dict[str, Any]]:
     interest = conn.execute(
         """
-        SELECT install_id, plan, airport_iata, timezone, display_grace_minutes,
+        SELECT install_id, plan, client_kind, airport_iata, airport_icao, timezone, display_grace_minutes,
                display_horizon_hours, refresh_seconds, last_seen
         FROM client_interests
         WHERE install_id=?
@@ -2642,6 +2754,8 @@ def _client_interest_snapshot(conn: sqlite3.Connection, install_id: str) -> Opti
     if not airport_iata or not timezone_name:
         return {
             "airport_iata": airport_iata,
+            "airport_icao": str(interest["airport_icao"] or "").strip(),
+            "client_kind": _clean_client_kind(interest["client_kind"]),
             "timezone": timezone_name,
             "display_grace_minutes": int(interest["display_grace_minutes"] or 0),
             "display_horizon_hours": int(interest["display_horizon_hours"] or 0),
@@ -2657,6 +2771,8 @@ def _client_interest_snapshot(conn: sqlite3.Connection, install_id: str) -> Opti
     snapshot_row = _load_schedule_snapshot_conn(conn, cache_key)
     data = {
         "airport_iata": airport_iata,
+        "airport_icao": str(interest["airport_icao"] or "").strip(),
+        "client_kind": _clean_client_kind(interest["client_kind"]),
         "timezone": timezone_name,
         "display_grace_minutes": int(interest["display_grace_minutes"] or 0),
         "display_horizon_hours": int(interest["display_horizon_hours"] or 0),
@@ -3981,7 +4097,7 @@ def _admin_fleet_rows(conn: sqlite3.Connection, month: str) -> list[Dict[str, An
         profile = conn.execute("SELECT * FROM install_profiles WHERE install_id=?", (install_id,)).fetchone()
         interest = conn.execute(
             """
-            SELECT plan, airport_iata, timezone, display_grace_minutes, display_horizon_hours,
+            SELECT plan, client_kind, airport_iata, airport_icao, timezone, display_grace_minutes, display_horizon_hours,
                    refresh_seconds, last_seen
             FROM client_interests
             WHERE install_id=?
@@ -4071,6 +4187,8 @@ def _admin_fleet_rows(conn: sqlite3.Connection, month: str) -> list[Dict[str, An
             plan = usage_plans.split(",", 1)[0] if usage_plans else "community"
         current_lane = {
             "airport_iata": str(interest["airport_iata"] or "") if interest else "",
+            "airport_icao": str(interest["airport_icao"] or "") if interest else "",
+            "client_kind": _clean_client_kind(interest["client_kind"]) if interest else "",
             "timezone": str(interest["timezone"] or "") if interest else "",
             "display_grace_minutes": int(interest["display_grace_minutes"] or 0) if interest else 0,
             "display_horizon_hours": int(interest["display_horizon_hours"] or 0) if interest else 0,
@@ -4094,6 +4212,11 @@ def _admin_fleet_rows(conn: sqlite3.Connection, month: str) -> list[Dict[str, An
                 "blocked": bool(block),
                 "blocked_reason": str(block["reason"] or "") if block else "",
                 "app_version": str((profile["app_version"] if profile else "") or (latest_request["app_version"] if latest_request else "") or ""),
+                "client_kind": str(profile["client_kind"] or "") if profile else (str(interest["client_kind"] or "") if interest else ""),
+                "device_type": str(profile["device_type"] or "") if profile else "",
+                "airport_iata": str(profile["airport_iata"] or "") if profile else "",
+                "airport_icao": str(profile["airport_icao"] or "") if profile else "",
+                "timezone": str(profile["timezone"] or "") if profile else "",
                 "os_family": str(profile["os_family"] or "") if profile else "",
                 "os_version": str(profile["os_version"] or "") if profile else "",
                 "arch": str(profile["arch"] or "") if profile else "",
@@ -4132,6 +4255,7 @@ def _admin_fleet_metrics(rows: list[Dict[str, Any]]) -> Dict[str, Any]:
         "os": _admin_count_values(rows, "os_family"),
         "gui": _admin_count_values(rows, "effective_gui"),
         "plans": _admin_count_values(rows, "plan"),
+        "client_kind": _admin_count_values(rows, "client_kind"),
     }
 
 
@@ -7146,6 +7270,8 @@ class ActivationRequestIn(BaseModel):
     install_fingerprint: str
     airport_iata: str = ""
     airport_icao: str = ""
+    timezone: str = ""
+    device_type: str = "unknown"
     display_name: str = ""
     requested_mode: str = "community"
     app_version: str = ""
@@ -7155,7 +7281,10 @@ class ClientStatusIn(BaseModel):
     install_id: str
     activation_token: str = ""
     app_version: str = ""
+    client_kind: str = Field("desktop", max_length=32)
+    device_type: str = Field("unknown", max_length=24)
     airport_iata: str = ""
+    airport_icao: str = ""
     timezone: str = ""
     display_grace_minutes: int = 30
     display_horizon_hours: int = 12
@@ -7174,7 +7303,10 @@ class ClientStatusIn(BaseModel):
     @field_validator(
         "activation_token",
         "app_version",
+        "client_kind",
+        "device_type",
         "airport_iata",
+        "airport_icao",
         "timezone",
         "os_family",
         "os_version",
@@ -7193,6 +7325,11 @@ class ClientStatusIn(BaseModel):
 class HeartbeatIn(BaseModel):
     install_id: str
     app_version: str = Field("", max_length=40)
+    client_kind: str = Field("desktop", max_length=32)
+    device_type: str = Field("unknown", max_length=24)
+    airport_iata: str = Field("", max_length=4)
+    airport_icao: str = Field("", max_length=4)
+    timezone: str = Field("", max_length=64)
     os_family: str = Field("", max_length=40)
     os_version: str = Field("", max_length=80)
     arch: str = Field("", max_length=40)
@@ -7205,7 +7342,8 @@ class HeartbeatIn(BaseModel):
     matrix_online_count: int = Field(0, ge=0, le=100_000)
 
     @field_validator(
-        "app_version", "os_family", "os_version", "arch",
+        "app_version", "client_kind", "device_type", "airport_iata", "airport_icao", "timezone",
+        "os_family", "os_version", "arch",
         "requested_gui", "effective_gui", "source_mode", "diagnostics_mode",
         mode="before",
     )
@@ -7383,6 +7521,261 @@ def _build_client_status(
     }
 
 
+def _localflight_version_label() -> str:
+    try:
+        from importlib.metadata import version
+
+        return version("localflight")
+    except Exception:
+        return "0.2.6"
+
+
+def _airport_result_payload(rec: Any, *, include_coords: bool = False) -> Dict[str, Any]:
+    try:
+        from localflight.core.airports import get_airport_timezone
+    except Exception:
+        get_airport_timezone = None
+
+    timezone_name = "UTC"
+    if get_airport_timezone is not None:
+        timezone_name = get_airport_timezone(str(getattr(rec, "country", "") or ""), str(getattr(rec, "region", "") or ""))
+    payload = {
+        "iata": str(getattr(rec, "iata", "") or "").upper(),
+        "icao": str(getattr(rec, "icao", "") or "").upper(),
+        "name": str(getattr(rec, "name", "") or ""),
+        "city": str(getattr(rec, "city", "") or ""),
+        "country": str(getattr(rec, "country", "") or ""),
+        "type": str(getattr(rec, "type", "") or ""),
+        "timezone": _normalize_timezone_name(timezone_name),
+    }
+    if include_coords:
+        payload["lat"] = getattr(rec, "lat", None)
+        payload["lon"] = getattr(rec, "lon", None)
+    return payload
+
+
+def _airport_record_payload(raw: Dict[str, Any], *, include_coords: bool = False) -> Dict[str, Any]:
+    try:
+        from localflight.core.airports import get_airport_timezone
+    except Exception:
+        get_airport_timezone = None
+
+    timezone_name = "UTC"
+    if get_airport_timezone is not None:
+        timezone_name = get_airport_timezone(str(raw.get("country") or ""), str(raw.get("region") or ""))
+    payload = {
+        "iata": str(raw.get("iata") or "").upper(),
+        "icao": str(raw.get("icao") or "").upper(),
+        "name": str(raw.get("name") or ""),
+        "city": str(raw.get("city") or ""),
+        "country": str(raw.get("country") or ""),
+        "type": str(raw.get("type") or ""),
+        "timezone": _normalize_timezone_name(timezone_name),
+    }
+    if include_coords:
+        payload["lat"] = raw.get("lat") if isinstance(raw.get("lat"), (int, float)) else None
+        payload["lon"] = raw.get("lon") if isinstance(raw.get("lon"), (int, float)) else None
+    return payload
+
+
+def _airport_search_score(rec: Dict[str, Any], query: str) -> int:
+    q = query.upper()
+    iata = str(rec.get("iata") or "").upper()
+    icao = str(rec.get("icao") or "").upper()
+    city = str(rec.get("city") or "").upper()
+    name = str(rec.get("name") or "").upper()
+    atype = str(rec.get("type") or "")
+    if q == iata or q == icao:
+        return 100
+    if iata.startswith(q) or icao.startswith(q):
+        return 80
+    if q == city:
+        return 70
+    if city.startswith(q):
+        return 60 if atype == "large_airport" else 50
+    if q in name:
+        return 40 if atype == "large_airport" else 30
+    if q in city:
+        return 20
+    return 0
+
+
+def _lookup_relay_airport(query: str) -> Any:
+    clean = _clean_airport(query)
+    try:
+        from localflight.core.airports import lookup_airport
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"Airport index unavailable: {exc}") from exc
+    rec = lookup_airport(iata=clean if clean and len(clean) == 3 else None, icao=clean if clean and len(clean) == 4 else None)
+    if rec is None:
+        raise HTTPException(status_code=404, detail=f"Airport not found: {query}")
+    return rec
+
+
+def _require_mobile_standalone_access(
+    *,
+    install_id: str,
+    activation_token: str,
+    app_version: str,
+    client_kind: str,
+    service: str,
+    device_type: str = "",
+    airport_iata: str = "",
+    airport_icao: str = "",
+    timezone_name: str = "",
+    diagnostics_mode: str = "",
+) -> Dict[str, Any]:
+    install_id = _validate_install_id(install_id)
+    if _clean_client_kind(client_kind) != "mobile_standalone":
+        raise HTTPException(status_code=403, detail="client_kind=mobile_standalone is required")
+    if not (app_version or "").strip():
+        raise HTTPException(status_code=422, detail="app_version is required for mobile standalone clients")
+    token = (activation_token or "").strip()
+    if not token:
+        raise HTTPException(status_code=403, detail="Standalone mobile activation_token is required")
+    access = _resolve_access(install_id=install_id, activation_token=token, service=service)
+    if access.get("activation_row") is None:
+        raise HTTPException(status_code=403, detail="Standalone mobile activation token required")
+    _record_install_profile(
+        install_id=install_id,
+        presence_event="relay_activity",
+        client_kind="mobile_standalone",
+        device_type=device_type,
+        airport_iata=airport_iata,
+        airport_icao=airport_icao,
+        timezone_name=timezone_name,
+        app_version=app_version,
+        requested_gui="mobile_standalone",
+        effective_gui="mobile",
+        source_mode="real",
+        diagnostics_mode=diagnostics_mode,
+    )
+    return access
+
+
+def _standalone_config_payload(airport: Dict[str, Any], *, diagnostics_mode: str = "manual") -> Dict[str, Any]:
+    iata = str(airport.get("iata") or "").upper()
+    icao = str(airport.get("icao") or "").upper()
+    return {
+        "airport_iata": iata,
+        "airport_icao": icao,
+        "refresh_seconds": _standalone_schedule_min_refresh_seconds(),
+        "display_name": f"{iata or icao or 'Mobile'} Standalone",
+        "theme": "dark",
+        "source": "real",
+        "timezone": str(airport.get("timezone") or "UTC"),
+        "skin": "technical",
+        "display_outputs": ["mobile"],
+        "diagnostics_mode": diagnostics_mode or "manual",
+        "web_row_limit": 30,
+        "web_rotation_seconds": 8,
+        "display_grace_minutes": 30,
+        "display_horizon_hours": 12,
+        "radar_surface_enabled": False,
+    }
+
+
+def _response_json_payload(response: Response) -> Dict[str, Any]:
+    body = getattr(response, "body", b"")
+    if isinstance(body, str):
+        raw = body
+    else:
+        raw = bytes(body or b"").decode("utf-8")
+    try:
+        payload = json.loads(raw)
+    except Exception:
+        payload = {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _parse_iso_utc(value: Any) -> Optional[datetime]:
+    if not value:
+        return None
+    try:
+        dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except Exception:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
+def _mobile_fids_rows_from_schedule_payload(
+    payload: Dict[str, Any],
+    *,
+    airport: Dict[str, Any],
+    view: str,
+    limit: int,
+) -> list[Dict[str, Any]]:
+    from localflight.decode.normalize import normalize_flights
+    from localflight.render.fids import build_fids_context
+    from localflight.storage.config import AppConfig
+    from localflight.core.models import FlightDirection
+
+    records = payload.get("records") if isinstance(payload.get("records"), list) else []
+    flights = normalize_flights(
+        records,
+        airport_iata=str(airport.get("iata") or ""),
+        airport_icao=str(airport.get("icao") or ""),
+        source_name=str(payload.get("provider") or "relay"),
+    )
+    direction = FlightDirection.DEPARTURE if view == "departures" else FlightDirection.ARRIVAL
+    filtered = [flight for flight in flights if flight.direction == direction]
+    cfg = AppConfig(**_standalone_config_payload(airport))
+    ctx = build_fids_context(
+        cfg=cfg,
+        view=view,
+        refresh_seconds=_standalone_schedule_min_refresh_seconds(),
+        flights=filtered,
+        last_refreshed=_parse_iso_utc(payload.get("generated_at")),
+        source_status=str(payload.get("provider") or "relay"),
+    )
+    return [asdict(row) for row in list(ctx.get("rows") or [])[:limit]]
+
+
+def _mobile_cache_load(
+    *,
+    install_id: str,
+    service: str,
+    cache_key: str,
+    max_age_seconds: int,
+) -> Optional[Dict[str, Any]]:
+    conn = _connect()
+    row = conn.execute(
+        """
+        SELECT last_seen, payload_json
+        FROM mobile_standalone_cache
+        WHERE install_id=? AND service=? AND cache_key=?
+        """,
+        (install_id, service, cache_key),
+    ).fetchone()
+    conn.close()
+    if not row:
+        return None
+    last_seen = _parse_utc_dt(str(row["last_seen"] or ""))
+    if not last_seen or (datetime.now(timezone.utc) - last_seen).total_seconds() > max_age_seconds:
+        return None
+    payload = _load_json_blob(row["payload_json"], {})
+    return payload if isinstance(payload, dict) else None
+
+
+def _mobile_cache_store(*, install_id: str, service: str, cache_key: str, payload: Dict[str, Any]) -> None:
+    conn = _connect()
+    conn.execute(
+        """
+        INSERT INTO mobile_standalone_cache (install_id, service, cache_key, last_seen, payload_json)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(install_id, service, cache_key) DO UPDATE SET
+            last_seen=excluded.last_seen,
+            payload_json=excluded.payload_json
+        """,
+        (install_id, service, cache_key, _utc_now(), json.dumps(payload, ensure_ascii=False)),
+    )
+    conn.execute("DELETE FROM mobile_standalone_cache WHERE last_seen < ?", (_hours_ago(24),))
+    conn.commit()
+    conn.close()
+
+
 @app.post("/v1/activate")
 def relay_activate(body: ActivationRequestIn, request: Request) -> Dict[str, Any]:
     install_id = _validate_install_id(body.install_id)
@@ -7395,6 +7788,7 @@ def relay_activate(body: ActivationRequestIn, request: Request) -> Dict[str, Any
     requested_mode = (body.requested_mode or "managed").strip().lower()[:20]
     app_version = (body.app_version or "").strip()[:32]
     network_tag = _network_tag(_client_ip(request))
+    standalone_activation = requested_mode == "mobile_standalone"
 
     blocked_reason = _blocked_reason(install_id)
     if blocked_reason:
@@ -7453,6 +7847,8 @@ def relay_activate(body: ActivationRequestIn, request: Request) -> Dict[str, Any
         install_id=install_id,
         label=display_name or f"Local Flight {expected_fingerprint}",
         created_by="auto-issue",
+        schedule_limit=_standalone_schedule_limit() if standalone_activation else None,
+        radar_limit=_standalone_radar_limit() if standalone_activation else None,
     )
     request_id = _record_activation_event(
         conn,
@@ -7471,6 +7867,20 @@ def relay_activate(body: ActivationRequestIn, request: Request) -> Dict[str, Any
     conn.commit()
     conn.close()
     status = _build_client_status(install_id=install_id, activation_token=token, app_version=app_version)
+    if standalone_activation:
+        _record_install_profile(
+            install_id=install_id,
+            presence_event="relay_activity",
+            client_kind="mobile_standalone",
+            device_type=body.device_type or "phone",
+            airport_iata=body.airport_iata,
+            airport_icao=body.airport_icao,
+            timezone_name=body.timezone,
+            app_version=app_version,
+            requested_gui=requested_mode,
+            effective_gui="mobile",
+            source_mode="real",
+        )
     status.update(
         {
             "request_id": request_id,
@@ -7487,6 +7897,11 @@ def relay_client_status(
     install_id: str = Query(...),
     activation_token: str = Query(""),
     app_version: str = Query(""),
+    client_kind: str = Query("desktop"),
+    device_type: str = Query("unknown"),
+    airport_iata: str = Query(""),
+    airport_icao: str = Query(""),
+    timezone: str = Query(""),
     os_family: str = Query(""),
     os_version: str = Query(""),
     arch: str = Query(""),
@@ -7507,6 +7922,11 @@ def relay_client_status(
     _record_install_profile(
         install_id=install_id,
         presence_event="relay_activity",
+        client_kind=client_kind,
+        device_type=device_type,
+        airport_iata=airport_iata,
+        airport_icao=airport_icao,
+        timezone_name=timezone,
         app_version=app_version,
         os_family=os_family,
         os_version=os_version,
@@ -7533,6 +7953,11 @@ def relay_client_checkin(body: ClientStatusIn) -> Dict[str, Any]:
     _record_install_profile(
         install_id=install_id,
         presence_event="checkin",
+        client_kind=body.client_kind,
+        device_type=body.device_type,
+        airport_iata=body.airport_iata,
+        airport_icao=body.airport_icao,
+        timezone_name=body.timezone,
         app_version=body.app_version,
         os_family=body.os_family,
         os_version=body.os_version,
@@ -7551,7 +7976,9 @@ def relay_client_checkin(body: ClientStatusIn) -> Dict[str, Any]:
         _record_client_interest(
             install_id=install_id,
             plan=str(status.get("plan") or "community"),
+            client_kind=body.client_kind,
             airport_iata=airport_iata,
+            airport_icao=body.airport_icao,
             timezone_name=timezone_name,
             display_grace_minutes=max(0, int(body.display_grace_minutes or 0)),
             display_horizon_hours=max(1, int(body.display_horizon_hours or 1)),
@@ -7573,6 +8000,11 @@ def relay_heartbeat(body: HeartbeatIn) -> Dict[str, Any]:
     _record_install_profile(
         install_id=install_id,
         presence_event="heartbeat",
+        client_kind=body.client_kind,
+        device_type=body.device_type,
+        airport_iata=body.airport_iata,
+        airport_icao=body.airport_icao,
+        timezone_name=body.timezone,
         app_version=body.app_version,
         os_family=body.os_family,
         os_version=body.os_version,
@@ -7620,6 +8052,331 @@ def relay_activation_request_status_compat(
         "token_prefix": str(row["token_prefix"] or ""),
         "delivered": str(row["status"] or "") == _REQUEST_STATUS_ISSUED,
     }
+
+
+@app.get("/v1/airports/search")
+def relay_airports_search(
+    q: str = Query(..., min_length=2, max_length=20),
+    limit: int = Query(8, ge=1, le=20),
+    all_types: bool = Query(False),
+) -> list[Dict[str, Any]]:
+    try:
+        from localflight.core.airports import _load_index
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"Airport index unavailable: {exc}") from exc
+
+    query = q.strip().upper()
+    if not query:
+        return []
+    search_types = {"large_airport", "medium_airport"}
+    index = _load_index()
+    seen: set[str] = set()
+    candidates: list[tuple[int, Dict[str, Any]]] = []
+    for raw in list((index.get("by_iata") or {}).values()) + list((index.get("by_icao") or {}).values()):
+        if not isinstance(raw, dict):
+            continue
+        key = str(raw.get("icao") or raw.get("iata") or "").upper()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        airport_type = str(raw.get("type") or "")
+        if not all_types and airport_type not in search_types:
+            continue
+        score = _airport_search_score(raw, query)
+        if score > 0:
+            candidates.append((score, raw))
+    candidates.sort(key=lambda item: (-item[0], 0 if item[1].get("type") == "large_airport" else 1, item[1].get("name") or ""))
+    return [_airport_record_payload(raw) for _score, raw in candidates[:limit]]
+
+
+@app.get("/v1/airports/resolve")
+def relay_airports_resolve(q: str = Query(..., min_length=2, max_length=10)) -> Dict[str, Any]:
+    return _airport_result_payload(_lookup_relay_airport(q), include_coords=True)
+
+
+@app.get("/v1/mobile/summary")
+def relay_mobile_summary(
+    install_id: str = Query(...),
+    activation_token: str = Query(...),
+    app_version: str = Query(...),
+    client_kind: str = Query(...),
+    airport_iata: str = Query(...),
+    airport_icao: str = Query(""),
+    timezone: str = Query(""),
+    diagnostics_mode: str = Query("manual"),
+    device_type: str = Query("phone"),
+) -> Dict[str, Any]:
+    airport = _airport_result_payload(_lookup_relay_airport(airport_iata or airport_icao), include_coords=True)
+    timezone_name = _normalize_timezone_name(timezone or str(airport.get("timezone") or "UTC"))
+    airport["timezone"] = timezone_name
+    _require_mobile_standalone_access(
+        install_id=install_id,
+        activation_token=activation_token,
+        app_version=app_version,
+        client_kind=client_kind,
+        service="aviationstack",
+        device_type=device_type,
+        airport_iata=str(airport.get("iata") or ""),
+        airport_icao=str(airport.get("icao") or ""),
+        timezone_name=timezone_name,
+        diagnostics_mode=diagnostics_mode,
+    )
+    status = _build_client_status(install_id=_validate_install_id(install_id), activation_token=activation_token, app_version=app_version)
+    metar: Optional[Dict[str, Any]] = None
+    if airport.get("icao"):
+        try:
+            from localflight.sources.web.metar_client import fetch_metar
+
+            metar = fetch_metar(str(airport.get("icao") or ""))
+        except Exception:
+            metar = None
+    return {
+        "config": _standalone_config_payload(airport, diagnostics_mode=diagnostics_mode),
+        "state": {
+            "ok": True,
+            "source_name": "relay_standalone",
+            "last_success_utc": _utc_now(),
+            "last_error": None,
+        },
+        "system": {
+            "version": _localflight_version_label(),
+            "python": "relay",
+            "platform": "Local Flight hosted relay",
+            "client": {
+                "mode": "mobile_standalone",
+                "managed_status": status.get("plan"),
+                "activation_token_prefix": status.get("token_prefix"),
+                "shared_snapshot": status.get("schedule_cache") or {},
+            },
+        },
+        "connections": {"count": 0, "companion_count": 0, "companions": []},
+        "updates": None,
+        "budget": {
+            "schedule_policy": {
+                "shared_relay": True,
+                "active_mode": "standalone",
+                "min_refresh_seconds": _standalone_schedule_min_refresh_seconds(),
+            },
+            "aviationstack": {
+                "mode": "relay",
+                "active_mode": "standalone",
+                "monthly_limit": (status.get("limits") or {}).get("schedule"),
+            },
+            "adsbexchange": {
+                "available": bool((status.get("providers") or {}).get("adsbexchange")),
+                "monthly_limit": (status.get("limits") or {}).get("radar"),
+            },
+        },
+        "scheduler": None,
+        "metar": metar,
+    }
+
+
+@app.get("/v1/mobile/metar")
+def relay_mobile_metar(
+    install_id: str = Query(...),
+    activation_token: str = Query(...),
+    app_version: str = Query(...),
+    client_kind: str = Query(...),
+    airport_iata: str = Query(""),
+    airport_icao: str = Query(""),
+    timezone: str = Query(""),
+    diagnostics_mode: str = Query("manual"),
+    device_type: str = Query("phone"),
+) -> Dict[str, Any]:
+    airport = _airport_result_payload(_lookup_relay_airport(airport_iata or airport_icao), include_coords=True)
+    timezone_name = _normalize_timezone_name(timezone or str(airport.get("timezone") or "UTC"))
+    _require_mobile_standalone_access(
+        install_id=install_id,
+        activation_token=activation_token,
+        app_version=app_version,
+        client_kind=client_kind,
+        service="aviationstack",
+        device_type=device_type,
+        airport_iata=str(airport.get("iata") or ""),
+        airport_icao=str(airport.get("icao") or ""),
+        timezone_name=timezone_name,
+        diagnostics_mode=diagnostics_mode,
+    )
+    try:
+        from localflight.sources.web.metar_client import fetch_metar
+
+        metar = fetch_metar(str(airport.get("icao") or ""))
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"METAR unavailable for {airport.get('icao')}: {exc}") from exc
+    if not metar:
+        raise HTTPException(status_code=503, detail=f"METAR unavailable for {airport.get('icao')}")
+    return metar
+
+
+@app.get("/v1/mobile/fids")
+def relay_mobile_fids(
+    request: Request,
+    install_id: str = Query(...),
+    activation_token: str = Query(...),
+    app_version: str = Query(...),
+    client_kind: str = Query(...),
+    airport_iata: str = Query(...),
+    airport_icao: str = Query(""),
+    timezone: str = Query(""),
+    diagnostics_mode: str = Query("manual"),
+    view: str = Query("departures", pattern="^(departures|arrivals)$"),
+    limit: int = Query(30, ge=1, le=100),
+    device_type: str = Query("phone"),
+) -> Any:
+    airport = _airport_result_payload(_lookup_relay_airport(airport_iata or airport_icao), include_coords=True)
+    timezone_name = _normalize_timezone_name(timezone or str(airport.get("timezone") or "UTC"))
+    airport["timezone"] = timezone_name
+    _require_mobile_standalone_access(
+        install_id=install_id,
+        activation_token=activation_token,
+        app_version=app_version,
+        client_kind=client_kind,
+        service="aviationstack",
+        device_type=device_type,
+        airport_iata=str(airport.get("iata") or ""),
+        airport_icao=str(airport.get("icao") or ""),
+        timezone_name=timezone_name,
+        diagnostics_mode=diagnostics_mode,
+    )
+    schedule_response = relay_schedule(
+        request,
+        airport_iata=str(airport.get("iata") or airport_iata),
+        timezone=timezone_name,
+        display_grace_minutes=30,
+        display_horizon_hours=12,
+        refresh_seconds=_standalone_schedule_min_refresh_seconds(),
+        install_id=install_id,
+        activation_token=activation_token,
+        app_version=app_version,
+        client_kind="mobile_standalone",
+        device_type=device_type,
+        os_family="mobile",
+        source_mode="real",
+    )
+    if schedule_response.status_code >= 400:
+        return schedule_response
+    payload = _response_json_payload(schedule_response)
+    try:
+        return _mobile_fids_rows_from_schedule_payload(payload, airport=airport, view=view, limit=limit)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Unable to build mobile FIDS rows: {exc}") from exc
+
+
+@app.get("/v1/mobile/radar")
+def relay_mobile_radar(
+    request: Request,
+    install_id: str = Query(...),
+    activation_token: str = Query(...),
+    app_version: str = Query(...),
+    client_kind: str = Query(...),
+    airport_iata: str = Query(...),
+    airport_icao: str = Query(""),
+    timezone: str = Query(""),
+    diagnostics_mode: str = Query("manual"),
+    radius_nm: int = Query(5, ge=1, le=10),
+    device_type: str = Query("phone"),
+) -> JSONResponse:
+    if int(radius_nm) not in _STANDALONE_RADAR_RADII_NM:
+        raise HTTPException(status_code=422, detail="Standalone radar radius must be one of 1, 3, 5, or 10 NM")
+    airport = _airport_result_payload(_lookup_relay_airport(airport_iata or airport_icao), include_coords=True)
+    if airport.get("lat") is None or airport.get("lon") is None:
+        raise HTTPException(status_code=404, detail=f"No coordinates for {airport.get('iata') or airport_iata}")
+    install_id = _validate_install_id(install_id)
+    access = _require_mobile_standalone_access(
+        install_id=install_id,
+        activation_token=activation_token,
+        app_version=app_version,
+        client_kind=client_kind,
+        service="radar",
+        device_type=device_type,
+        airport_iata=str(airport.get("iata") or ""),
+        airport_icao=str(airport.get("icao") or ""),
+        timezone_name=_normalize_timezone_name(timezone or str(airport.get("timezone") or "UTC")),
+        diagnostics_mode=diagnostics_mode,
+    )
+    cache_key = f"{airport.get('iata')}:{int(radius_nm)}"
+    cached = _mobile_cache_load(
+        install_id=install_id,
+        service="radar",
+        cache_key=cache_key,
+        max_age_seconds=_standalone_radar_min_refresh_seconds(),
+    )
+    if cached is not None:
+        cached = dict(cached)
+        cached["source"] = str(cached.get("source") or "adsbexchange_relay_cached")
+        cached["refresh_after_s"] = _standalone_radar_min_refresh_seconds()
+        return JSONResponse(cached, headers={"X-LF-Mobile-Standalone-Cache": "hit"})
+
+    network_tag = _network_tag(_client_ip(request))
+    if access["plan"] == "community":
+        _check_and_increment_community_daily_limit(service="radar", network_tag=network_tag)
+    month = _month_key()
+    current = _get_usage(access["subject_key"], "radar", month)
+    if current >= access["limit"]:
+        headers = _quota_headers("radar", current, access["limit"], access["plan"])
+        headers["Retry-After"] = str(_standalone_radar_min_refresh_seconds())
+        return JSONResponse(
+            {
+                "error": {
+                    "code": "quota_exceeded",
+                    "info": f"Standalone radar quota exceeded: {current}/{access['limit']} calls used this month.",
+                }
+            },
+            status_code=429,
+            headers=headers,
+        )
+
+    center_lat = float(airport["lat"])
+    center_lon = float(airport["lon"])
+    started = time.monotonic()
+    raw_payload = _fetch_adsbx_payload(center_lat, center_lon, float(radius_nm))
+    latency_ms = int((time.monotonic() - started) * 1000)
+    try:
+        raw = json.loads(raw_payload.decode("utf-8") if isinstance(raw_payload, bytes) else str(raw_payload))
+    except Exception:
+        raw = {}
+    aircraft = raw.get("ac") if isinstance(raw.get("ac"), list) else []
+    from localflight.radar import annotate_blips
+    from localflight.radar.normalize import adsbx_aircraft_to_blips
+
+    blips = adsbx_aircraft_to_blips(aircraft, center_lat=center_lat, center_lon=center_lon, radius_nm=float(radius_nm))
+    blips = annotate_blips(blips, airport_icao=str(airport.get("icao") or ""), runways=[])
+    used = _increment_usage(
+        subject_key=access["subject_key"],
+        service="radar",
+        month=month,
+        plan=access["plan"],
+        install_id=install_id,
+    )
+    _log_request(
+        install_id=install_id,
+        scope=f"mobile_standalone:{int(radius_nm)}nm",
+        status=200,
+        latency_ms=latency_ms,
+        service="radar",
+        plan=access["plan"],
+    )
+    payload = {
+        "center": {"lat": center_lat, "lon": center_lon},
+        "radius_nm": int(radius_nm),
+        "source": "adsbexchange_relay",
+        "refresh_after_s": _standalone_radar_min_refresh_seconds(),
+        "count": len(blips),
+        "radar_mode": "surface" if int(radius_nm) <= 5 else "airborne",
+        "ground_filtered": 0,
+        "airborne_filtered": 0,
+        "hidden_ground_count": 0,
+        "hidden_airborne_count": 0,
+        "traffic_filter": "all",
+        "altitude_filter": {"min_alt_ft": None, "max_alt_ft": None},
+        "user_filtered_count": 0,
+        "provider_radius_nm": max(5, int(radius_nm)),
+        "raw_provider_count": len(aircraft),
+        "blips": blips,
+    }
+    _mobile_cache_store(install_id=install_id, service="radar", cache_key=cache_key, payload=payload)
+    return JSONResponse(payload, headers=_quota_headers("radar", used, access["limit"], access["plan"]))
 
 
 @app.post("/v1/reports")
@@ -7723,6 +8480,8 @@ def relay_schedule(
     install_id: str = Query(...),
     activation_token: str = Query(""),
     app_version: str = Query(""),
+    client_kind: str = Query("desktop"),
+    device_type: str = Query("unknown"),
     os_family: str = Query(""),
     os_version: str = Query(""),
     arch: str = Query(""),
@@ -7750,9 +8509,17 @@ def relay_schedule(
     _check_and_increment_schedule_rpm_limits(install_id=install_id, network_tag=network_tag)
 
     access = _resolve_access(install_id=install_id, activation_token=activation_token, service="aviationstack")
+    client_kind = _clean_client_kind(client_kind)
+    if client_kind == "mobile_standalone":
+        refresh_seconds = max(int(refresh_seconds), _standalone_schedule_min_refresh_seconds())
     _record_install_profile(
         install_id=install_id,
         presence_event="relay_activity",
+        client_kind=client_kind,
+        device_type=device_type,
+        airport_iata=airport_iata,
+        airport_icao=airport_icao,
+        timezone_name=timezone_name,
         app_version=app_version,
         os_family=os_family,
         os_version=os_version,
@@ -7767,6 +8534,8 @@ def relay_schedule(
     )
     plan = str(access["plan"] or "community")
     min_fresh_ttl_s = _schedule_min_fresh_ttl_seconds_for_plan(plan)
+    if client_kind == "mobile_standalone":
+        min_fresh_ttl_s = max(min_fresh_ttl_s, _standalone_schedule_min_refresh_seconds())
     if plan == "community":
         _check_and_increment_community_daily_limit(
             service="aviationstack",
@@ -7790,7 +8559,9 @@ def relay_schedule(
     _record_client_interest(
         install_id=install_id,
         plan=str(access["plan"] or "community"),
+        client_kind=client_kind,
         airport_iata=airport_iata,
+        airport_icao=airport_icao,
         timezone_name=timezone_name,
         display_grace_minutes=display_grace_minutes,
         display_horizon_hours=display_horizon_hours,
@@ -7849,6 +8620,9 @@ def relay_schedule(
             payload["meta"]["budget_limited_providers"] = sorted(set(budget_limited_providers))
         if plan == "community":
             payload["meta"]["relay_policy"] = "community schedule snapshots refresh at most once per hour"
+        if client_kind == "mobile_standalone":
+            payload["meta"]["relay_policy"] = "mobile standalone schedule snapshots refresh at most once every 3 hours"
+            payload["meta"]["client_kind"] = "mobile_standalone"
         _record_schedule_access(
             cache_key=cache_key,
             cache_state=cache_state,
@@ -8338,10 +9112,12 @@ def relay_radar(
     request: Request,
     lat: float = Query(...),
     lon: float = Query(...),
-    radius_nm: float = Query(20.0, ge=5.0, le=200.0),
+    radius_nm: float = Query(20.0, ge=1.0, le=200.0),
     install_id: str = Query(...),
     activation_token: str = Query(""),
     app_version: str = Query(""),
+    client_kind: str = Query("desktop"),
+    device_type: str = Query("unknown"),
     os_family: str = Query(""),
     os_version: str = Query(""),
     arch: str = Query(""),
@@ -8354,10 +9130,15 @@ def relay_radar(
     matrix_online_count: int = Query(0, ge=0, le=100_000),
 ) -> Response:
     install_id = _validate_install_id(install_id)
+    client_kind = _clean_client_kind(client_kind)
+    if client_kind == "mobile_standalone" and int(radius_nm) not in _STANDALONE_RADAR_RADII_NM:
+        raise HTTPException(status_code=422, detail="mobile_standalone radar radius must be one of 1, 3, 5, or 10 NM")
     access = _resolve_access(install_id=install_id, activation_token=activation_token, service="radar")
     _record_install_profile(
         install_id=install_id,
         presence_event="relay_activity",
+        client_kind=client_kind,
+        device_type=device_type,
         app_version=app_version,
         os_family=os_family,
         os_version=os_version,

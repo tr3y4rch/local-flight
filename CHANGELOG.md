@@ -12,7 +12,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 > This release folds in the native GUI visual-refresh work: unified setup and
 > shell styling, animated stepper, rotating spinner, page-fade transitions,
 > status pills, toasts, info bubbles, color emoji nav glyphs, and four FIDS
-> board styles (Classic / PAX / VATSIM / Nerd).
+> board styles (Classic / PAX / VATSIM / Nerd), plus the new mobile LAN
+> Companion / Standalone split.
 > For the user-facing summary, see [docs/release-notes-0.2.7.md](docs/release-notes-0.2.7.md).
 
 ### Native first-run setup wizard
@@ -83,6 +84,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - FIDS display titles now intentionally show city and country only; long formal airport names and IATA/ICAO descriptors stay out of the main passenger board.
 - Weather on the main board now favors friendly condition, temperature, and visibility wording instead of raw METAR fragments.
 
+### Mobile LAN Companion and Standalone mode
+- The Expo mobile app now has a first-run mode choice: **LAN Companion** for the full desktop/Pi pairing flow, or **Standalone** for a simplified relay-backed phone board.
+- Standalone setup creates a separate mobile relay install UUID, requests an activation token with `requested_mode=mobile_standalone`, stores the token/airport locally with SecureStore, and does not require a LAN server URL.
+- Added relay endpoints for standalone mobile airport search/resolve, summary, FIDS, radar, and METAR data. These endpoints require `install_id`, `activation_token`, `app_version`, and `client_kind=mobile_standalone`.
+- Standalone product limits are enforced on both sides: 3-hour minimum FIDS freshness, 5-minute radar refresh cache, and radar ranges limited to `1`, `3`, `5`, and `10` NM.
+- Standalone hides WebSocket, Matrix, Admin, scheduler restart, LAN server controls, and companion check-in surfaces. The mobile bottom nav becomes Board, Radar, History, and Settings.
+- Standalone History now uses Expo SQLite on-device storage and prunes to 30 days or 1,000 rows. No relay-side per-install flight history was added.
+- Standalone manual/crash reports post directly to relay `/v1/reports`; automatic standalone reports require the mobile diagnostics choice to be `auto` or `auto_logs`.
+- LAN Companion behavior remains paired to the local desktop/Pi server, including WebSocket refresh, server-mediated reports, local settings/control, and mobile/server double-consent for automatic diagnostics.
+
 ### FIDS, Details, Matrix, Settings
 - Operating-first flight identity is now the board rule, so the main FIDS row favors the operating carrier while marketed/codeshare identities remain visible as sold-as detail.
 - Aircraft types stay compact on the FIDS board while fuller aircraft/source detail is kept in the click-through detail surfaces.
@@ -92,8 +103,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Network Admin (operator-only)
 - Reframed fleet/overview copy as coarse heartbeat presence, not live online status. "Seen <=24h" replaces "Active installs" wherever the count referred to a 24-hour last-seen window. Applies to both the HTML admin SPA and the native Qt console.
-- Added `POST /admin/api/logout` (returns 401 with a rotated `WWW-Authenticate` realm to invalidate the cached basic-auth credential in Chrome / Firefox / Edge) plus an open `GET /admin/signed-out` page.
-- Idle auto-logoff on both surfaces, default 15 minutes, configurable via `LOCALFLIGHT_NETWORK_ADMIN_IDLE_S` (seconds, min 60). HTML shows a 60-second warning toast before signing out; Qt clears the client and password silently and shows a status message.
+- Added a proper operator sign-out flow for browser-based Network Admin sessions.
+- Idle auto-logoff now works on both Network Admin surfaces. The browser console warns before signing out; the Qt console clears the session silently and shows a status message.
 - Native Qt console gained explicit Disconnect (clear credentials, return to login state) and Quit (`QApplication.quit()`) buttons. Hero split into a connection row and a controls row; removed the decorative `MONITOR / INVESTIGATE / OPERATE` chip.
 - Stripped visual decoration on both surfaces: dropped CRT scanline overlay, glow underlines, shimmer overlays, multi-stop body and panel gradients, tri-color brand mark. Calmer shared palette with accents only on hover / focus / checked states.
 
@@ -104,6 +115,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Privacy
 - PRIVACY.md now lists the heartbeat install-profile fields explicitly (app version, OS family/version/architecture, GUI mode, source mode, diagnostics mode, companion count, matrix count) so operator-side fleet shape visibility is transparent.
+- PRIVACY.md now explains the two mobile modes: LAN Companion stays server-mediated, while Standalone is relay-mediated, simplified, rate-limited, and keeps phone history local.
 - VATSIM privacy rules remain strict: virtual traffic details do not expose pilot names, CIDs, controller names, server names, or other person-identifying fields.
 
 ### Deferred polish
@@ -113,6 +125,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `python -m py_compile` clean across every modified native visual-refresh file.
 - Generated stylesheet contains the new shared selectors for pills, page heroes, spinners, info buttons, toasts, primary actions, FIDS style buttons, and setup option cards.
 - FIDS style registry returns `['classic', 'pax', 'vatsim', 'nerd']` with `classic` as the default.
+- Full Mac/Codex validation after the mobile Standalone and docs pass: `.venv/bin/python -m pytest tests -q` returned `385 passed`; `cd mobile && npm run typecheck && npm run doctor` passed with Expo Doctor `18/18`; `git diff --check` passed.
 
 ---
 
@@ -214,7 +227,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 - Community setup and source installers now show the hosted relay root URL (`https://localflight-community-relay.fly.dev`) instead of the older compatibility path ending in `/v1/flights`. The app still derives `/v1/schedule`, `/v1/radar`, `/v1/reports`, and activation routes internally.
-- Relay auto-activation burst limits can now be tuned with Fly secrets for local lab reinstall testing without changing the default production safety rails.
+- Relay auto-activation burst limits can now be tuned for local lab reinstall testing without changing the default production safety rails.
 - FIDS rows now sort by the full airport-local timestamp, not just the visible `HH:MM`, and the table labels board times as `Time (LT)`.
 - Real-data radar responses now hide aircraft that are clearly on the surface, and the radar status line reports when ground blips were filtered.
 - Radar responses now switch into surface mode for 1 / 2 / 3 / 5 NM ranges, showing only aircraft that appear to be on the ground and hiding airborne/overflying blips for both real ADS-B and VATSIM.
@@ -287,7 +300,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Relay community traffic now has network-level and global daily safety caps on top of per-install monthly quotas, reducing abuse risk from rotated install IDs.
 - Setup-provided relay URLs are now validated before the local app calls them; official relay hosts work by default, while custom/private relay roots require explicit local opt-in environment flags.
 - Local browser mutations now reject cross-origin POST-style requests, blocking drive-by web pages from changing settings or triggering local actions on the LAN.
-- README, Privacy, and mobile docs now explain the current relay, diagnostics, LAN trust, and companion privacy model in plain end-user language.
+- README, Privacy, and mobile docs now explain the current relay, diagnostics, LAN trust, and mobile privacy model in plain end-user language.
 
 ### Fixed
 - FIDS board filtering now uses the snapshot timestamp as its reference clock, so valid saved rows do not disappear just because the wall clock moved on while the snapshot stayed unchanged.
@@ -299,7 +312,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Relay-backed schedule fetches now allow a longer timeout on cold shared-snapshot rebuilds, reducing false client failures while the relay performs the heavier sparse-board rescue path.
 - Mobile crash reports with feature-specific context now keep the standard companion identity, app version, device type, and server URL attached for triage.
 - Relay report routing now respects explicit desktop/web/server origins before inferring iOS from generic OS text, keeping platform triage separated.
-- Relay admin Basic auth now throttles repeated bad password attempts per network tag.
+- Operator login now throttles repeated bad-password attempts per network tag.
 - Windows PyInstaller release EXEs now bootstrap writable stdio in windowed mode, preventing uvicorn/logging startup from failing silently before the browser window opens.
 
 ---
@@ -334,7 +347,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Mobile automatic diagnostics now cover critical flight-detail communication failures (`5xx` responses or malformed JSON) through the existing diagnostics-gated crash route, while normal offline, validation, and `4xx` states stay user-visible without auto-report noise.
 - The companion now feels closer to the supplied airport-board mockup in daily use, with the updated FIDS shell, launch flow, and diagnostics-aware reporting path.
 - Public mobile docs now describe the current beta scope more accurately instead of treating the companion like a bare phase-one scaffold.
-- Expo mobile dependency alignment updated for SDK 55: `expo` now targets `~55.0.19` and `expo-font` is installed for `@expo/vector-icons`.
+- Expo mobile dependency alignment updated for SDK 55: `expo` now targets `~55.0.24`, `expo-secure-store` `~55.0.14`, `expo-splash-screen` `~55.0.21`, plus `expo-crypto` and `expo-sqlite` for standalone relay identity/history support.
 
 ### Fixed
 - Mobile pinned-flight island and bottom nav no longer keep hardcoded dark backgrounds in light mode.
@@ -388,7 +401,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 - `relay/main.py` used `uvicorn.run("relay.main:app", ...)` (string module import) which fails in Docker because there is no `relay` package in the container filesystem. Changed to `uvicorn.run(app, ...)`.
-- Removed redundant `DB_PATH` `fly secrets set` step from deploy docs - the value is already hardcoded in `fly.toml [env]`.
+- Removed a redundant relay database-path step from deploy docs.
 
 ---
 

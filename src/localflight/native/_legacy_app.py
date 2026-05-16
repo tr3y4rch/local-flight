@@ -54,6 +54,7 @@ from localflight.native.design import (
     value_at,
 )
 from localflight.native.geometry import default_display_mode, fitted_window_size, native_visual_density
+from localflight.native.identity import configure_qt_app_identity, localflight_app_icon
 from localflight.native.loader import lazy_symbol
 from localflight.native.live import LiveStatus, NativeLiveBus, native_ws_url
 from localflight.native.qt_compat import import_qt
@@ -416,15 +417,9 @@ def launch_native_app(
 ) -> int:
     QtCore, QtGui, QtWidgets = import_qt()
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication(sys.argv[:1])
-    app.setApplicationName("Local Flight")
-    if hasattr(app, "setApplicationDisplayName"):
-        app.setApplicationDisplayName("Local Flight")
-    app.setOrganizationName("Local Flight")
-    app.setOrganizationDomain("localflight.app")
+    configure_qt_app_identity(QtCore, QtGui, app)
     apply_app_font_defaults(QtGui, app)
-    app_icon = icon_from_media(QtGui, "assets", "icon.ico")
-    if app_icon.isNull():
-        app_icon = icon_from_media(QtGui, "assets", "localflight-logo.svg")
+    app_icon = localflight_app_icon(QtGui)
     if not app_icon.isNull():
         app.setWindowIcon(app_icon)
     splash = _build_splash(QtCore, QtGui, QtWidgets)
@@ -4484,6 +4479,10 @@ class AdminSummaryScreen:  # pragma: no cover - optional Qt runtime
         self.service = NativeApiService(client)
         self.navigate = navigate
         self.widget, self.layout = scroll_page(QtWidgets)
+        self.widget.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+        body = self.widget.widget()
+        if body is not None:
+            body.setSizePolicy(QtWidgets.QSizePolicy.Ignored, QtWidgets.QSizePolicy.Preferred)
         self.layout.setContentsMargins(28, 22, 28, 22)
         # PageHero replaces the legacy title/subtitle/refresh row.
         from localflight.native.shell_widgets import make_page_hero
@@ -4584,8 +4583,13 @@ class AdminSummaryScreen:  # pragma: no cover - optional Qt runtime
             ),
             self._weather_panel(weather),
         ]
+        columns = self._dashboard_columns()
+        for column in range(columns):
+            self.grid.setColumnStretch(column, 1)
         for idx, widget in enumerate(cards):
-            self.grid.addWidget(widget, idx // 3, idx % 3)
+            widget.setMinimumWidth(0)
+            widget.setSizePolicy(self.QtWidgets.QSizePolicy.Ignored, self.QtWidgets.QSizePolicy.Preferred)
+            self.grid.addWidget(widget, idx // columns, idx % columns)
         self.detail_layout.addWidget(progress_card(self.QtWidgets, "\U0001F4C8  Schedule Access Budget", schedule_bucket.get("calls_this_month"), schedule_bucket.get("monthly_limit"), _budget_detail(schedule_bucket)))
         now = datetime.now().strftime('%H:%M:%S')
         _set_native_feedback(self, f"Last refreshed {now} | local user-facing admin APIs.", "StatusGood")
@@ -4607,21 +4611,54 @@ class AdminSummaryScreen:  # pragma: no cover - optional Qt runtime
 
     def _stats_panel(self, title: str, rows: list[tuple[str, Any]]) -> Any:
         box, layout = panel(self.QtWidgets, title)
+        box.setMinimumWidth(0)
+        box.setSizePolicy(self.QtWidgets.QSizePolicy.Ignored, self.QtWidgets.QSizePolicy.Preferred)
         for key, value in rows:
             layout.addWidget(self._stat_row(key, value))
         return box
 
     def _stat_row(self, key: str, value: Any) -> Any:
         row = self.QtWidgets.QWidget()
-        row_layout = self.QtWidgets.QHBoxLayout(row)
+        row.setMinimumWidth(0)
+        row.setSizePolicy(self.QtWidgets.QSizePolicy.Ignored, self.QtWidgets.QSizePolicy.Preferred)
+        row_layout = self.QtWidgets.QGridLayout(row)
         row_layout.setContentsMargins(0, 0, 0, 0)
-        row_layout.setSpacing(10)
-        row_layout.addWidget(label(self.QtWidgets, key, "Muted"))
-        row_layout.addStretch(1)
-        val = label(self.QtWidgets, format_value(value) or "-", "Metric")
-        val.setStyleSheet("font-size: 13px;")
-        row_layout.addWidget(val)
+        row_layout.setHorizontalSpacing(10)
+        row_layout.setVerticalSpacing(2)
+        key_label = label(self.QtWidgets, key, "Muted")
+        key_label.setMinimumWidth(0)
+        key_label.setSizePolicy(self.QtWidgets.QSizePolicy.Preferred, self.QtWidgets.QSizePolicy.Preferred)
+        val = label(self.QtWidgets, self._display_value(key, value), "Metric", wrap=True)
+        val.setAlignment(self.QtCore.Qt.AlignRight | self.QtCore.Qt.AlignVCenter)
+        val.setMinimumWidth(0)
+        val.setSizePolicy(self.QtWidgets.QSizePolicy.Ignored, self.QtWidgets.QSizePolicy.Preferred)
+        val.setStyleSheet("font-size: 12px;")
+        row_layout.addWidget(key_label, 0, 0)
+        row_layout.addWidget(val, 0, 1)
+        row_layout.setColumnStretch(0, 0)
+        row_layout.setColumnStretch(1, 1)
         return row
+
+    def _dashboard_columns(self) -> int:
+        try:
+            width = int(self.widget.viewport().width())
+        except Exception:
+            width = 1200
+        return 1 if width < 980 else 2
+
+    def _display_value(self, key: str, value: Any) -> str:
+        text = format_value(value) or "-"
+        if len(text) > 120:
+            text = text[:117].rstrip() + "..."
+        if "T" in text and ("+00:00" in text or text.endswith("Z")):
+            try:
+                parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+                return parsed.strftime("%Y-%m-%d %H:%MZ")
+            except Exception:
+                pass
+        if key.lower() in {"counter resets", "oldest record", "newest record", "last update"} and len(text) > 22:
+            return text.replace("T", " ").replace("+00:00", "Z")[:17] + "Z"
+        return text
 
     def _budget_panel(self, title: str, mode: str, bucket: dict[str, Any], aviation: dict[str, Any]) -> Any:
         box, layout = panel(self.QtWidgets, title)

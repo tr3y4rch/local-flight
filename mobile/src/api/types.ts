@@ -248,11 +248,43 @@ export type Budget = {
 export type Metar = {
   raw_text?: string;
   decoded_summary?: string;
+  flight_cat?: string;
+  flight_cat_color?: string;
   flight_category?: string;
   category?: string;
   temperature_c?: number;
+  temp_c?: number;
+  dewpoint_c?: number;
   wind?: string;
+  wind_display?: string;
+  wind_dir_deg?: number | null;
+  wind_speed_kt?: number | null;
+  wind_gust_kt?: number | null;
+  visibility_m?: number | null;
+  visibility_sm?: number | null;
+  ceiling_ft?: number | null;
+  altimeter_hpa?: number | null;
   qnh_hpa?: number;
+  wx_string?: string;
+  clouds?: Array<Record<string, unknown>>;
+  source?: string;
+  weather?: {
+    condition?: string;
+    icon?: string;
+    label?: string;
+    tone?: string;
+    summary?: string;
+    hazards?: string[];
+    chips?: Array<{ label: string; value: string }>;
+    source?: string;
+  };
+  weather_condition?: string;
+  weather_icon?: string;
+  weather_label?: string;
+  weather_tone?: string;
+  weather_summary?: string;
+  weather_hazards?: string[];
+  weather_chips?: Array<{ label: string; value: string }>;
 };
 
 export type FlightPosition = {
@@ -292,6 +324,122 @@ export type FlightPlanDetail = {
   assigned_transponder?: string | null;
 };
 
+export type FlightIntelAirportRef = {
+  iata?: string | null;
+  icao?: string | null;
+  name?: string | null;
+  code?: string | null;
+};
+
+export type FlightIntel = {
+  schema_version: "flight-intel-v1" | string;
+  detail_mode?: "real" | "virtual" | "missing" | string;
+  identity?: {
+    callsign?: string | null;
+    flight_number?: string | null;
+    flight_display?: string | null;
+    airline_name?: string | null;
+    airline_iata?: string | null;
+    airline_icao?: string | null;
+    codeshares?: string[];
+    sold_as?: string[];
+    marketing_airline_name?: string | null;
+    marketing_airline_iata?: string | null;
+    marketing_airline_icao?: string | null;
+    marketing_flight_number?: string | null;
+    operating_callsign?: string | null;
+    identity_source?: string | null;
+  };
+  route?: {
+    origin?: FlightIntelAirportRef;
+    destination?: FlightIntelAirportRef;
+    airport?: FlightIntelAirportRef;
+    direction?: string | null;
+    route_display?: string | null;
+  };
+  timing?: {
+    scheduled?: string | null;
+    estimated?: string | null;
+    actual?: string | null;
+    delay_minutes?: number | null;
+    delay_bucket?: string;
+    status?: string | null;
+  };
+  operations?: {
+    terminal?: string | null;
+    gate?: string | null;
+    stand?: string | null;
+    direction?: string | null;
+  };
+  aircraft?: {
+    type?: string | null;
+    model?: string | null;
+    full_type?: string | null;
+    registration?: string | null;
+    icao24?: string | null;
+    squawk?: string | null;
+    selected_altitude_ft?: number | null;
+    nav_modes?: string[] | null;
+    category?: string | null;
+  };
+  motion?: {
+    has_position?: boolean;
+    lat?: number | null;
+    lon?: number | null;
+    altitude_m?: number | null;
+    altitude_ft?: number | null;
+    geo_altitude_m?: number | null;
+    geo_altitude_ft?: number | null;
+    speed_ms?: number | null;
+    speed_kt?: number | null;
+    vertical_rate_ms?: number | null;
+    vertical_rate_fpm?: number | null;
+    heading?: number | null;
+    heading_deg?: number | null;
+    on_ground?: boolean | null;
+    last_contact?: string | null;
+    position_age_seconds?: number | null;
+    distance_nm?: number | null;
+    radar_status?: string | null;
+    radar_phase?: string | null;
+    phase_reason?: string | null;
+    source_quality?: string | null;
+  };
+  flight_plan?: FlightPlanDetail;
+  weather?: {
+    available?: boolean;
+    summary?: string | null;
+    flight_category?: string | null;
+    temperature_c?: number | null;
+    wind?: string | null;
+    qnh?: number | null;
+    icon?: string | null;
+    source?: string | null;
+  };
+  history_summary?: {
+    records?: number;
+    last_seen?: string | null;
+    avg_delay_minutes?: number | null;
+    early_count?: number;
+    on_time_count?: number;
+    late_count?: number;
+    delay_buckets?: Record<string, number>;
+    recent?: FlightDetailHistoryRow[];
+  };
+  source_evidence?: {
+    schedule_source?: string | null;
+    position_source?: string | null;
+    confidence?: "live_position_matched" | "position_from_snapshot" | "schedule_only" | "missing" | string | null;
+    snapshot_generated_at?: string | null;
+    snapshot_age_seconds?: number | null;
+    fields_available?: string[];
+  };
+  privacy?: {
+    vatsim_personal_identifiers?: boolean;
+    notes?: string;
+  };
+};
+
 export type FidsRow = {
   id: string;
   view: FlightView | string;
@@ -307,6 +455,17 @@ export type FidsRow = {
   flight_display: string;
   airline_display?: string;
   codeshare_display?: string;
+  flight_number?: string;
+  airline_iata?: string;
+  airline_icao?: string;
+  codeshares?: string[];
+  sold_as?: string[];
+  marketing_airline_name?: string;
+  marketing_airline_iata?: string;
+  marketing_airline_icao?: string;
+  marketing_flight_number?: string;
+  operating_callsign?: string;
+  identity_source?: string;
   route_display: string;
   route_primary?: string;
   route_code?: string;
@@ -349,7 +508,9 @@ export type FlightDetail = {
   terminal_display?: string | null;
   terminal_gate_display?: string | null;
   aircraft_type?: string | null;
+  aircraft_type_full?: string | null;
   aircraft_registration?: string | null;
+  stand?: string | null;
   direction?: string | null;
   status?: string | null;
   source?: string | null;
@@ -359,6 +520,14 @@ export type FlightDetail = {
   data_sources?: FlightDetailSources | null;
   flight_plan?: FlightPlanDetail | null;
   position?: FlightPosition | null;
+  sold_as?: string[];
+  marketing_airline_name?: string | null;
+  marketing_airline_iata?: string | null;
+  marketing_airline_icao?: string | null;
+  marketing_flight_number?: string | null;
+  operating_callsign?: string | null;
+  identity_source?: string | null;
+  intel?: FlightIntel | null;
 };
 
 export type FlightDetailHistoryRow = {
@@ -371,6 +540,7 @@ export type FlightDetailHistoryRow = {
 export type FidsDetailResponse = {
   detail: FlightDetail | Record<string, never>;
   history: FlightDetailHistoryRow[];
+  intel?: FlightIntel;
 };
 
 export type HistoryFlightRow = {
@@ -421,12 +591,47 @@ export type RadarBlip = {
   lat: number;
   lon: number;
   altitude_m?: number | null;
+  altitude_ft?: number | null;
+  geo_altitude_m?: number | null;
+  geo_altitude_ft?: number | null;
   heading?: number | null;
+  heading_deg?: number | null;
+  track_deg?: number | null;
   speed_ms?: number | null;
+  speed_kt?: number | null;
+  vertical_rate?: number | null;
+  vertical_rate_fpm?: number | null;
   on_ground?: boolean | null;
   icao24?: string | null;
   squawk?: string | null;
   flight_number?: string | null;
+  airline_name?: string | null;
+  airline_iata?: string | null;
+  airline_icao?: string | null;
+  codeshares?: string[];
+  sold_as?: string[];
+  marketing_flight_number?: string | null;
+  operating_callsign?: string | null;
+  identity_source?: string | null;
+  aircraft_type?: string | null;
+  registration?: string | null;
+  aircraft_category?: string | null;
+  source?: string | null;
+  source_quality?: string | null;
+  detail_mode?: string | null;
+  distance_nm?: number | null;
+  route_display?: string | null;
+  display_title?: string | null;
+  altitude_display?: string | null;
+  speed_display?: string | null;
+  vertical_rate_display?: string | null;
+  motion_display?: string | null;
+  radar_phase?: string | null;
+  radar_status?: string | null;
+  radar_status_label?: string | null;
+  phase_reason?: string | null;
+  selected_altitude_ft?: number | null;
+  nav_modes?: string[] | null;
   status?: string | null;
   enriched?: boolean;
 };
@@ -437,7 +642,19 @@ export type RadarResponse = {
   source: string;
   refresh_after_s?: number;
   count: number;
+  radar_mode?: "surface" | "airborne" | string;
   ground_filtered?: number;
+  airborne_filtered?: number;
+  hidden_ground_count?: number;
+  hidden_airborne_count?: number;
+  traffic_filter?: string;
+  altitude_filter?: {
+    min_alt_ft?: number | null;
+    max_alt_ft?: number | null;
+  };
+  user_filtered_count?: number;
+  provider_radius_nm?: number;
+  raw_provider_count?: number;
   blips: RadarBlip[];
 };
 
@@ -643,6 +860,7 @@ export type HistorySummary = {
   airport_iata: string;
   hours: number;
   total: number;
+  sample_rows?: number;
   departures: number;
   arrivals: number;
   delayed: number;

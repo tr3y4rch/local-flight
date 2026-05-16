@@ -10,7 +10,6 @@ from localflight.native.async_tools import API_EXECUTOR
 from localflight.native.design import (
     colors_for,
     format_value,
-    icon_from_media,
     label,
     list_payload,
     native_stylesheet,
@@ -18,6 +17,7 @@ from localflight.native.design import (
     pixmap_from_media,
     scroll_page,
 )
+from localflight.native.identity import localflight_app_icon
 from localflight.native.pages.setup_widgets import (
     build_celebration,
     build_hero,
@@ -62,9 +62,7 @@ class NativeSetupWindow:  # pragma: no cover - exercised with optional Qt
                 self._shutdown_started = False
                 self.setWindowTitle("Local Flight Setup")
                 self.setStyleSheet(native_stylesheet())
-                app_icon = icon_from_media(QtGui, "assets", "icon.ico")
-                if app_icon.isNull():
-                    app_icon = icon_from_media(QtGui, "assets", "localflight-logo.svg")
+                app_icon = localflight_app_icon(QtGui)
                 if not app_icon.isNull():
                     self.setWindowIcon(app_icon)
                 self.setup_screen = SetupScreen(

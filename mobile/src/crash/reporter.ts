@@ -1,6 +1,7 @@
 import { getConfig, normalizeServerUrl, submitCrashReport } from "../api/client";
+import { submitStandaloneCrash } from "../api/standalone";
 import { getCompanionIdentity } from "../device/identity";
-import { loadMobileDiagnosticsMode, loadServerUrl } from "../storage/settings";
+import { loadMobileDiagnosticsMode, loadMobileSetupState, loadServerUrl } from "../storage/settings";
 
 type ErrorUtilsHandler = (error: Error, isFatal?: boolean) => void;
 
@@ -60,8 +61,46 @@ async function mobileCrashContext(serverUrl: string, mobileDiagnosticsMode: stri
   return extraContext.trim() ? `${base}\n\n${extraContext.trim()}` : base;
 }
 
+async function postStandaloneCrash(input: CrashInput): Promise<boolean> {
+  const setup = await loadMobileSetupState();
+  if (
+    setup.mode !== "standalone" ||
+    !setup.relayInstallId ||
+    !setup.relayActivationToken ||
+    !setup.standaloneAirport
+  ) {
+    return false;
+  }
+  const mobileDiagnosticsMode = await loadMobileDiagnosticsMode();
+  if (!(mobileDiagnosticsMode === "auto" || mobileDiagnosticsMode === "auto_logs")) {
+    return false;
+  }
+  const fp = fingerprint(input);
+  if (hasRecent(fp)) return false;
+  rememberRecent(fp);
+  await submitStandaloneCrash(
+    {
+      installId: setup.relayInstallId,
+      activationToken: setup.relayActivationToken,
+      airport: setup.standaloneAirport,
+      diagnosticsMode: mobileDiagnosticsMode
+    },
+    {
+      ...input,
+      context: input.context || "mobile_standalone/crash",
+      client_context: await mobileCrashContext("standalone-relay", mobileDiagnosticsMode, input.client_context)
+    }
+  );
+  return true;
+}
+
 async function postCrash(input: CrashInput): Promise<boolean> {
   try {
+    const setup = await loadMobileSetupState();
+    if (setup.mode === "standalone") {
+      return await postStandaloneCrash(input);
+    }
+
     const serverUrl = normalizeServerUrl(await loadServerUrl());
     if (!serverUrl) return false;
 

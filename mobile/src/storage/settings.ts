@@ -10,11 +10,15 @@ const APPEARANCE_SKIN_KEY = "localflight.mobileSkin";
 const WEATHER_DISPLAY_KEY = "localflight.weatherDisplayMode";
 const MOBILE_DIAGNOSTICS_KEY = "localflight.mobileDiagnosticsMode";
 const MOBILE_SETUP_STATE_KEY = "localflight.mobileSetupState";
+const MOBILE_RELAY_INSTALL_ID_KEY = "localflight.mobileRelayInstallId";
+const MOBILE_RELAY_ACTIVATION_TOKEN_KEY = "localflight.mobileRelayActivationToken";
+const STANDALONE_AIRPORT_KEY = "localflight.standaloneAirport";
 
 const DEFAULT_THEME_MODE: MobileThemeMode = "dark";
 const DEFAULT_SKIN: MobileSkin = "technical";
 
 let companionIdCache: string | null = null;
+let relayInstallIdCache: string | null = null;
 
 export type ConfigProfile = {
   id: string;
@@ -28,12 +32,26 @@ export type ConfigProfile = {
 
 export type MobileDiagnosticsMode = "unset" | "manual" | "auto" | "auto_logs";
 export type MobileWeatherDisplayMode = "passenger" | "pilot" | "vatsim";
-export type MobileSetupMode = "lan_companion";
+export type MobileSetupMode = "lan_companion" | "standalone";
+
+export type StandaloneAirport = {
+  iata: string;
+  icao: string;
+  name: string;
+  city: string;
+  country: string;
+  timezone?: string;
+  lat?: number | null;
+  lon?: number | null;
+};
 
 export type MobileSetupState = {
   complete: boolean;
   mode: MobileSetupMode;
   serverUrl: string;
+  relayInstallId?: string;
+  relayActivationToken?: string;
+  standaloneAirport?: StandaloneAirport | null;
   diagnosticsMode: MobileDiagnosticsMode;
   completedAt: string | null;
 };
@@ -41,6 +59,38 @@ export type MobileSetupState = {
 function createCompanionId(): string {
   const part = () => Math.floor(Math.random() * 0xffffffff).toString(16).padStart(8, "0");
   return `lfc_${part()}${part()}${Date.now().toString(16).slice(-8)}`;
+}
+
+function createUuid(): string {
+  const bytes = Array.from({ length: 16 }, () => Math.floor(Math.random() * 256));
+  bytes[6] = (bytes[6]! & 0x0f) | 0x40;
+  bytes[8] = (bytes[8]! & 0x3f) | 0x80;
+  const hex = bytes.map((byte) => byte.toString(16).padStart(2, "0"));
+  return [
+    hex.slice(0, 4).join(""),
+    hex.slice(4, 6).join(""),
+    hex.slice(6, 8).join(""),
+    hex.slice(8, 10).join(""),
+    hex.slice(10, 16).join("")
+  ].join("-");
+}
+
+function normalizeStandaloneAirport(value: unknown): StandaloneAirport | null {
+  if (!value || typeof value !== "object") return null;
+  const raw = value as Partial<StandaloneAirport>;
+  const iata = String(raw.iata || "").trim().toUpperCase();
+  const icao = String(raw.icao || "").trim().toUpperCase();
+  if (!iata && !icao) return null;
+  return {
+    iata,
+    icao,
+    name: String(raw.name || iata || icao),
+    city: String(raw.city || ""),
+    country: String(raw.country || ""),
+    timezone: String(raw.timezone || "UTC"),
+    lat: typeof raw.lat === "number" ? raw.lat : null,
+    lon: typeof raw.lon === "number" ? raw.lon : null
+  };
 }
 
 export async function loadServerUrl(): Promise<string> {
@@ -64,6 +114,53 @@ export async function loadCompanionId(): Promise<string> {
   await SecureStore.setItemAsync(COMPANION_ID_KEY, created);
   companionIdCache = created;
   return created;
+}
+
+export async function loadMobileRelayInstallId(): Promise<string> {
+  if (relayInstallIdCache) {
+    return relayInstallIdCache;
+  }
+  const existing = (await SecureStore.getItemAsync(MOBILE_RELAY_INSTALL_ID_KEY)) || "";
+  if (existing) {
+    relayInstallIdCache = existing;
+    return existing;
+  }
+  const created = createUuid();
+  await SecureStore.setItemAsync(MOBILE_RELAY_INSTALL_ID_KEY, created);
+  relayInstallIdCache = created;
+  return created;
+}
+
+export async function loadMobileRelayActivationToken(): Promise<string> {
+  return (await SecureStore.getItemAsync(MOBILE_RELAY_ACTIVATION_TOKEN_KEY)) || "";
+}
+
+export async function saveMobileRelayActivationToken(value: string): Promise<void> {
+  const token = value.trim();
+  if (!token) {
+    await SecureStore.deleteItemAsync(MOBILE_RELAY_ACTIVATION_TOKEN_KEY);
+    return;
+  }
+  await SecureStore.setItemAsync(MOBILE_RELAY_ACTIVATION_TOKEN_KEY, token);
+}
+
+export async function loadStandaloneAirport(): Promise<StandaloneAirport | null> {
+  const raw = await SecureStore.getItemAsync(STANDALONE_AIRPORT_KEY);
+  if (!raw) return null;
+  try {
+    return normalizeStandaloneAirport(JSON.parse(raw));
+  } catch {
+    return null;
+  }
+}
+
+export async function saveStandaloneAirport(value: StandaloneAirport | null): Promise<void> {
+  const normalized = normalizeStandaloneAirport(value);
+  if (!normalized) {
+    await SecureStore.deleteItemAsync(STANDALONE_AIRPORT_KEY);
+    return;
+  }
+  await SecureStore.setItemAsync(STANDALONE_AIRPORT_KEY, JSON.stringify(normalized));
 }
 
 export async function loadPinnedFlight(): Promise<string> {
@@ -145,6 +242,9 @@ export function incompleteMobileSetupState(
     complete: false,
     mode: "lan_companion",
     serverUrl,
+    relayInstallId: "",
+    relayActivationToken: "",
+    standaloneAirport: null,
     diagnosticsMode: normalizeDiagnosticsMode(diagnosticsMode),
     completedAt: null
   };
@@ -158,6 +258,32 @@ export function completeMobileSetupState(
     complete: true,
     mode: "lan_companion",
     serverUrl,
+    relayInstallId: "",
+    relayActivationToken: "",
+    standaloneAirport: null,
+    diagnosticsMode: normalizeDiagnosticsMode(diagnosticsMode),
+    completedAt: new Date().toISOString()
+  };
+}
+
+export function completeStandaloneMobileSetupState({
+  relayInstallId,
+  relayActivationToken,
+  airport,
+  diagnosticsMode
+}: {
+  relayInstallId: string;
+  relayActivationToken: string;
+  airport: StandaloneAirport;
+  diagnosticsMode: MobileDiagnosticsMode;
+}): MobileSetupState {
+  return {
+    complete: true,
+    mode: "standalone",
+    serverUrl: "",
+    relayInstallId: relayInstallId.trim(),
+    relayActivationToken: relayActivationToken.trim(),
+    standaloneAirport: normalizeStandaloneAirport(airport),
     diagnosticsMode: normalizeDiagnosticsMode(diagnosticsMode),
     completedAt: new Date().toISOString()
   };
@@ -169,12 +295,21 @@ function normalizeMobileSetupState(raw: unknown): MobileSetupState {
   }
   const state = raw as Partial<MobileSetupState>;
   const diagnosticsMode = normalizeDiagnosticsMode(state.diagnosticsMode);
+  const mode: MobileSetupMode = state.mode === "standalone" ? "standalone" : "lan_companion";
   const serverUrl = typeof state.serverUrl === "string" ? state.serverUrl : "";
-  const complete = Boolean(state.complete && serverUrl && diagnosticsMode !== "unset");
+  const standaloneAirport = normalizeStandaloneAirport(state.standaloneAirport);
+  const relayInstallId = typeof state.relayInstallId === "string" ? state.relayInstallId : "";
+  const relayActivationToken = typeof state.relayActivationToken === "string" ? state.relayActivationToken : "";
+  const complete = mode === "standalone"
+    ? Boolean(state.complete && relayInstallId && relayActivationToken && standaloneAirport && diagnosticsMode !== "unset")
+    : Boolean(state.complete && serverUrl && diagnosticsMode !== "unset");
   return {
     complete,
-    mode: "lan_companion",
-    serverUrl,
+    mode,
+    serverUrl: mode === "lan_companion" ? serverUrl : "",
+    relayInstallId: mode === "standalone" ? relayInstallId : "",
+    relayActivationToken: mode === "standalone" ? relayActivationToken : "",
+    standaloneAirport: mode === "standalone" ? standaloneAirport : null,
     diagnosticsMode,
     completedAt: complete && typeof state.completedAt === "string" ? state.completedAt : null
   };
@@ -185,6 +320,15 @@ export function isMobileSetupComplete(
   serverUrl = state.serverUrl,
   diagnosticsMode: MobileDiagnosticsMode = state.diagnosticsMode
 ): boolean {
+  if (state.mode === "standalone") {
+    return Boolean(
+      state.complete &&
+      state.relayInstallId &&
+      state.relayActivationToken &&
+      state.standaloneAirport &&
+      normalizeDiagnosticsMode(diagnosticsMode) !== "unset"
+    );
+  }
   return Boolean(
     state.complete &&
     state.mode === "lan_companion" &&
@@ -254,6 +398,9 @@ export async function resolveMobileSetupState(
   diagnosticsMode: MobileDiagnosticsMode
 ): Promise<MobileSetupState> {
   const saved = await loadMobileSetupState();
+  if (isMobileSetupComplete(saved, saved.serverUrl, saved.diagnosticsMode)) {
+    return saved;
+  }
   if (isMobileSetupComplete(saved, serverUrl || saved.serverUrl, diagnosticsMode || saved.diagnosticsMode)) {
     return saved;
   }

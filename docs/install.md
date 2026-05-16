@@ -1,6 +1,6 @@
 # Local Flight Install Guide
 
-Local Flight can run as a desktop app, a Raspberry Pi server, a kiosk display, a LAN browser board, a mobile companion, and an LED matrix feed. Pick the path that matches where you want the board to live.
+Local Flight can run as a desktop app, a Raspberry Pi server, a kiosk display, a LAN browser board, the mobile app, and an LED matrix feed. Pick the path that matches where you want the board to live.
 
 If you are unsure, use the packaged Windows or macOS app on a desktop first. It gives you the native GUI, the local server, browser access, mobile access, and Matrix support from one install.
 
@@ -98,7 +98,7 @@ bash installers/pi/install.sh --native-kiosk
 bash installers/pi/install.sh --kiosk
 ```
 
-- `--headless`: local server only. Recommended for SSH installs, mobile companion, Matrix, and browser access from another device.
+- `--headless`: local server only. Recommended for SSH installs, mobile LAN Companion, Matrix, and browser access from another device.
 - `--native-kiosk`: local server plus a fullscreen native Qt display on the attached HDMI screen.
 - `--kiosk`: local server plus a fullscreen Chromium display using the LAN browser UI on the attached HDMI screen.
 
@@ -130,11 +130,11 @@ lf update
 
 ---
 
-## Mobile Companion
+## Mobile App
 
-The mobile companion is an iOS-first developer preview. It is not on the App Store or TestFlight yet.
+The mobile app is an iOS-first developer preview. It is not on the App Store or TestFlight yet.
 
-Use it when you want FIDS, radar, history, settings, docs, Matrix/Admin status, and feedback tools from an iPhone, iPad, or simulator.
+Use it when you want FIDS, radar, history, settings, feedback, and a lightweight airport-board view from an iPhone, iPad, or simulator.
 
 ```bash
 cd mobile
@@ -151,7 +151,13 @@ cd mobile
 npm run ios:device
 ```
 
-On first launch, the companion blocks normal app access until setup is complete. Enter your Local Flight server's LAN URL, for example:
+On first launch, the app blocks normal access until setup is complete and asks how this device should be used.
+
+### LAN Companion
+
+Choose **LAN Companion** if you already run Local Flight on a desktop or Raspberry Pi.
+
+Enter your Local Flight server's LAN URL, for example:
 
 ```text
 http://localflight.local:8000
@@ -159,6 +165,22 @@ http://192.168.1.42:8000
 ```
 
 Do not use `localhost` on a phone. On a phone, `localhost` means the phone itself, not your Mac, Windows PC, or Raspberry Pi.
+
+LAN Companion keeps the richer paired experience: server WebSocket updates, local server settings, Matrix/Admin entry points where allowed, server-mediated docs, and mobile/server double-consent for automatic diagnostics.
+
+### Standalone
+
+Choose **Standalone** if the phone should use the hosted relay directly without a desktop or Pi server.
+
+Standalone is intentionally simpler and rate-limited:
+
+- FIDS auto-refreshes no faster than every 3 hours.
+- Radar refreshes no faster than every 5 minutes.
+- Radar range choices are `1`, `3`, `5`, and `10` NM.
+- No Matrix, Admin, scheduler restart, LAN server controls, or WebSocket connection.
+- History is stored locally on the phone for 30 days or 1,000 rows.
+
+The app creates a mobile relay install ID, receives an activation token, stores both locally with Expo SecureStore, and keeps the selected airport on the device.
 
 ---
 
@@ -201,6 +223,9 @@ Provider keys live in your local `.env` when you choose the BYOK path.
 ## Quick Troubleshooting
 
 - If mobile cannot connect, confirm the phone and server are on the same WiFi and use `http://localflight.local:8000` or the server LAN IP.
+- If Standalone mobile cannot load, check internet access first. It does not need your desktop or Pi to be online.
+- If Standalone FIDS looks stale, remember that it is deliberately limited to a 3-hour auto-refresh cadence. Pull to refresh only when you intentionally need a fresh check.
+- If Standalone Radar refuses a range, use `1`, `3`, `5`, or `10` NM.
 - If `localflight.local` does not resolve, use the LAN IP address.
 - If a Pi display stays blank, confirm whether you installed `--native-kiosk`, `--kiosk`, or `--headless`.
 - If a real-data board looks sparse, try a busier airport or wait for the next fetch. Provider coverage varies by airport and lane, and cached relay snapshots may intentionally remain in place when a live provider returns suspiciously thin data.
