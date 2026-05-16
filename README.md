@@ -67,23 +67,23 @@ These are lightweight illustrative previews with sample data, not live telemetry
 Open [docs/previews/index.html](docs/previews/index.html) locally for the standalone HTML gallery.
 
 <p align="center">
-  <img src="docs/previews/fids-preview.svg" alt="Local Flight FIDS preview" width="48%">
-  <img src="docs/previews/radar-preview.svg" alt="Local Flight radar preview" width="48%">
+  <img src="docs/previews/fids-preview-0.2.7.svg" alt="Local Flight FIDS preview" width="48%">
+  <img src="docs/previews/radar-preview-0.2.7.svg" alt="Local Flight radar preview" width="48%">
 </p>
 
 <p align="center">
-  <img src="docs/previews/history-preview.svg" alt="Local Flight history analytics preview" width="48%">
-  <img src="docs/previews/settings-preview.svg" alt="Local Flight native settings preview" width="48%">
+  <img src="docs/previews/history-preview-0.2.7.svg" alt="Local Flight history analytics preview" width="48%">
+  <img src="docs/previews/settings-preview-0.2.7.svg" alt="Local Flight native settings preview" width="48%">
 </p>
 
 <p align="center">
-  <img src="docs/previews/matrix-preview.svg" alt="Local Flight LED matrix preview" width="48%">
-  <img src="docs/previews/mobile-fids-preview.svg" alt="Local Flight mobile board preview" width="48%">
+  <img src="docs/previews/matrix-preview-0.2.7.svg" alt="Local Flight LED matrix preview" width="48%">
+  <img src="docs/previews/mobile-board-preview-0.2.7.svg" alt="Local Flight mobile board preview" width="48%">
 </p>
 
 <p align="center">
-  <img src="docs/previews/mobile-radar-preview.svg" alt="Local Flight mobile radar preview" width="48%">
-  <img src="docs/previews/mobile-settings-preview.svg" alt="Local Flight mobile settings preview" width="48%">
+  <img src="docs/previews/mobile-radar-preview-0.2.7.svg" alt="Local Flight mobile radar preview" width="48%">
+  <img src="docs/previews/mobile-settings-preview-0.2.7.svg" alt="Local Flight mobile settings preview" width="48%">
 </p>
 
 ---
