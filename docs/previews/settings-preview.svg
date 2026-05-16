@@ -1,86 +1,136 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="960" height="540" viewBox="0 0 960 540" role="img" aria-labelledby="title desc">
   <title id="title">Local Flight native settings preview</title>
-  <desc id="desc">Illustrative preview of the current Local Flight native settings dashboard page.</desc>
+  <desc id="desc">Illustrative preview of the current Local Flight native Qt Settings dashboard with client state, airport/source controls, appearance skins, radar outputs, profiles, companion pairing, and relay details.</desc>
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#090d12"/>
-      <stop offset="1" stop-color="#111923"/>
+      <stop offset="0" stop-color="#050a10"/>
+      <stop offset="1" stop-color="#101821"/>
     </linearGradient>
-    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
-      <feDropShadow dx="0" dy="16" stdDeviation="18" flood-color="#000000" flood-opacity="0.38"/>
-    </filter>
     <style>
-      .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
       .sans { font-family: Inter, Segoe UI, Helvetica, Arial, sans-serif; }
-      .text { fill: #e8f0f8; }
-      .muted { fill: #7890aa; }
-      .blue { fill: #62b7f6; }
-      .tiny { font-size: 11px; letter-spacing: 1.1px; }
-      .label { fill: #e8f0f8; font-size: 13px; font-weight: 900; }
-      .hint { fill: #7890aa; font-size: 12px; }
+      .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+      .text { fill: #edf5ff; }
+      .soft { fill: #89d4ff; }
+      .muted { fill: #6f88a2; }
+      .dim { fill: #445a72; }
+      .tiny { font-size: 8px; letter-spacing: 1.1px; }
+      .label { font-size: 10px; font-weight: 800; letter-spacing: 1px; }
+      .kicker { fill: #4f93c8; font-size: 8px; letter-spacing: 1.8px; font-weight: 900; }
     </style>
   </defs>
 
-  <rect width="960" height="540" rx="28" fill="url(#bg)"/>
-  <rect x="18" y="18" width="924" height="504" rx="22" fill="#0d1218" stroke="#27364a"/>
-
-  <rect x="18" y="18" width="924" height="46" rx="22" fill="#070c12"/>
-  <rect x="18" y="42" width="924" height="22" fill="#070c12"/>
-  <text x="42" y="47" class="sans text" font-size="16" font-weight="900">Local Flight</text>
-  <text x="138" y="47" class="mono muted tiny">v0.2.7</text>
-  <text x="548" y="46" class="mono muted tiny">FIDS</text>
-  <text x="620" y="46" class="mono muted tiny">RADAR</text>
-  <text x="696" y="46" class="mono muted tiny">MATRIX</text>
-  <rect x="784" y="29" width="92" height="24" rx="12" fill="#1e3449" stroke="#31516e"/>
-  <text x="805" y="46" class="mono text tiny" font-weight="900">SETTINGS</text>
-
-  <g transform="translate(66 86)" filter="url(#shadow)">
-    <rect x="0" y="0" width="828" height="398" rx="22" fill="#101721" stroke="#26384d"/>
-    <text x="26" y="42" class="sans text" font-size="27" font-weight="900">Settings</text>
-    <text x="26" y="66" class="mono muted" font-size="13">Control room - apply changes when ready</text>
-    <rect x="650" y="24" width="146" height="38" rx="14" fill="#1f6f3a" stroke="#2ea85c"/>
-    <text x="678" y="48" class="mono" fill="#071009" font-size="12" font-weight="900">APPLY SETTINGS</text>
-
-    <g transform="translate(26 96)">
-      <rect x="0" y="0" width="370" height="126" rx="18" fill="#0d141d" stroke="#25364a"/>
-      <text x="18" y="29" class="mono blue tiny" font-weight="900">CURRENT AIRPORT</text>
-      <text x="18" y="60" class="sans text" font-size="21" font-weight="900">Noi Bai International</text>
-      <text x="18" y="84" class="mono muted" font-size="13">HAN / VVNB - source real - standard skin</text>
-      <rect x="18" y="98" width="82" height="20" rx="10" fill="#07351f"/>
-      <text x="37" y="112" class="mono" fill="#22c55e" font-size="10" font-weight="900">ONLINE</text>
-      <rect x="110" y="98" width="122" height="20" rx="10" fill="#13283a"/>
-      <text x="128" y="112" class="mono blue" font-size="10" font-weight="900">60 MIN LOCAL</text>
-
-      <rect x="392" y="0" width="384" height="126" rx="18" fill="#0d141d" stroke="#25364a"/>
-      <text x="410" y="29" class="mono blue tiny" font-weight="900">PROFILE CONTROLS</text>
-      <rect x="410" y="46" width="154" height="34" rx="11" fill="#111c27" stroke="#2c4259"/>
-      <text x="426" y="68" class="mono muted" font-size="12">HAN-evening</text>
-      <rect x="574" y="46" width="72" height="34" rx="11" fill="#17283a" stroke="#31516e"/>
-      <text x="596" y="68" class="mono text" font-size="12" font-weight="900">LOAD</text>
-      <rect x="656" y="46" width="100" height="34" rx="11" fill="#17283a" stroke="#31516e"/>
-      <text x="677" y="68" class="mono text" font-size="12" font-weight="900">SAVE NEW</text>
-      <text x="410" y="105" class="sans hint">Profiles switch airports without hiding what will be applied.</text>
-    </g>
-
-    <g transform="translate(26 246)">
-      <rect x="0" y="0" width="248" height="102" rx="18" fill="#0d141d" stroke="#25364a"/>
-      <text x="18" y="29" class="mono blue tiny" font-weight="900">DATA ACCESS</text>
-      <text x="18" y="58" class="sans label">Community relay</text>
-      <text x="18" y="80" class="sans hint">Shared snapshot cadence explained.</text>
-
-      <rect x="264" y="0" width="248" height="102" rx="18" fill="#0d141d" stroke="#25364a"/>
-      <text x="282" y="29" class="mono blue tiny" font-weight="900">RADAR SURFACE</text>
-      <text x="282" y="58" class="sans label">Runways + surface on</text>
-      <text x="282" y="80" class="sans hint">Map prep feedback stays visible.</text>
-
-      <rect x="528" y="0" width="248" height="102" rx="18" fill="#0d141d" stroke="#25364a"/>
-      <text x="546" y="29" class="mono blue tiny" font-weight="900">COLLAPSED HELP</text>
-      <text x="546" y="58" class="sans label">Diagnostics + advanced</text>
-      <text x="546" y="80" class="sans hint">Low-frequency controls stay tucked away.</text>
-    </g>
-
-    <text x="26" y="376" class="mono muted tiny">GitHub - Buy Me a Coffee - Re-run setup wizard - local docs bundled in app</text>
+  <rect width="960" height="540" fill="#202020"/>
+  <rect y="12" width="960" height="528" fill="url(#bg)"/>
+  <rect y="12" width="960" height="30" fill="#090e14" stroke="#1a2531"/>
+  <text x="23" y="32" class="sans text" font-size="13" font-weight="900">Local Flight</text>
+  <text x="82" y="32" class="mono soft" font-size="7">v0.2.7</text>
+  <g transform="translate(108 18)" class="mono label">
+    <rect x="0" y="0" width="44" height="22" rx="5" fill="#15191f" stroke="#223140"/><text x="13" y="15" class="soft">Display</text>
+    <rect x="50" y="0" width="38" height="22" rx="5" fill="#15191f" stroke="#223140"/><text x="63" y="15" class="soft">FIDS</text>
+    <rect x="94" y="0" width="44" height="22" rx="5" fill="#15191f" stroke="#223140"/><text x="106" y="15" class="soft">Radar</text>
+  </g>
+  <g transform="translate(366 18)">
+    <rect x="0" y="0" width="62" height="22" rx="7" fill="#0d2034" stroke="#2d5f8c"/><text x="9" y="15" class="mono soft" font-size="10">UTC 16:02</text>
+    <rect x="68" y="0" width="58" height="22" rx="7" fill="#0d2034" stroke="#2d5f8c"/><text x="78" y="15" class="mono soft" font-size="10">LT 18:02</text>
+  </g>
+  <g transform="translate(628 18)" class="mono label">
+    <text x="0" y="15" fill="#5ee5a0">Matrix</text>
+    <rect x="48" y="0" width="52" height="22" rx="5" fill="#10263b" stroke="#45a5ea"/><text x="58" y="15" class="text">Settings</text>
+    <text x="112" y="15" class="soft">Admin</text><text x="160" y="15" class="soft">History</text><text x="216" y="15" class="soft">Logs</text><text x="262" y="15" class="soft">Report</text>
+    <rect x="314" y="0" width="36" height="22" rx="5" fill="#08111a" stroke="#2d5f8c"/><text x="324" y="15" class="soft">Power</text>
   </g>
 
-  <text x="42" y="501" class="mono muted tiny">Illustrative sample data - native settings uses explicit apply/save feedback</text>
+  <g transform="translate(12 58)">
+    <text x="0" y="0" class="sans text" font-size="17" font-weight="900">Settings</text>
+    <text x="0" y="14" class="sans soft" font-size="10">Client controls for the local board. Relay operator tools stay in Network Admin.</text>
+    <rect x="830" y="-9" width="38" height="22" rx="5" fill="#111820" stroke="#1f2a36"/><text x="838" y="6" class="mono soft" font-size="9" font-weight="900">Refresh</text>
+    <rect x="876" y="-9" width="70" height="22" rx="5" fill="#14344f" stroke="#3b78a9"/><text x="889" y="6" class="mono text" font-size="9" font-weight="900">Apply settings</text>
+  </g>
+
+  <g transform="translate(12 86)">
+    <rect width="936" height="76" rx="8" fill="#0f1823" stroke="#23466a"/>
+    <text x="9" y="14" class="mono kicker">CLIENT STATE</text>
+    <g transform="translate(8 24)">
+      <rect width="180" height="42" rx="7" fill="#141f2b" stroke="#2a465f"/>
+      <text x="23" y="20" class="sans text" font-size="13" font-weight="900">LAX / KLAX</text>
+      <text x="23" y="34" class="sans soft" font-size="8">No config loaded yet.</text>
+    </g>
+    <g transform="translate(196 24)">
+      <rect width="180" height="42" rx="7" fill="#141f2b" stroke="#2a465f"/>
+      <text x="23" y="20" class="sans text" font-size="13" font-weight="900">REAL TRAFFIC</text>
+      <text x="23" y="34" class="sans soft" font-size="8">Real schedule or VATSIM source.</text>
+    </g>
+    <g transform="translate(384 24)">
+      <rect width="180" height="42" rx="7" fill="#141f2b" stroke="#2a465f"/>
+      <text x="23" y="20" class="sans text" font-size="13" font-weight="900">Every 8 hours</text>
+      <text x="23" y="34" class="sans soft" font-size="8">Provider-friendly cadence.</text>
+    </g>
+    <g transform="translate(572 24)">
+      <rect width="180" height="42" rx="7" fill="#141f2b" stroke="#2a465f"/>
+      <text x="23" y="17" class="sans text" font-size="13" font-weight="900">Managed access</text>
+      <text x="23" y="31" class="sans soft" font-size="8">token status only, no raw token shown.</text>
+    </g>
+    <g transform="translate(760 24)">
+      <rect width="168" height="42" rx="7" fill="#141f2b" stroke="#2a465f"/>
+      <text x="23" y="20" class="sans text" font-size="13" font-weight="900">Surface On</text>
+      <text x="23" y="34" class="sans soft" font-size="8">Runways draw when data exists.</text>
+    </g>
+  </g>
+
+  <g transform="translate(12 170)">
+    <rect width="465" height="154" rx="8" fill="#0f1823" stroke="#23466a"/>
+    <text x="9" y="14" class="mono kicker">AIRPORT &amp; SOURCE</text>
+    <text x="9" y="30" class="sans soft" font-size="9">Search by airport name, city, IATA, or ICAO.</text>
+    <rect x="10" y="38" width="444" height="12" rx="5" fill="#07111b" stroke="#2e5b82"/><text x="12" y="47" class="mono text" font-size="8">LAX / KLAX</text>
+    <text x="10" y="63" class="sans soft" font-size="8">Selected: LAX / KLAX | America/Los_Angeles</text>
+    <text x="10" y="81" class="sans text" font-size="9">IATA</text><rect x="64" y="71" width="390" height="12" rx="5" fill="#07111b" stroke="#2e5b82"/><text x="67" y="80" class="mono text" font-size="8">LAX</text>
+    <text x="10" y="101" class="sans text" font-size="9">ICAO</text><rect x="64" y="91" width="390" height="12" rx="5" fill="#07111b" stroke="#2e5b82"/><text x="67" y="100" class="mono text" font-size="8">KLAX</text>
+    <text x="10" y="121" class="sans text" font-size="9">Timezone</text><rect x="64" y="111" width="390" height="12" rx="5" fill="#07111b" stroke="#2e5b82"/><text x="67" y="120" class="mono text" font-size="8">America/Los_Angeles</text>
+    <text x="10" y="141" class="sans text" font-size="9">Source</text><rect x="64" y="131" width="390" height="12" rx="5" fill="#07111b" stroke="#2e5b82"/><text x="67" y="140" class="mono text" font-size="8">Real traffic</text>
+
+    <rect x="482" y="0" width="466" height="154" rx="8" fill="#0f1823" stroke="#23466a"/>
+    <text x="491" y="14" class="mono kicker">APPEARANCE</text>
+    <text x="491" y="36" class="sans text" font-size="9">Display name</text><rect x="536" y="26" width="400" height="12" rx="5" fill="#07111b" stroke="#2e5b82"/><text x="539" y="35" class="mono text" font-size="8">Local Flight</text>
+    <text x="491" y="56" class="sans text" font-size="9">Theme</text><rect x="536" y="46" width="400" height="12" rx="5" fill="#07111b" stroke="#2e5b82"/><text x="539" y="55" class="mono text" font-size="8">Dark board</text>
+    <text x="491" y="76" class="sans text" font-size="9">Skin</text><rect x="536" y="66" width="400" height="12" rx="5" fill="#07111b" stroke="#2e5b82"/><text x="539" y="75" class="mono text" font-size="8">Standard</text>
+    <g transform="translate(491 90)" class="mono" font-size="8" font-weight="900">
+      <rect x="0" y="0" width="108" height="18" rx="5" fill="#10263b" stroke="#45a5ea"/><text x="42" y="12" class="text">Standard</text>
+      <rect x="113" y="0" width="108" height="18" rx="5" fill="#0c2945" stroke="#1578c8"/><text x="153" y="12" class="text">PAX blue</text>
+      <rect x="226" y="0" width="108" height="18" rx="5" fill="#3e2301" stroke="#c98718"/><text x="263" y="12" class="text">Solari amber</text>
+      <rect x="339" y="0" width="108" height="18" rx="5" fill="#033315" stroke="#1fd16d"/><text x="378" y="12" class="text">Tower scope</text>
+      <rect x="0" y="23" width="108" height="18" rx="5" fill="#082f16" stroke="#27d856"/><text x="38" y="35" class="text">VATSIM scope</text>
+      <rect x="113" y="23" width="108" height="18" rx="5" fill="#111c29" stroke="#356388"/><text x="154" y="35" class="text">Night ops</text>
+      <rect x="226" y="23" width="108" height="18" rx="5" fill="#3b180f" stroke="#be552b"/><text x="261" y="35" class="text">Sunset terminal</text>
+      <rect x="339" y="23" width="108" height="18" rx="5" fill="#062b3d" stroke="#2eb7e8"/><text x="382" y="35" class="text">Ice white</text>
+      <rect x="0" y="46" width="108" height="18" rx="5" fill="#111820" stroke="#2d5f8c"/><text x="42" y="58" class="text">Technical</text>
+      <rect x="113" y="46" width="108" height="18" rx="5" fill="#031d2b" stroke="#00d7ff"/><text x="163" y="58" fill="#00eaff">Cyan</text>
+      <rect x="226" y="46" width="108" height="18" rx="5" fill="#171002" stroke="#ffd11a"/><text x="273" y="58" fill="#ffd11a">CRT</text>
+      <rect x="339" y="46" width="108" height="18" rx="5" fill="#001e0b" stroke="#00f052"/><text x="390" y="58" fill="#18ff72">Neon</text>
+    </g>
+  </g>
+
+  <g transform="translate(12 332)">
+    <rect width="936" height="96" rx="8" fill="#0f1823" stroke="#23466a"/>
+    <text x="9" y="14" class="mono kicker">OUTPUTS &amp; RADAR</text>
+    <rect x="10" y="26" width="916" height="16" fill="#050a10"/><text x="18" y="38" class="sans text" font-size="10">Runway and airport surface overlay</text>
+    <text x="10" y="58" class="sans soft" font-size="9">Optional surface drawing depends on cached local or relay data. It is a visual hobbyist layer, not an operational navigation source.</text>
+    <rect x="10" y="66" width="76" height="18" rx="5" fill="#111820" stroke="#1f2a36"/><text x="19" y="79" class="mono soft" font-size="8" font-weight="900">Apply overlay</text>
+    <text x="96" y="78" class="sans soft" font-size="8">Surface overlay is enabled. Apply or check it to load runway data.</text>
+    <text x="10" y="93" class="sans text" font-size="9">LAN browser UI</text><text x="82" y="93" class="sans text" font-size="9">Matrix panel</text><text x="157" y="93" class="sans text" font-size="9">HDMI display</text>
+  </g>
+
+  <g transform="translate(12 436)">
+    <rect width="936" height="56" rx="8" fill="#0f1823" stroke="#23466a"/>
+    <text x="9" y="14" class="mono kicker">PROFILES</text>
+    <text x="10" y="29" class="sans soft" font-size="9">Save airport and board presets for quick swaps.</text>
+    <rect x="10" y="38" width="392" height="12" rx="5" fill="#07111b" stroke="#2e5b82"/>
+    <rect x="407" y="34" width="30" height="20" rx="5" fill="#14344f" stroke="#3b78a9"/><text x="416" y="47" class="mono text" font-size="8" font-weight="900">Load</text>
+    <rect x="444" y="38" width="388" height="12" rx="5" fill="#07111b" stroke="#2e5b82"/><text x="447" y="47" class="mono muted" font-size="8">New profile name</text>
+    <rect x="838" y="34" width="54" height="20" rx="5" fill="#14344f" stroke="#3b78a9"/><text x="850" y="47" class="mono text" font-size="8" font-weight="900">Save current</text>
+    <rect x="898" y="34" width="34" height="20" rx="5" fill="#111820" stroke="#1f2a36"/><text x="907" y="47" class="mono soft" font-size="8">Delete</text>
+  </g>
+  <g transform="translate(12 500)">
+    <rect width="936" height="22" rx="6" fill="#0f1823" stroke="#23466a"/><text x="20" y="15" class="mono soft tiny">Pair Companion</text>
+  </g>
+  <text x="8" y="536" class="mono soft" font-size="8">v0.2.7 - Local-first - private by design</text>
 </svg>

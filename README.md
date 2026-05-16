@@ -72,17 +72,18 @@ Open [docs/previews/index.html](docs/previews/index.html) locally for the standa
 </p>
 
 <p align="center">
+  <img src="docs/previews/history-preview.svg" alt="Local Flight history analytics preview" width="48%">
   <img src="docs/previews/settings-preview.svg" alt="Local Flight native settings preview" width="48%">
+</p>
+
+<p align="center">
   <img src="docs/previews/matrix-preview.svg" alt="Local Flight LED matrix preview" width="48%">
+  <img src="docs/previews/mobile-fids-preview.svg" alt="Local Flight mobile board preview" width="48%">
 </p>
 
 <p align="center">
-  <img src="docs/previews/mobile-fids-preview.svg" alt="Local Flight companion FIDS preview" width="48%">
-  <img src="docs/previews/mobile-radar-preview.svg" alt="Local Flight companion radar preview" width="48%">
-</p>
-
-<p align="center">
-  <img src="docs/previews/mobile-settings-preview.svg" alt="Local Flight companion settings preview" width="48%">
+  <img src="docs/previews/mobile-radar-preview.svg" alt="Local Flight mobile radar preview" width="48%">
+  <img src="docs/previews/mobile-settings-preview.svg" alt="Local Flight mobile settings preview" width="48%">
 </p>
 
 ---
