@@ -133,6 +133,37 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - FIDS style registry returns `['classic', 'pax', 'vatsim', 'nerd']` with `classic` as the default.
 - Full Mac/Codex validation after the mobile Standalone pass, Claude UI rescue, native FIDS painter polish, and docs pass: `.venv/bin/python -m pytest tests -q` returned `385 passed`; focused Qt column compatibility check returned `1 passed`; `.venv/bin/python -m py_compile src/localflight/native/pages/fids.py src/localflight/native/pages/fids_styles.py` passed; `cd mobile && npm run typecheck && npm run doctor` passed with Expo Doctor `18/18`; `git diff --check` passed.
 
+### Mobile companion — icon registry
+
+- Added `mobile/src/theme/icons.tsx` — `LocalFlightIcon` component backed by a semantic icon registry (`statusIcons`, `navIcons`, `flightIcons`, `actionIcons`). All interactive UI is now keyed off semantic names rather than raw glyph strings, making skin changes and future icon swaps centralised in one place.
+- Added `mobile/src/theme/weatherIcons.ts` — maps METAR decoded weather conditions to icon names, condition keys, and tone hints. Single source of truth consumed by `CompactWeatherCapsule`, `FlightIsland`, and the Admin weather hero.
+- Added `mobile/src/components/Brand.tsx` — `BrandMark` component encapsulating the animated companion logo used in the setup wizard and launch overlay. Supports a `size` prop and an optional breathing-ring animation mode.
+
+### Mobile companion — seven-phase UI/UX redesign
+
+All seven phases are additive visual polish on the existing data contracts. No route, schema, or server-side changes required.
+
+- **Phase 1 — Animated bottom-nav dot and press scale.** `BottomNav` now renders an animated accent dot that slides between tabs on navigation, and a spring press-scale (`usePressScale`) on every tab button. `hapticSelection` fires on tab switch.
+- **Phase 2 — Haptic feedback throughout.** `hapticSuccess` fires on successful server connection; `hapticLight` fires on manual refresh; `hapticSelection` fires when opening any flight detail sheet or interactive control. Applied in the `AppShell` coordinator and screen-level action handlers.
+- **Phase 3 — Press scale and haptics on every interactive row.** Every tappable row in FIDS, History, Radar, Settings, and Control now uses `usePressScale` for spring-animated press feedback. Covers `FidsRowView`, `HistoryRow`, `RadarBlipRow`, `DirectionButton`, `OptionChip`, `SettingsQuickAction`, `SettingsToolPill`, `ConnectPrompt`, and `CollapsibleCard` headers.
+- **Phase 4 — Two-line FIDS time cell, delay tags, and GATE column.** Flight time cells now show the scheduled time on line 1 and an inline delay badge (`EARLY` / `+NNm` / `+NNm` in green/amber/red) on line 2 when `delay_minutes` is populated. A `GATE` column was added between `STATUS` and `ROUTE`, showing `terminal_gate_display` or a muted `—` placeholder. Column widths were rebalanced to accommodate the new column without horizontal scrolling on standard phone widths.
+- **Phase 5 — History screen redesign.** The flat history list was replaced with a dashboard: a four-cell KPI grid (total flights, on-time rate, average delay, median delay), a per-airline delay-quota progress stack, and sectioned panels for top airlines, busiest routes, and aircraft-type distribution. Each panel uses `CollapsibleCard`.
+- **Phase 6 — Sectioned Control screen and Help tab panels.** The Control screen was restructured into four `CollapsibleCard` sections (Schedule, Radar, Weather, Diagnostics — Diagnostics collapsed by default). The Help screen renders three tab panels (Status / Check / Report). A density toggle (Compact / Comfortable) was added to the FIDS header.
+- **Phase 7 — Animated micro-interactions.** `CompactWeatherCapsule` cross-fades weather icons when the METAR condition changes (100 ms fade-out → icon swap → 220 ms fade-in via `prevIconRef`). `FlightIsland` renders an animated border glow that pulses when live data is fresh. `RadarScope` shows a rotating sweep-needle empty state (`Easing.linear`, 3 s period) when the scope contains no blips.
+
+### Mobile companion — setup wizard overhaul
+
+- Replaced the single connection screen with a full welcome-first wizard: **Welcome → Mode → Server URL (companion only) → Privacy → Ready**.
+- **Welcome step** shows a breathing logo ring (2 s opacity/scale loop), the Local Flight wordmark, a tagline, and a feature chip row. Entirely new; first thing every new user sees.
+- **Mode step** presents two large `SetupModeCard` components — **LAN Companion** (requires a running Local Flight server on the local network; full live FIDS/Radar/admin features) and **Standalone** (preview mode, no server required; limited to offline browsing and local history). Each card shows a RECOMMENDED / OFFLINE badge, a description, and a feature bullet list. Cards animate via `usePressScale` and show a checkmark when selected.
+- **Server URL step** (companion mode only) retains the existing URL input with an inline health-check icon (spinner → green check / red ✗ from `/api/health`) and a LAN pairing tip. Skipped entirely in standalone mode.
+- **Privacy step** presents three `SetupOptionCard` options (Manual reports / Automatic crash reports / Automatic + sanitized logs) with radio-button selection and a RECOMMENDED badge on the middle option.
+- **Ready step** shows an animated `SetupReadyCheck` circle (spring pop-in, stiffness 260, damping 18) confirming setup is complete, with a summary of chosen mode and diagnostics level.
+- All step transitions use direction-aware spring animations — forward slides/fades in from the right, back from the left — via `stepAnim` (opacity + scale) and `stepShift` (translateY). Spring stiffness 300, damping 24.
+- `SetupStepRail` renders a segmented progress rail with connector lines, numbered dots, and ✓ marks for completed steps. Step count adapts to wizard mode: 4 steps for standalone, 5 for companion.
+- Standalone path saves through `completeStandaloneMobileSetupState()` in `settings.ts` and navigates directly to the FIDS board without requiring a server URL.
+- `mobile/src/storage/settings.ts` gained `MobileSetupMode = "lan_companion" | "standalone"`, `completeStandaloneMobileSetupState()`, and updated `normalizeMobileSetupState` / `isMobileSetupComplete` to handle the standalone completion path correctly.
+
 ---
 
 ## [0.2.6] - 2026-05-10

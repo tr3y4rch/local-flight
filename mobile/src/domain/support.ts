@@ -35,28 +35,28 @@ export const SUPPORT_TIP_TIERS: SupportTipTier[] = [
     productId: "com.localflight.companion.tip.2",
     amountUsd: 2,
     displayAmount: "$2",
-    label: "Coffee"
+    label: "Buy a coffee ☕"
   },
   {
     id: "tip_5",
     productId: "com.localflight.companion.tip.5",
     amountUsd: 5,
     displayAmount: "$5",
-    label: "Ramp snack"
+    label: "Airport pastry 🥐"
   },
   {
     id: "tip_10",
     productId: "com.localflight.companion.tip.10",
     amountUsd: 10,
     displayAmount: "$10",
-    label: "Radar fuel"
+    label: "Fuel the radar 📡"
   },
   {
     id: "tip_20",
     productId: "com.localflight.companion.tip.20",
     amountUsd: 20,
     displayAmount: "$20",
-    label: "Keep the board glowing"
+    label: "Keep the boards flying ✈️"
   }
 ];
 
