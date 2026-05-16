@@ -45,6 +45,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Active style persists per-install via `QSettings("LocalFlight", "Native").value("fids/style", ...)`. Fresh installs default to Classic so existing users see no change.
 - `FlightBoardModel` is now style-aware: takes `columns` and `status_vocabulary` per instance, gained `set_columns()` and `set_status_vocabulary()`; status text routes through `translate_status` to produce friendly / phase / code variants when not in Classic.
 - `_display_value` handles the new column keys used by PAX/VATSIM/Nerd: `callsign`, `flight_display`, `registration`, `altitude_ft`, `ground_speed_kt`, `alt_speed` (formatted `FL120 / 412kt`), `squawk`, `flight_rules`, `phase`, `delay_label`, `source`.
+- The native FIDS painter now uses the active style for row height, row gap, responsive column weights, hide thresholds, font families, header chrome, row chrome, status chip shape, and palette overlays.
+- Classic/PAX/VATSIM/Nerd now look meaningfully different instead of being only column presets: rounded Local Flight cards, passenger-size cards, ATC-scope green grid, and dense operator rows respectively.
 
 ### Icons, glyphs, and official brand assets
 - Centralised three emoji dicts in `design.py`: `NAV_GLYPHS` (page nav), `WEATHER_EMOJI` (weather strip — single source of truth replacing three duplicates), `SECTION_EMOJI` (31 entries for section headers, status cards, FIDS row icons, setup option cards). Plus a `paint_emoji` helper that renders emoji into a `QPainter` rect using Segoe UI Emoji.
@@ -75,6 +77,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `src/localflight/native/shell_widgets.py` — shared visual primitives for the main shell.
 - `src/localflight/native/pages/setup_widgets.py` — setup-wizard widgets (stepper, hero, spinner, info button, celebration overlay, page-fade helper).
 - `src/localflight/native/pages/fids_styles.py` — `FidsStyle` dataclass + `CLASSIC` / `PAX` / `VATSIM` / `NERD` descriptors + `translate_status` helper.
+- `mobile/src/components/Brand.tsx` — shared mobile wordmark/kicker components so launch and setup surfaces use the bundled brand font consistently.
+- `start.command` — double-clickable macOS source-checkout launcher that mirrors `start.bat` for local native/browser/headless development.
 - `src/localflight/ui/static/support-repository.svg`, `support-repository-dark.svg`, `support-coffee.svg`, `support-coffee-button.svg` — official GitHub + Buy Me a Coffee brand assets.
 
 ### Native client layout and data polish
@@ -93,6 +97,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Standalone History now uses Expo SQLite on-device storage and prunes to 30 days or 1,000 rows. No relay-side per-install flight history was added.
 - Standalone manual/crash reports post directly to relay `/v1/reports`; automatic standalone reports require the mobile diagnostics choice to be `auto` or `auto_logs`.
 - LAN Companion behavior remains paired to the local desktop/Pi server, including WebSocket refresh, server-mediated reports, local settings/control, and mobile/server double-consent for automatic diagnostics.
+- The mobile launch overlay now uses shared brand text components, an independent continuous radar sweep, status text cross-fade, breathing status dot, and blinking amber board LED.
+- Mobile screen interactions gained small native-feeling polish: haptics on key taps, press-scale chips/buttons, animated weather icon swaps, and a soft live glow around the pinned-flight island.
 
 ### FIDS, Details, Matrix, Settings
 - Operating-first flight identity is now the board rule, so the main FIDS row favors the operating carrier while marketed/codeshare identities remain visible as sold-as detail.
@@ -125,7 +131,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `python -m py_compile` clean across every modified native visual-refresh file.
 - Generated stylesheet contains the new shared selectors for pills, page heroes, spinners, info buttons, toasts, primary actions, FIDS style buttons, and setup option cards.
 - FIDS style registry returns `['classic', 'pax', 'vatsim', 'nerd']` with `classic` as the default.
-- Full Mac/Codex validation after the mobile Standalone and docs pass: `.venv/bin/python -m pytest tests -q` returned `385 passed`; `cd mobile && npm run typecheck && npm run doctor` passed with Expo Doctor `18/18`; `git diff --check` passed.
+- Full Mac/Codex validation after the mobile Standalone pass, Claude UI rescue, native FIDS painter polish, and docs pass: `.venv/bin/python -m pytest tests -q` returned `385 passed`; focused Qt column compatibility check returned `1 passed`; `.venv/bin/python -m py_compile src/localflight/native/pages/fids.py src/localflight/native/pages/fids_styles.py` passed; `cd mobile && npm run typecheck && npm run doctor` passed with Expo Doctor `18/18`; `git diff --check` passed.
 
 ---
 

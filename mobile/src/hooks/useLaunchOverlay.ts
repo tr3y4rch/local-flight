@@ -37,6 +37,9 @@ export function useLaunchOverlay(onHydrated: (value: LaunchHydration) => void) {
   const shift = useRef(new Animated.Value(0)).current;
   const progress = useRef(new Animated.Value(0)).current;
   const pulse = useRef(new Animated.Value(0)).current;
+  // Independent continuous sweep — 360° linear rotation, decoupled from the
+  // halo breathing so the radar needle feels physically authentic.
+  const sweep = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     let alive = true;
@@ -65,9 +68,19 @@ export function useLaunchOverlay(onHydrated: (value: LaunchHydration) => void) {
         })
       ])
     );
+    // Radar sweep — one full revolution every 3.2 s at constant speed.
+    const sweepAnim = Animated.loop(
+      Animated.timing(sweep, {
+        toValue: 1,
+        duration: 3200,
+        easing: Easing.linear,
+        useNativeDriver: true
+      })
+    );
 
     progress.setValue(0);
     pulse.setValue(0);
+    sweep.setValue(0);
     Animated.timing(progress, {
       toValue: 1,
       duration: LAUNCH_MIN_MS,
@@ -75,6 +88,7 @@ export function useLaunchOverlay(onHydrated: (value: LaunchHydration) => void) {
       useNativeDriver: false
     }).start();
     pulseAnim.start();
+    sweepAnim.start();
 
     Promise.all([
       loadServerUrl(),
@@ -134,12 +148,13 @@ export function useLaunchOverlay(onHydrated: (value: LaunchHydration) => void) {
       alive = false;
       clearInterval(statusTimer);
       pulseAnim.stop();
+      sweepAnim.stop();
       progress.stopAnimation();
       if (nativeHideTimer) clearTimeout(nativeHideTimer);
       if (hideTimer) clearTimeout(hideTimer);
       if (fadeTimer) clearTimeout(fadeTimer);
     };
-  }, [onHydrated, opacity, progress, pulse, scale, shift]);
+  }, [onHydrated, opacity, progress, pulse, scale, shift, sweep]);
 
   return {
     visible,
@@ -148,6 +163,7 @@ export function useLaunchOverlay(onHydrated: (value: LaunchHydration) => void) {
     scale,
     progress,
     pulse,
+    sweep,
     status: LAUNCH_STATUS_STEPS[statusIndex] ?? "Opening companion"
   };
 }

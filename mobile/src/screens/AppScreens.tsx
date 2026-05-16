@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import {
   ActivityIndicator,
   Animated,
+  Easing,
   FlatList,
   Image,
   Keyboard,
@@ -118,6 +119,8 @@ import {
   type MobileSkin,
   type MobileThemeMode
 } from "../theme/tokens";
+import { hapticLight, hapticSelection } from "../utils/haptics";
+import { usePressScale } from "../utils/usePressScale";
 
 type AppIconName = LocalFlightIconName;
 export type DocSlug = "readme" | "install" | "display-modes" | "privacy" | "changelog";
@@ -527,7 +530,10 @@ export function Header({
       <View style={[styles.airportHeroRow, longAirportName && styles.airportHeroRowStacked]}>
         <Pressable
           style={[styles.airportHeroPressable, longAirportName && styles.airportHeroPressableStacked]}
-          onPress={onOpenConfig}
+          onPress={() => {
+            hapticSelection();
+            onOpenConfig();
+          }}
         >
           <View style={[styles.airportHeroTopline, longAirportName && styles.airportHeroToplineStacked]}>
             <Text style={styles.airportHeroKicker}>LOCAL FLIGHT AIRPORT</Text>
@@ -593,7 +599,10 @@ export function Header({
 
         <Pressable
           style={[styles.headerWeatherRail, longAirportName && styles.headerWeatherRailStacked]}
-          onPress={onOpenWeather}
+          onPress={() => {
+            hapticLight();
+            onOpenWeather();
+          }}
         >
           <View style={longAirportName ? styles.headerClockStackInline : undefined}>
           <Text style={styles.utcTime}>{utcTime}<Text style={styles.utcSuffix}>Z</Text></Text>
@@ -634,10 +643,26 @@ function CompactWeatherCapsule({
       : mode === "pilot"
         ? weatherSummaryForMode(metar, "pilot")
         : weatherCondition(metar);
+  const iconName = weatherIconForMetar(metar);
+  const iconOpacity = useRef(new Animated.Value(1)).current;
+  const [displayIcon, setDisplayIcon] = useState(iconName);
+  const previousIcon = useRef(iconName);
+
+  useEffect(() => {
+    if (previousIcon.current === iconName) return;
+    previousIcon.current = iconName;
+    Animated.timing(iconOpacity, { toValue: 0, duration: 100, useNativeDriver: true }).start(({ finished }) => {
+      if (!finished) return;
+      setDisplayIcon(iconName);
+      Animated.timing(iconOpacity, { toValue: 1, duration: 220, useNativeDriver: true }).start();
+    });
+  }, [iconName, iconOpacity]);
 
   return (
     <View style={[styles.weatherCompact, { borderColor: `${accent}44`, backgroundColor: `${accent}14` }]}>
-      <LocalFlightIcon name={weatherIconForMetar(metar)} size={18} color={accent} />
+      <Animated.View style={{ opacity: iconOpacity }}>
+        <LocalFlightIcon name={displayIcon} size={18} color={accent} />
+      </Animated.View>
       <View style={styles.weatherCompactCopy}>
         <Text style={styles.weatherCompactTemp}>{temp}</Text>
         <Text style={styles.weatherCompactMeta} numberOfLines={1}>{label} · {detail}</Text>
@@ -663,8 +688,30 @@ function FlightIsland({
   onOpenActions: (row: FidsRow) => void;
   onTogglePin: (row: FidsRow) => void;
 }) {
+  const glow = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (!live || !row) {
+      glow.setValue(0);
+      return;
+    }
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(glow, { toValue: 1, duration: 2400, easing: Easing.inOut(Easing.quad), useNativeDriver: false }),
+        Animated.timing(glow, { toValue: 0, duration: 2400, easing: Easing.inOut(Easing.quad), useNativeDriver: false })
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [glow, live, row]);
+
+  const glowBorder = glow.interpolate({
+    inputRange: [0, 1],
+    outputRange: [hexToRgba(palette.blue, 0.20), hexToRgba(palette.blue, 0.46)]
+  });
+
   return (
-    <View style={[styles.islandShell, row && styles.islandShellActive]}>
+    <Animated.View style={[styles.islandShell, row && styles.islandShellActive, live && row ? { borderColor: glowBorder } : null]}>
       <Pressable
         style={styles.islandPressable}
         delayLongPress={360}
@@ -716,7 +763,7 @@ function FlightIsland({
           />
         </Pressable>
       ) : null}
-    </View>
+    </Animated.View>
   );
 }
 
@@ -1924,14 +1971,20 @@ function MatrixSavePanel({
       <View style={styles.matrixActionRow}>
         <Pressable
           style={[styles.matrixActionButton, styles.matrixActionSecondary]}
-          onPress={onReset}
+          onPress={() => {
+            hapticLight();
+            onReset();
+          }}
           disabled={saving}
         >
           <Text style={styles.matrixActionSecondaryText}>RESET</Text>
         </Pressable>
         <Pressable
           style={[styles.matrixActionButton, styles.matrixActionPrimary, saving && styles.configApplyBtnBusy]}
-          onPress={onSave}
+          onPress={() => {
+            hapticLight();
+            onSave();
+          }}
           disabled={saving}
         >
           {saving ? <ActivityIndicator size="small" color={blueButtonInk()} /> : <Text style={styles.matrixActionPrimaryText}>SAVE TO SERVER</Text>}
@@ -1951,10 +2004,21 @@ function MatrixSavePanel({
 }
 
 function DirectionButton({ active, label, onPress }: { active: boolean; label: string; onPress: () => void }) {
+  const { scale, onPressIn, onPressOut } = usePressScale(0.92);
   return (
-    <Pressable onPress={onPress} style={[styles.dirButton, active && styles.dirButtonActive]}>
-      <Text style={[styles.dirButtonText, active && styles.dirButtonTextActive]}>{label}</Text>
-    </Pressable>
+    <Animated.View style={{ transform: [{ scale }] }}>
+      <Pressable
+        onPress={() => {
+          hapticSelection();
+          onPress();
+        }}
+        onPressIn={onPressIn}
+        onPressOut={onPressOut}
+        style={[styles.dirButton, active && styles.dirButtonActive]}
+      >
+        <Text style={[styles.dirButtonText, active && styles.dirButtonTextActive]}>{label}</Text>
+      </Pressable>
+    </Animated.View>
   );
 }
 
@@ -1978,11 +2042,22 @@ function OptionChip({
   meta: string;
   onPress: () => void;
 }) {
+  const { scale, onPressIn, onPressOut } = usePressScale(0.92);
   return (
-    <Pressable onPress={onPress} style={[styles.optionChip, active && styles.optionChipActive]}>
-      <Text style={[styles.optionChipLabel, active && styles.optionChipLabelActive]}>{label}</Text>
-      <Text style={[styles.optionChipMeta, active && styles.optionChipMetaActive]}>{meta}</Text>
-    </Pressable>
+    <Animated.View style={{ transform: [{ scale }] }}>
+      <Pressable
+        onPress={() => {
+          hapticSelection();
+          onPress();
+        }}
+        onPressIn={onPressIn}
+        onPressOut={onPressOut}
+        style={[styles.optionChip, active && styles.optionChipActive]}
+      >
+        <Text style={[styles.optionChipLabel, active && styles.optionChipLabelActive]}>{label}</Text>
+        <Text style={[styles.optionChipMeta, active && styles.optionChipMetaActive]}>{meta}</Text>
+      </Pressable>
+    </Animated.View>
   );
 }
 

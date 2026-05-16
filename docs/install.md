@@ -68,6 +68,8 @@ bash installers/macos/install.sh --display headless
 
 Use `native` for the normal desktop shell, `browser` when you specifically want the browser UI to open, or `headless` when this Mac should only serve other clients.
 
+For a quick double-clickable launch from a repo checkout, use `./start.command` from the project root. It prepares the local virtual environment, checks native dependencies when needed, and starts Local Flight. The installer-managed launcher under `installers/macos/` remains the right path for packaged/source-installed setups.
+
 ---
 
 ## Raspberry Pi

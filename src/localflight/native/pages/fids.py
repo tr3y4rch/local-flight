@@ -361,12 +361,20 @@ class _FidsBoardDelegate:  # pragma: no cover - visual Qt delegate
 
 
 class FidsBoardView:  # pragma: no cover - optional Qt runtime
-    """Custom passenger-board surface for native FIDS rows."""
+    """Custom passenger-board surface for native FIDS rows.
+
+    Renders the active ``FidsStyle`` skin (classic / pax / vatsim / nerd).
+    The board owns its own column layout, row height, header chrome, and
+    status chip — driven by ``set_style(style)``.  All sizes scale with
+    the viewport via :meth:`_viewport_scale` so the same skin looks
+    proportional at 800px wide or 2400px wide.
+    """
 
     def __new__(cls, QtCore: Any, QtGui: Any, QtWidgets: Any, colors_provider: Any):
+        from localflight.native.pages.fids_styles import DEFAULT_STYLE, FidsStyle
+
         class _Board(QtWidgets.QAbstractScrollArea):
             rowActivated = QtCore.Signal(int)
-            column_keys = ("display_time", "flight_cell", "route_display", "status_display", "gate", "aircraft_type")
 
             def __init__(self) -> None:
                 super().__init__()
@@ -380,10 +388,62 @@ class FidsBoardView:  # pragma: no cover - optional Qt runtime
                 self.animation_phase = 0.0
                 self.hover_row = -1
                 self.colors = colors_provider() or {}
-                self.header_h = 38
-                self.row_gap = 8
-                self.row_h = 76
-                self.padding = 10
+                self.style: FidsStyle = DEFAULT_STYLE
+                self.header_h = self.style.header_height
+                self.row_gap = self.style.row_gap
+                self.row_h = self.style.row_height
+                self.padding = self.style.padding
+
+            # ------------------------------------------------------------ skin
+            def set_style(self, style: FidsStyle) -> None:
+                self.style = style
+                self.header_h = style.header_height
+                self.row_gap = style.row_gap
+                self.row_h = self._scaled_row_height()
+                self.padding = style.padding
+                self._sync_scroll()
+                self.viewport().update()
+
+            @property
+            def column_keys(self) -> tuple[str, ...]:
+                """Compatibility accessor for tests and older call sites."""
+                return self.style.column_keys
+
+            def _viewport_scale(self) -> float:
+                """A 1.0-centered scale factor based on viewport width.
+
+                A 1200px-wide board gets scale 1.0; narrower viewports
+                shrink and wider ones grow, but the factor is clamped
+                tightly so text never looks comical.
+                """
+                width = max(1, self.viewport().width() or 1200)
+                raw = width / 1200.0
+                return max(0.78, min(1.35, raw))
+
+            def _scaled_row_height(self) -> int:
+                s = self._viewport_scale()
+                base = int(self.style.row_height * s)
+                return max(self.style.row_height_min, min(self.style.row_height_max, base))
+
+            def _font_pt(self, base: float) -> int:
+                pt = base * self.style.font_scale * self._viewport_scale()
+                return max(7, int(round(pt)))
+
+            def _primary_font(self, base: float, *, bold: bool = False) -> Any:
+                family = self.style.font_mono if self.style.monospace_everywhere else self.style.font_primary
+                font = QtGui.QFont(family)
+                font.setPointSize(self._font_pt(base))
+                font.setBold(bold)
+                return font
+
+            def _mono_font(self, base: float, *, bold: bool = False) -> Any:
+                font = QtGui.QFont(self.style.font_mono)
+                font.setPointSize(self._font_pt(base))
+                font.setBold(bold)
+                return font
+
+            def _palette(self) -> dict[str, str]:
+                return self.style.with_palette_over(colors_provider() or self.colors or {})
 
             def minimumSizeHint(self) -> Any:
                 return QtCore.QSize(460, 300)
@@ -407,6 +467,9 @@ class FidsBoardView:  # pragma: no cover - optional Qt runtime
 
             def resizeEvent(self, event: Any) -> None:
                 super().resizeEvent(event)
+                # Row height is viewport-dependent; recompute on resize so
+                # the skin keeps its proportions.
+                self.row_h = self._scaled_row_height()
                 self._sync_scroll()
 
             def mouseMoveEvent(self, event: Any) -> None:
@@ -434,10 +497,16 @@ class FidsBoardView:  # pragma: no cover - optional Qt runtime
                 painter = QtGui.QPainter(self.viewport())
                 painter.setRenderHint(QtGui.QPainter.Antialiasing, True)
                 rect = self.viewport().rect()
-                colors = colors_provider() or self.colors or {}
+                colors = self._palette()
                 self.colors = colors
                 painter.fillRect(rect, QtGui.QColor(colors.get("panel_2", "#08111b")))
-                self._draw_board_background(painter, QtCore, QtGui, rect, colors)
+                if self.style.row_chrome in {"card", "card-big"}:
+                    self._draw_board_background(painter, QtCore, QtGui, rect, colors)
+                elif self.style.row_chrome == "scope":
+                    self._draw_scope_background(painter, QtCore, QtGui, rect, colors)
+                # Recompute row height under current viewport — keeps the
+                # skin proportional during live resize.
+                self.row_h = self._scaled_row_height()
                 columns = self._column_rects(rect)
                 self._draw_header(painter, QtCore, QtGui, columns, colors)
                 scroll = self.verticalScrollBar().value()
@@ -466,50 +535,44 @@ class FidsBoardView:  # pragma: no cover - optional Qt runtime
                 return -1
 
             def _column_rects(self, rect: Any) -> dict[str, Any]:
+                """Compute per-column rects from the active style.
+
+                Each style entry is ``(key, label, weight, min_w, hide_threshold)``.
+                Columns whose ``hide_threshold`` exceeds the viewport width are
+                dropped; the remaining columns split the leftover space
+                proportionally to their ``weight``.
+                """
                 width = max(1, rect.width() - self.padding * 2)
-                tiny = width < 560
-                compact = width < 820
-                if tiny:
-                    ac_w = 0
-                    gate_w = 0
-                    status_w = 0
-                    time_w = max(92, min(118, int(width * 0.24)))
-                    flight_w = max(132, min(190, int(width * 0.34)))
-                    route_w = max(96, width - time_w - flight_w)
-                elif compact:
-                    ac_w = 0
-                    time_w = 124
-                    status_w = 116
-                    gate_w = 74
-                    fixed = time_w + status_w + gate_w
-                    available = max(1, width - fixed)
-                    if available < 300:
-                        flight_w = max(120, int(available * 0.54))
+                visible: list[tuple[str, float, int]] = []  # (key, weight, min_w)
+                for key, _label, weight, min_w, hide_threshold in self.style.columns:
+                    if hide_threshold and width < hide_threshold:
+                        continue
+                    visible.append((key, float(weight), int(min_w)))
+                # If even the min widths don't fit, drop the lowest-priority
+                # (last-listed) columns until they do.
+                while visible and sum(m for _k, _w, m in visible) > width:
+                    visible.pop()
+                if not visible:
+                    return {}
+                total_min = sum(m for _k, _w, m in visible)
+                slack = max(0, width - total_min)
+                total_weight = sum(w for _k, w, _m in visible) or 1.0
+                widths: dict[str, int] = {}
+                used = 0
+                for idx, (key, weight, min_w) in enumerate(visible):
+                    extra = int(round(slack * (weight / total_weight)))
+                    if idx == len(visible) - 1:
+                        # Last column absorbs rounding remainder so we fill exactly.
+                        col_w = max(min_w, width - used)
                     else:
-                        flight_w = max(160, min(240, int(available * 0.44)))
-                    route_w = max(1, available - flight_w)
-                else:
-                    ac_w = 92
-                    time_w = 160
-                    status_w = 176
-                    gate_w = 118
-                    fixed = time_w + status_w + gate_w + ac_w
-                    available = max(1, width - fixed)
-                    if available < 350:
-                        flight_w = max(140, int(available * 0.56))
-                    else:
-                        flight_w = max(190, min(280, int(available * 0.46)))
-                    route_w = max(1, available - flight_w)
+                        col_w = min_w + extra
+                    widths[key] = col_w
+                    used += col_w
+                # Build rects in style-declared order; hidden columns map to zero-width.
                 x = self.padding
                 columns: dict[str, Any] = {}
-                for key, col_w in (
-                    ("display_time", time_w),
-                    ("flight_cell", flight_w),
-                    ("route_display", route_w),
-                    ("status_display", status_w),
-                    ("gate", gate_w),
-                    ("aircraft_type", ac_w),
-                ):
+                for key, _label, _w, _m, _h in self.style.columns:
+                    col_w = widths.get(key, 0)
                     columns[key] = QtCore.QRectF(x, 0, max(0, col_w), 1)
                     x += col_w
                 return columns
@@ -528,221 +591,507 @@ class FidsBoardView:  # pragma: no cover - optional Qt runtime
                 painter.setPen(QtCore.Qt.NoPen)
                 painter.drawEllipse(QtCore.QPointF(rect.width() - 90, 36), 110, 28)
 
+            def _draw_scope_background(self, painter: Any, QtCore: Any, QtGui: Any, rect: Any, colors: dict[str, str]) -> None:
+                """ATC-scope style faint grid for VATSIM skin."""
+                grid = QtGui.QColor(colors.get("blue", "#3ddc84"))
+                grid.setAlpha(14)
+                painter.setPen(QtGui.QPen(grid, 1))
+                step = 64
+                for x in range(0, rect.width(), step):
+                    painter.drawLine(x, 0, x, rect.height())
+                for y in range(0, rect.height(), step):
+                    painter.drawLine(0, y, rect.width(), y)
+                # Range ring marker in the corner gives the unmistakable scope feel.
+                ring = QtGui.QColor(colors.get("cyan", "#5cffae"))
+                ring.setAlpha(36)
+                painter.setPen(QtGui.QPen(ring, 1.2))
+                painter.setBrush(QtCore.Qt.NoBrush)
+                painter.drawEllipse(QtCore.QPointF(rect.width() - 60, rect.height() - 60), 48, 48)
+                painter.drawEllipse(QtCore.QPointF(rect.width() - 60, rect.height() - 60), 24, 24)
+
             def _draw_header(self, painter: Any, QtCore: Any, QtGui: Any, columns: dict[str, Any], colors: dict[str, str]) -> None:
                 top = self.padding
-                label_color = QtGui.QColor(colors.get("muted", "#79a7c8"))
-                label_color.setAlpha(170)
-                font = QtGui.QFont("Space Mono")
-                font.setPointSize(8)
-                font.setBold(True)
-                painter.setFont(font)
-                painter.setPen(label_color)
-                labels = {
-                    "display_time": "TIME",
-                    "flight_cell": "FLIGHT",
-                    "route_display": self.route_label.upper(),
-                    "status_display": "STATUS",
-                    "gate": "GATE",
-                    "aircraft_type": "A/C",
-                }
-                for key, label_text in labels.items():
-                    col = columns.get(key)
-                    if col is None or col.width() <= 0:
-                        continue
-                    painter.drawText(QtCore.QRectF(col.left() + 12, top + 4, col.width() - 16, 20), QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter, label_text)
+                kind = self.style.header_kind
                 accent = QtGui.QColor(colors.get("blue", "#4a9eda"))
-                accent.setAlpha(45)
-                painter.setPen(QtGui.QPen(accent, 1))
-                painter.drawLine(self.padding, top + self.header_h - 5, self.viewport().width() - self.padding, top + self.header_h - 5)
+
+                if kind == "tape":
+                    # PAX: airline-board tape — accent band with bold labels.
+                    tape = QtCore.QRectF(self.padding, top, self.viewport().width() - self.padding * 2, self.header_h - 4)
+                    bg = QtGui.QColor(accent)
+                    bg.setAlpha(28)
+                    painter.setPen(QtGui.QPen(accent, 1))
+                    painter.setBrush(bg)
+                    painter.drawRoundedRect(tape, 8, 8)
+                elif kind == "scope":
+                    # VATSIM: thin scope-style underscore + section markers.
+                    scope = QtGui.QColor(colors.get("cyan", "#5cffae"))
+                    scope.setAlpha(95)
+                    painter.setPen(QtGui.QPen(scope, 1))
+                    painter.drawLine(self.padding, top + self.header_h - 4, self.viewport().width() - self.padding, top + self.header_h - 4)
+                elif kind == "mono":
+                    # NERD: monospace tape with column separators.
+                    sep = QtGui.QColor(colors.get("line_soft", "#202a38"))
+                    sep.setAlpha(120)
+                    painter.setPen(QtGui.QPen(sep, 1))
+                    for col in columns.values():
+                        if col.width() <= 0:
+                            continue
+                        painter.drawLine(col.left(), top + 2, col.left(), top + self.header_h - 4)
+                # Header text per column from the style spec.
+                label_color = QtGui.QColor(colors.get("muted", "#79a7c8"))
+                if kind == "tape":
+                    label_color = QtGui.QColor(colors.get("text", "#e8f0fe"))
+                label_color.setAlpha(220 if kind == "tape" else 175)
+                header_font = self._mono_font(8.4, bold=True)
+                painter.setFont(header_font)
+                painter.setPen(label_color)
+                # Build live label map; route header uses dynamic ARR/DEP-aware label.
+                label_map = {key: lbl for key, lbl, *_ in self.style.columns}
+                if "route_display" in label_map:
+                    label_map["route_display"] = self.route_label.upper()
+                inset = 12 if kind != "mono" else 6
+                for key, col in columns.items():
+                    if col.width() <= 0:
+                        continue
+                    text = label_map.get(key, key.upper())
+                    painter.drawText(QtCore.QRectF(col.left() + inset, top + 4, col.width() - inset - 4, self.header_h - 8), QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter, text)
+                if kind == "pill":
+                    accent_line = QtGui.QColor(accent)
+                    accent_line.setAlpha(45)
+                    painter.setPen(QtGui.QPen(accent_line, 1))
+                    painter.drawLine(self.padding, top + self.header_h - 5, self.viewport().width() - self.padding, top + self.header_h - 5)
 
             def _draw_row(self, painter: Any, QtCore: Any, QtGui: Any, rect: Any, columns: dict[str, Any], row: dict[str, Any], idx: int, colors: dict[str, str]) -> None:
                 shaped = enrich_presentation_fields(row)
                 status_cls = _row_status_class(shaped)
                 status_color = QtGui.QColor(self._status_color(shaped, colors))
-                base = QtGui.QColor(colors.get("panel", "#0d1520"))
-                if idx % 2:
-                    base = _blend_qcolor(QtGui, base, QtGui.QColor(colors.get("panel_2", "#0a121c")), 0.35)
-                if idx == self.hover_row:
-                    base = _blend_qcolor(QtGui, base, QtGui.QColor(colors.get("blue", "#4a9eda")), 0.10)
-                border = QtGui.QColor(colors.get("line_soft", "#17324d"))
-                border.setAlpha(155 if idx == self.hover_row else 95)
-                painter.setPen(QtGui.QPen(border, 1))
-                painter.setBrush(base)
-                painter.drawRoundedRect(rect.adjusted(0.5, 0.5, -0.5, -0.5), 10, 10)
-                rail = QtCore.QRectF(rect.left(), rect.top() + 8, 5, rect.height() - 16)
-                status_color.setAlpha(210 if status_cls not in {"scheduled", "departed", "landed"} else 120)
-                painter.setPen(QtCore.Qt.NoPen)
-                painter.setBrush(status_color)
-                painter.drawRoundedRect(rail, 2, 2)
-                fresh = int(shaped.get("_fresh_alpha") or 0)
-                if fresh:
-                    shimmer = QtGui.QColor(colors.get("cyan", "#7ce7ff"))
-                    shimmer.setAlpha(min(60, fresh + 12))
-                    x = rect.left() + rect.width() * self.animation_phase
-                    painter.setBrush(shimmer)
-                    painter.drawRoundedRect(QtCore.QRectF(max(rect.left(), x - 80), rect.top(), 110, 2.5), 2, 2)
-                if status_cls in {"boarding", "approaching", "delayed-warn", "delayed-bad", "cancelled", "diverted"}:
-                    pulse = (math.sin(self.animation_phase * math.tau) + 1.0) / 2.0
-                    halo = QtGui.QColor(status_color)
-                    halo.setAlpha(int(26 + pulse * 32))
-                    painter.setBrush(halo)
-                    painter.drawRoundedRect(QtCore.QRectF(rect.left() + 5, rect.top() + 8, 5, rect.height() - 16), 2, 2)
-                self._draw_time(painter, QtCore, QtGui, self._cell_rect(rect, columns, "display_time"), shaped, colors)
-                self._draw_flight(painter, QtCore, QtGui, self._cell_rect(rect, columns, "flight_cell"), shaped, colors)
-                self._draw_route(painter, QtCore, QtGui, self._cell_rect(rect, columns, "route_display"), shaped, colors)
-                status_rect = self._cell_rect(rect, columns, "status_display")
-                if status_rect.width() > 0:
-                    self._draw_status(painter, QtCore, QtGui, status_rect, shaped, colors)
-                gate_rect = self._cell_rect(rect, columns, "gate")
-                if gate_rect.width() > 0:
-                    self._draw_gate(painter, QtCore, QtGui, gate_rect, shaped, colors)
-                ac_rect = self._cell_rect(rect, columns, "aircraft_type")
-                if ac_rect.width() > 0:
-                    self._draw_aircraft(painter, QtCore, QtGui, ac_rect, shaped, colors)
+                chrome = self.style.row_chrome
+
+                # ---- Row chrome --------------------------------------------------
+                if chrome in {"card", "card-big"}:
+                    base = QtGui.QColor(colors.get("panel", "#0d1520"))
+                    if idx % 2:
+                        base = _blend_qcolor(QtGui, base, QtGui.QColor(colors.get("panel_2", "#0a121c")), 0.35)
+                    if idx == self.hover_row:
+                        base = _blend_qcolor(QtGui, base, QtGui.QColor(colors.get("blue", "#4a9eda")), 0.10)
+                    border = QtGui.QColor(colors.get("line_soft", "#17324d"))
+                    border.setAlpha(155 if idx == self.hover_row else 95)
+                    painter.setPen(QtGui.QPen(border, 1))
+                    painter.setBrush(base)
+                    radius = 14 if chrome == "card-big" else 10
+                    painter.drawRoundedRect(rect.adjusted(0.5, 0.5, -0.5, -0.5), radius, radius)
+                    rail_inset = 10 if chrome == "card-big" else 8
+                    rail = QtCore.QRectF(rect.left(), rect.top() + rail_inset, 5 if chrome == "card" else 7, rect.height() - rail_inset * 2)
+                    status_color_rail = QtGui.QColor(status_color)
+                    status_color_rail.setAlpha(210 if status_cls not in {"scheduled", "departed", "landed"} else 120)
+                    painter.setPen(QtCore.Qt.NoPen)
+                    painter.setBrush(status_color_rail)
+                    painter.drawRoundedRect(rail, 2, 2)
+                    if status_cls in {"boarding", "approaching", "delayed-warn", "delayed-bad", "cancelled", "diverted"}:
+                        pulse = (math.sin(self.animation_phase * math.tau) + 1.0) / 2.0
+                        halo = QtGui.QColor(status_color)
+                        halo.setAlpha(int(26 + pulse * 32))
+                        painter.setBrush(halo)
+                        painter.drawRoundedRect(QtCore.QRectF(rect.left() + (5 if chrome == "card" else 7), rect.top() + rail_inset, 5, rect.height() - rail_inset * 2), 2, 2)
+                elif chrome == "scope":
+                    # Flat row with a thin underline + left rail.  Square, no rounding.
+                    if idx == self.hover_row:
+                        hover = QtGui.QColor(colors.get("blue", "#3ddc84"))
+                        hover.setAlpha(22)
+                        painter.fillRect(rect, hover)
+                    line = QtGui.QColor(colors.get("blue", "#3ddc84"))
+                    line.setAlpha(45)
+                    painter.setPen(QtGui.QPen(line, 1))
+                    painter.drawLine(rect.left(), rect.bottom(), rect.right(), rect.bottom())
+                    rail = QtCore.QRectF(rect.left(), rect.top(), 3, rect.height())
+                    painter.setPen(QtCore.Qt.NoPen)
+                    painter.setBrush(status_color)
+                    painter.drawRect(rail)
+                elif chrome == "grid":
+                    # NERD: dense grid lines between every cell.
+                    if idx % 2:
+                        zebra = QtGui.QColor(colors.get("panel", "#0d1520"))
+                        zebra.setAlpha(80)
+                        painter.fillRect(rect, zebra)
+                    if idx == self.hover_row:
+                        hover = QtGui.QColor(colors.get("blue", "#4a9eda"))
+                        hover.setAlpha(28)
+                        painter.fillRect(rect, hover)
+                    grid = QtGui.QColor(colors.get("line_soft", "#202a38"))
+                    grid.setAlpha(80)
+                    painter.setPen(QtGui.QPen(grid, 1))
+                    painter.drawLine(rect.left(), rect.bottom(), rect.right(), rect.bottom())
+                    for col in columns.values():
+                        if col.width() <= 0:
+                            continue
+                        painter.drawLine(col.left(), rect.top(), col.left(), rect.bottom())
+                    # Status dot only — color the whole row's left edge.
+                    dot = QtCore.QRectF(rect.left() + 2, rect.center().y() - 2.5, 5, 5)
+                    painter.setPen(QtCore.Qt.NoPen)
+                    painter.setBrush(status_color)
+                    painter.drawEllipse(dot)
+
+                # ---- Fresh-row shimmer (cards only) ------------------------------
+                if chrome in {"card", "card-big"}:
+                    fresh = int(shaped.get("_fresh_alpha") or 0)
+                    if fresh:
+                        shimmer = QtGui.QColor(colors.get("cyan", "#7ce7ff"))
+                        shimmer.setAlpha(min(60, fresh + 12))
+                        x = rect.left() + rect.width() * self.animation_phase
+                        painter.setBrush(shimmer)
+                        painter.drawRoundedRect(QtCore.QRectF(max(rect.left(), x - 80), rect.top(), 110, 2.5), 2, 2)
+
+                # ---- Cells ------------------------------------------------------
+                # Iterate the *active style's* columns so non-classic skins
+                # (VATSIM, NERD) render their extended fields.
+                for key, _label, _w, _m, _h in self.style.columns:
+                    cell = self._cell_rect(rect, columns, key)
+                    if cell.width() <= 0:
+                        continue
+                    self._draw_cell(painter, QtCore, QtGui, cell, shaped, colors, key)
 
             def _cell_rect(self, row_rect: Any, columns: dict[str, Any], key: str) -> Any:
-                col = columns[key]
+                col = columns.get(key)
+                if col is None:
+                    return row_rect.__class__(row_rect.left(), row_rect.top(), 0, row_rect.height())
                 return row_rect.__class__(col.left(), row_rect.top(), col.width(), row_rect.height())
+
+            # ---- Cell dispatcher ------------------------------------------------
+            def _draw_cell(self, painter: Any, QtCore: Any, QtGui: Any, rect: Any, row: dict[str, Any], colors: dict[str, str], key: str) -> None:
+                """Route a single (row, column) draw to its specialised painter.
+
+                Bespoke painters exist for the rich Classic/PAX cells; the
+                long tail (VATSIM extras + NERD operator fields) goes
+                through the generic text/chip helpers so adding a column to
+                a style does not require a new draw method.
+                """
+                if key == "display_time":
+                    self._draw_time(painter, QtCore, QtGui, rect, row, colors)
+                elif key == "flight_cell":
+                    self._draw_flight(painter, QtCore, QtGui, rect, row, colors)
+                elif key == "route_display":
+                    self._draw_route(painter, QtCore, QtGui, rect, row, colors)
+                elif key == "status_display":
+                    self._draw_status(painter, QtCore, QtGui, rect, row, colors)
+                elif key == "gate":
+                    self._draw_gate(painter, QtCore, QtGui, rect, row, colors)
+                elif key == "aircraft_type":
+                    self._draw_aircraft(painter, QtCore, QtGui, rect, row, colors)
+                elif key == "phase":
+                    self._draw_phase_chip(painter, QtCore, QtGui, rect, row, colors)
+                elif key == "callsign":
+                    text = str(row.get("callsign") or row.get("flight_display") or "-")
+                    self._draw_text_cell(painter, QtCore, QtGui, rect, text, colors, accent=True, bold=True, base_pt=12)
+                elif key == "flight_display":
+                    text = str(row.get("flight_display") or row.get("flight_number") or row.get("callsign") or "-")
+                    self._draw_text_cell(painter, QtCore, QtGui, rect, text, colors, bold=True, base_pt=10)
+                elif key == "registration":
+                    text = str(row.get("registration") or row.get("aircraft_reg") or "-")
+                    self._draw_text_cell(painter, QtCore, QtGui, rect, text, colors, base_pt=9)
+                elif key == "altitude_ft":
+                    text = self._cell_text(row, "altitude_ft")
+                    self._draw_text_cell(painter, QtCore, QtGui, rect, text, colors, base_pt=9)
+                elif key == "ground_speed_kt":
+                    text = self._cell_text(row, "ground_speed_kt")
+                    self._draw_text_cell(painter, QtCore, QtGui, rect, text, colors, base_pt=9)
+                elif key == "alt_speed":
+                    text = self._cell_text(row, "alt_speed")
+                    self._draw_text_cell(painter, QtCore, QtGui, rect, text, colors, base_pt=9, bold=True)
+                elif key == "squawk":
+                    text = str(row.get("squawk") or row.get("transponder") or "-")
+                    self._draw_text_cell(painter, QtCore, QtGui, rect, text, colors, base_pt=9)
+                elif key == "flight_rules":
+                    rules = str(row.get("flight_rules") or row.get("rules") or "").strip()
+                    badge = rules[:1].upper() if rules else "-"
+                    self._draw_text_cell(painter, QtCore, QtGui, rect, badge, colors, accent=True, bold=True, base_pt=11, align_center=True)
+                elif key == "delay_label":
+                    text = self._cell_text(row, "delay_label")
+                    self._draw_text_cell(painter, QtCore, QtGui, rect, text, colors, base_pt=9, muted=True)
+                elif key == "source":
+                    text = str(row.get("source") or row.get("provider") or "-")
+                    self._draw_text_cell(painter, QtCore, QtGui, rect, text, colors, base_pt=8, muted=True)
+                else:
+                    text = str(row.get(key) or "-")
+                    self._draw_text_cell(painter, QtCore, QtGui, rect, text, colors, base_pt=9, muted=True)
+
+            def _cell_text(self, row: dict[str, Any], key: str) -> str:
+                """Resolve text for non-bespoke operator columns."""
+                if key == "altitude_ft":
+                    alt = row.get("altitude_ft") or row.get("alt") or row.get("altitude")
+                    try:
+                        return f"{int(float(alt)):,}" if alt not in (None, "", "-") else "-"
+                    except (TypeError, ValueError):
+                        return "-"
+                if key == "ground_speed_kt":
+                    gs = row.get("ground_speed_kt") or row.get("speed_kt") or row.get("speed")
+                    try:
+                        return f"{int(float(gs))}kt" if gs not in (None, "", "-") else "-"
+                    except (TypeError, ValueError):
+                        return "-"
+                if key == "alt_speed":
+                    alt = row.get("altitude_ft") or row.get("alt")
+                    gs = row.get("ground_speed_kt") or row.get("speed_kt") or row.get("speed")
+                    try:
+                        alt_s = f"FL{int(float(alt))//100:03d}" if alt not in (None, "", "-") else "—"
+                    except (TypeError, ValueError):
+                        alt_s = "—"
+                    try:
+                        gs_s = f"{int(float(gs))}kt" if gs not in (None, "", "-") else "—"
+                    except (TypeError, ValueError):
+                        gs_s = "—"
+                    return f"{alt_s}/{gs_s}"
+                if key == "delay_label":
+                    delay = _delay_minutes(row)
+                    if delay is None:
+                        return "-"
+                    if abs(delay) < 5:
+                        return "on time"
+                    return f"-{abs(delay)}m" if delay < 0 else f"+{delay}m"
+                return str(row.get(key) or "-")
+
+            def _draw_text_cell(
+                self,
+                painter: Any,
+                QtCore: Any,
+                QtGui: Any,
+                rect: Any,
+                text: str,
+                colors: dict[str, str],
+                *,
+                bold: bool = False,
+                muted: bool = False,
+                accent: bool = False,
+                base_pt: float = 10.0,
+                align_center: bool = False,
+            ) -> None:
+                font = self._mono_font(base_pt, bold=bold) if self.style.monospace_everywhere else self._primary_font(base_pt, bold=bold)
+                painter.setFont(font)
+                if accent:
+                    color = QtGui.QColor(colors.get("blue", "#4a9eda"))
+                elif muted:
+                    color = QtGui.QColor(colors.get("muted", "#79a7c8"))
+                else:
+                    color = QtGui.QColor(colors.get("text", "#e8f0fe"))
+                if self.style.color_intensity == "low" and not accent:
+                    color.setAlpha(195)
+                painter.setPen(color)
+                # Elide so long values don't overflow into the next cell.
+                metrics = painter.fontMetrics()
+                avail = max(12, int(rect.width()) - 10)
+                rendered = metrics.elidedText(text, QtCore.Qt.ElideRight, avail)
+                inset = 6 if self.style.row_chrome == "grid" else 10
+                alignment = QtCore.Qt.AlignCenter if align_center else (QtCore.Qt.AlignVCenter | QtCore.Qt.AlignLeft)
+                painter.drawText(rect.adjusted(inset, 0, -4, 0), alignment, rendered)
+
+            def _draw_phase_chip(self, painter: Any, QtCore: Any, QtGui: Any, rect: Any, row: dict[str, Any], colors: dict[str, str]) -> None:
+                """Square ATC phase chip (VATSIM)."""
+                from localflight.native.pages.fids_styles import translate_status
+
+                cls = _row_status_class(row)
+                text = translate_status(str(row.get("status_display") or row.get("status") or ""), cls, vocabulary="phase")
+                color = QtGui.QColor(self._status_color(row, colors))
+                bg = QtGui.QColor(color)
+                bg.setAlpha(38)
+                pad_x = 8
+                chip_h = max(18, int(rect.height() * 0.55))
+                chip = QtCore.QRectF(rect.left() + pad_x, rect.center().y() - chip_h / 2, max(28, rect.width() - pad_x * 2), chip_h)
+                painter.setPen(QtGui.QPen(color, 1))
+                painter.setBrush(bg)
+                painter.drawRect(chip)  # square, not rounded — scope aesthetic
+                painter.setPen(color)
+                painter.setFont(self._mono_font(9, bold=True))
+                painter.drawText(chip, QtCore.Qt.AlignCenter, text)
 
             def _draw_time(self, painter: Any, QtCore: Any, QtGui: Any, rect: Any, row: dict[str, Any], colors: dict[str, str]) -> None:
                 time_text = str(row.get("time_primary") or _split_display_delay(str(row.get("display_time") or ""))[0] or "-")
                 delta = str(row.get("time_delta_label") or row.get("_delay_suffix") or "")
                 muted = QtGui.QColor(colors.get("muted", "#79a7c8"))
-                self._draw_icon(painter, QtCore, QtGui, QtCore.QRectF(rect.left() + 16, rect.center().y() - 8, 16, 16), "clock", muted)
-                font = QtGui.QFont("Space Mono")
-                font.setPointSize(20)
-                font.setBold(True)
+                chrome = self.style.row_chrome
+                if chrome == "grid":
+                    # NERD: tiny text, no icon, single row of time.
+                    self._draw_text_cell(painter, QtCore, QtGui, rect, time_text, colors, bold=True, base_pt=9)
+                    return
+                if chrome == "scope":
+                    # VATSIM: monospace, no icon, just the time.
+                    self._draw_text_cell(painter, QtCore, QtGui, rect, time_text, colors, bold=True, base_pt=10, accent=True)
+                    return
+                icon_y_off = max(6, int(rect.height() * 0.42)) - 8
+                self._draw_icon(painter, QtCore, QtGui, QtCore.QRectF(rect.left() + 14, rect.top() + icon_y_off, 16, 16), "clock", muted)
+                font = self._mono_font(18.0, bold=True) if chrome == "card-big" else self._mono_font(16.0, bold=True)
                 painter.setFont(font)
                 painter.setPen(QtGui.QColor(self._text_color(row, colors)))
-                painter.drawText(QtCore.QRectF(rect.left() + 42, rect.top() + 10, rect.width() - 46, 32), QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter, time_text)
+                time_block = QtCore.QRectF(rect.left() + 40, rect.top() + 10, rect.width() - 46, max(22, rect.height() * 0.45))
+                painter.drawText(time_block, QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter, time_text)
                 if delta:
                     color = QtGui.QColor(self._delay_color(row, colors))
                     bg = QtGui.QColor(color)
                     bg.setAlpha(34)
-                    chip = QtCore.QRectF(rect.left() + 43, rect.top() + 46, 62, 20)
+                    chip = QtCore.QRectF(rect.left() + 42, rect.top() + rect.height() * 0.6, 64, max(18, int(rect.height() * 0.26)))
                     painter.setPen(QtGui.QPen(color, 1))
                     painter.setBrush(bg)
-                    painter.drawRoundedRect(chip, 10, 10)
-                    small = QtGui.QFont("Space Mono")
-                    small.setPointSize(8)
-                    small.setBold(True)
-                    painter.setFont(small)
+                    painter.drawRoundedRect(chip, chip.height() / 2, chip.height() / 2)
+                    painter.setFont(self._mono_font(8.0, bold=True))
                     painter.setPen(color)
                     painter.drawText(chip, QtCore.Qt.AlignCenter, delta)
 
             def _draw_flight(self, painter: Any, QtCore: Any, QtGui: Any, rect: Any, row: dict[str, Any], colors: dict[str, str]) -> None:
                 accent = QtGui.QColor(colors.get("blue", "#4a9eda"))
+                chrome = self.style.row_chrome
+                flight_text = str(row.get("flight_display") or row.get("callsign") or "-")
+                if chrome == "grid":
+                    # NERD: pure compact text, no icon.
+                    self._draw_text_cell(painter, QtCore, QtGui, rect, flight_text, colors, bold=True, base_pt=9, accent=True)
+                    return
                 direction = "arrival" if str(row.get("direction") or "").upper().startswith("ARR") else "departure"
-                self._draw_icon(painter, QtCore, QtGui, QtCore.QRectF(rect.left() + 12, rect.top() + 16, 20, 20), direction, accent)
-                font = QtGui.QFont("Space Mono")
-                font.setPointSize(13)
-                font.setBold(True)
+                icon_size = 22 if chrome == "card-big" else 20
+                self._draw_icon(painter, QtCore, QtGui, QtCore.QRectF(rect.left() + 12, rect.top() + 14, icon_size, icon_size), direction, accent)
+                font = self._mono_font(13.0 if chrome == "card-big" else 12.0, bold=True)
                 painter.setFont(font)
                 painter.setPen(QtGui.QColor(self._text_color(row, colors)))
-                flight_rect = QtCore.QRectF(rect.left() + 42, rect.top() + 9, max(18, rect.width() - 50), 26)
-                flight_text = str(row.get("flight_display") or row.get("callsign") or "-")
-                flight_text = painter.fontMetrics().elidedText(flight_text, QtCore.Qt.ElideRight, max(18, int(flight_rect.width())))
-                painter.drawText(flight_rect, QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter, flight_text)
-                airline_font = QtGui.QFont()
-                airline_font.setPointSize(8)
-                airline_font.setBold(True)
+                flight_rect = QtCore.QRectF(rect.left() + 40, rect.top() + 8, max(18, rect.width() - 50), max(20, rect.height() * 0.36))
+                flight_rendered = painter.fontMetrics().elidedText(flight_text, QtCore.Qt.ElideRight, max(18, int(flight_rect.width())))
+                painter.drawText(flight_rect, QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter, flight_rendered)
+                airline_font = self._primary_font(8.0, bold=True)
                 painter.setFont(airline_font)
                 painter.setPen(QtGui.QColor(colors.get("muted", "#79a7c8")))
-                airline_rect = QtCore.QRectF(rect.left() + 42, rect.top() + 34, max(18, rect.width() - 50), 18)
+                airline_rect = QtCore.QRectF(rect.left() + 40, rect.top() + rect.height() * 0.42, max(18, rect.width() - 50), 18)
                 airline = painter.fontMetrics().elidedText(str(row.get("airline_display") or "").upper(), QtCore.Qt.ElideRight, max(18, int(airline_rect.width())))
                 painter.drawText(airline_rect, QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter, airline)
+                if not self.style.show_codeshares:
+                    return
                 codeshare = self._codeshare_frame(row)
                 if codeshare:
-                    chip = QtCore.QRectF(rect.left() + 42, rect.top() + 52, min(rect.width() - 50, 116), 18)
+                    chip = QtCore.QRectF(rect.left() + 40, rect.top() + rect.height() * 0.66, min(rect.width() - 50, 124), max(18, int(rect.height() * 0.22)))
                     bg = QtGui.QColor(accent)
                     bg.setAlpha(26)
                     painter.setPen(QtGui.QPen(accent, 1))
                     painter.setBrush(bg)
-                    painter.drawRoundedRect(chip, 9, 9)
+                    painter.drawRoundedRect(chip, chip.height() / 2, chip.height() / 2)
                     self._draw_icon(painter, QtCore, QtGui, QtCore.QRectF(chip.left() + 7, chip.top() + 4, 10, 10), "codeshare", accent)
-                    small = QtGui.QFont("Space Mono")
-                    small.setPointSize(8)
-                    small.setBold(True)
-                    painter.setFont(small)
+                    painter.setFont(self._mono_font(8.0, bold=True))
                     painter.setPen(accent)
                     painter.drawText(chip.adjusted(22, 0, -6, 0), QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter, codeshare)
 
             def _draw_route(self, painter: Any, QtCore: Any, QtGui: Any, rect: Any, row: dict[str, Any], colors: dict[str, str]) -> None:
                 muted = QtGui.QColor(colors.get("muted", "#79a7c8"))
-                self._draw_icon(painter, QtCore, QtGui, QtCore.QRectF(rect.left() + 12, rect.top() + 18, 18, 18), "route", muted)
+                primary = str(row.get("route_primary") or row.get("route_display") or "-")
+                chrome = self.style.row_chrome
+                if chrome == "grid":
+                    self._draw_text_cell(painter, QtCore, QtGui, rect, primary, colors, base_pt=9)
+                    return
+                if chrome == "scope":
+                    # VATSIM: pure mono route, no decor.
+                    self._draw_text_cell(painter, QtCore, QtGui, rect, primary, colors, base_pt=10, bold=True)
+                    return
+                self._draw_icon(painter, QtCore, QtGui, QtCore.QRectF(rect.left() + 12, rect.top() + rect.height() * 0.24, 18, 18), "route", muted)
                 pulse = (math.sin(self.animation_phase * math.tau) + 1.0) / 2.0
                 dot = QtGui.QColor(colors.get("cyan", "#7ce7ff"))
                 dot.setAlpha(int(100 + pulse * 110))
                 painter.setPen(QtCore.Qt.NoPen)
                 painter.setBrush(dot)
-                painter.drawEllipse(QtCore.QPointF(rect.left() + 21 + pulse * 24, rect.top() + 58), 2.5, 2.5)
-                primary = str(row.get("route_primary") or row.get("route_display") or "-")
+                painter.drawEllipse(QtCore.QPointF(rect.left() + 21 + pulse * 24, rect.top() + rect.height() * 0.76), 2.5, 2.5)
                 code = str(row.get("route_caption") or "")
-                font = QtGui.QFont()
-                font.setPointSize(11)
-                font.setBold(True)
+                font = self._primary_font(11.0 if chrome == "card-big" else 10.0, bold=True)
                 painter.setFont(font)
                 painter.setPen(QtGui.QColor(colors.get("text", "#e8f0fe")))
-                painter.drawText(QtCore.QRectF(rect.left() + 42, rect.top() + 12, rect.width() - 48, 25), QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter, primary)
+                painter.drawText(QtCore.QRectF(rect.left() + 40, rect.top() + 10, rect.width() - 46, max(20, rect.height() * 0.4)), QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter, primary)
                 source = str(row.get("source_hint") or row.get("live_hint") or "")
                 sub = " | ".join(part for part in (code, source) if part and part not in primary)
-                small = QtGui.QFont("Space Mono")
-                small.setPointSize(8)
+                small = self._mono_font(8.0)
                 painter.setFont(small)
                 painter.setPen(muted)
-                painter.drawText(QtCore.QRectF(rect.left() + 42, rect.top() + 40, rect.width() - 48, 18), QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter, sub.upper())
+                painter.drawText(QtCore.QRectF(rect.left() + 40, rect.top() + rect.height() * 0.5, rect.width() - 46, 18), QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter, sub.upper())
 
             def _draw_status(self, painter: Any, QtCore: Any, QtGui: Any, rect: Any, row: dict[str, Any], colors: dict[str, str]) -> None:
-                label_text = str(row.get("status_display") or row.get("status") or "Scheduled").upper()
-                color = QtGui.QColor(self._status_color(row, colors))
-                bg = QtGui.QColor(color)
+                from localflight.native.pages.fids_styles import translate_status
+
                 status_cls = _row_status_class(row)
+                vocab = self.style.status_vocabulary
+                raw = str(row.get("status_display") or row.get("status") or "Scheduled")
+                label_text = translate_status(raw, status_cls, vocabulary=vocab) if vocab != "standard" else raw.upper()
+                color = QtGui.QColor(self._status_color(row, colors))
                 pulse = (math.sin(self.animation_phase * math.tau) + 1.0) / 2.0
+                chip_kind = self.style.status_chip
+
+                if chip_kind == "code":
+                    # NERD: just the 3-letter code in colored text — no chip.
+                    painter.setFont(self._mono_font(9, bold=True))
+                    painter.setPen(color)
+                    painter.drawText(rect.adjusted(6, 0, -4, 0), QtCore.Qt.AlignVCenter | QtCore.Qt.AlignLeft, label_text)
+                    return
+                if chip_kind == "square":
+                    # VATSIM: square chip, no rounding, square dot indicator.
+                    chip_h = max(18, int(rect.height() * 0.58))
+                    chip = QtCore.QRectF(rect.left() + 6, rect.center().y() - chip_h / 2, max(20, rect.width() - 12), chip_h)
+                    bg = QtGui.QColor(color)
+                    bg.setAlpha(34 if status_cls in {"scheduled", "departed", "landed"} else int(48 + pulse * 32))
+                    painter.setPen(QtGui.QPen(color, 1))
+                    painter.setBrush(bg)
+                    painter.drawRect(chip)
+                    painter.setPen(color)
+                    painter.setFont(self._mono_font(9, bold=True))
+                    painter.drawText(chip, QtCore.Qt.AlignCenter, label_text)
+                    return
+                # pill / pill-big — Classic / PAX
+                pill_h = 46 if chip_kind == "pill-big" else 38
+                pill_h = min(pill_h, max(28, int(rect.height() * 0.62)))
+                pill = QtCore.QRectF(rect.left() + 9, rect.center().y() - pill_h / 2, max(20, rect.width() - 18), pill_h)
+                bg = QtGui.QColor(color)
                 bg.setAlpha(28 if status_cls in {"scheduled", "departed", "landed"} else int(42 + pulse * 38))
-                pill = QtCore.QRectF(rect.left() + 9, rect.center().y() - 19, max(20, rect.width() - 18), 38)
                 painter.setPen(QtGui.QPen(color, 1.5))
                 painter.setBrush(bg)
-                painter.drawRoundedRect(pill, 19, 19)
+                painter.drawRoundedRect(pill, pill_h / 2, pill_h / 2)
                 painter.setPen(QtCore.Qt.NoPen)
                 painter.setBrush(color)
-                painter.drawEllipse(QtCore.QPointF(pill.left() + 14, pill.center().y()), 3.3 + pulse * 1.5, 3.3 + pulse * 1.5)
-                font = QtGui.QFont("Space Mono")
-                font.setPointSize(8)
-                font.setBold(True)
-                painter.setFont(font)
+                dot_radius = (4.4 if chip_kind == "pill-big" else 3.3) + pulse * 1.5
+                painter.drawEllipse(QtCore.QPointF(pill.left() + 16, pill.center().y()), dot_radius, dot_radius)
+                font_base = 9.6 if chip_kind == "pill-big" else 8.0
+                painter.setFont(self._mono_font(font_base, bold=True))
                 painter.setPen(color)
-                painter.drawText(pill.adjusted(28, 0, -8, 0), QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter, label_text)
+                # Elide on small viewports.
+                metrics = painter.fontMetrics()
+                avail = max(20, int(pill.width()) - 36)
+                rendered = metrics.elidedText(label_text, QtCore.Qt.ElideRight, avail)
+                painter.drawText(pill.adjusted(32, 0, -10, 0), QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter, rendered)
 
             def _draw_gate(self, painter: Any, QtCore: Any, QtGui: Any, rect: Any, row: dict[str, Any], colors: dict[str, str]) -> None:
                 gate = str(row.get("terminal_gate_display") or row.get("gate_display") or row.get("gate") or "").strip()
                 if not gate:
                     self._draw_center_text(painter, QtCore, QtGui, rect, "-", colors, muted=True)
                     return
+                chrome = self.style.row_chrome
+                if chrome == "grid":
+                    self._draw_text_cell(painter, QtCore, QtGui, rect, gate, colors, bold=True, base_pt=9)
+                    return
                 accent = QtGui.QColor(colors.get("blue", "#4a9eda"))
                 bg = QtGui.QColor(accent)
                 bg.setAlpha(26)
-                badge = QtCore.QRectF(rect.left() + 8, rect.center().y() - 21, max(20, rect.width() - 16), 42)
+                badge_h = max(28, min(int(rect.height() * 0.62), 56 if chrome == "card-big" else 44))
+                badge = QtCore.QRectF(rect.left() + 8, rect.center().y() - badge_h / 2, max(20, rect.width() - 16), badge_h)
                 painter.setPen(QtGui.QPen(accent, 1.3))
                 painter.setBrush(bg)
-                painter.drawRoundedRect(badge, 9, 9)
-                self._draw_icon(painter, QtCore, QtGui, QtCore.QRectF(badge.left() + 9, badge.center().y() - 7, 14, 14), "gate", accent)
-                font = QtGui.QFont("Space Mono")
-                font.setPointSize(10)
-                font.setBold(True)
+                radius = 12 if chrome == "card-big" else 9 if chrome == "card" else 4
+                painter.drawRoundedRect(badge, radius, radius)
+                icon_size = 16 if chrome == "card-big" else 14
+                self._draw_icon(painter, QtCore, QtGui, QtCore.QRectF(badge.left() + 9, badge.center().y() - icon_size / 2, icon_size, icon_size), "gate", accent)
+                font = self._mono_font(11.5 if chrome == "card-big" else 10.0, bold=True)
                 painter.setFont(font)
                 painter.setPen(QtGui.QColor(colors.get("text", "#e8f0fe")))
-                painter.drawText(badge.adjusted(30, 0, -6, 0), QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter, gate)
+                painter.drawText(badge.adjusted(28 if chrome != "card-big" else 32, 0, -6, 0), QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter, gate)
 
             def _draw_aircraft(self, painter: Any, QtCore: Any, QtGui: Any, rect: Any, row: dict[str, Any], colors: dict[str, str]) -> None:
                 value = str(row.get("aircraft_type") or "").strip().upper()
                 if not value:
                     self._draw_center_text(painter, QtCore, QtGui, rect, "-", colors, muted=True)
                     return
+                chrome = self.style.row_chrome
+                if chrome in {"grid", "scope"}:
+                    # Compact skins: just the text, no icon.
+                    self._draw_text_cell(painter, QtCore, QtGui, rect, value, colors, bold=True, base_pt=9)
+                    return
                 muted = QtGui.QColor(colors.get("muted", "#79a7c8"))
                 self._draw_icon(painter, QtCore, QtGui, QtCore.QRectF(rect.left() + 11, rect.center().y() - 8, 16, 16), "aircraft", muted)
-                font = QtGui.QFont("Space Mono")
-                font.setPointSize(9)
-                font.setBold(True)
+                font = self._mono_font(10.0 if chrome == "card-big" else 9.0, bold=True)
                 painter.setFont(font)
                 painter.setPen(QtGui.QColor(colors.get("text", "#e8f0fe")))
                 painter.drawText(QtCore.QRectF(rect.left() + 32, rect.top(), rect.width() - 34, rect.height()), QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter, value)
@@ -960,11 +1309,12 @@ class FidsScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
             QtGui=QtGui,
             route_label="To",
             colors=self.colors,
-            columns=self._fids_style.columns,
+            columns=self._fids_style.model_columns,
             status_vocabulary=self._fids_style.status_vocabulary,
         )
         self.delegate = _FidsBoardDelegate(QtCore, QtGui, QtWidgets, lambda: self.colors)
         self.board = FidsBoardView(QtCore, QtGui, QtWidgets, lambda: self.colors)
+        self.board.set_style(self._fids_style)
         self.board.setMinimumWidth(0)
         self.board.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
         self.board.rowActivated.connect(lambda row_idx: self._show_detail_for_row(row_idx, 0))
@@ -1092,14 +1442,21 @@ class FidsScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
         except Exception:
             pass
         try:
-            self.model.set_columns(style.columns)
+            self.model.set_columns(style.model_columns)
             if hasattr(self.model, "set_status_vocabulary"):
                 self.model.set_status_vocabulary(style.status_vocabulary)
         except Exception:
             pass
         try:
+            if hasattr(self.board, "set_style"):
+                self.board.set_style(style)
             if hasattr(self.board, "viewport"):
                 self.board.viewport().update()
+        except Exception:
+            pass
+        # Re-render with the new skin's row layout.
+        try:
+            self._render_rows()
         except Exception:
             pass
 

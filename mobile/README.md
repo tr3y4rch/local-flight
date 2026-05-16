@@ -128,6 +128,8 @@ The screenshot script builds a self-contained simulator app and captures portrai
 - Pinned flight island with pin/unpin and tap-for-detail behavior
 - WebSocket listener for `/ws` `snapshot_updated`, `config_updated`, and `scheduler_restarted` events in LAN Companion mode only
 - Independent mobile appearance with dark/light theme plus `standard`, `technical`, `neon`, `cyan`, and `crt` skins
+- Branded launch overlay with a continuous radar sweep, status text fade, breathing status dot, blinking board LED, and shared Local Flight wordmark text
+- Native-feeling interaction polish on key taps, chips, pinned-flight actions, and weather icon changes through haptics, press-scale feedback, and small transitions
 - Server-backed Matrix runtime editor using `/api/matrix/config`, with local-only panel preview presets. Real-world Matrix feeds can expose gate/stand labels when available; VATSIM Matrix presets intentionally hide gate placeholders.
 - Fullscreen landscape FIDS from any screen, with normal portrait state restored when rotating back
 - Mobile-owned radar radius controls. LAN Companion uses the paired server for runway and airport-surface drawing; Standalone uses the relay mobile radar response for this pass.

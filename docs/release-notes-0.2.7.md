@@ -23,6 +23,9 @@ traffic.
   formal airport names or IATA/ICAO descriptors in the title.
 - **Passenger-friendly weather.** The main FIDS weather card now favors plain
   wording, temperature, and visibility hints instead of raw METAR fragments.
+- **Real FIDS style skins.** Classic, PAX, VATSIM, and Nerd now change more
+  than columns: row size, spacing, fonts, header chrome, row chrome, status
+  chips, palettes, and responsive column hiding all follow the active style.
 - **Long-name protection.** Very long airport labels are clamped safely and keep
   the full value as a tooltip in the native GUI.
 - **Footer support icons.** The footer now keeps the version/privacy phrase
@@ -48,6 +51,10 @@ traffic.
   current-source intelligence model. Opening a detail panel reuses data already
   fetched or cached by Local Flight; it should not cause surprise per-row paid
   provider calls.
+- Native FIDS styles now have clearer purposes: Classic stays close to the
+  normal Local Flight board, PAX favors big passenger-readable rows, VATSIM
+  leans into sim-network callsign/phase details, and Nerd keeps a dense
+  operator-style board.
 
 ---
 
@@ -83,6 +90,9 @@ traffic.
   days or 1,000 rows, whichever is smaller.
 - Standalone manual/crash reports go directly to the relay reporting gateway.
   Automatic reports require the mobile diagnostics choice to allow them.
+- The mobile launch overlay now has a more polished Local Flight feel: shared
+  brand text, continuous radar sweep, status fade, breathing status dot, and a
+  blinking board LED. Key taps also get subtle haptics and press feedback.
 
 ---
 

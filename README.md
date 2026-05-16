@@ -48,11 +48,11 @@ Read the detailed guides:
 
 - Guided setup with **Community Relay**, **Bring your own keys**, and **VATSIM** paths
 - Real schedule support designed around cached shared snapshots, AeroDataBox/AviationStack provider compatibility, and stale-safe serving when live providers are slow or capped
-- Passenger-style FIDS boards with city/country airport headers, arrivals/departures, airport-local time, status/gate chips, codeshare grouping, pinned flights, and live refresh
+- Passenger-style FIDS boards with city/country airport headers, arrivals/departures, airport-local time, status/gate chips, codeshare grouping, pinned flights, live refresh, and native Classic/PAX/VATSIM/Nerd board styles
 - Radar with real/VATSIM traffic, METAR weather, range controls, optional runway/surface/map/terrain context, and richer aircraft/status detail
 - Native Qt desktop shell with Display, FIDS, Radar, Matrix, Settings, Admin, History, Logs, Report, and local docs
 - LAN browser UI for headless installs, remote screens, tablets, and browser-mode displays
-- Mobile app with a first-run choice between **LAN Companion** and **Standalone**: Companion keeps the full desktop/Pi pairing flow; Standalone offers a simpler FIDS/Radar/History/Settings experience through the hosted relay with slower refreshes and no server-control tools
+- Mobile app with a first-run choice between **LAN Companion** and **Standalone**: Companion keeps the full desktop/Pi pairing flow; Standalone offers a simpler FIDS/Radar/History/Settings experience through the hosted relay with slower refreshes and no server-control tools. The mobile shell keeps its own appearance, branded launch overlay, and small native-feeling interactions.
 - History dashboard with filters, delay buckets, airline delay quotas, route/aircraft stats, sortable recent flights, and detail panels
 - Matrix tooling for Interstate 75 W / HUB75 boards, including panel presets, live preview, optional real-world gate/stand display, compact weather headers, runtime settings, and generated MicroPython `main.py`
 - Shared flight detail intelligence for FIDS, Radar, History, Matrix, native Qt, and LAN browser views, using current local snapshots, radar data, weather, and history without new per-click provider calls

@@ -14,12 +14,12 @@ Built with: Python 3.11+, FastAPI, uvicorn, SQLite, WebSocket, Jinja2, PIL, and 
 ## Current 0.2.7 handoff snapshot (2026-05-16)
 
 - Active package target: `0.2.7` as the client-polish/release-candidate line. `pyproject.toml` remains the source of truth; keep runtime fallbacks, native docs, mobile metadata, and preview/release docs aligned with it.
-- Current Mac/Codex validation after the mobile Standalone + Companion pass and docs sweep: `.venv/bin/python -m pytest tests -q` returned `385 passed`; `cd mobile && npm run typecheck && npm run doctor` passed with Expo Doctor `18/18`; `git diff --check` passed. `npm audit --omit=dev` still reports 4 moderate advisories through Expo's Metro/PostCSS dependency chain, but the suggested `npm audit fix --force` would install a breaking Expo version, so do not force it inside this release-candidate sweep.
+- Current Mac/Codex validation after the Claude UI rescue, native FIDS painter polish, mobile launch/interaction polish, and docs sweep: `.venv/bin/python -m pytest tests -q` returned `385 passed`; focused Qt column compatibility check returned `1 passed`; `.venv/bin/python -m py_compile src/localflight/native/pages/fids.py src/localflight/native/pages/fids_styles.py` passed; `cd mobile && npm run typecheck && npm run doctor` passed with Expo Doctor `18/18`; `git diff --check` passed. `npm audit --omit=dev` still reports 4 moderate advisories through Expo's Metro/PostCSS dependency chain, but the suggested `npm audit fix --force` would install a breaking Expo version, so do not force it inside this release-candidate sweep.
 - Older Windows and Pi artifacts were previously rebuilt from the Windows workspace:
   - `dist/LocalFlight-windows.zip` — SHA256 `a0d64c8c272800507a5ee9d8c771cc2e10a63d7c253f9092ba0f725259af66d8`
   - `dist/LocalFlight-pi-source-0.2.7.zip` — SHA256 `67bb84b3fe8be0d5a260f147c5a8e3a394dbe2332d4e4b0f6b2274e7fa24dcd3`
 - Treat those artifact hashes as stale after the mobile standalone/relay/docs changes unless they are deliberately rebuilt from this commit. macOS still needs its own validation/package pass from this exact source state before publishing the GitHub release. Do not reuse stale `0.2.5b5`, `0.2.6`, or pre-standalone `0.2.7` macOS/Pi handoff notes.
-- Recent client-facing changes to preserve in smoke tests: native shell top-bar grouping and footer support icons, city/country FIDS title, passenger-friendly weather hero, long-title clamping, native/browser History analytics dashboard, Matrix configurator parity, compact Matrix weather header, Matrix display-contract labels/weather icons in Qt/LAN/MicroPython, real-only Matrix gate labels, Settings/setup dashboard polish, FIDS/Radar current-source intelligence details, LAN radar parity with Qt radar behavior, mobile LAN Companion IA, and the new mobile Standalone setup/data/reporting path.
+- Recent client-facing changes to preserve in smoke tests: native shell top-bar grouping and footer support icons, city/country FIDS title, passenger-friendly weather hero, long-title clamping, true visual FIDS style skins for Classic/PAX/VATSIM/Nerd, native/browser History analytics dashboard, Matrix configurator parity, compact Matrix weather header, Matrix display-contract labels/weather icons in Qt/LAN/MicroPython, real-only Matrix gate labels, Settings/setup dashboard polish, FIDS/Radar current-source intelligence details, LAN radar parity with Qt radar behavior, mobile LAN Companion IA, mobile branded launch/interaction polish, and the new mobile Standalone setup/data/reporting path.
 - Schedule-provider work to preserve in relay/client smoke tests: AeroDataBox primary FIDS source, AviationStack sparse fill/fallback, hard upstream caps, 24h stale-cache serving, source-cache re-merge, canonical provider meta, and fused rows compiling through both `/api/fids` and Qt `FlightBoardModel`.
 - Mobile Standalone relay work to preserve in smoke tests: `/v1/airports/search`, `/v1/airports/resolve`, `/v1/mobile/summary`, `/v1/mobile/fids`, `/v1/mobile/radar`, `/v1/mobile/metar`; activation with `requested_mode=mobile_standalone`; standalone FIDS 3h policy; standalone radar 1/3/5/10 NM + 5m cache; local SQLite history; direct relay reports with mobile diagnostics gating.
 - Separation of power still applies: public docs stay user-focused; relay operator/admin details belong only in `AGENTS.md`, `DEV_README.md`, `CLAUDE.md`, and operator tooling.
@@ -151,6 +151,7 @@ local-flight/
 │       └── lf.sh                # Management helper (start/stop/logs/update)
 │
 ├── start.bat                    # Native-first dev launcher (Windows, project root)
+├── start.command                # Native-first dev launcher (macOS, project root)
 └── start_network.bat            # Local ignored native operator Network Admin launcher
 ```
 
@@ -161,7 +162,7 @@ Native/Chrome-free additions:
 - `src/localflight/native/network_admin.py` is the separate operator-only Network Admin Qt shell, pointed at redacted relay `/admin/api/*` JSON plus admin action endpoints. It now has a fleet/dev operations console shape with Overview, Fleet, Traffic, Schedules, Surfaces, Activations, Reports, Providers, and Maintenance.
 - `src/localflight/native/design.py` and `routes.py` hold browser-parity Qt theme/skin tokens, shared styling/widgets, native media/doc resolution, bundled public doc metadata, and declared native HTTP actions so buttons do not drift from real routes.
 - `src/localflight/native/api_client.py` and `qt_compat.py` keep HTTP access and PySide6 imports lazy so non-native builds keep working.
-- `start.bat`, Windows/macOS source installers, macOS app-bundle launcher, and PyInstaller builds install/verify the `native` extra so PySide6/Qt is present before native launch.
+- `start.bat`, `start.command`, Windows/macOS source installers, macOS app-bundle launcher, and PyInstaller builds install/verify the `native` extra so PySide6/Qt is present before native launch.
 - `start_network.bat` is a local ignored operator launcher that opens the native operator console against the hosted relay by default. Keep relay runtime secrets in Fly/dashboard secrets, not in repo-tracked files.
 
 ---
@@ -271,7 +272,7 @@ Two separate integrations — do not confuse them:
 - Standalone History uses `expo-sqlite` in `mobile/src/storage/standaloneHistory.ts`, storing successful FIDS rows locally and pruning to 30 days or 1,000 rows. No relay-side per-install flight history is stored in this pass.
 - Mobile crash reporting lives in `mobile/src/crash/`. LAN Companion auto-reporting requires both mobile diagnostics and connected-server diagnostics to allow it. Standalone auto-reporting requires the mobile diagnostics choice (`auto` or `auto_logs`) and posts directly to relay `/v1/reports`.
 - Current shell still follows the iOS airport-board mockup direction for the live surfaces: Flight Island, departure-airport/live header, UTC/local clock, METAR strip, FIDS tabs, pinned flight, compact rows, and bottom nav.
-- Mobile now ships with a longer branded launch overlay that mirrors the desktop splash direction with progress/status messaging.
+- Mobile now ships with a longer branded launch overlay that mirrors the desktop splash direction with progress/status messaging, shared brand text, continuous radar sweep, status fade, breathing live dot, and blinking board LED. Key screen actions use light haptics/press-scale feedback where available.
 - Validation after this pass: `cd mobile && npm run typecheck && npm run doctor` passed on the Mac/Codex workspace. Full visual verification still belongs on the Mac/Xcode machine via `npm run ios` or `npm run ios:device`.
 
 ### Mobile app iconset streamlining status
@@ -691,7 +692,22 @@ npm run ios
 - Sparse-board UX fallback is now active on the client: if a real-data lane has no rows inside the live window, the board shows the nearest available real flights instead of an empty departures page. Current live local check after the patch: `/api/fids?view=departures` returned `20` rows again.
 - Verification after the `0.2.7` native shell/FIDS polish and Matrix display-integrity repack is green on this Windows workspace: `.venv\Scripts\python.exe -m compileall -q src relay installers scripts tests`, `.venv\Scripts\python.exe -m pytest tests -q` (`376 passed`), `pip check`, and `pip list --outdated --format=json` (`[]`). Windows and Pi artifacts were rebuilt after this sweep; macOS remains the missing platform artifact.
 
-## What was done in the latest session (v0.2.7 — mobile Standalone + docs)
+## What was done in the latest session (v0.2.7 — Claude UI rescue + FIDS/mobile polish)
+
+> Dated 2026-05-16. This pass recovered UI/UX work that had landed in the
+> older `/Users/philipp/Local-Flight/local-flight` checkout and safely ported it
+> into the current `/Applications/local-flight` working tree. The important bit:
+> do not wholesale copy the older mobile files forward, because that checkout
+> predates the newer Standalone relay/client work.
+
+- **Recovered old-path Claude work** — the current repo was clean while the older checkout had pending Qt FIDS painter, mobile launch/interactions, and macOS launcher changes. The safe patch pieces were merged into the real working tree; conflict-prone mobile files were kept on the current Standalone-aware implementation and then selectively polished.
+- **Native FIDS painter polish** — `src/localflight/native/pages/fids.py` and `fids_styles.py` now make Classic/PAX/VATSIM/Nerd visibly different through row height, row gaps, font families, responsive column weights/hide thresholds, header chrome, row chrome, status chip shape, and palette overlays.
+- **Mobile launch and interaction polish** — `mobile/src/components/LaunchOverlay.tsx`, `mobile/src/hooks/useLaunchOverlay.ts`, and `mobile/src/screens/AppScreens.tsx` gained the shared brand wordmark/kicker, continuous radar sweep, status text fade, breathing status dot, blinking board LED, haptics, press-scale feedback, animated weather icon swaps, and pinned-flight live glow.
+- **macOS dev launcher** — root `start.command` mirrors the Windows source launcher shape for quick repo-checkout launches while keeping installer-managed launchers under `installers/macos/`.
+- **Docs** — README, install guide, mobile README, release notes, changelog, and this handoff now describe the recovered visual polish without exposing secrets or operator-only relay details.
+- **Validation** — final Mac/Codex validation for this merged tree is recorded in the current handoff snapshot above.
+
+## Previous session (v0.2.7 — mobile Standalone + docs)
 
 > Dated 2026-05-16. This pass turns the iOS-first mobile app into a two-mode
 > product: LAN Companion for paired desktop/Pi installs, and Standalone for a

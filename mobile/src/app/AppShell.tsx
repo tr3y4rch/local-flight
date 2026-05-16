@@ -1155,6 +1155,7 @@ export function AppShell() {
           scale={launch.scale}
           progress={launch.progress}
           pulse={launch.pulse}
+          sweep={launch.sweep}
           status={launch.status}
           styles={styles}
         />
@@ -1538,6 +1539,7 @@ export function AppShell() {
         scale={launch.scale}
         progress={launch.progress}
         pulse={launch.pulse}
+        sweep={launch.sweep}
         status={launch.status}
         styles={styles}
       />
