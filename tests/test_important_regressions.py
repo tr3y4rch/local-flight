@@ -2120,6 +2120,40 @@ def test_mobile_companion_checkin_is_exposed_in_connections(monkeypatch, tmp_pat
     assert payload["companions"][0]["platform_pair"].endswith("/ iOS 18.5 (phone)")
 
 
+def test_mobile_summary_rolls_up_companion_host_status(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(ui_server, "_setup_complete", lambda: True)
+    monkeypatch.setattr(ui_api, "_companion_presence_path", lambda: tmp_path / "companion_clients.json")
+
+    client = TestClient(app)
+    checkin = client.post(
+        "/api/admin/companion/checkin",
+        json={
+            "companion_id": "lfc_test_mobile_002",
+            "client_name": "Local Flight Companion",
+            "app_version": "0.2.7",
+            "mobile_os": "iOS 19.0 (phone)",
+            "device_type": "phone",
+        },
+    )
+    assert checkin.status_code == 200
+
+    response = client.get("/api/mobile/summary")
+    assert response.status_code == 200
+    payload = response.json()
+
+    assert "config" in payload
+    assert "state" in payload
+    assert "system" in payload
+    assert "connections" in payload
+    assert "updates" in payload
+    assert "budget" in payload
+    assert "scheduler" in payload
+    assert "metar" in payload
+    assert payload["connections"]["companion_count"] == 1
+    assert payload["connections"]["companions"][0]["companion_id"] == "lfc_test_mobile_002"
+    assert "running" in payload["scheduler"]
+
+
 def test_matrix_device_checkin_is_exposed_as_hardware_inventory(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setattr(ui_server, "_setup_complete", lambda: True)
     monkeypatch.setattr(ui_api, "_matrix_config_path", lambda: tmp_path / "matrix_config.json")
@@ -4079,6 +4113,7 @@ def test_ui_route_contracts_cover_core_pages_and_api_surfaces() -> None:
         "/api/history",
         "/api/history/flight",
         "/api/history/summary",
+        "/api/mobile/summary",
         "/api/admin/system",
         "/api/admin/budget",
         "/api/admin/connections",

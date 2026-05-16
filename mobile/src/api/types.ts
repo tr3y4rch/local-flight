@@ -55,6 +55,7 @@ export type AdminSystem = {
     community_key_present?: boolean;
     managed_verified?: boolean;
     managed_status?: string;
+    diagnostics_mode?: string;
     cost_estimate?: {
       enabled?: boolean;
       usage_model?: string;
@@ -117,6 +118,13 @@ export type SchedulerRestartResponse = {
   running?: boolean;
   started?: boolean;
   was_running?: boolean;
+  generation?: number;
+  started_at?: string | null;
+  thread_name?: string | null;
+};
+
+export type SchedulerStatus = {
+  running: boolean;
   generation?: number;
   started_at?: string | null;
   thread_name?: string | null;
@@ -693,5 +701,6 @@ export type DashboardSnapshot = {
   connections: AdminConnections | null;
   updates: AdminUpdates | null;
   budget: Budget | null;
+  scheduler: SchedulerStatus | null;
   metar: Metar | null;
 };

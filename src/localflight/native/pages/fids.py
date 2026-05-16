@@ -474,22 +474,32 @@ class FidsBoardView:  # pragma: no cover - optional Qt runtime
                     gate_w = 0
                     status_w = 0
                     time_w = max(92, min(118, int(width * 0.24)))
-                    route_w = max(118, int(width * 0.36))
-                    flight_w = max(1, width - time_w - route_w)
+                    flight_w = max(132, min(190, int(width * 0.34)))
+                    route_w = max(96, width - time_w - flight_w)
                 elif compact:
                     ac_w = 0
                     time_w = 124
                     status_w = 116
                     gate_w = 74
-                    route_w = max(150, min(230, int(width * 0.28)))
-                    flight_w = max(1, width - time_w - status_w - gate_w - route_w)
+                    fixed = time_w + status_w + gate_w
+                    available = max(1, width - fixed)
+                    if available < 300:
+                        flight_w = max(120, int(available * 0.54))
+                    else:
+                        flight_w = max(160, min(240, int(available * 0.44)))
+                    route_w = max(1, available - flight_w)
                 else:
                     ac_w = 92
                     time_w = 160
                     status_w = 176
                     gate_w = 118
-                    route_w = max(190, int(width * 0.34))
-                    flight_w = max(1, width - time_w - status_w - gate_w - ac_w - route_w)
+                    fixed = time_w + status_w + gate_w + ac_w
+                    available = max(1, width - fixed)
+                    if available < 350:
+                        flight_w = max(140, int(available * 0.56))
+                    else:
+                        flight_w = max(190, min(280, int(available * 0.46)))
+                    route_w = max(1, available - flight_w)
                 x = self.padding
                 columns: dict[str, Any] = {}
                 for key, col_w in (
@@ -629,13 +639,18 @@ class FidsBoardView:  # pragma: no cover - optional Qt runtime
                 font.setBold(True)
                 painter.setFont(font)
                 painter.setPen(QtGui.QColor(self._text_color(row, colors)))
-                painter.drawText(QtCore.QRectF(rect.left() + 42, rect.top() + 9, rect.width() - 50, 26), QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter, str(row.get("flight_display") or row.get("callsign") or "-"))
+                flight_rect = QtCore.QRectF(rect.left() + 42, rect.top() + 9, max(18, rect.width() - 50), 26)
+                flight_text = str(row.get("flight_display") or row.get("callsign") or "-")
+                flight_text = painter.fontMetrics().elidedText(flight_text, QtCore.Qt.ElideRight, max(18, int(flight_rect.width())))
+                painter.drawText(flight_rect, QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter, flight_text)
                 airline_font = QtGui.QFont()
                 airline_font.setPointSize(8)
                 airline_font.setBold(True)
                 painter.setFont(airline_font)
                 painter.setPen(QtGui.QColor(colors.get("muted", "#79a7c8")))
-                painter.drawText(QtCore.QRectF(rect.left() + 42, rect.top() + 34, rect.width() - 50, 18), QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter, str(row.get("airline_display") or "").upper())
+                airline_rect = QtCore.QRectF(rect.left() + 42, rect.top() + 34, max(18, rect.width() - 50), 18)
+                airline = painter.fontMetrics().elidedText(str(row.get("airline_display") or "").upper(), QtCore.Qt.ElideRight, max(18, int(airline_rect.width())))
+                painter.drawText(airline_rect, QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter, airline)
                 codeshare = self._codeshare_frame(row)
                 if codeshare:
                     chip = QtCore.QRectF(rect.left() + 42, rect.top() + 52, min(rect.width() - 50, 116), 18)

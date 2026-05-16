@@ -8,6 +8,7 @@ import type {
   AppState,
   Budget,
   ConfigPatch,
+  DashboardSnapshot,
   DocDocument,
   FidsDetailResponse,
   FidsRow,
@@ -181,6 +182,10 @@ export function getUpdates(serverUrl: string): Promise<AdminUpdates> {
 
 export function getBudget(serverUrl: string): Promise<Budget> {
   return fetchJson<Budget>(serverUrl, "/api/admin/budget");
+}
+
+export function getMobileSummary(serverUrl: string): Promise<DashboardSnapshot> {
+  return fetchJson<DashboardSnapshot>(serverUrl, "/api/mobile/summary");
 }
 
 export function restartScheduler(serverUrl: string): Promise<SchedulerRestartResponse> {

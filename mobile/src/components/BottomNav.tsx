@@ -76,18 +76,17 @@ function NavItem({
 
 export function BottomNav({ active, onChange, insetBottom, palette, styles }: BottomNavProps) {
   const items: Array<{ id: Screen; icon: MaterialIconName; label: string }> = [
-    { id: "fids",     icon: "airplane-takeoff", label: "FIDS" },
-    { id: "radar",    icon: "radar",             label: "RADAR" },
-    { id: "settings", icon: "cog-outline",       label: "SETTINGS" }
+    { id: "fids",    icon: "airplane-takeoff", label: "BOARD" },
+    { id: "radar",   icon: "radar",             label: "RADAR" },
+    { id: "history", icon: "history",           label: "HISTORY" },
+    { id: "control", icon: "tune-variant",      label: "CONTROL" },
+    { id: "help",    icon: "lifebuoy",          label: "HELP" }
   ];
 
   return (
     <View style={[styles.bottomNav, { paddingBottom: Math.max(insetBottom, 10) }]}>
       {items.map((item) => {
-        const selected =
-          active === item.id ||
-          ((active === "matrix" || active === "admin" || active === "history" || active === "docs") &&
-            item.id === "settings");
+        const selected = active === item.id;
         return (
           <NavItem
             key={item.id}

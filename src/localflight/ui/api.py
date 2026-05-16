@@ -2317,6 +2317,67 @@ def api_admin_connections() -> Dict[str, Any]:
         "companion_count": len(companions),
         "companions": companions[:10],
     }
+
+
+def _mobile_summary_payload() -> Dict[str, Any]:
+    """Compact host summary tuned for the mobile companion shell."""
+    try:
+        state = api_health()
+    except Exception:
+        state = {}
+
+    try:
+        config = api_config()
+    except Exception:
+        config = {}
+
+    try:
+        system = api_admin_system()
+    except Exception:
+        system = {}
+
+    try:
+        connections = api_admin_connections()
+    except Exception:
+        connections = {}
+
+    try:
+        updates = api_admin_updates()
+    except Exception:
+        updates = {}
+
+    try:
+        budget = api_admin_budget()
+    except Exception:
+        budget = {}
+
+    try:
+        scheduler = api_admin_scheduler_status()
+    except Exception:
+        scheduler = {}
+
+    metar = None
+    try:
+        metar = api_metar()
+    except Exception:
+        metar = None
+
+    return {
+        "state": state,
+        "config": config,
+        "system": system,
+        "connections": connections,
+        "updates": updates,
+        "budget": budget,
+        "scheduler": scheduler,
+        "metar": metar,
+    }
+
+
+@router.get("/api/mobile/summary")
+def api_mobile_summary() -> Dict[str, Any]:
+    """Compact mobile-companion summary for control and glance views."""
+    return _mobile_summary_payload()
  
  
 @router.get("/api/admin/scheduler")

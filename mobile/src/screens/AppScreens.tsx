@@ -4064,6 +4064,410 @@ export function SettingsScreen({
   );
 }
 
+export function ControlScreen({
+  snapshot,
+  serverUrl,
+  draftUrl,
+  error,
+  loading,
+  isTablet,
+  isLandscape,
+  themeMode,
+  skin,
+  weatherDisplayMode,
+  mobileDiagnosticsMode,
+  profiles,
+  activeProfileId,
+  applyingProfileId,
+  outputs,
+  refreshSeconds,
+  schedulerRestarting,
+  schedulerMessage,
+  onThemeModeChange,
+  onSkinChange,
+  onWeatherDisplayModeChange,
+  onMobileDiagnosticsModeChange,
+  onApplyProfile,
+  onOpenConfig,
+  onOpenHelp,
+  onOpenSupport,
+  onRestartScheduler,
+  onRerunSetup,
+  onChangeUrl,
+  onConnect
+}: {
+  snapshot: DashboardSnapshot;
+  serverUrl: string;
+  draftUrl: string;
+  error: string | null;
+  loading: boolean;
+  isTablet: boolean;
+  isLandscape: boolean;
+  themeMode: MobileThemeMode;
+  skin: MobileSkin;
+  weatherDisplayMode: MobileWeatherDisplayMode;
+  mobileDiagnosticsMode: MobileDiagnosticsMode;
+  profiles: ConfigProfile[];
+  activeProfileId: string | null;
+  applyingProfileId: string | null;
+  outputs: string[];
+  refreshSeconds: number | null;
+  schedulerRestarting: boolean;
+  schedulerMessage: string | null;
+  onThemeModeChange: (value: MobileThemeMode) => void;
+  onSkinChange: (value: MobileSkin) => void;
+  onWeatherDisplayModeChange: (value: MobileWeatherDisplayMode) => void;
+  onMobileDiagnosticsModeChange: (value: MobileDiagnosticsMode) => void;
+  onApplyProfile: (profile: ConfigProfile) => void;
+  onOpenConfig: () => void;
+  onOpenHelp: () => void;
+  onOpenSupport: () => void;
+  onRestartScheduler: () => void;
+  onRerunSetup: () => void;
+  onChangeUrl: (value: string) => void;
+  onConnect: () => void;
+}) {
+  const [serverExpanded, setServerExpanded] = useState(!serverUrl);
+  const [appearanceVisible, setAppearanceVisible] = useState(false);
+  const outputValue = outputs.length ? outputs.join(", ").toUpperCase() : "WEB";
+  const schedulerRunning = snapshot.scheduler?.running ?? false;
+  const hostDiagnostics = snapshot.system?.client?.diagnostics_mode || snapshot.config?.diagnostics_mode || "manual";
+  const companionCount = snapshot.connections?.companion_count ?? 0;
+  const updateValue = snapshot.updates?.update_available
+    ? `V${snapshot.updates.latest || "NEW"} READY`
+    : `V${snapshot.updates?.current || snapshot.system?.version || APP_VERSION}`;
+
+  return (
+    <View style={styles.cardStack}>
+      <View style={styles.settingsCard}>
+        <Text style={styles.settingsTitle}>CONTROL</Text>
+        <Text style={styles.moduleIntro}>
+          Quick host control for the board you already run on desktop or Pi.
+        </Text>
+      </View>
+
+      <View style={styles.settingsCard}>
+        <Text style={styles.settingsTitle}>HOST STATUS</Text>
+        <View style={styles.metricRow}>
+          <InfoCard label="SERVER" value={serverUrl ? "READY" : "SETUP"} tone={serverUrl ? "green" : "amber"} />
+          <InfoCard label="SCHEDULER" value={schedulerRunning ? "HEALTHY" : "CHECK"} tone={schedulerRunning ? "green" : "amber"} />
+          <InfoCard label="COMPANIONS" value={String(companionCount)} tone="blue" />
+        </View>
+        <InfoLine label="Airport" value={snapshot.config?.airport_iata || "---"} />
+        <InfoLine label="Source" value={snapshot.state?.source_name || snapshot.config?.source || "Unknown"} />
+        <InfoLine label="Last successful fetch" value={formatRelative(snapshot.state?.last_success_utc)} />
+        <InfoLine label="Host diagnostics" value={String(hostDiagnostics).replace(/_/g, " ").toUpperCase()} />
+        <InfoLine label="Current version" value={updateValue} />
+      </View>
+
+      <View style={styles.settingsCard}>
+        <Text style={styles.settingsTitle}>CONNECTION & SAFE CHANGES</Text>
+        <View style={styles.metricRow}>
+          <InfoCard label="REFRESH" value={refreshSeconds ? formatInterval(refreshSeconds).toUpperCase() : "WAIT"} />
+          <InfoCard label="OUTPUTS" value={outputValue} tone="blue" />
+          <InfoCard label="LAYOUT" value={isTablet ? (isLandscape ? "IPAD LAND" : "IPAD PORT") : "IPHONE"} />
+        </View>
+        <InfoLine label="Saved server" value={serverUrl || "Not set"} />
+        <InfoLine label="Host install" value={snapshot.system?.install_id || "Unknown"} />
+        <InfoLine label="Companion build" value={APP_VERSION} />
+
+        {profiles.length > 1 ? (
+          <View style={styles.settingsProfileBlock}>
+            <View style={styles.settingsProfileHeader}>
+              <Text style={styles.settingsProfileTitle}>AIRPORT PROFILES</Text>
+              <Text style={styles.settingsProfileHint}>one-tap switch</Text>
+            </View>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.settingsProfileChips}
+            >
+              {profiles.map((profile, index) => {
+                const active = profile.id === activeProfileId;
+                const applying = profile.id === applyingProfileId;
+                const disabled = applyingProfileId !== null;
+                return (
+                  <Pressable
+                    key={profileKey(profile, index)}
+                    style={[
+                      styles.settingsProfileChip,
+                      active && styles.settingsProfileChipActive,
+                      disabled && !applying && styles.settingsProfileChipDisabled
+                    ]}
+                    onPress={() => onApplyProfile(profile)}
+                    disabled={disabled}
+                  >
+                    <View style={styles.settingsProfileChipTop}>
+                      <Text style={[styles.settingsProfileName, active && styles.settingsProfileNameActive]} numberOfLines={1}>
+                        {profile.name}
+                      </Text>
+                      {applying ? (
+                        <ActivityIndicator size="small" color={palette.blue2} />
+                      ) : active ? (
+                        <MaterialCommunityIcons name="check-circle" size={14} color={palette.green} />
+                      ) : null}
+                    </View>
+                    <Text style={styles.settingsProfileMeta} numberOfLines={1}>
+                      {profile.iata} · {profile.source === "virtual" ? "VATSIM" : "REAL"} · {formatInterval(profile.refresh_seconds)}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          </View>
+        ) : null}
+
+        <View style={styles.settingsInlineActions}>
+          <Pressable style={styles.settingsCompactButton} onPress={() => setServerExpanded((value) => !value)}>
+            <Text style={styles.settingsCompactButtonText}>{serverExpanded ? "HIDE SERVER" : "CHANGE SERVER"}</Text>
+          </Pressable>
+          <Pressable style={styles.settingsCompactButton} onPress={onOpenConfig}>
+            <Text style={styles.settingsCompactButtonText}>AIRPORT & SOURCE</Text>
+          </Pressable>
+          <Pressable
+            style={[styles.settingsCompactButton, schedulerRestarting && styles.connectButtonDisabled]}
+            onPress={onRestartScheduler}
+            disabled={schedulerRestarting}
+          >
+            {schedulerRestarting ? <ActivityIndicator size="small" color={palette.blue} /> : <Text style={styles.settingsCompactButtonText}>RESTART FETCH</Text>}
+          </Pressable>
+        </View>
+
+        {serverExpanded ? (
+          <>
+            <TextInput
+              autoCapitalize="none"
+              autoCorrect={false}
+              keyboardType="url"
+              placeholder="http://192.168.1.42:8000"
+              placeholderTextColor={palette.textDim}
+              value={draftUrl}
+              onChangeText={onChangeUrl}
+              style={styles.serverInput}
+            />
+            <Pressable style={styles.connectButton} onPress={onConnect} disabled={loading}>
+              {loading ? <ActivityIndicator color={solidButtonInk()} /> : <Text style={styles.connectButtonText}>CONNECT</Text>}
+            </Pressable>
+            <Text style={styles.settingsHelp}>
+              Use the LAN IP of the machine running Local Flight. On a physical iPhone, localhost points at the phone itself.
+            </Text>
+          </>
+        ) : null}
+        {schedulerMessage ? <Text style={[styles.feedbackMessage, styles.feedbackMessageOk]}>{schedulerMessage}</Text> : null}
+        {error ? <Text style={styles.errorText}>{error}</Text> : null}
+      </View>
+
+      <View style={styles.settingsCard}>
+        <Text style={styles.settingsTitle}>QUICK ACTIONS</Text>
+        <View style={styles.settingsQuickGrid}>
+          <SettingsQuickAction
+            icon="palette-outline"
+            label="Companion Look"
+            value={`${themeMode} · ${skin} · ${weatherModeOption(weatherDisplayMode).label} WX`}
+            onPress={() => setAppearanceVisible(true)}
+          />
+          <SettingsQuickAction
+            icon="tune-variant"
+            label="Host Config"
+            value="Airport, source, cadence"
+            onPress={onOpenConfig}
+          />
+          <SettingsQuickAction
+            icon="lifebuoy"
+            label="Help"
+            value="Pairing, identity, reports"
+            onPress={onOpenHelp}
+          />
+          <SettingsQuickAction
+            icon="restart-alert"
+            label="Setup"
+            value="Revisit pairing and diagnostics"
+            onPress={onRerunSetup}
+          />
+        </View>
+      </View>
+
+      <View style={styles.settingsCard}>
+        <Text style={styles.settingsTitle}>DIAGNOSTICS & SUPPORT</Text>
+        <Text style={styles.moduleIntro}>
+          Manual reporting is always available. Automatic mobile reports still honor the host diagnostics choice.
+        </Text>
+        <FilterSection title="MOBILE DIAGNOSTICS">
+          <View style={styles.filterRow}>
+            {([
+              ["manual", "MANUAL"],
+              ["auto", "AUTO"],
+              ["auto_logs", "AUTO + CONTEXT"]
+            ] as Array<[MobileDiagnosticsMode, string]>).map(([mode, label]) => (
+              <DirectionButton
+                key={mode}
+                active={mobileDiagnosticsMode === mode}
+                label={label}
+                onPress={() => onMobileDiagnosticsModeChange(mode)}
+              />
+            ))}
+          </View>
+        </FilterSection>
+        <SettingsToolPill
+          icon="alert-circle-outline"
+          label="Open help & report problem"
+          value="Troubleshooting, pairing details, and bug reports"
+          onPress={onOpenHelp}
+        />
+        <SettingsToolPill
+          icon="github"
+          label="Source & releases"
+          value="github.com/tr3y4rch/local-flight"
+          onPress={() => void Linking.openURL("https://github.com/tr3y4rch/local-flight")}
+        />
+      </View>
+
+      <Pressable style={styles.supportFooter} onPress={onOpenSupport}>
+        <MaterialCommunityIcons name="heart-outline" size={15} color={palette.amber} />
+        <Text style={styles.supportFooterText}>Support Local Flight</Text>
+        <MaterialCommunityIcons name="chevron-up" size={13} color={palette.textDim} />
+      </Pressable>
+
+      <AppearanceSheet
+        visible={appearanceVisible}
+        themeMode={themeMode}
+        skin={skin}
+        weatherDisplayMode={weatherDisplayMode}
+        onClose={() => setAppearanceVisible(false)}
+        onThemeModeChange={onThemeModeChange}
+        onSkinChange={onSkinChange}
+        onWeatherDisplayModeChange={onWeatherDisplayModeChange}
+      />
+    </View>
+  );
+}
+
+export function HelpScreen({
+  snapshot,
+  companionIdentity,
+  connected,
+  error,
+  feedbackTitle,
+  feedbackDescription,
+  feedbackSending,
+  feedbackMessage,
+  feedbackTone,
+  onFeedbackTitleChange,
+  onFeedbackDescriptionChange,
+  onSubmitFeedback,
+  onOpenSupport
+}: {
+  snapshot: DashboardSnapshot;
+  companionIdentity: CompanionIdentity | null;
+  connected: boolean;
+  error: string | null;
+  feedbackTitle: string;
+  feedbackDescription: string;
+  feedbackSending: boolean;
+  feedbackMessage: string | null;
+  feedbackTone: FeedbackTone;
+  onFeedbackTitleChange: (value: string) => void;
+  onFeedbackDescriptionChange: (value: string) => void;
+  onSubmitFeedback: () => void;
+  onOpenSupport: () => void;
+}) {
+  const updateValue = snapshot.updates?.update_available
+    ? `V${snapshot.updates.latest || "NEW"} READY`
+    : `V${snapshot.updates?.current || snapshot.system?.version || APP_VERSION}`;
+  const companionRecord =
+    snapshot.connections?.companions?.find((item) => item.companion_id === companionIdentity?.companionId) || null;
+  const feedbackContext = [
+    `Reporter      ${companionIdentity?.clientName || "Local Flight Companion"}`,
+    `Companion ID  ${companionIdentity?.companionId || "UNKNOWN"}`,
+    `Companion OS  ${companionIdentity?.mobileOs || "UNKNOWN"}`,
+    `Build         ${companionIdentity?.appVersion || APP_VERSION}`,
+    `Server ID     ${snapshot.system?.install_id || "UNKNOWN"}`,
+    `Server        ${snapshot.system?.platform || "UNKNOWN"}`,
+    `Airport       ${snapshot.config?.airport_iata || "---"}`,
+    `Source        ${snapshot.state?.source_name || snapshot.config?.source || "UNKNOWN"}`
+  ].join("\n");
+
+  return (
+    <View style={styles.cardStack}>
+      <View style={styles.settingsCard}>
+        <Text style={styles.settingsTitle}>HELP</Text>
+        <Text style={styles.moduleIntro}>
+          Pairing details, host identity, quick troubleshooting, and report flow for the companion.
+        </Text>
+      </View>
+
+      <View style={styles.settingsCard}>
+        <Text style={styles.settingsTitle}>PAIRING & HOST</Text>
+        <View style={styles.metricRow}>
+          <InfoCard label="PAIRING" value={connected ? "CONNECTED" : "CHECK"} tone={connected ? "green" : "amber"} />
+          <InfoCard label="VERSION" value={updateValue} />
+          <InfoCard label="SCHEDULER" value={snapshot.scheduler?.running ? "RUNNING" : "CHECK"} tone={snapshot.scheduler?.running ? "green" : "amber"} />
+        </View>
+        <InfoLine label="Host install" value={snapshot.system?.install_id || "Unknown host"} />
+        <InfoLine label="Host platform" value={snapshot.system?.platform || "Unknown"} />
+        <InfoLine label="Companion app" value={companionIdentity?.appVersion || APP_VERSION} />
+        <InfoLine label="Companion ID" value={companionIdentity?.companionId || "Loading..."} />
+        <InfoLine label="Check-in" value={companionRecord?.last_seen ? formatRelative(companionRecord.last_seen) : "Not seen yet"} />
+        <InfoLine label="Airport" value={snapshot.config?.airport_iata || "---"} />
+        <InfoLine label="Source" value={snapshot.state?.source_name || snapshot.config?.source || "Unknown"} />
+      </View>
+
+      <View style={styles.settingsCard}>
+        <Text style={styles.settingsTitle}>TROUBLESHOOTING</Text>
+        <Text style={styles.moduleIntro}>
+          Start with the simple host-side checks first so the phone stays a quick companion instead of a maintenance console.
+        </Text>
+        <InfoLine label="Cannot connect" value="Confirm Local Flight is running on the same Wi-Fi and use the desktop or Pi LAN address, not phone localhost." />
+        <InfoLine label="Board looks stale" value="Use Restart Fetch from Control, then wait for the next snapshot push or open the board again." />
+        <InfoLine label="Scheduler warning" value="If the scheduler is not running, reopen the host app first and then retry from the companion." />
+        <InfoLine label="Still stuck" value="Send a report below with what you expected, what happened, and the airport/source you were using." />
+      </View>
+
+      <View style={styles.settingsCard}>
+        <Text style={styles.settingsTitle}>REPORT PROBLEM</Text>
+        <Text style={styles.moduleIntro}>
+          Sends directly through the Local Flight feedback route with host and companion context attached.
+        </Text>
+        <TextInput
+          value={feedbackTitle}
+          onChangeText={onFeedbackTitleChange}
+          placeholder="Short summary, for example Radar stopped updating"
+          placeholderTextColor={palette.textDim}
+          style={styles.serverInput}
+        />
+        <TextInput
+          value={feedbackDescription}
+          onChangeText={onFeedbackDescriptionChange}
+          placeholder="What happened, what you expected, and how to reproduce it"
+          placeholderTextColor={palette.textDim}
+          multiline
+          textAlignVertical="top"
+          style={[styles.serverInput, styles.feedbackInput]}
+        />
+        <View style={styles.feedbackContextBox}>
+          <Text style={styles.feedbackContextText}>{feedbackContext}</Text>
+        </View>
+        <Pressable style={[styles.connectButton, feedbackSending && styles.connectButtonDisabled]} onPress={onSubmitFeedback} disabled={feedbackSending}>
+          {feedbackSending ? <ActivityIndicator color={solidButtonInk()} /> : <Text style={styles.connectButtonText}>SEND REPORT</Text>}
+        </Pressable>
+        {feedbackMessage ? (
+          <Text style={[styles.feedbackMessage, feedbackTone === "ok" ? styles.feedbackMessageOk : styles.feedbackMessageError]}>
+            {feedbackMessage}
+          </Text>
+        ) : null}
+      </View>
+
+      <Pressable style={styles.supportFooter} onPress={onOpenSupport}>
+        <MaterialCommunityIcons name="heart-outline" size={15} color={palette.amber} />
+        <Text style={styles.supportFooterText}>Support Local Flight</Text>
+        <MaterialCommunityIcons name="chevron-up" size={13} color={palette.textDim} />
+      </Pressable>
+
+      {error ? <Text style={styles.errorText}>{error}</Text> : null}
+    </View>
+  );
+}
+
 export function DocsScreen({
   slug,
   serverUrl,

@@ -145,6 +145,7 @@ export const EMPTY_SNAPSHOT: DashboardSnapshot = {
   connections: null,
   updates: null,
   budget: null,
+  scheduler: null,
   metar: null
 };
 

@@ -15,21 +15,15 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 
 import { BottomNav } from "../components/BottomNav";
 import { LaunchOverlay } from "../components/LaunchOverlay";
-import { AdminScreen, AirportConfigSheet, CompanionSetupScreen, ConnectPrompt, DocsScreen, FidsScreen, FlightActionSheet, FlightDetailSheet, FullscreenFidsDisplay, Header, HistoryScreen, MatrixScreen, RadarScreen, ScreenActivity, ScreenError, SettingsScreen, SupportSheet, type ActivityStatus, type ConnectionState, type DocSlug } from "../screens/AppScreens";
+import { AirportConfigSheet, CompanionSetupScreen, ConnectPrompt, ControlScreen, FidsScreen, FlightActionSheet, FlightDetailSheet, FullscreenFidsDisplay, Header, HelpScreen, HistoryScreen, RadarScreen, ScreenActivity, ScreenError, SupportSheet, type ActivityStatus, type ConnectionState } from "../screens/AppScreens";
 import {
-  getAdminSystem,
-  getBudget,
   getConnections,
-  getConfig,
   getFids,
-  getHealth,
   getHistory,
   getHistorySummary,
-  getHistoryStats,
-  getMetar,
+  getMobileSummary,
   getRadar,
   getRadarGround,
-  getUpdates,
   normalizeServerUrl,
   patchConfig,
   resolveAirport,
@@ -49,7 +43,6 @@ import type {
   HistoryDirection,
   HistoryResponse,
   HistorySummary,
-  HistoryStats,
   Metar,
   RadarMapResponse,
   RadarResponse
@@ -164,7 +157,6 @@ export function AppShell() {
   const [historyCallsign, setHistoryCallsign] = useState("");
   const [historyAirline, setHistoryAirline] = useState("");
   const [historySummary, setHistorySummary] = useState<HistorySummary | null>(null);
-  const [historyStats, setHistoryStats] = useState<HistoryStats | null>(null);
   const [radarRadius, setRadarRadius] = useState<RadarRadius>(20);
   const [serverUrl, setServerUrl] = useState("");
   const [draftUrl, setDraftUrl] = useState("");
@@ -191,7 +183,6 @@ export function AppShell() {
   const [feedbackTone, setFeedbackTone] = useState<FeedbackTone>("ok");
   const [autoReportMessage, setAutoReportMessage] = useState<string | null>(null);
   const [pinnedCallsign, setPinnedCallsign] = useState("");
-  const [docsSlug, setDocsSlug] = useState<DocSlug>("readme");
   const [actionRow, setActionRow] = useState<FidsRow | null>(null);
   const [configSheetVisible, setConfigSheetVisible] = useState(false);
   const [profiles, setProfiles] = useState<ConfigProfile[]>([]);
@@ -288,7 +279,7 @@ export function AppShell() {
         useNativeDriver: true
       })
     ]).start();
-  }, [screen, docsSlug, screenLift, screenOpacity]);
+  }, [screen, screenLift, screenOpacity]);
 
   const onLaunchHydrated = useCallback(
     ({ savedUrl, savedPin, savedProfiles, identity, mobileDiagnosticsMode: hydratedDiagnosticsMode, setupState }: LaunchHydration) => {
@@ -341,27 +332,10 @@ export function AppShell() {
   }, []);
 
   const fetchDashboard = useCallback(async (normalized: string) => {
-    const [state, config, system, connections, updates, budget] = await Promise.all([
-      getHealth(normalized),
-      getConfig(normalized),
-      getAdminSystem(normalized),
-      getConnections(normalized),
-      getUpdates(normalized),
-      getBudget(normalized)
-    ]);
-
-    let metar = null;
-    try {
-      metar = await getMetar(normalized);
-    } catch {
-      metar = null;
-    }
-
-    let histStats: HistoryStats | null = null;
-    try {
-      histStats = await getHistoryStats(normalized);
-    } catch {
-      histStats = null;
+    const summary = await getMobileSummary(normalized);
+    const config = summary.config;
+    if (!config) {
+      throw new Error("Local Flight host summary did not include config.");
     }
 
     let resolvedAirport: AirportResolved | null = null;
@@ -376,8 +350,7 @@ export function AppShell() {
     }
 
     setAirportDetail(resolvedAirport);
-    setHistoryStats(histStats);
-    setSnapshot({ state, config, system, connections, updates, budget, metar });
+    setSnapshot(summary);
     setConnected(true);
   }, []);
 
@@ -754,11 +727,6 @@ export function AppShell() {
     [pinnedCallsign]
   );
 
-  const openDoc = useCallback((slug: DocSlug) => {
-    setDocsSlug(slug);
-    setScreen("docs");
-  }, []);
-
   const openFlightDetailWithHaptic = useCallback((callsign: string) => {
     hapticLight();
     openFlightDetail(callsign);
@@ -879,7 +847,7 @@ export function AppShell() {
   useEffect(() => {
     if (!serverUrl || !connected) return;
     const timer = setInterval(() => {
-      void refreshScreen({ target: screen, includeDashboard: screen === "admin" });
+      void refreshScreen({ target: screen, includeDashboard: screen === "control" || screen === "help" });
     }, syncIntervalMs);
     return () => clearInterval(timer);
   }, [connected, refreshScreen, screen, serverUrl, syncIntervalMs]);
@@ -1003,7 +971,7 @@ export function AppShell() {
           onOpenActions={setActionRow}
           onTogglePin={togglePinnedFlight}
           onOpenConfig={() => setConfigSheetVisible(true)}
-          onOpenWeather={() => setScreen("admin")}
+          onOpenWeather={() => setScreen("help")}
         />
 
         <Animated.View
@@ -1024,7 +992,7 @@ export function AppShell() {
               activity={activity}
               error={error}
               showConnectPrompt={!serverUrl}
-              onOpenSettings={() => setScreen("settings")}
+              onOpenSettings={() => setScreen("control")}
               onRefresh={() => { hapticLight(); refreshScreen({ target: "fids" }); }}
               onViewChange={setView}
               onOpenDetail={openFlightDetail}
@@ -1047,7 +1015,7 @@ export function AppShell() {
               activity={activity}
               error={error}
               showConnectPrompt={!serverUrl}
-              onOpenSettings={() => setScreen("settings")}
+              onOpenSettings={() => setScreen("control")}
               onRefresh={() => { hapticLight(); refreshScreen({ target: "history" }); }}
               onDirectionChange={setHistoryDirection}
               onHoursChange={setHistoryHours}
@@ -1072,7 +1040,7 @@ export function AppShell() {
               activity={activity}
               error={error}
               showConnectPrompt={!serverUrl}
-              onOpenSettings={() => setScreen("settings")}
+              onOpenSettings={() => setScreen("control")}
               onRefresh={() => { hapticLight(); refreshScreen({ target: "radar", forceRadarGround: true }); }}
               onRadiusChange={setRadarRadius}
               onOpenDetail={openFlightDetail}
@@ -1081,70 +1049,7 @@ export function AppShell() {
             />
           ) : null}
 
-          {screen === "matrix" ? (
-            <MatrixScreen
-              rows={matrixRows}
-              view={matrixPreviewView}
-              brightness={matrixBrightness}
-              maxRows={matrixPreviewRows}
-              refreshSeconds={matrixRuntime.refresh_seconds}
-              pageRotationSeconds={matrixRuntime.page_rotation_seconds}
-              animationMode={matrixRuntime.animation_mode}
-              animationSpeed={matrixRuntime.animation_speed}
-              statusAnimationEnabled={matrixRuntime.status_animation_enabled}
-              showWeather={matrixShowWeather}
-              matrixPalette={matrixPalette}
-              preset={matrixPreset}
-              applyingPreset={matrixApplyingPreset}
-              matrixEnabled={snapshot.config?.display_outputs?.includes("matrix") || false}
-              matrixLastSeen={snapshot.connections?.matrix_last_seen || null}
-              dirty={matrixDirty}
-              saving={matrixSaving}
-              saveMessage={matrixSaveMessage}
-              saveTone={matrixSaveTone}
-              refreshing={refreshing}
-              activity={activity}
-              error={error}
-              showConnectPrompt={!serverUrl}
-              onOpenSettings={() => setScreen("settings")}
-              onRefresh={() => refreshScreen({ target: "matrix" })}
-              onViewChange={(value) => updateMatrixDraft({ default_view: value })}
-              onBrightnessChange={(value) => updateMatrixDraft({ brightness: value })}
-              onRowsChange={(value) => updateMatrixDraft({ max_rows: value })}
-              onRefreshSecondsChange={(value) => updateMatrixDraft({ refresh_seconds: value })}
-              onPageRotationChange={(value) => updateMatrixDraft({ page_rotation_seconds: value })}
-              onAnimationModeChange={(value) => updateMatrixDraft({
-                animation_mode: value,
-                animation_enabled: value !== "static",
-                options: { ...matrixRuntime.options, animation_mode: value }
-              })}
-              onAnimationSpeedChange={(value) => updateMatrixDraft({ animation_speed: value })}
-              onStatusAnimationChange={(value) => updateMatrixDraft({ status_animation_enabled: value })}
-              onShowWeatherChange={(value) => updateMatrixDraft({
-                options: { ...matrixRuntime.options, show_metar: value, show_weather: value }
-              })}
-              onMatrixPaletteChange={(value) => updateMatrixDraft({
-                palette: value,
-                options: { ...matrixRuntime.options, palette: value }
-              })}
-              onApplyPreset={applyMatrixPreset}
-              onSave={saveMatrixDraftNow}
-              onReset={resetMatrixDraft}
-              onBackSettings={() => setScreen("settings")}
-              contentPaddingBottom={screenContentPadding}
-            />
-          ) : null}
-
-          {screen === "docs" ? (
-            <DocsScreen
-              slug={docsSlug}
-              serverUrl={serverUrl}
-              onBackSettings={() => setScreen("settings")}
-              contentPaddingBottom={screenContentPadding}
-            />
-          ) : null}
-
-          {screen === "admin" || screen === "settings" ? (
+          {screen === "control" || screen === "help" ? (
             <ScrollView
               style={styles.screenScroll}
               contentContainerStyle={[styles.screenContent, { paddingBottom: screenContentPadding }]}
@@ -1157,7 +1062,7 @@ export function AppShell() {
               }
             >
               {!serverUrl ? (
-                <ConnectPrompt onSettings={() => setScreen("settings")} />
+                <ConnectPrompt onSettings={() => setScreen("control")} />
               ) : null}
 
               <ScreenActivity activity={activity} />
@@ -1170,35 +1075,12 @@ export function AppShell() {
                 />
               ) : null}
 
-              {screen === "admin" ? (
-                <AdminScreen
+              {screen === "control" ? (
+                <ControlScreen
                   snapshot={snapshot}
-                  historyStats={historyStats}
-                  companionIdentity={companionIdentity}
-                  connected={isLive}
                   error={error}
-                  weatherDisplayMode={weatherDisplayMode}
-                  feedbackTitle={feedbackTitle}
-                  feedbackDescription={feedbackDescription}
-                  feedbackSending={feedbackSending}
-                  feedbackMessage={feedbackMessage}
-                  feedbackTone={feedbackTone}
-                  autoReportMessage={autoReportMessage}
-                  onFeedbackTitleChange={setFeedbackTitle}
-                  onFeedbackDescriptionChange={setFeedbackDescription}
-                  onSubmitFeedback={sendFeedbackReport}
-                  onSendAutoReportTest={sendAutoReportTest}
-                  onOpenMatrix={() => setScreen("matrix")}
-                  onOpenSupport={() => setSupportVisible(true)}
-                  onBackSettings={() => setScreen("settings")}
-                />
-              ) : null}
-
-              {screen === "settings" ? (
-                <SettingsScreen
                   serverUrl={serverUrl}
                   draftUrl={draftUrl}
-                  error={error}
                   loading={loading}
                   isTablet={layout.isTablet}
                   isLandscape={layout.isLandscape}
@@ -1218,15 +1100,31 @@ export function AppShell() {
                   onWeatherDisplayModeChange={chooseWeatherDisplayMode}
                   onMobileDiagnosticsModeChange={chooseMobileDiagnosticsMode}
                   onApplyProfile={(profile) => void applySettingsProfile(profile)}
-                  onOpenHistory={() => setScreen("history")}
-                  onOpenAdmin={() => setScreen("admin")}
-                  onOpenMatrix={() => setScreen("matrix")}
-                  onOpenDoc={openDoc}
+                  onOpenConfig={() => setConfigSheetVisible(true)}
+                  onOpenHelp={() => setScreen("help")}
                   onOpenSupport={() => setSupportVisible(true)}
                   onRestartScheduler={restartSchedulerNow}
                   onRerunSetup={rerunCompanionSetup}
                   onChangeUrl={setDraftUrl}
                   onConnect={connect}
+                />
+              ) : null}
+
+              {screen === "help" ? (
+                <HelpScreen
+                  snapshot={snapshot}
+                  companionIdentity={companionIdentity}
+                  connected={isLive}
+                  error={error}
+                  feedbackTitle={feedbackTitle}
+                  feedbackDescription={feedbackDescription}
+                  feedbackSending={feedbackSending}
+                  feedbackMessage={feedbackMessage}
+                  feedbackTone={feedbackTone}
+                  onFeedbackTitleChange={setFeedbackTitle}
+                  onFeedbackDescriptionChange={setFeedbackDescription}
+                  onSubmitFeedback={sendFeedbackReport}
+                  onOpenSupport={() => setSupportVisible(true)}
                 />
               ) : null}
             </ScrollView>
