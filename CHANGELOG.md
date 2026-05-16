@@ -133,6 +133,54 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - FIDS style registry returns `['classic', 'pax', 'vatsim', 'nerd']` with `classic` as the default.
 - Full Mac/Codex validation after the mobile Standalone pass, Claude UI rescue, native FIDS painter polish, and docs pass: `.venv/bin/python -m pytest tests -q` returned `385 passed`; focused Qt column compatibility check returned `1 passed`; `.venv/bin/python -m py_compile src/localflight/native/pages/fids.py src/localflight/native/pages/fids_styles.py` passed; `cd mobile && npm run typecheck && npm run doctor` passed with Expo Doctor `18/18`; `git diff --check` passed.
 
+### Mobile companion — full UI/UX redesign (style registry + screen pass)
+
+Second redesign pass completing the visual overhaul started in the seven-phase session above.
+All changes typecheck clean. No backend changes required.
+
+**Style registry (AppShell.tsx `createStyles`)** — 60+ new style keys wired for all
+redesigned components:
+- Airport hero: `airportHero`, `airportHeroTopRow/Left/Right/CodeRow`, `airportIataBadge/Text`,
+  `airportIcaoText`, `airportCityName/Placeholder`, `airportChangeHint/Text`,
+  `heroUtcTime/Suffix`, `heroLocalTime/Suffix`, `heroConnectionPill/Dot/Ring/Label`,
+  `heroSourcePill/Text`, `heroCountPill/Text`, `heroStatusStrip`, `heroSnapshotRing`,
+  `supporterBadge/BadgeText`
+- Radar: `radarRangeBar/BarLabel/Chips/Chip/ChipActive`, `radarRangeChipNum/Unit/NumActive/UnitActive`,
+  `radarSettingsButton`, `radarStatusBar/Item/Divider/Value/Label`,
+  `radarLegendStrip/Left/Source/Dots/Item/Ground`,
+  `radarSettingsRangeGrid/Item/ItemActive/Num/Unit/NumActive/UnitActive`,
+  `radarSettingsLegend/Row/Label/Detail`, `radarSettingsNote`
+- Support sheet: `supporterBanner/Star/Text/Title/Body`, `supportSuccessCard/Icon/Title/Body`,
+  `supportTierCardDimmed`, `supportTierFooter`, `supportTierStatusDim`, `supportMessageCard`
+- Settings: `settingsDiagnosticsGroup/Row/RowActive/Check/EmptyCheck/Copy/Label/LabelActive/Desc`
+- History: `historyVolumeBarRow/Group/Stack/Seg/DayLabel`, `historyVolumeLegend/Item/Dot/Label`,
+  `historyTruncationNote/Text`
+
+**Bug fixes** — two TypeScript errors fixed: added `hapticSuccess` import in AppScreens.tsx;
+replaced invalid `groundData?.bbox` access with `surfaceFeatureCount` (property does not exist
+on `RadarMapResponse`).
+
+**History screen**:
+- `iataToFlag()` helper with ~200-airport `IATA→ISO 2` lookup table; flag emoji prepended to
+  origin and destination codes in the Top Routes panel (e.g. `🇺🇸JFK›🇬🇧LHR`).
+- `HistoryVolumeChart` component: stacked bar chart from `daily_volume` API data showing
+  per-day departure (blue) and arrival (green) counts. Up to 14 days rendered inline
+  above the KPI grid.
+- Truncation notice banner: shown when `data.count > data.flights.length` (i.e. the server
+  holds more records than the 120-row display cap) so users know totals are correct.
+
+**Control/Settings screen**:
+- Replaced the three-pill `settingsCompactButton` row (HIDE SERVER / AIRPORT & SOURCE /
+  RESTART FETCH) with individual full-width `SettingsToolPill` rows — each shows an icon,
+  label, value, and chevron.
+- Removed the redundant QUICK ACTIONS `CollapsibleCard`; its entries are now in
+  APPEARANCE & DISPLAY and DIAGNOSTICS sections.
+- Diagnostics mode picker replaced: was a `filterRow` of small pill buttons; now renders
+  as a bordered radio group with individual labelled rows (icon ✓ / empty circle + label
+  + description) matching iOS Settings style.
+- Sections renamed and reordered: HOST STATUS → CONNECTION → APPEARANCE & DISPLAY →
+  DIAGNOSTICS for logical top-to-bottom scan order.
+
 ### Mobile companion — icon registry
 
 - Added `mobile/src/theme/icons.tsx` — `LocalFlightIcon` component backed by a semantic icon registry (`statusIcons`, `navIcons`, `flightIcons`, `actionIcons`). All interactive UI is now keyed off semantic names rather than raw glyph strings, making skin changes and future icon swaps centralised in one place.
