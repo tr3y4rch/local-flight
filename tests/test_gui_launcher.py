@@ -3001,14 +3001,14 @@ def test_web_brand_font_is_bundled_and_scoped_to_brand_surfaces() -> None:
     from pathlib import Path
 
     fonts_css = Path("src/localflight/ui/static/fonts.css").read_text(encoding="utf-8")
-    base_template = Path("src/localflight/ui/templates/base.html").read_text(encoding="utf-8")
+    shell_css = Path("src/localflight/ui/static/lf-shell.css").read_text(encoding="utf-8")
     splash_template = Path("src/localflight/ui/templates/splash.html").read_text(encoding="utf-8")
     setup_template = Path("src/localflight/ui/templates/setup.html").read_text(encoding="utf-8")
 
     assert 'font-family: "Audiowide"' in fonts_css
     assert 'src: url("/static/fonts/Audiowide-Regular.ttf")' in fonts_css
     assert '--font-brand: "Audiowide", var(--font-ui);' in fonts_css
-    assert "font-family: var(--font-brand)" in base_template
+    assert "font-family: var(--font-brand)" in shell_css
     assert "font-family: var(--font-brand)" in splash_template
     assert "setup-brand-wordmark" in setup_template
     assert "First launch wizard" in setup_template

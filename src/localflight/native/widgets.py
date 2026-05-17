@@ -145,24 +145,28 @@ class DisclosureCard:
         outer.addWidget(body)
 
         # ---- Toggle plumbing ------------------------------------------
+        expanded_state = False
+
         def _apply_state(expanded_now: bool) -> None:
-            body.setVisible(expanded_now)
-            chevron.setText("▾" if expanded_now else "▸")  # ▾ / ▸
+            nonlocal expanded_state
+            expanded_state = bool(expanded_now)
+            body.setVisible(expanded_state)
+            chevron.setText("▾" if expanded_state else "▸")  # ▾ / ▸
             for widget in (frame, header):
-                widget.setProperty("expanded", bool(expanded_now))
+                widget.setProperty("expanded", expanded_state)
                 style = widget.style()
                 style.unpolish(widget)
                 style.polish(widget)
             frame.update()
 
         def _toggle() -> None:
-            _apply_state(not body.isVisible())
+            _apply_state(not expanded_state)
 
         def _set_expanded(value: bool) -> None:
             _apply_state(bool(value))
 
         def _is_expanded() -> bool:
-            return bool(body.isVisible())
+            return expanded_state
 
         def _set_subtitle(text: str) -> None:
             subtitle_label.setText(text)
@@ -188,6 +192,9 @@ class DisclosureCard:
         frame.toggle = _toggle
         frame.set_expanded = _set_expanded
         frame.is_expanded = _is_expanded
+        # Compatibility with the older checkable QGroupBox sections.
+        frame.setChecked = _set_expanded
+        frame.isChecked = _is_expanded
         frame.set_subtitle = _set_subtitle
         frame.set_title = _set_title
         frame.body_layout = body_layout
