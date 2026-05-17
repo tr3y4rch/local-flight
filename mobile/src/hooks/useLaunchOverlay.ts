@@ -3,6 +3,7 @@ import { Animated, Easing } from "react-native";
 import * as SplashScreen from "expo-splash-screen";
 
 import { getCompanionIdentity, type CompanionIdentity } from "../device/identity";
+import type { AirportResolved, AppConfig } from "../api/types";
 import {
   LAUNCH_ANIMATION_DELAY_MS,
   LAUNCH_MIN_MS,
@@ -11,6 +12,8 @@ import {
 } from "../domain/constants";
 import {
   type ConfigProfile,
+  loadCachedLanAirport,
+  loadCachedLanConfig,
   loadMobileDiagnosticsMode,
   loadPinnedFlight,
   loadProfiles,
@@ -24,6 +27,8 @@ export type LaunchHydration = {
   savedUrl: string | null;
   savedPin: string | null;
   savedProfiles: ConfigProfile[];
+  savedConfig: AppConfig | null;
+  savedAirport: AirportResolved | null;
   identity: CompanionIdentity;
   mobileDiagnosticsMode: MobileDiagnosticsMode;
   setupState: MobileSetupState;
@@ -94,13 +99,15 @@ export function useLaunchOverlay(onHydrated: (value: LaunchHydration) => void) {
       loadServerUrl(),
       loadPinnedFlight(),
       loadProfiles(),
+      loadCachedLanConfig(),
+      loadCachedLanAirport(),
       getCompanionIdentity(),
       loadMobileDiagnosticsMode()
     ])
-      .then(async ([savedUrl, savedPin, savedProfiles, identity, mobileDiagnosticsMode]) => {
+      .then(async ([savedUrl, savedPin, savedProfiles, savedConfig, savedAirport, identity, mobileDiagnosticsMode]) => {
         const setupState = await resolveMobileSetupState(savedUrl, mobileDiagnosticsMode);
         if (alive) {
-          onHydrated({ savedUrl, savedPin, savedProfiles, identity, mobileDiagnosticsMode, setupState });
+          onHydrated({ savedUrl, savedPin, savedProfiles, savedConfig, savedAirport, identity, mobileDiagnosticsMode, setupState });
         }
       })
       .finally(() => {
@@ -164,6 +171,6 @@ export function useLaunchOverlay(onHydrated: (value: LaunchHydration) => void) {
     progress,
     pulse,
     sweep,
-    status: LAUNCH_STATUS_STEPS[statusIndex] ?? "Opening companion"
+    status: LAUNCH_STATUS_STEPS[statusIndex] ?? "Opening mobile"
   };
 }

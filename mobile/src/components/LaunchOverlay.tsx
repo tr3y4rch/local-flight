@@ -174,7 +174,7 @@ export function LaunchOverlay({
             </View>
 
             <View style={[styles.launchCopy, isWide && styles.launchCopyWide]}>
-              <BrandKicker color={palette.blue2} size={11}>MOBILE COMPANION</BrandKicker>
+              <BrandKicker color={palette.blue2} size={11}>LOCAL FLIGHT MOBILE</BrandKicker>
               <BrandWordmark
                 color={palette.text}
                 size={titleSize}

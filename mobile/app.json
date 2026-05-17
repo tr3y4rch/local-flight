@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "Local Flight Companion",
+    "name": "Local Flight",
     "slug": "localflight-companion",
     "version": "0.2.7",
     "scheme": "localflight",
@@ -40,7 +40,7 @@
       "supportsTablet": true,
       "infoPlist": {
         "NSCameraUsageDescription": "Local Flight scans pairing QR codes shown by your Local Flight desktop or Pi app.",
-        "NSLocalNetworkUsageDescription": "Local Flight Companion connects to your Local Flight server on your local network.",
+        "NSLocalNetworkUsageDescription": "Local Flight connects to your Local Flight server on your local network.",
         "NSBonjourServices": [
           "_http._tcp"
         ],

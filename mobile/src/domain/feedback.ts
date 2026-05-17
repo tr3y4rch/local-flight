@@ -12,10 +12,10 @@ export function mobileClientContext(
   const companionId = companion?.companionId || "unknown";
   const serverPlatform = snapshot?.system?.platform || "unknown";
   return [
-    `Reporter       ${companion?.clientName || "Local Flight Companion"}`,
-    `Companion ID   ${companionId}`,
+    `Reporter       ${companion?.clientName || "Local Flight Mobile"}`,
+    `Mobile ID      ${companionId}`,
     `App version    ${companion?.appVersion || APP_VERSION}`,
-    `Companion OS   ${mobileOs}`,
+    `Mobile OS      ${mobileOs}`,
     `Server install ${snapshot?.system?.install_id || "unknown"}`,
     `Platform pair  ${platformPairLabel(serverPlatform, mobileOs)}`,
     `Server URL     ${normalizeServerUrl(serverUrl) || "not set"}`,

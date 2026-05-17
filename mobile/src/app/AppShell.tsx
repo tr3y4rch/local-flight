@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Animated,
   Linking,
+  Modal,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -88,6 +89,8 @@ import {
   completeStandaloneMobileSetupState,
   incompleteMobileSetupState,
   isMobileSetupComplete,
+  saveCachedLanAirport,
+  saveCachedLanConfig,
   loadRadarDrawingLayers,
   loadWeatherDisplayMode,
   type MobileRadarDrawingLayers,
@@ -225,6 +228,8 @@ export function AppShell() {
   const [pairingNonce, setPairingNonce] = useState(0);
   const [pairingNotice, setPairingNotice] = useState<string | null>(null);
   const [serverPanelRequest, setServerPanelRequest] = useState(0);
+  const [helpPanelRequest, setHelpPanelRequest] = useState(0);
+  const [standaloneHelpVisible, setStandaloneHelpVisible] = useState(false);
 
   const socketRef = useRef<WebSocket | null>(null);
   const initialPairingUrlRef = useRef<string | null>(null);
@@ -275,26 +280,6 @@ export function AppShell() {
     setStyleBridge(styles, palette);
   }
 
-  const currentAirportDetail =
-    airportDetail &&
-    (
-      (airportDetail.iata && airportDetail.iata === (snapshot.config?.airport_iata || "")) ||
-      (airportDetail.icao && airportDetail.icao === (snapshot.config?.airport_icao || ""))
-    )
-      ? airportDetail
-      : null;
-  const airportTimeZone = currentAirportDetail?.timezone || snapshot.config?.timezone || undefined;
-
-  useEffect(() => {
-    const updateClock = () => {
-      setUtcTime(formatUtc());
-      setLocalTime(formatLocalTime(airportTimeZone));
-    };
-    updateClock();
-    const timer = setInterval(updateClock, 1000);
-    return () => clearInterval(timer);
-  }, [airportTimeZone]);
-
   useEffect(() => {
     screenOpacity.setValue(0);
     screenLift.setValue(10);
@@ -315,7 +300,16 @@ export function AppShell() {
   }, [screen, screenLift, screenOpacity]);
 
   const onLaunchHydrated = useCallback(
-    ({ savedUrl, savedPin, savedProfiles, identity, mobileDiagnosticsMode: hydratedDiagnosticsMode, setupState }: LaunchHydration) => {
+    ({
+      savedUrl,
+      savedPin,
+      savedProfiles,
+      savedConfig,
+      savedAirport,
+      identity,
+      mobileDiagnosticsMode: hydratedDiagnosticsMode,
+      setupState
+    }: LaunchHydration) => {
       const effectiveSavedUrl = savedUrl || setupState.serverUrl;
       if (effectiveSavedUrl) {
         setServerUrl(effectiveSavedUrl);
@@ -326,6 +320,12 @@ export function AppShell() {
       }
       if (savedProfiles.length) {
         setProfiles(savedProfiles);
+      }
+      if (setupState.mode === "lan_companion" && savedConfig) {
+        setSnapshot((prev) => ({ ...prev, config: savedConfig }));
+      }
+      if (setupState.mode === "lan_companion" && savedAirport) {
+        setAirportDetail(savedAirport);
       }
       setCompanionIdentity(identity);
       setMobileDiagnosticsMode(hydratedDiagnosticsMode);
@@ -358,6 +358,40 @@ export function AppShell() {
     ]
   );
   const dataReady = isStandalone ? Boolean(standaloneCredentials) : Boolean(serverUrl);
+  const standaloneAirportDetail: AirportResolved | null = standaloneCredentials
+    ? { ...standaloneCredentials.airport, type: "large_airport" }
+    : null;
+  const matchingStandaloneAirportDetail =
+    airportDetail &&
+    standaloneAirportDetail &&
+    (
+      (airportDetail.iata && airportDetail.iata === standaloneAirportDetail.iata) ||
+      (airportDetail.icao && airportDetail.icao === standaloneAirportDetail.icao)
+    )
+      ? airportDetail
+      : null;
+  const matchingLanAirportDetail =
+    airportDetail &&
+    (
+      (airportDetail.iata && airportDetail.iata === (snapshot.config?.airport_iata || "")) ||
+      (airportDetail.icao && airportDetail.icao === (snapshot.config?.airport_icao || ""))
+    )
+      ? airportDetail
+      : null;
+  const currentAirportDetail = isStandalone
+    ? matchingStandaloneAirportDetail || standaloneAirportDetail
+    : matchingLanAirportDetail;
+  const airportTimeZone = currentAirportDetail?.timezone || snapshot.config?.timezone || undefined;
+
+  useEffect(() => {
+    const updateClock = () => {
+      setUtcTime(formatUtc());
+      setLocalTime(formatLocalTime(airportTimeZone));
+    };
+    updateClock();
+    const timer = setInterval(updateClock, 1000);
+    return () => clearInterval(timer);
+  }, [airportTimeZone]);
 
   const handlePairingUrl = useCallback((incomingUrl: string) => {
     const parsed = parsePairingLink(incomingUrl);
@@ -483,6 +517,10 @@ export function AppShell() {
 
     setAirportDetail(resolvedAirport);
     setSnapshot(summary);
+    await saveCachedLanConfig(config);
+    if (resolvedAirport) {
+      await saveCachedLanAirport(resolvedAirport);
+    }
     setConnected(true);
   }, [standaloneCredentials]);
 
@@ -635,7 +673,7 @@ export function AppShell() {
     }: RefreshOptions = {}) => {
       const normalized = normalizeServerUrl(nextUrl);
       if (!normalized && !standaloneCredentials) {
-        setError("Enter the Local Flight server URL in Settings.");
+        setError(isStandalone ? "Finish Standalone setup before loading relay data." : "Enter the Local Flight server URL in Settings.");
         return;
       }
       const refreshKey = [
@@ -717,6 +755,7 @@ export function AppShell() {
       historyCallsign,
       historyDirection,
       historyHours,
+      isStandalone,
       landscapeFidsActive,
       matrixRuntime.default_view,
       matrixRuntime.max_rows,
@@ -733,7 +772,7 @@ export function AppShell() {
     setLoading(true);
     setActivity({
       label: "Testing server URL",
-      detail: "Asking the Local Flight server to confirm companion access."
+      detail: "Asking the Local Flight server to confirm mobile access."
     });
     setError(null);
 
@@ -765,7 +804,7 @@ export function AppShell() {
     setDraftUrl(nextUrl);
     setPairingUrl(nextUrl);
     setPairingNonce((value) => value + 1);
-    setPairingNotice(`Pairing QR loaded. Connecting this companion to ${nextUrl}.`);
+    setPairingNotice(`Pairing QR loaded. Connecting this mobile app to ${nextUrl}.`);
     void connect(nextUrl);
   }, [connect]);
 
@@ -831,14 +870,15 @@ export function AppShell() {
     }
 
     if (!nextServerUrl || !config) {
-      throw new Error("Companion setup did not return a server URL and config.");
+      throw new Error("Mobile setup did not return a server URL and config.");
     }
     const normalized = normalizeServerUrl(nextServerUrl);
     const nextSetupState = completeMobileSetupState(normalized, diagnosticsMode);
     await Promise.all([
       saveServerUrl(normalized),
       saveMobileDiagnosticsMode(diagnosticsMode),
-      saveMobileSetupState(nextSetupState)
+      saveMobileSetupState(nextSetupState),
+      saveCachedLanConfig(config)
     ]);
     setServerUrl(normalized);
     setDraftUrl(normalized);
@@ -944,7 +984,7 @@ export function AppShell() {
     const normalized = normalizeServerUrl(serverUrl);
     if (!normalized && !standaloneCredentials) {
       setFeedbackTone("error");
-      setFeedbackMessage("Set up Companion or Standalone mode first.");
+      setFeedbackMessage("Set up Mobile or Standalone mode first.");
       return;
     }
     if (!feedbackTitle.trim()) {
@@ -1104,7 +1144,19 @@ export function AppShell() {
     };
   }, [connected, detailCallsign, detailVisible, isStandalone, refreshFlightDetail, refreshScreen, screen, serverUrl, triggerSnapshotPulse]);
 
-  const cfg = snapshot.config;
+  const cfg: AppConfig | null = snapshot.config || (standaloneCredentials
+    ? {
+        airport_iata: standaloneCredentials.airport.iata,
+        airport_icao: standaloneCredentials.airport.icao,
+        refresh_seconds: 3 * 60 * 60,
+        display_name: standaloneCredentials.airport.name,
+        theme: "standard",
+        source: "real",
+        timezone: standaloneCredentials.airport.timezone || "UTC",
+        skin: "standard",
+        display_outputs: ["mobile"]
+      }
+    : null);
   const state = snapshot.state;
   const activeProfileId =
     profiles.find((profile) =>
@@ -1116,13 +1168,14 @@ export function AppShell() {
     )?.id || null;
   const airportCode = cfg?.airport_iata || "---";
   const airportIcao = cfg?.airport_icao || "";
+  const hasConfiguredAirport = Boolean(cfg?.airport_iata || cfg?.airport_icao);
   const fallbackDisplayName =
     cfg?.display_name && cfg.display_name !== "Local Flight"
       ? cfg.display_name
-      : cfg?.airport_iata || cfg?.airport_icao
+      : hasConfiguredAirport
         ? [cfg?.airport_iata, cfg?.airport_icao].filter(Boolean).join(" / ")
         : rows.length || serverUrl || isStandalone
-          ? "Local Flight"
+          ? "Tap to set airport"
           : "Connect your server";
   const airportName = currentAirportDetail?.name || fallbackDisplayName;
   const airportLocation = [currentAirportDetail?.city, currentAirportDetail?.country].filter(Boolean).join(" · ");
@@ -1142,7 +1195,7 @@ export function AppShell() {
   useEffect(() => {
     if (!dataReady || !connected) return;
     const timer = setInterval(() => {
-      void refreshScreen({ target: screen, includeDashboard: isStandalone ? screen === "settings" : (screen === "control" || screen === "help") });
+      void refreshScreen({ target: screen, includeDashboard: isStandalone ? screen === "settings" : screen === "control" });
     }, syncIntervalMs);
     return () => clearInterval(timer);
   }, [connected, dataReady, isStandalone, refreshScreen, screen, syncIntervalMs]);
@@ -1272,7 +1325,14 @@ export function AppShell() {
           onOpenActions={setActionRow}
           onTogglePin={togglePinnedFlight}
           onOpenConfig={() => isStandalone ? setScreen("settings") : setConfigSheetVisible(true)}
-          onOpenWeather={() => setScreen(isStandalone ? "settings" : "help")}
+          onOpenWeather={() => {
+            if (isStandalone) {
+              setScreen("settings");
+              return;
+            }
+            setScreen("control");
+            setHelpPanelRequest((value) => value + 1);
+          }}
         />
 
         <Animated.View
@@ -1292,7 +1352,8 @@ export function AppShell() {
               refreshing={refreshing}
               activity={activity}
               error={error}
-              showConnectPrompt={!dataReady}
+              showConnectPrompt={!dataReady && !isStandalone}
+              standalone={isStandalone}
               onOpenSettings={() => setScreen(isStandalone ? "settings" : "control")}
               onRefresh={() => { hapticLight(); refreshScreen({ target: "fids" }); }}
               onViewChange={setView}
@@ -1315,7 +1376,8 @@ export function AppShell() {
               refreshing={refreshing}
               activity={activity}
               error={error}
-              showConnectPrompt={!dataReady}
+              showConnectPrompt={!dataReady && !isStandalone}
+              standalone={isStandalone}
               onOpenSettings={() => setScreen(isStandalone ? "settings" : "control")}
               onRefresh={() => { hapticLight(); refreshScreen({ target: "history" }); }}
               onDirectionChange={setHistoryDirection}
@@ -1340,7 +1402,7 @@ export function AppShell() {
               refreshing={refreshing}
               activity={activity}
               error={error}
-              showConnectPrompt={!dataReady}
+              showConnectPrompt={!dataReady && !isStandalone}
               onOpenSettings={() => setScreen(isStandalone ? "settings" : "control")}
               onRefresh={() => { hapticLight(); refreshScreen({ target: "radar", forceRadarGround: true }); }}
               onRadiusChange={setRadarRadius}
@@ -1354,7 +1416,7 @@ export function AppShell() {
             />
           ) : null}
 
-          {screen === "control" || screen === "help" || screen === "settings" ? (
+          {screen === "control" || screen === "settings" ? (
             <ScrollView
               style={styles.screenScroll}
               contentContainerStyle={[styles.screenContent, { paddingBottom: screenContentPadding }]}
@@ -1444,22 +1506,18 @@ export function AppShell() {
                     </Pressable>
                   </View>
 
-                  <HelpScreen
-                    snapshot={snapshot}
-                    companionIdentity={companionIdentity}
-                    connected={isLive}
-                    error={error}
-                    standalone
-                    feedbackTitle={feedbackTitle}
-                    feedbackDescription={feedbackDescription}
-                    feedbackSending={feedbackSending}
-                    feedbackMessage={feedbackMessage}
-                    feedbackTone={feedbackTone}
-                    onFeedbackTitleChange={setFeedbackTitle}
-                    onFeedbackDescriptionChange={setFeedbackDescription}
-                    onSubmitFeedback={sendFeedbackReport}
-                    onOpenSupport={() => setSupportVisible(true)}
-                  />
+                  <View style={styles.settingsCard}>
+                    <Text style={styles.settingsTitle}>HELP & REPORTS</Text>
+                    <Text style={styles.moduleIntro}>
+                      Troubleshooting, relay status, support, and manual reports live here without adding another tab.
+                    </Text>
+                    <Pressable style={styles.settingsPill} onPress={() => setStandaloneHelpVisible(true)}>
+                      <View style={styles.settingsPillCopy}>
+                        <Text style={styles.settingsPillLabel}>Open mobile help</Text>
+                        <Text style={styles.settingsPillValue}>Pairing details, relay limits, reports, support</Text>
+                      </View>
+                    </Pressable>
+                  </View>
                 </>
               ) : null}
 
@@ -1485,6 +1543,7 @@ export function AppShell() {
                   schedulerMessage={schedulerMessage}
                   pairingNotice={pairingNotice}
                   serverPanelRequest={serverPanelRequest}
+                  helpPanelRequest={helpPanelRequest}
                   matrixRuntime={matrixRuntime}
                   matrixDirty={matrixDirty}
                   matrixSaving={matrixSaving}
@@ -1534,30 +1593,12 @@ export function AppShell() {
                 />
               ) : null}
 
-              {screen === "help" && !isStandalone ? (
-                <HelpScreen
-                  snapshot={snapshot}
-                  companionIdentity={companionIdentity}
-                  connected={isLive}
-                  error={error}
-                  feedbackTitle={feedbackTitle}
-                  feedbackDescription={feedbackDescription}
-                  feedbackSending={feedbackSending}
-                  feedbackMessage={feedbackMessage}
-                  feedbackTone={feedbackTone}
-                  onFeedbackTitleChange={setFeedbackTitle}
-                  onFeedbackDescriptionChange={setFeedbackDescription}
-                  onSubmitFeedback={sendFeedbackReport}
-                  onOpenSupport={() => setSupportVisible(true)}
-                  onBackControl={() => setScreen("control")}
-                />
-              ) : null}
             </ScrollView>
           ) : null}
         </Animated.View>
 
         <BottomNav
-          active={screen === "help" && !isStandalone ? "control" : screen}
+          active={screen}
           onChange={setScreen}
           insetBottom={insets.bottom}
           palette={palette}
@@ -1570,6 +1611,34 @@ export function AppShell() {
         visible={supportVisible}
         onClose={() => setSupportVisible(false)}
       />
+
+      <Modal visible={standaloneHelpVisible} transparent animationType="slide" onRequestClose={() => setStandaloneHelpVisible(false)}>
+        <View style={styles.sheetBackdrop}>
+          <Pressable style={styles.sheetBackdropPress} onPress={() => setStandaloneHelpVisible(false)} />
+          <View style={styles.sheetCard}>
+            <View style={styles.sheetHandle} />
+            <ScrollView style={styles.sheetScroll} contentContainerStyle={styles.sheetContent}>
+              <HelpScreen
+                snapshot={snapshot}
+                companionIdentity={companionIdentity}
+                connected={isLive}
+                error={error}
+                standalone
+                feedbackTitle={feedbackTitle}
+                feedbackDescription={feedbackDescription}
+                feedbackSending={feedbackSending}
+                feedbackMessage={feedbackMessage}
+                feedbackTone={feedbackTone}
+                onFeedbackTitleChange={setFeedbackTitle}
+                onFeedbackDescriptionChange={setFeedbackDescription}
+                onSubmitFeedback={sendFeedbackReport}
+                onOpenSupport={() => setSupportVisible(true)}
+                onBackControl={() => setStandaloneHelpVisible(false)}
+              />
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
 
       <FlightDetailSheet
         visible={detailVisible}
@@ -1602,6 +1671,7 @@ export function AppShell() {
         onClose={() => setConfigSheetVisible(false)}
         onApplied={(newConfig) => {
           setSnapshot((prev) => ({ ...prev, config: newConfig }));
+          void saveCachedLanConfig(newConfig);
           setConfigSheetVisible(false);
           setSchedulerMessage("Server config saved. Asking the Pi for a fresh fetch...");
           void restartSchedulerNow();

@@ -51,9 +51,9 @@ async function mobileCrashContext(serverUrl: string, mobileDiagnosticsMode: stri
   const identity = await getCompanionIdentity();
   const base = [
     `Reporter      ${identity.clientName}`,
-    `Companion ID  ${identity.companionId}`,
+    `Mobile ID     ${identity.companionId}`,
     `App version   ${identity.appVersion}`,
-    `Companion OS  ${identity.mobileOs}`,
+    `Mobile OS     ${identity.mobileOs}`,
     `Device type   ${identity.deviceType}`,
     `Mobile diag   ${mobileDiagnosticsMode}`,
     `Server URL    ${serverUrl}`

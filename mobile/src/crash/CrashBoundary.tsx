@@ -38,7 +38,7 @@ export class CrashBoundary extends React.Component<Props, State> {
 
     return (
       <View style={styles.wrap}>
-        <Text style={styles.title}>Mobile Companion Paused</Text>
+        <Text style={styles.title}>Local Flight Mobile Paused</Text>
         <Text style={styles.body}>
           A critical UI error was caught. If automatic diagnostics are enabled, Local Flight will try to send a report to the developer board.
         </Text>

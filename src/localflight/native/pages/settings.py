@@ -432,12 +432,12 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
         layout.addLayout(grid)
 
     def _build_companion_pairing(self) -> None:
-        self.companion_group, self.companion_body, layout = self._collapsible_section("Pair Companion")
+        self.companion_group, self.companion_body, layout = self._collapsible_section("Pair Mobile")
         self.companion_group.setChecked(True)
         layout.addWidget(
             label(
                 self.QtWidgets,
-                "Scan this from each iPhone/iPad you want to pair. The same QR can be reused by multiple companions on the same LAN.",
+                "Scan this from each iPhone/iPad you want to pair. The same QR can be reused by multiple mobile devices on the same LAN.",
                 "Muted",
                 wrap=True,
             )
@@ -456,7 +456,7 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
         self.companion_count_label = label(self.QtWidgets, "0 paired", "Section")
         self.companion_pairing_url_label = label(self.QtWidgets, "Pairing link loading...", "Muted", wrap=True)
         self.companion_manual_url_label = label(self.QtWidgets, "Manual URL loading...", "Muted", wrap=True)
-        self.companion_entries_label = label(self.QtWidgets, "No companion check-ins yet.", "Muted", wrap=True)
+        self.companion_entries_label = label(self.QtWidgets, "No mobile check-ins yet.", "Muted", wrap=True)
         details.addWidget(self.companion_count_label)
         details.addWidget(self.companion_pairing_url_label)
         details.addWidget(self.companion_manual_url_label)
@@ -717,14 +717,14 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
             payload = self.service.connections()
         except Exception as exc:
             self.companion_count_label.setText("Pairing status unavailable")
-            self.companion_entries_label.setText(f"Could not read paired companions: {exc}")
+            self.companion_entries_label.setText(f"Could not read paired mobile devices: {exc}")
             return
 
         companions = payload.get("companions") if isinstance(payload.get("companions"), list) else []
         count = int(payload.get("companion_count") or len(companions) or 0)
         self.companion_count_label.setText("1 paired" if count == 1 else f"{count} paired")
         if not companions:
-            self.companion_entries_label.setText("No companion check-ins yet. Scan the QR from each iPhone/iPad to pair.")
+            self.companion_entries_label.setText("No mobile check-ins yet. Scan the QR from each iPhone/iPad to pair.")
             return
 
         lines = []
@@ -739,12 +739,12 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
     def _copy_pairing_link(self) -> None:
         self._render_pairing_payload()
         self.QtWidgets.QApplication.clipboard().setText(getattr(self, "_current_pairing_link", ""))
-        self._set_status("Pairing link copied. Reuse it for any companion on this LAN.", "StatusGood")
+        self._set_status("Pairing link copied. Reuse it for any mobile device on this LAN.", "StatusGood")
 
     def _copy_manual_pairing_url(self) -> None:
         self._render_pairing_payload()
         self.QtWidgets.QApplication.clipboard().setText(getattr(self, "_current_manual_pairing_url", ""))
-        self._set_status("Manual LAN URL copied for companion setup.", "StatusGood")
+        self._set_status("Manual LAN URL copied for mobile setup.", "StatusGood")
 
     def _relative_time(self, value: str) -> str:
         if not value:

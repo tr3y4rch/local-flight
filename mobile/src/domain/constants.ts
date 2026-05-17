@@ -117,13 +117,13 @@ export const LAUNCH_MIN_MS = 7800;
 export const LAUNCH_NATIVE_MIN_MS = 420;
 export const LAUNCH_ANIMATION_DELAY_MS = 180;
 export const LAUNCH_STATUS_STEPS = [
-  "Starting companion",
+  "Starting mobile",
   "Loading saved server",
   "Checking LAN link",
   "Aligning FIDS rows",
   "Priming radar sweep",
   "Syncing local profile",
-  "Opening companion"
+  "Opening mobile"
 ];
 
 export const REFRESH_OPTIONS: Array<{ seconds: number; label: string }> = [

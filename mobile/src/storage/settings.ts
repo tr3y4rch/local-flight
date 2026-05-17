@@ -1,4 +1,5 @@
 import * as SecureStore from "expo-secure-store";
+import type { AirportResolved, AppConfig } from "../api/types";
 import type { MobileSkin, MobileThemeMode } from "../theme/tokens";
 
 const SERVER_URL_KEY = "localflight.serverUrl";
@@ -14,6 +15,8 @@ const MOBILE_SETUP_STATE_KEY = "localflight.mobileSetupState";
 const MOBILE_RELAY_INSTALL_ID_KEY = "localflight.mobileRelayInstallId";
 const MOBILE_RELAY_ACTIVATION_TOKEN_KEY = "localflight.mobileRelayActivationToken";
 const STANDALONE_AIRPORT_KEY = "localflight.standaloneAirport";
+const CACHED_LAN_CONFIG_KEY = "localflight.cachedLanConfig";
+const CACHED_LAN_AIRPORT_KEY = "localflight.cachedLanAirport";
 
 const DEFAULT_THEME_MODE: MobileThemeMode = "dark";
 const DEFAULT_SKIN: MobileSkin = "technical";
@@ -105,12 +108,78 @@ function normalizeStandaloneAirport(value: unknown): StandaloneAirport | null {
   };
 }
 
+function normalizeCachedAirport(value: unknown): AirportResolved | null {
+  const airport = normalizeStandaloneAirport(value);
+  return airport ? { ...airport, type: "large_airport" } : null;
+}
+
+function normalizeCachedConfig(value: unknown): AppConfig | null {
+  if (!value || typeof value !== "object") return null;
+  const raw = value as Partial<AppConfig>;
+  const airport_iata = String(raw.airport_iata || "").trim().toUpperCase();
+  const airport_icao = String(raw.airport_icao || "").trim().toUpperCase();
+  if (!airport_iata && !airport_icao) return null;
+  return {
+    airport_iata,
+    airport_icao,
+    refresh_seconds: Number(raw.refresh_seconds || 900),
+    display_name: String(raw.display_name || airport_iata || airport_icao),
+    theme: String(raw.theme || "standard"),
+    source: String(raw.source || "real"),
+    timezone: String(raw.timezone || "UTC"),
+    skin: String(raw.skin || "standard"),
+    display_outputs: Array.isArray(raw.display_outputs) ? raw.display_outputs.map(String) : ["mobile"],
+    diagnostics_mode: raw.diagnostics_mode,
+    web_row_limit: raw.web_row_limit,
+    web_rotation_seconds: raw.web_rotation_seconds,
+    display_grace_minutes: raw.display_grace_minutes,
+    display_horizon_hours: raw.display_horizon_hours,
+    radar_surface_enabled: raw.radar_surface_enabled
+  };
+}
+
 export async function loadServerUrl(): Promise<string> {
   return (await SecureStore.getItemAsync(SERVER_URL_KEY)) || "";
 }
 
 export async function saveServerUrl(serverUrl: string): Promise<void> {
   await SecureStore.setItemAsync(SERVER_URL_KEY, serverUrl);
+}
+
+export async function loadCachedLanConfig(): Promise<AppConfig | null> {
+  const raw = await SecureStore.getItemAsync(CACHED_LAN_CONFIG_KEY);
+  if (!raw) return null;
+  try {
+    return normalizeCachedConfig(JSON.parse(raw));
+  } catch {
+    return null;
+  }
+}
+
+export async function saveCachedLanConfig(config: AppConfig | null): Promise<void> {
+  if (!config) {
+    await SecureStore.deleteItemAsync(CACHED_LAN_CONFIG_KEY);
+    return;
+  }
+  await SecureStore.setItemAsync(CACHED_LAN_CONFIG_KEY, JSON.stringify(normalizeCachedConfig(config)));
+}
+
+export async function loadCachedLanAirport(): Promise<AirportResolved | null> {
+  const raw = await SecureStore.getItemAsync(CACHED_LAN_AIRPORT_KEY);
+  if (!raw) return null;
+  try {
+    return normalizeCachedAirport(JSON.parse(raw));
+  } catch {
+    return null;
+  }
+}
+
+export async function saveCachedLanAirport(airport: AirportResolved | null): Promise<void> {
+  if (!airport) {
+    await SecureStore.deleteItemAsync(CACHED_LAN_AIRPORT_KEY);
+    return;
+  }
+  await SecureStore.setItemAsync(CACHED_LAN_AIRPORT_KEY, JSON.stringify(normalizeCachedAirport(airport)));
 }
 
 export async function loadCompanionId(): Promise<string> {

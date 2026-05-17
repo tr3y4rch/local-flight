@@ -72,7 +72,7 @@ export function platformPairLabel(serverPlatform?: string | null, mobileOs?: str
 export async function getCompanionIdentity(): Promise<CompanionIdentity> {
   return {
     companionId: await loadCompanionId(),
-    clientName: "Local Flight Companion",
+    clientName: "Local Flight Mobile",
     appVersion: appVersion(),
     mobileOs: mobileOsLabel(),
     deviceType: detectDeviceType()
