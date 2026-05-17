@@ -28,6 +28,7 @@ Use this path for the easiest Windows desktop setup.
 Windows may show a SmartScreen warning because the app is not signed yet. Click **More info**, then **Run anyway** if you trust the download source.
 
 The release zip is self-contained. You do not need Python, Node, or the source installer for normal use.
+The packaged `LocalFlight.exe` is a windowed desktop app, so it should open the branded Local Flight UI without a Python or cmd console in front.
 
 ### Windows Source Checkout
 
@@ -42,6 +43,8 @@ powershell -ExecutionPolicy Bypass -File installers\windows\install.ps1 -Display
 
 `Native` opens the Qt desktop shell. `Browser` opens the local browser UI. `Headless` runs only the local server for LAN/mobile/Matrix clients.
 
+The source installer creates a **Local Flight** desktop shortcut that launches through `pythonw.exe`, so normal source-checkout use is also quiet. Use `start.bat` from the repo root when you intentionally want a visible developer console with startup logs.
+
 ---
 
 ## macOS
@@ -55,6 +58,7 @@ Use this path for the easiest macOS desktop setup.
 5. Complete the setup wizard: Welcome, Airport, Flight Data, Optional Keys, Diagnostics, and Review & Launch.
 
 The app launches the native Qt desktop shell. The LAN browser UI remains available from the local server while the app is running.
+Finder opens `LocalFlight.app` directly, so normal release use should show the branded app/splash rather than Terminal.
 
 ### macOS Source Checkout
 
@@ -68,7 +72,9 @@ bash installers/macos/install.sh --display headless
 
 Use `native` for the normal desktop shell, `browser` when you specifically want the browser UI to open, or `headless` when this Mac should only serve other clients.
 
-For a quick double-clickable launch from a repo checkout, use `./start.command` from the project root. It prepares the local virtual environment, checks native dependencies when needed, and starts Local Flight. The installer-managed launcher under `installers/macos/` remains the right path for packaged/source-installed setups.
+The source installer also builds `~/Applications/LocalFlight.app`; use that app bundle for quiet Finder launches. Use `./start.command` from the project root or `bash installers/macos/start.sh` when you intentionally want Terminal output for development/debugging.
+
+If a quiet app launch fails early, bootstrap output is written locally under `~/.localflight/logs/` so troubleshooting does not require keeping Terminal open.
 
 ---
 

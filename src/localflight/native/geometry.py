@@ -7,6 +7,9 @@ display server.
 from __future__ import annotations
 
 
+DISPLAY_SPLIT_SIDE_BY_SIDE_MIN_WIDTH = 1320
+
+
 def width_fraction(available_width: int) -> float:
     """Return a comfortable initial-window fraction for a display width."""
     if available_width <= 900:
@@ -45,9 +48,16 @@ def fitted_window_size(
 
 def default_display_mode(available_width: int | None) -> str:
     """Use split view only when it has enough room to stay legible."""
-    if available_width is not None and available_width < 1320:
+    if available_width is not None and available_width < DISPLAY_SPLIT_SIDE_BY_SIDE_MIN_WIDTH:
         return "fids"
     return "split"
+
+
+def display_split_orientation(available_width: int | None) -> str:
+    """Return the Display Split orientation for the available page width."""
+    if available_width is not None and int(available_width) < DISPLAY_SPLIT_SIDE_BY_SIDE_MIN_WIDTH:
+        return "vertical"
+    return "horizontal"
 
 
 def native_visual_density(available_width: int | None) -> str:

@@ -28,6 +28,7 @@ export type ProjectedBlip = {
   left: number;
   top: number;
   distanceNm: number;
+  angleDeg: number;
 };
 
 export type MatrixDraftState = {

@@ -4416,6 +4416,12 @@ def test_release_installers_keep_pi_headless_default_and_windows_native() -> Non
     assert "-DisplayMode Native" in win_install
     assert "Resolve-DisplayMode" in win_install
     assert "LOCALFLIGHT_GUI_MODE=$GuiMode" in win_install
+    assert 'set "PYTHON=%ROOT%\\.venv\\Scripts\\python.exe"' in win_install
+    assert '$venvPythonw = Join-Path $venvPath "Scripts\\pythonw.exe"' in win_install
+    assert '$silentArguments = "-m localflight"' in win_install
+    assert "$lnk.TargetPath = $silentTarget" in win_install
+    assert "$lnk.Arguments = $silentArguments" in win_install
+    assert "Start-Process -FilePath $silentTarget -ArgumentList $silentArguments" in win_install
     assert ".env.example" not in win_install
     assert "--display native" in mac_install
     assert "DISPLAY_MODE=\"native\"" in mac_install

@@ -53,7 +53,12 @@ from localflight.native.design import (
     table,
     value_at,
 )
-from localflight.native.geometry import default_display_mode, fitted_window_size, native_visual_density
+from localflight.native.geometry import (
+    default_display_mode,
+    display_split_orientation,
+    fitted_window_size,
+    native_visual_density,
+)
 from localflight.native.identity import configure_qt_app_identity, localflight_app_icon
 from localflight.native.loader import lazy_symbol
 from localflight.native.live import LiveStatus, NativeLiveBus, native_ws_url
@@ -2240,8 +2245,11 @@ class DisplayScreen:  # pragma: no cover - optional Qt runtime
         self.QtCore = QtCore
         self.QtWidgets = QtWidgets
         self.settings = QtCore.QSettings("LocalFlight", "Native")
+        self._split_orientation_key: str | None = None
         self.widget = QtWidgets.QFrame()
         self.widget.setObjectName("Page")
+        self.widget.setMinimumWidth(0)
+        self.widget.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
         layout = QtWidgets.QVBoxLayout(self.widget)
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(8)
@@ -2251,6 +2259,9 @@ class DisplayScreen:  # pragma: no cover - optional Qt runtime
             button = QtWidgets.QPushButton(text)
             button.setObjectName("SegmentButton")
             button.setCheckable(True)
+            button.setProperty("full_text", text)
+            button.setProperty("compact_text", {"fids": "FIDS", "split": "Split", "radar": "Radar"}[key])
+            button.setMinimumWidth(54)
             button.clicked.connect(lambda _checked=False, k=key: self.set_mode(k))
             self.mode_buttons[key] = button
             top.addWidget(button)
@@ -2259,7 +2270,10 @@ class DisplayScreen:  # pragma: no cover - optional Qt runtime
         self.live = label(QtWidgets, "Live push: local refresh", "Muted")
         fullscreen = QtWidgets.QPushButton("Fullscreen")
         fullscreen.setObjectName("Quiet")
+        fullscreen.setProperty("full_text", "Fullscreen")
+        fullscreen.setProperty("compact_text", "Full")
         fullscreen.clicked.connect(self.toggle_fullscreen)
+        self.fullscreen_button = fullscreen
         top.addWidget(self.live_dot)
         top.addWidget(self.live)
         top.addWidget(fullscreen)
@@ -2274,15 +2288,13 @@ class DisplayScreen:  # pragma: no cover - optional Qt runtime
         )
         _as_widget(self.fids).setMinimumWidth(0)
         _as_widget(self.radar).setMinimumWidth(0)
-        _as_widget(self.fids).setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
-        _as_widget(self.radar).setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
+        _as_widget(self.fids).setMinimumHeight(0)
+        _as_widget(self.radar).setMinimumHeight(0)
+        _as_widget(self.fids).setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Ignored)
+        _as_widget(self.radar).setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Ignored)
+        self.splitter.setMinimumHeight(0)
         self.splitter.addWidget(_as_widget(self.fids))
         self.splitter.addWidget(_as_widget(self.radar))
-        saved = self.settings.value("display/splitter_sizes")
-        if isinstance(saved, list) and len(saved) == 2:
-            self.splitter.setSizes([int(saved[0]), int(saved[1])])
-        else:
-            self.splitter.setSizes([620, 420])
         self.splitter.splitterMoved.connect(lambda *_args: self._save_splitter())
         layout.addLayout(top)
         layout.addWidget(self.splitter, 1)
@@ -2292,26 +2304,123 @@ class DisplayScreen:  # pragma: no cover - optional Qt runtime
         if saved_mode not in {"fids", "split", "radar"} or (saved_mode == "split" and default_display_mode(screen_width) != "split"):
             saved_mode = default_display_mode(screen_width)
         self.mode = saved_mode
+        self._resize_filter = self._DisplayResizeFilter(QtCore, self)
+        self.widget.installEventFilter(self._resize_filter)
+        self._sync_toolbar_density(screen_width)
+        self._sync_split_layout(force=True)
         self.set_mode(saved_mode)
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self.widget, name)
+
+    class _DisplayResizeFilter:  # pragma: no cover - tiny Qt event bridge
+        def __new__(cls, QtCore: Any, owner: "DisplayScreen"):
+            class _Filter(QtCore.QObject):
+                def eventFilter(self, obj: Any, event: Any) -> bool:
+                    if event.type() == QtCore.QEvent.Resize:
+                        owner._sync_toolbar_density()
+                        owner._sync_split_layout()
+                    return False
+
+            return _Filter(owner.widget)
 
     def apply_theme(self, theme: str, skin: str) -> None:
         self.fids.apply_theme(theme, skin)
         self.radar.apply_theme(theme, skin)
 
     def set_mode(self, mode: str) -> None:
+        previous_mode = getattr(self, "mode", "")
         self.mode = mode
         for key, button in self.mode_buttons.items():
             button.setChecked(key == mode)
         _as_widget(self.fids).setVisible(mode in {"fids", "split"})
         _as_widget(self.radar).setVisible(mode in {"radar", "split"})
+        self._sync_split_layout(force=mode == "split" and previous_mode != "split")
         self.set_active(_as_widget(self).isVisible())
         self.settings.setValue("display/mode", mode)
 
     def _save_splitter(self) -> None:
-        self.settings.setValue("display/splitter_sizes", self.splitter.sizes())
+        if getattr(self, "mode", "") != "split":
+            return
+        sizes = [int(size) for size in self.splitter.sizes()]
+        if len(sizes) != 2 or min(sizes) <= 0:
+            return
+        key = self._split_orientation_key or display_split_orientation(self._display_width())
+        self.settings.setValue(f"display/splitter_sizes_{key}", sizes)
+        if key == "horizontal":
+            self.settings.setValue("display/splitter_sizes", sizes)
+
+    def _display_width(self) -> int | None:
+        width = int(self.widget.width() or self.splitter.width() or 0)
+        if width > 0:
+            return width
+        geometry = _screen_available_geometry(self.QtWidgets, self.widget)
+        return geometry.width() if geometry is not None else None
+
+    def _sync_toolbar_density(self, width: int | None = None) -> None:
+        width = width or self._display_width() or 0
+        compact = width < 900
+        for button in self.mode_buttons.values():
+            button.setText(str(button.property("compact_text" if compact else "full_text") or button.text()))
+            button.setMinimumWidth(48 if compact else 54)
+        self.live.setVisible(not compact)
+        self.fullscreen_button.setText(
+            str(self.fullscreen_button.property("compact_text" if compact else "full_text") or "Fullscreen")
+        )
+        self.fullscreen_button.setMinimumWidth(44 if compact else 82)
+
+    def _splitter_extent(self, orientation_key: str) -> int:
+        if orientation_key == "vertical":
+            return max(1, int(self.splitter.height() or self.widget.height() or 480))
+        return max(1, int(self.splitter.width() or self.widget.width() or 1040))
+
+    def _default_splitter_sizes(self, orientation_key: str) -> list[int]:
+        extent = self._splitter_extent(orientation_key)
+        ratio = 0.58 if orientation_key == "vertical" else 0.60
+        first = max(1, int(extent * ratio))
+        return [first, max(1, extent - first)]
+
+    def _coerce_splitter_sizes(self, value: Any) -> list[int] | None:
+        if not isinstance(value, (list, tuple)) or len(value) != 2:
+            return None
+        try:
+            sizes = [max(0, int(value[0])), max(0, int(value[1]))]
+        except (TypeError, ValueError):
+            return None
+        if sum(sizes) <= 0:
+            return None
+        return sizes
+
+    def _restored_splitter_sizes(self, orientation_key: str) -> list[int]:
+        saved = self._coerce_splitter_sizes(self.settings.value(f"display/splitter_sizes_{orientation_key}"))
+        if saved is None and orientation_key == "horizontal":
+            saved = self._coerce_splitter_sizes(self.settings.value("display/splitter_sizes"))
+        if saved is None:
+            saved = self._default_splitter_sizes(orientation_key)
+
+        extent = self._splitter_extent(orientation_key)
+        total = max(1, sum(saved))
+        first = int(extent * (saved[0] / total))
+        second = extent - first
+        pane_min = 120 if orientation_key == "vertical" else 220
+        if extent >= pane_min * 2:
+            first = max(pane_min, min(extent - pane_min, first))
+            second = extent - first
+        if first <= 0 or second <= 0:
+            return self._default_splitter_sizes(orientation_key)
+        return [first, second]
+
+    def _sync_split_layout(self, *, force: bool = False) -> None:
+        orientation_key = display_split_orientation(self._display_width())
+        if not force and orientation_key == self._split_orientation_key:
+            return
+        if self._split_orientation_key is not None:
+            self._save_splitter()
+        orientation = self.QtCore.Qt.Vertical if orientation_key == "vertical" else self.QtCore.Qt.Horizontal
+        if self.splitter.orientation() != orientation:
+            self.splitter.setOrientation(orientation)
+        self._split_orientation_key = orientation_key
+        self.splitter.setSizes(self._restored_splitter_sizes(orientation_key))
 
     def toggle_fullscreen(self) -> None:
         window = self.widget.window()
@@ -4502,9 +4611,10 @@ class AdminSummaryScreen:  # pragma: no cover - optional Qt runtime
         self.navigate = navigate
         self.widget, self.layout = scroll_page(QtWidgets)
         self.widget.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
-        body = self.widget.widget()
-        if body is not None:
-            body.setSizePolicy(QtWidgets.QSizePolicy.Ignored, QtWidgets.QSizePolicy.Preferred)
+        self.body = self.widget.widget()
+        if self.body is not None:
+            self.body.setMinimumWidth(0)
+            self.body.setSizePolicy(QtWidgets.QSizePolicy.Ignored, QtWidgets.QSizePolicy.Preferred)
         self.layout.setContentsMargins(28, 22, 28, 22)
         # PageHero replaces the legacy title/subtitle/refresh row.
         from localflight.native.shell_widgets import make_page_hero
@@ -4543,11 +4653,28 @@ class AdminSummaryScreen:  # pragma: no cover - optional Qt runtime
         self.layout.addWidget(self.status)
         self.layout.addWidget(self.footer)
         self.layout.addStretch(1)
+        class _AdminViewportSync(QtCore.QObject):
+            def __init__(self, callback: Callable[[], None]) -> None:
+                super().__init__()
+                self._callback = callback
+
+            def eventFilter(self, _watched: Any, event: Any) -> bool:  # noqa: N802 - Qt API name
+                try:
+                    if event.type() == QtCore.QEvent.Resize:
+                        self._callback()
+                except Exception:
+                    pass
+                return False
+
+        self._viewport_sync_filter = _AdminViewportSync(self._sync_viewport_width)
+        self.widget.viewport().installEventFilter(self._viewport_sync_filter)
+        QtCore.QTimer.singleShot(0, self._sync_viewport_width)
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self.widget, name)
 
     def refresh(self) -> None:
+        self._sync_viewport_width()
         _set_native_feedback(self, "Loading admin overview...", busy=True)
         try:
             summary = self.service.admin_summary()
@@ -4564,6 +4691,7 @@ class AdminSummaryScreen:  # pragma: no cover - optional Qt runtime
             return
         clear_layout(self.grid)
         clear_layout(self.detail_layout)
+        self._sync_viewport_width()
         aviation = budget.get("aviationstack") if isinstance(budget.get("aviationstack"), dict) else {}
         schedule_bucket = _active_schedule_budget(aviation)
         active_mode = str(aviation.get("active_mode") or aviation.get("mode") or "unknown")
@@ -4613,6 +4741,7 @@ class AdminSummaryScreen:  # pragma: no cover - optional Qt runtime
             widget.setSizePolicy(self.QtWidgets.QSizePolicy.Ignored, self.QtWidgets.QSizePolicy.Preferred)
             self.grid.addWidget(widget, idx // columns, idx % columns)
         self.detail_layout.addWidget(progress_card(self.QtWidgets, "\U0001F4C8  Schedule Access Budget", schedule_bucket.get("calls_this_month"), schedule_bucket.get("monthly_limit"), _budget_detail(schedule_bucket)))
+        self._sync_viewport_width()
         now = datetime.now().strftime('%H:%M:%S')
         _set_native_feedback(self, f"Last refreshed {now} | local user-facing admin APIs.", "StatusGood")
         if hasattr(self, "hero"):
@@ -4631,9 +4760,30 @@ class AdminSummaryScreen:  # pragma: no cover - optional Qt runtime
             pass
         self.footer.setText(f"Local Flight is free. If this little airport gremlin helps, coffee lives here: {COFFEE_URL}")
 
+    def _sync_viewport_width(self) -> None:
+        """Keep the admin page body inside the visible scroll viewport.
+
+        Without this guard, wide card contents can make the QScrollArea body ask
+        for more width than the window and Qt exposes a horizontal scrollbar.
+        Admin is a card dashboard, so vertical wrapping is preferred.
+        """
+        body = getattr(self, "body", None)
+        if body is None:
+            return
+        try:
+            width = int(self.widget.viewport().width()) - 2
+        except Exception:
+            width = 0
+        if width <= 0:
+            return
+        body.setFixedWidth(max(1, width))
+        body.setMinimumWidth(0)
+        body.setSizePolicy(self.QtWidgets.QSizePolicy.Ignored, self.QtWidgets.QSizePolicy.Preferred)
+
     def _stats_panel(self, title: str, rows: list[tuple[str, Any]]) -> Any:
         box, layout = panel(self.QtWidgets, title)
         box.setMinimumWidth(0)
+        box.setMaximumWidth(16777215)
         box.setSizePolicy(self.QtWidgets.QSizePolicy.Ignored, self.QtWidgets.QSizePolicy.Preferred)
         for key, value in rows:
             layout.addWidget(self._stat_row(key, value))
@@ -4649,7 +4799,7 @@ class AdminSummaryScreen:  # pragma: no cover - optional Qt runtime
         row_layout.setVerticalSpacing(2)
         key_label = label(self.QtWidgets, key, "Muted")
         key_label.setMinimumWidth(0)
-        key_label.setSizePolicy(self.QtWidgets.QSizePolicy.Preferred, self.QtWidgets.QSizePolicy.Preferred)
+        key_label.setSizePolicy(self.QtWidgets.QSizePolicy.Ignored, self.QtWidgets.QSizePolicy.Preferred)
         val = label(self.QtWidgets, self._display_value(key, value), "Metric", wrap=True)
         val.setAlignment(self.QtCore.Qt.AlignRight | self.QtCore.Qt.AlignVCenter)
         val.setMinimumWidth(0)
@@ -4666,7 +4816,7 @@ class AdminSummaryScreen:  # pragma: no cover - optional Qt runtime
             width = int(self.widget.viewport().width())
         except Exception:
             width = 1200
-        return 1 if width < 980 else 2
+        return 1 if width < 1120 else 2
 
     def _display_value(self, key: str, value: Any) -> str:
         text = format_value(value) or "-"
@@ -4684,6 +4834,8 @@ class AdminSummaryScreen:  # pragma: no cover - optional Qt runtime
 
     def _budget_panel(self, title: str, mode: str, bucket: dict[str, Any], aviation: dict[str, Any]) -> Any:
         box, layout = panel(self.QtWidgets, title)
+        box.setMinimumWidth(0)
+        box.setSizePolicy(self.QtWidgets.QSizePolicy.Ignored, self.QtWidgets.QSizePolicy.Preferred)
         source_label = {
             "community": "Hosted relay access",
             "managed": "Managed relay access",
@@ -4704,6 +4856,8 @@ class AdminSummaryScreen:  # pragma: no cover - optional Qt runtime
 
     def _devices_panel(self, connections: dict[str, Any]) -> Any:
         box, layout = panel(self.QtWidgets, "\U0001F5A5️  Connected Screens")
+        box.setMinimumWidth(0)
+        box.setSizePolicy(self.QtWidgets.QSizePolicy.Ignored, self.QtWidgets.QSizePolicy.Preferred)
         count = connections.get("count", 0)
         companions = connections.get("companion_count", 0)
         matrix_count = int(connections.get("matrix_device_count") or 0)
@@ -4732,6 +4886,8 @@ class AdminSummaryScreen:  # pragma: no cover - optional Qt runtime
 
     def _weather_panel(self, weather: dict[str, Any]) -> Any:
         box, layout = panel(self.QtWidgets, "\U0001F324️  Airport Weather")
+        box.setMinimumWidth(0)
+        box.setSizePolicy(self.QtWidgets.QSizePolicy.Ignored, self.QtWidgets.QSizePolicy.Preferred)
         hero = self.QtWidgets.QFrame()
         hero.setObjectName("WeatherStrip")
         hero_layout = self.QtWidgets.QHBoxLayout(hero)

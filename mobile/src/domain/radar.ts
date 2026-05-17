@@ -43,11 +43,16 @@ export function projectBlip(
   }
 
   const dotOffset = 5;
+  const angleDeg = (Math.atan2(
+    projected.x - scopeSize / 2,
+    scopeSize / 2 - projected.y
+  ) * 180 / Math.PI + 360) % 360;
 
   return {
     blip,
     left: projected.x - dotOffset,
     top: projected.y - dotOffset,
-    distanceNm: projected.distanceNm
+    distanceNm: projected.distanceNm,
+    angleDeg
   };
 }

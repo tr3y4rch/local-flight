@@ -162,7 +162,7 @@ Native/Chrome-free additions:
 - `src/localflight/native/network_admin.py` is the separate operator-only Network Admin Qt shell, pointed at redacted relay `/admin/api/*` JSON plus admin action endpoints. It now has a fleet/dev operations console shape with Overview, Fleet, Traffic, Schedules, Surfaces, Activations, Reports, Providers, and Maintenance.
 - `src/localflight/native/design.py` and `routes.py` hold browser-parity Qt theme/skin tokens, shared styling/widgets, native media/doc resolution, bundled public doc metadata, and declared native HTTP actions so buttons do not drift from real routes.
 - `src/localflight/native/api_client.py` and `qt_compat.py` keep HTTP access and PySide6 imports lazy so non-native builds keep working.
-- `start.bat`, `start.command`, Windows/macOS source installers, macOS app-bundle launcher, and PyInstaller builds install/verify the `native` extra so PySide6/Qt is present before native launch.
+- `start.bat`, `start.command`, Windows/macOS source installers, macOS app-bundle launcher, and PyInstaller builds install/verify the `native` extra so PySide6/Qt is present before native launch. Release apps, the macOS source-built `~/Applications/LocalFlight.app`, and the Windows source installer desktop shortcut are intended to be quiet/branded end-user launch paths; `start.*`, `installers/macos/start.sh`, `.command`, and direct `python -m localflight` remain visible-console dev/debug paths.
 - `start_network.bat` is a local ignored operator launcher that opens the native operator console against the hosted relay by default. Keep relay runtime secrets in Fly/dashboard secrets, not in repo-tracked files.
 
 ---
@@ -556,6 +556,7 @@ python build.py --clean   # wipe dist/ and build/ first
 ```
 
 Desktop release packaging now requires PySide6 and `LocalFlight.spec` explicitly collects PySide6 plus `localflight.native.*`, so Windows/macOS artifacts are native-GUI capable instead of depending on Chrome/Edge/Chromium.
+End-user desktop launchers should not foreground a Python console: `LocalFlight.spec` keeps PyInstaller `console=False`, the macOS app bundles use a real `CFBundleExecutable=LocalFlight`, the macOS source app redirects bootstrap stdout/stderr to `~/.localflight/logs/source_app_bootstrap_*.log`, and the Windows source installer desktop shortcut targets `.venv\Scripts\pythonw.exe -m localflight` directly when available. Keep console output in the explicit dev launchers only.
 
 Output:
 - **Windows:** `dist/LocalFlight-windows.zip` + `.sha256` — unzip, double-click `LocalFlight.exe`

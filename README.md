@@ -93,10 +93,12 @@ Open [docs/previews/index.html](docs/previews/index.html) locally for the standa
 ### Windows
 
 Download `LocalFlight-windows.zip`, unzip it, and run `LocalFlight.exe`.
+The release app launches as a branded desktop app without a Python console window.
 
 ### macOS
 
 Download `LocalFlight-macos.zip`, unzip it, drag `LocalFlight.app` to Applications, then right-click **Open** the first time if Gatekeeper warns.
+Finder launches the app bundle directly, so users see the Local Flight app/splash rather than Terminal.
 
 ### Raspberry Pi
 

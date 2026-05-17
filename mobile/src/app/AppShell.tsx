@@ -1432,12 +1432,12 @@ export function AppShell() {
                 <ConnectPrompt onSettings={() => setScreen("control")} />
               ) : null}
 
-              <ScreenActivity activity={activity} />
+              {activity && !error && !refreshing ? <ScreenActivity activity={activity} /> : null}
 
-              {error ? (
+              {error && !refreshing ? (
                 <ScreenError
                   message={error}
-                  retrying={refreshing}
+                  retrying={false}
                   onRetry={() => { hapticLight(); refreshScreen({ target: screen }); }}
                 />
               ) : null}
@@ -2317,6 +2317,14 @@ function createStyles() {
     paddingVertical: 11,
     borderRadius: 18,
     borderWidth: 1
+  },
+  activityPillCompact: {
+    minHeight: 0,
+    alignSelf: "flex-start",
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    gap: 0
   },
   activityPillSync: {
     borderColor: accent18,

@@ -172,8 +172,17 @@ function blueButtonInk(): string {
 const RADAR_GROUND_CLIP_ID = "mobile-radar-ground-clip";
 const RADAR_SWEEP_CLIP_ID = "mobile-radar-sweep-clip";
 const RADAR_SWEEP_WIDTH_DEG = 72;
+const RADAR_SWEEP_INTERVAL_MS = 80;
+const RADAR_SWEEP_STEP_DEG = 1.92;
+const RADAR_BLIP_FADE_DEG = 75;
 
-export function ScreenActivity({ activity }: { activity: ActivityStatus | null | undefined }) {
+export function ScreenActivity({
+  activity,
+  compact = false
+}: {
+  activity: ActivityStatus | null | undefined;
+  compact?: boolean;
+}) {
   if (!activity) return null;
 
   const toneStyle =
@@ -185,13 +194,15 @@ export function ScreenActivity({ activity }: { activity: ActivityStatus | null |
   const iconColor = activity.tone === "warn" ? palette.amber : activity.tone === "ok" ? palette.green : palette.blue;
 
   return (
-    <View style={[styles.activityPill, toneStyle]}>
-      <View style={styles.activitySpinnerWrap}>
-        <ActivityIndicator size="small" color={iconColor} />
-      </View>
+    <View style={[styles.activityPill, compact && styles.activityPillCompact, toneStyle]}>
+      {compact ? null : (
+        <View style={styles.activitySpinnerWrap}>
+          <ActivityIndicator size="small" color={iconColor} />
+        </View>
+      )}
       <View style={styles.activityCopy}>
-        <Text style={styles.activityLabel}>{activity.label}</Text>
-        {activity.detail ? <Text style={styles.activityDetail}>{activity.detail}</Text> : null}
+        <Text style={styles.activityLabel}>{compact ? activity.label.replace(/^Talking to /i, "") : activity.label}</Text>
+        {!compact && activity.detail ? <Text style={styles.activityDetail}>{activity.detail}</Text> : null}
       </View>
     </View>
   );
@@ -1141,6 +1152,9 @@ export function FidsScreen({
   const displayRows = pinned
     ? [pinned, ...rows.filter((row) => flightPinKey(row) !== pinnedCallsign)]
     : rows;
+  const hasRows = displayRows.length > 0;
+  const showInlineActivity = Boolean(activity && !refreshing && (hasRows || !error));
+  const showInlineError = Boolean(error && !refreshing);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -1178,8 +1192,8 @@ export function FidsScreen({
       ListHeaderComponent={
         <>
           {showConnectPrompt ? <ConnectPrompt onSettings={onOpenSettings} /> : null}
-          <ScreenActivity activity={activity} />
-          {error ? <ScreenError message={error} onRetry={onRefresh} retrying={refreshing} /> : null}
+          {showInlineActivity ? <ScreenActivity activity={activity} compact={hasRows} /> : null}
+          {showInlineError ? <ScreenError message={error ?? ""} onRetry={onRefresh} retrying={false} /> : null}
 
           <View style={styles.dirToggle}>
             <DirectionButton
@@ -1209,7 +1223,7 @@ export function FidsScreen({
         </>
       }
       ListEmptyComponent={
-        loading ? (
+        loading && !error && !activity && !refreshing ? (
           <ActivityIndicator color={palette.blue} style={styles.loader} />
         ) : standalone ? (
           <StandaloneEmptyState
@@ -1310,6 +1324,9 @@ export function HistoryScreen({
   contentPaddingBottom: number;
 }) {
   const flights = data?.flights || [];
+  const hasRows = flights.length > 0;
+  const showInlineActivity = Boolean(activity && !refreshing && (hasRows || !error));
+  const showInlineError = Boolean(error && !refreshing);
   const maxAirlineCount = Math.max(...(summary?.top_airlines?.map((a) => a.count) || [1]), 1);
   const maxRouteCount = Math.max(...(summary?.top_routes?.map((r) => r.count) || [1]), 1);
   const maxAircraftCount = Math.max(...(summary?.top_aircraft?.map((a) => a.count) || [1]), 1);
@@ -1333,8 +1350,8 @@ export function HistoryScreen({
       ListHeaderComponent={
         <>
           {showConnectPrompt ? <ConnectPrompt onSettings={onOpenSettings} /> : null}
-          <ScreenActivity activity={activity} />
-          {error ? <ScreenError message={error} onRetry={onRefresh} retrying={refreshing} /> : null}
+          {showInlineActivity ? <ScreenActivity activity={activity} compact={hasRows} /> : null}
+          {showInlineError ? <ScreenError message={error ?? ""} onRetry={onRefresh} retrying={false} /> : null}
 
           <FilterSection title="DIRECTION">
             <View style={styles.filterRow}>
@@ -1501,7 +1518,7 @@ export function HistoryScreen({
         </>
       }
       ListEmptyComponent={
-        loading ? (
+        loading && !error && !activity && !refreshing ? (
           <ActivityIndicator color={palette.blue} style={styles.loader} />
         ) : standalone ? (
           <StandaloneEmptyState
@@ -1606,6 +1623,26 @@ function RadarLayerControls({
   );
 }
 
+function radarBlipIsGround(blip: RadarBlip): boolean {
+  const phase = `${blip.radar_phase || ""} ${blip.radar_status || ""} ${blip.radar_status_label || ""} ${blip.status || ""}`.toLowerCase();
+  return blip.on_ground === true || /\b(ground|surface|taxi|parked|gate)\b/.test(phase);
+}
+
+function radarBlipVisibleForRadius(blip: RadarBlip, radiusNm: RadarRadius): boolean {
+  const quality = `${blip.source_quality || ""} ${blip.radar_status || ""} ${blip.radar_status_label || ""}`.toLowerCase();
+  if (/lost|missing|invalid/.test(quality)) {
+    return false;
+  }
+  if (radiusNm > 5 && radarBlipIsGround(blip)) {
+    return false;
+  }
+  return true;
+}
+
+function radarDisplayBlips(blips: RadarBlip[], radiusNm: RadarRadius): RadarBlip[] {
+  return blips.filter((blip) => radarBlipVisibleForRadius(blip, radiusNm));
+}
+
 export function RadarScreen({
   data,
   groundData,
@@ -1651,7 +1688,10 @@ export function RadarScreen({
   radiusOptions?: RadarRadius[];
   contentPaddingBottom: number;
 }) {
-  const blips = data?.blips || [];
+  const blips = radarDisplayBlips(data?.blips || [], radiusNm);
+  const hasRows = blips.length > 0;
+  const showInlineActivity = Boolean(activity && !refreshing && (hasRows || !error));
+  const showInlineError = Boolean(error && !refreshing);
   const effectiveLayerCount = standalone
     ? { runways: drawingLayers.runways, surface: drawingLayers.surface, terrain: false }
     : drawingLayers;
@@ -1688,8 +1728,8 @@ export function RadarScreen({
       ListHeaderComponent={
         <>
           {showConnectPrompt ? <ConnectPrompt onSettings={onOpenSettings} /> : null}
-          <ScreenActivity activity={activity} />
-          {error ? <ScreenError message={error} onRetry={onRefresh} retrying={refreshing} /> : null}
+          {showInlineActivity ? <ScreenActivity activity={activity} compact={hasRows} /> : null}
+          {showInlineError ? <ScreenError message={error ?? ""} onRetry={onRefresh} retrying={false} /> : null}
 
           <FilterSection title={compact ? "ZOOM" : "RADIUS"}>
             <View style={compact ? styles.filterWrap : styles.filterRow}>
@@ -1706,7 +1746,7 @@ export function RadarScreen({
           </FilterSection>
 
           <View style={styles.metricRow}>
-            <InfoCard label="BLIPS" value={data ? String(data.count) : "..."} />
+            <InfoCard label="BLIPS" value={data ? String(blips.length) : "..."} />
             <InfoCard label="SOURCE" value={compactSourceLabel(data?.source) || "WAIT"} tone="green" />
             <InfoCard label="RANGE" value={`${radiusNm} NM`} tone="amber" />
             <InfoCard
@@ -1741,7 +1781,7 @@ export function RadarScreen({
         </>
       }
       ListEmptyComponent={
-        loading ? (
+        loading && !error && !activity && !refreshing ? (
           <ActivityIndicator color={palette.blue} style={styles.loader} />
         ) : standalone ? (
           <StandaloneEmptyState
@@ -1888,6 +1928,9 @@ export function MatrixScreen({
   const selectedPalette = MATRIX_PALETTE_OPTIONS.find((item) => item.id === matrixPalette) || MATRIX_PALETTE_OPTIONS[0]!;
   const brightnessPct = Math.round(brightness * 100);
   const [section, setSection] = useState<MatrixSettingsSection>("status");
+  const hasRows = rows.length > 0;
+  const showInlineActivity = Boolean(activity && !refreshing && (hasRows || !error));
+  const showInlineError = Boolean(error && !refreshing);
 
   return (
     <ScrollView
@@ -1899,8 +1942,8 @@ export function MatrixScreen({
       showsVerticalScrollIndicator={false}
     >
       {showConnectPrompt ? <ConnectPrompt onSettings={onOpenSettings} /> : null}
-      <ScreenActivity activity={activity} />
-      {error ? <ScreenError message={error} onRetry={onRefresh} retrying={refreshing} /> : null}
+      {showInlineActivity ? <ScreenActivity activity={activity} compact={hasRows} /> : null}
+      {showInlineError ? <ScreenError message={error ?? ""} onRetry={onRefresh} retrying={false} /> : null}
 
       <View style={styles.cardStack}>
         <HiddenToolHeader
@@ -2593,10 +2636,22 @@ function RadarScope({
     : groundUnavailable
       ? "Ground layer unavailable"
       : "Ground layer waiting";
-  const projected = (data?.blips || [])
-    .map((blip) => data ? projectBlip(blip, data.center, data.radius_nm, scopeSize) : null)
-    .filter((item): item is ProjectedBlip => Boolean(item))
-    .sort((a, b) => a.distanceNm - b.distanceNm);
+  const [sweepDeg, setSweepDeg] = useState(0);
+  const projectedInRange = (data?.blips || [])
+    .filter((blip) => radarBlipVisibleForRadius(blip, radiusNm))
+    .map((blip) => data ? projectBlip(blip, data.center, radiusNm, scopeSize) : null)
+    .filter((item): item is ProjectedBlip => Boolean(item));
+  const projected = projectedInRange
+    .map((item) => ({ item, opacity: radarSweepOpacity(item.angleDeg, sweepDeg) }))
+    .filter(({ opacity }) => opacity > 0.08)
+    .sort((a, b) => a.item.distanceNm - b.item.distanceNm);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setSweepDeg((value) => (value + RADAR_SWEEP_STEP_DEG) % 360);
+    }, RADAR_SWEEP_INTERVAL_MS);
+    return () => clearInterval(timer);
+  }, []);
 
   const setMeasuredSize = useCallback((width: number) => {
     const next = Math.max(220, Math.min(width - 28, compact ? 320 : 440));
@@ -2669,7 +2724,7 @@ function RadarScope({
           scopeSize={scopeSize}
           drawingLayers={effectiveLayers}
         />
-        <RadarSweepLayer scopeSize={scopeSize} />
+        <RadarSweepLayer scopeSize={scopeSize} sweepDeg={sweepDeg} />
         <View style={styles.scopeRingOuter} />
         <View style={styles.scopeRingMid} />
         <View style={styles.scopeRingInner} />
@@ -2677,10 +2732,10 @@ function RadarScope({
         <View style={styles.scopeCrossHorizontal} />
         <View style={styles.scopeCenterDot} />
 
-        {projected.map((item, index) => (
+        {projected.map(({ item, opacity }, index) => (
           <Pressable
             key={`scope-${radarBlipKey(item.blip, index)}`}
-            style={[styles.scopeDotWrap, { left: item.left, top: item.top }]}
+            style={[styles.scopeDotWrap, { left: item.left, top: item.top, opacity }]}
             onPress={() => onOpenDetail(item.blip.callsign)}
           >
             <View style={[styles.scopeDot, { backgroundColor: radarTone(item.blip) }]} />
@@ -2692,7 +2747,7 @@ function RadarScope({
           </Pressable>
         ))}
 
-        {!data || projected.length === 0 ? (
+        {!data || projectedInRange.length === 0 ? (
           <View style={styles.scopeEmpty}>
             <Text style={styles.scopeEmptyText}>No targets in range</Text>
           </View>
@@ -2721,26 +2776,7 @@ function RadarScope({
   );
 }
 
-function RadarSweepLayer({ scopeSize }: { scopeSize: number }) {
-  const sweepProgress = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    const animation = Animated.loop(
-      Animated.timing(sweepProgress, {
-        toValue: 1,
-        duration: 3200,
-        easing: Easing.linear,
-        useNativeDriver: true
-      })
-    );
-    animation.start();
-    return () => animation.stop();
-  }, [sweepProgress]);
-
-  const rotate = sweepProgress.interpolate({
-    inputRange: [0, 1],
-    outputRange: ["0deg", "360deg"]
-  });
+function RadarSweepLayer({ scopeSize, sweepDeg }: { scopeSize: number; sweepDeg: number }) {
   const center = scopeSize / 2;
   const radius = scopeSize * 0.44;
   const closing = radarSweepPoint(scopeSize, RADAR_SWEEP_WIDTH_DEG);
@@ -2753,7 +2789,7 @@ function RadarSweepLayer({ scopeSize }: { scopeSize: number }) {
         {
           width: scopeSize,
           height: scopeSize,
-          transform: [{ rotate }]
+          transform: [{ rotate: `${sweepDeg}deg` }]
         }
       ]}
     >
@@ -2978,6 +3014,17 @@ function radarSweepPoint(scopeSize: number, clockwiseDegreesFromNorth: number): 
     x: center + Math.cos(radians) * radius,
     y: center + Math.sin(radians) * radius
   };
+}
+
+function radarSweepOpacity(angleDeg: number, sweepDeg: number): number {
+  const age = (sweepDeg - angleDeg + 360) % 360;
+  if (age >= 356 || age <= 5) {
+    return 1;
+  }
+  if (age <= RADAR_BLIP_FADE_DEG) {
+    return Math.max(0.1, 1 - ((age - 5) / (RADAR_BLIP_FADE_DEG - 5)) * 0.9);
+  }
+  return 0;
 }
 
 function radarDrawableFeatures(features: RadarMapFeature[] | undefined): RadarMapFeature[] {
@@ -5710,8 +5757,8 @@ export function DocsScreen({
                   }
                 : null
             }
+            compact={Boolean(document?.content)}
           />
-          {loadingDoc ? <ActivityIndicator color={palette.blue} style={styles.loader} /> : null}
           {!loadingDoc && docError ? (
             <>
               <Text style={styles.sheetEmpty}>

@@ -138,6 +138,95 @@ def test_display_screen_passes_real_qwidgets_to_splitter(monkeypatch: pytest.Mon
     assert set(screen.mode_buttons) == {"fids", "split", "radar"}
 
 
+def test_display_split_stacks_on_compact_pi_screen(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    pytest.importorskip("PySide6")
+    from PySide6 import QtCore, QtWidgets
+    from localflight.native.app import DisplayScreen
+    from localflight.native.qt_compat import import_qt
+
+    QtCore2, QtGui, QtWidgets2 = import_qt()
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    screen = DisplayScreen(QtCore2, QtGui, QtWidgets2, client=object())
+    screen.widget.resize(800, 480)
+    screen.set_mode("split")
+    screen._sync_split_layout(force=True)
+
+    assert app is not None
+    assert screen.splitter.orientation() == QtCore.Qt.Vertical
+    assert screen.fids.widget.isHidden() is False
+    assert screen.radar.widget.isHidden() is False
+    assert screen.widget.minimumSizeHint().width() <= 800
+    assert screen.fids.widget.minimumSizeHint().width() <= 520
+    assert screen.radar.widget.minimumSizeHint().width() <= 520
+
+
+def test_display_split_orientation_tracks_resize(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    pytest.importorskip("PySide6")
+    from PySide6 import QtCore, QtWidgets
+    from localflight.native.app import DisplayScreen
+    from localflight.native.qt_compat import import_qt
+
+    QtCore2, QtGui, QtWidgets2 = import_qt()
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    screen = DisplayScreen(QtCore2, QtGui, QtWidgets2, client=object())
+    previous_sizes = screen.settings.value("display/splitter_sizes_horizontal")
+    try:
+        screen.settings.setValue("display/splitter_sizes_horizontal", [1200, 20])
+
+        screen.widget.resize(1366, 768)
+        screen.set_mode("split")
+        screen._sync_split_layout(force=True)
+        wide_orientation = screen.splitter.orientation()
+        wide_sizes = screen.splitter.sizes()
+
+        screen.widget.resize(800, 480)
+        screen._sync_split_layout()
+        compact_orientation = screen.splitter.orientation()
+        compact_sizes = screen.splitter.sizes()
+
+        screen.widget.resize(1366, 768)
+        screen._sync_split_layout()
+        restored_orientation = screen.splitter.orientation()
+        restored_sizes = screen.splitter.sizes()
+    finally:
+        if previous_sizes is None:
+            screen.settings.remove("display/splitter_sizes_horizontal")
+        else:
+            screen.settings.setValue("display/splitter_sizes_horizontal", previous_sizes)
+
+    assert app is not None
+    assert wide_orientation == QtCore.Qt.Horizontal
+    assert wide_sizes[1] >= 220
+    assert compact_orientation == QtCore.Qt.Vertical
+    assert restored_orientation == QtCore.Qt.Horizontal
+    assert restored_sizes[1] >= 220
+    assert min(compact_sizes) > 0
+    assert sum(compact_sizes) <= 480
+
+
+def test_native_pages_fit_800px_shell_width(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    monkeypatch.setenv("LOCALFLIGHT_NATIVE_UI_ONLY", "1")
+    pytest.importorskip("PySide6")
+    from PySide6 import QtWidgets
+    from localflight.native.app import NativeMainWindow
+    from localflight.native.qt_compat import import_qt
+
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    window = NativeMainWindow(*import_qt(), base_url="http://127.0.0.1:9", first_launch=False)
+    window.resize(800, 480)
+
+    assert app is not None
+    for key in window.screen_keys:
+        screen = window._ensure_screen(key)
+        widget = getattr(screen, "widget", screen)
+        widget.resize(800, 380)
+        app.processEvents()
+        assert widget.minimumSizeHint().width() <= 800, key
+
+
 def test_native_client_window_exposes_real_user_pages(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
     pytest.importorskip("PySide6")
@@ -372,6 +461,23 @@ def test_native_admin_exposes_buy_me_a_coffee_link(monkeypatch: pytest.MonkeyPat
     assert COFFEE_URL in screen.status.text()
 
 
+def test_native_admin_page_body_stays_inside_viewport(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    pytest.importorskip("PySide6")
+    from PySide6 import QtCore, QtWidgets
+    from localflight.native.app import AdminSummaryScreen
+
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    screen = AdminSummaryScreen(QtWidgets, client=object(), navigate=lambda _key: None)
+    screen.widget.resize(760, 520)
+    screen._sync_viewport_width()
+
+    assert app is not None
+    assert screen.widget.horizontalScrollBarPolicy() == QtCore.Qt.ScrollBarAlwaysOff
+    assert screen.body.width() <= screen.widget.viewport().width()
+    assert screen._dashboard_columns() == 1
+
+
 def test_native_first_launch_main_window_does_not_embed_setup(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
     pytest.importorskip("PySide6")
@@ -486,23 +592,26 @@ def test_native_initial_window_size_fits_available_screen() -> None:
 
 
 def test_native_geometry_profiles_cover_small_laptop_and_large_displays() -> None:
-    from localflight.native.geometry import default_display_mode, fitted_window_size
+    from localflight.native.geometry import default_display_mode, display_split_orientation, fitted_window_size
 
     cases = [
-        ((640, 480), (614, 422), "fids"),
-        ((800, 480), (768, 422), "fids"),
-        ((1024, 768), (921, 675), "fids"),
-        ((1512, 982), (1239, 864), "split"),
-        ((2048, 1280), (1515, 980), "split"),
-        ((3840, 2160), (1680, 980), "split"),
+        ((640, 480), (614, 422), "fids", "vertical"),
+        ((800, 480), (768, 422), "fids", "vertical"),
+        ((1024, 768), (921, 675), "fids", "vertical"),
+        ((1280, 720), (1152, 633), "fids", "vertical"),
+        ((1366, 768), (1120, 675), "split", "horizontal"),
+        ((1512, 982), (1239, 864), "split", "horizontal"),
+        ((2048, 1280), (1515, 980), "split", "horizontal"),
+        ((3840, 2160), (1680, 980), "split", "horizontal"),
     ]
 
-    for (screen_w, screen_h), expected, mode in cases:
+    for (screen_w, screen_h), expected, mode, split_orientation in cases:
         width, height = fitted_window_size(screen_w, screen_h, max_width=1680, max_height=980)
         assert (width, height) == expected
         assert width <= screen_w
         assert height <= screen_h
         assert default_display_mode(screen_w) == mode
+        assert display_split_orientation(screen_w) == split_orientation
 
 
 def test_native_main_window_close_requests_backend_shutdown(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -14,6 +14,7 @@ def test_pyinstaller_macos_bundle_is_foreground_app() -> None:
     spec = (ROOT / "LocalFlight.spec").read_text(encoding="utf-8")
 
     assert '"LSUIElement"' not in spec
+    assert "console=False" in spec
     assert 'bundle_identifier=_BUNDLE_IDENTIFIER' in spec
     assert '"CFBundleExecutable": "LocalFlight"' in spec
     assert '"CFBundlePackageType": "APPL"' in spec
@@ -48,6 +49,17 @@ def test_source_macos_launchers_use_local_flight_process_title() -> None:
         ROOT / "installers" / "macos" / "start.sh",
     ):
         assert 'exec -a "Local Flight" "$VENV/bin/python" -m localflight' in launcher.read_text(encoding="utf-8")
+
+
+def test_source_macos_app_launcher_redirects_bootstrap_output() -> None:
+    launcher = (ROOT / "scripts" / "make_app_bundle.py").read_text(encoding="utf-8")
+
+    redirect = 'exec >>"$BOOTSTRAP_LOG" 2>&1'
+    launch = 'exec -a "Local Flight" "$VENV/bin/python" -m localflight'
+    assert 'LOG_DIR="${{HOME}}/.localflight/logs"' in launcher
+    assert 'BOOTSTRAP_LOG="$LOG_DIR/source_app_bootstrap_' in launcher
+    assert redirect in launcher
+    assert launcher.index(redirect) < launcher.index(launch)
 
 
 def test_macos_icon_source_is_rounded_square_asset() -> None:
