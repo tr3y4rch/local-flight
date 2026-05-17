@@ -1,53 +1,61 @@
 :root {
-  /* default theme: dark */
+  /* Default theme: dark — aligned with the Qt native shell palette.
+     See localflight/native/design.py THEME_TOKENS["dark"]. */
   color-scheme: dark;
 
-  --bg: #0b0d10;
-  --text: #e7edf3;
+  --bg: #080c12;
+  --text: #e8f0fe;
 
-  --card-bg: #12161b;
-  --card-border: #1e2630;
+  --card-bg: #101a26;
+  --card-border: #1e3a5a;
 
-  --panel-bg: #0f1318;
-  --panel-border: #1e2630;
+  --panel-bg: #0d1520;
+  --panel-border: #1e3a5a;
 
-  --input-bg: #0f1318;
-  --input-border: #263241;
+  --input-bg: #0b141f;
+  --input-border: #17324d;
 
-  --btn-bg: #1a2230;
-  --btn-border: #2b3a4c;
+  --btn-bg: #112033;
+  --btn-border: #1e3a5a;
 
-  --code-bg: #0f1318;
-  --code-border: #263241;
+  --code-bg: #0b141f;
+  --code-border: #17324d;
 
-  --toast-bg: #0f2a1a;
-  --toast-border: #215d3a;
+  --toast-bg: #07241a;
+  --toast-border: #1e6c46;
+
+  /* Shared muted text token used by some pages */
+  --muted: #79a7c8;
+  --accent: #4a9eda;
 }
 
-/* light theme overrides */
+/* Light theme overrides — Qt design.py THEME_TOKENS["light"]. */
 html[data-theme="light"] {
   color-scheme: light;
 
-  --bg: #f5f7fb;
-  --text: #101318;
+  --bg: #f4f7fb;
+  --text: #101923;
 
   --card-bg: #ffffff;
-  --card-border: #d6dde8;
+  --card-border: #cbd8e6;
 
-  --panel-bg: #f1f4fa;
-  --panel-border: #d6dde8;
+  --panel-bg: #ffffff;
+  --panel-border: #cbd8e6;
 
   --input-bg: #ffffff;
-  --input-border: #c7d0df;
+  --input-border: #cbd8e6;
 
-  --btn-bg: #e9eef7;
-  --btn-border: #c7d0df;
+  --btn-bg: #eaf0f7;
+  --btn-border: #cbd8e6;
 
   --code-bg: #ffffff;
-  --code-border: #c7d0df;
+  --code-border: #cbd8e6;
 
   --toast-bg: #e6fbef;
   --toast-border: #7ad6a2;
+
+  --muted: #46657d;
+  --accent: #1e6cb4;
 }
 
 body {

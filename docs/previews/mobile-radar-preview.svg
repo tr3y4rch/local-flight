@@ -1,0 +1,136 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="540" viewBox="0 0 960 540" role="img" aria-labelledby="title desc">
+  <title id="title">Local Flight mobile radar preview</title>
+  <desc id="desc">Local Flight Companion v0.2.8b1 — Radar screen with range chip row, status bar, and live blips.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#08131d"/>
+      <stop offset="1" stop-color="#0b1016"/>
+    </linearGradient>
+    <radialGradient id="radar" cx="50%" cy="50%" r="58%">
+      <stop offset="0" stop-color="#102131"/>
+      <stop offset="0.56" stop-color="#08111a"/>
+      <stop offset="1" stop-color="#020508"/>
+    </radialGradient>
+    <linearGradient id="sweep" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#4a9eda" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#4a9eda" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="hero" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#10202e"/>
+      <stop offset="1" stop-color="#0a121b"/>
+    </linearGradient>
+    <filter id="shadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="22" stdDeviation="22" flood-color="#000000" flood-opacity="0.42"/>
+    </filter>
+    <style>
+      .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+      .sans { font-family: Inter, Segoe UI, Helvetica, Arial, sans-serif; }
+      .text { fill: #e8f0f8; }
+      .muted { fill: #7f90a5; }
+      .blue { fill: #62b7f6; }
+      .dim { fill: #48647f; }
+      .green { fill: #22c55e; }
+      .tiny { font-size: 9px; letter-spacing: 1px; }
+    </style>
+  </defs>
+
+  <rect width="960" height="540" rx="28" fill="url(#bg)"/>
+
+  <g transform="translate(322 18) scale(1.1)" filter="url(#shadow)">
+    <rect x="0" y="0" width="288" height="456" rx="42" fill="#03070c"/>
+    <rect x="10" y="10" width="268" height="436" rx="34" fill="#0d141c" stroke="#223242"/>
+    <rect x="102" y="18" width="84" height="12" rx="6" fill="#111923"/>
+
+    <!-- Airport hero (compact for radar) -->
+    <g transform="translate(20 38)">
+      <rect width="248" height="64" rx="16" fill="url(#hero)" stroke="#1d3147"/>
+      <rect x="0" y="0" width="3" height="64" rx="1.5" fill="#62b7f6"/>
+      <g transform="translate(12 10)">
+        <rect width="42" height="22" rx="6" fill="#0a1721" stroke="#2c4a66"/>
+        <text x="6" y="16" class="mono text" font-size="12" font-weight="900">HAN</text>
+        <text x="0" y="40" class="sans text" font-size="11" font-weight="800">Noi Bai Int'l</text>
+        <text x="0" y="53" class="mono muted" font-size="8">VVNB · 5 NM scope</text>
+      </g>
+      <g transform="translate(168 10)">
+        <text x="0" y="12" class="mono text" font-size="11" font-weight="900">15:24Z</text>
+        <text x="0" y="26" class="mono blue" font-size="9">22:24 LOC</text>
+      </g>
+      <circle cx="232" cy="12" r="10" fill="#1a8af0"/>
+      <circle cx="232" cy="12" r="2.5" fill="#0d141d"/>
+    </g>
+
+    <!-- Range chip row -->
+    <g transform="translate(20 110)">
+      <text x="0" y="11" class="mono dim tiny" font-weight="900">RANGE</text>
+      <rect x="32" y="0" width="22" height="18" rx="9" fill="#14202c" stroke="#30445b"/>
+      <text x="40" y="12" class="mono muted" font-size="8" font-weight="900">1</text>
+      <rect x="58" y="0" width="22" height="18" rx="9" fill="#14202c" stroke="#30445b"/>
+      <text x="66" y="12" class="mono muted" font-size="8" font-weight="900">2</text>
+      <rect x="84" y="0" width="22" height="18" rx="9" fill="#14202c" stroke="#30445b"/>
+      <text x="92" y="12" class="mono muted" font-size="8" font-weight="900">3</text>
+      <rect x="110" y="0" width="22" height="18" rx="9" fill="#173148" stroke="#4a9eda" stroke-width="1.4"/>
+      <text x="118" y="12" class="mono blue" font-size="8" font-weight="900">5</text>
+      <rect x="136" y="0" width="26" height="18" rx="9" fill="#14202c" stroke="#30445b"/>
+      <text x="142" y="12" class="mono muted" font-size="8" font-weight="900">10</text>
+      <rect x="166" y="0" width="26" height="18" rx="9" fill="#14202c" stroke="#30445b"/>
+      <text x="172" y="12" class="mono muted" font-size="8" font-weight="900">20</text>
+      <rect x="196" y="0" width="26" height="18" rx="9" fill="#14202c" stroke="#30445b"/>
+      <text x="202" y="12" class="mono muted" font-size="8" font-weight="900">40</text>
+      <rect x="226" y="0" width="22" height="18" rx="9" fill="#14202c" stroke="#30445b"/>
+      <circle cx="237" cy="9" r="2.5" fill="none" stroke="#62b7f6" stroke-width="1.4"/>
+      <circle cx="237" cy="9" r="0.8" fill="#62b7f6"/>
+    </g>
+
+    <!-- Status bar: BLIPS · SOURCE · RANGE · ago -->
+    <g transform="translate(20 138)">
+      <rect width="248" height="32" rx="10" fill="#0e151d" stroke="#1f3145"/>
+      <text x="14" y="14" class="mono text" font-size="11" font-weight="900">3</text>
+      <text x="14" y="26" class="mono dim" font-size="7" font-weight="900">BLIPS</text>
+      <line x1="44" y1="6" x2="44" y2="26" stroke="#243344" stroke-width="1"/>
+      <text x="52" y="14" class="mono green" font-size="9" font-weight="900">ADSBX</text>
+      <text x="52" y="26" class="mono dim" font-size="7" font-weight="900">SOURCE</text>
+      <line x1="120" y1="6" x2="120" y2="26" stroke="#243344" stroke-width="1"/>
+      <text x="128" y="14" class="mono" fill="#f4b740" font-size="9" font-weight="900">5 NM</text>
+      <text x="128" y="26" class="mono dim" font-size="7" font-weight="900">RANGE</text>
+      <line x1="180" y1="6" x2="180" y2="26" stroke="#243344" stroke-width="1"/>
+      <text x="188" y="14" class="mono text" font-size="9" font-weight="900">12s</text>
+      <text x="188" y="26" class="mono dim" font-size="7" font-weight="900">UPDATED</text>
+    </g>
+
+    <!-- Radar scope -->
+    <g transform="translate(144 290)">
+      <circle r="112" fill="url(#radar)" stroke="#284866" stroke-width="2"/>
+      <!-- Runway -->
+      <path d="M-72 54 L74 -32" stroke="#d8d1b4" stroke-width="6" stroke-linecap="round"/>
+      <path d="M-72 54 L74 -32" stroke="#0c1118" stroke-width="1.5" stroke-dasharray="8 6"/>
+      <!-- Range rings -->
+      <circle r="84" fill="none" stroke="#326185" stroke-opacity="0.28"/>
+      <circle r="56" fill="none" stroke="#326185" stroke-opacity="0.26"/>
+      <circle r="28" fill="none" stroke="#326185" stroke-opacity="0.24"/>
+      <line x1="-112" y1="0" x2="112" y2="0" stroke="#326185" stroke-opacity="0.24" stroke-dasharray="5 7"/>
+      <line x1="0" y1="-112" x2="0" y2="112" stroke="#326185" stroke-opacity="0.24" stroke-dasharray="5 7"/>
+      <!-- Sweep -->
+      <path d="M0 0 L0 -112 A112 112 0 0 1 96 -56 Z" fill="url(#sweep)"/>
+      <line x1="0" y1="0" x2="0" y2="-112" stroke="#62b7f6" stroke-width="2"/>
+      <!-- Center -->
+      <circle r="4" fill="#d8ecff"/>
+      <!-- Blips with callsign labels -->
+      <circle cx="-48" cy="-36" r="4" fill="#ffffff"/>
+      <text x="-72" y="-48" class="mono text tiny">CGW631</text>
+      <circle cx="34" cy="-58" r="4" fill="#ffffff"/>
+      <text x="44" y="-62" class="mono text tiny">SWR92</text>
+      <circle cx="58" cy="22" r="4" fill="#ffffff"/>
+      <text x="68" y="18" class="mono text tiny">ETD3AG</text>
+    </g>
+
+    <!-- Legend strip at bottom of scope area -->
+    <g transform="translate(20 412)">
+      <rect width="248" height="20" rx="10" fill="#101923" stroke="#25425c"/>
+      <circle cx="14" cy="10" r="3" fill="#ffffff"/>
+      <text x="22" y="13" class="mono muted" font-size="8" font-weight="700">AIR</text>
+      <circle cx="58" cy="10" r="3" fill="#22c55e"/>
+      <text x="66" y="13" class="mono muted" font-size="8" font-weight="700">GND</text>
+      <text x="120" y="13" class="mono dim" font-size="8" font-weight="700">ADS-B EXCHANGE</text>
+    </g>
+  </g>
+</svg>

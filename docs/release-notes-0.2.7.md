@@ -144,3 +144,94 @@ be treated as stale after the client-polish changes.
 
 macOS still needs its own packaging and smoke-test pass on a Mac before a full
 cross-platform GitHub release.
+
+---
+
+## 2026-05-18 follow-up — visual-language pass
+
+Late in the `0.2.7` cycle a follow-up pass landed that finishes earlier work
+and pulls the LAN browser UI into the same design language as the native Qt
+shell. No setup choices, data paths, or privacy/diagnostics behaviour change.
+
+### FIDS — four real styles
+
+The four-segment picker in the FIDS header (Classic / PAX / VATSIM / Nerd) now
+actually changes the board layout instead of just relabelling columns.
+
+- **Classic.** Original Local Flight board. Rounded cards on a navy panel,
+  status rail down the left, blue/cyan accent, pill status chips. Existing
+  users see no change unless they switch styles.
+- **PAX.** Passenger-friendly oversized board. Larger rounded cards with
+  deeper padding, warm sky-blue + amber accents, a tape-style header band,
+  friendlier status verbs ("Boarding now", "Significantly late"), and a
+  bigger gate badge. Good when the screen is being watched from across a
+  lobby.
+- **VATSIM.** ATC-scope look. Flat rows on a faint green grid with a
+  range-ring marker in the corner, monospace throughout, callsign-first
+  columns (callsign, A/C, flight rules, route, ALT/GS, phase), square phase
+  chips with codes (TAXI / DESCENT / DELAY / PLAN).
+- **Nerd.** Dense operator view. Grid chrome with column separators on every
+  row, 13 columns at once (callsign, flight, registration, altitude, ground
+  speed, squawk, delay, source...), monospace, dim palette, 3-letter status
+  codes (BRD / DLY / SCH).
+
+All four scale with the window: row height, font size, and column widths
+interpolate between per-skin minimums and maximums based on viewport width,
+and lower-priority columns hide first on narrow viewports rather than
+overflowing or squishing.
+
+### Settings — clean disclosure cards
+
+Collapsible sections in Settings used to be gated by a tiny native checkbox
+in the top-left of a frame. With more than a few expanded the page felt
+busy. Each section is now a disclosure card: an emoji slot, bold title,
+muted one-line subtitle that stays visible even when collapsed, a chevron
+on the trailing edge that flips on expand, and the whole header bar as
+the toggle. The card lights with an accent border when open.
+
+Applies to Relay details, Diagnostics & Docs, Maintenance, and Advanced
+Board Timing.
+
+### LAN browser UI — Qt-shell match
+
+Visiting Local Flight in a browser now looks like a continuation of the
+native Qt app: brand mark + Local Flight name in Audiowide + monospace
+version chip · UTC + LT clock chips · centred segmented destination tabs
+with emoji glyphs (Display 🖥, FIDS 🛫, Radar 🛰, Matrix 🟩) · operator
+icon-chip bar (⚙ 🛠 📅 📜 💬) with a pulsing green heartbeat · Power
+button on the trailing edge. Tokens are identical to the Qt design
+palette, so theme and skin choices retint both surfaces the same way.
+Shared components (panels, cards, kicker labels, disclosure cards, status
+pills, buttons, inputs) round out the page.
+
+### LAN browser UI — mobile view for phones
+
+Open the LAN URL on a phone (for example `http://localflight.local:8000` in
+mobile Safari) and the layout automatically switches to a mobile shell:
+
+- The top nav docks to the bottom edge as a thumb-reachable bar with icon
+  + caption tabs. iPhone home-indicator / notch safe-area is honoured.
+- The FIDS table reflows to a stack of per-flight cards: large time on
+  the left, flight + airline + route in the middle, status pill top-right,
+  gate badge in a meta row, with a status colour rail on the left edge.
+- Settings, Admin, and Setup grids stack to a single column. Inputs pick
+  up iOS-friendly sizing (16 px font, 44 px tap targets, defeats Safari
+  focus-zoom).
+- Radar and Matrix canvases resize to viewport width.
+
+You can preview the same view on desktop by appending `?mobile=1` to any
+page URL; `?mobile=0` clears the override.
+
+### LAN browser UI — 7-inch Raspberry Pi screens
+
+The two common 7" Pi touch panels — the official 800×480 screen and
+1024×600 IPS panels — get a dedicated compact layout that keeps the
+Qt-shell look but tightens every dimension. The top nav drops the brand
+text + secondary clock chip; on the 800×480 panel it also drops the UTC
+chip and the History/Logs/Report icons (still reachable from a desktop
+view). FIDS row height drops to 40 px, fonts step down one notch, and at
+the smallest resolution the A/C column hides. Net effect: **8 flights
+visible at 800×480** (was 5), **11 at 1024×600**.
+
+These rules trigger automatically on short viewports — no kiosk
+configuration required.

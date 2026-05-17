@@ -35,6 +35,7 @@ from localflight.native.design import (
     scroll_page,
 )
 from localflight.native.service import NativeApiService
+from localflight.native.widgets import DisclosureCard
 from localflight.storage.profiles import list_profiles
 
 
@@ -386,31 +387,37 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
         self._build_help_docs()
         self._build_diagnostics_maintenance()
 
-    def _collapsible_section(self, title: str) -> tuple[Any, Any, Any]:
-        group = self.QtWidgets.QGroupBox(title)
-        group.setCheckable(True)
-        group.setChecked(False)
-        outer = self.QtWidgets.QVBoxLayout(group)
-        outer.setContentsMargins(14, 12, 14, 12)
-        body = self.QtWidgets.QWidget()
-        layout = self.QtWidgets.QVBoxLayout(body)
-        layout.setContentsMargins(0, 8, 0, 0)
-        layout.setSpacing(10)
-        body.setVisible(False)
-        group.toggled.connect(body.setVisible)
-        outer.addWidget(body)
-        self.layout.addWidget(group)
-        return group, body, layout
+    def _collapsible_section(
+        self,
+        title: str,
+        *,
+        subtitle: str = "",
+        emoji: str = "",
+        expanded: bool = False,
+    ) -> tuple[Any, Any, Any]:
+        """Add a collapsible section as a DisclosureCard.
+
+        Returns ``(card, body, body_layout)`` so existing call-sites that
+        treated the old QGroupBox as "the group" keep working.  ``body``
+        is the inner frame and ``body_layout`` is the layout content
+        should be added to.
+        """
+        card = DisclosureCard(
+            self.QtCore,
+            self.QtWidgets,
+            title=title,
+            subtitle=subtitle,
+            emoji=emoji,
+            expanded=expanded,
+        )
+        self.layout.addWidget(card)
+        return card, card.body, card.body_layout
 
     def _build_relay_details(self) -> None:
-        self.relay_group, self.relay_body, layout = self._collapsible_section("Relay details")
-        layout.addWidget(
-            label(
-                self.QtWidgets,
-                "Read-only access status for Community Relay or managed access. Raw tokens and install IDs stay hidden.",
-                "Muted",
-                wrap=True,
-            )
+        self.relay_group, self.relay_body, layout = self._collapsible_section(
+            "Relay details",
+            subtitle="Community Relay or managed-access status — tokens stay hidden.",
+            emoji="\U0001F517",  # 🔗
         )
         grid = self.QtWidgets.QGridLayout()
         grid.setHorizontalSpacing(10)
@@ -483,7 +490,11 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
         self._render_pairing_payload()
 
     def _build_help_docs(self) -> None:
-        self.help_docs_group, self.help_docs_body, layout = self._collapsible_section("Diagnostics & Docs")
+        self.help_docs_group, self.help_docs_body, layout = self._collapsible_section(
+            "Diagnostics & Docs",
+            subtitle="Diagnostics mode and the bundled documentation pages.",
+            emoji="\U0001F4DA",  # 📚
+        )
         self.diagnostics = self.QtWidgets.QComboBox()
         for option in DIAGNOSTICS_OPTIONS:
             self.diagnostics.addItem(option.label, option.value)
@@ -524,14 +535,10 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
         layout.addWidget(self.doc_text)
 
     def _build_diagnostics_maintenance(self) -> None:
-        self.maintenance_group, self.maintenance_body, layout = self._collapsible_section("Maintenance")
-        layout.addWidget(
-            label(
-                self.QtWidgets,
-                "Use these when the local scheduler needs a nudge or you want to re-run first setup. Normal display settings live above.",
-                "Muted",
-                wrap=True,
-            )
+        self.maintenance_group, self.maintenance_body, layout = self._collapsible_section(
+            "Maintenance",
+            subtitle="Nudge the local scheduler, file a report, or re-run first-time setup.",
+            emoji="\U0001F527",  # 🔧
         )
         controls = self.QtWidgets.QHBoxLayout()
         report = self.QtWidgets.QPushButton("Open report form")
@@ -560,13 +567,13 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
         return box
 
     def _build_advanced_timing(self) -> None:
-        self.advanced_display_group = self.QtWidgets.QGroupBox("Advanced Board Timing")
-        self.advanced_display_group.setCheckable(True)
-        self.advanced_display_group.setChecked(False)
-        outer = self.QtWidgets.QVBoxLayout(self.advanced_display_group)
-        outer.setContentsMargins(14, 12, 14, 12)
-        self.advanced_display_body = self.QtWidgets.QWidget()
-        form = self.QtWidgets.QFormLayout(self.advanced_display_body)
+        self.advanced_display_group, self.advanced_display_body, outer = self._collapsible_section(
+            "Advanced Board Timing",
+            subtitle="Rotation, retention, and kiosk timing. Most users can leave these alone.",
+            emoji="⚙️",  # ⚙️
+        )
+        form_host = self.QtWidgets.QWidget()
+        form = self.QtWidgets.QFormLayout(form_host)
         form.setFieldGrowthPolicy(self.QtWidgets.QFormLayout.AllNonFixedFieldsGrow)
         self.web_row_limit = self.QtWidgets.QSpinBox()
         self.web_row_limit.setRange(5, 100)
@@ -580,18 +587,7 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
         form.addRow("Page rotation seconds", self.web_rotation)
         form.addRow("Past grace minutes", self.grace)
         form.addRow("Future horizon hours", self.horizon)
-        outer.addWidget(
-            label(
-                self.QtWidgets,
-                "For board rotation, retention, and kiosk timing. Most users can leave these alone.",
-                "Muted",
-                wrap=True,
-            )
-        )
-        outer.addWidget(self.advanced_display_body)
-        self.advanced_display_body.setVisible(False)
-        self.advanced_display_group.toggled.connect(self.advanced_display_body.setVisible)
-        self.layout.addWidget(self.advanced_display_group)
+        outer.addWidget(form_host)
 
     def _readonly_line(self) -> Any:
         widget = self.QtWidgets.QLineEdit()

@@ -59,6 +59,148 @@ class DetailDrawer:
         return drawer
 
 
+class DisclosureCard:
+    """A collapsible section presented as a clickable card.
+
+    Replaces the bland ``QGroupBox(setCheckable=True)`` pattern: the whole
+    header bar acts as the toggle, shows an emoji, a bold title and a
+    one-line subtitle (visible even when collapsed), and a chevron that
+    flips between ``▸`` and ``▾``.
+
+    Usage::
+
+        card = DisclosureCard(QtCore, QtWidgets, title="Relay details",
+                              subtitle="Status of the optional relay link.",
+                              emoji="🔗")
+        card.body_layout.addWidget(...)
+        parent_layout.addWidget(card)
+
+    The hosted content is added to ``card.body_layout`` (a ``QVBoxLayout``).
+    Call ``card.set_expanded(True/False)`` to drive it programmatically, or
+    let the user click the header.
+    """
+
+    def __new__(
+        cls,
+        QtCore: Any,
+        QtWidgets: Any,
+        *,
+        title: str,
+        subtitle: str = "",
+        emoji: str = "",
+        expanded: bool = False,
+    ):
+        frame = QtWidgets.QFrame()
+        frame.setObjectName("DisclosureCard")
+        frame.setProperty("expanded", False)
+        outer = QtWidgets.QVBoxLayout(frame)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+
+        # ---- Header (clickable bar) -----------------------------------
+        header = QtWidgets.QFrame()
+        header.setObjectName("DisclosureHeader")
+        header.setCursor(QtCore.Qt.PointingHandCursor)
+        header.setProperty("expanded", False)
+        row = QtWidgets.QHBoxLayout(header)
+        row.setContentsMargins(16, 12, 14, 12)
+        row.setSpacing(12)
+
+        emoji_label = QtWidgets.QLabel(emoji or "•")
+        emoji_label.setObjectName("DisclosureEmoji")
+        emoji_label.setFixedWidth(24)
+        emoji_label.setAlignment(QtCore.Qt.AlignCenter)
+
+        text_box = QtWidgets.QVBoxLayout()
+        text_box.setContentsMargins(0, 0, 0, 0)
+        text_box.setSpacing(1)
+        title_label = QtWidgets.QLabel(title)
+        title_label.setObjectName("DisclosureTitle")
+        subtitle_label = QtWidgets.QLabel(subtitle)
+        subtitle_label.setObjectName("DisclosureSubtitle")
+        subtitle_label.setWordWrap(True)
+        if not subtitle:
+            subtitle_label.hide()
+        text_box.addWidget(title_label)
+        text_box.addWidget(subtitle_label)
+
+        chevron = QtWidgets.QLabel("▸")  # ▸
+        chevron.setObjectName("DisclosureChevron")
+        chevron.setAlignment(QtCore.Qt.AlignCenter)
+        chevron.setFixedWidth(22)
+
+        row.addWidget(emoji_label, 0, QtCore.Qt.AlignVCenter)
+        row.addLayout(text_box, 1)
+        row.addWidget(chevron, 0, QtCore.Qt.AlignVCenter)
+
+        outer.addWidget(header)
+
+        # ---- Body (revealed on expand) --------------------------------
+        body = QtWidgets.QFrame()
+        body.setObjectName("DisclosureBody")
+        body_layout = QtWidgets.QVBoxLayout(body)
+        body_layout.setContentsMargins(18, 4, 18, 16)
+        body_layout.setSpacing(10)
+        body.setVisible(False)
+        outer.addWidget(body)
+
+        # ---- Toggle plumbing ------------------------------------------
+        def _apply_state(expanded_now: bool) -> None:
+            body.setVisible(expanded_now)
+            chevron.setText("▾" if expanded_now else "▸")  # ▾ / ▸
+            for widget in (frame, header):
+                widget.setProperty("expanded", bool(expanded_now))
+                style = widget.style()
+                style.unpolish(widget)
+                style.polish(widget)
+            frame.update()
+
+        def _toggle() -> None:
+            _apply_state(not body.isVisible())
+
+        def _set_expanded(value: bool) -> None:
+            _apply_state(bool(value))
+
+        def _is_expanded() -> bool:
+            return bool(body.isVisible())
+
+        def _set_subtitle(text: str) -> None:
+            subtitle_label.setText(text)
+            subtitle_label.setVisible(bool(text))
+
+        def _set_title(text: str) -> None:
+            title_label.setText(text)
+
+        # Whole header bar (and any child label) is a single click target.
+        def _press_handler(event: Any) -> None:
+            if event.button() == QtCore.Qt.LeftButton:
+                _toggle()
+                event.accept()
+                return
+            QtWidgets.QFrame.mousePressEvent(header, event)
+
+        header.mousePressEvent = _press_handler  # type: ignore[assignment]
+        # Forward clicks from child labels too (they sit on top of the header).
+        for child in (emoji_label, title_label, subtitle_label, chevron):
+            child.mousePressEvent = _press_handler  # type: ignore[assignment]
+
+        # ---- Public API attached on the frame instance ----------------
+        frame.toggle = _toggle
+        frame.set_expanded = _set_expanded
+        frame.is_expanded = _is_expanded
+        frame.set_subtitle = _set_subtitle
+        frame.set_title = _set_title
+        frame.body_layout = body_layout
+        frame.body = body
+        frame.header = header
+        frame.title_label = title_label
+        frame.subtitle_label = subtitle_label
+        frame.chevron = chevron
+
+        _apply_state(bool(expanded))
+        return frame
+
+
 class AirportSearchBox:
     """Compact reusable airport picker with debounced local API search."""
 

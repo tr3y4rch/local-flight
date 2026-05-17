@@ -504,6 +504,49 @@
     animation: lf-pulse 1.4s ease-in-out infinite;
   }
   .fids-info-msg { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  /* ── Compact / 7" Pi screen rules ──────────────────────────
+     Short viewports (Pi 7" official: 800x480; common
+     1024x600 panels) need tighter board chrome so 6+ flights
+     fit without scrolling.  We keep the desktop column layout
+     but shrink padding / fonts / row height.            */
+  @media (max-height: 600px) {
+    .card { padding: 8px 12px 10px; }
+    .fids-sub { margin-bottom: 6px; }
+    .fids-title { font-size: 0.92rem; }
+    .metar-bar { padding: 4px 9px; min-height: 26px; margin-bottom: 6px; font-size: 0.72rem; }
+    .weather-icon { width: 22px; height: 22px; font-size: 0.92rem; }
+    .weather-temp { padding: 2px 6px; font-size: 0.66rem; }
+    .view-toggle a { padding: 3px 9px; font-size: 0.74rem; }
+    .fids-lt, .fids-live-pill { font-size: 0.7rem; }
+    th { font-size: 0.56rem; padding: 0 8px 6px; }
+    .fids-row td { height: 40px; padding: 0 8px; }
+    .fids-hhmm { font-size: 1.02rem; }
+    .fids-delay-tag { font-size: 0.6rem; padding: 1px 4px; }
+    .fids-flight { font-size: 0.84rem; }
+    .fids-airline-name { font-size: 0.58rem; }
+    .fids-codeshares { font-size: 0.56rem; }
+    .fids-route { font-size: 0.78rem; }
+    .fids-badge { padding: 2px 7px; font-size: 0.64rem; }
+    .fids-gate-val { padding: 2px 6px; font-size: 0.74rem; }
+    .fids-ac { font-size: 0.7rem; }
+    col.col-time { width: 76px; }
+    col.col-flt  { width: 80px; }
+    col.col-gate { width: 60px; }
+    col.col-stat { width: 130px; }
+    col.col-ac   { width: 48px; }
+  }
+  /* Smallest official Pi resolution: 800×480.  Drop the A/C
+     column entirely (it's the least-actionable for a kiosk). */
+  @media (max-width: 880px) and (max-height: 520px) {
+    col.col-ac { width: 0; }
+    th:nth-child(6), .fids-row td:nth-child(6) { display: none; }
+    col.col-time { width: 72px; }
+    col.col-flt  { width: 76px; }
+    col.col-gate { width: 56px; }
+    col.col-stat { width: 118px; }
+    .fids-row td { height: 38px; }
+  }
 {% endblock %}
 
 {% block body %}

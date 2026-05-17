@@ -611,6 +611,70 @@ QGroupBox::title {{
   left: 10px;
   color: {colors["muted"]};
 }}
+
+/* ---- DisclosureCard --------------------------------------------------
+   A nicer alternative to checkable QGroupBox for collapsible settings
+   sections. The whole header bar is the toggle; the card lifts to an
+   accent border when expanded and on hover.                            */
+QFrame#DisclosureCard {{
+  background: {colors["panel"]};
+  border: 1px solid {colors["line"]};
+  border-radius: 12px;
+}}
+QFrame#DisclosureCard[expanded="true"] {{
+  background: {_mix_hex(colors["panel"], accent, 0.06)};
+  border: 1px solid {accent_border};
+}}
+QFrame#DisclosureHeader {{
+  background: transparent;
+  border: none;
+  border-radius: 12px;
+}}
+QFrame#DisclosureHeader:hover {{
+  background: {subtle_surface};
+}}
+QFrame#DisclosureHeader[expanded="true"] {{
+  background: {accent_soft};
+  border-bottom: 1px solid {accent_border};
+  /* Round only the top corners so it meets the body cleanly. */
+  border-top-left-radius: 12px;
+  border-top-right-radius: 12px;
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}}
+QLabel#DisclosureEmoji {{
+  background: transparent;
+  font-size: 16px;
+  color: {colors["text"]};
+}}
+QLabel#DisclosureTitle {{
+  background: transparent;
+  font-family: {UI_FONT_STACK};
+  font-size: 13px;
+  font-weight: 700;
+  color: {colors["text"]};
+  letter-spacing: 0.2px;
+}}
+QLabel#DisclosureSubtitle {{
+  background: transparent;
+  font-family: {UI_FONT_STACK};
+  font-size: 11px;
+  font-weight: 400;
+  color: {colors["muted"]};
+}}
+QLabel#DisclosureChevron {{
+  background: transparent;
+  font-size: 13px;
+  font-weight: 700;
+  color: {colors["muted"]};
+}}
+QFrame#DisclosureCard[expanded="true"] QLabel#DisclosureChevron {{
+  color: {accent};
+}}
+QFrame#DisclosureBody {{
+  background: transparent;
+  border: none;
+}}
 QFrame#BudgetBar {{
   background: {subtle_surface};
   border: 1px solid {soft_surface};

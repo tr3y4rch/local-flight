@@ -14,7 +14,75 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 > status pills, toasts, info bubbles, color emoji nav glyphs, and four FIDS
 > board styles (Classic / PAX / VATSIM / Nerd), plus the new mobile LAN
 > Companion / Standalone split.
+>
+> Late in the cycle (2026-05-18) the release also picked up a visual-language
+> pass that finishes earlier work: the four FIDS preset skins now actually
+> render distinct designs and scale with the viewport, the Settings page
+> replaces its bland checkbox-titled sections with proper disclosure cards,
+> the LAN browser UI gets a mirror-image of the Qt top nav, a real mobile
+> view for phones, and a dedicated 7-inch Pi screen layout.
+>
 > For the user-facing summary, see [docs/release-notes-0.2.7.md](docs/release-notes-0.2.7.md).
+
+### FIDS preset skins finally render their respective designs (2026-05-18)
+- Classic / PAX / VATSIM / Nerd were only labels on the same board until now. The active style is now driven by a richer `FidsStyle` dataclass (`row_height`+min/max, `row_gap`, `header_height`, `padding`, `font_scale`, primary/mono font families, palette overlay, `header_kind`, `row_chrome`, `status_chip`, `Column` spec with `(key, label, weight, min_w, hide_threshold)`).
+- **Classic** keeps the original rounded blue/cyan card layout with status rail and pill chips — fully unchanged for existing users.
+- **PAX** uses oversized rounded cards (`card-big` chrome, 104 px base row), a "tape"-style header band, warm sky-blue + amber accent palette, friendly status verbs ("Boarding now", "Significantly late"), bigger gate badge.
+- **VATSIM** uses an ATC scope chrome: flat rows on a faint green grid backdrop with a range-ring marker in the corner, monospace everywhere, callsign-first columns, square phase chip (TAXI / DESCENT / DELAY / PLAN), tighter 58 px base rows.
+- **Nerd** uses a grid chrome with column separators on every row, 13 columns visible (callsign + flight + registration + altitude + ground-speed + squawk + delay + source...), 3-letter status codes (BRD / DLY / SCH), low-intensity palette.
+- Geometric scaling: `FidsBoardView._viewport_scale()` returns a 1.0-centered scale factor based on viewport width (clamped 0.78–1.35), feeding both `_scaled_row_height` (per-skin clamp between `row_height_min` and `row_height_max`) and `_font_pt` (`base × font_scale × viewport_scale`). The board recomputes on every paint so the skin stays proportional when the window is resized.
+- `_column_rects` now consumes `style.columns`: hides any column whose `hide_threshold` exceeds the viewport, then distributes leftover space proportionally to weight (above `min_w`). Verified across 540–2400 px viewports: Nerd drops a column at 540 px and shows all 13 by 1400 px without ever overflowing.
+- `_draw_row` dispatches on `row_chrome` (`card` / `card-big` / `scope` / `grid`); `_draw_header` on `header_kind` (`pill` / `tape` / `scope` / `mono`); `_draw_status` on `status_chip` (`pill` / `pill-big` / `square` / `code`). A generic `_draw_text_cell` + `_cell_text` resolver covers the extra columns introduced by VATSIM and Nerd so adding a column to a future skin no longer needs a new draw method.
+- `FidsScreen.set_fids_style()` now also calls `self.board.set_style(style)` and re-renders; `FlightBoardModel` accepts the simpler `style.model_columns` two-tuple shape.
+
+### Settings page — disclosure cards instead of tiny checkboxes
+- The bland `QGroupBox(setCheckable=True)` pattern (Relay details / Diagnostics & Docs / Maintenance / Advanced Board Timing) was replaced with a new `DisclosureCard` widget in `localflight/native/widgets.py`. The whole header bar is the toggle, with an emoji slot, bold title, muted one-line subtitle that stays visible when collapsed, and a chevron that flips ▸ / ▾.
+- Each section now carries an emoji + subtitle so it self-describes without expanding: 🔗 Relay details, 📚 Diagnostics & Docs, 🔧 Maintenance, ⚙️ Advanced Board Timing.
+- New QSS rules in `design.py` style `QFrame#DisclosureCard`, `QFrame#DisclosureHeader`, and the four label slots. When expanded the header takes an accent-tinted background with a divider line; the chevron turns accent.
+- `SettingsScreen._collapsible_section()` keeps its `(group, body, body_layout)` return shape so existing call-sites kept working; `Advanced Board Timing` migrated from a raw `QGroupBox` to the same card so the page reads as a single consistent stack.
+
+### LAN browser UI — new shell that mirrors the Qt desktop
+- New `static/lf-shell.css` becomes the source of truth for the browser shell. Tokens are aligned 1-for-1 with `localflight/native/design.py` (bg `#080c12`, panel `#0d1520`, line `#1e3a5a`, text `#e8f0fe`, accent `#4a9eda`, cyan `#7ce7ff`); skin overrides from `skins.css` flow into the same `--lf-accent` / `--lf-accent-2` tokens so picking a skin in Settings now retints the LAN browser chrome too.
+- `_nav.html` was rewritten to mirror the Qt `TopNav`: brand mark + Audiowide brand name + monospace version chip → UTC + LT clock chips → centred segmented tab group with emoji glyphs (Display 🖥, FIDS 🛫, Radar 🛰, Matrix 🟩) → operator icon-chip bar (⚙ 🛠 📅 📜 💬) with a pulsing green heartbeat → Power button with a stroke icon.
+- New components for every page: `.lf-panel`, `.lf-card`, `.lf-kicker`, `.lf-section`, `.lf-disclosure` (HTML `<details>` styled to match the Qt `DisclosureCard`), `.lf-pill` + good/warn/bad variants, `.lf-btn` + primary/quiet/danger/mono. Inputs pick up the Qt focus ring (`accent` border + 3 px accent halo).
+- `app.css` token palette (`--bg / --panel / --card / --input / --btn`) now uses the Qt design.py values so even legacy pages that don't use the new classes pick up the right colours.
+- Stripped ~330 lines of legacy `.lf-nav` rules from inline `base.html` styles (now redundant with `lf-shell.css`). Quit modal switched to `.lf-btn-quiet` / `.lf-btn-danger`.
+
+### LAN browser UI — mobile view for phones
+- New `static/mobile.css` activates whenever `<html>` carries `lf-is-mobile`. The class is toggled by base.html JS based on either viewport width ≤ 720 px (auto) or a `?mobile=1` query (manual override, remembered in `sessionStorage` so navigation keeps it; `?mobile=0` clears).
+- Top nav pins to the bottom edge as a thumb-reachable bar with `env(safe-area-inset-bottom)` for notched/home-indicator phones. The brand block + clock chips drop out (duplicated on each page header), centre tabs become a flat icon-and-caption row, and the icon bar keeps Settings + Admin (History/Logs/Report still reachable from the desktop view + Settings). Power collapses to icon-only.
+- FIDS table reflows to a per-flight card stack: time column on the left, flight + airline + route stacked, status pill top-right, gate badge on a meta row. Status colour rides a left accent rail on each card. Narrower-phone tightening at ≤520 px and ≤380 px.
+- Settings / Admin / Setup multi-column grids stack to a single column. Inputs become 16 px + 44 px minimum height (prevents iOS Safari focus-zoom). `<pre>` / `.logbox` wrap instead of horizontal-scrolling.
+- Radar / Matrix / Display panes stack their sidebars and resize their canvases to viewport width.
+- Updated viewport meta to `viewport-fit=cover` and added PWA meta tags (`apple-mobile-web-app-capable`, `theme-color` for dark/light). A small `window.lfMobileSet(true/false)` helper is exposed for future toggles.
+
+### LAN browser UI — 7-inch Pi screen compact layout
+- Added a "compact landscape" tier keyed on viewport **height** (not width), since the official Pi 7" screen is 800×480 and common 7" IPS panels are 1024×600 — short, not narrow.
+- `@media (max-height: 600px)` tightens shell-wide chrome: nav padding 48 px (was 60), brand mark 22 px, LT clock chip hidden, smaller tabs / icon buttons / power, page padding 12 px (was 22), panel padding 12 px, disclosure header padding tightened.
+- `@media (max-width: 1024px) and (max-height: 600px)` drops the brand text (logo mark stays as the home link) and hides History/Logs/Report from the icon bar so the centre tabs + Settings/Admin chips fit unscrolled.
+- `@media (max-width: 880px) and (max-height: 520px)` (the official Pi 7"): strips the UTC chip and shrinks tab padding.
+- `fids.html` got matching page-level compact rules: row height 40 px (was 52), `fids-hhmm` 1.02 rem (was 1.18), tighter METAR bar, narrower time/flight/gate/status columns. At Pi 7" the A/C column is hidden (least actionable for a kiosk display). Net effect: 8 flights visible at 800×480 (was 5), 11 at 1024×600.
+- `settings.html` got matching compact rules: 1.1 rem title (down from 1.45–2.1 rem `clamp`), 12 px-radius cards, 5-card status strip collapses to 3 columns at Pi 7".
+
+### Files added (2026-05-18)
+- `src/localflight/native/widgets.py` — new `DisclosureCard` factory.
+- `src/localflight/ui/static/lf-shell.css` — Qt-aligned browser shell.
+- `src/localflight/ui/static/mobile.css` — mobile / compact view.
+
+### Files updated (2026-05-18)
+- `src/localflight/native/pages/fids_styles.py` — richer `FidsStyle` dataclass, four reworked presets with distinct visual identity + layout primitives.
+- `src/localflight/native/pages/fids.py` — `FidsBoardView` now skin-aware (geometric scaling, dispatch per chrome/header/chip, generic cell painter).
+- `src/localflight/native/pages/settings.py` — `_collapsible_section` builds a `DisclosureCard`; Advanced Board Timing converted off raw `QGroupBox`.
+- `src/localflight/native/design.py` — QSS for `QFrame#DisclosureCard` family; aligned LAN-browser color tokens stay in sync.
+- `src/localflight/ui/templates/_nav.html` — Qt-shell-aligned top nav.
+- `src/localflight/ui/templates/base.html` — loads `lf-shell.css` + `mobile.css`; ~330 lines of legacy nav CSS removed; PWA meta tags + `?mobile=1` JS toggle added.
+- `src/localflight/ui/templates/fids.html` — compact rules at `(max-height: 600px)` + Pi 7" rules at `(max-width: 880px) and (max-height: 520px)`.
+- `src/localflight/ui/templates/settings.html` — compact rules at the same break-points.
+- `src/localflight/ui/static/app.css` — token palette aligned with Qt `THEME_TOKENS`.
+
+### Verification (2026-05-18)
+- Qt FIDS renders verified per-skin (Classic / PAX / VATSIM / Nerd) via `QPainter` headless renders; column-rect math verified across 540 px / 900 px / 1400 px / 2400 px (no overflow; lowest-priority columns drop first); row-height interpolation verified at 640 / 1024 / 1600 / 2400 px (stays within each skin's `min`/`max`).
+- LAN browser renders via `QWebEngineView` verified at desktop (1400×820), 7" Pi landscape (1024×600 and 800×480), tablet (768×1024), and phone (390×844). The desktop view picks up the new Qt-shell chrome; the phone view shows the bottom-bar mobile layout; the Pi viewports show 8–11 flight rows + compact chrome without horizontal scroll. No regression on the desktop FIDS table or detail drawer.
 
 ### Native first-run setup wizard
 - Replaced the row of numbered step buttons with an animated horizontal stepper: numbered circles connected by a fill line that glides as you advance, current step has a pulsing accent halo, done steps show ✓, hovering a node shows a soft ring.

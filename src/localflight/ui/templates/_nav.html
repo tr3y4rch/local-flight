@@ -1,118 +1,117 @@
 {#
   localflight/ui/templates/_nav.html
 
-  Shared navigation bar for all Local Flight pages.
+  Shared navigation bar for all Local Flight pages.  Mirrors the
+  layout of the Qt desktop shell (brand + clocks · centred tab group
+  · operator icon-chips · power) using the .lf-shell-* classes in
+  static/lf-shell.css.
 
   Usage:
     {% from "_nav.html" import topnav %}
     {{ topnav(active="settings", cfg=cfg) }}
 
   active: one of "display" | "fids" | "radar" | "matrix" |
-                 "settings" | "admin" | "history" | "logs" | "feedback" | "traffic"
+                 "settings" | "admin" | "history" | "logs" | "feedback"
 #}
 
 {% macro topnav(active="", cfg=none, embedded=false) %}
 {% if not embedded %}
-<nav class="lf-nav">
-  <div class="lf-nav-left">
-    <a href="/display" class="lf-nav-brand" title="Open Display">
-      <span class="lf-nav-brand-mark" aria-hidden="true"><img src="/static/localflight-logo.svg" alt="" /></span>
-      <span class="lf-nav-brand-name">{{ cfg.display_name if cfg else "Local Flight" }}</span>
-      <span class="lf-nav-ver">v{{ app_version }}</span>
+<nav class="lf-shell-nav lf-nav" aria-label="Local Flight navigation">
+
+  {# ── Left: brand mark + name + version + clock chips ─────────── #}
+  <div class="lf-shell-left">
+    <a href="/display" class="lf-brand" title="Local Flight home">
+      <span class="lf-brand-mark" aria-hidden="true">
+        <img src="/static/localflight-logo.svg" alt="" />
+      </span>
+      <span class="lf-brand-text">
+        <span class="lf-brand-name">{{ cfg.display_name if cfg else "Local Flight" }}</span>
+        <span class="lf-brand-ver">v{{ app_version }}</span>
+      </span>
     </a>
 
-    <div class="lf-nav-clocks" aria-label="Current time">
-      <span class="lf-nav-clock-chip">
-        <span class="lf-nav-clock-tag">UTC</span>
-        <span class="clock-utc-val lf-nav-clock-utc">--:--:--</span>
+    <div class="lf-clock-group" aria-label="Current time">
+      <span class="lf-clock-chip" title="Coordinated Universal Time">
+        <span class="lf-clock-tag">UTC</span>
+        <span class="lf-clock-val clock-utc-val lf-nav-clock-utc">--:--:--</span>
       </span>
-      <span class="lf-nav-clock-chip">
-        <span class="lf-nav-clock-tag">LT</span>
-        <span class="clock-local-val lf-nav-clock-local">--:--:--</span>
+      <span class="lf-clock-chip" title="Airport local time">
+        <span class="lf-clock-tag">LT</span>
+        <span class="lf-clock-val clock-local-val lf-nav-clock-local">--:--:--</span>
       </span>
     </div>
   </div>
 
-  <div class="lf-nav-center">
-    <div class="lf-nav-group lf-nav-group-core">
+  {# ── Center: primary destinations (Qt segmented tab group) ───── #}
+  <div class="lf-shell-center">
+    <div class="lf-tabgroup" role="tablist">
       <a href="/display"
-         class="lf-nav-item {% if active == 'display' %}lf-nav-active{% endif %}"
-         title="Split display">
-        <span class="lf-nav-icon">&#9635;</span>
-        <span class="lf-nav-label">Display</span>
+         class="lf-tab {% if active == 'display' %}is-active{% endif %}"
+         role="tab" title="Split display">
+        <span class="lf-tab-glyph" aria-hidden="true">🖥</span>
+        <span class="lf-tab-label">Display</span>
       </a>
       <a href="/fids?view=departures"
-         class="lf-nav-item {% if active == 'fids' %}lf-nav-active{% endif %}"
-         title="FIDS board">
-        <span class="lf-nav-icon">&#9776;</span>
-        <span class="lf-nav-label">FIDS</span>
+         class="lf-tab {% if active == 'fids' %}is-active{% endif %}"
+         role="tab" title="FIDS board">
+        <span class="lf-tab-glyph" aria-hidden="true">🛫</span>
+        <span class="lf-tab-label">FIDS</span>
       </a>
       <a href="/radar"
-         class="lf-nav-item {% if active == 'radar' %}lf-nav-active{% endif %}"
-         title="Radar">
-        <span class="lf-nav-icon">&#9678;</span>
-        <span class="lf-nav-label">Radar</span>
+         class="lf-tab {% if active == 'radar' %}is-active{% endif %}"
+         role="tab" title="Live radar">
+        <span class="lf-tab-glyph" aria-hidden="true">🛰</span>
+        <span class="lf-tab-label">Radar</span>
       </a>
       <a href="/matrix-preview"
-         class="lf-nav-item {% if active == 'matrix' %}lf-nav-active{% endif %}"
-         title="Matrix preview">
-        <span class="lf-nav-icon">&#9638;</span>
-        <span class="lf-nav-label">Matrix</span>
+         class="lf-tab {% if active == 'matrix' %}is-active{% endif %}"
+         role="tab" title="Matrix preview">
+        <span class="lf-tab-glyph" aria-hidden="true">🟩</span>
+        <span class="lf-tab-label">Matrix</span>
       </a>
     </div>
   </div>
 
-  <div class="lf-nav-right">
-    <div class="lf-nav-group lf-nav-group-ops">
+  {# ── Right: operator chips (settings/admin/history/logs/report) + power ── #}
+  <div class="lf-shell-right">
+    <div class="lf-iconbar" aria-label="Operator tools">
       <a href="/"
-         class="lf-nav-item {% if active == 'settings' %}lf-nav-active{% endif %}"
-         title="Settings">
-        <span class="lf-nav-icon">&#9881;</span>
-        <span class="lf-nav-label">Settings</span>
-      </a>
+         class="lf-iconbtn {% if active == 'settings' %}is-active{% endif %}"
+         title="Settings" aria-label="Settings">⚙</a>
       <a href="/admin"
-         class="lf-nav-item {% if active == 'admin' %}lf-nav-active{% endif %}"
-         title="Admin hub">
-        <span class="lf-nav-icon">&#9874;</span>
-        <span class="lf-nav-label">Admin</span>
-      </a>
+         class="lf-iconbtn {% if active == 'admin' %}is-active{% endif %}"
+         title="Admin hub" aria-label="Admin">🛠</a>
       <a href="/history"
-         class="lf-nav-item {% if active == 'history' %}lf-nav-active{% endif %}"
-         title="Flight history">
-        <span class="lf-nav-icon">&#9716;</span>
-        <span class="lf-nav-label">History</span>
-      </a>
+         class="lf-iconbtn {% if active == 'history' %}is-active{% endif %}"
+         title="Flight history" aria-label="History">📅</a>
       <a href="/logs"
-         class="lf-nav-item {% if active == 'logs' %}lf-nav-active{% endif %}"
-         title="Logs">
-        <span class="lf-nav-icon">&#8801;</span>
-        <span class="lf-nav-label">Logs</span>
-      </a>
+         class="lf-iconbtn {% if active == 'logs' %}is-active{% endif %}"
+         title="Logs" aria-label="Logs">📜</a>
       <a href="/feedback"
-         class="lf-nav-item {% if active == 'feedback' %}lf-nav-active{% endif %}"
-         title="Report an issue">
-        <span class="lf-nav-icon">&#9888;</span>
-        <span class="lf-nav-label">Report</span>
-      </a>
+         class="lf-iconbtn {% if active == 'feedback' %}is-active{% endif %}"
+         title="Report an issue" aria-label="Report">💬</a>
+      <span class="lf-iconbtn is-status" title="Scheduler heartbeat" aria-label="Live"></span>
     </div>
 
-    <button class="lf-nav-quit" type="button" onclick="lfQuitOpen()" title="Shut down Local Flight" aria-label="Shut down Local Flight">
+    <button class="lf-power" type="button" onclick="lfQuitOpen()"
+            title="Shut down Local Flight" aria-label="Shut down Local Flight">
       <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
         <path d="M12 3v8"></path>
         <path d="M7.05 5.64A8 8 0 1 0 16.95 5.64"></path>
       </svg>
+      <span class="lf-power-label">Power</span>
     </button>
   </div>
 </nav>
 
 <div id="lfQuitModal" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.55);backdrop-filter:blur(4px);align-items:center;justify-content:center;">
-  <div style="background:var(--panel-bg,#1a1a1a);border:1px solid var(--panel-border,rgba(255,255,255,0.12));border-radius:14px;padding:28px 32px;min-width:280px;max-width:360px;text-align:center;box-shadow:0 24px 64px rgba(0,0,0,0.5);">
+  <div style="background:var(--lf-panel,#0d1520);border:1px solid var(--lf-line,#1e3a5a);border-radius:14px;padding:28px 32px;min-width:280px;max-width:360px;text-align:center;box-shadow:0 24px 64px rgba(0,0,0,0.5);">
     <div style="font-size:2rem;margin-bottom:12px;">&#x23FB;</div>
     <div style="font-weight:700;font-size:1rem;margin-bottom:6px;">Quit Local Flight?</div>
     <div style="opacity:0.5;font-size:0.82rem;margin-bottom:24px;" id="lfQuitSub">The app and browser window will close.</div>
     <div style="display:flex;gap:10px;justify-content:center;">
-      <button onclick="lfQuitClose()" style="padding:8px 20px;border-radius:8px;border:1px solid rgba(255,255,255,0.12);background:none;color:inherit;font-size:0.88rem;cursor:pointer;opacity:0.7;">Cancel</button>
-      <button onclick="lfQuitConfirm()" id="lfQuitBtn" style="padding:8px 20px;border-radius:8px;border:none;background:#ef4444;color:#fff;font-size:0.88rem;font-weight:700;cursor:pointer;">Quit</button>
+      <button onclick="lfQuitClose()" class="lf-btn lf-btn-quiet">Cancel</button>
+      <button onclick="lfQuitConfirm()" id="lfQuitBtn" class="lf-btn lf-btn-danger">Quit</button>
     </div>
   </div>
 </div>
@@ -144,4 +143,4 @@ async function lfQuitConfirm() {
 {% endif %}
 {% endmacro %}
 
-{% macro nav_styles() %}{# NOOP #}{% endmacro %}
+{% macro nav_styles() %}{# NOOP — superseded by static/lf-shell.css #}{% endmacro %}

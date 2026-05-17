@@ -5,7 +5,56 @@
 >
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="theme-color" content="#0b0d10" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#f5f7fb" media="(prefers-color-scheme: light)" />
+    <script>
+      /* Toggle `html.lf-is-mobile` based on either:
+           - viewport width <= 720px (auto), or
+           - ?mobile=1 query (manual override, remembered for the
+             tab so navigation keeps the preference).
+         ?mobile=0 clears the override.
+
+         A single CSS class drives everything in static/mobile.css so
+         rules can mix viewport-based and manual-override modes
+         without duplicating selectors. */
+      (function () {
+        var root = document.documentElement;
+        var manual = false;
+        try {
+          var qs = new URLSearchParams(window.location.search);
+          if (qs.get("mobile") === "1") {
+            sessionStorage.setItem("lf-mobile", "1");
+            manual = true;
+          } else if (qs.get("mobile") === "0") {
+            sessionStorage.removeItem("lf-mobile");
+            manual = false;
+          } else {
+            manual = sessionStorage.getItem("lf-mobile") === "1";
+          }
+        } catch (e) { /* storage blocked — ignore */ }
+        var mql = window.matchMedia("(max-width: 720px)");
+        function sync() {
+          var on = manual || mql.matches;
+          root.classList.toggle("lf-is-mobile", on);
+        }
+        sync();
+        // matchMedia change handler in both old + new event styles
+        if (mql.addEventListener) mql.addEventListener("change", sync);
+        else if (mql.addListener) mql.addListener(sync);
+        window.lfMobileSet = function (on) {
+          manual = !!on;
+          try {
+            if (manual) sessionStorage.setItem("lf-mobile", "1");
+            else sessionStorage.removeItem("lf-mobile");
+          } catch (e) {}
+          sync();
+        };
+      })();
+    </script>
     <title>{% block title %}Local Flight{% endblock %}</title>
     <link rel="icon" href="/static/localflight-logo.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="/static/localflight-app-icon.png" />
@@ -15,6 +64,12 @@
     <link rel="stylesheet" href="/static/fonts.css" />
     <link rel="stylesheet" href="/static/app.css" />
     <link rel="stylesheet" href="/static/skins.css" />
+    {# Browser shell that mirrors the Qt desktop look (nav, panels,    #}
+    {# kickers, disclosure, status pills, buttons).                    #}
+    <link rel="stylesheet" href="/static/lf-shell.css" />
+    {# Mobile / compact view — listed last so its rules win.           #}
+    {# Honour ?mobile=1 to force the compact view on any viewport.     #}
+    <link rel="stylesheet" href="/static/mobile.css" />
     <style>
       /* ── Clock bar (used outside nav too) ── */
       .clock-bar {
@@ -149,342 +204,9 @@
         background-size: 200% 100%;
       }
 
-      /* ══ Local Flight nav bar ════════════════════════════════════════════ */
-      .lf-nav {
-        display: flex;
-        align-items: center;
-        gap: 4px;
-        padding: 0 14px;
-        height: 42px;
-        flex-shrink: 0;
-        border-bottom: 1px solid rgba(255,255,255,0.07);
-        background: rgba(0,0,0,0.25);
-        backdrop-filter: blur(8px);
-        -webkit-backdrop-filter: blur(8px);
-        position: sticky;
-        top: 0;
-        z-index: 50;
-        box-sizing: border-box;
-        width: 100%;
-      }
-      [data-theme="light"] .lf-nav {
-        border-bottom-color: rgba(0,0,0,0.08);
-        background: rgba(255,255,255,0.85);
-      }
-      .lf-nav-brand {
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        font-size: 0.88rem;
-        font-weight: 400;
-        text-decoration: none;
-        color: inherit;
-        opacity: 0.9;
-        white-space: nowrap;
-        margin-right: 6px;
-        letter-spacing: 0.02em;
-      }
-      .lf-nav-brand:hover { opacity: 1; }
-      .lf-nav-brand-name  { opacity: 0.7; font-family: var(--font-brand); font-weight: 400; }
-      .lf-nav-ver         { opacity: 0.3; font-size: 0.62rem; font-weight: 500; margin-left: 4px; font-family: var(--font-board); }
-      .lf-nav-group {
-        display: flex;
-        align-items: center;
-        gap: 1px;
-        background: rgba(255,255,255,0.04);
-        border-radius: 8px;
-        padding: 3px;
-      }
-      [data-theme="light"] .lf-nav-group { background: rgba(0,0,0,0.04); }
-      .lf-nav-item {
-        display: flex;
-        align-items: center;
-        gap: 5px;
-        padding: 4px 10px;
-        border-radius: 5px;
-        text-decoration: none;
-        color: inherit;
-        font-size: 0.78rem;
-        font-weight: 600;
-        opacity: 0.5;
-        white-space: nowrap;
-        transition: opacity 0.12s, background 0.12s;
-        letter-spacing: 0.01em;
-      }
-      .lf-nav-item:hover { opacity: 0.85; background: rgba(255,255,255,0.07); }
-      [data-theme="light"] .lf-nav-item:hover { background: rgba(0,0,0,0.06); }
-      .lf-nav-active {
-        opacity: 1 !important;
-        background: rgba(74,158,218,0.18) !important;
-        color: #7cc4f0 !important;
-      }
-      [data-theme="light"] .lf-nav-active {
-        background: rgba(30,100,180,0.1) !important;
-        color: #1e6cb4 !important;
-      }
-      .lf-nav-icon  { font-size: 0.88rem; line-height: 1; flex-shrink: 0; }
-      .lf-nav-label { line-height: 1; }
-      .lf-nav-sep   { width: 1px; height: 18px; background: rgba(255,255,255,0.1); margin: 0 4px; flex-shrink: 0; }
-      [data-theme="light"] .lf-nav-sep { background: rgba(0,0,0,0.1); }
-      .lf-nav-clock {
-        margin-left: auto;
-        display: flex;
-        align-items: baseline;
-        gap: 4px;
-        font-family: var(--font-board);
-        font-size: 0.78rem;
-        font-variant-numeric: tabular-nums;
-        opacity: 0.6;
-        white-space: nowrap;
-      }
-      .lf-nav-clock-utc { font-weight: 700; }
-      .lf-nav-clock-sep { opacity: 0.5; font-size: 0.68rem; }
-      /* Quit button */
-      .lf-nav-quit {
-        margin-left: 8px; padding: 4px 8px; border-radius: 5px;
-        border: 1px solid rgba(255,255,255,0.1);
-        background: none; color: inherit;
-        font-size: 0.9rem; opacity: 0.3; cursor: pointer;
-        transition: opacity 0.12s, background 0.12s, border-color 0.12s;
-        line-height: 1; flex-shrink: 0;
-      }
-      .lf-nav-quit:hover {
-        opacity: 0.9; background: rgba(255,60,60,0.12);
-        border-color: rgba(255,60,60,0.35); color: #ff6060;
-      }
-      [data-theme="light"] .lf-nav-quit { border-color: rgba(0,0,0,0.1); }
-      [data-theme="light"] .lf-nav-quit:hover {
-        background: rgba(200,0,0,0.08); border-color: rgba(200,0,0,0.25); color: #cc0000;
-      }
-
-      @media (max-width: 600px) {
-        .lf-nav-label { display: none; }
-        .lf-nav-brand-name { display: none; }
-        .lf-nav-item { padding: 4px 7px; }
-      }
-      /* ══════════════════════════════════════════════════════════════════ */
-
-      /* nav layout refresh */
-      .lf-nav {
-        display: grid;
-        grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
-        align-items: center;
-        gap: 12px;
-        padding: 8px 14px;
-        min-height: 54px;
-        height: auto;
-        max-width: 100vw;
-        overflow: clip;
-      }
-      .lf-nav-left,
-      .lf-nav-center,
-      .lf-nav-right {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        min-width: 0;
-      }
-      .lf-nav-left { overflow: hidden; }
-      .lf-nav-center { justify-self: center; }
-      .lf-nav-right { justify-self: end; }
-      .lf-nav-center,
-      .lf-nav-right {
-        max-width: 100%;
-        overflow-x: auto;
-        overflow-y: hidden;
-        scrollbar-width: none;
-        -webkit-overflow-scrolling: touch;
-      }
-      .lf-nav-center::-webkit-scrollbar,
-      .lf-nav-right::-webkit-scrollbar {
-        display: none;
-      }
-      .lf-nav-brand {
-        display: inline-flex;
-        align-items: center;
-        gap: 7px;
-        min-width: 0;
-        margin-right: 0;
-        letter-spacing: 0;
-      }
-      .lf-nav-brand-mark {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        width: 26px;
-        height: 26px;
-        border-radius: 0;
-        background: transparent;
-        color: inherit;
-        font-size: 0;
-        flex-shrink: 0;
-      }
-      .lf-nav-brand-mark img {
-        display: block;
-        width: 26px;
-        height: 26px;
-      }
-      [data-theme="light"] .lf-nav-brand-mark {
-        background: transparent;
-        color: inherit;
-      }
-      .lf-nav-brand-name {
-        opacity: 0.74;
-        font-family: var(--font-brand);
-        font-weight: 400;
-        letter-spacing: 0.02em;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-      }
-      .lf-nav-ver {
-        opacity: 0.42;
-        font-size: 0.66rem;
-        font-weight: 600;
-      }
-      .lf-nav-clocks {
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        flex-wrap: wrap;
-      }
-      .lf-nav-clock-chip {
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-        padding: 5px 8px;
-        border-radius: 999px;
-        background: rgba(255,255,255,0.04);
-        border: 1px solid rgba(255,255,255,0.06);
-        font-family: var(--font-board);
-        font-size: 0.76rem;
-        font-variant-numeric: tabular-nums;
-        white-space: nowrap;
-      }
-      [data-theme="light"] .lf-nav-clock-chip {
-        background: rgba(0,0,0,0.035);
-        border-color: rgba(0,0,0,0.06);
-      }
-      .lf-nav-clock-tag {
-        opacity: 0.52;
-        font-size: 0.66rem;
-        font-weight: 700;
-        letter-spacing: 0.04em;
-      }
-      .lf-nav-clock-utc,
-      .lf-nav-clock-local {
-        font-weight: 700;
-      }
-      .lf-nav-group {
-        gap: 2px;
-        padding: 4px;
-        border-radius: 10px;
-        flex-wrap: nowrap;
-        min-width: max-content;
-      }
-      .lf-nav-item {
-        display: inline-flex;
-        gap: 6px;
-        padding: 6px 10px;
-        border-radius: 7px;
-        font-size: 0.79rem;
-        font-weight: 650;
-        letter-spacing: 0;
-      }
-      .lf-nav-icon {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        min-width: 14px;
-        font-size: 0.83rem;
-      }
-      .lf-nav-quit {
-        width: 36px;
-        height: 36px;
-        margin: 0;
-        margin-left: 0;
-        margin-top: 0;
-        padding: 0;
-        border-radius: 10px;
-        background: rgba(255,255,255,0.02);
-        opacity: 0.55;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        flex-shrink: 0;
-      }
-      [data-theme="light"] .lf-nav-quit {
-        background: rgba(0,0,0,0.02);
-      }
-      .lf-nav-quit svg {
-        width: 16px;
-        height: 16px;
-        stroke: currentColor;
-        fill: none;
-        stroke-width: 1.8;
-        stroke-linecap: round;
-        stroke-linejoin: round;
-      }
-      @media (max-width: 1180px) {
-        .lf-nav {
-          grid-template-columns: minmax(0, 1fr) auto;
-          grid-template-areas:
-            "left right"
-            "center center";
-        }
-        .lf-nav-left { grid-area: left; }
-        .lf-nav-center { grid-area: center; justify-self: start; width: 100%; }
-        .lf-nav-right { grid-area: right; max-width: 100%; }
-      }
-      @media (max-width: 760px) {
-        .lf-nav {
-          padding: 8px 10px;
-          gap: 8px;
-        }
-        .lf-nav-brand-name { display: none; }
-        .lf-nav-label { display: none; }
-        .lf-nav-right { max-width: min(52vw, 260px); }
-        .lf-nav-group { gap: 1px; padding: 3px; }
-        .lf-nav-item { padding: 7px 8px; }
-        .lf-nav-clock-chip { padding: 4px 7px; }
-      }
-      @media (max-width: 560px) {
-        .lf-nav {
-          padding: 6px 8px;
-          gap: 6px;
-        }
-        .lf-nav-ver { display: none; }
-        .lf-nav-clocks .lf-nav-clock-chip:last-child { display: none; }
-        .lf-nav-right { max-width: 44vw; }
-        .lf-nav-item { padding: 6px 7px; }
-        .lf-nav-quit {
-          width: 30px;
-          height: 30px;
-          margin-left: 3px;
-          padding: 0;
-        }
-      }
-      @media (max-height: 520px) {
-        .lf-nav {
-          padding: 4px 8px;
-          gap: 6px;
-          min-height: 42px;
-        }
-        .lf-nav-brand-mark {
-          width: 20px;
-          height: 20px;
-        }
-        .lf-nav-ver { display: none; }
-        .lf-nav-clock-chip {
-          padding: 3px 6px;
-          font-size: 0.68rem;
-        }
-        .lf-nav-item {
-          padding: 5px 7px;
-          font-size: 0.74rem;
-        }
-      }
-
+      /* The Qt-shell nav (.lf-shell-nav) and its parts now live in
+         /static/lf-shell.css.  Mobile collapse rules live in
+         /static/mobile.css.  Per-page styling continues here: */
       {% block extra_style %}{% endblock %}
     </style>
   </head>

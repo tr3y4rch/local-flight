@@ -1,0 +1,715 @@
+/* ============================================================
+   Local Flight — Browser shell, aligned to the Qt native shell
+   ------------------------------------------------------------
+   Loaded after fonts.css + app.css + skins.css so its rules
+   take precedence.
+
+   Goal: the LAN browser UI should look like the Qt desktop
+   shell — same palette, typography, nav structure, panel
+   chrome, kicker labels, status pills, disclosure cards.
+
+   Color tokens mirror localflight/native/design.py exactly:
+     bg       #080c12   panel  #0d1520    panel-2 #0a121c
+     card     #101a26   line   #1e3a5a    line-2  #17324d
+     text     #e8f0fe   muted  #79a7c8    dim     #4a7aaa
+     accent   #4a9eda   cyan   #7ce7ff
+     green    #00c040   amber  #f0b429    red     #ff6060
+   ============================================================ */
+
+:root {
+  /* Surface tokens — Qt dark theme */
+  --lf-bg: #080c12;
+  --lf-panel: #0d1520;
+  --lf-panel-2: #0a121c;
+  --lf-card: #101a26;
+  --lf-line: #1e3a5a;
+  --lf-line-soft: #17324d;
+  --lf-input-bg: #0b141f;
+
+  /* Text */
+  --lf-text: #e8f0fe;
+  --lf-muted: #79a7c8;
+  --lf-dim: #4a7aaa;
+
+  /* Skin accents (standard skin) */
+  --lf-accent: #4a9eda;
+  --lf-accent-2: #7ce7ff;
+
+  /* Status */
+  --lf-good: #00c040;
+  --lf-warn: #f0b429;
+  --lf-bad:  #ff6060;
+
+  /* Derived translucent surfaces */
+  --lf-surface-soft: rgba(255, 255, 255, 0.04);
+  --lf-surface-strong: rgba(255, 255, 255, 0.08);
+  --lf-accent-soft: rgba(74, 158, 218, 0.18);
+  --lf-accent-border: rgba(74, 158, 218, 0.42);
+
+  /* Spacing rhythm */
+  --lf-gap-xs: 4px;
+  --lf-gap-sm: 8px;
+  --lf-gap-md: 12px;
+  --lf-gap-lg: 16px;
+  --lf-gap-xl: 24px;
+
+  /* Radii */
+  --lf-radius-sm: 8px;
+  --lf-radius-md: 12px;
+  --lf-radius-lg: 14px;
+  --lf-radius-xl: 18px;
+}
+
+html[data-theme="light"] {
+  --lf-bg: #f4f7fb;
+  --lf-panel: #ffffff;
+  --lf-panel-2: #eaf0f7;
+  --lf-card: #ffffff;
+  --lf-line: #cbd8e6;
+  --lf-line-soft: #dce6f1;
+  --lf-input-bg: #ffffff;
+  --lf-text: #101923;
+  --lf-muted: #46657d;
+  --lf-dim: #6d879e;
+  --lf-surface-soft: rgba(0, 0, 0, 0.04);
+  --lf-surface-strong: rgba(0, 0, 0, 0.07);
+  --lf-accent-soft: rgba(74, 158, 218, 0.14);
+  --lf-accent-border: rgba(74, 158, 218, 0.38);
+}
+
+/* skins.css already overrides --accent / --accent-2 per-skin; mirror
+   those into the lf-* tokens so all shell chrome picks up the skin. */
+html[data-skin] {
+  --lf-accent: var(--accent, #4a9eda);
+  --lf-accent-2: var(--accent-2, #7ce7ff);
+}
+
+/* ============================================================
+   Base body / page surface
+   ============================================================ */
+html, body {
+  background: var(--lf-bg);
+  color: var(--lf-text);
+  font-family: var(--font-ui);
+}
+body {
+  /* app.css forces grid+place-items:center which breaks full-page
+     layouts.  Override here so each page can lay itself out as a
+     vertical stack with the new nav on top. */
+  display: block;
+  place-items: initial;
+  min-height: 100vh;
+}
+
+/* ============================================================
+   Top nav — the Qt-shell silhouette
+   Brand • Centred tab group • Right ops (icon chips) • Power
+   ============================================================ */
+
+.lf-shell-nav {
+  display: grid;
+  grid-template-columns: minmax(0, auto) minmax(0, 1fr) minmax(0, auto);
+  align-items: center;
+  gap: 14px;
+  padding: 10px 18px;
+  min-height: 60px;
+  background: linear-gradient(180deg, rgba(8, 14, 22, 0.96), rgba(8, 14, 22, 0.85));
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--lf-line-soft);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  width: 100%;
+  box-sizing: border-box;
+}
+html[data-theme="light"] .lf-shell-nav {
+  background: linear-gradient(180deg, rgba(244, 247, 251, 0.97), rgba(244, 247, 251, 0.88));
+  border-bottom-color: var(--lf-line);
+}
+
+.lf-shell-left,
+.lf-shell-center,
+.lf-shell-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.lf-shell-center { justify-self: center; }
+.lf-shell-right  { justify-self: end; }
+
+/* ---- Brand block ----------------------------------------- */
+.lf-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  text-decoration: none;
+  color: inherit;
+  padding: 4px 6px;
+  border-radius: var(--lf-radius-md);
+  transition: background 0.12s;
+}
+.lf-brand:hover { background: var(--lf-surface-soft); }
+.lf-brand-mark {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.lf-brand-mark img { width: 28px; height: 28px; display: block; }
+.lf-brand-text {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 2px;
+  line-height: 1;
+  min-width: 0;
+}
+.lf-brand-name {
+  font-family: var(--font-brand);
+  font-size: 0.92rem;
+  letter-spacing: 0.06em;
+  color: var(--lf-text);
+  white-space: nowrap;
+}
+.lf-brand-ver {
+  font-family: var(--font-board);
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  color: var(--lf-dim);
+}
+
+/* ---- Clock chips ----------------------------------------- */
+.lf-clock-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.lf-clock-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border-radius: var(--lf-radius-sm);
+  background: var(--lf-panel-2);
+  border: 1px solid var(--lf-line-soft);
+  font-family: var(--font-board);
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--lf-text);
+}
+.lf-clock-tag {
+  color: var(--lf-dim);
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+.lf-clock-val {
+  font-weight: 700;
+  color: var(--lf-text);
+}
+
+/* ---- Center tab group ------------------------------------ */
+.lf-tabgroup {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  border-radius: var(--lf-radius-md);
+  background: var(--lf-panel-2);
+  border: 1px solid var(--lf-line-soft);
+}
+.lf-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 14px;
+  border-radius: var(--lf-radius-sm);
+  text-decoration: none;
+  color: var(--lf-muted);
+  font-size: 0.84rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  background: transparent;
+  border: 1px solid transparent;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+  white-space: nowrap;
+}
+.lf-tab .lf-tab-glyph {
+  font-size: 1rem;
+  line-height: 1;
+  min-width: 18px;
+  text-align: center;
+}
+.lf-tab:hover {
+  background: var(--lf-surface-soft);
+  color: var(--lf-text);
+}
+.lf-tab.is-active {
+  background: var(--lf-accent-soft);
+  border-color: var(--lf-accent-border);
+  color: var(--lf-text);
+}
+
+/* ---- Right operator chips (icon-only square buttons) ----- */
+.lf-iconbar {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  border-radius: var(--lf-radius-md);
+  background: var(--lf-panel-2);
+  border: 1px solid var(--lf-line-soft);
+}
+.lf-iconbtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: var(--lf-radius-sm);
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--lf-muted);
+  text-decoration: none;
+  font-size: 1.05rem;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+.lf-iconbtn:hover {
+  background: var(--lf-surface-soft);
+  color: var(--lf-text);
+}
+.lf-iconbtn.is-active {
+  background: var(--lf-accent-soft);
+  border-color: var(--lf-accent-border);
+  color: var(--lf-text);
+}
+.lf-iconbtn.is-status { color: var(--lf-good); position: relative; }
+.lf-iconbtn.is-status::after {
+  /* the tiny green pulse dot shown in the Qt shell's status chip */
+  content: "";
+  position: absolute;
+  top: 6px;
+  right: 7px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--lf-good);
+  box-shadow: 0 0 6px var(--lf-good);
+  animation: lf-pulse-status 1.6s ease-in-out infinite;
+}
+@keyframes lf-pulse-status {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.4; }
+}
+
+/* ---- Power button ---------------------------------------- */
+.lf-power {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 14px;
+  border-radius: var(--lf-radius-md);
+  background: var(--lf-panel-2);
+  border: 1px solid var(--lf-line-soft);
+  color: var(--lf-muted);
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+.lf-power:hover {
+  background: rgba(255, 96, 96, 0.12);
+  border-color: rgba(255, 96, 96, 0.42);
+  color: var(--lf-bad);
+}
+.lf-power svg {
+  width: 14px;
+  height: 14px;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* ============================================================
+   Page layout
+   ============================================================ */
+.lf-page {
+  max-width: 1320px;
+  margin: 0 auto;
+  padding: 22px 22px 28px;
+  box-sizing: border-box;
+}
+.lf-page-hero {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 18px;
+}
+.lf-page-title {
+  margin: 0;
+  font-size: 1.55rem;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  color: var(--lf-text);
+}
+.lf-page-sub {
+  margin: 0;
+  font-size: 0.92rem;
+  color: var(--lf-muted);
+  line-height: 1.55;
+  max-width: 760px;
+}
+
+/* ============================================================
+   Panels & cards — match Qt QFrame#Card / #Panel
+   ============================================================ */
+.lf-panel,
+.lf-card,
+.lf-shell .card,
+.lf-shell .panel {
+  background: var(--lf-panel);
+  border: 1px solid var(--lf-line);
+  border-radius: var(--lf-radius-lg);
+  padding: 16px;
+  box-shadow: none;
+}
+.lf-panel + .lf-panel,
+.lf-card + .lf-card { margin-top: 12px; }
+
+.lf-card-strong {
+  background: var(--lf-card);
+  border: 1px solid var(--lf-line);
+}
+.lf-panel-soft {
+  background: var(--lf-surface-soft);
+  border: 1px solid var(--lf-line-soft);
+}
+
+/* ============================================================
+   Kicker label (uppercase, mono, dim) — the Qt #Kicker style
+   ============================================================ */
+.lf-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-board);
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--lf-dim);
+}
+.lf-kicker-emoji { font-size: 0.78rem; }
+
+.lf-section {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 18px 0 10px;
+}
+.lf-section-title {
+  margin: 0;
+  font-size: 1.02rem;
+  font-weight: 800;
+  color: var(--lf-text);
+}
+.lf-section-meta {
+  margin-left: auto;
+  font-size: 0.78rem;
+  color: var(--lf-muted);
+}
+
+/* ============================================================
+   DisclosureCard — HTML equivalent of the Qt widget
+   <details class="lf-disclosure">
+     <summary>
+       <span class="lf-disclosure-emoji">🔧</span>
+       <span class="lf-disclosure-text">
+         <span class="lf-disclosure-title">Maintenance</span>
+         <span class="lf-disclosure-sub">Nudge the local scheduler…</span>
+       </span>
+       <span class="lf-disclosure-chev">▸</span>
+     </summary>
+     <div class="lf-disclosure-body">…</div>
+   </details>
+   ============================================================ */
+.lf-disclosure {
+  background: var(--lf-panel);
+  border: 1px solid var(--lf-line);
+  border-radius: var(--lf-radius-md);
+  overflow: hidden;
+  transition: border-color 0.12s, background 0.12s;
+}
+.lf-disclosure + .lf-disclosure { margin-top: 10px; }
+.lf-disclosure[open] {
+  background: linear-gradient(180deg, var(--lf-accent-soft) 0px, var(--lf-accent-soft) 56px, var(--lf-panel) 56px);
+  border-color: var(--lf-accent-border);
+}
+.lf-disclosure > summary {
+  list-style: none;
+  display: grid;
+  grid-template-columns: 28px 1fr auto;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px 12px 16px;
+  cursor: pointer;
+  user-select: none;
+  outline: none;
+}
+.lf-disclosure > summary::-webkit-details-marker { display: none; }
+.lf-disclosure > summary:hover { background: var(--lf-surface-soft); }
+.lf-disclosure[open] > summary { border-bottom: 1px solid var(--lf-accent-border); }
+.lf-disclosure-emoji {
+  font-size: 1.05rem;
+  text-align: center;
+}
+.lf-disclosure-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.lf-disclosure-title {
+  font-size: 0.96rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  color: var(--lf-text);
+}
+.lf-disclosure-sub {
+  font-size: 0.78rem;
+  color: var(--lf-muted);
+}
+.lf-disclosure-chev {
+  color: var(--lf-muted);
+  font-size: 0.95rem;
+  font-weight: 700;
+  transition: transform 0.18s, color 0.12s;
+}
+.lf-disclosure[open] > summary .lf-disclosure-chev {
+  transform: rotate(90deg);
+  color: var(--lf-accent);
+}
+.lf-disclosure-body {
+  padding: 14px 18px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* ============================================================
+   Status pills (mirrors Qt FIDS badges)
+   ============================================================ */
+.lf-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-family: var(--font-board);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  background: var(--lf-accent-soft);
+  color: var(--lf-text);
+  border: 1px solid var(--lf-accent-border);
+  white-space: nowrap;
+}
+.lf-pill-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.lf-pill-good { color: var(--lf-good); background: rgba(0, 192, 64, 0.12); border-color: rgba(0, 192, 64, 0.35); }
+.lf-pill-warn { color: var(--lf-warn); background: rgba(240, 180, 41, 0.12); border-color: rgba(240, 180, 41, 0.35); }
+.lf-pill-bad  { color: var(--lf-bad);  background: rgba(255, 96, 96, 0.12); border-color: rgba(255, 96, 96, 0.35); }
+
+/* ============================================================
+   Buttons (Qt parity)
+   ============================================================ */
+.lf-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 9px 14px;
+  border-radius: var(--lf-radius-sm);
+  background: var(--lf-surface-strong);
+  border: 1px solid var(--lf-line);
+  color: var(--lf-text);
+  font-family: var(--font-ui);
+  font-size: 0.86rem;
+  font-weight: 700;
+  cursor: pointer;
+  text-decoration: none;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+}
+.lf-btn:hover {
+  background: var(--lf-accent-soft);
+  border-color: var(--lf-accent-border);
+}
+.lf-btn-primary {
+  background: var(--lf-accent-soft);
+  border-color: var(--lf-accent-border);
+  color: var(--lf-text);
+}
+.lf-btn-primary:hover {
+  background: rgba(74, 158, 218, 0.28);
+  border-color: var(--lf-accent);
+}
+.lf-btn-quiet {
+  background: transparent;
+  border-color: var(--lf-line-soft);
+  color: var(--lf-muted);
+}
+.lf-btn-quiet:hover { color: var(--lf-text); border-color: var(--lf-line); }
+.lf-btn-danger {
+  background: rgba(255, 96, 96, 0.14);
+  border-color: rgba(255, 96, 96, 0.42);
+  color: var(--lf-bad);
+}
+.lf-btn-danger:hover {
+  background: rgba(255, 96, 96, 0.22);
+  border-color: var(--lf-bad);
+}
+.lf-btn-mono {
+  font-family: var(--font-board);
+  font-size: 0.78rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+/* ============================================================
+   Inputs
+   ============================================================ */
+.lf-shell input,
+.lf-shell select,
+.lf-shell textarea {
+  background: var(--lf-input-bg);
+  color: var(--lf-text);
+  border: 1px solid var(--lf-line);
+  border-radius: var(--lf-radius-sm);
+  padding: 9px 12px;
+  font-family: var(--font-ui);
+  font-size: 0.92rem;
+  outline: none;
+  transition: border-color 0.12s;
+}
+.lf-shell input:focus,
+.lf-shell select:focus,
+.lf-shell textarea:focus {
+  border-color: var(--lf-accent);
+  box-shadow: 0 0 0 3px rgba(74, 158, 218, 0.16);
+}
+
+/* ============================================================
+   Override the legacy app.css card centering for shell pages
+   ============================================================ */
+.lf-shell .card {
+  width: 100%;
+  max-width: none;
+  background: var(--lf-panel);
+  border: 1px solid var(--lf-line);
+  border-radius: var(--lf-radius-lg);
+  box-shadow: none;
+  padding: 18px;
+}
+
+/* ============================================================
+   Compact-landscape mode — 7" Pi screens & small touch panels
+   ------------------------------------------------------------
+   Targets short viewports (Pi 7" official: 800×480; common 7"
+   IPS: 1024×600).  The mobile bottom-bar at <=720px wide is
+   too phone-flavoured for a landscape kiosk, so we keep the
+   top-nav layout here but tighten every dimension.  Without
+   this block the nav clock chips clip and FIDS shows only 4
+   rows on a 480px-tall screen.
+
+   Trigger: viewport height <= 600px (covers both common
+   resolutions and any rotated 7" tablet).  Narrower-and-short
+   variants stack tighter.
+   ============================================================ */
+
+@media (max-height: 600px) {
+  /* --- Nav: shrink the chrome, drop the LT clock chip ----- */
+  .lf-shell-nav {
+    gap: 10px;
+    padding: 6px 10px;
+    min-height: 48px;
+  }
+  .lf-brand-mark,
+  .lf-brand-mark img { width: 22px; height: 22px; }
+  .lf-brand-name { font-size: 0.8rem; }
+  .lf-brand-ver  { font-size: 0.54rem; }
+  .lf-clock-chip {
+    padding: 4px 8px;
+    font-size: 0.7rem;
+  }
+  .lf-clock-tag { font-size: 0.56rem; }
+  /* LT chip duplicates the page header timestamp; hide it
+     on short screens so the centre tabs fit unscrolled. */
+  .lf-clock-group .lf-clock-chip + .lf-clock-chip { display: none; }
+
+  .lf-tabgroup { padding: 3px; }
+  .lf-tab {
+    padding: 5px 10px;
+    font-size: 0.78rem;
+    gap: 6px;
+  }
+  .lf-tab .lf-tab-glyph { font-size: 0.9rem; }
+
+  .lf-iconbar { padding: 3px; }
+  .lf-iconbtn { width: 30px; height: 30px; font-size: 0.96rem; }
+
+  .lf-power { padding: 5px 10px; font-size: 0.74rem; }
+  .lf-power svg { width: 12px; height: 12px; }
+
+  /* --- Page body: less whitespace ------------------------- */
+  .lf-page { padding: 12px 12px 16px; }
+  .lf-page-hero { margin-bottom: 10px; gap: 2px; }
+  .lf-page-title { font-size: 1.18rem; }
+  .lf-page-sub   { font-size: 0.8rem; }
+
+  .lf-panel,
+  .lf-card,
+  .lf-shell .card,
+  .lf-shell .panel { padding: 12px; border-radius: var(--lf-radius-md); }
+
+  .lf-disclosure > summary { padding: 9px 12px 9px 14px; }
+  .lf-disclosure-title { font-size: 0.88rem; }
+  .lf-disclosure-sub   { font-size: 0.72rem; }
+  .lf-disclosure-body  { padding: 10px 14px 12px; }
+}
+
+/* Narrower Pi-class viewports (≤ 1024px wide & short) — drop
+   the brand name to free more horizontal room for the tabs. */
+@media (max-width: 1024px) and (max-height: 600px) {
+  .lf-shell-nav { padding: 5px 8px; gap: 8px; }
+  .lf-brand-text { display: none; }     /* keep just the logo mark */
+  .lf-tab { padding: 5px 8px; font-size: 0.74rem; }
+  .lf-iconbar { gap: 2px; }
+  .lf-iconbtn { width: 28px; height: 28px; font-size: 0.92rem; }
+  /* History/Logs/Report stay on Settings — operator panel still
+     reachable from the gear, but hidden here so the bar fits. */
+  .lf-iconbar .lf-iconbtn[href="/history"],
+  .lf-iconbar .lf-iconbtn[href="/logs"],
+  .lf-iconbar .lf-iconbtn[href="/feedback"] { display: none; }
+  .lf-power .lf-power-label { display: none; }
+  .lf-power { padding: 4px 8px; }
+}
+
+/* Smallest official Pi 7" (800×480) — strip the UTC chip too. */
+@media (max-width: 880px) and (max-height: 520px) {
+  .lf-clock-group { display: none; }
+  /* Show all 4 destinations clearly */
+  .lf-tab { padding: 5px 7px; font-size: 0.72rem; gap: 4px; }
+}

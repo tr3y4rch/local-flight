@@ -1,0 +1,365 @@
+/* ============================================================
+   Local Flight — Mobile / compact view
+   ------------------------------------------------------------
+   Loaded after app.css + skins.css so its rules win when the
+   <html> element carries `.lf-is-mobile`.
+
+   That class is toggled by base.html JS based on either of:
+     * viewport <= 720px CSS pixels (auto)
+     * ?mobile=1 query (manual override, remembered in
+       sessionStorage so navigation keeps the mode)
+
+   Visiting any page with ?mobile=0 clears the override.
+
+   Layout strategy:
+     - Top nav docks to the bottom edge (thumb-reachable).
+     - FIDS table rows collapse to per-flight cards.
+     - Multi-column grids on Settings/Admin/Setup stack.
+     - Tap targets respect WCAG 44×44.
+     - iPhone notch / home indicator handled via
+       env(safe-area-inset-*).
+   ============================================================ */
+
+/* ---------- 1. Global tuning ---------- */
+
+html.lf-is-mobile, html.lf-is-mobile body {
+  font-size: 16px;
+}
+html.lf-is-mobile body {
+  /* app.css uses `display:grid; place-items:center` which collides
+     with full-bleed pages on a phone — restore normal block flow. */
+  display: block;
+  place-items: initial;
+  min-height: 100vh;
+  min-height: 100dvh;
+  padding-bottom: calc(64px + env(safe-area-inset-bottom));
+}
+html.lf-is-mobile .card {
+  width: 100%;
+  max-width: none;
+  border-radius: 12px;
+  padding: 14px;
+  box-shadow: none;
+}
+html.lf-is-mobile .panel {
+  padding: 12px;
+  border-radius: 12px;
+}
+html.lf-is-mobile .grid {
+  grid-template-columns: 1fr;
+  gap: 8px;
+}
+html.lf-is-mobile button,
+html.lf-is-mobile .lf-btn {
+  min-height: 44px;
+}
+html.lf-is-mobile input,
+html.lf-is-mobile select,
+html.lf-is-mobile textarea {
+  font-size: 16px;            /* prevents iOS Safari focus-zoom */
+  min-height: 44px;
+  border-radius: 12px;
+}
+
+/* ---------- 2. Top nav → bottom bar ---------- */
+/* Targets the new Qt-shell-aligned .lf-shell-nav (lf-shell.css).    */
+
+html.lf-is-mobile .lf-shell-nav {
+  position: fixed !important;
+  top: auto !important;
+  bottom: 0 !important;
+  left: 0;
+  right: 0;
+  width: 100%;
+  z-index: 200;
+  grid-template-columns: 1fr auto !important;
+  gap: 6px !important;
+  padding: 6px 8px calc(6px + env(safe-area-inset-bottom)) 8px !important;
+  min-height: 56px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  border-bottom: none;
+  background: rgba(8, 14, 22, 0.85);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+html[data-theme="light"].lf-is-mobile .lf-shell-nav {
+  background: rgba(244, 247, 251, 0.94);
+  border-top-color: rgba(0, 0, 0, 0.1);
+}
+
+/* The brand block + clock chips drop out entirely — each page
+   header already shows the airport label / clock, so this frees
+   ~180px for the destinations + ops to fit a 390px screen. */
+html.lf-is-mobile .lf-shell-left { display: none; }
+
+/* Centre tab group stretches across the bar */
+html.lf-is-mobile .lf-shell-center {
+  justify-self: stretch;
+  display: flex;
+  flex: 1;
+  min-width: 0;
+}
+html.lf-is-mobile .lf-tabgroup {
+  flex: 1;
+  display: flex;
+  justify-content: space-evenly;
+  background: transparent;
+  border: none;
+  padding: 0;
+  gap: 0;
+  min-width: 0;
+}
+html.lf-is-mobile .lf-tab {
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px 4px;
+  min-width: 48px;
+  min-height: 44px;
+  border-radius: 10px;
+  font-size: 0.56rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  border: 1px solid transparent;
+}
+html.lf-is-mobile .lf-tab .lf-tab-glyph { font-size: 1.05rem; min-width: 0; }
+html.lf-is-mobile .lf-tab.is-active { background: var(--lf-accent-soft); border-color: transparent; }
+
+/* Right side: hide low-priority ops + the ambient status pulse so
+   only Settings + Admin sit beside the tabs (still discoverable via
+   the desktop view).  Power button collapses to icon-only. */
+html.lf-is-mobile .lf-shell-right {
+  justify-self: end;
+  display: flex;
+  flex-shrink: 0;
+  gap: 4px;
+}
+html.lf-is-mobile .lf-iconbar {
+  background: transparent;
+  border: none;
+  padding: 0;
+  gap: 2px;
+}
+html.lf-is-mobile .lf-iconbtn {
+  width: 38px;
+  height: 44px;
+  border-radius: 10px;
+  font-size: 1.02rem;
+}
+html.lf-is-mobile .lf-iconbar .lf-iconbtn[href="/history"],
+html.lf-is-mobile .lf-iconbar .lf-iconbtn[href="/logs"],
+html.lf-is-mobile .lf-iconbar .lf-iconbtn[href="/feedback"],
+html.lf-is-mobile .lf-iconbar .lf-iconbtn.is-status {
+  display: none;
+}
+html.lf-is-mobile .lf-power {
+  padding: 8px 10px;
+  min-height: 44px;
+  border-radius: 10px;
+}
+html.lf-is-mobile .lf-power .lf-power-label { display: none; }
+
+/* FIDS uses 100vh card height — adjust so it isn't hidden under the bar */
+html.lf-is-mobile .card {
+  height: auto !important;
+  min-height: calc(100vh - 64px - env(safe-area-inset-bottom));
+  min-height: calc(100dvh - 64px - env(safe-area-inset-bottom));
+  padding-bottom: 14px;
+}
+
+/* ---------- 3. FIDS table → card stack ---------- */
+
+html.lf-is-mobile .fids-sub {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+html.lf-is-mobile .fids-sub-right {
+  justify-content: space-between;
+  width: 100%;
+}
+html.lf-is-mobile .view-toggle { margin-left: 0; width: 100%; }
+html.lf-is-mobile .view-toggle a {
+  flex: 1;
+  justify-content: center;
+  padding: 10px 12px;
+  font-size: 0.86rem;
+}
+
+html.lf-is-mobile .metar-bar {
+  flex-wrap: wrap;
+  padding: 8px 10px;
+  font-size: 0.74rem;
+}
+html.lf-is-mobile .weather-summary { white-space: normal; }
+
+/* Strip table chrome, re-render each row as a vertical card. */
+html.lf-is-mobile #fidsTable,
+html.lf-is-mobile #fidsTable * { box-sizing: border-box; }
+html.lf-is-mobile #fidsTable colgroup,
+html.lf-is-mobile #fidsTable thead { display: none; }
+html.lf-is-mobile #fidsTable,
+html.lf-is-mobile #fidsTable tbody,
+html.lf-is-mobile #fidsTable tr {
+  display: block;
+  width: 100%;
+}
+
+/* Card row — wider phones get a three-area layout */
+html.lf-is-mobile .fids-row {
+  display: grid !important;
+  grid-template-columns: 88px 1fr auto;
+  grid-template-areas:
+    "time   flight  badge"
+    "time   route   route"
+    "meta   meta    meta";
+  column-gap: 12px;
+  row-gap: 4px;
+  align-items: center;
+  padding: 12px 14px;
+  margin-bottom: 8px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  background: rgba(255, 255, 255, 0.025);
+  position: relative;
+  overflow: hidden;
+}
+html[data-theme="light"].lf-is-mobile .fids-row {
+  background: rgba(0, 0, 0, 0.02);
+  border-color: rgba(0, 0, 0, 0.08);
+}
+html.lf-is-mobile .fids-row td {
+  display: block;
+  padding: 0;
+  height: auto;
+  border-bottom: none;
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+}
+
+/* Status accent rail (replaces desktop's first-cell inset shadow) */
+html.lf-is-mobile .fids-row::before {
+  content: "";
+  position: absolute;
+  left: 0; top: 8px; bottom: 8px;
+  width: 4px;
+  border-radius: 0 3px 3px 0;
+  background: rgba(255, 255, 255, 0.06);
+}
+html.lf-is-mobile .fids-row-boarding::before     { background: #22c55e; }
+html.lf-is-mobile .fids-row-approaching::before  { background: #f59e0b; }
+html.lf-is-mobile .fids-row-delayed-warn::before { background: #f59e0b; }
+html.lf-is-mobile .fids-row-delayed::before,
+html.lf-is-mobile .fids-row-delayed-bad::before  { background: #ef4444; }
+html.lf-is-mobile .fids-row-early::before        { background: #22c55e; }
+html.lf-is-mobile .fids-row-diverted::before     { background: #f97316; }
+html.lf-is-mobile .fids-row-cancelled::before    { background: #f87171; }
+html.lf-is-mobile .fids-row td:first-child       { box-shadow: none !important; }
+
+/* td order: time | flight | route | gate | status | a/c */
+html.lf-is-mobile .fids-row td:nth-child(1) { grid-area: time; }
+html.lf-is-mobile .fids-row td:nth-child(2) { grid-area: flight; min-width: 0; }
+html.lf-is-mobile .fids-row td:nth-child(3) {
+  grid-area: route;
+  min-width: 0;
+  font-size: 0.92rem;
+  opacity: 0.88;
+}
+html.lf-is-mobile .fids-row td:nth-child(4) {  /* gate */
+  grid-area: meta;
+  display: inline-flex !important;
+  align-items: center;
+  margin-right: 12px;
+}
+html.lf-is-mobile .fids-row td:nth-child(5) { grid-area: badge; justify-self: end; }
+html.lf-is-mobile .fids-row td:nth-child(6) {  /* a/c */
+  grid-area: meta;
+  display: inline-flex !important;
+  align-items: center;
+  opacity: 0.55;
+  font-size: 0.76rem;
+}
+html.lf-is-mobile .fids-row td:nth-child(4) ~ td:nth-child(6) { margin-left: auto; }
+
+html.lf-is-mobile .fids-hhmm       { font-size: 1.5rem; line-height: 1.1; }
+html.lf-is-mobile .fids-delay-tag  { margin-left: 4px; font-size: 0.62rem; }
+html.lf-is-mobile .fids-flight     { font-size: 1rem; }
+html.lf-is-mobile .fids-airline-name { font-size: 0.6rem; }
+html.lf-is-mobile .fids-route-code { font-size: 0.66rem; }
+html.lf-is-mobile .fids-badge      { padding: 5px 10px; font-size: 0.7rem; }
+html.lf-is-mobile .fids-gate-val   { padding: 4px 9px; font-size: 0.78rem; }
+html.lf-is-mobile .fids-empty-row td { padding: 40px 12px; }
+
+/* Narrow-phone tighter grid */
+@media (max-width: 520px) {
+  html.lf-is-mobile .fids-row {
+    grid-template-columns: 76px 1fr;
+    grid-template-areas:
+      "time   flight"
+      "time   route"
+      "time   badge"
+      "meta   meta";
+    row-gap: 3px;
+  }
+  html.lf-is-mobile .fids-row td:nth-child(5) { justify-self: start; }
+  html.lf-is-mobile .fids-hhmm  { font-size: 1.35rem; }
+  html.lf-is-mobile .fids-flight { font-size: 0.95rem; }
+  html.lf-is-mobile .fids-route  { font-size: 0.86rem; }
+}
+@media (max-width: 380px) {
+  html.lf-is-mobile .lf-tab     { min-width: 42px; font-size: 0.52rem; padding: 4px 3px; }
+  html.lf-is-mobile .lf-iconbtn { width: 34px; }
+  html.lf-is-mobile .fids-hhmm  { font-size: 1.2rem; }
+}
+
+/* ---------- 4. Radar / Matrix / Display panes ---------- */
+
+html.lf-is-mobile .radar-shell,
+html.lf-is-mobile .matrix-shell,
+html.lf-is-mobile .display-shell {
+  grid-template-columns: 1fr !important;
+  grid-template-rows: auto !important;
+  gap: 10px !important;
+}
+html.lf-is-mobile .radar-side,
+html.lf-is-mobile .matrix-side,
+html.lf-is-mobile .display-side,
+html.lf-is-mobile .radar-controls,
+html.lf-is-mobile .matrix-controls {
+  width: 100% !important;
+  max-width: 100% !important;
+}
+html.lf-is-mobile canvas.radar-canvas,
+html.lf-is-mobile canvas.matrix-canvas,
+html.lf-is-mobile .matrix-preview canvas {
+  width: 100% !important;
+  height: auto !important;
+  max-height: 60vh;
+}
+
+/* ---------- 5. Form-heavy pages (Settings / Admin / Setup) ---------- */
+
+html.lf-is-mobile .grid-2,
+html.lf-is-mobile .grid-3,
+html.lf-is-mobile .grid-4,
+html.lf-is-mobile .lf-form-grid,
+html.lf-is-mobile .settings-grid {
+  grid-template-columns: 1fr !important;
+  gap: 10px !important;
+}
+html.lf-is-mobile .lf-section-header,
+html.lf-is-mobile .lf-section-row,
+html.lf-is-mobile .lf-form-row {
+  flex-direction: column !important;
+  align-items: stretch !important;
+}
+html.lf-is-mobile .lf-side-bar,
+html.lf-is-mobile .admin-side,
+html.lf-is-mobile .settings-side {
+  width: 100% !important;
+  max-width: 100% !important;
+  position: static !important;
+}
+html.lf-is-mobile pre,
+html.lf-is-mobile .logbox { white-space: pre-wrap; word-break: break-word; }

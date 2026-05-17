@@ -9,6 +9,16 @@ The mobile app is an iOS-first developer preview. It is not on the App Store, Te
 
 For most home setups, start with LAN Mobile. Use Standalone when you want a light mobile FIDS/Radar/History app without running your own Local Flight server.
 
+> **Quick alternative as of the 2026-05-18 `0.2.7` follow-up:** if
+> you only need to glance at the board from a phone, you don't have
+> to build this app. Open the LAN browser UI
+> (`http://localflight.local:8000` or your server's LAN address) in
+> mobile Safari / Chrome — it now auto-switches to a thumb-reachable
+> mobile shell with the FIDS table reflowed into per-flight cards.
+> This companion app is still the right choice for push-style updates,
+> pinned flights, mobile-owned radar ring controls, and the
+> mobile-side diagnostics consent flow.
+
 ---
 
 ## Requirements

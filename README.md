@@ -14,8 +14,8 @@ The recommended desktop client is now the native Qt app. The LAN browser UI, Pi 
 
 `0.2.7` is the current client-polish release-candidate target on top of the `0.2.6` beta baseline. It is still beta software, but this pass treats Local Flight as a working multi-client app:
 
-- Native desktop app for Windows and macOS
-- LAN browser UI for remote viewing, headless installs, and browser-mode displays
+- Native desktop app for Windows and macOS, with four switchable FIDS board styles (Classic / PAX / VATSIM / Nerd) that each render their own design
+- LAN browser UI that mirrors the native Qt shell — same nav, same tokens, same components — with an automatic mobile view for phones and a compact layout for 7" Raspberry Pi screens
 - Raspberry Pi headless server, native Qt HDMI kiosk, or Chromium HDMI kiosk
 - iOS-first mobile developer preview with LAN Companion and Standalone setup modes
 - Interstate 75 W / HUB75 Matrix client and preview tools
@@ -29,6 +29,7 @@ The recommended desktop client is now the native Qt app. The LAN browser UI, Pi 
 | The normal desktop app | Native Qt app on Windows or macOS |
 | A small always-on home server | Raspberry Pi headless |
 | A Pi plugged into an HDMI display | Native Qt kiosk or Chromium kiosk |
+| A Pi with a 7" touch screen | LAN browser UI — auto-compacts at 800×480 / 1024×600 |
 | Viewing from another device | LAN browser UI at `http://localflight.local:8000` |
 | iPhone/iPad controls for your desktop/Pi server | Mobile LAN Companion from `mobile/` |
 | A simplified phone board without running your own server | Mobile Standalone from `mobile/` |
@@ -49,9 +50,11 @@ Read the detailed guides:
 - Guided setup with **Community Relay**, **Bring your own keys**, and **VATSIM** paths
 - Real schedule support designed around cached shared snapshots, AeroDataBox/AviationStack provider compatibility, and stale-safe serving when live providers are slow or capped
 - Passenger-style FIDS boards with city/country airport headers, arrivals/departures, airport-local time, status/gate chips, codeshare grouping, pinned flights, live refresh, and native Classic/PAX/VATSIM/Nerd board styles
+- Four switchable FIDS board styles in the native shell — **Classic**, **PAX**, **VATSIM**, **Nerd** — each with its own chrome, palette, column set, status styling, and viewport-aware scaling
 - Radar with real/VATSIM traffic, METAR weather, range controls, optional runway/surface/map/terrain context, and richer aircraft/status detail
 - Native Qt desktop shell with Display, FIDS, Radar, Matrix, Settings, Admin, History, Logs, Report, and local docs
-- LAN browser UI for headless installs, remote screens, tablets, and browser-mode displays
+- Settings page built from clear disclosure cards instead of opaque checkbox-titled groups
+- LAN browser UI for headless installs, remote screens, tablets, phones, and browser-mode displays, with compact layouts for 7" Pi touch screens
 - Mobile app with a first-run choice between **LAN Companion** and **Standalone**: Companion keeps the full desktop/Pi pairing flow; Standalone offers a simpler FIDS/Radar/History/Settings experience through the hosted relay with slower refreshes and no server-control tools. The mobile shell keeps its own appearance, branded launch overlay, and small native-feeling interactions.
 - History dashboard with filters, delay buckets, airline delay quotas, route/aircraft stats, sortable recent flights, and detail panels
 - Matrix tooling for Interstate 75 W / HUB75 boards, including panel presets, live preview, optional real-world gate/stand display, compact weather headers, runtime settings, and generated MicroPython `main.py`
@@ -78,12 +81,16 @@ Open [docs/previews/index.html](docs/previews/index.html) locally for the standa
 
 <p align="center">
   <img src="docs/previews/matrix-preview.svg" alt="Local Flight LED matrix preview" width="48%">
-  <img src="docs/previews/mobile-board-preview-0.2.7.svg" alt="Local Flight mobile board preview" width="48%">
+  <img src="docs/previews/mobile-fids-preview.svg" alt="Local Flight mobile board preview" width="48%">
 </p>
 
 <p align="center">
-  <img src="docs/previews/mobile-radar-preview-0.2.7.svg" alt="Local Flight mobile radar preview" width="48%">
-  <img src="docs/previews/mobile-settings-preview-0.2.7.svg" alt="Local Flight mobile settings preview" width="48%">
+  <img src="docs/previews/mobile-radar-preview.svg" alt="Local Flight mobile radar preview" width="48%">
+  <img src="docs/previews/mobile-history-preview.svg" alt="Local Flight mobile history preview" width="48%">
+</p>
+
+<p align="center">
+  <img src="docs/previews/mobile-settings-preview.svg" alt="Local Flight mobile settings preview" width="48%">
 </p>
 
 ---
