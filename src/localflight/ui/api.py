@@ -687,6 +687,14 @@ class FIDSRowOut(BaseModel):
     route_caption: str = ""
     source_hint: str = ""
     live_hint: str = ""
+    detail_mode: str = "real"
+    flight_rules: str = ""
+    planned_altitude: str = ""
+    planned_route: str = ""
+    altitude_ft: Optional[int] = None
+    ground_speed_kt: Optional[int] = None
+    squawk: str = ""
+    transponder: str = ""
 
 
 def _fids_rows_from_flights(
@@ -745,6 +753,14 @@ def _fids_rows_from_flights(
             route_caption=r.route_caption,
             source_hint=r.source_hint,
             live_hint=r.live_hint,
+            detail_mode=r.detail_mode,
+            flight_rules=r.flight_rules,
+            planned_altitude=r.planned_altitude,
+            planned_route=r.planned_route,
+            altitude_ft=r.altitude_ft,
+            ground_speed_kt=r.ground_speed_kt,
+            squawk=r.squawk,
+            transponder=r.transponder,
         )
         for r in rows
     ]
@@ -871,26 +887,33 @@ def api_fids_detail(callsign: str = Query(..., min_length=1, max_length=20)) -> 
         pos = flight.position
         snapshot_age = _age_seconds(generated_at)
         position_age = _age_seconds(pos.last_contact if pos else None)
-        detail = {
-            "callsign":      flight.callsign,
-            "flight_number": flight.flight_number,
-            "flight_display": format_flight_identifier(
+        is_virtual = str(cfg.source or "").lower() == "virtual" or str(flight.source or "").lower().startswith("vatsim")
+        xpdr = flight.assigned_transponder or (pos.squawk if pos else None)
+        flight_display = (
+            (flight.callsign or flight.flight_number or "").upper()
+            if is_virtual
+            else format_flight_identifier(
                 flight_number=flight.flight_number,
                 callsign=flight.callsign,
                 airline_iata=flight.airline.iata if flight.airline else None,
                 airline_icao=flight.airline.icao if flight.airline else None,
-            ),
-            "airline":       flight.airline.name if flight.airline else None,
-            "airline_iata":  flight.airline.iata if flight.airline else None,
-            "airline_icao":  flight.airline.icao if flight.airline else None,
-            "codeshares":    list(flight.codeshares),
-            "sold_as":       list(flight.sold_as),
-            "marketing_airline_name": flight.marketing_airline_name,
-            "marketing_airline_iata": flight.marketing_airline_iata,
-            "marketing_airline_icao": flight.marketing_airline_icao,
-            "marketing_flight_number": flight.marketing_flight_number,
+            )
+        )
+        detail = {
+            "callsign":      flight.callsign,
+            "flight_number": flight.flight_number,
+            "flight_display": flight_display,
+            "airline":       None if is_virtual else (flight.airline.name if flight.airline else None),
+            "airline_iata":  None if is_virtual else (flight.airline.iata if flight.airline else None),
+            "airline_icao":  None if is_virtual else (flight.airline.icao if flight.airline else None),
+            "codeshares":    [] if is_virtual else list(flight.codeshares),
+            "sold_as":       [] if is_virtual else list(flight.sold_as),
+            "marketing_airline_name": None if is_virtual else flight.marketing_airline_name,
+            "marketing_airline_iata": None if is_virtual else flight.marketing_airline_iata,
+            "marketing_airline_icao": None if is_virtual else flight.marketing_airline_icao,
+            "marketing_flight_number": None if is_virtual else flight.marketing_flight_number,
             "operating_callsign": flight.operating_callsign,
-            "identity_source": flight.identity_source,
+            "identity_source": flight.identity_source or ("vatsim_callsign" if is_virtual else None),
             "origin_iata":   flight.origin.iata        if flight.origin      else None,
             "origin_icao":   flight.origin.icao        if flight.origin      else None,
             "origin_name":   flight.origin.name        if flight.origin      else None,
@@ -900,19 +923,19 @@ def api_fids_detail(callsign: str = Query(..., min_length=1, max_length=20)) -> 
             "sched_time":    flight.times.scheduled.isoformat() if flight.times.scheduled else None,
             "est_time":      flight.times.estimated.isoformat() if flight.times.estimated else None,
             "actual_time":   flight.times.actual.isoformat()    if flight.times.actual    else None,
-            "delay_minutes": flight.delay_minutes,
-            "gate":          flight.gate,
-            "terminal":      flight.terminal,
-            "stand":         flight.stand,
+            "delay_minutes": None if is_virtual else flight.delay_minutes,
+            "gate":          None if is_virtual else flight.gate,
+            "terminal":      None if is_virtual else flight.terminal,
+            "stand":         None if is_virtual else flight.stand,
             "aircraft_type": flight.aircraft_type,
             "aircraft_type_full": flight.aircraft_type_full,
-            "aircraft_registration": flight.aircraft_registration,
+            "aircraft_registration": None if is_virtual else flight.aircraft_registration,
             "direction":     flight.direction.value,
             "status":        flight.status.value,
             "source":        flight.source,
             "enriched_by":   flight.enriched_by,
             "updated_at":    _iso(flight.updated_at),
-            "detail_mode":   "virtual" if (cfg.source == "virtual" or flight.source == "vatsim") else "real",
+            "detail_mode":   "virtual" if is_virtual else "real",
             "flight_plan": {
                 "flight_rules": flight.flight_rules,
                 "route": flight.planned_route,
@@ -943,20 +966,27 @@ def api_fids_detail(callsign: str = Query(..., min_length=1, max_length=20)) -> 
                 "heading":         pos.heading,
                 "on_ground":       pos.on_ground,
                 "vertical_rate":   pos.vertical_rate,
-                "icao24":          pos.icao24,
-                "squawk":          pos.squawk,
+                "icao24":          None if is_virtual else pos.icao24,
+                "squawk":          xpdr if is_virtual else pos.squawk,
                 "last_contact":    _iso(pos.last_contact),
             } if pos else None,
         }
 
     history_raw = query_flight_history(callsign.upper(), days=7)
+    virtual_history = bool(detail and detail.get("detail_mode") == "virtual")
     history = [
-        {
-            "date":          r["snapshot_ts"][:10],
+        ({
+            "date":          str(r.get("event_time") or r.get("snapshot_ts") or "")[:10],
+            "status":        r["status"],
+            "source":        r.get("source"),
+            "observations":  r.get("observation_count") or r.get("raw_observation_rows") or 1,
+        } if virtual_history else {
+            "date":          str(r.get("event_time") or r.get("snapshot_ts") or "")[:10],
             "status":        r["status"],
             "delay_minutes": r["delay_minutes"],
             "gate":          r["gate"],
-        }
+            "observations":  r.get("observation_count") or r.get("raw_observation_rows") or 1,
+        })
         for r in history_raw[:10]
     ]
 
@@ -1893,7 +1923,7 @@ def api_history(
     airline_iata: Optional[str] = Query(None, max_length=3),
 ) -> Dict[str, Any]:
     """
-    Returns recent flight history from the local SQLite database.
+    Returns recent deduped flight movements from the local SQLite database.
  
     hours:     how many hours back to look (default 24, max 720 = 30 days)
     direction: "dep", "arr", or "both"
@@ -1904,6 +1934,7 @@ def api_history(
       "airport_iata": "ZRH",
       "hours":        24,
       "count":        42,
+      "raw_observation_rows": 96,
       "flights":      [ { ...row... }, ... ]
     }
     """
@@ -1928,6 +1959,8 @@ def api_history(
         airline_iata=airline_iata,
     )
  
+    raw_observation_rows = sum(int(row.get("observation_count") or 1) for row in rows)
+
     return {
         "airport_iata": cfg.airport_iata,
         "hours":        hours,
@@ -1938,6 +1971,8 @@ def api_history(
             "airline_iata": (airline_iata or "").upper().strip(),
         },
         "count":        len(rows),
+        "movement_count": len(rows),
+        "raw_observation_rows": raw_observation_rows,
         "flights":      rows,
     }
  
@@ -1948,7 +1983,7 @@ def api_history_flight(
     days:     int = Query(7, ge=1, le=90),
 ) -> Dict[str, Any]:
     """
-    Returns history for a specific callsign over the last N days.
+    Returns deduped movement history for a callsign over the last N days.
     Useful for seeing if a flight is consistently on time or delayed.
     """
     from localflight.storage.history import query_flight_history
@@ -1959,6 +1994,8 @@ def api_history_flight(
         "callsign": callsign.upper().strip(),
         "days":     days,
         "count":    len(rows),
+        "movement_count": len(rows),
+        "raw_observation_rows": sum(int(row.get("observation_count") or 1) for row in rows),
         "flights":  rows,
     }
  
@@ -2494,6 +2531,17 @@ def api_admin_companion_checkin(body: CompanionCheckinIn) -> Dict[str, Any]:
         "server_install_id": server_install_id,
         "platform_pair": f"{server_platform} / {entry['mobile_os']}",
     }
+
+
+@router.delete("/api/admin/companion")
+def api_admin_companion_reset() -> Dict[str, Any]:
+    """Clear remembered mobile companion check-ins for this local server."""
+    companions = _load_companion_presence()
+    removed = len(companions) if isinstance(companions, dict) else 0
+    reset_at = datetime.now(timezone.utc).isoformat()
+    _save_companion_presence({})
+    log.info("Companion connections reset: %s remembered device(s) cleared", removed)
+    return {"ok": True, "removed": removed, "reset_at": reset_at}
 
 # â”€â”€ Traffic / request log â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
@@ -3482,13 +3530,17 @@ def _matrix_row_payload(row: Any, *, preset: Any = "real_fids", show_gate_info: 
         "scheduled"
         )
     flight = data.get("flight_display") or data.get("callsign") or "-"
-    operator = data.get("airline_display") or ""
-    codeshares = _matrix_identifier_list(data.get("codeshares"))
-    sold_as = _matrix_identifier_list(data.get("sold_as"))
+    mode_text = str(data.get("detail_mode") or data.get("source") or data.get("source_hint") or "").lower()
+    is_virtual = "virtual" in mode_text or "vatsim" in mode_text
+    operator = "" if is_virtual else (data.get("airline_display") or "")
+    codeshares = [] if is_virtual else _matrix_identifier_list(data.get("codeshares"))
+    sold_as = [] if is_virtual else _matrix_identifier_list(data.get("sold_as"))
     codeshare = str(data.get("codeshare_display") or "").strip() or _matrix_secondary_label(sold_as, codeshares)
+    if is_virtual:
+        codeshare = ""
     route_display = data.get("route_display") or "-"
     route_fields = _matrix_route_fields(route_display)
-    hide_gate_fields = _matrix_is_vatsim_preset(preset)
+    hide_gate_fields = is_virtual or _matrix_is_vatsim_preset(preset)
     gate_value = "" if hide_gate_fields else data.get("gate_display") or data.get("gate") or ""
     if str(gate_value).strip() == "-":
         gate_value = ""
@@ -3546,16 +3598,16 @@ def _matrix_row_payload(row: Any, *, preset: Any = "real_fids", show_gate_info: 
         "operator": operator,
         "operating_airline": operator,
         "airline_display": operator,
-        "airline_iata": data.get("airline_iata") or "",
-        "airline_icao": data.get("airline_icao") or "",
+        "airline_iata": "" if is_virtual else (data.get("airline_iata") or ""),
+        "airline_icao": "" if is_virtual else (data.get("airline_icao") or ""),
         "codeshares": codeshares,
         "codeshare": " / ".join(codeshares),
         "codeshare_display": codeshare,
         "sold_as": sold_as,
-        "marketing_airline_name": data.get("marketing_airline_name") or "",
-        "marketing_airline_iata": data.get("marketing_airline_iata") or "",
-        "marketing_airline_icao": data.get("marketing_airline_icao") or "",
-        "marketing_flight_number": data.get("marketing_flight_number") or "",
+        "marketing_airline_name": "" if is_virtual else (data.get("marketing_airline_name") or ""),
+        "marketing_airline_iata": "" if is_virtual else (data.get("marketing_airline_iata") or ""),
+        "marketing_airline_icao": "" if is_virtual else (data.get("marketing_airline_icao") or ""),
+        "marketing_flight_number": "" if is_virtual else (data.get("marketing_flight_number") or ""),
         "operating_callsign": data.get("operating_callsign") or "",
         "identity_source": data.get("identity_source") or "",
         "status_class": data.get("status_class") or kind,

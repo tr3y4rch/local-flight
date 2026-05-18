@@ -239,7 +239,8 @@
 
     <div class="hub-card">
       <h2><span class="icon">🗄</span> Flight History</h2>
-      <div class="stat-row"><span class="stat-label">Total rows</span><span class="stat-val mono" id="histRows">—</span></div>
+      <div class="stat-row"><span class="stat-label">Movements</span><span class="stat-val mono" id="histRows">—</span></div>
+      <div class="stat-row"><span class="stat-label">Raw observations</span><span class="stat-val mono" id="histRawRows">—</span></div>
       <div class="stat-row"><span class="stat-label">Airports in history</span><span class="stat-val mono" id="histAirports">—</span></div>
       <div class="stat-row"><span class="stat-label">Oldest record</span><span class="stat-val mono" id="histOldest">—</span></div>
       <div class="stat-row"><span class="stat-label">Newest record</span><span class="stat-val mono" id="histNewest">—</span></div>
@@ -602,10 +603,11 @@
       const r = await fetch("/api/history/stats"); if (!r.ok) return;
       const s = await r.json();
       if (s.error) { el("histRows").textContent = "History unavailable"; return; }
-      el("histRows").textContent     = (s.total_rows || 0).toLocaleString();
+      el("histRows").textContent     = (s.total_movements || 0).toLocaleString();
+      el("histRawRows").textContent  = (s.total_rows || 0).toLocaleString();
       el("histAirports").textContent = (s.airports || []).join(", ") || "—";
-      el("histOldest").textContent   = s.oldest ? s.oldest.slice(0,16).replace("T"," ") : "—";
-      el("histNewest").textContent   = s.newest ? s.newest.slice(0,16).replace("T"," ") : "—";
+      el("histOldest").textContent   = (s.oldest_movement || s.oldest) ? (s.oldest_movement || s.oldest).slice(0,16).replace("T"," ") : "—";
+      el("histNewest").textContent   = (s.newest_movement || s.newest) ? (s.newest_movement || s.newest).slice(0,16).replace("T"," ") : "—";
     } catch(e) {}
   }
 

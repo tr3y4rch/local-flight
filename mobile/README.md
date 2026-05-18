@@ -111,7 +111,7 @@ Standalone mode is deliberately simpler than the full LAN Mobile / LAN Companion
 - Radar range choices are `1`, `3`, `5`, and `10` NM only.
 - No WebSocket connection is opened.
 - Matrix, Admin, scheduler restart, server URL tools, and other server-control features are hidden.
-- History is stored locally on the phone with Expo SQLite and retained for 30 days or 1,000 rows, whichever is smaller.
+- History is stored locally on the phone with Expo SQLite and retained for 30 days or 1,000 deduped movements, whichever is smaller. Repeated refreshes and known codeshare aliases do not count as extra flights.
 
 Deep geometry QA is optional and intentionally slow:
 
@@ -131,9 +131,10 @@ The screenshot script builds a self-contained simulator app and captures portrai
 - SecureStore persistence for setup mode, server URL, mobile install ID, standalone relay install ID, standalone activation token, standalone airport, mobile diagnostics mode, pinned flight, profiles, and mobile appearance choices
 - LAN Mobile / LAN Companion connection checks against `/api/health`
 - LAN Mobile / LAN Companion dashboard data from `/api/mobile/summary` plus the existing local APIs
+- QR pairing from native Settings prefers the server's LAN IP and carries the server fingerprint, so the app can reject a scan that resolves to another Local Flight host on a multi-server LAN
 - Standalone summary, FIDS, Radar, and METAR data from relay `/v1/mobile/*` endpoints
 - Native FIDS list from local `/api/fids` in LAN Mobile / LAN Companion mode and relay `/v1/mobile/fids` in Standalone mode
-- Flight details from `/api/fids/detail`, including the server's shared current-source detail model for real vs VATSIM schedule, motion, aircraft, weather, source confidence, and history fields when available
+- Flight details from `/api/fids/detail`, including the server's shared current-source detail model for real vs VATSIM schedule, motion, aircraft, weather, source confidence, and history fields when available. VATSIM details use the same pilot/ATC contract as desktop: callsign, filed plan, pilot track, XPDR, and recent sessions, without passenger codeshare/gate/registration fields.
 - Airport, source, and refresh interval editing. The server offers 15, 30, 45, and 60 minute choices plus longer 2, 4, 8, 12, and 24 hour choices where the active schedule mode allows them. Community Relay shows hourly-or-slower choices because shared airport snapshots protect upstream schedule access.
 - Pinned flight island with pin/unpin and tap-for-detail behavior
 - WebSocket listener for `/ws` `snapshot_updated`, `config_updated`, and `scheduler_restarted` events in LAN Mobile / LAN Companion mode only
@@ -143,7 +144,7 @@ The screenshot script builds a self-contained simulator app and captures portrai
 - Server-backed Matrix runtime editor using `/api/matrix/config`, with local-only panel preview presets. Real-world Matrix feeds can expose gate/stand labels when available; VATSIM Matrix presets intentionally hide gate placeholders.
 - Fullscreen landscape FIDS from any screen, with normal portrait state restored when rotating back
 - Mobile-owned radar radius controls. LAN Mobile / LAN Companion uses the paired server for runway and airport-surface drawing; Standalone uses the relay mobile radar response for this pass.
-- Local standalone history database with Expo SQLite
+- Local standalone movement history database with Expo SQLite
 - Feedback and crash reporting through the connected Local Flight server in LAN Mobile / LAN Companion mode, or directly through the hosted relay in Standalone mode
 
 Standalone deliberately hides Matrix, Admin, scheduler restart, server-control panels, and LAN Mobile / LAN Companion check-in. The goal is a useful mobile board, not a mini desktop clone.
@@ -155,6 +156,7 @@ Standalone deliberately hides Matrix, Admin, scheduler restart, server-control p
 ### LAN Mobile / LAN Companion
 
 - It talks to your Local Flight server over your LAN.
+- Prefer the LAN IP shown in Local Flight Settings when pairing. `localflight.local` remains useful for simple one-server networks, but it can resolve to the wrong host if a Pi and a dev machine are both running Local Flight.
 - It does not call AviationStack, ADS-B Exchange, RapidAPI, OpenSky, VATSIM, or the hosted relay directly.
 - Automatic mobile reports require both the mobile-local diagnostics choice and the connected server diagnostics mode to allow automatic reporting.
 - Manual reports remain available from the app.
@@ -164,7 +166,7 @@ Standalone deliberately hides Matrix, Admin, scheduler restart, server-control p
 
 - It talks directly to the hosted Local Flight relay.
 - It registers a separate relay install UUID and activation token for this mobile install.
-- It stores the selected airport and local flight history on the device.
+- It stores the selected airport and local deduped movement history on the device.
 - Manual reports go directly to relay `/v1/reports`.
 - Automatic reports only send when the mobile diagnostics choice is `auto` or `auto_logs`.
 - It does not store phone-local history on the relay.
@@ -190,7 +192,7 @@ The mobile install ID and standalone relay install ID are install-scoped. They a
 
 - Public iOS release
 - Public Android release
-- QR pairing and per-device tokens
+- Per-device auth tokens for broader mutating controls
 - Production-ready admin permission model
 - Native crash capture before JavaScript starts
 - Full standalone flight-detail endpoint parity; Standalone currently focuses on Board, Radar, History, Settings, and reports
@@ -199,7 +201,7 @@ The mobile install ID and standalone relay install ID are install-scoped. They a
 
 ## Next
 
-- QR pairing and per-device tokens before broader mutating admin controls
+- Per-device auth tokens before broader mutating admin controls
 - Android test pass after the iOS mobile app stabilizes
 - Real navigation stack once screen history/deep links justify it
 - iPad and landscape display-mode polish

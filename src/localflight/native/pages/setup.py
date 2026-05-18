@@ -138,7 +138,7 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
         self.tabs = QtWidgets.QStackedWidget()
         self.tabs.setMinimumWidth(0)
         self.tabs.setMaximumWidth(self.setup_max_width)
-        self.tabs.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
+        self.tabs.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Preferred)
         self.search_timer = QtCore.QTimer(self.widget)
         self.search_timer.setSingleShot(True)
         self.search_timer.timeout.connect(self._start_airport_search)
@@ -154,7 +154,7 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
         self._build_finish_page()
 
         layout.addLayout(self._step_header())
-        layout.addWidget(self.tabs, 1, QtCore.Qt.AlignHCenter)
+        layout.addWidget(self.tabs, 0, QtCore.Qt.AlignHCenter)
         # Replace the thin marquee with a rotating-glyph spinner. The widget
         # exposes show()/hide()/setVisible() so existing callers keep working.
         colors = colors_for()
@@ -288,6 +288,7 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
         page.setObjectName("SetupPanel")
         page.setMinimumWidth(0)
         page.setMaximumWidth(self.setup_max_width)
+        page.setSizePolicy(self.QtWidgets.QSizePolicy.Expanding, self.QtWidgets.QSizePolicy.Preferred)
         layout = self.QtWidgets.QVBoxLayout(page)
         layout.setContentsMargins(18, 16, 18, 16)
         layout.setSpacing(12)
@@ -426,7 +427,9 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
         layout.addStretch(1)
 
     def _mini_card(self, title: str, body: str, *, icon: str = "") -> Any:
-        return self._option_card(icon=icon, title=title, body=body)
+        card = self._option_card(icon=icon, title=title, body=body)
+        card.setMinimumHeight(198 if self.card_columns >= 3 else 166)
+        return card
 
     def _build_airport_page(self) -> None:
         _page, layout = self._page(
@@ -660,7 +663,7 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
     def _build_finish_page(self) -> None:
         _page, layout = self._page(
             "Review & Launch",
-            "Review the simple version. Finish saves the local setup and opens Local Flight.",
+            "Review your launch choices. Finish saves this setup locally and opens Local Flight.",
         )
         self.finish_grid = self.QtWidgets.QGridLayout()
         self.finish_grid.setHorizontalSpacing(10)
@@ -735,6 +738,28 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
         layout.addWidget(eye)
         return container
 
+    def _sync_current_page_geometry(self) -> None:
+        """Let the outer setup scroll area own overflow instead of clipping the active page."""
+        current_page = self.tabs.currentWidget()
+        if current_page is None:
+            return
+        try:
+            page_layout = current_page.layout()
+            if page_layout is not None:
+                page_layout.activate()
+            current_page.adjustSize()
+            hint = current_page.sizeHint()
+            if hint.isValid():
+                self.tabs.setMinimumHeight(max(0, hint.height() + 6))
+            current_page.updateGeometry()
+            self.tabs.updateGeometry()
+            body = self.widget.widget() if hasattr(self.widget, "widget") else None
+            if body is not None:
+                body.adjustSize()
+                body.updateGeometry()
+        except Exception:
+            pass
+
     def _set_step(self, index: int) -> None:
         index = max(0, min(index, self.tabs.count() - 1))
         self.tabs.setCurrentIndex(index)
@@ -756,9 +781,13 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
         current_page = self.tabs.currentWidget()
         if current_page is not None:
             current_page.update()
-        self.back_btn.setEnabled(index > 0)
-        self.next_btn.setVisible(index < self.tabs.count() - 1)
-        self.finish_btn.setVisible(index == self.tabs.count() - 1)
+        self._sync_current_page_geometry()
+        is_first = index == 0
+        is_last = index == self.tabs.count() - 1
+        self.back_btn.setVisible(not is_first)
+        self.back_btn.setEnabled(not is_first)
+        self.next_btn.setVisible(not is_first and not is_last)
+        self.finish_btn.setVisible(is_last)
         self._update_finish_summary()
 
     def _next_step(self) -> None:
@@ -912,6 +941,8 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
                 pass
         self.loading_indicator.setVisible(bool(busy))
         self._repolish(self.status)
+        self.status.adjustSize()
+        self.status.updateGeometry()
         if busy:
             self.QtWidgets.QApplication.processEvents()
 
@@ -923,12 +954,67 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
             "Muted": "muted",
         }.get(role, "muted")
 
-    def _set_relay_action_status(self, text: str, role: str = "Muted", *, busy: bool = False) -> None:
+    def _friendly_relay_text(self, result: Any, *, default: str = "Relay response received.") -> str:
+        raw = ""
+        if isinstance(result, dict):
+            raw = str(result.get("error") or result.get("message") or result.get("status") or "")
+        elif result is not None:
+            raw = format_value(result)
+        text = format_value(raw).strip() if raw else default
+        lowered = text.casefold()
+        if "activation token already bound" in lowered or "already bound to another install" in lowered:
+            return (
+                "That activation token is already linked to another install. "
+                "Use the token already stored here, request a fresh activation, or switch to VATSIM."
+            )
+        if "invalid activation token" in lowered or "token invalid" in lowered:
+            return "That activation token was not accepted. Check the token or request a fresh activation."
+        return text or default
+
+    def _relay_role_for_result(self, result: Any, status_text: str = "") -> str:
+        if isinstance(result, dict):
+            if result.get("ok") is False or result.get("error"):
+                return "StatusBad"
+            if result.get("ok") is True:
+                return "StatusGood"
+            status_key = str(result.get("status") or "").casefold()
+            if status_key in {"active", "approved", "connected", "ok"}:
+                return "StatusGood"
+            if status_key in {"pending", "requested", "queued"}:
+                return "StatusWarn"
+        status_key = status_text.casefold()
+        if status_key in {"active", "approved", "connected", "ok"}:
+            return "StatusGood"
+        return "StatusWarn"
+
+    def _relay_footer_text(self, role: str, *, busy: bool = False) -> str:
+        if busy:
+            return "Working with the relay..."
+        if role == "StatusGood":
+            return "Relay panel updated."
+        if role == "StatusBad":
+            return "Relay needs attention. See the Relay Access panel."
+        if role == "StatusWarn":
+            return "Relay status needs attention. See the Relay Access panel."
+        return ""
+
+    def _set_relay_action_status(
+        self,
+        text: str,
+        role: str = "Muted",
+        *,
+        busy: bool = False,
+        footer_text: str | None = None,
+    ) -> None:
         self.relay_action_status.setText(text)
         self.relay_action_status.setProperty("tone", self._tone_for_role(role))
         self.relay_action_status.setVisible(bool(text))
         self._repolish(self.relay_action_status)
-        self._set_status(text, role, busy=busy)
+        footer = self._relay_footer_text(role, busy=busy) if footer_text is None else footer_text
+        if footer:
+            self._set_status(footer, role, busy=busy)
+        else:
+            self.loading_indicator.setVisible(bool(busy))
 
     def _set_relay_buttons_enabled(self, enabled: bool) -> None:
         for button in (self.request_activation_btn, self.check_relay_status_btn, self.test_token_btn):
@@ -1030,7 +1116,6 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
         try:
             result = self.service.setup_activate(self._activation_payload())
         except Exception as exc:
-            self._set_status(f"Activation request failed: {exc}", "StatusBad")
             self._set_relay_action_status(f"Activation request failed: {exc}", "StatusBad")
             self._set_relay_buttons_enabled(True)
             return
@@ -1043,9 +1128,9 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
             self.token_box.hide()
             self._set_relay_action_status("Relay access is connected. Token stored locally.", "StatusGood")
         elif result.get("ok") is False:
-            self._set_relay_action_status(format_value(result.get("error") or result.get("message") or result), "StatusBad")
+            self._set_relay_action_status(self._friendly_relay_text(result), "StatusBad")
         else:
-            self._set_relay_action_status(format_value(result.get("message") or result.get("status") or result), "StatusWarn")
+            self._set_relay_action_status(self._friendly_relay_text(result), self._relay_role_for_result(result))
         self._update_finish_summary()
 
     def check_activation_status(self) -> None:
@@ -1054,14 +1139,12 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
         try:
             result = self.service.setup_client_status(self._activation_payload())
         except Exception as exc:
-            self._set_status(f"Status check failed: {exc}", "StatusBad")
             self._set_relay_action_status(f"Status check failed: {exc}", "StatusBad")
             self._set_relay_buttons_enabled(True)
             return
         self._set_relay_buttons_enabled(True)
-        status_text = format_value(result.get("status") or result.get("message") or result)
-        status_key = status_text.casefold()
-        role = "StatusGood" if result.get("ok") or any(word in status_key for word in ("active", "approved", "connected", "ok")) else "StatusWarn"
+        status_text = self._friendly_relay_text(result, default="Relay status received.")
+        role = self._relay_role_for_result(result, status_text)
         self._set_relay_action_status(status_text, role)
 
     def test_activation(self) -> None:
@@ -1070,7 +1153,6 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
         try:
             result = self.service.setup_test_activation(self._activation_payload())
         except Exception as exc:
-            self._set_status(f"Token test failed: {exc}", "StatusBad")
             self._set_relay_action_status(f"Token test failed: {exc}", "StatusBad")
             self._set_relay_buttons_enabled(True)
             return
@@ -1078,7 +1160,7 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
         if result.get("ok"):
             self._set_relay_action_status("Relay token works. You can finish Community Relay setup.", "StatusGood")
             return
-        self._set_relay_action_status(format_value(result.get("error") or result.get("message") or result), "StatusBad")
+        self._set_relay_action_status(self._friendly_relay_text(result), "StatusBad")
 
     def test_aviationstack(self) -> None:
         key = self.aviationstack_key.text().strip()

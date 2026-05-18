@@ -26,6 +26,11 @@ traffic.
 - **Real FIDS style skins.** Classic, PAX, VATSIM, and Nerd now change more
   than columns: row size, spacing, fonts, header chrome, row chrome, status
   chips, palettes, and responsive column hiding all follow the active style.
+- **VATSIM details now speak pilot/ATC.** Virtual rows and details are
+  callsign-first and focus on aircraft, flight rules, filed route, altitude,
+  ground speed, XPDR, track state, and VATSIM freshness. Passenger-only fields
+  such as codeshares, sold-as labels, gates, terminals, registrations, ICAO24,
+  and delay/gate analytics are hidden in virtual mode.
 - **Long-name protection.** Very long airport labels are clamped safely and keep
   the full value as a tooltip in the native GUI.
 - **Footer support icons.** The footer now keeps the version/privacy phrase
@@ -80,6 +85,10 @@ traffic.
 - LAN Companion keeps the current paired-server behavior: WebSocket updates,
   server settings/control surfaces where allowed, server-mediated reporting, and
   the full Local Flight desktop/Pi relationship.
+- LAN Companion QR pairing now prefers the server's LAN IP and carries the
+  server fingerprint. If `localflight.local` resolves to another Local Flight
+  host on a busy test LAN, the mobile app rejects that scan instead of saving
+  the wrong server.
 - Standalone registers its own mobile relay install, stores its relay activation
   token and airport locally, and talks to relay `/v1/mobile/*` endpoints without
   needing a desktop or Pi on the LAN.
@@ -87,7 +96,7 @@ traffic.
   hours, radar refreshes no faster than every 5 minutes, radar ranges are `1`,
   `3`, `5`, and `10` NM, and Matrix/Admin/server-control tools are hidden.
 - Standalone History is local on the device through Expo SQLite and retains 30
-  days or 1,000 rows, whichever is smaller.
+  days or 1,000 deduped movements, whichever is smaller.
 - Standalone manual/crash reports go directly to the relay reporting gateway.
   Automatic reports require the mobile diagnostics choice to allow them.
 - The mobile launch overlay now has a more polished Local Flight feel: shared
@@ -99,7 +108,10 @@ traffic.
 ## History, Settings, Setup
 
 - History is a dashboard-first view: filters, KPIs, delay buckets, airline
-  delay quotas, route/aircraft stats, recent flights, and clean detail panels.
+  delay quotas, route/aircraft stats, recent movements, and clean detail panels.
+  Counts now mean actual movements: repeated snapshots and linked codeshare
+  aliases collapse into one history fact, while raw observations stay local for
+  diagnostics.
 - Settings is organized around normal user tasks first: airport/source,
   appearance, outputs/radar, and profiles, with diagnostics/docs/advanced
   controls tucked away.

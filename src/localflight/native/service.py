@@ -440,3 +440,6 @@ class NativeApiService:
 
     def connections(self) -> dict[str, Any]:
         return self.client.get_json("/api/admin/connections")
+
+    def reset_companions(self) -> dict[str, Any]:
+        return self.client.delete_json("/api/admin/companion")

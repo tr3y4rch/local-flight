@@ -120,7 +120,7 @@
   <div class="history-header">
     <div>
       <h1>Flight History - {{ cfg.airport_iata }}</h1>
-      <div class="history-sub">Local 90-day flight analytics with delay quotas, airline performance, route patterns, and recent matching rows.</div>
+      <div class="history-sub">Local 90-day movement analytics with delay quotas, airline performance, route patterns, and deduped recent flights.</div>
     </div>
     <div class="clock-bar">
       <span class="clock-utc">UTC: <span class="clock-utc-val">--:--:--</span></span>
@@ -142,9 +142,9 @@
   <div class="summary-line" id="summaryLine">Loading history analytics...</div>
 
   <section class="kpi-grid">
-    <div class="kpi-card"><div class="kpi-label">Flights tracked</div><div class="kpi-value" id="kpiTotal">-</div><div class="kpi-note" id="kpiScope">local DB</div></div>
-    <div class="kpi-card"><div class="kpi-label">Departures</div><div class="kpi-value blue" id="kpiDep">-</div><div class="kpi-note">outbound rows</div></div>
-    <div class="kpi-card"><div class="kpi-label">Arrivals</div><div class="kpi-value green" id="kpiArr">-</div><div class="kpi-note">inbound rows</div></div>
+    <div class="kpi-card"><div class="kpi-label">Movements</div><div class="kpi-value" id="kpiTotal">-</div><div class="kpi-note" id="kpiScope">deduped local DB</div></div>
+    <div class="kpi-card"><div class="kpi-label">Departures</div><div class="kpi-value blue" id="kpiDep">-</div><div class="kpi-note">outbound movements</div></div>
+    <div class="kpi-card"><div class="kpi-label">Arrivals</div><div class="kpi-value green" id="kpiArr">-</div><div class="kpi-note">inbound movements</div></div>
     <div class="kpi-card"><div class="kpi-label">On time</div><div class="kpi-value green" id="kpiOnTime">-</div><div class="kpi-note">-4m to +4m</div></div>
     <div class="kpi-card"><div class="kpi-label">Delayed</div><div class="kpi-value amber" id="kpiDelayed">-</div><div class="kpi-note">5m or more</div></div>
     <div class="kpi-card"><div class="kpi-label">Avg delay</div><div class="kpi-value" id="kpiAvg">-</div><div class="kpi-note">when late</div></div>
@@ -182,12 +182,12 @@
     </div>
   </section>
 
-  <div class="dash-title">Recent matching flights</div>
+  <div class="dash-title">Recent matching movements</div>
   <div class="table-wrap">
     <table>
       <thead>
         <tr>
-          <th onclick="sortBy('sched_time')">Time</th>
+          <th onclick="sortBy('event_time')">Time</th>
           <th onclick="sortBy('direction')">Dir</th>
           <th onclick="sortBy('airline_iata')">Airline</th>
           <th onclick="sortBy('flight_number')">Flight</th>
@@ -216,7 +216,7 @@
 {% block extra_script %}
 <script>
 let rows = [];
-let sortKey = "sched_time";
+let sortKey = "event_time";
 let sortAsc = false;
 
 function escapeHtml(value) {
@@ -271,6 +271,7 @@ window.loadDashboard = async function () {
 
 function renderSummary(summary, history) {
   const total = Number(summary.total || 0);
+  const rawObservations = Number(summary.raw_observation_rows || summary.sample_rows || history.raw_observation_rows || 0);
   document.getElementById("kpiTotal").textContent = total || "-";
   document.getElementById("kpiDep").textContent = summary.departures ?? "-";
   document.getElementById("kpiArr").textContent = summary.arrivals ?? "-";
@@ -279,7 +280,7 @@ function renderSummary(summary, history) {
   document.getElementById("kpiAvg").textContent = summary.avg_delay_minutes != null ? `+${summary.avg_delay_minutes}m` : "-";
   document.getElementById("kpiScope").textContent = `${summary.hours || document.getElementById("hoursFilter").value}h window`;
   document.getElementById("summaryLine").textContent =
-    `${history.count ?? rows.length} rows in filter | ${summary.airport_iata || history.airport_iata || "{{ cfg.airport_iata }}"} | showing first ${Math.min(rows.length, 120)} of ${rows.length}`;
+    `${summary.total ?? history.count ?? rows.length} movements from ${rawObservations || rows.length} observations | ${summary.airport_iata || history.airport_iata || "{{ cfg.airport_iata }}"} | showing first ${Math.min(rows.length, 120)} of ${rows.length}`;
 
   renderDelayBuckets(summary.delay_buckets || []);
   renderTrend(summary.daily_volume || []);
@@ -313,7 +314,7 @@ function renderTrend(items) {
   document.getElementById("dailyTrend").innerHTML = recent.length ? recent.map(item => {
     const totalPct = Math.max(4, Math.round((Number(item.total || 0) / max) * 100));
     const delayPct = item.total ? Math.round((Number(item.delayed || 0) / Number(item.total || 1)) * 100) : 0;
-    return `<div class="trend-bar delayed" title="${escapeHtml(item.date)}: ${item.total} flights, ${item.delayed} delayed" style="height:${totalPct}%; --delay-h:${delayPct}%"></div>`;
+    return `<div class="trend-bar delayed" title="${escapeHtml(item.date)}: ${item.total} movements, ${item.delayed} delayed" style="height:${totalPct}%; --delay-h:${delayPct}%"></div>`;
   }).join("") : `<div class="history-sub">No daily volume yet.</div>`;
   document.getElementById("dailyNote").textContent = recent.length ? `${recent.length} active days in this window | amber segment = delayed share` : "";
 }
@@ -363,11 +364,11 @@ function renderTable() {
   const sorted = [...rows].sort(compareValues);
   window._historyRows = sorted;
   if (!sorted.length) {
-    body.innerHTML = `<tr class="empty-row"><td colspan="10">No matching history rows yet. Try a wider period or clear filters.</td></tr>`;
+    body.innerHTML = `<tr class="empty-row"><td colspan="10">No matching movements yet. Try a wider period or clear filters.</td></tr>`;
     return;
   }
   body.innerHTML = sorted.slice(0, 120).map((r, idx) => {
-    const time = String(r.sched_time || r.snapshot_ts || "").slice(0, 16).replace("T", " ");
+    const time = String(r.event_time || r.sched_time || r.snapshot_ts || "").slice(0, 16).replace("T", " ");
     const route = `${r.origin_iata || "-"} -> ${r.dest_iata || "-"}`;
     return `<tr onclick="showDetail(${idx})">
       <td class="mono">${escapeHtml(time || "-")}</td>
@@ -391,7 +392,7 @@ function historyDetailSections(row, intel = {}) {
   return [
     ["Identity", [["Callsign", row.callsign], ["Flight", row.flight_number], ["Airline", row.airline_iata], ["Source", row.source]]],
     ["Route", [["From", row.origin_iata], ["To", row.dest_iata], ["Direction", row.direction], ["Gate", row.gate], ["Terminal", row.terminal], ["Aircraft", aircraft.type || row.aircraft_type]]],
-    ["Timing", [["Scheduled", fmtTime(row.sched_time)], ["Actual", fmtTime(row.actual_time)], ["Delay", delayText(row.delay_minutes)], ["Snapshot", fmtTime(row.snapshot_ts)]]],
+    ["Timing", [["Movement time", fmtTime(row.event_time)], ["Scheduled", fmtTime(row.sched_time)], ["Actual", fmtTime(row.actual_time)], ["Delay", delayText(row.delay_minutes)], ["Observed", `${row.observation_count || row.raw_observation_rows || 1} snapshot observation(s)`]]],
     ["Live Motion", [
       ["Status", row.status],
       ["Position", motion.lat != null && motion.lon != null ? `${Number(motion.lat).toFixed(4)}, ${Number(motion.lon).toFixed(4)}` : positionText(row)],

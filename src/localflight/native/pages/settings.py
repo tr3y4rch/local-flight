@@ -462,10 +462,12 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
         details.setSpacing(8)
         self.companion_count_label = label(self.QtWidgets, "0 paired", "Section")
         self.companion_pairing_url_label = label(self.QtWidgets, "Pairing link loading...", "Muted", wrap=True)
+        self.companion_fingerprint_label = label(self.QtWidgets, "Server fingerprint loading...", "Muted", wrap=True)
         self.companion_manual_url_label = label(self.QtWidgets, "Manual URL loading...", "Muted", wrap=True)
         self.companion_entries_label = label(self.QtWidgets, "No mobile check-ins yet.", "Muted", wrap=True)
         details.addWidget(self.companion_count_label)
         details.addWidget(self.companion_pairing_url_label)
+        details.addWidget(self.companion_fingerprint_label)
         details.addWidget(self.companion_manual_url_label)
         details.addWidget(self.companion_entries_label, 1)
 
@@ -479,9 +481,13 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
         copy_url = self.QtWidgets.QPushButton("Copy LAN URL")
         copy_url.setObjectName("Quiet")
         copy_url.clicked.connect(self._copy_manual_pairing_url)
+        reset_companions = self.QtWidgets.QPushButton("Reset paired devices")
+        reset_companions.setObjectName("Danger")
+        reset_companions.clicked.connect(self._reset_companion_connections)
         controls.addWidget(refresh)
         controls.addWidget(copy_pair)
         controls.addWidget(copy_url)
+        controls.addWidget(reset_companions)
         controls.addStretch(1)
         details.addLayout(controls)
 
@@ -692,10 +698,20 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
         payload = self._pairing_payload()
         self._current_pairing_link = str(payload.get("deep_link") or "")
         self._current_manual_pairing_url = str(payload.get("preferred_url") or "")
-        self.companion_pairing_url_label.setText(f"Deep link: {self._current_pairing_link}")
+        self._current_pairing_fingerprint = str(payload.get("server_fingerprint") or "")
+        self.companion_pairing_url_label.setText(
+            f"QR target: {self._current_manual_pairing_url}\n"
+            f"Pairing link: {self._current_pairing_link}"
+        )
+        self.companion_fingerprint_label.setText(
+            f"Server fingerprint: {self._current_pairing_fingerprint or 'unavailable'}"
+        )
         manual_urls = payload.get("manual_urls") if isinstance(payload.get("manual_urls"), list) else []
         manual_text = "\n".join(str(item) for item in manual_urls[:3]) or self._current_manual_pairing_url
-        self.companion_manual_url_label.setText(f"Manual URL:\n{manual_text}")
+        self.companion_manual_url_label.setText(
+            "Manual URLs, safest first. localflight.local is a fallback when only one Local Flight server is on this LAN:\n"
+            f"{manual_text}"
+        )
 
         png = pairing_qr_png_bytes(self._current_pairing_link, size=190)
         if png:
@@ -735,12 +751,39 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
     def _copy_pairing_link(self) -> None:
         self._render_pairing_payload()
         self.QtWidgets.QApplication.clipboard().setText(getattr(self, "_current_pairing_link", ""))
-        self._set_status("Pairing link copied. Reuse it for any mobile device on this LAN.", "StatusGood")
+        self._set_status(
+            "Pairing link copied. It is bound to this server fingerprint so mobile can reject the wrong host.",
+            "StatusGood",
+        )
 
     def _copy_manual_pairing_url(self) -> None:
         self._render_pairing_payload()
         self.QtWidgets.QApplication.clipboard().setText(getattr(self, "_current_manual_pairing_url", ""))
-        self._set_status("Manual LAN URL copied for mobile setup.", "StatusGood")
+        self._set_status("Preferred LAN IP copied for mobile setup.", "StatusGood")
+
+    def _reset_companion_connections(self) -> None:
+        answer = self.QtWidgets.QMessageBox.question(
+            self.widget,
+            "Reset paired devices?",
+            "Clear this server's remembered mobile companion check-ins? Phones that still point here can appear again after reconnecting.",
+            self.QtWidgets.QMessageBox.Yes | self.QtWidgets.QMessageBox.Cancel,
+            self.QtWidgets.QMessageBox.Cancel,
+        )
+        if answer != self.QtWidgets.QMessageBox.Yes:
+            self._set_status("Companion reset cancelled.", "Muted")
+            return
+        self._set_status("Resetting paired mobile devices...", busy=True)
+        try:
+            payload = self.service.reset_companions()
+        except Exception as exc:
+            self._set_status(f"Could not reset paired mobile devices: {exc}", "StatusBad")
+            return
+        removed = int(payload.get("removed") or 0)
+        self._refresh_companion_gateway()
+        self._set_status(
+            f"Reset paired devices. Cleared {removed} remembered mobile check-in(s).",
+            "StatusGood",
+        )
 
     def _relative_time(self, value: str) -> str:
         if not value:

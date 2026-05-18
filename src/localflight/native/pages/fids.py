@@ -1748,7 +1748,7 @@ class FidsScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
         shaped.pop("tone", None)
         shaped = enrich_presentation_fields(shaped)
         shaped["_codeshare_frames"] = _codeshare_frames(shaped)
-        shaped["codeshare_display"] = " / ".join(shaped["_codeshare_frames"])
+        shaped["codeshare_display"] = "" if _is_virtual_payload(shaped) else " / ".join(shaped["_codeshare_frames"])
         shaped["_codeshare_frame_index"] = self._codeshare_frame_index
         shaped["_source_row_index"] = source_index
         shaped["_fresh"] = bool(row.get("_fresh"))
@@ -1880,11 +1880,16 @@ class FidsScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
     def _detail_html(self, detail: dict[str, Any], history: list[dict[str, Any]], *, virtual: bool) -> str:
         title = "Virtual flight" if virtual else "Schedule"
         headline = detail.get("flight_display") or detail.get("flight_number") or detail.get("callsign") or "Flight"
-        airline = detail.get("airline_display") or detail.get("airline_name") or detail.get("airline_iata") or ""
+        airline = "" if virtual else (detail.get("airline_display") or detail.get("airline_name") or detail.get("airline_iata") or "")
         status = detail.get("status_display") or detail.get("status") or "Scheduled"
         status_class = self._detail_tone_class(detail)
         route = self._detail_route_points(detail)
-        gate = self._terminal_gate_line(detail) or "Gate pending"
+        gate = ""
+        if virtual:
+            gate = value_at(detail, "flight_plan.assigned_transponder") or value_at(detail, "position.squawk")
+            gate = f"XPDR {gate}" if gate else "No XPDR"
+        else:
+            gate = self._terminal_gate_line(detail) or "Gate pending"
         aircraft = self._aircraft_line(detail) or "Aircraft pending"
         source = value_at(detail, "data_sources.schedule") or detail.get("source") or ("vatsim" if virtual else "schedule")
         parts = [
@@ -1900,17 +1905,17 @@ class FidsScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
             self._hero_pills_html(detail),
             "</div>",
         ]
-        parts.append(self._detail_card_html("Flight Identity", "&#9673;", self._identity_fields(detail), wide=True))
         if virtual:
-            parts.append(self._detail_card_html("Virtual Flight", "&#9992;", [
+            parts.append(self._detail_card_html("VATSIM Summary", "&#9992;", [
                 ("Callsign", detail.get("callsign")),
-                ("Flight", detail.get("flight_display") or detail.get("flight_number")),
                 ("A/C code", detail.get("aircraft_type")),
                 ("Aircraft type", detail.get("aircraft_type_full") or value_at(detail, "intel.aircraft.model") or value_at(detail, "intel.aircraft.full_type")),
+                ("Rules", value_at(detail, "flight_plan.flight_rules")),
+                ("Route pair", f"{self._airport_line(detail, 'origin') or '-'} -> {self._airport_line(detail, 'dest') or '-'}"),
                 ("Status", detail.get("status") or detail.get("status_display")),
-                ("Source", source),
+                ("Network", "VATSIM"),
             ]))
-            parts.append(self._detail_card_html("Flight Plan", "&#8644;", [
+            parts.append(self._detail_card_html("Filed Plan", "&#8644;", [
                 ("Origin", self._airport_line(detail, "origin")),
                 ("Destination", self._airport_line(detail, "dest")),
                 ("Rules", value_at(detail, "flight_plan.flight_rules")),
@@ -1923,13 +1928,14 @@ class FidsScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
                 ("Alternate", value_at(detail, "flight_plan.alternate_icao")),
                 ("Squawk", value_at(detail, "flight_plan.assigned_transponder") or value_at(detail, "position.squawk")),
             ], wide=True))
-            parts.append(self._track_card_html(detail, "Aircraft Track"))
+            parts.append(self._track_card_html(detail, "Pilot Track"))
             parts.append(self._detail_card_html("VATSIM Data", "&#9679;", [
                 ("Snapshot generated", value_at(detail, "data_sources.snapshot_generated_at")),
                 ("Snapshot age", self._seconds(value_at(detail, "data_sources.snapshot_age_seconds"))),
                 ("Position age", self._seconds(value_at(detail, "data_sources.position_age_seconds"))),
             ], quiet=True))
         else:
+            parts.append(self._detail_card_html("Flight Identity", "&#9673;", self._identity_fields(detail), wide=True))
             parts.append(self._time_strip_html(detail))
             parts.append(self._route_card_html(detail))
             parts.append(self._detail_card_html("Operations & Aircraft", "&#9635;", [
@@ -1953,13 +1959,14 @@ class FidsScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
                 ("Snapshot age", self._seconds(value_at(detail, "data_sources.snapshot_age_seconds"))),
             ], quiet=True))
             parts.append(self._track_card_html(detail, "Live Track"))
-        parts.append(self._history_html(history))
+        parts.append(self._history_html(history, virtual=virtual))
         parts.append("</div>")
         return "".join(parts)
 
     def _hero_pills_html(self, detail: dict[str, Any]) -> str:
+        virtual = _is_virtual_payload(detail)
         items = [
-            ("gate", self._terminal_gate_line(detail)),
+            ("network", "VATSIM") if virtual else ("gate", self._terminal_gate_line(detail)),
             ("aircraft", self._aircraft_line(detail) or detail.get("aircraft_type_full") or value_at(detail, "intel.aircraft.model")),
             ("track", "track available" if value_at(detail, "position.lat") or value_at(detail, "intel.motion.has_position") else "schedule only"),
             ("source", detail.get("enriched_by") or detail.get("source")),
@@ -2004,11 +2011,22 @@ class FidsScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
     def _flight_identifier(self, value: Any) -> str:
         return _format_codeshare_number(value)
 
-    def _history_html(self, history: list[dict[str, Any]]) -> str:
+    def _history_html(self, history: list[dict[str, Any]], *, virtual: bool = False) -> str:
+        title = "Recent Sessions (7 days)" if virtual else "Recent History (7 days)"
         if not history:
-            return "<div class='detail-card history-card'><div class='card-title'>&#9719; Recent History (7 days)</div><div class='muted empty'>No history yet.</div></div>"
-        parts = ["<div class='detail-card history-card'><div class='card-title'>&#9719; Recent History (7 days)</div><table class='detail-table' width='100%' cellspacing='0' cellpadding='0'>"]
+            return f"<div class='detail-card history-card'><div class='card-title'>&#9719; {self._h(title)}</div><div class='muted empty'>No history yet.</div></div>"
+        parts = [f"<div class='detail-card history-card'><div class='card-title'>&#9719; {self._h(title)}</div><table class='detail-table' width='100%' cellspacing='0' cellpadding='0'>"]
         for item in history[:8]:
+            if virtual:
+                date = item.get("date") or str(item.get("snapshot_ts") or "")[:10] or "-"
+                status = item.get("status") or "-"
+                obs = item.get("observations")
+                source = item.get("source") or "vatsim"
+                meta = f"{format_value(source).upper()}"
+                if obs:
+                    meta += f" / {obs} obs"
+                parts.append(f"<tr class='history'><td>{self._h(date)} - {self._h(status)}</td><td align='right'><span class='delay-chip muted'>{self._h(meta)}</span></td></tr>")
+                continue
             delay = item.get("delay_minutes")
             try:
                 delay_i = int(delay)
@@ -2112,7 +2130,7 @@ class FidsScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
 
     def _aircraft_line(self, detail: dict[str, Any]) -> str:
         aircraft = format_value(detail.get("aircraft_type"))
-        registration = format_value(detail.get("aircraft_registration"))
+        registration = "" if _is_virtual_payload(detail) else format_value(detail.get("aircraft_registration"))
         return " ".join(part for part in (aircraft, registration) if part)
 
     def _detail_tone_class(self, detail: dict[str, Any]) -> str:
@@ -2171,15 +2189,15 @@ class FidsScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
 
     def _virtual_detail_sections(self, detail: dict[str, Any]) -> list[tuple[str, list[tuple[str, Any]]]]:
         return [
-            ("Virtual Flight", [
+            ("VATSIM Summary", [
                 ("Callsign", detail.get("callsign")),
-                ("Flight", detail.get("flight_display") or detail.get("flight_number")),
                 ("A/C code", detail.get("aircraft_type")),
                 ("Aircraft type", detail.get("aircraft_type_full") or value_at(detail, "intel.aircraft.model") or value_at(detail, "intel.aircraft.full_type")),
+                ("Rules", value_at(detail, "flight_plan.flight_rules")),
                 ("Status", detail.get("status") or detail.get("status_display")),
-                ("Source", value_at(detail, "data_sources.schedule") or detail.get("source")),
+                ("Network", "VATSIM"),
             ]),
-            ("Flight plan", [
+            ("Filed Plan", [
                 ("Origin", self._airport_line(detail, "origin")),
                 ("Destination", self._airport_line(detail, "dest")),
                 ("Rules", value_at(detail, "flight_plan.flight_rules")),
@@ -2192,7 +2210,7 @@ class FidsScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
                 ("Alternate", value_at(detail, "flight_plan.alternate_icao")),
                 ("Squawk", value_at(detail, "flight_plan.assigned_transponder") or value_at(detail, "position.squawk")),
             ]),
-            ("Aircraft Track", [
+            ("Pilot Track", [
                 ("Latitude", value_at(detail, "position.lat")),
                 ("Longitude", value_at(detail, "position.lon")),
                 ("Altitude", self._altitude(value_at(detail, "position.altitude_m"))),
@@ -2380,6 +2398,8 @@ def _weather_icon_glyph(icon_name: Any) -> str:
 
 
 def _codeshare_frames(row: dict[str, Any]) -> list[str]:
+    if _is_virtual_payload(row):
+        return []
     values: list[str] = []
     raw = row.get("codeshares")
     if isinstance(raw, (list, tuple, set)):
@@ -2400,6 +2420,11 @@ def _codeshare_frames(row: dict[str, Any]) -> list[str]:
         seen.add(compact)
         frames.append(formatted)
     return frames
+
+
+def _is_virtual_payload(row: dict[str, Any]) -> bool:
+    src = str(row.get("detail_mode") or row.get("source") or row.get("source_hint") or "").strip().lower()
+    return "virtual" in src or "vatsim" in src
 
 
 def _split_codeshare_text(value: str) -> list[str]:

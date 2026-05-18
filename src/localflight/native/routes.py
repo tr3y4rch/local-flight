@@ -44,6 +44,7 @@ CLIENT_ROUTES: tuple[NativeRoute, ...] = (
     NativeRoute("admin.system", "Load system status", "GET", "/api/admin/system", "client", "admin"),
     NativeRoute("admin.budget", "Load schedule access", "GET", "/api/admin/budget", "client", "admin"),
     NativeRoute("admin.connections", "Load connected screens", "GET", "/api/admin/connections", "client", "admin"),
+    NativeRoute("admin.companion_reset", "Reset paired mobile devices", "DELETE", "/api/admin/companion", "client", "settings"),
     NativeRoute("admin.updates", "Load update status", "GET", "/api/admin/updates", "client", "admin"),
     NativeRoute("admin.requests", "Load local request log", "GET", "/api/admin/requests", "client", "requests"),
     NativeRoute("matrix.config_read", "Load matrix config", "GET", "/api/matrix/config", "client", "matrix"),

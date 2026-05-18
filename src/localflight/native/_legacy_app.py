@@ -4715,9 +4715,10 @@ class AdminSummaryScreen:  # pragma: no cover - optional Qt runtime
             self._stats_panel(
                 "\U0001F4C5  Flight History",
                 [
-                    ("Total rows", history.get("rows") or history.get("row_count") or 0),
-                    ("Oldest record", history.get("oldest") or history.get("oldest_record") or "-"),
-                    ("Newest record", history.get("newest") or history.get("newest_record") or "-"),
+                    ("Movements", history.get("total_movements") or history.get("movements") or history.get("rows") or history.get("row_count") or 0),
+                    ("Raw observations", history.get("total_rows") or history.get("raw_observation_rows") or "-"),
+                    ("Oldest movement", history.get("oldest_movement") or history.get("oldest") or history.get("oldest_record") or "-"),
+                    ("Newest movement", history.get("newest_movement") or history.get("newest") or history.get("newest_record") or "-"),
                     ("Open history", "History tab"),
                 ],
             ),
@@ -5051,8 +5052,8 @@ class HistoryScreen:  # pragma: no cover - optional Qt runtime
             QtWidgets,
             emoji="\U0001F4C5",
             title="Flight History",
-            subtitle="Airport-board analytics: delay quotas, airline performance, routes, aircraft, and recent matching flights.",
-            info_text="History is a 90-day local rolling window stored on this machine only.",
+            subtitle="Airport-board movement analytics: delay quotas, airline performance, routes, aircraft, and deduped recent flights.",
+            info_text="History is a 90-day local movement window stored on this machine only. Raw observations stay local for diagnostics.",
             actions=(),
             show_last_refreshed=True,
         )
@@ -5108,7 +5109,7 @@ class HistoryScreen:  # pragma: no cover - optional Qt runtime
         filter_layout.addLayout(filter_grid)
         layout.addWidget(filters)
 
-        self.status = label(QtWidgets, "90-day local database. Click a row for details.", "Muted", wrap=True)
+        self.status = label(QtWidgets, "90-day local movement database. Click a row for details.", "Muted", wrap=True)
         self.loading_indicator = _loading_indicator(QtWidgets)
         layout.addWidget(self.loading_indicator)
         layout.addWidget(self.status)
@@ -5116,9 +5117,9 @@ class HistoryScreen:  # pragma: no cover - optional Qt runtime
         self.kpi_grid = QtWidgets.QGridLayout()
         self.kpi_cards: dict[str, tuple[Any, Any]] = {}
         for idx, (key, title, note) in enumerate((
-            ("total", "✈️  Flights tracked", "local DB"),
-            ("departures", "\U0001F6EB  Departures", "outbound rows"),
-            ("arrivals", "\U0001F6EC  Arrivals", "inbound rows"),
+            ("total", "✈️  Movements", "deduped local DB"),
+            ("departures", "\U0001F6EB  Departures", "outbound movements"),
+            ("arrivals", "\U0001F6EC  Arrivals", "inbound movements"),
             ("on_time_pct", "⏰  On time", "-4m to +4m"),
             ("delayed_pct", "\U0001F40C  Delayed", "5m or more"),
             ("avg_delay_minutes", "⏱️  Avg delay", "when late"),
@@ -5137,7 +5138,7 @@ class HistoryScreen:  # pragma: no cover - optional Qt runtime
         self.stats_outer_layout.addWidget(self.stats_content)
         layout.addWidget(self.stats_body)
 
-        layout.addWidget(section_label(QtWidgets, "\U0001F4CB  Recent matching flights"))
+        layout.addWidget(section_label(QtWidgets, "\U0001F4CB  Recent matching movements"))
         self.table = QtWidgets.QTableWidget(0, 12)
         self.table.setObjectName("FidsTable")
         self.table.verticalHeader().setVisible(False)
@@ -5221,15 +5222,18 @@ class HistoryScreen:  # pragma: no cover - optional Qt runtime
         self._render_table()
         visible = min(len(self.rows), 120)
         airport = payload.get("airport_iata") or summary.get("airport_iata") or "airport"
-        self.status.setText(f"{len(self.rows)} records in this filter | {airport} | showing first {visible} to keep the view light")
+        raw_observations = summary.get("raw_observation_rows") or payload.get("raw_observation_rows") or len(self.rows)
+        self.status.setText(
+            f"{summary.get('total') or len(self.rows)} movements from {raw_observations} observations | {airport} | showing first {visible} to keep the view light"
+        )
         self.last_refresh.setText(f"Updated {datetime.now().strftime('%H:%M:%S')}")
-        _set_native_feedback(self, f"{len(self.rows)} history records loaded.", "StatusGood")
+        _set_native_feedback(self, f"{len(self.rows)} history movements loaded.", "StatusGood")
         try:
             from localflight.native.qt_compat import import_qt as _import_qt_ht
             from localflight.native.shell_widgets import show_toast as _toast_ht
 
             _QtCore_ht, _QtGui_ht, _QtWidgets_ht = _import_qt_ht()
-            _toast_ht(_QtCore_ht, _QtGui_ht, _QtWidgets_ht, self.widget, text=f"{len(self.rows)} flights loaded", tone="good")
+            _toast_ht(_QtCore_ht, _QtGui_ht, _QtWidgets_ht, self.widget, text=f"{len(self.rows)} movements loaded", tone="good")
         except Exception:
             pass
 
@@ -5254,7 +5258,7 @@ class HistoryScreen:  # pragma: no cover - optional Qt runtime
             self.QtWidgets,
             table_rows,
             [
-                ("sched_time", "Scheduled"),
+                ("event_time", "Time"),
                 ("direction", "Dir"),
                 ("airline_iata", "Airline"),
                 ("flight_number", "Flight"),
@@ -5284,6 +5288,7 @@ class HistoryScreen:  # pragma: no cover - optional Qt runtime
     def _table_row(self, row: dict[str, Any]) -> dict[str, Any]:
         copied = dict(row)
         copied["delay_label"] = self._delay_label(row.get("delay_minutes"))
+        copied["event_time"] = row.get("event_time") or row.get("sched_time") or row.get("snapshot_ts")
         return copied
 
     def _render_stats(self) -> None:
@@ -5414,10 +5419,11 @@ class HistoryScreen:  # pragma: no cover - optional Qt runtime
                 ("Aircraft type", aircraft.get("model") or aircraft.get("full_type")),
             ]),
             ("Timing", [
+                ("Movement time", row.get("event_time")),
                 ("Scheduled", row.get("sched_time")),
                 ("Actual", row.get("actual_time")),
                 ("Delay bucket", self._delay_label(row.get("delay_minutes"))),
-                ("Snapshot", row.get("snapshot_ts")),
+                ("Observed", f"{row.get('observation_count') or row.get('raw_observation_rows') or 1} snapshot observation(s)"),
             ]),
             ("Operations", [
                 ("Status", row.get("status")),

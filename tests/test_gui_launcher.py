@@ -858,6 +858,53 @@ def test_native_parity_screens_construct_core_controls(monkeypatch: pytest.Monke
     assert feedback.loading_indicator.isVisible() is False
 
 
+def test_native_setup_welcome_layout_is_scroll_safe(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    pytest.importorskip("PySide6")
+    from PySide6 import QtCore, QtWidgets
+    from localflight.native.app import SetupScreen
+    from localflight.native.qt_compat import import_qt
+
+    class _Client:
+        def get_json(self, path: str, *, params: dict[str, object] | None = None) -> dict[str, object]:
+            if path == "/api/setup/client-info":
+                return {"relay_url": "https://localflight-community-relay.fly.dev", "has_activation_token": False}
+            return {}
+
+    QtCore2, QtGui, QtWidgets2 = import_qt()
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    setup = SetupScreen(QtCore2, QtWidgets2, _Client(), base_url="http://127.0.0.1:9", QtGui=QtGui)
+
+    setup.widget.resize(1280, 900)
+    setup.widget.show()
+    app.processEvents()
+
+    welcome_page = setup.tabs.widget(0)
+    welcome_cards = [
+        child for child in welcome_page.findChildren(QtWidgets.QFrame) if child.objectName() == "SetupOptionCard"
+    ]
+    assert app is not None
+    assert setup.tabs.minimumHeight() >= welcome_page.sizeHint().height()
+    assert setup.start_btn.isVisible()
+    assert setup.back_btn.isHidden()
+    assert setup.next_btn.isHidden()
+    assert welcome_cards
+    assert min(card.minimumHeight() for card in welcome_cards) >= 166
+    hero_bottom = setup.logo_label.geometry().bottom()
+    first_card_top = min(card.geometry().top() for card in welcome_cards)
+    assert hero_bottom + 8 <= first_card_top
+    status_bottom = setup.status.mapToGlobal(QtCore.QPoint(0, setup.status.height())).y()
+    nav_top = setup.web_fallback_btn.mapToGlobal(QtCore.QPoint(0, 0)).y()
+    assert status_bottom <= nav_top
+
+    setup._set_step(1)
+    app.processEvents()
+    assert setup.back_btn.isVisible()
+    assert setup.next_btn.isVisible()
+    assert setup.finish_btn.isHidden()
+    setup.widget.hide()
+
+
 def test_native_matrix_controls_drive_preview_and_script(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
     pytest.importorskip("PySide6")
@@ -1157,6 +1204,62 @@ def test_native_setup_relay_actions_show_local_status(monkeypatch: pytest.Monkey
     assert setup.relay_action_status.property("tone") == "good"
     assert "token works" in setup.relay_action_status.text().lower()
     assert setup.test_token_btn.isEnabled()
+
+
+def test_native_setup_relay_errors_are_friendly_and_not_global_json(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    pytest.importorskip("PySide6")
+    from PySide6 import QtWidgets
+    from localflight.native.app import SetupScreen
+    from localflight.native.qt_compat import import_qt
+
+    class _Client:
+        def get_json(self, path: str, *, params: dict[str, object] | None = None) -> dict[str, object]:
+            if path == "/api/setup/client-info":
+                return {"relay_url": "https://localflight-community-relay.fly.dev"}
+            return {}
+
+    class _Service:
+        activation_calls = 0
+
+        def setup_client_info(self) -> dict[str, object]:
+            return {"relay_url": "https://localflight-community-relay.fly.dev"}
+
+        def setup_activate(self, payload: dict[str, object]) -> dict[str, object]:
+            self.activation_calls += 1
+            return {"ok": False, "error": "Activation token already bound to another install"}
+
+        def setup_client_status(self, payload: dict[str, object]) -> dict[str, object]:
+            return {"ok": False, "error": "Activation token already bound to another install"}
+
+        def setup_test_activation(self, payload: dict[str, object]) -> dict[str, object]:
+            return {"ok": False, "error": "Activation token already bound to another install"}
+
+    QtCore, _QtGui, QtWidgets2 = import_qt()
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    setup = SetupScreen(QtCore, QtWidgets2, _Client(), base_url="http://127.0.0.1:9")
+    service = _Service()
+    setup.service = service
+
+    setup.request_activation()
+    assert app is not None
+    assert setup.relay_action_status.property("tone") == "bad"
+    assert "already linked to another install" in setup.relay_action_status.text()
+    assert "{" not in setup.relay_action_status.text()
+    assert "}" not in setup.relay_action_status.text()
+    assert "Relay needs attention" in setup.status.text()
+    assert "Activation token" not in setup.status.text()
+
+    setup.check_activation_status()
+    assert setup.relay_action_status.property("tone") == "bad"
+    assert "already linked to another install" in setup.relay_action_status.text()
+
+    setup._stored_activation = True
+    setup.activation_token.clear()
+    setup.request_activation()
+    assert service.activation_calls == 2
+    assert setup.relay_action_status.property("tone") == "bad"
+    assert "already linked to another install" in setup.relay_action_status.text()
 
 
 def test_native_setup_provider_key_actions_show_feedback(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1461,6 +1564,8 @@ def test_native_radar_embedded_layout_stays_narrow(monkeypatch: pytest.MonkeyPat
     assert app is not None
     assert screen.range_combo is not None
     assert not screen.range_buttons
+    assert screen.range_combo.property("lfPopupMinWidth") >= 118
+    assert screen.range_combo.view().minimumWidth() >= screen.range_combo.property("lfPopupMinWidth")
     assert screen.loading_indicator.isVisible() is False
     assert screen.canvas.minimumWidth() <= 320
     assert screen.widget.minimumSizeHint().width() <= 520
@@ -2155,12 +2260,17 @@ def test_native_fids_detail_splits_real_and_virtual(monkeypatch: pytest.MonkeyPa
 
     assert app is not None
     assert "Virtual flight" in text
-    assert "Flight Plan" in text
+    assert "Filed Plan" in text
+    assert "Pilot Track" in text
     assert "DCT TEST" in text
     assert "detail-hero" in html
     assert "hero-chips" in html
     assert "detail-card wide" in html
     assert "history-card" in html
+    assert "Flight Identity" not in html
+    assert "Operating airline" not in html
+    assert "Sold as" not in html
+    assert "Gate A" not in html
     assert "Private Person" not in text
     assert "123456" not in text
     assert "Private Person" not in html
@@ -2700,6 +2810,55 @@ def test_native_settings_has_airport_search_picker(monkeypatch: pytest.MonkeyPat
     assert screen.maintenance_body.isVisible() is False
     assert screen.advanced_display_group.isChecked() is False
     assert screen.advanced_display_body.isVisible() is False
+
+
+def test_native_settings_companion_pairing_actions_are_wired(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    monkeypatch.setattr("localflight.companion_pairing._local_ipv4_addresses", lambda: ["192.168.1.77"])
+    pytest.importorskip("PySide6")
+    from PySide6 import QtWidgets
+    from localflight.native.app import SettingsScreen
+    from localflight.native.qt_compat import import_qt
+
+    class _Client:
+        deleted = False
+
+        def get_json(self, path: str, *, params: dict[str, object] | None = None) -> dict[str, object]:
+            if path == "/api/admin/connections":
+                return {"companion_count": 0, "companions": []}
+            return {}
+
+        def delete_json(self, path: str) -> dict[str, object]:
+            assert path == "/api/admin/companion"
+            self.deleted = True
+            return {"ok": True, "removed": 2, "reset_at": "2026-05-18T12:00:00+00:00"}
+
+    QtCore, QtGui, QtWidgets2 = import_qt()
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    client = _Client()
+    screen = SettingsScreen(QtCore, QtGui, QtWidgets2, client=client, base_url="http://127.0.0.1:9")
+
+    assert app is not None
+    assert "QR target: http://192.168.1.77:8000" in screen.companion_pairing_url_label.text()
+    assert "Server fingerprint:" in screen.companion_fingerprint_label.text()
+    assert "localflight.local is a fallback" in screen.companion_manual_url_label.text()
+
+    screen._copy_pairing_link()
+    assert "localflight://pair" in QtWidgets.QApplication.clipboard().text()
+    assert "server_fingerprint=" in QtWidgets.QApplication.clipboard().text()
+    screen._copy_manual_pairing_url()
+    assert QtWidgets.QApplication.clipboard().text() == "http://192.168.1.77:8000"
+
+    monkeypatch.setattr(
+        QtWidgets.QMessageBox,
+        "question",
+        staticmethod(lambda *args, **kwargs: QtWidgets.QMessageBox.Yes),
+    )
+    screen._reset_companion_connections()
+
+    assert client.deleted is True
+    assert screen.companion_count_label.text() == "0 paired"
+    assert "Cleared 2 remembered" in screen.status.text()
 
 
 def test_native_settings_is_extracted_from_legacy_module() -> None:
@@ -3727,7 +3886,7 @@ def test_native_route_registry_is_labelled_and_owned() -> None:
 
     assert routes
     assert all(route.action_id and route.label and route.method and route.path and route.owner for route in routes)
-    assert all(route.method in {"GET", "POST", "PATCH"} for route in routes)
+    assert all(route.method in {"GET", "POST", "PATCH", "DELETE"} for route in routes)
     assert len({route.action_id for route in routes}) == len(routes)
     assert {route.surface for route in routes} == {"client", "network-admin"}
 

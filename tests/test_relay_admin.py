@@ -177,7 +177,16 @@ def test_activate_auto_issues_and_client_status_verifies(tmp_path: Path, monkeyp
     status_data = status_resp.json()
     assert status_data["plan"] == "managed"
     assert status_data["token_prefix"] == activate_data["token_prefix"]
+    assert status_data["known_install"] is True
+    assert status_data["can_reissue"] is True
     assert status_data["providers"]["aviationstack"] is False
+
+    no_token_status = client.get("/v1/client/status", params={"install_id": install_id})
+    assert no_token_status.status_code == 200
+    assert no_token_status.json()["plan"] == "community"
+    assert no_token_status.json()["known_install"] is True
+    assert no_token_status.json()["can_reissue"] is True
+    assert no_token_status.json()["token_prefix"] == activate_data["token_prefix"]
 
     conn = relay_main._connect()
     request_row = conn.execute(
@@ -372,6 +381,70 @@ def test_mobile_standalone_known_install_reissues_during_network_review(tmp_path
     assert row["token_prefix"] == reissued_payload["token_prefix"]
     assert row["airport_iata"] == "ZRH"
     assert row["airport_icao"] == "LSZH"
+
+
+def test_known_install_reissues_do_not_consume_new_install_network_burst(tmp_path: Path, monkeypatch) -> None:
+    _use_temp_db(tmp_path, monkeypatch)
+    monkeypatch.setattr(relay_main, "_AUTO_ACTIVATION_NETWORK_DAILY_LIMIT", 2)
+    monkeypatch.setattr(relay_main, "_AUTO_ACTIVATION_NETWORK_INSTALLS_DAILY_LIMIT", 2)
+    client = TestClient(relay_main.app)
+    headers = {"x-forwarded-for": "198.51.100.99"}
+    known_install = "00000000-0000-0000-0000-000000000904"
+
+    first = client.post(
+        "/v1/activate",
+        json={
+            "install_id": known_install,
+            "install_fingerprint": relay_main._install_fingerprint(known_install),
+            "display_name": "Known desktop",
+            "requested_mode": "community",
+        },
+        headers=headers,
+    )
+    assert first.status_code == 200
+    assert first.json()["status"] == "issued"
+    assert first.json()["known_install"] is False
+
+    for _ in range(3):
+        reissued = client.post(
+            "/v1/activate",
+            json={
+                "install_id": known_install,
+                "install_fingerprint": relay_main._install_fingerprint(known_install),
+                "display_name": "Known desktop reset",
+                "requested_mode": "community",
+            },
+            headers=headers,
+        )
+        assert reissued.status_code == 200
+        assert reissued.json()["status"] == "issued"
+        assert reissued.json()["known_install"] is True
+        assert "reissued" in reissued.json()["decision_note"]
+
+    unknown_install = "00000000-0000-0000-0000-000000000905"
+    unknown = client.post(
+        "/v1/activate",
+        json={
+            "install_id": unknown_install,
+            "install_fingerprint": relay_main._install_fingerprint(unknown_install),
+            "display_name": "Unknown desktop",
+            "requested_mode": "community",
+        },
+        headers=headers,
+    )
+
+    assert unknown.status_code == 200
+    assert unknown.json()["status"] == "issued"
+    assert unknown.json()["known_install"] is False
+
+    conn = relay_main._connect()
+    known_rows = conn.execute(
+        "SELECT network_tag FROM activation_requests WHERE install_id=? ORDER BY created_at",
+        (known_install,),
+    ).fetchall()
+    conn.close()
+    assert str(known_rows[0]["network_tag"]).startswith("net_")
+    assert all((row["network_tag"] or "") == "" for row in known_rows[1:])
 
 
 def test_activate_uses_manual_review_after_anonymous_network_burst(tmp_path: Path, monkeypatch) -> None:

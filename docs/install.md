@@ -168,11 +168,13 @@ Choose **LAN Companion** if you already run Local Flight on a desktop or Raspber
 Enter your Local Flight server's LAN URL, for example:
 
 ```text
-http://localflight.local:8000
 http://192.168.1.42:8000
+http://localflight.local:8000
 ```
 
-Do not use `localhost` on a phone. On a phone, `localhost` means the phone itself, not your Mac, Windows PC, or Raspberry Pi.
+Do not use `localhost` on a phone. On a phone, `localhost` means the phone itself, not your Mac, Windows PC, or Raspberry Pi. Prefer the LAN IP shown in Local Flight Settings when more than one Local Flight server is on the same network; `localflight.local` is convenient but can point at a different Pi/desktop if you run multiple servers.
+
+The QR pairing code in native Settings is fingerprint-bound to the server that created it. If your phone scans a QR that resolves to another Local Flight host, the mobile app refuses to save that pairing instead of silently connecting to the wrong server.
 
 LAN Companion keeps the richer paired experience: server WebSocket updates, local server settings, Matrix/Admin entry points where allowed, server-mediated docs, and mobile/server double-consent for automatic diagnostics.
 
@@ -186,7 +188,7 @@ Standalone is intentionally simpler and rate-limited:
 - Radar refreshes no faster than every 5 minutes.
 - Radar range choices are `1`, `3`, `5`, and `10` NM.
 - No Matrix, Admin, scheduler restart, LAN server controls, or WebSocket connection.
-- History is stored locally on the phone for 30 days or 1,000 rows.
+- History is stored locally on the phone for 30 days or 1,000 deduped movements.
 
 The app creates a mobile relay install ID, receives an activation token, stores both locally with Expo SecureStore, and keeps the selected airport on the device.
 
@@ -230,11 +232,11 @@ Provider keys live in your local `.env` when you choose the BYOK path.
 
 ## Quick Troubleshooting
 
-- If mobile cannot connect, confirm the phone and server are on the same WiFi and use `http://localflight.local:8000` or the server LAN IP.
+- If mobile cannot connect, confirm the phone and server are on the same WiFi and use the server LAN IP shown in Settings. Use `http://localflight.local:8000` only when you have one Local Flight server on that LAN.
 - If Standalone mobile cannot load, check internet access first. It does not need your desktop or Pi to be online.
 - If Standalone FIDS looks stale, remember that it is deliberately limited to a 3-hour auto-refresh cadence. Pull to refresh only when you intentionally need a fresh check.
 - If Standalone Radar refuses a range, use `1`, `3`, `5`, or `10` NM.
-- If `localflight.local` does not resolve, use the LAN IP address.
+- If `localflight.local` resolves to the wrong server, use the LAN IP address or re-scan the fingerprint-bound QR from the server you want.
 - If a Pi display stays blank, confirm whether you installed `--native-kiosk`, `--kiosk`, or `--headless`.
 - If a real-data board looks sparse, try a busier airport or wait for the next fetch. Provider coverage varies by airport and lane, and cached relay snapshots may intentionally remain in place when a live provider returns suspiciously thin data.
 - If a Matrix board looks cramped, pick the closest panel preset first. Compact boards prioritize airport/lane, UTC/LT, weather, rows, and real-world gate/status information in that order.

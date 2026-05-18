@@ -49,14 +49,16 @@ Read the detailed guides:
 
 - Guided setup with **Community Relay**, **Bring your own keys**, and **VATSIM** paths
 - Real schedule support designed around cached shared snapshots, AeroDataBox/AviationStack provider compatibility, and stale-safe serving when live providers are slow or capped
-- Passenger-style FIDS boards with city/country airport headers, arrivals/departures, airport-local time, status/gate chips, codeshare grouping, pinned flights, live refresh, and native Classic/PAX/VATSIM/Nerd board styles
+- Passenger-style FIDS boards for real-world data with city/country airport headers, arrivals/departures, airport-local time, status/gate chips, codeshare grouping, pinned flights, live refresh, and native Classic/PAX/VATSIM/Nerd board styles
+- VATSIM mode uses a pilot/ATC display contract instead of passenger/codeshare fields: callsign-first rows, filed route/flight rules, aircraft, altitude/speed, XPDR, VATSIM freshness, and strict suppression of pilot/controller personal identifiers
 - Four switchable FIDS board styles in the native shell — **Classic**, **PAX**, **VATSIM**, **Nerd** — each with its own chrome, palette, column set, status styling, and viewport-aware scaling
 - Radar with real/VATSIM traffic, METAR weather, range controls, optional runway/surface/map/terrain context, and richer aircraft/status detail
 - Native Qt desktop shell with Display, FIDS, Radar, Matrix, Settings, Admin, History, Logs, Report, and local docs
 - Settings page built from clear disclosure cards instead of opaque checkbox-titled groups
 - LAN browser UI for headless installs, remote screens, tablets, phones, and browser-mode displays, with compact layouts for 7" Pi touch screens
 - Mobile app with a first-run choice between **LAN Companion** and **Standalone**: Companion keeps the full desktop/Pi pairing flow; Standalone offers a simpler FIDS/Radar/History/Settings experience through the hosted relay with slower refreshes and no server-control tools. The mobile shell keeps its own appearance, branded launch overlay, and small native-feeling interactions.
-- History dashboard with filters, delay buckets, airline delay quotas, route/aircraft stats, sortable recent flights, and detail panels
+- QR pairing in native Settings now prefers the actual LAN IP and carries the server fingerprint, so an iPhone will not silently connect to a different Local Flight host if `localflight.local` resolves to another Pi/desktop on the same network.
+- History dashboard with filters, delay buckets, airline delay quotas, route/aircraft stats, sortable recent movements, and detail panels. Repeated snapshots and known codeshares are deduped so the count means actual movements, not raw board rows.
 - Matrix tooling for Interstate 75 W / HUB75 boards, including panel presets, live preview, optional real-world gate/stand display, compact weather headers, runtime settings, and generated MicroPython `main.py`
 - Shared flight detail intelligence for FIDS, Radar, History, Matrix, native Qt, and LAN browser views, using current local snapshots, radar data, weather, and history without new per-click provider calls
 - Local history, local logs, local settings, and install-scoped diagnostics
@@ -154,7 +156,7 @@ Local Flight stores runtime data under `~/.localflight/`:
 
 - Config
 - Snapshots
-- History database
+- History database (deduped movements plus raw local observations for diagnostics)
 - Logs
 - API usage counters
 
@@ -184,6 +186,7 @@ Windows, macOS, and Pi source installers are documented in [docs/install.md](doc
 ## Project Philosophy
 
 - **Local first:** your config, snapshots, history, and logs live on your machine.
+- **Honest history counts:** History shows deduped flight movements; raw snapshot observations remain local diagnostics instead of inflating the board.
 - **No accounts:** Local Flight does not require a login or email address.
 - **Native by default on desktop:** the main desktop app does not need a browser profile, webview, online font, CDN, extension, or sync surface.
 - **LAN browser UI stays supported:** useful for headless installs, remote viewing, kiosk displays, and recovery.

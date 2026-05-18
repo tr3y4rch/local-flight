@@ -108,6 +108,7 @@ def _history_summary(history_rows: list[dict[str, Any]]) -> dict[str, Any]:
 
     return {
         "records": len(history_rows),
+        "movements": len(history_rows),
         "last_seen": recent[0]["date"] if recent else None,
         "avg_delay_minutes": round(mean(delays), 1) if delays else None,
         "early_count": buckets["early"],
@@ -174,12 +175,13 @@ def build_flight_intel(
     """Build one safe, UI-ready flight detail model from already-fetched data."""
     history_rows = history_rows or []
     pos = flight.position if flight else None
-    virtual = bool(flight and ((flight.source or "").lower() == "vatsim"))
+    virtual = bool(flight and str(flight.source or "").lower().startswith("vatsim"))
     detail_mode = "virtual" if virtual else ("real" if flight else "missing")
     airline = flight.airline if flight else None
     route = _route_display(flight)
     confidence = _source_confidence(flight, pos)
     weather = weather or {}
+    squawk = (pos.squawk if pos else None) or (flight.assigned_transponder if flight else None)
 
     return {
         "schema_version": SCHEMA_VERSION,
@@ -187,18 +189,18 @@ def build_flight_intel(
         "identity": {
             "callsign": flight.callsign if flight else None,
             "flight_number": flight.flight_number if flight else None,
-            "flight_display": flight.flight_number or flight.callsign if flight else None,
-            "airline_name": airline.name if airline else None,
-            "airline_iata": airline.iata if airline else None,
-            "airline_icao": airline.icao if airline else None,
-            "codeshares": list(flight.codeshares) if flight else [],
-            "sold_as": list(flight.sold_as) if flight else [],
-            "marketing_airline_name": flight.marketing_airline_name if flight else None,
-            "marketing_airline_iata": flight.marketing_airline_iata if flight else None,
-            "marketing_airline_icao": flight.marketing_airline_icao if flight else None,
-            "marketing_flight_number": flight.marketing_flight_number if flight else None,
+            "flight_display": flight.callsign if flight and virtual else (flight.flight_number or flight.callsign if flight else None),
+            "airline_name": None if virtual else (airline.name if airline else None),
+            "airline_iata": None if virtual else (airline.iata if airline else None),
+            "airline_icao": None if virtual else (airline.icao if airline else None),
+            "codeshares": [] if virtual else (list(flight.codeshares) if flight else []),
+            "sold_as": [] if virtual else (list(flight.sold_as) if flight else []),
+            "marketing_airline_name": None if virtual else (flight.marketing_airline_name if flight else None),
+            "marketing_airline_iata": None if virtual else (flight.marketing_airline_iata if flight else None),
+            "marketing_airline_icao": None if virtual else (flight.marketing_airline_icao if flight else None),
+            "marketing_flight_number": None if virtual else (flight.marketing_flight_number if flight else None),
             "operating_callsign": flight.operating_callsign if flight else None,
-            "identity_source": flight.identity_source if flight else None,
+            "identity_source": (flight.identity_source or "vatsim_callsign") if flight and virtual else (flight.identity_source if flight else None),
         },
         "route": {
             "origin": _airport_dict(flight, "origin"),
@@ -211,14 +213,14 @@ def build_flight_intel(
             "scheduled": _iso(flight.times.scheduled) if flight else None,
             "estimated": _iso(flight.times.estimated) if flight else None,
             "actual": _iso(flight.times.actual) if flight else None,
-            "delay_minutes": flight.delay_minutes if flight else None,
-            "delay_bucket": _delay_bucket(flight.delay_minutes if flight else None),
+            "delay_minutes": None if virtual else (flight.delay_minutes if flight else None),
+            "delay_bucket": None if virtual else _delay_bucket(flight.delay_minutes if flight else None),
             "status": flight.status.value if flight else None,
         },
         "operations": {
-            "terminal": flight.terminal if flight else None,
-            "gate": flight.gate if flight else None,
-            "stand": flight.stand if flight else None,
+            "terminal": None if virtual else (flight.terminal if flight else None),
+            "gate": None if virtual else (flight.gate if flight else None),
+            "stand": None if virtual else (flight.stand if flight else None),
             "direction": flight.direction.value if flight else None,
         },
         "aircraft": {
@@ -227,7 +229,7 @@ def build_flight_intel(
             "full_type": flight.aircraft_type_full if flight else None,
             "registration": flight.aircraft_registration if flight and not virtual else None,
             "icao24": pos.icao24 if pos and not virtual else None,
-            "squawk": pos.squawk if pos else (flight.assigned_transponder if flight else None),
+            "squawk": squawk,
             "selected_altitude_ft": (radar_blip or {}).get("selected_altitude_ft"),
             "nav_modes": (radar_blip or {}).get("nav_modes"),
             "category": (radar_blip or {}).get("aircraft_category"),
@@ -261,7 +263,7 @@ def build_flight_intel(
             "confidence": confidence,
             "snapshot_generated_at": _iso(generated_at),
             "snapshot_age_seconds": _age_seconds(generated_at),
-            "fields_available": _available_fields(flight, pos, weather),
+            "fields_available": _available_fields(flight, pos, weather, virtual=virtual),
         },
         "privacy": {
             "vatsim_personal_identifiers": False,
@@ -270,15 +272,15 @@ def build_flight_intel(
     }
 
 
-def _available_fields(flight: Flight | None, pos: FlightPosition | None, weather: dict[str, Any]) -> list[str]:
+def _available_fields(flight: Flight | None, pos: FlightPosition | None, weather: dict[str, Any], *, virtual: bool = False) -> list[str]:
     fields: list[str] = []
     if flight:
         fields.append("schedule")
-        if flight.gate or flight.terminal or flight.stand:
+        if not virtual and (flight.gate or flight.terminal or flight.stand):
             fields.append("airport_ops")
         if flight.flight_rules or flight.planned_route:
             fields.append("flight_plan")
-        if flight.aircraft_type or flight.aircraft_type_full or flight.aircraft_registration:
+        if flight.aircraft_type or flight.aircraft_type_full or (flight.aircraft_registration and not virtual):
             fields.append("aircraft")
     if pos:
         fields.append("live_motion")

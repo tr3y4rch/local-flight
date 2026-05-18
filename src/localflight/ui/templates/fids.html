@@ -617,23 +617,30 @@
         {% for r in rows %}
         {% set time_primary = r.time_primary or r.display_time.split(' (')[0] %}
         {% set time_delta = r.time_delta_label or (r.display_time.split(' (')[1][:-1] if ' (' in r.display_time else '') %}
+        {% set is_virtual_row = r.detail_mode == "virtual" %}
         <tr class="fids-row fids-row-{{ r.status_class }}" data-callsign="{{ r.callsign }}" style="animation-delay:{{ loop.index0 * 40 }}ms">
           <td>
             <span class="fids-hhmm">{{ time_primary }}</span>
             {% if time_delta %}<span class="fids-delay-tag delay-{{ r.delay_kind if r.delay_kind != 'none' else (r.delay_class or 'warn') }}">{{ time_delta }}</span>{% endif %}
           </td>
-          <td>
-            <div class="fids-flight-stack">
-              <span class="fids-flight">{{ r.flight_display }}</span>
-              {% if r.airline_display %}<span class="fids-airline-name">{{ r.airline_display }}</span>{% endif %}
-              {% if r.codeshare_display %}<span class="fids-codeshares">{{ r.codeshare_display }}</span>{% endif %}
-            </div>
-          </td>
+	          <td>
+	            <div class="fids-flight-stack">
+	              <span class="fids-flight">{{ r.flight_display }}</span>
+	              {% if is_virtual_row %}
+	                {% set virtual_bits = [r.aircraft_type if r.aircraft_type != '-' else '', r.flight_rules, r.planned_altitude] | reject('equalto', '') | list %}
+	                {% if virtual_bits %}<span class="fids-airline-name">{{ virtual_bits | join(" · ") }}</span>{% endif %}
+	              {% else %}
+	                {% if r.airline_display %}<span class="fids-airline-name">{{ r.airline_display }}</span>{% endif %}
+	                {% if r.codeshare_display %}<span class="fids-codeshares">{{ r.codeshare_display }}</span>{% endif %}
+	              {% endif %}
+	            </div>
+	          </td>
           <td class="fids-route">{{ r.route_primary or r.route_display }}{% if r.route_caption and r.route_caption not in (r.route_primary or r.route_display) %} <span class="fids-route-code">{{ r.route_caption }}</span>{% endif %}</td>
-          <td>
-            {% if r.gate_display or (r.gate and r.gate != '-') %}<span class="fids-gate-val">{{ r.terminal_gate_display or r.gate_display or r.gate }}</span>
-            {% else %}<span class="fids-gate-empty">—</span>{% endif %}
-          </td>
+	          <td>
+	            {% if is_virtual_row and (r.squawk or r.transponder) %}<span class="fids-gate-val">XPDR {{ r.squawk or r.transponder }}</span>
+	            {% elif r.gate_display or (r.gate and r.gate != '-') %}<span class="fids-gate-val">{{ r.terminal_gate_display or r.gate_display or r.gate }}</span>
+	            {% else %}<span class="fids-gate-empty">—</span>{% endif %}
+	          </td>
           <td>
             <span class="fids-badge badge-{{ r.status_class }}">
               <span class="fids-bdot"></span>{{ r.status_display }}
@@ -690,10 +697,10 @@
         <div class="fd-section-label" id="fdOpsLabel">Operations & Aircraft</div>
         <div id="fdOps"></div>
       </div>
-      <div class="fd-section" id="fdPlanSection" style="display:none">
-        <div class="fd-section-label">Virtual Flight Plan</div>
-        <div id="fdPlan"></div>
-      </div>
+	      <div class="fd-section" id="fdPlanSection" style="display:none">
+	        <div class="fd-section-label" id="fdPlanLabel">Virtual Flight Plan</div>
+	        <div id="fdPlan"></div>
+	      </div>
       <div class="fd-section" id="fdDataSection">
         <div class="fd-section-label" id="fdDataLabel">Data Sources</div>
         <div id="fdData"></div>
@@ -702,10 +709,10 @@
         <div class="fd-section-label" id="fdPosLabel">Live Track</div>
         <div id="fdPos"></div>
       </div>
-      <div class="fd-section">
-        <div class="fd-section-label">Recent History (7 days)</div>
-        <div id="fdHistory"></div>
-      </div>
+	      <div class="fd-section">
+	        <div class="fd-section-label" id="fdHistoryLabel">Recent History (7 days)</div>
+	        <div id="fdHistory"></div>
+	      </div>
     </div>
   </div>
 
@@ -805,20 +812,40 @@ function renderTime(s, tone="") {
   return `<span class="fids-hhmm">${m[1]}</span>${delay}`;
 }
 
-function renderBadge(cls, text) {
-  return `<span class="fids-badge badge-${esc(cls||'scheduled')}"><span class="fids-bdot"></span>${esc(text)}</span>`;
-}
+	function renderBadge(cls, text) {
+	  return `<span class="fids-badge badge-${esc(cls||'scheduled')}"><span class="fids-bdot"></span>${esc(text)}</span>`;
+	}
 
-function renderGate(r) {
-  const g = r?.terminal_gate_display || r?.gate_display || r?.gate || "";
-  return (g && g !== "-")
-    ? `<span class="fids-gate-val">${esc(g)}</span>`
-    : `<span class="fids-gate-empty">—</span>`;
-}
+	function isVirtualRow(r) {
+	  const src = String(r?.detail_mode || r?.source || r?.source_hint || "").toLowerCase();
+	  return src.includes("virtual") || src.includes("vatsim");
+	}
 
-function renderFlightCell(r) {
-  const airline = r.airline_display
-    ? `<span class="fids-airline-name">${esc(r.airline_display)}</span>`
+	function renderGate(r) {
+	  if (isVirtualRow(r)) {
+	    const xpdr = r?.squawk || r?.transponder || "";
+	    return xpdr
+	      ? `<span class="fids-gate-val">XPDR ${esc(xpdr)}</span>`
+	      : `<span class="fids-gate-empty">—</span>`;
+	  }
+	  const g = r?.terminal_gate_display || r?.gate_display || r?.gate || "";
+	  return (g && g !== "-")
+	    ? `<span class="fids-gate-val">${esc(g)}</span>`
+	    : `<span class="fids-gate-empty">—</span>`;
+	}
+
+	function renderFlightCell(r) {
+	  if (isVirtualRow(r)) {
+	    const meta = [r.aircraft_type !== "-" ? r.aircraft_type : "", r.flight_rules, r.planned_altitude]
+	      .filter(v => String(v || "").trim())
+	      .join(" · ");
+	    return `<div class="fids-flight-stack">
+	      <span class="fids-flight">${esc(r.flight_display || r.callsign || "-")}</span>
+	      ${meta ? `<span class="fids-airline-name">${esc(meta)}</span>` : ""}
+	    </div>`;
+	  }
+	  const airline = r.airline_display
+	    ? `<span class="fids-airline-name">${esc(r.airline_display)}</span>`
     : "";
   const codeshares = r.codeshare_display
     ? `<span class="fids-codeshares">${esc(r.codeshare_display)}</span>`
@@ -1097,11 +1124,13 @@ async function refreshFIDS() {
     const evidence = intel.source_evidence || {};
     const motion = intel.motion || {};
     const aircraftIntel = intel.aircraft || {};
-    const opsIntel = intel.operations || {};
-    const virtual = isVirtualDetail(d);
-    document.getElementById("fdOpsLabel").textContent = virtual ? "Virtual Flight" : "Operations & Aircraft";
-    document.getElementById("fdDataLabel").textContent = virtual ? "VATSIM Data" : "Data Sources";
-    document.getElementById("fdPosLabel").textContent = virtual ? "Aircraft Track" : "Live Track";
+	    const opsIntel = intel.operations || {};
+	    const virtual = isVirtualDetail(d);
+	    document.getElementById("fdOpsLabel").textContent = virtual ? "Virtual Flight" : "Operations & Aircraft";
+	    document.getElementById("fdDataLabel").textContent = virtual ? "VATSIM Data" : "Data Sources";
+	    document.getElementById("fdPosLabel").textContent = virtual ? "Pilot Track" : "Live Track";
+	    document.getElementById("fdPlanLabel").textContent = virtual ? "Filed Plan" : "Flight Plan";
+	    document.getElementById("fdHistoryLabel").textContent = virtual ? "Recent Sessions (7 days)" : "Recent History (7 days)";
 
     // Header
     document.getElementById("fdFlightNum").textContent =
@@ -1111,29 +1140,24 @@ async function refreshFIDS() {
     const dest   = d.dest_name   ? `${d.dest_name} (${d.dest_iata})`     : (d.dest_iata   || "?");
     document.getElementById("fdRouteLine").textContent =
       d.direction === "DEP" ? `${origin} → ${dest}` : `${origin} → ${dest}`;
-    const codeShareLine = Array.isArray(d.codeshares) && d.codeshares.length
-      ? ` · Also ${d.codeshares.slice(0, 5).join(" / ")}${d.codeshares.length > 5 ? ` +${d.codeshares.length - 5}` : ""}`
-      : "";
-    const soldAsLine = joinedFlightIds(d.sold_as);
-    const soldCompact = new Set((d.sold_as || []).map(v => String(v).replace(/[^A-Z0-9]/gi, "").toUpperCase()));
-    const extraCodeshares = (d.codeshares || []).filter(v => !soldCompact.has(String(v).replace(/[^A-Z0-9]/gi, "").toUpperCase()));
-    const alsoLine = joinedFlightIds(extraCodeshares.slice(0, 5));
-    const identityShareLine = soldAsLine
-      ? ` Â· Sold as ${soldAsLine}${alsoLine ? ` Â· Also ${alsoLine}` : ""}`
-      : (alsoLine ? ` Â· Also ${alsoLine}${extraCodeshares.length > 5 ? ` +${extraCodeshares.length - 5}` : ""}` : "");
-    document.getElementById("fdAirline").textContent = `${d.airline || ""}${identityShareLine || codeShareLine}`;
-    const cleanIdentityShareLine = soldAsLine
-      ? ` | Sold as ${soldAsLine}${alsoLine ? ` | Also ${alsoLine}` : ""}`
-      : (alsoLine ? ` | Also ${alsoLine}${extraCodeshares.length > 5 ? ` +${extraCodeshares.length - 5}` : ""}` : "");
-    document.getElementById("fdAirline").textContent = `${d.airline || ""}${cleanIdentityShareLine || codeShareLine}`;
-    const compactGate = [opsIntel.terminal || d.terminal, opsIntel.gate || d.gate].filter(cleanValue).join(" ");
-    const compactAircraft = aircraftIntel.type || d.aircraft_type || aircraftIntel.model || d.aircraft_type_full;
-    const trackSummary = motion.has_position || d.position ? "track available" : "schedule only";
-    document.getElementById("fdHeroPills").innerHTML = [
-      heroPillHtml("gate", compactGate),
-      heroPillHtml("aircraft", compactAircraft),
-      heroPillHtml("callsign", d.operating_callsign || d.callsign),
-      heroPillHtml("source", d.enriched_by || d.source),
+	    const soldAsLine = joinedFlightIds(d.sold_as);
+	    const soldCompact = new Set((d.sold_as || []).map(v => String(v).replace(/[^A-Z0-9]/gi, "").toUpperCase()));
+	    const extraCodeshares = (d.codeshares || []).filter(v => !soldCompact.has(String(v).replace(/[^A-Z0-9]/gi, "").toUpperCase()));
+	    const alsoLine = joinedFlightIds(extraCodeshares.slice(0, 5));
+	    const compactGate = [opsIntel.terminal || d.terminal, opsIntel.gate || d.gate].filter(cleanValue).join(" ");
+	    const compactAircraft = aircraftIntel.type || d.aircraft_type || aircraftIntel.model || d.aircraft_type_full;
+	    const cleanIdentityShareLine = soldAsLine
+	      ? ` | Sold as ${soldAsLine}${alsoLine ? ` | Also ${alsoLine}` : ""}`
+	      : (alsoLine ? ` | Also ${alsoLine}${extraCodeshares.length > 5 ? ` +${extraCodeshares.length - 5}` : ""}` : "");
+	    document.getElementById("fdAirline").textContent = virtual
+	      ? ["VATSIM", compactAircraft, d.flight_plan?.flight_rules].filter(cleanValue).join(" | ")
+	      : `${d.airline || ""}${cleanIdentityShareLine}`;
+	    const trackSummary = motion.has_position || d.position ? "track available" : "schedule only";
+	    document.getElementById("fdHeroPills").innerHTML = [
+	      virtual ? heroPillHtml("network", "VATSIM") : heroPillHtml("gate", compactGate),
+	      heroPillHtml("aircraft", compactAircraft),
+	      heroPillHtml("callsign", d.operating_callsign || d.callsign),
+	      heroPillHtml("source", d.enriched_by || d.source),
     ].join("");
 
     // Status badge — reuse existing badge CSS
@@ -1152,12 +1176,12 @@ async function refreshFIDS() {
     const delayText = typeof d.delay_minutes === "number"
       ? (d.delay_minutes === 0 ? "on time" : `${d.delay_minutes > 0 ? "+" : ""}${d.delay_minutes} min`)
       : "";
-    document.getElementById("fdSummaryPills").innerHTML = [
-      pillHtml("identity", sourceLabel(d.identity_source || "provider"), "dim"),
-      pillHtml("delay", delayText, delayTone),
-      pillHtml("track", trackSummary, motion.has_position || d.position ? "good" : "dim"),
-      pillHtml("refresh", ageLabel(evidence.snapshot_age_seconds ?? d.data_sources?.snapshot_age_seconds), "dim"),
-    ].join("");
+	    document.getElementById("fdSummaryPills").innerHTML = [
+	      pillHtml(virtual ? "network" : "identity", virtual ? "VATSIM" : sourceLabel(d.identity_source || "provider"), "dim"),
+	      virtual ? "" : pillHtml("delay", delayText, delayTone),
+	      pillHtml("track", trackSummary, motion.has_position || d.position ? "good" : "dim"),
+	      pillHtml("refresh", ageLabel(evidence.snapshot_age_seconds ?? d.data_sources?.snapshot_age_seconds), "dim"),
+	    ].join("");
 
     // Times
     const timesEl = document.getElementById("fdTimes");
@@ -1180,7 +1204,7 @@ async function refreshFIDS() {
 
     // Delay callout under times
     const delayEl = document.getElementById("fdDelay");
-    if (typeof d.delay_minutes === "number" && Math.abs(d.delay_minutes) >= 5) {
+	    if (!virtual && typeof d.delay_minutes === "number" && Math.abs(d.delay_minutes) >= 5) {
       const sign = d.delay_minutes > 0 ? "+" : "";
       const cls  = d.delay_minutes < 0 ? "fd-delay-ok" : d.delay_minutes > 15 ? "fd-delay-bad" : "fd-delay-warn";
       const label = d.delay_minutes < 0 ? "Early" : "Delay";
@@ -1190,18 +1214,27 @@ async function refreshFIDS() {
       delayEl.innerHTML = "";
     }
 
-    // Operating/marketing identity evidence
-    const identityEl = document.getElementById("fdIdentity");
-    const operatingFlight = d.flight_display || d.flight_number || d.callsign;
-    const operatingAirline = d.airline || d.airline_iata || d.airline_icao;
-    const marketed = soldAsLine || joinedFlightIds([d.marketing_flight_number]);
-    const identityRows = [
-      ["Operating flight", flightIdLabel(operatingFlight)],
-      ["Operating airline", operatingAirline || "â€”"],
-      ["ATC callsign", d.operating_callsign || d.callsign || "â€”"],
-      ["Sold as", marketed || "â€”"],
-      ["Provider evidence", sourceLabel(d.identity_source || intel.identity?.identity_source || "provider")],
-    ];
+	    // Operating/marketing identity evidence
+	    const identityEl = document.getElementById("fdIdentity");
+	    document.querySelector("#fdIdentitySection .fd-section-label").textContent = virtual ? "Virtual Summary" : "Flight Identity";
+	    const operatingFlight = d.flight_display || d.flight_number || d.callsign;
+	    const operatingAirline = d.airline || d.airline_iata || d.airline_icao;
+	    const marketed = soldAsLine || joinedFlightIds([d.marketing_flight_number]);
+	    const identityRows = virtual
+	      ? [
+	          ["Callsign", d.callsign || operatingFlight || "—"],
+	          ["Aircraft", compactAircraft || "—"],
+	          ["Rules", d.flight_plan?.flight_rules || "—"],
+	          ["Route pair", `${d.origin_icao || d.origin_iata || "?"} -> ${d.dest_icao || d.dest_iata || "?"}`],
+	          ["Track", trackSummary],
+	        ]
+	      : [
+	          ["Operating flight", flightIdLabel(operatingFlight)],
+	          ["Operating airline", operatingAirline || "—"],
+	          ["ATC callsign", d.operating_callsign || d.callsign || "—"],
+	          ["Sold as", marketed || "—"],
+	          ["Provider evidence", sourceLabel(d.identity_source || intel.identity?.identity_source || "provider")],
+	        ];
     identityEl.innerHTML = identityRows.map(([lbl, val]) => rowHtml(lbl, val)).join("");
 
     // Operations
@@ -1353,9 +1386,18 @@ async function refreshFIDS() {
     const histEl = document.getElementById("fdHistory");
     if (!history || !history.length) {
       histEl.innerHTML = `<div style="opacity:0.3;font-size:0.78rem;padding:8px 0">No history yet</div>`;
-    } else {
-      histEl.innerHTML = history.map(h => {
-        const dly = h.delay_minutes;
+	    } else {
+	      histEl.innerHTML = history.map(h => {
+	        if (virtual) {
+	          const obs = h.observations ? ` · ${h.observations} obs` : "";
+	          const source = h.source ? ` · ${sourceLabel(h.source)}` : "";
+	          return `<div class="fd-hist-row">
+	            <span class="fd-hist-date">${esc(h.date.slice(5))}</span>
+	            <span class="fd-hist-status">${esc(h.status || "Tracked")}</span>
+	            <span class="fd-hist-delay">${esc(`${source}${obs}`.replace(/^ · /, ""))}</span>
+	          </div>`;
+	        }
+	        const dly = h.delay_minutes;
         let delayCls = "", delayTxt = "On time";
         if (typeof dly === "number") {
           if      (dly > 15)  { delayCls = "fd-delay-bad";  delayTxt = `+${dly}m`; }

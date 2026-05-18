@@ -13,7 +13,7 @@ from typing import Any
 from localflight.native.api_client import LocalApiClient
 from localflight.native.async_tools import AsyncFetchMixin
 from localflight.native.canvas.radar import RadarCanvas
-from localflight.native.design import WEATHER_EMOJI, label
+from localflight.native.design import WEATHER_EMOJI, install_combo_popup_sizing, label
 from localflight.native.service import NativeApiService
 from localflight.native.widgets import WeatherStrip
 
@@ -50,6 +50,7 @@ class RadarScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
             self.range_combo.setToolTip("Radar range")
             for radius in (1, 2, 3, 5, 10, 20, 40):
                 self.range_combo.addItem(f"{radius}nm", radius)
+            install_combo_popup_sizing(self.range_combo, minimum_width=118)
             self.range_combo.currentIndexChanged.connect(self._range_combo_changed)
             top.addWidget(self.range_combo)
         else:
@@ -102,6 +103,7 @@ class RadarScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
             ("airborne", "Air"),
         ):
             self.traffic_filter.addItem(text, key)
+        install_combo_popup_sizing(self.traffic_filter, minimum_width=104)
         self.traffic_filter.currentIndexChanged.connect(lambda _idx=0: self.refresh())
         advanced_layout.addWidget(self.traffic_filter)
         self.altitude_filter = QtWidgets.QComboBox()
@@ -113,6 +115,7 @@ class RadarScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
             ("enroute", "10k+"),
         ):
             self.altitude_filter.addItem(text, key)
+        install_combo_popup_sizing(self.altitude_filter, minimum_width=104)
         self.altitude_filter.currentIndexChanged.connect(lambda _idx=0: self.refresh())
         advanced_layout.addWidget(self.altitude_filter)
         advanced_layout.addStretch(1)

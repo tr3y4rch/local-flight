@@ -172,11 +172,9 @@ class FlightBoardModel:
             def _display_value(self, row: dict[str, Any], key: str) -> str:
                 row = enrich_presentation_fields(row)
                 if key == "flight_cell":
-                    values = [
-                        row.get("flight_display") or row.get("callsign"),
-                        row.get("airline_display"),
-                        self._codeshare_text(row),
-                    ]
+                    values = [row.get("flight_display") or row.get("callsign")]
+                    if not _is_virtual_payload(row):
+                        values.extend([row.get("airline_display"), self._codeshare_text(row)])
                     return "\n".join(str(value) for value in values if format_value(value)) or "-"
                 if key == "status_display":
                     status = format_value(row.get("status_display") or row.get("status")) or "Scheduled"
@@ -201,6 +199,9 @@ class FlightBoardModel:
                     code = format_value(row.get("route_caption"))
                     return f"{route}\n{code}" if route and code and code not in route else route or "-"
                 if key == "gate":
+                    if _is_virtual_payload(row):
+                        xpdr = format_value(row.get("squawk") or row.get("transponder"))
+                        return f"XPDR {xpdr}" if xpdr else "-"
                     return format_value(row.get("terminal_gate_display") or row.get("gate_display") or row.get("gate")) or "-"
                 # Extended fields for PAX / VATSIM / NERD styles
                 if key == "callsign":
@@ -258,12 +259,10 @@ class FlightBoardModel:
 
             def _tooltip_value(self, row: dict[str, Any], key: str) -> str:
                 if key == "flight_cell":
-                    values = [
-                        row.get("flight_display") or row.get("callsign"),
-                        row.get("airline_display"),
-                        self._codeshare_text(row),
-                        row.get("callsign"),
-                    ]
+                    values = [row.get("flight_display") or row.get("callsign")]
+                    if not _is_virtual_payload(row):
+                        values.extend([row.get("airline_display"), self._codeshare_text(row)])
+                    values.append(row.get("callsign"))
                     return "\n".join(str(value) for value in values if format_value(value)) or "-"
                 route = row.get("route_display")
                 status = row.get("status_display")
@@ -379,6 +378,8 @@ class FlightBoardModel:
                 return str(self._colors.get(key) or fallback)
 
             def _codeshare_text(self, row: dict[str, Any]) -> str:
+                if _is_virtual_payload(row):
+                    return ""
                 frames = row.get("_codeshare_frames")
                 if isinstance(frames, list) and frames:
                     idx = int(row.get("_codeshare_frame_index") or 0) % len(frames)
@@ -417,6 +418,8 @@ class RequestLogModel(_TableModelFactory):
 
 
 def _codeshare_frames(row: dict[str, Any]) -> list[str]:
+    if _is_virtual_payload(row):
+        return []
     values: list[str] = []
     raw = row.get("codeshares")
     if isinstance(raw, (list, tuple, set)):
@@ -437,6 +440,11 @@ def _codeshare_frames(row: dict[str, Any]) -> list[str]:
         seen.add(compact)
         frames.append(formatted)
     return frames
+
+
+def _is_virtual_payload(row: dict[str, Any]) -> bool:
+    src = str(row.get("detail_mode") or row.get("source") or row.get("source_hint") or "").strip().lower()
+    return "virtual" in src or "vatsim" in src
 
 
 def _split_codeshare_text(value: str) -> list[str]:

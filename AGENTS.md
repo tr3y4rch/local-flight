@@ -14,14 +14,14 @@ Built with: Python 3.11+, FastAPI, uvicorn, SQLite, WebSocket, Jinja2, PIL, and 
 ## Current 0.2.7 handoff snapshot (2026-05-18)
 
 - Active package target: `0.2.7` as the client-polish/release-candidate line. `pyproject.toml` remains the source of truth; keep runtime fallbacks, native docs, mobile metadata, and preview/release docs aligned with it.
-- Current Mac/Codex validation after the split-workspace rescue, Claude UI rescue, native FIDS painter polish, mobile launch/interaction polish, and docs sweep: `.venv/bin/python -m pytest tests -q` returned `392 passed`; `cd mobile && npm run typecheck && npm run doctor` passed with Expo Doctor `18/18`; `git diff --check` passed. `npm audit --omit=dev` still reports 4 moderate advisories through Expo's Metro/PostCSS dependency chain, but the suggested `npm audit fix --force` would install a breaking Expo version, so do not force it inside this release-candidate sweep.
+- Current Mac/Codex validation after the split-workspace rescue, Claude UI rescue, native FIDS painter polish, mobile launch/interaction polish, History movement hardening, VATSIM display-contract pass, QR pairing hardening, and docs sweep: `.venv/bin/python -m pytest tests -q` returned `404 passed`; `cd mobile && npm run typecheck && npm run doctor` passed with Expo Doctor `18/18`; `git diff --check` passed. `npm audit --omit=dev` still reports 4 moderate advisories through Expo's Metro/PostCSS dependency chain, but the suggested `npm audit fix --force` would install a breaking Expo version, so do not force it inside this release-candidate sweep.
 - Older Windows and Pi artifacts were previously rebuilt from the Windows workspace:
   - `dist/LocalFlight-windows.zip` — SHA256 `a0d64c8c272800507a5ee9d8c771cc2e10a63d7c253f9092ba0f725259af66d8`
   - `dist/LocalFlight-pi-source-0.2.7.zip` — SHA256 `67bb84b3fe8be0d5a260f147c5a8e3a394dbe2332d4e4b0f6b2274e7fa24dcd3`
 - Treat those artifact hashes as stale after the mobile standalone/relay/docs changes unless they are deliberately rebuilt from this commit. macOS still needs its own validation/package pass from this exact source state before publishing the GitHub release. Do not reuse stale `0.2.5b5`, `0.2.6`, or pre-standalone `0.2.7` macOS/Pi handoff notes.
-- Recent client-facing changes to preserve in smoke tests: native shell top-bar grouping and footer support icons, city/country FIDS title, passenger-friendly weather hero, long-title clamping, true visual FIDS style skins for Classic/PAX/VATSIM/Nerd, native/browser History analytics dashboard, Matrix configurator parity, compact Matrix weather header, Matrix display-contract labels/weather icons in Qt/LAN/MicroPython, real-only Matrix gate labels, Settings/setup dashboard polish, FIDS/Radar current-source intelligence details, LAN radar parity with Qt radar behavior, LAN browser phone/7-inch Pi layouts, refreshed public preview gallery/mobile SVGs, mobile LAN Companion IA, mobile branded launch/interaction polish, and the new mobile Standalone setup/data/reporting path.
+- Recent client-facing changes to preserve in smoke tests: native shell top-bar grouping and footer support icons, city/country FIDS title, passenger-friendly weather hero, long-title clamping, true visual FIDS style skins for Classic/PAX/VATSIM/Nerd, VATSIM pilot/ATC display contract with passenger-field suppression, native/browser History analytics dashboard, deduped History movement counts with raw-observation diagnostics, Matrix configurator parity, compact Matrix weather header, Matrix display-contract labels/weather icons in Qt/LAN/MicroPython, real-only Matrix gate labels, Settings/setup dashboard polish, FIDS/Radar current-source intelligence details, LAN radar parity with Qt radar behavior, LAN browser phone/7-inch Pi layouts, refreshed public preview gallery/mobile SVGs, mobile LAN Companion IA, mobile branded launch/interaction polish, and the new mobile Standalone setup/data/reporting path.
 - Schedule-provider work to preserve in relay/client smoke tests: AeroDataBox primary FIDS source, AviationStack sparse fill/fallback, hard upstream caps, 24h stale-cache serving, source-cache re-merge, canonical provider meta, and fused rows compiling through both `/api/fids` and Qt `FlightBoardModel`.
-- Mobile Standalone relay work to preserve in smoke tests: `/v1/airports/search`, `/v1/airports/resolve`, `/v1/mobile/summary`, `/v1/mobile/fids`, `/v1/mobile/radar`, `/v1/mobile/metar`; activation with `requested_mode=mobile_standalone`; standalone FIDS 3h policy; standalone radar 1/3/5/10 NM + 5m cache; local SQLite history; direct relay reports with mobile diagnostics gating.
+- Mobile Standalone relay work to preserve in smoke tests: `/v1/airports/search`, `/v1/airports/resolve`, `/v1/mobile/summary`, `/v1/mobile/fids`, `/v1/mobile/radar`, `/v1/mobile/metar`; activation with `requested_mode=mobile_standalone`; standalone FIDS 3h policy; standalone radar 1/3/5/10 NM + 5m cache; local SQLite movement history; direct relay reports with mobile diagnostics gating.
 - Separation of power still applies: public docs stay user-focused; relay operator/admin details belong only in `AGENTS.md`, `DEV_README.md`, `CLAUDE.md`, and operator tooling.
 
 ---
@@ -86,7 +86,7 @@ local-flight/
 │   ├── storage/
 │   │   ├── config.py            # AppConfig dataclass, load/save
 │   │   ├── flights_store.py     # JSON snapshot storage under ~/.localflight, legacy fallback
-│   │   ├── history.py           # SQLite history DB, 90-day retention
+│   │   ├── history.py           # SQLite raw observations + deduped movement history, 90-day retention
 │   │   ├── install.py           # Machine fingerprint + activation token (get/set_activation_token)
 │   │   ├── logging_setup.py     # RotatingFileHandler, pruning
 │   │   ├── profiles.py          # Airport profiles
@@ -193,7 +193,7 @@ OpenSky Network (position fallback)
     ↓ fallback
 Schedule data only
     ↓
-Dedupe codeshares → save JSON snapshot → write SQLite history → WebSocket broadcast
+Dedupe codeshares → save JSON snapshot → write SQLite raw observations + movement history → WebSocket broadcast
     ↓ on error
 Linear issue filed (deduplicated per 6h via ~/.localflight/linear_dedup.json)
 ```
@@ -229,6 +229,9 @@ Provider selection stays inside `source=real`: `LOCALFLIGHT_REAL_SCHEDULE_PROVID
 - On first launch, scheduler is deferred. Setup watcher thread polls for `setup_complete` and auto-starts scheduler when detected.
 - Native first launch opens a standalone setup window first, not the main shell. It asks for airport/source/provider keys plus the diagnostics/reporting mode, posts `diagnostics_mode` through `/api/setup/complete`, saves it in `AppConfig`, clears stale native API cache, and only then opens the Display shell.
 - `/api/setup/reset` deletes the marker — triggers re-run wizard. Button in Settings footer.
+- Install identity is deliberately separate from resettable setup state. `storage/install.py` keeps the legacy `~/.localflight/install_id`, writes a versioned `~/.localflight/install_identity.json`, and mirrors it to `~/.localflight_identity.json` so a dev wipe of `~/.localflight` can recover the same install ID without creating a new relay install. `new_install_identity()` is the explicit dev/operator escape hatch and clears the local activation token because old tokens are bound to the old install ID.
+- Relay activation is now verify-first. If a local activation token exists, `/api/setup/activate` checks `/v1/client/status` before asking `/v1/activate` for a fresh token. Relay failures are normalized to stable local statuses such as `token_invalid`, `token_bound_elsewhere`, `manual_review`, `rate_limited`, and `relay_unreachable`, so setup UI should not show raw HTTP/JSON errors.
+- Relay-side known-install reissues do not count as anonymous new-install network bursts. Unknown new installs from the same network still hit manual review after the configured safety limits, but a reset/reissue for an already-known install remains self-service unless the install was explicitly blocked.
 
 ### API call budget
 - Local direct-provider budgets are enforced before outbound calls. New code uses SQLite counters in `~/.localflight/api_usage.sqlite` and keeps legacy `~/.localflight/api_usage.json` readable for display/backward compatibility.
@@ -262,6 +265,7 @@ Two separate integrations — do not confuse them:
 ### Mobile app: LAN Companion and Standalone
 - Mobile beta lives in `mobile/` as an iOS-first React Native / Expo app. It is one app with two first-run setup modes: `lan_companion` and `standalone`.
 - LAN Companion is still the full paired-server flow. The Python/FastAPI desktop/Pi app remains the server of record; mobile stores the Local Flight server URL with Expo SecureStore and expects a reachable LAN URL, not phone-local `localhost`.
+- LAN Companion QR pairing from native Settings is now IP-first and fingerprint-bound. `localflight.local` stays as a manual fallback for one-server LANs, but generated QR links prefer a private LAN IPv4 address and include `server_fingerprint`; mobile compares it to `/api/mobile/summary.system.install_id` before saving a scanned pairing.
 - LAN Companion prefers `GET /api/mobile/summary` for host status/config/budget/update/scheduler/METAR rollup, and still reads `/api/fids`, `/api/fids/detail`, `/api/radar`, `/api/history`, `/api/history/summary`, `/api/admin/companion/checkin`, and `PATCH /api/config`.
 - LAN Companion listens to `/ws` for `snapshot_updated`, `config_updated`, and `scheduler_restarted`; it refreshes on push and uses the server update interval as a capped fallback poll.
 - LAN Companion's main bottom nav remains `Board`, `Radar`, `History`, `Control`, and `Help`. `Control` is the safe-remote-actions surface: host health, saved server, airport/source/cadence access through the config sheet, local airport profiles, scheduler restart, diagnostics visibility, and setup rerun. `Help` is support/troubleshooting/reporting.
@@ -269,7 +273,7 @@ Two separate integrations — do not confuse them:
 - Standalone activation calls relay `/v1/activate` with `requested_mode=mobile_standalone`, then reads `/v1/mobile/summary`, `/v1/mobile/fids`, `/v1/mobile/radar`, and `/v1/mobile/metar`. Airport setup uses relay `/v1/airports/search` and `/v1/airports/resolve`.
 - Standalone intentionally hides WebSocket, Matrix, Admin, scheduler restart, server URL tools, LAN companion check-in, and server-control panels. Bottom nav is `Board`, `Radar`, `History`, and `Settings`.
 - Standalone client policy: FIDS auto-refresh no faster than every 3 hours; radar no faster than every 5 minutes while visible; radar ranges only `1`, `3`, `5`, `10` NM. Relay enforces the same policy so a tampered client cannot burn upstream tokens.
-- Standalone History uses `expo-sqlite` in `mobile/src/storage/standaloneHistory.ts`, storing successful FIDS rows locally and pruning to 30 days or 1,000 rows. No relay-side per-install flight history is stored in this pass.
+- Standalone History uses `expo-sqlite` in `mobile/src/storage/standaloneHistory.ts`, upserting successful FIDS rows into a deduped local movement table and pruning to 30 days or 1,000 movements. No relay-side per-install flight history is stored in this pass.
 - Mobile crash reporting lives in `mobile/src/crash/`. LAN Companion auto-reporting requires both mobile diagnostics and connected-server diagnostics to allow it. Standalone auto-reporting requires the mobile diagnostics choice (`auto` or `auto_logs`) and posts directly to relay `/v1/reports`.
 - Current shell still follows the iOS airport-board mockup direction for the live surfaces: Flight Island, departure-airport/live header, UTC/local clock, METAR strip, FIDS tabs, pinned flight, compact rows, and bottom nav.
 - Mobile now ships with a longer branded launch overlay that mirrors the desktop splash direction with progress/status messaging, shared brand text, continuous radar sweep, status fade, breathing live dot, and blinking board LED. Key screen actions use light haptics/press-scale feedback where available.
@@ -514,7 +518,7 @@ Config lives at `~/.localflight/config.json`
 | `GET /api/metar` | Decoded + raw METAR plus Local Flight semantic weather mood/icon fields |
 | `GET /api/history` | Recent flights from SQLite; supports `hours`, `direction`, `status`, `callsign`, `airline_iata`, and `limit` filters |
 | `GET /api/history/flight` | Callsign history |
-| `GET /api/history/summary` | Shared native/browser History analytics: delay buckets, status mix, airline delay quotas, routes, daily/hourly volume, aircraft stats |
+| `GET /api/history/summary` | Shared native/browser History movement analytics: delay buckets, status mix, airline delay quotas, routes, daily/hourly volume, aircraft stats, raw-observation diagnostics |
 | `GET /api/history/stats` | DB size, row count |
 | `GET /api/admin/system` | Uptime, memory, CPU, version |
 | `GET /api/admin/budget` | API call budgets |
@@ -537,6 +541,7 @@ Config lives at `~/.localflight/config.json`
 | `POST /api/setup/request-activation/status` | Poll activation request status |
 | `POST /api/setup/test-activation` | Test an activation token without saving |
 | `POST /api/admin/companion/checkin` | Mobile LAN Companion check-in (companionId, platform, appVersion) |
+| `DELETE /api/admin/companion` | Clear this server's remembered mobile companion check-ins |
 | `POST /api/quit` | Graceful shutdown (terminates browser proc + os._exit) |
 | `WS /ws` | WebSocket push endpoint |
 
@@ -661,7 +666,7 @@ npm run ios
   shasum -a 256 -c dist/LocalFlight-macos.zip.sha256
   ```
 - Pi source release was rebuilt from the current tree as `dist/LocalFlight-pi-source-0.2.7.zip`. The Pi bundle intentionally excludes `AGENTS.md`, `CLAUDE.md`, and `DEV_README.md`.
-- Mobile validation belongs on the Mac/Xcode machine: `cd mobile`, `npm install`, `npm run typecheck`, `npm run doctor`, then `npm run ios` or `npm run ios:device`. LAN Companion should use a LAN server URL such as `http://localflight.local:8000` or the desktop/Pi IP; do not use phone-local `localhost`. Standalone should verify airport search, activation, FIDS, Radar, local History, Settings, and direct relay reporting without a LAN server.
+- Mobile validation belongs on the Mac/Xcode machine: `cd mobile`, `npm install`, `npm run typecheck`, `npm run doctor`, then `npm run ios` or `npm run ios:device`. LAN Companion should prefer the desktop/Pi LAN IP or the native Settings QR; `http://localflight.local:8000` is only a fallback when exactly one Local Flight server is on the LAN. Do not use phone-local `localhost`. Standalone should verify airport search, activation, FIDS, Radar, local History, Settings, and direct relay reporting without a LAN server.
 - Keep public/internal separation intact during the Mac pass: public docs may describe the native privacy-first GUI and user reporting, but should not expose operator Network Admin routes, Fly secrets, `DEV_README.md`, `AGENTS.md`, or raw relay admin paths.
 - Active desktop/server version is `0.2.7`: `pyproject.toml`, runtime fallbacks, bundled release notes, docs, and mobile metadata should all agree unless we deliberately split the mobile preview version later.
 - Community relay root is live at `https://localflight-community-relay.fly.dev`. The client derives `/v1/schedule`, `/v1/radar`, `/v1/airport-surface`, `/v1/reports`, and activation routes internally; `/v1/flights` is raw-provider debug only.
@@ -717,7 +722,7 @@ npm run ios
 > handoff docs.
 
 - **Relay Standalone support** — `relay/main.py` now supports mobile standalone activation (`requested_mode=mobile_standalone`), standalone default limits, client kind/device metadata, airport search/resolve, mobile summary/FIDS/radar/METAR endpoints, 3-hour standalone schedule policy, 5-minute standalone radar cache, and `1/3/5/10` NM radar enforcement. Cached standalone radar hits authenticate before serving.
-- **Mobile Standalone client** — `mobile/src/api/standalone.ts` handles relay activation, summary, FIDS, radar, METAR, manual reports, and crash reports. `mobile/src/storage/settings.ts` persists setup mode, relay install ID, activation token, standalone airport, and diagnostics mode. `mobile/src/storage/standaloneHistory.ts` stores standalone FIDS rows locally with Expo SQLite and prunes to 30 days / 1,000 rows.
+- **Mobile Standalone client** — `mobile/src/api/standalone.ts` handles relay activation, summary, FIDS, radar, METAR, manual reports, and crash reports. `mobile/src/storage/settings.ts` persists setup mode, relay install ID, activation token, standalone airport, and diagnostics mode. `mobile/src/storage/standaloneHistory.ts` upserts standalone FIDS rows into local movement history with Expo SQLite and prunes to 30 days / 1,000 movements.
 - **Mobile shell split** — `AppShell` chooses LAN or relay data paths by setup mode. LAN Companion keeps WebSocket, local config/control, Matrix/admin-adjacent tools, and server-mediated reports. Standalone hides Matrix/Admin/server controls/WebSocket, uses Board/Radar/History/Settings, enforces the mobile cadence locally, and clears standalone token/airport/history on setup reset.
 - **Reporting** — LAN Companion auto reports still require mobile + server diagnostics consent. Standalone manual/crash reports go directly to relay `/v1/reports`, and automatic reports require only mobile `auto` / `auto_logs` consent because there is no paired local server.
 - **Docs** — README, install guide, display modes, Privacy, Mobile README, release notes, changelog, and `AGENTS.md` now explain LAN Companion vs Standalone clearly. Public docs avoid Fly secret names and admin-only paths; operator env/endpoint details stay in `AGENTS.md`.
@@ -793,7 +798,7 @@ npm run ios
 - ✅ 1-5 NM radar views now behave as surface radar and hide airborne/overflying aircraft for both real ADS-B and VATSIM; wider real-data radar views still hide ground targets and focus airborne.
 - ✅ FIDS rows now decode common airline IATA/ICAO/callsign prefixes into readable airline names, format the public flight number consistently, and preserve deduped codeshare partners as `Also ...` rows/detail metadata.
 - ✅ New airline/codeshare helpers live in `src/localflight/decode/mappings/airlines.py`; the FIDS API now includes `airline_display`, `codeshare_display`, and detail-level `codeshares`.
-- ✅ VATSIM privacy guard is now tested/documented: virtual traffic ingestion drops person-identifying feed fields such as names, CIDs/account IDs, and server names; the desktop detail label now says “Aircraft Track” instead of “Pilot Track.”
+- ✅ VATSIM privacy/display guard is now tested/documented: virtual traffic ingestion drops person-identifying feed fields such as names, CIDs/account IDs, and server names; VATSIM FIDS/detail surfaces are callsign-first and show VATSIM Summary / Filed Plan / Pilot Track / VATSIM Data / Recent Sessions instead of passenger codeshare, gate, registration, ICAO24, or delay analytics.
 - ✅ Native GUI launch is now platform-layered: `gui_mode.py` parses the requested mode, `gui_launcher.py` resolves native/browser/headless from platform + display + PySide6/Qt availability, and `__main__.py` logs the resulting `GuiLaunchDecision` before dispatch.
 - ✅ Windows/macOS source launchers and PyInstaller builds now install/verify PySide6/Qt for native mode, while Pi stays headless by default and adds an explicit `installers/pi/install.sh --native-kiosk` path for experimental Qt HDMI kiosk testing.
 - ✅ Native Qt parity pass replaced the side-list/debug shell with a browser-like top nav, Display-first split/FIDS/Radar views, native setup wizard, Matrix canvas/runtime/script tooling, Logs file selector/live tail, traffic log tool, sectioned Settings/Admin/History/Feedback pages, shared native design tokens, and a route registry that validates every client/operator button path in tests. FIDS/Radar refreshes now run off the Qt UI thread so slow local API/provider calls do not freeze the native shell. Native Radar projects API `center` + `lat/lon` blips like the browser canvas and has a sweep animation; native Settings/Setup use `/api/airports/search` for the airport picker and fill IATA/ICAO/timezone instead of asking for manual entry. Native Qt uses PySide6 QtWebSockets for the same `/ws` live-push contract as the browser/LAN UI. The latest UI/UX parity refinement maps browser theme/skin choices into Qt, reloads styling from `/api/config`, applies skin palettes to FIDS/Radar/Matrix renderers, gives the top nav horizontal compact scrolling for small Pi-sized displays, caches duplicate-safe native GET calls briefly, dedupes repeated airport searches, pauses hidden Radar/Matrix animation timers, backs active refresh polling off to 30 seconds, and makes first-run diagnostics/reporting consent a saved setup step instead of a loose later prompt.
@@ -918,7 +923,7 @@ npm run ios
 - [ ] RTL-SDR dongle — test dump1090 integration
 - [ ] Interstate 75 W — flash client.py, test WiFi polling
 - [ ] Code signing certificates — Developer ID (macOS) + EV cert (Windows SmartScreen)
-- [ ] Mobile v2 — QR pairing + per-device tokens before exposing admin mutating controls
+- [ ] Mobile v2 — per-device auth tokens before exposing broader admin mutating controls; QR pairing itself is now IP-first and fingerprint-bound.
 
 ## Afternoon handoff (2026-04-30)
 

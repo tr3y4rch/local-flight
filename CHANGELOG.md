@@ -24,6 +24,34 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 >
 > For the user-facing summary, see [docs/release-notes-0.2.7.md](docs/release-notes-0.2.7.md).
 
+### History movement hardening (2026-05-18)
+- Added a canonical `history_movements` layer beside the raw `flights` observation table. User-facing History now counts deduped movements instead of repeated board snapshot rows.
+- History windows now filter by movement `event_time` (actual time first, scheduled time second), not by when a snapshot was fetched. Future scheduled board rows no longer inflate "last 24h" history until the movement time is current.
+- Repeated snapshots and linked codeshare aliases collapse into one movement with `observation_count`, while unrelated flights on the same route/time stay separate.
+- `/api/history`, `/api/history/summary`, `/api/history/flight`, FIDS detail history, LAN browser History, native Qt History, Admin history stats, and mobile History copy now use movement semantics and expose raw observation counts only as diagnostics.
+- Existing local `history.db` files are backfilled idempotently into `history_movements` without deleting raw observations.
+- Mobile Standalone history now upserts movement rows in Expo SQLite and keeps the 30-day / 1,000-entry retention by movement instead of by repeated snapshot row.
+
+### VATSIM display contract (2026-05-18)
+- VATSIM / `source=virtual` is now treated as a pilot/ATC-style mode instead of a passenger/codeshare board. Rows are callsign-first and can expose aircraft type, flight rules, filed route/cruise, altitude, ground speed, XPDR, track state, and VATSIM freshness.
+- `/api/fids` and `/api/fids/detail` now sanitize virtual rows/details before clients render them: codeshares, sold-as, marketing carrier fields, airline labels, gate/terminal/stand fields, delay chips, registrations, and ICAO24 are empty in virtual mode.
+- LAN browser, native Qt, and mobile detail views now use virtual sections: VATSIM Summary, Filed Plan, Pilot Track, VATSIM Data, and Recent Sessions. Real-source flight details are unchanged.
+- Matrix payloads keep the existing VATSIM gate/codeshare suppression even when fed richer virtual FIDS rows.
+- Added regression coverage for VATSIM row/detail payloads, browser template guards, native Qt detail HTML, and mobile type coverage.
+
+### Mobile QR pairing hardening (2026-05-18)
+- Native Settings pairing now prefers the actual LAN IP over `localflight.local`, keeping the mDNS shortcut as a fallback for one-server LANs.
+- New pairing QR links include the redacted server fingerprint. The mobile app compares that fingerprint with `/api/mobile/summary.system.install_id` before saving a scanned pairing, so a QR that resolves to another Pi/desktop is rejected instead of silently connecting to the wrong host.
+- Added `DELETE /api/admin/companion` and a Qt Settings **Reset paired devices** action to clear this server's remembered mobile companion check-ins.
+- Updated pairing copy in native Settings, mobile setup, and docs to recommend LAN IP / fingerprint-bound QR pairing for multi-server test networks.
+
+### Relay identity and activation reliability (2026-05-19)
+- Desktop/Pi installs now keep a versioned local identity bundle and a reset-safe local mirror so normal setup resets and dev wipes can recover the same install ID without creating duplicate relay clients.
+- Setup activation is verify-first: an existing local relay token is checked before `/v1/activate` is called, preventing harmless setup refreshes from rotating tokens or adding activation noise.
+- Relay errors now return stable local statuses such as `token_invalid`, `token_bound_elsewhere`, `manual_review`, `rate_limited`, and `relay_unreachable` so setup UI can show friendly repair copy instead of raw HTTP/JSON details.
+- Known-install relay reissues no longer consume anonymous new-install network burst capacity; unknown new installs still go through the existing manual-review safety net.
+- Managed relay auth failures now set a local cooldown before retrying, avoiding repeated scheduler noise when a stored token is stale or revoked.
+
 ### FIDS preset skins finally render their respective designs (2026-05-18)
 - Classic / PAX / VATSIM / Nerd were only labels on the same board until now. The active style is now driven by a richer `FidsStyle` dataclass (`row_height`+min/max, `row_gap`, `header_height`, `padding`, `font_scale`, primary/mono font families, palette overlay, `header_kind`, `row_chrome`, `status_chip`, `Column` spec with `(key, label, weight, min_w, hide_threshold)`).
 - **Classic** keeps the original rounded blue/cyan card layout with status rail and pill chips — fully unchanged for existing users.
@@ -164,7 +192,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Added relay endpoints for standalone mobile airport search/resolve, summary, FIDS, radar, and METAR data. These endpoints require `install_id`, `activation_token`, `app_version`, and `client_kind=mobile_standalone`.
 - Standalone product limits are enforced on both sides: 3-hour minimum FIDS freshness, 5-minute radar refresh cache, and radar ranges limited to `1`, `3`, `5`, and `10` NM.
 - Standalone hides WebSocket, Matrix, Admin, scheduler restart, LAN server controls, and companion check-in surfaces. The mobile bottom nav becomes Board, Radar, History, and Settings.
-- Standalone History now uses Expo SQLite on-device storage and prunes to 30 days or 1,000 rows. No relay-side per-install flight history was added.
+- Standalone History now uses Expo SQLite on-device storage and prunes to 30 days or 1,000 deduped movements. No relay-side per-install flight history was added.
 - Standalone manual/crash reports post directly to relay `/v1/reports`; automatic standalone reports require the mobile diagnostics choice to be `auto` or `auto_logs`.
 - LAN Companion behavior remains paired to the local desktop/Pi server, including WebSocket refresh, server-mediated reports, local settings/control, and mobile/server double-consent for automatic diagnostics.
 - The mobile launch overlay now uses shared brand text components, an independent continuous radar sweep, status text cross-fade, breathing status dot, and blinking amber board LED.
@@ -391,7 +419,7 @@ All seven phases are additive visual polish on the existing data contracts. No r
 - Raspberry Pi installs support three clear paths: headless server, native Qt HDMI kiosk, and Chromium HDMI kiosk.
 - Source installers explain display-mode choices in user-facing terms instead of treating browser or kiosk paths as leftovers.
 - Browser Settings now groups diagnostics, documents, and display-output copy around the current install/display model.
-- Browser History now shares the same analytics contract as native History, combining filters, KPIs, CSS-only charts, recent matching flights, and a polished detail panel on one page.
+- Browser History now shares the same analytics contract as native History, combining filters, KPIs, CSS-only charts, recent matching movements, and a polished detail panel on one page.
 
 ### Matrix
 - Matrix V2 exposes three public presets: `real_fids`, `vatsim_pilot`, and `vatsim_atc`.

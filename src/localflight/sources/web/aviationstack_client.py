@@ -684,6 +684,19 @@ def _request_json(
             retry_after_s=retry_after,
             status_code=response.status_code,
         )
+    if relay_response and response.status_code in {401, 403}:
+        detail = ""
+        try:
+            payload = response.json()
+            if isinstance(payload, dict):
+                detail = str(payload.get("detail") or payload.get("error") or "")
+        except Exception:
+            detail = ""
+        raise AviationstackBudgetExceeded(
+            f"Managed relay activation needs attention: {detail or f'HTTP {response.status_code}'}",
+            retry_after_s=_RELAY_COOLDOWN_DEFAULT_S,
+            status_code=response.status_code,
+        )
     if response.status_code >= 400:
         msg = f"HTTP {response.status_code}"
         try:
@@ -833,6 +846,7 @@ def _fetch_relay(
     activation_token = _get_activation_token()
     if activation_token:
         params["activation_token"] = activation_token
+        _raise_if_relay_cooling_down()
     else:
         _raise_if_relay_cooling_down()
         _increment_community_budget(_get_relay_limit())
@@ -840,7 +854,7 @@ def _fetch_relay(
     try:
         result = _request_json(_get_relay_url(), params=params, timeout_s=timeout_s, relay_response=True)
     except AviationstackBudgetExceeded as exc:
-        if not activation_token:
+        if not activation_token or exc.status_code in {401, 403, 429, 503}:
             _record_relay_cooldown(
                 retry_after_s=exc.retry_after_s or _RELAY_COOLDOWN_DEFAULT_S,
                 reason=str(exc),
@@ -878,6 +892,7 @@ def fetch_relay_schedule_records(
     activation_token = _get_activation_token()
     if activation_token:
         params["activation_token"] = activation_token
+        _raise_if_relay_cooling_down()
     else:
         _raise_if_relay_cooling_down()
         _increment_community_budget(_get_relay_limit())
@@ -885,7 +900,7 @@ def fetch_relay_schedule_records(
     try:
         result = _request_json(_relay_schedule_url(), params=params, timeout_s=timeout_s, relay_response=True)
     except AviationstackBudgetExceeded as exc:
-        if not activation_token:
+        if not activation_token or exc.status_code in {401, 403, 429, 503}:
             _record_relay_cooldown(
                 retry_after_s=exc.retry_after_s or _RELAY_COOLDOWN_DEFAULT_S,
                 reason=str(exc),
