@@ -165,8 +165,8 @@ function Write-Launcher {
 setlocal
 
 set "ROOT=%~dp0..\.."
-set "PYTHON=%ROOT%\.venv\Scripts\pythonw.exe"
-if not exist "%PYTHON%" set "PYTHON=%ROOT%\.venv\Scripts\python.exe"
+set "PYTHON=%ROOT%\.venv\Scripts\python.exe"
+if not exist "%PYTHON%" set "PYTHON=%ROOT%\.venv\Scripts\pythonw.exe"
 
 if not exist "%PYTHON%" (
     echo Local Flight source install is incomplete.
@@ -184,8 +184,10 @@ if not exist "%ROOT%\src\localflight\__main__.py" (
 
 if "%LOCALFLIGHT_GUI_MODE%"=="" set "LOCALFLIGHT_GUI_MODE=$DefaultGuiMode"
 cd /d "%ROOT%"
-start "" "%PYTHON%" -m localflight
-exit /b 0
+"%PYTHON%" -m localflight
+set "LF_EXIT=%ERRORLEVEL%"
+if not "%LF_EXIT%"=="0" pause
+exit /b %LF_EXIT%
 "@
 
     Set-Content -LiteralPath $LauncherPath -Value $launcher -Encoding ASCII
@@ -245,6 +247,7 @@ Write-Host " $($python.Version)" -ForegroundColor Green
 
 $venvPath = Join-Path $ROOT ".venv"
 $venvPython = Join-Path $venvPath "Scripts\python.exe"
+$venvPythonw = Join-Path $venvPath "Scripts\pythonw.exe"
 
 if (-not (Test-Path $venvPython)) {
     Write-Host " Creating virtual environment..." -NoNewline
@@ -304,6 +307,13 @@ Write-Host " Writing source launcher..." -NoNewline
 Write-Launcher -LauncherPath $launcherPath -DefaultGuiMode $resolvedDisplayMode
 Write-Host " Done" -ForegroundColor Green
 
+$silentTarget = $venvPythonw
+$silentArguments = "-m localflight"
+if (-not (Test-Path $silentTarget)) {
+    $silentTarget = $launcherPath
+    $silentArguments = ""
+}
+
 if (-not $NoShortcut) {
     Write-Host " Creating desktop shortcut..." -NoNewline
     try {
@@ -311,7 +321,8 @@ if (-not $NoShortcut) {
         $shortcut = Join-Path $desktop "Local Flight.lnk"
         $shell = New-Object -ComObject WScript.Shell
         $lnk = $shell.CreateShortcut($shortcut)
-        $lnk.TargetPath = $launcherPath
+        $lnk.TargetPath = $silentTarget
+        $lnk.Arguments = $silentArguments
         $lnk.WorkingDirectory = $ROOT
         $lnk.Description = "Local Flight - Airport FIDS Display"
         $lnk.WindowStyle = 1
@@ -334,7 +345,11 @@ if (-not $NoShortcut) {
 
 if ($Launch) {
     Write-Host " Launching Local Flight..." -ForegroundColor Cyan
-    Start-Process -FilePath $launcherPath -WorkingDirectory $ROOT
+    if ($silentArguments) {
+        Start-Process -FilePath $silentTarget -ArgumentList $silentArguments -WorkingDirectory $ROOT
+    } else {
+        Start-Process -FilePath $silentTarget -WorkingDirectory $ROOT
+    }
 }
 
 Write-Section "Installation complete"

@@ -7509,6 +7509,10 @@ def _build_client_status(
         label = ""
 
     conn = _connect()
+    known_install_row = _activation_row_for_install(conn, install_id)
+    known_install = activation_row is not None or known_install_row is not None
+    if not token_prefix and known_install_row is not None:
+        token_prefix = str(known_install_row["token_prefix"] or "")
     aerodatabox_key, _ = _provider_status(_SETTING_AERODATABOX_KEY, "AERODATABOX_API_KEY", conn=conn)
     aviationstack_key, _ = _provider_status(_SETTING_AVIATIONSTACK_KEY, "AVIATIONSTACK_API_KEY", conn=conn)
     rapidapi_key, _ = _provider_status(_SETTING_RAPIDAPI_KEY, "RAPIDAPI_KEY", conn=conn)
@@ -7522,6 +7526,8 @@ def _build_client_status(
         "relay_ok": True,
         "provider_revision": revision,
         "install_fingerprint": _install_fingerprint(install_id),
+        "known_install": known_install,
+        "can_reissue": known_install,
         "token_prefix": token_prefix,
         "label": label,
         "app_version": (app_version or "").strip(),
@@ -7821,6 +7827,7 @@ def relay_activate(body: ActivationRequestIn, request: Request) -> Dict[str, Any
     manual_review = counts["network_requests"] >= _auto_activation_network_daily_limit() or counts[
         "network_installs"
     ] >= _auto_activation_network_installs_daily_limit()
+    event_network_tag = "" if known_install else network_tag
 
     if manual_review and not known_install:
         existing = conn.execute(
@@ -7840,6 +7847,9 @@ def relay_activate(body: ActivationRequestIn, request: Request) -> Dict[str, Any
                 "request_id": str(existing["request_id"] or ""),
                 "status": _REQUEST_STATUS_MANUAL_REVIEW,
                 "install_fingerprint": str(existing["install_fingerprint"] or expected_fingerprint),
+                "known_install": False,
+                "can_reissue": False,
+                "token_prefix": "",
                 "decision_note": str(existing["decision_note"] or "manual review required"),
             }
         request_id = _record_activation_event(
@@ -7863,6 +7873,9 @@ def relay_activate(body: ActivationRequestIn, request: Request) -> Dict[str, Any
             "request_id": request_id,
             "status": _REQUEST_STATUS_MANUAL_REVIEW,
             "install_fingerprint": expected_fingerprint,
+            "known_install": False,
+            "can_reissue": False,
+            "token_prefix": "",
             "decision_note": "Relay paused automatic activation for this install and queued a manual review.",
         }
 
@@ -7874,7 +7887,11 @@ def relay_activate(body: ActivationRequestIn, request: Request) -> Dict[str, Any
         schedule_limit=schedule_limit,
         radar_limit=radar_limit,
     )
-    response_note = "Relay access issued instantly for this installation."
+    response_note = (
+        "Relay access reissued for this existing installation after setup reset."
+        if known_install
+        else "Relay access issued instantly for this installation."
+    )
     pending_request = None
     if manual_review and known_install:
         pending_request = conn.execute(
@@ -7917,7 +7934,7 @@ def relay_activate(body: ActivationRequestIn, request: Request) -> Dict[str, Any
                 now,
                 now,
                 now,
-                network_tag,
+                event_network_tag,
                 airport_iata or None,
                 airport_icao or None,
                 display_name or f"Local Flight {expected_fingerprint}",
@@ -7935,15 +7952,15 @@ def relay_activate(body: ActivationRequestIn, request: Request) -> Dict[str, Any
             conn,
             install_id=install_id,
             install_fingerprint=install_fingerprint,
-            network_tag=network_tag,
+            network_tag=event_network_tag,
             display_name=display_name or f"Local Flight {expected_fingerprint}",
             requested_mode=requested_mode,
             app_version=app_version,
             airport_iata=airport_iata,
             airport_icao=airport_icao,
             status=_REQUEST_STATUS_ISSUED,
-            decision_source="auto-existing-install" if known_install and manual_review else "auto",
-            decision_note="existing install reissued after setup reset" if known_install and manual_review else issuance,
+            decision_source="auto-existing-install" if known_install else "auto",
+            decision_note="existing install reissued after setup reset" if known_install else issuance,
             token_hash=_token_hash(token),
             token_prefix=token_prefix,
         )
@@ -7968,6 +7985,8 @@ def relay_activate(body: ActivationRequestIn, request: Request) -> Dict[str, Any
         {
             "request_id": request_id,
             "status": _REQUEST_STATUS_ISSUED,
+            "known_install": known_install,
+            "can_reissue": True,
             "activation_token": token,
             "decision_note": response_note,
         }

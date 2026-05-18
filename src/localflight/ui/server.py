@@ -546,6 +546,88 @@ class ActivationTokenTestIn(BaseModel):
     activation_token: str = Field("", max_length=256)
 
 
+def _relay_detail(payload: Any, fallback: str) -> str:
+    if isinstance(payload, dict):
+        detail = payload.get("detail") or payload.get("error") or payload.get("message") or payload.get("decision_note")
+        if isinstance(detail, dict):
+            detail = detail.get("detail") or detail.get("error") or detail.get("message")
+        if detail:
+            return str(detail)
+    return fallback
+
+
+def _relay_status_code(detail: str, http_status: int = 0) -> str:
+    clean = (detail or "").casefold()
+    if http_status == 429 or "rate limit" in clean or "cooldown" in clean:
+        return "rate_limited"
+    if "already bound to another install" in clean or "bound to another install" in clean:
+        return "token_bound_elsewhere"
+    if "invalid or revoked" in clean or "token invalid" in clean or "invalid activation" in clean:
+        return "token_invalid"
+    if "manual review" in clean:
+        return "manual_review"
+    if "failed:" in clean or "timed out" in clean or "connection" in clean:
+        return "relay_unreachable"
+    return "relay_error"
+
+
+def _friendly_relay_error(detail: str, code: str, fallback: str) -> str:
+    if code == "token_bound_elsewhere":
+        return (
+            "This relay token belongs to another Local Flight install. "
+            "Use the stored token for this install, request a fresh relay link, or create a deliberately new install identity."
+        )
+    if code == "token_invalid":
+        return "The stored relay token is invalid or was revoked. Request a fresh relay link for this install."
+    if code == "manual_review":
+        return "The relay paused automatic activation for safety and queued this install for review."
+    if code == "rate_limited":
+        return "The relay is cooling down activation/status checks. Try again shortly."
+    if code == "relay_unreachable":
+        return "The relay could not be reached right now. Your local setup is unchanged."
+    return detail or fallback
+
+
+def _retry_after_seconds(response: Any) -> int | None:
+    try:
+        raw = response.headers.get("Retry-After")
+    except Exception:
+        raw = None
+    try:
+        value = int(str(raw or "").strip())
+    except Exception:
+        return None
+    return max(1, value)
+
+
+def _relay_failure_payload(payload: Any, *, http_status: int = 0, fallback: str = "Relay request failed.", response: Any = None) -> Dict[str, Any]:
+    detail = _relay_detail(payload, fallback)
+    code = _relay_status_code(detail, http_status)
+    result: Dict[str, Any] = {
+        "ok": False,
+        "status": code,
+        "error": _friendly_relay_error(detail, code, fallback),
+    }
+    if http_status:
+        result["relay_http_status"] = int(http_status)
+    retry_after = _retry_after_seconds(response)
+    if retry_after is not None:
+        result["retry_after_s"] = retry_after
+    if isinstance(payload, dict):
+        for key in ("request_id", "install_fingerprint", "known_install", "can_reissue", "token_prefix"):
+            if key in payload:
+                result[key] = payload[key]
+    return result
+
+
+def _relay_json_response(response: Any) -> Dict[str, Any]:
+    try:
+        payload = response.json()
+    except Exception:
+        payload = {"detail": f"Relay returned HTTP {response.status_code}"}
+    return payload if isinstance(payload, dict) else {"detail": "Relay response was invalid"}
+
+
 def _provider_error_text(payload: Any, fallback: str) -> str:
     if not isinstance(payload, dict):
         return fallback
@@ -633,18 +715,42 @@ async def setup_test_rapidapi_get(key: str = Query(...)) -> Dict[str, Any]:
 @app.post("/api/setup/activate")
 async def setup_activate(body: ActivationSetupIn) -> Dict[str, Any]:
     import requests as _req
-    from localflight.storage.install import get_install_fingerprint, get_install_id, set_activation_token
+    from localflight.sources.web.relay_heartbeat import relay_client_metadata
+    from localflight.storage.install import get_activation_token, get_install_fingerprint, get_install_id, set_activation_token
 
     try:
         relay_url = _validated_setup_relay_url(body.relay_url)
     except ValueError as exc:
-        return {"ok": False, "error": str(exc)}
+        return {"ok": False, "status": "relay_unreachable", "error": str(exc)}
+    install_id = get_install_id()
+    install_fingerprint = get_install_fingerprint()
+    existing_token = get_activation_token().strip()
+    if existing_token:
+        try:
+            status_response = _req.get(
+                _client_status_url(relay_url),
+                params={"install_id": install_id, "activation_token": existing_token, **relay_client_metadata()},
+                headers={"Accept": "application/json"},
+                timeout=12,
+            )
+            status_payload = _relay_json_response(status_response)
+            if status_response.status_code < 400 and status_payload.get("ok"):
+                status_payload["activation_token_present"] = True
+                status_payload["activation_token_prefix"] = status_payload.get("token_prefix") or existing_token[:10]
+                status_payload.setdefault("status", "ok")
+                status_payload.setdefault("known_install", True)
+                status_payload.setdefault("can_reissue", True)
+                return status_payload
+        except Exception:
+            # A direct activation request is an explicit repair action; if the
+            # verification probe cannot complete, let the relay decide below.
+            pass
     try:
         response = _req.post(
             _activate_url(relay_url),
             json={
-                "install_id": get_install_id(),
-                "install_fingerprint": get_install_fingerprint(),
+                "install_id": install_id,
+                "install_fingerprint": install_fingerprint,
                 "display_name": (body.display_name or "").strip(),
                 "requested_mode": (body.requested_mode or "community").strip().lower(),
                 "app_version": _APP_VERSION,
@@ -653,16 +759,16 @@ async def setup_activate(body: ActivationSetupIn) -> Dict[str, Any]:
             timeout=12,
         )
     except Exception as exc:
-        return {"ok": False, "error": f"Relay activation failed: {exc}"}
+        return _relay_failure_payload(
+            {"detail": f"Relay activation failed: {exc}"},
+            fallback="Relay activation failed.",
+        )
 
-    try:
-        payload = response.json()
-    except Exception:
-        payload = {"detail": f"Relay returned HTTP {response.status_code}"}
+    payload = _relay_json_response(response)
     if response.status_code >= 400:
-        return {"ok": False, "error": str(payload.get("detail") or payload.get("error") or f"HTTP {response.status_code}")}
+        return _relay_failure_payload(payload, http_status=response.status_code, fallback="Relay activation failed.", response=response)
     if not isinstance(payload, dict):
-        return {"ok": False, "error": "Relay activation response was invalid"}
+        return {"ok": False, "status": "relay_error", "error": "Relay activation response was invalid"}
     token = str(payload.get("activation_token") or "").strip()
     if token:
         try:
@@ -673,6 +779,7 @@ async def setup_activate(body: ActivationSetupIn) -> Dict[str, Any]:
         payload["activation_token_prefix"] = payload.get("token_prefix") or token[:10]
         payload.pop("activation_token", None)
     payload.setdefault("ok", True)
+    payload.setdefault("status", "ok" if payload.get("ok") else "relay_error")
     return payload
 
 
@@ -686,7 +793,7 @@ async def setup_client_status(body: ClientStatusSetupIn) -> Dict[str, Any]:
     try:
         relay_url = _validated_setup_relay_url(body.relay_url)
     except ValueError as exc:
-        return {"ok": False, "error": str(exc)}
+        return {"ok": False, "status": "relay_unreachable", "error": str(exc)}
     activation_token = (body.activation_token or "").strip() or get_activation_token().strip()
     metadata = relay_client_metadata()
     try:
@@ -714,17 +821,15 @@ async def setup_client_status(body: ClientStatusSetupIn) -> Dict[str, Any]:
             timeout=12,
         )
     except Exception as exc:
-        return {"ok": False, "error": f"Relay status check failed: {exc}"}
+        return _relay_failure_payload({"detail": f"Relay status check failed: {exc}"}, fallback="Relay status check failed.")
 
-    try:
-        payload = response.json()
-    except Exception:
-        payload = {"detail": f"Relay returned HTTP {response.status_code}"}
+    payload = _relay_json_response(response)
     if response.status_code >= 400:
-        return {"ok": False, "error": str(payload.get("detail") or payload.get("error") or f"HTTP {response.status_code}")}
+        return _relay_failure_payload(payload, http_status=response.status_code, fallback="Relay status check failed.", response=response)
     if not isinstance(payload, dict):
-        return {"ok": False, "error": "Relay status response was invalid"}
+        return {"ok": False, "status": "relay_error", "error": "Relay status response was invalid"}
     payload.setdefault("ok", True)
+    payload.setdefault("status", "ok")
     return payload
 
 
@@ -742,15 +847,15 @@ async def setup_request_activation_status_compat(body: ClientStatusSetupIn) -> D
 async def setup_test_activation(body: ActivationTokenTestIn) -> Dict[str, Any]:
     import requests as _req
     from localflight.sources.web.relay_heartbeat import relay_client_metadata
-    from localflight.storage.install import get_activation_token, get_install_fingerprint, get_install_id
+    from localflight.storage.install import get_activation_token, get_install_id
 
     try:
         relay_url = _validated_setup_relay_url(body.relay_url)
     except ValueError as exc:
-        return {"ok": False, "error": str(exc)}
+        return {"ok": False, "status": "relay_unreachable", "error": str(exc)}
     token = body.activation_token.strip() or get_activation_token().strip()
     if not token:
-        return {"ok": False, "error": "Managed activation token is not loaded on this machine yet."}
+        return {"ok": False, "status": "token_invalid", "error": "Managed activation token is not loaded on this machine yet."}
     try:
         response = _req.get(
             _client_status_url(relay_url),
@@ -759,28 +864,15 @@ async def setup_test_activation(body: ActivationTokenTestIn) -> Dict[str, Any]:
             timeout=12,
         )
     except Exception as exc:
-        return {"ok": False, "error": f"Relay verification failed: {exc}"}
+        return _relay_failure_payload({"detail": f"Relay verification failed: {exc}"}, fallback="Relay verification failed.")
 
-    try:
-        payload = response.json()
-    except Exception:
-        payload = {"detail": f"Relay returned HTTP {response.status_code}"}
+    payload = _relay_json_response(response)
 
     if response.status_code >= 400:
-        return {"ok": False, "error": str(payload.get("detail") or payload.get("error") or f"HTTP {response.status_code}")}
-    if not isinstance(payload, dict):
-        return {"ok": False, "error": "Relay verification response was invalid"}
-
-    return {
-        "ok": bool(payload.get("ok", True)),
-        "install_fingerprint": payload.get("install_fingerprint") or get_install_fingerprint(),
-        "token_prefix": payload.get("token_prefix") or token[:10],
-        "providers": payload.get("providers") or {},
-        "limits": payload.get("limits") or {},
-        "plan": payload.get("plan") or "managed",
-        "provider_revision": payload.get("provider_revision"),
-        "label": payload.get("label") or "",
-    }
+        return _relay_failure_payload(payload, http_status=response.status_code, fallback="Relay verification failed.", response=response)
+    payload.setdefault("ok", True)
+    payload.setdefault("status", "ok")
+    return payload
 
 
 @app.post("/api/setup/complete")

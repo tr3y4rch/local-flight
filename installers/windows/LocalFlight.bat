@@ -2,8 +2,8 @@
 setlocal
 
 set "ROOT=%~dp0..\.."
-set "PYTHON=%ROOT%\.venv\Scripts\pythonw.exe"
-if not exist "%PYTHON%" set "PYTHON=%ROOT%\.venv\Scripts\python.exe"
+set "PYTHON=%ROOT%\.venv\Scripts\python.exe"
+if not exist "%PYTHON%" set "PYTHON=%ROOT%\.venv\Scripts\pythonw.exe"
 
 if not exist "%PYTHON%" (
     echo Local Flight source install is incomplete.
@@ -21,5 +21,7 @@ if not exist "%ROOT%\src\localflight\__main__.py" (
 
 if "%LOCALFLIGHT_GUI_MODE%"=="" set "LOCALFLIGHT_GUI_MODE=native"
 cd /d "%ROOT%"
-start "" "%PYTHON%" -m localflight
-exit /b 0
+"%PYTHON%" -m localflight
+set "LF_EXIT=%ERRORLEVEL%"
+if not "%LF_EXIT%"=="0" pause
+exit /b %LF_EXIT%

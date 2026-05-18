@@ -21,7 +21,7 @@ import {
 import Svg, { Circle, ClipPath, Defs, G, Line, Path, Polygon, Polyline, Text as SvgText } from "react-native-svg";
 import { CameraView, useCameraPermissions, type BarcodeScanningResult } from "expo-camera";
 
-import { getConfig, getDoc, getHealth, getRootHealth, normalizeServerUrl, patchConfig, searchAirports } from "../api/client";
+import { getConfig, getDoc, getHealth, getMobileSummary, getRootHealth, normalizeServerUrl, patchConfig, searchAirports } from "../api/client";
 import { activateStandalone, searchStandaloneAirports } from "../api/standalone";
 import type {
   AppConfig,
@@ -87,10 +87,9 @@ import {
   parseMetarChips
 } from "../domain/formatting";
 import { MATRIX_LED_PALETTES, matrixPreviewLines } from "../domain/matrix";
-import { pairingServerUrlProblem, parsePairingLink } from "../domain/pairing";
+import { pairingFingerprintProblem, pairingServerUrlProblem, parsePairingLink, type PairingLinkResult } from "../domain/pairing";
 import { projectBlip, projectLatLonToScope, type ProjectedRadarPoint } from "../domain/radar";
 import {
-  SUPPORT_WEB_FALLBACK_URL,
   supportProductPlaceholders,
   supportStubProvider,
   type SupportProduct
@@ -172,8 +171,17 @@ function blueButtonInk(): string {
 const RADAR_GROUND_CLIP_ID = "mobile-radar-ground-clip";
 const RADAR_SWEEP_CLIP_ID = "mobile-radar-sweep-clip";
 const RADAR_SWEEP_WIDTH_DEG = 72;
+const RADAR_SWEEP_INTERVAL_MS = 80;
+const RADAR_SWEEP_STEP_DEG = 1.92;
+const RADAR_BLIP_FADE_DEG = 75;
 
-export function ScreenActivity({ activity }: { activity: ActivityStatus | null | undefined }) {
+export function ScreenActivity({
+  activity,
+  compact = false
+}: {
+  activity: ActivityStatus | null | undefined;
+  compact?: boolean;
+}) {
   if (!activity) return null;
 
   const toneStyle =
@@ -185,19 +193,21 @@ export function ScreenActivity({ activity }: { activity: ActivityStatus | null |
   const iconColor = activity.tone === "warn" ? palette.amber : activity.tone === "ok" ? palette.green : palette.blue;
 
   return (
-    <View style={[styles.activityPill, toneStyle]}>
-      <View style={styles.activitySpinnerWrap}>
-        <ActivityIndicator size="small" color={iconColor} />
-      </View>
+    <View style={[styles.activityPill, compact && styles.activityPillCompact, toneStyle]}>
+      {compact ? null : (
+        <View style={styles.activitySpinnerWrap}>
+          <ActivityIndicator size="small" color={iconColor} />
+        </View>
+      )}
       <View style={styles.activityCopy}>
-        <Text style={styles.activityLabel}>{activity.label}</Text>
-        {activity.detail ? <Text style={styles.activityDetail}>{activity.detail}</Text> : null}
+        <Text style={styles.activityLabel}>{compact ? activity.label.replace(/^Talking to /i, "") : activity.label}</Text>
+        {!compact && activity.detail ? <Text style={styles.activityDetail}>{activity.detail}</Text> : null}
       </View>
     </View>
   );
 }
 
-function pairingUrlFromQrPayload(rawValue: string): { serverUrl: string } | { error: string } {
+function pairingUrlFromQrPayload(rawValue: string): PairingLinkResult | { error: string } {
   const trimmed = String(rawValue || "").trim();
   const parsed = parsePairingLink(rawValue);
   if (!parsed && !/^https?:\/\//i.test(trimmed)) {
@@ -208,7 +218,7 @@ function pairingUrlFromQrPayload(rawValue: string): { serverUrl: string } | { er
   if (problem) {
     return { error: problem };
   }
-  return { serverUrl };
+  return parsed || { serverUrl, source: "manual" };
 }
 
 function PairingScannerSheet({
@@ -218,7 +228,7 @@ function PairingScannerSheet({
 }: {
   visible: boolean;
   onClose: () => void;
-  onPairingUrl: (serverUrl: string) => void;
+  onPairingUrl: (pairing: PairingLinkResult) => void;
 }) {
   const [permission, requestPermission] = useCameraPermissions();
   const [scanned, setScanned] = useState(false);
@@ -253,7 +263,7 @@ function PairingScannerSheet({
       return;
     }
     hapticLight();
-    onPairingUrl(parsed.serverUrl);
+    onPairingUrl(parsed);
   }, [onPairingUrl, scanned]);
 
   return (
@@ -358,9 +368,10 @@ function fidsRowKey(row: FidsRow, index: number): string {
 function historyRowKey(row: HistoryFlightRow, index: number): string {
   return [
     "history",
+    keyedPart(row.movement_key),
     keyedPart(row.id),
     keyedPart(row.callsign),
-    keyedPart(row.snapshot_ts),
+    keyedPart(row.event_time),
     keyedPart(row.sched_time),
     index
   ].join(":");
@@ -438,7 +449,24 @@ function uniqueInfoFrames(frames: Array<RowInfoFrame | null | undefined>): RowIn
   return result;
 }
 
+function isVirtualFidsRow(row: FidsRow): boolean {
+  const value = `${row.detail_mode || ""} ${row.source_hint || ""}`.toLowerCase();
+  return value.includes("virtual") || value.includes("vatsim");
+}
+
 function airlineInfoFrames(row: FidsRow): RowInfoFrame[] {
+  if (isVirtualFidsRow(row)) {
+    return uniqueInfoFrames([
+      row.callsign ? { label: "CALLSIGN", value: row.callsign, tone: "accent" } : null,
+      row.aircraft_type && row.aircraft_type !== "-" ? { label: "A/C", value: row.aircraft_type.toUpperCase(), tone: "accent" } : null,
+      row.flight_rules ? { label: "RULES", value: row.flight_rules, tone: "muted" } : null,
+      row.planned_altitude ? { label: "CRUISE", value: row.planned_altitude, tone: "muted" } : null,
+      row.altitude_ft != null ? { label: "ALT", value: formatFeetValue(row.altitude_ft), tone: "muted" } : null,
+      row.ground_speed_kt != null ? { label: "GS", value: `${Math.round(row.ground_speed_kt)} kt`, tone: "muted" } : null,
+      row.squawk || row.transponder ? { label: "XPDR", value: row.squawk || row.transponder || "", tone: "muted" } : null,
+      row.source_hint ? { label: "DATA", value: row.source_hint, tone: "muted" } : null
+    ]);
+  }
   const soldAs = (row.sold_as || []).slice(0, 3).join(" / ");
   return uniqueInfoFrames([
     row.airline_display ? { label: "AIRLINE", value: row.airline_display, tone: "accent" } : null,
@@ -452,6 +480,18 @@ function airlineInfoFrames(row: FidsRow): RowInfoFrame[] {
 }
 
 function rowDetailFrames(row: FidsRow, gateLabel: string): RowInfoFrame[] {
+  if (isVirtualFidsRow(row)) {
+    return uniqueInfoFrames([
+      row.aircraft_type && row.aircraft_type !== "-" ? { label: "A/C", value: row.aircraft_type.toUpperCase(), tone: "accent" } : null,
+      row.flight_rules ? { label: "RULES", value: row.flight_rules, tone: "accent" } : null,
+      row.planned_altitude ? { label: "CRUISE", value: row.planned_altitude, tone: "muted" } : null,
+      row.altitude_ft != null ? { label: "ALT", value: formatFeetValue(row.altitude_ft), tone: "muted" } : null,
+      row.ground_speed_kt != null ? { label: "GS", value: `${Math.round(row.ground_speed_kt)} kt`, tone: "muted" } : null,
+      row.squawk || row.transponder ? { label: "XPDR", value: row.squawk || row.transponder || "", tone: "accent" } : null,
+      row.status_kind ? { label: "STATE", value: row.status_kind.replace(/_/g, " "), tone: "muted" } : null,
+      row.live_hint ? { label: "TRACK", value: row.live_hint, tone: "muted" } : null
+    ]);
+  }
   return uniqueInfoFrames([
     gateLabel ? { label: "GATE", value: gateLabel, tone: "accent" } : null,
     row.terminal_display ? { label: "TERM", value: row.terminal_display, tone: "accent" } : null,
@@ -1141,6 +1181,9 @@ export function FidsScreen({
   const displayRows = pinned
     ? [pinned, ...rows.filter((row) => flightPinKey(row) !== pinnedCallsign)]
     : rows;
+  const hasRows = displayRows.length > 0;
+  const showInlineActivity = Boolean(activity && !refreshing && (hasRows || !error));
+  const showInlineError = Boolean(error && !refreshing);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -1178,8 +1221,8 @@ export function FidsScreen({
       ListHeaderComponent={
         <>
           {showConnectPrompt ? <ConnectPrompt onSettings={onOpenSettings} /> : null}
-          <ScreenActivity activity={activity} />
-          {error ? <ScreenError message={error} onRetry={onRefresh} retrying={refreshing} /> : null}
+          {showInlineActivity ? <ScreenActivity activity={activity} compact={hasRows} /> : null}
+          {showInlineError ? <ScreenError message={error ?? ""} onRetry={onRefresh} retrying={false} /> : null}
 
           <View style={styles.dirToggle}>
             <DirectionButton
@@ -1209,7 +1252,7 @@ export function FidsScreen({
         </>
       }
       ListEmptyComponent={
-        loading ? (
+        loading && !error && !activity && !refreshing ? (
           <ActivityIndicator color={palette.blue} style={styles.loader} />
         ) : standalone ? (
           <StandaloneEmptyState
@@ -1310,6 +1353,9 @@ export function HistoryScreen({
   contentPaddingBottom: number;
 }) {
   const flights = data?.flights || [];
+  const hasRows = flights.length > 0;
+  const showInlineActivity = Boolean(activity && !refreshing && (hasRows || !error));
+  const showInlineError = Boolean(error && !refreshing);
   const maxAirlineCount = Math.max(...(summary?.top_airlines?.map((a) => a.count) || [1]), 1);
   const maxRouteCount = Math.max(...(summary?.top_routes?.map((r) => r.count) || [1]), 1);
   const maxAircraftCount = Math.max(...(summary?.top_aircraft?.map((a) => a.count) || [1]), 1);
@@ -1333,8 +1379,8 @@ export function HistoryScreen({
       ListHeaderComponent={
         <>
           {showConnectPrompt ? <ConnectPrompt onSettings={onOpenSettings} /> : null}
-          <ScreenActivity activity={activity} />
-          {error ? <ScreenError message={error} onRetry={onRefresh} retrying={refreshing} /> : null}
+          {showInlineActivity ? <ScreenActivity activity={activity} compact={hasRows} /> : null}
+          {showInlineError ? <ScreenError message={error ?? ""} onRetry={onRefresh} retrying={false} /> : null}
 
           <FilterSection title="DIRECTION">
             <View style={styles.filterRow}>
@@ -1391,19 +1437,21 @@ export function HistoryScreen({
             <>
               <View style={styles.historyKpiGrid}>
                 <View style={styles.historyKpiCard}>
-                  <Text style={styles.historyKpiLabel}>FLIGHTS</Text>
+                  <Text style={styles.historyKpiLabel}>MOVEMENTS</Text>
                   <Text style={styles.historyKpiValue}>{summary.total || "-"}</Text>
-                  <Text style={styles.historyKpiNote}>{historyWindowLabel(hours)} window</Text>
+                  <Text style={styles.historyKpiNote}>
+                    {summary.raw_observation_rows ? `${summary.raw_observation_rows} observations` : `${historyWindowLabel(hours)} window`}
+                  </Text>
                 </View>
                 <View style={styles.historyKpiCard}>
                   <Text style={styles.historyKpiLabel}>DEPART.</Text>
                   <Text style={[styles.historyKpiValue, { color: palette.blue }]}>{summary.departures ?? "-"}</Text>
-                  <Text style={styles.historyKpiNote}>outbound</Text>
+                  <Text style={styles.historyKpiNote}>outbound moves</Text>
                 </View>
                 <View style={styles.historyKpiCard}>
                   <Text style={styles.historyKpiLabel}>ARRIVE.</Text>
                   <Text style={[styles.historyKpiValue, { color: palette.green }]}>{summary.arrivals ?? "-"}</Text>
-                  <Text style={styles.historyKpiNote}>inbound</Text>
+                  <Text style={styles.historyKpiNote}>inbound moves</Text>
                 </View>
                 <View style={styles.historyKpiCard}>
                   <Text style={styles.historyKpiLabel}>ON TIME</Text>
@@ -1493,7 +1541,7 @@ export function HistoryScreen({
             </>
           ) : (
             <View style={styles.metricRow}>
-              <InfoCard label="ROWS" value={data ? String(data.count) : "..."} />
+              <InfoCard label="MOVES" value={data ? String(data.count) : "..."} />
               <InfoCard label="FILTER" value={direction.toUpperCase()} tone="green" />
               <InfoCard label="WINDOW" value={historyWindowLabel(hours)} tone="amber" />
             </View>
@@ -1501,7 +1549,7 @@ export function HistoryScreen({
         </>
       }
       ListEmptyComponent={
-        loading ? (
+        loading && !error && !activity && !refreshing ? (
           <ActivityIndicator color={palette.blue} style={styles.loader} />
         ) : standalone ? (
           <StandaloneEmptyState
@@ -1509,7 +1557,7 @@ export function HistoryScreen({
             body="Standalone history is stored on this device after successful board refreshes."
           />
         ) : (
-          <Text style={styles.empty}>No recent history yet. Once snapshots have run, flights will appear here.</Text>
+          <Text style={styles.empty}>No recent movements yet. Once matching flight times pass, movements will appear here.</Text>
         )
       }
       ItemSeparatorComponent={() => <View style={styles.historyGap} />}
@@ -1606,6 +1654,26 @@ function RadarLayerControls({
   );
 }
 
+function radarBlipIsGround(blip: RadarBlip): boolean {
+  const phase = `${blip.radar_phase || ""} ${blip.radar_status || ""} ${blip.radar_status_label || ""} ${blip.status || ""}`.toLowerCase();
+  return blip.on_ground === true || /\b(ground|surface|taxi|parked|gate)\b/.test(phase);
+}
+
+function radarBlipVisibleForRadius(blip: RadarBlip, radiusNm: RadarRadius): boolean {
+  const quality = `${blip.source_quality || ""} ${blip.radar_status || ""} ${blip.radar_status_label || ""}`.toLowerCase();
+  if (/lost|missing|invalid/.test(quality)) {
+    return false;
+  }
+  if (radiusNm > 5 && radarBlipIsGround(blip)) {
+    return false;
+  }
+  return true;
+}
+
+function radarDisplayBlips(blips: RadarBlip[], radiusNm: RadarRadius): RadarBlip[] {
+  return blips.filter((blip) => radarBlipVisibleForRadius(blip, radiusNm));
+}
+
 export function RadarScreen({
   data,
   groundData,
@@ -1651,7 +1719,10 @@ export function RadarScreen({
   radiusOptions?: RadarRadius[];
   contentPaddingBottom: number;
 }) {
-  const blips = data?.blips || [];
+  const blips = radarDisplayBlips(data?.blips || [], radiusNm);
+  const hasRows = blips.length > 0;
+  const showInlineActivity = Boolean(activity && !refreshing && (hasRows || !error));
+  const showInlineError = Boolean(error && !refreshing);
   const effectiveLayerCount = standalone
     ? { runways: drawingLayers.runways, surface: drawingLayers.surface, terrain: false }
     : drawingLayers;
@@ -1688,25 +1759,11 @@ export function RadarScreen({
       ListHeaderComponent={
         <>
           {showConnectPrompt ? <ConnectPrompt onSettings={onOpenSettings} /> : null}
-          <ScreenActivity activity={activity} />
-          {error ? <ScreenError message={error} onRetry={onRefresh} retrying={refreshing} /> : null}
-
-          <FilterSection title={compact ? "ZOOM" : "RADIUS"}>
-            <View style={compact ? styles.filterWrap : styles.filterRow}>
-              {radiusOptions.map((item) => (
-                <OptionChip
-                  key={item}
-                  active={radiusNm === item}
-                  label={`${item}`}
-                  meta="NM"
-                  onPress={() => onRadiusChange(item)}
-                />
-              ))}
-            </View>
-          </FilterSection>
+          {showInlineActivity ? <ScreenActivity activity={activity} compact={hasRows} /> : null}
+          {showInlineError ? <ScreenError message={error ?? ""} onRetry={onRefresh} retrying={false} /> : null}
 
           <View style={styles.metricRow}>
-            <InfoCard label="BLIPS" value={data ? String(data.count) : "..."} />
+            <InfoCard label="BLIPS" value={data ? String(blips.length) : "..."} />
             <InfoCard label="SOURCE" value={compactSourceLabel(data?.source) || "WAIT"} tone="green" />
             <InfoCard label="RANGE" value={`${radiusNm} NM`} tone="amber" />
             <InfoCard
@@ -1741,7 +1798,7 @@ export function RadarScreen({
         </>
       }
       ListEmptyComponent={
-        loading ? (
+        loading && !error && !activity && !refreshing ? (
           <ActivityIndicator color={palette.blue} style={styles.loader} />
         ) : standalone ? (
           <StandaloneEmptyState
@@ -1888,6 +1945,9 @@ export function MatrixScreen({
   const selectedPalette = MATRIX_PALETTE_OPTIONS.find((item) => item.id === matrixPalette) || MATRIX_PALETTE_OPTIONS[0]!;
   const brightnessPct = Math.round(brightness * 100);
   const [section, setSection] = useState<MatrixSettingsSection>("status");
+  const hasRows = rows.length > 0;
+  const showInlineActivity = Boolean(activity && !refreshing && (hasRows || !error));
+  const showInlineError = Boolean(error && !refreshing);
 
   return (
     <ScrollView
@@ -1899,8 +1959,8 @@ export function MatrixScreen({
       showsVerticalScrollIndicator={false}
     >
       {showConnectPrompt ? <ConnectPrompt onSettings={onOpenSettings} /> : null}
-      <ScreenActivity activity={activity} />
-      {error ? <ScreenError message={error} onRetry={onRefresh} retrying={refreshing} /> : null}
+      {showInlineActivity ? <ScreenActivity activity={activity} compact={hasRows} /> : null}
+      {showInlineError ? <ScreenError message={error ?? ""} onRetry={onRefresh} retrying={false} /> : null}
 
       <View style={styles.cardStack}>
         <HiddenToolHeader
@@ -2498,7 +2558,7 @@ function HistoryRow({ row, onOpenDetail }: { row: HistoryFlightRow; onOpenDetail
   return (
     <Pressable style={styles.historyRow} onPress={() => onOpenDetail(row.callsign)}>
       <View style={styles.historyTimeBox}>
-        <Text style={styles.historyTime}>{formatClock(row.snapshot_ts)}</Text>
+        <Text style={styles.historyTime}>{formatClock(row.event_time || row.sched_time || row.snapshot_ts)}</Text>
         <Text style={styles.historyDate}>{formatClock(row.sched_time)}</Text>
       </View>
 
@@ -2508,6 +2568,7 @@ function HistoryRow({ row, onOpenDetail }: { row: HistoryFlightRow; onOpenDetail
         <Text style={styles.historyMeta} numberOfLines={1}>
           {row.aircraft_type || "Aircraft pending"} {row.gate ? `- Gate ${row.gate}` : ""}
           {row.delay_minutes ? ` - ${row.delay_minutes}m delay` : ""}
+          {row.observation_count && row.observation_count > 1 ? ` - ${row.observation_count} obs` : ""}
         </Text>
       </View>
 
@@ -2593,10 +2654,22 @@ function RadarScope({
     : groundUnavailable
       ? "Ground layer unavailable"
       : "Ground layer waiting";
-  const projected = (data?.blips || [])
-    .map((blip) => data ? projectBlip(blip, data.center, data.radius_nm, scopeSize) : null)
-    .filter((item): item is ProjectedBlip => Boolean(item))
-    .sort((a, b) => a.distanceNm - b.distanceNm);
+  const [sweepDeg, setSweepDeg] = useState(0);
+  const projectedInRange = (data?.blips || [])
+    .filter((blip) => radarBlipVisibleForRadius(blip, radiusNm))
+    .map((blip) => data ? projectBlip(blip, data.center, radiusNm, scopeSize) : null)
+    .filter((item): item is ProjectedBlip => Boolean(item));
+  const projected = projectedInRange
+    .map((item) => ({ item, opacity: radarSweepOpacity(item.angleDeg, sweepDeg) }))
+    .filter(({ opacity }) => opacity > 0.08)
+    .sort((a, b) => a.item.distanceNm - b.item.distanceNm);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setSweepDeg((value) => (value + RADAR_SWEEP_STEP_DEG) % 360);
+    }, RADAR_SWEEP_INTERVAL_MS);
+    return () => clearInterval(timer);
+  }, []);
 
   const setMeasuredSize = useCallback((width: number) => {
     const next = Math.max(220, Math.min(width - 28, compact ? 320 : 440));
@@ -2669,7 +2742,7 @@ function RadarScope({
           scopeSize={scopeSize}
           drawingLayers={effectiveLayers}
         />
-        <RadarSweepLayer scopeSize={scopeSize} />
+        <RadarSweepLayer scopeSize={scopeSize} sweepDeg={sweepDeg} />
         <View style={styles.scopeRingOuter} />
         <View style={styles.scopeRingMid} />
         <View style={styles.scopeRingInner} />
@@ -2677,10 +2750,10 @@ function RadarScope({
         <View style={styles.scopeCrossHorizontal} />
         <View style={styles.scopeCenterDot} />
 
-        {projected.map((item, index) => (
+        {projected.map(({ item, opacity }, index) => (
           <Pressable
             key={`scope-${radarBlipKey(item.blip, index)}`}
-            style={[styles.scopeDotWrap, { left: item.left, top: item.top }]}
+            style={[styles.scopeDotWrap, { left: item.left, top: item.top, opacity }]}
             onPress={() => onOpenDetail(item.blip.callsign)}
           >
             <View style={[styles.scopeDot, { backgroundColor: radarTone(item.blip) }]} />
@@ -2692,14 +2765,14 @@ function RadarScope({
           </Pressable>
         ))}
 
-        {!data || projected.length === 0 ? (
+        {!data || projectedInRange.length === 0 ? (
           <View style={styles.scopeEmpty}>
             <Text style={styles.scopeEmptyText}>No targets in range</Text>
           </View>
         ) : null}
       </View>
       <View style={styles.scopeFooter}>
-        <Text style={styles.scopeHint}>Pinch to zoom the scope.</Text>
+        <Text style={styles.scopeHint}>Pinch to zoom or choose a range below.</Text>
         <Text style={[styles.scopeGroundStatus, groundUnavailable && !groundFeatureCount && styles.scopeGroundStatusWarn]}>
           {groundStatus}
         </Text>
@@ -2721,26 +2794,7 @@ function RadarScope({
   );
 }
 
-function RadarSweepLayer({ scopeSize }: { scopeSize: number }) {
-  const sweepProgress = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    const animation = Animated.loop(
-      Animated.timing(sweepProgress, {
-        toValue: 1,
-        duration: 3200,
-        easing: Easing.linear,
-        useNativeDriver: true
-      })
-    );
-    animation.start();
-    return () => animation.stop();
-  }, [sweepProgress]);
-
-  const rotate = sweepProgress.interpolate({
-    inputRange: [0, 1],
-    outputRange: ["0deg", "360deg"]
-  });
+function RadarSweepLayer({ scopeSize, sweepDeg }: { scopeSize: number; sweepDeg: number }) {
   const center = scopeSize / 2;
   const radius = scopeSize * 0.44;
   const closing = radarSweepPoint(scopeSize, RADAR_SWEEP_WIDTH_DEG);
@@ -2753,7 +2807,7 @@ function RadarSweepLayer({ scopeSize }: { scopeSize: number }) {
         {
           width: scopeSize,
           height: scopeSize,
-          transform: [{ rotate }]
+          transform: [{ rotate: `${sweepDeg}deg` }]
         }
       ]}
     >
@@ -2978,6 +3032,17 @@ function radarSweepPoint(scopeSize: number, clockwiseDegreesFromNorth: number): 
     x: center + Math.cos(radians) * radius,
     y: center + Math.sin(radians) * radius
   };
+}
+
+function radarSweepOpacity(angleDeg: number, sweepDeg: number): number {
+  const age = (sweepDeg - angleDeg + 360) % 360;
+  if (age >= 356 || age <= 5) {
+    return 1;
+  }
+  if (age <= RADAR_BLIP_FADE_DEG) {
+    return Math.max(0.1, 1 - ((age - 5) / (RADAR_BLIP_FADE_DEG - 5)) * 0.9);
+  }
+  return 0;
 }
 
 function radarDrawableFeatures(features: RadarMapFeature[] | undefined): RadarMapFeature[] {
@@ -3228,7 +3293,7 @@ export function FlightDetailSheet({
   visible: boolean;
   callsign: string;
   detail: FlightDetail | null;
-  history: Array<{ date: string; status?: string | null; delay_minutes?: number | null; gate?: string | null }>;
+  history: Array<{ date: string; status?: string | null; delay_minutes?: number | null; gate?: string | null; source?: string | null; observations?: number | null }>;
   loading: boolean;
   onClose: () => void;
   onRefresh: () => void;
@@ -3253,7 +3318,7 @@ export function FlightDetailSheet({
     ? formatAgeSeconds(sources.position_age_seconds)
     : formatRelative(detail?.position?.last_contact || motion.last_contact);
   const delayBadgeStyle = delayBadgeStyleFor(detail?.delay_minutes);
-  const delayBadgeText = detail?.delay_minutes != null
+  const delayBadgeText = !virtualDetail && detail?.delay_minutes != null
     ? (detail.delay_minutes > 0 ? `+${detail.delay_minutes}m` : `${detail.delay_minutes}m`)
     : null;
   const gateBadgeText = !virtualDetail && terminalGate
@@ -3324,10 +3389,17 @@ export function FlightDetailSheet({
                   <SheetMetric label={virtualDetail ? "RULES" : "AIRLINE"} value={virtualDetail ? (plan.flight_rules || "-") : (detail.airline_iata || identity.airline_iata || detail.airline || "-")} />
                   <SheetMetric label="CALLSIGN" value={detail.callsign || identity.callsign || callsign || "-"} />
                 </View>
-                <View style={styles.sheetMetricRow}>
-                  <SheetMetric label="OPERATED" value={operatingLabel || "-"} />
-                  <SheetMetric label="SOLD AS" value={soldAsLabel} />
-                </View>
+                {!virtualDetail ? (
+                  <View style={styles.sheetMetricRow}>
+                    <SheetMetric label="OPERATED" value={operatingLabel || "-"} />
+                    <SheetMetric label="SOLD AS" value={soldAsLabel} />
+                  </View>
+                ) : (
+                  <View style={styles.sheetMetricRow}>
+                    <SheetMetric label="AIRCRAFT" value={aircraftLabel || "-"} />
+                    <SheetMetric label="TRACK" value={detail.position ? "AVAILABLE" : "FILED PLAN"} />
+                  </View>
+                )}
                 <View style={styles.sheetMetricRow}>
                   <SheetMetric label={virtualDetail ? "NETWORK" : "SOURCE"} value={sourceMetric(sources.schedule || intel?.source_evidence?.schedule_source || detail.source)} />
                   <SheetMetric label={virtualDetail ? "TRACK" : "ENRICHED"} value={sourceMetric(sources.enrichment || intel?.source_evidence?.position_source || detail.enriched_by)} />
@@ -3360,15 +3432,22 @@ export function FlightDetailSheet({
                   </>
                 ) : null}
 
-                <SectionTitle label={virtualDetail ? "TIMES" : "TIMES & GATE"} />
+                <SectionTitle label={virtualDetail ? "FILED TIMES" : "TIMES & GATE"} />
                 <View style={styles.sheetMetricRow}>
-                  <SheetMetric label="SCHEDULED" value={formatDateTime(detail.sched_time)} />
-                  <SheetMetric label="ESTIMATED" value={formatDateTime(detail.est_time)} />
+                  <SheetMetric label={virtualDetail ? "PLANNED" : "SCHEDULED"} value={formatDateTime(detail.sched_time)} />
+                  <SheetMetric label={virtualDetail ? "DEPARTURE" : "ESTIMATED"} value={virtualDetail ? formatDateTime(plan.planned_departure) : formatDateTime(detail.est_time)} />
                 </View>
-                <View style={styles.sheetMetricRow}>
-                  <SheetMetric label="ACTUAL" value={formatDateTime(detail.actual_time)} />
-                  <SheetMetric label="DELAY" value={detail.delay_minutes != null ? `${detail.delay_minutes}m` : "-"} />
-                </View>
+                {!virtualDetail ? (
+                  <View style={styles.sheetMetricRow}>
+                    <SheetMetric label="ACTUAL" value={formatDateTime(detail.actual_time)} />
+                    <SheetMetric label="DELAY" value={detail.delay_minutes != null ? `${detail.delay_minutes}m` : "-"} />
+                  </View>
+                ) : (
+                  <View style={styles.sheetMetricRow}>
+                    <SheetMetric label="ARRIVAL" value={formatDateTime(plan.planned_arrival)} />
+                    <SheetMetric label="ENROUTE" value={formatEnrouteMinutes(plan.enroute_minutes)} />
+                  </View>
+                )}
                 {!virtualDetail ? (
                   <View style={styles.sheetMetricRow}>
                     <SheetMetric label="GATE" value={detail.gate_display || opsIntel.gate || detail.gate || "-"} />
@@ -3416,15 +3495,16 @@ export function FlightDetailSheet({
                   <SheetMetric label="CONFIDENCE" value={sourceMetric(sources.confidence || intel?.source_evidence?.confidence)} />
                 </View>
 
-                <SectionTitle label="7-DAY HISTORY" />
+                <SectionTitle label={virtualDetail ? "RECENT SESSIONS" : "7-DAY HISTORY"} />
                 {history.length > 0 ? (
                   history.map((item, index) => (
                     <View key={detailHistoryKey(item, index)} style={styles.sheetHistoryRow}>
                       <Text style={styles.sheetHistoryDate}>{item.date}</Text>
                       <Text style={styles.sheetHistoryStatus}>{item.status || "Tracked"}</Text>
                       <Text style={styles.sheetHistoryMeta}>
-                        {item.gate ? `Gate ${item.gate}` : "Gate -"}
-                        {item.delay_minutes ? ` - ${item.delay_minutes}m` : ""}
+                        {virtualDetail
+                          ? `${sourceMetric(item.source || "vatsim")}${item.observations ? ` - ${item.observations} obs` : ""}`
+                          : `${item.gate ? `Gate ${item.gate}` : "Gate -"}${item.delay_minutes ? ` - ${item.delay_minutes}m` : ""}`}
                       </Text>
                     </View>
                   ))
@@ -3763,10 +3843,11 @@ export function AdminScreen({
         {historyStats && !historyStats.error ? (
           <>
             <Text style={styles.adminSubTitle}>HISTORY DATABASE</Text>
-            <InfoLine label="Total rows" value={String(historyStats.total_rows)} />
+            <InfoLine label="Movements" value={String(historyStats.total_movements ?? historyStats.total_rows)} />
+            <InfoLine label="Raw observations" value={String(historyStats.total_rows)} />
             <InfoLine label="Airports" value={historyStats.airports?.join(", ") || "—"} />
-            <InfoLine label="Oldest record" value={historyStats.oldest ? formatRelative(historyStats.oldest) : "—"} />
-            <InfoLine label="Newest record" value={historyStats.newest ? formatRelative(historyStats.newest) : "—"} />
+            <InfoLine label="Oldest movement" value={(historyStats.oldest_movement || historyStats.oldest) ? formatRelative(historyStats.oldest_movement || historyStats.oldest) : "—"} />
+            <InfoLine label="Newest movement" value={(historyStats.newest_movement || historyStats.newest) ? formatRelative(historyStats.newest_movement || historyStats.newest) : "—"} />
             <InfoLine label="DB size" value={historyStats.size_mb != null ? `${historyStats.size_mb} MB` : "—"} />
           </>
         ) : null}
@@ -3871,12 +3952,14 @@ export function CompanionSetupScreen({
   initialUrl,
   pairingUrl = "",
   pairingNonce = 0,
+  pairingExpectedServerFingerprint = "",
   initialDiagnosticsMode,
   onComplete
 }: {
   initialUrl: string;
   pairingUrl?: string;
   pairingNonce?: number;
+  pairingExpectedServerFingerprint?: string;
   initialDiagnosticsMode: MobileDiagnosticsMode;
   onComplete: (result: MobileSetupResult) => Promise<void> | void;
 }) {
@@ -3982,7 +4065,7 @@ export function CompanionSetupScreen({
     };
   }, [airportInput, step]);
 
-  const runServerTest = useCallback(async (candidateUrl: string) => {
+  const runServerTest = useCallback(async (candidateUrl: string, expectedServerFingerprint = "") => {
     const input = candidateUrl.trim();
     const urlProblem = companionSetupUrlProblem(input);
     if (urlProblem) {
@@ -4003,10 +4086,27 @@ export function CompanionSetupScreen({
       await getRootHealth(normalizedUrl);
       rootHealthOk = true;
       setSetupProgress("Reading mobile health and server config...");
-      const [state, config] = await Promise.all([
-        getHealth(normalizedUrl),
-        getConfig(normalizedUrl)
-      ]);
+      const mobileSummary = await getMobileSummary(normalizedUrl);
+      const fingerprintProblem = pairingFingerprintProblem(
+        expectedServerFingerprint,
+        mobileSummary.system?.install_id
+      );
+      if (fingerprintProblem) {
+        throw new Error(fingerprintProblem);
+      }
+      let state = mobileSummary.state;
+      let config = mobileSummary.config;
+      if (!state || !config) {
+        const fallback = await Promise.all([
+          state ? Promise.resolve(state) : getHealth(normalizedUrl),
+          config ? Promise.resolve(config) : getConfig(normalizedUrl)
+        ]);
+        state = fallback[0];
+        config = fallback[1];
+      }
+      if (!config || !state) {
+        throw new Error("Local Flight mobile summary did not include server config and health.");
+      }
       const summary = {
         mode: "lan_companion" as const,
         serverUrl: normalizedUrl,
@@ -4021,18 +4121,18 @@ export function CompanionSetupScreen({
       setServerSummary(summary);
       setStep("diagnostics");
     } catch (exc) {
-      const message = rootHealthOk
+      const detail = companionSetupErrorMessage(exc);
+      const isPairingGuard = /Pairing QR|belongs to server|server fingerprint/i.test(detail);
+      const message = rootHealthOk && !isPairingGuard
         ? "Local Flight answered /health, but setup APIs are not ready. Finish Local Flight setup on the desktop/Pi first, then return here."
-        : companionSetupErrorMessage(exc);
+        : detail;
       setSetupError(
         message
       );
       setUrlCheckState("error");
-      setUrlCheckMessage(
-        rootHealthOk
-          ? "Server health answered, but the mobile APIs are not ready yet."
-          : message
-      );
+      setUrlCheckMessage(rootHealthOk && !isPairingGuard
+        ? "Server health answered, but the mobile APIs are not ready yet."
+        : message);
     } finally {
       setTesting(false);
       setSetupProgress(null);
@@ -4043,14 +4143,14 @@ export function CompanionSetupScreen({
     await runServerTest(serverInput);
   }, [runServerTest, serverInput]);
 
-  const handleScannedServer = useCallback((nextUrl: string) => {
+  const handleScannedServer = useCallback((pairing: PairingLinkResult) => {
     setScannerVisible(false);
-    setServerInput(nextUrl);
+    setServerInput(pairing.serverUrl);
     setStep("server");
     setSetupError(null);
     setUrlCheckState("checking");
     setUrlCheckMessage("Pairing QR loaded. Testing this Local Flight server...");
-    void runServerTest(nextUrl);
+    void runServerTest(pairing.serverUrl, pairing.expectedServerFingerprint);
   }, [runServerTest]);
 
   useEffect(() => {
@@ -4061,10 +4161,10 @@ export function CompanionSetupScreen({
     setUrlCheckState("checking");
     setUrlCheckMessage("Pairing QR loaded. Testing this Local Flight server...");
     const timer = setTimeout(() => {
-      void runServerTest(pairingUrl);
+      void runServerTest(pairingUrl, pairingExpectedServerFingerprint);
     }, 120);
     return () => clearTimeout(timer);
-  }, [pairingNonce, pairingUrl]);
+  }, [pairingExpectedServerFingerprint, pairingNonce, pairingUrl, runServerTest]);
 
   const finishSetup = useCallback(async () => {
     if (setupMode === "standalone") {
@@ -4220,7 +4320,7 @@ export function CompanionSetupScreen({
           <Animated.View style={[styles.companionSetupPanel, panelMotion]}>
             <Text style={styles.companionSetupPanelTitle}>Connect your Local Flight server</Text>
             <Text style={styles.companionSetupBody}>
-              Use the LAN address shown by the desktop or Pi app. On a physical iPhone, localhost points at the phone, not the Local Flight server.
+              Use the LAN address shown by the desktop or Pi app. The QR is tied to that server fingerprint so the phone can reject the wrong Local Flight host.
             </Text>
             <View style={styles.pairingChoiceRow}>
               <Pressable style={styles.pairingChoiceCard} onPress={() => setScannerVisible(true)}>
@@ -4238,14 +4338,14 @@ export function CompanionSetupScreen({
                 </View>
                 <View style={styles.pairingChoiceCopy}>
                   <Text style={styles.pairingChoiceTitle}>Enter URL</Text>
-                  <Text style={styles.pairingChoiceBody}>Paste localflight.local or the desktop/Pi LAN IP below.</Text>
+                  <Text style={styles.pairingChoiceBody}>Paste the desktop/Pi LAN IP below. localflight.local is only a fallback for one-server LANs.</Text>
                 </View>
               </View>
             </View>
             <View style={styles.companionSetupExampleBox}>
               <Text style={styles.companionSetupExampleLabel}>GOOD EXAMPLES</Text>
-              <Text style={styles.companionSetupExampleText}>http://localflight.local:8000</Text>
               <Text style={styles.companionSetupExampleText}>http://192.168.1.42:8000</Text>
+              <Text style={styles.companionSetupExampleText}>http://localflight.local:8000 (fallback)</Text>
             </View>
             <View
               style={[
@@ -4659,7 +4759,7 @@ export function SettingsScreen({
         <View style={styles.metricRow}>
           <InfoCard label="SERVER" value={serverUrl ? "READY" : "SETUP"} tone={serverUrl ? "green" : "amber"} />
           <InfoCard label="REFRESH" value={refreshSeconds ? formatInterval(refreshSeconds).toUpperCase() : "WAIT"} />
-          <InfoCard label="OUTPUTS" value={outputValue} tone="blue" />
+          <InfoCard label="DISPLAYS" value={outputValue} tone="blue" />
         </View>
         <InfoLine label="Saved server" value={serverUrl || "Not set"} />
         <InfoLine label="Mobile build" value={APP_VERSION} />
@@ -4835,19 +4935,7 @@ export function SettingsScreen({
           value="Revisit server pairing and diagnostics consent"
           onPress={onRerunSetup}
         />
-        <SettingsToolPill
-          icon={TOOL_ICONS.github}
-          label="Source & releases"
-          value="github.com/tr3y4rch/local-flight"
-          onPress={() => void Linking.openURL("https://github.com/tr3y4rch/local-flight")}
-        />
       </View>
-
-      <Pressable style={styles.supportFooter} onPress={onOpenSupport}>
-        <LocalFlightIcon name={SUPPORT_ICONS.support} size={15} color={palette.amber} />
-        <Text style={styles.supportFooterText}>Support Local Flight</Text>
-        <LocalFlightIcon name={ACTION_ICONS.supportExpand} size={13} color={palette.textDim} />
-      </Pressable>
 
       <AppearanceSheet
         visible={appearanceVisible}
@@ -4884,7 +4972,6 @@ export function ControlScreen({
   schedulerMessage,
   pairingNotice,
   serverPanelRequest,
-  helpPanelRequest,
   matrixRuntime,
   matrixDirty,
   matrixSaving,
@@ -4940,7 +5027,6 @@ export function ControlScreen({
   schedulerMessage: string | null;
   pairingNotice?: string | null;
   serverPanelRequest?: number;
-  helpPanelRequest?: number;
   matrixRuntime: MatrixRuntimeConfigSave;
   matrixDirty: boolean;
   matrixSaving: boolean;
@@ -4970,19 +5056,31 @@ export function ControlScreen({
   onRestartScheduler: () => void;
   onRerunSetup: () => void;
   onChangeUrl: (value: string) => void;
-  onPairingUrl: (value: string) => void;
+  onPairingUrl: (value: PairingLinkResult) => void;
   onConnect: () => void;
   onFeedbackTitleChange: (value: string) => void;
   onFeedbackDescriptionChange: (value: string) => void;
   onSubmitFeedback: () => void;
 }) {
-  const [activeSheet, setActiveSheet] = useState<"connection" | "appearance" | "diagnostics" | "matrix" | "help" | null>(null);
+  const [activeSheet, setActiveSheet] = useState<"connection" | "appearance" | "matrix" | null>(null);
   const outputValue = outputs.length ? outputs.join(", ").toUpperCase() : "WEB";
   const schedulerRunning = snapshot.scheduler?.running ?? false;
   const hostDiagnostics = snapshot.system?.client?.diagnostics_mode || snapshot.config?.diagnostics_mode || "manual";
   const companionCount = snapshot.connections?.companion_count ?? 0;
+  const companionRecord =
+    snapshot.connections?.companions?.find((item) => item.companion_id === companionIdentity?.companionId) || null;
   const matrixPaletteOption = MATRIX_PALETTE_OPTIONS.find((item) => item.id === matrixRuntime.palette) || MATRIX_PALETTE_OPTIONS[0]!;
   const matrixShowWeather = Boolean(matrixRuntime.options.show_metar ?? matrixRuntime.options.show_weather);
+  const feedbackContext = [
+    `Reporter      ${companionIdentity?.clientName || "Local Flight Mobile"}`,
+    `Mobile ID     ${companionIdentity?.companionId || "UNKNOWN"}`,
+    `Mobile OS     ${companionIdentity?.mobileOs || "UNKNOWN"}`,
+    `Build         ${companionIdentity?.appVersion || APP_VERSION}`,
+    `Server ID     ${snapshot.system?.install_id || "UNKNOWN"}`,
+    `Server        ${snapshot.system?.platform || "UNKNOWN"}`,
+    `Airport       ${snapshot.config?.airport_iata || "---"}`,
+    `Source        ${snapshot.state?.source_name || snapshot.config?.source || "UNKNOWN"}`
+  ].join("\n");
 
   useEffect(() => {
     if (serverPanelRequest) {
@@ -4990,27 +5088,42 @@ export function ControlScreen({
     }
   }, [serverPanelRequest]);
 
-  useEffect(() => {
-    if (helpPanelRequest) {
-      setActiveSheet("help");
-    }
-  }, [helpPanelRequest]);
-
   return (
     <View style={styles.cardStack}>
       <View style={styles.settingsCard}>
-        <Text style={styles.settingsTitle}>CONTROL</Text>
+        <Text style={styles.settingsTitle}>MOBILE CONTROL</Text>
         <Text style={styles.moduleIntro}>
-          Safe board controls for the desktop or Pi you already run.
+          Connection, board display, Matrix, diagnostics, and help for the Local Flight server you already run.
         </Text>
       </View>
 
       <View style={styles.settingsCard}>
-        <Text style={styles.settingsTitle}>HOST SNAPSHOT</Text>
+        <Text style={styles.settingsTitle}>CONNECT TO LOCAL FLIGHT</Text>
+        <Text style={styles.moduleIntro}>
+          Start here when this phone needs to pair with a desktop or Pi on your LAN.
+        </Text>
+        <View style={styles.metricRow}>
+          <InfoCard label="PAIRING" value={serverUrl ? "SAVED" : "SETUP"} tone={serverUrl ? "green" : "amber"} />
+          <InfoCard label="MOBILES" value={String(companionCount)} tone="blue" />
+          <InfoCard label="DISPLAYS" value={outputValue} tone="blue" />
+        </View>
+        <SettingsToolPill
+          icon={TOOL_ICONS.setup}
+          label="Pair or change server"
+          value={serverUrl ? "Saved LAN server" : "Scan QR or enter LAN address"}
+          onPress={() => setActiveSheet("connection")}
+          loading={schedulerRestarting}
+        />
+        <InfoLine label="Saved server" value={serverUrl || "Not paired yet"} />
+        <InfoLine label="Last mobile check-in" value={companionRecord?.last_seen ? formatRelative(companionRecord.last_seen) : "Not seen yet"} />
+      </View>
+
+      <View style={styles.settingsCard}>
+        <Text style={styles.settingsTitle}>HOST INFORMATION</Text>
         <View style={styles.metricRow}>
           <InfoCard label="SERVER" value={serverUrl ? "READY" : "SETUP"} tone={serverUrl ? "green" : "amber"} />
           <InfoCard label="SCHEDULER" value={schedulerRunning ? "HEALTHY" : "CHECK"} tone={schedulerRunning ? "green" : "amber"} />
-          <InfoCard label="MOBILES" value={String(companionCount)} tone="blue" />
+          <InfoCard label="VERSION" value={`V${snapshot.system?.version || APP_VERSION}`} tone="blue" />
         </View>
         <InfoLine label="Airport" value={snapshot.config?.airport_iata || "---"} />
         <InfoLine label="Source" value={snapshot.state?.source_name || snapshot.config?.source || "Unknown"} />
@@ -5018,10 +5131,10 @@ export function ControlScreen({
       </View>
 
       <View style={styles.settingsCard}>
-        <Text style={styles.settingsTitle}>BOARD SETUP</Text>
+        <Text style={styles.settingsTitle}>FIDS DISPLAY SETTINGS</Text>
         <SettingsToolPill
           icon={TOOL_ICONS.control}
-          label="Airport, source & timing"
+          label="Airport, source & refresh"
           value={`Airport, source, refresh${profiles.length ? ` · ${profiles.length} profiles` : ""}`}
           onPress={onOpenConfig}
         />
@@ -5032,49 +5145,102 @@ export function ControlScreen({
       </View>
 
       <View style={styles.settingsCard}>
-        <Text style={styles.settingsTitle}>SERVER LINK</Text>
-        <SettingsToolPill
-          icon={TOOL_ICONS.setup}
-          label="Server pairing"
-          value={`${serverUrl ? "Saved server" : "Scan QR or edit LAN URL"} · ${outputValue}`}
-          onPress={() => setActiveSheet("connection")}
-          loading={schedulerRestarting}
-        />
-        <InfoLine label="Saved server" value={serverUrl || "Not paired yet"} />
-      </View>
-
-      <View style={styles.settingsCard}>
-        <Text style={styles.settingsTitle}>OUTPUTS</Text>
+        <Text style={styles.settingsTitle}>MATRIX BOARD</Text>
         <SettingsToolPill
           icon={TOOL_ICONS.matrix}
-          label="Matrix board"
+          label="Live Matrix controls"
           value={`Brightness, rows, weather · ${matrixPaletteOption.label} · WX ${matrixShowWeather ? "on" : "off"}`}
           onPress={() => setActiveSheet("matrix")}
         />
+        <InfoLine label="Matrix look" value={`${matrixPaletteOption.label} · ${matrixRuntime.max_rows} rows · ${Math.round(matrixRuntime.brightness * 100)}%`} />
+      </View>
+
+      <View style={styles.settingsCard}>
+        <Text style={styles.settingsTitle}>MOBILE CUSTOMIZATION</Text>
         <SettingsToolPill
           icon={TOOL_ICONS.appearance}
           label="Mobile look"
           value={`${themeMode} · ${skin} · ${weatherModeOption(weatherDisplayMode).label} weather`}
           onPress={() => setActiveSheet("appearance")}
         />
-
+        <InfoLine label="Weather wording" value={weatherModeOption(weatherDisplayMode).detail} />
       </View>
 
       <View style={styles.settingsCard}>
-        <Text style={styles.settingsTitle}>HELP & APP</Text>
-        <SettingsToolPill
-          icon={TOOL_ICONS.report}
-          label="Diagnostics & setup"
-          value={`Reports ${mobileDiagnosticsMode.replace(/_/g, " ")} · host ${String(hostDiagnostics).replace(/_/g, " ")}`}
-          onPress={() => setActiveSheet("diagnostics")}
+        <Text style={styles.settingsTitle}>MOBILE DIAGNOSTICS</Text>
+        <Text style={styles.moduleIntro}>
+          Manual reports are always available. Automatic mobile reports still honor the host diagnostics choice.
+        </Text>
+        <InfoLine label="Host diagnostics" value={String(hostDiagnostics).replace(/_/g, " ").toUpperCase()} />
+        <FilterSection title="MOBILE REPORTING">
+          <View style={styles.filterRow}>
+            {([
+              ["manual", "MANUAL"],
+              ["auto", "AUTO"],
+              ["auto_logs", "AUTO + CONTEXT"]
+            ] as Array<[MobileDiagnosticsMode, string]>).map(([mode, label]) => (
+              <DirectionButton
+                key={mode}
+                active={mobileDiagnosticsMode === mode}
+                label={label}
+                onPress={() => onMobileDiagnosticsModeChange(mode)}
+              />
+            ))}
+          </View>
+        </FilterSection>
+        <Pressable style={[styles.connectButton, styles.crashButton]} onPress={onRerunSetup}>
+          <Text style={styles.connectButtonText}>RERUN MOBILE SETUP</Text>
+        </Pressable>
+      </View>
+
+      <View style={styles.settingsCard}>
+        <Text style={styles.settingsTitle}>HELP & REPORTS</Text>
+        <Text style={styles.moduleIntro}>
+          Quick fixes and manual reports live here directly, without another menu layer.
+        </Text>
+        <InfoLine label="Cannot connect" value="Make sure the server is running on the same Wi-Fi and use its LAN address, not phone localhost." />
+        <InfoLine label="Board looks stale" value="Use restart fetch from server pairing, then wait for the next snapshot push." />
+        <InfoLine label="Still stuck" value="Send a report with what happened, the airport, and the source you were using." />
+        <TextInput
+          value={feedbackTitle}
+          onChangeText={onFeedbackTitleChange}
+          placeholder="Short summary, for example Radar stopped updating"
+          placeholderTextColor={palette.textDim}
+          style={styles.serverInput}
         />
+        <TextInput
+          value={feedbackDescription}
+          onChangeText={onFeedbackDescriptionChange}
+          placeholder="What happened, what you expected, and how to reproduce it"
+          placeholderTextColor={palette.textDim}
+          multiline
+          textAlignVertical="top"
+          style={[styles.serverInput, styles.feedbackInput]}
+        />
+        <View style={styles.feedbackContextBox}>
+          <Text style={styles.feedbackContextText}>{feedbackContext}</Text>
+        </View>
+        <Pressable style={[styles.connectButton, feedbackSending && styles.connectButtonDisabled]} onPress={onSubmitFeedback} disabled={feedbackSending}>
+          {feedbackSending ? <ActivityIndicator color={solidButtonInk()} /> : <Text style={styles.connectButtonText}>SEND REPORT</Text>}
+        </Pressable>
+        {feedbackMessage ? (
+          <Text style={[styles.feedbackMessage, feedbackTone === "ok" ? styles.feedbackMessageOk : styles.feedbackMessageError]}>
+            {feedbackMessage}
+          </Text>
+        ) : null}
         <SettingsToolPill
-          icon={TOOL_ICONS.report}
-          label="Help & reports"
-          value="Troubleshooting, pairing details, reports"
-          onPress={() => setActiveSheet("help")}
+          icon={TOOL_ICONS.github}
+          label="GitHub & releases"
+          value="Source, issues, and release notes"
+          onPress={() => void Linking.openURL("https://github.com/tr3y4rch/local-flight")}
         />
       </View>
+
+      <Pressable style={styles.supportFooter} onPress={onOpenSupport}>
+        <LocalFlightIcon name={SUPPORT_ICONS.support} size={15} color={palette.amber} />
+        <Text style={styles.supportFooterText}>Support Local Flight</Text>
+        <LocalFlightIcon name={ACTION_ICONS.supportExpand} size={13} color={palette.textDim} />
+      </Pressable>
 
       <ConnectionPairingSheet
         visible={activeSheet === "connection"}
@@ -5095,33 +5261,6 @@ export function ControlScreen({
         onChangeUrl={onChangeUrl}
         onPairingUrl={onPairingUrl}
         onConnect={onConnect}
-      />
-
-      <DiagnosticsSheet
-        visible={activeSheet === "diagnostics"}
-        mobileDiagnosticsMode={mobileDiagnosticsMode}
-        hostDiagnostics={hostDiagnostics}
-        onClose={() => setActiveSheet(null)}
-        onMobileDiagnosticsModeChange={onMobileDiagnosticsModeChange}
-        onRerunSetup={onRerunSetup}
-      />
-
-      <HelpControlSheet
-        visible={activeSheet === "help"}
-        snapshot={snapshot}
-        companionIdentity={companionIdentity}
-        connected={connected}
-        error={error}
-        feedbackTitle={feedbackTitle}
-        feedbackDescription={feedbackDescription}
-        feedbackSending={feedbackSending}
-        feedbackMessage={feedbackMessage}
-        feedbackTone={feedbackTone}
-        onClose={() => setActiveSheet(null)}
-        onFeedbackTitleChange={onFeedbackTitleChange}
-        onFeedbackDescriptionChange={onFeedbackDescriptionChange}
-        onSubmitFeedback={onSubmitFeedback}
-        onOpenSupport={onOpenSupport}
       />
 
       <AppearanceSheet
@@ -5190,7 +5329,7 @@ function ConnectionPairingSheet({
   onClose: () => void;
   onRestartScheduler: () => void;
   onChangeUrl: (value: string) => void;
-  onPairingUrl: (value: string) => void;
+  onPairingUrl: (value: PairingLinkResult) => void;
   onConnect: () => void;
 }) {
   const [scannerVisible, setScannerVisible] = useState(false);
@@ -5214,11 +5353,11 @@ function ConnectionPairingSheet({
 
           <ScrollView style={styles.sheetScroll} contentContainerStyle={styles.sheetContent}>
             <Text style={styles.moduleIntro}>
-              Scan the QR from Local Flight Settings or enter the LAN URL manually. Both paths save the same mobile connection.
+              Scan the fingerprint-bound QR from Local Flight Settings or enter the LAN IP manually. localflight.local is a fallback for one-server LANs.
             </Text>
             <View style={styles.metricRow}>
               <InfoCard label="REFRESH" value={refreshSeconds ? formatInterval(refreshSeconds).toUpperCase() : "WAIT"} />
-              <InfoCard label="OUTPUTS" value={outputValue} tone="blue" />
+              <InfoCard label="DISPLAYS" value={outputValue} tone="blue" />
               <InfoCard label="LAYOUT" value={isTablet ? (isLandscape ? "IPAD LAND" : "IPAD PORT") : "IPHONE"} />
             </View>
             <InfoLine label="Saved server" value={serverUrl || "Not set"} />
@@ -5266,135 +5405,10 @@ function ConnectionPairingSheet({
             <PairingScannerSheet
               visible={scannerVisible}
               onClose={() => setScannerVisible(false)}
-              onPairingUrl={(nextUrl) => {
+              onPairingUrl={(pairing) => {
                 setScannerVisible(false);
-                onPairingUrl(nextUrl);
+                onPairingUrl(pairing);
               }}
-            />
-          </ScrollView>
-        </View>
-      </View>
-    </Modal>
-  );
-}
-
-function DiagnosticsSheet({
-  visible,
-  mobileDiagnosticsMode,
-  hostDiagnostics,
-  onClose,
-  onMobileDiagnosticsModeChange,
-  onRerunSetup
-}: {
-  visible: boolean;
-  mobileDiagnosticsMode: MobileDiagnosticsMode;
-  hostDiagnostics: string;
-  onClose: () => void;
-  onMobileDiagnosticsModeChange: (value: MobileDiagnosticsMode) => void;
-  onRerunSetup: () => void;
-}) {
-  return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <View style={styles.sheetBackdrop}>
-        <Pressable style={styles.sheetBackdropPress} onPress={onClose} />
-        <View style={styles.sheetCard}>
-          <View style={styles.sheetHandle} />
-          <View style={styles.sheetHeader}>
-            <View style={styles.sheetHeaderText}>
-              <Text style={styles.sheetEyebrow}>MOBILE</Text>
-              <Text style={styles.sheetTitle}>Diagnostics & Setup</Text>
-            </View>
-            <Pressable style={styles.sheetAction} onPress={onClose}>
-              <Text style={styles.sheetActionText}>DONE</Text>
-            </Pressable>
-          </View>
-
-          <ScrollView style={styles.sheetScroll} contentContainerStyle={styles.sheetContent}>
-            <Text style={styles.moduleIntro}>
-              Manual reporting is always available. Automatic mobile reports still honor the host diagnostics choice.
-            </Text>
-            <InfoLine label="Host diagnostics" value={String(hostDiagnostics).replace(/_/g, " ").toUpperCase()} />
-            <FilterSection title="MOBILE DIAGNOSTICS">
-              <View style={styles.filterRow}>
-                {([
-                  ["manual", "MANUAL"],
-                  ["auto", "AUTO"],
-                  ["auto_logs", "AUTO + CONTEXT"]
-                ] as Array<[MobileDiagnosticsMode, string]>).map(([mode, label]) => (
-                  <DirectionButton
-                    key={mode}
-                    active={mobileDiagnosticsMode === mode}
-                    label={label}
-                    onPress={() => onMobileDiagnosticsModeChange(mode)}
-                  />
-                ))}
-              </View>
-            </FilterSection>
-            <Pressable style={[styles.connectButton, styles.crashButton]} onPress={onRerunSetup}>
-              <Text style={styles.connectButtonText}>RERUN MOBILE SETUP</Text>
-            </Pressable>
-          </ScrollView>
-        </View>
-      </View>
-    </Modal>
-  );
-}
-
-function HelpControlSheet({
-  visible,
-  snapshot,
-  companionIdentity,
-  connected,
-  error,
-  feedbackTitle,
-  feedbackDescription,
-  feedbackSending,
-  feedbackMessage,
-  feedbackTone,
-  onClose,
-  onFeedbackTitleChange,
-  onFeedbackDescriptionChange,
-  onSubmitFeedback,
-  onOpenSupport
-}: {
-  visible: boolean;
-  snapshot: DashboardSnapshot;
-  companionIdentity: CompanionIdentity | null;
-  connected: boolean;
-  error: string | null;
-  feedbackTitle: string;
-  feedbackDescription: string;
-  feedbackSending: boolean;
-  feedbackMessage: string | null;
-  feedbackTone: FeedbackTone;
-  onClose: () => void;
-  onFeedbackTitleChange: (value: string) => void;
-  onFeedbackDescriptionChange: (value: string) => void;
-  onSubmitFeedback: () => void;
-  onOpenSupport: () => void;
-}) {
-  return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <View style={styles.sheetBackdrop}>
-        <Pressable style={styles.sheetBackdropPress} onPress={onClose} />
-        <View style={styles.sheetCard}>
-          <View style={styles.sheetHandle} />
-          <ScrollView style={styles.sheetScroll} contentContainerStyle={styles.sheetContent}>
-            <HelpScreen
-              snapshot={snapshot}
-              companionIdentity={companionIdentity}
-              connected={connected}
-              error={error}
-              feedbackTitle={feedbackTitle}
-              feedbackDescription={feedbackDescription}
-              feedbackSending={feedbackSending}
-              feedbackMessage={feedbackMessage}
-              feedbackTone={feedbackTone}
-              onFeedbackTitleChange={onFeedbackTitleChange}
-              onFeedbackDescriptionChange={onFeedbackDescriptionChange}
-              onSubmitFeedback={onSubmitFeedback}
-              onOpenSupport={onOpenSupport}
-              onBackControl={onClose}
             />
           </ScrollView>
         </View>
@@ -5609,12 +5623,6 @@ export function HelpScreen({
         </View>
       ) : null}
 
-      <Pressable style={styles.supportFooter} onPress={onOpenSupport}>
-        <LocalFlightIcon name={SUPPORT_ICONS.support} size={15} color={palette.amber} />
-        <Text style={styles.supportFooterText}>Support Local Flight</Text>
-        <LocalFlightIcon name={ACTION_ICONS.supportExpand} size={13} color={palette.textDim} />
-      </Pressable>
-
       {error ? <Text style={styles.errorText}>{error}</Text> : null}
     </View>
   );
@@ -5710,8 +5718,8 @@ export function DocsScreen({
                   }
                 : null
             }
+            compact={Boolean(document?.content)}
           />
-          {loadingDoc ? <ActivityIndicator color={palette.blue} style={styles.loader} /> : null}
           {!loadingDoc && docError ? (
             <>
               <Text style={styles.sheetEmpty}>
@@ -6214,7 +6222,6 @@ export function SupportSheet({
   const [products, setProducts] = useState<SupportProduct[]>(() => supportProductPlaceholders());
   const [busyTier, setBusyTier] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
-  const showWebFallback = __DEV__;
 
   useEffect(() => {
     if (!visible) return;
@@ -6306,15 +6313,6 @@ export function SupportSheet({
 
             <Text style={styles.supportFinePrint}>No features are locked behind support.</Text>
 
-            {showWebFallback ? (
-              <Pressable
-                style={styles.supportDevFallback}
-                onPress={() => void Linking.openURL(SUPPORT_WEB_FALLBACK_URL)}
-              >
-                <Text style={styles.supportDevFallbackText}>DEV WEB SUPPORT FALLBACK</Text>
-                <LocalFlightIcon name={ACTION_ICONS.openExternal} size={13} color={palette.textDim} />
-              </Pressable>
-            ) : null}
           </ScrollView>
         </View>
       </View>

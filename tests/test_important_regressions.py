@@ -58,6 +58,201 @@ def _flight(callsign: str = "SWR184") -> Flight:
     )
 
 
+def test_install_identity_migrates_legacy_id_and_restores_from_anchor(tmp_path: Path, monkeypatch) -> None:
+    import shutil
+
+    install_id = "00000000-0000-4000-8000-000000000321"
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.delenv("LOCALFLIGHT_ACTIVATION_TOKEN", raising=False)
+    config_dir = tmp_path / ".localflight"
+    config_dir.mkdir()
+    (config_dir / "install_id").write_text(install_id, encoding="utf-8")
+
+    assert storage_install.get_install_id() == install_id
+    assert json.loads((config_dir / "install_identity.json").read_text(encoding="utf-8"))["install_id"] == install_id
+    assert json.loads((tmp_path / ".localflight_identity.json").read_text(encoding="utf-8"))["install_id"] == install_id
+
+    shutil.rmtree(config_dir)
+
+    assert storage_install.get_install_id() == install_id
+    assert (config_dir / "install_id").read_text(encoding="utf-8") == install_id
+
+
+def test_setup_reset_preserves_identity_and_token_but_new_identity_clears_token(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.delenv("LOCALFLIGHT_ACTIVATION_TOKEN", raising=False)
+    install_id = storage_install.get_install_id()
+    storage_install.set_activation_token("lfm_old_token")
+    marker = tmp_path / ".localflight" / "setup_complete"
+    marker.write_text("ok", encoding="utf-8")
+
+    result = ui_server.api_setup_reset()
+
+    assert result["ok"] is True
+    assert not marker.exists()
+    assert storage_install.get_install_id() == install_id
+    assert storage_install.get_activation_token() == "lfm_old_token"
+
+    new_id = storage_install.new_install_identity()
+
+    assert new_id != install_id
+    assert storage_install.get_install_id() == new_id
+    assert storage_install.get_activation_token() == ""
+
+
+def test_setup_activate_reuses_valid_stored_token_without_reissuing(tmp_path: Path, monkeypatch) -> None:
+    import asyncio
+    import requests
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.delenv("LOCALFLIGHT_ACTIVATION_TOKEN", raising=False)
+    storage_install.set_activation_token("lfm_existing_token")
+    calls: list[str] = []
+
+    class _Response:
+        status_code = 200
+        headers: dict[str, str] = {}
+
+        def json(self) -> dict[str, object]:
+            return {
+                "ok": True,
+                "plan": "managed",
+                "token_prefix": "lfm_existi",
+                "known_install": True,
+                "can_reissue": True,
+            }
+
+    def _get(*args, **kwargs):
+        calls.append("status")
+        return _Response()
+
+    def _post(*args, **kwargs):
+        calls.append("activate")
+        raise AssertionError("valid stored token should be verified, not reissued")
+
+    monkeypatch.setattr(requests, "get", _get)
+    monkeypatch.setattr(requests, "post", _post)
+
+    result = asyncio.run(ui_server.setup_activate(ui_server.ActivationSetupIn(relay_url="https://localflight-community-relay.fly.dev")))
+
+    assert result["ok"] is True
+    assert result["activation_token_present"] is True
+    assert result["activation_token_prefix"] == "lfm_existi"
+    assert calls == ["status"]
+
+
+def test_setup_activate_repairs_invalid_stored_token_with_reissue(tmp_path: Path, monkeypatch) -> None:
+    import asyncio
+    import requests
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.delenv("LOCALFLIGHT_ACTIVATION_TOKEN", raising=False)
+    storage_install.set_activation_token("lfm_stale_token")
+    calls: list[str] = []
+
+    class _StatusResponse:
+        status_code = 403
+        headers: dict[str, str] = {}
+
+        def json(self) -> dict[str, object]:
+            return {"detail": "Activation token invalid or revoked"}
+
+    class _ActivateResponse:
+        status_code = 200
+        headers: dict[str, str] = {}
+
+        def json(self) -> dict[str, object]:
+            return {
+                "ok": True,
+                "status": "issued",
+                "activation_token": "lfm_fresh_token",
+                "token_prefix": "lfm_fresh",
+                "known_install": True,
+                "can_reissue": True,
+            }
+
+    monkeypatch.setattr(requests, "get", lambda *args, **kwargs: calls.append("status") or _StatusResponse())
+    monkeypatch.setattr(requests, "post", lambda *args, **kwargs: calls.append("activate") or _ActivateResponse())
+
+    result = asyncio.run(ui_server.setup_activate(ui_server.ActivationSetupIn(relay_url="https://localflight-community-relay.fly.dev")))
+
+    assert calls == ["status", "activate"]
+    assert result["ok"] is True
+    assert result["activation_token_present"] is True
+    assert result["activation_token_prefix"] == "lfm_fresh"
+    assert storage_install.get_activation_token() == "lfm_fresh_token"
+
+
+def test_setup_relay_errors_are_typed_and_friendly(tmp_path: Path, monkeypatch) -> None:
+    import asyncio
+    import requests
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.delenv("LOCALFLIGHT_ACTIVATION_TOKEN", raising=False)
+    storage_install.set_activation_token("lfm_wrong_token")
+
+    class _Response:
+        status_code = 403
+        headers: dict[str, str] = {}
+
+        def json(self) -> dict[str, object]:
+            return {"detail": "Activation token already bound to another install"}
+
+    monkeypatch.setattr(requests, "post", lambda *args, **kwargs: _Response())
+
+    result = asyncio.run(ui_server.setup_client_status(ui_server.ClientStatusSetupIn(relay_url="https://localflight-community-relay.fly.dev")))
+
+    assert result["ok"] is False
+    assert result["status"] == "token_bound_elsewhere"
+    assert "another Local Flight install" in result["error"]
+    assert "HTTP 403" not in result["error"]
+
+
+def test_managed_relay_auth_failure_sets_local_cooldown(tmp_path: Path, monkeypatch) -> None:
+    import requests
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.delenv("LOCALFLIGHT_ACTIVATION_TOKEN", raising=False)
+    storage_install.set_activation_token("lfm_stale_token")
+    calls = {"count": 0}
+
+    class _Response:
+        status_code = 403
+        headers: dict[str, str] = {}
+
+        def json(self) -> dict[str, object]:
+            return {"detail": "Activation token invalid or revoked"}
+
+    def _get(*args, **kwargs):
+        calls["count"] += 1
+        return _Response()
+
+    monkeypatch.setattr(requests, "get", _get)
+
+    with pytest.raises(aviationstack_client.AviationstackBudgetExceeded) as first:
+        aviationstack_client.fetch_relay_schedule_records(
+            airport_iata="ZRH",
+            timezone_name="Europe/Zurich",
+            display_grace_minutes=30,
+            display_horizon_hours=12,
+            refresh_seconds=3600,
+        )
+
+    assert first.value.status_code == 403
+    assert calls["count"] == 1
+
+    with pytest.raises(aviationstack_client.AviationstackRelayCooldown):
+        aviationstack_client.fetch_relay_schedule_records(
+            airport_iata="ZRH",
+            timezone_name="Europe/Zurich",
+            display_grace_minutes=30,
+            display_horizon_hours=12,
+            refresh_seconds=3600,
+        )
+
+    assert calls["count"] == 1
+
+
 def test_metar_decorator_turns_cavok_into_clear_weather_mood() -> None:
     decorated = decorate_metar(
         {
@@ -339,6 +534,62 @@ def test_omdb_flydubai_codeshare_becomes_primary_when_provider_markets_ek() -> N
     assert row.codeshare_display == "Sold as EK 2426"
 
 
+def test_vatsim_fids_row_uses_pilot_contract_and_suppresses_passenger_fields() -> None:
+    from localflight.core.models import AirlineRef, FlightStatus
+
+    flight = Flight(
+        direction=FlightDirection.DEPARTURE,
+        airport=AirportRef(iata="ZRH", icao="LSZH"),
+        callsign="BAW123",
+        airline=AirlineRef(name="British Airways", iata="BA", icao="BAW"),
+        flight_number="BA123",
+        codeshares=("AA9000",),
+        sold_as=("BA123",),
+        marketing_airline_name="British Airways",
+        marketing_airline_iata="BA",
+        marketing_airline_icao="BAW",
+        marketing_flight_number="BA123",
+        operating_callsign="BAW123",
+        destination=AirportRef(icao="EGLL", name="Heathrow"),
+        aircraft_type="A320",
+        aircraft_registration="G-TEST",
+        gate="A42",
+        terminal="1",
+        status=FlightStatus.SCHEDULED,
+        times=FlightTime(scheduled=datetime(2026, 1, 2, 12, 0, tzinfo=timezone.utc)),
+        delay_minutes=18,
+        flight_rules="I",
+        planned_route="DCT TEST",
+        planned_altitude="FL350",
+        assigned_transponder="2201",
+        position=FlightPosition(lat=47.3, lon=8.4, altitude_baro=3048, speed_ms=120, squawk="7000"),
+        source="vatsim",
+    )
+
+    row = flight_to_fids_row(flight, view="departures", display_tz=ZoneInfo("UTC"))
+
+    assert row.detail_mode == "virtual"
+    assert row.flight_display == "BAW123"
+    assert row.airline_display == ""
+    assert row.airline_iata == ""
+    assert row.airline_icao == ""
+    assert row.codeshare_display == ""
+    assert row.codeshares == ()
+    assert row.sold_as == ()
+    assert row.marketing_flight_number == ""
+    assert row.gate == "-"
+    assert row.gate_display == ""
+    assert row.terminal_display == ""
+    assert row.delay_minutes is None
+    assert row.delay_kind == "none"
+    assert row.flight_rules == "I"
+    assert row.planned_altitude == "FL350"
+    assert row.planned_route == "DCT TEST"
+    assert row.altitude_ft == 10000
+    assert row.ground_speed_kt == 233
+    assert row.squawk == "2201"
+
+
 def test_fids_api_rows_expose_structured_operating_identity() -> None:
     scheduled = datetime(2026, 5, 1, 12, 0, tzinfo=timezone.utc).isoformat()
     flight = normalize_flights(
@@ -375,6 +626,62 @@ def test_fids_api_rows_expose_structured_operating_identity() -> None:
     assert payload["sold_as"] == ["EK2426"]
     assert payload["marketing_flight_number"] == "EK2426"
     assert payload["identity_source"] == "airport_codeshare_hint"
+
+
+def test_fids_api_rows_return_virtual_pilot_fields_without_passenger_metadata() -> None:
+    from localflight.core.models import AirlineRef
+
+    now = datetime(2026, 5, 1, 12, 0, tzinfo=timezone.utc)
+    flight = Flight(
+        direction=FlightDirection.DEPARTURE,
+        airport=AirportRef(iata="ZRH", icao="LSZH"),
+        callsign="DLH42",
+        airline=AirlineRef(name="Lufthansa", iata="LH", icao="DLH"),
+        flight_number="LH42",
+        codeshares=("UA9042",),
+        sold_as=("LH42",),
+        marketing_flight_number="LH42",
+        destination=AirportRef(icao="EDDF", name="Frankfurt"),
+        aircraft_type="A320",
+        gate="B4",
+        terminal="2",
+        times=FlightTime(scheduled=now),
+        delay_minutes=22,
+        flight_rules="I",
+        planned_route="DCT TEST",
+        planned_altitude="FL330",
+        assigned_transponder="2202",
+        position=FlightPosition(lat=47.3, lon=8.4, altitude_baro=3048, speed_ms=120),
+        source="vatsim",
+    )
+
+    rows = ui_api._fids_rows_from_flights(
+        cfg=AppConfig(airport_iata="ZRH", airport_icao="LSZH", timezone="UTC", source="virtual"),
+        flights=[flight],
+        view="departures",
+        limit=10,
+        last_refreshed=now,
+    )
+
+    payload = rows[0].model_dump()
+    assert payload["detail_mode"] == "virtual"
+    assert payload["flight_display"] == "DLH42"
+    assert payload["airline_display"] == ""
+    assert payload["airline_iata"] == ""
+    assert payload["airline_icao"] == ""
+    assert payload["codeshare_display"] == ""
+    assert payload["codeshares"] == []
+    assert payload["sold_as"] == []
+    assert payload["marketing_flight_number"] == ""
+    assert payload["gate"] == "-"
+    assert payload["gate_display"] == ""
+    assert payload["delay_minutes"] is None
+    assert payload["flight_rules"] == "I"
+    assert payload["planned_altitude"] == "FL330"
+    assert payload["planned_route"] == "DCT TEST"
+    assert payload["altitude_ft"] == 10000
+    assert payload["ground_speed_kt"] == 233
+    assert payload["squawk"] == "2202"
 
 
 def test_matrix_payload_preserves_operating_identity_from_fids_row() -> None:
@@ -2157,15 +2464,67 @@ def test_multi_companion_checkins_remain_distinct_and_update_by_id(monkeypatch, 
     assert by_id["lfc_test_mobile_ipad"]["device_type"] == "tablet"
 
 
+def test_companion_reset_clears_remembered_mobile_checkins(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(ui_server, "_setup_complete", lambda: True)
+    monkeypatch.setattr(ui_api, "_companion_presence_path", lambda: tmp_path / "companion_clients.json")
+
+    client = TestClient(app)
+    assert client.post(
+        "/api/admin/companion/checkin",
+        json={
+            "companion_id": "lfc_test_reset_phone",
+            "client_name": "Local Flight Companion",
+            "app_version": "0.2.7",
+            "mobile_os": "iOS 19.0 (phone)",
+            "device_type": "phone",
+        },
+    ).status_code == 200
+    assert client.get("/api/admin/connections").json()["companion_count"] == 1
+
+    reset = client.delete("/api/admin/companion")
+
+    assert reset.status_code == 200
+    assert reset.json()["ok"] is True
+    assert reset.json()["removed"] == 1
+    assert client.get("/api/admin/connections").json()["companion_count"] == 0
+
+
 def test_companion_pairing_gateway_uses_reusable_deep_link(monkeypatch) -> None:
     monkeypatch.setattr("localflight.companion_pairing._local_ipv4_addresses", lambda: ["192.168.1.77"])
 
-    payload = pairing_gateway_payload(base_url="http://127.0.0.1:8000")
+    payload = pairing_gateway_payload(
+        base_url="http://127.0.0.1:8000",
+        server_fingerprint="server-test-fp",
+    )
 
-    assert payload["preferred_url"] == "http://localflight.local:8000"
-    assert payload["manual_urls"][:2] == ["http://localflight.local:8000", "http://192.168.1.77:8000"]
-    assert payload["deep_link"] == build_pairing_deep_link("http://localflight.local:8000", source="qt")
-    assert "server=http%3A%2F%2Flocalflight.local%3A8000" in str(payload["deep_link"])
+    assert payload["preferred_url"] == "http://192.168.1.77:8000"
+    assert payload["manual_urls"][:2] == ["http://192.168.1.77:8000", "http://localflight.local:8000"]
+    assert payload["server_fingerprint"] == "server-test-fp"
+    assert payload["deep_link"] == build_pairing_deep_link(
+        "http://192.168.1.77:8000",
+        source="qt",
+        server_fingerprint="server-test-fp",
+    )
+    assert "server=http%3A%2F%2F192.168.1.77%3A8000" in str(payload["deep_link"])
+    assert "server_fingerprint=server-test-fp" in str(payload["deep_link"])
+    assert "00000000-0000-0000-0000" not in str(payload["deep_link"])
+
+
+def test_companion_pairing_gateway_prefers_explicit_lan_base_url(monkeypatch) -> None:
+    monkeypatch.setattr("localflight.companion_pairing._local_ipv4_addresses", lambda: ["192.168.1.77"])
+
+    payload = pairing_gateway_payload(
+        base_url="http://192.168.1.42:9000",
+        port=8000,
+        server_fingerprint="server-test-fp",
+    )
+
+    assert payload["preferred_url"] == "http://192.168.1.42:9000"
+    assert payload["manual_urls"][:3] == [
+        "http://192.168.1.42:9000",
+        "http://192.168.1.77:8000",
+        "http://localflight.local:8000",
+    ]
 
 
 def test_mobile_summary_rolls_up_companion_host_status(monkeypatch, tmp_path: Path) -> None:
@@ -2401,6 +2760,115 @@ def test_fids_detail_exposes_live_track_metadata(monkeypatch, tmp_path: Path) ->
     assert detail["intel"]["source_evidence"]["confidence"] == "live_position_matched"
 
 
+def test_fids_detail_virtual_mode_uses_vatsim_contract_without_passenger_fields(monkeypatch, tmp_path: Path) -> None:
+    now = datetime.now(timezone.utc)
+    snapshot = tmp_path / "latest.json"
+    snapshot.write_text(
+        json.dumps(
+            {
+                "generated_at": now.isoformat(),
+                "flights": [
+                    {
+                        "direction": "DEP",
+                        "airport": {"iata": "ZRH", "icao": "LSZH"},
+                        "callsign": "DLH42",
+                        "airline": {"name": "Lufthansa", "iata": "LH", "icao": "DLH"},
+                        "flight_number": "LH42",
+                        "codeshares": ["UA9042"],
+                        "sold_as": ["LH42"],
+                        "marketing_airline_name": "Lufthansa",
+                        "marketing_airline_iata": "LH",
+                        "marketing_airline_icao": "DLH",
+                        "marketing_flight_number": "LH42",
+                        "origin": {"iata": "ZRH", "icao": "LSZH", "name": "Zurich"},
+                        "destination": {"iata": None, "icao": "EDDF", "name": "Frankfurt"},
+                        "aircraft_type": "A320",
+                        "aircraft_registration": "D-TEST",
+                        "gate": "A1",
+                        "terminal": "1",
+                        "stand": "101",
+                        "status": "Scheduled",
+                        "times": {
+                            "scheduled": now.isoformat(),
+                            "estimated": None,
+                            "actual": None,
+                        },
+                        "delay_minutes": 20,
+                        "flight_rules": "I",
+                        "planned_route": "DCT TEST",
+                        "planned_altitude": "FL350",
+                        "planned_departure": now.isoformat(),
+                        "planned_arrival": (now + timedelta(minutes=80)).isoformat(),
+                        "planned_enroute_minutes": 80,
+                        "cruise_tas": 430,
+                        "alternate_icao": "EDDK",
+                        "assigned_transponder": "2201",
+                        "position": {
+                            "lat": 47.45,
+                            "lon": 8.56,
+                            "altitude_baro": 3048,
+                            "heading": 270,
+                            "speed_ms": 120,
+                            "on_ground": False,
+                            "icao24": "4B1800",
+                            "squawk": "7000",
+                            "last_contact": now.isoformat(),
+                        },
+                        "source": "vatsim",
+                        "enriched_by": None,
+                        "updated_at": now.isoformat(),
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(ui_api, "load_config", lambda: AppConfig(airport_iata="ZRH", airport_icao="LSZH", source="virtual"))
+    monkeypatch.setattr(ui_server, "_setup_complete", lambda: True)
+    monkeypatch.setattr(ui_api, "load_latest_snapshot_path", lambda airport_iata: snapshot)
+    import localflight.storage.history as history
+
+    monkeypatch.setattr(
+        history,
+        "query_flight_history",
+        lambda callsign, days=7: [
+            {"event_time": now.isoformat(), "status": "Scheduled", "delay_minutes": 15, "gate": "A1", "source": "vatsim", "observation_count": 3}
+        ],
+    )
+
+    response = TestClient(app).get("/api/fids/detail?callsign=DLH42")
+
+    assert response.status_code == 200
+    payload = response.json()
+    detail = payload["detail"]
+    assert detail["detail_mode"] == "virtual"
+    assert detail["flight_display"] == "DLH42"
+    assert detail["airline"] is None
+    assert detail["airline_iata"] is None
+    assert detail["airline_icao"] is None
+    assert detail["codeshares"] == []
+    assert detail["sold_as"] == []
+    assert detail["marketing_flight_number"] is None
+    assert detail["gate"] is None
+    assert detail["terminal"] is None
+    assert detail["stand"] is None
+    assert detail["delay_minutes"] is None
+    assert detail["aircraft_registration"] is None
+    assert detail["position"]["icao24"] is None
+    assert detail["position"]["squawk"] == "2201"
+    assert detail["flight_plan"]["route"] == "DCT TEST"
+    assert detail["flight_plan"]["assigned_transponder"] == "2201"
+    assert payload["history"][0]["source"] == "vatsim"
+    assert "gate" not in payload["history"][0]
+    assert "delay_minutes" not in payload["history"][0]
+    assert payload["intel"]["detail_mode"] == "virtual"
+    assert payload["intel"]["identity"]["codeshares"] == []
+    assert payload["intel"]["identity"]["sold_as"] == []
+    assert payload["intel"]["aircraft"]["registration"] is None
+    assert payload["intel"]["aircraft"]["icao24"] is None
+
+
 def test_flight_intel_builder_handles_schedule_adsb_and_vatsim_privately() -> None:
     from localflight.core.flight_intel import build_flight_intel
     from localflight.core.models import AirlineRef, FlightStatus
@@ -2450,14 +2918,23 @@ def test_flight_intel_builder_handles_schedule_adsb_and_vatsim_privately() -> No
         direction=FlightDirection.ARRIVAL,
         airport=AirportRef(iata="ZRH", icao="LSZH", name="Zurich"),
         callsign="BAW123",
+        airline=AirlineRef(name="British Airways", iata="BA", icao="BAW"),
+        flight_number="BA123",
+        codeshares=("AA9000",),
+        sold_as=("BA123",),
+        marketing_flight_number="BA123",
         origin=AirportRef(icao="EGLL", name="Heathrow"),
         destination=AirportRef(icao="LSZH", name="Zurich"),
         aircraft_type="A320",
+        aircraft_registration="G-TEST",
+        gate="A42",
+        terminal="1",
+        delay_minutes=14,
         flight_rules="I",
         planned_route="DCT TEST",
         planned_altitude="FL350",
         assigned_transponder="2201",
-        position=FlightPosition(lat=47.1, lon=8.1, altitude_baro=2500, speed_ms=95, heading=90),
+        position=FlightPosition(lat=47.1, lon=8.1, altitude_baro=2500, speed_ms=95, heading=90, icao24="400000"),
         source="vatsim",
     )
 
@@ -2465,7 +2942,18 @@ def test_flight_intel_builder_handles_schedule_adsb_and_vatsim_privately() -> No
     dumped = json.dumps(virtual_intel).lower()
 
     assert virtual_intel["detail_mode"] == "virtual"
+    assert virtual_intel["identity"]["flight_display"] == "BAW123"
+    assert virtual_intel["identity"]["airline_name"] is None
+    assert virtual_intel["identity"]["codeshares"] == []
+    assert virtual_intel["identity"]["sold_as"] == []
+    assert virtual_intel["identity"]["marketing_flight_number"] is None
+    assert virtual_intel["operations"]["gate"] is None
+    assert virtual_intel["operations"]["terminal"] is None
+    assert virtual_intel["timing"]["delay_minutes"] is None
+    assert virtual_intel["aircraft"]["registration"] is None
+    assert virtual_intel["aircraft"]["icao24"] is None
     assert virtual_intel["flight_plan"]["route"] == "DCT TEST"
+    assert "airport_ops" not in virtual_intel["source_evidence"]["fields_available"]
     assert virtual_intel["privacy"]["vatsim_personal_identifiers"] is False
     assert "pilot_name" not in dumped
     assert "cid" not in dumped
@@ -2656,7 +3144,7 @@ def test_history_summary_adds_delay_buckets_and_filtered_analytics(tmp_path: Pat
     config_file.parent.mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(history, "config_path", lambda: config_file)
 
-    now = datetime.now(timezone.utc).replace(hour=12, minute=0, second=0, microsecond=0)
+    now = (datetime.now(timezone.utc) - timedelta(hours=2)).replace(minute=0, second=0, microsecond=0)
     rows = []
     delays = [-5, -4, 4, 5, 15, 16, None]
     for idx, delay in enumerate(delays):
@@ -2721,7 +3209,7 @@ def test_history_summary_adds_delay_buckets_and_filtered_analytics(tmp_path: Pat
     assert summary["top_airlines"][0]["delay_rate_pct"] == 42.9
     assert summary["top_routes"][0]["origin"] in {"ZRH", "FRA"}
     assert summary["status_mix"][0]["count"] >= 3
-    assert summary["daily_volume"][0]["total"] == 7
+    assert sum(row["total"] for row in summary["daily_volume"]) == 7
     assert history.query_recent("ZRH", direction="DEP", callsign="LX10", status="scheduled", airline_iata="LX", hours=24, limit=10)
 
 
@@ -2760,6 +3248,149 @@ def test_history_persists_resolved_operating_identity(tmp_path: Path, monkeypatc
     assert rows[0]["callsign"] == "UAE2426"
 
 
+def _history_db_for_test(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    import localflight.storage.history as history
+
+    config_file = tmp_path / ".localflight" / "config.json"
+    config_file.parent.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(history, "config_path", lambda: config_file)
+    conn = history._connect()
+    history._ensure_schema(conn)
+    history._migrate_schema(conn)
+    return history, conn
+
+
+def _insert_raw_history_rows(conn, rows: list[tuple[object, ...]]) -> None:
+    conn.executemany(
+        """
+        INSERT INTO flights (
+            airport_iata, callsign, flight_number, origin_iata, dest_iata,
+            direction, status, gate, terminal, aircraft_type, sched_time,
+            actual_time, lat, lon, altitude_m, source, enriched_by, snapshot_ts,
+            delay_minutes, airline_iata, codeshares_json, sold_as_json,
+            operating_callsign, identity_source
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        """,
+        rows,
+    )
+    conn.commit()
+    conn.close()
+
+
+def test_history_movements_collapse_repeated_snapshot_rows(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    history, conn = _history_db_for_test(tmp_path, monkeypatch)
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    sched = (now - timedelta(minutes=20)).isoformat()
+    rows = [
+        (
+            "EWR", "UAL42", "UA42", "EWR", "LHR", "DEP", "Departed", "C8", "C", "B772",
+            sched, None, None, None, None, "aerodatabox", "schedule", (now - timedelta(minutes=15)).isoformat(),
+            4, "UA", '["AC5842"]', '["UA42"]', "UAL42", "dedupe",
+        ),
+        (
+            "EWR", "UAL42", "UA 42", "EWR", "LHR", "DEP", "Departed", "C8", "C", "B772",
+            sched, None, None, None, None, "aerodatabox", "schedule", (now - timedelta(minutes=5)).isoformat(),
+            4, "UA", '["AC5842"]', '["UA42"]', "UAL42", "dedupe",
+        ),
+    ]
+    _insert_raw_history_rows(conn, rows)
+
+    recent = history.query_recent("EWR", hours=24, direction="DEP", limit=20)
+    summary = history.query_summary("EWR", hours=24)
+
+    assert len(recent) == 1
+    assert recent[0]["observation_count"] == 2
+    assert summary["total"] == 1
+    assert summary["raw_observation_rows"] == 2
+
+
+def test_history_movements_collapse_linked_codeshare_aliases(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    history, conn = _history_db_for_test(tmp_path, monkeypatch)
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    sched = (now - timedelta(minutes=30)).isoformat()
+    rows = [
+        (
+            "AMS", "KLM100", "KL100", "AMS", "CDG", "DEP", "Scheduled", "D4", "1", "E190",
+            sched, None, None, None, None, "aerodatabox", "schedule", (now - timedelta(minutes=20)).isoformat(),
+            None, "KL", '["AF8100"]', '["KL100"]', None, "codeshare",
+        ),
+        (
+            "AMS", "AF8100", "AF8100", "AMS", "CDG", "DEP", "Scheduled", "D4", "1", "E190",
+            sched, None, None, None, None, "aviationstack", "schedule", (now - timedelta(minutes=10)).isoformat(),
+            None, "AF", '["KL100"]', '["AF8100"]', None, "codeshare",
+        ),
+    ]
+    _insert_raw_history_rows(conn, rows)
+
+    recent = history.query_recent("AMS", hours=24, direction="DEP", limit=20)
+    by_alias = history.query_flight_history("AF8100", days=1)
+
+    assert len(recent) == 1
+    assert recent[0]["observation_count"] == 2
+    assert by_alias and by_alias[0]["movement_key"] == recent[0]["movement_key"]
+
+
+def test_history_movements_keep_unrelated_same_route_time_flights_separate(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    history, conn = _history_db_for_test(tmp_path, monkeypatch)
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    sched = (now - timedelta(minutes=25)).isoformat()
+    rows = [
+        (
+            "EWR", "UAL42", "UA42", "EWR", "LHR", "DEP", "Scheduled", "C8", "C", "B772",
+            sched, None, None, None, None, "aerodatabox", "schedule", now.isoformat(),
+            None, "UA", "[]", "[]", None, "direct",
+        ),
+        (
+            "EWR", "BAW188", "BA188", "EWR", "LHR", "DEP", "Scheduled", "B3", "B", "B789",
+            sched, None, None, None, None, "aerodatabox", "schedule", now.isoformat(),
+            None, "BA", "[]", "[]", None, "direct",
+        ),
+    ]
+    _insert_raw_history_rows(conn, rows)
+
+    recent = history.query_recent("EWR", hours=24, direction="DEP", limit=20)
+
+    assert len(recent) == 2
+    assert {row["callsign"] for row in recent} == {"UAL42", "BAW188"}
+
+
+def test_history_excludes_future_board_rows_until_event_time_is_current(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    history, conn = _history_db_for_test(tmp_path, monkeypatch)
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    rows = [
+        (
+            "NRT", "ANA1", "NH1", "NRT", "LAX", "DEP", "Scheduled", "51", "1", "B789",
+            (now + timedelta(hours=4)).isoformat(), None, None, None, None, "aerodatabox", "schedule", now.isoformat(),
+            None, "NH", "[]", "[]", None, "direct",
+        )
+    ]
+    _insert_raw_history_rows(conn, rows)
+
+    assert history.query_recent("NRT", hours=24, direction="DEP", limit=20) == []
+    assert history.query_summary("NRT", hours=24)["total"] == 0
+
+
+def test_history_backfill_is_idempotent(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    history, conn = _history_db_for_test(tmp_path, monkeypatch)
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    sched = (now - timedelta(minutes=45)).isoformat()
+    rows = [
+        (
+            "ZRH", "SWR2", "LX2", "ZRH", "JFK", "DEP", "Departed", "A2", "A", "A333",
+            sched, None, None, None, None, "aerodatabox", "schedule", now.isoformat(),
+            8, "LX", "[]", "[]", None, "direct",
+        )
+    ]
+    _insert_raw_history_rows(conn, rows)
+
+    first = history.query_summary("ZRH", hours=24)
+    second = history.query_summary("ZRH", hours=24)
+
+    assert first["total"] == 1
+    assert second["total"] == 1
+    assert second["raw_observation_rows"] == 1
+
+
 def test_api_history_forwards_dashboard_filters(monkeypatch) -> None:
     import localflight.storage.history as history
 
@@ -2785,6 +3416,9 @@ def test_api_history_forwards_dashboard_filters(monkeypatch) -> None:
 
     assert recent.status_code == 200
     assert summary.status_code == 200
+    assert recent.json()["count"] == 1
+    assert recent.json()["movement_count"] == 1
+    assert recent.json()["raw_observation_rows"] == 1
     assert captured_recent == {
         "airport_iata": "ZRH",
         "hours": 48,
@@ -3630,7 +4264,8 @@ def test_history_template_uses_dashboard_summary_contract() -> None:
     assert "top_airlines" in template
     assert "top_routes" in template
     assert 'id="airlineInput"' in template
-    assert "No matching history rows yet" in template
+    assert "movements from" in template
+    assert "No matching movements yet" in template
 
 
 def test_matrix_preview_panel_geometry_stays_in_sync() -> None:
@@ -4090,6 +4725,19 @@ def test_client_settings_explain_refresh_cadence_and_relay_policy() -> None:
         assert "hourly" in text or "hourly-or-slower" in text or "schedule_policy" in text
 
 
+def test_fids_template_has_vatsim_display_contract_guards() -> None:
+    root = Path(__file__).resolve().parents[1]
+    template = (root / "src" / "localflight" / "ui" / "templates" / "fids.html").read_text(encoding="utf-8")
+
+    assert "function isVirtualRow" in template
+    assert "function isVirtualDetail" in template
+    assert "XPDR ${esc(xpdr)}" in template
+    assert "Recent Sessions (7 days)" in template
+    assert "Virtual Summary" in template
+    assert "Filed Plan" in template
+    assert "Pilot Track" in template
+
+
 def test_event_first_client_polling_static_contracts() -> None:
     root = Path(__file__).resolve().parents[1]
     fids = (root / "src" / "localflight" / "ui" / "templates" / "fids.html").read_text(encoding="utf-8")
@@ -4124,8 +4772,8 @@ def test_public_preview_gallery_includes_matrix_artwork() -> None:
 
     assert "docs/previews/matrix-preview.svg" in readme
     assert "matrix-preview.svg" in gallery
-    assert readme.count("<img src=\"docs/previews/") == 8
-    assert gallery.count("<article class=\"card\">") == 8
+    assert readme.count("<img src=\"docs/previews/") == 9
+    assert gallery.count("<article class=\"card\">") == 9
     assert matrix_preview.exists()
     ET.parse(matrix_preview)
 
@@ -4416,6 +5064,12 @@ def test_release_installers_keep_pi_headless_default_and_windows_native() -> Non
     assert "-DisplayMode Native" in win_install
     assert "Resolve-DisplayMode" in win_install
     assert "LOCALFLIGHT_GUI_MODE=$GuiMode" in win_install
+    assert 'set "PYTHON=%ROOT%\\.venv\\Scripts\\python.exe"' in win_install
+    assert '$venvPythonw = Join-Path $venvPath "Scripts\\pythonw.exe"' in win_install
+    assert '$silentArguments = "-m localflight"' in win_install
+    assert "$lnk.TargetPath = $silentTarget" in win_install
+    assert "$lnk.Arguments = $silentArguments" in win_install
+    assert "Start-Process -FilePath $silentTarget -ArgumentList $silentArguments" in win_install
     assert ".env.example" not in win_install
     assert "--display native" in mac_install
     assert "DISPLAY_MODE=\"native\"" in mac_install

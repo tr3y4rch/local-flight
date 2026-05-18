@@ -174,6 +174,14 @@ def _write_launcher(macos_dir: Path, project_root: Path, venv: Path) -> None:
             export LOCALFLIGHT_GUI_MODE="native"
         fi
 
+        LOG_DIR="${{HOME}}/.localflight/logs"
+        mkdir -p "$LOG_DIR"
+        BOOTSTRAP_LOG="$LOG_DIR/source_app_bootstrap_$(date '+%Y%m%d_%H%M%S')_$$.log"
+        exec >>"$BOOTSTRAP_LOG" 2>&1
+        echo "Local Flight source app launcher started at $(date)"
+        echo "Root: $ROOT"
+        echo "GUI mode: ${{LOCALFLIGHT_GUI_MODE:-native}}"
+
         exec -a "Local Flight" "$VENV/bin/python" -m localflight
     """)
     sh = macos_dir / "launcher.sh"

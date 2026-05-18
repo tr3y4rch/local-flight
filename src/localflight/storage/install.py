@@ -1,9 +1,15 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
+
+
+IDENTITY_BUNDLE_VERSION = 1
 
 
 def _config_dir() -> Path:
@@ -16,27 +22,95 @@ def _id_path() -> Path:
     return _config_dir() / "install_id"
 
 
+def _identity_bundle_path() -> Path:
+    return _config_dir() / "install_identity.json"
+
+
+def _identity_anchor_path() -> Path:
+    return Path.home() / ".localflight_identity.json"
+
+
 def _activation_path() -> Path:
     return _config_dir() / "activation_token"
 
 
-def get_install_id() -> str:
-    """Return the persistent install ID, creating it on first call."""
-    path = _id_path()
-    if path.exists():
+def _utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _valid_uuid(value: Any) -> str:
+    text = str(value or "").strip()
+    try:
+        return str(uuid.UUID(text))
+    except Exception:
+        return ""
+
+
+def _read_json(path: Path) -> dict[str, Any]:
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    return raw if isinstance(raw, dict) else {}
+
+
+def _bundle_from_install_id(install_id: str, *, existing: dict[str, Any] | None = None) -> dict[str, Any]:
+    current = existing or {}
+    return {
+        "version": IDENTITY_BUNDLE_VERSION,
+        "install_id": install_id,
+        "created_at": str(current.get("created_at") or _utc_now()),
+        "recovery_marker": str(current.get("recovery_marker") or f"lfr_{uuid.uuid4().hex}"),
+    }
+
+
+def _install_id_from_bundle(path: Path) -> tuple[str, dict[str, Any]]:
+    bundle = _read_json(path)
+    return _valid_uuid(bundle.get("install_id")), bundle
+
+
+def _write_identity_bundle(bundle: dict[str, Any]) -> None:
+    install_id = _valid_uuid(bundle.get("install_id"))
+    if not install_id:
+        return
+    bundle = _bundle_from_install_id(install_id, existing=bundle)
+    for path in (_identity_bundle_path(), _identity_anchor_path()):
         try:
-            existing = path.read_text(encoding="utf-8").strip()
-            if existing:
-                return existing
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(bundle, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         except Exception:
             pass
-    new_id = str(uuid.uuid4())
     try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(new_id, encoding="utf-8")
+        legacy = _id_path()
+        legacy.parent.mkdir(parents=True, exist_ok=True)
+        legacy.write_text(install_id, encoding="utf-8")
     except Exception:
         pass
-    return new_id
+
+
+def _identity_candidates() -> list[tuple[str, dict[str, Any]]]:
+    candidates: list[tuple[str, dict[str, Any]]] = []
+    for path in (_identity_bundle_path(), _identity_anchor_path()):
+        install_id, bundle = _install_id_from_bundle(path)
+        if install_id:
+            candidates.append((install_id, bundle))
+    try:
+        legacy_id = _valid_uuid(_id_path().read_text(encoding="utf-8").strip())
+    except Exception:
+        legacy_id = ""
+    if legacy_id:
+        candidates.append((legacy_id, {}))
+    return candidates
+
+
+def get_install_id() -> str:
+    """Return the persistent install ID, creating it on first call."""
+    for install_id, bundle in _identity_candidates():
+        _write_identity_bundle(_bundle_from_install_id(install_id, existing=bundle))
+        return install_id
+    bundle = _bundle_from_install_id(str(uuid.uuid4()))
+    _write_identity_bundle(bundle)
+    return str(bundle["install_id"])
 
 
 def get_install_fingerprint() -> str:
@@ -72,3 +146,16 @@ def set_activation_token(token: str) -> None:
         except Exception:
             pass
         os.environ.pop("LOCALFLIGHT_ACTIVATION_TOKEN", None)
+
+
+def clear_activation_token() -> None:
+    """Explicitly remove the local relay token while keeping the install identity."""
+    set_activation_token("")
+
+
+def new_install_identity() -> str:
+    """Create a deliberately new local install identity for operator/dev use."""
+    clear_activation_token()
+    bundle = _bundle_from_install_id(str(uuid.uuid4()))
+    _write_identity_bundle(bundle)
+    return str(bundle["install_id"])

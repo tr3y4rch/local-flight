@@ -172,6 +172,7 @@ def build_fids_context(
             airport_lat=airport_lat,
             airport_lon=airport_lon,
             display_tz=tz,
+            virtual_mode=str(getattr(cfg, "source", "") or "").strip().lower() == "virtual",
         )
         for f in flights
     ]

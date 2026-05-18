@@ -91,6 +91,11 @@ def _codeshare_display(f: Flight) -> str:
     return "Also " + " / ".join(shown) + suffix
 
 
+def _is_virtual_flight(f: Flight, *, virtual_mode: bool = False) -> bool:
+    source = str(f.source or "").strip().lower()
+    return bool(virtual_mode or source == "vatsim" or source.startswith("vatsim"))
+
+
 def _format_secondary_identifier(value: object) -> str:
     raw = str(value or "").strip()
     if not raw:
@@ -203,25 +208,27 @@ def flight_to_fids_row(
     airport_lat: Optional[float] = None,
     airport_lon: Optional[float] = None,
     display_tz: Optional[ZoneInfo] = None,
+    virtual_mode: bool = False,
 ) -> FIDSRow:
+    is_virtual = _is_virtual_flight(f, virtual_mode=virtual_mode)
     tz = display_tz or _resolve_tz(f)
     t  = _best_time(f)
     display_time = _to_local_hhmm(t, tz) or "--:--"
 
-    dly = getattr(f, "delay_minutes", None)
+    dly = None if is_virtual else getattr(f, "delay_minutes", None)
     delay_class = _delay_class(dly)
     if isinstance(dly, int) and abs(dly) >= 5 and display_time != "--:--":
         sign = "+" if dly > 0 else "-"
         display_time = f"{display_time} ({sign}{abs(dly)})"
 
-    flight_display = _format_flight_number(f)
-    airline_display = _airline_display(f)
-    codeshare_display = _codeshare_display(f)
+    flight_display = str(f.callsign or f.flight_number or "").strip().upper() if is_virtual else _format_flight_number(f)
+    airline_display = "" if is_virtual else _airline_display(f)
+    codeshare_display = "" if is_virtual else _codeshare_display(f)
 
     other = f.destination if view == "departures" else f.origin
     route_display = _route_display_from_code(other.code() if other else "")
 
-    gate          = f.gate or "-"
+    gate          = "-" if is_virtual else (f.gate or "-")
     aircraft_type = short_aircraft_type(f.aircraft_type) or "-"
     fid = f"{f.source or 'src'}:{f.callsign}:{t.isoformat() if t else 'notime'}"
 
@@ -229,14 +236,17 @@ def flight_to_fids_row(
     time_primary, time_delta_label, time_delta_text = split_display_time(display_time, dly if isinstance(dly, int) else None)
     delay_kind = delay_kind_from_minutes(dly if isinstance(dly, int) else None)
     route_primary, route_code, route_caption = split_route_display(route_display)
-    gate_display, terminal_display, terminal_gate_display = gate_fields(gate, f.terminal)
+    gate_display, terminal_display, terminal_gate_display = ("", "", "") if is_virtual else gate_fields(gate, f.terminal)
     status_kind = normalize_status_kind(status_class, status_display, delay_kind)
     tone = tone_for_status(status_kind, delay_kind)
     live_hint = ""
     if status_class == "approaching":
         live_hint = status_display.replace("APPR", "Approaching").replace("NM", " NM")
+    if is_virtual and not live_hint:
+        live_hint = "VATSIM track" if f.position else "Filed plan"
     source_parts = [str(part) for part in (f.source, f.enriched_by) if part]
     source_hint = " + ".join(source_parts)
+    squawk = str(f.assigned_transponder or (f.position.squawk if f.position else "") or "").strip()
 
     return FIDSRow(
         id=fid,
@@ -252,16 +262,16 @@ def flight_to_fids_row(
         aircraft_type=aircraft_type,
         callsign=f.callsign or "",
         flight_number=f.flight_number or "",
-        airline_iata=f.airline.iata or "",
-        airline_icao=f.airline.icao or "",
-        codeshares=tuple(f.codeshares or ()),
-        sold_as=tuple(f.sold_as or ()),
-        marketing_airline_name=f.marketing_airline_name or "",
-        marketing_airline_iata=f.marketing_airline_iata or "",
-        marketing_airline_icao=f.marketing_airline_icao or "",
-        marketing_flight_number=f.marketing_flight_number or "",
+        airline_iata="" if is_virtual else (f.airline.iata or ""),
+        airline_icao="" if is_virtual else (f.airline.icao or ""),
+        codeshares=() if is_virtual else tuple(f.codeshares or ()),
+        sold_as=() if is_virtual else tuple(f.sold_as or ()),
+        marketing_airline_name="" if is_virtual else (f.marketing_airline_name or ""),
+        marketing_airline_iata="" if is_virtual else (f.marketing_airline_iata or ""),
+        marketing_airline_icao="" if is_virtual else (f.marketing_airline_icao or ""),
+        marketing_flight_number="" if is_virtual else (f.marketing_flight_number or ""),
         operating_callsign=f.operating_callsign or "",
-        identity_source=f.identity_source or "",
+        identity_source=f.identity_source or ("vatsim_callsign" if is_virtual else ""),
         delay_minutes=dly if isinstance(dly, int) else None,
         delay_class=delay_class,
         time_primary=time_primary,
@@ -278,4 +288,12 @@ def flight_to_fids_row(
         route_caption=route_caption,
         source_hint=source_hint,
         live_hint=live_hint,
+        detail_mode="virtual" if is_virtual else "real",
+        flight_rules=f.flight_rules or "",
+        planned_altitude=f.planned_altitude or "",
+        planned_route=f.planned_route or "",
+        altitude_ft=f.altitude_ft(),
+        ground_speed_kt=f.speed_kts(),
+        squawk=squawk,
+        transponder=squawk,
     )

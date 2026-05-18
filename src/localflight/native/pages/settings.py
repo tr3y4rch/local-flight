@@ -35,6 +35,7 @@ from localflight.native.design import (
     scroll_page,
 )
 from localflight.native.service import NativeApiService
+from localflight.native.widgets import DisclosureCard
 from localflight.storage.profiles import list_profiles
 
 
@@ -386,31 +387,37 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
         self._build_help_docs()
         self._build_diagnostics_maintenance()
 
-    def _collapsible_section(self, title: str) -> tuple[Any, Any, Any]:
-        group = self.QtWidgets.QGroupBox(title)
-        group.setCheckable(True)
-        group.setChecked(False)
-        outer = self.QtWidgets.QVBoxLayout(group)
-        outer.setContentsMargins(14, 12, 14, 12)
-        body = self.QtWidgets.QWidget()
-        layout = self.QtWidgets.QVBoxLayout(body)
-        layout.setContentsMargins(0, 8, 0, 0)
-        layout.setSpacing(10)
-        body.setVisible(False)
-        group.toggled.connect(body.setVisible)
-        outer.addWidget(body)
-        self.layout.addWidget(group)
-        return group, body, layout
+    def _collapsible_section(
+        self,
+        title: str,
+        *,
+        subtitle: str = "",
+        emoji: str = "",
+        expanded: bool = False,
+    ) -> tuple[Any, Any, Any]:
+        """Add a collapsible section as a DisclosureCard.
+
+        Returns ``(card, body, body_layout)`` so existing call-sites that
+        treated the old QGroupBox as "the group" keep working.  ``body``
+        is the inner frame and ``body_layout`` is the layout content
+        should be added to.
+        """
+        card = DisclosureCard(
+            self.QtCore,
+            self.QtWidgets,
+            title=title,
+            subtitle=subtitle,
+            emoji=emoji,
+            expanded=expanded,
+        )
+        self.layout.addWidget(card)
+        return card, card.body, card.body_layout
 
     def _build_relay_details(self) -> None:
-        self.relay_group, self.relay_body, layout = self._collapsible_section("Relay details")
-        layout.addWidget(
-            label(
-                self.QtWidgets,
-                "Read-only access status for Community Relay or managed access. Raw tokens and install IDs stay hidden.",
-                "Muted",
-                wrap=True,
-            )
+        self.relay_group, self.relay_body, layout = self._collapsible_section(
+            "Relay details",
+            subtitle="Community Relay or managed-access status — tokens stay hidden.",
+            emoji="\U0001F517",  # 🔗
         )
         grid = self.QtWidgets.QGridLayout()
         grid.setHorizontalSpacing(10)
@@ -455,10 +462,12 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
         details.setSpacing(8)
         self.companion_count_label = label(self.QtWidgets, "0 paired", "Section")
         self.companion_pairing_url_label = label(self.QtWidgets, "Pairing link loading...", "Muted", wrap=True)
+        self.companion_fingerprint_label = label(self.QtWidgets, "Server fingerprint loading...", "Muted", wrap=True)
         self.companion_manual_url_label = label(self.QtWidgets, "Manual URL loading...", "Muted", wrap=True)
         self.companion_entries_label = label(self.QtWidgets, "No mobile check-ins yet.", "Muted", wrap=True)
         details.addWidget(self.companion_count_label)
         details.addWidget(self.companion_pairing_url_label)
+        details.addWidget(self.companion_fingerprint_label)
         details.addWidget(self.companion_manual_url_label)
         details.addWidget(self.companion_entries_label, 1)
 
@@ -472,9 +481,13 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
         copy_url = self.QtWidgets.QPushButton("Copy LAN URL")
         copy_url.setObjectName("Quiet")
         copy_url.clicked.connect(self._copy_manual_pairing_url)
+        reset_companions = self.QtWidgets.QPushButton("Reset paired devices")
+        reset_companions.setObjectName("Danger")
+        reset_companions.clicked.connect(self._reset_companion_connections)
         controls.addWidget(refresh)
         controls.addWidget(copy_pair)
         controls.addWidget(copy_url)
+        controls.addWidget(reset_companions)
         controls.addStretch(1)
         details.addLayout(controls)
 
@@ -483,7 +496,11 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
         self._render_pairing_payload()
 
     def _build_help_docs(self) -> None:
-        self.help_docs_group, self.help_docs_body, layout = self._collapsible_section("Diagnostics & Docs")
+        self.help_docs_group, self.help_docs_body, layout = self._collapsible_section(
+            "Diagnostics & Docs",
+            subtitle="Diagnostics mode and the bundled documentation pages.",
+            emoji="\U0001F4DA",  # 📚
+        )
         self.diagnostics = self.QtWidgets.QComboBox()
         for option in DIAGNOSTICS_OPTIONS:
             self.diagnostics.addItem(option.label, option.value)
@@ -524,14 +541,10 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
         layout.addWidget(self.doc_text)
 
     def _build_diagnostics_maintenance(self) -> None:
-        self.maintenance_group, self.maintenance_body, layout = self._collapsible_section("Maintenance")
-        layout.addWidget(
-            label(
-                self.QtWidgets,
-                "Use these when the local scheduler needs a nudge or you want to re-run first setup. Normal display settings live above.",
-                "Muted",
-                wrap=True,
-            )
+        self.maintenance_group, self.maintenance_body, layout = self._collapsible_section(
+            "Maintenance",
+            subtitle="Nudge the local scheduler, file a report, or re-run first-time setup.",
+            emoji="\U0001F527",  # 🔧
         )
         controls = self.QtWidgets.QHBoxLayout()
         report = self.QtWidgets.QPushButton("Open report form")
@@ -560,13 +573,13 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
         return box
 
     def _build_advanced_timing(self) -> None:
-        self.advanced_display_group = self.QtWidgets.QGroupBox("Advanced Board Timing")
-        self.advanced_display_group.setCheckable(True)
-        self.advanced_display_group.setChecked(False)
-        outer = self.QtWidgets.QVBoxLayout(self.advanced_display_group)
-        outer.setContentsMargins(14, 12, 14, 12)
-        self.advanced_display_body = self.QtWidgets.QWidget()
-        form = self.QtWidgets.QFormLayout(self.advanced_display_body)
+        self.advanced_display_group, self.advanced_display_body, outer = self._collapsible_section(
+            "Advanced Board Timing",
+            subtitle="Rotation, retention, and kiosk timing. Most users can leave these alone.",
+            emoji="⚙️",  # ⚙️
+        )
+        form_host = self.QtWidgets.QWidget()
+        form = self.QtWidgets.QFormLayout(form_host)
         form.setFieldGrowthPolicy(self.QtWidgets.QFormLayout.AllNonFixedFieldsGrow)
         self.web_row_limit = self.QtWidgets.QSpinBox()
         self.web_row_limit.setRange(5, 100)
@@ -580,18 +593,7 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
         form.addRow("Page rotation seconds", self.web_rotation)
         form.addRow("Past grace minutes", self.grace)
         form.addRow("Future horizon hours", self.horizon)
-        outer.addWidget(
-            label(
-                self.QtWidgets,
-                "For board rotation, retention, and kiosk timing. Most users can leave these alone.",
-                "Muted",
-                wrap=True,
-            )
-        )
-        outer.addWidget(self.advanced_display_body)
-        self.advanced_display_body.setVisible(False)
-        self.advanced_display_group.toggled.connect(self.advanced_display_body.setVisible)
-        self.layout.addWidget(self.advanced_display_group)
+        outer.addWidget(form_host)
 
     def _readonly_line(self) -> Any:
         widget = self.QtWidgets.QLineEdit()
@@ -696,10 +698,20 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
         payload = self._pairing_payload()
         self._current_pairing_link = str(payload.get("deep_link") or "")
         self._current_manual_pairing_url = str(payload.get("preferred_url") or "")
-        self.companion_pairing_url_label.setText(f"Deep link: {self._current_pairing_link}")
+        self._current_pairing_fingerprint = str(payload.get("server_fingerprint") or "")
+        self.companion_pairing_url_label.setText(
+            f"QR target: {self._current_manual_pairing_url}\n"
+            f"Pairing link: {self._current_pairing_link}"
+        )
+        self.companion_fingerprint_label.setText(
+            f"Server fingerprint: {self._current_pairing_fingerprint or 'unavailable'}"
+        )
         manual_urls = payload.get("manual_urls") if isinstance(payload.get("manual_urls"), list) else []
         manual_text = "\n".join(str(item) for item in manual_urls[:3]) or self._current_manual_pairing_url
-        self.companion_manual_url_label.setText(f"Manual URL:\n{manual_text}")
+        self.companion_manual_url_label.setText(
+            "Manual URLs, safest first. localflight.local is a fallback when only one Local Flight server is on this LAN:\n"
+            f"{manual_text}"
+        )
 
         png = pairing_qr_png_bytes(self._current_pairing_link, size=190)
         if png:
@@ -739,12 +751,39 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
     def _copy_pairing_link(self) -> None:
         self._render_pairing_payload()
         self.QtWidgets.QApplication.clipboard().setText(getattr(self, "_current_pairing_link", ""))
-        self._set_status("Pairing link copied. Reuse it for any mobile device on this LAN.", "StatusGood")
+        self._set_status(
+            "Pairing link copied. It is bound to this server fingerprint so mobile can reject the wrong host.",
+            "StatusGood",
+        )
 
     def _copy_manual_pairing_url(self) -> None:
         self._render_pairing_payload()
         self.QtWidgets.QApplication.clipboard().setText(getattr(self, "_current_manual_pairing_url", ""))
-        self._set_status("Manual LAN URL copied for mobile setup.", "StatusGood")
+        self._set_status("Preferred LAN IP copied for mobile setup.", "StatusGood")
+
+    def _reset_companion_connections(self) -> None:
+        answer = self.QtWidgets.QMessageBox.question(
+            self.widget,
+            "Reset paired devices?",
+            "Clear this server's remembered mobile companion check-ins? Phones that still point here can appear again after reconnecting.",
+            self.QtWidgets.QMessageBox.Yes | self.QtWidgets.QMessageBox.Cancel,
+            self.QtWidgets.QMessageBox.Cancel,
+        )
+        if answer != self.QtWidgets.QMessageBox.Yes:
+            self._set_status("Companion reset cancelled.", "Muted")
+            return
+        self._set_status("Resetting paired mobile devices...", busy=True)
+        try:
+            payload = self.service.reset_companions()
+        except Exception as exc:
+            self._set_status(f"Could not reset paired mobile devices: {exc}", "StatusBad")
+            return
+        removed = int(payload.get("removed") or 0)
+        self._refresh_companion_gateway()
+        self._set_status(
+            f"Reset paired devices. Cleared {removed} remembered mobile check-in(s).",
+            "StatusGood",
+        )
 
     def _relative_time(self, value: str) -> str:
         if not value:

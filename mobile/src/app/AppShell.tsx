@@ -20,6 +20,7 @@ import { LaunchOverlay } from "../components/LaunchOverlay";
 import { AirportConfigSheet, CompanionSetupScreen, ConnectPrompt, ControlScreen, FidsScreen, FlightActionSheet, FlightDetailSheet, FullscreenFidsDisplay, Header, HelpScreen, HistoryScreen, RadarScreen, ScreenActivity, ScreenError, SupportSheet, type ActivityStatus, type ConnectionState } from "../screens/AppScreens";
 import {
   getConnections,
+  getConfig,
   getFids,
   getHistory,
   getHistorySummary,
@@ -72,7 +73,12 @@ import {
   formatUtc,
   hexToRgba
 } from "../domain/formatting";
-import { pairingServerUrlProblem, parsePairingLink } from "../domain/pairing";
+import {
+  pairingFingerprintProblem,
+  pairingServerUrlProblem,
+  parsePairingLink,
+  type PairingLinkResult
+} from "../domain/pairing";
 import type {
   FeedbackTone,
   HistoryWindow,
@@ -127,6 +133,33 @@ SplashScreen.setOptions({
   duration: 320,
   fade: true
 });
+
+function airportMatchesConfig(airport: AirportResolved | null, config: AppConfig | null | undefined): boolean {
+  if (!airport || !config) return false;
+  return Boolean(
+    (airport.iata && airport.iata === config.airport_iata) ||
+    (airport.icao && airport.icao === config.airport_icao)
+  );
+}
+
+function airportFallbackFromConfig(config: AppConfig | null | undefined): AirportResolved | null {
+  const iata = (config?.airport_iata || "").trim().toUpperCase();
+  const icao = (config?.airport_icao || "").trim().toUpperCase();
+  if (!iata && !icao) return null;
+  const displayName = (config?.display_name || "").trim();
+  const usefulName = displayName && displayName !== "Local Flight"
+    ? displayName
+    : [iata, icao].filter(Boolean).join(" / ");
+  return {
+    iata,
+    icao,
+    name: usefulName,
+    city: "",
+    country: "",
+    timezone: config?.timezone || undefined,
+    type: "large_airport"
+  };
+}
 
 function refreshActivityForTarget(target: Screen, landscapeFidsActive: boolean): ActivityStatus {
   if (landscapeFidsActive || target === "fids") {
@@ -225,10 +258,10 @@ export function AppShell() {
   const [mobileSetupState, setMobileSetupState] = useState<MobileSetupState>(() => incompleteMobileSetupState());
   const [launchHydrated, setLaunchHydrated] = useState(false);
   const [pairingUrl, setPairingUrl] = useState("");
+  const [pairingExpectedServerFingerprint, setPairingExpectedServerFingerprint] = useState("");
   const [pairingNonce, setPairingNonce] = useState(0);
   const [pairingNotice, setPairingNotice] = useState<string | null>(null);
   const [serverPanelRequest, setServerPanelRequest] = useState(0);
-  const [helpPanelRequest, setHelpPanelRequest] = useState(0);
   const [standaloneHelpVisible, setStandaloneHelpVisible] = useState(false);
 
   const socketRef = useRef<WebSocket | null>(null);
@@ -373,6 +406,7 @@ export function AppShell() {
   const matchingLanAirportDetail =
     airportDetail &&
     (
+      (!snapshot.config?.airport_iata && !snapshot.config?.airport_icao) ||
       (airportDetail.iata && airportDetail.iata === (snapshot.config?.airport_iata || "")) ||
       (airportDetail.icao && airportDetail.icao === (snapshot.config?.airport_icao || ""))
     )
@@ -408,6 +442,7 @@ export function AppShell() {
 
     setDraftUrl(parsed.serverUrl);
     setPairingUrl(parsed.serverUrl);
+    setPairingExpectedServerFingerprint(parsed.expectedServerFingerprint || "");
     setPairingNonce((value) => value + 1);
     setActionRow(null);
     setConfigSheetVisible(false);
@@ -499,9 +534,17 @@ export function AppShell() {
     }
 
     const summary = await getMobileSummary(normalized);
-    const config = summary.config;
+    let config = summary.config;
     if (!config) {
       throw new Error("Local Flight host summary did not include config.");
+    }
+    if (!config.airport_iata && !config.airport_icao) {
+      try {
+        config = await getConfig(normalized);
+        summary.config = config;
+      } catch {
+        // Keep the summary payload if the companion-only config fallback is not available.
+      }
     }
 
     let resolvedAirport: AirportResolved | null = null;
@@ -515,7 +558,10 @@ export function AppShell() {
       }
     }
 
-    setAirportDetail(resolvedAirport);
+    const fallbackAirport = airportFallbackFromConfig(config);
+    setAirportDetail((previous) =>
+      resolvedAirport || (airportMatchesConfig(previous, config) ? previous : null) || fallbackAirport
+    );
     setSnapshot(summary);
     await saveCachedLanConfig(config);
     if (resolvedAirport) {
@@ -767,7 +813,7 @@ export function AppShell() {
     ]
   );
 
-  const connect = useCallback(async (candidateUrl = draftUrl) => {
+  const connect = useCallback(async (candidateUrl = draftUrl, expectedServerFingerprint = "") => {
     const normalized = normalizeServerUrl(candidateUrl);
     setLoading(true);
     setActivity({
@@ -777,7 +823,18 @@ export function AppShell() {
     setError(null);
 
     try {
-      await testConnection(normalized);
+      if (expectedServerFingerprint) {
+        const summary = await getMobileSummary(normalized);
+        const fingerprintProblem = pairingFingerprintProblem(
+          expectedServerFingerprint,
+          summary.system?.install_id
+        );
+        if (fingerprintProblem) {
+          throw new Error(fingerprintProblem);
+        }
+      } else {
+        await testConnection(normalized);
+      }
       await saveServerUrl(normalized);
       if (mobileDiagnosticsMode !== "unset") {
         const nextSetupState = completeMobileSetupState(normalized, mobileDiagnosticsMode);
@@ -788,6 +845,7 @@ export function AppShell() {
       setDraftUrl(normalized);
       setPairingNotice(null);
       setPairingUrl("");
+      setPairingExpectedServerFingerprint("");
       setScreen("fids");
       hapticSuccess();
     } catch (exc) {
@@ -800,12 +858,13 @@ export function AppShell() {
     }
   }, [draftUrl, mobileDiagnosticsMode]);
 
-  const connectPairingUrl = useCallback((nextUrl: string) => {
-    setDraftUrl(nextUrl);
-    setPairingUrl(nextUrl);
+  const connectPairingUrl = useCallback((pairing: PairingLinkResult) => {
+    setDraftUrl(pairing.serverUrl);
+    setPairingUrl(pairing.serverUrl);
+    setPairingExpectedServerFingerprint(pairing.expectedServerFingerprint || "");
     setPairingNonce((value) => value + 1);
-    setPairingNotice(`Pairing QR loaded. Connecting this mobile app to ${nextUrl}.`);
-    void connect(nextUrl);
+    setPairingNotice(`Pairing QR loaded. Connecting this mobile app to ${pairing.serverUrl}.`);
+    void connect(pairing.serverUrl, pairing.expectedServerFingerprint);
   }, [connect]);
 
   const chooseRadarDrawingLayers = useCallback(async (next: MobileRadarDrawingLayers) => {
@@ -1166,9 +1225,9 @@ export function AppShell() {
       profile.source === cfg?.source &&
       profile.refresh_seconds === cfg?.refresh_seconds
     )?.id || null;
-  const airportCode = cfg?.airport_iata || "---";
-  const airportIcao = cfg?.airport_icao || "";
-  const hasConfiguredAirport = Boolean(cfg?.airport_iata || cfg?.airport_icao);
+  const airportCode = cfg?.airport_iata || currentAirportDetail?.iata || "---";
+  const airportIcao = cfg?.airport_icao || currentAirportDetail?.icao || "";
+  const hasConfiguredAirport = Boolean(airportCode !== "---" || airportIcao);
   const fallbackDisplayName =
     cfg?.display_name && cfg.display_name !== "Local Flight"
       ? cfg.display_name
@@ -1260,6 +1319,7 @@ export function AppShell() {
             initialUrl={draftUrl || serverUrl}
             pairingUrl={pairingUrl}
             pairingNonce={pairingNonce}
+            pairingExpectedServerFingerprint={pairingExpectedServerFingerprint}
             initialDiagnosticsMode={mobileDiagnosticsMode}
             onComplete={completeCompanionSetup}
           />
@@ -1331,7 +1391,6 @@ export function AppShell() {
               return;
             }
             setScreen("control");
-            setHelpPanelRequest((value) => value + 1);
           }}
         />
 
@@ -1432,12 +1491,12 @@ export function AppShell() {
                 <ConnectPrompt onSettings={() => setScreen("control")} />
               ) : null}
 
-              <ScreenActivity activity={activity} />
+              {activity && !error && !refreshing ? <ScreenActivity activity={activity} /> : null}
 
-              {error ? (
+              {error && !refreshing ? (
                 <ScreenError
                   message={error}
-                  retrying={refreshing}
+                  retrying={false}
                   onRetry={() => { hapticLight(); refreshScreen({ target: screen }); }}
                 />
               ) : null}
@@ -1543,7 +1602,6 @@ export function AppShell() {
                   schedulerMessage={schedulerMessage}
                   pairingNotice={pairingNotice}
                   serverPanelRequest={serverPanelRequest}
-                  helpPanelRequest={helpPanelRequest}
                   matrixRuntime={matrixRuntime}
                   matrixDirty={matrixDirty}
                   matrixSaving={matrixSaving}
@@ -2317,6 +2375,14 @@ function createStyles() {
     paddingVertical: 11,
     borderRadius: 18,
     borderWidth: 1
+  },
+  activityPillCompact: {
+    minHeight: 0,
+    alignSelf: "flex-start",
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    gap: 0
   },
   activityPillSync: {
     borderColor: accent18,

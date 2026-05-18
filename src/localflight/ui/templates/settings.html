@@ -291,6 +291,31 @@
     .form-grid { grid-template-columns: 1fr; }
     .settings-actions { justify-content: flex-start; }
   }
+
+  /* ── Compact / 7" Pi screen rules ── */
+  @media (max-height: 600px) {
+    .settings-page { padding: 10px 12px 20px; }
+    .settings-hero { gap: 10px; margin-bottom: 10px; }
+    .settings-title img { width: 30px; height: 30px; }
+    .settings-title h1 { font-size: 1.1rem; margin: 0 0 2px; }
+    .settings-title p  { font-size: 0.78rem; }
+    .status-strip {
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 6px;
+      margin-bottom: 8px;
+    }
+    .metric-card,
+    .settings-card,
+    .details-card {
+      border-radius: 12px;
+      padding: 10px 12px;
+    }
+    .settings-actions button,
+    .settings-actions a { padding: 6px 12px; font-size: 0.82rem; min-height: 32px; }
+  }
+  @media (max-width: 880px) and (max-height: 520px) {
+    .status-strip { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  }
 {% endblock %}
 
 {% block body %}

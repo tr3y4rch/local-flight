@@ -11,36 +11,53 @@ DEFAULT_PAIRING_PORT = 8000
 PAIRING_SCHEME = "localflight"
 
 
-def build_pairing_deep_link(server_url: str, *, source: str = "qt") -> str:
+def build_pairing_deep_link(server_url: str, *, source: str = "qt", server_fingerprint: str = "") -> str:
     """Return the reusable companion deep link for one Local Flight server."""
     normalized = _normalize_http_url(server_url)
-    query = urlencode({"server": normalized, "source": source})
+    payload = {"server": normalized, "source": source}
+    fingerprint = _normalize_server_fingerprint(server_fingerprint)
+    if fingerprint:
+        payload["server_fingerprint"] = fingerprint
+    query = urlencode(payload)
     return f"{PAIRING_SCHEME}://pair?{query}"
 
 
-def pairing_gateway_payload(*, base_url: str = "", port: int = DEFAULT_PAIRING_PORT) -> dict[str, object]:
+def pairing_gateway_payload(
+    *,
+    base_url: str = "",
+    port: int = DEFAULT_PAIRING_PORT,
+    server_fingerprint: str = "",
+) -> dict[str, object]:
     """Build URL, deep-link, and manual fallback data for companion pairing UI."""
     manual_urls = lan_url_candidates(base_url=base_url, port=port)
     preferred_url = manual_urls[0] if manual_urls else f"http://localflight.local:{port}"
+    fingerprint = _normalize_server_fingerprint(server_fingerprint) or _safe_install_fingerprint()
     return {
         "preferred_url": preferred_url,
         "manual_urls": manual_urls,
-        "deep_link": build_pairing_deep_link(preferred_url, source="qt"),
+        "server_fingerprint": fingerprint,
+        "deep_link": build_pairing_deep_link(preferred_url, source="qt", server_fingerprint=fingerprint),
     }
 
 
 def lan_url_candidates(*, base_url: str = "", port: int = DEFAULT_PAIRING_PORT) -> list[str]:
     """Return LAN-friendly server URLs, with loopback avoided for phone pairing."""
-    candidates: list[str] = [f"http://localflight.local:{port}"]
+    candidates: list[str] = []
     parsed_base = urlparse(base_url or "")
     base_host = (parsed_base.hostname or "").strip("[]")
-    if base_host and _is_lan_host(base_host):
+    if base_host and _is_private_ipv4(base_host):
         base_port = parsed_base.port or port
         candidates.append(f"{parsed_base.scheme or 'http'}://{base_host}:{base_port}")
 
     for host in _local_ipv4_addresses():
-        if _is_lan_host(host):
+        if _is_private_ipv4(host):
             candidates.append(f"http://{host}:{port}")
+
+    if base_host and _is_lan_hostname(base_host) and base_host.lower() != "localflight.local":
+        base_port = parsed_base.port or port
+        candidates.append(f"{parsed_base.scheme or 'http'}://{base_host}:{base_port}")
+
+    candidates.append(f"http://localflight.local:{port}")
 
     seen: set[str] = set()
     unique: list[str] = []
@@ -86,6 +103,22 @@ def _normalize_http_url(value: str) -> str:
     return trimmed.rstrip("/")
 
 
+def _safe_install_fingerprint() -> str:
+    try:
+        from localflight.storage.install import get_install_fingerprint
+
+        return str(get_install_fingerprint() or "").strip()
+    except Exception:
+        return ""
+
+
+def _normalize_server_fingerprint(value: str) -> str:
+    fingerprint = str(value or "").strip()
+    if len(fingerprint) > 24:
+        return ""
+    return fingerprint
+
+
 def _local_ipv4_addresses() -> list[str]:
     addresses: list[str] = []
     try:
@@ -107,15 +140,22 @@ def _local_ipv4_addresses() -> list[str]:
     return addresses
 
 
-def _is_lan_host(host: str) -> bool:
+def _is_private_ipv4(host: str) -> bool:
     lowered = host.lower()
-    if lowered == "localflight.local":
-        return True
     try:
         address = ipaddress.ip_address(lowered)
     except ValueError:
-        return lowered.endswith(".local")
+        return False
     return bool(address.version == 4 and address.is_private and not address.is_loopback)
+
+
+def _is_lan_hostname(host: str) -> bool:
+    lowered = host.lower()
+    try:
+        ipaddress.ip_address(lowered)
+    except ValueError:
+        return lowered.endswith(".local")
+    return False
 
 
 __all__ = [

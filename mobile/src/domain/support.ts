@@ -6,6 +6,8 @@ export type SupportTipTier = {
   amountUsd: number;
   displayAmount: string;
   label: string;
+  tagline: string;
+  perk: string;
 };
 
 export type SupportProductAvailability = "available" | "coming_soon" | "unavailable";
@@ -35,28 +37,36 @@ export const SUPPORT_TIP_TIERS: SupportTipTier[] = [
     productId: "com.localflight.companion.tip.2",
     amountUsd: 2,
     displayAmount: "$2",
-    label: "Coffee"
+    label: "Small tip",
+    tagline: "A coffee for the dev",
+    perk: "Supporter badge"
   },
   {
     id: "tip_5",
     productId: "com.localflight.companion.tip.5",
     amountUsd: 5,
     displayAmount: "$5",
-    label: "Ramp snack"
+    label: "Nice tip",
+    tagline: "Helps keep servers warm",
+    perk: "Supporter badge"
   },
   {
     id: "tip_10",
     productId: "com.localflight.companion.tip.10",
     amountUsd: 10,
     displayAmount: "$10",
-    label: "Radar fuel"
+    label: "Generous",
+    tagline: "Fuels new features",
+    perk: "Supporter badge · gold accent"
   },
   {
     id: "tip_20",
     productId: "com.localflight.companion.tip.20",
     amountUsd: 20,
     displayAmount: "$20",
-    label: "Keep the board glowing"
+    label: "Captain",
+    tagline: "Keeps the boards flying",
+    perk: "Supporter badge · captain stripes"
   }
 ];
 

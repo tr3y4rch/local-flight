@@ -14,7 +14,105 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 > status pills, toasts, info bubbles, color emoji nav glyphs, and four FIDS
 > board styles (Classic / PAX / VATSIM / Nerd), plus the new mobile LAN
 > Companion / Standalone split.
+>
+> Late in the cycle (2026-05-18) the release also picked up a visual-language
+> pass that finishes earlier work: the four FIDS preset skins now actually
+> render distinct designs and scale with the viewport, the Settings page
+> replaces its bland checkbox-titled sections with proper disclosure cards,
+> the LAN browser UI gets a mirror-image of the Qt top nav, a real mobile
+> view for phones, and a dedicated 7-inch Pi screen layout.
+>
 > For the user-facing summary, see [docs/release-notes-0.2.7.md](docs/release-notes-0.2.7.md).
+
+### History movement hardening (2026-05-18)
+- Added a canonical `history_movements` layer beside the raw `flights` observation table. User-facing History now counts deduped movements instead of repeated board snapshot rows.
+- History windows now filter by movement `event_time` (actual time first, scheduled time second), not by when a snapshot was fetched. Future scheduled board rows no longer inflate "last 24h" history until the movement time is current.
+- Repeated snapshots and linked codeshare aliases collapse into one movement with `observation_count`, while unrelated flights on the same route/time stay separate.
+- `/api/history`, `/api/history/summary`, `/api/history/flight`, FIDS detail history, LAN browser History, native Qt History, Admin history stats, and mobile History copy now use movement semantics and expose raw observation counts only as diagnostics.
+- Existing local `history.db` files are backfilled idempotently into `history_movements` without deleting raw observations.
+- Mobile Standalone history now upserts movement rows in Expo SQLite and keeps the 30-day / 1,000-entry retention by movement instead of by repeated snapshot row.
+
+### VATSIM display contract (2026-05-18)
+- VATSIM / `source=virtual` is now treated as a pilot/ATC-style mode instead of a passenger/codeshare board. Rows are callsign-first and can expose aircraft type, flight rules, filed route/cruise, altitude, ground speed, XPDR, track state, and VATSIM freshness.
+- `/api/fids` and `/api/fids/detail` now sanitize virtual rows/details before clients render them: codeshares, sold-as, marketing carrier fields, airline labels, gate/terminal/stand fields, delay chips, registrations, and ICAO24 are empty in virtual mode.
+- LAN browser, native Qt, and mobile detail views now use virtual sections: VATSIM Summary, Filed Plan, Pilot Track, VATSIM Data, and Recent Sessions. Real-source flight details are unchanged.
+- Matrix payloads keep the existing VATSIM gate/codeshare suppression even when fed richer virtual FIDS rows.
+- Added regression coverage for VATSIM row/detail payloads, browser template guards, native Qt detail HTML, and mobile type coverage.
+
+### Mobile QR pairing hardening (2026-05-18)
+- Native Settings pairing now prefers the actual LAN IP over `localflight.local`, keeping the mDNS shortcut as a fallback for one-server LANs.
+- New pairing QR links include the redacted server fingerprint. The mobile app compares that fingerprint with `/api/mobile/summary.system.install_id` before saving a scanned pairing, so a QR that resolves to another Pi/desktop is rejected instead of silently connecting to the wrong host.
+- Added `DELETE /api/admin/companion` and a Qt Settings **Reset paired devices** action to clear this server's remembered mobile companion check-ins.
+- Updated pairing copy in native Settings, mobile setup, and docs to recommend LAN IP / fingerprint-bound QR pairing for multi-server test networks.
+
+### Relay identity and activation reliability (2026-05-19)
+- Desktop/Pi installs now keep a versioned local identity bundle and a reset-safe local mirror so normal setup resets and dev wipes can recover the same install ID without creating duplicate relay clients.
+- Setup activation is verify-first: an existing local relay token is checked before `/v1/activate` is called, preventing harmless setup refreshes from rotating tokens or adding activation noise.
+- Relay errors now return stable local statuses such as `token_invalid`, `token_bound_elsewhere`, `manual_review`, `rate_limited`, and `relay_unreachable` so setup UI can show friendly repair copy instead of raw HTTP/JSON details.
+- Known-install relay reissues no longer consume anonymous new-install network burst capacity; unknown new installs still go through the existing manual-review safety net.
+- Managed relay auth failures now set a local cooldown before retrying, avoiding repeated scheduler noise when a stored token is stale or revoked.
+
+### FIDS preset skins finally render their respective designs (2026-05-18)
+- Classic / PAX / VATSIM / Nerd were only labels on the same board until now. The active style is now driven by a richer `FidsStyle` dataclass (`row_height`+min/max, `row_gap`, `header_height`, `padding`, `font_scale`, primary/mono font families, palette overlay, `header_kind`, `row_chrome`, `status_chip`, `Column` spec with `(key, label, weight, min_w, hide_threshold)`).
+- **Classic** keeps the original rounded blue/cyan card layout with status rail and pill chips — fully unchanged for existing users.
+- **PAX** uses oversized rounded cards (`card-big` chrome, 104 px base row), a "tape"-style header band, warm sky-blue + amber accent palette, friendly status verbs ("Boarding now", "Significantly late"), bigger gate badge.
+- **VATSIM** uses an ATC scope chrome: flat rows on a faint green grid backdrop with a range-ring marker in the corner, monospace everywhere, callsign-first columns, square phase chip (TAXI / DESCENT / DELAY / PLAN), tighter 58 px base rows.
+- **Nerd** uses a grid chrome with column separators on every row, 13 columns visible (callsign + flight + registration + altitude + ground-speed + squawk + delay + source...), 3-letter status codes (BRD / DLY / SCH), low-intensity palette.
+- Geometric scaling: `FidsBoardView._viewport_scale()` returns a 1.0-centered scale factor based on viewport width (clamped 0.78–1.35), feeding both `_scaled_row_height` (per-skin clamp between `row_height_min` and `row_height_max`) and `_font_pt` (`base × font_scale × viewport_scale`). The board recomputes on every paint so the skin stays proportional when the window is resized.
+- `_column_rects` now consumes `style.columns`: hides any column whose `hide_threshold` exceeds the viewport, then distributes leftover space proportionally to weight (above `min_w`). Verified across 540–2400 px viewports: Nerd drops a column at 540 px and shows all 13 by 1400 px without ever overflowing.
+- `_draw_row` dispatches on `row_chrome` (`card` / `card-big` / `scope` / `grid`); `_draw_header` on `header_kind` (`pill` / `tape` / `scope` / `mono`); `_draw_status` on `status_chip` (`pill` / `pill-big` / `square` / `code`). A generic `_draw_text_cell` + `_cell_text` resolver covers the extra columns introduced by VATSIM and Nerd so adding a column to a future skin no longer needs a new draw method.
+- `FidsScreen.set_fids_style()` now also calls `self.board.set_style(style)` and re-renders; `FlightBoardModel` accepts the simpler `style.model_columns` two-tuple shape.
+
+### Settings page — disclosure cards instead of tiny checkboxes
+- The bland `QGroupBox(setCheckable=True)` pattern (Relay details / Diagnostics & Docs / Maintenance / Advanced Board Timing) was replaced with a new `DisclosureCard` widget in `localflight/native/widgets.py`. The whole header bar is the toggle, with an emoji slot, bold title, muted one-line subtitle that stays visible when collapsed, and a chevron that flips ▸ / ▾.
+- Each section now carries an emoji + subtitle so it self-describes without expanding: 🔗 Relay details, 📚 Diagnostics & Docs, 🔧 Maintenance, ⚙️ Advanced Board Timing.
+- New QSS rules in `design.py` style `QFrame#DisclosureCard`, `QFrame#DisclosureHeader`, and the four label slots. When expanded the header takes an accent-tinted background with a divider line; the chevron turns accent.
+- `SettingsScreen._collapsible_section()` keeps its `(group, body, body_layout)` return shape so existing call-sites kept working; `Advanced Board Timing` migrated from a raw `QGroupBox` to the same card so the page reads as a single consistent stack.
+
+### LAN browser UI — new shell that mirrors the Qt desktop
+- New `static/lf-shell.css` becomes the source of truth for the browser shell. Tokens are aligned 1-for-1 with `localflight/native/design.py` (bg `#080c12`, panel `#0d1520`, line `#1e3a5a`, text `#e8f0fe`, accent `#4a9eda`, cyan `#7ce7ff`); skin overrides from `skins.css` flow into the same `--lf-accent` / `--lf-accent-2` tokens so picking a skin in Settings now retints the LAN browser chrome too.
+- `_nav.html` was rewritten to mirror the Qt `TopNav`: brand mark + Audiowide brand name + monospace version chip → UTC + LT clock chips → centred segmented tab group with emoji glyphs (Display 🖥, FIDS 🛫, Radar 🛰, Matrix 🟩) → operator icon-chip bar (⚙ 🛠 📅 📜 💬) with a pulsing green heartbeat → Power button with a stroke icon.
+- New components for every page: `.lf-panel`, `.lf-card`, `.lf-kicker`, `.lf-section`, `.lf-disclosure` (HTML `<details>` styled to match the Qt `DisclosureCard`), `.lf-pill` + good/warn/bad variants, `.lf-btn` + primary/quiet/danger/mono. Inputs pick up the Qt focus ring (`accent` border + 3 px accent halo).
+- `app.css` token palette (`--bg / --panel / --card / --input / --btn`) now uses the Qt design.py values so even legacy pages that don't use the new classes pick up the right colours.
+- Stripped ~330 lines of legacy `.lf-nav` rules from inline `base.html` styles (now redundant with `lf-shell.css`). Quit modal switched to `.lf-btn-quiet` / `.lf-btn-danger`.
+
+### LAN browser UI — mobile view for phones
+- New `static/mobile.css` activates whenever `<html>` carries `lf-is-mobile`. The class is toggled by base.html JS based on either viewport width ≤ 720 px (auto) or a `?mobile=1` query (manual override, remembered in `sessionStorage` so navigation keeps it; `?mobile=0` clears).
+- Top nav pins to the bottom edge as a thumb-reachable bar with `env(safe-area-inset-bottom)` for notched/home-indicator phones. The brand block + clock chips drop out (duplicated on each page header), centre tabs become a flat icon-and-caption row, and the icon bar keeps Settings + Admin (History/Logs/Report still reachable from the desktop view + Settings). Power collapses to icon-only.
+- FIDS table reflows to a per-flight card stack: time column on the left, flight + airline + route stacked, status pill top-right, gate badge on a meta row. Status colour rides a left accent rail on each card. Narrower-phone tightening at ≤520 px and ≤380 px.
+- Settings / Admin / Setup multi-column grids stack to a single column. Inputs become 16 px + 44 px minimum height (prevents iOS Safari focus-zoom). `<pre>` / `.logbox` wrap instead of horizontal-scrolling.
+- Radar / Matrix / Display panes stack their sidebars and resize their canvases to viewport width.
+- Updated viewport meta to `viewport-fit=cover` and added PWA meta tags (`apple-mobile-web-app-capable`, `theme-color` for dark/light). A small `window.lfMobileSet(true/false)` helper is exposed for future toggles.
+
+### LAN browser UI — 7-inch Pi screen compact layout
+- Added a "compact landscape" tier keyed on viewport **height** (not width), since the official Pi 7" screen is 800×480 and common 7" IPS panels are 1024×600 — short, not narrow.
+- `@media (max-height: 600px)` tightens shell-wide chrome: nav padding 48 px (was 60), brand mark 22 px, LT clock chip hidden, smaller tabs / icon buttons / power, page padding 12 px (was 22), panel padding 12 px, disclosure header padding tightened.
+- `@media (max-width: 1024px) and (max-height: 600px)` drops the brand text (logo mark stays as the home link) and hides History/Logs/Report from the icon bar so the centre tabs + Settings/Admin chips fit unscrolled.
+- `@media (max-width: 880px) and (max-height: 520px)` (the official Pi 7"): strips the UTC chip and shrinks tab padding.
+- `fids.html` got matching page-level compact rules: row height 40 px (was 52), `fids-hhmm` 1.02 rem (was 1.18), tighter METAR bar, narrower time/flight/gate/status columns. At Pi 7" the A/C column is hidden (least actionable for a kiosk display). Net effect: 8 flights visible at 800×480 (was 5), 11 at 1024×600.
+- `settings.html` got matching compact rules: 1.1 rem title (down from 1.45–2.1 rem `clamp`), 12 px-radius cards, 5-card status strip collapses to 3 columns at Pi 7".
+
+### Files added (2026-05-18)
+- `docs/previews/mobile-fids-preview.svg`, `mobile-radar-preview.svg`, `mobile-history-preview.svg`, `mobile-settings-preview.svg` — refreshed mobile showcase illustrations for README/gallery use.
+- `src/localflight/native/widgets.py` — new `DisclosureCard` factory.
+- `src/localflight/ui/static/lf-shell.css` — Qt-aligned browser shell.
+- `src/localflight/ui/static/mobile.css` — mobile / compact view.
+
+### Files updated (2026-05-18)
+- `src/localflight/native/pages/fids_styles.py` — richer `FidsStyle` dataclass, four reworked presets with distinct visual identity + layout primitives.
+- `src/localflight/native/pages/fids.py` — `FidsBoardView` now skin-aware (geometric scaling, dispatch per chrome/header/chip, generic cell painter).
+- `src/localflight/native/pages/settings.py` — `_collapsible_section` builds a `DisclosureCard`; Advanced Board Timing converted off raw `QGroupBox`.
+- `src/localflight/native/design.py` — QSS for `QFrame#DisclosureCard` family; aligned LAN-browser color tokens stay in sync.
+- `src/localflight/ui/templates/_nav.html` — Qt-shell-aligned top nav.
+- `src/localflight/ui/templates/base.html` — loads `lf-shell.css` + `mobile.css`; ~330 lines of legacy nav CSS removed; PWA meta tags + `?mobile=1` JS toggle added.
+- `src/localflight/ui/templates/fids.html` — compact rules at `(max-height: 600px)` + Pi 7" rules at `(max-width: 880px) and (max-height: 520px)`.
+- `src/localflight/ui/templates/settings.html` — compact rules at the same break-points.
+- `src/localflight/ui/static/app.css` — token palette aligned with Qt `THEME_TOKENS`.
+- Removed stale versioned mobile preview SVGs that were superseded by the refreshed Board/Radar/History/Settings gallery set.
+
+### Verification (2026-05-18)
+- Qt FIDS renders verified per-skin (Classic / PAX / VATSIM / Nerd) via `QPainter` headless renders; column-rect math verified across 540 px / 900 px / 1400 px / 2400 px (no overflow; lowest-priority columns drop first); row-height interpolation verified at 640 / 1024 / 1600 / 2400 px (stays within each skin's `min`/`max`).
+- LAN browser renders via `QWebEngineView` verified at desktop (1400×820), 7" Pi landscape (1024×600 and 800×480), tablet (768×1024), and phone (390×844). The desktop view picks up the new Qt-shell chrome; the phone view shows the bottom-bar mobile layout; the Pi viewports show 8–11 flight rows + compact chrome without horizontal scroll. No regression on the desktop FIDS table or detail drawer.
 
 ### Native first-run setup wizard
 - Replaced the row of numbered step buttons with an animated horizontal stepper: numbered circles connected by a fill line that glides as you advance, current step has a pulsing accent halo, done steps show ✓, hovering a node shows a soft ring.
@@ -94,7 +192,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Added relay endpoints for standalone mobile airport search/resolve, summary, FIDS, radar, and METAR data. These endpoints require `install_id`, `activation_token`, `app_version`, and `client_kind=mobile_standalone`.
 - Standalone product limits are enforced on both sides: 3-hour minimum FIDS freshness, 5-minute radar refresh cache, and radar ranges limited to `1`, `3`, `5`, and `10` NM.
 - Standalone hides WebSocket, Matrix, Admin, scheduler restart, LAN server controls, and companion check-in surfaces. The mobile bottom nav becomes Board, Radar, History, and Settings.
-- Standalone History now uses Expo SQLite on-device storage and prunes to 30 days or 1,000 rows. No relay-side per-install flight history was added.
+- Standalone History now uses Expo SQLite on-device storage and prunes to 30 days or 1,000 deduped movements. No relay-side per-install flight history was added.
 - Standalone manual/crash reports post directly to relay `/v1/reports`; automatic standalone reports require the mobile diagnostics choice to be `auto` or `auto_logs`.
 - LAN Companion behavior remains paired to the local desktop/Pi server, including WebSocket refresh, server-mediated reports, local settings/control, and mobile/server double-consent for automatic diagnostics.
 - The mobile launch overlay now uses shared brand text components, an independent continuous radar sweep, status text cross-fade, breathing status dot, and blinking amber board LED.
@@ -132,6 +230,131 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Generated stylesheet contains the new shared selectors for pills, page heroes, spinners, info buttons, toasts, primary actions, FIDS style buttons, and setup option cards.
 - FIDS style registry returns `['classic', 'pax', 'vatsim', 'nerd']` with `classic` as the default.
 - Full Mac/Codex validation after the mobile Standalone pass, Claude UI rescue, native FIDS painter polish, and docs pass: `.venv/bin/python -m pytest tests -q` returned `385 passed`; focused Qt column compatibility check returned `1 passed`; `.venv/bin/python -m py_compile src/localflight/native/pages/fids.py src/localflight/native/pages/fids_styles.py` passed; `cd mobile && npm run typecheck && npm run doctor` passed with Expo Doctor `18/18`; `git diff --check` passed.
+
+### Mobile companion — tip jar redesign + setup wizard polish
+
+Third targeted redesign pass focusing on the two surfaces that needed more
+work after the screen audit: the tip jar (SupportSheet) and the setup wizard.
+
+**Tip jar (SupportSheet)**:
+- New `SupportTierRow` component replaces the 2×2 grid. Tiers now render as
+  full-width rows with an amount chip + label + tagline + perk line + forward
+  chevron. Easier to scan, less cramped on narrow phones.
+- The $10 tier is highlighted with a "POPULAR" badge and amber accent ring.
+- `SUPPORT_TIP_TIERS` reworked: names are now passenger-friendly
+  (`Small tip`, `Nice tip`, `Generous`, `Captain`) with separate `tagline` and
+  `perk` fields (e.g. "A coffee for the dev" / "Supporter badge · gold accent").
+- Hero redesigned: bigger centered heart icon with soft amber glow halo,
+  centered title + body, optional tagline below.
+- New `supportContextStrip` shows where tips go (Servers · New features · Maintenance)
+  as a horizontal row with mono-uppercase labels and dividers.
+- Success card upgraded: bigger halo, divider, perk line ("Your Supporter badge
+  will appear next to your airport code"), explicit Continue button so users
+  can dismiss the celebration when they're ready instead of it sitting forever.
+- Existing supporter banner (shown to returning supporters) now wraps the star
+  in a proper badge circle for visual parity with the post-purchase card.
+- Message card now flexes a small info icon next to the text and uses a blue
+  tint instead of amber so it reads as informational rather than celebratory.
+- Fine print compressed to a single dot-separated line.
+
+**Setup wizard polish**:
+- Text trim across all five steps: welcome / mode / server / privacy / ready
+  body copy reduced by ~50 % each. Walls-of-text replaced with one-line summaries.
+- New `SetupInfoBubble` collapsible "ⓘ + label + chevron" component — exposes
+  technical detail on demand (What is Local Flight? · Where do I find this? ·
+  What gets sent?) without cluttering the main panel copy. Each bubble springs
+  open/closed with an animated chevron rotation.
+- Mode cards reworded: "RECOMMENDED" / "JUST EXPLORING" badge tone instead of
+  "FULL FEATURES" / "NO SERVER NEEDED". Description switched from third-person
+  to first-person ("I have a Local Flight server running.").
+- New `launching` step + `SetupLaunchCelebration` component: when the user taps
+  LAUNCH APP, the wizard transitions to a dedicated celebration screen with
+  three concentric expanding rings around a green check icon, a "You're all set"
+  headline, and a green progress bar. The celebration holds for ~900 ms before
+  `onComplete` fires and the main app opens.
+- `hapticSuccess()` fires on the LAUNCH APP press for a richer confirmation.
+- Step rail label `launching: "Launch"` added so the dedicated step has a name
+  if/when it ever appears in the visible rail (currently kept out of the rail).
+
+### Mobile companion — full UI/UX redesign (style registry + screen pass)
+
+Second redesign pass completing the visual overhaul started in the seven-phase session above.
+All changes typecheck clean. No backend changes required.
+
+**Style registry (AppShell.tsx `createStyles`)** — 60+ new style keys wired for all
+redesigned components:
+- Airport hero: `airportHero`, `airportHeroTopRow/Left/Right/CodeRow`, `airportIataBadge/Text`,
+  `airportIcaoText`, `airportCityName/Placeholder`, `airportChangeHint/Text`,
+  `heroUtcTime/Suffix`, `heroLocalTime/Suffix`, `heroConnectionPill/Dot/Ring/Label`,
+  `heroSourcePill/Text`, `heroCountPill/Text`, `heroStatusStrip`, `heroSnapshotRing`,
+  `supporterBadge/BadgeText`
+- Radar: `radarRangeBar/BarLabel/Chips/Chip/ChipActive`, `radarRangeChipNum/Unit/NumActive/UnitActive`,
+  `radarSettingsButton`, `radarStatusBar/Item/Divider/Value/Label`,
+  `radarLegendStrip/Left/Source/Dots/Item/Ground`,
+  `radarSettingsRangeGrid/Item/ItemActive/Num/Unit/NumActive/UnitActive`,
+  `radarSettingsLegend/Row/Label/Detail`, `radarSettingsNote`
+- Support sheet: `supporterBanner/Star/Text/Title/Body`, `supportSuccessCard/Icon/Title/Body`,
+  `supportTierCardDimmed`, `supportTierFooter`, `supportTierStatusDim`, `supportMessageCard`
+- Settings: `settingsDiagnosticsGroup/Row/RowActive/Check/EmptyCheck/Copy/Label/LabelActive/Desc`
+- History: `historyVolumeBarRow/Group/Stack/Seg/DayLabel`, `historyVolumeLegend/Item/Dot/Label`,
+  `historyTruncationNote/Text`
+
+**Bug fixes** — two TypeScript errors fixed: added `hapticSuccess` import in AppScreens.tsx;
+replaced invalid `groundData?.bbox` access with `surfaceFeatureCount` (property does not exist
+on `RadarMapResponse`).
+
+**History screen**:
+- `iataToFlag()` helper with ~200-airport `IATA→ISO 2` lookup table; flag emoji prepended to
+  origin and destination codes in the Top Routes panel (e.g. `🇺🇸JFK›🇬🇧LHR`).
+- `HistoryVolumeChart` component: stacked bar chart from `daily_volume` API data showing
+  per-day departure (blue) and arrival (green) counts. Up to 14 days rendered inline
+  above the KPI grid.
+- Truncation notice banner: shown when `data.count > data.flights.length` (i.e. the server
+  holds more records than the 120-row display cap) so users know totals are correct.
+
+**Control/Settings screen**:
+- Replaced the three-pill `settingsCompactButton` row (HIDE SERVER / AIRPORT & SOURCE /
+  RESTART FETCH) with individual full-width `SettingsToolPill` rows — each shows an icon,
+  label, value, and chevron.
+- Removed the redundant QUICK ACTIONS `CollapsibleCard`; its entries are now in
+  APPEARANCE & DISPLAY and DIAGNOSTICS sections.
+- Diagnostics mode picker replaced: was a `filterRow` of small pill buttons; now renders
+  as a bordered radio group with individual labelled rows (icon ✓ / empty circle + label
+  + description) matching iOS Settings style.
+- Sections renamed and reordered: HOST STATUS → CONNECTION → APPEARANCE & DISPLAY →
+  DIAGNOSTICS for logical top-to-bottom scan order.
+
+### Mobile companion — icon registry
+
+- Added `mobile/src/theme/icons.tsx` — `LocalFlightIcon` component backed by a semantic icon registry (`statusIcons`, `navIcons`, `flightIcons`, `actionIcons`). All interactive UI is now keyed off semantic names rather than raw glyph strings, making skin changes and future icon swaps centralised in one place.
+- Added `mobile/src/theme/weatherIcons.ts` — maps METAR decoded weather conditions to icon names, condition keys, and tone hints. Single source of truth consumed by `CompactWeatherCapsule`, `FlightIsland`, and the Admin weather hero.
+- Added `mobile/src/components/Brand.tsx` — `BrandMark` component encapsulating the animated companion logo used in the setup wizard and launch overlay. Supports a `size` prop and an optional breathing-ring animation mode.
+
+### Mobile companion — seven-phase UI/UX redesign
+
+All seven phases are additive visual polish on the existing data contracts. No route, schema, or server-side changes required.
+
+- **Phase 1 — Animated bottom-nav dot and press scale.** `BottomNav` now renders an animated accent dot that slides between tabs on navigation, and a spring press-scale (`usePressScale`) on every tab button. `hapticSelection` fires on tab switch.
+- **Phase 2 — Haptic feedback throughout.** `hapticSuccess` fires on successful server connection; `hapticLight` fires on manual refresh; `hapticSelection` fires when opening any flight detail sheet or interactive control. Applied in the `AppShell` coordinator and screen-level action handlers.
+- **Phase 3 — Press scale and haptics on every interactive row.** Every tappable row in FIDS, History, Radar, Settings, and Control now uses `usePressScale` for spring-animated press feedback. Covers `FidsRowView`, `HistoryRow`, `RadarBlipRow`, `DirectionButton`, `OptionChip`, `SettingsQuickAction`, `SettingsToolPill`, `ConnectPrompt`, and `CollapsibleCard` headers.
+- **Phase 4 — Two-line FIDS time cell, delay tags, and GATE column.** Flight time cells now show the scheduled time on line 1 and an inline delay badge (`EARLY` / `+NNm` / `+NNm` in green/amber/red) on line 2 when `delay_minutes` is populated. A `GATE` column was added between `STATUS` and `ROUTE`, showing `terminal_gate_display` or a muted `—` placeholder. Column widths were rebalanced to accommodate the new column without horizontal scrolling on standard phone widths.
+- **Phase 5 — History screen redesign.** The flat history list was replaced with a dashboard: a four-cell KPI grid (total flights, on-time rate, average delay, median delay), a per-airline delay-quota progress stack, and sectioned panels for top airlines, busiest routes, and aircraft-type distribution. Each panel uses `CollapsibleCard`.
+- **Phase 6 — Sectioned Control screen and Help tab panels.** The Control screen was restructured into four `CollapsibleCard` sections (Schedule, Radar, Weather, Diagnostics — Diagnostics collapsed by default). The Help screen renders three tab panels (Status / Check / Report). A density toggle (Compact / Comfortable) was added to the FIDS header.
+- **Phase 7 — Animated micro-interactions.** `CompactWeatherCapsule` cross-fades weather icons when the METAR condition changes (100 ms fade-out → icon swap → 220 ms fade-in via `prevIconRef`). `FlightIsland` renders an animated border glow that pulses when live data is fresh. `RadarScope` shows a rotating sweep-needle empty state (`Easing.linear`, 3 s period) when the scope contains no blips.
+- Public preview artwork now covers all current mobile showcase surfaces: Board, Radar, History, and Settings/Control.
+
+### Mobile companion — setup wizard overhaul
+
+- Replaced the single connection screen with a full welcome-first wizard: **Welcome → Mode → Server URL (companion only) → Privacy → Ready**.
+- **Welcome step** shows a breathing logo ring (2 s opacity/scale loop), the Local Flight wordmark, a tagline, and a feature chip row. Entirely new; first thing every new user sees.
+- **Mode step** presents two large `SetupModeCard` components — **LAN Companion / LAN Mobile** (requires a running Local Flight server on the local network; full live FIDS/Radar/admin features) and **Standalone** (no LAN server required; simplified relay-backed Board/Radar/History/Settings with stricter refresh limits). Each card shows a RECOMMENDED / OFFLINE badge, a description, and a feature bullet list. Cards animate via `usePressScale` and show a checkmark when selected.
+- **Server URL step** (companion mode only) retains the existing URL input with an inline health-check icon (spinner → green check / red ✗ from `/api/health`) and a LAN pairing tip. Skipped entirely in standalone mode.
+- **Privacy step** presents three `SetupOptionCard` options (Manual reports / Automatic crash reports / Automatic + sanitized logs) with radio-button selection and a RECOMMENDED badge on the middle option.
+- **Ready step** shows an animated `SetupReadyCheck` circle (spring pop-in, stiffness 260, damping 18) confirming setup is complete, with a summary of chosen mode and diagnostics level.
+- All step transitions use direction-aware spring animations — forward slides/fades in from the right, back from the left — via `stepAnim` (opacity + scale) and `stepShift` (translateY). Spring stiffness 300, damping 24.
+- `SetupStepRail` renders a segmented progress rail with connector lines, numbered dots, and ✓ marks for completed steps. Step count adapts to wizard mode: 4 steps for standalone, 5 for companion.
+- Standalone path saves through `completeStandaloneMobileSetupState()` in `settings.ts` and navigates directly to the FIDS board without requiring a server URL.
+- `mobile/src/storage/settings.ts` gained `MobileSetupMode = "lan_companion" | "standalone"`, `completeStandaloneMobileSetupState()`, and updated `normalizeMobileSetupState` / `isMobileSetupComplete` to handle the standalone completion path correctly.
 
 ---
 
@@ -196,7 +419,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Raspberry Pi installs support three clear paths: headless server, native Qt HDMI kiosk, and Chromium HDMI kiosk.
 - Source installers explain display-mode choices in user-facing terms instead of treating browser or kiosk paths as leftovers.
 - Browser Settings now groups diagnostics, documents, and display-output copy around the current install/display model.
-- Browser History now shares the same analytics contract as native History, combining filters, KPIs, CSS-only charts, recent matching flights, and a polished detail panel on one page.
+- Browser History now shares the same analytics contract as native History, combining filters, KPIs, CSS-only charts, recent matching movements, and a polished detail panel on one page.
 
 ### Matrix
 - Matrix V2 exposes three public presets: `real_fids`, `vatsim_pilot`, and `vatsim_atc`.

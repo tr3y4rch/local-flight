@@ -1,0 +1,170 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="540" viewBox="0 0 960 540" role="img" aria-labelledby="title desc">
+  <title id="title">Local Flight mobile history preview</title>
+  <desc id="desc">Local Flight mobile 0.2.7 — History screen with KPI grid, daily volume chart, and top routes.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#08111a"/>
+      <stop offset="1" stop-color="#0c1118"/>
+    </linearGradient>
+    <linearGradient id="phone" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0e1620"/>
+      <stop offset="1" stop-color="#080d14"/>
+    </linearGradient>
+    <linearGradient id="hero" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#10202e"/>
+      <stop offset="1" stop-color="#0a121b"/>
+    </linearGradient>
+    <filter id="shadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="22" stdDeviation="22" flood-color="#000000" flood-opacity="0.42"/>
+    </filter>
+    <style>
+      .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+      .sans { font-family: Inter, Segoe UI, Helvetica, Arial, sans-serif; }
+      .text { fill: #e8f0f8; }
+      .muted { fill: #7f90a5; }
+      .blue { fill: #62b7f6; }
+      .dim { fill: #48647f; }
+      .green { fill: #22c55e; }
+      .amber { fill: #f4b740; }
+      .tiny { font-size: 9px; letter-spacing: 1px; }
+    </style>
+  </defs>
+
+  <rect width="960" height="540" rx="28" fill="url(#bg)"/>
+
+  <g transform="translate(322 18) scale(1.1)" filter="url(#shadow)">
+    <rect x="0" y="0" width="288" height="456" rx="42" fill="#03070c"/>
+    <rect x="10" y="10" width="268" height="436" rx="34" fill="url(#phone)" stroke="#223242"/>
+    <rect x="102" y="18" width="84" height="12" rx="6" fill="#111923"/>
+
+    <!-- Compact airport hero -->
+    <g transform="translate(20 38)">
+      <rect width="248" height="56" rx="14" fill="url(#hero)" stroke="#1d3147"/>
+      <rect x="0" y="0" width="3" height="56" rx="1.5" fill="#62b7f6"/>
+      <g transform="translate(12 12)">
+        <rect width="40" height="20" rx="6" fill="#0a1721" stroke="#2c4a66"/>
+        <text x="6" y="14" class="mono text" font-size="11" font-weight="900">HAN</text>
+        <text x="0" y="38" class="sans text" font-size="11" font-weight="800">Noi Bai Int'l · History</text>
+      </g>
+      <g transform="translate(170 14)">
+        <text x="0" y="10" class="mono text" font-size="10" font-weight="900">15:24Z</text>
+        <text x="0" y="22" class="mono blue" font-size="8">22:24 LOC</text>
+      </g>
+      <circle cx="232" cy="11" r="9" fill="#1a8af0"/>
+    </g>
+
+    <!-- Direction + window filters -->
+    <g transform="translate(20 104)">
+      <text x="0" y="0" class="mono dim tiny" font-weight="900">DIRECTION</text>
+      <rect x="0" y="6" width="76" height="18" rx="9" fill="#173148" stroke="#356388"/>
+      <text x="22" y="18" class="mono blue tiny" font-weight="900">DEP</text>
+      <rect x="82" y="6" width="76" height="18" rx="9" fill="#14202c" stroke="#30445b"/>
+      <text x="100" y="18" class="mono muted tiny" font-weight="900">ARR</text>
+      <rect x="164" y="6" width="84" height="18" rx="9" fill="#14202c" stroke="#30445b"/>
+      <text x="184" y="18" class="mono muted tiny" font-weight="900">BOTH</text>
+
+      <text x="0" y="38" class="mono dim tiny" font-weight="900">WINDOW</text>
+      <rect x="0" y="44" width="36" height="16" rx="8" fill="#14202c" stroke="#30445b"/>
+      <text x="11" y="55" class="mono muted" font-size="8" font-weight="900">24H</text>
+      <rect x="40" y="44" width="34" height="16" rx="8" fill="#14202c" stroke="#30445b"/>
+      <text x="50" y="55" class="mono muted" font-size="8" font-weight="900">3D</text>
+      <rect x="78" y="44" width="34" height="16" rx="8" fill="#173148" stroke="#4a9eda" stroke-width="1.4"/>
+      <text x="88" y="55" class="mono blue" font-size="8" font-weight="900">7D</text>
+      <rect x="116" y="44" width="36" height="16" rx="8" fill="#14202c" stroke="#30445b"/>
+      <text x="126" y="55" class="mono muted" font-size="8" font-weight="900">30D</text>
+      <rect x="156" y="44" width="36" height="16" rx="8" fill="#14202c" stroke="#30445b"/>
+      <text x="166" y="55" class="mono muted" font-size="8" font-weight="900">90D</text>
+    </g>
+
+    <!-- KPI grid 2x2 -->
+    <g transform="translate(20 176)">
+      <rect width="120" height="42" rx="12" fill="#0e151d" stroke="#243344"/>
+      <text x="10" y="14" class="mono dim" font-size="8" font-weight="900">TOTAL</text>
+      <text x="10" y="34" class="mono text" font-size="18" font-weight="900">1,284</text>
+
+      <rect x="128" y="0" width="120" height="42" rx="12" fill="#0e151d" stroke="#243344"/>
+      <text x="138" y="14" class="mono dim" font-size="8" font-weight="900">DELAY RATE</text>
+      <text x="138" y="34" class="mono amber" font-size="18" font-weight="900">18%</text>
+
+      <rect x="0" y="48" width="120" height="42" rx="12" fill="#0e151d" stroke="#243344"/>
+      <text x="10" y="62" class="mono dim" font-size="8" font-weight="900">AVG DELAY</text>
+      <text x="10" y="82" class="mono text" font-size="18" font-weight="900">7<tspan font-size="11">min</tspan></text>
+
+      <rect x="128" y="48" width="120" height="42" rx="12" fill="#0e151d" stroke="#243344"/>
+      <text x="138" y="62" class="mono dim" font-size="8" font-weight="900">ON TIME</text>
+      <text x="138" y="82" class="mono green" font-size="18" font-weight="900">82%</text>
+    </g>
+
+    <!-- Daily volume chart -->
+    <g transform="translate(20 280)">
+      <rect width="248" height="62" rx="12" fill="#0e151d" stroke="#243344"/>
+      <text x="10" y="14" class="mono dim" font-size="8" font-weight="900">DAILY VOLUME</text>
+      <!-- Bars (7 days, stacked DEP blue / ARR green) -->
+      <g transform="translate(14 22)">
+        <g transform="translate(0 0)">
+          <rect x="0" y="6" width="14" height="20" rx="2" fill="#22c55e"/>
+          <rect x="0" y="2" width="14" height="4" rx="2" fill="#62b7f6"/>
+          <text x="2" y="38" class="mono dim" font-size="6">05/10</text>
+        </g>
+        <g transform="translate(20 0)">
+          <rect x="0" y="4" width="14" height="22" rx="2" fill="#22c55e"/>
+          <rect x="0" y="0" width="14" height="4" rx="2" fill="#62b7f6"/>
+          <text x="2" y="38" class="mono dim" font-size="6">05/11</text>
+        </g>
+        <g transform="translate(40 0)">
+          <rect x="0" y="8" width="14" height="18" rx="2" fill="#22c55e"/>
+          <rect x="0" y="4" width="14" height="4" rx="2" fill="#62b7f6"/>
+          <text x="2" y="38" class="mono dim" font-size="6">05/12</text>
+        </g>
+        <g transform="translate(60 0)">
+          <rect x="0" y="2" width="14" height="24" rx="2" fill="#22c55e"/>
+          <rect x="0" y="-2" width="14" height="4" rx="2" fill="#62b7f6"/>
+          <text x="2" y="38" class="mono dim" font-size="6">05/13</text>
+        </g>
+        <g transform="translate(80 0)">
+          <rect x="0" y="6" width="14" height="20" rx="2" fill="#22c55e"/>
+          <rect x="0" y="2" width="14" height="4" rx="2" fill="#62b7f6"/>
+          <text x="2" y="38" class="mono dim" font-size="6">05/14</text>
+        </g>
+        <g transform="translate(100 0)">
+          <rect x="0" y="3" width="14" height="23" rx="2" fill="#22c55e"/>
+          <rect x="0" y="-1" width="14" height="4" rx="2" fill="#62b7f6"/>
+          <text x="2" y="38" class="mono dim" font-size="6">05/15</text>
+        </g>
+        <g transform="translate(120 0)">
+          <rect x="0" y="0" width="14" height="26" rx="2" fill="#22c55e"/>
+          <rect x="0" y="-4" width="14" height="4" rx="2" fill="#62b7f6"/>
+          <text x="2" y="38" class="mono dim" font-size="6">05/16</text>
+        </g>
+      </g>
+      <!-- Legend -->
+      <g transform="translate(180 12)">
+        <circle cx="0" cy="3" r="3" fill="#62b7f6"/>
+        <text x="8" y="6" class="mono dim" font-size="7" font-weight="800">DEP</text>
+        <circle cx="32" cy="3" r="3" fill="#22c55e"/>
+        <text x="40" y="6" class="mono dim" font-size="7" font-weight="800">ARR</text>
+      </g>
+    </g>
+
+    <!-- Top routes with flag emojis -->
+    <g transform="translate(20 350)">
+      <rect width="248" height="80" rx="12" fill="#0e151d" stroke="#243344"/>
+      <text x="10" y="14" class="mono dim" font-size="8" font-weight="900">TOP ROUTES</text>
+
+      <text x="10" y="32" class="sans text" font-size="10" font-weight="800">🇻🇳 HAN › 🇯🇵 FUK</text>
+      <rect x="120" y="25" width="80" height="6" rx="3" fill="#0a1721"/>
+      <rect x="120" y="25" width="80" height="6" rx="3" fill="#62b7f6"/>
+      <text x="210" y="32" class="mono muted" font-size="8">142</text>
+
+      <text x="10" y="48" class="sans text" font-size="10" font-weight="800">🇻🇳 HAN › 🇨🇳 PVG</text>
+      <rect x="120" y="41" width="80" height="6" rx="3" fill="#0a1721"/>
+      <rect x="120" y="41" width="62" height="6" rx="3" fill="#62b7f6"/>
+      <text x="210" y="48" class="mono muted" font-size="8">112</text>
+
+      <text x="10" y="64" class="sans text" font-size="10" font-weight="800">🇻🇳 HAN › 🇭🇰 HKG</text>
+      <rect x="120" y="57" width="80" height="6" rx="3" fill="#0a1721"/>
+      <rect x="120" y="57" width="44" height="6" rx="3" fill="#62b7f6"/>
+      <text x="210" y="64" class="mono muted" font-size="8">86</text>
+    </g>
+  </g>
+</svg>

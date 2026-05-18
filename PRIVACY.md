@@ -36,7 +36,8 @@ This is a hobbyist/open-source project, not a legal document, but the app is des
 - Matrix V2 device check-ins store only board identity, label, size, renderer support, assigned config, and last-seen time locally so the admin page can show whether the board is alive.
 - VATSIM-specific matrix presets require source `virtual` and use VATSIM-backed rows/weather only; they do not quietly switch to real-world FIDS or real METAR data.
 - Flight intelligence shown in FIDS, Radar, History, and Matrix is assembled from the current local snapshot, live radar cache, METAR/weather context, airport/surface context, and local history database. It is a display model, not a new background data-harvesting layer.
-- Mobile Standalone stores its setup mode, relay install UUID, activation token, selected airport, appearance, diagnostics choice, pinned flight, and local FIDS history on the device. Standalone history is not stored on the hosted relay.
+- History displays deduped flight movements. Raw fetched observations remain local diagnostics so repeated snapshots and codeshares do not inflate public/client-facing counts.
+- Mobile Standalone stores its setup mode, relay install UUID, activation token, selected airport, appearance, diagnostics choice, pinned flight, and local deduped movement history on the device. Standalone history is not stored on the hosted relay.
 
 When you use the Matrix page to download a ready-to-flash `main.py`, the Wi-Fi details and server host are sent to your own Local Flight instance only long enough to render that file. They are not stored in `matrix_config.json`, the hosted relay, or crash reports.
 
@@ -101,7 +102,7 @@ If you choose **VATSIM**, the app uses virtual traffic data and does not need re
 
 Local Flight fetches the public VATSIM network feed and keeps only flight-board-relevant fields such as callsign, filed route, aircraft type, airport codes, planned times, current aircraft position, and the raw METAR line when available from ATIS/METAR text. It intentionally does not store or display VATSIM pilot names, controller names, CIDs/account IDs, server names, or other person-identifying network fields.
 
-VATSIM Matrix views also avoid gate/stand placeholders because the current source does not provide reliable gate data. Virtual boards prioritize callsign, aircraft, route/status, flight-plan, weather/ATIS, and timing information instead.
+VATSIM views avoid passenger-only fields that do not belong to the virtual network source. Virtual FIDS, Matrix, native, LAN browser, and mobile detail views prioritize callsign, aircraft, filed route/flight rules, pilot track, XPDR, source freshness, weather/ATIS, and recent sessions while suppressing codeshares, sold-as labels, gates, terminals, stands, registrations, ICAO24, pilot/controller names, CIDs/account IDs, and server names.
 
 ---
 
@@ -186,7 +187,7 @@ If either side is set to manual or unset, automatic mobile reporting stays off.
 
 ### Standalone
 
-Standalone stores a separate relay install UUID, activation token, selected airport, appearance choice, pinned flight, diagnostics choice, and on-device history database locally on the device.
+Standalone stores a separate relay install UUID, activation token, selected airport, appearance choice, pinned flight, diagnostics choice, and on-device deduped movement history database locally on the device.
 
 Standalone sends relay requests with:
 

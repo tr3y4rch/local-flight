@@ -1198,18 +1198,18 @@ class FidsScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
         board.setMinimumWidth(0)
         board.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
         board_layout = QtWidgets.QVBoxLayout(board)
-        board_layout.setContentsMargins(18, 18, 18, 18)
-        board_layout.setSpacing(10)
+        board_layout.setContentsMargins(10 if embedded else 18, 10 if embedded else 18, 10 if embedded else 18, 10 if embedded else 18)
+        board_layout.setSpacing(8 if embedded else 10)
 
         header_widget = QtWidgets.QFrame()
         header_widget.setObjectName("FidsHeader")
         header_widget.setMinimumWidth(0)
         header = QtWidgets.QVBoxLayout(header_widget)
-        header.setContentsMargins(12, 9, 12, 9)
-        header.setSpacing(0)
-        title_row = QtWidgets.QHBoxLayout()
+        header.setContentsMargins(8 if embedded else 12, 7 if embedded else 9, 8 if embedded else 12, 7 if embedded else 9)
+        header.setSpacing(6 if embedded else 0)
+        title_row = QtWidgets.QVBoxLayout() if embedded else QtWidgets.QHBoxLayout()
         title_row.setContentsMargins(0, 0, 0, 0)
-        title_row.setSpacing(12)
+        title_row.setSpacing(6 if embedded else 12)
         title_box = QtWidgets.QVBoxLayout()
         title_box.setContentsMargins(10, 7, 10, 7)
         title_box.setSpacing(2)
@@ -1223,9 +1223,12 @@ class FidsScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
         title_container = _AirportHeroFrame()
         title_container.setObjectName("AirportHero")
         title_container.setLayout(title_box)
-        title_container.setMinimumWidth(205 if not embedded else 150)
-        title_container.setMaximumWidth(520 if not embedded else 360)
-        title_container.setSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Preferred)
+        title_container.setMinimumWidth(170 if not embedded else 118)
+        title_container.setMaximumWidth(520 if not embedded else 420)
+        title_container.setSizePolicy(
+            QtWidgets.QSizePolicy.Expanding if embedded else QtWidgets.QSizePolicy.Preferred,
+            QtWidgets.QSizePolicy.Preferred,
+        )
         self.airport_hero = title_container
         self.airport = QtWidgets.QLabel("LOCAL")
         self.airport.setObjectName("FidsAirportCode")
@@ -1242,32 +1245,38 @@ class FidsScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
         self.title.setFont(title_font)
         title_box.addWidget(self.airport)
         title_box.addWidget(self.title)
-        title_row.addWidget(title_container, 2)
+        title_row.addWidget(title_container, 0 if embedded else 2)
 
         self.weather = WeatherStrip(QtWidgets, "Weather loading...")
         self.weather.setObjectName("WeatherHero")
         self.weather.setMinimumHeight(48 if not embedded else 40)
         self.weather.setMaximumHeight(56 if not embedded else 44)
-        self.weather.setMinimumWidth(220 if not embedded else 170)
+        self.weather.setMinimumWidth(180 if not embedded else 128)
         self.weather.setMaximumWidth(760 if not embedded else 520)
         self.weather.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Preferred)
-        title_row.addWidget(self.weather, 3)
+        title_row.addWidget(self.weather, 0 if embedded else 3)
 
         self.last_updated = label(QtWidgets, "", "Muted")
         self.last_updated.hide()
 
         controls_frame = QtWidgets.QFrame()
         controls_frame.setObjectName("FidsHeaderActions")
-        controls_frame.setSizePolicy(QtWidgets.QSizePolicy.Maximum, QtWidgets.QSizePolicy.Preferred)
+        controls_frame.setMinimumWidth(0)
+        controls_frame.setSizePolicy(QtWidgets.QSizePolicy.Minimum, QtWidgets.QSizePolicy.Preferred)
         controls_row = QtWidgets.QHBoxLayout(controls_frame)
         controls_row.setContentsMargins(0, 0, 0, 0)
-        controls_row.setSpacing(8)
+        controls_row.setSpacing(5 if embedded else 8)
         self.arr_btn = self._segment_button("ARR", "arrivals")
         self.dep_btn = self._segment_button("DEP", "departures")
         self.dep_btn.setChecked(True)
-        refresh = QtWidgets.QPushButton("\U0001F504  Refresh")
+        if embedded:
+            self.arr_btn.setMinimumWidth(46)
+            self.dep_btn.setMinimumWidth(46)
+        refresh = QtWidgets.QPushButton("Refresh" if embedded else "\U0001F504  Refresh")
         refresh.setObjectName("FidsActionButton")
         refresh.setMinimumHeight(36)
+        if embedded:
+            refresh.setMinimumWidth(64)
         self.refresh_button = refresh
         refresh.clicked.connect(self.refresh)
         # FIDS style selector: 4 segment buttons (🛬 Classic · 🧳 PAX · 🛩 VATSIM · 🤓 Nerd)
@@ -1277,22 +1286,51 @@ class FidsScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
         saved_style = str(settings.value("fids/style", "classic") or "classic")
         self._fids_style = style_for(saved_style)
         self._fids_style_buttons: dict[str, Any] = {}
-        for fs in STYLES:
-            btn = QtWidgets.QPushButton(f"{fs.emoji} {fs.label}")
-            btn.setObjectName("FidsStyleButton")
-            btn.setCheckable(True)
-            btn.setChecked(fs.key == self._fids_style.key)
-            btn.setToolTip(fs.description)
-            btn.setMinimumHeight(32)
-            btn.clicked.connect(lambda _checked=False, k=fs.key: self.set_fids_style(k))
-            self._fids_style_buttons[fs.key] = btn
-            controls_row.addWidget(btn)
+        self._fids_style_combo = None
+        if embedded:
+            style_combo = QtWidgets.QComboBox()
+            style_combo.setObjectName("FidsStyleCombo")
+            style_combo.setMinimumHeight(32)
+            style_combo.setToolTip("FIDS board style")
+            for fs in STYLES:
+                style_combo.addItem(f"{fs.emoji} {fs.label}", fs.key)
+            current_idx = style_combo.findData(self._fids_style.key)
+            if current_idx >= 0:
+                style_combo.setCurrentIndex(current_idx)
+            style_combo.currentIndexChanged.connect(lambda _idx: self.set_fids_style(str(style_combo.currentData() or "classic")))
+            self._fids_style_combo = style_combo
+            controls_row.addWidget(style_combo)
+        else:
+            for fs in STYLES:
+                btn = QtWidgets.QPushButton(f"{fs.emoji} {fs.label}")
+                btn.setObjectName("FidsStyleButton")
+                btn.setCheckable(True)
+                btn.setChecked(fs.key == self._fids_style.key)
+                btn.setToolTip(fs.description)
+                btn.setMinimumHeight(32)
+                btn.clicked.connect(lambda _checked=False, k=fs.key: self.set_fids_style(k))
+                self._fids_style_buttons[fs.key] = btn
+                controls_row.addWidget(btn)
         self.scan_indicator = label(QtWidgets, "", "Dim")
         controls_row.addWidget(self.arr_btn)
         controls_row.addWidget(self.dep_btn)
         controls_row.addWidget(refresh)
         controls_row.addWidget(self.scan_indicator)
-        title_row.addWidget(controls_frame, 0, QtCore.Qt.AlignRight | QtCore.Qt.AlignVCenter)
+        controls_scroll = QtWidgets.QScrollArea()
+        controls_scroll.setObjectName("FidsHeaderActionsScroll")
+        controls_scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
+        controls_scroll.setWidgetResizable(False)
+        controls_scroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAsNeeded)
+        controls_scroll.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+        controls_scroll.setMinimumWidth(0)
+        controls_scroll.setMaximumHeight(48 if embedded else 50)
+        controls_scroll.setSizePolicy(
+            QtWidgets.QSizePolicy.Expanding if embedded else QtWidgets.QSizePolicy.Maximum,
+            QtWidgets.QSizePolicy.Preferred,
+        )
+        controls_scroll.setWidget(controls_frame)
+        self.controls_scroll = controls_scroll
+        title_row.addWidget(controls_scroll, 0, QtCore.Qt.AlignRight | QtCore.Qt.AlignVCenter)
         header.addLayout(title_row)
 
         self.error_banner = _banner(QtWidgets, "Data fetch error", "ErrorBanner")
@@ -1339,6 +1377,9 @@ class FidsScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
         board_layout.addWidget(self.board, 1)
 
         self.drawer = self._build_detail_drawer()
+        if embedded:
+            self.drawer.setMinimumWidth(0)
+            self.drawer.setMaximumWidth(380)
         self.drawer.hide()
         self.widget.addWidget(board)
         self.widget.addWidget(self.drawer)
@@ -1434,6 +1475,16 @@ class FidsScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
         for k, btn in getattr(self, "_fids_style_buttons", {}).items():
             try:
                 btn.setChecked(k == style.key)
+            except Exception:
+                pass
+        combo = getattr(self, "_fids_style_combo", None)
+        if combo is not None:
+            try:
+                idx = combo.findData(style.key)
+                if idx >= 0 and combo.currentIndex() != idx:
+                    previous = combo.blockSignals(True)
+                    combo.setCurrentIndex(idx)
+                    combo.blockSignals(previous)
             except Exception:
                 pass
         try:
@@ -1697,7 +1748,7 @@ class FidsScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
         shaped.pop("tone", None)
         shaped = enrich_presentation_fields(shaped)
         shaped["_codeshare_frames"] = _codeshare_frames(shaped)
-        shaped["codeshare_display"] = " / ".join(shaped["_codeshare_frames"])
+        shaped["codeshare_display"] = "" if _is_virtual_payload(shaped) else " / ".join(shaped["_codeshare_frames"])
         shaped["_codeshare_frame_index"] = self._codeshare_frame_index
         shaped["_source_row_index"] = source_index
         shaped["_fresh"] = bool(row.get("_fresh"))
@@ -1829,11 +1880,16 @@ class FidsScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
     def _detail_html(self, detail: dict[str, Any], history: list[dict[str, Any]], *, virtual: bool) -> str:
         title = "Virtual flight" if virtual else "Schedule"
         headline = detail.get("flight_display") or detail.get("flight_number") or detail.get("callsign") or "Flight"
-        airline = detail.get("airline_display") or detail.get("airline_name") or detail.get("airline_iata") or ""
+        airline = "" if virtual else (detail.get("airline_display") or detail.get("airline_name") or detail.get("airline_iata") or "")
         status = detail.get("status_display") or detail.get("status") or "Scheduled"
         status_class = self._detail_tone_class(detail)
         route = self._detail_route_points(detail)
-        gate = self._terminal_gate_line(detail) or "Gate pending"
+        gate = ""
+        if virtual:
+            gate = value_at(detail, "flight_plan.assigned_transponder") or value_at(detail, "position.squawk")
+            gate = f"XPDR {gate}" if gate else "No XPDR"
+        else:
+            gate = self._terminal_gate_line(detail) or "Gate pending"
         aircraft = self._aircraft_line(detail) or "Aircraft pending"
         source = value_at(detail, "data_sources.schedule") or detail.get("source") or ("vatsim" if virtual else "schedule")
         parts = [
@@ -1849,17 +1905,17 @@ class FidsScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
             self._hero_pills_html(detail),
             "</div>",
         ]
-        parts.append(self._detail_card_html("Flight Identity", "&#9673;", self._identity_fields(detail), wide=True))
         if virtual:
-            parts.append(self._detail_card_html("Virtual Flight", "&#9992;", [
+            parts.append(self._detail_card_html("VATSIM Summary", "&#9992;", [
                 ("Callsign", detail.get("callsign")),
-                ("Flight", detail.get("flight_display") or detail.get("flight_number")),
                 ("A/C code", detail.get("aircraft_type")),
                 ("Aircraft type", detail.get("aircraft_type_full") or value_at(detail, "intel.aircraft.model") or value_at(detail, "intel.aircraft.full_type")),
+                ("Rules", value_at(detail, "flight_plan.flight_rules")),
+                ("Route pair", f"{self._airport_line(detail, 'origin') or '-'} -> {self._airport_line(detail, 'dest') or '-'}"),
                 ("Status", detail.get("status") or detail.get("status_display")),
-                ("Source", source),
+                ("Network", "VATSIM"),
             ]))
-            parts.append(self._detail_card_html("Flight Plan", "&#8644;", [
+            parts.append(self._detail_card_html("Filed Plan", "&#8644;", [
                 ("Origin", self._airport_line(detail, "origin")),
                 ("Destination", self._airport_line(detail, "dest")),
                 ("Rules", value_at(detail, "flight_plan.flight_rules")),
@@ -1872,13 +1928,14 @@ class FidsScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
                 ("Alternate", value_at(detail, "flight_plan.alternate_icao")),
                 ("Squawk", value_at(detail, "flight_plan.assigned_transponder") or value_at(detail, "position.squawk")),
             ], wide=True))
-            parts.append(self._track_card_html(detail, "Aircraft Track"))
+            parts.append(self._track_card_html(detail, "Pilot Track"))
             parts.append(self._detail_card_html("VATSIM Data", "&#9679;", [
                 ("Snapshot generated", value_at(detail, "data_sources.snapshot_generated_at")),
                 ("Snapshot age", self._seconds(value_at(detail, "data_sources.snapshot_age_seconds"))),
                 ("Position age", self._seconds(value_at(detail, "data_sources.position_age_seconds"))),
             ], quiet=True))
         else:
+            parts.append(self._detail_card_html("Flight Identity", "&#9673;", self._identity_fields(detail), wide=True))
             parts.append(self._time_strip_html(detail))
             parts.append(self._route_card_html(detail))
             parts.append(self._detail_card_html("Operations & Aircraft", "&#9635;", [
@@ -1902,13 +1959,14 @@ class FidsScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
                 ("Snapshot age", self._seconds(value_at(detail, "data_sources.snapshot_age_seconds"))),
             ], quiet=True))
             parts.append(self._track_card_html(detail, "Live Track"))
-        parts.append(self._history_html(history))
+        parts.append(self._history_html(history, virtual=virtual))
         parts.append("</div>")
         return "".join(parts)
 
     def _hero_pills_html(self, detail: dict[str, Any]) -> str:
+        virtual = _is_virtual_payload(detail)
         items = [
-            ("gate", self._terminal_gate_line(detail)),
+            ("network", "VATSIM") if virtual else ("gate", self._terminal_gate_line(detail)),
             ("aircraft", self._aircraft_line(detail) or detail.get("aircraft_type_full") or value_at(detail, "intel.aircraft.model")),
             ("track", "track available" if value_at(detail, "position.lat") or value_at(detail, "intel.motion.has_position") else "schedule only"),
             ("source", detail.get("enriched_by") or detail.get("source")),
@@ -1953,11 +2011,22 @@ class FidsScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
     def _flight_identifier(self, value: Any) -> str:
         return _format_codeshare_number(value)
 
-    def _history_html(self, history: list[dict[str, Any]]) -> str:
+    def _history_html(self, history: list[dict[str, Any]], *, virtual: bool = False) -> str:
+        title = "Recent Sessions (7 days)" if virtual else "Recent History (7 days)"
         if not history:
-            return "<div class='detail-card history-card'><div class='card-title'>&#9719; Recent History (7 days)</div><div class='muted empty'>No history yet.</div></div>"
-        parts = ["<div class='detail-card history-card'><div class='card-title'>&#9719; Recent History (7 days)</div><table class='detail-table' width='100%' cellspacing='0' cellpadding='0'>"]
+            return f"<div class='detail-card history-card'><div class='card-title'>&#9719; {self._h(title)}</div><div class='muted empty'>No history yet.</div></div>"
+        parts = [f"<div class='detail-card history-card'><div class='card-title'>&#9719; {self._h(title)}</div><table class='detail-table' width='100%' cellspacing='0' cellpadding='0'>"]
         for item in history[:8]:
+            if virtual:
+                date = item.get("date") or str(item.get("snapshot_ts") or "")[:10] or "-"
+                status = item.get("status") or "-"
+                obs = item.get("observations")
+                source = item.get("source") or "vatsim"
+                meta = f"{format_value(source).upper()}"
+                if obs:
+                    meta += f" / {obs} obs"
+                parts.append(f"<tr class='history'><td>{self._h(date)} - {self._h(status)}</td><td align='right'><span class='delay-chip muted'>{self._h(meta)}</span></td></tr>")
+                continue
             delay = item.get("delay_minutes")
             try:
                 delay_i = int(delay)
@@ -2061,7 +2130,7 @@ class FidsScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
 
     def _aircraft_line(self, detail: dict[str, Any]) -> str:
         aircraft = format_value(detail.get("aircraft_type"))
-        registration = format_value(detail.get("aircraft_registration"))
+        registration = "" if _is_virtual_payload(detail) else format_value(detail.get("aircraft_registration"))
         return " ".join(part for part in (aircraft, registration) if part)
 
     def _detail_tone_class(self, detail: dict[str, Any]) -> str:
@@ -2120,15 +2189,15 @@ class FidsScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
 
     def _virtual_detail_sections(self, detail: dict[str, Any]) -> list[tuple[str, list[tuple[str, Any]]]]:
         return [
-            ("Virtual Flight", [
+            ("VATSIM Summary", [
                 ("Callsign", detail.get("callsign")),
-                ("Flight", detail.get("flight_display") or detail.get("flight_number")),
                 ("A/C code", detail.get("aircraft_type")),
                 ("Aircraft type", detail.get("aircraft_type_full") or value_at(detail, "intel.aircraft.model") or value_at(detail, "intel.aircraft.full_type")),
+                ("Rules", value_at(detail, "flight_plan.flight_rules")),
                 ("Status", detail.get("status") or detail.get("status_display")),
-                ("Source", value_at(detail, "data_sources.schedule") or detail.get("source")),
+                ("Network", "VATSIM"),
             ]),
-            ("Flight plan", [
+            ("Filed Plan", [
                 ("Origin", self._airport_line(detail, "origin")),
                 ("Destination", self._airport_line(detail, "dest")),
                 ("Rules", value_at(detail, "flight_plan.flight_rules")),
@@ -2141,7 +2210,7 @@ class FidsScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
                 ("Alternate", value_at(detail, "flight_plan.alternate_icao")),
                 ("Squawk", value_at(detail, "flight_plan.assigned_transponder") or value_at(detail, "position.squawk")),
             ]),
-            ("Aircraft Track", [
+            ("Pilot Track", [
                 ("Latitude", value_at(detail, "position.lat")),
                 ("Longitude", value_at(detail, "position.lon")),
                 ("Altitude", self._altitude(value_at(detail, "position.altitude_m"))),
@@ -2329,6 +2398,8 @@ def _weather_icon_glyph(icon_name: Any) -> str:
 
 
 def _codeshare_frames(row: dict[str, Any]) -> list[str]:
+    if _is_virtual_payload(row):
+        return []
     values: list[str] = []
     raw = row.get("codeshares")
     if isinstance(raw, (list, tuple, set)):
@@ -2349,6 +2420,11 @@ def _codeshare_frames(row: dict[str, Any]) -> list[str]:
         seen.add(compact)
         frames.append(formatted)
     return frames
+
+
+def _is_virtual_payload(row: dict[str, Any]) -> bool:
+    src = str(row.get("detail_mode") or row.get("source") or row.get("source_hint") or "").strip().lower()
+    return "virtual" in src or "vatsim" in src
 
 
 def _split_codeshare_text(value: str) -> list[str]:

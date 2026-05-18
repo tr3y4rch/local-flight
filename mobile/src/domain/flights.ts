@@ -95,17 +95,22 @@ export function flightPinKey(row: FidsRow): string {
   return row.callsign || row.id;
 }
 
+/**
+ * Map any server-side status string to a 5-word PAX vocabulary.
+ * Display labels are intentionally passenger-friendly and unambiguous.
+ * Used by StatusBadge in FIDS rows and by FlightIsland.
+ */
 export function statusShort(status: string): string {
-  const normalized = status.replace(/\s+/g, " ").trim().toUpperCase();
-  if (!normalized) return "WAIT";
-  if (normalized.startsWith("DELAYED")) {
-    const mins = normalized.match(/[+-]?\d+/)?.[0];
-    return mins ? `DLY${mins}` : "DELAY";
-  }
-  if (normalized.startsWith("BOARD")) return "BOARD";
-  if (normalized.startsWith("SCHEDULED")) return "SCHED";
-  if (normalized.startsWith("DEPART")) return "DEPT";
-  if (normalized.startsWith("ARRIV") || normalized.startsWith("LANDED")) return "LAND";
-  if (normalized.startsWith("APPR")) return normalized.slice(0, 7);
-  return normalized.slice(0, 7);
+  const s = status.replace(/\s+/g, " ").trim().toUpperCase();
+  if (!s) return "SCHEDULED";
+  if (s.startsWith("CANCEL")) return "CANCELLED";
+  if (s.startsWith("DELAY") || s.startsWith("LATE") || s.startsWith("+")) return "DELAYED";
+  if (s.startsWith("BOARD") || s.startsWith("GATE") || s.startsWith("FINAL CALL") || s.startsWith("LAST CALL")) return "BOARDING";
+  if (s.startsWith("DEPART") || s.startsWith("DEPT") || s.startsWith("TAKEOFF") || s.startsWith("AIRBORNE")) return "DEPARTED";
+  if (
+    s.startsWith("ARRIV") || s.startsWith("LAND") || s.startsWith("APPROACH") ||
+    s.startsWith("ON FINAL") || s.startsWith("TAXI")
+  ) return "ARRIVED";
+  // "EARLY x" / "ON TIME" → still on the schedule, show as scheduled
+  return "SCHEDULED";
 }

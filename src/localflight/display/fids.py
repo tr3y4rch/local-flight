@@ -55,6 +55,14 @@ class FIDSRow:
     route_caption: str = ""
     source_hint: str = ""
     live_hint: str = ""
+    detail_mode: str = "real"
+    flight_rules: str = ""
+    planned_altitude: str = ""
+    planned_route: str = ""
+    altitude_ft: Optional[int] = None
+    ground_speed_kt: Optional[int] = None
+    squawk: str = ""
+    transponder: str = ""
 
 
 def _parse_dt(value: Optional[str]) -> Optional[datetime]:

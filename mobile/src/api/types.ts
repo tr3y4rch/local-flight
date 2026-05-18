@@ -418,6 +418,7 @@ export type FlightIntel = {
   };
   history_summary?: {
     records?: number;
+    movements?: number;
     last_seen?: string | null;
     avg_delay_minutes?: number | null;
     early_count?: number;
@@ -480,6 +481,14 @@ export type FidsRow = {
   live_hint?: string;
   aircraft_type: string;
   callsign: string;
+  detail_mode?: "real" | "virtual" | string | null;
+  flight_rules?: string | null;
+  planned_altitude?: string | null;
+  planned_route?: string | null;
+  altitude_ft?: number | null;
+  ground_speed_kt?: number | null;
+  squawk?: string | null;
+  transponder?: string | null;
 };
 
 export type FlightDetail = {
@@ -535,6 +544,8 @@ export type FlightDetailHistoryRow = {
   status?: string | null;
   delay_minutes?: number | null;
   gate?: string | null;
+  source?: string | null;
+  observations?: number | null;
 };
 
 export type FidsDetailResponse = {
@@ -563,14 +574,26 @@ export type HistoryFlightRow = {
   source?: string | null;
   enriched_by?: string | null;
   snapshot_ts: string;
+  event_time?: string | null;
+  first_seen_ts?: string | null;
+  last_seen_ts?: string | null;
+  observation_count?: number | null;
+  raw_observation_rows?: number | null;
+  movement_key?: string | null;
   delay_minutes?: number | null;
   airline_iata?: string | null;
+  codeshares?: string[];
+  sold_as?: string[];
+  operating_callsign?: string | null;
+  identity_source?: string | null;
 };
 
 export type HistoryResponse = {
   airport_iata: string;
   hours: number;
   count: number;
+  movement_count?: number;
+  raw_observation_rows?: number;
   flights: HistoryFlightRow[];
 };
 
@@ -578,6 +601,8 @@ export type FlightHistoryResponse = {
   callsign: string;
   days: number;
   count: number;
+  movement_count?: number;
+  raw_observation_rows?: number;
   flights: HistoryFlightRow[];
 };
 
@@ -814,8 +839,11 @@ export type AirportDetail = {
 
 export type HistoryStats = {
   total_rows: number;
+  total_movements?: number;
   oldest?: string | null;
   newest?: string | null;
+  oldest_movement?: string | null;
+  newest_movement?: string | null;
   airports: string[];
   size_mb: number;
   db_path: string;
@@ -869,7 +897,9 @@ export type HistorySummary = {
   airport_iata: string;
   hours: number;
   total: number;
+  movement_count?: number;
   sample_rows?: number;
+  raw_observation_rows?: number;
   departures: number;
   arrivals: number;
   delayed: number;

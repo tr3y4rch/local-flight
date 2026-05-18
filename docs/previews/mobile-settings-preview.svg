@@ -1,0 +1,147 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="540" viewBox="0 0 960 540" role="img" aria-labelledby="title desc">
+  <title id="title">Local Flight mobile settings preview</title>
+  <desc id="desc">Local Flight mobile 0.2.7 — Control and Settings screen with sectioned tool pills and a radio-style diagnostics picker.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#09111a"/>
+      <stop offset="1" stop-color="#0d131b"/>
+    </linearGradient>
+    <linearGradient id="phone" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#111923"/>
+      <stop offset="1" stop-color="#0a0f16"/>
+    </linearGradient>
+    <linearGradient id="hero" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#10202e"/>
+      <stop offset="1" stop-color="#0a121b"/>
+    </linearGradient>
+    <filter id="shadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="22" stdDeviation="22" flood-color="#000000" flood-opacity="0.42"/>
+    </filter>
+    <style>
+      .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+      .sans { font-family: Inter, Segoe UI, Helvetica, Arial, sans-serif; }
+      .text { fill: #e8f0f8; }
+      .muted { fill: #7f90a5; }
+      .blue { fill: #62b7f6; }
+      .dim { fill: #48647f; }
+      .green { fill: #22c55e; }
+      .amber { fill: #f4b740; }
+      .tiny { font-size: 9px; letter-spacing: 1px; }
+    </style>
+  </defs>
+
+  <rect width="960" height="540" rx="28" fill="url(#bg)"/>
+
+  <g transform="translate(322 18) scale(1.1)" filter="url(#shadow)">
+    <rect x="0" y="0" width="288" height="456" rx="42" fill="#03070c"/>
+    <rect x="10" y="10" width="268" height="436" rx="34" fill="url(#phone)" stroke="#223242"/>
+    <rect x="102" y="18" width="84" height="12" rx="6" fill="#111923"/>
+
+    <!-- Compact hero -->
+    <g transform="translate(20 38)">
+      <rect width="248" height="56" rx="14" fill="url(#hero)" stroke="#1d3147"/>
+      <rect x="0" y="0" width="3" height="56" rx="1.5" fill="#62b7f6"/>
+      <g transform="translate(12 12)">
+        <rect width="40" height="20" rx="6" fill="#0a1721" stroke="#2c4a66"/>
+        <text x="6" y="14" class="mono text" font-size="11" font-weight="900">HAN</text>
+        <text x="0" y="38" class="sans text" font-size="11" font-weight="800">Noi Bai Int'l · Control</text>
+      </g>
+      <g transform="translate(170 14)">
+        <text x="0" y="10" class="mono text" font-size="10" font-weight="900">15:24Z</text>
+        <text x="0" y="22" class="mono blue" font-size="8">22:24 LOC</text>
+      </g>
+      <circle cx="232" cy="11" r="9" fill="#1a8af0"/>
+    </g>
+
+    <!-- CONNECTION section -->
+    <g transform="translate(20 102)">
+      <rect width="248" height="118" rx="14" fill="#0e151d" stroke="#243344"/>
+      <text x="14" y="18" class="mono blue tiny" font-weight="900">CONNECTION</text>
+      <!-- Metric row: REFRESH · OUTPUTS · LAYOUT -->
+      <g transform="translate(10 26)">
+        <rect width="74" height="32" rx="10" fill="#0a1019"/>
+        <text x="6" y="14" class="mono dim" font-size="7" font-weight="900">REFRESH</text>
+        <text x="6" y="28" class="mono text" font-size="11" font-weight="900">60s</text>
+        <rect x="80" y="0" width="74" height="32" rx="10" fill="#0a1019"/>
+        <text x="86" y="14" class="mono dim" font-size="7" font-weight="900">OUTPUTS</text>
+        <text x="86" y="28" class="mono blue" font-size="11" font-weight="900">WEB</text>
+        <rect x="160" y="0" width="68" height="32" rx="10" fill="#0a1019"/>
+        <text x="166" y="14" class="mono dim" font-size="7" font-weight="900">LAYOUT</text>
+        <text x="166" y="28" class="mono text" font-size="11" font-weight="900">iPHONE</text>
+      </g>
+      <!-- Tool pills (server URL / Airport + Source / Restart) -->
+      <g transform="translate(10 64)">
+        <rect width="228" height="14" rx="7" fill="#0a1019"/>
+        <text x="6" y="10" class="sans text" font-size="8" font-weight="800">Server URL</text>
+        <text x="64" y="10" class="mono muted" font-size="7">http://localflight.local:8000</text>
+        <text x="218" y="10" class="mono dim" font-size="8">›</text>
+      </g>
+      <g transform="translate(10 80)">
+        <rect width="228" height="14" rx="7" fill="#0a1019"/>
+        <text x="6" y="10" class="sans text" font-size="8" font-weight="800">Airport &amp; Source</text>
+        <text x="86" y="10" class="mono muted" font-size="7">HAN · REAL · 60s</text>
+        <text x="218" y="10" class="mono dim" font-size="8">›</text>
+      </g>
+      <g transform="translate(10 96)">
+        <rect width="228" height="14" rx="7" fill="#0a1019"/>
+        <text x="6" y="10" class="sans text" font-size="8" font-weight="800">Restart Fetch</text>
+        <text x="66" y="10" class="mono muted" font-size="7">Force a fresh server cycle</text>
+        <text x="218" y="10" class="mono dim" font-size="8">›</text>
+      </g>
+    </g>
+
+    <!-- APPEARANCE & DISPLAY -->
+    <g transform="translate(20 228)">
+      <rect width="248" height="42" rx="14" fill="#0e151d" stroke="#243344"/>
+      <text x="14" y="14" class="mono blue tiny" font-weight="900">APPEARANCE &amp; DISPLAY</text>
+      <g transform="translate(10 20)">
+        <rect width="228" height="14" rx="7" fill="#0a1019"/>
+        <text x="6" y="10" class="sans text" font-size="8" font-weight="800">Theme &amp; Skin</text>
+        <text x="66" y="10" class="mono muted" font-size="7">Dark · technical · passenger</text>
+        <text x="218" y="10" class="mono dim" font-size="8">›</text>
+      </g>
+    </g>
+
+    <!-- DIAGNOSTICS -->
+    <g transform="translate(20 278)">
+      <rect width="248" height="138" rx="14" fill="#0e151d" stroke="#243344"/>
+      <text x="14" y="14" class="mono blue tiny" font-weight="900">DIAGNOSTICS</text>
+      <!-- Radio rows -->
+      <g transform="translate(10 22)">
+        <rect width="228" height="32" rx="10" fill="#0a1019" stroke="#1a8af0" stroke-opacity="0.5"/>
+        <circle cx="14" cy="16" r="6" fill="#0a1019" stroke="#22c55e" stroke-width="1.5"/>
+        <text x="11" y="20" class="mono green" font-size="9" font-weight="900">✓</text>
+        <text x="28" y="14" class="sans text" font-size="9" font-weight="800">Manual</text>
+        <text x="28" y="25" class="mono muted" font-size="7">Report only when you tap the button</text>
+      </g>
+      <g transform="translate(10 56)">
+        <rect width="228" height="20" rx="8" fill="#0a1019"/>
+        <circle cx="14" cy="10" r="5" fill="#0a1019" stroke="#48647f" stroke-width="1.2"/>
+        <text x="28" y="8" class="sans text" font-size="9" font-weight="800">Auto</text>
+        <text x="28" y="17" class="mono muted" font-size="7">Send crash reports automatically</text>
+      </g>
+      <g transform="translate(10 80)">
+        <rect width="228" height="20" rx="8" fill="#0a1019"/>
+        <circle cx="14" cy="10" r="5" fill="#0a1019" stroke="#48647f" stroke-width="1.2"/>
+        <text x="28" y="8" class="sans text" font-size="9" font-weight="800">Auto + Context</text>
+        <text x="28" y="17" class="mono muted" font-size="7">Include recent logs with auto reports</text>
+      </g>
+      <!-- Tool pills -->
+      <g transform="translate(10 104)">
+        <rect width="228" height="14" rx="7" fill="#0a1019"/>
+        <text x="6" y="10" class="sans text" font-size="8" font-weight="800">Help &amp; Report</text>
+        <text x="218" y="10" class="mono dim" font-size="8">›</text>
+      </g>
+      <g transform="translate(10 120)">
+        <rect width="228" height="14" rx="7" fill="#0a1019"/>
+        <text x="6" y="10" class="sans text" font-size="8" font-weight="800">Source &amp; releases</text>
+        <text x="218" y="10" class="mono dim" font-size="8">›</text>
+      </g>
+    </g>
+
+    <!-- Support footer -->
+    <g transform="translate(20 424)">
+      <text x="50" y="10" class="mono amber" font-size="8" font-weight="800">♥ Support Local Flight</text>
+    </g>
+  </g>
+</svg>

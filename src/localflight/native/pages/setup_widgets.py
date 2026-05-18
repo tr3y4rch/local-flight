@@ -314,13 +314,14 @@ def build_hero(
 ) -> Any:
     """Build the welcome-page hero block (animated logo + radar rings + tagline)."""
 
-    target_height = 200 if not compact else 168
+    target_height = 226 if not compact else 188
     logo_size = 132 if not compact else 104
+    ring_growth = logo_size * 0.36
 
     class _Hero(QtWidgets.QWidget):
         def __init__(self) -> None:
             super().__init__()
-            self.setMinimumHeight(target_height + 50)
+            self.setMinimumHeight(target_height + 56)
             self._bob = 0.0
             self._ring_phase = 0.0
             self._accent = QtGui.QColor(accent_hex)
@@ -335,7 +336,7 @@ def build_hero(
             layout = QtWidgets.QVBoxLayout(self)
             layout.setContentsMargins(0, 0, 0, 0)
             layout.setSpacing(8)
-            layout.addSpacing(target_height + 4)
+            layout.addSpacing(target_height + 10)
             self.tagline = QtWidgets.QLabel(tagline)
             self.tagline.setAlignment(QtCore.Qt.AlignCenter)
             self.tagline.setStyleSheet(
@@ -359,7 +360,7 @@ def build_hero(
                 # Concentric "radar rings" behind the logo
                 for ring_idx in range(4):
                     progress = (self._ring_phase + ring_idx * 0.25) % 1.0
-                    radius = (logo_size / 2.0) + progress * (logo_size * 0.95)
+                    radius = (logo_size / 2.0) + progress * ring_growth
                     alpha = int(max(0, 80 * (1.0 - progress)))
                     if alpha <= 0:
                         continue
