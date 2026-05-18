@@ -4124,8 +4124,8 @@ def test_public_preview_gallery_includes_matrix_artwork() -> None:
 
     assert "docs/previews/matrix-preview.svg" in readme
     assert "matrix-preview.svg" in gallery
-    assert readme.count("<img src=\"docs/previews/") == 8
-    assert gallery.count("<article class=\"card\">") == 8
+    assert readme.count("<img src=\"docs/previews/") == 9
+    assert gallery.count("<article class=\"card\">") == 9
     assert matrix_preview.exists()
     ET.parse(matrix_preview)
 

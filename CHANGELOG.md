@@ -65,6 +65,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `settings.html` got matching compact rules: 1.1 rem title (down from 1.45–2.1 rem `clamp`), 12 px-radius cards, 5-card status strip collapses to 3 columns at Pi 7".
 
 ### Files added (2026-05-18)
+- `docs/previews/mobile-fids-preview.svg`, `mobile-radar-preview.svg`, `mobile-history-preview.svg`, `mobile-settings-preview.svg` — refreshed mobile showcase illustrations for README/gallery use.
 - `src/localflight/native/widgets.py` — new `DisclosureCard` factory.
 - `src/localflight/ui/static/lf-shell.css` — Qt-aligned browser shell.
 - `src/localflight/ui/static/mobile.css` — mobile / compact view.
@@ -79,6 +80,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `src/localflight/ui/templates/fids.html` — compact rules at `(max-height: 600px)` + Pi 7" rules at `(max-width: 880px) and (max-height: 520px)`.
 - `src/localflight/ui/templates/settings.html` — compact rules at the same break-points.
 - `src/localflight/ui/static/app.css` — token palette aligned with Qt `THEME_TOKENS`.
+- Removed stale versioned mobile preview SVGs that were superseded by the refreshed Board/Radar/History/Settings gallery set.
 
 ### Verification (2026-05-18)
 - Qt FIDS renders verified per-skin (Classic / PAX / VATSIM / Nerd) via `QPainter` headless renders; column-rect math verified across 540 px / 900 px / 1400 px / 2400 px (no overflow; lowest-priority columns drop first); row-height interpolation verified at 640 / 1024 / 1600 / 2400 px (stays within each skin's `min`/`max`).
@@ -311,12 +313,13 @@ All seven phases are additive visual polish on the existing data contracts. No r
 - **Phase 5 — History screen redesign.** The flat history list was replaced with a dashboard: a four-cell KPI grid (total flights, on-time rate, average delay, median delay), a per-airline delay-quota progress stack, and sectioned panels for top airlines, busiest routes, and aircraft-type distribution. Each panel uses `CollapsibleCard`.
 - **Phase 6 — Sectioned Control screen and Help tab panels.** The Control screen was restructured into four `CollapsibleCard` sections (Schedule, Radar, Weather, Diagnostics — Diagnostics collapsed by default). The Help screen renders three tab panels (Status / Check / Report). A density toggle (Compact / Comfortable) was added to the FIDS header.
 - **Phase 7 — Animated micro-interactions.** `CompactWeatherCapsule` cross-fades weather icons when the METAR condition changes (100 ms fade-out → icon swap → 220 ms fade-in via `prevIconRef`). `FlightIsland` renders an animated border glow that pulses when live data is fresh. `RadarScope` shows a rotating sweep-needle empty state (`Easing.linear`, 3 s period) when the scope contains no blips.
+- Public preview artwork now covers all current mobile showcase surfaces: Board, Radar, History, and Settings/Control.
 
 ### Mobile companion — setup wizard overhaul
 
 - Replaced the single connection screen with a full welcome-first wizard: **Welcome → Mode → Server URL (companion only) → Privacy → Ready**.
 - **Welcome step** shows a breathing logo ring (2 s opacity/scale loop), the Local Flight wordmark, a tagline, and a feature chip row. Entirely new; first thing every new user sees.
-- **Mode step** presents two large `SetupModeCard` components — **LAN Companion** (requires a running Local Flight server on the local network; full live FIDS/Radar/admin features) and **Standalone** (preview mode, no server required; limited to offline browsing and local history). Each card shows a RECOMMENDED / OFFLINE badge, a description, and a feature bullet list. Cards animate via `usePressScale` and show a checkmark when selected.
+- **Mode step** presents two large `SetupModeCard` components — **LAN Companion / LAN Mobile** (requires a running Local Flight server on the local network; full live FIDS/Radar/admin features) and **Standalone** (no LAN server required; simplified relay-backed Board/Radar/History/Settings with stricter refresh limits). Each card shows a RECOMMENDED / OFFLINE badge, a description, and a feature bullet list. Cards animate via `usePressScale` and show a checkmark when selected.
 - **Server URL step** (companion mode only) retains the existing URL input with an inline health-check icon (spinner → green check / red ✗ from `/api/health`) and a LAN pairing tip. Skipped entirely in standalone mode.
 - **Privacy step** presents three `SetupOptionCard` options (Manual reports / Automatic crash reports / Automatic + sanitized logs) with radio-button selection and a RECOMMENDED badge on the middle option.
 - **Ready step** shows an animated `SetupReadyCheck` circle (spring pop-in, stiffness 260, damping 18) confirming setup is complete, with a summary of chosen mode and diagnostics level.

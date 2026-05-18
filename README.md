@@ -86,6 +86,10 @@ Open [docs/previews/index.html](docs/previews/index.html) locally for the standa
 
 <p align="center">
   <img src="docs/previews/mobile-radar-preview.svg" alt="Local Flight mobile radar preview" width="48%">
+  <img src="docs/previews/mobile-history-preview.svg" alt="Local Flight mobile history preview" width="48%">
+</p>
+
+<p align="center">
   <img src="docs/previews/mobile-settings-preview.svg" alt="Local Flight mobile settings preview" width="48%">
 </p>
 

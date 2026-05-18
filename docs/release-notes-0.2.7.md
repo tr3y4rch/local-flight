@@ -33,7 +33,7 @@ traffic.
 - **Shared app typography and assets.** Native, LAN browser, and mobile surfaces
   use bundled local fonts and local support assets instead of online font/CDN
   dependencies.
-- **Mobile Standalone preview.** The same Expo app can now be set up as either
+- **Mobile Standalone mode.** The same Expo app can now be set up as either
   a LAN Companion for your desktop/Pi server or as a simplified Standalone phone
   board through the hosted relay.
 
@@ -221,6 +221,10 @@ mobile Safari) and the layout automatically switches to a mobile shell:
 
 You can preview the same view on desktop by appending `?mobile=1` to any
 page URL; `?mobile=0` clears the override.
+
+The public preview gallery was refreshed alongside this pass so the README and
+local gallery now show the current mobile Board, Radar, History, and
+Settings/Control illustrations rather than older beta artwork.
 
 ### LAN browser UI — 7-inch Raspberry Pi screens
 
