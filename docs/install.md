@@ -10,7 +10,7 @@ If you are unsure, use the packaged Windows or macOS app on a desktop first. It 
 
 - Local Flight is meant for your own trusted LAN, not the open internet.
 - First launch opens a six-step guided setup wizard before the normal app.
-- You can choose **Community Relay**, **Bring your own keys**, or **VATSIM**.
+- You can choose **Local Flight Relay**, **Use your own keys**, or **VATSIM**.
 - Diagnostics are optional. Manual reports stay available even if automatic diagnostics are off.
 - The current client target is `0.2.7`. It is still beta software, but the client paths are now intended to work across the supported display types.
 
@@ -23,7 +23,7 @@ Use this path for the easiest Windows desktop setup.
 1. Download `LocalFlight-windows.zip` from the latest GitHub release.
 2. Unzip it to any folder.
 3. Double-click `LocalFlight.exe`.
-4. Complete the setup wizard: Welcome, Airport, Flight Data, Optional Keys, Diagnostics, and Review & Launch.
+4. Complete the setup wizard: Welcome, Airport, Flight Data, Optional Keys, Diagnostics, and Review & Open.
 
 Windows may show a SmartScreen warning because the app is not signed yet. Click **More info**, then **Run anyway** if you trust the download source.
 
@@ -55,7 +55,7 @@ Use this path for the easiest macOS desktop setup.
 2. Unzip it.
 3. Drag `LocalFlight.app` to Applications.
 4. Right-click **LocalFlight.app** and choose **Open** the first time if Gatekeeper warns about an unsigned app.
-5. Complete the setup wizard: Welcome, Airport, Flight Data, Optional Keys, Diagnostics, and Review & Launch.
+5. Complete the setup wizard: Welcome, Airport, Flight Data, Optional Keys, Diagnostics, and Review & Open.
 
 The app launches the native Qt desktop shell. The LAN browser UI remains available from the local server while the app is running.
 Finder opens `LocalFlight.app` directly, so normal release use should show the branded app/splash rather than Terminal.
@@ -142,7 +142,7 @@ lf update
 
 The mobile app is an iOS-first developer preview. It is not on the App Store or TestFlight yet.
 
-Use it when you want FIDS, radar, history, settings, feedback, and a lightweight airport-board view from an iPhone, iPad, or simulator.
+Use it when you want a lightweight airport-board view, radar, history, control, and support tools from an iPhone, iPad, or simulator.
 
 ```bash
 cd mobile
@@ -176,7 +176,7 @@ Do not use `localhost` on a phone. On a phone, `localhost` means the phone itsel
 
 The QR pairing code in native Settings is fingerprint-bound to the server that created it. If your phone scans a QR that resolves to another Local Flight host, the mobile app refuses to save that pairing instead of silently connecting to the wrong server.
 
-LAN Companion keeps the richer paired experience: server WebSocket updates, local server settings, Matrix/Admin entry points where allowed, server-mediated docs, and mobile/server double-consent for automatic diagnostics.
+LAN Companion keeps the richer paired experience: server WebSocket updates, host status, airport/source/refresh controls, History, support/reporting, safe Matrix live-remote controls, and mobile/server double-consent for automatic diagnostics.
 
 ### Standalone
 
@@ -198,19 +198,20 @@ The app creates a mobile relay install ID, receives an activation token, stores 
 
 Setup asks for:
 
-1. Airport
-2. Data access path
-3. Optional provider keys
-4. Diagnostics/reporting choice
-5. Finish confirmation
+1. Welcome
+2. Airport
+3. Data access path
+4. Optional provider keys
+5. Diagnostics/reporting choice
+6. Review and open
 
 ### Data Access Choices
 
-- **Community Relay**: recommended first path. Uses shared hosted schedule snapshots so you do not need a paid schedule key on day one. The relay is cache-first and may combine compatible real schedule providers behind the scenes to keep boards populated.
-- **Bring your own keys**: use your own AeroDataBox schedule key (API.Market by default, RapidAPI if selected by env), AviationStack schedule key, plus optional RapidAPI ADS-B Exchange and OpenSky credentials.
+- **Local Flight Relay**: recommended first path. Uses shared hosted schedule snapshots so you do not need a paid schedule key on day one. The relay is cache-first and may combine compatible real schedule providers behind the scenes to keep boards populated.
+- **Use your own keys**: use your own AeroDataBox schedule key (API.Market by default, RapidAPI if selected by env), AviationStack schedule key, plus optional RapidAPI ADS-B Exchange and OpenSky credentials.
 - **VATSIM**: no real-world schedule key. Uses virtual network data.
 
-Community Relay protects shared provider usage, so real schedule refresh choices are hourly-or-slower when the app is using the hosted shared relay. If a live provider is unavailable or the relay asks clients to back off, Local Flight can keep serving the latest safe cached board instead of replacing it with a bad empty refresh.
+Local Flight Relay protects shared provider usage, so real schedule refresh choices are hourly-or-slower when the app is using the hosted shared relay. If a live provider is unavailable or the relay asks clients to back off, Local Flight can keep serving the latest safe cached board instead of replacing it with a bad empty refresh.
 
 ---
 

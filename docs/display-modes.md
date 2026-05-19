@@ -54,13 +54,12 @@ Use it when you want the full Local Flight app on the machine that runs the serv
 
 The browser UI is a supported access and display surface. It is not being removed.
 
-As of the 2026-05-18 follow-up in the `0.2.7` cycle, the browser UI
-mirrors the native Qt shell — same top nav layout (brand mark, UTC/LT
-clock chips, segmented Display / FIDS / Radar / Matrix tabs, operator
-icon-chip bar, Power button), same colour tokens, same shared
-components (panels, cards, kicker labels, disclosure cards, status
-pills, buttons). Picking a theme or skin in Settings retints both
-surfaces the same way.
+In the current `0.2.7` line, the browser UI mirrors the native Qt shell —
+same top nav layout (brand mark, UTC/LT clock chips, segmented Display /
+FIDS / Radar / Matrix tabs, operator icon-chip bar, Power button), same
+colour tokens, same shared components (panels, cards, kicker labels,
+disclosure cards, status pills, buttons). Picking a theme or skin in
+Settings retints both surfaces the same way.
 
 Use it when:
 
@@ -166,13 +165,13 @@ LAN Companion talks to your Local Flight server over your Wi-Fi/LAN. It does not
 
 Use LAN Companion for:
 
-- FIDS and pinned flight view
+- Board/FIDS and pinned flight view
 - Radar with mobile-owned range rings
 - History
-- Guided Settings
-- Matrix/Admin status
-- Server-mediated docs
-- Manual feedback and diagnostics, with mobile/server double-consent for automatic reports
+- Control for host status plus airport/source/refresh changes
+- Help, troubleshooting, and manual feedback
+- Safe Matrix live-remote controls from Control
+- Automatic diagnostics only when both mobile and host allow them
 
 ### Standalone
 
@@ -180,7 +179,7 @@ Standalone talks directly to the hosted Local Flight relay and does not need you
 
 Use Standalone for:
 
-- FIDS/Board
+- Board/FIDS
 - Radar
 - Local on-device History
 - Lightweight Settings
@@ -219,8 +218,8 @@ Display mode decides where Local Flight appears. Data access decides where fligh
 
 You can use any display mode with:
 
-- **Community Relay** for shared real-world schedule snapshots
-- **Bring your own keys** for direct provider access from your own machine
+- **Local Flight Relay** for shared real-world schedule snapshots
+- **Use your own keys** for direct provider access from your own machine
 - **VATSIM** for virtual network traffic
 
 Changing display mode does not change your data source by itself.

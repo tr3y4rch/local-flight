@@ -6,7 +6,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [0.2.7] - 2026-05-16
+## [0.2.7]
 
 > Client-polish release-candidate pass on top of the `0.2.6` baseline.
 > This release folds in the native GUI visual-refresh work: unified setup and
@@ -15,7 +15,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 > board styles (Classic / PAX / VATSIM / Nerd), plus the new mobile LAN
 > Companion / Standalone split.
 >
-> Late in the cycle (2026-05-18) the release also picked up a visual-language
+> Late in the cycle the release also picked up a visual-language
 > pass that finishes earlier work: the four FIDS preset skins now actually
 > render distinct designs and scale with the viewport, the Settings page
 > replaces its bland checkbox-titled sections with proper disclosure cards,
@@ -24,7 +24,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 >
 > For the user-facing summary, see [docs/release-notes-0.2.7.md](docs/release-notes-0.2.7.md).
 
-### History movement hardening (2026-05-18)
+### History movement hardening
 - Added a canonical `history_movements` layer beside the raw `flights` observation table. User-facing History now counts deduped movements instead of repeated board snapshot rows.
 - History windows now filter by movement `event_time` (actual time first, scheduled time second), not by when a snapshot was fetched. Future scheduled board rows no longer inflate "last 24h" history until the movement time is current.
 - Repeated snapshots and linked codeshare aliases collapse into one movement with `observation_count`, while unrelated flights on the same route/time stay separate.
@@ -32,27 +32,27 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Existing local `history.db` files are backfilled idempotently into `history_movements` without deleting raw observations.
 - Mobile Standalone history now upserts movement rows in Expo SQLite and keeps the 30-day / 1,000-entry retention by movement instead of by repeated snapshot row.
 
-### VATSIM display contract (2026-05-18)
+### VATSIM display contract
 - VATSIM / `source=virtual` is now treated as a pilot/ATC-style mode instead of a passenger/codeshare board. Rows are callsign-first and can expose aircraft type, flight rules, filed route/cruise, altitude, ground speed, XPDR, track state, and VATSIM freshness.
 - `/api/fids` and `/api/fids/detail` now sanitize virtual rows/details before clients render them: codeshares, sold-as, marketing carrier fields, airline labels, gate/terminal/stand fields, delay chips, registrations, and ICAO24 are empty in virtual mode.
 - LAN browser, native Qt, and mobile detail views now use virtual sections: VATSIM Summary, Filed Plan, Pilot Track, VATSIM Data, and Recent Sessions. Real-source flight details are unchanged.
 - Matrix payloads keep the existing VATSIM gate/codeshare suppression even when fed richer virtual FIDS rows.
 - Added regression coverage for VATSIM row/detail payloads, browser template guards, native Qt detail HTML, and mobile type coverage.
 
-### Mobile QR pairing hardening (2026-05-18)
+### Mobile QR pairing hardening
 - Native Settings pairing now prefers the actual LAN IP over `localflight.local`, keeping the mDNS shortcut as a fallback for one-server LANs.
 - New pairing QR links include the redacted server fingerprint. The mobile app compares that fingerprint with `/api/mobile/summary.system.install_id` before saving a scanned pairing, so a QR that resolves to another Pi/desktop is rejected instead of silently connecting to the wrong host.
 - Added `DELETE /api/admin/companion` and a Qt Settings **Reset paired devices** action to clear this server's remembered mobile companion check-ins.
 - Updated pairing copy in native Settings, mobile setup, and docs to recommend LAN IP / fingerprint-bound QR pairing for multi-server test networks.
 
-### Relay identity and activation reliability (2026-05-19)
+### Relay identity and activation reliability
 - Desktop/Pi installs now keep a versioned local identity bundle and a reset-safe local mirror so normal setup resets and dev wipes can recover the same install ID without creating duplicate relay clients.
 - Setup activation is verify-first: an existing local relay token is checked before `/v1/activate` is called, preventing harmless setup refreshes from rotating tokens or adding activation noise.
 - Relay errors now return stable local statuses such as `token_invalid`, `token_bound_elsewhere`, `manual_review`, `rate_limited`, and `relay_unreachable` so setup UI can show friendly repair copy instead of raw HTTP/JSON details.
 - Known-install relay reissues no longer consume anonymous new-install network burst capacity; unknown new installs still go through the existing manual-review safety net.
 - Managed relay auth failures now set a local cooldown before retrying, avoiding repeated scheduler noise when a stored token is stale or revoked.
 
-### FIDS preset skins finally render their respective designs (2026-05-18)
+### FIDS preset skins finally render their respective designs
 - Classic / PAX / VATSIM / Nerd were only labels on the same board until now. The active style is now driven by a richer `FidsStyle` dataclass (`row_height`+min/max, `row_gap`, `header_height`, `padding`, `font_scale`, primary/mono font families, palette overlay, `header_kind`, `row_chrome`, `status_chip`, `Column` spec with `(key, label, weight, min_w, hide_threshold)`).
 - **Classic** keeps the original rounded blue/cyan card layout with status rail and pill chips — fully unchanged for existing users.
 - **PAX** uses oversized rounded cards (`card-big` chrome, 104 px base row), a "tape"-style header band, warm sky-blue + amber accent palette, friendly status verbs ("Boarding now", "Significantly late"), bigger gate badge.
@@ -92,13 +92,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `fids.html` got matching page-level compact rules: row height 40 px (was 52), `fids-hhmm` 1.02 rem (was 1.18), tighter METAR bar, narrower time/flight/gate/status columns. At Pi 7" the A/C column is hidden (least actionable for a kiosk display). Net effect: 8 flights visible at 800×480 (was 5), 11 at 1024×600.
 - `settings.html` got matching compact rules: 1.1 rem title (down from 1.45–2.1 rem `clamp`), 12 px-radius cards, 5-card status strip collapses to 3 columns at Pi 7".
 
-### Files added (2026-05-18)
+### Files added
 - `docs/previews/mobile-fids-preview.svg`, `mobile-radar-preview.svg`, `mobile-history-preview.svg`, `mobile-settings-preview.svg` — refreshed mobile showcase illustrations for README/gallery use.
 - `src/localflight/native/widgets.py` — new `DisclosureCard` factory.
 - `src/localflight/ui/static/lf-shell.css` — Qt-aligned browser shell.
 - `src/localflight/ui/static/mobile.css` — mobile / compact view.
 
-### Files updated (2026-05-18)
+### Files updated
 - `src/localflight/native/pages/fids_styles.py` — richer `FidsStyle` dataclass, four reworked presets with distinct visual identity + layout primitives.
 - `src/localflight/native/pages/fids.py` — `FidsBoardView` now skin-aware (geometric scaling, dispatch per chrome/header/chip, generic cell painter).
 - `src/localflight/native/pages/settings.py` — `_collapsible_section` builds a `DisclosureCard`; Advanced Board Timing converted off raw `QGroupBox`.
@@ -110,7 +110,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `src/localflight/ui/static/app.css` — token palette aligned with Qt `THEME_TOKENS`.
 - Removed stale versioned mobile preview SVGs that were superseded by the refreshed Board/Radar/History/Settings gallery set.
 
-### Verification (2026-05-18)
+### Verification
 - Qt FIDS renders verified per-skin (Classic / PAX / VATSIM / Nerd) via `QPainter` headless renders; column-rect math verified across 540 px / 900 px / 1400 px / 2400 px (no overflow; lowest-priority columns drop first); row-height interpolation verified at 640 / 1024 / 1600 / 2400 px (stays within each skin's `min`/`max`).
 - LAN browser renders via `QWebEngineView` verified at desktop (1400×820), 7" Pi landscape (1024×600 and 800×480), tablet (768×1024), and phone (390×844). The desktop view picks up the new Qt-shell chrome; the phone view shows the bottom-bar mobile layout; the Pi viewports show 8–11 flight rows + compact chrome without horizontal scroll. No regression on the desktop FIDS table or detail drawer.
 
@@ -123,7 +123,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - All four masked secret fields (AviationStack, RapidAPI, OpenSky secret, activation token) have a 👁/🙈 eye toggle.
 - Nav and action buttons carry emoji prefixes for clarity: 🚀 Start setup · ▶ Next · ◀ Back · ✅ Finish · 🌐 Open LAN browser setup · 📨 Request activation · 🔄 Check relay status · 🧪 Test token / Test AviationStack / Test RapidAPI · 🔗 every provider link.
 - "Start setup" / "Next" / "Finish" carry a new `SetupPrimary` object name so they pop visually over the muted/Quiet buttons.
-- Source option cards (Community Relay / BYOK / VATSIM) now hover-lift with an accent border glow.
+- Source option cards (Local Flight Relay / BYOK / VATSIM) now hover-lift with an accent border glow.
 - Hitting Finish plays a 260 ms ✅ celebration overlay before handing off to the main app.
 - Setup-guidance descriptors got real emoji icons (📺 / 📡 / 🔐 for welcome; 📡 / 🔑 / 🛩 for source; ✋ / 💥 / 📜 for diagnostics).
 
@@ -187,14 +187,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Weather on the main board now favors friendly condition, temperature, and visibility wording instead of raw METAR fragments.
 
 ### Mobile LAN Companion and Standalone mode
-- The Expo mobile app now has a first-run mode choice: **LAN Companion** for the full desktop/Pi pairing flow, or **Standalone** for a simplified relay-backed phone board.
+- The Expo mobile app now has a first-run mode choice: **LAN Companion** for a trimmed remote and glance view of an existing desktop/Pi host, or **Standalone** for a simplified relay-backed phone board.
 - Standalone setup creates a separate mobile relay install UUID, requests an activation token with `requested_mode=mobile_standalone`, stores the token/airport locally with SecureStore, and does not require a LAN server URL.
 - Added relay endpoints for standalone mobile airport search/resolve, summary, FIDS, radar, and METAR data. These endpoints require `install_id`, `activation_token`, `app_version`, and `client_kind=mobile_standalone`.
 - Standalone product limits are enforced on both sides: 3-hour minimum FIDS freshness, 5-minute radar refresh cache, and radar ranges limited to `1`, `3`, `5`, and `10` NM.
 - Standalone hides WebSocket, Matrix, Admin, scheduler restart, LAN server controls, and companion check-in surfaces. The mobile bottom nav becomes Board, Radar, History, and Settings.
 - Standalone History now uses Expo SQLite on-device storage and prunes to 30 days or 1,000 deduped movements. No relay-side per-install flight history was added.
 - Standalone manual/crash reports post directly to relay `/v1/reports`; automatic standalone reports require the mobile diagnostics choice to be `auto` or `auto_logs`.
-- LAN Companion behavior remains paired to the local desktop/Pi server, including WebSocket refresh, server-mediated reports, local settings/control, and mobile/server double-consent for automatic diagnostics.
+- LAN Companion behavior remains paired to the local desktop/Pi server, including WebSocket refresh, local host status/control, support/reporting, safe Matrix live-remote controls, and mobile/server double-consent for automatic diagnostics.
 - The mobile launch overlay now uses shared brand text components, an independent continuous radar sweep, status text cross-fade, breathing status dot, and blinking amber board LED.
 - Mobile screen interactions gained small native-feeling polish: haptics on key taps, press-scale chips/buttons, animated weather icon swaps, and a soft live glow around the pinned-flight island.
 
@@ -347,7 +347,7 @@ All seven phases are additive visual polish on the existing data contracts. No r
 
 - Replaced the single connection screen with a full welcome-first wizard: **Welcome → Mode → Server URL (companion only) → Privacy → Ready**.
 - **Welcome step** shows a breathing logo ring (2 s opacity/scale loop), the Local Flight wordmark, a tagline, and a feature chip row. Entirely new; first thing every new user sees.
-- **Mode step** presents two large `SetupModeCard` components — **LAN Companion / LAN Mobile** (requires a running Local Flight server on the local network; full live FIDS/Radar/admin features) and **Standalone** (no LAN server required; simplified relay-backed Board/Radar/History/Settings with stricter refresh limits). Each card shows a RECOMMENDED / OFFLINE badge, a description, and a feature bullet list. Cards animate via `usePressScale` and show a checkmark when selected.
+- **Mode step** presents two large `SetupModeCard` components — **LAN Companion** (requires a running Local Flight server on the local network; Board/Radar/History/Control/Help plus safe Matrix live-remote features) and **Standalone** (no LAN server required; simplified relay-backed Board/Radar/History/Settings with stricter refresh limits). Each card shows a RECOMMENDED / OFFLINE badge, a description, and a feature bullet list. Cards animate via `usePressScale` and show a checkmark when selected.
 - **Server URL step** (companion mode only) retains the existing URL input with an inline health-check icon (spinner → green check / red ✗ from `/api/health`) and a LAN pairing tip. Skipped entirely in standalone mode.
 - **Privacy step** presents three `SetupOptionCard` options (Manual reports / Automatic crash reports / Automatic + sanitized logs) with radio-button selection and a RECOMMENDED badge on the middle option.
 - **Ready step** shows an animated `SetupReadyCheck` circle (spring pop-in, stiffness 260, damping 18) confirming setup is complete, with a summary of chosen mode and diagnostics level.

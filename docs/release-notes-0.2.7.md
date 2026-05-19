@@ -7,7 +7,7 @@ are friendlier, the LAN browser UI remains a supported access surface, and the
 mobile app now has a clear LAN Companion vs Standalone shape.
 
 This release does not change the basic setup choices. You can still use
-Community Relay, bring your own provider keys, or run VATSIM-only virtual
+Local Flight Relay, use your own provider keys, or run VATSIM-only virtual
 traffic.
 
 ---
@@ -82,9 +82,9 @@ traffic.
 
 - First-run mobile setup now asks whether the device should be a **LAN
   Companion** or **Standalone** install.
-- LAN Companion keeps the current paired-server behavior: WebSocket updates,
-  server settings/control surfaces where allowed, server-mediated reporting, and
-  the full Local Flight desktop/Pi relationship.
+- LAN Companion now has a clearer phone-side job: Board, Radar, History,
+  Control, and Help for an existing desktop/Pi host, plus safe Matrix
+  live-remote controls where they make sense.
 - LAN Companion QR pairing now prefers the server's LAN IP and carries the
   server fingerprint. If `localflight.local` resolves to another Local Flight
   host on a busy test LAN, the mobile app rejects that scan instead of saving
@@ -116,7 +116,8 @@ traffic.
   appearance, outputs/radar, and profiles, with diagnostics/docs/advanced
   controls tucked away.
 - First-run setup is a six-step wizard with Local Flight branding, airport
-  search, source choice, optional keys, diagnostics choice, and launch review.
+  search, source choice, optional keys, diagnostics choice, and a final review
+  before the app opens.
   The LAN browser setup is supported wording-wise, not described as a lesser
   path.
 
@@ -126,9 +127,9 @@ traffic.
 
 - AeroDataBox remains the staged primary real-schedule path, with AviationStack
   available as compatible sparse fill/fallback where configured.
-- Community Relay remains cache-first and may keep serving the last safe shared
+- Local Flight Relay remains cache-first and may keep serving the last safe shared
   airport snapshot if a live provider is slow, capped, or suspiciously sparse.
-- Mobile Standalone uses the same relay provider policy as Community Relay, but
+- Mobile Standalone uses the same relay provider policy as Local Flight Relay, but
   adds stricter mobile-specific cadence and radar-range limits.
 - Public client docs continue to avoid operator-only relay/admin details.
 
@@ -159,7 +160,7 @@ cross-platform GitHub release.
 
 ---
 
-## 2026-05-18 follow-up — visual-language pass
+## Visual-language follow-up
 
 Late in the `0.2.7` cycle a follow-up pass landed that finishes earlier work
 and pulls the LAN browser UI into the same design language as the native Qt

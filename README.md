@@ -47,7 +47,7 @@ Read the detailed guides:
 
 ## What It Does
 
-- Guided setup with **Community Relay**, **Bring your own keys**, and **VATSIM** paths
+- Guided setup with **Local Flight Relay**, **Use your own keys**, and **VATSIM** paths
 - Real schedule support designed around cached shared snapshots, AeroDataBox/AviationStack provider compatibility, and stale-safe serving when live providers are slow or capped
 - Passenger-style FIDS boards for real-world data with city/country airport headers, arrivals/departures, airport-local time, status/gate chips, codeshare grouping, pinned flights, live refresh, and native Classic/PAX/VATSIM/Nerd board styles
 - VATSIM mode uses a pilot/ATC display contract instead of passenger/codeshare fields: callsign-first rows, filed route/flight rules, aircraft, altitude/speed, XPDR, VATSIM freshness, and strict suppression of pilot/controller personal identifiers
@@ -56,7 +56,7 @@ Read the detailed guides:
 - Native Qt desktop shell with Display, FIDS, Radar, Matrix, Settings, Admin, History, Logs, Report, and local docs
 - Settings page built from clear disclosure cards instead of opaque checkbox-titled groups
 - LAN browser UI for headless installs, remote screens, tablets, phones, and browser-mode displays, with compact layouts for 7" Pi touch screens
-- Mobile app with a first-run choice between **LAN Companion** and **Standalone**: Companion keeps the full desktop/Pi pairing flow; Standalone offers a simpler FIDS/Radar/History/Settings experience through the hosted relay with slower refreshes and no server-control tools. The mobile shell keeps its own appearance, branded launch overlay, and small native-feeling interactions.
+- Mobile app with a first-run choice between **LAN Companion** and **Standalone**: Companion focuses on Board, Radar, History, Control, and Help for an existing desktop/Pi host, with safe Matrix live-remote controls where they make sense. Standalone offers a simpler FIDS/Radar/History/Settings experience through the hosted relay with slower refreshes and no server-control tools. The mobile shell keeps its own appearance, branded launch overlay, and small native-feeling interactions.
 - QR pairing in native Settings now prefers the actual LAN IP and carries the server fingerprint, so an iPhone will not silently connect to a different Local Flight host if `localflight.local` resolves to another Pi/desktop on the same network.
 - History dashboard with filters, delay buckets, airline delay quotas, route/aircraft stats, sortable recent movements, and detail panels. Repeated snapshots and known codeshares are deduped so the count means actual movements, not raw board rows.
 - Matrix tooling for Interstate 75 W / HUB75 boards, including panel presets, live preview, optional real-world gate/stand display, compact weather headers, runtime settings, and generated MicroPython `main.py`
@@ -144,9 +144,9 @@ Setup guides you through:
 3. Flight data
 4. Optional provider keys
 5. Diagnostics choice
-6. Review and launch
+6. Review and open
 
-Community Relay is the recommended first path. It uses cached shared schedule snapshots so many installs can watch the same airport without each one calling a paid provider. Community Relay schedule refresh choices are hourly-or-slower in the client UI; BYOK and VATSIM can still use the standard local refresh choices. BYOK is for users who already have provider keys such as AeroDataBox through API.Market or RapidAPI, AviationStack, RapidAPI ADS-B Exchange, or OpenSky. VATSIM is the no-key virtual traffic path.
+Local Flight Relay is the recommended first path. It uses cached shared schedule snapshots so many installs can watch the same airport without each one calling a paid provider. Local Flight Relay schedule refresh choices are hourly-or-slower in the client UI; BYOK and VATSIM can still use the standard local refresh choices. BYOK is for users who already have provider keys such as AeroDataBox through API.Market or RapidAPI, AviationStack, RapidAPI ADS-B Exchange, or OpenSky. VATSIM is the no-key virtual traffic path.
 
 ---
 

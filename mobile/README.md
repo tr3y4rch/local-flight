@@ -4,14 +4,14 @@ React Native / Expo mobile app for Local Flight.
 
 The mobile app is an iOS-first developer preview. It is not on the App Store, TestFlight, Play Store, or available as an APK yet, but it now supports two first-run paths:
 
-- **LAN Mobile / LAN Companion:** pair with the Local Flight desktop or Raspberry Pi server on your Wi-Fi/LAN. The current app setup screen says LAN Mobile; the broader docs may call the same mode LAN Companion.
+- **LAN Companion:** pair with the Local Flight desktop or Raspberry Pi server on your Wi-Fi/LAN.
 - **Standalone:** use the hosted Local Flight relay directly for a simplified phone board. This is intentionally rate-limited to protect shared relay/API tokens.
 
-For most home setups, start with LAN Mobile / LAN Companion. Use Standalone when you want a light mobile FIDS/Radar/History app without running your own Local Flight server.
+For most home setups, start with LAN Companion. Use Standalone when you want a light mobile FIDS/Radar/History app without running your own Local Flight server.
 
 Local Flight Mobile is a personal display aid. Flight, weather, radar, and airport-surface data can be delayed, incomplete, or unavailable, so it must not be used for navigation, dispatch, operational control, or safety decisions.
 
-> **Quick alternative as of the 2026-05-18 `0.2.7` follow-up:** if
+> **Quick alternative:** if
 > you only need to glance at the board from a phone, you don't have
 > to build this app. Open the LAN browser UI
 > (`http://localflight.local:8000` or your server's LAN address) in
@@ -28,7 +28,7 @@ Local Flight Mobile is a personal display aid. Flight, weather, radar, and airpo
 - macOS with an Xcode version compatible with Expo SDK 55
 - Node.js 24 LTS recommended. Node.js 26 Current is also supported for local development. The repo includes a root `.nvmrc`; run `nvm use` from the project root if you use nvm and want the LTS default.
 - iPhone/iPad connected for device builds, or an iOS simulator
-- For LAN Mobile / LAN Companion: Local Flight already running on the same Wi-Fi/LAN
+- For LAN Companion: Local Flight already running on the same Wi-Fi/LAN
 - For Standalone: internet access to the hosted relay
 
 Expo SDK 55 targets React Native 0.83 and React 19.2. Run `npm run doctor` after install on the Mac to confirm the active Xcode, CocoaPods, and package versions are compatible.
@@ -86,9 +86,9 @@ npm run ios:device
 
 On first launch, choose how this device should work.
 
-### LAN Mobile / LAN Companion
+### LAN Companion
 
-Choose **LAN Mobile** in the app when you already run Local Flight on Windows, macOS, or Raspberry Pi.
+Choose **Companion** in the app when you already run Local Flight on Windows, macOS, or Raspberry Pi.
 
 Enter the Local Flight server URL from your LAN, for example:
 
@@ -108,7 +108,7 @@ Standalone setup asks for:
 2. Mobile diagnostics choice
 3. Relay activation
 
-Standalone mode is deliberately simpler than the full LAN Mobile / LAN Companion path:
+Standalone mode is deliberately simpler than the full LAN Companion path:
 
 - FIDS auto-refreshes no faster than every 3 hours.
 - Radar refreshes no faster than every 5 minutes.
@@ -130,34 +130,35 @@ The screenshot script builds a self-contained simulator app and captures portrai
 
 ## What Works Now
 
-- First-run setup choice for LAN Mobile / LAN Companion or Standalone
-- FIDS/Board, Radar, History, and Settings as the daily-use mobile surfaces
+- First-run setup choice for LAN Companion or Standalone
+- LAN Companion daily surfaces: Board, Radar, History, Control, and Help
+- Standalone daily surfaces: Board, Radar, History, and Settings
 - SecureStore persistence for setup mode, server URL, mobile install ID, standalone relay install ID, standalone activation token, standalone airport, mobile diagnostics mode, pinned flight, profiles, and mobile appearance choices
-- LAN Mobile / LAN Companion connection checks against `/api/health`
-- LAN Mobile / LAN Companion dashboard data from `/api/mobile/summary` plus the existing local APIs
+- LAN Companion connection checks against `/api/health`
+- LAN Companion dashboard data from `/api/mobile/summary` plus the existing local APIs
 - QR pairing from native Settings prefers the server's LAN IP and carries the server fingerprint, so the app can reject a scan that resolves to another Local Flight host on a multi-server LAN
 - Standalone summary, FIDS, Radar, and METAR data from relay `/v1/mobile/*` endpoints
-- Native FIDS list from local `/api/fids` in LAN Mobile / LAN Companion mode and relay `/v1/mobile/fids` in Standalone mode
+- Native FIDS list from local `/api/fids` in LAN Companion mode and relay `/v1/mobile/fids` in Standalone mode
 - Flight details from `/api/fids/detail`, including the server's shared current-source detail model for real vs VATSIM schedule, motion, aircraft, weather, source confidence, and history fields when available. VATSIM details use the same pilot/ATC contract as desktop: callsign, filed plan, pilot track, XPDR, and recent sessions, without passenger codeshare/gate/registration fields.
-- Airport, source, and refresh interval editing. The server offers 15, 30, 45, and 60 minute choices plus longer 2, 4, 8, 12, and 24 hour choices where the active schedule mode allows them. Community Relay shows hourly-or-slower choices because shared airport snapshots protect upstream schedule access.
+- Airport, source, and refresh interval editing. The server offers 15, 30, 45, and 60 minute choices plus longer 2, 4, 8, 12, and 24 hour choices where the active schedule mode allows them. Local Flight Relay shows hourly-or-slower choices because shared airport snapshots protect upstream schedule access.
 - Pinned flight island with pin/unpin and tap-for-detail behavior
-- WebSocket listener for `/ws` `snapshot_updated`, `config_updated`, and `scheduler_restarted` events in LAN Mobile / LAN Companion mode only
+- WebSocket listener for `/ws` `snapshot_updated`, `config_updated`, and `scheduler_restarted` events in LAN Companion mode only
 - Independent mobile appearance with dark/light theme plus `standard`, `technical`, `neon`, `cyan`, and `crt` skins
 - Branded launch overlay with a continuous radar sweep, status text fade, breathing status dot, blinking board LED, and shared Local Flight wordmark text
 - Native-feeling interaction polish on key taps, chips, pinned-flight actions, and weather icon changes through haptics, press-scale feedback, and small transitions
-- Server-backed Matrix runtime editor using `/api/matrix/config`, with local-only panel preview presets. Real-world Matrix feeds can expose gate/stand labels when available; VATSIM Matrix presets intentionally hide gate placeholders.
+- Companion Matrix live-remote controls from Control using `/api/matrix/config`, focused on runtime settings such as timing, palette, weather badge visibility, brightness, and refresh cadence.
 - Fullscreen landscape FIDS from any screen, with normal portrait state restored when rotating back
-- Mobile-owned radar radius controls. LAN Mobile / LAN Companion uses the paired server for runway and airport-surface drawing; Standalone uses the relay mobile radar response for this pass.
+- Mobile-owned radar radius controls. LAN Companion uses the paired server for runway and airport-surface drawing; Standalone uses the relay mobile radar response for this pass.
 - Local standalone movement history database with Expo SQLite
-- Feedback and crash reporting through the connected Local Flight server in LAN Mobile / LAN Companion mode, or directly through the hosted relay in Standalone mode
+- Feedback and crash reporting through the connected Local Flight server in LAN Companion mode, or directly through the hosted relay in Standalone mode
 
-Standalone deliberately hides Matrix, Admin, scheduler restart, server-control panels, and LAN Mobile / LAN Companion check-in. The goal is a useful mobile board, not a mini desktop clone.
+Standalone deliberately hides Matrix, Admin, scheduler restart, server-control panels, and LAN Companion check-in. The goal is a useful mobile board, not a mini desktop clone.
 
 ---
 
 ## Privacy Model
 
-### LAN Mobile / LAN Companion
+### LAN Companion
 
 - It talks to your Local Flight server over your LAN.
 - Prefer the LAN IP shown in Local Flight Settings when pairing. `localflight.local` remains useful for simple one-server networks, but it can resolve to the wrong host if a Pi and a dev machine are both running Local Flight.
@@ -207,7 +208,7 @@ The intended support-tip flow is:
 
 - Public iOS release
 - Public Android release
-- Per-device authorization/revoke tokens for broader mutating LAN controls. Current LAN Mobile identifies each device with an install-scoped companion ID and check-in, while Standalone uses its relay activation token.
+- Per-device authorization/revoke tokens for broader mutating LAN controls. Current LAN Companion identifies each device with an install-scoped companion ID and check-in, while Standalone uses its relay activation token.
 - Production-ready admin permission model
 - Native crash capture before JavaScript starts
 - Full standalone flight-detail endpoint parity; Standalone currently focuses on Board, Radar, History, Settings, and reports
@@ -220,7 +221,7 @@ The intended support-tip flow is:
 - Per-device authorization/revoke tokens before broader mutating LAN admin controls
 - App Store/TestFlight proof pass on a fresh real iPhone and iPad: Standalone setup, LAN QR/manual pairing, denied camera/local-network paths, support stub, and accessibility settings
 - App Store Connect privacy/review metadata using `APP_STORE_REVIEW_NOTES.md`
-- Full standalone flight-detail endpoint parity if Standalone should expose the same detail sheet depth as LAN Mobile
+- Full standalone flight-detail endpoint parity if Standalone should expose the same detail sheet depth as LAN Companion
 - Real Apple in-app purchase support tips after App Store Connect products, StoreKit/TestFlight testing, and relay App Store Server API verification are ready
 - Android test pass after the iOS mobile app stabilizes
 - Optional React Navigation stack only if future deep links need true back-stack behavior
