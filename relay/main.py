@@ -1123,6 +1123,110 @@ def _get_usage(subject_key: str, service: str, month: str) -> int:
     return int(row["calls"] or 0) if row else 0
 
 
+def _monthly_reset_at(month: Optional[str] = None) -> str:
+    key = month or _month_key()
+    try:
+        year_s, month_s = key.split("-", 1)
+        year = int(year_s)
+        month_num = int(month_s)
+        if month_num >= 12:
+            year += 1
+            month_num = 1
+        else:
+            month_num += 1
+        return datetime(year, month_num, 1, tzinfo=timezone.utc).isoformat()
+    except Exception:
+        now = datetime.now(timezone.utc)
+        year = now.year + (1 if now.month >= 12 else 0)
+        month_num = 1 if now.month >= 12 else now.month + 1
+        return datetime(year, month_num, 1, tzinfo=timezone.utc).isoformat()
+
+
+def _shared_schedule_budget_payload(conn: Optional[sqlite3.Connection] = None) -> Dict[str, Any]:
+    month = _month_key()
+    close_conn = False
+    if conn is None:
+        conn = _connect()
+        close_conn = True
+    try:
+        aerodatabox_key, _ = _provider_status(_SETTING_AERODATABOX_KEY, "AERODATABOX_API_KEY", conn=conn)
+        aviationstack_key, _ = _provider_status(_SETTING_AVIATIONSTACK_KEY, "AVIATIONSTACK_API_KEY", conn=conn)
+    finally:
+        if close_conn:
+            conn.close()
+
+    provider_mode = _schedule_provider_mode()
+    use_aerodatabox = bool(aerodatabox_key) and provider_mode in {"auto", "aerodatabox"}
+    use_aviationstack = bool(aviationstack_key) and (provider_mode == "aviationstack" or not use_aerodatabox)
+    if use_aerodatabox:
+        provider = "aerodatabox"
+        provider_label = "AeroDataBox shared schedule"
+        service = "aerodatabox_upstream_units"
+        unit_label = "units"
+        limit = _aerodatabox_upstream_units_limit()
+    elif use_aviationstack:
+        provider = "aviationstack"
+        provider_label = "AviationStack shared schedule"
+        service = "aviationstack_upstream"
+        unit_label = "calls"
+        limit = _aviationstack_upstream_monthly_limit()
+    else:
+        provider = provider_mode if provider_mode in {"aerodatabox", "aviationstack"} else "schedule"
+        provider_label = "Shared relay schedule"
+        service = "aerodatabox_upstream_units" if provider_mode != "aviationstack" else "aviationstack_upstream"
+        unit_label = "units" if service == "aerodatabox_upstream_units" else "calls"
+        limit = 0
+
+    used = _get_usage("shared:upstream", service, month) if limit > 0 else 0
+    budget = {
+        "available": limit > 0,
+        "provider": provider,
+        "provider_label": provider_label,
+        "service": service,
+        "unit_label": unit_label,
+        "used": used,
+        "limit": limit,
+        "remaining": max(0, limit - used),
+        "reset_at": _monthly_reset_at(month),
+        "period_label": "Monthly shared provider window",
+        "scope_label": "Shared by all community relay real-data users",
+    }
+    if limit <= 0:
+        budget["error"] = "Shared provider budget unavailable"
+        budget["used"] = None
+        budget["limit"] = None
+        budget["remaining"] = None
+    if use_aerodatabox and aviationstack_key and provider_mode == "auto":
+        aviation_used = _get_usage("shared:upstream", "aviationstack_upstream", month)
+        budget["secondary"] = {
+            "provider": "aviationstack",
+            "provider_label": "AviationStack sparse fill",
+            "service": "aviationstack_upstream",
+            "unit_label": "calls",
+            "used": aviation_used,
+            "limit": _aviationstack_upstream_monthly_limit(),
+            "remaining": max(0, _aviationstack_upstream_monthly_limit() - aviation_used),
+            "reset_at": _monthly_reset_at(month),
+        }
+    return budget
+
+
+def _schedule_access_budget_payload(*, install_id: str, activation_row: Optional[sqlite3.Row], limit: int, plan: str) -> Dict[str, Any]:
+    month = _month_key()
+    subject_key = _usage_subject(install_id, activation_row)
+    used = _get_usage(subject_key, "aviationstack", month)
+    return {
+        "plan": plan,
+        "used": used,
+        "limit": max(0, int(limit or 0)),
+        "remaining": max(0, int(limit or 0) - used),
+        "reset_at": _monthly_reset_at(month),
+        "period_label": "Monthly install access window",
+        "scope_label": "This Local Flight install only",
+        "unit_label": "accesses",
+    }
+
+
 def _usage_calls(row: Optional[sqlite3.Row]) -> int:
     if row is None:
         return 0
@@ -7552,7 +7656,14 @@ def _build_client_status(
     rapidapi_key, _ = _provider_status(_SETTING_RAPIDAPI_KEY, "RAPIDAPI_KEY", conn=conn)
     revision = _provider_revision(conn)
     interest = _client_interest_snapshot(conn, install_id)
+    shared_schedule_budget = _shared_schedule_budget_payload(conn)
     conn.close()
+    schedule_access_budget = _schedule_access_budget_payload(
+        install_id=install_id,
+        activation_row=activation_row,
+        limit=schedule_limit,
+        plan=plan,
+    )
 
     return {
         "ok": True,
@@ -7576,6 +7687,8 @@ def _build_client_status(
         },
         "interest": interest or {},
         "schedule_cache": (interest or {}).get("schedule_cache") or {},
+        "shared_schedule_budget": shared_schedule_budget,
+        "schedule_access_budget": schedule_access_budget,
     }
 
 
@@ -8293,10 +8406,14 @@ def relay_mobile_summary(
                 "active_mode": "standalone",
                 "min_refresh_seconds": _standalone_schedule_min_refresh_seconds(),
             },
+            "shared_schedule_budget": status.get("shared_schedule_budget") or {},
+            "schedule_access_budget": status.get("schedule_access_budget") or {},
             "aviationstack": {
                 "mode": "relay",
                 "active_mode": "standalone",
                 "monthly_limit": (status.get("limits") or {}).get("schedule"),
+                "shared_schedule_budget": status.get("shared_schedule_budget") or {},
+                "schedule_access_budget": status.get("schedule_access_budget") or {},
             },
             "adsbexchange": {
                 "available": bool((status.get("providers") or {}).get("adsbexchange")),

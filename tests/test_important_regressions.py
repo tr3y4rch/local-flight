@@ -1105,7 +1105,24 @@ def test_admin_budget_exposes_schedule_policy(tmp_path: Path, monkeypatch) -> No
     monkeypatch.setattr(aviationstack_client, "_has_enabled_aerodatabox_byok_key", lambda: False)
     monkeypatch.setattr(aviationstack_client, "_has_activation_token", lambda: False)
     monkeypatch.setattr(aviationstack_client, "_has_community_api_key", lambda: False)
-    monkeypatch.setattr(aviationstack_client, "_fetch_managed_status", lambda timeout_s=8: {"ok": False})
+    monkeypatch.setattr(
+        aviationstack_client,
+        "_fetch_relay_status",
+        lambda timeout_s=8, require_token=False: {
+            "ok": True,
+            "shared_schedule_budget": {
+                "provider": "aviationstack",
+                "provider_label": "AviationStack shared schedule",
+                "unit_label": "calls",
+                "used": 8,
+                "limit": 10000,
+                "remaining": 9992,
+                "reset_at": "2026-06-01T00:00:00+00:00",
+                "scope_label": "Shared by all community relay real-data users",
+            },
+            "schedule_access_budget": {"used": 2, "limit": 50, "remaining": 48},
+        },
+    )
 
     payload = ui_api.api_admin_budget()
 
@@ -1113,6 +1130,8 @@ def test_admin_budget_exposes_schedule_policy(tmp_path: Path, monkeypatch) -> No
     assert payload["schedule_policy"]["min_refresh_seconds"] == 3600
     assert payload["schedule_policy"]["allowed_refresh_seconds"][0] == 3600
     assert payload["aviationstack"]["schedule_policy"]["community_shared"] is True
+    assert payload["shared_schedule_budget"]["remaining"] == 9992
+    assert payload["schedule_access_budget"]["remaining"] == 48
     assert payload["client_polling_policy"]["mode"] == "event_first"
     assert payload["client_polling_policy"]["fids_fallback_seconds"] == 300
     assert payload["client_polling_policy"]["mobile_min_fallback_seconds"] == 300
@@ -1369,12 +1388,23 @@ def test_aviationstack_usage_stats_use_managed_bucket_when_token_present(monkeyp
     monkeypatch.setattr(aviationstack_client, "_get_activation_token", lambda: "lfm_test_token")
     monkeypatch.setattr(
         aviationstack_client,
-        "_fetch_managed_status",
-        lambda timeout_s=8: {
+        "_fetch_relay_status",
+        lambda timeout_s=8, require_token=False: {
             "ok": True,
             "limits": {"schedule": 10000},
             "providers": {"aviationstack": True, "adsbexchange": True},
             "token_prefix": "lfm_test",
+            "shared_schedule_budget": {
+                "provider": "aviationstack",
+                "provider_label": "AviationStack shared schedule",
+                "unit_label": "calls",
+                "used": 37,
+                "limit": 10000,
+                "remaining": 9963,
+                "reset_at": "2026-05-01T00:00:00+00:00",
+                "scope_label": "Shared by all community relay real-data users",
+            },
+            "schedule_access_budget": {"used": 3, "limit": 10000, "remaining": 9997},
         },
     )
 
@@ -1385,6 +1415,8 @@ def test_aviationstack_usage_stats_use_managed_bucket_when_token_present(monkeyp
     assert stats["monthly_limit"] == 10000
     assert stats["managed"]["token_prefix"] == "lfm_test"
     assert stats["managed"]["providers"]["aviationstack"] is True
+    assert stats["shared_schedule_budget"]["remaining"] == 9963
+    assert stats["schedule_access_budget"]["used"] == 3
 
 
 def test_community_budget_uses_rolling_30_day_window(monkeypatch) -> None:
@@ -4762,6 +4794,71 @@ def test_event_first_client_polling_static_contracts() -> None:
     assert "lastRadarRefreshAfterRef" in mobile_shell
     assert "includeDashboard: false" in mobile_shell
     assert "Math.max(300, seconds || 300)" in mobile_formatting
+
+
+def test_mobile_companion_routes_are_trimmed_to_supported_shells() -> None:
+    root = Path(__file__).resolve().parents[1]
+    mobile_types = (root / "mobile" / "src" / "domain" / "types.ts").read_text(encoding="utf-8")
+    mobile_shell = (root / "mobile" / "src" / "app" / "AppShell.tsx").read_text(encoding="utf-8")
+    mobile_screens = (root / "mobile" / "src" / "screens" / "AppScreens.tsx").read_text(encoding="utf-8")
+
+    assert 'export type Screen = "fids" | "radar" | "history" | "control" | "help" | "settings";' in mobile_types
+    assert 'screen === "matrix"' not in mobile_shell
+    assert 'screen === "admin"' not in mobile_shell
+    assert 'screen === "docs"' not in mobile_shell
+    assert 'target === "matrix"' not in mobile_shell
+    assert 'target === "admin"' not in mobile_shell
+    assert 'target === "docs"' not in mobile_shell
+    assert "export function MatrixScreen" not in mobile_screens
+    assert "export function AdminScreen" not in mobile_screens
+    assert "export function SettingsScreen" not in mobile_screens
+    assert "export function DocsScreen" not in mobile_screens
+
+
+def test_mobile_help_screen_refreshes_from_dashboard_summary() -> None:
+    root = Path(__file__).resolve().parents[1]
+    mobile_shell = (root / "mobile" / "src" / "app" / "AppShell.tsx").read_text(encoding="utf-8")
+    mobile_screens = (root / "mobile" / "src" / "screens" / "AppScreens.tsx").read_text(encoding="utf-8")
+
+    assert "function screenNeedsDashboard" in mobile_shell
+    assert 'target === "control" || target === "help"' in mobile_shell
+    assert 'includeDashboard: screenNeedsDashboard(screen, isStandalone)' in mobile_shell
+    assert 'onOpenHelp={() => setScreen("help")}' in mobile_shell
+    assert '<HelpScreen' in mobile_shell
+    assert "Open mobile help" in mobile_screens
+
+
+def test_mobile_setup_copy_matches_companion_and_standalone_product() -> None:
+    root = Path(__file__).resolve().parents[1]
+    mobile_screens = (root / "mobile" / "src" / "screens" / "AppScreens.tsx").read_text(encoding="utf-8")
+
+    assert "LAN Mobile" not in mobile_screens
+    assert "full local-server experience" not in mobile_screens
+    assert "Checking /api/health on the Local Flight server" not in mobile_screens
+    assert "Local Flight Mobile will save this pairing locally" not in mobile_screens
+    assert "Companion keeps this phone as a remote and glance screen" in mobile_screens
+    assert "Connect your Local Flight host" in mobile_screens
+    assert "Host status" in mobile_screens
+
+
+def test_setup_copy_uses_friendlier_relay_and_launch_terms() -> None:
+    root = Path(__file__).resolve().parents[1]
+    guidance = (root / "src" / "localflight" / "ui" / "setup_guidance.py").read_text(encoding="utf-8")
+    template = (root / "src" / "localflight" / "ui" / "templates" / "setup.html").read_text(encoding="utf-8")
+
+    assert "client keyless" not in template
+    assert "shared schedule allowance" not in template
+    assert "Support ID" not in template
+    assert "Relay host" not in template
+    assert "advanced token field" not in template
+    assert "Connect this install" not in template
+    assert "Verify relay path" not in template
+    assert "Launch Local Flight" not in template
+    assert "Local Flight Relay" in guidance
+    assert "Review & Open" in guidance
+    assert "Device code" in template
+    assert "Test relay access" in template
+    assert "Open Local Flight" in template
 
 
 def test_public_preview_gallery_includes_matrix_artwork() -> None:

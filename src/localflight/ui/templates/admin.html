@@ -493,61 +493,57 @@
       const r = await fetch("/api/admin/budget"); if (!r.ok) return;
       const b = await r.json();
       const as = b.aviationstack || {};
+      const sharedBudget = b.shared_schedule_budget || as.shared_schedule_budget || {};
+      const accessBudget = b.schedule_access_budget || as.schedule_access_budget || {};
       const community = as.community || {};
       const shared = as.shared_snapshot || {};
       const mode = as.active_mode || as.mode || "community";
       const sharedMode = !!as.shared_relay;
-      const used = as.calls_this_month ?? 0;
-      const limit = as.monthly_limit ?? 0;
-      const remain = as.remaining ?? Math.max(0, limit - used);
-      const periodDays = community.period_days ?? 30;
-      const relayInstallLimit = community.monthly_limit ?? 50;
-      const relayInstallUsed = used;
-      const relayInstallRemaining = Math.max(0, relayInstallLimit - relayInstallUsed);
-      const relayReset = community.period_end || endOfMonthLabel(as.month || "");
-      const displayLimit = sharedMode ? relayInstallLimit : limit;
-      const displayUsed = sharedMode ? relayInstallUsed : used;
-      const displayRemaining = sharedMode ? relayInstallRemaining : remain;
+      const mainBudget = Object.keys(sharedBudget || {}).length ? sharedBudget : as;
+      const displayUsed = mainBudget.used ?? mainBudget.calls_this_month ?? 0;
+      const displayLimit = mainBudget.limit ?? mainBudget.monthly_limit ?? 0;
+      const displayRemaining = mainBudget.remaining == null && displayLimit <= 0 && mainBudget.error
+        ? null
+        : (mainBudget.remaining ?? Math.max(0, displayLimit - displayUsed));
       const pct = displayLimit > 0 ? Math.min(100, Math.round(displayUsed / displayLimit * 100)) : 0;
-      const resetText = sharedMode
-        ? formatResetDate(relayReset)
+      const resetText = mainBudget.reset_at
+        ? formatResetDate(mainBudget.reset_at)
         : mode === "community"
           ? formatResetDate(community.period_end)
-          : mode === "byok"
-            ? endOfMonthLabel(as.month || "")
-            : endOfMonthLabel(as.month || "");
+          : endOfMonthLabel(as.month || "");
+      const unitLabel = mainBudget.unit_label || (mode === "byok" ? "calls" : "requests");
+      const accessUsed = accessBudget.used ?? community.calls_this_month ?? as.calls_this_month ?? 0;
+      const accessLimit = accessBudget.limit ?? community.monthly_limit ?? 0;
 
       el("budgetMode").textContent = mode === "virtual"
         ? "Demo traffic"
         : mode === "byok"
-          ? "Your own AviationStack key"
-          : mode === "community"
-            ? ((community.transport || "relay") === "local_key" ? "Local community key" : "Hosted relay access")
-            : "Hosted relay access";
+          ? (mainBudget.provider_label || "Your provider budget")
+          : (mainBudget.provider_label || "Shared relay schedule budget");
       el("budgetMode").className = `stat-val ${mode === "virtual" ? "" : mode === "byok" ? "ok" : "warn"}`;
       el("budgetUsed").textContent = displayLimit > 0
-        ? `${displayUsed} / ${displayLimit} requests`
-        : "No requests in use";
+        ? `${displayUsed} / ${displayLimit} ${unitLabel}`
+        : (mainBudget.error || "Shared budget unavailable");
       el("budgetRemain").textContent = mode === "virtual"
         ? "No real-data access in use"
-        : `${displayRemaining} requests left`;
+        : displayRemaining == null
+          ? "Shared budget unavailable"
+          : `${displayRemaining} ${unitLabel} left`;
       el("budgetRemain").className = `stat-val ${mode === "virtual" ? "" : displayRemaining < 5 ? "bad" : displayRemaining < 15 ? "warn" : "ok"}`;
-      el("budgetMonth").textContent = sharedMode || mode === "community"
-        ? `${periodDays}-day window`
-        : "Monthly window";
+      el("budgetMonth").textContent = mainBudget.period_label || (sharedMode ? "Shared provider window" : "Monthly window");
       el("budgetReset").textContent = resetText || "—";
       el("budgetReset").className = "stat-val mono";
       el("budgetCadence").textContent = mode === "virtual"
         ? "Virtual mode does not use a schedule request budget."
         : sharedMode
-          ? "This panel shows your install request allowance. Shared relay internals stay on the relay admin."
+          ? `${mainBudget.scope_label || "Shared by all community relay real-data users"}${accessLimit ? ` | Your install: ${accessUsed} / ${accessLimit} accesses used.` : ""}`
           : mode === "byok"
-            ? "Uses your personal AviationStack allowance directly."
+            ? "Uses your personal provider allowance directly."
             : "Managed access is active for this install.";
       el("budgetCadence").className = "stat-val";
       if (sharedMode) {
         if (humanSnapshotState(shared.cache_state || "")) {
-          el("budgetCadence").textContent = `${humanSnapshotState(shared.cache_state || "miss")} | your request counter stays separate from the shared relay itself.`;
+          el("budgetCadence").textContent = `${humanSnapshotState(shared.cache_state || "miss")} | ${mainBudget.scope_label || "Shared by all community relay real-data users"}${accessLimit ? ` | Your install: ${accessUsed} / ${accessLimit} accesses used.` : ""}`;
         }
       }
       const bar = el("budgetBar");

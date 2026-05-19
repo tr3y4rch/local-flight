@@ -200,6 +200,49 @@ def test_activate_auto_issues_and_client_status_verifies(tmp_path: Path, monkeyp
     assert "203.0.113.42" not in str(request_row["network_tag"])
 
 
+def test_client_status_exposes_safe_shared_schedule_budget(tmp_path: Path, monkeypatch) -> None:
+    _use_temp_db(tmp_path, monkeypatch)
+    monkeypatch.setenv("RELAY_SCHEDULE_PROVIDER", "aviationstack")
+    monkeypatch.setenv("AVIATIONSTACK_API_KEY", "secret-aviationstack-key")
+    monkeypatch.setenv("RELAY_AVIATIONSTACK_UPSTREAM_MONTHLY_LIMIT", "10000")
+    client = TestClient(relay_main.app)
+    install_id = "00000000-0000-0000-0000-000000000777"
+    relay_main._increment_usage(
+        subject_key="shared:upstream",
+        service="aviationstack_upstream",
+        month=relay_main._month_key(),
+        plan="upstream",
+        install_id=None,
+        n_calls=37,
+    )
+    relay_main._increment_usage(
+        subject_key=install_id,
+        service="aviationstack",
+        month=relay_main._month_key(),
+        plan="community",
+        install_id=install_id,
+        n_calls=2,
+    )
+
+    response = client.get("/v1/client/status", params={"install_id": install_id})
+
+    assert response.status_code == 200
+    payload = response.json()
+    shared = payload["shared_schedule_budget"]
+    access = payload["schedule_access_budget"]
+    assert shared["provider"] == "aviationstack"
+    assert shared["used"] == 37
+    assert shared["limit"] == 10000
+    assert shared["remaining"] == 9963
+    assert shared["reset_at"]
+    assert shared["scope_label"] == "Shared by all community relay real-data users"
+    assert access["used"] == 2
+    assert access["limit"] == relay_main._community_schedule_limit()
+    serialized = json.dumps(payload)
+    assert "secret-aviationstack-key" not in serialized
+    assert "/admin/api" not in serialized
+
+
 def test_activate_mobile_standalone_uses_standalone_limits(tmp_path: Path, monkeypatch) -> None:
     _use_temp_db(tmp_path, monkeypatch)
     client = TestClient(relay_main.app)

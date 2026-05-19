@@ -257,6 +257,25 @@ def _month_key() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m")
 
 
+def _monthly_reset_at(month: Optional[str] = None) -> str:
+    key = month or _month_key()
+    try:
+        year_s, month_s = key.split("-", 1)
+        year = int(year_s)
+        month_num = int(month_s)
+        if month_num >= 12:
+            year += 1
+            month_num = 1
+        else:
+            month_num += 1
+        return datetime(year, month_num, 1, tzinfo=timezone.utc).isoformat()
+    except Exception:
+        now = datetime.now(timezone.utc)
+        year = now.year + (1 if now.month >= 12 else 0)
+        month_num = 1 if now.month >= 12 else now.month + 1
+        return datetime(year, month_num, 1, tzinfo=timezone.utc).isoformat()
+
+
 def _local_sqlite_counter(service: str, period: Optional[str] = None) -> int:
     try:
         from localflight.sources.web import local_usage
@@ -586,19 +605,20 @@ def _sync_relay_schedule_snapshot(
     _save_relay_snapshot_info(snapshot)
 
 
-def _fetch_managed_status(timeout_s: int = 8) -> Dict[str, Any]:
+def _fetch_relay_status(timeout_s: int = 8, *, require_token: bool = False) -> Dict[str, Any]:
     from localflight.storage.install import get_install_id
     from localflight.sources.web.relay_heartbeat import relay_client_metadata
 
     token = _get_activation_token()
-    if not token:
+    if require_token and not token:
         return {"ok": False, "error": "No activation token configured"}
 
     now_ts = datetime.now(timezone.utc).timestamp()
     cached = _managed_status_cache
+    cache_token = token or "__community__"
     if (
         cached.get("data") is not None
-        and cached.get("token") == token
+        and cached.get("token") == cache_token
         and (now_ts - float(cached.get("ts") or 0.0)) < _MANAGED_STATUS_CACHE_TTL_S
     ):
         data = cached.get("data")
@@ -606,35 +626,42 @@ def _fetch_managed_status(timeout_s: int = 8) -> Dict[str, Any]:
             return data
 
     try:
+        params = {"install_id": get_install_id(), **relay_client_metadata()}
+        if token:
+            params["activation_token"] = token
         response = requests.get(
             _client_status_url(),
-            params={"install_id": get_install_id(), "activation_token": token, **relay_client_metadata()},
+            params=params,
             headers={"Accept": "application/json", "User-Agent": "local-flight/1.0 (+https://localflight.invalid)"},
             timeout=timeout_s,
         )
     except requests.RequestException as exc:
-        data = {"ok": False, "error": f"Managed relay status failed: {exc}"}
-        _managed_status_cache.update({"ts": now_ts, "token": token, "data": data})
+        data = {"ok": False, "error": f"Relay status failed: {exc}"}
+        _managed_status_cache.update({"ts": now_ts, "token": cache_token, "data": data})
         return data
 
     try:
         payload = response.json()
     except Exception as exc:
-        data = {"ok": False, "error": f"Managed relay status was not valid JSON: {exc}"}
-        _managed_status_cache.update({"ts": now_ts, "token": token, "data": data})
+        data = {"ok": False, "error": f"Relay status was not valid JSON: {exc}"}
+        _managed_status_cache.update({"ts": now_ts, "token": cache_token, "data": data})
         return data
 
     if response.status_code >= 400:
         detail = payload.get("detail") if isinstance(payload, dict) else None
-        data = {"ok": False, "error": str(detail or f"Managed relay HTTP {response.status_code}")}
-        _managed_status_cache.update({"ts": now_ts, "token": token, "data": data})
+        data = {"ok": False, "error": str(detail or f"Relay HTTP {response.status_code}")}
+        _managed_status_cache.update({"ts": now_ts, "token": cache_token, "data": data})
         return data
 
     data = payload if isinstance(payload, dict) else {"ok": False, "error": "Managed relay status shape invalid"}
     if "ok" not in data:
         data["ok"] = True
-    _managed_status_cache.update({"ts": now_ts, "token": token, "data": data})
+    _managed_status_cache.update({"ts": now_ts, "token": cache_token, "data": data})
     return data
+
+
+def _fetch_managed_status(timeout_s: int = 8) -> Dict[str, Any]:
+    return _fetch_relay_status(timeout_s=timeout_s, require_token=True)
 
 
 def _active_mode(source: Optional[str]) -> str:
@@ -1517,7 +1544,8 @@ def get_usage_stats(source: Optional[str] = None) -> Dict[str, Any]:
     cost_estimate = estimate_schedule_cost(source_name)
     cached_snapshot = _load_relay_snapshot_info()
 
-    managed_status = _fetch_managed_status() if activation_token else {"ok": False}
+    relay_status = _fetch_relay_status(timeout_s=3) if shared_relay else {"ok": False}
+    managed_status = relay_status if activation_token else {"ok": False}
     if managed_status.get("ok"):
         limits = managed_status.get("limits") or {}
         try:
@@ -1525,7 +1553,9 @@ def get_usage_stats(source: Optional[str] = None) -> Dict[str, Any]:
         except Exception:
             pass
 
-    managed_status_snapshot = managed_status.get("schedule_cache")
+    shared_schedule_budget = relay_status.get("shared_schedule_budget") if isinstance(relay_status.get("shared_schedule_budget"), dict) else {}
+    schedule_access_budget = relay_status.get("schedule_access_budget") if isinstance(relay_status.get("schedule_access_budget"), dict) else {}
+    managed_status_snapshot = relay_status.get("schedule_cache") if isinstance(relay_status, dict) else None
     if not cached_snapshot and isinstance(managed_status_snapshot, dict) and managed_status_snapshot:
         cached_snapshot = {
             "generated_at": str(managed_status_snapshot.get("generated_at") or ""),
@@ -1568,6 +1598,8 @@ def get_usage_stats(source: Optional[str] = None) -> Dict[str, Any]:
         "period_end": community_window.get("period_end"),
         "cost_estimate": cost_estimate,
         "shared_snapshot": shared_snapshot if community_transport == "relay" else {},
+        "schedule_access_budget": schedule_access_budget,
+        "shared_schedule_budget": shared_schedule_budget,
     }
     managed = {
         "configured": bool(activation_token),
@@ -1584,6 +1616,8 @@ def get_usage_stats(source: Optional[str] = None) -> Dict[str, Any]:
         "budget_ok": managed_calls < managed_limit,
         "cost_estimate": cost_estimate,
         "shared_snapshot": shared_snapshot,
+        "schedule_access_budget": schedule_access_budget,
+        "shared_schedule_budget": shared_schedule_budget,
     }
     byok = {
         "configured": _has_api_key() or bool(os.getenv("AERODATABOX_API_KEY", "").strip()),
@@ -1635,6 +1669,70 @@ def get_usage_stats(source: Optional[str] = None) -> Dict[str, Any]:
             "budget_ok": True,
         }
 
+    if active_mode == "community" and not schedule_access_budget:
+        schedule_access_budget = {
+            "plan": "community",
+            "used": community_calls,
+            "limit": community_limit,
+            "remaining": max(0, community_limit - community_calls),
+            "reset_at": community_window.get("period_end"),
+            "period_label": f"{_COMMUNITY_WINDOW_DAYS}-day install access window",
+            "scope_label": "This Local Flight install only",
+            "unit_label": "accesses",
+        }
+    elif active_mode == "managed" and not schedule_access_budget:
+        schedule_access_budget = {
+            "plan": "managed",
+            "used": managed_calls,
+            "limit": managed_limit,
+            "remaining": max(0, managed_limit - managed_calls),
+            "reset_at": _monthly_reset_at(month),
+            "period_label": "Monthly install access window",
+            "scope_label": "This Local Flight install only",
+            "unit_label": "accesses",
+        }
+    elif active_mode == "byok" and not shared_schedule_budget:
+        shared_schedule_budget = {
+            "available": True,
+            "provider": byok.get("provider"),
+            "provider_label": "Your provider budget",
+            "unit_label": "units" if byok.get("provider") == "aerodatabox" else "calls",
+            "used": active_bucket["calls_this_month"],
+            "limit": active_bucket["monthly_limit"],
+            "remaining": active_bucket["remaining"],
+            "reset_at": _monthly_reset_at(month),
+            "period_label": "Monthly local provider window",
+            "scope_label": "Your own provider key",
+        }
+    elif active_mode == "virtual" and not shared_schedule_budget:
+        shared_schedule_budget = {
+            "available": False,
+            "provider": "virtual",
+            "provider_label": "Virtual traffic",
+            "unit_label": "requests",
+            "used": 0,
+            "limit": 0,
+            "remaining": 0,
+            "reset_at": "",
+            "period_label": "Not used",
+            "scope_label": "VATSIM/virtual mode does not use real schedule quota",
+        }
+
+    if shared_relay and not shared_schedule_budget:
+        shared_schedule_budget = {
+            "available": False,
+            "provider": "relay",
+            "provider_label": "Shared relay schedule",
+            "unit_label": "requests",
+            "used": None,
+            "limit": None,
+            "remaining": None,
+            "reset_at": "",
+            "period_label": "Shared provider window",
+            "scope_label": "Shared by all community relay real-data users",
+            "error": relay_status.get("error") or "Shared budget unavailable",
+        }
+
     return {
         "mode": active_mode,
         "active_mode": active_mode,
@@ -1649,6 +1747,8 @@ def get_usage_stats(source: Optional[str] = None) -> Dict[str, Any]:
         "shared_relay": shared_relay,
         "schedule_policy": policy,
         "shared_snapshot": shared_snapshot,
+        "shared_schedule_budget": shared_schedule_budget,
+        "schedule_access_budget": schedule_access_budget,
         "community": community,
         "managed": managed,
         "byok": byok,

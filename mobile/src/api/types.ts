@@ -131,6 +131,29 @@ export type SchedulerStatus = {
 };
 
 export type Budget = {
+  shared_schedule_budget?: {
+    available?: boolean;
+    provider?: string;
+    provider_label?: string;
+    unit_label?: string;
+    used?: number | null;
+    limit?: number | null;
+    remaining?: number | null;
+    reset_at?: string | null;
+    period_label?: string;
+    scope_label?: string;
+    error?: string;
+  };
+  schedule_access_budget?: {
+    plan?: string;
+    used?: number | null;
+    limit?: number | null;
+    remaining?: number | null;
+    reset_at?: string | null;
+    period_label?: string;
+    scope_label?: string;
+    unit_label?: string;
+  };
   client_polling_policy?: {
     mode?: string;
     jitter_ratio?: number;
@@ -156,6 +179,8 @@ export type Budget = {
     relay_url?: string;
     enabled?: boolean;
     shared_relay?: boolean;
+    shared_schedule_budget?: Budget["shared_schedule_budget"];
+    schedule_access_budget?: Budget["schedule_access_budget"];
     schedule_policy?: Budget["schedule_policy"];
     shared_snapshot?: {
       generated_at?: string;

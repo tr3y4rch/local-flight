@@ -2222,7 +2222,7 @@ function RadarWeatherCard({ metar, mode }: { metar: Metar | null; mode: MobileWe
   );
 }
 
-export function MatrixScreen({
+function MatrixScreen({
   rows,
   view,
   brightness,
@@ -4143,7 +4143,7 @@ function statusBadgeTone(
   return statusTone(value);
 }
 
-export function AdminScreen({
+function AdminScreen({
   snapshot,
   historyStats,
   companionIdentity,
@@ -4185,6 +4185,21 @@ export function AdminScreen({
   onBackSettings: () => void;
 }) {
   const budget = snapshot.budget?.aviationstack;
+  const sharedBudget = snapshot.budget?.shared_schedule_budget || budget?.shared_schedule_budget || null;
+  const accessBudget = snapshot.budget?.schedule_access_budget || budget?.schedule_access_budget || null;
+  const primaryBudget = (sharedBudget || budget || null) as {
+    provider_label?: string;
+    unit_label?: string;
+    used?: number | null;
+    limit?: number | null;
+    remaining?: number | null;
+    reset_at?: string | null;
+    scope_label?: string;
+  } | null;
+  const budgetUnit = primaryBudget?.unit_label || "requests";
+  const budgetRemaining = primaryBudget?.remaining;
+  const budgetLimit = primaryBudget?.limit ?? budget?.monthly_limit;
+  const budgetUsed = primaryBudget?.used ?? budget?.calls_this_month;
   const matrixEnabled = snapshot.config?.display_outputs?.includes("matrix") || false;
   const matrixLastSeen = snapshot.connections?.matrix_last_seen;
   const companionRecord =
@@ -4249,7 +4264,10 @@ export function AdminScreen({
         </View>
         <View style={styles.metricRow}>
           <InfoCard label="LAST FETCH" value={formatRelative(snapshot.state?.last_success_utc)} tone="amber" />
-          <InfoCard label="API BUDGET" value={budget?.remaining != null ? `${budget.remaining} LEFT` : "UNKNOWN"} />
+          <InfoCard
+            label="API BUDGET"
+            value={budgetRemaining != null ? `${budgetRemaining} ${budgetUnit.toUpperCase()} LEFT` : "SHARED CHECK"}
+          />
           <InfoCard label="MEMORY" value={snapshot.system?.memory_mb != null ? `${snapshot.system.memory_mb} MB` : "-"} />
         </View>
         <InfoLine label="Server install" value={snapshot.system?.install_id || "Unknown"} />
@@ -4259,25 +4277,29 @@ export function AdminScreen({
         {budget ? (
           <>
             <Text style={styles.adminSubTitle}>SCHEDULE ACCESS</Text>
-            <InfoLine label="Access mode" value={budget.active_mode || budget.mode || "—"} />
-            <InfoLine label="Used this window" value={budget.calls_this_month != null ? String(budget.calls_this_month) : "—"} />
-            <InfoLine label="Requests left" value={budget.remaining != null ? String(budget.remaining) : "—"} />
-            <InfoLine label="Access window" value={budget.month || "—"} />
+            <InfoLine label="Budget source" value={primaryBudget?.provider_label || budget.active_mode || budget.mode || "—"} />
+            <InfoLine label="Used this window" value={budgetUsed != null && budgetLimit != null ? `${budgetUsed} / ${budgetLimit} ${budgetUnit}` : "—"} />
+            <InfoLine label="Requests left" value={budgetRemaining != null ? `${budgetRemaining} ${budgetUnit}` : "Shared budget unavailable"} />
+            <InfoLine label="Counter resets" value={primaryBudget?.reset_at || budget.month || "—"} />
+            <InfoLine label="Scope" value={primaryBudget?.scope_label || "This install"} />
+            {accessBudget?.limit != null ? (
+              <InfoLine label="This install" value={`${accessBudget.used ?? 0} / ${accessBudget.limit} accesses used`} />
+            ) : null}
             {budget.cost_estimate?.cadence_warning ? (
               <InfoLine label="Note" value={budget.cost_estimate.cadence_warning} />
             ) : null}
-            {budget.monthly_limit != null && budget.remaining != null ? (
+            {budgetLimit != null && budgetLimit > 0 && budgetRemaining != null ? (
               <View style={styles.adminBudgetTrack}>
                 <View
                   style={{
                     height: 5,
                     borderRadius: 99,
-                    backgroundColor: budget.remaining > budget.monthly_limit * 0.3
+                    backgroundColor: budgetRemaining > budgetLimit * 0.3
                       ? palette.green
-                      : budget.remaining > budget.monthly_limit * 0.1
+                      : budgetRemaining > budgetLimit * 0.1
                       ? palette.amber
                       : palette.red,
-                    width: `${Math.min(Math.round((budget.remaining / budget.monthly_limit) * 100), 100)}%` as unknown as number
+                    width: `${Math.min(Math.round((budgetRemaining / budgetLimit) * 100), 100)}%` as unknown as number
                   }}
                 />
               </View>
@@ -4485,7 +4507,7 @@ export function CompanionSetupScreen({
   const [setupError, setSetupError] = useState<string | null>(null);
   const [setupProgress, setSetupProgress] = useState<string | null>(null);
   const [urlCheckState, setUrlCheckState] = useState<SetupUrlCheckState>("idle");
-  const [urlCheckMessage, setUrlCheckMessage] = useState("Enter the LAN URL shown by the desktop or Pi app.");
+  const [urlCheckMessage, setUrlCheckMessage] = useState("Enter the LAN address shown by the desktop or Pi app.");
   const [serverSummary, setServerSummary] = useState<CompanionSetupResult | null>(null);
   const [scannerVisible, setScannerVisible] = useState(false);
   const stepAnim = useRef(new Animated.Value(1)).current;
@@ -4520,7 +4542,7 @@ export function CompanionSetupScreen({
     const input = serverInput.trim();
     if (!input) {
       setUrlCheckState("idle");
-      setUrlCheckMessage("Enter the LAN URL shown by the desktop or Pi app.");
+      setUrlCheckMessage("Enter the LAN address shown by the desktop or Pi app.");
       return;
     }
 
@@ -4535,12 +4557,12 @@ export function CompanionSetupScreen({
     const timer = setTimeout(() => {
       const normalizedUrl = normalizeServerUrl(input);
       setUrlCheckState("checking");
-      setUrlCheckMessage("Checking /api/health on the Local Flight server...");
+      setUrlCheckMessage("Checking the Local Flight host on your LAN...");
       void getHealth(normalizedUrl)
         .then(() => {
           if (cancelled) return;
           setUrlCheckState("ok");
-          setUrlCheckMessage("Server health answered. You can run the full setup test.");
+          setUrlCheckMessage("Host answered. You can continue with the full check.");
         })
         .catch((exc) => {
           if (cancelled) return;
@@ -4591,14 +4613,14 @@ export function CompanionSetupScreen({
     setTesting(true);
     setSetupError(null);
     setUrlCheckState("checking");
-    setUrlCheckMessage("Running the full Local Flight setup check...");
+    setUrlCheckMessage("Running a full Local Flight check...");
     let rootHealthOk = false;
     try {
       const normalizedUrl = normalizeServerUrl(input);
-      setSetupProgress("Checking the Local Flight server on your LAN...");
+      setSetupProgress("Checking the Local Flight host on your LAN...");
       await getRootHealth(normalizedUrl);
       rootHealthOk = true;
-      setSetupProgress("Reading mobile health and server config...");
+      setSetupProgress("Reading companion status and board configuration...");
       const mobileSummary = await getMobileSummary(normalizedUrl);
       const fingerprintProblem = pairingFingerprintProblem(
         expectedServerFingerprint,
@@ -4627,24 +4649,24 @@ export function CompanionSetupScreen({
         config,
         state
       };
-      setSetupProgress("Server answered. Moving to diagnostics...");
+      setSetupProgress("Host answered. Moving to diagnostics...");
       setServerInput(normalizedUrl);
       setUrlCheckState("ok");
-      setUrlCheckMessage("Server and mobile APIs are ready.");
+      setUrlCheckMessage("Host and companion setup are ready.");
       setServerSummary(summary);
       setStep("diagnostics");
     } catch (exc) {
       const detail = companionSetupErrorMessage(exc);
       const isPairingGuard = /Pairing QR|belongs to server|server fingerprint/i.test(detail);
       const message = rootHealthOk && !isPairingGuard
-        ? "Local Flight answered /health, but setup APIs are not ready. Finish Local Flight setup on the desktop/Pi first, then return here."
+        ? "Local Flight is running, but first-time setup is not finished on the desktop or Pi yet. Finish setup there, then return here."
         : detail;
       setSetupError(
         message
       );
       setUrlCheckState("error");
       setUrlCheckMessage(rootHealthOk && !isPairingGuard
-        ? "Server health answered, but the mobile APIs are not ready yet."
+        ? "The host answered, but companion setup is not ready yet."
         : message);
     } finally {
       setTesting(false);
@@ -4662,7 +4684,7 @@ export function CompanionSetupScreen({
     setStep("server");
     setSetupError(null);
     setUrlCheckState("checking");
-    setUrlCheckMessage("Pairing QR loaded. Testing this Local Flight server...");
+    setUrlCheckMessage("Pairing QR loaded. Testing this Local Flight host...");
     void runServerTest(pairing.serverUrl, pairing.expectedServerFingerprint);
   }, [runServerTest]);
 
@@ -4672,7 +4694,7 @@ export function CompanionSetupScreen({
     setStep("server");
     setSetupError(null);
     setUrlCheckState("checking");
-    setUrlCheckMessage("Pairing QR loaded. Testing this Local Flight server...");
+    setUrlCheckMessage("Pairing QR loaded. Testing this Local Flight host...");
     const timer = setTimeout(() => {
       void runServerTest(pairingUrl, pairingExpectedServerFingerprint);
     }, 120);
@@ -4712,7 +4734,7 @@ export function CompanionSetupScreen({
 
     if (!serverSummary) {
       setStep("server");
-      setSetupError("Test your Local Flight server before finishing setup.");
+      setSetupError("Test your Local Flight host before finishing setup.");
       return;
     }
     setFinishing(true);
@@ -4758,7 +4780,7 @@ export function CompanionSetupScreen({
           </Text>
           <Text style={styles.companionSetupTitle}>Set up your flight board</Text>
           <Text style={styles.companionSetupBody}>
-            Choose LAN Mobile when you already run Local Flight on a desktop or Pi. Choose Standalone when this phone should use the hosted relay directly with simplified, rate-limited features.
+            Choose Companion when Local Flight already runs on a desktop or Pi. Choose Standalone when this phone should use the hosted relay directly with simpler, slower updates.
           </Text>
           <View style={styles.companionSetupRoute}>
             {routeSteps.map((item, index) => (
@@ -4785,12 +4807,12 @@ export function CompanionSetupScreen({
           <Animated.View style={[styles.companionSetupPanel, panelMotion]}>
             <Text style={styles.companionSetupPanelTitle}>Choose how this phone is used</Text>
             <Text style={styles.companionSetupBody}>
-              LAN Mobile keeps the full local-server experience. Standalone is simplified and rate-limited to preserve shared relay/API tokens.
+              Companion keeps this phone as a remote and glance screen for your Local Flight host. Standalone is a lighter board with slower refresh and no host controls.
             </Text>
             <View style={styles.companionSetupOptionStack}>
               {([
-                ["lan_companion", "LAN Mobile", "Full mobile mode for your desktop/Pi server, including Matrix, docs, reports, and trusted LAN controls."],
-                ["standalone", "Standalone", "FIDS, radar, history, settings, docs, and reports without a LAN server. No Matrix/admin/server controls."]
+                ["lan_companion", "Companion", "Connects to your Local Flight desktop or Pi for Board, Radar, History, Control, Help, and Matrix remote controls."],
+                ["standalone", "Standalone", "Runs as a lighter relay-backed board with Board, Radar, History, and Settings. No Matrix, no host controls, and slower refresh."]
               ] as Array<[MobileSetupMode, string, string]>).map(([mode, title, body]) => (
                 <Pressable
                   key={mode}
@@ -4817,16 +4839,16 @@ export function CompanionSetupScreen({
               ))}
             </View>
             <View style={styles.companionSetupChecklist}>
-              <SetupChecklistItem icon={SETUP_ICONS.server} title="One app" body="You can reset setup later and switch between Mobile and Standalone." />
-              <SetupChecklistItem icon={SETUP_ICONS.lan} title="Relay-safe" body="Standalone never opens WebSockets and never controls a server." />
+              <SetupChecklistItem icon={SETUP_ICONS.server} title="One mobile app" body="You can rerun setup later and switch between Companion and Standalone." />
+              <SetupChecklistItem icon={SETUP_ICONS.lan} title="Standalone stays light" body="Standalone never opens WebSockets and never controls a Local Flight host." />
               <SetupChecklistItem icon={SETUP_ICONS.privacy} title="Privacy choice" body="Pick manual or automatic mobile diagnostics before entering the app." />
               <SetupChecklistItem icon={SETUP_ICONS.privacy} title="Display aid" body="Flight and radar data are informational only, not for navigation, operations, dispatch, or safety decisions." />
             </View>
             <View style={styles.companionSetupInfoGrid}>
-              <SetupInfoTile label="Mode" value={setupMode === "standalone" ? "Standalone" : "LAN mobile"} />
-              <SetupInfoTile label="Privacy" value={setupMode === "standalone" ? "Relay direct" : "Server mediated"} />
-              <SetupInfoTile label="Needed" value={setupMode === "standalone" ? "Airport + relay token" : "Configured desktop/Pi"} />
-              <SetupInfoTile label="Next" value={setupMode === "standalone" ? "Pick airport" : "Test server URL"} />
+              <SetupInfoTile label="Mode" value={setupMode === "standalone" ? "Standalone" : "Companion"} />
+              <SetupInfoTile label="Connection" value={setupMode === "standalone" ? "Relay direct" : "Host on your LAN"} />
+              <SetupInfoTile label="Needed" value={setupMode === "standalone" ? "Airport only" : "Running desktop or Pi host"} />
+              <SetupInfoTile label="Next" value={setupMode === "standalone" ? "Pick airport" : "Test host address"} />
             </View>
             <Pressable
               style={styles.companionSetupPrimary}
@@ -4844,9 +4866,9 @@ export function CompanionSetupScreen({
 
         {step === "server" ? (
           <Animated.View style={[styles.companionSetupPanel, panelMotion]}>
-            <Text style={styles.companionSetupPanelTitle}>Connect your Local Flight server</Text>
+            <Text style={styles.companionSetupPanelTitle}>Connect your Local Flight host</Text>
             <Text style={styles.companionSetupBody}>
-              Use the LAN address shown by the desktop or Pi app. The QR is tied to that server fingerprint so the phone can reject the wrong Local Flight host.
+              Use the LAN address shown by the desktop or Pi app. The QR includes a server fingerprint so this phone can reject the wrong Local Flight host.
             </Text>
             <View style={styles.pairingChoiceRow}>
               <Pressable
@@ -4871,7 +4893,7 @@ export function CompanionSetupScreen({
                 </View>
                 <View style={styles.pairingChoiceCopy}>
                   <Text style={styles.pairingChoiceTitle}>Enter URL</Text>
-                  <Text style={styles.pairingChoiceBody}>Paste the desktop/Pi LAN IP below. localflight.local is only a fallback for one-server LANs.</Text>
+                  <Text style={styles.pairingChoiceBody}>Paste the desktop or Pi LAN address below. localflight.local is only a fallback on simple one-host LANs.</Text>
                 </View>
               </View>
             </View>
@@ -4921,22 +4943,22 @@ export function CompanionSetupScreen({
             </Text>
             <SetupProgressRail
               active={testing}
-              label={setupProgress || "Waiting to test the server URL."}
-              steps={["LAN reachability", "Server health", "Mobile config"]}
+              label={setupProgress || "Waiting to test the host address."}
+              steps={["LAN reachability", "Host status", "Board config"]}
             />
               <Pressable
                 style={[styles.companionSetupPrimary, testing && styles.connectButtonDisabled]}
                 onPress={() => void testServer()}
                 disabled={testing}
                 {...accessibleButton({
-                  label: testing ? "Testing server" : "Test server",
-                  hint: "Checks the Local Flight server health, mobile API, and config.",
+                  label: testing ? "Testing host" : "Test host",
+                  hint: "Checks the Local Flight host, companion status, and board configuration.",
                   disabled: testing,
                   busy: testing
                 })}
               >
               {testing ? <ActivityIndicator color={solidButtonInk()} /> : <LocalFlightIcon name={ACTION_ICONS.connect} size={16} color={solidButtonInk()} />}
-              <Text style={styles.companionSetupPrimaryText}>{testing ? "TESTING SERVER" : "TEST SERVER"}</Text>
+              <Text style={styles.companionSetupPrimaryText}>{testing ? "TESTING HOST" : "TEST HOST"}</Text>
             </Pressable>
             <Pressable
               style={styles.companionSetupSecondary}
@@ -5047,13 +5069,13 @@ export function CompanionSetupScreen({
           <Animated.View style={[styles.companionSetupPanel, panelMotion]}>
             <Text style={styles.companionSetupPanelTitle}>Choose mobile diagnostics</Text>
             <Text style={styles.companionSetupBody}>
-              Manual reports are always available. In Mobile mode, automatic reports only send when this device and the connected server both allow diagnostics. In Standalone mode, this device choice controls relay crash reports.
+              Manual reports are always available. In Companion mode, automatic reports only send when this device and the connected host both allow diagnostics. In Standalone mode, this device choice controls relay crash reports.
             </Text>
             <View style={styles.companionSetupOptionStack}>
               {([
                 ["manual", "Manual only", "No automatic mobile reports. Send feedback yourself from Help."],
                 ["auto", "Auto crash reports", "Send serious React/JS mobile crashes with app and server context."],
-                ["auto_logs", "Auto + context", "Same as auto for now; native iOS logs are not collected in this pass."]
+                ["auto_logs", "Auto + extra context", "Adds a little more mobile context when available. Full native device logs are still not included."]
               ] as Array<[MobileDiagnosticsMode, string, string]>).map(([mode, title, body]) => (
                   <Pressable
                     key={mode}
@@ -5100,13 +5122,13 @@ export function CompanionSetupScreen({
             <Text style={styles.companionSetupBody}>
               {setupMode === "standalone"
                 ? "The app will activate this phone as a standalone relay client, save the token locally, and open the simplified mobile board."
-                : "Local Flight Mobile will save this pairing locally, ask the Local Flight server for fresh FIDS rows, and open the main app."}
+                : "The app will save this companion pairing locally, ask the Local Flight host for fresh FIDS rows, and open the main mobile view."}
             </Text>
             <View style={styles.companionSetupSummary}>
-              <InfoLine label="Mode" value={setupMode === "standalone" ? "Standalone relay client" : "LAN mobile"} />
-              <InfoLine label={setupMode === "standalone" ? "Airport" : "Server"} value={setupMode === "standalone" ? (selectedStandaloneAirport?.iata || "---") : (serverSummary?.serverUrl || normalizeServerUrl(serverInput) || "Not tested")} />
+              <InfoLine label="Mode" value={setupMode === "standalone" ? "Standalone relay client" : "Companion"} />
+              <InfoLine label={setupMode === "standalone" ? "Airport" : "Host"} value={setupMode === "standalone" ? (selectedStandaloneAirport?.iata || "---") : (serverSummary?.serverUrl || normalizeServerUrl(serverInput) || "Not tested")} />
               <InfoLine label={setupMode === "standalone" ? "Relay policy" : "Airport"} value={setupMode === "standalone" ? "3h FIDS · 5m radar" : (serverSummary?.config.airport_iata || "---")} />
-              <InfoLine label={setupMode === "standalone" ? "Status" : "Server status"} value={setupMode === "standalone" ? "Activation on finish" : (serverSummary?.state.ok === false ? "Needs attention" : "Ready")} />
+              <InfoLine label={setupMode === "standalone" ? "Status" : "Host status"} value={setupMode === "standalone" ? "Activation on finish" : (serverSummary?.state.ok === false ? "Needs attention" : "Ready")} />
               <InfoLine label="Diagnostics" value={diagnosticsMode === "manual" ? "Manual reports only" : diagnosticsMode === "auto" ? "Automatic crash reports" : "Automatic crash reports + context"} />
             </View>
             <Pressable
@@ -5255,7 +5277,7 @@ function companionSetupErrorMessage(value: unknown): string {
   return message;
 }
 
-export function SettingsScreen({
+function SettingsScreen({
   serverUrl,
   draftUrl,
   error,
@@ -5586,11 +5608,6 @@ export function ControlScreen({
   matrixSaveTone,
   companionIdentity,
   connected,
-  feedbackTitle,
-  feedbackDescription,
-  feedbackSending,
-  feedbackMessage,
-  feedbackTone,
   onThemeModeChange,
   onSkinChange,
   onWeatherDisplayModeChange,
@@ -5604,15 +5621,13 @@ export function ControlScreen({
   onMatrixReset,
   onApplyProfile,
   onOpenConfig,
+  onOpenHelp,
   onOpenSupport,
   onRestartScheduler,
   onRerunSetup,
   onChangeUrl,
   onPairingUrl,
-  onConnect,
-  onFeedbackTitleChange,
-  onFeedbackDescriptionChange,
-  onSubmitFeedback
+  onConnect
 }: {
   snapshot: DashboardSnapshot;
   serverUrl: string;
@@ -5641,11 +5656,6 @@ export function ControlScreen({
   matrixSaveTone: FeedbackTone;
   companionIdentity: CompanionIdentity | null;
   connected: boolean;
-  feedbackTitle: string;
-  feedbackDescription: string;
-  feedbackSending: boolean;
-  feedbackMessage: string | null;
-  feedbackTone: FeedbackTone;
   onThemeModeChange: (value: MobileThemeMode) => void;
   onSkinChange: (value: MobileSkin) => void;
   onWeatherDisplayModeChange: (value: MobileWeatherDisplayMode) => void;
@@ -5659,15 +5669,13 @@ export function ControlScreen({
   onMatrixReset: () => void;
   onApplyProfile: (profile: ConfigProfile) => void;
   onOpenConfig: () => void;
+  onOpenHelp: () => void;
   onOpenSupport: () => void;
   onRestartScheduler: () => void;
   onRerunSetup: () => void;
   onChangeUrl: (value: string) => void;
   onPairingUrl: (value: PairingLinkResult) => void;
   onConnect: () => void;
-  onFeedbackTitleChange: (value: string) => void;
-  onFeedbackDescriptionChange: (value: string) => void;
-  onSubmitFeedback: () => void;
 }) {
   const [activeSheet, setActiveSheet] = useState<"connection" | "appearance" | "matrix" | null>(null);
   const outputValue = outputs.length ? outputs.join(", ").toUpperCase() : "WEB";
@@ -5678,16 +5686,6 @@ export function ControlScreen({
     snapshot.connections?.companions?.find((item) => item.companion_id === companionIdentity?.companionId) || null;
   const matrixPaletteOption = MATRIX_PALETTE_OPTIONS.find((item) => item.id === matrixRuntime.palette) || MATRIX_PALETTE_OPTIONS[0]!;
   const matrixShowWeather = Boolean(matrixRuntime.options.show_metar ?? matrixRuntime.options.show_weather);
-  const feedbackContext = [
-    `Reporter      ${companionIdentity?.clientName || "Local Flight Mobile"}`,
-    `Mobile ID     ${companionIdentity?.companionId || "UNKNOWN"}`,
-    `Mobile OS     ${companionIdentity?.mobileOs || "UNKNOWN"}`,
-    `Build         ${companionIdentity?.appVersion || APP_VERSION}`,
-    `Server ID     ${snapshot.system?.install_id || "UNKNOWN"}`,
-    `Server        ${snapshot.system?.platform || "UNKNOWN"}`,
-    `Airport       ${snapshot.config?.airport_iata || "---"}`,
-    `Source        ${snapshot.state?.source_name || snapshot.config?.source || "UNKNOWN"}`
-  ].join("\n");
 
   useEffect(() => {
     if (serverPanelRequest) {
@@ -5810,47 +5808,17 @@ export function ControlScreen({
       <View style={styles.settingsCard}>
         <Text style={styles.settingsTitle}>HELP & REPORTS</Text>
         <Text style={styles.moduleIntro}>
-          Quick fixes and manual reports live here directly, without another menu layer.
+          Keep support separate from daily controls. Open Help for host identity, pairing, troubleshooting, and reports.
         </Text>
-        <InfoLine label="Cannot connect" value="Make sure the server is running on the same Wi-Fi and use its LAN address, not phone localhost." />
-        <InfoLine label="Board looks stale" value="Use restart fetch from server pairing, then wait for the next snapshot push." />
-        <InfoLine label="Still stuck" value="Send a report with what happened, the airport, and the source you were using." />
-        <TextInput
-          value={feedbackTitle}
-          onChangeText={onFeedbackTitleChange}
-          placeholder="Short summary, for example Radar stopped updating"
-          placeholderTextColor={palette.textDim}
-          style={styles.serverInput}
+        <InfoLine label="Pairing & host" value="Saved server, host install, version, and mobile check-in." />
+        <InfoLine label="Troubleshooting" value="Connection, stale board, scheduler, and rate-limit guidance." />
+        <InfoLine label="Reports" value="Send mobile and host context through Local Flight only when you choose to." />
+        <SettingsToolPill
+          icon={TOOL_ICONS.help}
+          label="Open mobile help"
+          value="Host identity, troubleshooting, reports, support"
+          onPress={onOpenHelp}
         />
-        <TextInput
-          value={feedbackDescription}
-          onChangeText={onFeedbackDescriptionChange}
-          placeholder="What happened, what you expected, and how to reproduce it"
-          placeholderTextColor={palette.textDim}
-          multiline
-          textAlignVertical="top"
-          style={[styles.serverInput, styles.feedbackInput]}
-        />
-        <View style={styles.feedbackContextBox}>
-          <Text style={styles.feedbackContextText}>{feedbackContext}</Text>
-        </View>
-        <Pressable
-          style={[styles.connectButton, feedbackSending && styles.connectButtonDisabled]}
-          onPress={onSubmitFeedback}
-          disabled={feedbackSending}
-          {...accessibleButton({
-            label: feedbackSending ? "Sending report" : "Send report",
-            disabled: feedbackSending,
-            busy: feedbackSending
-          })}
-        >
-          {feedbackSending ? <ActivityIndicator color={solidButtonInk()} /> : <Text style={styles.connectButtonText}>SEND REPORT</Text>}
-        </Pressable>
-        {feedbackMessage ? (
-          <Text style={[styles.feedbackMessage, feedbackTone === "ok" ? styles.feedbackMessageOk : styles.feedbackMessageError]}>
-            {feedbackMessage}
-          </Text>
-        ) : null}
         <SettingsToolPill
           icon={TOOL_ICONS.github}
           label="GitHub & releases"
@@ -6305,7 +6273,7 @@ export function HelpScreen({
   );
 }
 
-export function DocsScreen({
+function DocsScreen({
   slug,
   serverUrl,
   onBackSettings,

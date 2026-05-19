@@ -2190,11 +2190,16 @@ def api_admin_budget() -> Dict[str, Any]:
  
     try:
         from localflight.sources.web.aviationstack_client import get_usage_stats, schedule_policy
-        result["aviationstack"] = get_usage_stats(cfg.source)
+        usage_stats = get_usage_stats(cfg.source)
+        result["aviationstack"] = usage_stats
         result["schedule_policy"] = schedule_policy(cfg.source)
+        result["shared_schedule_budget"] = usage_stats.get("shared_schedule_budget") if isinstance(usage_stats, dict) else {}
+        result["schedule_access_budget"] = usage_stats.get("schedule_access_budget") if isinstance(usage_stats, dict) else {}
     except Exception as exc:
         result["aviationstack"] = {"error": str(exc)}
         result["schedule_policy"] = _schedule_policy_for_config(cfg.source)
+        result["shared_schedule_budget"] = {"available": False, "error": "Shared budget unavailable"}
+        result["schedule_access_budget"] = {}
  
     return result
  

@@ -4694,6 +4694,13 @@ class AdminSummaryScreen:  # pragma: no cover - optional Qt runtime
         self._sync_viewport_width()
         aviation = budget.get("aviationstack") if isinstance(budget.get("aviationstack"), dict) else {}
         schedule_bucket = _active_schedule_budget(aviation)
+        shared_schedule_budget = budget.get("shared_schedule_budget") if isinstance(budget.get("shared_schedule_budget"), dict) else aviation.get("shared_schedule_budget")
+        if not isinstance(shared_schedule_budget, dict):
+            shared_schedule_budget = {}
+        schedule_access_budget = budget.get("schedule_access_budget") if isinstance(budget.get("schedule_access_budget"), dict) else aviation.get("schedule_access_budget")
+        if not isinstance(schedule_access_budget, dict):
+            schedule_access_budget = {}
+        display_budget = shared_schedule_budget if shared_schedule_budget else schedule_bucket
         active_mode = str(aviation.get("active_mode") or aviation.get("mode") or "unknown")
         airport = f"{cfg.get('airport_iata') or scheduler.get('airport') or '-'} / {cfg.get('airport_icao') or '-'}"
         display_name = cfg.get("display_name") or "Local Flight"
@@ -4710,7 +4717,7 @@ class AdminSummaryScreen:  # pragma: no cover - optional Qt runtime
                     ("Current issue", scheduler.get("last_error") or "No issues"),
                 ],
             ),
-            self._budget_panel("\U0001F4E1  Schedule Access", active_mode, schedule_bucket, aviation),
+            self._budget_panel("\U0001F4E1  Schedule Budget", active_mode, display_budget, aviation, schedule_access_budget),
             self._devices_panel(connections),
             self._stats_panel(
                 "\U0001F4C5  Flight History",
@@ -4741,7 +4748,7 @@ class AdminSummaryScreen:  # pragma: no cover - optional Qt runtime
             widget.setMinimumWidth(0)
             widget.setSizePolicy(self.QtWidgets.QSizePolicy.Ignored, self.QtWidgets.QSizePolicy.Preferred)
             self.grid.addWidget(widget, idx // columns, idx % columns)
-        self.detail_layout.addWidget(progress_card(self.QtWidgets, "\U0001F4C8  Schedule Access Budget", schedule_bucket.get("calls_this_month"), schedule_bucket.get("monthly_limit"), _budget_detail(schedule_bucket)))
+        self.detail_layout.addWidget(progress_card(self.QtWidgets, "\U0001F4C8  Shared Schedule Budget", _budget_used(display_budget), _budget_limit(display_budget), _budget_detail(display_budget)))
         self._sync_viewport_width()
         now = datetime.now().strftime('%H:%M:%S')
         _set_native_feedback(self, f"Last refreshed {now} | local user-facing admin APIs.", "StatusGood")
@@ -4833,26 +4840,33 @@ class AdminSummaryScreen:  # pragma: no cover - optional Qt runtime
             return text.replace("T", " ").replace("+00:00", "Z")[:17] + "Z"
         return text
 
-    def _budget_panel(self, title: str, mode: str, bucket: dict[str, Any], aviation: dict[str, Any]) -> Any:
+    def _budget_panel(self, title: str, mode: str, bucket: dict[str, Any], aviation: dict[str, Any], access_bucket: dict[str, Any] | None = None) -> Any:
         box, layout = panel(self.QtWidgets, title)
         box.setMinimumWidth(0)
         box.setSizePolicy(self.QtWidgets.QSizePolicy.Ignored, self.QtWidgets.QSizePolicy.Preferred)
+        access_bucket = access_bucket or {}
+        shared_scope = str(bucket.get("scope_label") or "").lower()
+        is_shared = "shared" in shared_scope
         source_label = {
             "community": "Hosted relay access",
             "managed": "Managed relay access",
             "byok": "Own AviationStack key",
             "virtual": "Virtual source",
         }.get(mode, mode or "unknown")
-        for key, value in [
-            ("Access source", source_label),
+        display_source = bucket.get("provider_label") or source_label
+        rows: list[tuple[str, Any]] = [
+            ("Budget source", display_source),
             ("Used this window", _budget_label(bucket)),
-            ("Requests left", bucket.get("remaining")),
-            ("Access window", bucket.get("month") or bucket.get("period_days") or "-"),
-            ("Counter resets", bucket.get("period_end") or "-"),
-            ("Current note", aviation.get("cadence_warning") or value_at(bucket, "cost_estimate.cadence_warning") or "Shared relay separates this install's access counter from upstream pulls."),
-        ]:
+            ("Remaining", _budget_remaining_label(bucket)),
+            ("Counter resets", bucket.get("reset_at") or bucket.get("period_end") or "-"),
+            ("Scope", bucket.get("scope_label") or ("Shared by all community relay real-data users" if is_shared else "This install")),
+        ]
+        if access_bucket:
+            rows.append(("Your install", _budget_label(access_bucket)))
+        rows.append(("Current note", bucket.get("error") or aviation.get("cadence_warning") or value_at(bucket, "cost_estimate.cadence_warning") or "Shared relay provider quota is separate from this install's access counter."))
+        for key, value in rows:
             layout.addWidget(self._stat_row(key, value))
-        layout.addWidget(progress_card(self.QtWidgets, "", bucket.get("calls_this_month"), bucket.get("monthly_limit")))
+        layout.addWidget(progress_card(self.QtWidgets, "", _budget_used(bucket), _budget_limit(bucket)))
         return box
 
     def _devices_panel(self, connections: dict[str, Any]) -> Any:
@@ -5897,17 +5911,34 @@ def _active_schedule_budget(aviation: dict[str, Any]) -> dict[str, Any]:
 
 def _budget_label(bucket: dict[str, Any]) -> str:
     mode = str(bucket.get("active_mode") or bucket.get("mode") or "unknown")
-    used = bucket.get("calls_this_month") or 0
-    limit = bucket.get("monthly_limit") or 0
+    used = _budget_used(bucket)
+    limit = _budget_limit(bucket)
     return f"{used} / {limit}" if limit else mode
+
+
+def _budget_used(bucket: dict[str, Any]) -> Any:
+    return bucket.get("used") if bucket.get("used") is not None else bucket.get("calls_this_month") or 0
+
+
+def _budget_limit(bucket: dict[str, Any]) -> Any:
+    return bucket.get("limit") if bucket.get("limit") is not None else bucket.get("monthly_limit") or 0
+
+
+def _budget_remaining_label(bucket: dict[str, Any]) -> str:
+    remaining = bucket.get("remaining")
+    unit = str(bucket.get("unit_label") or "requests").strip() or "requests"
+    if remaining is None:
+        return "Shared budget unavailable" if bucket.get("error") else "-"
+    return f"{remaining} {unit} left"
 
 
 def _budget_detail(bucket: dict[str, Any]) -> str:
     remaining = bucket.get("remaining")
-    reset = bucket.get("period_end") or ""
+    reset = bucket.get("reset_at") or bucket.get("period_end") or ""
+    unit = str(bucket.get("unit_label") or "requests").strip() or "requests"
     parts = []
     if remaining is not None:
-        parts.append(f"{remaining} requests left")
+        parts.append(f"{remaining} {unit} left")
     if reset:
         parts.append(f"resets {reset}")
     return " | ".join(parts)

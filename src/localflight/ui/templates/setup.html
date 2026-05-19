@@ -44,6 +44,8 @@
       width: min(1120px, 100%);
       max-height: calc(100vh - 24px);
       overflow: auto;
+      display: flex;
+      flex-direction: column;
       border: 1px solid var(--setup-line);
       border-radius: 26px;
       background: linear-gradient(145deg, rgba(15,24,35,.98), rgba(8,13,20,.98));
@@ -133,6 +135,7 @@
       background: rgba(0,232,74,.055);
     }
     .setup-body {
+      flex: 1 1 auto;
       padding: clamp(18px, 3vw, 30px);
     }
     .panel { display: none; }
@@ -339,10 +342,18 @@
       gap: 10px;
       margin-top: 24px;
       padding-top: 18px;
+      position: sticky;
+      bottom: 0;
+      z-index: 3;
       border-top: 1px solid rgba(255,255,255,.07);
+      background:
+        linear-gradient(180deg, rgba(8,13,20,0) 0%, rgba(8,13,20,.9) 18px, rgba(8,13,20,.98) 100%);
     }
     .btn-row .right { display: flex; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
     .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
       min-height: 40px;
       padding: 10px 18px;
       border: 1px solid rgba(74,158,218,.45);
@@ -350,6 +361,8 @@
       color: #fff;
       background: rgba(20,75,112,.76);
       font-weight: 900;
+      text-align: center;
+      overflow-wrap: anywhere;
       cursor: pointer;
       transition: filter .15s, transform .15s, opacity .15s;
     }
@@ -379,6 +392,7 @@
       color: var(--setup-muted);
       font-size: .82rem;
       line-height: 1.45;
+      overflow-wrap: anywhere;
     }
     .status-pill { display: block; }
     .test-result.loading { display: block; border-color: rgba(74,158,218,.35); color: var(--setup-cyan); }
@@ -417,6 +431,7 @@
       background: rgba(255,255,255,.035);
       color: var(--setup-muted);
       line-height: 1.35;
+      overflow-wrap: anywhere;
     }
     .finish-list strong {
       display: block;
@@ -439,6 +454,74 @@
       .setup-body { padding: 14px; }
       .promise-card, .mode-card, .diagnostics-card { padding: 13px; }
     }
+    @media (max-height: 760px) {
+      body {
+        align-items: flex-start;
+        padding: 10px;
+      }
+      .setup-shell {
+        max-height: calc(100vh - 20px);
+        border-radius: 22px;
+      }
+      .setup-top {
+        gap: 12px;
+        padding: 15px 16px;
+      }
+      .setup-mark {
+        width: 58px;
+        height: 58px;
+      }
+      .setup-top p {
+        margin-top: 6px;
+        line-height: 1.45;
+      }
+      .setup-chip {
+        padding: 7px 10px;
+      }
+      .step-strip {
+        gap: 6px;
+        padding: 10px 16px;
+      }
+      .step-pill {
+        padding: 7px 8px;
+        border-radius: 10px;
+      }
+      .setup-body {
+        padding: 15px 16px;
+      }
+      .panel-head {
+        margin-bottom: 14px;
+      }
+      .promise-card, .mode-card, .diagnostics-card, .setup-box, .field-card {
+        border-radius: 14px;
+      }
+      .promise-card, .mode-card, .diagnostics-card {
+        padding: 14px;
+      }
+      .airport-dropdown {
+        max-height: 180px;
+      }
+      .btn-row {
+        margin-top: 18px;
+        padding-top: 14px;
+        padding-bottom: 4px;
+      }
+    }
+    @media (min-width: 2200px) and (min-height: 1200px) {
+      .setup-shell {
+        width: min(1240px, 100%);
+      }
+      .setup-top {
+        padding: 30px 34px;
+      }
+      .step-strip {
+        padding-left: 34px;
+        padding-right: 34px;
+      }
+      .setup-body {
+        padding: 30px 34px;
+      }
+    }
   </style>
 </head>
 <body>
@@ -448,7 +531,7 @@
     <div>
       <p class="setup-eyebrow">First launch wizard</p>
       <h1>Welcome to <span class="setup-brand-wordmark">Local Flight</span></h1>
-      <p>Your local airport board, guided from zero to first display. Choose an airport, pick a flight-data path, and decide how much diagnostic help you want.</p>
+      <p>Get your airport board running. Choose an airport, decide where flight data should come from, and pick how much crash help you want.</p>
     </div>
     <div class="setup-chip" id="globalStatus">Ready</div>
   </header>
@@ -482,7 +565,7 @@
       <div class="panel-head">
         <div>
           <h2>Choose your airport</h2>
-          <p class="sub">Search by city, airport name, IATA, or ICAO. Selecting a result fills the airport-local timezone used by FIDS, radar, history, and Matrix.</p>
+          <p class="sub">Search by city, airport name, IATA, or ICAO. Picking a result fills the airport code and local timezone for the board, radar, history, and Matrix display.</p>
         </div>
       </div>
       <div class="two-col">
@@ -510,10 +593,10 @@
     </div>
 
     <div class="panel" id="panel-2">
-      <div class="panel-head">
+        <div class="panel-head">
         <div>
-          <h2>Pick the flight-data path</h2>
-          <p class="sub">Community Relay is the guided real-flight path, BYOK is for your own provider keys, and VATSIM is virtual traffic with no real-data keys.</p>
+          <h2>Choose how flight data should work</h2>
+          <p class="sub">Local Flight Relay is the easiest real-flight option. Use your own keys if you want your own quotas, or choose VATSIM for virtual traffic only.</p>
         </div>
       </div>
       <div class="mode-grid">
@@ -525,37 +608,37 @@
           </article>
         {% endfor %}
       </div>
-      <div class="test-result ok" id="setupModeNote" style="display:block;">Community Relay is selected. Local Flight keeps this client keyless and uses the shared schedule allowance for this install.</div>
+      <div class="test-result ok" id="setupModeNote" style="display:block;">Local Flight Relay is selected. This device does not need personal schedule keys for the guided setup.</div>
 
       <div class="setup-box" id="relaySetupBox">
-        <h3>Community Relay</h3>
+        <h3>Local Flight Relay</h3>
         <div class="info-grid">
           <div class="info-cell">
-            <strong>Support ID</strong>
+            <strong>Device code</strong>
             <div class="mono-readonly" id="machineFingerprint">Loading...</div>
           </div>
           <div class="info-cell">
-            <strong>Relay link</strong>
+            <strong>Relay status</strong>
             <div class="mono-readonly" id="relayLinkState">Checking...</div>
           </div>
         </div>
         <div class="field" style="margin-top:12px; margin-bottom:0;">
-          <label for="relayUrl">Relay host</label>
+          <label for="relayUrl">Relay address</label>
           <input type="text" id="relayUrl" placeholder="{{ relay_url_default or 'https://localflight-community-relay.fly.dev' }}" />
-          <div class="hint">Leave this on the hosted community relay unless you run your own relay. Only the relay root is shown here.</div>
+          <div class="hint">Leave this on the hosted Local Flight relay unless you run your own. Only the relay base address belongs here.</div>
         </div>
         <div class="mini-actions" id="managedActions">
-          <button class="btn btn-secondary" type="button" id="connectRelayBtn" onclick="connectManagedRelay()">Connect this install</button>
-          <button class="btn btn-secondary" type="button" id="checkRelayBtn" onclick="checkManagedStatus()">Refresh relay status</button>
-          <button class="btn btn-secondary" type="button" id="verifyRelayBtn" onclick="verifyManagedActivation()">Verify relay path</button>
+          <button class="btn btn-secondary" type="button" id="connectRelayBtn" onclick="connectManagedRelay()">Link this device</button>
+          <button class="btn btn-secondary" type="button" id="checkRelayBtn" onclick="checkManagedStatus()">Check relay status</button>
+          <button class="btn btn-secondary" type="button" id="verifyRelayBtn" onclick="verifyManagedActivation()">Test relay access</button>
         </div>
         <div class="test-result" id="activationRequestStatus"></div>
       </div>
 
       <div class="field" style="display:none;" id="activationTokenField">
-        <label for="activationToken">Relay token <span class="hint">advanced token field</span></label>
+        <label for="activationToken">Relay token <span class="hint">only if you already have one</span></label>
         <div class="key-wrap">
-          <input type="password" id="activationToken" placeholder="Stored automatically when the relay links this install." />
+          <input type="password" id="activationToken" placeholder="Stored automatically when this device is linked." />
           <button class="key-toggle" type="button" onclick="toggleKey('activationToken', this)">show</button>
         </div>
       </div>
@@ -565,22 +648,22 @@
     </div>
 
     <div class="panel" id="panel-3">
-      <div class="panel-head">
+        <div class="panel-head">
         <div>
-          <h2>Optional provider keys</h2>
-          <p class="sub">This step is only required for BYOK. AviationStack is required there; ADS-B Exchange and OpenSky are optional enrichment sources.</p>
+          <h2>Use your own provider keys</h2>
+          <p class="sub">Only needed for Use Your Own Keys. AviationStack is required there; ADS-B Exchange and OpenSky are optional extras.</p>
         </div>
       </div>
       <div class="two-col">
         <div class="setup-box">
-          <h3>BYOK keys</h3>
+          <h3>Schedule and radar keys</h3>
           <div class="field">
-            <label for="aviationstackKey">AviationStack API key</label>
+            <label for="aviationstackKey">AviationStack key</label>
             <div class="key-wrap">
               <input type="password" id="aviationstackKey" placeholder="Required for BYOK schedules..." />
               <button class="key-toggle" type="button" onclick="toggleKey('aviationstackKey', this)">show</button>
             </div>
-            <div class="hint">Required only for BYOK. This key stays on this machine.</div>
+            <div class="hint">Required only for Use Your Own Keys. This key stays on this device.</div>
           </div>
           <div class="provider-actions">
             <button class="btn btn-secondary" type="button" id="testAsBtn" onclick="testAviationstack()">Test AviationStack</button>
@@ -593,7 +676,7 @@
               <input type="password" id="rapidapiKey" placeholder="Optional live radar key..." />
               <button class="key-toggle" type="button" onclick="toggleKey('rapidapiKey', this)">show</button>
             </div>
-            <div class="hint">Recommended for direct ADS-B Exchange radar when you own the quota.</div>
+            <div class="hint">Optional. Helps power direct live radar from this device when you have your own quota.</div>
           </div>
           <div class="provider-actions">
             <button class="btn btn-secondary" type="button" id="testRapidBtn" onclick="testRapidapi()">Test RapidAPI</button>
@@ -602,7 +685,7 @@
         </div>
 
         <aside class="setup-box">
-          <h3>Optional enrichment</h3>
+          <h3>Extra optional data</h3>
           <div class="field">
             <label for="openskyId">OpenSky client ID</label>
             <input type="text" id="openskyId" placeholder="Optional OpenSky client ID" />
@@ -614,7 +697,7 @@
               <button class="key-toggle" type="button" onclick="toggleKey('openskySecret', this)">show</button>
             </div>
           </div>
-          <div class="hint">OpenSky can help as an optional position source if ADS-B Exchange is unavailable.</div>
+          <div class="hint">OpenSky can help with aircraft positions if ADS-B Exchange is unavailable.</div>
           <div class="link-grid">
             {% for link in setup_guidance.provider_links %}
               <a class="resource-link" href="{{ link.url }}" target="_blank" rel="noreferrer">{{ link.label }}</a>
@@ -625,9 +708,9 @@
     </div>
 
     <div class="panel" id="panel-4">
-      <div class="panel-head">
+        <div class="panel-head">
         <div>
-          <h2>Diagnostics and reports</h2>
+          <h2>Crash help and reports</h2>
           <p class="sub">Choose how Local Flight may help when something breaks. Manual reporting is always available later from the Report screen.</p>
         </div>
       </div>
@@ -646,10 +729,10 @@
     </div>
 
     <div class="panel" id="panel-5">
-      <div class="panel-head">
+        <div class="panel-head">
         <div>
-          <h2>Review and launch</h2>
-          <p class="sub">This saves the local setup and opens the main Local Flight display. You can adjust airport, source, appearance, and diagnostics later in Settings.</p>
+          <h2>Review and open</h2>
+          <p class="sub">This saves setup on this device and opens the main Local Flight display. You can change airport, source, appearance, and diagnostics later in Settings.</p>
         </div>
       </div>
       <ul class="finish-list" id="finishList"></ul>
@@ -660,8 +743,8 @@
       <button class="btn btn-quiet" type="button" id="backBtn" onclick="prevStep()">Back</button>
       <div class="right">
         <button class="btn btn-secondary" type="button" id="skipKeysBtn" onclick="nextStep()" style="display:none;">Skip optional keys</button>
-        <button class="btn btn-primary" type="button" id="nextBtn" onclick="nextStep()">Start guided setup</button>
-        <button class="btn btn-primary" type="button" id="finishBtn" onclick="finish()" style="display:none;">Launch Local Flight</button>
+        <button class="btn btn-primary" type="button" id="nextBtn" onclick="nextStep()">Begin setup</button>
+        <button class="btn btn-primary" type="button" id="finishBtn" onclick="finish()" style="display:none;">Open Local Flight</button>
       </div>
     </footer>
   </section>
@@ -745,7 +828,7 @@
     el("nextBtn").style.display = currentStep === TOTAL_STEPS - 1 ? "none" : "inline-flex";
     el("finishBtn").style.display = currentStep === TOTAL_STEPS - 1 ? "inline-flex" : "none";
     el("skipKeysBtn").style.display = currentStep === 3 ? "inline-flex" : "none";
-    el("nextBtn").textContent = currentStep === 0 ? "Start guided setup" : "Continue";
+    el("nextBtn").textContent = currentStep === 0 ? "Begin setup" : "Continue";
     if (currentStep === 5) buildFinishSummary();
   }
 
@@ -911,10 +994,10 @@
       if (data.activation_token_present) {
         el("activationToken").dataset.prefix = data.activation_token_prefix || "";
         el("relayLinkState").textContent = data.activation_token_prefix ? `Linked (${data.activation_token_prefix}...)` : "Linked";
-        setResult("activationRequestStatus", "ok", "This install already has a stored relay link. Community Relay can use it automatically.");
+        setResult("activationRequestStatus", "ok", "This device already has a saved relay link. Local Flight Relay can use it automatically.");
       } else {
         el("relayLinkState").textContent = "Not linked yet";
-        setResult("activationRequestStatus", "warn", "Community Relay can request a link if this install is not active yet.");
+        setResult("activationRequestStatus", "warn", "This device is not linked yet. You can request relay access here if needed.");
       }
       setGlobal("Ready", "good");
     } catch (error) {
@@ -927,7 +1010,7 @@
 
   window.connectManagedRelay = async function () {
     setButtons(["connectRelayBtn", "checkRelayBtn", "verifyRelayBtn"], false);
-    setResult("activationRequestStatus", "loading", "Contacting the relay...");
+    setResult("activationRequestStatus", "loading", "Contacting the Local Flight relay...");
     try {
       const response = await fetch("/api/setup/activate", {
         method: "POST",
@@ -936,28 +1019,28 @@
           relay_url: cleanRelayDisplay(el("relayUrl").value),
           airport_iata: iataEl.value || "",
           airport_icao: icaoEl.value || "",
-          display_name: "Local Flight install",
+          display_name: "Local Flight device",
           requested_mode: "community",
         }),
       });
       const data = await response.json();
       if (!response.ok || !data.ok) {
         managedVerified = false;
-        setResult("activationRequestStatus", "err", data.error || data.decision_note || "Relay activation failed.");
+        setResult("activationRequestStatus", "err", data.error || data.decision_note || "Could not link this device to the relay.");
         return;
       }
       if (data.status === "manual_review") {
         managedVerified = false;
-        setResult("activationRequestStatus", "warn", data.decision_note || "The relay paused automatic linking for this install and queued a review.");
+        setResult("activationRequestStatus", "warn", data.decision_note || "The relay paused automatic linking for this device and queued a review.");
         return;
       }
       if (data.activation_token_prefix) el("activationToken").dataset.prefix = data.activation_token_prefix;
       el("relayLinkState").textContent = data.activation_token_prefix ? `Linked (${data.activation_token_prefix}...)` : "Linked";
-      setResult("activationRequestStatus", "ok", "Relay access is active for this install. Community Relay can be used.");
+      setResult("activationRequestStatus", "ok", "Relay access is ready for this device. The guided relay path can now be used.");
       await window.verifyManagedActivation();
     } catch (error) {
       managedVerified = false;
-      setResult("activationRequestStatus", "err", error.message || "Relay activation failed.");
+      setResult("activationRequestStatus", "err", error.message || "Could not link this device to the relay.");
     } finally {
       setButtons(["connectRelayBtn", "checkRelayBtn", "verifyRelayBtn"], true);
     }
@@ -965,7 +1048,7 @@
 
   window.checkManagedStatus = async function () {
     setButtons(["connectRelayBtn", "checkRelayBtn", "verifyRelayBtn"], false);
-    setResult("activationRequestStatus", "loading", "Checking relay status...");
+    setResult("activationRequestStatus", "loading", "Checking saved relay access...");
     try {
       const response = await fetch("/api/setup/client-status", {
         method: "POST",
@@ -984,10 +1067,10 @@
       if ((data.plan || "") === "managed" || data.ok) {
         if (data.token_prefix) el("activationToken").dataset.prefix = data.token_prefix;
         el("relayLinkState").textContent = data.token_prefix ? `Linked (${data.token_prefix}...)` : "Linked";
-        setResult("activationRequestStatus", "ok", "Relay is reachable and this install is ready for Community Relay.");
+        setResult("activationRequestStatus", "ok", "Relay is reachable and this device is ready for the guided relay path.");
       } else {
         managedVerified = false;
-        setResult("activationRequestStatus", "warn", "No stored relay link was confirmed yet. You can request one or continue with another data path.");
+        setResult("activationRequestStatus", "warn", "No saved relay link was confirmed yet. You can request one or choose another data source.");
       }
     } catch (error) {
       managedVerified = false;
@@ -1002,11 +1085,11 @@
     const prefix = el("activationToken").dataset.prefix || "";
     if (!token && !prefix) {
       managedVerified = false;
-      setResult("activationVerifyStatus", "warn", "No stored relay token was found yet. Connect this install first if Community Relay needs activation.");
+      setResult("activationVerifyStatus", "warn", "No saved relay token was found yet. Link this device first if you want to use the Local Flight relay.");
       return;
     }
     setButtons(["connectRelayBtn", "checkRelayBtn", "verifyRelayBtn"], false);
-    setResult("activationVerifyStatus", "loading", "Verifying relay path...");
+    setResult("activationVerifyStatus", "loading", "Testing relay access...");
     try {
       const response = await fetch("/api/setup/test-activation", {
         method: "POST",
@@ -1016,15 +1099,15 @@
       const data = await response.json();
       if (!response.ok || !data.ok) {
         managedVerified = false;
-        setResult("activationVerifyStatus", "err", data.error || "Relay verification failed.");
+        setResult("activationVerifyStatus", "err", data.error || "Relay access test failed.");
         return;
       }
       managedVerified = true;
       const limit = (data.limits || {}).schedule || "n/a";
-      setResult("activationVerifyStatus", "ok", `Relay path verified. Client allowance: ${limit}.`);
+      setResult("activationVerifyStatus", "ok", `Relay access works. Shared allowance: ${limit}.`);
     } catch (error) {
       managedVerified = false;
-      setResult("activationVerifyStatus", "err", error.message || "Relay verification failed.");
+      setResult("activationVerifyStatus", "err", error.message || "Relay access test failed.");
     } finally {
       setButtons(["connectRelayBtn", "checkRelayBtn", "verifyRelayBtn"], true);
     }
@@ -1071,18 +1154,21 @@
     const diagnosticsCard = selectedDiagnosticsCard();
     const items = [
       ["Airport", `${iataEl.value || "ZRH"} / ${icaoEl.value || "LSZH"} - ${tzEl.value || "Europe/Zurich"}`],
-      ["Flight data", modeCard ? modeCard.dataset.title : selectedMode],
+      ["Data source", modeCard ? modeCard.dataset.title : selectedMode],
       ["Diagnostics", diagnosticsCard ? diagnosticsCard.dataset.title : diagnosticsMode()],
     ];
     if (selectedMode === "community") {
-      items.push(["Relay", (managedVerified || el("activationToken").dataset.prefix) ? "Stored relay link ready" : "Community Relay selected"]);
-      items.push(["Client keys", "No personal schedule key required"]);
+      items.push([
+        "Relay access",
+        (managedVerified || el("activationToken").dataset.prefix) ? "Saved relay link ready" : "Local Flight Relay selected",
+      ]);
+      items.push(["Personal keys", "No personal schedule key required"]);
     } else if (selectedMode === "byok") {
       items.push(["AviationStack", el("aviationstackKey").value.trim() ? "Key will be saved locally" : "Missing"]);
       items.push(["Radar enrichment", el("rapidapiKey").value.trim() ? "RapidAPI key will be saved locally" : "Optional key not set"]);
       items.push(["OpenSky", el("openskyId").value.trim() ? "Optional credentials set" : "Optional credentials not set"]);
     } else {
-      items.push(["Virtual mode", "VATSIM traffic; no real-data keys"]);
+      items.push(["Traffic source", "VATSIM traffic only; no real-flight keys"]);
       items.push(["Privacy", "Pilot identities stay hidden in Local Flight views"]);
     }
     el("finishList").innerHTML = items.map(([label, value]) => `<li><strong>${label}</strong>${value}</li>`).join("");
@@ -1096,7 +1182,7 @@
       return;
     }
     setButtons(["backBtn", "nextBtn", "finishBtn", "skipKeysBtn"], false);
-    setResult("finishStatus", "loading", "Saving setup and preparing Local Flight...");
+    setResult("finishStatus", "loading", "Saving setup and opening Local Flight...");
     const payload = {
       airport_iata: iataEl.value || "ZRH",
       airport_icao: icaoEl.value || "LSZH",
@@ -1119,7 +1205,7 @@
         body: JSON.stringify(payload),
       });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      setResult("finishStatus", "ok", "Setup saved. Opening Local Flight...");
+      setResult("finishStatus", "ok", "Setup saved. Opening your board...");
       window.location.href = "/display";
     } catch (error) {
       setResult("finishStatus", "err", error.message || "Setup failed.");

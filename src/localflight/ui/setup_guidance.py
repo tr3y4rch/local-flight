@@ -10,7 +10,7 @@ STEP_NAMES: tuple[str, ...] = (
     "Flight Data",
     "Optional Keys",
     "Diagnostics",
-    "Review & Launch",
+    "Review & Open",
 )
 
 STEP_SHORT_LABELS: tuple[str, ...] = (
@@ -19,54 +19,54 @@ STEP_SHORT_LABELS: tuple[str, ...] = (
     "Data",
     "Keys",
     "Reports",
-    "Launch",
+    "Open",
 )
 
 WELCOME_CARDS: tuple[dict[str, str], ...] = (
     {
         "icon": "\U0001F4FA",  # 📺
-        "title": "Local first",
-        "body": "Your airport board runs from this machine. The LAN browser interface stays available for phones, tablets, and other screens.",
+        "title": "Runs on this device",
+        "body": "Local Flight starts on this computer or Pi. The LAN browser view stays available for phones, tablets, and extra screens.",
     },
     {
         "icon": "\U0001F4E1",  # 📡
-        "title": "Pick your data path",
-        "body": "Start with hosted community access, use your own provider keys, or run VATSIM-only virtual traffic.",
+        "title": "Choose a data source",
+        "body": "Start with the Local Flight relay, use your own provider keys, or choose VATSIM-only virtual traffic.",
     },
     {
         "icon": "\U0001F510",  # 🔐
-        "title": "Private by design",
-        "body": "Keys stay masked, tokens stay local, and diagnostics are an explicit choice before first launch.",
+        "title": "Private by choice",
+        "body": "Keys stay masked, relay tokens stay local, and diagnostics stay opt-in before first launch.",
     },
 )
 
 SOURCE_OPTIONS: tuple[dict[str, str], ...] = (
     {
         "mode": "community",
-        "title": "Community Relay",
+        "title": "Local Flight Relay",
         "short_title": "Community",
         "icon": "\U0001F4E1",  # 📡
-        "body": "Recommended first run. Uses shared real-flight snapshots through the hosted relay without personal schedule keys.",
-        "note": "Community Relay is selected. Local Flight keeps this client keyless and uses the shared schedule allowance for this install.",
-        "finish_label": "Community real-flight path",
+        "body": "Recommended first run. Uses the hosted Local Flight relay for real-flight boards without asking you to paste personal schedule keys into this setup.",
+        "note": "The Local Flight relay is selected. This device stays key-free during setup and uses the shared relay allowance for board refreshes.",
+        "finish_label": "Local Flight relay",
     },
     {
         "mode": "byok",
-        "title": "Bring Your Own Keys",
+        "title": "Use Your Own Keys",
         "short_title": "BYOK",
         "icon": "\U0001F511",  # 🔑
-        "body": "Use direct provider accounts when you want quota ownership and your own real-data keys on this machine.",
-        "note": "Bring Your Own Keys is selected. The next step collects AviationStack and optional radar/enrichment keys.",
-        "finish_label": "Direct provider keys",
+        "body": "Use your own provider accounts when you want your own quotas and direct real-data keys on this device.",
+        "note": "Use your own keys is selected. The next step collects an AviationStack key and optional radar and enrichment keys.",
+        "finish_label": "Your own provider keys",
     },
     {
         "mode": "virtual",
-        "title": "Virtual / VATSIM",
+        "title": "VATSIM Only",
         "short_title": "VATSIM",
         "icon": "\U0001F6E9",  # 🛩
-        "body": "No real-data keys. Good for simulator traffic, testing, or a quick privacy-first first launch.",
-        "note": "VATSIM is selected. Local Flight skips real-data keys and uses privacy-safe virtual network data.",
-        "finish_label": "VATSIM virtual traffic",
+        "body": "No real-flight provider keys. Good for simulator traffic, testing, or a privacy-first first launch.",
+        "note": "VATSIM only is selected. Local Flight skips real-flight provider keys and uses virtual-network traffic only.",
+        "finish_label": "VATSIM only",
     },
 )
 
@@ -77,23 +77,23 @@ DIAGNOSTICS_OPTIONS: tuple[dict[str, str], ...] = (
         "short_title": "Manual",
         "icon": "✋",  # ✋
         "body": "Nothing is sent unless you submit a report from the Report screen.",
-        "note": "Manual mode is privacy-first: reports are sent only when you press Submit in the Report screen.",
+        "note": "Manual only is the privacy-first option. Nothing is sent unless you submit a report yourself.",
     },
     {
         "mode": "auto",
-        "title": "Auto crash reports",
+        "title": "Automatic crash reports",
         "short_title": "Auto crashes",
         "icon": "\U0001F4A5",  # 💥
-        "body": "Send sanitized native/server crash details when something breaks.",
-        "note": "Auto crash reports send sanitized exception details only when diagnostics allow it.",
+        "body": "Send sanitized crash details only when something breaks.",
+        "note": "Automatic crash reports send sanitized exception details only when diagnostics allow it.",
     },
     {
         "mode": "auto_logs",
-        "title": "Auto + local logs",
+        "title": "Automatic crash reports + log tail",
         "short_title": "Auto + logs",
         "icon": "\U0001F4DC",  # 📜
-        "body": "Also attach a short local log tail for harder beta issues.",
-        "note": "Auto + logs is helpful during beta testing. Reports stay sanitized and include only a short local log tail.",
+        "body": "Also attach a short local log tail to help with harder issues.",
+        "note": "Automatic crash reports + log tail is helpful during beta testing. Reports stay sanitized and include only a short local log tail.",
     },
 )
 

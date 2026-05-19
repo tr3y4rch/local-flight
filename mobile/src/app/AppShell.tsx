@@ -188,22 +188,22 @@ function refreshActivityForTarget(target: Screen, landscapeFidsActive: boolean):
       detail: "Reading host status and Matrix board live settings."
     };
   }
-  if (target === "matrix") {
+  if (target === "help") {
     return {
-      label: "Syncing Matrix board",
-      detail: "Reading the server Matrix runtime and preview rows."
-    };
-  }
-  if (target === "admin") {
-    return {
-      label: "Checking server status",
-      detail: "Refreshing Admin health, budget, update, and connection data."
+      label: "Refreshing Help",
+      detail: "Reading host status, pairing, updates, and troubleshooting details."
     };
   }
   return {
     label: "Talking to Local Flight",
     detail: "Checking the connected server over your LAN."
   };
+}
+
+function screenNeedsDashboard(target: Screen, standalone: boolean): boolean {
+  return standalone
+    ? target === "settings"
+    : target === "control" || target === "help";
 }
 
 export function AppShell() {
@@ -278,20 +278,15 @@ export function AppShell() {
   const flightDetail = useFlightDetail(serverUrl, setError);
   const matrix = useMatrixCompanion(serverUrl);
   const {
-    rows: matrixRows,
     runtime: matrixRuntime,
-    preset: matrixPreset,
     dirty: matrixDirty,
     saving: matrixSaving,
-    applyingPreset: matrixApplyingPreset,
     saveMessage: matrixSaveMessage,
     saveTone: matrixSaveTone,
-    fetchRows: fetchMatrixRows,
     fetchRuntime: fetchMatrixRuntime,
     updateDraft: updateMatrixDraft,
     resetDraft: resetMatrixDraft,
-    saveDraft: saveMatrixDraftNow,
-    applyPreset: applyMatrixPreset
+    saveDraft: saveMatrixDraftNow
   } = matrix;
   const {
     visible: detailVisible,
@@ -776,11 +771,6 @@ export function AppShell() {
             await fetchHistoryData(normalized, nextHistoryDirection, nextHistoryHours, historyCallsign, historyAirline);
           } else if (target === "radar") {
             await fetchRadarData(normalized, nextRadarRadius, forceRadarGround);
-          } else if (target === "matrix") {
-            await Promise.all([
-              fetchMatrixRows(normalized, matrixRuntime.default_view, matrixRuntime.max_rows),
-              fetchMatrixRuntime(normalized)
-            ]);
           } else if (target === "control") {
             await fetchMatrixRuntime(normalized);
           }
@@ -802,7 +792,6 @@ export function AppShell() {
       fetchDashboard,
       fetchFidsData,
       fetchHistoryData,
-      fetchMatrixRows,
       fetchMatrixRuntime,
       fetchRadarData,
       historyAirline,
@@ -811,8 +800,6 @@ export function AppShell() {
       historyHours,
       isStandalone,
       landscapeFidsActive,
-      matrixRuntime.default_view,
-      matrixRuntime.max_rows,
       radarRadius,
       screen,
       standaloneCredentials,
@@ -1161,7 +1148,7 @@ export function AppShell() {
     if (![1, 3, 5, 10].includes(radarRadius)) {
       setRadarRadius(5);
     }
-    if (screen === "control" || screen === "help" || screen === "matrix" || screen === "admin") {
+    if (screen === "control" || screen === "help") {
       setScreen("settings");
     }
   }, [isStandalone, radarRadius, screen]);
@@ -1181,7 +1168,7 @@ export function AppShell() {
         };
         if (message.type === "snapshot_updated") {
           triggerSnapshotPulse();
-          void refreshScreen({ target: screen, includeDashboard: false });
+          void refreshScreen({ target: screen, includeDashboard: screenNeedsDashboard(screen, isStandalone) });
           if (detailVisible && detailCallsign) {
             refreshFlightDetail();
           }
@@ -1195,7 +1182,7 @@ export function AppShell() {
           void refreshScreen({ target: screen });
         } else if (message.type === "scheduler_restarted") {
           setSchedulerMessage(message.message || (message.ok ? "Scheduler restarted." : "Scheduler is still stopping."));
-          void refreshScreen({ target: screen, includeDashboard: false });
+          void refreshScreen({ target: screen, includeDashboard: screenNeedsDashboard(screen, isStandalone) });
         }
       } catch {
         // Ignore non-JSON messages.
@@ -1263,7 +1250,7 @@ export function AppShell() {
   useEffect(() => {
     if (!dataReady || !connected) return;
     const timer = setInterval(() => {
-      void refreshScreen({ target: screen, includeDashboard: isStandalone ? screen === "settings" : screen === "control" });
+      void refreshScreen({ target: screen, includeDashboard: screenNeedsDashboard(screen, isStandalone) });
     }, syncIntervalMs);
     return () => clearInterval(timer);
   }, [connected, dataReady, isStandalone, refreshScreen, screen, syncIntervalMs]);
@@ -1309,11 +1296,6 @@ export function AppShell() {
   const islandRow =
     pinnedRow || rows.find((row) => /board|gate|approach/i.test(row.status_display)) || rows[0] || null;
   const screenContentPadding = Math.max(20, insets.bottom + 14);
-  const matrixPreviewView = matrixRuntime.default_view;
-  const matrixPreviewRows = matrixRuntime.max_rows;
-  const matrixBrightness = matrixRuntime.brightness;
-  const matrixPalette = matrixRuntime.palette;
-  const matrixShowWeather = Boolean(matrixRuntime.options.show_metar ?? matrixRuntime.options.show_weather);
   const effectiveRadarDrawingLayers = isStandalone
     ? { runways: radarDrawingLayers.runways, surface: radarDrawingLayers.surface, terrain: false }
     : radarDrawingLayers;
@@ -1485,7 +1467,7 @@ export function AppShell() {
             />
           ) : null}
 
-          {screen === "control" || screen === "settings" ? (
+          {screen === "control" || screen === "settings" || screen === "help" ? (
             <ScrollView
               style={styles.screenScroll}
               contentContainerStyle={[styles.screenContent, { paddingBottom: screenContentPadding }]}
@@ -1493,7 +1475,7 @@ export function AppShell() {
                 <RefreshControl
                   refreshing={refreshing}
                   tintColor={palette.blue}
-                  onRefresh={() => refreshScreen({ target: screen })}
+                  onRefresh={() => refreshScreen({ target: screen, includeDashboard: screenNeedsDashboard(screen, isStandalone) })}
                 />
               }
             >
@@ -1728,11 +1710,6 @@ export function AppShell() {
                   matrixSaveTone={matrixSaveTone}
                   companionIdentity={companionIdentity}
                   connected={isLive}
-                  feedbackTitle={feedbackTitle}
-                  feedbackDescription={feedbackDescription}
-                  feedbackSending={feedbackSending}
-                  feedbackMessage={feedbackMessage}
-                  feedbackTone={feedbackTone}
                   onThemeModeChange={setThemeMode}
                   onSkinChange={setSkin}
                   onWeatherDisplayModeChange={chooseWeatherDisplayMode}
@@ -1759,14 +1736,31 @@ export function AppShell() {
                   onApplyProfile={(profile) => void applySettingsProfile(profile)}
                   onOpenConfig={() => setConfigSheetVisible(true)}
                   onOpenSupport={() => setSupportVisible(true)}
+                  onOpenHelp={() => setScreen("help")}
                   onRestartScheduler={restartSchedulerNow}
                   onRerunSetup={rerunCompanionSetup}
                   onChangeUrl={setDraftUrl}
                   onPairingUrl={connectPairingUrl}
                   onConnect={() => void connect()}
+                />
+              ) : null}
+
+              {screen === "help" && !isStandalone ? (
+                <HelpScreen
+                  snapshot={snapshot}
+                  companionIdentity={companionIdentity}
+                  connected={isLive}
+                  error={error}
+                  feedbackTitle={feedbackTitle}
+                  feedbackDescription={feedbackDescription}
+                  feedbackSending={feedbackSending}
+                  feedbackMessage={feedbackMessage}
+                  feedbackTone={feedbackTone}
                   onFeedbackTitleChange={setFeedbackTitle}
                   onFeedbackDescriptionChange={setFeedbackDescription}
                   onSubmitFeedback={sendFeedbackReport}
+                  onOpenSupport={() => setSupportVisible(true)}
+                  onBackControl={() => setScreen("control")}
                 />
               ) : null}
 
