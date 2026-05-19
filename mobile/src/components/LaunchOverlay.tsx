@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { Animated, Image, Text, useWindowDimensions, View } from "react-native";
 
+import { hideFromAccessibility, useReducedMotionPreference } from "../accessibility/mobileA11y";
 import { APP_VERSION } from "../domain/constants";
 import { palette } from "../theme/styleBridge";
 import { BrandKicker, BrandWordmark } from "./Brand";
@@ -34,6 +35,7 @@ export function LaunchOverlay({
   styles
 }: LaunchOverlayProps) {
   const { width, height } = useWindowDimensions();
+  const reduceMotion = useReducedMotionPreference();
 
   // Status text cross-fade — quick fade-out → fade-in on each step change.
   const statusFade = useRef(new Animated.Value(1)).current;
@@ -41,11 +43,15 @@ export function LaunchOverlay({
   useEffect(() => {
     if (prevStatusRef.current === status) return;
     prevStatusRef.current = status;
+    if (reduceMotion) {
+      statusFade.setValue(1);
+      return;
+    }
     Animated.sequence([
       Animated.timing(statusFade, { toValue: 0, duration: 60, useNativeDriver: true }),
       Animated.timing(statusFade, { toValue: 1, duration: 140, useNativeDriver: true })
     ]).start();
-  }, [status, statusFade]);
+  }, [status, statusFade, reduceMotion]);
 
   if (!visible) return null;
 
@@ -105,12 +111,13 @@ export function LaunchOverlay({
     >
       <View style={styles.launchSkyGrid}>
         {Array.from({ length: 9 }).map((_, index) => (
-          <View key={index} style={styles.launchGridLine} />
+          <View key={index} style={styles.launchGridLine} {...hideFromAccessibility()} />
         ))}
       </View>
 
       {/* Outer halo — breathes with pulse */}
       <Animated.View
+        {...hideFromAccessibility()}
         style={[
           styles.launchHalo,
           {
@@ -126,6 +133,7 @@ export function LaunchOverlay({
 
       {/* Inner scanner arc — rotates continuously with sweep, tri-color borders */}
       <Animated.View
+        {...hideFromAccessibility()}
         style={[
           styles.launchHaloInner,
           {
@@ -147,11 +155,12 @@ export function LaunchOverlay({
 
           <View style={[styles.launchHeroCard, isWide && styles.launchHeroCardWide]}>
             <View style={[styles.launchMarkWrap, { width: heroSize, height: heroSize }]}>
-              <View style={[styles.launchRadarRing, { width: heroSize * 1.08, height: heroSize * 1.08 }]} />
-              <View style={[styles.launchRadarRingOuter, { width: heroSize * 1.34, height: heroSize * 1.34 }]} />
+              <View style={[styles.launchRadarRing, { width: heroSize * 1.08, height: heroSize * 1.08 }]} {...hideFromAccessibility()} />
+              <View style={[styles.launchRadarRingOuter, { width: heroSize * 1.34, height: heroSize * 1.34 }]} {...hideFromAccessibility()} />
 
               {/* Radar needle — continuous 360° rotation, independent of halo breath */}
               <Animated.View
+                {...hideFromAccessibility()}
                 style={[
                   styles.launchSweepRotor,
                   {

@@ -22,6 +22,7 @@ This is a hobbyist/open-source project, not a legal document, but the app is des
 - LAN Companion automatic diagnostics require two yeses: the mobile app's local diagnostics choice and the connected server's diagnostics mode.
 - Mobile Standalone automatic diagnostics require the phone-local diagnostics choice because there is no paired server.
 - Developer reporting credentials are kept on the hosted relay, not in the desktop package, mobile app, installers, or docs.
+- Local Flight is an informational display aid, not a navigation, dispatch, operational-control, or safety system.
 
 ---
 
@@ -234,6 +235,8 @@ Local Flight is designed to avoid collecting personal data in normal use:
 - no raw IP storage in the hosted relay
 
 Technical identifiers, such as install fingerprints, companion IDs, and standalone mobile relay install IDs, can still be personal data in some contexts. Local Flight keeps them short-lived or install-scoped where practical, uses them for rate limiting and troubleshooting, and avoids turning them into account profiles.
+
+For an App Store/TestFlight mobile build, the matching App Store Connect privacy answers should conservatively disclose install-scoped identifiers, diagnostics/crash data when enabled or manually submitted, coarse relay/app-functionality usage metadata, selected airport/configuration details used for app functionality, and any manual report title/description you choose to send. Local Flight does not use advertising identifiers, data brokers, or cross-app/site tracking.
 
 Your local data is under your control. To wipe local app data, stop Local Flight and remove `~/.localflight/`.
 

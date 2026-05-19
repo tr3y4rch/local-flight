@@ -3075,6 +3075,44 @@ def test_mobile_standalone_rejects_non_uuid_install_ids(tmp_path: Path, monkeypa
     assert response.status_code == 400
 
 
+def test_mobile_iap_verify_rejects_unknown_products() -> None:
+    client = TestClient(relay_main.app)
+    response = client.post(
+        "/v1/mobile/iap/apple/verify",
+        json={
+            "install_id": "00000000-0000-0000-0000-000000000904",
+            "app_account_token": "00000000-0000-0000-0000-000000000904",
+            "app_version": "0.2.7",
+            "product_id": "com.localflight.companion.tip.999",
+            "transaction_id": "1000000000000001",
+            "signed_transaction_info": "signed-jws-placeholder",
+            "environment": "sandbox",
+        },
+    )
+
+    assert response.status_code == 400
+
+
+def test_mobile_iap_verify_is_scaffolded_until_apple_credentials_exist() -> None:
+    client = TestClient(relay_main.app)
+    response = client.post(
+        "/v1/mobile/iap/apple/verify",
+        json={
+            "install_id": "00000000-0000-0000-0000-000000000905",
+            "app_account_token": "00000000-0000-0000-0000-000000000905",
+            "app_version": "0.2.7",
+            "product_id": "com.localflight.companion.tip.5",
+            "transaction_id": "1000000000000002",
+            "original_transaction_id": "1000000000000002",
+            "signed_transaction_info": "signed-jws-placeholder",
+            "environment": "sandbox",
+        },
+    )
+
+    assert response.status_code == 503
+    assert "scaffolded" in response.json()["detail"]
+
+
 def test_mobile_standalone_radar_limits_radii_and_serves_cache(tmp_path: Path, monkeypatch) -> None:
     _use_temp_db(tmp_path, monkeypatch)
     client = TestClient(relay_main.app)

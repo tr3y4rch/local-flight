@@ -3,6 +3,10 @@
   "version": "0.2.7",
   "private": true,
   "main": "index.ts",
+  "engines": {
+    "node": ">=24 <27",
+    "npm": ">=10"
+  },
   "scripts": {
     "start": "expo start",
     "ios": "expo run:ios",
@@ -10,7 +14,10 @@
     "layout:ios": "bash scripts/ios-layout-smoke.sh",
     "verify": "npm run typecheck && npm run doctor",
     "typecheck": "tsc --noEmit",
-    "doctor": "npx expo-doctor"
+    "doctor": "npx expo-doctor",
+    "a11y:contrast": "node scripts/a11y-contrast-check.mjs",
+    "a11y:scan": "node scripts/a11y-static-scan.mjs",
+    "a11y": "npm run a11y:contrast && npm run a11y:scan"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.2",

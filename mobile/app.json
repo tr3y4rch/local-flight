@@ -33,7 +33,8 @@
         {
           "cameraPermission": "Local Flight scans pairing QR codes shown by your Local Flight desktop or Pi app."
         }
-      ]
+      ],
+      "./plugins/with-localflight-privacy-manifest"
     ],
     "ios": {
       "bundleIdentifier": "com.localflight.companion",
@@ -44,7 +45,6 @@
         "NSBonjourServices": [
           "_http._tcp"
         ],
-        "NSSupportsLiveActivities": true,
         "NSAppTransportSecurity": {
           "NSAllowsArbitraryLoads": true
         }

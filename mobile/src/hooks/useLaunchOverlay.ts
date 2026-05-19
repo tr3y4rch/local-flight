@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Animated, Easing } from "react-native";
 import * as SplashScreen from "expo-splash-screen";
 
+import { useReducedMotionPreference } from "../accessibility/mobileA11y";
 import { getCompanionIdentity, type CompanionIdentity } from "../device/identity";
 import type { AirportResolved, AppConfig } from "../api/types";
 import {
@@ -37,6 +38,7 @@ export type LaunchHydration = {
 export function useLaunchOverlay(onHydrated: (value: LaunchHydration) => void) {
   const [visible, setVisible] = useState(true);
   const [statusIndex, setStatusIndex] = useState(0);
+  const reduceMotion = useReducedMotionPreference();
   const opacity = useRef(new Animated.Value(1)).current;
   const scale = useRef(new Animated.Value(1)).current;
   const shift = useRef(new Animated.Value(0)).current;
@@ -84,16 +86,18 @@ export function useLaunchOverlay(onHydrated: (value: LaunchHydration) => void) {
     );
 
     progress.setValue(0);
-    pulse.setValue(0);
+    pulse.setValue(reduceMotion ? 0.5 : 0);
     sweep.setValue(0);
     Animated.timing(progress, {
       toValue: 1,
-      duration: LAUNCH_MIN_MS,
+      duration: reduceMotion ? 180 : LAUNCH_MIN_MS,
       easing: Easing.out(Easing.cubic),
       useNativeDriver: false
     }).start();
-    pulseAnim.start();
-    sweepAnim.start();
+    if (!reduceMotion) {
+      pulseAnim.start();
+      sweepAnim.start();
+    }
 
     Promise.all([
       loadServerUrl(),
@@ -126,6 +130,13 @@ export function useLaunchOverlay(onHydrated: (value: LaunchHydration) => void) {
           setStatusIndex(LAUNCH_STATUS_STEPS.length - 1);
           fadeTimer = setTimeout(() => {
             if (!alive) return;
+            if (reduceMotion) {
+              opacity.setValue(0);
+              shift.setValue(0);
+              scale.setValue(1);
+              setVisible(false);
+              return;
+            }
             Animated.parallel([
               Animated.timing(opacity, {
                 toValue: 0,
@@ -161,7 +172,7 @@ export function useLaunchOverlay(onHydrated: (value: LaunchHydration) => void) {
       if (hideTimer) clearTimeout(hideTimer);
       if (fadeTimer) clearTimeout(fadeTimer);
     };
-  }, [onHydrated, opacity, progress, pulse, scale, shift, sweep]);
+  }, [onHydrated, opacity, progress, pulse, reduceMotion, scale, shift, sweep]);
 
   return {
     visible,

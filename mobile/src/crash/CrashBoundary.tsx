@@ -42,7 +42,13 @@ export class CrashBoundary extends React.Component<Props, State> {
         <Text style={styles.body}>
           A critical UI error was caught. If automatic diagnostics are enabled, Local Flight will try to send a report to the developer board.
         </Text>
-        <Pressable style={styles.button} onPress={this.retry}>
+        <Pressable
+          style={styles.button}
+          onPress={this.retry}
+          accessibilityRole="button"
+          accessibilityLabel="Retry app"
+          accessibilityHint="Attempts to restart the Local Flight mobile interface."
+        >
           <Text style={styles.buttonText}>RETRY APP</Text>
         </Pressable>
       </View>

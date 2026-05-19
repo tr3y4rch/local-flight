@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { Animated, Pressable, Text, View } from "react-native";
 
 import type { Screen } from "../domain/types";
+import { tapTargetHitSlop, useReducedMotionPreference } from "../accessibility/mobileA11y";
 import { LocalFlightIcon, NAV_ICONS, type LocalFlightIconName } from "../theme/icons";
 import type { MobileAppearance } from "../theme/tokens";
 import { hapticSelection } from "../utils/haptics";
@@ -35,21 +36,31 @@ function NavItem({
 }) {
   const { scale, onPressIn, onPressOut } = usePressScale(0.88, 320, 16);
   const dotOpacity = useRef(new Animated.Value(selected ? 1 : 0)).current;
+  const reduceMotion = useReducedMotionPreference();
 
   useEffect(() => {
+    if (reduceMotion) {
+      dotOpacity.setValue(selected ? 1 : 0);
+      return;
+    }
     Animated.spring(dotOpacity, {
       toValue: selected ? 1 : 0,
       stiffness: 260,
       damping: 18,
       useNativeDriver: true
     }).start();
-  }, [selected, dotOpacity]);
+  }, [selected, dotOpacity, reduceMotion]);
 
   const dotScale = dotOpacity.interpolate({ inputRange: [0, 1], outputRange: [0.4, 1] });
+  const accessibilityLabel = `${label.toLowerCase()} tab`;
 
   return (
     <Pressable
       style={styles.navItem}
+      accessibilityRole="tab"
+      accessibilityLabel={accessibilityLabel}
+      accessibilityState={{ selected }}
+      hitSlop={tapTargetHitSlop}
       onPress={() => {
         hapticSelection();
         onChange(id);
@@ -61,7 +72,7 @@ function NavItem({
         <View style={[styles.navIcon, selected && styles.navIconActive]}>
           <LocalFlightIcon
             name={icon}
-            size={15}
+            size={23}
             color={selected ? palette.blue : palette.textDim}
             style={styles.navIconGlyph}
           />

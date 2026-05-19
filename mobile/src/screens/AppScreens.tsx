@@ -21,8 +21,16 @@ import {
 import Svg, { Circle, ClipPath, Defs, G, Line, Path, Polygon, Polyline, Text as SvgText } from "react-native-svg";
 import { CameraView, useCameraPermissions, type BarcodeScanningResult } from "expo-camera";
 
+import { BrandWordmark } from "../components/Brand";
 import { getConfig, getDoc, getHealth, getMobileSummary, getRootHealth, normalizeServerUrl, patchConfig, searchAirports } from "../api/client";
 import { activateStandalone, searchStandaloneAirports } from "../api/standalone";
+import {
+  accessibleButton,
+  compactTapTargetHitSlop,
+  hideFromAccessibility,
+  tapTargetHitSlop,
+  useReducedMotionPreference
+} from "../accessibility/mobileA11y";
 import type {
   AppConfig,
   AppState,
@@ -91,9 +99,9 @@ import { pairingFingerprintProblem, pairingServerUrlProblem, parsePairingLink, t
 import { projectBlip, projectLatLonToScope, type ProjectedRadarPoint } from "../domain/radar";
 import {
   supportProductPlaceholders,
-  supportStubProvider,
   type SupportProduct
 } from "../domain/support";
+import { supportPurchaseProvider } from "../iap/supportProvider";
 import type { FeedbackTone, HistoryWindow, ProjectedBlip, RadarRadius, StatusTone } from "../domain/types";
 import {
   loadMobileRelayInstallId,
@@ -168,6 +176,26 @@ function solidButtonInk(): string {
 function blueButtonInk(): string {
   return palette.themeMode === "light" && ["standard", "technical", "high_contrast"].includes(palette.skin) ? "#ffffff" : "#051009";
 }
+
+function flightRowAccessibilityLabel(row: FidsRow): string {
+  const flight = cleanInfoValue(row.flight_display) || cleanInfoValue(row.callsign) || "Unknown flight";
+  const route = cleanInfoValue(row.route_display) || cleanInfoValue(row.route_primary) || "unknown route";
+  const time = cleanInfoValue(row.display_time) || cleanInfoValue(row.time_primary) || "time unavailable";
+  const status = cleanInfoValue(row.status_display) || "status unavailable";
+  const gate = cleanInfoValue(row.terminal_gate_display) || cleanInfoValue(row.gate_display) || cleanInfoValue(row.gate);
+  const aircraft = cleanInfoValue(row.aircraft_type);
+  return [flight, route, time, status, gate ? `gate ${gate}` : null, aircraft ? `aircraft ${aircraft}` : null]
+    .filter(Boolean)
+    .join(", ");
+}
+
+function radarBlipAccessibilityLabel(blip: RadarBlip): string {
+  const title = cleanInfoValue(blip.display_title) || cleanInfoValue(blip.flight_number) || cleanInfoValue(blip.callsign) || "Tracked aircraft";
+  const status = cleanInfoValue(blip.radar_status_label) || cleanInfoValue(blip.status) || cleanInfoValue(blip.radar_phase);
+  const distance = blip.distance_nm != null ? `${blip.distance_nm.toFixed(1)} nautical miles` : null;
+  const altitude = cleanInfoValue(blip.altitude_display) || (blip.altitude_ft != null ? formatFeetValue(blip.altitude_ft) : formatAltitudeFeet(blip.altitude_m));
+  return [title, status, distance, altitude].filter(Boolean).join(", ");
+}
 const RADAR_GROUND_CLIP_ID = "mobile-radar-ground-clip";
 const RADAR_SWEEP_CLIP_ID = "mobile-radar-sweep-clip";
 const RADAR_SWEEP_WIDTH_DEG = 72;
@@ -193,7 +221,11 @@ export function ScreenActivity({
   const iconColor = activity.tone === "warn" ? palette.amber : activity.tone === "ok" ? palette.green : palette.blue;
 
   return (
-    <View style={[styles.activityPill, compact && styles.activityPillCompact, toneStyle]}>
+    <View
+      style={[styles.activityPill, compact && styles.activityPillCompact, toneStyle]}
+      accessibilityRole="text"
+      accessibilityLabel={[activity.label, activity.detail].filter(Boolean).join(". ")}
+    >
       {compact ? null : (
         <View style={styles.activitySpinnerWrap}>
           <ActivityIndicator size="small" color={iconColor} />
@@ -267,9 +299,13 @@ function PairingScannerSheet({
   }, [onPairingUrl, scanned]);
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+    <Modal visible={visible} transparent presentationStyle="overFullScreen" animationType="slide" onRequestClose={onClose}>
       <View style={styles.sheetBackdrop}>
-        <Pressable style={styles.sheetBackdropPress} onPress={onClose} />
+        <Pressable
+          style={styles.sheetBackdropPress}
+          onPress={onClose}
+          {...accessibleButton({ label: "Close pairing scanner" })}
+        />
         <View style={[styles.sheetCard, styles.pairingScannerSheet]}>
           <View style={styles.sheetHandle} />
           <View style={styles.sheetHeader}>
@@ -277,7 +313,12 @@ function PairingScannerSheet({
               <Text style={styles.sheetEyebrow}>PAIR MOBILE</Text>
               <Text style={styles.sheetTitle}>Scan Local Flight QR</Text>
             </View>
-            <Pressable style={styles.sheetAction} onPress={onClose}>
+            <Pressable
+              style={styles.sheetAction}
+              onPress={onClose}
+              hitSlop={tapTargetHitSlop}
+              {...accessibleButton({ label: "Close pairing scanner" })}
+            >
               <Text style={styles.sheetActionText}>CLOSE</Text>
             </Pressable>
           </View>
@@ -290,6 +331,7 @@ function PairingScannerSheet({
                   facing="back"
                   barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
                   onBarcodeScanned={scanned ? undefined : handleScan}
+                  accessibilityLabel="Camera preview for Local Flight pairing QR code"
                 />
                 <View style={styles.pairingScannerReticle} pointerEvents="none">
                   <View style={styles.pairingScannerCorner} />
@@ -302,7 +344,14 @@ function PairingScannerSheet({
                 <Text style={styles.pairingPermissionBody}>
                   Scan the QR shown by the desktop or Pi app, or close this sheet and enter the LAN URL manually.
                 </Text>
-                <Pressable style={styles.connectButton} onPress={() => void ensurePermission()}>
+                <Pressable
+                  style={styles.connectButton}
+                  onPress={() => void ensurePermission()}
+                  {...accessibleButton({
+                    label: "Allow camera",
+                    hint: "Requests camera permission to scan Local Flight pairing QR codes."
+                  })}
+                >
                   <Text style={styles.connectButtonText}>ALLOW CAMERA</Text>
                 </Pressable>
               </View>
@@ -604,6 +653,7 @@ function weatherChips(metar: Metar | null | undefined): Array<{ label: string; v
 }
 
 export function Header({
+  variant = "expanded",
   airportCode,
   airportIcao,
   airportName,
@@ -615,7 +665,6 @@ export function Header({
   utcTime,
   localTime,
   metar,
-  weatherDisplayMode,
   snapshotPulse,
   rowCount,
   view,
@@ -626,7 +675,9 @@ export function Header({
   onTogglePin,
   onOpenConfig,
   onOpenWeather,
+  onOpenBoard,
 }: {
+  variant?: "expanded" | "compact";
   airportCode: string;
   airportIcao: string;
   airportName: string;
@@ -638,7 +689,6 @@ export function Header({
   utcTime: string;
   localTime: string;
   metar: Metar | null;
-  weatherDisplayMode: MobileWeatherDisplayMode;
   snapshotPulse?: Animated.Value;
   rowCount: number;
   view: FlightView;
@@ -649,6 +699,7 @@ export function Header({
   onTogglePin: (row: FidsRow) => void;
   onOpenConfig: () => void;
   onOpenWeather: () => void;
+  onOpenBoard: () => void;
 }) {
   const category = metarCategory(metar);
   const accent = metarAccentColor(category);
@@ -667,9 +718,15 @@ export function Header({
       : effectiveConnectionState === "retrying"
         ? "RETRYING"
         : "OFFLINE";
+  const railAirportCode = hasAirportCode ? airportCode : airportIcao;
   const dotOpacity = useRef(new Animated.Value(1)).current;
+  const reduceMotion = useReducedMotionPreference();
 
   useEffect(() => {
+    if (reduceMotion) {
+      dotOpacity.setValue(1);
+      return;
+    }
     if (effectiveConnectionState === "offline") { dotOpacity.setValue(1); return; }
     const anim = Animated.loop(
       Animated.sequence([
@@ -679,27 +736,154 @@ export function Header({
     );
     anim.start();
     return () => anim.stop();
-  }, [dotOpacity, effectiveConnectionState]);
+  }, [dotOpacity, effectiveConnectionState, reduceMotion]);
+
+  const renderTopRail = (isCompactHeader: boolean) => {
+    if (!isCompactHeader) {
+      return (
+        <View style={[styles.headerCompactTopRail, styles.headerBoardTopRail]}>
+          <Pressable
+            style={[styles.headerCompactBrand, styles.headerBoardBrand]}
+            onPress={() => {
+              hapticSelection();
+              onOpenBoard();
+            }}
+            hitSlop={tapTargetHitSlop}
+            {...accessibleButton({
+              label: "Local Flight board",
+              hint: "Returns to the main flight board."
+            })}
+          >
+            <BrandWordmark
+              color={palette.text}
+              size={19}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.78}
+            >
+              Local Flight
+            </BrandWordmark>
+          </Pressable>
+          <Pressable
+            style={styles.headerBoardClock}
+            onPress={() => {
+              hapticSelection();
+              onOpenBoard();
+            }}
+            hitSlop={tapTargetHitSlop}
+            {...accessibleButton({
+              label: `Open board. UTC ${utcTime}. Local ${localTime}.`,
+              hint: "Returns to the main flight board."
+            })}
+          >
+            <Text style={styles.headerCompactUtc}>{utcTime}<Text style={styles.utcSuffix}>Z</Text></Text>
+            <Text style={styles.headerCompactLocal}>{localTime} <Text style={styles.localSuffix}>LT</Text></Text>
+          </Pressable>
+        </View>
+      );
+    }
+
+    return (
+      <View style={styles.headerCompactTopRail}>
+        <View style={styles.headerCompactRightColumn}>
+          <Pressable
+            style={styles.headerCompactClock}
+            onPress={() => {
+              hapticSelection();
+              onOpenBoard();
+            }}
+            hitSlop={tapTargetHitSlop}
+            {...accessibleButton({
+              label: `Open board. UTC ${utcTime}. Local ${localTime}.`,
+              hint: "Returns to the main flight board."
+            })}
+          >
+            <Text style={styles.headerCompactUtc}>{utcTime}<Text style={styles.utcSuffix}>Z</Text></Text>
+            <Text style={styles.headerCompactLocal}>{localTime} <Text style={styles.localSuffix}>LT</Text></Text>
+          </Pressable>
+          {isCompactHeader && pinnedRow ? (
+            <CompactRailFlightSummary
+              row={pinnedRow}
+              isPinned={islandPinned}
+              live={live}
+              onOpenDetail={onOpenDetail}
+              onOpenActions={onOpenActions}
+            />
+          ) : null}
+        </View>
+        <View style={styles.headerCompactRow}>
+          <Pressable
+            style={styles.headerCompactBrand}
+            onPress={() => {
+              hapticSelection();
+              onOpenBoard();
+            }}
+            hitSlop={tapTargetHitSlop}
+            {...accessibleButton({
+              label: "Open Local Flight board",
+              hint: "Returns to the main flight board."
+            })}
+          >
+            <BrandWordmark
+              color={palette.text}
+              size={19}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.78}
+            >
+              Local Flight
+            </BrandWordmark>
+            <Text style={styles.headerCompactSubline} numberOfLines={1}>
+              {isCompactHeader ? "TAP FOR BOARD" : "BOARD HOME"}
+            </Text>
+          </Pressable>
+
+          <Pressable
+            style={styles.headerCompactWeather}
+            onPress={() => {
+              hapticLight();
+              onOpenWeather();
+            }}
+            hitSlop={tapTargetHitSlop}
+            {...accessibleButton({
+              label: `Weather ${category}, ${metarTemperature(metar)}. UTC ${utcTime}. Local ${localTime}.`,
+              hint: "Opens weather and control information."
+            })}
+          >
+            <CompactRailWeather metar={metar} accent={accent} airportCode={railAirportCode} />
+          </Pressable>
+        </View>
+      </View>
+    );
+  };
+
+  if (variant === "compact") {
+    return (
+      <View style={[styles.header, styles.headerCompact]}>
+        <View style={[styles.headerAccentBar, { backgroundColor: accent }]} />
+        {renderTopRail(true)}
+      </View>
+    );
+  }
 
   return (
     <View style={styles.header}>
       <View style={[styles.headerAccentBar, { backgroundColor: accent }]} />
+      {renderTopRail(false)}
 
-      <View style={[styles.airportHeroRow, longAirportName && styles.airportHeroRowStacked]}>
+      <View style={[styles.airportHeroRow, styles.airportHeroRowUnified, longAirportName && styles.airportHeroRowStacked]}>
         <Pressable
           style={[styles.airportHeroPressable, longAirportName && styles.airportHeroPressableStacked]}
           onPress={() => {
             hapticSelection();
             onOpenConfig();
           }}
+          hitSlop={tapTargetHitSlop}
+          {...accessibleButton({
+            label: `${airportName}. ${airportLocation || "Airport location unavailable"}`,
+            hint: "Opens airport and server configuration."
+          })}
         >
-          <View style={[styles.airportHeroTopline, longAirportName && styles.airportHeroToplineStacked]}>
-            <Text style={styles.airportHeroKicker}>LOCAL FLIGHT AIRPORT</Text>
-            <View style={[styles.airportCodeBadges, longAirportName && styles.airportCodeBadgesStacked]}>
-              {hasAirportCode ? <Text style={[styles.airportCodeBadge, { borderColor: `${accent}55`, color: accent }]}>{airportCode}</Text> : null}
-              {airportIcao ? <Text style={styles.airportCodeBadge}>{airportIcao}</Text> : null}
-            </View>
-          </View>
           <Text
             style={[styles.airportHeroName, longAirportName && styles.airportHeroNameCompact]}
             numberOfLines={2}
@@ -753,19 +937,19 @@ export function Header({
             </View>
           </View>
         </Pressable>
-
         <Pressable
-          style={[styles.headerWeatherRail, longAirportName && styles.headerWeatherRailStacked]}
+          style={[styles.boardHeroWeatherCard, longAirportName && styles.boardHeroWeatherCardStacked]}
           onPress={() => {
             hapticLight();
             onOpenWeather();
           }}
+          hitSlop={tapTargetHitSlop}
+          {...accessibleButton({
+            label: `Weather ${category}, ${metarTemperature(metar)}, ${weatherCondition(metar)}.`,
+            hint: "Opens weather and control information."
+          })}
         >
-          <View style={longAirportName ? styles.headerClockStackInline : undefined}>
-          <Text style={styles.utcTime}>{utcTime}<Text style={styles.utcSuffix}>Z</Text></Text>
-          <Text style={styles.localTime}>{localTime} <Text style={styles.localSuffix}>LOC</Text></Text>
-          </View>
-          <CompactWeatherCapsule metar={metar} mode={weatherDisplayMode} accent={accent} />
+          <BoardHeroWeatherCard metar={metar} accent={accent} airportCode={railAirportCode} />
         </Pressable>
       </View>
 
@@ -782,49 +966,188 @@ export function Header({
   );
 }
 
-function CompactWeatherCapsule({
+function CompactRailWeather({
   metar,
-  mode,
-  accent
+  accent,
+  airportCode
 }: {
   metar: Metar | null;
-  mode: MobileWeatherDisplayMode;
   accent: string;
+  airportCode: string;
 }) {
   const category = metarCategory(metar);
   const temp = metarTemperature(metar);
-  const label = mode === "vatsim" ? "VATSIM" : mode === "pilot" ? "PILOT" : category;
-  const detail =
-    mode === "vatsim"
-      ? (metar?.raw_text || "METAR wait").replace(/^METAR\s+/, "").slice(0, 18)
-      : mode === "pilot"
-        ? weatherSummaryForMode(metar, "pilot")
-        : weatherCondition(metar);
   const iconName = weatherIconForMetar(metar);
   const iconOpacity = useRef(new Animated.Value(1)).current;
+  const iconScale = useRef(new Animated.Value(1)).current;
   const [displayIcon, setDisplayIcon] = useState(iconName);
   const previousIcon = useRef(iconName);
+  const reduceMotion = useReducedMotionPreference();
 
   useEffect(() => {
     if (previousIcon.current === iconName) return;
     previousIcon.current = iconName;
-    Animated.timing(iconOpacity, { toValue: 0, duration: 100, useNativeDriver: true }).start(({ finished }) => {
+    if (reduceMotion) {
+      setDisplayIcon(iconName);
+      iconOpacity.setValue(1);
+      iconScale.setValue(1);
+      return;
+    }
+    Animated.parallel([
+      Animated.timing(iconOpacity, { toValue: 0, duration: 80, useNativeDriver: true }),
+      Animated.timing(iconScale, { toValue: 0.82, duration: 80, useNativeDriver: true })
+    ]).start(({ finished }) => {
       if (!finished) return;
       setDisplayIcon(iconName);
-      Animated.timing(iconOpacity, { toValue: 1, duration: 220, useNativeDriver: true }).start();
+      Animated.parallel([
+        Animated.timing(iconOpacity, { toValue: 1, duration: 180, useNativeDriver: true }),
+        Animated.spring(iconScale, { toValue: 1, damping: 11, stiffness: 180, mass: 0.45, useNativeDriver: true })
+      ]).start();
     });
-  }, [iconName, iconOpacity]);
+  }, [iconName, iconOpacity, iconScale, reduceMotion]);
 
   return (
-    <View style={[styles.weatherCompact, { borderColor: `${accent}44`, backgroundColor: `${accent}14` }]}>
-      <Animated.View style={{ opacity: iconOpacity }}>
-        <LocalFlightIcon name={displayIcon} size={18} color={accent} />
-      </Animated.View>
-      <View style={styles.weatherCompactCopy}>
-        <Text style={styles.weatherCompactTemp}>{temp}</Text>
-        <Text style={styles.weatherCompactMeta} numberOfLines={1}>{label} · {detail}</Text>
+    <View style={[styles.weatherRailGroup, { borderColor: `${accent}44`, backgroundColor: `${accent}12` }]}>
+      <View style={styles.weatherRailTop}>
+        <Animated.View style={{ opacity: iconOpacity, transform: [{ scale: iconScale }] }}>
+          <LocalFlightIcon name={displayIcon} size={14} color={accent} />
+        </Animated.View>
+        <Text style={styles.weatherRailTemp} numberOfLines={1}>{temp}</Text>
+      </View>
+      <View style={styles.weatherRailPills}>
+        <Text style={[styles.weatherRailPill, { borderColor: `${accent}55`, color: accent }]} numberOfLines={1}>
+          {category}
+        </Text>
+        <Text style={styles.weatherRailPill} numberOfLines={1}>
+          {airportCode || "---"}
+        </Text>
       </View>
     </View>
+  );
+}
+
+function BoardHeroWeatherCard({
+  metar,
+  accent,
+  airportCode
+}: {
+  metar: Metar | null;
+  accent: string;
+  airportCode: string;
+}) {
+  const category = metarCategory(metar);
+  const temp = metarTemperature(metar);
+  const condition = weatherCondition(metar);
+  const iconName = weatherIconForMetar(metar);
+  const iconScale = useRef(new Animated.Value(0.78)).current;
+  const bubbleScale = useRef(new Animated.Value(0.96)).current;
+  const bubbleOpacity = useRef(new Animated.Value(0)).current;
+  const reduceMotion = useReducedMotionPreference();
+
+  useEffect(() => {
+    if (reduceMotion) {
+      iconScale.setValue(1);
+      bubbleScale.setValue(1);
+      bubbleOpacity.setValue(1);
+      return;
+    }
+    iconScale.setValue(0.78);
+    bubbleScale.setValue(0.96);
+    bubbleOpacity.setValue(0);
+    Animated.parallel([
+      Animated.timing(bubbleOpacity, { toValue: 1, duration: 150, useNativeDriver: true }),
+      Animated.spring(bubbleScale, { toValue: 1, damping: 14, stiffness: 180, mass: 0.55, useNativeDriver: true }),
+      Animated.sequence([
+        Animated.timing(iconScale, { toValue: 1.12, duration: 130, useNativeDriver: true }),
+        Animated.spring(iconScale, { toValue: 1, damping: 10, stiffness: 210, mass: 0.45, useNativeDriver: true })
+      ])
+    ]).start();
+  }, [bubbleOpacity, bubbleScale, iconScale, reduceMotion]);
+
+  return (
+    <Animated.View
+      style={[
+        styles.boardHeroWeatherInner,
+        {
+          borderColor: `${accent}44`,
+          backgroundColor: `${accent}12`,
+          opacity: bubbleOpacity,
+          transform: [{ scale: bubbleScale }]
+        }
+      ]}
+    >
+      <View style={styles.boardHeroWeatherTop}>
+        <Animated.View style={{ transform: [{ scale: iconScale }] }}>
+          <LocalFlightIcon name={iconName} size={18} color={accent} />
+        </Animated.View>
+        <Text style={styles.boardHeroWeatherTemp} numberOfLines={1}>{temp}</Text>
+      </View>
+      <Text style={styles.boardHeroWeatherCondition} numberOfLines={1}>{condition}</Text>
+      <View style={styles.boardHeroWeatherPills}>
+        <Text style={[styles.boardHeroWeatherPill, { borderColor: `${accent}55`, color: accent }]} numberOfLines={1}>
+          {category}
+        </Text>
+        <Text style={styles.boardHeroWeatherPill} numberOfLines={1}>
+          {airportCode || "---"}
+        </Text>
+      </View>
+    </Animated.View>
+  );
+}
+
+function railStatusShort(status: string): string {
+  const short = statusShort(status);
+  if (short === "SCHEDULED") return "SCH";
+  if (short === "BOARDING") return "BRD";
+  if (short === "DEPARTED") return "DEP";
+  if (short === "ARRIVED") return "ARR";
+  if (short === "DELAYED") return "DLY";
+  if (short === "CANCELLED") return "CXL";
+  return short.slice(0, 3);
+}
+
+function CompactRailFlightSummary({
+  row,
+  isPinned,
+  live,
+  onOpenDetail,
+  onOpenActions
+}: {
+  row: FidsRow;
+  isPinned: boolean;
+  live: boolean;
+  onOpenDetail: (callsign: string) => void;
+  onOpenActions: (row: FidsRow) => void;
+}) {
+  const tone = statusTone(row.status_display);
+  const statusColor =
+    tone === "delayed" ? palette.amber :
+      tone === "cancelled" ? palette.red :
+        tone === "boarding" || tone === "departed" ? palette.green :
+          palette.blue2;
+
+  return (
+    <Pressable
+      style={[styles.headerCompactFlightChip, isPinned && styles.headerCompactFlightChipPinned]}
+      onPress={() => {
+        if (row.callsign) onOpenDetail(row.callsign);
+      }}
+      onLongPress={() => onOpenActions(row)}
+      delayLongPress={360}
+      hitSlop={compactTapTargetHitSlop}
+      {...accessibleButton({
+        label: flightRowAccessibilityLabel(row),
+        hint: "Opens flight details. Long press for pin actions.",
+        selected: isPinned
+      })}
+    >
+      <Text style={[styles.headerCompactFlightText, { color: live ? palette.blue2 : palette.textDim }]} numberOfLines={1}>
+        {row.view === "arrivals" ? "ARR" : "DEP"}
+      </Text>
+      <Text style={[styles.headerCompactFlightStatus, { color: statusColor }]} numberOfLines={1}>
+        {row.display_time || "--:--"} {railStatusShort(row.status_display)}
+      </Text>
+    </Pressable>
   );
 }
 
@@ -846,8 +1169,13 @@ function FlightIsland({
   onTogglePin: (row: FidsRow) => void;
 }) {
   const glow = useRef(new Animated.Value(0)).current;
+  const reduceMotion = useReducedMotionPreference();
 
   useEffect(() => {
+    if (reduceMotion) {
+      glow.setValue(0);
+      return;
+    }
     if (!live || !row) {
       glow.setValue(0);
       return;
@@ -860,7 +1188,7 @@ function FlightIsland({
     );
     loop.start();
     return () => loop.stop();
-  }, [glow, live, row]);
+  }, [glow, live, row, reduceMotion]);
 
   const glowBorder = glow.interpolate({
     inputRange: [0, 1],
@@ -880,6 +1208,12 @@ function FlightIsland({
             onOpenDetail(row.callsign);
           }
         }}
+        hitSlop={tapTargetHitSlop}
+        {...accessibleButton({
+          label: row ? flightRowAccessibilityLabel(row) : `No featured flight. Status ${live ? "ready" : "offline"}.`,
+          hint: row ? "Opens flight details. Long press for pin actions." : "Shows current board status.",
+          disabled: !row
+        })}
       >
         <View style={styles.islandCompactRow}>
           <View style={styles.islandLead}>
@@ -911,7 +1245,12 @@ function FlightIsland({
         <Pressable
           style={[styles.islandPinButton, isPinned && styles.islandPinButtonActive]}
           onPress={() => onTogglePin(row)}
-          hitSlop={10}
+          hitSlop={compactTapTargetHitSlop}
+          {...accessibleButton({
+            label: isPinned ? "Unpin featured flight" : "Pin featured flight",
+            hint: flightRowAccessibilityLabel(row),
+            selected: isPinned
+          })}
         >
           <LocalFlightIcon
             name={isPinned ? "pin-off" : "pin-outline"}
@@ -1428,7 +1767,14 @@ export function HistoryScreen({
               returnKeyType="search"
               onSubmitEditing={onApplyFilters}
             />
-            <Pressable style={styles.historyApplyButton} onPress={onApplyFilters}>
+            <Pressable
+              style={styles.historyApplyButton}
+              onPress={onApplyFilters}
+              {...accessibleButton({
+                label: "Apply history filters",
+                hint: "Refreshes the history analytics with the selected direction, time window, callsign, and airline filters."
+              })}
+            >
               <Text style={styles.historyApplyButtonText}>APPLY</Text>
             </Pressable>
           </View>
@@ -1640,6 +1986,11 @@ function RadarLayerControls({
                 hapticSelection();
                 onChange({ ...layers, [item.key]: !active });
               }}
+              {...accessibleButton({
+                label: `${active ? "Hide" : "Show"} ${item.label}`,
+                hint: item.detail,
+                selected: active
+              })}
             >
               <View style={[styles.radarLayerDot, active && styles.radarLayerDotActive]} />
               <View style={styles.radarLayerCopy}>
@@ -1773,15 +2124,9 @@ export function RadarScreen({
             />
           </View>
 
-          <RadarWeatherCard metar={metar} mode={weatherDisplayMode} />
-
           <RadarLegendOverlay source={data?.source} ageSeconds={ageSeconds} />
 
-          <RadarLayerControls
-            layers={drawingLayers}
-            standalone={standalone}
-            onChange={onDrawingLayersChange}
-          />
+          <RadarWeatherCard metar={metar} mode={weatherDisplayMode} />
 
           <RadarScope
             data={data}
@@ -1795,6 +2140,27 @@ export function RadarScreen({
             onOpenDetail={onOpenDetail}
             compact={compact}
           />
+
+          <RadarLayerControls
+            layers={drawingLayers}
+            standalone={standalone}
+            onChange={onDrawingLayersChange}
+          />
+
+          {hasRows ? (
+            <View style={styles.radarLegend}>
+              <View style={styles.radarLegendHeader}>
+                <Text style={styles.radarLegendTitle}>AIRCRAFT</Text>
+                <View style={styles.radarLegendMetaWrap}>
+                  <Text style={styles.radarLegendSource}>{blips.length} TRACKS</Text>
+                  <Text style={styles.radarLegendAge}>{radiusNm} NM</Text>
+                </View>
+              </View>
+              <Text style={styles.radarLayerHint}>
+                Tap a track for details. Ground tracks are hidden automatically on wider ranges.
+              </Text>
+            </View>
+          ) : null}
         </>
       }
       ListEmptyComponent={
@@ -1990,6 +2356,13 @@ export function MatrixScreen({
                   ]}
                   onPress={() => onApplyPreset(item.id)}
                   disabled={disabled}
+                  {...accessibleButton({
+                    label: `Apply Matrix preset ${item.label}`,
+                    hint: item.meta,
+                    selected: active,
+                    disabled,
+                    busy: applying
+                  })}
                 >
                   <View style={styles.matrixPresetTop}>
                     <Text style={[styles.matrixPresetLabel, active && styles.matrixPresetLabelActive]}>{item.label}</Text>
@@ -2097,6 +2470,11 @@ export function MatrixScreen({
                   key={item.id}
                   onPress={() => onMatrixPaletteChange(item.id)}
                   style={[styles.paletteChip, matrixPalette === item.id && styles.optionChipActive]}
+                  {...accessibleButton({
+                    label: `Use Matrix ${item.label} palette`,
+                    hint: item.meta,
+                    selected: matrixPalette === item.id
+                  })}
                 >
                   <Text style={[styles.optionChipLabel, matrixPalette === item.id && styles.optionChipLabelActive]}>{item.label}</Text>
                   <Text style={[styles.optionChipMeta, matrixPalette === item.id && styles.optionChipMetaActive]}>{item.meta}</Text>
@@ -2237,6 +2615,10 @@ function MatrixSavePanel({
             onReset();
           }}
           disabled={saving}
+          {...accessibleButton({
+            label: "Reset Matrix draft",
+            disabled: saving
+          })}
         >
           <Text style={styles.matrixActionSecondaryText}>RESET</Text>
         </Pressable>
@@ -2247,6 +2629,11 @@ function MatrixSavePanel({
             onSave();
           }}
           disabled={saving}
+          {...accessibleButton({
+            label: "Save Matrix settings to server",
+            disabled: saving,
+            busy: saving
+          })}
         >
           {saving ? <ActivityIndicator size="small" color={blueButtonInk()} /> : <Text style={styles.matrixActionPrimaryText}>SAVE TO SERVER</Text>}
         </Pressable>
@@ -2275,6 +2662,11 @@ function DirectionButton({ active, label, onPress }: { active: boolean; label: s
         }}
         onPressIn={onPressIn}
         onPressOut={onPressOut}
+        hitSlop={tapTargetHitSlop}
+        {...accessibleButton({
+          label,
+          selected: active
+        })}
         style={[styles.dirButton, active && styles.dirButtonActive]}
       >
         <Text style={[styles.dirButtonText, active && styles.dirButtonTextActive]}>{label}</Text>
@@ -2313,6 +2705,12 @@ function OptionChip({
         }}
         onPressIn={onPressIn}
         onPressOut={onPressOut}
+        hitSlop={tapTargetHitSlop}
+        {...accessibleButton({
+          label,
+          hint: meta,
+          selected: active
+        })}
         style={[styles.optionChip, active && styles.optionChipActive]}
       >
         <Text style={[styles.optionChipLabel, active && styles.optionChipLabelActive]}>{label}</Text>
@@ -2357,6 +2755,12 @@ function FidsRowView({
       delayLongPress={360}
       onLongPress={() => onOpenActions(row)}
       onPress={() => onOpenDetail(row.callsign)}
+      hitSlop={compactTapTargetHitSlop}
+      {...accessibleButton({
+        label: flightRowAccessibilityLabel(row),
+        hint: "Opens flight details. Long press for pin actions.",
+        selected: isPinned
+      })}
     >
       <View style={styles.fidsRowMain}>
         <View style={[styles.fidsTimeCell, styles.fidsColTime]}>
@@ -2440,17 +2844,22 @@ function RotatingInfoLine({
   showLabel?: boolean;
 }) {
   const opacity = useRef(new Animated.Value(1)).current;
+  const reduceMotion = useReducedMotionPreference();
   const frame = frames.length ? frames[Math.abs(cycleTick + offset) % frames.length] : null;
   const frameKey = frame ? `${frame.label}:${frame.value}` : "empty";
 
   useEffect(() => {
+    if (reduceMotion) {
+      opacity.setValue(1);
+      return;
+    }
     opacity.setValue(0);
     Animated.timing(opacity, { toValue: 1, duration: 240, useNativeDriver: true }).start();
-  }, [frameKey, opacity]);
+  }, [frameKey, opacity, reduceMotion]);
 
   if (!frame) return null;
 
-  const lift = opacity.interpolate({ inputRange: [0, 1], outputRange: [4, 0] });
+  const lift = reduceMotion ? 0 : opacity.interpolate({ inputRange: [0, 1], outputRange: [4, 0] });
   const toneStyle =
     frame.tone === "warn"
       ? styles.fidsInfoValueWarn
@@ -2556,7 +2965,20 @@ function FullscreenFidsRow({
 
 function HistoryRow({ row, onOpenDetail }: { row: HistoryFlightRow; onOpenDetail: (callsign: string) => void }) {
   return (
-    <Pressable style={styles.historyRow} onPress={() => onOpenDetail(row.callsign)}>
+    <Pressable
+      style={styles.historyRow}
+      onPress={() => onOpenDetail(row.callsign)}
+      hitSlop={tapTargetHitSlop}
+      {...accessibleButton({
+        label: [
+          row.flight_number || row.callsign || "Unknown flight",
+          historyRouteLabel(row),
+          row.status || "status unavailable",
+          row.gate ? `gate ${row.gate}` : null
+        ].filter(Boolean).join(", "),
+        hint: "Opens flight details."
+      })}
+    >
       <View style={styles.historyTimeBox}>
         <Text style={styles.historyTime}>{formatClock(row.event_time || row.sched_time || row.snapshot_ts)}</Text>
         <Text style={styles.historyDate}>{formatClock(row.sched_time)}</Text>
@@ -2595,7 +3017,15 @@ function RadarBlipRow({ blip, onOpenDetail }: { blip: RadarBlip; onOpenDetail: (
   const trail = cleanInfoValue(blip.radar_phase) || (blip.enriched ? "LIVE" : "RAW");
 
   return (
-    <Pressable style={styles.historyRow} onPress={() => onOpenDetail(blip.callsign)}>
+    <Pressable
+      style={styles.historyRow}
+      onPress={() => onOpenDetail(blip.callsign)}
+      hitSlop={tapTargetHitSlop}
+      {...accessibleButton({
+        label: radarBlipAccessibilityLabel(blip),
+        hint: "Opens aircraft details."
+      })}
+    >
       <View style={styles.historyTimeBox}>
         <Text style={styles.historyTime}>{title}</Text>
         <Text style={styles.historyDate}>{subtitle}</Text>
@@ -2643,6 +3073,7 @@ function RadarScope({
   onOpenDetail: (callsign: string) => void;
 }) {
   const [scopeSize, setScopeSize] = useState(280);
+  const reduceMotion = useReducedMotionPreference();
   const pinchRef = useRef<{ distance: number; index: number } | null>(null);
   const effectiveLayers = standalone
     ? { runways: drawingLayers.runways, surface: drawingLayers.surface, terrain: false }
@@ -2660,16 +3091,20 @@ function RadarScope({
     .map((blip) => data ? projectBlip(blip, data.center, radiusNm, scopeSize) : null)
     .filter((item): item is ProjectedBlip => Boolean(item));
   const projected = projectedInRange
-    .map((item) => ({ item, opacity: radarSweepOpacity(item.angleDeg, sweepDeg) }))
+    .map((item) => ({ item, opacity: reduceMotion ? 1 : radarSweepOpacity(item.angleDeg, sweepDeg) }))
     .filter(({ opacity }) => opacity > 0.08)
     .sort((a, b) => a.item.distanceNm - b.item.distanceNm);
 
   useEffect(() => {
+    if (reduceMotion) {
+      setSweepDeg(0);
+      return;
+    }
     const timer = setInterval(() => {
       setSweepDeg((value) => (value + RADAR_SWEEP_STEP_DEG) % 360);
     }, RADAR_SWEEP_INTERVAL_MS);
     return () => clearInterval(timer);
-  }, []);
+  }, [reduceMotion]);
 
   const setMeasuredSize = useCallback((width: number) => {
     const next = Math.max(220, Math.min(width - 28, compact ? 320 : 440));
@@ -2726,6 +3161,7 @@ function RadarScope({
       <Text style={styles.scopeTitle}>RADAR SCOPE</Text>
       <View
         style={[styles.scopeFrame, { width: scopeSize, height: scopeSize }]}
+        accessibilityLabel={`Radar scope, ${radiusNm} nautical mile range, ${projectedInRange.length} aircraft in range.`}
         onTouchStart={(event) => handlePinchStart(event.nativeEvent.touches as Array<{ pageX: number; pageY: number }>)}
         onTouchMove={(event) => handlePinchMove(event.nativeEvent.touches as Array<{ pageX: number; pageY: number }>)}
         onTouchEnd={() => {
@@ -2755,6 +3191,11 @@ function RadarScope({
             key={`scope-${radarBlipKey(item.blip, index)}`}
             style={[styles.scopeDotWrap, { left: item.left, top: item.top, opacity }]}
             onPress={() => onOpenDetail(item.blip.callsign)}
+            hitSlop={compactTapTargetHitSlop}
+            {...accessibleButton({
+              label: radarBlipAccessibilityLabel(item.blip),
+              hint: "Opens aircraft details."
+            })}
           >
             <View style={[styles.scopeDot, { backgroundColor: radarTone(item.blip) }]} />
             {index < 10 ? (
@@ -2782,6 +3223,11 @@ function RadarScope({
               key={item}
               onPress={() => onRadiusChange(item)}
               style={[styles.scopeChip, radiusNm === item && styles.scopeChipActive]}
+              hitSlop={tapTargetHitSlop}
+              {...accessibleButton({
+                label: `Set radar range to ${item} nautical miles`,
+                selected: radiusNm === item
+              })}
             >
               <Text style={[styles.scopeChipText, radiusNm === item && styles.scopeChipTextActive]}>
                 {item === radiusNm ? radiusLabel : `${item} NM`}
@@ -2802,6 +3248,7 @@ function RadarSweepLayer({ scopeSize, sweepDeg }: { scopeSize: number; sweepDeg:
   return (
     <Animated.View
       pointerEvents="none"
+      {...hideFromAccessibility()}
       style={[
         styles.scopeSweepLayer,
         {
@@ -3248,7 +3695,12 @@ function joinedIdentityList(values?: string[] | null): string {
 
 function DetailSkeleton() {
   const opacity = useRef(new Animated.Value(0.5)).current;
+  const reduceMotion = useReducedMotionPreference();
   useEffect(() => {
+    if (reduceMotion) {
+      opacity.setValue(0.62);
+      return;
+    }
     const loop = Animated.loop(
       Animated.sequence([
         Animated.timing(opacity, { toValue: 0.85, duration: 700, useNativeDriver: true }),
@@ -3257,7 +3709,7 @@ function DetailSkeleton() {
     );
     loop.start();
     return () => loop.stop();
-  }, [opacity]);
+  }, [opacity, reduceMotion]);
 
   return (
     <View style={styles.sheetSkeleton}>
@@ -3326,9 +3778,13 @@ export function FlightDetailSheet({
     : null;
 
   return (
-    <Modal visible={visible} animationType="slide" transparent statusBarTranslucent>
+    <Modal visible={visible} animationType="slide" transparent presentationStyle="overFullScreen" statusBarTranslucent>
       <View style={styles.sheetBackdrop}>
-        <Pressable style={styles.sheetBackdropPress} onPress={onClose} />
+        <Pressable
+          style={styles.sheetBackdropPress}
+          onPress={onClose}
+          {...accessibleButton({ label: "Close flight detail" })}
+        />
         <View style={styles.sheetCard}>
           <View style={styles.sheetHandle} />
 
@@ -3340,10 +3796,20 @@ export function FlightDetailSheet({
             </View>
 
             <View style={styles.sheetActions}>
-              <Pressable style={styles.sheetAction} onPress={onRefresh}>
+              <Pressable
+                style={styles.sheetAction}
+                onPress={onRefresh}
+                hitSlop={tapTargetHitSlop}
+                {...accessibleButton({ label: "Refresh flight detail" })}
+              >
                 <Text style={styles.sheetActionText}>REFRESH</Text>
               </Pressable>
-              <Pressable style={styles.sheetAction} onPress={onClose}>
+              <Pressable
+                style={styles.sheetAction}
+                onPress={onClose}
+                hitSlop={tapTargetHitSlop}
+                {...accessibleButton({ label: "Close flight detail" })}
+              >
                 <Text style={styles.sheetActionText}>CLOSE</Text>
               </Pressable>
             </View>
@@ -3561,9 +4027,13 @@ export function FlightActionSheet({
   if (!row) return null;
 
   return (
-    <Modal visible={visible} animationType="fade" transparent statusBarTranslucent>
+    <Modal visible={visible} animationType="fade" transparent presentationStyle="overFullScreen" statusBarTranslucent>
       <View style={styles.sheetBackdrop}>
-        <Pressable style={styles.sheetBackdropPress} onPress={onClose} />
+        <Pressable
+          style={styles.sheetBackdropPress}
+          onPress={onClose}
+          {...accessibleButton({ label: "Close flight actions" })}
+        />
         <View style={styles.actionSheetCard}>
           <View style={styles.sheetHandle} />
           <Text style={styles.sheetEyebrow}>FLIGHT ACTIONS</Text>
@@ -3573,7 +4043,14 @@ export function FlightActionSheet({
           </Text>
 
           <View style={styles.actionSheetButtons}>
-            <Pressable style={styles.actionButton} onPress={() => onTogglePin(row)}>
+            <Pressable
+              style={styles.actionButton}
+              onPress={() => onTogglePin(row)}
+              {...accessibleButton({
+                label: isPinned ? "Unpin flight" : "Pin flight to top",
+                hint: flightRowAccessibilityLabel(row)
+              })}
+            >
               <LocalFlightIcon
                 name={isPinned ? "pin-off" : "pin"}
                 size={18}
@@ -3581,7 +4058,14 @@ export function FlightActionSheet({
               />
               <Text style={styles.actionButtonText}>{isPinned ? "UNPIN FLIGHT" : "PIN TO TOP"}</Text>
             </Pressable>
-            <Pressable style={styles.actionButton} onPress={() => onOpenDetail(row.callsign)}>
+            <Pressable
+              style={styles.actionButton}
+              onPress={() => onOpenDetail(row.callsign)}
+              {...accessibleButton({
+                label: "Open flight detail",
+                hint: flightRowAccessibilityLabel(row)
+              })}
+            >
               <LocalFlightIcon name={ACTION_ICONS.search} size={18} color={palette.blue} />
               <Text style={styles.actionButtonText}>OPEN DETAIL</Text>
             </Pressable>
@@ -3903,7 +4387,16 @@ export function AdminScreen({
         <View style={styles.feedbackContextBox}>
           <Text style={styles.feedbackContextText}>{feedbackContext}</Text>
         </View>
-        <Pressable style={[styles.connectButton, feedbackSending && styles.connectButtonDisabled]} onPress={onSubmitFeedback} disabled={feedbackSending}>
+        <Pressable
+          style={[styles.connectButton, feedbackSending && styles.connectButtonDisabled]}
+          onPress={onSubmitFeedback}
+          disabled={feedbackSending}
+          {...accessibleButton({
+            label: feedbackSending ? "Sending report" : "Send report",
+            disabled: feedbackSending,
+            busy: feedbackSending
+          })}
+        >
           {feedbackSending ? <ActivityIndicator color={solidButtonInk()} /> : <Text style={styles.connectButtonText}>SEND REPORT</Text>}
         </Pressable>
         {feedbackMessage ? (
@@ -3912,7 +4405,14 @@ export function AdminScreen({
           </Text>
         ) : null}
         {feedbackMessage && feedbackTone === "ok" ? (
-          <Pressable style={styles.feedbackSupportHint} onPress={onOpenSupport}>
+          <Pressable
+            style={styles.feedbackSupportHint}
+            onPress={onOpenSupport}
+            {...accessibleButton({
+              label: "Support Local Flight",
+              hint: "Opens the optional support sheet."
+            })}
+          >
             <Text style={styles.feedbackSupportText}>Thanks for helping Local Flight improve.</Text>
             <Text style={styles.feedbackSupportAction}>SUPPORT</Text>
           </Pressable>
@@ -3926,7 +4426,11 @@ export function AdminScreen({
           <Text style={styles.moduleIntro}>
             Developer-only helpers to verify the mobile crash pipeline before a real failure happens.
           </Text>
-          <Pressable style={styles.connectButton} onPress={onSendAutoReportTest}>
+          <Pressable
+            style={styles.connectButton}
+            onPress={onSendAutoReportTest}
+            {...accessibleButton({ label: "Send automatic report test" })}
+          >
             <Text style={styles.connectButtonText}>SEND AUTO TEST</Text>
           </Pressable>
           <Pressable
@@ -3936,6 +4440,10 @@ export function AdminScreen({
                 throw new Error("Intentional mobile crash test");
               }, 10);
             }}
+            {...accessibleButton({
+              label: "Trigger test crash",
+              hint: "Developer-only action that intentionally crashes the app."
+            })}
           >
             <Text style={styles.connectButtonText}>TRIGGER TEST CRASH</Text>
           </Pressable>
@@ -3981,6 +4489,7 @@ export function CompanionSetupScreen({
   const [serverSummary, setServerSummary] = useState<CompanionSetupResult | null>(null);
   const [scannerVisible, setScannerVisible] = useState(false);
   const stepAnim = useRef(new Animated.Value(1)).current;
+  const reduceMotion = useReducedMotionPreference();
 
   useEffect(() => {
     setServerInput(initialUrl);
@@ -3993,13 +4502,17 @@ export function CompanionSetupScreen({
   }, [initialDiagnosticsMode]);
 
   useEffect(() => {
+    if (reduceMotion) {
+      stepAnim.setValue(1);
+      return;
+    }
     stepAnim.setValue(0);
     Animated.timing(stepAnim, {
       toValue: 1,
       duration: 220,
       useNativeDriver: true
     }).start();
-  }, [step, stepAnim]);
+  }, [step, stepAnim, reduceMotion]);
 
   useEffect(() => {
     if (step !== "server") return;
@@ -4220,7 +4733,7 @@ export function CompanionSetupScreen({
   const panelMotion = {
     opacity: stepAnim,
     transform: [{
-      translateY: stepAnim.interpolate({ inputRange: [0, 1], outputRange: [16, 0] })
+      translateY: reduceMotion ? 0 : stepAnim.interpolate({ inputRange: [0, 1], outputRange: [16, 0] })
     }]
   };
 
@@ -4285,6 +4798,11 @@ export function CompanionSetupScreen({
                     styles.companionSetupOption,
                     setupMode === mode && styles.companionSetupOptionActive
                   ]}
+                  {...accessibleButton({
+                    label: title,
+                    hint: body,
+                    selected: setupMode === mode
+                  })}
                   onPress={() => {
                     setSetupMode(mode);
                     setSetupError(null);
@@ -4302,6 +4820,7 @@ export function CompanionSetupScreen({
               <SetupChecklistItem icon={SETUP_ICONS.server} title="One app" body="You can reset setup later and switch between Mobile and Standalone." />
               <SetupChecklistItem icon={SETUP_ICONS.lan} title="Relay-safe" body="Standalone never opens WebSockets and never controls a server." />
               <SetupChecklistItem icon={SETUP_ICONS.privacy} title="Privacy choice" body="Pick manual or automatic mobile diagnostics before entering the app." />
+              <SetupChecklistItem icon={SETUP_ICONS.privacy} title="Display aid" body="Flight and radar data are informational only, not for navigation, operations, dispatch, or safety decisions." />
             </View>
             <View style={styles.companionSetupInfoGrid}>
               <SetupInfoTile label="Mode" value={setupMode === "standalone" ? "Standalone" : "LAN mobile"} />
@@ -4309,7 +4828,14 @@ export function CompanionSetupScreen({
               <SetupInfoTile label="Needed" value={setupMode === "standalone" ? "Airport + relay token" : "Configured desktop/Pi"} />
               <SetupInfoTile label="Next" value={setupMode === "standalone" ? "Pick airport" : "Test server URL"} />
             </View>
-            <Pressable style={styles.companionSetupPrimary} onPress={() => setStep(setupMode === "standalone" ? "airport" : "server")}>
+            <Pressable
+              style={styles.companionSetupPrimary}
+              onPress={() => setStep(setupMode === "standalone" ? "airport" : "server")}
+              {...accessibleButton({
+                label: "Start setup",
+                hint: setupMode === "standalone" ? "Moves to airport selection." : "Moves to server connection."
+              })}
+            >
               <LocalFlightIcon name={ACTION_ICONS.next} size={16} color={solidButtonInk()} />
               <Text style={styles.companionSetupPrimaryText}>START SETUP</Text>
             </Pressable>
@@ -4323,7 +4849,14 @@ export function CompanionSetupScreen({
               Use the LAN address shown by the desktop or Pi app. The QR is tied to that server fingerprint so the phone can reject the wrong Local Flight host.
             </Text>
             <View style={styles.pairingChoiceRow}>
-              <Pressable style={styles.pairingChoiceCard} onPress={() => setScannerVisible(true)}>
+              <Pressable
+                style={styles.pairingChoiceCard}
+                onPress={() => setScannerVisible(true)}
+                {...accessibleButton({
+                  label: "Scan pairing QR code",
+                  hint: "Opens the camera to scan the pairing code shown in Local Flight Settings."
+                })}
+              >
                 <View style={styles.pairingChoiceIcon}>
                   <LocalFlightIcon name={SETUP_ICONS.scan} size={18} color={palette.blue2} />
                 </View>
@@ -4391,15 +4924,25 @@ export function CompanionSetupScreen({
               label={setupProgress || "Waiting to test the server URL."}
               steps={["LAN reachability", "Server health", "Mobile config"]}
             />
-            <Pressable
-              style={[styles.companionSetupPrimary, testing && styles.connectButtonDisabled]}
-              onPress={() => void testServer()}
-              disabled={testing}
-            >
+              <Pressable
+                style={[styles.companionSetupPrimary, testing && styles.connectButtonDisabled]}
+                onPress={() => void testServer()}
+                disabled={testing}
+                {...accessibleButton({
+                  label: testing ? "Testing server" : "Test server",
+                  hint: "Checks the Local Flight server health, mobile API, and config.",
+                  disabled: testing,
+                  busy: testing
+                })}
+              >
               {testing ? <ActivityIndicator color={solidButtonInk()} /> : <LocalFlightIcon name={ACTION_ICONS.connect} size={16} color={solidButtonInk()} />}
               <Text style={styles.companionSetupPrimaryText}>{testing ? "TESTING SERVER" : "TEST SERVER"}</Text>
             </Pressable>
-            <Pressable style={styles.companionSetupSecondary} onPress={() => setStep("welcome")}>
+            <Pressable
+              style={styles.companionSetupSecondary}
+              onPress={() => setStep("welcome")}
+              {...accessibleButton({ label: "Back to setup mode selection" })}
+            >
               <Text style={styles.companionSetupSecondaryText}>BACK</Text>
             </Pressable>
             <PairingScannerSheet
@@ -4420,6 +4963,7 @@ export function CompanionSetupScreen({
               <Text style={styles.companionSetupExampleLabel}>STANDALONE LIMITS</Text>
               <Text style={styles.companionSetupExampleText}>FIDS auto-refresh: 3 hours minimum</Text>
               <Text style={styles.companionSetupExampleText}>Radar refresh: 5 minutes minimum · 1/3/5/10 NM</Text>
+              <Text style={styles.companionSetupExampleText}>Display-only data: not for navigation or operational decisions</Text>
             </View>
             <View style={styles.companionSetupInputWrap}>
               <TextInput
@@ -4443,6 +4987,11 @@ export function CompanionSetupScreen({
                   <Pressable
                     key={airportKey}
                     style={[styles.companionSetupOption, active && styles.companionSetupOptionActive]}
+                    {...accessibleButton({
+                      label: `${airport.iata || airport.icao}, ${airport.name}`,
+                      hint: [airport.city, airport.country, airport.timezone].filter(Boolean).join(", "),
+                      selected: active
+                    })}
                     onPress={() => {
                       const nextAirport: AirportResolved = {
                         iata: airport.iata,
@@ -4476,11 +5025,19 @@ export function CompanionSetupScreen({
               style={[styles.companionSetupPrimary, !selectedStandaloneAirport && styles.connectButtonDisabled]}
               onPress={() => selectedStandaloneAirport && setStep("diagnostics")}
               disabled={!selectedStandaloneAirport}
+              {...accessibleButton({
+                label: "Continue to diagnostics",
+                disabled: !selectedStandaloneAirport
+              })}
             >
               <LocalFlightIcon name={ACTION_ICONS.next} size={16} color={solidButtonInk()} />
               <Text style={styles.companionSetupPrimaryText}>CONTINUE</Text>
             </Pressable>
-            <Pressable style={styles.companionSetupSecondary} onPress={() => setStep("welcome")}>
+            <Pressable
+              style={styles.companionSetupSecondary}
+              onPress={() => setStep("welcome")}
+              {...accessibleButton({ label: "Back to setup mode selection" })}
+            >
               <Text style={styles.companionSetupSecondaryText}>BACK</Text>
             </Pressable>
           </Animated.View>
@@ -4498,14 +5055,19 @@ export function CompanionSetupScreen({
                 ["auto", "Auto crash reports", "Send serious React/JS mobile crashes with app and server context."],
                 ["auto_logs", "Auto + context", "Same as auto for now; native iOS logs are not collected in this pass."]
               ] as Array<[MobileDiagnosticsMode, string, string]>).map(([mode, title, body]) => (
-                <Pressable
-                  key={mode}
-                  style={[
-                    styles.companionSetupOption,
-                    diagnosticsMode === mode && styles.companionSetupOptionActive
-                  ]}
-                  onPress={() => setDiagnosticsMode(mode)}
-                >
+                  <Pressable
+                    key={mode}
+                    style={[
+                      styles.companionSetupOption,
+                      diagnosticsMode === mode && styles.companionSetupOptionActive
+                    ]}
+                    {...accessibleButton({
+                      label: title,
+                      hint: body,
+                      selected: diagnosticsMode === mode
+                    })}
+                    onPress={() => setDiagnosticsMode(mode)}
+                  >
                   <View style={styles.companionSetupOptionTop}>
                     <Text style={styles.companionSetupOptionTitle}>{title}</Text>
                     {mode === "manual" ? <Text style={styles.companionSetupRecommended}>RECOMMENDED</Text> : null}
@@ -4514,11 +5076,19 @@ export function CompanionSetupScreen({
                 </Pressable>
               ))}
             </View>
-            <Pressable style={styles.companionSetupPrimary} onPress={() => setStep("ready")}>
+            <Pressable
+              style={styles.companionSetupPrimary}
+              onPress={() => setStep("ready")}
+              {...accessibleButton({ label: "Review setup" })}
+            >
               <LocalFlightIcon name={ACTION_ICONS.checklist} size={16} color={solidButtonInk()} />
               <Text style={styles.companionSetupPrimaryText}>REVIEW SETUP</Text>
             </Pressable>
-            <Pressable style={styles.companionSetupSecondary} onPress={() => setStep(setupMode === "standalone" ? "airport" : "server")}>
+            <Pressable
+              style={styles.companionSetupSecondary}
+              onPress={() => setStep(setupMode === "standalone" ? "airport" : "server")}
+              {...accessibleButton({ label: "Back to previous setup step" })}
+            >
               <Text style={styles.companionSetupSecondaryText}>BACK</Text>
             </Pressable>
           </Animated.View>
@@ -4543,11 +5113,20 @@ export function CompanionSetupScreen({
               style={[styles.companionSetupPrimary, finishing && styles.connectButtonDisabled]}
               onPress={() => void finishSetup()}
               disabled={finishing}
+              {...accessibleButton({
+                label: finishing ? "Saving setup" : "Finish setup",
+                disabled: finishing,
+                busy: finishing
+              })}
             >
               {finishing ? <ActivityIndicator color={solidButtonInk()} /> : <LocalFlightIcon name={ACTION_ICONS.finish} size={16} color={solidButtonInk()} />}
               <Text style={styles.companionSetupPrimaryText}>{finishing ? "SAVING SETUP" : "FINISH SETUP"}</Text>
             </Pressable>
-            <Pressable style={styles.companionSetupSecondary} onPress={() => setStep("diagnostics")}>
+            <Pressable
+              style={styles.companionSetupSecondary}
+              onPress={() => setStep("diagnostics")}
+              {...accessibleButton({ label: "Back to diagnostics choices" })}
+            >
               <Text style={styles.companionSetupSecondaryText}>BACK</Text>
             </Pressable>
           </Animated.View>
@@ -4790,6 +5369,13 @@ export function SettingsScreen({
                     ]}
                     onPress={() => onApplyProfile(profile)}
                     disabled={disabled}
+                    {...accessibleButton({
+                      label: `Apply profile ${profile.name}`,
+                      hint: `${profile.iata}, ${profile.source === "virtual" ? "VATSIM" : "real"}, ${formatInterval(profile.refresh_seconds)}`,
+                      selected: active,
+                      disabled,
+                      busy: applying
+                    })}
                   >
                     <View style={styles.settingsProfileChipTop}>
                       <Text style={[styles.settingsProfileName, active && styles.settingsProfileNameActive]} numberOfLines={1}>
@@ -4812,13 +5398,25 @@ export function SettingsScreen({
         ) : null}
 
         <View style={styles.settingsInlineActions}>
-          <Pressable style={styles.settingsCompactButton} onPress={() => setServerExpanded((value) => !value)}>
+          <Pressable
+            style={styles.settingsCompactButton}
+            onPress={() => setServerExpanded((value) => !value)}
+            {...accessibleButton({
+              label: serverExpanded ? "Hide server URL editor" : "Change server URL",
+              expanded: serverExpanded
+            })}
+          >
             <Text style={styles.settingsCompactButtonText}>{serverExpanded ? "HIDE SERVER" : "CHANGE SERVER"}</Text>
           </Pressable>
           <Pressable
             style={[styles.settingsCompactButton, schedulerRestarting && styles.connectButtonDisabled]}
             onPress={onRestartScheduler}
             disabled={schedulerRestarting}
+            {...accessibleButton({
+              label: schedulerRestarting ? "Restarting fetch" : "Restart fetch",
+              disabled: schedulerRestarting,
+              busy: schedulerRestarting
+            })}
           >
             {schedulerRestarting ? <ActivityIndicator size="small" color={palette.blue} /> : <Text style={styles.settingsCompactButtonText}>RESTART FETCH</Text>}
           </Pressable>
@@ -4836,7 +5434,16 @@ export function SettingsScreen({
               onChangeText={onChangeUrl}
               style={styles.serverInput}
             />
-            <Pressable style={styles.connectButton} onPress={onConnect} disabled={loading}>
+            <Pressable
+              style={styles.connectButton}
+              onPress={onConnect}
+              disabled={loading}
+              {...accessibleButton({
+                label: loading ? "Connecting" : "Connect to Local Flight server",
+                disabled: loading,
+                busy: loading
+              })}
+            >
               {loading ? <ActivityIndicator color={solidButtonInk()} /> : <Text style={styles.connectButtonText}>CONNECT</Text>}
             </Pressable>
             <Text style={styles.settingsHelp}>
@@ -5188,7 +5795,14 @@ export function ControlScreen({
             ))}
           </View>
         </FilterSection>
-        <Pressable style={[styles.connectButton, styles.crashButton]} onPress={onRerunSetup}>
+        <Pressable
+          style={[styles.connectButton, styles.crashButton]}
+          onPress={onRerunSetup}
+          {...accessibleButton({
+            label: "Rerun mobile setup",
+            hint: "Starts first launch setup again."
+          })}
+        >
           <Text style={styles.connectButtonText}>RERUN MOBILE SETUP</Text>
         </Pressable>
       </View>
@@ -5220,7 +5834,16 @@ export function ControlScreen({
         <View style={styles.feedbackContextBox}>
           <Text style={styles.feedbackContextText}>{feedbackContext}</Text>
         </View>
-        <Pressable style={[styles.connectButton, feedbackSending && styles.connectButtonDisabled]} onPress={onSubmitFeedback} disabled={feedbackSending}>
+        <Pressable
+          style={[styles.connectButton, feedbackSending && styles.connectButtonDisabled]}
+          onPress={onSubmitFeedback}
+          disabled={feedbackSending}
+          {...accessibleButton({
+            label: feedbackSending ? "Sending report" : "Send report",
+            disabled: feedbackSending,
+            busy: feedbackSending
+          })}
+        >
           {feedbackSending ? <ActivityIndicator color={solidButtonInk()} /> : <Text style={styles.connectButtonText}>SEND REPORT</Text>}
         </Pressable>
         {feedbackMessage ? (
@@ -5236,7 +5859,14 @@ export function ControlScreen({
         />
       </View>
 
-      <Pressable style={styles.supportFooter} onPress={onOpenSupport}>
+      <Pressable
+        style={styles.supportFooter}
+        onPress={onOpenSupport}
+        {...accessibleButton({
+          label: "Support Local Flight",
+          hint: "Opens the optional in-app support sheet."
+        })}
+      >
         <LocalFlightIcon name={SUPPORT_ICONS.support} size={15} color={palette.amber} />
         <Text style={styles.supportFooterText}>Support Local Flight</Text>
         <LocalFlightIcon name={ACTION_ICONS.supportExpand} size={13} color={palette.textDim} />
@@ -5336,9 +5966,13 @@ function ConnectionPairingSheet({
   const outputValue = outputs.length ? outputs.join(", ").toUpperCase() : "WEB";
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+    <Modal visible={visible} transparent presentationStyle="overFullScreen" animationType="slide" onRequestClose={onClose}>
       <View style={styles.sheetBackdrop}>
-        <Pressable style={styles.sheetBackdropPress} onPress={onClose} />
+        <Pressable
+          style={styles.sheetBackdropPress}
+          onPress={onClose}
+          {...accessibleButton({ label: "Close connection settings" })}
+        />
         <View style={styles.sheetCard}>
           <View style={styles.sheetHandle} />
           <View style={styles.sheetHeader}>
@@ -5346,7 +5980,12 @@ function ConnectionPairingSheet({
               <Text style={styles.sheetEyebrow}>CONNECTION</Text>
               <Text style={styles.sheetTitle}>Pair Server & Refresh</Text>
             </View>
-            <Pressable style={styles.sheetAction} onPress={onClose}>
+            <Pressable
+              style={styles.sheetAction}
+              onPress={onClose}
+              hitSlop={tapTargetHitSlop}
+              {...accessibleButton({ label: "Close connection settings" })}
+            >
               <Text style={styles.sheetActionText}>DONE</Text>
             </Pressable>
           </View>
@@ -5366,7 +6005,14 @@ function ConnectionPairingSheet({
             {pairingNotice ? <Text style={[styles.feedbackMessage, styles.feedbackMessageOk]}>{pairingNotice}</Text> : null}
 
             <View style={styles.settingsInlineActions}>
-              <Pressable style={styles.settingsCompactButton} onPress={() => setScannerVisible(true)}>
+              <Pressable
+                style={styles.settingsCompactButton}
+                onPress={() => setScannerVisible(true)}
+                {...accessibleButton({
+                  label: "Scan pairing QR code",
+                  hint: "Opens the camera to scan the Local Flight pairing QR."
+                })}
+              >
                 <LocalFlightIcon name={SETUP_ICONS.scan} size={14} color={palette.blue2} />
                 <Text style={styles.settingsCompactButtonText}>SCAN QR</Text>
               </Pressable>
@@ -5374,6 +6020,11 @@ function ConnectionPairingSheet({
                 style={[styles.settingsCompactButton, schedulerRestarting && styles.connectButtonDisabled]}
                 onPress={onRestartScheduler}
                 disabled={schedulerRestarting}
+                {...accessibleButton({
+                  label: schedulerRestarting ? "Restarting fetch" : "Restart fetch",
+                  disabled: schedulerRestarting,
+                  busy: schedulerRestarting
+                })}
               >
                 {schedulerRestarting ? (
                   <ActivityIndicator size="small" color={palette.blue} />
@@ -5393,7 +6044,16 @@ function ConnectionPairingSheet({
               onChangeText={onChangeUrl}
               style={styles.serverInput}
             />
-            <Pressable style={styles.connectButton} onPress={onConnect} disabled={loading}>
+            <Pressable
+              style={styles.connectButton}
+              onPress={onConnect}
+              disabled={loading}
+              {...accessibleButton({
+                label: loading ? "Connecting" : "Connect to Local Flight server",
+                disabled: loading,
+                busy: loading
+              })}
+            >
               {loading ? <ActivityIndicator color={solidButtonInk()} /> : <Text style={styles.connectButtonText}>CONNECT</Text>}
             </Pressable>
             <Text style={styles.settingsHelp}>
@@ -5487,7 +6147,11 @@ export function HelpScreen({
             <Text style={styles.settingsTitle}>HELP</Text>
           </View>
           {onBackControl ? (
-            <Pressable style={styles.helpBackButton} onPress={onBackControl}>
+            <Pressable
+              style={styles.helpBackButton}
+              onPress={onBackControl}
+              {...accessibleButton({ label: "Back to Control" })}
+            >
               <LocalFlightIcon name={ACTION_ICONS.back} size={14} color={palette.blue2} />
               <Text style={styles.helpBackText}>CONTROL</Text>
             </Pressable>
@@ -5581,6 +6245,10 @@ export function HelpScreen({
             ? "Standalone radar refreshes at most every 5 minutes and only supports 1, 3, 5, and 10 NM ranges."
             : "If the scheduler is not running, reopen the host app first and then retry from Mobile."}
         />
+        <InfoLine
+          label="Display data"
+          value="Flight, weather, and radar information are for personal display only. Do not use Local Flight for navigation, dispatch, operational control, or safety decisions."
+        />
         <InfoLine label="Still stuck" value="Send a report below with what you expected, what happened, and the airport/source you were using." />
         </View>
       ) : null}
@@ -5612,7 +6280,16 @@ export function HelpScreen({
         <View style={styles.feedbackContextBox}>
           <Text style={styles.feedbackContextText}>{feedbackContext}</Text>
         </View>
-        <Pressable style={[styles.connectButton, feedbackSending && styles.connectButtonDisabled]} onPress={onSubmitFeedback} disabled={feedbackSending}>
+        <Pressable
+          style={[styles.connectButton, feedbackSending && styles.connectButtonDisabled]}
+          onPress={onSubmitFeedback}
+          disabled={feedbackSending}
+          {...accessibleButton({
+            label: feedbackSending ? "Sending report" : "Send report",
+            disabled: feedbackSending,
+            busy: feedbackSending
+          })}
+        >
           {feedbackSending ? <ActivityIndicator color={solidButtonInk()} /> : <Text style={styles.connectButtonText}>SEND REPORT</Text>}
         </Pressable>
         {feedbackMessage ? (
@@ -5703,7 +6380,14 @@ export function DocsScreen({
 
         <View style={styles.docsCard} onLayout={(event) => setDocCardY(event.nativeEvent.layout.y)}>
           {!loadingDoc && !docError && headings.length ? (
-            <Pressable style={styles.docTocPill} onPress={() => setTocVisible(true)}>
+            <Pressable
+              style={styles.docTocPill}
+              onPress={() => setTocVisible(true)}
+              {...accessibleButton({
+                label: "Jump to document section",
+                hint: `${headings.length} sections available.`
+              })}
+            >
               <LocalFlightIcon name={TOOL_ICONS.changelog} size={15} color={palette.blue2} />
               <Text style={styles.docTocPillText}>JUMP TO</Text>
               <Text style={styles.docTocPillCount}>{headings.length} SECTIONS</Text>
@@ -5862,9 +6546,13 @@ function DocTocSheet({
   onSelect: (heading: DocHeading) => void;
 }) {
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+    <Modal visible={visible} transparent presentationStyle="overFullScreen" animationType="slide" onRequestClose={onClose}>
       <View style={styles.sheetBackdrop}>
-        <Pressable style={styles.sheetBackdropPress} onPress={onClose} />
+        <Pressable
+          style={styles.sheetBackdropPress}
+          onPress={onClose}
+          {...accessibleButton({ label: "Close document sections" })}
+        />
         <View style={styles.docTocSheet}>
           <View style={styles.sheetHandle} />
           <View style={styles.docTocHeader}>
@@ -5872,7 +6560,12 @@ function DocTocSheet({
               <Text style={styles.sheetEyebrow}>DOCUMENT SECTIONS</Text>
               <Text style={styles.sheetTitle}>{title}</Text>
             </View>
-            <Pressable style={styles.sheetAction} onPress={onClose}>
+            <Pressable
+              style={styles.sheetAction}
+              onPress={onClose}
+              hitSlop={tapTargetHitSlop}
+              {...accessibleButton({ label: "Close document sections" })}
+            >
               <Text style={styles.sheetActionText}>DONE</Text>
             </Pressable>
           </View>
@@ -5882,6 +6575,10 @@ function DocTocSheet({
                 key={heading.id}
                 style={[styles.docTocItem, heading.level === 2 && styles.docTocItemNested]}
                 onPress={() => onSelect(heading)}
+                {...accessibleButton({
+                  label: `Jump to ${heading.title}`,
+                  hint: `Heading level ${heading.level}.`
+                })}
               >
                 <Text style={styles.docTocItemLevel}>H{heading.level}</Text>
                 <Text style={styles.docTocItemText} numberOfLines={2}>{heading.title}</Text>
@@ -5981,9 +6678,13 @@ function MatrixLiveSheet({
   const matrixBrightnessPct = Math.round(matrixRuntime.brightness * 100);
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+    <Modal visible={visible} transparent presentationStyle="overFullScreen" animationType="slide" onRequestClose={onClose}>
       <View style={styles.sheetBackdrop}>
-        <Pressable style={styles.sheetBackdropPress} onPress={onClose} />
+        <Pressable
+          style={styles.sheetBackdropPress}
+          onPress={onClose}
+          {...accessibleButton({ label: "Close Matrix board controls" })}
+        />
         <View style={styles.sheetCard}>
           <View style={styles.sheetHandle} />
           <View style={styles.sheetHeader}>
@@ -5991,7 +6692,12 @@ function MatrixLiveSheet({
               <Text style={styles.sheetEyebrow}>MATRIX BOARD</Text>
               <Text style={styles.sheetTitle}>Live Board Controls</Text>
             </View>
-            <Pressable style={styles.sheetAction} onPress={onClose}>
+            <Pressable
+              style={styles.sheetAction}
+              onPress={onClose}
+              hitSlop={tapTargetHitSlop}
+              {...accessibleButton({ label: "Close Matrix board controls" })}
+            >
               <Text style={styles.sheetActionText}>DONE</Text>
             </Pressable>
           </View>
@@ -6043,6 +6749,12 @@ function MatrixLiveSheet({
                     key={item.id}
                     onPress={() => onMatrixPaletteChange(item.id)}
                     style={[styles.matrixLivePaletteChip, matrixRuntime.palette === item.id && styles.optionChipActive]}
+                    hitSlop={tapTargetHitSlop}
+                    {...accessibleButton({
+                      label: `Use Matrix ${item.label} palette`,
+                      hint: item.meta,
+                      selected: matrixRuntime.palette === item.id
+                    })}
                   >
                     <Text style={[styles.optionChipLabel, matrixRuntime.palette === item.id && styles.optionChipLabelActive]} numberOfLines={1}>
                       {item.label}
@@ -6093,6 +6805,10 @@ function MatrixLiveSheet({
                 style={[styles.matrixActionButton, styles.matrixActionSecondary, matrixSaving && styles.connectButtonDisabled]}
                 onPress={onMatrixReset}
                 disabled={matrixSaving}
+                {...accessibleButton({
+                  label: "Reset Matrix display settings",
+                  disabled: matrixSaving
+                })}
               >
                 <Text style={styles.matrixActionSecondaryText}>RESET</Text>
               </Pressable>
@@ -6104,6 +6820,11 @@ function MatrixLiveSheet({
                 ]}
                 onPress={onMatrixSave}
                 disabled={!matrixDirty || matrixSaving}
+                {...accessibleButton({
+                  label: "Save Matrix display settings",
+                  disabled: !matrixDirty || matrixSaving,
+                  busy: matrixSaving
+                })}
               >
                 {matrixSaving ? (
                   <ActivityIndicator size="small" color={blueButtonInk()} />
@@ -6147,9 +6868,13 @@ function AppearanceSheet({
   onWeatherDisplayModeChange: (value: MobileWeatherDisplayMode) => void;
 }) {
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+    <Modal visible={visible} transparent presentationStyle="overFullScreen" animationType="slide" onRequestClose={onClose}>
       <View style={styles.sheetBackdrop}>
-        <Pressable style={styles.sheetBackdropPress} onPress={onClose} />
+        <Pressable
+          style={styles.sheetBackdropPress}
+          onPress={onClose}
+          {...accessibleButton({ label: "Close appearance settings" })}
+        />
         <View style={styles.sheetCard}>
           <View style={styles.sheetHandle} />
           <View style={styles.sheetHeader}>
@@ -6157,7 +6882,12 @@ function AppearanceSheet({
               <Text style={styles.sheetEyebrow}>MOBILE LOOK</Text>
               <Text style={styles.sheetTitle}>Mobile Appearance</Text>
             </View>
-            <Pressable style={styles.sheetAction} onPress={onClose}>
+            <Pressable
+              style={styles.sheetAction}
+              onPress={onClose}
+              hitSlop={tapTargetHitSlop}
+              {...accessibleButton({ label: "Close appearance settings" })}
+            >
               <Text style={styles.sheetActionText}>DONE</Text>
             </Pressable>
           </View>
@@ -6227,7 +6957,7 @@ export function SupportSheet({
     if (!visible) return;
     let cancelled = false;
     setMessage(null);
-    supportStubProvider.loadProducts()
+    supportPurchaseProvider.loadProducts()
       .then((loaded) => {
         if (!cancelled) {
           setProducts(loaded);
@@ -6251,7 +6981,7 @@ export function SupportSheet({
   const handleTierPress = useCallback(async (tier: SupportProduct) => {
     setBusyTier(tier.id);
     try {
-      const result = await supportStubProvider.purchaseTier(tier);
+      const result = await supportPurchaseProvider.purchaseTier(tier);
       setMessage(result.message);
     } finally {
       setBusyTier(null);
@@ -6259,9 +6989,13 @@ export function SupportSheet({
   }, []);
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+    <Modal visible={visible} transparent presentationStyle="overFullScreen" animationType="slide" onRequestClose={onClose}>
       <View style={styles.sheetBackdrop}>
-        <Pressable style={styles.sheetBackdropPress} onPress={onClose} />
+        <Pressable
+          style={styles.sheetBackdropPress}
+          onPress={onClose}
+          {...accessibleButton({ label: "Close support sheet" })}
+        />
         <View style={styles.sheetCard}>
           <View style={styles.sheetHandle} />
           <View style={styles.sheetHeader}>
@@ -6269,7 +7003,12 @@ export function SupportSheet({
               <Text style={styles.sheetEyebrow}>TIP JAR</Text>
               <Text style={styles.sheetTitle}>Support Local Flight</Text>
             </View>
-            <Pressable style={styles.sheetAction} onPress={onClose}>
+            <Pressable
+              style={styles.sheetAction}
+              onPress={onClose}
+              hitSlop={tapTargetHitSlop}
+              {...accessibleButton({ label: "Close support sheet" })}
+            >
               <Text style={styles.sheetActionText}>DONE</Text>
             </Pressable>
           </View>
@@ -6280,8 +7019,8 @@ export function SupportSheet({
                 <LocalFlightIcon name={SUPPORT_ICONS.support} size={23} color={palette.amber} />
               </View>
               <View style={styles.supportHeroCopy}>
-                <Text style={styles.supportHeroTitle}>Optional tips help keep the boards glowing.</Text>
-                <Text style={styles.supportHeroBody}>Local Flight stays fully usable either way.</Text>
+            <Text style={styles.supportHeroTitle}>Optional tips help keep the boards glowing.</Text>
+                <Text style={styles.supportHeroBody}>Local Flight stays fully usable either way. StoreKit support is scaffolded, but tips are not active in this build yet.</Text>
               </View>
             </View>
 
@@ -6294,6 +7033,12 @@ export function SupportSheet({
                     style={styles.supportTierCard}
                     onPress={() => void handleTierPress(tier)}
                     disabled={busyTier !== null}
+                    {...accessibleButton({
+                      label: `Support Local Flight with ${tier.priceLabel}, ${tier.label}`,
+                      hint: tier.statusLabel,
+                      disabled: busyTier !== null,
+                      busy
+                    })}
                   >
                     <View style={styles.supportTierTop}>
                       <Text style={styles.supportTierAmount}>{tier.priceLabel}</Text>
@@ -6304,6 +7049,7 @@ export function SupportSheet({
                       )}
                     </View>
                     <Text style={styles.supportTierLabel}>{tier.label}</Text>
+                    <Text style={styles.supportTierTagline}>{tier.tagline}</Text>
                   </Pressable>
                 );
               })}
@@ -6311,7 +7057,7 @@ export function SupportSheet({
 
             {message ? <Text style={styles.supportMessage}>{message}</Text> : null}
 
-            <Text style={styles.supportFinePrint}>No features are locked behind support.</Text>
+            <Text style={styles.supportFinePrint}>No features are locked behind support. This build does not open external payment links.</Text>
 
           </ScrollView>
         </View>
@@ -6332,7 +7078,14 @@ function SettingsQuickAction({
   onPress: () => void;
 }) {
   return (
-    <Pressable style={styles.settingsQuickAction} onPress={onPress}>
+    <Pressable
+      style={styles.settingsQuickAction}
+      onPress={onPress}
+      {...accessibleButton({
+        label,
+        hint: value
+      })}
+    >
       <View style={styles.settingsQuickIcon}>
         <LocalFlightIcon name={icon} size={18} color={palette.blue2} />
       </View>
@@ -6362,6 +7115,12 @@ function SettingsToolPill({
       style={[styles.settingsPill, disabled && styles.settingsPillDisabled]}
       onPress={onPress}
       disabled={disabled}
+      {...accessibleButton({
+        label,
+        hint: value,
+        disabled,
+        busy: loading
+      })}
     >
       <View style={styles.settingsPillIcon}>
         <LocalFlightIcon name={icon} size={18} color={palette.blue2} />
@@ -6381,7 +7140,14 @@ function SettingsToolPill({
 
 export function ConnectPrompt({ onSettings }: { onSettings: () => void }) {
   return (
-    <Pressable style={styles.connectPrompt} onPress={onSettings}>
+    <Pressable
+      style={styles.connectPrompt}
+      onPress={onSettings}
+      {...accessibleButton({
+        label: "Connect Local Flight",
+        hint: "Opens the server URL settings before live rows can load."
+      })}
+    >
       <Text style={styles.connectPromptTitle}>Connect Local Flight</Text>
       <Text style={styles.connectPromptBody}>Tap here to set the server URL before live rows can load.</Text>
     </Pressable>
@@ -6419,7 +7185,15 @@ function HiddenToolHeader({
           <Text style={styles.hiddenToolDetail}>{detail}</Text>
         </View>
       </View>
-      <Pressable style={styles.hiddenToolBack} onPress={onBack}>
+      <Pressable
+        style={styles.hiddenToolBack}
+        onPress={onBack}
+        hitSlop={tapTargetHitSlop}
+        {...accessibleButton({
+          label: "Back to settings",
+          hint: `Leaves ${title}.`
+        })}
+      >
         <LocalFlightIcon name={ACTION_ICONS.back} size={18} color={palette.blue2} />
         <Text style={styles.hiddenToolBackText}>SETTINGS</Text>
       </Pressable>
@@ -6443,7 +7217,17 @@ export function ScreenError({
         <Text style={styles.errorBannerText}>{message}</Text>
       </View>
       {onRetry ? (
-        <Pressable style={styles.errorRetryButton} onPress={onRetry} disabled={retrying}>
+        <Pressable
+          style={styles.errorRetryButton}
+          onPress={onRetry}
+          disabled={retrying}
+          {...accessibleButton({
+            label: retrying ? "Retrying" : "Retry",
+            hint: message,
+            disabled: retrying,
+            busy: retrying
+          })}
+        >
           {retrying ? (
             <ActivityIndicator size="small" color={palette.amber} />
           ) : (
@@ -6644,7 +7428,7 @@ export function AirportConfigSheet({
       visible={visible}
       transparent
       animationType="slide"
-      presentationStyle="pageSheet"
+      presentationStyle="overFullScreen"
       onRequestClose={() => {
         Keyboard.dismiss();
         onClose();
@@ -6665,6 +7449,8 @@ export function AirportConfigSheet({
                 onClose();
               }}
               style={styles.configSheetClose}
+              hitSlop={tapTargetHitSlop}
+              {...accessibleButton({ label: "Close server configuration" })}
             >
               <LocalFlightIcon name={ACTION_ICONS.close} size={20} color={palette.textMuted} />
             </Pressable>
@@ -6701,6 +7487,11 @@ export function AirportConfigSheet({
                       setQuery("");
                       setSearchResults([]);
                     }}
+                    {...accessibleButton({
+                      label: `Select ${r.iata || r.icao}, ${r.name}`,
+                      hint: [r.city, r.country].filter(Boolean).join(", "),
+                      selected: selectedAirport?.iata === r.iata
+                    })}
                   >
                     <Text style={styles.configSearchIata}>{r.iata}</Text>
                     <View style={styles.configSearchInfo}>
@@ -6729,6 +7520,10 @@ export function AirportConfigSheet({
                   key={opt}
                   style={[styles.configSegOption, source === opt && styles.configSegOptionActive]}
                   onPress={() => setSource(opt)}
+                  {...accessibleButton({
+                    label: opt === "real" ? "Use real flight data" : "Use virtual VATSIM data",
+                    selected: source === opt
+                  })}
                 >
                   <Text style={[styles.configSegText, source === opt && styles.configSegTextActive]}>
                     {opt === "real" ? "REAL" : "VIRTUAL / VATSIM"}
@@ -6744,6 +7539,10 @@ export function AirportConfigSheet({
                   key={opt.seconds}
                   style={[styles.configIntervalCell, refreshSecs === opt.seconds && styles.configIntervalCellActive]}
                   onPress={() => setRefreshSecs(opt.seconds)}
+                  {...accessibleButton({
+                    label: `Refresh every ${opt.label}`,
+                    selected: refreshSecs === opt.seconds
+                  })}
                 >
                   <Text style={[styles.configIntervalText, refreshSecs === opt.seconds && styles.configIntervalTextActive]}>
                     {opt.label}
@@ -6768,6 +7567,12 @@ export function AirportConfigSheet({
                         style={styles.configProfileLoad}
                         onPress={() => void applyProfile(p)}
                         disabled={applyingProfileId !== null}
+                        {...accessibleButton({
+                          label: `Load profile ${p.name}`,
+                          hint: `${p.iata}, ${p.source === "virtual" ? "VATSIM" : "real"}, ${formatInterval(p.refresh_seconds)}`,
+                          disabled: applyingProfileId !== null,
+                          busy: isApplyingThis
+                        })}
                       >
                         <Text style={styles.configProfileName}>{p.name}</Text>
                         <Text style={styles.configProfileMeta}>
@@ -6781,6 +7586,10 @@ export function AirportConfigSheet({
                             onPress={() => void deleteProfile(p.id)}
                             style={styles.configProfileDelete}
                             disabled={applyingProfileId !== null}
+                            {...accessibleButton({
+                              label: `Delete profile ${p.name}`,
+                              disabled: applyingProfileId !== null
+                            })}
                           >
                             <LocalFlightIcon name={ACTION_ICONS.delete} size={16} color={palette.textDim} />
                           </Pressable>
@@ -6803,6 +7612,10 @@ export function AirportConfigSheet({
                 style={[styles.configSaveBtn, (!profileName.trim() || !selectedAirport) && styles.configSaveBtnDisabled]}
                 onPress={() => void saveProfile()}
                 disabled={!profileName.trim() || !selectedAirport}
+                {...accessibleButton({
+                  label: "Save airport profile",
+                  disabled: !profileName.trim() || !selectedAirport
+                })}
               >
                 <Text style={styles.configSaveBtnText}>SAVE</Text>
               </Pressable>
@@ -6813,6 +7626,11 @@ export function AirportConfigSheet({
               style={[styles.configApplyBtn, applying && styles.configApplyBtnBusy]}
               onPress={() => void apply()}
               disabled={applying}
+              {...accessibleButton({
+                label: applying ? "Applying server configuration" : "Apply server configuration",
+                disabled: applying,
+                busy: applying
+              })}
             >
               {applying
                 ? <ActivityIndicator size="small" color={blueButtonInk()} />

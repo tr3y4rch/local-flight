@@ -62,11 +62,6 @@
       <!-- Gear icon (positioned outside clock to fix overlap) -->
       <circle cx="232" cy="14" r="13" fill="#1a8af0"/>
       <circle cx="232" cy="14" r="3" fill="#0d141d"/>
-      <!-- Supporter badge (subtle, in left column) -->
-      <g transform="translate(96 84)">
-        <rect width="38" height="16" rx="8" fill="#1c1305" stroke="#f4b740" stroke-opacity="0.4"/>
-        <text x="6" y="11" class="mono amber" font-size="7" font-weight="900">✦ SUP</text>
-      </g>
     </g>
 
     <!-- Status strip: LIVE / REAL / +30 -->

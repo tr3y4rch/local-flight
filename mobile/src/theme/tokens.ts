@@ -50,6 +50,8 @@ export type MobileAppearance = {
 export const UI_FONT_FAMILY = "DM Sans";
 export const BOARD_FONT_FAMILY = "Space Mono";
 export const BRAND_FONT_FAMILY = "Audiowide";
+export const MIN_TOUCH_TARGET = 44;
+export const MIN_TEXT_SIZE = 11;
 
 function defineAppearance(
   themeMode: MobileThemeMode,
@@ -106,13 +108,13 @@ const MOBILE_APPEARANCES: Record<string, MobileAppearance> = {
     blue: "#2d6fa5",
     blue2: "#4b87b8",
     green: "#138e52",
-    amber: "#b98514",
+    amber: "#9f6900",
     red: "#c34f4f",
     status: {
       scheduled: "#2d6fa5",
       departed: "#4b87b8",
       boarding: "#138e52",
-      delayed: "#b98514",
+      delayed: "#9f6900",
       cancelled: "#c34f4f"
     }
   }),
@@ -154,13 +156,13 @@ const MOBILE_APPEARANCES: Record<string, MobileAppearance> = {
     blue: "#3f7fb9",
     blue2: "#5a97ca",
     green: "#2f7e5a",
-    amber: "#c08a1e",
+    amber: "#9f6500",
     red: "#ba5858",
     status: {
       scheduled: "#3f7fb9",
       departed: "#5a97ca",
       boarding: "#2f7e5a",
-      delayed: "#c08a1e",
+      delayed: "#9f6500",
       cancelled: "#ba5858"
     }
   }),
@@ -202,13 +204,13 @@ const MOBILE_APPEARANCES: Record<string, MobileAppearance> = {
     blue: "#0d9f4a",
     blue2: "#3fbc72",
     green: "#0d9f4a",
-    amber: "#8ca800",
+    amber: "#667900",
     red: "#cf4b63",
     status: {
       scheduled: "#0d9f4a",
       departed: "#3fbc72",
       boarding: "#0d9f4a",
-      delayed: "#8ca800",
+      delayed: "#667900",
       cancelled: "#cf4b63"
     }
   }),
@@ -249,13 +251,13 @@ const MOBILE_APPEARANCES: Record<string, MobileAppearance> = {
     textDim: "#72a0a7",
     blue: "#0d8fb0",
     blue2: "#4cb6cc",
-    green: "#0aa889",
+    green: "#007f66",
     amber: "#b98712",
     red: "#cd4f6a",
     status: {
       scheduled: "#0d8fb0",
       departed: "#4cb6cc",
-      boarding: "#0aa889",
+      boarding: "#007f66",
       delayed: "#b98712",
       cancelled: "#cd4f6a"
     }
@@ -298,13 +300,13 @@ const MOBILE_APPEARANCES: Record<string, MobileAppearance> = {
     blue: "#bf7f12",
     blue2: "#d89c2a",
     green: "#bf7f12",
-    amber: "#d9ad00",
+    amber: "#856100",
     red: "#d25c35",
     status: {
       scheduled: "#bf7f12",
       departed: "#d89c2a",
       boarding: "#bf7f12",
-      delayed: "#d9ad00",
+      delayed: "#856100",
       cancelled: "#d25c35"
     }
   }),

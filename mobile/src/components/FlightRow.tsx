@@ -1,6 +1,7 @@
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import type { FidsRow } from "../api/types";
+import { tapTargetHitSlop } from "../accessibility/mobileA11y";
 import { colors, radius, spacing } from "../theme/tokens";
 
 type Props = {
@@ -16,11 +17,46 @@ function statusTone(statusClass: string): string {
   return colors.blue;
 }
 
+function hexToRgb(value: string): { r: number; g: number; b: number } | null {
+  const normalized = value.trim().replace(/^#/, "");
+  const full = normalized.length === 3
+    ? normalized.split("").map((char) => char + char).join("")
+    : normalized;
+  if (!/^[0-9a-f]{6}$/i.test(full)) return null;
+  return {
+    r: parseInt(full.slice(0, 2), 16),
+    g: parseInt(full.slice(2, 4), 16),
+    b: parseInt(full.slice(4, 6), 16)
+  };
+}
+
+function statusFill(tone: string): string {
+  const rgb = hexToRgb(tone);
+  if (!rgb) return "rgba(255,255,255,0.08)";
+  return `rgba(${rgb.r},${rgb.g},${rgb.b},0.12)`;
+}
+
+function rowAccessibilityLabel(row: FidsRow): string {
+  const flight = row.flight_display || row.callsign || "Unknown flight";
+  const route = row.route_display || "unknown route";
+  const time = row.display_time || "time unavailable";
+  const gate = row.gate ? `gate ${row.gate}` : "gate unassigned";
+  const status = row.status_display || "Scheduled";
+  return `${flight}, ${route}, ${time}, ${gate}, ${status}`;
+}
+
 export function FlightRow({ row, onPress }: Props) {
   const tone = statusTone(row.status_class || row.status_display);
 
   return (
-    <Pressable style={styles.row} onPress={onPress}>
+    <Pressable
+      style={styles.row}
+      accessibilityRole={onPress ? "button" : undefined}
+      accessibilityLabel={rowAccessibilityLabel(row)}
+      accessibilityHint={onPress ? "Opens flight details." : undefined}
+      hitSlop={tapTargetHitSlop}
+      onPress={onPress}
+    >
       <View style={styles.timeBox}>
         <Text style={styles.time}>{row.display_time || "--:--"}</Text>
         <Text style={styles.gate}>Gate {row.gate || "-"}</Text>
@@ -31,7 +67,7 @@ export function FlightRow({ row, onPress }: Props) {
         <Text style={styles.route} numberOfLines={1}>{row.route_display || "Unknown route"}</Text>
       </View>
 
-      <View style={[styles.status, { borderColor: tone }]}>
+      <View style={[styles.status, { borderColor: tone, backgroundColor: statusFill(tone) }]}>
         <Text style={[styles.statusText, { color: tone }]} numberOfLines={1}>
           {row.status_display || "Scheduled"}
         </Text>
@@ -62,7 +98,7 @@ const styles = StyleSheet.create({
   },
   gate: {
     marginTop: 4,
-    color: colors.dim,
+    color: colors.muted,
     fontSize: 11,
     fontWeight: "700",
     textTransform: "uppercase"
@@ -87,8 +123,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 7,
     borderRadius: 999,
-    borderWidth: 1,
-    backgroundColor: "rgba(255,255,255,0.035)"
+    borderWidth: 1
   },
   statusText: {
     fontSize: 11,

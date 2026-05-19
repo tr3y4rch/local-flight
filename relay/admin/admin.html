@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#080c12">
 <title>Local Flight Network Admin</title>
 <style>
 __ADMIN_CSS__
@@ -10,39 +11,64 @@ __ADMIN_CSS__
 </head>
 <body>
 <div class="shell">
-  <div class="topbar">
-    <div class="brand"><span class="mark">LF</span><span class="brand-text"><strong>Network Admin</strong><span>operator relay console</span></span></div>
-    <div class="nav" id="nav"></div>
-    <button id="signOutBtn" class="signout-btn" title="Sign out of admin console">Sign out</button>
-  </div>
-  <div class="hero">
-    <div>
-      <h1>Local Flight Relay Operations</h1>
-      <div class="muted">Operator console for fleet, traffic, schedules, activations, reports, providers, and maintenance. Presence is coarse — derived from heartbeat (~30 min cadence) and relay activity, not a live online signal.</div>
+  <header class="topbar" role="banner">
+    <div class="brand" aria-label="Local Flight Network Admin">
+      <span class="mark" aria-hidden="true">LF</span>
+      <span class="brand-text">
+        <strong>Network Admin</strong>
+        <span>Operator relay console</span>
+      </span>
     </div>
-    <div class="chips"><span class="chip" id="userChip"></span><span class="chip">Single admin</span><span class="chip">Redacted JSON</span><span class="chip">Coarse presence</span></div>
-  </div>
-  <div class="status-rail" id="statusRailEl"></div>
-  <div id="notices"></div>
-  <div class="quick" id="quickViews"></div>
-  <div class="layer">Monitor</div>
-  <section class="panel" id="overview"></section>
-  <section class="panel" id="fleet"></section>
-  <section class="panel" id="traffic"></section>
-  <div class="layer">Investigate</div>
-  <section class="panel" id="schedules"></section>
-  <section class="panel" id="surfaces"></section>
-  <section class="panel" id="reports"></section>
-  <div class="layer">Operate</div>
-  <section class="panel" id="activations"></section>
-  <section class="panel" id="providers"></section>
-  <div class="layer">Danger Zone</div>
-  <section class="panel" id="maintenance"></section>
+    <nav class="nav" id="nav" aria-label="Primary"></nav>
+    <button id="signOutBtn" class="signout-btn" type="button" title="Sign out of admin console">Sign out</button>
+  </header>
+
+  <section class="hero" aria-labelledby="heroTitle">
+    <div>
+      <h1 id="heroTitle">Relay Operations</h1>
+      <p>Operator console for fleet, traffic, schedules, activations, reports, providers, and maintenance. Presence is coarse — derived from heartbeat (~30 min cadence) and relay activity, not a live online signal.</p>
+    </div>
+    <div class="chips">
+      <span class="chip" id="userChip"></span>
+      <span class="chip">Single admin</span>
+      <span class="chip">Redacted JSON</span>
+      <span class="chip">Coarse presence</span>
+    </div>
+  </section>
+
+  <div class="status-rail" id="statusRailEl" aria-label="Relay health"></div>
+  <div class="quick" id="quickViews" aria-label="Saved views"></div>
+
+  <main>
+    <div class="layer">Monitor</div>
+    <section class="panel" id="overview" aria-label="Overview"></section>
+    <section class="panel" id="fleet" aria-label="Fleet"></section>
+    <section class="panel" id="traffic" aria-label="Traffic"></section>
+
+    <div class="layer">Investigate</div>
+    <section class="panel" id="schedules" aria-label="Schedules"></section>
+    <section class="panel" id="surfaces" aria-label="Surfaces"></section>
+    <section class="panel" id="reports" aria-label="Reports"></section>
+
+    <div class="layer">Operate</div>
+    <section class="panel" id="activations" aria-label="Activations"></section>
+    <section class="panel" id="providers" aria-label="Providers"></section>
+
+    <div class="layer danger-layer">Danger Zone</div>
+    <section class="panel danger-panel" id="maintenance" aria-label="Maintenance"></section>
+  </main>
 </div>
-<aside class="drawer" id="drawer">
-  <div class="drawer-head"><strong id="drawerTitle">Details</strong><button id="drawerClose">Close</button></div>
+
+<div id="notices" class="toast-rail" role="status" aria-live="polite" aria-atomic="false"></div>
+
+<aside class="drawer" id="drawer" aria-labelledby="drawerTitle">
+  <div class="drawer-head">
+    <strong id="drawerTitle">Details</strong>
+    <button id="drawerClose" type="button" aria-label="Close inspector">Close</button>
+  </div>
   <div class="drawer-body" id="drawerBody"></div>
 </aside>
+
 <script>
 __ADMIN_JS__
 </script>

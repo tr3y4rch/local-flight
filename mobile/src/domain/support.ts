@@ -7,7 +7,6 @@ export type SupportTipTier = {
   displayAmount: string;
   label: string;
   tagline: string;
-  perk: string;
 };
 
 export type SupportProductAvailability = "available" | "coming_soon" | "unavailable";
@@ -29,8 +28,6 @@ export interface SupportPurchaseProvider {
   purchaseTier: (tier: SupportProduct) => Promise<SupportPurchaseResult>;
 }
 
-export const SUPPORT_WEB_FALLBACK_URL = "https://buymeacoffee.com/localflight";
-
 export const SUPPORT_TIP_TIERS: SupportTipTier[] = [
   {
     id: "tip_2",
@@ -38,8 +35,7 @@ export const SUPPORT_TIP_TIERS: SupportTipTier[] = [
     amountUsd: 2,
     displayAmount: "$2",
     label: "Small tip",
-    tagline: "A coffee for the dev",
-    perk: "Supporter badge"
+    tagline: "A quiet thank-you"
   },
   {
     id: "tip_5",
@@ -47,8 +43,7 @@ export const SUPPORT_TIP_TIERS: SupportTipTier[] = [
     amountUsd: 5,
     displayAmount: "$5",
     label: "Nice tip",
-    tagline: "Helps keep servers warm",
-    perk: "Supporter badge"
+    tagline: "Helps keep the relay warm"
   },
   {
     id: "tip_10",
@@ -56,17 +51,15 @@ export const SUPPORT_TIP_TIERS: SupportTipTier[] = [
     amountUsd: 10,
     displayAmount: "$10",
     label: "Generous",
-    tagline: "Fuels new features",
-    perk: "Supporter badge · gold accent"
+    tagline: "Supports polish and testing"
   },
   {
     id: "tip_20",
     productId: "com.localflight.companion.tip.20",
     amountUsd: 20,
     displayAmount: "$20",
-    label: "Captain",
-    tagline: "Keeps the boards flying",
-    perk: "Supporter badge · captain stripes"
+    label: "Big support",
+    tagline: "Keeps the boards glowing"
   }
 ];
 

@@ -9,6 +9,8 @@ The mobile app is an iOS-first developer preview. It is not on the App Store, Te
 
 For most home setups, start with LAN Mobile / LAN Companion. Use Standalone when you want a light mobile FIDS/Radar/History app without running your own Local Flight server.
 
+Local Flight Mobile is a personal display aid. Flight, weather, radar, and airport-surface data can be delayed, incomplete, or unavailable, so it must not be used for navigation, dispatch, operational control, or safety decisions.
+
 > **Quick alternative as of the 2026-05-18 `0.2.7` follow-up:** if
 > you only need to glance at the board from a phone, you don't have
 > to build this app. Open the LAN browser UI
@@ -24,12 +26,14 @@ For most home setups, start with LAN Mobile / LAN Companion. Use Standalone when
 ## Requirements
 
 - macOS with an Xcode version compatible with Expo SDK 55
-- Node.js 20 LTS or newer
+- Node.js 24 LTS recommended. Node.js 26 Current is also supported for local development. The repo includes a root `.nvmrc`; run `nvm use` from the project root if you use nvm and want the LTS default.
 - iPhone/iPad connected for device builds, or an iOS simulator
 - For LAN Mobile / LAN Companion: Local Flight already running on the same Wi-Fi/LAN
 - For Standalone: internet access to the hosted relay
 
 Expo SDK 55 targets React Native 0.83 and React 19.2. Run `npm run doctor` after install on the Mac to confirm the active Xcode, CocoaPods, and package versions are compatible.
+
+For App Store/TestFlight preparation, keep [APP_STORE_REVIEW_NOTES.md](APP_STORE_REVIEW_NOTES.md) aligned with the exact build being submitted.
 
 If Xcode was freshly installed or upgraded, accept the Apple SDK license first:
 
@@ -185,6 +189,17 @@ The mobile install ID and standalone relay install ID are install-scoped. They a
 - `src/screens/AppScreens.tsx` contains the main screens and sheets.
 - `src/storage/standaloneHistory.ts` stores successful standalone FIDS rows locally with Expo SQLite.
 - `src/theme/` contains mobile appearance tokens, runtime appearance storage, and the style bridge used by extracted screens.
+- `src/iap/` contains the Apple IAP support-tip skeleton. It keeps stable product IDs and the StoreKit/relay verification seam in place, but the active provider remains a non-charging placeholder until App Store Connect products and a native IAP library are added to a development build.
+
+### Apple IAP Skeleton
+
+The intended support-tip flow is:
+
+1. Create App Store Connect in-app purchase products for `com.localflight.companion.tip.2`, `.tip.5`, `.tip.10`, and `.tip.20`.
+2. Add an Expo-compatible native IAP library such as `expo-iap` to a development/TestFlight build.
+3. Replace the placeholder export in `src/iap/supportProvider.ts` with `createAppleSupportPurchaseProvider(...)`.
+4. Send StoreKit signed transaction info to the relay's scaffolded `POST /v1/mobile/iap/apple/verify` endpoint.
+5. Configure the relay with App Store Server API credentials and verify Apple-signed transaction data before finishing transactions.
 
 ---
 
@@ -192,18 +207,20 @@ The mobile install ID and standalone relay install ID are install-scoped. They a
 
 - Public iOS release
 - Public Android release
-- Per-device auth tokens for broader mutating controls
+- Per-device authorization/revoke tokens for broader mutating LAN controls. Current LAN Mobile identifies each device with an install-scoped companion ID and check-in, while Standalone uses its relay activation token.
 - Production-ready admin permission model
 - Native crash capture before JavaScript starts
 - Full standalone flight-detail endpoint parity; Standalone currently focuses on Board, Radar, History, Settings, and reports
+- Real Apple in-app purchase support tips; the current support sheet has a non-charging StoreKit/relay skeleton
 
 ---
 
 ## Next
 
-- Per-device auth tokens before broader mutating admin controls
+- Per-device authorization/revoke tokens before broader mutating LAN admin controls
+- App Store/TestFlight proof pass on a fresh real iPhone and iPad: Standalone setup, LAN QR/manual pairing, denied camera/local-network paths, support stub, and accessibility settings
+- App Store Connect privacy/review metadata using `APP_STORE_REVIEW_NOTES.md`
+- Full standalone flight-detail endpoint parity if Standalone should expose the same detail sheet depth as LAN Mobile
+- Real Apple in-app purchase support tips after App Store Connect products, StoreKit/TestFlight testing, and relay App Store Server API verification are ready
 - Android test pass after the iOS mobile app stabilizes
-- Real navigation stack once screen history/deep links justify it
-- iPad and landscape display-mode polish
-- Standalone on-device UX pass on a real iPhone after relay deployment
-- Native radar rendering polish around labels, density, and tablet geometry
+- Optional React Navigation stack only if future deep links need true back-stack behavior

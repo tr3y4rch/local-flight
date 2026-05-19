@@ -17,7 +17,9 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 
 import { BottomNav } from "../components/BottomNav";
 import { LaunchOverlay } from "../components/LaunchOverlay";
+import { accessibleButton, tapTargetHitSlop, useReducedMotionPreference } from "../accessibility/mobileA11y";
 import { AirportConfigSheet, CompanionSetupScreen, ConnectPrompt, ControlScreen, FidsScreen, FlightActionSheet, FlightDetailSheet, FullscreenFidsDisplay, Header, HelpScreen, HistoryScreen, RadarScreen, ScreenActivity, ScreenError, SupportSheet, type ActivityStatus, type ConnectionState } from "../screens/AppScreens";
+import { ACTION_ICONS, LocalFlightIcon, SUPPORT_ICONS } from "../theme/icons";
 import {
   getConnections,
   getConfig,
@@ -207,6 +209,7 @@ function refreshActivityForTarget(target: Screen, landscapeFidsActive: boolean):
 export function AppShell() {
   const { appearance, themeMode, skin, setThemeMode, setSkin } = useMobileTheme();
   const layout = useResponsiveLayout();
+  const reduceMotion = useReducedMotionPreference();
   const landscapeFidsActive = layout.isLandscape;
   const insets = useSafeAreaInsets();
   const [screen, setScreen] = useState<Screen>("fids");
@@ -314,23 +317,28 @@ export function AppShell() {
   }
 
   useEffect(() => {
+    if (reduceMotion) {
+      screenOpacity.setValue(1);
+      screenLift.setValue(0);
+      return;
+    }
     screenOpacity.setValue(0);
-    screenLift.setValue(10);
+    screenLift.setValue(4);
     Animated.parallel([
       Animated.timing(screenOpacity, {
         toValue: 1,
-        duration: 180,
+        duration: 150,
         useNativeDriver: true
       }),
       Animated.spring(screenLift, {
         toValue: 0,
-        damping: 15,
-        stiffness: 240,
+        damping: 18,
+        stiffness: 190,
         mass: 0.7,
         useNativeDriver: true
       })
     ]).start();
-  }, [screen, screenLift, screenOpacity]);
+  }, [screen, screenLift, screenOpacity, reduceMotion]);
 
   const onLaunchHydrated = useCallback(
     ({
@@ -1113,13 +1121,14 @@ export function AppShell() {
   }, [openFlightDetail]);
 
   const triggerSnapshotPulse = useCallback(() => {
+    if (reduceMotion) return;
     snapshotPulse.stopAnimation();
     snapshotPulse.setValue(0);
     Animated.sequence([
       Animated.timing(snapshotPulse, { toValue: 1, duration: 120, useNativeDriver: true }),
       Animated.timing(snapshotPulse, { toValue: 0, duration: 260, useNativeDriver: true })
     ]).start();
-  }, [snapshotPulse]);
+  }, [snapshotPulse, reduceMotion]);
 
   useEffect(() => {
     if (!landscapeFidsActive) return;
@@ -1363,7 +1372,8 @@ export function AppShell() {
     <SafeAreaView style={styles.safe} edges={["top", "left", "right"]}>
       <StatusBar barStyle={statusBarStyle} hidden={false} />
       <View style={[styles.appFrame, { maxWidth: contentWidth }]}>
-          <Header
+        <Header
+          variant={screen === "fids" ? "expanded" : "compact"}
           airportCode={airportCode}
           airportIcao={airportIcao}
           airportName={airportName}
@@ -1375,7 +1385,6 @@ export function AppShell() {
           utcTime={utcTime}
           localTime={localTime}
           metar={snapshot.metar}
-          weatherDisplayMode={weatherDisplayMode}
           snapshotPulse={snapshotPulse}
           rowCount={rows.length}
           view={view}
@@ -1392,6 +1401,7 @@ export function AppShell() {
             }
             setScreen("control");
           }}
+          onOpenBoard={() => setScreen("fids")}
         />
 
         <Animated.View
@@ -1504,7 +1514,14 @@ export function AppShell() {
               {screen === "settings" && isStandalone ? (
                 <>
                   <View style={styles.settingsCard}>
-                    <Text style={styles.settingsTitle}>STANDALONE MODE</Text>
+                    <Text style={styles.settingsTitle}>MOBILE SETTINGS</Text>
+                    <Text style={styles.moduleIntro}>
+                      Standalone keeps the companion-style control center, just without LAN server, Matrix, or scheduler controls.
+                    </Text>
+                  </View>
+
+                  <View style={styles.settingsCard}>
+                    <Text style={styles.settingsTitle}>STANDALONE RELAY</Text>
                     <View style={styles.settingsSectionGrid}>
                       <View style={styles.settingsPill}>
                         <Text style={styles.settingsPillLabel}>AIRPORT</Text>
@@ -1519,64 +1536,166 @@ export function AppShell() {
                         <Text style={styles.settingsPillValue}>3h FIDS · 5m radar · 1/3/5/10 NM</Text>
                       </View>
                     </View>
+                    <Text style={styles.moduleIntro}>
+                      This phone asks the Local Flight relay directly. It does not need your desktop or Pi on the LAN.
+                    </Text>
                   </View>
 
                   <View style={styles.settingsCard}>
-                    <Text style={styles.settingsTitle}>APPEARANCE</Text>
+                    <Text style={styles.settingsTitle}>BOARD DATA</Text>
+                    <View style={styles.settingsSectionGrid}>
+                      <View style={styles.settingsPill}>
+                        <Text style={styles.settingsPillLabel}>FIDS</Text>
+                        <Text style={styles.settingsPillValue}>3h refresh window</Text>
+                      </View>
+                      <View style={styles.settingsPill}>
+                        <Text style={styles.settingsPillLabel}>RADAR</Text>
+                        <Text style={styles.settingsPillValue}>5m refresh · 1/3/5/10 NM</Text>
+                      </View>
+                      <View style={styles.settingsPill}>
+                        <Text style={styles.settingsPillLabel}>HISTORY</Text>
+                        <Text style={styles.settingsPillValue}>stored on this device</Text>
+                      </View>
+                    </View>
+                  </View>
+
+                  <View style={styles.settingsCard}>
+                    <Text style={styles.settingsTitle}>MOBILE CUSTOMIZATION</Text>
+                    <Text style={styles.moduleIntro}>
+                      Match the same look controls used by LAN Mobile, without host display settings.
+                    </Text>
+                    <Text style={styles.settingsProfileTitle}>INTERFACE</Text>
                     <View style={styles.settingsInlineActions}>
                       {(["dark", "light"] as const).map((mode) => (
                         <Pressable
                           key={mode}
                           style={[styles.settingsCompactButton, themeMode === mode && styles.settingsProfileChipActive]}
                           onPress={() => setThemeMode(mode)}
+                          hitSlop={tapTargetHitSlop}
+                          {...accessibleButton({
+                            label: `Use ${mode} interface`,
+                            selected: themeMode === mode
+                          })}
                         >
                           <Text style={styles.settingsCompactButtonText}>{mode.toUpperCase()}</Text>
                         </Pressable>
                       ))}
                     </View>
+                    <Text style={styles.settingsProfileTitle}>SKIN</Text>
                     <View style={styles.settingsInlineActions}>
                       {(["standard", "technical", "neon", "cyan", "crt"] as const).map((nextSkin) => (
                         <Pressable
                           key={nextSkin}
                           style={[styles.settingsCompactButton, skin === nextSkin && styles.settingsProfileChipActive]}
                           onPress={() => setSkin(nextSkin)}
+                          hitSlop={tapTargetHitSlop}
+                          {...accessibleButton({
+                            label: `Use ${nextSkin} skin`,
+                            selected: skin === nextSkin
+                          })}
                         >
                           <Text style={styles.settingsCompactButtonText}>{nextSkin.toUpperCase()}</Text>
+                        </Pressable>
+                      ))}
+                    </View>
+                    <Text style={styles.settingsProfileTitle}>WEATHER WORDING</Text>
+                    <View style={styles.settingsInlineActions}>
+                      {([
+                        ["passenger", "PAX"],
+                        ["pilot", "PILOT"],
+                        ["vatsim", "VATSIM"]
+                      ] as Array<[MobileWeatherDisplayMode, string]>).map(([mode, label]) => (
+                        <Pressable
+                          key={mode}
+                          style={[styles.settingsCompactButton, weatherDisplayMode === mode && styles.settingsProfileChipActive]}
+                          onPress={() => void chooseWeatherDisplayMode(mode)}
+                          hitSlop={tapTargetHitSlop}
+                          {...accessibleButton({
+                            label: `Use ${label} weather wording`,
+                            selected: weatherDisplayMode === mode
+                          })}
+                        >
+                          <Text style={styles.settingsCompactButtonText}>{label}</Text>
                         </Pressable>
                       ))}
                     </View>
                   </View>
 
                   <View style={styles.settingsCard}>
-                    <Text style={styles.settingsTitle}>DIAGNOSTICS</Text>
+                    <Text style={styles.settingsTitle}>MOBILE DIAGNOSTICS</Text>
+                    <Text style={styles.moduleIntro}>
+                      Manual reports are always available. Automatic reports follow this device's choice.
+                    </Text>
                     <View style={styles.settingsInlineActions}>
                       {(["manual", "auto", "auto_logs"] as MobileDiagnosticsMode[]).map((mode) => (
                         <Pressable
                           key={mode}
                           style={[styles.settingsCompactButton, mobileDiagnosticsMode === mode && styles.settingsProfileChipActive]}
                           onPress={() => void chooseMobileDiagnosticsMode(mode)}
+                          hitSlop={tapTargetHitSlop}
+                          {...accessibleButton({
+                            label: `Set mobile diagnostics to ${mode === "auto_logs" ? "automatic with context" : mode}`,
+                            selected: mobileDiagnosticsMode === mode
+                          })}
                         >
                           <Text style={styles.settingsCompactButtonText}>{mode === "auto_logs" ? "AUTO + CONTEXT" : mode.toUpperCase()}</Text>
                         </Pressable>
                       ))}
                     </View>
-                    <Pressable style={[styles.connectButton, styles.crashButton]} onPress={rerunCompanionSetup}>
-                      <Text style={styles.connectButtonText}>RESET MOBILE SETUP</Text>
+                    <Pressable
+                      style={[styles.connectButton, styles.crashButton]}
+                      onPress={rerunCompanionSetup}
+                      {...accessibleButton({
+                        label: "Reset mobile setup",
+                        hint: "Starts the first launch setup flow again."
+                      })}
+                    >
+                      <Text style={styles.connectButtonText}>RERUN MOBILE SETUP</Text>
                     </Pressable>
                   </View>
 
                   <View style={styles.settingsCard}>
                     <Text style={styles.settingsTitle}>HELP & REPORTS</Text>
                     <Text style={styles.moduleIntro}>
-                      Troubleshooting, relay status, support, and manual reports live here without adding another tab.
+                      Troubleshooting, relay status, and manual reports live here without adding another bottom tab.
                     </Text>
-                    <Pressable style={styles.settingsPill} onPress={() => setStandaloneHelpVisible(true)}>
+                    <View style={styles.settingsSectionGrid}>
+                      <View style={styles.settingsPill}>
+                        <Text style={styles.settingsPillLabel}>RELAY CHECK</Text>
+                        <Text style={styles.settingsPillValue}>internet first</Text>
+                      </View>
+                      <View style={styles.settingsPill}>
+                        <Text style={styles.settingsPillLabel}>STALE BOARD</Text>
+                        <Text style={styles.settingsPillValue}>pull to refresh intentionally</Text>
+                      </View>
+                    </View>
+                    <Pressable
+                      style={styles.settingsPill}
+                      onPress={() => setStandaloneHelpVisible(true)}
+                      {...accessibleButton({
+                        label: "Open mobile help",
+                        hint: "Shows pairing details, relay limits, reports, and support options."
+                      })}
+                    >
                       <View style={styles.settingsPillCopy}>
                         <Text style={styles.settingsPillLabel}>Open mobile help</Text>
                         <Text style={styles.settingsPillValue}>Pairing details, relay limits, reports, support</Text>
                       </View>
                     </Pressable>
                   </View>
+
+                  <Pressable
+                    style={styles.supportFooter}
+                    onPress={() => setSupportVisible(true)}
+                    {...accessibleButton({
+                      label: "Support Local Flight",
+                      hint: "Opens the optional in-app support sheet."
+                    })}
+                  >
+                    <LocalFlightIcon name={SUPPORT_ICONS.support} size={15} color={palette.amber} />
+                    <Text style={styles.supportFooterText}>Support Local Flight</Text>
+                    <LocalFlightIcon name={ACTION_ICONS.supportExpand} size={13} color={palette.textDim} />
+                  </Pressable>
                 </>
               ) : null}
 
@@ -1670,9 +1789,13 @@ export function AppShell() {
         onClose={() => setSupportVisible(false)}
       />
 
-      <Modal visible={standaloneHelpVisible} transparent animationType="slide" onRequestClose={() => setStandaloneHelpVisible(false)}>
+      <Modal visible={standaloneHelpVisible} transparent presentationStyle="overFullScreen" animationType="slide" onRequestClose={() => setStandaloneHelpVisible(false)}>
         <View style={styles.sheetBackdrop}>
-          <Pressable style={styles.sheetBackdropPress} onPress={() => setStandaloneHelpVisible(false)} />
+          <Pressable
+            style={styles.sheetBackdropPress}
+            onPress={() => setStandaloneHelpVisible(false)}
+            {...accessibleButton({ label: "Close mobile help" })}
+          />
           <View style={styles.sheetCard}>
             <View style={styles.sheetHandle} />
             <ScrollView style={styles.sheetScroll} contentContainerStyle={styles.sheetContent}>
@@ -1782,10 +1905,16 @@ function LandscapeFidsMode({
   pinnedCallsign: string;
 }) {
   useKeepAwake("localflight-landscape-fids", { suppressDeactivateWarnings: true });
+  const reduceMotion = useReducedMotionPreference();
   const landscapeOpacity = useRef(new Animated.Value(0)).current;
   const landscapeScale = useRef(new Animated.Value(0.985)).current;
 
   useEffect(() => {
+    if (reduceMotion) {
+      landscapeOpacity.setValue(1);
+      landscapeScale.setValue(1);
+      return;
+    }
     Animated.parallel([
       Animated.timing(landscapeOpacity, { toValue: 1, duration: 180, useNativeDriver: true }),
       Animated.spring(landscapeScale, {
@@ -1796,7 +1925,7 @@ function LandscapeFidsMode({
         useNativeDriver: true
       })
     ]).start();
-  }, [landscapeOpacity, landscapeScale]);
+  }, [landscapeOpacity, landscapeScale, reduceMotion]);
 
   return (
     <SafeAreaView style={styles.landscapeSafe} edges={["left", "right"]}>
@@ -2885,6 +3014,150 @@ function createStyles() {
     borderBottomWidth: 1,
     borderBottomColor: palette.lineSoft
   },
+  headerCompact: {
+    paddingTop: 8,
+    paddingHorizontal: 14,
+    paddingBottom: 9,
+    position: "relative"
+  },
+  headerCompactTopRail: {
+    minHeight: 54,
+    position: "relative"
+  },
+  headerBoardTopRail: {
+    minHeight: 38,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12
+  },
+  headerBoardBrand: {
+    flex: 1,
+    minHeight: 38,
+    justifyContent: "center"
+  },
+  headerBoardClock: {
+    minHeight: 38,
+    minWidth: 112,
+    alignItems: "flex-end",
+    justifyContent: "center"
+  },
+  headerCompactRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingTop: 16,
+    paddingRight: 86
+  },
+  headerCompactBrand: {
+    flex: 1,
+    minWidth: 0,
+    minHeight: 36,
+    justifyContent: "center"
+  },
+  headerCompactSubline: {
+    marginTop: 2,
+    fontFamily: mono,
+    color: palette.textDim,
+    fontSize: 7,
+    fontWeight: "900",
+    letterSpacing: 1.1,
+    includeFontPadding: false
+  },
+  headerCompactWeather: {
+    width: 74,
+    minHeight: 34,
+    justifyContent: "center"
+  },
+  headerCompactRightColumn: {
+    position: "absolute",
+    right: 0,
+    top: 0,
+    zIndex: 2,
+    width: 80,
+    minHeight: 54,
+    alignItems: "flex-end",
+    justifyContent: "flex-start",
+    gap: 4
+  },
+  headerCompactMeta: {
+    flex: 0.72,
+    minWidth: 0,
+    minHeight: 44,
+    alignItems: "flex-end",
+    justifyContent: "flex-end",
+    paddingTop: 14
+  },
+  headerCompactCodes: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    flexWrap: "wrap",
+    gap: 5
+  },
+  headerCompactCodeBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    fontSize: 8
+  },
+  headerCompactClock: {
+    minHeight: 24,
+    minWidth: 80,
+    alignItems: "flex-end",
+    justifyContent: "flex-start"
+  },
+  headerCompactUtc: {
+    fontFamily: mono,
+    color: palette.text,
+    fontSize: 10,
+    fontWeight: "900",
+    includeFontPadding: false
+  },
+  headerCompactLocal: {
+    fontFamily: mono,
+    color: palette.textMuted,
+    fontSize: 9,
+    includeFontPadding: false
+  },
+  headerCompactFlightChip: {
+    width: "100%",
+    minHeight: 22,
+    alignItems: "flex-end",
+    justifyContent: "center",
+    gap: 1,
+    paddingHorizontal: 5,
+    paddingVertical: 3,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: hairlineSoft,
+    backgroundColor: softPanel
+  },
+  headerCompactFlightChipPinned: {
+    borderColor: warn24,
+    backgroundColor: warn07
+  },
+  headerCompactFlightText: {
+    fontFamily: mono,
+    color: palette.textDim,
+    fontSize: 6,
+    fontWeight: "900",
+    letterSpacing: 1,
+    includeFontPadding: false
+  },
+  headerCompactFlightRoute: {
+    flex: 1,
+    minWidth: 0,
+    color: palette.textMuted,
+    fontSize: 10,
+    includeFontPadding: false
+  },
+  headerCompactFlightStatus: {
+    fontFamily: mono,
+    fontSize: 7,
+    fontWeight: "900",
+    letterSpacing: 0.4,
+    includeFontPadding: false
+  },
   mainArea: {
     flex: 1
   },
@@ -3144,6 +3417,9 @@ function createStyles() {
     justifyContent: "space-between",
     gap: 12
   },
+  airportHeroRowUnified: {
+    marginTop: 4
+  },
   airportHeroRowStacked: {
     flexDirection: "column",
     alignItems: "stretch",
@@ -3164,6 +3440,9 @@ function createStyles() {
     justifyContent: "space-between",
     gap: 8
   },
+  airportHeroToplineUnified: {
+    justifyContent: "flex-start"
+  },
   airportHeroToplineStacked: {
     alignItems: "flex-start"
   },
@@ -3173,6 +3452,69 @@ function createStyles() {
     fontSize: 9,
     fontWeight: "800",
     letterSpacing: 1.3,
+    includeFontPadding: false
+  },
+  boardHeroWeatherCard: {
+    width: 148,
+    alignSelf: "flex-end",
+    marginTop: 26,
+    flexShrink: 0
+  },
+  boardHeroWeatherCardStacked: {
+    width: "100%",
+    maxWidth: 240,
+    alignSelf: "flex-end",
+    marginTop: 0
+  },
+  boardHeroWeatherInner: {
+    minHeight: 78,
+    justifyContent: "center",
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 17,
+    borderWidth: 1
+  },
+  boardHeroWeatherTop: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8
+  },
+  boardHeroWeatherTemp: {
+    fontFamily: mono,
+    color: palette.text,
+    fontSize: 16,
+    lineHeight: 19,
+    fontWeight: "900",
+    includeFontPadding: false
+  },
+  boardHeroWeatherCondition: {
+    color: palette.textMuted,
+    fontSize: 10,
+    lineHeight: 13,
+    textAlign: "center",
+    includeFontPadding: false
+  },
+  boardHeroWeatherPills: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6
+  },
+  boardHeroWeatherPill: {
+    maxWidth: 58,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: hairline,
+    fontFamily: mono,
+    color: palette.blue2,
+    fontSize: 8,
+    lineHeight: 10,
+    fontWeight: "900",
+    letterSpacing: 0.7,
     includeFontPadding: false
   },
   airportCodeBadges: {
@@ -3200,7 +3542,7 @@ function createStyles() {
     includeFontPadding: false
   },
   airportHeroName: {
-    marginTop: 7,
+    marginTop: 0,
     color: palette.text,
     fontSize: 25,
     lineHeight: 29,
@@ -3284,6 +3626,51 @@ function createStyles() {
     fontSize: 11,
     fontWeight: "700"
   },
+  weatherRailGroup: {
+    width: "100%",
+    minHeight: 32,
+    justifyContent: "center",
+    gap: 2,
+    paddingHorizontal: 5,
+    paddingVertical: 4,
+    borderRadius: 10,
+    borderWidth: 1
+  },
+  weatherRailTop: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4
+  },
+  weatherRailTemp: {
+    fontFamily: mono,
+    color: palette.text,
+    fontSize: 10,
+    lineHeight: 12,
+    fontWeight: "900",
+    includeFontPadding: false
+  },
+  weatherRailPills: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 3
+  },
+  weatherRailPill: {
+    maxWidth: 32,
+    paddingHorizontal: 3,
+    paddingVertical: 1,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: hairline,
+    fontFamily: mono,
+    color: palette.blue2,
+    fontSize: 6,
+    lineHeight: 8,
+    fontWeight: "900",
+    letterSpacing: 0.5,
+    includeFontPadding: false
+  },
   weatherCompact: {
     width: "100%",
     minHeight: 58,
@@ -3294,6 +3681,13 @@ function createStyles() {
     paddingVertical: 8,
     borderRadius: 16,
     borderWidth: 1
+  },
+  weatherCompactInline: {
+    minHeight: 42,
+    gap: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    borderRadius: 13
   },
   weatherCompactCopy: {
     flex: 1,
@@ -3306,6 +3700,10 @@ function createStyles() {
     fontWeight: "900",
     includeFontPadding: false
   },
+  weatherCompactTempInline: {
+    fontSize: 12,
+    lineHeight: 15
+  },
   weatherCompactMeta: {
     marginTop: 3,
     fontFamily: mono,
@@ -3315,6 +3713,11 @@ function createStyles() {
     letterSpacing: 0.5,
     includeFontPadding: false,
     textTransform: "uppercase"
+  },
+  weatherCompactMetaInline: {
+    marginTop: 1,
+    fontSize: 7,
+    letterSpacing: 0.3
   },
   telemetryStrip: {
     flexDirection: "row",
@@ -5356,6 +5759,12 @@ function createStyles() {
     fontWeight: "800",
     lineHeight: 16
   },
+  supportTierTagline: {
+    marginTop: 5,
+    color: palette.textDim,
+    fontSize: 11,
+    lineHeight: 15
+  },
   supportMessage: {
     marginTop: 12,
     paddingHorizontal: 12,
@@ -5765,8 +6174,8 @@ function createStyles() {
     minWidth: 54
   },
   navIcon: {
-    width: 25,
-    height: 25,
+    width: 33,
+    height: 33,
     borderRadius: 999,
     alignItems: "center",
     justifyContent: "center",
@@ -5778,13 +6187,16 @@ function createStyles() {
     backgroundColor: accent12
   },
   navIconGlyph: {
-    lineHeight: 15
+    lineHeight: 23
   },
   navLabel: {
     fontFamily: mono,
-    fontSize: 7,
+    fontSize: 9,
     color: palette.textDim,
-    letterSpacing: 0.5
+    fontWeight: "800",
+    letterSpacing: 0.75,
+    includeFontPadding: false,
+    lineHeight: 11
   },
   navLabelActive: {
     color: palette.blue
@@ -5794,7 +6206,7 @@ function createStyles() {
     height: 4,
     borderRadius: 2,
     backgroundColor: palette.blue,
-    marginTop: 3
+    marginTop: 2
   },
   sheetBackdrop: {
     flex: 1,

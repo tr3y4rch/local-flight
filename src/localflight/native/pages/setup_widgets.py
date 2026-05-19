@@ -422,14 +422,40 @@ def build_info_button(
     button.setText("ⓘ")  # ⓘ
     button.setCursor(QtCore.Qt.WhatsThisCursor)
     button.setToolTip(text)
+    button.setAccessibleName("Information")
+    button.setAccessibleDescription(text)
     button.setAutoRaise(True)
     button.setFixedSize(22, 22)
+    try:
+        button.setFocusPolicy(QtCore.Qt.FocusPolicy.StrongFocus)
+    except Exception:
+        button.setFocusPolicy(QtCore.Qt.StrongFocus)
 
-    def _show_now() -> None:
-        # Show the tooltip immediately at the cursor location.
-        QtWidgets.QToolTip.showText(QtGui.QCursor.pos(), text, button)
+    def _show_now(*, at_cursor: bool = True) -> None:
+        position = QtGui.QCursor.pos() if at_cursor else button.mapToGlobal(button.rect().bottomLeft())
+        QtWidgets.QToolTip.showText(position, text, button)
 
-    button.clicked.connect(_show_now)
+    class _InfoButtonEventFilter(QtCore.QObject):
+        def eventFilter(self, watched: Any, event: Any) -> bool:  # noqa: N802 - Qt naming
+            try:
+                event_type = getattr(getattr(QtCore.QEvent, "Type", QtCore.QEvent), "KeyPress")
+                key_enum = getattr(QtCore.Qt, "Key", QtCore.Qt)
+                keys = {
+                    getattr(key_enum, "Key_Return"),
+                    getattr(key_enum, "Key_Enter"),
+                    getattr(key_enum, "Key_Space"),
+                }
+                if watched is button and event.type() == event_type and event.key() in keys:
+                    _show_now(at_cursor=False)
+                    event.accept()
+                    return True
+            except Exception:
+                pass
+            return super().eventFilter(watched, event)
+
+    button._localflight_info_filter = _InfoButtonEventFilter(button)  # type: ignore[attr-defined]
+    button.installEventFilter(button._localflight_info_filter)
+    button.clicked.connect(lambda: _show_now(at_cursor=True))
     return button
 
 
