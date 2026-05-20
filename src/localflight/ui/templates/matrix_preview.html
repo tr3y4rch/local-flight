@@ -1231,7 +1231,7 @@
     ice: ["10101","01010","10101","01010","10101"],
     wind: ["10000","11110","00001","01111","00000"],
     temp: ["00100","01010","01010","10001","01110"],
-    unknown: ["11111","10001","00110","00000","00100"],
+    unknown: ["00000","01110","11111","11110","00000"],
   };
 
   function drawGlyph(name, x, y, color) {
@@ -1558,7 +1558,7 @@
     if (text.includes("part") || text.includes("few") || text.includes("scatter")) return "partly";
     if (text.includes("cloud") || text.includes("overcast") || text.includes("broken")) return "cloud";
     if (text.includes("sun") || text.includes("clear") || text.includes("vfr") || text.includes("cavok")) return "sun";
-    return "unknown";
+    return "cloud";
   }
 
   function weatherLine(chars = 18) {
@@ -1611,6 +1611,53 @@
       drawGlyph("temp", tempX, y + 1, C.amber);
       drawString(temp, tempX + 7, y, C.amber, maxW - (tempX - x) - 7);
     }
+  }
+
+  function drawSmartHeader(renderView) {
+    const weatherTemp = weatherTempText();
+    const airportBase = asciiText((PANEL_W < 200 && weatherTemp ? CFG.airport_iata : CFG.airport_label) || CFG.airport_iata || "LOCAL");
+    const lane = renderView === "arrivals" ? "ARR" : "DEP";
+    const rawLabel = `${airportBase} ${lane}`.toUpperCase();
+    const clock = clockLabel(PANEL_W < 200);
+
+    if (PANEL_W < 200) {
+      const chars = Math.max(8, Math.floor(PANEL_W / 6));
+      const label = `${marquee(airportBase, Math.max(6, chars - 4)).trim()} ${lane}`.toUpperCase();
+      drawString(label.slice(0, chars), 0, 0, C.green, PANEL_W);
+      let topWeatherDrawn = false;
+      if (weatherTemp) {
+        const weatherWidth = 8 + weatherTemp.length * 6;
+        const weatherX = PANEL_W - weatherWidth - 1;
+        if (weatherX > label.length * 6 + 4) topWeatherDrawn = drawWeatherMini(weatherX, 0, weatherWidth + 1);
+      }
+      const secondLine = weatherTemp && !topWeatherDrawn && Math.floor(Date.now() / 8000) % 2 === 1 ? weatherTemp : clock;
+      drawString(secondLine.slice(0, chars), 0, 10, secondLine === weatherTemp ? C.amber : C.dim, PANEL_W);
+      return;
+    }
+
+    const clockW = clock.length * 6;
+    const clockX = Math.max(0, PANEL_W - clockW - 1);
+    drawString(clock, clockX, 0, C.dim, PANEL_W - clockX);
+
+    let weatherStart = clockX;
+    const fullWeather = weatherLine(Math.max(8, Math.floor(PANEL_W / 6)));
+    if (fullWeather || weatherTemp) {
+      const desired = PANEL_W >= 384 ? Math.min(24, Math.max(8, Math.floor((clockX - 96) / 6))) : 10;
+      const weatherText = (fullWeather || weatherTemp).slice(0, desired);
+      const weatherW = 10 + weatherText.length * 6;
+      const weatherX = Math.max(0, clockX - weatherW - 8);
+      if (weatherX > (PANEL_W >= 320 ? 96 : 54)) {
+        drawWeatherCompact(weatherX, 0, clockX - weatherX - 4);
+        weatherStart = weatherX;
+      } else if (PANEL_H >= 96 && fullWeather) {
+        drawWeatherCompact(0, 10, PANEL_W);
+        for (let x=0; x<PANEL_W; x++) drawPixel(x, 19, C.dim);
+      }
+    }
+
+    const labelChars = Math.max(8, Math.floor((weatherStart - 4) / 6));
+    const label = rawLabel.length > labelChars ? marquee(rawLabel, labelChars).trim() : rawLabel;
+    drawString(label, 0, 0, C.green, Math.max(0, weatherStart - 4));
   }
 
   function weatherPageLines(chars) {
@@ -1724,44 +1771,7 @@
       ? MATRIX_PAGES[atcPage]
       : flightData;
     const renderView = atcPage || VIEW;
-    const weatherTemp = weatherTempText();
-    const headerBase = asciiText((PANEL_W < 200 && weatherTemp ? CFG.airport_iata : CFG.airport_label) || CFG.airport_iata);
-    const headerView = renderView==="arrivals"?"ARR":"DEP";
-    const headerLabel = `${PANEL_W < 200 ? marquee(headerBase, Math.max(6, Math.floor(PANEL_W / 6) - 4)).trim() : headerBase.length > 10 ? marquee(headerBase, Math.max(6, Math.floor(PANEL_W / 12))).trim() : headerBase} ${headerView}`.toUpperCase();
-    drawString(headerLabel, 0, 0, C.green);
-
-   // UTC + LT clocks top right
-    const wx = weatherLine(Math.max(8, Math.floor(PANEL_W / 6) - 1));
-    const showWeather = wx && (PANEL_H >= 96 || Math.floor(Date.now() / 8000) % 2 === 1);
-    if (PANEL_W < 200) {
-      const chars = Math.max(8, Math.floor(PANEL_W / 6));
-      let topWeatherDrawn = false;
-      if (weatherTemp) {
-        const weatherWidth = 8 + weatherTemp.length * 6;
-        const weatherX = PANEL_W - weatherWidth - 1;
-        if (weatherX > headerLabel.length * 6 + 4) {
-          topWeatherDrawn = drawWeatherMini(weatherX, 0, weatherWidth + 1);
-        }
-      }
-      const clockText = weatherTemp && !topWeatherDrawn && Math.floor(Date.now() / 8000) % 2 === 1
-        ? weatherTemp
-        : clockLabel(true);
-      drawString(clockText.slice(0, chars), 0, 10, C.dim, PANEL_W);
-    } else {
-      const clockLine = showWeather ? wx : clockLabel();
-      const clockX    = PANEL_W - clockLine.length*6 - 1;
-      if (clockX > headerLabel.length*6 + 6) {
-        if (showWeather) {
-          drawWeatherCompact(clockX, 0, PANEL_W - clockX);
-        } else {
-          drawString(clockLine, clockX, 0, C.dim);
-        }
-      }
-    }
-    if (PANEL_W >= 200 && PANEL_H >= 96 && wx) {
-      drawWeatherCompact(0, 10, PANEL_W);
-      for (let x=0; x<PANEL_W; x++) drawPixel(x, 19, C.dim);
-    }
+    drawSmartHeader(renderView);
 
     // Separator line
     for (let x=0; x<PANEL_W; x++) drawPixel(x, headerHeight() - 2, C.dim);
@@ -1816,21 +1826,33 @@
         }
       } else {
       // Time (0-4) green
-      drawString(txt.slice(0,5), 0, y, cancelled ? C.white : C.green);
+      const sc = row ? statusColor(row) : (flightColors[ri] || C.green);
+      const timeLabel = row ? String(row.matrix_time_label || row.display_time || row.time || txt.slice(0,5)).padEnd(5, " ").slice(0,5) : txt.slice(0,5);
+      const flightLabel = row ? String(flightCycleDisplay(row)).padEnd(8, " ").slice(0,8) : txt.slice(6,14);
+      const statusX = PANEL_W >= 420 ? Math.floor(PANEL_W * 0.60) : PANEL_W >= 300 ? Math.floor(PANEL_W * 0.56) : PANEL_W >= 150 ? 186 : 96;
+      const gateX = PANEL_W >= 360 ? Math.floor(PANEL_W * 0.80) : PANEL_W - 25;
+      const aircraftX = PANEL_W >= 420 ? Math.floor(PANEL_W * 0.89) : PANEL_W - 25;
+      const routeChars = Math.max(6, Math.floor((statusX - 104) / 6));
+      const statusChars = Math.max(7, Math.floor(((PANEL_W >= 360 ? gateX : PANEL_W) - statusX - 4) / 6));
+      drawString(timeLabel, 0, y, cancelled ? C.white : C.green);
 
       // Flight number (6-13) white
-      drawString(txt.slice(6,14), 36, y, C.white);
+      drawString(flightLabel, 36, y, C.white);
 
       // Destination (15-28) white — only if wide enough
-      if (PANEL_W >= 150) drawString(txt.slice(15,29), 102, y, C.white);
+      if (PANEL_W >= 150 && row) drawString(routeChunk(row, routeChars), 102, y, C.white, Math.max(20, statusX - 104));
+      else if (PANEL_W >= 150) drawString(txt.slice(15,29), 102, y, C.white);
 
       // Status (30-39) — color; position scales with panel width
-      const sc = row ? statusColor(row) : (flightColors[ri] || C.green);
-      const sx = PANEL_W >= 300 ? 230 : PANEL_W >= 150 ? 186 : 96;
-      drawString(txt.slice(30,40), sx, y, sc);
+      drawString(row ? statusOrGateChunk(row, statusChars) : txt.slice(30,40), statusX, y, sc);
 
       // Gate dim right (only if enough room)
-      if (PANEL_W >= 220) drawString(txt.slice(39,43), PANEL_W - 25, y, C.dim);
+      if (row && PANEL_W >= 260) {
+        const gate = gateLabel(row);
+        const aircraft = String(row.aircraft_type || row.aircraft || "").toUpperCase();
+        if (gate) drawString(gate.slice(0, 5), gateX, y, C.dim);
+        if (aircraft && PANEL_W >= 420) drawString(aircraft.slice(0, 5), aircraftX, y, C.dim);
+      } else if (PANEL_W >= 220) drawString(txt.slice(39,43), PANEL_W - 25, y, C.dim);
       if (flightDetails[ri] && rowH >= 17 && PANEL_W >= 180) {
         drawString(flightDetails[ri].slice(0, 34), 36, y + 8, C.dim, PANEL_W - 42);
       }

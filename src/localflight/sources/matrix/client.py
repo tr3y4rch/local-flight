@@ -48,7 +48,7 @@ MATRIX_CONFIG_REV = 0
 CONFIG_REFRESH_S = 60    # re-read server config every minute
 PING_S           = 600   # ping server every 10 min
 CLIENT_VER       = "2.0"
-CLIENT_RENDERER_REV = "matrix-display-contract-v2"
+CLIENT_RENDERER_REV = "matrix-display-contract-v3"
 SUPPORTED_RENDERERS = ["modern_fids", "vatsim_pilot", "vatsim_atc"]
 SUPPORTED_ANIMATIONS = ["split_flap", "typewriter", "cascade", "slide_left", "slide_right", "static"]
 # ──────────────────────────────────────────────────────────────────────────────
@@ -198,7 +198,7 @@ _GLYPHS = {
     "ice": ["10101", "01010", "10101", "01010", "10101"],
     "wind": ["10000", "11110", "00001", "01111", "00000"],
     "temp": ["00100", "01010", "01010", "10001", "01110"],
-    "unknown": ["11111", "10001", "00110", "00000", "00100"],
+    "unknown": ["00000", "01110", "11111", "11110", "00000"],
 }
 
 def draw_glyph(name, x, y, color):
@@ -944,7 +944,7 @@ def _weather_glyph_name():
         return "cloud"
     if "sun" in icon or "clear" in icon or "vfr" in icon or "cavok" in icon:
         return "sun"
-    return "unknown"
+    return "cloud"
 
 def _weather_line(chars=18):
     if not SHOW_WEATHER:
@@ -1042,6 +1042,59 @@ def draw_weather_compact(x, y, max_width):
         graphics.text(temp_s, cursor + 6, y, max_width, 1)
     return cursor - x
 
+def draw_smart_header(view):
+    header_name = _airport_label or _airport_iata
+    lane = "DEP" if view == "departures" else "ARR"
+    weather_temp = _weather_temp_text()
+    clock = _clock_label(compact=WIDTH < 200)
+
+    if WIDTH < 200:
+        compact_name = _airport_iata if weather_temp else header_name
+        label = "{} {}".format(marquee(compact_name, max(6, WIDTH // 8 - 4)).rstrip(), lane)
+        graphics.set_pen(GREEN)
+        graphics.set_font("bitmap8")
+        graphics.text(label[:max(8, WIDTH // 8)], 0, 0, WIDTH, 1)
+        top_weather_drawn = False
+        if weather_temp:
+            weather_width = 7 + len(weather_temp) * 8
+            weather_x = WIDTH - weather_width - 1
+            if weather_x > len(label) * 8 + 4:
+                top_weather_drawn = bool(draw_weather_mini(weather_x, 0, weather_width + 1))
+        second = clock
+        second_pen = DIM
+        if weather_temp and not top_weather_drawn and int(time.time() // 8) % 2 == 1:
+            second = weather_temp
+            second_pen = AMBER
+        graphics.set_pen(second_pen)
+        graphics.text(second[:max(8, WIDTH // 8)], 0, 10, WIDTH, 1)
+        return
+
+    clock_x = max(0, WIDTH - len(clock) * 8 - 2)
+    graphics.set_pen(DIM)
+    graphics.text(clock, clock_x, 0, WIDTH, 1)
+
+    weather_start = clock_x
+    weather = _weather_line(max(8, WIDTH // 8 - 1))
+    if weather or weather_temp:
+        desired = min(24, max(8, (clock_x - 96) // 8)) if WIDTH >= 384 else 10
+        weather_text = (weather or weather_temp)[:desired]
+        weather_w = 10 + len(weather_text) * 8
+        weather_x = max(0, clock_x - weather_w - 8)
+        if weather_x > (96 if WIDTH >= 320 else 54):
+            draw_weather_compact(weather_x, 0, clock_x - weather_x - 4)
+            weather_start = weather_x
+        elif HEIGHT >= 96 and weather:
+            draw_weather_compact(0, 10, WIDTH)
+            graphics.set_pen(DIM)
+            graphics.line(0, 19, WIDTH, 19)
+
+    label = "{} {}".format(header_name, lane).upper()
+    label_chars = max(8, (weather_start - 4) // 8)
+    if len(label) > label_chars:
+        label = marquee(label, label_chars).rstrip()
+    graphics.set_pen(GREEN)
+    graphics.text(label, 0, 0, max(1, weather_start - 4), 1)
+
 def _weather_page_lines(chars):
     page = _matrix_weather_page if isinstance(_matrix_weather_page, dict) else None
     lines = page.get("lines") if page else None
@@ -1138,49 +1191,7 @@ def _vatsim_atc_page():
     return pages[slot]
 
 def draw_header(view, connected=True):
-    header_name = _airport_label or _airport_iata
-    lane = "DEP" if view == "departures" else "ARR"
-    weather_temp = _weather_temp_text()
-    label = f"{header_name} {lane}"
-    if WIDTH < 200:
-        compact_name = _airport_iata if weather_temp else header_name
-        label = "{} {}".format(marquee(compact_name, max(3, WIDTH // 8 - 5)).rstrip(), lane)
-    elif len(label) * 8 > WIDTH // 2 and len(header_name) > 10:
-        label = "{} {}".format(marquee(header_name, max(6, WIDTH // 16)).rstrip(), lane)
-    graphics.set_pen(GREEN)
-    graphics.set_font("bitmap8")
-    graphics.text(label, 0, 0, WIDTH, 1)
-
-    # Server-synced clock. The board RTC may report uptime before NTP exists.
-    weather = _weather_line(max(8, WIDTH // 8 - 1))
-    show_weather = bool(weather) and (HEIGHT >= 96 or int(time.time() // 8) % 2 == 1)
-    if WIDTH < 200:
-        chars = max(8, WIDTH // 8)
-        top_weather_drawn = False
-        if weather_temp:
-            weather_width = 7 + len(weather_temp) * 8
-            weather_x = WIDTH - weather_width - 1
-            if weather_x > len(label) * 8 + 4:
-                top_weather_drawn = bool(draw_weather_mini(weather_x, 0, weather_width + 1))
-        clock_text = _clock_label(compact=True)
-        if weather_temp and not top_weather_drawn and int(time.time() // 8) % 2 == 1:
-            clock_text = weather_temp
-        graphics.set_pen(DIM)
-        graphics.text(clock_text[:chars], 0, 10, WIDTH, 1)
-    else:
-        clock = weather if show_weather else _clock_label()
-        clock_x = WIDTH - len(clock) * 8 - 2
-        if clock_x > len(label) * 8 + 6:
-            if show_weather:
-                draw_weather_compact(clock_x, 0, WIDTH - clock_x)
-            else:
-                graphics.set_pen(DIM)
-                graphics.text(clock, clock_x, 0, WIDTH, 1)
-
-    if WIDTH >= 200 and HEIGHT >= 96 and weather:
-        draw_weather_compact(0, 10, WIDTH)
-        graphics.set_pen(DIM)
-        graphics.line(0, 19, WIDTH, 19)
+    draw_smart_header(view)
 
     # Separator
     graphics.set_pen(DIM)
@@ -1292,23 +1303,33 @@ def draw_modern_fids(flap_rows, page_data, view):
                 status = _status_or_gate_chunk(row, max(8, WIDTH // 8))
                 graphics.text(status, 0, status_y, WIDTH, 1)
         else:
-            route_chars = max(8, (WIDTH - 118) // 8)
-            graphics.text((text[15:27].strip() or _route_chunk(row, route_chars))[:route_chars], 116, y, max(40, WIDTH - 196), 1)
+            status_x = int(WIDTH * 0.60) if WIDTH >= 420 else int(WIDTH * 0.56) if WIDTH >= 300 else 116
+            gate_x = int(WIDTH * 0.80) if WIDTH >= 360 else WIDTH - 28
+            aircraft_x = int(WIDTH * 0.89) if WIDTH >= 420 else WIDTH - 28
+            route_chars = max(8, (status_x - 118) // 8)
+            graphics.text(_route_chunk(row, route_chars)[:route_chars], 116, y, max(40, status_x - 118), 1)
             if row_h >= 17:
                 graphics.set_pen(status_color(row))
-                status = text[28:38].strip() or _status_chunk(row, max(8, WIDTH // 8 - 2))
+                status_chars = max(7, ((gate_x if WIDTH >= 360 else WIDTH) - status_x - 4) // 8)
+                status = _status_or_gate_chunk(row, status_chars) or text[28:38].strip()
                 if RENDERER in ("vatsim_pilot", "vatsim_atc"):
                     ac = _upper_text(row.get("aircraft_type") or row.get("aircraft") or "")
                     cs = _upper_text(row.get("callsign") or "")
                     status = " ".join(part for part in (status, ac or cs) if part)
                 else:
-                    gate = text[39:43].strip() or _gate_chip(row, 8)
-                    if gate and WIDTH >= 220:
-                        status = " ".join(part for part in (status, gate) if part)
-                graphics.text(status[:max(8, WIDTH // 8)], 8, y + 8, WIDTH - 8, 1)
+                    gate = _gate_label(row)
+                    aircraft = _upper_text(row.get("aircraft_type") or row.get("aircraft") or "")
+                    if gate and WIDTH >= 260:
+                        graphics.set_pen(DIM)
+                        graphics.text(gate[:5], gate_x, y, max(8, WIDTH - gate_x), 1)
+                    if aircraft and WIDTH >= 420:
+                        graphics.set_pen(DIM)
+                        graphics.text(aircraft[:5], aircraft_x, y, max(8, WIDTH - aircraft_x), 1)
+                    graphics.set_pen(status_color(row))
+                graphics.text(status[:status_chars], status_x, y, max(8, WIDTH - status_x), 1)
             else:
                 graphics.set_pen(status_color(row))
-                graphics.text(text[28:38], max(116, WIDTH - 76), y, 76, 1)
+                graphics.text(text[28:38], max(116, int(WIDTH * 0.60)), y, 76, 1)
         if i < MAX_ROWS - 1:
             graphics.set_pen(DIMBG)
             graphics.line(0, y + row_h - 1, WIDTH, y + row_h - 1)

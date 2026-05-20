@@ -9,6 +9,21 @@ from localflight.core.models import Flight, FlightDirection
 from localflight.decode.mappings.airlines import format_flight_identifier
 
 
+_REGISTRATION_OPERATOR_HINTS: tuple[tuple[str, frozenset[str]], ...] = (
+    ("OO-S", frozenset({"SN", "BEL"})),      # Brussels Airlines
+    ("D-AEW", frozenset({"EW", "EWG"})),     # Eurowings
+    ("D-AB", frozenset({"EW", "EWG"})),      # Eurowings/LH-group narrowbody pools
+    ("OE-I", frozenset({"EC", "EJU"})),      # EasyJet Europe
+    ("EI-S", frozenset({"SK", "SAS"})),      # SAS Connect / SAS Ireland
+    ("A4O", frozenset({"WY", "OMA"})),       # Oman Air
+    ("A6-E", frozenset({"EK", "UAE"})),      # Emirates
+    ("HB-I", frozenset({"LX", "SWR"})),      # SWISS
+    ("HB-J", frozenset({"LX", "SWR"})),      # SWISS
+    ("YL-", frozenset({"BT", "BTI"})),       # airBaltic
+    ("CS-T", frozenset({"TP", "TAP"})),      # TAP Air Portugal
+)
+
+
 def _best_time(f: Flight) -> Optional[datetime]:
     return f.times.actual or f.times.estimated or f.times.scheduled
 
@@ -71,6 +86,41 @@ def _provider_codeshare_score(f: Flight) -> int:
     return 0
 
 
+def _registration_operator_codes(registration: str | None) -> frozenset[str]:
+    reg = (registration or "").strip().upper().replace(" ", "")
+    if not reg:
+        return frozenset()
+    for prefix, codes in _REGISTRATION_OPERATOR_HINTS:
+        if reg.startswith(prefix):
+            return codes
+    return frozenset()
+
+
+def _flight_airline_codes(f: Flight) -> set[str]:
+    codes = {
+        (f.airline.iata or "").strip().upper(),
+        (f.airline.icao or "").strip().upper(),
+        (f.marketing_airline_iata or "").strip().upper(),
+        (f.marketing_airline_icao or "").strip().upper(),
+    }
+    callsign = _compact_identifier(f.callsign or "")
+    if len(callsign) >= 3 and callsign[:3].isalpha():
+        codes.add(callsign[:3])
+    flight_number = _compact_identifier(f.flight_number or "")
+    if len(flight_number) >= 2:
+        codes.add(flight_number[:2])
+        if len(flight_number) >= 3 and flight_number[:3].isalpha():
+            codes.add(flight_number[:3])
+    return {code for code in codes if code}
+
+
+def _registration_operator_score(f: Flight) -> int:
+    hints = _registration_operator_codes(f.aircraft_registration)
+    if not hints:
+        return 0
+    return 6 if hints.intersection(_flight_airline_codes(f)) else 0
+
+
 def _identity_source_score(f: Flight) -> int:
     source = (f.identity_source or "").strip().lower()
     if source == "provider_operator":
@@ -128,10 +178,27 @@ def _identity_aliases(f: Flight, *, provider_link_keys: set[str] | None = None) 
     if (
         provider_link_keys
         and provider_key in provider_link_keys
-        and _provider_codeshare_status(f) in {"isoperator", "iscodeshared"}
     ):
         aliases.add(f"PROVIDER:{provider_key}")
+    strong_key = _strong_movement_key(f)
+    if provider_link_keys and strong_key in provider_link_keys:
+        aliases.add(f"MOVEMENT:{strong_key}")
     return aliases
+
+
+def _strong_movement_key(f: Flight) -> str:
+    reg = _compact_identifier(f.aircraft_registration or "")
+    gate = _compact_identifier(f.gate or f.stand or "")
+    terminal = _compact_identifier(f.terminal or "")
+    aircraft = _compact_identifier(f.aircraft_type or "")
+    if not reg and not (gate and aircraft):
+        return ""
+    t_bucket = _bucket_time(_best_time(f), 1)
+    if not t_bucket:
+        return ""
+    origin, destination = _route_key(f)
+    evidence = f"REG:{reg}" if reg else f"GATE:{gate}|TERM:{terminal}|AC:{aircraft}"
+    return "|".join((f.direction.value, origin, destination, t_bucket.isoformat(), evidence))
 
 
 def _safe_provider_link_keys(items: list[Flight]) -> set[str]:
@@ -147,6 +214,19 @@ def _safe_provider_link_keys(items: list[Flight]) -> set[str]:
         marketed = [item for item in group if _provider_codeshare_status(item) == "iscodeshared"]
         if len(operators) == 1 and marketed:
             safe.add(key)
+
+    strong_groups: dict[str, list[Flight]] = {}
+    for item in items:
+        key = _strong_movement_key(item)
+        if key:
+            strong_groups.setdefault(key, []).append(item)
+    for key, group in strong_groups.items():
+        if len(group) < 2:
+            continue
+        operators = [item for item in group if _provider_codeshare_status(item) == "isoperator"]
+        if len(operators) > 1:
+            continue
+        safe.add(key)
     return safe
 
 
@@ -250,6 +330,7 @@ def dedupe_codeshares(
                 explicit_secondary_count = len(x.codeshares or ()) + len(x.sold_as or ())
                 return (
                     _provider_codeshare_score(x),
+                    _registration_operator_score(x),
                     _identity_source_score(x),
                     _provider_main_score(x),
                     -explicit_secondary_count,

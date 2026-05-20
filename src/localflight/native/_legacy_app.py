@@ -2466,7 +2466,7 @@ class MatrixCanvas:  # pragma: no cover - optional Qt runtime
                 "storm": ["01110", "11111", "00100", "01000", "10000"],
                 "ice": ["10101", "01010", "10101", "01010", "10101"],
                 "wind": ["10000", "11110", "00001", "01111", "00000"],
-                "unknown": ["11111", "10001", "00110", "00000", "00100"],
+                "unknown": ["00000", "01110", "11111", "11110", "00000"],
             }
 
             def __init__(self) -> None:
@@ -2849,7 +2849,7 @@ class MatrixCanvas:  # pragma: no cover - optional Qt runtime
                     return "cloud"
                 if "sun" in text or "clear" in text or "vfr" in text or "cavok" in text:
                     return "sun"
-                return "unknown"
+                return "cloud"
 
             def _weather_temp_text(self) -> str:
                 if not self.show_weather or not isinstance(self.metar, dict):
@@ -2884,6 +2884,64 @@ class MatrixCanvas:  # pragma: no cover - optional Qt runtime
                     }.get(self._weather_glyph_name(), "WX")
                     return f"{icon} {temp}"[:max_chars]
                 return self._weather_line(max_chars)
+
+            def _draw_smart_header(self, painter: Any, QtGui: Any, left: float, top: float, board_w: float, scale: float, dim_color: Any) -> None:
+                lane = "ARR" if self.view == "arrivals" else "DEP"
+                compact_weather = self._weather_compact_token(8)
+                airport = (self.airport_iata if self.panel_w < 200 and compact_weather else self.airport_label or "LOCAL").upper()
+                clock = self._clock_text(self.panel_w < 200)
+                painter.setPen(QtGui.QColor(self.colors["green"]))
+
+                if self.panel_w < 200:
+                    chars = max(8, int(self.panel_w / 6))
+                    header = f"{self.marquee(airport, max(6, chars - 4)).strip()} {lane}".upper()[:chars]
+                    painter.drawText(int(left + 10), int(top + 8 * scale), header)
+                    second_line = clock[:chars]
+                    second_color = dim_color
+                    if compact_weather:
+                        approx_w = len(compact_weather) * 6 * scale
+                        wx_x = left + board_w - approx_w - 10 * scale
+                        header_right = left + 10 + len(header) * 6 * scale + 6 * scale
+                        if wx_x > header_right:
+                            second_color = dim_color
+                            painter.setPen(QtGui.QColor(self.colors["amber"]))
+                            painter.drawText(int(wx_x), int(top + 8 * scale), compact_weather)
+                        elif int(time.monotonic() // 8) % 2 == 1:
+                            second_line = compact_weather[:chars]
+                            second_color = QtGui.QColor(self.colors["amber"])
+                    painter.setPen(second_color)
+                    painter.drawText(int(left + 10), int(top + 18 * scale), second_line)
+                    return
+
+                clock_w = len(clock) * 6 * scale
+                clock_x = left + max(0, board_w - clock_w - 8 * scale)
+                painter.setPen(dim_color)
+                painter.drawText(int(clock_x), int(top + 8 * scale), clock)
+
+                weather_start = clock_x - left
+                weather_line = self._weather_line(max(8, int(self.panel_w / 6)))
+                if weather_line or compact_weather:
+                    desired = min(24, max(8, int((weather_start - 96 * scale) / max(1.0, 6 * scale)))) if self.panel_w >= 384 else 10
+                    weather_text = (weather_line or compact_weather)[:desired]
+                    weather_w = 10 * scale + len(weather_text) * 6 * scale
+                    weather_x = max(0, weather_start - weather_w - 8 * scale)
+                    if weather_x > (96 * scale if self.panel_w >= 320 else 54 * scale):
+                        painter.setPen(QtGui.QColor(self.colors["amber"]))
+                        self._draw_board_glyph(painter, QtGui, self._weather_glyph_name(), left + weather_x, top + 3 * scale, max(1.0, scale * 0.8), QtGui.QColor(self.colors["amber"]))
+                        painter.setPen(dim_color)
+                        painter.drawText(int(left + weather_x + 9 * scale), int(top + 8 * scale), weather_text)
+                        weather_start = weather_x
+                    elif self.panel_h >= 96 and weather_line:
+                        painter.setPen(QtGui.QColor(self.colors["amber"]))
+                        self._draw_board_glyph(painter, QtGui, self._weather_glyph_name(), left + 10, top + 14 * scale, max(1.0, scale * 0.8), QtGui.QColor(self.colors["amber"]))
+                        painter.drawText(int(left + 18 * scale), int(top + 18 * scale), weather_line)
+
+                label = f"{airport} {lane}".upper()
+                label_chars = max(8, int((weather_start - 8 * scale) / max(1.0, 6 * scale)))
+                if len(label) > label_chars:
+                    label = self.marquee(label, label_chars).strip()
+                painter.setPen(QtGui.QColor(self.colors["green"]))
+                painter.drawText(int(left + 10), int(top + 8 * scale), label)
 
             def _header_height(self) -> int:
                 if self.panel_w < 200:
@@ -3060,41 +3118,7 @@ class MatrixCanvas:  # pragma: no cover - optional Qt runtime
                 header_h = max(float(self._header_height()) * scale, 18.0)
                 rows_to_draw = self._visible_rows()
                 row_h = (board_h - header_h) / max(1, rows_to_draw)
-                painter.setPen(dim_color)
-                lane = "ARR" if self.view == "arrivals" else "DEP"
-                compact_weather = self._weather_compact_token(8)
-                airport = (self.airport_iata if self.panel_w < 200 and compact_weather else self.airport_label or "LOCAL").upper()
-                header = f"{airport} {lane}"
-                if self.panel_w >= 200:
-                    header = f"{header}  {self.panel_w}x{self.panel_h}  {self.animation_mode.replace('_', ' ').upper()}"
-                painter.drawText(int(left + 10), int(top + 8 * scale), header[:52])
-                clock = self._clock_text(self.panel_w < 200)
-                painter.setPen(dim_color)
-                if self.panel_w < 200:
-                    chars = max(8, int(self.panel_w / 6))
-                    second_line = clock[:chars]
-                    second_color = dim_color
-                    if compact_weather:
-                        approx_w = len(compact_weather) * 6 * scale
-                        wx_x = left + board_w - approx_w - 10 * scale
-                        header_right = left + 10 + len(header[:52]) * 6 * scale + 6 * scale
-                        if wx_x > header_right:
-                            painter.setPen(QtGui.QColor(self.colors["amber"]))
-                            painter.drawText(int(wx_x), int(top + 8 * scale), compact_weather)
-                        elif int(time.monotonic() // 8) % 2 == 1:
-                            second_line = compact_weather[:chars]
-                            second_color = QtGui.QColor(self.colors["amber"])
-                        elif compact_weather:
-                            self._draw_board_glyph(painter, QtGui, self._weather_glyph_name(), left + board_w - 18 * scale, top + 3 * scale, scale, QtGui.QColor(self.colors["amber"]))
-                    painter.setPen(second_color)
-                    painter.drawText(int(left + 10), int(top + 18 * scale), second_line)
-                else:
-                    painter.drawText(int(left + max(10, board_w - 104 * scale)), int(top + header_h * 0.72), clock)
-                    weather_line = self._weather_line(max(10, int(self.panel_w / 8)))
-                    if self.panel_h >= 96 and weather_line:
-                        painter.setPen(QtGui.QColor(self.colors["amber"]))
-                        self._draw_board_glyph(painter, QtGui, self._weather_glyph_name(), left + 10, top + 14 * scale, max(1.0, scale * 0.8), QtGui.QColor(self.colors["amber"]))
-                        painter.drawText(int(left + 18 * scale), int(top + 18 * scale), weather_line)
+                self._draw_smart_header(painter, QtGui, left, top, board_w, scale, dim_color)
                 painter.setPen(text_color)
                 paint_rows = self.rows
                 if self.preset == "vatsim_atc":
@@ -3147,12 +3171,33 @@ class MatrixCanvas:  # pragma: no cover - optional Qt runtime
                             painter.drawText(int(left + 4), int(row_top + 32 * scale), self.row_details[idx][:20])
                             painter.setFont(font)
                         continue
+                    status_x = board_w * 0.60 if self.panel_w >= 420 else board_w * 0.56 if self.panel_w >= 300 else min(board_w - 120, 160 * scale)
+                    gate_x = board_w * 0.80 if self.panel_w >= 360 else board_w - 46 * scale
+                    aircraft_x = board_w * 0.89 if self.panel_w >= 420 else board_w - 46 * scale
+                    route_chars = max(6, int((status_x - 104 * scale) / max(1.0, 6 * scale)))
+                    status_chars = max(7, int(((gate_x if self.panel_w >= 360 else board_w) - status_x - 4 * scale) / max(1.0, 6 * scale)))
+                    time_text = (format_value(row_data.get("matrix_time_label")) or format_value(row_data.get("display_time")) or format_value(row_data.get("time")) or text[:5])[:5]
+                    flight_text = self._flight_cycle_display(row_data)[:8] if row_data else text[6:14]
+                    route_text = self._route_chunk(row_data, route_chars) if row_data else text[15:27]
+                    status_text = self._status_or_gate_chunk(row_data, status_chars) if row_data else text[28:40]
+                    painter.setPen(text_color if cancelled else QtGui.QColor(self.colors["green"]))
+                    painter.drawText(int(left + 10), int(y), time_text)
                     painter.setPen(text_color)
-                    painter.drawText(int(left + 10), int(y), text[:28])
+                    painter.drawText(int(left + 42 * scale), int(y), flight_text)
+                    painter.drawText(int(left + 102 * scale), int(y), route_text)
                     painter.setPen(status_color)
-                    painter.drawText(int(left + min(board_w - 120, 160 * scale)), int(y), text[28:40])
-                    painter.setPen(dim_color)
-                    painter.drawText(int(left + board_w - 46 * scale), int(y), text[39:43])
+                    painter.drawText(int(left + status_x), int(y), status_text)
+                    if row_data and self.panel_w >= 260:
+                        gate = self._gate_label(row_data)
+                        aircraft = (format_value(row_data.get("aircraft_type")) or format_value(row_data.get("aircraft")) or "").upper()
+                        painter.setPen(dim_color)
+                        if gate:
+                            painter.drawText(int(left + gate_x), int(y), gate[:5])
+                        if aircraft and self.panel_w >= 420:
+                            painter.drawText(int(left + aircraft_x), int(y), aircraft[:5])
+                    else:
+                        painter.setPen(dim_color)
+                        painter.drawText(int(left + board_w - 46 * scale), int(y), text[39:43])
                     if idx < len(self.row_details) and self.row_details[idx] and row_h > 22:
                         detail_font = QtGui.QFont("Space Mono", max(5, int(4.5 * scale)))
                         painter.setFont(detail_font)

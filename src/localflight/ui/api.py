@@ -32,6 +32,7 @@ from localflight.core.airports import _load_index, best_label, lookup_airport
 from localflight.core.flight_intel import build_flight_intel
 from localflight.core.models import Flight, FlightDirection, FlightPosition
 from localflight.decode.identity import resolve_flight_identity
+from localflight.decode.dedupe import dedupe_codeshares
 from localflight.display.fids import enrich_presentation_fields
 from localflight.render.fids import build_fids_context
 from localflight.storage.config import (
@@ -645,7 +646,7 @@ def _load_latest_flights(airport_iata: str) -> tuple[List[Flight], Optional[date
         except Exception as exc:
             log.debug("Skipping malformed flight: %s", exc)
 
-    return flights, generated_at
+    return dedupe_codeshares(flights), generated_at
 
 
 # â”€â”€ Pydantic schemas â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€

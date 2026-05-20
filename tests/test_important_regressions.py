@@ -31,7 +31,7 @@ import localflight.storage.install as storage_install
 import localflight.ui.api as ui_api
 import localflight.ui.server as ui_server
 import relay.main as relay_main
-from localflight.core.models import AirportRef, Flight, FlightDirection, FlightPosition, FlightTime
+from localflight.core.models import AirlineRef, AirportRef, Flight, FlightDirection, FlightPosition, FlightTime
 from localflight.companion_pairing import build_pairing_deep_link, pairing_gateway_payload
 from localflight.decode.metar import decorate_metar
 from localflight.decode.dedupe import dedupe_codeshares
@@ -1009,6 +1009,88 @@ def test_aerodatabox_unknown_codeshare_status_keeps_same_route_time_rows_separat
 
     assert len(deduped) == 2
     assert {flight.flight_number for flight in deduped} == {"TS420", "PD7420"}
+
+
+def test_codeshare_dedupe_collapses_same_registered_aircraft_and_scores_operator() -> None:
+    scheduled = datetime(2026, 5, 20, 18, 15, tzinfo=timezone.utc)
+    airport = AirportRef(iata="ZRH", icao="LSZH")
+
+    flights = [
+        Flight(
+            direction=FlightDirection.DEPARTURE,
+            airport=airport,
+            callsign="SWR4556",
+            airline=AirlineRef(name="SWISS", iata="LX", icao="SWR"),
+            flight_number="LX4556",
+            marketing_flight_number="LX4556",
+            destination=AirportRef(iata="BRU"),
+            aircraft_type="A320",
+            aircraft_registration="OO-SNJ",
+            gate="A67",
+            times=FlightTime(scheduled=scheduled),
+            identity_source="provider",
+            source="aerodatabox",
+        ),
+        Flight(
+            direction=FlightDirection.DEPARTURE,
+            airport=airport,
+            callsign="BEL2732",
+            airline=AirlineRef(name="Brussels Airlines", iata="SN", icao="BEL"),
+            flight_number="SN2732",
+            marketing_flight_number="SN2732",
+            destination=AirportRef(iata="BRU"),
+            aircraft_type="A320",
+            aircraft_registration="OO-SNJ",
+            gate="A67",
+            times=FlightTime(scheduled=scheduled),
+            identity_source="provider",
+            source="aerodatabox",
+        ),
+    ]
+
+    deduped = dedupe_codeshares(flights)
+
+    assert len(deduped) == 1
+    primary = deduped[0]
+    assert primary.callsign == "BEL2732"
+    assert primary.flight_number == "SN2732"
+    assert primary.airline.iata == "SN"
+    assert "LX 4556" in primary.sold_as
+    row = flight_to_fids_row(primary, view="departures", display_tz=ZoneInfo("UTC"))
+    assert row.flight_display == "SN 2732"
+    assert row.codeshare_display == "Sold as LX 4556"
+
+
+def test_codeshare_dedupe_keeps_same_route_time_when_aircraft_evidence_differs() -> None:
+    scheduled = datetime(2026, 5, 20, 18, 15, tzinfo=timezone.utc)
+    airport = AirportRef(iata="ZRH", icao="LSZH")
+    flights = [
+        Flight(
+            direction=FlightDirection.DEPARTURE,
+            airport=airport,
+            callsign="SWR4556",
+            airline=AirlineRef(name="SWISS", iata="LX", icao="SWR"),
+            flight_number="LX4556",
+            destination=AirportRef(iata="BRU"),
+            aircraft_registration="HB-JNA",
+            times=FlightTime(scheduled=scheduled),
+        ),
+        Flight(
+            direction=FlightDirection.DEPARTURE,
+            airport=airport,
+            callsign="BEL2732",
+            airline=AirlineRef(name="Brussels Airlines", iata="SN", icao="BEL"),
+            flight_number="SN2732",
+            destination=AirportRef(iata="BRU"),
+            aircraft_registration="OO-SNJ",
+            times=FlightTime(scheduled=scheduled),
+        ),
+    ]
+
+    deduped = dedupe_codeshares(flights)
+
+    assert len(deduped) == 2
+    assert {flight.flight_number for flight in deduped} == {"LX4556", "SN2732"}
 
 
 def test_fids_delay_visual_thresholds_and_early_arrivals() -> None:
@@ -4292,7 +4374,7 @@ def test_matrix_script_endpoint_uses_current_i75w_client_template() -> None:
     script = response.text
     compile(script, "generated-main.py", "exec")
     assert 'CLIENT_VER       = "2.0"' in script
-    assert 'CLIENT_RENDERER_REV = "matrix-display-contract-v2"' in script
+    assert 'CLIENT_RENDERER_REV = "matrix-display-contract-v3"' in script
     assert "import interstate75 as interstate75_module" in script
     assert "def update_display():" in script
     assert "def fit_text(value, length):" in script
