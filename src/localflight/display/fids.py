@@ -39,6 +39,9 @@ class FIDSRow:
     marketing_flight_number: str = ""
     operating_callsign: str = ""
     identity_source: str = ""
+    provider_codeshare_status: str = ""
+    provider_movement_key: str = ""
+    identity_evidence: tuple[str, ...] = ()
     delay_minutes: Optional[int] = None
     delay_class: str = ""  # early | warn | bad
     time_primary: str = ""

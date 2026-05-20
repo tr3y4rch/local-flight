@@ -345,7 +345,7 @@ _DOC_PAGES: Dict[str, Dict[str, str]] = {
     "client-notes": {
         "title": "0.2.7 Client Notes",
         "filename": "release-notes-0.2.7.md",
-        "summary": "0.2.7 polish pass: Network Admin presence framing, sign-out + idle auto-logoff, calmer admin styling.",
+        "summary": "0.2.7 client polish: native shell, FIDS, History, Matrix, mobile, and relay-facing client changes.",
         "github_url": "https://github.com/tr3y4rch/local-flight/blob/main/docs/release-notes-0.2.7.md",
     },
     "privacy": {

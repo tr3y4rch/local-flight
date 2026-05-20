@@ -27,7 +27,9 @@ def _identity_bundle_path() -> Path:
 
 
 def _identity_anchor_path() -> Path:
-    return Path.home() / ".localflight_identity.json"
+    home_override = os.getenv("LOCALFLIGHT_HOME") or os.getenv("HOME")
+    base_home = Path(home_override) if home_override else Path.home()
+    return base_home / ".localflight_identity.json"
 
 
 def _activation_path() -> Path:

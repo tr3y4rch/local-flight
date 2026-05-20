@@ -212,10 +212,14 @@ def resolve_flight_identity(
         identifiers=list(identifiers),
         provider_airline=provider_airline,
     )
+    provider_codeshare_status = _text(record.get("provider_codeshare_status")).replace(" ", "").lower()
 
     identity_source = "provider"
     operating_airline = provider_airline
-    if explicit_airline:
+    if provider_codeshare_status == "isoperator":
+        operating_airline = explicit_airline or provider_airline
+        identity_source = "provider_operator"
+    elif explicit_airline:
         operating_airline = explicit_airline
         identity_source = "explicit_operating"
     elif callsign_airline and _airlines_differ(callsign_airline, provider_airline):

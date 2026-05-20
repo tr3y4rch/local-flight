@@ -63,6 +63,52 @@ def _delay_minutes(scheduled: Optional[str], estimated: Optional[str], actual: O
     return int((end - start).total_seconds() // 60)
 
 
+def _minute_stamp(value: Optional[str]) -> str:
+    parsed = _parse_iso(value)
+    if parsed:
+        return parsed.replace(second=0, microsecond=0).isoformat()
+    return _s(value)[:16]
+
+
+def _codeshare_status(row: Dict[str, Any]) -> str:
+    raw = _pick(
+        row.get("codeshareStatus"),
+        row.get("codeShareStatus"),
+        row.get("codeshare_status"),
+        row.get("CodeshareStatus"),
+    )
+    if not raw:
+        return "Unknown"
+    compact = str(raw).strip().replace(" ", "").lower()
+    if compact in {"isoperator", "operator", "operating"}:
+        return "IsOperator"
+    if compact in {"iscodeshared", "codeshared", "marketing", "codeshare"}:
+        return "IsCodeshared"
+    return "Unknown"
+
+
+def _provider_movement_key(
+    *,
+    direction: str,
+    origin_iata: Optional[str],
+    origin_icao: Optional[str],
+    destination_iata: Optional[str],
+    destination_icao: Optional[str],
+    scheduled: Optional[str],
+    estimated: Optional[str],
+    actual: Optional[str],
+) -> str:
+    stamp = _minute_stamp(scheduled or estimated or actual)
+    parts = (
+        "aerodatabox",
+        direction.upper(),
+        (origin_iata or origin_icao or "").upper(),
+        (destination_iata or destination_icao or "").upper(),
+        stamp,
+    )
+    return "|".join(part for part in parts if part)
+
+
 def _status(value: Any, *, direction: str) -> str:
     raw = _s(value).strip().lower()
     if not raw:
@@ -230,6 +276,7 @@ def aerodatabox_to_raw_records(
             callsign = _callsign(row, airline, flight_number)
             if not callsign:
                 continue
+            provider_codeshare_status = _codeshare_status(row)
 
             scheduled = _time_value(time_block, "scheduledTime", "scheduled", "scheduledAt")
             estimated = _time_value(time_block, "revisedTime", "estimatedTime", "estimated", "estimatedAt")
@@ -239,6 +286,17 @@ def aerodatabox_to_raw_records(
             origin_icao = _airport_code(dep, "icao") or (airport_icao if direction == "DEP" else None)
             destination_iata = _airport_code(arr, "iata") or (airport_iata if direction == "ARR" else None)
             destination_icao = _airport_code(arr, "icao") or (airport_icao if direction == "ARR" else None)
+            provider_movement_key = _provider_movement_key(
+                direction=direction,
+                origin_iata=origin_iata,
+                origin_icao=origin_icao,
+                destination_iata=destination_iata,
+                destination_icao=destination_icao,
+                scheduled=scheduled,
+                estimated=estimated,
+                actual=actual,
+            )
+            identity_evidence = [f"aerodatabox.codeshareStatus:{provider_codeshare_status}"]
 
             out.append(
                 {
@@ -258,8 +316,12 @@ def aerodatabox_to_raw_records(
                     "operating_airline_name": _pick(operating_airline.get("name"), operating_airline.get("Name")),
                     "operating_airline_iata": _pick(operating_airline.get("iata"), operating_airline.get("IATA")),
                     "operating_airline_icao": _pick(operating_airline.get("icao"), operating_airline.get("ICAO")),
+                    "operating_callsign": callsign if provider_codeshare_status == "IsOperator" else None,
                     "flight_number": flight_number,
                     "codeshares": _codeshare_identifiers(row),
+                    "provider_codeshare_status": provider_codeshare_status,
+                    "provider_movement_key": provider_movement_key,
+                    "identity_evidence": identity_evidence,
                     "origin_iata": origin_iata,
                     "origin_icao": origin_icao,
                     "destination_iata": destination_iata,

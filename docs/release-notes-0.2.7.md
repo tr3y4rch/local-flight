@@ -50,6 +50,10 @@ traffic.
   with no airport-name wall of text and no technical code suffix.
 - Operating-flight identity remains the main board identity, with marketed or
   sold-as flights shown as secondary/codeshare detail.
+- AeroDataBox operating/codeshare evidence is preserved before dedupe. When the
+  provider marks one row as the operator and nearby rows as marketed/codeshared,
+  Local Flight keeps the operating row as the board identity and folds marketed
+  labels into "Sold as" detail instead of showing duplicate movements.
 - Aircraft type display stays compact on the board, while richer aircraft,
   source, timing, live-motion, and history context stays in the detail drawer.
 - Native and LAN/browser detail views continue to use the shared
@@ -70,6 +74,12 @@ traffic.
 - Panel presets, startup lane, row count, weather, gate/stand, brightness,
   palette, animation, and live preview behavior are aligned across native Qt,
   LAN browser, and generated MicroPython.
+- Matrix display labels now use the same operating-first identity contract as
+  FIDS. The board receives stable `matrix_*` labels for time, flight, route,
+  status, gate, aircraft, and weather so codeshares do not rotate into the
+  primary flight-number slot.
+- Split-flap remains the default motion, with typewriter and cascade preview
+  modes available across native Qt, LAN browser, and generated `main.py`.
 - Compact Matrix FIDS headers keep weather inside the existing header space so
   small boards such as `128x128` do not lose a flight row.
 - Real-world Matrix boards can show gate/stand data when available. VATSIM
@@ -152,8 +162,8 @@ This operator console is not part of the normal public client navigation.
 ## Release Packaging
 
 Windows and Raspberry Pi artifacts should be built from the current `0.2.7`
-tree. Older `0.2.6` artifacts and any pre-Standalone `0.2.7` artifacts should
-be treated as stale after the client-polish changes.
+tree. Older `0.2.6` artifacts and any pre-Standalone/pre-Matrix-integrity
+`0.2.7` artifacts should be treated as stale after the client-polish changes.
 
 macOS still needs its own packaging and smoke-test pass on a Mac before a full
 cross-platform GitHub release.

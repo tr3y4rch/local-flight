@@ -580,6 +580,8 @@
       <label>Motion</label>
       <select id="animationModeSelect" onchange="setAnimationMode(this.value)">
         <option value="split_flap" selected>Split-flap</option>
+        <option value="typewriter">Typewriter</option>
+        <option value="cascade">Cascade</option>
         <option value="slide_left">Slide left</option>
         <option value="slide_right">Slide right</option>
         <option value="static">Static</option>
@@ -807,6 +809,15 @@
     night_ops:       { off:"#020812", green:"#4bb8ff", white:"#d8f7ff", dim:"#27506e", amber:"#f4c95d", red:"#ff5d7a", cyan:"#49f0c8" },
     sunset_terminal: { off:"#12040b", green:"#ff7a3d", white:"#fff2e6", dim:"#8e3f55", amber:"#ffd166", red:"#ff3864", cyan:"#ff4fd8" },
     ice_white:       { off:"#060a0f", green:"#bde9ff", white:"#ffffff", dim:"#6a8195", amber:"#ffd35a", red:"#ff5252", cyan:"#66d9ff" },
+    crt:             { off:"#0a0600", green:"#ffcc44", white:"#ffeeaa", dim:"#7a5000", amber:"#ffdd00", red:"#ff4020", cyan:"#ffaa00" },
+    neon:            { off:"#000d00", green:"#00ff50", white:"#dcffdc", dim:"#007a28", amber:"#aaff00", red:"#ff4040", cyan:"#aaff00" },
+    amber:           { off:"#0b0600", green:"#ffae2e", white:"#ffebb4", dim:"#7e5416", amber:"#ffdf55", red:"#ff5738", cyan:"#ffc56b" },
+    green:           { off:"#001006", green:"#28f76e", white:"#dcffe6", dim:"#227c3e", amber:"#ffc94a", red:"#ff4d4d", cyan:"#55e7ff" },
+    cyan:            { off:"#00080f", green:"#00ccff", white:"#d7fcff", dim:"#006688", amber:"#ffcc00", red:"#ff4060", cyan:"#00ffcc" },
+    technical:       { off:"#0a0e14", green:"#4a9eda", white:"#d2e6f8", dim:"#507494", amber:"#d4a020", red:"#c04040", cyan:"#7ce7ff" },
+    phosphor:        { off:"#000d00", green:"#39ff14", white:"#cdffc6", dim:"#3a8a18", amber:"#aaff00", red:"#ff3232", cyan:"#b4ffb4" },
+    indigo_night:    { off:"#08060f", green:"#8272ff", white:"#d8d4ff", dim:"#5548b8", amber:"#ffd84a", red:"#ff6b8a", cyan:"#4deaff" },
+    rose_gold:       { off:"#160006", green:"#ff7ecb", white:"#ffd8ee", dim:"#a04878", amber:"#ffd166", red:"#ff3864", cyan:"#ffb8c8" },
   };
   let C = { ...( SKIN_PALETTES[MATRIX_PALETTE] || SKIN_PALETTES.pax_blue ) };
 
@@ -948,11 +959,15 @@
     plane: ["00100","10101","11111","00100","01010"],
     warn: ["00100","01110","01110","00000","00100"],
     sun: ["10101","01110","11111","01110","10101"],
+    partly: ["10100","01110","11111","11110","00000"],
     cloud: ["00000","01110","11111","11110","00000"],
     rain: ["01110","11111","00000","01010","10100"],
     storm: ["01110","11111","00100","01000","10000"],
+    fog: ["00000","11110","00000","01111","00000"],
     mist: ["00000","11110","00000","01111","00000"],
     snow: ["10101","01010","10101","01010","10101"],
+    ice: ["10101","01010","10101","01010","10101"],
+    wind: ["10000","11110","00001","01111","00000"],
     temp: ["00100","01010","01010","10001","01110"],
     unknown: ["11111","10001","00110","00000","00100"],
   };
@@ -975,6 +990,7 @@
     target: " ".repeat(ROW_LEN),
     frame: 0,
     frames: 1,
+    typewriterPos: 0,
   }));
 
   function setRowText(rowIdx, text) {
@@ -989,6 +1005,14 @@
         flapRows[rowIdx][i].frame = 99;
         flapRows[rowIdx][i].frames = 0;
       }
+      return;
+    }
+    if (ANIMATION_MODE === "typewriter" || ANIMATION_MODE === "cascade") {
+      const slide = slideRows[rowIdx];
+      if (slide.target === text && slide.typewriterPos < ROW_LEN) return;
+      slide.target = text;
+      slide.current = " ".repeat(ROW_LEN);
+      slide.typewriterPos = ANIMATION_MODE === "cascade" ? -rowIdx * 4 : 0;
       return;
     }
     if (ANIMATION_MODE === "slide_left" || ANIMATION_MODE === "slide_right") {
@@ -1010,6 +1034,9 @@
   }
 
   function getRowText(rowIdx) {
+    if (ANIMATION_MODE === "typewriter" || ANIMATION_MODE === "cascade") {
+      return slideRows[rowIdx].current;
+    }
     if (ANIMATION_MODE === "slide_left" || ANIMATION_MODE === "slide_right") {
       const slide = slideRows[rowIdx];
       if (slide.frame >= slide.frames) return slide.current;
@@ -1028,6 +1055,15 @@
   }
 
   function stepAllFlap() {
+    if (ANIMATION_MODE === "typewriter" || ANIMATION_MODE === "cascade") {
+      for (let r=0; r<MAX_ROWS; r++) {
+        const slide = slideRows[r];
+        slide.typewriterPos = Math.min(ROW_LEN, slide.typewriterPos + Math.max(1, ANIMATION_SPEED));
+        const visible = Math.max(0, slide.typewriterPos);
+        slide.current = slide.target.slice(0, visible).padEnd(ROW_LEN, " ");
+      }
+      return;
+    }
     if (ANIMATION_MODE === "slide_left" || ANIMATION_MODE === "slide_right") {
       for (let r=0; r<MAX_ROWS; r++) {
         const slide = slideRows[r];
@@ -1252,11 +1288,14 @@
       ""
     ).toLowerCase();
     if (text.includes("storm") || text.includes("thunder")) return "storm";
-    if (text.includes("rain") || text.includes("shower")) return "rain";
-    if (text.includes("snow")) return "snow";
-    if (text.includes("mist") || text.includes("fog") || text.includes("haze")) return "mist";
-    if (text.includes("cloud") || text.includes("overcast")) return "cloud";
-    if (text.includes("sun") || text.includes("clear") || text.includes("vfr")) return "sun";
+    if (text.includes("ice") || text.includes("freez") || text.includes("hail")) return "ice";
+    if (text.includes("rain") || text.includes("shower") || text.includes("drizzle")) return "rain";
+    if (text.includes("snow") || text.includes("flurr")) return "snow";
+    if (text.includes("wind") || text.includes("gust")) return "wind";
+    if (text.includes("mist") || text.includes("fog") || text.includes("haze") || text.includes("smoke") || text.includes("dust") || text.includes("ash")) return "fog";
+    if (text.includes("part") || text.includes("few") || text.includes("scatter")) return "partly";
+    if (text.includes("cloud") || text.includes("overcast") || text.includes("broken")) return "cloud";
+    if (text.includes("sun") || text.includes("clear") || text.includes("vfr") || text.includes("cavok")) return "sun";
     return "unknown";
   }
 

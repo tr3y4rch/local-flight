@@ -870,6 +870,147 @@ def test_identity_aware_dedupe_keeps_unlinked_same_route_and_time_flights_separa
     assert {flight.flight_number for flight in deduped} == {"LX100", "UA100"}
 
 
+def test_aerodatabox_codeshare_status_collapses_to_operator_row() -> None:
+    scheduled = datetime(2026, 5, 20, 4, 45, tzinfo=timezone.utc)
+    payload = {
+        "departures": [
+            {
+                "number": "348",
+                "callSign": "EDW348",
+                "codeshareStatus": "IsOperator",
+                "status": "Scheduled",
+                "departure": {
+                    "airport": {"iata": "ZRH", "icao": "LSZH"},
+                    "scheduledTime": {"utc": scheduled.isoformat()},
+                    "gate": "A12",
+                },
+                "arrival": {
+                    "airport": {"iata": "HER", "icao": "LGIR"},
+                    "scheduledTime": {"utc": scheduled.isoformat()},
+                },
+                "airline": {"name": "Edelweiss Air", "iata": "WK", "icao": "EDW"},
+                "aircraft": {"icaoCode": "A320"},
+            },
+            {
+                "number": "8348",
+                "callSign": "SWR8348",
+                "codeshareStatus": "IsCodeshared",
+                "status": "Scheduled",
+                "departure": {
+                    "airport": {"iata": "ZRH", "icao": "LSZH"},
+                    "scheduledTime": {"utc": scheduled.isoformat()},
+                },
+                "arrival": {
+                    "airport": {"iata": "HER", "icao": "LGIR"},
+                    "scheduledTime": {"utc": scheduled.isoformat()},
+                },
+                "airline": {"name": "SWISS", "iata": "LX", "icao": "SWR"},
+            },
+        ],
+        "arrivals": [],
+    }
+
+    records = aerodatabox_to_raw_records(payload, airport_iata="ZRH", airport_icao="LSZH")
+    flights = normalize_flights(records, airport_iata="ZRH", airport_icao="LSZH", source_name="aerodatabox")
+    deduped = dedupe_codeshares(flights)
+
+    assert len(deduped) == 1
+    primary = deduped[0]
+    assert primary.callsign == "EDW348"
+    assert primary.flight_number == "WK348"
+    assert primary.airline.iata == "WK"
+    assert primary.provider_codeshare_status == "IsOperator"
+    assert "LX 8348" in set(primary.sold_as)
+    assert any("codeshareStatus:IsOperator" in item for item in primary.identity_evidence)
+
+    row = flight_to_fids_row(primary, view="departures", display_tz=ZoneInfo("UTC"))
+    assert row.flight_display == "WK 348"
+    assert row.codeshare_display == "Sold as LX 8348"
+    assert row.provider_codeshare_status == "IsOperator"
+
+    api_rows = ui_api._fids_rows_from_flights(
+        cfg=AppConfig(airport_iata="ZRH", airport_icao="LSZH", timezone="UTC"),
+        flights=deduped,
+        view="departures",
+        limit=10,
+        last_refreshed=scheduled,
+    )
+    payload = api_rows[0].model_dump()
+    assert payload["flight_display"] == "WK 348"
+    assert payload["sold_as"] == ["LX 8348"]
+    assert payload["provider_codeshare_status"] == "IsOperator"
+    assert payload["provider_movement_key"].startswith("aerodatabox|DEP|ZRH|HER|")
+    assert "aerodatabox.codeshareStatus:IsOperator" in payload["identity_evidence"]
+
+
+def test_aerodatabox_multiple_operator_rows_same_route_time_stay_separate() -> None:
+    scheduled = datetime(2026, 5, 20, 12, 0, tzinfo=timezone.utc)
+    payload = {
+        "departures": [
+            {
+                "number": "123",
+                "callSign": "ACA123",
+                "codeshareStatus": "IsOperator",
+                "status": "Scheduled",
+                "departure": {"airport": {"iata": "YYZ"}, "scheduledTime": {"utc": scheduled.isoformat()}},
+                "arrival": {"airport": {"iata": "YVR"}, "scheduledTime": {"utc": scheduled.isoformat()}},
+                "airline": {"name": "Air Canada", "iata": "AC", "icao": "ACA"},
+            },
+            {
+                "number": "729",
+                "callSign": "WJA729",
+                "codeshareStatus": "IsOperator",
+                "status": "Scheduled",
+                "departure": {"airport": {"iata": "YYZ"}, "scheduledTime": {"utc": scheduled.isoformat()}},
+                "arrival": {"airport": {"iata": "YVR"}, "scheduledTime": {"utc": scheduled.isoformat()}},
+                "airline": {"name": "WestJet", "iata": "WS", "icao": "WJA"},
+            },
+        ],
+        "arrivals": [],
+    }
+
+    records = aerodatabox_to_raw_records(payload, airport_iata="YYZ", airport_icao="CYYZ")
+    flights = normalize_flights(records, airport_iata="YYZ", airport_icao="CYYZ", source_name="aerodatabox")
+    deduped = dedupe_codeshares(flights)
+
+    assert len(deduped) == 2
+    assert {flight.flight_number for flight in deduped} == {"AC123", "WS729"}
+
+
+def test_aerodatabox_unknown_codeshare_status_keeps_same_route_time_rows_separate() -> None:
+    scheduled = datetime(2026, 5, 20, 12, 0, tzinfo=timezone.utc)
+    payload = {
+        "arrivals": [
+            {
+                "number": "420",
+                "callSign": "TSC420",
+                "codeshareStatus": "Unknown",
+                "status": "Scheduled",
+                "departure": {"airport": {"iata": "YUL"}, "scheduledTime": {"utc": scheduled.isoformat()}},
+                "arrival": {"airport": {"iata": "YYZ"}, "scheduledTime": {"utc": scheduled.isoformat()}},
+                "airline": {"name": "Air Transat", "iata": "TS", "icao": "TSC"},
+            },
+            {
+                "number": "7420",
+                "callSign": "POE7420",
+                "codeshareStatus": "Unknown",
+                "status": "Scheduled",
+                "departure": {"airport": {"iata": "YUL"}, "scheduledTime": {"utc": scheduled.isoformat()}},
+                "arrival": {"airport": {"iata": "YYZ"}, "scheduledTime": {"utc": scheduled.isoformat()}},
+                "airline": {"name": "Porter", "iata": "PD", "icao": "POE"},
+            },
+        ],
+        "departures": [],
+    }
+
+    records = aerodatabox_to_raw_records(payload, airport_iata="YYZ", airport_icao="CYYZ")
+    flights = normalize_flights(records, airport_iata="YYZ", airport_icao="CYYZ", source_name="aerodatabox")
+    deduped = dedupe_codeshares(flights)
+
+    assert len(deduped) == 2
+    assert {flight.flight_number for flight in deduped} == {"TS420", "PD7420"}
+
+
 def test_fids_delay_visual_thresholds_and_early_arrivals() -> None:
     tz = ZoneInfo("Europe/Zurich")
     airport = AirportRef(iata="ZRH", icao="LSZH")
@@ -4200,7 +4341,17 @@ def test_matrix_script_endpoint_uses_current_i75w_client_template() -> None:
     assert '"night_ops"' in script
     assert '"sunset_terminal"' in script
     assert '"ice_white"' in script
-    for legacy in ('"standard"', '"technical"', '"cyan"', '"crt"', '"neon"', '"green"', '"white"', '"classic_split_flap"', '"vatsim_ops"', '"radar_strip"'):
+    assert '"crt"' in script
+    assert '"neon"' in script
+    assert '"green"' in script
+    assert '"cyan"' in script
+    assert '"technical"' in script
+    assert '"phosphor"' in script
+    assert '"indigo_night"' in script
+    assert '"rose_gold"' in script
+    assert '"typewriter"' in script
+    assert '"cascade"' in script
+    for legacy in ('"standard"', '"white"', '"classic_split_flap"', '"vatsim_ops"', '"radar_strip"'):
         assert legacy not in script
 
 
@@ -4855,7 +5006,7 @@ def test_setup_copy_uses_friendlier_relay_and_launch_terms() -> None:
     assert "Verify relay path" not in template
     assert "Launch Local Flight" not in template
     assert "Local Flight Relay" in guidance
-    assert "Review & Open" in guidance
+    assert "Review & Launch" in guidance
     assert "Device code" in template
     assert "Test relay access" in template
     assert "Open Local Flight" in template

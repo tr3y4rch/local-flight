@@ -2451,6 +2451,23 @@ class MatrixCanvas:  # pragma: no cover - optional Qt runtime
     def __new__(cls, QtCore: Any, QtGui: Any, QtWidgets: Any):
         class _Canvas(QtWidgets.QWidget):
             FLAP_CHARS = " ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.:/-+()>"
+            BOARD_GLYPHS = {
+                "dep": ["00100", "01110", "10101", "00100", "01010"],
+                "arr": ["01010", "00100", "10101", "01110", "00100"],
+                "plane": ["00100", "10101", "11111", "00100", "01010"],
+                "warn": ["00100", "01110", "01110", "00000", "00100"],
+                "sun": ["10101", "01110", "11111", "01110", "10101"],
+                "partly": ["10100", "01110", "11111", "11110", "00000"],
+                "cloud": ["00000", "01110", "11111", "11110", "00000"],
+                "rain": ["01110", "11111", "00000", "01010", "10100"],
+                "snow": ["10101", "01010", "10101", "01010", "10101"],
+                "fog": ["00000", "11110", "00000", "01111", "00000"],
+                "mist": ["00000", "11110", "00000", "01111", "00000"],
+                "storm": ["01110", "11111", "00100", "01000", "10000"],
+                "ice": ["10101", "01010", "10101", "01010", "10101"],
+                "wind": ["10000", "11110", "00001", "01111", "00000"],
+                "unknown": ["11111", "10001", "00110", "00000", "00100"],
+            }
 
             def __init__(self) -> None:
                 super().__init__()
@@ -2474,6 +2491,8 @@ class MatrixCanvas:  # pragma: no cover - optional Qt runtime
                 self.slide_source_lines: list[str] = []
                 self.slide_frame = 0
                 self.slide_frames = 1
+                self.typewriter_pos: list[int] = []
+                self.cascade_frame = 0
                 self.row_statuses: list[str] = []
                 self.row_details: list[str] = []
                 self.codeshare_cycle = -1
@@ -2553,18 +2572,19 @@ class MatrixCanvas:  # pragma: no cover - optional Qt runtime
                 self.panel_h = panel_h
                 self.brightness = brightness
                 self.zoom = zoom
-                self.animation_mode = animation_mode if animation_mode in {"split_flap", "slide_left", "slide_right", "static"} else "split_flap"
+                self.animation_mode = animation_mode if animation_mode in {"split_flap", "typewriter", "cascade", "slide_left", "slide_right", "static"} else "split_flap"
                 self.animation_speed = max(1, min(5, int(animation_speed or 3)))
                 self.status_animation_enabled = bool(status_animation_enabled)
                 self.show_weather = bool(show_weather)
                 self.preset = preset or "real_fids"
                 self.show_gate_info = bool(show_gate_info) and not self._is_vatsim_preset()
-                self.animate = animate and self.animation_mode != "static"
+                self.animate = animate and self.animation_mode not in {"static"}
                 self.max_rows = max(1, min(8, int(max_rows or 4)))
                 self.setMinimumHeight(max(260, int(self.panel_h * max(2, self.zoom) + 96)))
                 if old_mode != self.animation_mode:
                     self.display_lines = []
                     self.slide_source_lines = []
+                    self.typewriter_pos = []
                 self.timer.setInterval(max(35, 220 - self.animation_speed * 32))
                 self._retarget_lines(force=old_mode != self.animation_mode)
                 self.update()
@@ -2589,6 +2609,22 @@ class MatrixCanvas:  # pragma: no cover - optional Qt runtime
                         changed = True
                     else:
                         self.display_lines = list(self.target_lines)
+                elif self.animation_mode in {"typewriter", "cascade"}:
+                    if len(self.typewriter_pos) != len(self.target_lines):
+                        self.typewriter_pos = [0 for _line in self.target_lines]
+                    next_lines = []
+                    for index, target in enumerate(self.target_lines):
+                        current = self.typewriter_pos[index]
+                        step = max(1, self.animation_speed)
+                        if self.animation_mode == "cascade" and current < 0:
+                            current = min(0, current + step)
+                        else:
+                            current = min(len(target), current + step)
+                        self.typewriter_pos[index] = current
+                        visible = max(0, current)
+                        next_lines.append(target[:visible].ljust(len(target)))
+                        changed = changed or visible < len(target) or self.display_lines != next_lines
+                    self.display_lines = next_lines
                 else:
                     next_lines: list[str] = []
                     for current, target in zip(self.display_lines, self.target_lines):
@@ -2621,6 +2657,12 @@ class MatrixCanvas:  # pragma: no cover - optional Qt runtime
                     self.slide_source_lines = [line.ljust(len(target))[:len(target)] for line, target in zip(self.display_lines, self.target_lines)]
                     self.slide_frame = 0
                     self.slide_frames = max(4, 16 - self.animation_speed * 2)
+                if self.animation_mode in {"typewriter", "cascade"} and (force or self.display_lines != self.target_lines):
+                    self.display_lines = [" " * len(line) for line in self.target_lines]
+                    if self.animation_mode == "cascade":
+                        self.typewriter_pos = [-index * 4 for index, _line in enumerate(self.target_lines)]
+                    else:
+                        self.typewriter_pos = [0 for _line in self.target_lines]
                 if not self.animate:
                     self.display_lines = list(self.target_lines)
 
@@ -2791,15 +2833,21 @@ class MatrixCanvas:  # pragma: no cover - optional Qt runtime
                 ).lower()
                 if "storm" in text or "thunder" in text:
                     return "storm"
-                if "rain" in text or "shower" in text:
+                if "ice" in text or "freez" in text or "hail" in text:
+                    return "ice"
+                if "rain" in text or "shower" in text or "drizzle" in text:
                     return "rain"
-                if "snow" in text:
+                if "snow" in text or "flurr" in text:
                     return "snow"
-                if "mist" in text or "fog" in text or "haze" in text:
+                if "wind" in text or "gust" in text:
+                    return "wind"
+                if "mist" in text or "fog" in text or "haze" in text or "smoke" in text or "dust" in text or "ash" in text:
                     return "fog"
-                if "cloud" in text or "overcast" in text:
+                if "part" in text or "few" in text or "scatter" in text:
+                    return "partly"
+                if "cloud" in text or "overcast" in text or "broken" in text:
                     return "cloud"
-                if "sun" in text or "clear" in text or "vfr" in text:
+                if "sun" in text or "clear" in text or "vfr" in text or "cavok" in text:
                     return "sun"
                 return "unknown"
 
@@ -2824,12 +2872,15 @@ class MatrixCanvas:  # pragma: no cover - optional Qt runtime
                 if temp:
                     icon = {
                         "sun": "SUN",
+                        "partly": "PART",
                         "cloud": "CLD",
                         "rain": "RAIN",
                         "storm": "STRM",
                         "fog": "MIST",
                         "mist": "MIST",
                         "snow": "SNOW",
+                        "ice": "ICE",
+                        "wind": "WND",
                     }.get(self._weather_glyph_name(), "WX")
                     return f"{icon} {temp}"[:max_chars]
                 return self._weather_line(max_chars)
@@ -2941,6 +2992,16 @@ class MatrixCanvas:  # pragma: no cover - optional Qt runtime
                         chars[idx] = target_char
                 return "".join(chars), changed
 
+            def _draw_board_glyph(self, painter: Any, QtGui: Any, name: str, x: float, y: float, scale: float, color: Any) -> None:
+                mask = self.BOARD_GLYPHS.get(name, self.BOARD_GLYPHS["unknown"])
+                painter.setPen(QtGui.QPen(color, max(1, int(scale))))
+                painter.setBrush(color)
+                dot = max(1.0, scale * 0.72)
+                for yy, row in enumerate(mask):
+                    for xx, bit in enumerate(row):
+                        if bit == "1":
+                            painter.drawRect(QtCore.QRectF(x + xx * scale, y + yy * scale, dot, dot))
+
             def paintEvent(self, _event: Any) -> None:
                 painter = QtGui.QPainter(self)
                 painter.setRenderHint(QtGui.QPainter.Antialiasing)
@@ -3023,6 +3084,8 @@ class MatrixCanvas:  # pragma: no cover - optional Qt runtime
                         elif int(time.monotonic() // 8) % 2 == 1:
                             second_line = compact_weather[:chars]
                             second_color = QtGui.QColor(self.colors["amber"])
+                        elif compact_weather:
+                            self._draw_board_glyph(painter, QtGui, self._weather_glyph_name(), left + board_w - 18 * scale, top + 3 * scale, scale, QtGui.QColor(self.colors["amber"]))
                     painter.setPen(second_color)
                     painter.drawText(int(left + 10), int(top + 18 * scale), second_line)
                 else:
@@ -3030,7 +3093,8 @@ class MatrixCanvas:  # pragma: no cover - optional Qt runtime
                     weather_line = self._weather_line(max(10, int(self.panel_w / 8)))
                     if self.panel_h >= 96 and weather_line:
                         painter.setPen(QtGui.QColor(self.colors["amber"]))
-                        painter.drawText(int(left + 10), int(top + 18 * scale), weather_line)
+                        self._draw_board_glyph(painter, QtGui, self._weather_glyph_name(), left + 10, top + 14 * scale, max(1.0, scale * 0.8), QtGui.QColor(self.colors["amber"]))
+                        painter.drawText(int(left + 18 * scale), int(top + 18 * scale), weather_line)
                 painter.setPen(text_color)
                 paint_rows = self.rows
                 if self.preset == "vatsim_atc":
@@ -3055,6 +3119,8 @@ class MatrixCanvas:  # pragma: no cover - optional Qt runtime
                         painter.fillRect(QtCore.QRectF(left + 4, top + header_h + idx * row_h + 1, board_w - 8, max(8, row_h - 2)), fill)
                     if self.panel_w < 180:
                         chars = max(8, int(self.panel_w / 6))
+                        row_glyph = "warn" if cancelled else ("arr" if self.view == "arrivals" else "dep")
+                        self._draw_board_glyph(painter, QtGui, row_glyph, left + 3 * scale, row_top + 3 * scale, max(1.0, scale), status_color if cancelled else dim_color)
                         painter.setPen(text_color if cancelled else QtGui.QColor(self.colors["green"]))
                         painter.drawText(int(left + 4 + 8 * scale), int(row_top + 8 * scale), text[:5])
                         painter.setPen(text_color)
@@ -3423,17 +3489,29 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
         self.animation_speed = self.QtWidgets.QSpinBox()
         self.animation_speed.setRange(1, 5)
         self.palette = self.QtWidgets.QComboBox()
-        self.palette.addItems([
-            "pax_blue",
-            "solari_amber",
-            "tower_scope",
-            "vatsim_scope",
-            "night_ops",
-            "sunset_terminal",
-            "ice_white",
-        ])
+        for palette_label, palette_key in (
+            ("PAX blue", "pax_blue"),
+            ("Solari amber", "solari_amber"),
+            ("Tower scope", "tower_scope"),
+            ("VATSIM scope", "vatsim_scope"),
+            ("Night ops", "night_ops"),
+            ("Sunset terminal", "sunset_terminal"),
+            ("Ice white", "ice_white"),
+            ("CRT amber", "crt"),
+            ("Neon green", "neon"),
+            ("Amber", "amber"),
+            ("Green", "green"),
+            ("Cyan", "cyan"),
+            ("Technical", "technical"),
+            ("Phosphor", "phosphor"),
+            ("Indigo night", "indigo_night"),
+            ("Rose gold", "rose_gold"),
+        ):
+            self.palette.addItem(palette_label, palette_key)
         self.animation_mode = self.QtWidgets.QComboBox()
         self.animation_mode.addItem("Split-flap animation", "split_flap")
+        self.animation_mode.addItem("Typewriter reveal", "typewriter")
+        self.animation_mode.addItem("Cascade reveal", "cascade")
         self.animation_mode.addItem("Slide letters left", "slide_left")
         self.animation_mode.addItem("Slide letters right", "slide_right")
         self.animation_mode.addItem("Static rows", "static")
@@ -3800,9 +3878,9 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
         preset_idx = self.preset_select.findData(preset_name)
         if preset_idx >= 0:
             self.preset_select.setCurrentIndex(preset_idx)
-        palette_idx = self.palette.findText(str(cfg.get("palette") or "pax_blue"))
+        palette_idx = self.palette.findData(str(cfg.get("palette") or "pax_blue"))
         if palette_idx < 0:
-            palette_idx = self.palette.findText("pax_blue")
+            palette_idx = self.palette.findData("pax_blue")
         if palette_idx >= 0:
             self.palette.setCurrentIndex(palette_idx)
         panel = (int(cfg.get("panel_w") or 256), int(cfg.get("panel_h") or 64))
@@ -3880,9 +3958,9 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
             "animation_speed": int(self.animation_speed.value()),
             "status_animation_enabled": bool(self.status_animation.isChecked()),
             "show_gate_info": bool(self.gate_toggle.isChecked()),
-            "palette": self.palette.currentText(),
+            "palette": str(self.palette.currentData() or "pax_blue"),
             "options": {
-                "palette": self.palette.currentText(),
+                "palette": str(self.palette.currentData() or "pax_blue"),
                 "show_metar": bool(self.weather_toggle.isChecked()),
                 "show_weather": bool(self.weather_toggle.isChecked()),
                 "show_gate_info": bool(self.gate_toggle.isChecked()),
@@ -3920,7 +3998,7 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
             preset=preset,
             max_rows=int(self.max_rows.value()),
         )
-        self.canvas.apply_theme("dark", self.palette.currentText())
+        self.canvas.apply_theme("dark", str(self.palette.currentData() or "pax_blue"))
         self._sync_summary()
 
     def _sync_value_labels(self) -> None:
@@ -4067,7 +4145,7 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
             "show_weather": bool(self.weather_toggle.isChecked()),
             "show_gate_info": bool(self.gate_toggle.isChecked()),
             "preset": str(self.preset_select.currentData() or "real_fids"),
-            "palette": self.palette.currentText(),
+            "palette": str(self.palette.currentData() or "pax_blue"),
         }
         self._set_busy(True)
         _set_native_feedback(self, "Generating Matrix main.py preview...", busy=True)

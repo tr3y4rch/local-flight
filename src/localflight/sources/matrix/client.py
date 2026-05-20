@@ -50,7 +50,7 @@ PING_S           = 600   # ping server every 10 min
 CLIENT_VER       = "2.0"
 CLIENT_RENDERER_REV = "matrix-display-contract-v2"
 SUPPORTED_RENDERERS = ["modern_fids", "vatsim_pilot", "vatsim_atc"]
-SUPPORTED_ANIMATIONS = ["split_flap", "slide_left", "slide_right", "static"]
+SUPPORTED_ANIMATIONS = ["split_flap", "typewriter", "cascade", "slide_left", "slide_right", "static"]
 # ──────────────────────────────────────────────────────────────────────────────
 
 # Airport is read from the server — no hardcoding needed
@@ -153,6 +153,15 @@ _SKIN_PALETTES = {
     "night_ops":       [(75,184,255),  (216,247,255), (39,80,110),  (244,201,93),  (255,93,122)],
     "sunset_terminal": [(255,122,61),  (255,242,230), (142,63,85),  (255,209,102), (255,56,100)],
     "ice_white":       [(189,233,255), (255,255,255), (106,129,149), (255,211,90),  (255,82,82)],
+    "crt":              [(255,204,68),  (255,238,170), (122,80,0),    (255,221,0),   (255,64,32)],
+    "neon":             [(0,255,80),    (220,255,220), (0,122,40),    (170,255,0),   (255,64,64)],
+    "amber":            [(255,174,46),  (255,235,180), (126,84,22),   (255,223,85),  (255,87,56)],
+    "green":            [(40,247,110),  (220,255,230), (34,124,62),   (255,201,74),  (255,77,77)],
+    "cyan":             [(0,204,255),   (215,252,255), (0,102,136),   (255,204,0),   (255,64,96)],
+    "technical":        [(74,158,218),  (210,230,248), (80,116,148),  (212,160,32),  (192,64,64)],
+    "phosphor":         [(57,255,20),   (205,255,198), (58,138,24),   (170,255,0),   (255,50,50)],
+    "indigo_night":     [(130,114,255), (216,212,255), (85,72,184),   (255,216,74),  (255,107,138)],
+    "rose_gold":        [(255,126,203), (255,216,238), (160,72,120),  (255,209,102), (255,56,100)],
 }
 _active_skin = "pax_blue"
 
@@ -179,11 +188,15 @@ _GLYPHS = {
     "plane": ["00100", "10101", "11111", "00100", "01010"],
     "warn": ["00100", "01110", "01110", "00000", "00100"],
     "sun": ["10101", "01110", "11111", "01110", "10101"],
+    "partly": ["10100", "01110", "11111", "11110", "00000"],
     "cloud": ["00000", "01110", "11111", "11110", "00000"],
     "rain": ["01110", "11111", "00000", "01010", "10100"],
     "storm": ["01110", "11111", "00100", "01000", "10000"],
+    "fog": ["00000", "11110", "00000", "01111", "00000"],
     "mist": ["00000", "11110", "00000", "01111", "00000"],
     "snow": ["10101", "01010", "10101", "01010", "10101"],
+    "ice": ["10101", "01010", "10101", "01010", "10101"],
+    "wind": ["10000", "11110", "00001", "01111", "00000"],
     "temp": ["00100", "01010", "01010", "10001", "01110"],
     "unknown": ["11111", "10001", "00110", "00000", "00100"],
 }
@@ -353,6 +366,7 @@ class FlapRow:
         self.source_text = " " * length
         self.slide_frame = 0
         self.slide_frames = 0
+        self.typewriter_pos = 0
 
     def set_mode(self, mode):
         self.mode = mode if mode in SUPPORTED_ANIMATIONS else "split_flap"
@@ -365,11 +379,19 @@ class FlapRow:
             self.source_text = text
             self.slide_frame = 0
             self.slide_frames = 0
+            self.typewriter_pos = len(text)
             for i, cell in enumerate(self.cells):
                 cell.current = text[i]
                 cell.target = text[i]
                 cell.frame = 0
                 cell.frames = 0
+            return
+        if self.mode in ("typewriter", "cascade"):
+            if text == self.target_text and self.typewriter_pos < len(text):
+                return
+            self.target_text = text
+            self.typewriter_pos = 0
+            self.current_text = " " * self.length
             return
         if self.mode in ("slide_left", "slide_right"):
             if text == self.target_text and self.slide_frame < self.slide_frames:
@@ -387,6 +409,12 @@ class FlapRow:
         self.target_text = text
 
     def step(self):
+        if self.mode in ("typewriter", "cascade"):
+            step = max(1, int(ANIMATION_SPEED))
+            self.typewriter_pos = min(self.length, self.typewriter_pos + step)
+            visible = max(0, self.typewriter_pos)
+            self.current_text = fit_text(self.target_text[:visible], self.length)
+            return
         if self.mode in ("slide_left", "slide_right"):
             if self.slide_frame < self.slide_frames:
                 self.slide_frame += 1
@@ -398,6 +426,8 @@ class FlapRow:
         self.current_text = "".join(c.current for c in self.cells)
 
     def get_text(self):
+        if self.mode in ("typewriter", "cascade"):
+            return self.current_text
         if self.mode in ("slide_left", "slide_right") and self.slide_frame < self.slide_frames:
             gap = "   "
             progress = self.slide_frame / max(1, self.slide_frames)
@@ -414,6 +444,8 @@ class FlapRow:
 
     @property
     def settled(self):
+        if self.mode in ("typewriter", "cascade"):
+            return self.typewriter_pos >= self.length
         return all(c.settled for c in self.cells)
 
 
@@ -896,15 +928,21 @@ def _weather_glyph_name():
     ).lower()
     if "storm" in icon or "thunder" in icon:
         return "storm"
-    if "rain" in icon or "shower" in icon:
+    if "ice" in icon or "freez" in icon or "hail" in icon:
+        return "ice"
+    if "rain" in icon or "shower" in icon or "drizzle" in icon:
         return "rain"
-    if "snow" in icon:
+    if "snow" in icon or "flurr" in icon:
         return "snow"
-    if "mist" in icon or "fog" in icon or "haze" in icon:
-        return "mist"
-    if "cloud" in icon or "overcast" in icon:
+    if "wind" in icon or "gust" in icon:
+        return "wind"
+    if "mist" in icon or "fog" in icon or "haze" in icon or "smoke" in icon or "dust" in icon or "ash" in icon:
+        return "fog"
+    if "part" in icon or "few" in icon or "scatter" in icon:
+        return "partly"
+    if "cloud" in icon or "overcast" in icon or "broken" in icon:
         return "cloud"
-    if "sun" in icon or "clear" in icon or "vfr" in icon:
+    if "sun" in icon or "clear" in icon or "vfr" in icon or "cavok" in icon:
         return "sun"
     return "unknown"
 
@@ -1337,8 +1375,15 @@ def main():
         for flap in flap_rows:
             flap.set_mode(ANIMATION_MODE)
         visible_rows = _visible_rows()
-        for i, row in enumerate(rows[:visible_rows]):
-            flap_rows[i].set_text(build_row_text(row))
+        texts = [build_row_text(row) for row in rows[:visible_rows]]
+        if ANIMATION_MODE == "cascade" and ANIMATION_ENABLED:
+            for i, text in enumerate(texts):
+                flap_rows[i].target_text = fit_text(text, ROW_LEN).upper()
+                flap_rows[i].typewriter_pos = -i * 4
+                flap_rows[i].current_text = " " * ROW_LEN
+        else:
+            for i, text in enumerate(texts):
+                flap_rows[i].set_text(text)
         for i in range(min(len(rows), visible_rows), MAX_ROWS):
             flap_rows[i].set_text(" " * ROW_LEN)
 

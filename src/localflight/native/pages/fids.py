@@ -1989,12 +1989,19 @@ class FidsScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
             marketed = f"{marketed} | also {', '.join(codeshares[:4])}"
         elif codeshares:
             marketed = ", ".join(codeshares[:4])
+        evidence = str(detail.get("identity_source") or value_at(detail, "intel.identity.identity_source") or "provider").replace("_", " ").upper()
+        provider_status = detail.get("provider_codeshare_status") or value_at(detail, "intel.identity.provider_codeshare_status")
+        if provider_status:
+            evidence = f"{evidence} / {provider_status}"
+        evidence_items = detail.get("identity_evidence") or value_at(detail, "intel.identity.identity_evidence") or []
+        if evidence_items:
+            evidence = f"{evidence} / {', '.join(str(item) for item in evidence_items[:2])}"
         return [
             ("Operating flight", detail.get("flight_display") or self._flight_identifier(detail.get("flight_number")) or detail.get("callsign")),
             ("Operating airline", detail.get("airline_display") or detail.get("airline_name") or detail.get("airline_iata") or detail.get("airline_icao")),
             ("ATC callsign", detail.get("operating_callsign") or detail.get("callsign")),
             ("Sold as / marketed", marketed),
-            ("Provider evidence", str(detail.get("identity_source") or value_at(detail, "intel.identity.identity_source") or "provider").replace("_", " ").upper()),
+            ("Provider evidence", evidence),
         ]
 
     def _flight_identifier_list(self, values: Any) -> list[str]:

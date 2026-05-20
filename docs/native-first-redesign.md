@@ -16,7 +16,7 @@ As of the `0.2.7` client-polish line on 2026-05-13:
 - FIDS now uses a passenger-facing city/country title, compact weather hero, readable ARR/DEP/Refresh actions, operating-first flight identity, compact aircraft codes on the board, and richer detail drawers.
 - History, Matrix, Settings, Setup, Radar details, and LAN/browser parity are current release-candidate smoke areas.
 - Current Windows validation after the native shell/FIDS polish: `python -m compileall -q src relay installers scripts tests` passed and `python -m pytest tests -q` returned `373 passed`.
-- Release packages must be rebuilt from the current `0.2.7` tree; older `0.2.6` artifact hashes are stale after this polish pass.
+- Release packages must be rebuilt from the current `0.2.7` tree; older `0.2.6` and pre-Matrix-integrity `0.2.7` artifact hashes are stale after this polish pass.
 
 ## Goal
 
@@ -159,16 +159,16 @@ Browser templates to treat as source specs:
 
 ## Current Status
 
-Current checkpoint as of 2026-05-10 / 0.2.6:
+Current checkpoint as of 2026-05-20 / 0.2.7:
 
 - Native remains the intended primary desktop/display GUI, with browser/LAN kept as a supported parity and recovery surface.
 - The latest polish wave moved beyond the original shell parity goal: History, Matrix, Settings/setup, FIDS details, and Radar details now need to be validated as one shared native/browser product surface.
 - History now uses the shared `/api/history` + `/api/history/summary` analytics contract for KPIs, delay buckets, status mix, airline delay quotas, route/aircraft stats, daily/hourly volume, sortable recent rows, and detail surfaces.
-- Matrix now has shared panel presets, live preview overrides, friendly save/apply/generate feedback, compact weather header rules, and real-source gate/stand display. VATSIM Matrix presets intentionally hide unreliable gate placeholders.
+- Matrix now has shared panel presets, live preview overrides, friendly save/apply/generate feedback, compact weather header rules, stable Matrix-specific display labels, Matrix-safe weather icons, split-flap/typewriter/cascade motion, and real-source gate/stand display. VATSIM Matrix presets intentionally hide unreliable gate placeholders.
 - FIDS/Radar/History detail views are converging on the shared current-source intelligence model: schedule, live motion, aircraft, airport operations, weather context, source evidence, and recent history from current sources only.
 - Settings/setup now follow dashboard-card/user-first structure with hidden advanced sections, contrast-safe theme/skin handling, and cleaner brand/icon usage.
 - Windows validation is green: `pip check`, no outdated packages, `python -m compileall -q src relay installers scripts tests`, and `python -m pytest tests -q` -> `293 passed`.
-- Windows and Pi `0.2.6` artifacts have been rebuilt; macOS packaging/smoke remains the next platform checkpoint.
+- Windows and Pi `0.2.7` artifacts have been rebuilt from the Windows workspace; macOS packaging/smoke remains the next platform checkpoint.
 
 Previous native checkpoint as of 2026-05-09:
 
@@ -350,7 +350,7 @@ Radar inventory checkpoint:
 
 ## What To Do Next
 
-Continue from the current 0.2.6 native/browser state, not from the earlier shell foundation.
+Continue from the current 0.2.7 native/browser state, not from the earlier shell foundation.
 
 Recommended next slice:
 
@@ -369,7 +369,7 @@ Recommended next slice:
    - map on/off, terrain on/off, runways on/off, surface on/off.
    - dark/light theme contrast.
    - no OSM cache, stale cache, and estimated fallback states.
-4. Visual QA the 0.2.6 polish pages at desktop and compact sizes: History dashboard, Matrix configurator/preview, Settings/setup cards, FIDS detail drawer, and LAN radar parity.
+4. Visual QA the 0.2.7 polish pages at desktop and compact sizes: History dashboard, Matrix configurator/preview, Settings/setup cards, FIDS detail drawer, and LAN radar parity.
 5. Continue full native extraction/polish for Logs, Requests, Admin, and Feedback until each page has native tests and browser-parity checklists.
 6. Keep browser/LAN parity checks running as native acceptance passes, because both surfaces remain supported.
 

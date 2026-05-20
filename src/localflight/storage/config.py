@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, List
@@ -54,7 +55,9 @@ class AppConfig:
 
 
 def config_path() -> Path:
-    base = Path.home() / ".localflight"
+    home_override = os.getenv("LOCALFLIGHT_HOME") or os.getenv("HOME")
+    base_home = Path(home_override) if home_override else Path.home()
+    base = base_home / ".localflight"
     base.mkdir(parents=True, exist_ok=True)
     return base / "config.json"
 

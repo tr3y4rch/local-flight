@@ -58,8 +58,23 @@ def _compact_identifier(value: str) -> str:
     return re.sub(r"[^A-Z0-9]", "", str(value or "").upper())
 
 
+def _provider_codeshare_status(f: Flight) -> str:
+    return (f.provider_codeshare_status or "").strip().replace(" ", "").lower()
+
+
+def _provider_codeshare_score(f: Flight) -> int:
+    status = _provider_codeshare_status(f)
+    if status == "isoperator":
+        return 4
+    if status == "iscodeshared":
+        return -1
+    return 0
+
+
 def _identity_source_score(f: Flight) -> int:
     source = (f.identity_source or "").strip().lower()
+    if source == "provider_operator":
+        return 5
     if source == "explicit_operating":
         return 5
     if source in {"callsign", "airport_codeshare_hint"}:
@@ -103,12 +118,36 @@ def _alias_values(f: Flight) -> list[str]:
     ]
 
 
-def _identity_aliases(f: Flight) -> set[str]:
-    return {
+def _identity_aliases(f: Flight, *, provider_link_keys: set[str] | None = None) -> set[str]:
+    aliases = {
         compact
         for compact in (_compact_identifier(_format_codeshare_text(value)) for value in _alias_values(f))
         if compact
     }
+    provider_key = str(f.provider_movement_key or "").strip()
+    if (
+        provider_link_keys
+        and provider_key in provider_link_keys
+        and _provider_codeshare_status(f) in {"isoperator", "iscodeshared"}
+    ):
+        aliases.add(f"PROVIDER:{provider_key}")
+    return aliases
+
+
+def _safe_provider_link_keys(items: list[Flight]) -> set[str]:
+    grouped: dict[str, list[Flight]] = {}
+    for item in items:
+        key = str(item.provider_movement_key or "").strip()
+        if key:
+            grouped.setdefault(key, []).append(item)
+
+    safe: set[str] = set()
+    for key, group in grouped.items():
+        operators = [item for item in group if _provider_codeshare_status(item) == "isoperator"]
+        marketed = [item for item in group if _provider_codeshare_status(item) == "iscodeshared"]
+        if len(operators) == 1 and marketed:
+            safe.add(key)
+    return safe
 
 
 def _codeshares_for(primary: Flight, items: list[Flight]) -> tuple[str, ...]:
@@ -153,10 +192,10 @@ def _sold_as_for(primary: Flight, items: list[Flight]) -> tuple[str, ...]:
     return tuple(out)
 
 
-def _linked_clusters(items: list[Flight]) -> list[list[Flight]]:
+def _linked_clusters(items: list[Flight], *, provider_link_keys: set[str] | None = None) -> list[list[Flight]]:
     clusters: list[tuple[set[str], list[Flight]]] = []
     for item in items:
-        aliases = _identity_aliases(item)
+        aliases = _identity_aliases(item, provider_link_keys=provider_link_keys)
         matched: list[int] = []
         for idx, (cluster_aliases, _cluster_items) in enumerate(clusters):
             if aliases and cluster_aliases.intersection(aliases):
@@ -199,7 +238,8 @@ def dedupe_codeshares(
     out: List[Flight] = []
 
     for items in groups.values():
-        for linked_items in _linked_clusters(items):
+        provider_link_keys = _safe_provider_link_keys(items)
+        for linked_items in _linked_clusters(items, provider_link_keys=provider_link_keys):
             if len(linked_items) == 1:
                 out.append(linked_items[0])
                 continue
@@ -209,6 +249,7 @@ def dedupe_codeshares(
                 has_est = 1 if x.times.estimated else 0
                 explicit_secondary_count = len(x.codeshares or ()) + len(x.sold_as or ())
                 return (
+                    _provider_codeshare_score(x),
                     _identity_source_score(x),
                     _provider_main_score(x),
                     -explicit_secondary_count,

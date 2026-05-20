@@ -89,6 +89,9 @@ class Flight:
     marketing_flight_number: Optional[str] = None
     operating_callsign: Optional[str] = None
     identity_source: Optional[str] = None
+    provider_codeshare_status: Optional[str] = None
+    provider_movement_key: Optional[str] = None
+    identity_evidence: tuple[str, ...] = field(default_factory=tuple)
     origin:       Optional[AirportRef] = None
     destination:  Optional[AirportRef] = None
     aircraft_type: Optional[str] = None

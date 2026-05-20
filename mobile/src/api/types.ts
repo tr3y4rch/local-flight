@@ -374,6 +374,9 @@ export type FlightIntel = {
     marketing_flight_number?: string | null;
     operating_callsign?: string | null;
     identity_source?: string | null;
+    provider_codeshare_status?: string | null;
+    provider_movement_key?: string | null;
+    identity_evidence?: string[];
   };
   route?: {
     origin?: FlightIntelAirportRef;
@@ -492,6 +495,9 @@ export type FidsRow = {
   marketing_flight_number?: string;
   operating_callsign?: string;
   identity_source?: string;
+  provider_codeshare_status?: string;
+  provider_movement_key?: string;
+  identity_evidence?: string[];
   route_display: string;
   route_primary?: string;
   route_code?: string;
@@ -561,6 +567,9 @@ export type FlightDetail = {
   marketing_flight_number?: string | null;
   operating_callsign?: string | null;
   identity_source?: string | null;
+  provider_codeshare_status?: string | null;
+  provider_movement_key?: string | null;
+  identity_evidence?: string[];
   intel?: FlightIntel | null;
 };
 

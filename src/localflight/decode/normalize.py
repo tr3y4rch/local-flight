@@ -56,6 +56,25 @@ def _parse_codeshares(value: object) -> tuple[str, ...]:
     return tuple(out)
 
 
+def _parse_text_tuple(value: object) -> tuple[str, ...]:
+    if value is None:
+        return ()
+    if isinstance(value, str):
+        items = [value]
+    elif isinstance(value, (list, tuple, set)):
+        items = list(value)
+    else:
+        return ()
+    out: list[str] = []
+    seen: set[str] = set()
+    for item in items:
+        text = str(item or "").strip()
+        if text and text not in seen:
+            seen.add(text)
+            out.append(text)
+    return tuple(out)
+
+
 def normalize_flights(
     raw_flights: Iterable[dict],
     *,
@@ -123,6 +142,9 @@ def normalize_flights(
             marketing_flight_number=identity.marketing_flight_number,
             operating_callsign=identity.operating_callsign,
             identity_source=identity.identity_source,
+            provider_codeshare_status=record.get("provider_codeshare_status"),
+            provider_movement_key=record.get("provider_movement_key"),
+            identity_evidence=_parse_text_tuple(record.get("identity_evidence")),
             origin=AirportRef(
                 iata=record.get("origin_iata"),
                 icao=record.get("origin_icao"),

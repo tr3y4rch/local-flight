@@ -10,7 +10,7 @@ STEP_NAMES: tuple[str, ...] = (
     "Flight Data",
     "Optional Keys",
     "Diagnostics",
-    "Review & Open",
+    "Review & Launch",
 )
 
 STEP_SHORT_LABELS: tuple[str, ...] = (
@@ -19,7 +19,7 @@ STEP_SHORT_LABELS: tuple[str, ...] = (
     "Data",
     "Keys",
     "Reports",
-    "Open",
+    "Launch",
 )
 
 WELCOME_CARDS: tuple[dict[str, str], ...] = (
@@ -89,11 +89,11 @@ DIAGNOSTICS_OPTIONS: tuple[dict[str, str], ...] = (
     },
     {
         "mode": "auto_logs",
-        "title": "Automatic crash reports + log tail",
+        "title": "Automatic crash reports + local logs",
         "short_title": "Auto + logs",
         "icon": "\U0001F4DC",  # 📜
         "body": "Also attach a short local log tail to help with harder issues.",
-        "note": "Automatic crash reports + log tail is helpful during beta testing. Reports stay sanitized and include only a short local log tail.",
+        "note": "Automatic crash reports + local logs is helpful during beta testing. Reports stay sanitized and include only a short local log tail.",
     },
 )
 

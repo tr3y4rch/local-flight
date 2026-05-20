@@ -1220,6 +1220,11 @@ async function refreshFIDS() {
 	    const operatingFlight = d.flight_display || d.flight_number || d.callsign;
 	    const operatingAirline = d.airline || d.airline_iata || d.airline_icao;
 	    const marketed = soldAsLine || joinedFlightIds([d.marketing_flight_number]);
+	    const providerEvidence = [
+	      sourceLabel(d.identity_source || intel.identity?.identity_source || "provider"),
+	      d.provider_codeshare_status || intel.identity?.provider_codeshare_status,
+	      ...((d.identity_evidence || intel.identity?.identity_evidence || []).slice(0, 2)),
+	    ].filter(cleanValue).join(" / ");
 	    const identityRows = virtual
 	      ? [
 	          ["Callsign", d.callsign || operatingFlight || "—"],
@@ -1233,7 +1238,7 @@ async function refreshFIDS() {
 	          ["Operating airline", operatingAirline || "—"],
 	          ["ATC callsign", d.operating_callsign || d.callsign || "—"],
 	          ["Sold as", marketed || "—"],
-	          ["Provider evidence", sourceLabel(d.identity_source || intel.identity?.identity_source || "provider")],
+	          ["Provider evidence", providerEvidence || "provider"],
 	        ];
     identityEl.innerHTML = identityRows.map(([lbl, val]) => rowHtml(lbl, val)).join("");
 

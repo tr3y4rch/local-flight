@@ -96,6 +96,9 @@ SKIN_TOKENS: dict[str, SkinTokens] = {
     "amber": SkinTokens("#ffae2e", "#ffc56b", "#ffae2e", "#ffdf55", "#ff5738", "#ffc56b"),
     "green": SkinTokens("#28f76e", "#55e7ff", "#28f76e", "#ffc94a", "#ff4d4d", "#28f76e"),
     "white": SkinTokens("#d8f1ff", "#8fdcff", "#d8f1ff", "#ffd35a", "#ff5757", "#8fdcff"),
+    "phosphor": SkinTokens("#39ff14", "#b4ffb4", "#39ff14", "#aaff00", "#ff3232", "#39ff14"),
+    "indigo_night": SkinTokens("#8272ff", "#c8c0ff", "#4deaff", "#ffd84a", "#ff6b8a", "#8272ff"),
+    "rose_gold": SkinTokens("#ff7ecb", "#ffc8e8", "#ffb8c8", "#ffd166", "#ff3864", "#ff7ecb"),
 }
 
 SKIN_SURFACE_TOKENS: dict[str, SkinSurfaceTokens] = {
@@ -110,6 +113,9 @@ SKIN_SURFACE_TOKENS: dict[str, SkinSurfaceTokens] = {
     "cyan": SkinSurfaceTokens("#00080f", "#001220", "#00ccff", "#006688"),
     "crt": SkinSurfaceTokens("#0a0600", "#150c00", "#ffaa00", "#7a5000"),
     "neon": SkinSurfaceTokens("#000d00", "#001800", "#00ff50", "#007a28"),
+    "phosphor": SkinSurfaceTokens("#000d00", "#001a00", "#b4ffb4", "#3a8a18"),
+    "indigo_night": SkinSurfaceTokens("#08060f", "#10091e", "#d8d4ff", "#5548b8"),
+    "rose_gold": SkinSurfaceTokens("#160006", "#22000e", "#ffd8ee", "#a04878"),
 }
 
 
@@ -300,16 +306,16 @@ NAV_GLYPHS = {
 # Single source of truth for weather strip icons (previously duplicated in
 # fids.py, radar.py, and _legacy_app.py).
 WEATHER_EMOJI = {
-    "sun": "☀️",       # ☀️
-    "partly": "⛅",          # ⛅
-    "cloud": "☁️",     # ☁️
-    "rain": "\U0001F327",        # 🌧
-    "snow": "❄️",      # ❄️
-    "fog": "\U0001F32B",         # 🌫
-    "storm": "⛈",           # ⛈
-    "wind": "\U0001F32C",        # 🌬
-    "ice": "\U0001F9CA",         # 🧊
-    "unknown": "❓",          # ❓
+    "sun": "☀︎",
+    "partly": "⛅︎",
+    "cloud": "☁︎",
+    "rain": "☔︎",
+    "snow": "❄︎",
+    "fog": "▒",
+    "storm": "⚡︎",
+    "wind": "▷︎",
+    "ice": "❃︎",
+    "unknown": "•",
 }
 
 # Emoji used to prefix section headers, status-card icons, and option cards

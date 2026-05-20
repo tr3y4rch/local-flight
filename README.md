@@ -59,7 +59,7 @@ Read the detailed guides:
 - Mobile app with a first-run choice between **LAN Companion** and **Standalone**: Companion focuses on Board, Radar, History, Control, and Help for an existing desktop/Pi host, with safe Matrix live-remote controls where they make sense. Standalone offers a simpler FIDS/Radar/History/Settings experience through the hosted relay with slower refreshes and no server-control tools. The mobile shell keeps its own appearance, branded launch overlay, and small native-feeling interactions.
 - QR pairing in native Settings now prefers the actual LAN IP and carries the server fingerprint, so an iPhone will not silently connect to a different Local Flight host if `localflight.local` resolves to another Pi/desktop on the same network.
 - History dashboard with filters, delay buckets, airline delay quotas, route/aircraft stats, sortable recent movements, and detail panels. Repeated snapshots and known codeshares are deduped so the count means actual movements, not raw board rows.
-- Matrix tooling for Interstate 75 W / HUB75 boards, including panel presets, live preview, optional real-world gate/stand display, compact weather headers, runtime settings, and generated MicroPython `main.py`
+- Matrix tooling for Interstate 75 W / HUB75 boards, including panel presets, live preview, optional real-world gate/stand display, compact weather headers, runtime settings, split-flap/typewriter/cascade motion, and generated MicroPython `main.py`
 - Shared flight detail intelligence for FIDS, Radar, History, Matrix, native Qt, and LAN browser views, using current local snapshots, radar data, weather, and history without new per-click provider calls
 - Local history, local logs, local settings, and install-scoped diagnostics
 

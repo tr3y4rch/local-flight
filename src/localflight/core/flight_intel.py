@@ -201,6 +201,9 @@ def build_flight_intel(
             "marketing_flight_number": None if virtual else (flight.marketing_flight_number if flight else None),
             "operating_callsign": flight.operating_callsign if flight else None,
             "identity_source": (flight.identity_source or "vatsim_callsign") if flight and virtual else (flight.identity_source if flight else None),
+            "provider_codeshare_status": None if virtual else (flight.provider_codeshare_status if flight else None),
+            "provider_movement_key": None if virtual else (flight.provider_movement_key if flight else None),
+            "identity_evidence": [] if virtual else (list(flight.identity_evidence) if flight else []),
         },
         "route": {
             "origin": _airport_dict(flight, "origin"),

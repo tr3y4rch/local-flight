@@ -516,6 +516,22 @@ def _dict_to_flight(d: dict) -> Flight:
                 out.append(text)
         return tuple(out)
 
+    def _text_tuple(value: Any) -> tuple[str, ...]:
+        if isinstance(value, str):
+            items = [value]
+        elif isinstance(value, (list, tuple, set)):
+            items = list(value)
+        else:
+            return ()
+        out: list[str] = []
+        seen: set[str] = set()
+        for item in items:
+            text = str(item or "").strip()
+            if text and text not in seen:
+                seen.add(text)
+                out.append(text)
+        return tuple(out)
+
     direction = FlightDirection(d["direction"])
     try:
         status = FlightStatus(d.get("status", "Unknown"))
@@ -540,6 +556,7 @@ def _dict_to_flight(d: dict) -> Flight:
             "marketing_flight_number": d.get("marketing_flight_number"),
             "operating_callsign": d.get("operating_callsign"),
             "identity_source": d.get("identity_source"),
+            "provider_codeshare_status": d.get("provider_codeshare_status"),
         },
         airport_iata=airport_d.get("iata") or "",
         airport_icao=airport_d.get("icao") or "",
@@ -571,6 +588,9 @@ def _dict_to_flight(d: dict) -> Flight:
         marketing_flight_number=identity.marketing_flight_number,
         operating_callsign=identity.operating_callsign,
         identity_source=identity.identity_source,
+        provider_codeshare_status=d.get("provider_codeshare_status"),
+        provider_movement_key=d.get("provider_movement_key"),
+        identity_evidence=_text_tuple(d.get("identity_evidence")),
         origin=_airport(d.get("origin")),
         destination=_airport(d.get("destination")),
         aircraft_type=aircraft_short or None,
@@ -665,6 +685,9 @@ class FIDSRowOut(BaseModel):
     marketing_flight_number: str = ""
     operating_callsign: str = ""
     identity_source: str = ""
+    provider_codeshare_status: str = ""
+    provider_movement_key: str = ""
+    identity_evidence: List[str] = Field(default_factory=list)
     route_display:  str
     status_display: str
     status_class:   str
@@ -737,6 +760,9 @@ def _fids_rows_from_flights(
             marketing_flight_number=r.marketing_flight_number,
             operating_callsign=r.operating_callsign,
             identity_source=r.identity_source,
+            provider_codeshare_status=r.provider_codeshare_status,
+            provider_movement_key=r.provider_movement_key,
+            identity_evidence=list(r.identity_evidence),
             delay_minutes=r.delay_minutes,
             delay_class=r.delay_class,
             time_primary=r.time_primary,
@@ -914,6 +940,9 @@ def api_fids_detail(callsign: str = Query(..., min_length=1, max_length=20)) -> 
             "marketing_flight_number": None if is_virtual else flight.marketing_flight_number,
             "operating_callsign": flight.operating_callsign,
             "identity_source": flight.identity_source or ("vatsim_callsign" if is_virtual else None),
+            "provider_codeshare_status": None if is_virtual else flight.provider_codeshare_status,
+            "provider_movement_key": None if is_virtual else flight.provider_movement_key,
+            "identity_evidence": [] if is_virtual else list(flight.identity_evidence or ()),
             "origin_iata":   flight.origin.iata        if flight.origin      else None,
             "origin_icao":   flight.origin.icao        if flight.origin      else None,
             "origin_name":   flight.origin.name        if flight.origin      else None,

@@ -112,7 +112,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Verification
 - Qt FIDS renders verified per-skin (Classic / PAX / VATSIM / Nerd) via `QPainter` headless renders; column-rect math verified across 540 px / 900 px / 1400 px / 2400 px (no overflow; lowest-priority columns drop first); row-height interpolation verified at 640 / 1024 / 1600 / 2400 px (stays within each skin's `min`/`max`).
-- LAN browser renders via `QWebEngineView` verified at desktop (1400×820), 7" Pi landscape (1024×600 and 800×480), tablet (768×1024), and phone (390×844). The desktop view picks up the new Qt-shell chrome; the phone view shows the bottom-bar mobile layout; the Pi viewports show 8–11 flight rows + compact chrome without horizontal scroll. No regression on the desktop FIDS table or detail drawer.
+- LAN browser responsive layouts were verified at desktop (1400×820), 7" Pi landscape (1024×600 and 800×480), tablet (768×1024), and phone (390×844). The desktop view picks up the new Qt-shell chrome; the phone view shows the bottom-bar mobile layout; the Pi viewports show 8–11 flight rows + compact chrome without horizontal scroll. No regression on the desktop FIDS table or detail drawer.
 
 ### Native first-run setup wizard
 - Replaced the row of numbered step buttons with an animated horizontal stepper: numbered circles connected by a fill line that glides as you advance, current step has a pulsing accent halo, done steps show ✓, hovering a node shows a soft ring.
@@ -200,8 +200,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### FIDS, Details, Matrix, Settings
 - Operating-first flight identity is now the board rule, so the main FIDS row favors the operating carrier while marketed/codeshare identities remain visible as sold-as detail.
+- AeroDataBox `codeshareStatus` evidence is now preserved before dedupe. `IsOperator` rows win the primary board identity, linked `IsCodeshared` rows collapse into sold-as/codeshare detail, and same-route/time rows without provider linkage stay separate.
 - Aircraft types stay compact on the FIDS board while fuller aircraft/source detail is kept in the click-through detail surfaces.
-- Matrix configuration now uses a guided i75W/HUB75 workflow with panel presets, live preview feedback, compact weather headers, real-only gate display, and generated MicroPython `main.py` parity.
+- Matrix configuration now uses a guided i75W/HUB75 workflow with panel presets, live preview feedback, compact weather headers, real-only gate display, split-flap/typewriter/cascade motion, stable Matrix-specific display labels, Matrix-safe weather icons, and generated MicroPython `main.py` parity.
 - History, Settings, Setup, and Matrix are aligned around dashboard-card layouts in native Qt and LAN/browser surfaces.
 - Native and LAN FIDS/Radar/History/Matrix detail surfaces share the current-source flight intelligence model without adding per-click provider calls.
 
@@ -229,7 +230,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `python -m py_compile` clean across every modified native visual-refresh file.
 - Generated stylesheet contains the new shared selectors for pills, page heroes, spinners, info buttons, toasts, primary actions, FIDS style buttons, and setup option cards.
 - FIDS style registry returns `['classic', 'pax', 'vatsim', 'nerd']` with `classic` as the default.
-- Full Mac/Codex validation after the mobile Standalone pass, Claude UI rescue, native FIDS painter polish, and docs pass: `.venv/bin/python -m pytest tests -q` returned `385 passed`; focused Qt column compatibility check returned `1 passed`; `.venv/bin/python -m py_compile src/localflight/native/pages/fids.py src/localflight/native/pages/fids_styles.py` passed; `cd mobile && npm run typecheck && npm run doctor` passed with Expo Doctor `18/18`; `git diff --check` passed.
+- Current Windows/Codex validation after AeroDataBox codeshare hardening and Matrix display-integrity merge: `.venv\Scripts\python.exe -m pytest tests -q` returned `423 passed`; focused Matrix regressions passed; `.venv\Scripts\python.exe -m compileall -q src relay installers scripts tests` passed; `cd mobile && npm run typecheck` passed earlier in the same release-candidate sweep; `git diff --check` passed.
 
 ### Mobile companion — tip jar redesign + setup wizard polish
 
