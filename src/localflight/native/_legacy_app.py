@@ -3238,20 +3238,33 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
         else:
             timer.stop()
 
+    def _settings_group(self, title: str, rows: list[tuple[str, Any, str]]) -> Any:
+        group = self.QtWidgets.QGroupBox(title)
+        form = self.QtWidgets.QFormLayout(group)
+        form.setContentsMargins(10, 20, 10, 10)
+        form.setSpacing(7)
+        for row_label, widget, tooltip in rows:
+            if tooltip and hasattr(widget, "setToolTip"):
+                widget.setToolTip(tooltip)
+            form.addRow(row_label, widget)
+        return group
+
     def _build_dashboard(self, layout: Any, QtCore: Any, QtGui: Any, QtWidgets2: Any) -> None:
         header = self.QtWidgets.QHBoxLayout()
-        title_box = self.QtWidgets.QVBoxLayout()
-        title_box.addWidget(label(self.QtWidgets, "Matrix Board", "Title"))
-        title_box.addWidget(label(self.QtWidgets, "Flash once, then tune the i75W board live from Local Flight.", "Muted", wrap=True))
-        header.addLayout(title_box, 1)
-        for text, slot, quiet in (
-            ("Refresh", self.refresh, False),
-            ("Apply live config", self.save_config, False),
-            ("Preview animation", self.trigger_demo, True),
+        title_col = self.QtWidgets.QVBoxLayout()
+        title_col.setSpacing(2)
+        title_col.addWidget(label(self.QtWidgets, "LED Matrix Board", "Title"))
+        title_col.addWidget(label(self.QtWidgets, "Home decor, aviation nerd gadget, and tiny terminal board. Flash once, tune live over Wi-Fi.", "Muted", wrap=True))
+        header.addLayout(title_col, 1)
+        for text, slot, quiet, tip in (
+            ("Refresh", self.refresh, False, "Reload configs, devices, and the preview feed from Local Flight."),
+            ("Apply live config", self.save_config, False, "Save current Matrix settings. Connected boards pick them up on their next config refresh."),
+            ("Preview animation", self.trigger_demo, True, "Load sample rows so split-flap/typewriter/cascade motion can be previewed without waiting for live data."),
         ):
             button = self.QtWidgets.QPushButton(text)
             if quiet:
                 button.setObjectName("Quiet")
+            button.setToolTip(tip)
             button.clicked.connect(slot)
             header.addWidget(button)
             if not quiet:
@@ -3260,88 +3273,133 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
         layout.addWidget(self.loading_indicator)
         layout.addWidget(self.status)
 
-        summary, summary_layout = panel(self.QtWidgets, "Board status")
         status_row = self.QtWidgets.QHBoxLayout()
+        status_row.setSpacing(6)
         self.summary_labels: dict[str, Any] = {}
         for key, title, value in (
-            ("matrix", "Matrix", "Not checked"),
+            ("matrix", "Matrix", "Checking..."),
             ("config", "Config", "Default"),
-            ("board", "Board", "No i75W seen"),
+            ("board", "Boards", "No i75W seen"),
             ("panel", "Panel", "256 x 64"),
             ("mode", "Mode", "Real FIDS"),
         ):
-            item = card(self.QtWidgets, title, value)
-            metric = item.findChild(self.QtWidgets.QLabel, "Metric")
-            if metric is not None:
-                self.summary_labels[key] = metric
-            status_row.addWidget(item)
-        summary_layout.addLayout(status_row)
-        summary_layout.addWidget(self.board_status)
-        summary_layout.addWidget(self.action_status)
-        layout.addWidget(summary)
+            chip = self.QtWidgets.QFrame()
+            chip.setObjectName("StatusChip")
+            chip_h = self.QtWidgets.QHBoxLayout(chip)
+            chip_h.setContentsMargins(8, 3, 8, 3)
+            chip_h.setSpacing(4)
+            key_label = self.QtWidgets.QLabel(title.upper())
+            key_label.setObjectName("Muted")
+            key_label.setStyleSheet("font: 700 9px 'Space Mono','Consolas',monospace; letter-spacing: .1em;")
+            value_label = self.QtWidgets.QLabel(value)
+            value_label.setStyleSheet("font-weight: 600;")
+            self.summary_labels[key] = value_label
+            chip_h.addWidget(key_label)
+            chip_h.addWidget(value_label)
+            status_row.addWidget(chip)
+        status_row.addStretch(1)
+        layout.addLayout(status_row)
+        layout.addWidget(self.action_status)
 
-        self.guide_group, guide_layout = self._collapsible_panel("Setup guide", checked=False)
+        self.tabs = self.QtWidgets.QTabWidget()
+        self.tabs.setDocumentMode(True)
+
+        config_tab = self.QtWidgets.QWidget()
+        config_layout = self.QtWidgets.QHBoxLayout(config_tab)
+        config_layout.setContentsMargins(0, 8, 0, 0)
+        config_layout.setSpacing(12)
+
+        self.canvas = lazy_symbol("localflight.native.canvas.matrix", "MatrixCanvas")(QtCore, QtGui, QtWidgets2)
+        preview_col = self.QtWidgets.QVBoxLayout()
+        preview_col.addWidget(label(self.QtWidgets, "Live Preview", "SectionLabel"))
+        preview_col.addWidget(label(self.QtWidgets, "Mirrors the board palette, layout, Matrix display labels, weather icons, gate rules, and selected motion style.", "Muted", wrap=True))
+        preview_col.addWidget(self.canvas, 1)
+        config_layout.addLayout(preview_col, 3)
+
+        settings_scroll = self.QtWidgets.QScrollArea()
+        settings_scroll.setWidgetResizable(True)
+        settings_scroll.setFrameShape(self.QtWidgets.QFrame.NoFrame)
+        settings_inner = self.QtWidgets.QWidget()
+        settings_layout = self.QtWidgets.QVBoxLayout(settings_inner)
+        settings_layout.setContentsMargins(0, 0, 4, 0)
+        settings_layout.setSpacing(8)
+
+        settings_layout.addWidget(self._settings_group("Configuration", [
+            ("Config", self.config_select, "Switch between saved board configs. Each config can target a different physical panel."),
+            ("Name", self.config_name, "Human-readable name for this Matrix config."),
+            ("Board mode", self.preset_select, "Real FIDS shows live airport data. VATSIM modes use virtual-network display rules."),
+        ]))
+        settings_layout.addWidget(self._settings_group("Display", [
+            ("Panel combo", self.panel_preset, "Choose a standard physical panel combination. Match the hardware wired to the i75W."),
+            ("Custom size", self._panel_size_row(), "Override width and height in pixels when the panel combo is custom."),
+            ("Startup lane", self.default_view_select, "Which lane the board shows first: departures or arrivals."),
+            ("Rows shown", self.max_rows, "Fewer rows means larger text, which is better on compact displays."),
+        ]))
+        settings_layout.addWidget(self._settings_group("Timing", [
+            ("Refresh", self.refresh_seconds, "How often the board asks Local Flight for fresh data."),
+            ("Page rotation", self.rotation_seconds, "How long each page of rows is shown before rotating."),
+        ]))
+        settings_layout.addWidget(self._settings_group("Animation", [
+            ("Motion style", self.animation_mode, "Split-flap cycles characters; typewriter reveals left to right; cascade staggers rows."),
+            ("Motion speed", self.animation_speed, "Animation pace. 1 is dramatic, 5 is snappy."),
+            ("Status pulse", self.status_animation, "Pulse important status text such as boarding or delayed."),
+        ]))
+        settings_layout.addWidget(self._settings_group("Appearance", [
+            ("Palette", self.palette, "LED color theme for the preview and physical board."),
+            ("Brightness", self._slider_row(self.brightness, self.brightness_value), "Physical LED brightness from 5 to 100 percent."),
+            ("Preview zoom", self._slider_row(self.zoom, self.zoom_value), "On-screen simulated LED pixel size. Does not affect the board."),
+        ]))
+        settings_layout.addWidget(self._settings_group("Data", [
+            ("Weather", self.weather_toggle, "Show airport weather in the Matrix header or weather page when space allows."),
+            ("Gate / stand", self.gate_toggle, "Show real-world gate or stand labels when the source provides them. Hidden for VATSIM presets."),
+        ]))
+        settings_layout.addStretch(1)
+        settings_scroll.setWidget(settings_inner)
+        config_layout.addWidget(settings_scroll, 2)
+        self.tabs.addTab(config_tab, "Configurator")
+
+        boards_tab = self.QtWidgets.QWidget()
+        boards_layout = self.QtWidgets.QHBoxLayout(boards_tab)
+        boards_layout.setContentsMargins(0, 8, 0, 0)
+        boards_layout.setSpacing(12)
+        devices_panel, devices_layout = panel(self.QtWidgets, "Boards seen on your LAN")
+        devices_layout.addWidget(label(self.QtWidgets, "Boards that check in over Wi-Fi appear here. Assign each board to a saved config.", "Muted", wrap=True))
+        self._build_devices_contents(devices_layout)
+        boards_layout.addWidget(devices_panel, 1)
+        configs_panel, configs_layout = panel(self.QtWidgets, "Config slots")
+        configs_layout.addWidget(label(self.QtWidgets, "Create, duplicate, delete, or set the default board config. Edit selected settings in the Configurator tab.", "Muted", wrap=True))
+        self._build_configs_contents(configs_layout)
+        boards_layout.addWidget(configs_panel, 1)
+        self.tabs.addTab(boards_tab, "Connected Boards")
+
+        guide_tab = self.QtWidgets.QWidget()
+        guide_layout = self.QtWidgets.QVBoxLayout(guide_tab)
+        guide_layout.setContentsMargins(0, 8, 0, 0)
+        guide_layout.setSpacing(10)
+        steps_panel, steps_layout = panel(self.QtWidgets, "Setup guide")
         step_row = self.QtWidgets.QHBoxLayout()
         for step in MATRIX_GUIDE_STEPS:
             step_row.addWidget(card(self.QtWidgets, str(step["title"]), str(step["body"])))
-        guide_layout.addLayout(step_row)
+        steps_layout.addLayout(step_row)
         note_row = self.QtWidgets.QHBoxLayout()
         note_row.addWidget(card(self.QtWidgets, "Live after Apply", ", ".join(MATRIX_LIVE_SETTINGS[:4]), ", ".join(MATRIX_LIVE_SETTINGS[4:])))
         note_row.addWidget(card(self.QtWidgets, "Regenerate main.py when", ", ".join(MATRIX_REFLASH_SETTINGS[:2]), ", ".join(MATRIX_REFLASH_SETTINGS[2:])))
-        guide_layout.addLayout(note_row)
-        layout.addWidget(self.guide_group)
-
-        main_row = self.QtWidgets.QHBoxLayout()
-        controls, controls_layout = panel(self.QtWidgets, "Board setup")
-        controls_layout.addWidget(label(self.QtWidgets, "These controls change the saved board config and the preview immediately.", "Muted", wrap=True))
-        form_layout = self.QtWidgets.QFormLayout()
-        form_layout.addRow("Selected config", self.config_select)
-        form_layout.addRow("Config name", self.config_name)
-        form_layout.addRow("Board mode", self.preset_select)
-        form_layout.addRow("Panel combo", self.panel_preset)
-        form_layout.addRow("Custom size", self._panel_size_row())
-        form_layout.addRow("Startup lane", self.default_view_select)
-        form_layout.addRow("Rows shown", self.max_rows)
-        form_layout.addRow("Refresh", self.refresh_seconds)
-        form_layout.addRow("Page rotation", self.rotation_seconds)
-        form_layout.addRow("Brightness", self._slider_row(self.brightness, self.brightness_value))
-        form_layout.addRow("Preview zoom", self._slider_row(self.zoom, self.zoom_value))
-        form_layout.addRow("Palette", self.palette)
-        form_layout.addRow("Motion", self.animation_mode)
-        form_layout.addRow("Motion speed", self.animation_speed)
-        form_layout.addRow("Status motion", self.status_animation)
-        form_layout.addRow("Weather", self.weather_toggle)
-        form_layout.addRow("Gate/stand", self.gate_toggle)
-        controls_layout.addLayout(form_layout)
-        main_row.addWidget(controls, 1)
-
-        self.canvas = lazy_symbol("localflight.native.canvas.matrix", "MatrixCanvas")(QtCore, QtGui, QtWidgets2)
-        preview, preview_layout = panel(self.QtWidgets, "Live preview")
-        preview_layout.addWidget(label(self.QtWidgets, "Same feed, compact layout, palette, and gate/weather rules used by generated main.py.", "Muted", wrap=True))
-        preview_layout.addWidget(self.canvas, 1)
-        main_row.addWidget(preview, 2)
-        layout.addLayout(main_row, 1)
-
-        self.flash_group, flash_layout = self._collapsible_panel("One-time main.py creator", checked=False)
+        steps_layout.addLayout(note_row)
+        guide_layout.addWidget(steps_panel)
+        flash_panel, flash_layout = panel(self.QtWidgets, "One-time main.py creator")
         self._build_flash_contents(flash_layout)
-        layout.addWidget(self.flash_group)
-
-        self.devices_group, devices_layout = self._collapsible_panel("Connected boards", checked=False)
-        self._build_devices_contents(devices_layout)
-        layout.addWidget(self.devices_group)
-
-        self.configs_group, configs_layout = self._collapsible_panel("Multiple configs", checked=False)
-        self._build_configs_contents(configs_layout)
-        layout.addWidget(self.configs_group)
-
-        self.advanced_group, advanced_layout = self._collapsible_panel("Advanced: how the board talks to Local Flight", checked=False)
-        advanced_layout.addWidget(label(self.QtWidgets, "The board is a LAN client. No cloud account is involved for Matrix control.", "Muted", wrap=True))
+        guide_layout.addWidget(flash_panel)
+        advanced_panel, advanced_layout = panel(self.QtWidgets, "How the board talks to Local Flight")
+        advanced_layout.addWidget(label(self.QtWidgets, "The i75W is a LAN client. No cloud account is involved for Matrix control.", "Muted", wrap=True))
         for item in MATRIX_ADVANCED_FLOW:
             advanced_layout.addWidget(label(self.QtWidgets, f"- {item}", "Muted", wrap=True))
         for item in MATRIX_SAFE_NOTES:
             advanced_layout.addWidget(label(self.QtWidgets, f"- {item}", "Muted", wrap=True))
-        layout.addWidget(self.advanced_group)
-        layout.addStretch(1)
+        guide_layout.addWidget(advanced_panel)
+        guide_layout.addStretch(1)
+        self.tabs.addTab(guide_tab, "Setup Guide")
+
+        layout.addWidget(self.tabs, 1)
 
     def _collapsible_panel(self, title: str, *, checked: bool) -> tuple[Any, Any]:
         group = self.QtWidgets.QGroupBox(title)
@@ -4119,7 +4177,8 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
     def generate_script(self) -> None:
         validation_error = self._script_validation_error()
         if validation_error:
-            self.flash_group.setChecked(True)
+            if hasattr(self, "tabs"):
+                self.tabs.setCurrentIndex(2)
             self.action_status.setText(validation_error)
             self.script_summary.setText(validation_error)
             _set_native_feedback(self, validation_error, "StatusWarn")
@@ -4160,7 +4219,8 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
             return
         self._last_script = text
         self.script_preview.setPlainText(text)
-        self.flash_group.setChecked(True)
+        if hasattr(self, "tabs"):
+            self.tabs.setCurrentIndex(2)
         self.script_summary.setText(
             f"Generated for Wi-Fi '{payload['wifi_ssid']}' | server {payload['api_host']}:{payload['api_port']} | "
             f"{w} x {h} | {payload['preset']} | {payload['palette']} | {payload['default_view']} | {payload['refresh_seconds']}s refresh."

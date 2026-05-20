@@ -831,12 +831,8 @@ def test_native_parity_screens_construct_core_controls(monkeypatch: pytest.Monke
     assert matrix.canvas is not None
     assert matrix.loading_indicator.isVisible() is False
     assert matrix.script_preview.isReadOnly()
-    assert matrix.flash_group.isCheckable()
-    assert matrix.guide_group.isCheckable()
-    assert matrix.guide_group.isChecked() is False
-    assert matrix.devices_group.isCheckable()
-    assert matrix.configs_group.isCheckable()
-    assert matrix.advanced_group.isCheckable()
+    assert matrix.tabs.count() == 3
+    assert [matrix.tabs.tabText(i) for i in range(matrix.tabs.count())] == ["Configurator", "Connected Boards", "Setup Guide"]
     assert matrix.summary_labels["panel"].text()
     assert matrix.zoom_value.text().endswith("px")
     assert matrix.brightness_value.text().endswith("%")
@@ -846,9 +842,13 @@ def test_native_parity_screens_construct_core_controls(monkeypatch: pytest.Monke
     generate_buttons = [button for button in matrix_buttons if button.text() == "Generate main.py"]
     assert len(generate_buttons) == 1
     parent = generate_buttons[0].parent()
-    while parent is not None and parent is not matrix.flash_group:
+    tab_index = -1
+    while parent is not None:
+        tab_index = matrix.tabs.indexOf(parent)
+        if tab_index >= 0:
+            break
         parent = parent.parent()
-    assert parent is matrix.flash_group
+    assert matrix.tabs.tabText(tab_index) == "Setup Guide"
     assert logs.file_combo is not None
     assert logs.live_tail.text().endswith("Live tail")
     assert logs.loading_indicator.isVisible() is False

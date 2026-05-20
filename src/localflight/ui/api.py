@@ -2758,6 +2758,60 @@ _MATRIX_PALETTES: Dict[str, Dict[str, Any]] = {
         "description": "Bright white airport signage with blue accents and strong disruption color.",
         "colors": {"primary": "#bde9ff", "text": "#ffffff", "dim": "#6a8195", "warning": "#ffd35a", "danger": "#ff5252", "accent": "#66d9ff"},
     },
+    "crt": {
+        "id": "crt",
+        "label": "CRT Amber",
+        "description": "Warm CRT-style amber phosphor with soft warning highlights.",
+        "colors": {"primary": "#ffcc44", "text": "#ffeeaa", "dim": "#7a5000", "warning": "#ffdd00", "danger": "#ff4020", "accent": "#ffaa00"},
+    },
+    "neon": {
+        "id": "neon",
+        "label": "Neon Green",
+        "description": "High-energy green LED look for showpiece installs.",
+        "colors": {"primary": "#00ff50", "text": "#dcffdc", "dim": "#007a28", "warning": "#aaff00", "danger": "#ff4040", "accent": "#aaff00"},
+    },
+    "amber": {
+        "id": "amber",
+        "label": "Amber",
+        "description": "Classic warm amber board with gentle cream text.",
+        "colors": {"primary": "#ffae2e", "text": "#ffebb4", "dim": "#7e5416", "warning": "#ffdf55", "danger": "#ff5738", "accent": "#ffc56b"},
+    },
+    "green": {
+        "id": "green",
+        "label": "Green",
+        "description": "Clean green terminal display with cyan accent hints.",
+        "colors": {"primary": "#28f76e", "text": "#dcffe6", "dim": "#227c3e", "warning": "#ffc94a", "danger": "#ff4d4d", "accent": "#55e7ff"},
+    },
+    "cyan": {
+        "id": "cyan",
+        "label": "Cyan",
+        "description": "Cool cyan board with bright teal accents.",
+        "colors": {"primary": "#00ccff", "text": "#d7fcff", "dim": "#006688", "warning": "#ffcc00", "danger": "#ff4060", "accent": "#00ffcc"},
+    },
+    "technical": {
+        "id": "technical",
+        "label": "Technical",
+        "description": "Muted technical blue palette matching the app's engineering surfaces.",
+        "colors": {"primary": "#4a9eda", "text": "#d2e6f8", "dim": "#507494", "warning": "#d4a020", "danger": "#c04040", "accent": "#7ce7ff"},
+    },
+    "phosphor": {
+        "id": "phosphor",
+        "label": "Phosphor",
+        "description": "Bright green phosphor style with soft monochrome contrast.",
+        "colors": {"primary": "#39ff14", "text": "#cdffc6", "dim": "#3a8a18", "warning": "#aaff00", "danger": "#ff3232", "accent": "#b4ffb4"},
+    },
+    "indigo_night": {
+        "id": "indigo_night",
+        "label": "Indigo Night",
+        "description": "Deep violet-blue palette for dark rooms and ambient displays.",
+        "colors": {"primary": "#8272ff", "text": "#d8d4ff", "dim": "#5548b8", "warning": "#ffd84a", "danger": "#ff6b8a", "accent": "#4deaff"},
+    },
+    "rose_gold": {
+        "id": "rose_gold",
+        "label": "Rose Gold",
+        "description": "Warm rose-pink display for decorative board installs.",
+        "colors": {"primary": "#ff7ecb", "text": "#ffd8ee", "dim": "#a04878", "warning": "#ffd166", "danger": "#ff3864", "accent": "#ffb8c8"},
+    },
 }
 
 _MATRIX_PRESETS: Dict[str, Dict[str, Any]] = {
@@ -2855,7 +2909,7 @@ _MATRIX_V1_FIELDS = {
     "options",
 }
 
-_MATRIX_ANIMATION_MODES = {"split_flap", "slide_left", "slide_right", "static"}
+_MATRIX_ANIMATION_MODES = {"split_flap", "typewriter", "cascade", "slide_left", "slide_right", "static"}
 
 _MATRIX_PANEL_PRESETS: List[Dict[str, Any]] = [
     {"id": "64x32", "label": "64 x 32", "group": "Other common HUB75 sizes", "panel_w": 64, "panel_h": 32},

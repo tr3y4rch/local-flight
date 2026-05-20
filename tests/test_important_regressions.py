@@ -3729,8 +3729,25 @@ def test_matrix_v2_migrates_flat_config_and_registers_device(tmp_path: Path, mon
     assert preset_options["vatsim_pilot"]["show_gate_info"] is False
     assert preset_options["vatsim_atc"]["show_gate_info"] is False
     palette_ids = {item["id"] for item in preset_payload["palettes"]}
-    assert palette_ids == {"pax_blue", "solari_amber", "tower_scope", "vatsim_scope", "night_ops", "sunset_terminal", "ice_white"}
-    assert not ({"standard", "technical", "cyan", "crt", "neon", "amber", "green", "white"} & palette_ids)
+    assert palette_ids == {
+        "pax_blue",
+        "solari_amber",
+        "tower_scope",
+        "vatsim_scope",
+        "night_ops",
+        "sunset_terminal",
+        "ice_white",
+        "crt",
+        "neon",
+        "amber",
+        "green",
+        "cyan",
+        "technical",
+        "phosphor",
+        "indigo_night",
+        "rose_gold",
+    }
+    assert "white" not in palette_ids
     panel_ids = {item["id"] for item in preset_payload["panel_presets"]}
     assert {"64x32", "128x64", "128x128", "256x128", "512x128"} <= panel_ids
 
@@ -3822,6 +3839,11 @@ def test_matrix_device_feed_uses_assigned_config_and_exposes_board_contract(tmp_
     assert config.json()["id"] == "tiny-arr"
     assert config.json()["panel_w"] == 128
     assert config.json()["palette"] == "tower_scope"
+    palette_patch = client.patch(f"/api/matrix/v2/configs/{created['id']}", json={"palette": "neon", "options": {"palette": "neon"}})
+    assert palette_patch.status_code == 200
+    assert palette_patch.json()["config"]["palette"] == "neon"
+    assert client.get(f"/api/matrix/v2/configs/{created['id']}").json()["palette"] == "neon"
+    assert client.get("/api/matrix/v2/devices/board-a/config").json()["palette"] == "neon"
     assert feed.status_code == 200
     assert captured == {"view": "arrivals", "limit": 8}
     payload = feed.json()
