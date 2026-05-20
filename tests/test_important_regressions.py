@@ -4325,9 +4325,9 @@ def test_matrix_script_endpoint_uses_current_i75w_client_template() -> None:
     assert "return 30 if HEIGHT >= 96 and _weather_line(8) else 20" not in script
     assert "def draw_vatsim_weather_page():" in script
     assert "def draw_vatsim_atc(flap_rows, fallback_rows, fallback_view):" in script
-    assert "time_label = fit_text(text[0:5].strip()" in script
-    assert "flight_label = fit_text(text[6:14].strip()" in script
-    assert "status = text[28:38].strip()" in script
+    assert 'time_label = fit_text(_text_field(row.get("matrix_time_label")' in script
+    assert "flight_label = fit_text(_flight_cycle_display(row), 8)" in script
+    assert "status = _status_or_gate_chunk(row, max(8, WIDTH // 8))" in script
     assert "\"real_fids\"" in script
     assert "\"vatsim_pilot\"" in script
     assert "\"vatsim_atc\"" in script
@@ -4433,9 +4433,9 @@ def test_matrix_preview_download_payload_uses_defined_animation_state() -> None:
     assert "MATRIX_PALETTE_OPTIONS" in template
     assert "MATRIX_PANEL_PRESETS" in template
     assert "row.matrix_flight_label" in template
-    assert "txt.slice(0,5).trim()" in template
-    assert "txt.slice(6,14).trim()" in template
-    assert "txt.slice(28,38).trim()" in template
+    assert "const timeLabel = String(row?.matrix_time_label" in template
+    assert "const flightLabel = String(flightCycleDisplay(row || {}))" in template
+    assert "let statusText = row ? statusOrGateChunk(row, chars) : \"\"" in template
     assert "MATRIX_METAR?.matrix_weather_icon" in template
     assert "const choices = [primary" not in template
     assert "palette: MATRIX_PALETTE" in template

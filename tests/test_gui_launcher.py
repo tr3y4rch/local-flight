@@ -2801,6 +2801,10 @@ def test_native_settings_has_airport_search_picker(monkeypatch: pytest.MonkeyPat
     assert screen.apply_surface_button.text() == "Apply radar overlay"
     assert "Surface overlay" in screen.surface_status.text()
     assert screen.surface_progress.isVisible() is False
+    assert screen.outputs_radar_group.isChecked() is False
+    assert screen.outputs_radar_body.isVisible() is False
+    assert screen.profiles_group.isChecked() is False
+    assert screen.profiles_body.isVisible() is False
     assert screen.companion_group.isChecked() is True
     assert "localflight://pair" in screen.companion_pairing_url_label.text()
     assert "Scan this from each iPhone/iPad" in screen.companion_body.findChild(QtWidgets.QLabel).text()
@@ -2810,6 +2814,18 @@ def test_native_settings_has_airport_search_picker(monkeypatch: pytest.MonkeyPat
     assert screen.maintenance_body.isVisible() is False
     assert screen.advanced_display_group.isChecked() is False
     assert screen.advanced_display_body.isVisible() is False
+    assert [
+        card.title_label.text()
+        for card in screen.widget.findChildren(QtWidgets.QFrame, "DisclosureCard")
+    ] == [
+        "Outputs & Radar",
+        "Profiles",
+        "Pair Mobile",
+        "Advanced Board Timing",
+        "Maintenance",
+        "Relay details",
+        "Diagnostics & Docs",
+    ]
 
 
 def test_native_settings_companion_pairing_actions_are_wired(monkeypatch: pytest.MonkeyPatch) -> None:

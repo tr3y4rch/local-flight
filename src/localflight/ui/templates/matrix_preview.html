@@ -1789,8 +1789,8 @@
 
       if (compact) {
         const chars = Math.max(8, Math.floor(PANEL_W / 6));
-        const timeLabel = String(txt.slice(0,5).trim() || row?.matrix_time_label || row?.display_time || row?.time || "--:--").padEnd(5, " ").slice(0,5);
-        const flightLabel = String(txt.slice(6,14).trim() || flightCycleDisplay(row || {})).padEnd(8, " ").slice(0,8);
+        const timeLabel = String(row?.matrix_time_label || row?.display_time || row?.time || "--:--").padEnd(5, " ").slice(0,5);
+        const flightLabel = String(flightCycleDisplay(row || {})).padEnd(8, " ").slice(0,8);
         drawGlyph(cancelled ? "warn" : (renderView === "arrivals" ? "arr" : "dep"), 0, y + 1, cancelled ? C.red : C.dim);
         drawString(timeLabel, 8, y, cancelled ? C.white : C.green);
         drawString(flightLabel, 50, y, C.white);
@@ -1798,11 +1798,11 @@
         const sc = row ? statusColor(row) : (flightColors[ri] || C.green);
         let statusY = y + 8;
         if (rowH >= 18) {
-          drawString((txt.slice(15,27).trim() || (row ? routeChunk(row, chars) : "")).slice(0, chars), 0, y + 8, C.white, PANEL_W);
+          drawString((row ? routeChunk(row, chars) : "").slice(0, chars), 0, y + 8, C.white, PANEL_W);
           statusY = y + 16;
         }
         if (statusY + 7 <= y + rowH) {
-          let statusText = txt.slice(28,38).trim() || (row ? statusOrGateChunk(row, chars) : "");
+          let statusText = row ? statusOrGateChunk(row, chars) : "";
           const gate = gateLabel(row);
           const aircraft = String(row?.aircraft_type || row?.aircraft || "").toUpperCase();
           if (rowH >= 27 && aircraft && !gate) {

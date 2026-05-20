@@ -1204,8 +1204,8 @@ def draw_row(flap_row, row_data, y, row_h):
         graphics.set_font("bitmap8")
         glyph = "arr" if DEFAULT_VIEW == "arrivals" else "dep"
         draw_glyph("warn" if cancelled else glyph, 0, y + 1, RED if cancelled else DIM)
-        time_label = fit_text(text[0:5].strip() or _text_field(row_data.get("matrix_time_label") or row_data.get("display_time") or row_data.get("time"), "--:--"), 5)
-        flight_label = fit_text(text[6:14].strip() or _flight_cycle_display(row_data), 8)
+        time_label = fit_text(_text_field(row_data.get("matrix_time_label") or row_data.get("display_time") or row_data.get("time"), "--:--"), 5)
+        flight_label = fit_text(_flight_cycle_display(row_data), 8)
         graphics.set_pen(WHITE if cancel_flash else GREEN)
         graphics.text(time_label, 8, y, 42, 1)
         graphics.set_pen(WHITE)
@@ -1213,14 +1213,14 @@ def draw_row(flap_row, row_data, y, row_h):
 
         if row_h >= 18:
             graphics.set_pen(WHITE)
-            graphics.text((text[15:27].strip() or _route_chunk(row_data, chars))[:chars], 0, y + 8, WIDTH, 1)
+            graphics.text(_route_chunk(row_data, chars)[:chars], 0, y + 8, WIDTH, 1)
             status_y = y + 16
         else:
             status_y = y + 8
 
         if status_y + 7 <= y + row_h:
             graphics.set_pen(WHITE if cancel_flash else s_color)
-            status_text = text[28:38].strip() or _status_or_gate_chunk(row_data, chars)
+            status_text = _status_or_gate_chunk(row_data, chars)
             gate = _gate_label(row_data)
             aircraft = _upper_text(row_data.get("aircraft_type") or row_data.get("aircraft") or "")
             if row_h >= 27 and aircraft and not gate:
@@ -1267,8 +1267,12 @@ def draw_modern_fids(flap_rows, page_data, view):
         if not row:
             continue
         text = flap_rows[i].get_text() if flap_rows else build_row_text(row)
-        time_label = fit_text(text[0:5].strip() or _text_field(row.get("matrix_time_label") or row.get("display_time") or row.get("time"), "--:--"), 5)
-        flight_label = fit_text(text[6:14].strip() or _flight_cycle_display(row), 8)
+        if compact:
+            time_label = fit_text(_text_field(row.get("matrix_time_label") or row.get("display_time") or row.get("time"), "--:--"), 5)
+            flight_label = fit_text(_flight_cycle_display(row), 8)
+        else:
+            time_label = fit_text(text[0:5].strip() or _text_field(row.get("matrix_time_label") or row.get("display_time") or row.get("time"), "--:--"), 5)
+            flight_label = fit_text(text[6:14].strip() or _flight_cycle_display(row), 8)
         cancelled = is_cancelled(row)
         if cancelled and _blink_fast():
             graphics.set_pen(RED)
@@ -1282,10 +1286,10 @@ def draw_modern_fids(flap_rows, page_data, view):
             route_y = y + 8
             status_y = y + 16
             graphics.set_pen(WHITE)
-            graphics.text((text[15:27].strip() or _route_chunk(row, max(8, WIDTH // 8)))[:max(8, WIDTH // 8)], 0, route_y, WIDTH, 1)
+            graphics.text(_route_chunk(row, max(8, WIDTH // 8))[:max(8, WIDTH // 8)], 0, route_y, WIDTH, 1)
             if row_h >= 25 and status_y + 7 <= y + row_h:
                 graphics.set_pen(status_color(row))
-                status = text[28:38].strip() or _status_or_gate_chunk(row, max(8, WIDTH // 8))
+                status = _status_or_gate_chunk(row, max(8, WIDTH // 8))
                 graphics.text(status, 0, status_y, WIDTH, 1)
         else:
             route_chars = max(8, (WIDTH - 118) // 8)

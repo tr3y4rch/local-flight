@@ -96,9 +96,13 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
         self._build_header()
         self._build_status_band()
         self._build_main_controls()
+        self._build_radar_devices()
         self._build_profiles()
-        self._build_help_privacy()
+        self._build_companion_pairing()
         self._build_advanced_timing()
+        self._build_diagnostics_maintenance()
+        self._build_relay_details()
+        self._build_help_docs()
 
         self.status = label(QtWidgets, "Settings ready. Refresh to load the current local config.", "Muted", wrap=True)
         self.loading_indicator = QtWidgets.QProgressBar()
@@ -191,11 +195,9 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
         if self.compact_geometry:
             grid.addWidget(self._build_airport_data(), 0, 0)
             grid.addWidget(self._build_appearance(), 1, 0)
-            grid.addWidget(self._build_radar_devices(), 2, 0)
         else:
             grid.addWidget(self._build_airport_data(), 0, 0)
             grid.addWidget(self._build_appearance(), 0, 1)
-            grid.addWidget(self._build_radar_devices(), 1, 0, 1, 2)
         self.layout.addLayout(grid)
 
     def _settings_icon(self, kind: str) -> Any:
@@ -318,8 +320,12 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
         self._sync_skin_buttons("standard")
         return box
 
-    def _build_radar_devices(self) -> Any:
-        box, layout = panel(self.QtWidgets, "\U0001F6F0  Outputs & Radar")
+    def _build_radar_devices(self) -> None:
+        self.outputs_radar_group, self.outputs_radar_body, layout = self._collapsible_section(
+            "Outputs & Radar",
+            subtitle="Choose display outputs and the optional radar ground drawing layer.",
+            emoji="\U0001F6F0",  # 🛰
+        )
         self.surface = self.QtWidgets.QCheckBox("Runway and airport surface overlay")
         self.surface.stateChanged.connect(self._surface_changed)
         layout.addWidget(self.surface)
@@ -357,10 +363,13 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
         outputs.addStretch(1)
         layout.addWidget(label(self.QtWidgets, "Display outputs", "Kicker"))
         layout.addLayout(outputs)
-        return box
 
     def _build_profiles(self) -> None:
-        box, layout = panel(self.QtWidgets, "\U0001F464  Profiles")
+        self.profiles_group, self.profiles_body, layout = self._collapsible_section(
+            "Profiles",
+            subtitle="Save airport, source, and board presets for quick swaps.",
+            emoji="\U0001F464",  # 👤
+        )
         layout.addWidget(label(self.QtWidgets, "Save airport and board presets for quick swaps.", "Muted", wrap=True))
         row = self.QtWidgets.QHBoxLayout()
         self.profile_combo = self.QtWidgets.QComboBox()
@@ -379,7 +388,6 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
         row.addWidget(save)
         row.addWidget(delete)
         layout.addLayout(row)
-        self.layout.addWidget(box)
 
     def _build_help_privacy(self) -> None:
         self._build_companion_pairing()
@@ -439,7 +447,11 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
         layout.addLayout(grid)
 
     def _build_companion_pairing(self) -> None:
-        self.companion_group, self.companion_body, layout = self._collapsible_section("Pair Mobile")
+        self.companion_group, self.companion_body, layout = self._collapsible_section(
+            "Pair Mobile",
+            subtitle="QR pairing for LAN Companion devices on the same network.",
+            emoji="\U0001F4F1",  # 📱
+        )
         self.companion_group.setChecked(True)
         layout.addWidget(
             label(
