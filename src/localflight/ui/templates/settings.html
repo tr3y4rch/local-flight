@@ -587,10 +587,10 @@
     <div style="background:var(--panel-bg);border:1px solid var(--panel-border);border-radius:16px;padding:28px 32px;min-width:280px;max-width:380px;text-align:center;box-shadow:0 24px 64px rgba(0,0,0,0.5);">
       <img src="/static/localflight-logo.svg" alt="" style="width:48px;height:48px;margin-bottom:12px;" />
       <div style="font-weight:800;font-size:1rem;margin-bottom:6px;">Re-run setup wizard?</div>
-      <div style="opacity:.66;font-size:.84rem;line-height:1.5;margin-bottom:22px;">Your config stays on disk, but Local Flight will open the guided setup again.</div>
+      <div style="opacity:.66;font-size:.84rem;line-height:1.5;margin-bottom:22px;">Your config stays on disk. This closes the settings view and opens the guided setup now.</div>
       <div style="display:flex;gap:10px;justify-content:center;">
         <button type="button" onclick="document.getElementById('resetModal').style.display='none'" style="width:auto;margin:0;">Cancel</button>
-        <button type="button" onclick="confirmReset()" class="danger-link">Reset</button>
+        <button type="button" onclick="confirmReset()" class="danger-link" id="confirmResetBtn">Open setup</button>
       </div>
     </div>
   </div>
@@ -753,11 +753,22 @@ function resetSetup() {
   document.getElementById("resetModal").style.display = "flex";
 }
 async function confirmReset() {
+  const btn = document.getElementById("confirmResetBtn");
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = "Opening...";
+  }
   try {
     const r = await fetch("/api/setup/reset", { method: "POST" });
-    if (r.ok) { window.location.href = "/setup"; }
+    if (r.ok) { window.location.assign("/setup"); }
     else { alert("Reset failed. Check logs."); }
   } catch { alert("Network error."); }
+  finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = "Open setup";
+    }
+  }
 }
 async function restartSchedulerNow() {
   const btn = document.getElementById("restartSchedulerBtn");

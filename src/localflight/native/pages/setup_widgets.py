@@ -314,14 +314,14 @@ def build_hero(
 ) -> Any:
     """Build the welcome-page hero block (animated logo + radar rings + tagline)."""
 
-    target_height = 226 if not compact else 188
-    logo_size = 132 if not compact else 104
+    target_height = 176 if not compact else 142
+    logo_size = 108 if not compact else 88
     ring_growth = logo_size * 0.36
 
     class _Hero(QtWidgets.QWidget):
         def __init__(self) -> None:
             super().__init__()
-            self.setMinimumHeight(target_height + 56)
+            self.setMinimumHeight(target_height + 40)
             self._bob = 0.0
             self._ring_phase = 0.0
             self._accent = QtGui.QColor(accent_hex)
@@ -336,7 +336,7 @@ def build_hero(
             layout = QtWidgets.QVBoxLayout(self)
             layout.setContentsMargins(0, 0, 0, 0)
             layout.setSpacing(8)
-            layout.addSpacing(target_height + 10)
+            layout.addSpacing(target_height + 6)
             self.tagline = QtWidgets.QLabel(tagline)
             self.tagline.setAlignment(QtCore.Qt.AlignCenter)
             self.tagline.setStyleSheet(

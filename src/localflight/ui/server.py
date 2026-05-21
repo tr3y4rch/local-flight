@@ -23,6 +23,7 @@ from localflight.ui.api import router as api_router
 from localflight.ui.matrix_guidance import matrix_guidance_payload
 from localflight.core.airports import best_label, city_country_label
 from localflight.core.settings_options import settings_options_context
+from localflight.core.timezones import resolve_airport_timezone, resolve_config_timezone
 from localflight.sources.web.relay_defaults import default_public_relay_url, relay_endpoint_url, validate_public_relay_url
 from localflight.storage.config import (
     AppConfig, load_config, save_config,
@@ -281,6 +282,7 @@ except Exception:
     _APP_VERSION = "0.2.7"
 
 templates.env.globals["app_version"] = _APP_VERSION
+templates.env.globals["airport_timezone"] = resolve_config_timezone
 
 
 def _safe_local_path(path: str, *, fallback: str = "/display") -> str:
@@ -885,7 +887,11 @@ async def setup_complete(request: Request, background_tasks: BackgroundTasks) ->
 
     airport_iata = (data.get("airport_iata") or "ZRH").upper().strip()
     airport_icao = (data.get("airport_icao") or "LSZH").upper().strip()
-    timezone_str = data.get("timezone") or "Europe/Zurich"
+    timezone_str = resolve_airport_timezone(
+        str(data.get("timezone") or ""),
+        airport_iata=airport_iata,
+        airport_icao=airport_icao,
+    )
     source = data.get("source") or "real"
     setup_mode = str(data.get("setup_mode") or "").strip().lower()
     if setup_mode == "virtual":
@@ -1221,7 +1227,11 @@ async def save_settings(
         display_name=display_name.strip()[:40] or "Local Flight",
         theme=(theme or "dark").strip() or "dark",
         source=src,
-        timezone=timezone.strip() or "UTC",
+        timezone=resolve_airport_timezone(
+            timezone,
+            airport_iata=airport_iata,
+            airport_icao=airport_icao,
+        ),
         skin=sk,
         display_outputs=display_outputs,
         diagnostics_mode=diag_mode,
@@ -1527,7 +1537,7 @@ def traffic_page(request: Request) -> HTMLResponse:
 
 @app.post("/api/setup/reset")
 def api_setup_reset() -> dict:
-    """Delete the setup_complete marker so the setup wizard runs again on next visit."""
+    """Delete the setup_complete marker so clients can open the setup wizard immediately."""
     from localflight.storage.config import config_path
     marker = config_path().parent / "setup_complete"
     try:

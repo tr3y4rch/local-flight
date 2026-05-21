@@ -12,8 +12,8 @@ export function hexToRgba(value: string, opacity: number): string {
   return `rgba(${r},${g},${b},${opacity})`;
 }
 
-export function formatUtc(): string {
-  return new Date().toLocaleTimeString("en-GB", {
+export function formatUtc(date: Date = new Date()): string {
+  return date.toLocaleTimeString("en-GB", {
     timeZone: "UTC",
     hour: "2-digit",
     minute: "2-digit",
@@ -22,21 +22,20 @@ export function formatUtc(): string {
   });
 }
 
-export function formatLocalTime(timeZone?: string | null): string {
+export function formatAirportLocalTime(timeZone?: string | null, date: Date = new Date()): string {
+  const resolvedTimeZone = timeZone?.trim() || "UTC";
   const options: Intl.DateTimeFormatOptions = {
+    timeZone: resolvedTimeZone,
     hour: "2-digit",
     minute: "2-digit",
     hour12: false
   };
 
-  if (timeZone) {
-    options.timeZone = timeZone;
-  }
-
   try {
-    return new Date().toLocaleTimeString([], options);
+    return date.toLocaleTimeString("en-GB", options);
   } catch {
-    return new Date().toLocaleTimeString([], {
+    return date.toLocaleTimeString("en-GB", {
+      timeZone: "UTC",
       hour: "2-digit",
       minute: "2-digit",
       hour12: false

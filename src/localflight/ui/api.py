@@ -31,6 +31,7 @@ from localflight.core.aircraft import aircraft_full_label, short_aircraft_type
 from localflight.core.airports import _load_index, best_label, lookup_airport
 from localflight.core.flight_intel import build_flight_intel
 from localflight.core.models import Flight, FlightDirection, FlightPosition
+from localflight.core.timezones import resolve_config_timezone
 from localflight.decode.identity import resolve_flight_identity
 from localflight.decode.dedupe import dedupe_codeshares
 from localflight.display.fids import enrich_presentation_fields
@@ -2957,12 +2958,8 @@ def _utc_now_iso() -> str:
 def _matrix_clock_payload() -> Dict[str, Any]:
     cfg = load_config()
     now_utc = datetime.now(timezone.utc)
-    timezone_name = cfg.timezone or "UTC"
-    try:
-        local_now = now_utc.astimezone(ZoneInfo(timezone_name))
-    except Exception:
-        timezone_name = "UTC"
-        local_now = now_utc
+    timezone_name = resolve_config_timezone(cfg)
+    local_now = now_utc.astimezone(ZoneInfo(timezone_name))
     offset = local_now.utcoffset()
     offset_minutes = int(offset.total_seconds() // 60) if offset else 0
     airport_payload = _matrix_airport_payload(cfg)

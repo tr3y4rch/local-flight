@@ -117,8 +117,9 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
         screen = self.QtWidgets.QApplication.primaryScreen()
         available = screen.availableGeometry() if screen is not None else None
         available_width = available.width() if available is not None else 1200
+        available_height = available.height() if available is not None else 900
         self.setup_max_width = min(1080, max(540, available_width - 32))
-        self.compact_setup = available_width < 900
+        self.compact_setup = available_width < 900 or available_height < 820
         self.card_columns = 1 if available_width < 900 else 2 if available_width < 1220 else 3
         self.step_names = list(STEP_NAMES)
         self.step_short_labels = list(STEP_SHORT_LABELS)
@@ -126,14 +127,23 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
         self.diagnostics_buttons: dict[str, Any] = {}
         self.provider_link_buttons: dict[str, Any] = {}
 
-        self.widget, layout = scroll_page(QtWidgets)
+        self.widget = QtWidgets.QWidget()
         self.widget.setMinimumWidth(0)
-        layout.setContentsMargins(14, 14, 14, 14)
-        layout.setSpacing(12)
+        root_layout = QtWidgets.QVBoxLayout(self.widget)
+        root_layout.setContentsMargins(0, 0, 0, 0)
+        root_layout.setSpacing(0)
+        self.scroll_area, layout = scroll_page(QtWidgets)
+        self.scroll_area.setMinimumWidth(0)
+        layout.setContentsMargins(12, 10, 12, 10)
+        layout.setSpacing(10)
         self.status = self._status_chip(
             "Setup is local-first. You can change these choices later in Settings.",
             "muted",
         )
+        self.status.hide()
+        self._status_hide_timer = QtCore.QTimer(self.widget)
+        self._status_hide_timer.setSingleShot(True)
+        self._status_hide_timer.timeout.connect(self._clear_status)
 
         self.tabs = QtWidgets.QStackedWidget()
         self.tabs.setMinimumWidth(0)
@@ -176,9 +186,15 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
             self.loading_indicator.setFixedHeight(7)
             self.loading_indicator.hide()
         self.loading_indicator.setMaximumWidth(self.setup_max_width)
-        layout.addWidget(self.loading_indicator, 0, QtCore.Qt.AlignHCenter)
-        layout.addLayout(self._navigation())
-        layout.addStretch(1)
+        footer = QtWidgets.QFrame()
+        footer.setObjectName("SetupFooter")
+        footer_layout = QtWidgets.QVBoxLayout(footer)
+        footer_layout.setContentsMargins(12, 8, 12, 10)
+        footer_layout.setSpacing(6)
+        footer_layout.addWidget(self.loading_indicator, 0, QtCore.Qt.AlignHCenter)
+        footer_layout.addLayout(self._navigation())
+        root_layout.addWidget(self.scroll_area, 1)
+        root_layout.addWidget(footer, 0)
 
         self._set_step(0)
         self.refresh()
@@ -290,8 +306,8 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
         page.setMaximumWidth(self.setup_max_width)
         page.setSizePolicy(self.QtWidgets.QSizePolicy.Expanding, self.QtWidgets.QSizePolicy.Preferred)
         layout = self.QtWidgets.QVBoxLayout(page)
-        layout.setContentsMargins(18, 16, 18, 16)
-        layout.setSpacing(12)
+        layout.setContentsMargins(16, 12, 16, 12)
+        layout.setSpacing(9)
         title_label = label(self.QtWidgets, title, "SetupTitle", wrap=True)
         title_label.setTextFormat(self.QtCore.Qt.RichText)
         layout.addWidget(title_label)
@@ -428,7 +444,7 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
 
     def _mini_card(self, title: str, body: str, *, icon: str = "") -> Any:
         card = self._option_card(icon=icon, title=title, body=body)
-        card.setMinimumHeight(198 if self.card_columns >= 3 else 166)
+        card.setMinimumHeight(150 if self.card_columns >= 3 else 140)
         return card
 
     def _build_airport_page(self) -> None:
@@ -440,7 +456,12 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
         self.airport_search.setPlaceholderText("Search airport, city, IATA, or ICAO...")
         self.airport_search.textChanged.connect(lambda _text: self.search_timer.start(250))
         self.airport_results = self.QtWidgets.QListWidget()
-        self.airport_results.setMinimumHeight(150 if self.compact_setup else 170)
+        self.airport_results.setMinimumHeight(120 if self.compact_setup else 135)
+        self.airport_results.setMaximumHeight(170 if self.compact_setup else 190)
+        self.airport_results.setSizePolicy(
+            self.QtWidgets.QSizePolicy.Expanding,
+            self.QtWidgets.QSizePolicy.Fixed,
+        )
         self.airport_results.itemClicked.connect(self._select_airport_item)
         self.airport_search_status = self._status_chip("Type at least two characters to search the built-in airport database.", "muted")
         self.airport_selected = self._status_chip("Selected: ZRH / LSZH | Europe/Zurich", "good")
@@ -753,7 +774,7 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
                 self.tabs.setMinimumHeight(max(0, hint.height() + 6))
             current_page.updateGeometry()
             self.tabs.updateGeometry()
-            body = self.widget.widget() if hasattr(self.widget, "widget") else None
+            body = self.scroll_area.widget() if hasattr(self, "scroll_area") and hasattr(self.scroll_area, "widget") else None
             if body is not None:
                 body.adjustSize()
                 body.updateGeometry()
@@ -782,6 +803,10 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
         if current_page is not None:
             current_page.update()
         self._sync_current_page_geometry()
+        try:
+            self.QtCore.QTimer.singleShot(0, lambda: self.scroll_area.verticalScrollBar().setValue(0))
+        except Exception:
+            pass
         is_first = index == 0
         is_last = index == self.tabs.count() - 1
         self.back_btn.setVisible(not is_first)
@@ -892,7 +917,7 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
         )
 
     def refresh(self) -> None:
-        self._set_status("Checking local setup and relay state...", busy=True)
+        self._set_status("Checking setup...", busy=True)
         try:
             info = self.service.setup_client_info()
         except Exception as exc:
@@ -915,7 +940,7 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
         if not self._mode_initialized:
             self._set_mode("community")
             self._mode_initialized = True
-        self._set_status("Setup ready. Choose your airport and data path.", "StatusGood")
+        self._set_status("Setup ready.", "StatusGood")
         self._update_finish_summary()
 
     def _clean_relay_display(self, value: str) -> str:
@@ -930,13 +955,25 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
         field.setEchoMode(self.QtWidgets.QLineEdit.Normal if is_password else self.QtWidgets.QLineEdit.Password)
         button.setText(("Hide " if is_password else "Show ") + label_text)
 
+    def _clear_status(self) -> None:
+        if self.loading_indicator.isVisible():
+            return
+        self.status.hide()
+
     def _set_status(self, text: str, role: str = "Muted", *, busy: bool = False) -> None:
-        self.status.setText(text)
+        full_text = str(text or "").strip()
+        display_text = " ".join(full_text.split())
+        if len(display_text) > 92:
+            display_text = display_text[:89].rstrip() + "..."
+        self._status_hide_timer.stop()
+        self.status.setText(display_text)
+        self.status.setToolTip(full_text)
         self.status.setProperty("tone", self._tone_for_role(role))
+        self.status.setVisible(bool(display_text))
         # Keep the spinner caption in sync with the live status when busy.
         if busy and hasattr(self.loading_indicator, "set_text"):
             try:
-                self.loading_indicator.set_text(text or "Working…")
+                self.loading_indicator.set_text(display_text or "Working...")
             except Exception:
                 pass
         self.loading_indicator.setVisible(bool(busy))
@@ -945,6 +982,10 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
         self.status.updateGeometry()
         if busy:
             self.QtWidgets.QApplication.processEvents()
+            return
+        timeout = 6000 if role == "StatusBad" else 3600
+        if display_text:
+            self._status_hide_timer.start(timeout)
 
     def _tone_for_role(self, role: str = "Muted") -> str:
         return {
@@ -1209,14 +1250,14 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
             "opensky_secret": self.opensky_secret.text().strip() if mode == "byok" else "",
         }
         self._set_setup_buttons_enabled(False)
-        self._set_status("Saving setup and preparing Local Flight...", busy=True)
+        self._set_status("Saving setup...", busy=True)
         try:
             result = self.service.setup_complete(payload)
         except Exception as exc:
             self._set_status(f"Setup failed: {exc}", "StatusBad")
             self._set_setup_buttons_enabled(True)
             return
-        self._set_status("Setup complete. Opening Local Flight..." if result.get("ok", True) else format_value(result), "StatusGood" if result.get("ok", True) else "StatusWarn")
+        self._set_status("Setup complete." if result.get("ok", True) else format_value(result), "StatusGood" if result.get("ok", True) else "StatusWarn")
         if result.get("ok", True):
             try:
                 self.service.clear_cache()

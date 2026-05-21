@@ -245,7 +245,7 @@
 
     <script>
     (function () {
-      const airportTz = "{{ cfg.timezone if cfg is defined and cfg.timezone is defined else '' }}" || null;
+      const airportTz = "{{ airport_timezone(cfg) if cfg is defined else 'UTC' }}" || "UTC";
 
       function fmtTime(date, tz) {
         try {
@@ -262,9 +262,7 @@
       function tickAll() {
         const now      = new Date();
         const utcStr   = fmtTime(now, "UTC");
-        const localStr = airportTz
-          ? fmtTime(now, airportTz)
-          : fmtTime(now, Intl.DateTimeFormat().resolvedOptions().timeZone);
+        const localStr = fmtTime(now, airportTz);
 
         document.querySelectorAll(".clock-utc-val").forEach(el => el.textContent = utcStr);
         document.querySelectorAll(".clock-local-val").forEach(el => el.textContent = localStr);

@@ -6,9 +6,12 @@ This file is the working checklist for the first iOS proof-of-concept review. It
 
 - App name: **Local Flight**
 - Bundle identifier: `com.localflight.companion`
+- Version: `0.2.7`
 - Recommended review path: choose **Standalone** on first launch so the app can be tested without a desktop or Raspberry Pi server.
-- Standalone setup needs an airport, a mobile diagnostics choice, and relay activation. It does not open LAN WebSockets or server-control panels.
+- Standalone setup needs an airport, a mobile diagnostics choice, and relay activation. It does not open LAN WebSockets, Matrix controls, scheduler controls, or server-control panels.
+- Standalone daily surfaces are **Board**, **Radar**, **History**, and **Settings**.
 - LAN Mobile is also included. It pairs with a Local Flight desktop/Pi server over the same local network by QR code or manual URL.
+- LAN Mobile daily surfaces are **Board**, **Radar**, **History**, and **Control**. Help, troubleshooting, reports, and support are folded into Control so there is no separate Help tab in the current build.
 
 ## Permission Rationale
 
@@ -21,11 +24,14 @@ This file is the working checklist for the first iOS proof-of-concept review. It
 App Store Connect privacy answers should be conservative:
 
 - Privacy Policy URL: `https://github.com/tr3y4rch/local-flight/blob/main/PRIVACY.md` until a dedicated project website is available.
+- Data collected: yes.
+- Data linked to the user: yes, conservatively, because install-scoped IDs are sent with app-functionality requests.
+- Tracking: no advertising, no data brokers, and no cross-app/site tracking.
 - Identifiers: install-scoped mobile ID, LAN companion ID, and standalone relay install ID for pairing, rate limits, reports, and troubleshooting.
 - Diagnostics: crash reports and diagnostic context only when the user chooses automatic diagnostics or submits a manual report.
 - Usage data: coarse relay quota/policy metadata, selected airport, app version, source mode, and refresh status used for app functionality and support.
 - User content: manual report title/description if the user sends a report.
-- Tracking: no advertising, no data brokers, and no cross-app/site tracking.
+- Not collected for this proof-of-concept build: device location, contacts, photos/videos, financial information, payment information, advertising ID, or purchase history.
 
 The bundled iOS privacy manifest declares required-reason APIs and conservative app-functionality data categories. Keep it aligned with the submitted App Store Connect privacy answers.
 
@@ -34,6 +40,7 @@ The bundled iOS privacy manifest declares required-reason APIs and conservative 
 - This proof-of-concept build keeps support tips as a stub-only in-app sheet.
 - No features are locked behind support.
 - No external Buy Me a Coffee or other external purchase call-to-action should appear in App Store builds.
+- External GitHub/release links are informational/support links only, not purchase links.
 - Real tips later require Apple in-app purchase products matching the stable product IDs, a native StoreKit adapter, relay App Store Server API verification, and TestFlight/sandbox verification.
 
 ## Safety Copy
@@ -48,4 +55,5 @@ Local Flight flight, weather, radar, and surface data are informational display 
 - Bad QR/fingerprint mismatch: app rejects the wrong LAN server.
 - Offline relay: Standalone shows a useful retry/error state.
 - Support sheet: shows coming soon / not active and cannot charge.
+- Bottom navigation: Standalone shows Board/Radar/History/Settings; LAN Mobile shows Board/Radar/History/Control.
 - Accessibility labels: only claim App Store Accessibility Nutrition Labels after real common-task testing.

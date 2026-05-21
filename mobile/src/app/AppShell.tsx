@@ -71,7 +71,7 @@ import { flightPinKey } from "../domain/flights";
 import {
   companionSyncMs,
   errorMessage,
-  formatLocalTime,
+  formatAirportLocalTime,
   formatUtc,
   hexToRgba
 } from "../domain/formatting";
@@ -224,7 +224,7 @@ export function AppShell() {
   const [schedulerMessage, setSchedulerMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [utcTime, setUtcTime] = useState(formatUtc());
-  const [localTime, setLocalTime] = useState(formatLocalTime());
+  const [localTime, setLocalTime] = useState(formatAirportLocalTime("UTC"));
   const [snapshot, setSnapshot] = useState<DashboardSnapshot>(EMPTY_SNAPSHOT);
   const [airportDetail, setAirportDetail] = useState<AirportResolved | null>(null);
   const [rows, setRows] = useState<FidsRow[]>([]);
@@ -411,12 +411,12 @@ export function AppShell() {
   const currentAirportDetail = isStandalone
     ? matchingStandaloneAirportDetail || standaloneAirportDetail
     : matchingLanAirportDetail;
-  const airportTimeZone = currentAirportDetail?.timezone || snapshot.config?.timezone || undefined;
+  const airportTimeZone = currentAirportDetail?.timezone || snapshot.config?.timezone || "UTC";
 
   useEffect(() => {
     const updateClock = () => {
       setUtcTime(formatUtc());
-      setLocalTime(formatLocalTime(airportTimeZone));
+      setLocalTime(formatAirportLocalTime(airportTimeZone));
     };
     updateClock();
     const timer = setInterval(updateClock, 1000);

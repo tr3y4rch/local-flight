@@ -65,6 +65,7 @@ from localflight.native.live import LiveStatus, NativeLiveBus, native_ws_url
 from localflight.native.qt_compat import import_qt
 from localflight.native.registry import PAGE_SPECS, NativePageSpec, fallback_refresh_page_keys
 from localflight.native.service import NativeApiService
+from localflight.core.timezones import airport_zoneinfo, resolve_config_timezone
 from localflight.storage.profiles import list_profiles
 from localflight.ui.matrix_guidance import (
     MATRIX_ADVANCED_FLOW,
@@ -446,38 +447,72 @@ def launch_native_app(
     windows["crash_reporter"] = crash_reporter
 
     def show_main_window() -> None:
-        window = NativeMainWindow(QtCore, QtGui, QtWidgets, base_url=base_url, first_launch=False)
-        if not app_icon.isNull():
-            window.setWindowIcon(app_icon)
+        window = windows.get("main")
+        if window is None:
+            window = NativeMainWindow(
+                QtCore,
+                QtGui,
+                QtWidgets,
+                base_url=base_url,
+                first_launch=False,
+                on_rerun_setup=open_setup_window,
+            )
+            if not app_icon.isNull():
+                window.setWindowIcon(app_icon)
+            windows["main"] = window
+        else:
+            try:
+                window.service.clear_cache()
+                window._load_design_from_config()
+                window._dirty_screens.update(window.screen_keys)
+                window._show_page("display", force_refresh=True)
+            except Exception:
+                pass
         if fullscreen:
             window.showFullScreen()
         else:
             _show_fitted_window(QtCore, QtWidgets, window, 1680, 980)
         _finish_splash(splash, window)
-        windows["main"] = window
+
+    def open_setup_window() -> None:
+        main_window = windows.get("main")
+        if main_window is not None:
+            try:
+                main_window.hide()
+            except Exception:
+                pass
+        setup_window = windows.get("setup")
+        if setup_window is None:
+            setup_window_cls = lazy_symbol("localflight.native.pages.setup", "NativeSetupWindow")
+            setup_window = setup_window_cls(
+                QtCore,
+                QtGui,
+                QtWidgets,
+                base_url=base_url,
+                on_setup_complete=setup_complete,
+            )
+            if not app_icon.isNull():
+                setup_window.setWindowIcon(app_icon)
+            windows["setup"] = setup_window
+        _show_fitted_window(QtCore, QtWidgets, setup_window, 980, 760)
+        try:
+            setup_window.raise_()
+            setup_window.activateWindow()
+        except Exception:
+            pass
+        _finish_splash(splash, setup_window)
 
     def setup_complete() -> None:
-        show_main_window()
         setup_window = windows.get("setup")
         if setup_window is not None:
             if hasattr(setup_window, "allow_close_without_shutdown"):
                 setup_window.allow_close_without_shutdown()
             setup_window.close()
+            windows.pop("setup", None)
+        show_main_window()
 
     if first_launch:
-        setup_window_cls = lazy_symbol("localflight.native.pages.setup", "NativeSetupWindow")
-        setup_window = setup_window_cls(
-            QtCore,
-            QtGui,
-            QtWidgets,
-            base_url=base_url,
-            on_setup_complete=setup_complete,
-        )
-        if not app_icon.isNull():
-            setup_window.setWindowIcon(app_icon)
-        _show_fitted_window(QtCore, QtWidgets, setup_window, 980, 760)
-        _finish_splash(splash, setup_window)
-        windows["setup"] = setup_window
+        open_setup_window()
     else:
         show_main_window()
     QtCore.QTimer.singleShot(700, splash.close)
@@ -534,7 +569,16 @@ class NativeSetupWindow:  # pragma: no cover - exercised with optional Qt
 
 
 class NativeMainWindow:  # pragma: no cover - exercised with optional Qt
-    def __new__(cls, QtCore: Any, QtGui: Any, QtWidgets: Any, *, base_url: str, first_launch: bool):
+    def __new__(
+        cls,
+        QtCore: Any,
+        QtGui: Any,
+        QtWidgets: Any,
+        *,
+        base_url: str,
+        first_launch: bool,
+        on_rerun_setup: Callable[[], None] | None = None,
+    ):
         class _Window(QtWidgets.QMainWindow):
             def __init__(self) -> None:
                 super().__init__()
@@ -549,6 +593,8 @@ class NativeMainWindow:  # pragma: no cover - exercised with optional Qt
                 self.theme = "dark"
                 self.skin = "standard"
                 self.colors = colors_for(self.theme, self.skin)
+                self.airport_timezone_name = "UTC"
+                self.airport_timezone = timezone.utc
                 self.setStyleSheet(native_stylesheet(theme=self.theme, skin=self.skin))
                 self._nav_buttons: dict[str, Any] = {}
                 self.screens: list[Any] = []
@@ -620,7 +666,7 @@ class NativeMainWindow:  # pragma: no cover - exercised with optional Qt
                     if spec.key == "matrix":
                         return page_cls(QtWidgets, self.client)
                     if spec.key == "settings":
-                        return page_cls(QtCore, QtGui, QtWidgets, self.client, base_url)
+                        return page_cls(QtCore, QtGui, QtWidgets, self.client, base_url, on_rerun_setup=on_rerun_setup)
                     if spec.key == "admin":
                         return page_cls(QtWidgets, self.client, navigate=self._show_page)
                     return page_cls(QtWidgets, self.client)
@@ -943,6 +989,12 @@ class NativeMainWindow:  # pragma: no cover - exercised with optional Qt
             def _apply_design_from_config(self, cfg: dict[str, Any]) -> None:
                 theme = str(cfg.get("theme") or self.theme or "dark").strip().lower()
                 skin = str(cfg.get("skin") or self.skin or "standard").strip().lower()
+                try:
+                    self.airport_timezone_name = resolve_config_timezone(cfg)
+                    self.airport_timezone = airport_zoneinfo(cfg)
+                except Exception:
+                    self.airport_timezone_name = "UTC"
+                    self.airport_timezone = timezone.utc
                 self.theme = theme
                 self.skin = skin
                 self.colors = colors_for(theme, skin)
@@ -966,7 +1018,7 @@ class NativeMainWindow:  # pragma: no cover - exercised with optional Qt
 
             def _update_clocks(self) -> None:
                 now_utc = datetime.now(timezone.utc)
-                now_local = datetime.now().astimezone()
+                now_local = now_utc.astimezone(self.airport_timezone)
                 density = getattr(self, "_nav_density", native_visual_density(self.width()))
                 if density == "compact":
                     self.utc_clock.setText("UTC " + now_utc.strftime("%H:%M"))

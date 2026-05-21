@@ -456,6 +456,10 @@ QFrame#SetupPanel {{
   border: 1px solid {colors["line"]};
   border-radius: 18px;
 }}
+QFrame#SetupFooter {{
+  background: {_rgba(colors["bg"], 0.94)};
+  border-top: 1px solid {colors["line"]};
+}}
 QFrame#SetupOptionCard {{
   background: {subtle_surface};
   border: 1px solid {soft_surface};

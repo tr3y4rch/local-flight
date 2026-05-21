@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import sys
 import importlib
+import time
 import types
+from datetime import datetime, timezone
 
 import pytest
 
@@ -282,6 +284,32 @@ def test_native_client_window_exposes_real_user_pages(monkeypatch: pytest.Monkey
     window._show_page("settings")
     assert window.screens[4] is not None
     assert window.screens[1] is None
+
+
+def test_native_client_window_lt_uses_configured_airport_timezone(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    pytest.importorskip("PySide6")
+    from PySide6 import QtWidgets
+    import localflight.native._legacy_app as legacy_app
+    from localflight.native.app import NativeMainWindow
+    from localflight.native.qt_compat import import_qt
+
+    class _FixedDateTime:
+        @staticmethod
+        def now(tz=None):
+            fixed = datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)
+            return fixed if tz is not None else fixed.replace(tzinfo=None)
+
+    monkeypatch.setattr(legacy_app, "datetime", _FixedDateTime)
+
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    window = NativeMainWindow(*import_qt(), base_url="http://127.0.0.1:9", first_launch=False)
+    window._apply_design_from_config({"airport_iata": "EWR", "airport_icao": "KEWR", "timezone": "Not/AZone"})
+    window._update_clocks()
+
+    assert app is not None
+    assert window.utc_clock.text() in {"UTC 12:00", "UTC 12:00:00"}
+    assert window.local_clock.text() in {"LT 07:00", "LT 07:00:00"}
 
 
 def test_native_client_window_footer_links(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -889,7 +917,9 @@ def test_native_setup_welcome_layout_is_scroll_safe(monkeypatch: pytest.MonkeyPa
     assert setup.back_btn.isHidden()
     assert setup.next_btn.isHidden()
     assert welcome_cards
-    assert min(card.minimumHeight() for card in welcome_cards) >= 166
+    assert min(card.minimumHeight() for card in welcome_cards) >= 140
+    assert max(card.minimumHeight() for card in welcome_cards) <= 166
+    assert setup.scroll_area is not setup.widget
     hero_bottom = setup.logo_label.geometry().bottom()
     first_card_top = min(card.geometry().top() for card in welcome_cards)
     assert hero_bottom + 8 <= first_card_top
@@ -3030,7 +3060,15 @@ def test_native_settings_actions_use_native_service(monkeypatch: pytest.MonkeyPa
 
     QtCore, QtGui, QtWidgets2 = import_qt()
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
-    screen = SettingsScreen(QtCore, QtGui, QtWidgets2, client=object(), base_url="http://127.0.0.1:9")
+    setup_opened = {"value": False}
+    screen = SettingsScreen(
+        QtCore,
+        QtGui,
+        QtWidgets2,
+        client=object(),
+        base_url="http://127.0.0.1:9",
+        on_rerun_setup=lambda: setup_opened.update(value=True),
+    )
     service = _Service()
     screen.service = service
     monkeypatch.setattr("localflight.native.pages.settings.list_profiles", lambda: ["home"])
@@ -3040,6 +3078,10 @@ def test_native_settings_actions_use_native_service(monkeypatch: pytest.MonkeyPa
     screen.save()
     screen.restart_scheduler()
     screen.reset_setup()
+    deadline = time.monotonic() + 0.7
+    while not setup_opened["value"] and time.monotonic() < deadline:
+        app.processEvents()
+        time.sleep(0.01)
     screen.save_profile()
     screen.profile_combo.clear()
     screen.profile_combo.addItem("home")
@@ -3049,6 +3091,7 @@ def test_native_settings_actions_use_native_service(monkeypatch: pytest.MonkeyPa
     screen.delete_profile()
 
     assert app is not None
+    assert setup_opened["value"] is True
     assert [call[0] for call in service.calls] == [
         "save_config",
         "restart_scheduler",

@@ -9,7 +9,7 @@ from __future__ import annotations
 import webbrowser
 from concurrent.futures import Future
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Callable
 
 from localflight.companion_pairing import pairing_gateway_payload, pairing_qr_png_bytes
 from localflight.core.settings_options import (
@@ -59,6 +59,7 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
         QtWidgets: Any,
         client: LocalApiClient,
         base_url: str,
+        on_rerun_setup: Callable[[], None] | None = None,
     ) -> None:
         self.QtCore = QtCore
         self.QtGui = QtGui
@@ -66,6 +67,7 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
         self.client = client
         self.service = NativeApiService(client)
         self.base_url = base_url.rstrip("/")
+        self.on_rerun_setup = on_rerun_setup
         self.current_doc_slug = "readme"
         self._airport_search_future: Future[Any] | None = None
         self._last_airport_query = ""
@@ -1110,18 +1112,22 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
             self.QtWidgets.QMessageBox.question(
                 self.widget,
                 "Re-run setup",
-                "Clear setup marker and open the setup flow on next launch?",
+                "Close the current shell and open the setup wizard now?",
             )
             != self.QtWidgets.QMessageBox.Yes
         ):
             return
-        self._set_status("Removing the setup marker...", busy=True)
+        self._set_status("Preparing the setup wizard...", busy=True)
         try:
             self.service.setup_reset()
         except Exception as exc:
             self._set_status(f"Setup reset failed: {exc}", "StatusBad")
             return
-        self._set_status("Setup marker removed. The setup flow will run again on next launch.", "StatusWarn")
+        if self.on_rerun_setup is None:
+            self._set_status("Setup reset. Open browser setup or relaunch Local Flight to continue.", "StatusWarn")
+            return
+        self._set_status("Opening the setup wizard...", "StatusWarn")
+        self.QtCore.QTimer.singleShot(180, self.on_rerun_setup)
 
     def save_profile(self) -> None:
         name = self.profile_name.text().strip()

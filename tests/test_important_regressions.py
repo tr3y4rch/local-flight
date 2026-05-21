@@ -44,6 +44,7 @@ from localflight.platform.gui_mode import resolve_gui_mode
 from localflight.render.fids import build_fids_context
 from localflight.storage.config import AppConfig
 from localflight.storage.state import AppState
+from localflight.core.timezones import airport_local_now, resolve_airport_timezone, resolve_config_timezone
 from localflight.ui.server import app
 
 
@@ -56,6 +57,44 @@ def _flight(callsign: str = "SWR184") -> Flight:
         times=FlightTime(scheduled=datetime(2026, 1, 2, 3, 4, 5, tzinfo=timezone.utc)),
         source="test",
     )
+
+
+def test_airport_timezone_resolver_prefers_valid_config_then_airport_codes() -> None:
+    assert resolve_airport_timezone("Europe/Zurich", airport_iata="EWR", airport_icao="KEWR") == "Europe/Zurich"
+    assert resolve_airport_timezone("", airport_iata="ZRH", airport_icao="LSZH") == "Europe/Zurich"
+    assert resolve_airport_timezone("", airport_iata="EWR", airport_icao="KEWR") == "America/New_York"
+    assert resolve_airport_timezone("", airport_iata="LAX", airport_icao="KLAX") == "America/Los_Angeles"
+    assert resolve_airport_timezone("", airport_iata="HKG", airport_icao="VHHH") == "Asia/Hong_Kong"
+    assert (
+        resolve_config_timezone(AppConfig(airport_iata="EWR", airport_icao="KEWR", timezone="Not/AZone"))
+        == "America/New_York"
+    )
+    assert resolve_airport_timezone("Not/AZone", airport_iata=None, airport_icao=None) == "UTC"
+
+
+def test_airport_local_now_uses_airport_timezone_not_machine_timezone() -> None:
+    now = datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)
+    local = airport_local_now(AppConfig(airport_iata="EWR", airport_icao="KEWR", timezone="Not/AZone"), now_utc=now)
+
+    assert local.strftime("%H:%M") == "07:00"
+    assert str(local.tzinfo) == "America/New_York"
+
+
+def test_browser_and_mobile_clocks_do_not_fallback_to_device_local_time() -> None:
+    base_html = Path("src/localflight/ui/templates/base.html").read_text(encoding="utf-8")
+    display_html = Path("src/localflight/ui/templates/display.html").read_text(encoding="utf-8")
+    mobile_formatting = Path("mobile/src/domain/formatting.ts").read_text(encoding="utf-8")
+    airport_formatter = mobile_formatting.split("export function formatAirportLocalTime", 1)[1].split(
+        "export function formatRelative",
+        1,
+    )[0]
+
+    assert "Intl.DateTimeFormat().resolvedOptions().timeZone" not in base_html
+    assert "Intl.DateTimeFormat().resolvedOptions().timeZone" not in display_html
+    assert "airport_timezone(cfg)" in base_html
+    assert "airport_timezone(cfg)" in display_html
+    assert "timeZone: \"UTC\"" in airport_formatter
+    assert "toLocaleTimeString([]" not in airport_formatter
 
 
 def test_install_identity_migrates_legacy_id_and_restores_from_anchor(tmp_path: Path, monkeypatch) -> None:
