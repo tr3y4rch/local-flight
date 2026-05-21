@@ -2930,7 +2930,7 @@ _MATRIX_V1_FIELDS = {
 }
 
 _MATRIX_ANIMATION_MODES = {"split_flap", "typewriter", "cascade", "slide_left", "slide_right", "static"}
-_MATRIX_EXPECTED_RENDERER_REV = "matrix-display-contract-v3"
+_MATRIX_EXPECTED_RENDERER_REV = "matrix-display-contract-v4"
 
 _MATRIX_PANEL_PRESETS: List[Dict[str, Any]] = [
     {"id": "64x32", "label": "64 x 32", "group": "Other common HUB75 sizes", "panel_w": 64, "panel_h": 32},
@@ -3618,6 +3618,52 @@ def _matrix_secondary_label(sold_as: List[str], codeshares: List[str]) -> str:
     return ""
 
 
+def _matrix_operator_label(data: Dict[str, Any], *, is_virtual: bool = False) -> str:
+    if is_virtual:
+        return ""
+    value = (
+        data.get("operating_airline")
+        or data.get("operator")
+        or data.get("airline_display")
+        or data.get("airline_name")
+        or ""
+    )
+    text = _matrix_clean_display_label(value, fallback="")
+    return f"OP {text}" if text else ""
+
+
+def _matrix_codeshare_label(sold_as: List[str], codeshares: List[str]) -> str:
+    if sold_as:
+        shown = sold_as[:2]
+        suffix = f" +{len(sold_as) - len(shown)}" if len(sold_as) > len(shown) else ""
+        return "SOLD AS " + " / ".join(shown).upper() + suffix
+    if codeshares:
+        shown = codeshares[:2]
+        suffix = f" +{len(codeshares) - len(shown)}" if len(codeshares) > len(shown) else ""
+        return "ALSO " + " / ".join(shown).upper() + suffix
+    return ""
+
+
+def _matrix_detail_cycle(
+    *,
+    operator_label: str = "",
+    codeshare_label: str = "",
+    gate_label: str = "",
+    aircraft_label: str = "",
+) -> List[str]:
+    values: List[str] = []
+    for raw in (
+        operator_label,
+        codeshare_label,
+        f"GATE {gate_label}" if gate_label else "",
+        aircraft_label,
+    ):
+        text = _matrix_clean_display_label(raw, fallback="")
+        if text and text not in values:
+            values.append(text)
+    return values
+
+
 def _matrix_compact_time_label(data: Dict[str, Any]) -> str:
     for key in ("matrix_time_label", "display_time", "time", "time_primary"):
         text = _matrix_ascii(data.get(key)).strip()
@@ -3704,13 +3750,13 @@ _MATRIX_WEATHER_ICON_ALIASES = {
 def _matrix_weather_icon(value: Any) -> str:
     text = _matrix_ascii(value).lower().strip().replace("-", "_")
     if not text:
-        return "unknown"
+        return "cloud"
     if text in _MATRIX_WEATHER_ICON_ALIASES:
         return _MATRIX_WEATHER_ICON_ALIASES[text]
     for needle, icon in _MATRIX_WEATHER_ICON_ALIASES.items():
         if needle in text:
             return icon
-    return "unknown"
+    return "cloud"
 
 
 def _matrix_row_payload(row: Any, *, preset: Any = "real_fids", show_gate_info: bool = True) -> Dict[str, Any]:
@@ -3740,7 +3786,13 @@ def _matrix_row_payload(row: Any, *, preset: Any = "real_fids", show_gate_info: 
     flight = data.get("flight_display") or data.get("callsign") or "-"
     mode_text = str(data.get("detail_mode") or data.get("source") or data.get("source_hint") or "").lower()
     is_virtual = "virtual" in mode_text or "vatsim" in mode_text
-    operator = "" if is_virtual else (data.get("airline_display") or "")
+    operator = "" if is_virtual else (
+        data.get("operating_airline")
+        or data.get("operator")
+        or data.get("airline_display")
+        or data.get("airline_name")
+        or ""
+    )
     codeshares = [] if is_virtual else _matrix_identifier_list(data.get("codeshares"))
     sold_as = [] if is_virtual else _matrix_identifier_list(data.get("sold_as"))
     codeshare = str(data.get("codeshare_display") or "").strip() or _matrix_secondary_label(sold_as, codeshares)
@@ -3772,6 +3824,14 @@ def _matrix_row_payload(row: Any, *, preset: Any = "real_fids", show_gate_info: 
     matrix_status = _matrix_status_label(data)
     matrix_gate = _matrix_clean_display_label(gate_label, fallback="") if gate_label else ""
     matrix_aircraft = _matrix_clean_display_label(data.get("aircraft_type") or data.get("aircraft"), fallback="")
+    matrix_operator = _matrix_operator_label({**data, "operating_airline": operator}, is_virtual=is_virtual)
+    matrix_codeshare = "" if is_virtual else _matrix_codeshare_label(sold_as, codeshares)
+    matrix_details = [] if is_virtual else _matrix_detail_cycle(
+        operator_label=matrix_operator,
+        codeshare_label=matrix_codeshare,
+        gate_label=matrix_gate,
+        aircraft_label=matrix_aircraft,
+    )
     return {
         "id": data.get("id"),
         "time": data.get("display_time") or "--:--",
@@ -3802,6 +3862,9 @@ def _matrix_row_payload(row: Any, *, preset: Any = "real_fids", show_gate_info: 
         "matrix_status_label": matrix_status,
         "matrix_gate_label": matrix_gate,
         "matrix_aircraft_label": matrix_aircraft,
+        "matrix_operator_label": matrix_operator,
+        "matrix_codeshare_label": matrix_codeshare,
+        "matrix_detail_cycle": matrix_details,
         "callsign": data.get("callsign") or "",
         "operator": operator,
         "operating_airline": operator,

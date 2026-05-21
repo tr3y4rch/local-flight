@@ -755,6 +755,9 @@ def test_matrix_payload_preserves_operating_identity_from_fids_row() -> None:
     assert payload["operating_callsign"] == "FDB2MY"
     assert payload["identity_source"] == "callsign"
     assert payload["matrix_flight_label"] == "FZ 2MY"
+    assert payload["matrix_operator_label"] == "OP FLYDUBAI"
+    assert payload["matrix_codeshare_label"] == "SOLD AS EK2131"
+    assert "SOLD AS EK2131" in payload["matrix_detail_cycle"]
 
 
 def test_matrix_payload_exposes_stable_display_contract_for_compact_boards() -> None:
@@ -782,6 +785,8 @@ def test_matrix_payload_exposes_stable_display_contract_for_compact_boards() -> 
     assert payload["matrix_status_label"] == "ARRIVED +8"
     assert payload["matrix_gate_label"] == "F4"
     assert payload["matrix_aircraft_label"] == "B738"
+    assert payload["matrix_codeshare_label"] == "ALSO LH 9876 / AC 1234"
+    assert payload["matrix_detail_cycle"] == ["GATE F4", "B738"] or "B738" in payload["matrix_detail_cycle"]
     assert payload["codeshares"] == ["LH 9876", "AC 1234"]
 
 
@@ -2925,7 +2930,7 @@ def test_matrix_device_checkin_exposes_actual_geometry_mismatch(monkeypatch, tmp
             "actual_panel_h": 64,
             "display_panels": 1,
             "firmware": "2.0",
-            "renderer_revision": "matrix-display-contract-v3",
+            "renderer_revision": "matrix-display-contract-v4",
             "renderers": ["modern_fids"],
         },
     )
@@ -2941,7 +2946,7 @@ def test_matrix_device_checkin_exposes_actual_geometry_mismatch(monkeypatch, tmp
     assert device["display_panels"] == 1
     assert device["geometry_mismatch"] is True
     assert "Configured 256x64; actual 128x64" in device["geometry_warning"]
-    assert device["renderer_revision"] == "matrix-display-contract-v3"
+    assert device["renderer_revision"] == "matrix-display-contract-v4"
     assert device["renderer_status"] == "current"
 
     devices = client.get("/api/matrix/v2/devices").json()["devices"]
@@ -4477,7 +4482,7 @@ def test_matrix_script_endpoint_uses_current_i75w_client_template() -> None:
     script = response.text
     compile(script, "generated-main.py", "exec")
     assert 'CLIENT_VER       = "2.0"' in script
-    assert 'CLIENT_RENDERER_REV = "matrix-display-contract-v3"' in script
+    assert 'CLIENT_RENDERER_REV = "matrix-display-contract-v4"' in script
     assert "import interstate75 as interstate75_module" in script
     assert "def update_display():" in script
     assert "def fit_text(value, length):" in script
@@ -4487,7 +4492,7 @@ def test_matrix_script_endpoint_uses_current_i75w_client_template() -> None:
     assert "def _clock_label(compact=False):" in script
     assert '"U{} L{}"' in script
     assert "clock = _clock_label(compact=WIDTH < 320)" in script
-    assert "label_limit = max(6, min(len(label), 12 if WIDTH < 320 else 18))" in script
+    assert "label_limit = max(6, min(len(label), 12 if WIDTH < 300 else 18))" in script
     assert "center_left = label_limit * 8 + 6" in script
     assert "clock_utc_epoch" in script
     assert "ACTIVE_BREATH" in script
@@ -4498,7 +4503,12 @@ def test_matrix_script_endpoint_uses_current_i75w_client_template() -> None:
     assert "def draw_glyph(name, x, y, color):" in script
     assert "route_matrix_label" in script
     assert "matrix_flight_label" in script
+    assert "matrix_operator_label" in script
+    assert "matrix_codeshare_label" in script
+    assert "matrix_detail_cycle" in script
     assert "matrix_weather_icon" in script
+    assert "def _wide_columns():" in script
+    assert "def _detail_chunk(row, chars):" in script
     assert "def _weather_line(chars=18):" in script
     assert "SHOW_WEATHER" in script
     assert "SHOW_GATE_INFO" in script
@@ -4530,7 +4540,7 @@ def test_matrix_script_endpoint_uses_current_i75w_client_template() -> None:
     assert '"actual_panel_w": WIDTH' in script
     assert '"actual_panel_h": HEIGHT' in script
     assert "compact = WIDTH < 180" in script
-    assert "compact = WIDTH < 190" in script
+    assert "medium = 180 <= WIDTH < 240" in script
     assert "if WIDTH < 200:" in script
     assert "draw_row(flap_rows[i], row_data, y, row_h)" in script
     assert "text[39:43]" in script
@@ -4548,6 +4558,7 @@ def test_matrix_script_endpoint_uses_current_i75w_client_template() -> None:
     assert '"hardware_name": HARDWARE_NAME' in script
     assert "CONFIG_REFRESH_S = 60" in script
     assert "old_view = view" in script
+    assert "old_row_count = len(flap_rows)" in script
     assert "if DEFAULT_VIEW != old_view:" in script
     assert '"pax_blue"' in script
     assert '"solari_amber"' in script
@@ -4626,6 +4637,11 @@ def test_matrix_preview_download_payload_uses_defined_animation_state() -> None:
     assert "MATRIX_PALETTE_OPTIONS" in template
     assert "MATRIX_PANEL_PRESETS" in template
     assert "row.matrix_flight_label" in template
+    assert "row.matrix_operator_label" in template
+    assert "row.matrix_codeshare_label" in template
+    assert "row.matrix_detail_cycle" in template
+    assert "function wideColumns()" in template
+    assert "function detailChunk(row, chars)" in template
     assert "const timeLabel = String(row?.matrix_time_label" in template
     assert "const flightLabel = String(flightCycleDisplay(row || {}))" in template
     assert "let statusText = row ? statusOrGateChunk(row, chars) : \"\"" in template
@@ -4682,6 +4698,7 @@ def test_matrix_preview_panel_geometry_stays_in_sync() -> None:
     assert 'value="128x128"' in template
     assert 'value="256x128"' in template
     assert "const compact = PANEL_W < 180" in template
+    assert "const medium = PANEL_W >= 180 && PANEL_W < 240" in template
     assert "if (compact)" in template
     assert "txt.slice(39,43)" in template
     assert "function flightCycleDisplay(row)" in template

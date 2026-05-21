@@ -48,7 +48,7 @@ MATRIX_CONFIG_REV = 0
 CONFIG_REFRESH_S = 60    # re-read server config every minute
 PING_S           = 600   # ping server every 10 min
 CLIENT_VER       = "2.0"
-CLIENT_RENDERER_REV = "matrix-display-contract-v3"
+CLIENT_RENDERER_REV = "matrix-display-contract-v4"
 SUPPORTED_RENDERERS = ["modern_fids", "vatsim_pilot", "vatsim_atc"]
 SUPPORTED_ANIMATIONS = ["split_flap", "typewriter", "cascade", "slide_left", "slide_right", "static"]
 # ──────────────────────────────────────────────────────────────────────────────
@@ -526,6 +526,15 @@ def _flight_cycle_display(row):
     return _clean_flight_number(row.get("operating_callsign") or row.get("callsign")) or "-"
 
 def _page_has_codeshares(rows):
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        if row.get("matrix_detail_cycle") or row.get("matrix_operator_label") or row.get("matrix_codeshare_label"):
+            return True
+        if row.get("sold_as") or row.get("codeshares") or row.get("codeshare_display"):
+            return True
+        if _gate_label(row) or row.get("matrix_aircraft_label") or row.get("aircraft_type") or row.get("aircraft"):
+            return True
     return False
 
 def _route_code(row):
@@ -542,6 +551,12 @@ def _status_chunk(row, chars):
     status = row.get("matrix_status_label") or row.get("status_display") or row.get("status") or "-"
     if delta and "delay" not in str(status).lower() and "early" not in str(status).lower():
         status = "{} {}".format(status, delta)
+    if chars <= 8:
+        upper = _upper_text(status)
+        upper = upper.replace("SCHEDULED", "SCHED")
+        upper = upper.replace("DELAYED", "DELAY")
+        upper = upper.replace("CANCELLED", "CANCEL")
+        status = upper
     return cycle_chunks(status, chars).rstrip()
 
 def _is_vatsim_preset():
@@ -572,6 +587,78 @@ def _status_or_gate_chunk(row, chars):
             pass
     return _status_chunk(row, chars)
 
+def _detail_items(row):
+    if not isinstance(row, dict) or _is_vatsim_preset():
+        return []
+    raw = row.get("matrix_detail_cycle")
+    if isinstance(raw, list):
+        items = [_upper_text(item) for item in raw if _upper_text(item)]
+    else:
+        items = []
+    if not items:
+        operator = _upper_text(row.get("matrix_operator_label") or "")
+        if not operator:
+            op = row.get("operating_airline") or row.get("operator") or row.get("airline_display") or ""
+            operator = ("OP " + _upper_text(op)).strip() if op else ""
+        codeshare = _upper_text(row.get("matrix_codeshare_label") or "")
+        if not codeshare:
+            sold = row.get("sold_as") or row.get("codeshare") or row.get("codeshare_display") or ""
+            if isinstance(sold, list):
+                sold = " / ".join(str(item) for item in sold[:2])
+            if sold:
+                codeshare = "SOLD AS " + _upper_text(str(sold).replace("Also ", "").replace("Sold as ", ""))
+        gate = _gate_label(row)
+        aircraft = _upper_text(row.get("matrix_aircraft_label") or row.get("aircraft_type") or row.get("aircraft") or "")
+        for item in (operator, codeshare, ("GATE " + gate if gate else ""), aircraft):
+            item = _upper_text(item)
+            if item and item not in items:
+                items.append(item)
+    return items
+
+def _detail_chunk(row, chars):
+    items = _detail_items(row)
+    if not items:
+        return ""
+    try:
+        slot = int(time.time() // max(3, CODE_SHARE_ROTATION_S))
+    except Exception:
+        slot = 0
+    text = items[slot % len(items)]
+    return cycle_chunks(text, chars).rstrip()
+
+def _wide_columns():
+    if WIDTH < 240:
+        return None
+    time_x = 8
+    flight_x = 50
+    route_x = 104 if WIDTH < 300 else 112
+    if WIDTH < 300:
+        status_x = max(route_x + 56, int(WIDTH * 0.64))
+        gate_x = WIDTH - 34
+        aircraft_x = WIDTH - 34
+    elif WIDTH < 420:
+        status_x = int(WIDTH * 0.60)
+        gate_x = int(WIDTH * 0.82)
+        aircraft_x = WIDTH - 38
+    else:
+        status_x = int(WIDTH * 0.62)
+        gate_x = int(WIDTH * 0.80)
+        aircraft_x = int(WIDTH * 0.90)
+    status_x = min(max(status_x, route_x + 42), WIDTH - 48)
+    gate_x = min(max(gate_x, status_x + 42), WIDTH - 28)
+    aircraft_x = min(max(aircraft_x, gate_x + 24), WIDTH - 28)
+    return {
+        "time_x": time_x,
+        "flight_x": flight_x,
+        "route_x": route_x,
+        "status_x": status_x,
+        "gate_x": gate_x,
+        "aircraft_x": aircraft_x,
+        "route_chars": max(4, (status_x - route_x - 2) // 8),
+        "status_chars": max(5, ((gate_x if WIDTH >= 300 else WIDTH) - status_x - 2) // 8),
+        "detail_chars": max(6, (WIDTH - route_x - 2) // 8),
+    }
+
 def build_row_text(row):
     time_s   = fit_text(_text_field(row.get("matrix_time_label") or row.get("display_time") or row.get("time"), "--:--"), 5)
     flight_s = fit_text(_flight_cycle_display(row), 8)
@@ -581,17 +668,7 @@ def build_row_text(row):
     return f"{time_s} {flight_s} {dest_s} {status_s} {gate_s}"
 
 def build_detail_text(row):
-    op = row.get("operating_airline") or row.get("operator") or row.get("airline_display") or ""
-    sold = row.get("sold_as") or row.get("codeshare") or row.get("codeshare_display") or ""
-    aircraft = row.get("matrix_aircraft_label") or row.get("aircraft") or row.get("aircraft_type") or ""
-    parts = []
-    if op:
-        parts.append("OP " + op)
-    if sold:
-        parts.append("SOLD " + sold.replace("Also ", ""))
-    if aircraft:
-        parts.append(aircraft)
-    return " | ".join(parts)
+    return " | ".join(_detail_items(row))
 
 def _status_key(row_or_status):
     if isinstance(row_or_status, dict):
@@ -1095,7 +1172,7 @@ def draw_smart_header(view):
     graphics.text(clock, clock_x, 0, WIDTH, 1)
 
     label = "{} {}".format(header_name, lane).upper()
-    label_limit = max(6, min(len(label), 12 if WIDTH < 320 else 18))
+    label_limit = max(6, min(len(label), 12 if WIDTH < 300 else 18))
     weather = _weather_line(max(8, WIDTH // 8 - 1))
     if weather or weather_temp:
         # Wide boards use a stable three-zone hero: title left, weather center,
@@ -1107,6 +1184,8 @@ def draw_smart_header(view):
         weather_text = (weather or weather_temp)[:desired].strip()
         if not weather_text and weather_temp:
             weather_text = weather_temp[:max(1, desired)]
+        if weather_temp and len(weather_text) < len(weather_temp):
+            weather_text = weather_temp
         weather_w = 8 + len(weather_text) * 8
         weather_x = center_left + max(0, (center_w - weather_w) // 2)
         if weather_text and weather_w <= center_w and weather_x > label_limit * 8:
@@ -1292,7 +1371,8 @@ def draw_modern_fids(flap_rows, page_data, view):
     data_start = _header_height()
     rows = _visible_rows()
     row_h = max(14, (HEIGHT - data_start) // rows)
-    compact = WIDTH < 190
+    compact = WIDTH < 180
+    medium = 180 <= WIDTH < 240
     for i in range(rows):
         y = data_start + i * row_h
         if y + 7 > HEIGHT:
@@ -1325,24 +1405,31 @@ def draw_modern_fids(flap_rows, page_data, view):
                 graphics.set_pen(status_color(row))
                 status = _status_or_gate_chunk(row, max(8, WIDTH // 8))
                 graphics.text(status, 0, status_y, WIDTH, 1)
+        elif medium:
+            route_x = 96
+            status_x = max(route_x, WIDTH - 72)
+            route_chars = max(5, (status_x - route_x - 2) // 8)
+            status_chars = max(5, (WIDTH - status_x - 1) // 8)
+            graphics.set_pen(WHITE)
+            graphics.text(_route_chunk(row, route_chars)[:route_chars], route_x, y, max(20, status_x - route_x - 2), 1)
+            graphics.set_pen(status_color(row))
+            graphics.text(_status_or_gate_chunk(row, status_chars)[:status_chars], status_x, y, max(8, WIDTH - status_x), 1)
+            if row_h >= 20:
+                detail = _detail_chunk(row, max(8, (WIDTH - 8) // 8))
+                if detail:
+                    graphics.set_pen(DIM)
+                    graphics.text(detail, 8, y + 8, WIDTH - 8, 1)
         else:
-            route_x = 116
-            status_x = (
-                int(WIDTH * 0.60)
-                if WIDTH >= 420
-                else int(WIDTH * 0.56)
-                if WIDTH >= 300
-                else max(route_x, WIDTH - 76)
-                if WIDTH >= 245
-                else route_x
-            )
-            gate_x = int(WIDTH * 0.80) if WIDTH >= 360 else WIDTH - 28
-            aircraft_x = int(WIDTH * 0.89) if WIDTH >= 420 else WIDTH - 28
-            route_chars = max(6, (status_x - route_x - 2) // 8)
+            cols = _wide_columns()
+            route_x = cols["route_x"]
+            status_x = cols["status_x"]
+            gate_x = cols["gate_x"]
+            aircraft_x = cols["aircraft_x"]
+            route_chars = cols["route_chars"]
             graphics.text(_route_chunk(row, route_chars)[:route_chars], route_x, y, max(20, status_x - route_x - 2), 1)
             if row_h >= 17:
                 graphics.set_pen(status_color(row))
-                status_chars = max(7, ((gate_x if WIDTH >= 360 else WIDTH) - status_x - 4) // 8)
+                status_chars = cols["status_chars"]
                 status = _status_or_gate_chunk(row, status_chars) or text[28:38].strip()
                 if RENDERER in ("vatsim_pilot", "vatsim_atc"):
                     ac = _upper_text(row.get("aircraft_type") or row.get("aircraft") or "")
@@ -1359,10 +1446,17 @@ def draw_modern_fids(flap_rows, page_data, view):
                         graphics.text(aircraft[:5], aircraft_x, y, max(8, WIDTH - aircraft_x), 1)
                     graphics.set_pen(status_color(row))
                 graphics.text(status[:status_chars], status_x, y, max(8, WIDTH - status_x), 1)
+                if row_h >= 17 and (MAX_ROWS <= 3 or row_h >= 20):
+                    detail = _detail_chunk(row, cols["detail_chars"])
+                    if detail:
+                        detail_y = y + 8
+                        if detail_y + 7 <= y + row_h:
+                            graphics.set_pen(DIM)
+                            graphics.text(detail[:cols["detail_chars"]], route_x, detail_y, max(8, WIDTH - route_x - 1), 1)
             else:
                 graphics.set_pen(status_color(row))
                 graphics.text(text[28:38], max(116, int(WIDTH * 0.60)), y, 76, 1)
-        if i < MAX_ROWS - 1:
+        if i < rows - 1:
             graphics.set_pen(DIMBG)
             graphics.line(0, y + row_h - 1, WIDTH, y + row_h - 1)
 
@@ -1472,17 +1566,18 @@ def main():
                 fetch_config()
                 old_mode = ANIMATION_MODE
                 old_view = view
+                old_row_count = len(flap_rows)
                 fetch_matrix_config()
                 if DEFAULT_VIEW != old_view:
                     view = DEFAULT_VIEW
-                    flight_data = []
-                    page_data = []
                     force_fetch = True
                     last_page_rotate = now
                 # Resize flap_rows if MAX_ROWS changed
-                if len(flap_rows) != MAX_ROWS:
+                if old_row_count != MAX_ROWS:
                     flap_rows = [FlapRow(ROW_LEN) for _ in range(MAX_ROWS)]
-                    page_data = []
+                    pages = _chunk_pages(flight_data)
+                    page_data = pages[0] if pages else []
+                    _apply_visible_page(page_data)
                     force_fetch = True
                 elif old_mode != ANIMATION_MODE:
                     _apply_visible_page(page_data)
@@ -1521,7 +1616,7 @@ def main():
                 i75.set_led(100, 0, 0)  # red = no wifi
                 last_fetch = now
 
-        if len(flight_data) > MAX_ROWS and (now - last_page_rotate) >= PAGE_ROTATION_S:
+        if len(flight_data) > _visible_rows() and (now - last_page_rotate) >= PAGE_ROTATION_S:
             pages = _chunk_pages(flight_data)
             if pages:
                 try:

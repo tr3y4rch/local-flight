@@ -1397,7 +1397,21 @@
   }
 
   function pageHasCodeshares(rows) {
-    return false;
+    return (rows || []).some(row => {
+      if (!row) return false;
+      return Boolean(
+        (Array.isArray(row.matrix_detail_cycle) && row.matrix_detail_cycle.length) ||
+        row.matrix_operator_label ||
+        row.matrix_codeshare_label ||
+        row.sold_as ||
+        row.codeshares ||
+        row.codeshare_display ||
+        gateLabel(row) ||
+        row.matrix_aircraft_label ||
+        row.aircraft_type ||
+        row.aircraft
+      );
+    });
   }
 
   function asciiText(value) {
@@ -1464,7 +1478,14 @@
   }
 
   function statusChunk(row, chars) {
-    return cycleChunks(row?.matrix_status_label || row?.status_display || row?.status || "-", chars).trim();
+    let status = String(row?.matrix_status_label || row?.status_display || row?.status || "-");
+    if (chars <= 8) {
+      status = status.toUpperCase()
+        .replace("SCHEDULED", "SCHED")
+        .replace("DELAYED", "DELAY")
+        .replace("CANCELLED", "CANCEL");
+    }
+    return cycleChunks(status, chars).trim();
   }
 
   function isVatsimPreset() {
@@ -1495,6 +1516,65 @@
     return statusChunk(row, chars);
   }
 
+  function detailItems(row) {
+    if (!row || isVatsimPreset()) return [];
+    const items = Array.isArray(row.matrix_detail_cycle)
+      ? row.matrix_detail_cycle.map(item => asciiText(item).trim().toUpperCase()).filter(Boolean)
+      : [];
+    if (!items.length) {
+      const operator = asciiText(row.matrix_operator_label || "").trim().toUpperCase()
+        || (row.operating_airline || row.operator || row.airline_display ? `OP ${asciiText(row.operating_airline || row.operator || row.airline_display).trim().toUpperCase()}` : "");
+      const soldRaw = row.matrix_codeshare_label || row.sold_as || row.codeshare || row.codeshare_display || "";
+      const sold = soldRaw ? `SOLD AS ${asciiText(String(soldRaw).replace(/^Also\s+/i, "").replace(/^Sold\s+as\s+/i, "")).trim().toUpperCase()}` : "";
+      const gate = gateLabel(row);
+      const aircraft = asciiText(row.matrix_aircraft_label || row.aircraft || row.aircraft_type || "").trim().toUpperCase();
+      for (const item of [operator, sold, gate ? `GATE ${gate}` : "", aircraft]) {
+        if (item && !items.includes(item)) items.push(item);
+      }
+    }
+    return items;
+  }
+
+  function detailChunk(row, chars) {
+    const items = detailItems(row);
+    if (!items.length) return "";
+    const slot = Math.floor(Date.now() / Math.max(3000, CODE_SHARE_ROTATION_S * 1000)) % items.length;
+    return cycleChunks(items[slot], chars).trim();
+  }
+
+  function wideColumns() {
+    if (PANEL_W < 240) return null;
+    const routeX = PANEL_W < 300 ? 104 : 112;
+    let statusX;
+    let gateX;
+    let aircraftX;
+    if (PANEL_W < 300) {
+      statusX = Math.max(routeX + 56, Math.floor(PANEL_W * 0.64));
+      gateX = PANEL_W - 34;
+      aircraftX = PANEL_W - 34;
+    } else if (PANEL_W < 420) {
+      statusX = Math.floor(PANEL_W * 0.60);
+      gateX = Math.floor(PANEL_W * 0.82);
+      aircraftX = PANEL_W - 38;
+    } else {
+      statusX = Math.floor(PANEL_W * 0.62);
+      gateX = Math.floor(PANEL_W * 0.80);
+      aircraftX = Math.floor(PANEL_W * 0.90);
+    }
+    statusX = Math.min(Math.max(statusX, routeX + 42), PANEL_W - 48);
+    gateX = Math.min(Math.max(gateX, statusX + 42), PANEL_W - 28);
+    aircraftX = Math.min(Math.max(aircraftX, gateX + 24), PANEL_W - 28);
+    return {
+      routeX,
+      statusX,
+      gateX,
+      aircraftX,
+      routeChars: Math.max(4, Math.floor((statusX - routeX - 2) / MATRIX_CHAR_W)),
+      statusChars: Math.max(5, Math.floor(((PANEL_W >= 300 ? gateX : PANEL_W) - statusX - 2) / MATRIX_CHAR_W)),
+      detailChars: Math.max(6, Math.floor((PANEL_W - routeX - 2) / MATRIX_CHAR_W)),
+    };
+  }
+
   const cycle_chunks = cycleChunks;
   const code_preserve = codePreserve;
 
@@ -1508,14 +1588,7 @@
   }
 
   function detailText(row) {
-    const operator = row.operating_airline || row.operator || row.airline_display || "";
-    const sold = row.sold_as || row.codeshare || row.codeshare_display || "";
-    const aircraft = row.matrix_aircraft_label || row.aircraft || row.aircraft_type || "";
-    return [
-      operator ? `OP ${operator}` : "",
-      sold ? `SOLD ${String(sold).replace(/^Also /, "")}` : "",
-      aircraft || "",
-    ].filter(Boolean).join(" | ").toUpperCase();
+    return detailItems(row).join(" | ").toUpperCase();
   }
 
   function statusKey(rowOrStatus) {
@@ -1662,14 +1735,15 @@
     const clockX = Math.max(0, PANEL_W - clockW - 1);
     drawString(clock, clockX, 0, C.dim, PANEL_W - clockX);
 
-    const labelLimit = Math.max(6, Math.min(rawLabel.length, PANEL_W < 320 ? 12 : 18));
+    const labelLimit = Math.max(6, Math.min(rawLabel.length, PANEL_W < 300 ? 12 : 18));
     const fullWeather = weatherLine(Math.max(8, Math.floor(PANEL_W / MATRIX_CHAR_W)));
     if (fullWeather || weatherTemp) {
       const centerLeft = labelLimit * MATRIX_CHAR_W + 6;
       const centerRight = Math.max(centerLeft + 16, clockX - 5);
       const centerW = centerRight - centerLeft;
       const desired = Math.max(3, Math.min(PANEL_W >= 384 ? 18 : 10, Math.floor((centerW - 12) / MATRIX_CHAR_W)));
-      const weatherText = (fullWeather || weatherTemp).slice(0, desired);
+      let weatherText = (fullWeather || weatherTemp).slice(0, desired);
+      if (weatherTemp && weatherText.length < weatherTemp.length) weatherText = weatherTemp;
       const compactWeather = weatherText || String(weatherTemp || "").slice(0, desired);
       const weatherW = 8 + compactWeather.length * MATRIX_CHAR_W;
       const weatherX = centerLeft + Math.max(0, Math.floor((centerW - weatherW) / 2));
@@ -1812,6 +1886,7 @@
       const txt = atcPage ? buildRowText(row || {}) : getRowText(ri);
       const cancelled = statusKey(row).includes("cancel");
       const compact = PANEL_W < 180;
+      const medium = PANEL_W >= 180 && PANEL_W < 240;
       if (cancelled) {
         ctx.save();
         ctx.globalAlpha = STATUS_ANIMATION_ENABLED && Math.floor(performance.now()/350)%2 ? 0.52 : 0.28;
@@ -1847,23 +1922,34 @@
         if (flightDetails[ri] && rowH >= 34) {
           drawString(flightDetails[ri].slice(0, 20), 0, y + 24, C.dim, PANEL_W);
         }
+      } else if (medium) {
+      const sc = row ? statusColor(row) : (flightColors[ri] || C.green);
+      const timeLabel = row ? String(row.matrix_time_label || row.display_time || row.time || txt.slice(0,5)).padEnd(5, " ").slice(0,5) : txt.slice(0,5);
+      const flightLabel = row ? String(flightCycleDisplay(row)).padEnd(8, " ").slice(0,8) : txt.slice(6,14);
+      const routeX = 96;
+      const statusX = Math.max(routeX, PANEL_W - 72);
+      const routeChars = Math.max(5, Math.floor((statusX - routeX - 2) / MATRIX_CHAR_W));
+      const statusChars = Math.max(5, Math.floor((PANEL_W - statusX - 1) / MATRIX_CHAR_W));
+      drawString(timeLabel, 8, y, cancelled ? C.white : C.green);
+      drawString(flightLabel, 52, y, C.white);
+      if (row) drawString(routeChunk(row, routeChars), routeX, y, C.white, Math.max(20, statusX - routeX - 2));
+      drawString(row ? statusOrGateChunk(row, statusChars) : txt.slice(30,40), statusX, y, sc);
+      if (row && rowH >= 20) {
+        const detail = detailChunk(row, Math.max(8, Math.floor((PANEL_W - 8) / MATRIX_CHAR_W)));
+        if (detail) drawString(detail, 8, y + 8, C.dim, PANEL_W - 8);
+      }
       } else {
       // Time (0-4) green
       const sc = row ? statusColor(row) : (flightColors[ri] || C.green);
       const timeLabel = row ? String(row.matrix_time_label || row.display_time || row.time || txt.slice(0,5)).padEnd(5, " ").slice(0,5) : txt.slice(0,5);
       const flightLabel = row ? String(flightCycleDisplay(row)).padEnd(8, " ").slice(0,8) : txt.slice(6,14);
-      const routeX = 116;
-      const statusX = PANEL_W >= 420
-        ? Math.floor(PANEL_W * 0.60)
-        : PANEL_W >= 300
-          ? Math.floor(PANEL_W * 0.56)
-          : PANEL_W >= 245
-            ? Math.max(routeX, PANEL_W - 76)
-            : PANEL_W >= 150 ? routeX : 96;
-      const gateX = PANEL_W >= 360 ? Math.floor(PANEL_W * 0.80) : PANEL_W - 25;
-      const aircraftX = PANEL_W >= 420 ? Math.floor(PANEL_W * 0.89) : PANEL_W - 25;
-      const routeChars = Math.max(6, Math.floor((statusX - routeX - 2) / MATRIX_CHAR_W));
-      const statusChars = Math.max(7, Math.floor(((PANEL_W >= 360 ? gateX : PANEL_W) - statusX - 4) / MATRIX_CHAR_W));
+      const cols = wideColumns();
+      const routeX = cols.routeX;
+      const statusX = cols.statusX;
+      const gateX = cols.gateX;
+      const aircraftX = cols.aircraftX;
+      const routeChars = cols.routeChars;
+      const statusChars = cols.statusChars;
       drawString(timeLabel, 8, y, cancelled ? C.white : C.green);
 
       // Flight number (6-13) white
@@ -1883,13 +1969,16 @@
         if (gate) drawString(gate.slice(0, 5), gateX, y, C.dim);
         if (aircraft && PANEL_W >= 420) drawString(aircraft.slice(0, 5), aircraftX, y, C.dim);
       } else if (PANEL_W >= 220) drawString(txt.slice(39,43), PANEL_W - 25, y, C.dim);
-      if (flightDetails[ri] && rowH >= 17 && PANEL_W >= 180) {
-        drawString(flightDetails[ri].slice(0, 34), 36, y + 8, C.dim, PANEL_W - 42);
+      if (row && rowH >= 17 && (MAX_ROWS <= 3 || rowH >= 20)) {
+        const detail = detailChunk(row, cols.detailChars);
+        if (detail && y + 15 <= dataY + dataH) {
+          drawString(detail.slice(0, cols.detailChars), routeX, y + 8, C.dim, PANEL_W - routeX - 2);
+        }
       }
       }
 
       // Row separator
-      if (ri < MAX_ROWS-1 && rowH > 9) {
+      if (ri < rowsToDraw-1 && rowH > 9) {
         for (let x=0; x<PANEL_W; x++) drawPixel(x, y+rowH-1, C.off);
       }
     }

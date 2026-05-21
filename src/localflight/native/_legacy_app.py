@@ -2752,6 +2752,15 @@ class MatrixCanvas:  # pragma: no cover - optional Qt runtime
                 return values
 
             def _page_has_codeshares(self) -> bool:
+                for row in self.rows:
+                    if not isinstance(row, dict):
+                        continue
+                    if row.get("matrix_detail_cycle") or row.get("matrix_operator_label") or row.get("matrix_codeshare_label"):
+                        return True
+                    if row.get("sold_as") or row.get("codeshares") or row.get("codeshare_display"):
+                        return True
+                    if self._gate_label(row) or row.get("matrix_aircraft_label") or row.get("aircraft_type") or row.get("aircraft"):
+                        return True
                 return False
 
             def _visible_rows(self) -> int:
@@ -2971,7 +2980,7 @@ class MatrixCanvas:  # pragma: no cover - optional Qt runtime
                 painter.drawText(int(clock_x), int(top + 8 * scale), clock)
 
                 label = f"{airport} {lane}".upper()
-                label_limit = max(6, min(len(label), 12 if self.panel_w < 320 else 18))
+                label_limit = max(6, min(len(label), 12 if self.panel_w < 300 else 18))
                 weather_line = self._weather_line(max(8, int(self.panel_w / 6)))
                 if weather_line or compact_weather:
                     center_left = label_limit * 6 * scale + 8 * scale
@@ -2981,6 +2990,8 @@ class MatrixCanvas:  # pragma: no cover - optional Qt runtime
                     weather_text = (weather_line or compact_weather)[:desired].strip()
                     if not weather_text and compact_weather:
                         weather_text = compact_weather[:desired]
+                    if compact_weather and len(weather_text) < len(compact_weather):
+                        weather_text = compact_weather
                     weather_w = 8 * scale + len(weather_text) * 6 * scale
                     weather_x = center_left + max(0, (center_w - weather_w) / 2)
                     if weather_text and weather_w <= center_w and weather_x > label_limit * 6 * scale:
@@ -3005,7 +3016,10 @@ class MatrixCanvas:  # pragma: no cover - optional Qt runtime
                 return self.cycle_chunks(label_text, chars, code_text).strip()
 
             def _status_chunk(self, row: dict[str, Any], chars: int) -> str:
-                return self.cycle_chunks(row.get("matrix_status_label") or row.get("status_display") or row.get("status") or "-", chars).strip()
+                status = row.get("matrix_status_label") or row.get("status_display") or row.get("status") or "-"
+                if chars <= 8:
+                    status = str(status).upper().replace("SCHEDULED", "SCHED").replace("DELAYED", "DELAY").replace("CANCELLED", "CANCEL")
+                return self.cycle_chunks(status, chars).strip()
 
             def _is_vatsim_preset(self) -> bool:
                 return str(self.preset or "").lower().startswith("vatsim_")
@@ -3030,6 +3044,62 @@ class MatrixCanvas:  # pragma: no cover - optional Qt runtime
                 if gate and self.panel_w < 180 and int(time.monotonic() // 4) % 2 == 1:
                     return gate
                 return self._status_chunk(row, chars)
+
+            def _detail_items(self, row: dict[str, Any]) -> list[str]:
+                if self._is_vatsim_preset():
+                    return []
+                raw = row.get("matrix_detail_cycle")
+                items = [self._ascii(item).upper().strip() for item in raw if self._ascii(item).strip()] if isinstance(raw, list) else []
+                if not items:
+                    operator = (format_value(row.get("matrix_operator_label")) or "").upper()
+                    if not operator:
+                        op = format_value(row.get("operating_airline")) or format_value(row.get("operator")) or format_value(row.get("airline_display"))
+                        operator = f"OP {op}".upper() if op else ""
+                    sold_as = (format_value(row.get("matrix_codeshare_label")) or "").upper()
+                    if not sold_as:
+                        sold = format_value(row.get("sold_as")) or format_value(row.get("codeshare")) or format_value(row.get("codeshare_display"))
+                        sold_as = f"SOLD AS {str(sold).replace('Also ', '').replace('Sold as ', '')}".upper() if sold else ""
+                    gate = self._gate_label(row)
+                    aircraft = (format_value(row.get("matrix_aircraft_label")) or format_value(row.get("aircraft_type")) or format_value(row.get("aircraft")) or "").upper()
+                    for item in (operator, sold_as, f"GATE {gate}" if gate else "", aircraft):
+                        item = self._ascii(item).upper().strip()
+                        if item and item not in items:
+                            items.append(item)
+                return items
+
+            def _detail_chunk(self, row: dict[str, Any], chars: int) -> str:
+                items = self._detail_items(row)
+                if not items:
+                    return ""
+                slot = int(time.monotonic() // 4) % len(items)
+                return self.cycle_chunks(items[slot], chars).strip()
+
+            def _wide_columns(self) -> dict[str, int]:
+                route_x = 104 if self.panel_w < 300 else 112
+                if self.panel_w < 300:
+                    status_x = max(route_x + 56, int(self.panel_w * 0.64))
+                    gate_x = self.panel_w - 34
+                    aircraft_x = self.panel_w - 34
+                elif self.panel_w < 420:
+                    status_x = int(self.panel_w * 0.60)
+                    gate_x = int(self.panel_w * 0.82)
+                    aircraft_x = self.panel_w - 38
+                else:
+                    status_x = int(self.panel_w * 0.62)
+                    gate_x = int(self.panel_w * 0.80)
+                    aircraft_x = int(self.panel_w * 0.90)
+                status_x = min(max(status_x, route_x + 42), self.panel_w - 48)
+                gate_x = min(max(gate_x, status_x + 42), self.panel_w - 28)
+                aircraft_x = min(max(aircraft_x, gate_x + 24), self.panel_w - 28)
+                return {
+                    "route_x": route_x,
+                    "status_x": status_x,
+                    "gate_x": gate_x,
+                    "aircraft_x": aircraft_x,
+                    "route_chars": max(4, int((status_x - route_x - 2) / 6)),
+                    "status_chars": max(5, int(((gate_x if self.panel_w >= 300 else self.panel_w) - status_x - 2) / 6)),
+                    "detail_chars": max(6, int((self.panel_w - route_x - 2) / 6)),
+                }
 
             def _weather_page_lines(self, chars: int) -> list[str]:
                 if not self.show_weather:
@@ -3057,17 +3127,7 @@ class MatrixCanvas:  # pragma: no cover - optional Qt runtime
                 return f"{time_text} {flight} {route} {status} {gate}".upper()
 
             def _detail_line(self, row: dict[str, Any]) -> str:
-                operator = format_value(row.get("operating_airline")) or format_value(row.get("operator")) or format_value(row.get("airline_display"))
-                sold_as = format_value(row.get("sold_as")) or format_value(row.get("codeshare")) or format_value(row.get("codeshare_display"))
-                aircraft = format_value(row.get("aircraft")) or format_value(row.get("aircraft_type"))
-                parts = []
-                if operator:
-                    parts.append(f"OP {operator}")
-                if sold_as:
-                    parts.append(f"SOLD {sold_as.replace('Also ', '')}")
-                if aircraft:
-                    parts.append(aircraft)
-                return " | ".join(parts).upper()
+                return " | ".join(self._detail_items(row)).upper()
 
             def _slide_line(self, old: str, target: str) -> str:
                 width = max(len(target), len(old), 1)
@@ -3223,11 +3283,21 @@ class MatrixCanvas:  # pragma: no cover - optional Qt runtime
                             painter.drawText(int(left + 4), int(row_top + 32 * scale), self.row_details[idx][:20])
                             painter.setFont(font)
                         continue
-                    status_x = board_w * 0.60 if self.panel_w >= 420 else board_w * 0.56 if self.panel_w >= 300 else min(board_w - 120, 160 * scale)
-                    gate_x = board_w * 0.80 if self.panel_w >= 360 else board_w - 46 * scale
-                    aircraft_x = board_w * 0.89 if self.panel_w >= 420 else board_w - 46 * scale
-                    route_chars = max(6, int((status_x - 104 * scale) / max(1.0, 6 * scale)))
-                    status_chars = max(7, int(((gate_x if self.panel_w >= 360 else board_w) - status_x - 4 * scale) / max(1.0, 6 * scale)))
+                    cols = self._wide_columns() if self.panel_w >= 240 else {
+                        "route_x": 96,
+                        "status_x": max(96, self.panel_w - 72),
+                        "gate_x": self.panel_w - 28,
+                        "aircraft_x": self.panel_w - 28,
+                        "route_chars": max(5, int((max(96, self.panel_w - 72) - 98) / 6)),
+                        "status_chars": max(5, int((self.panel_w - max(96, self.panel_w - 72) - 1) / 6)),
+                        "detail_chars": max(8, int((self.panel_w - 8) / 6)),
+                    }
+                    route_x = cols["route_x"] * scale
+                    status_x = cols["status_x"] * scale
+                    gate_x = cols["gate_x"] * scale
+                    aircraft_x = cols["aircraft_x"] * scale
+                    route_chars = cols["route_chars"]
+                    status_chars = cols["status_chars"]
                     time_text = (format_value(row_data.get("matrix_time_label")) or format_value(row_data.get("display_time")) or format_value(row_data.get("time")) or text[:5])[:5]
                     flight_text = self._flight_cycle_display(row_data)[:8] if row_data else text[6:14]
                     route_text = self._route_chunk(row_data, route_chars) if row_data else text[15:27]
@@ -3236,10 +3306,10 @@ class MatrixCanvas:  # pragma: no cover - optional Qt runtime
                     painter.drawText(int(left + 10), int(y), time_text)
                     painter.setPen(text_color)
                     painter.drawText(int(left + 42 * scale), int(y), flight_text)
-                    painter.drawText(int(left + 102 * scale), int(y), route_text)
+                    painter.drawText(int(left + route_x), int(y), route_text)
                     painter.setPen(status_color)
                     painter.drawText(int(left + status_x), int(y), status_text)
-                    if row_data and self.panel_w >= 260:
+                    if row_data and self.panel_w >= 300:
                         gate = self._gate_label(row_data)
                         aircraft = (format_value(row_data.get("aircraft_type")) or format_value(row_data.get("aircraft")) or "").upper()
                         painter.setPen(dim_color)
@@ -3250,11 +3320,15 @@ class MatrixCanvas:  # pragma: no cover - optional Qt runtime
                     else:
                         painter.setPen(dim_color)
                         painter.drawText(int(left + board_w - 46 * scale), int(y), text[39:43])
-                    if idx < len(self.row_details) and self.row_details[idx] and row_h > 22:
+                    if row_data and row_h >= 17 * scale and (self.max_rows <= 3 or row_h >= 20 * scale):
+                        detail = self._detail_chunk(row_data, cols["detail_chars"])
+                    else:
+                        detail = self.row_details[idx] if idx < len(self.row_details) else ""
+                    if detail and row_h >= 17 * scale and (self.max_rows <= 3 or row_h > 22):
                         detail_font = QtGui.QFont("Space Mono", max(5, int(4.5 * scale)))
                         painter.setFont(detail_font)
                         painter.setPen(dim_color)
-                        painter.drawText(int(left + 10), int(y + min(row_h * 0.32, 14)), self.row_details[idx][:42])
+                        painter.drawText(int(left + route_x), int(y + min(row_h * 0.32, 14)), detail[:cols["detail_chars"]])
                         painter.setFont(font)
 
             def _breath_color(self, QtGui: Any, color: str, floor: float = 0.38) -> Any:
