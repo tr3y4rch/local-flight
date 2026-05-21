@@ -2900,6 +2900,7 @@ def test_matrix_device_checkin_is_exposed_as_hardware_inventory(monkeypatch, tmp
     assert device["panel_w"] == 256
     assert device["panel_h"] == 64
     assert device["firmware"] == "2.0"
+    assert device["renderer_status"] == "unknown"
     assert device["online"] is True
 
 
@@ -2941,6 +2942,7 @@ def test_matrix_device_checkin_exposes_actual_geometry_mismatch(monkeypatch, tmp
     assert device["geometry_mismatch"] is True
     assert "Configured 256x64; actual 128x64" in device["geometry_warning"]
     assert device["renderer_revision"] == "matrix-display-contract-v3"
+    assert device["renderer_status"] == "current"
 
     devices = client.get("/api/matrix/v2/devices").json()["devices"]
     assert devices[0]["geometry_mismatch"] is True
@@ -4012,6 +4014,10 @@ def test_matrix_device_feed_uses_assigned_config_and_exposes_board_contract(tmp_
     assert config.json()["id"] == "tiny-arr"
     assert config.json()["panel_w"] == 128
     assert config.json()["palette"] == "tower_scope"
+    assert config.json()["device_meta"]["device_id"] == "board-a"
+    assert config.json()["effective_panel_w"] == 128
+    assert config.json()["effective_panel_h"] == 128
+    assert config.json()["renderer_status"] == "unknown"
     palette_patch = client.patch(f"/api/matrix/v2/configs/{created['id']}", json={"palette": "neon", "options": {"palette": "neon"}})
     assert palette_patch.status_code == 200
     assert palette_patch.json()["config"]["palette"] == "neon"
@@ -4022,6 +4028,12 @@ def test_matrix_device_feed_uses_assigned_config_and_exposes_board_contract(tmp_
     payload = feed.json()
     assert payload["view"] == "arrivals"
     assert payload["show_gate_info"] is True
+    assert payload["config_id"] == "tiny-arr"
+    assert payload["assigned_config_id"] == "tiny-arr"
+    assert payload["device_meta"]["device_id"] == "board-a"
+    assert payload["effective_panel_w"] == 128
+    assert payload["effective_panel_h"] == 128
+    assert payload["renderer_status"] == "unknown"
     assert payload["rows"][0]["gate_label"] == "T1 / A42"
     assert payload["rows"][0]["flight_number"] == "LX42"
 
@@ -4474,6 +4486,9 @@ def test_matrix_script_endpoint_uses_current_i75w_client_template() -> None:
     assert "def _clock_hhmm(offset_minutes=0):" in script
     assert "def _clock_label(compact=False):" in script
     assert '"U{} L{}"' in script
+    assert "clock = _clock_label(compact=WIDTH < 320)" in script
+    assert "label_limit = max(6, min(len(label), 12 if WIDTH < 320 else 18))" in script
+    assert "center_left = label_limit * 8 + 6" in script
     assert "clock_utc_epoch" in script
     assert "ACTIVE_BREATH" in script
     assert "AMBER_BREATH" in script
@@ -4692,7 +4707,9 @@ def test_matrix_preview_panel_geometry_stays_in_sync() -> None:
     assert "let RENDER_PIXEL_SIZE = PIXEL_SIZE" in template
     assert "PANEL_W * PANEL_H <= 180000" in template
     assert "syncPanelGeometry(w, h);" in template
-    assert "syncPanelGeometry(d.panel_w, d.panel_h);" in template
+    assert "MATRIX_MIRROR_DEVICE" in template
+    assert "preferredMatrixDevice()" in template
+    assert "syncPanelGeometry((MATRIX_MIRROR_DEVICE && d.effective_panel_w) || d.panel_w" in template
     assert "64px-tall HUB75 chains only" not in template
 
 
@@ -4727,7 +4744,8 @@ def test_native_matrix_panel_geometry_matches_web_controls() -> None:
     assert "return 30 if self.panel_h >= 96 and self._weather_line(8) else 20" not in source
     assert "def _vatsim_atc_page" in source
     assert "set_matrix_payload" in source
-    assert "/api/matrix/v2/devices/preview/feed" in source
+    assert "mirror_device = self._mirror_device_id if self._mirror_device_id else None" in source
+    assert "self.service.matrix_feed(device_id=mirror_device, params=params)" in source
     assert '"pax_blue"' in source
     assert '"tower_scope"' in source
     assert '"night_ops"' in source
@@ -5178,11 +5196,11 @@ def test_mobile_help_screen_refreshes_from_dashboard_summary() -> None:
     mobile_screens = (root / "mobile" / "src" / "screens" / "AppScreens.tsx").read_text(encoding="utf-8")
 
     assert "function screenNeedsDashboard" in mobile_shell
-    assert 'target === "control" || target === "help"' in mobile_shell
+    assert 'target === "control"' in mobile_shell
     assert 'includeDashboard: screenNeedsDashboard(screen, isStandalone)' in mobile_shell
-    assert 'onOpenHelp={() => setScreen("help")}' in mobile_shell
-    assert '<HelpScreen' in mobile_shell
-    assert "Open mobile help" in mobile_screens
+    assert 'if (!isStandalone && screen === "help")' in mobile_shell
+    assert '<HelpScreen' not in mobile_shell
+    assert "export function HelpScreen" in mobile_screens
 
 
 def test_mobile_setup_copy_matches_companion_and_standalone_product() -> None:

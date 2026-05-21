@@ -2941,7 +2941,7 @@ class MatrixCanvas:  # pragma: no cover - optional Qt runtime
                 lane = "ARR" if self.view == "arrivals" else "DEP"
                 compact_weather = self._weather_compact_token(8)
                 airport = (self.airport_iata if self.panel_w < 200 and compact_weather else self.airport_label or "LOCAL").upper()
-                clock = self._clock_text(self.panel_w < 200)
+                clock = self._clock_text(self.panel_w < 320)
                 painter.setPen(QtGui.QColor(self.colors["green"]))
 
                 if self.panel_w < 200:
@@ -2970,26 +2970,26 @@ class MatrixCanvas:  # pragma: no cover - optional Qt runtime
                 painter.setPen(dim_color)
                 painter.drawText(int(clock_x), int(top + 8 * scale), clock)
 
-                weather_start = clock_x - left
+                label = f"{airport} {lane}".upper()
+                label_limit = max(6, min(len(label), 12 if self.panel_w < 320 else 18))
                 weather_line = self._weather_line(max(8, int(self.panel_w / 6)))
                 if weather_line or compact_weather:
-                    desired = min(24, max(8, int((weather_start - 96 * scale) / max(1.0, 6 * scale)))) if self.panel_w >= 384 else 10
-                    weather_text = (weather_line or compact_weather)[:desired]
-                    weather_w = 10 * scale + len(weather_text) * 6 * scale
-                    weather_x = max(0, weather_start - weather_w - 8 * scale)
-                    if weather_x > (96 * scale if self.panel_w >= 320 else 54 * scale):
+                    center_left = label_limit * 6 * scale + 8 * scale
+                    center_right = max(center_left + 16 * scale, clock_x - left - 5 * scale)
+                    center_w = center_right - center_left
+                    desired = max(3, min(18 if self.panel_w >= 384 else 10, int((center_w - 12 * scale) / max(1.0, 6 * scale))))
+                    weather_text = (weather_line or compact_weather)[:desired].strip()
+                    if not weather_text and compact_weather:
+                        weather_text = compact_weather[:desired]
+                    weather_w = 8 * scale + len(weather_text) * 6 * scale
+                    weather_x = center_left + max(0, (center_w - weather_w) / 2)
+                    if weather_text and weather_w <= center_w and weather_x > label_limit * 6 * scale:
                         painter.setPen(QtGui.QColor(self.colors["amber"]))
                         self._draw_board_glyph(painter, QtGui, self._weather_glyph_name(), left + weather_x, top + 3 * scale, max(1.0, scale * 0.8), QtGui.QColor(self.colors["amber"]))
                         painter.setPen(dim_color)
                         painter.drawText(int(left + weather_x + 9 * scale), int(top + 8 * scale), weather_text)
-                        weather_start = weather_x
-                    elif self.panel_h >= 96 and weather_line:
-                        painter.setPen(QtGui.QColor(self.colors["amber"]))
-                        self._draw_board_glyph(painter, QtGui, self._weather_glyph_name(), left + 10, top + 14 * scale, max(1.0, scale * 0.8), QtGui.QColor(self.colors["amber"]))
-                        painter.drawText(int(left + 18 * scale), int(top + 18 * scale), weather_line)
 
-                label = f"{airport} {lane}".upper()
-                label_chars = max(8, int((weather_start - 8 * scale) / max(1.0, 6 * scale)))
+                label_chars = max(6, min(label_limit, int((clock_x - left - 4 * scale) / max(1.0, 6 * scale))))
                 if len(label) > label_chars:
                     label = self.marquee(label, label_chars).strip()
                 painter.setPen(QtGui.QColor(self.colors["green"]))
@@ -3305,6 +3305,7 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
         self.configs: list[dict[str, Any]] = []
         self.devices: list[dict[str, Any]] = []
         self.default_config_id = "default"
+        self._mirror_device_id: str | None = None
         self.widget, layout = scroll_page(QtWidgets)
         self._busy_buttons: list[Any] = []
 
@@ -3902,27 +3903,36 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
     def refresh_feed_only(self) -> None:
         if not self._v2_available:
             return
-        params = {
-            "view": self.feed_view,
-            "config_id": self._current_config_id() or "",
-            "preset": str(self.preset_select.currentData() or "real_fids"),
-            "max_rows": int(self.max_rows.value()),
-            "show_weather": bool(self.weather_toggle.isChecked()),
-            "show_gate_info": bool(self.gate_toggle.isChecked()),
-        }
+        params = {"view": self.feed_view}
+        mirror_device = self._mirror_device_id if self._mirror_device_id else None
+        if not mirror_device:
+            params.update({
+                "config_id": self._current_config_id() or "",
+                "preset": str(self.preset_select.currentData() or "real_fids"),
+                "max_rows": int(self.max_rows.value()),
+                "show_weather": bool(self.weather_toggle.isChecked()),
+                "show_gate_info": bool(self.gate_toggle.isChecked()),
+            })
         try:
-            # Service keeps the browser-parity preview route: /api/matrix/v2/devices/preview/feed
-            payload, rows = self.service.matrix_feed(params=params)
+            payload, rows = self.service.matrix_feed(device_id=mirror_device, params=params)
         except NativeApiError as exc:
             payload = {}
             rows = []
             self.action_status.setText(f"Preview feed unavailable: {exc}")
+        if mirror_device and isinstance(payload, dict) and payload.get("effective_panel_w") and payload.get("effective_panel_h"):
+            self._set_panel_size(int(payload.get("effective_panel_w") or 256), int(payload.get("effective_panel_h") or 64), sync=False)
         self.canvas.set_rows(rows[: max(1, int(self.max_rows.value()))])
         if hasattr(self.canvas, "set_matrix_payload"):
             self.canvas.set_matrix_payload(payload if isinstance(payload, dict) else {})
         self._sync_canvas_options()
         if payload:
-            self.action_status.setText(f"Preview updated from {payload.get('view', self.feed_view) if isinstance(payload, dict) else self.feed_view}.")
+            source = f"connected board {mirror_device}" if mirror_device else "draft config"
+            extra = ""
+            if isinstance(payload, dict) and payload.get("renderer_status") and payload.get("renderer_status") != "current":
+                extra = f" Regenerate main.py ({payload.get('renderer_status')})."
+            if isinstance(payload, dict) and payload.get("geometry_mismatch"):
+                extra += f" {payload.get('geometry_warning') or 'Geometry mismatch.'}"
+            self.action_status.setText(f"Preview mirrors {source} from {payload.get('view', self.feed_view) if isinstance(payload, dict) else self.feed_view}.{extra}")
 
     def _populate_v2_lists(self) -> None:
         self._populate_panel_presets()
@@ -3943,11 +3953,27 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
         self.device_list.clear()
         for device in self.devices:
             self.device_list.addItem(f"{device.get('label') or device.get('device_id')} | {device.get('last_seen') or 'not seen'}")
+        mirror_row = -1
+        for idx, device in enumerate(self.devices):
+            if device.get("last_seen"):
+                mirror_row = idx
+                break
+        if mirror_row < 0 and self.devices:
+            mirror_row = 0
+        self._mirror_device_id = str(self.devices[mirror_row].get("device_id")) if mirror_row >= 0 else None
+        target_config_id = str(self.devices[mirror_row].get("assigned_config_id") or "") if mirror_row >= 0 else ""
+        target_config_row = 0
+        if target_config_id:
+            for idx, cfg in enumerate(self.configs):
+                if str(cfg.get("id")) == target_config_id:
+                    target_config_row = idx
+                    break
         if self.configs:
-            self.config_select.setCurrentIndex(0)
-            self.config_list.setCurrentRow(0)
-            self._populate_config(self.configs[0])
-        self._populate_device(0 if self.devices else -1)
+            self.config_select.setCurrentIndex(target_config_row)
+            self.config_list.setCurrentRow(target_config_row)
+            self._populate_config(self.configs[target_config_row])
+        self._mirror_device_id = str(self.devices[mirror_row].get("device_id")) if mirror_row >= 0 else None
+        self._populate_device(mirror_row)
         self._sync_summary()
 
     def _populate_panel_presets(self) -> None:
@@ -3973,11 +3999,13 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
         self.panel_preset.blockSignals(old)
 
     def _select_config_from_combo(self, index: int) -> None:
+        self._mirror_device_id = None
         if index >= 0 and index < len(self.configs):
             self.config_list.setCurrentRow(index)
             self._populate_config(self.configs[index])
 
     def _select_config_from_list(self, row: int) -> None:
+        self._mirror_device_id = None
         if row >= 0 and row < len(self.configs):
             self.config_select.setCurrentIndex(row)
             self._populate_config(self.configs[row])

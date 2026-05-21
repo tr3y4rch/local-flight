@@ -2313,6 +2313,8 @@ def api_admin_connections() -> Dict[str, Any]:
                     "geometry_warning": str(raw_device.get("geometry_warning") or ""),
                     "firmware": str(raw_device.get("firmware") or ""),
                     "renderer_revision": str(raw_device.get("renderer_revision") or ""),
+                    "expected_renderer_revision": _MATRIX_EXPECTED_RENDERER_REV,
+                    "renderer_status": "current" if str(raw_device.get("renderer_revision") or "").strip() == _MATRIX_EXPECTED_RENDERER_REV else ("unknown" if not str(raw_device.get("renderer_revision") or "").strip() else "stale"),
                     "renderers": [str(item) for item in renderers],
                     "assigned_config_id": str(raw_device.get("assigned_config_id") or ""),
                     "last_seen": last_seen,
@@ -2928,6 +2930,7 @@ _MATRIX_V1_FIELDS = {
 }
 
 _MATRIX_ANIMATION_MODES = {"split_flap", "typewriter", "cascade", "slide_left", "slide_right", "static"}
+_MATRIX_EXPECTED_RENDERER_REV = "matrix-display-contract-v3"
 
 _MATRIX_PANEL_PRESETS: List[Dict[str, Any]] = [
     {"id": "64x32", "label": "64 x 32", "group": "Other common HUB75 sizes", "panel_w": 64, "panel_h": 32},
@@ -3129,6 +3132,8 @@ def _normalize_matrix_store(data: Dict[str, Any]) -> Dict[str, Any]:
             "geometry_warning": geometry_warning,
             "firmware": str(item.get("firmware") or "")[:32],
             "renderer_revision": str(item.get("renderer_revision") or "")[:80],
+            "expected_renderer_revision": _MATRIX_EXPECTED_RENDERER_REV,
+            "renderer_status": "current" if str(item.get("renderer_revision") or "").strip() == _MATRIX_EXPECTED_RENDERER_REV else ("unknown" if not str(item.get("renderer_revision") or "").strip() else "stale"),
             "renderers": [str(v)[:40] for v in (item.get("renderers") or []) if isinstance(v, str)],
             "assigned_config_id": assigned,
             "last_seen": item.get("last_seen"),
@@ -3171,6 +3176,55 @@ def _matrix_device_by_id(store: Dict[str, Any], device_id: str) -> Optional[Dict
         if device["device_id"] == device_id:
             return device
     return None
+
+
+def _matrix_renderer_status(device: Optional[Dict[str, Any]]) -> str:
+    if not device:
+        return "unknown"
+    revision = str(device.get("renderer_revision") or "").strip()
+    if not revision:
+        return "unknown"
+    return "current" if revision == _MATRIX_EXPECTED_RENDERER_REV else "stale"
+
+
+def _matrix_device_meta(device: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    if not device:
+        return {
+            "device_id": None,
+            "device_label": None,
+            "assigned_config_id": None,
+            "effective_panel_w": None,
+            "effective_panel_h": None,
+            "configured_panel_w": None,
+            "configured_panel_h": None,
+            "actual_panel_w": None,
+            "actual_panel_h": None,
+            "geometry_mismatch": False,
+            "geometry_warning": "",
+            "renderer_revision": "",
+            "expected_renderer_revision": _MATRIX_EXPECTED_RENDERER_REV,
+            "renderer_status": "unknown",
+            "last_seen": None,
+        }
+    effective_w = int(device.get("actual_panel_w") or device.get("panel_w") or device.get("configured_panel_w") or 0)
+    effective_h = int(device.get("actual_panel_h") or device.get("panel_h") or device.get("configured_panel_h") or 0)
+    return {
+        "device_id": device.get("device_id"),
+        "device_label": device.get("label"),
+        "assigned_config_id": device.get("assigned_config_id"),
+        "effective_panel_w": effective_w or None,
+        "effective_panel_h": effective_h or None,
+        "configured_panel_w": device.get("configured_panel_w"),
+        "configured_panel_h": device.get("configured_panel_h"),
+        "actual_panel_w": device.get("actual_panel_w"),
+        "actual_panel_h": device.get("actual_panel_h"),
+        "geometry_mismatch": bool(device.get("geometry_mismatch")),
+        "geometry_warning": str(device.get("geometry_warning") or ""),
+        "renderer_revision": str(device.get("renderer_revision") or ""),
+        "expected_renderer_revision": _MATRIX_EXPECTED_RENDERER_REV,
+        "renderer_status": _matrix_renderer_status(device),
+        "last_seen": device.get("last_seen"),
+    }
 
 
 def _load_matrix_config() -> Dict[str, Any]:
@@ -3406,6 +3460,8 @@ def api_matrix_v2_device_checkin(body: MatrixDeviceCheckIn) -> Dict[str, Any]:
         "geometry_warning": geometry_warning,
         "firmware": body.firmware[:32],
         "renderer_revision": body.renderer_revision[:80],
+        "expected_renderer_revision": _MATRIX_EXPECTED_RENDERER_REV,
+        "renderer_status": "current" if body.renderer_revision.strip() == _MATRIX_EXPECTED_RENDERER_REV else ("unknown" if not body.renderer_revision.strip() else "stale"),
         "renderers": [str(v)[:40] for v in body.renderers],
         "last_seen": _utc_now_iso(),
     })
@@ -3444,6 +3500,9 @@ def _matrix_resolved_config(
     if preview_overrides:
         cfg = _normalize_matrix_config({**cfg, **preview_overrides}, fallback_id=cfg["id"])
     preset = _MATRIX_PRESETS.get(cfg["preset"], _MATRIX_PRESETS["real_fids"])
+    meta = _matrix_device_meta(device)
+    effective_w = meta.get("effective_panel_w") or cfg.get("panel_w")
+    effective_h = meta.get("effective_panel_h") or cfg.get("panel_h")
     return {
         **cfg,
         **_matrix_clock_payload(),
@@ -3451,6 +3510,14 @@ def _matrix_resolved_config(
         "renderer": preset["renderer"],
         "preset_label": preset["label"],
         "device_id": device["device_id"] if device else None,
+        "device_meta": meta,
+        "effective_panel_w": effective_w,
+        "effective_panel_h": effective_h,
+        "geometry_mismatch": bool(meta.get("geometry_mismatch")),
+        "geometry_warning": str(meta.get("geometry_warning") or ""),
+        "renderer_revision": str(meta.get("renderer_revision") or ""),
+        "expected_renderer_revision": _MATRIX_EXPECTED_RENDERER_REV,
+        "renderer_status": str(meta.get("renderer_status") or "unknown"),
     }
 
 
@@ -3946,6 +4013,19 @@ def api_matrix_v2_device_feed(
         "data_rev": int(time.time()),
         "view": effective_view,
         "generated_at": _utc_now_iso(),
+        "config_id": resolved.get("id"),
+        "config_name": resolved.get("name"),
+        "assigned_config_id": (resolved.get("device_meta") or {}).get("assigned_config_id"),
+        "panel_w": resolved.get("panel_w"),
+        "panel_h": resolved.get("panel_h"),
+        "effective_panel_w": resolved.get("effective_panel_w") or resolved.get("panel_w"),
+        "effective_panel_h": resolved.get("effective_panel_h") or resolved.get("panel_h"),
+        "device_meta": resolved.get("device_meta"),
+        "geometry_mismatch": bool(resolved.get("geometry_mismatch")),
+        "geometry_warning": str(resolved.get("geometry_warning") or ""),
+        "renderer_revision": str(resolved.get("renderer_revision") or ""),
+        "expected_renderer_revision": _MATRIX_EXPECTED_RENDERER_REV,
+        "renderer_status": str(resolved.get("renderer_status") or "unknown"),
         **_matrix_airport_payload(cfg),
     }
     show_metar = _matrix_option_enabled(resolved, "show_metar", True)

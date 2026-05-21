@@ -1022,6 +1022,8 @@
   let MATRIX_PALETTE_OPTIONS = [];
   let MATRIX_PANEL_PRESETS = [];
   let CURRENT_CONFIG_ID = "";
+  let CURRENT_DEVICE_ID = "";
+  let MATRIX_MIRROR_DEVICE = false;
   let LOADED_PANEL_W = PANEL_W;
   let LOADED_PANEL_H = PANEL_H;
   let MATRIX_METAR = null;
@@ -1126,6 +1128,11 @@
       return Boolean(actualW && actualH && (actualW !== PANEL_W || actualH !== PANEL_H));
     });
     return changed || mismatchedDevice;
+  }
+
+  function preferredMatrixDevice() {
+    if (!Array.isArray(MATRIX_DEVICES) || !MATRIX_DEVICES.length) return null;
+    return MATRIX_DEVICES.find(device => device && device.last_seen) || MATRIX_DEVICES[0] || null;
   }
 
   const FONT = {
@@ -1634,7 +1641,7 @@
     const airportBase = asciiText((PANEL_W < 200 && weatherTemp ? CFG.airport_iata : CFG.airport_label) || CFG.airport_iata || "LOCAL");
     const lane = renderView === "arrivals" ? "ARR" : "DEP";
     const rawLabel = `${airportBase} ${lane}`.toUpperCase();
-    const clock = clockLabel(PANEL_W < 200);
+    const clock = clockLabel(PANEL_W < 320);
 
     if (PANEL_W < 200) {
       const chars = Math.max(8, Math.floor(PANEL_W / MATRIX_CHAR_W));
@@ -1655,25 +1662,25 @@
     const clockX = Math.max(0, PANEL_W - clockW - 1);
     drawString(clock, clockX, 0, C.dim, PANEL_W - clockX);
 
-    let weatherStart = clockX;
+    const labelLimit = Math.max(6, Math.min(rawLabel.length, PANEL_W < 320 ? 12 : 18));
     const fullWeather = weatherLine(Math.max(8, Math.floor(PANEL_W / MATRIX_CHAR_W)));
     if (fullWeather || weatherTemp) {
-      const desired = PANEL_W >= 384 ? Math.min(24, Math.max(8, Math.floor((clockX - 96) / MATRIX_CHAR_W))) : 10;
+      const centerLeft = labelLimit * MATRIX_CHAR_W + 6;
+      const centerRight = Math.max(centerLeft + 16, clockX - 5);
+      const centerW = centerRight - centerLeft;
+      const desired = Math.max(3, Math.min(PANEL_W >= 384 ? 18 : 10, Math.floor((centerW - 12) / MATRIX_CHAR_W)));
       const weatherText = (fullWeather || weatherTemp).slice(0, desired);
-      const weatherW = 10 + weatherText.length * MATRIX_CHAR_W;
-      const weatherX = Math.max(0, clockX - weatherW - 8);
-      if (weatherX > (PANEL_W >= 320 ? 96 : 54)) {
-        drawWeatherCompact(weatherX, 0, clockX - weatherX - 4);
-        weatherStart = weatherX;
-      } else if (PANEL_H >= 96 && fullWeather) {
-        drawWeatherCompact(0, 10, PANEL_W);
-        for (let x=0; x<PANEL_W; x++) drawPixel(x, 19, C.dim);
+      const compactWeather = weatherText || String(weatherTemp || "").slice(0, desired);
+      const weatherW = 8 + compactWeather.length * MATRIX_CHAR_W;
+      const weatherX = centerLeft + Math.max(0, Math.floor((centerW - weatherW) / 2));
+      if (compactWeather && weatherW <= centerW && weatherX > labelLimit * MATRIX_CHAR_W) {
+        drawWeatherCompact(weatherX, 0, centerW);
       }
     }
 
-    const labelChars = Math.max(8, Math.floor((weatherStart - 4) / MATRIX_CHAR_W));
+    const labelChars = Math.max(6, Math.min(labelLimit, Math.floor((clockX - 4) / MATRIX_CHAR_W)));
     const label = rawLabel.length > labelChars ? marquee(rawLabel, labelChars).trim() : rawLabel;
-    drawString(label, 0, 0, C.green, Math.max(0, weatherStart - 4));
+    drawString(label, 0, 0, C.green, Math.max(0, labelChars * MATRIX_CHAR_W));
   }
 
   function weatherPageLines(chars) {
@@ -1978,15 +1985,18 @@
     try {
       const fetchLimit = Math.min(visibleRows() * 4, 32);
       status.textContent = "Loading Matrix preview feed...";
-      const params = new URLSearchParams({
-        view: VIEW,
-        config_id: CURRENT_CONFIG_ID || "",
-        preset: MATRIX_PRESET,
-        max_rows: String(MAX_ROWS),
-        show_weather: SHOW_WEATHER ? "true" : "false",
-        show_gate_info: SHOW_GATE_INFO ? "true" : "false",
-      });
-      let r = await fetch(`/api/matrix/v2/devices/preview/feed?${params.toString()}`);
+      const params = new URLSearchParams({ view: VIEW });
+      let endpoint = "/api/matrix/v2/devices/preview/feed";
+      if (MATRIX_MIRROR_DEVICE && CURRENT_DEVICE_ID) {
+        endpoint = `/api/matrix/v2/devices/${encodeURIComponent(CURRENT_DEVICE_ID)}/feed`;
+      } else {
+        params.set("config_id", CURRENT_CONFIG_ID || "");
+        params.set("preset", MATRIX_PRESET);
+        params.set("max_rows", String(MAX_ROWS));
+        params.set("show_weather", SHOW_WEATHER ? "true" : "false");
+        params.set("show_gate_info", SHOW_GATE_INFO ? "true" : "false");
+      }
+      let r = await fetch(`${endpoint}?${params.toString()}`);
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       let payload = await r.json();
       let data = Array.isArray(payload) ? payload : (payload.rows || []);
@@ -1994,6 +2004,9 @@
         VIEW = payload.view || VIEW;
         CFG.airport_iata = payload.airport_iata || CFG.airport_iata;
         CFG.airport_label = payload.airport_label || payload.airport_display_name || payload.airport_city || CFG.airport_label || CFG.airport_iata;
+        if (payload.effective_panel_w && payload.effective_panel_h && MATRIX_MIRROR_DEVICE) {
+          syncPanelGeometry(payload.effective_panel_w, payload.effective_panel_h);
+        }
       }
       MATRIX_METAR = payload && !Array.isArray(payload) ? (payload.metar || null) : null;
       MATRIX_PAGES = payload && !Array.isArray(payload) ? (payload.pages || null) : null;
@@ -2014,7 +2027,10 @@
       } else {
         applyFlightData(data);
         const pageCount = flightPages.length;
-      status.textContent = `${data.length} flights · ${VIEW} · ${PANEL_W}×${PANEL_H}px · ${pageCount > 1 ? `pages ${pageCount} · ` : ""}updated ${new Date().toUTCString().slice(17,25)} UTC`;
+        const mirrorText = MATRIX_MIRROR_DEVICE && CURRENT_DEVICE_ID ? `mirroring ${CURRENT_DEVICE_ID} · ` : "";
+        const staleText = payload.renderer_status && payload.renderer_status !== "current" ? ` · regenerate main.py (${payload.renderer_status})` : "";
+        const geometryText = payload.geometry_mismatch ? ` · ${payload.geometry_warning || "geometry mismatch"}` : "";
+        status.textContent = `${mirrorText}${data.length} flights · ${VIEW} · ${PANEL_W}×${PANEL_H}px · ${pageCount > 1 ? `pages ${pageCount} · ` : ""}updated ${new Date().toUTCString().slice(17,25)} UTC${staleText}${geometryText}`;
       }
     } catch (e) {
       status.textContent = `Fetch failed: ${e.message} — click Demo to preview animation`;
@@ -2383,11 +2399,23 @@ Board reads: /api/config -> /api/matrix/v2/devices/{id}/config -> /api/matrix/v2
         MATRIX_PANEL_PRESETS = Array.isArray(presetPayload.panel_presets) ? presetPayload.panel_presets : [];
         MATRIX_CONFIGS = Array.isArray(configPayload.configs) ? configPayload.configs : [];
         MATRIX_DEVICES = Array.isArray(devicesPayload.devices) ? devicesPayload.devices : [];
-        CURRENT_CONFIG_ID = configPayload.default_config_id || (MATRIX_CONFIGS[0] && MATRIX_CONFIGS[0].id) || "";
+        const mirrorDevice = preferredMatrixDevice();
+        CURRENT_DEVICE_ID = mirrorDevice?.device_id || "";
+        MATRIX_MIRROR_DEVICE = Boolean(CURRENT_DEVICE_ID);
+        CURRENT_CONFIG_ID = mirrorDevice?.assigned_config_id || configPayload.default_config_id || (MATRIX_CONFIGS[0] && MATRIX_CONFIGS[0].id) || "";
         populateMatrixV2Selectors();
-        const selected = MATRIX_CONFIGS.find(c => c.id === CURRENT_CONFIG_ID) || MATRIX_CONFIGS[0];
+        let selected = MATRIX_CONFIGS.find(c => c.id === CURRENT_CONFIG_ID) || MATRIX_CONFIGS[0];
+        if (CURRENT_DEVICE_ID) {
+          try {
+            const deviceConfigRes = await fetch(`/api/matrix/v2/devices/${encodeURIComponent(CURRENT_DEVICE_ID)}/config`);
+            if (deviceConfigRes.ok) selected = await deviceConfigRes.json();
+          } catch (deviceError) {
+            console.warn("Could not load connected board matrix config:", deviceError);
+          }
+        }
         if (selected) {
           applyMatrixConfig(selected);
+          if (CURRENT_DEVICE_ID) status.textContent = `Mirroring connected board ${CURRENT_DEVICE_ID}.`;
           return;
         }
       }
@@ -2445,7 +2473,7 @@ Board reads: /api/config -> /api/matrix/v2/devices/{id}/config -> /api/matrix/v2
     const configSel = document.getElementById("matrixConfigSelect");
     if (configSel && CURRENT_CONFIG_ID) configSel.value = CURRENT_CONFIG_ID;
     if (d.panel_w && d.panel_h) {
-      syncPanelGeometry(d.panel_w, d.panel_h);
+      syncPanelGeometry((MATRIX_MIRROR_DEVICE && d.effective_panel_w) || d.panel_w, (MATRIX_MIRROR_DEVICE && d.effective_panel_h) || d.panel_h);
       LOADED_PANEL_W = PANEL_W;
       LOADED_PANEL_H = PANEL_H;
     }
@@ -2512,6 +2540,8 @@ Board reads: /api/config -> /api/matrix/v2/devices/{id}/config -> /api/matrix/v2
   }
 
   window.applyMatrixConfigSelection = function(id) {
+    MATRIX_MIRROR_DEVICE = false;
+    CURRENT_DEVICE_ID = "";
     const selected = MATRIX_CONFIGS.find(c => c.id === id);
     if (selected) applyMatrixConfig(selected);
   };

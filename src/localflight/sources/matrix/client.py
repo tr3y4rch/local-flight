@@ -1067,7 +1067,7 @@ def draw_smart_header(view):
     header_name = _airport_label or _airport_iata
     lane = "DEP" if view == "departures" else "ARR"
     weather_temp = _weather_temp_text()
-    clock = _clock_label(compact=WIDTH < 200)
+    clock = _clock_label(compact=WIDTH < 320)
 
     if WIDTH < 200:
         compact_name = _airport_iata if weather_temp else header_name
@@ -1090,31 +1090,33 @@ def draw_smart_header(view):
         graphics.text(second[:max(8, WIDTH // 8)], 0, 10, WIDTH, 1)
         return
 
-    clock_x = max(0, WIDTH - len(clock) * 8 - 2)
+    clock_x = max(0, WIDTH - len(clock) * 8 - 1)
     graphics.set_pen(DIM)
     graphics.text(clock, clock_x, 0, WIDTH, 1)
 
-    weather_start = clock_x
+    label = "{} {}".format(header_name, lane).upper()
+    label_limit = max(6, min(len(label), 12 if WIDTH < 320 else 18))
     weather = _weather_line(max(8, WIDTH // 8 - 1))
     if weather or weather_temp:
-        desired = min(24, max(8, (clock_x - 96) // 8)) if WIDTH >= 384 else 10
-        weather_text = (weather or weather_temp)[:desired]
-        weather_w = 10 + len(weather_text) * 8
-        weather_x = max(0, clock_x - weather_w - 8)
-        if weather_x > (96 if WIDTH >= 320 else 54):
-            draw_weather_compact(weather_x, 0, clock_x - weather_x - 4)
-            weather_start = weather_x
-        elif HEIGHT >= 96 and weather:
-            draw_weather_compact(0, 10, WIDTH)
-            graphics.set_pen(DIM)
-            graphics.line(0, 19, WIDTH, 19)
+        # Wide boards use a stable three-zone hero: title left, weather center,
+        # clock right. Shrink weather before stealing the flight-row header.
+        center_left = label_limit * 8 + 6
+        center_right = max(center_left + 16, clock_x - 5)
+        center_w = center_right - center_left
+        desired = max(3, min(18 if WIDTH >= 384 else 10, (center_w - 12) // 8))
+        weather_text = (weather or weather_temp)[:desired].strip()
+        if not weather_text and weather_temp:
+            weather_text = weather_temp[:max(1, desired)]
+        weather_w = 8 + len(weather_text) * 8
+        weather_x = center_left + max(0, (center_w - weather_w) // 2)
+        if weather_text and weather_w <= center_w and weather_x > label_limit * 8:
+            draw_weather_compact(weather_x, 0, center_w)
 
-    label = "{} {}".format(header_name, lane).upper()
-    label_chars = max(8, (weather_start - 4) // 8)
+    label_chars = max(6, min(label_limit, (clock_x - 4) // 8))
     if len(label) > label_chars:
         label = marquee(label, label_chars).rstrip()
     graphics.set_pen(GREEN)
-    graphics.text(label, 0, 0, max(1, weather_start - 4), 1)
+    graphics.text(label, 0, 0, max(1, label_chars * 8), 1)
 
 def _weather_page_lines(chars):
     page = _matrix_weather_page if isinstance(_matrix_weather_page, dict) else None
