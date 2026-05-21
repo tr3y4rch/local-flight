@@ -73,6 +73,8 @@ export function normalizeMatrixPreset(value?: string | null): MatrixPresetId {
 export function normalizeMatrixAnimationMode(value?: string | null): MatrixAnimationMode {
   switch (value) {
     case "split_flap":
+    case "typewriter":
+    case "cascade":
     case "slide_left":
     case "slide_right":
     case "static":

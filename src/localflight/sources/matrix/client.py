@@ -114,6 +114,12 @@ try:
     else:
         i75 = Interstate75(display=DISPLAY, panels=DISPLAY_PANELS)
 except TypeError:
+    if DISPLAY_PANELS is not None:
+        raise RuntimeError(
+            "Interstate75 firmware does not support chained panel init for {}x{}; update Pimoroni firmware or choose a single-panel geometry.".format(
+                PANEL_W, PANEL_H
+            )
+        )
     i75 = Interstate75(display=DISPLAY)
 graphics = getattr(i75, "display", None)
 if graphics is None:
@@ -123,6 +129,10 @@ if graphics is None:
 graphics.set_font("bitmap8")
 
 WIDTH, HEIGHT = graphics.get_bounds()
+GEOMETRY_MISMATCH = WIDTH != PANEL_W or HEIGHT != PANEL_H
+GEOMETRY_WARNING = ""
+if GEOMETRY_MISMATCH:
+    GEOMETRY_WARNING = "Configured {}x{}; actual {}x{}.".format(PANEL_W, PANEL_H, WIDTH, HEIGHT)
 
 def update_display():
     try:
@@ -814,10 +824,15 @@ def checkin_matrix_device():
         "hardware_name": HARDWARE_NAME,
         "panel_w": PANEL_W,
         "panel_h": PANEL_H,
+        "actual_panel_w": WIDTH,
+        "actual_panel_h": HEIGHT,
+        "display_panels": DISPLAY_PANELS or 1,
         "firmware": CLIENT_VER,
         "renderer_revision": CLIENT_RENDERER_REV,
         "renderers": SUPPORTED_RENDERERS,
     }
+    if GEOMETRY_WARNING:
+        payload["geometry_warning"] = GEOMETRY_WARNING
     data = _post_json("/api/matrix/v2/devices/checkin", payload, timeout=8)
     return isinstance(data, dict) and bool(data.get("ok"))
 
@@ -892,7 +907,7 @@ def fetch_fids(view="departures", limit=4):
 
 
 def ping_server():
-    _post_json("/api/matrix/v2/devices/checkin", {
+    payload = {
         "device_id": device_id(),
         "label": DEVICE_LABEL,
         "kind": "led_matrix",
@@ -902,10 +917,16 @@ def ping_server():
         "hardware_name": HARDWARE_NAME,
         "panel_w": PANEL_W,
         "panel_h": PANEL_H,
+        "actual_panel_w": WIDTH,
+        "actual_panel_h": HEIGHT,
+        "display_panels": DISPLAY_PANELS or 1,
         "firmware": CLIENT_VER,
         "renderer_revision": CLIENT_RENDERER_REV,
         "renderers": SUPPORTED_RENDERERS,
-    }, timeout=5)
+    }
+    if GEOMETRY_WARNING:
+        payload["geometry_warning"] = GEOMETRY_WARNING
+    _post_json("/api/matrix/v2/devices/checkin", payload, timeout=5)
 
 # ── Drawing helpers ────────────────────────────────────────────────────────────
 def _draw_message(msg, color=WHITE):
@@ -1303,11 +1324,20 @@ def draw_modern_fids(flap_rows, page_data, view):
                 status = _status_or_gate_chunk(row, max(8, WIDTH // 8))
                 graphics.text(status, 0, status_y, WIDTH, 1)
         else:
-            status_x = int(WIDTH * 0.60) if WIDTH >= 420 else int(WIDTH * 0.56) if WIDTH >= 300 else 116
+            route_x = 116
+            status_x = (
+                int(WIDTH * 0.60)
+                if WIDTH >= 420
+                else int(WIDTH * 0.56)
+                if WIDTH >= 300
+                else max(route_x, WIDTH - 76)
+                if WIDTH >= 245
+                else route_x
+            )
             gate_x = int(WIDTH * 0.80) if WIDTH >= 360 else WIDTH - 28
             aircraft_x = int(WIDTH * 0.89) if WIDTH >= 420 else WIDTH - 28
-            route_chars = max(8, (status_x - 118) // 8)
-            graphics.text(_route_chunk(row, route_chars)[:route_chars], 116, y, max(40, status_x - 118), 1)
+            route_chars = max(6, (status_x - route_x - 2) // 8)
+            graphics.text(_route_chunk(row, route_chars)[:route_chars], route_x, y, max(20, status_x - route_x - 2), 1)
             if row_h >= 17:
                 graphics.set_pen(status_color(row))
                 status_chars = max(7, ((gate_x if WIDTH >= 360 else WIDTH) - status_x - 4) // 8)
@@ -1319,7 +1349,7 @@ def draw_modern_fids(flap_rows, page_data, view):
                 else:
                     gate = _gate_label(row)
                     aircraft = _upper_text(row.get("aircraft_type") or row.get("aircraft") or "")
-                    if gate and WIDTH >= 260:
+                    if gate and WIDTH >= 300:
                         graphics.set_pen(DIM)
                         graphics.text(gate[:5], gate_x, y, max(8, WIDTH - gate_x), 1)
                     if aircraft and WIDTH >= 420:
@@ -1379,6 +1409,9 @@ def main():
     else:
         _draw_message("WiFi OK", GREEN)
         time.sleep(0.2)
+        if GEOMETRY_WARNING:
+            _draw_message(GEOMETRY_WARNING, RED)
+            time.sleep(2)
         _draw_message("Loading config...", GREEN)
         fetch_config()
         checkin_matrix_device()

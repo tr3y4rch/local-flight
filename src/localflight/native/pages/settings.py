@@ -452,7 +452,6 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
             subtitle="QR pairing for LAN Companion devices on the same network.",
             emoji="\U0001F4F1",  # 📱
         )
-        self.companion_group.setChecked(True)
         layout.addWidget(
             label(
                 self.QtWidgets,

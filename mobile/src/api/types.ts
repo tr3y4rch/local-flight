@@ -804,9 +804,18 @@ export type MatrixPaletteId =
   | "vatsim_scope"
   | "night_ops"
   | "sunset_terminal"
-  | "ice_white";
+  | "ice_white"
+  | "crt"
+  | "neon"
+  | "amber"
+  | "green"
+  | "cyan"
+  | "technical"
+  | "phosphor"
+  | "indigo_night"
+  | "rose_gold";
 
-export type MatrixAnimationMode = "split_flap" | "slide_left" | "slide_right" | "static";
+export type MatrixAnimationMode = "split_flap" | "typewriter" | "cascade" | "slide_left" | "slide_right" | "static";
 
 export type MatrixRuntimeOptions = {
   palette?: MatrixPaletteId | string;

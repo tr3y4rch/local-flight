@@ -18,7 +18,7 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import { BottomNav } from "../components/BottomNav";
 import { LaunchOverlay } from "../components/LaunchOverlay";
 import { accessibleButton, tapTargetHitSlop, useReducedMotionPreference } from "../accessibility/mobileA11y";
-import { AirportConfigSheet, CompanionSetupScreen, ConnectPrompt, ControlScreen, FidsScreen, FlightActionSheet, FlightDetailSheet, FullscreenFidsDisplay, Header, HelpScreen, HistoryScreen, RadarScreen, ScreenActivity, ScreenError, SupportSheet, type ActivityStatus, type ConnectionState } from "../screens/AppScreens";
+import { AirportConfigSheet, CompanionSetupScreen, ConnectPrompt, ControlScreen, FidsScreen, FlightActionSheet, FlightDetailSheet, FullscreenFidsDisplay, Header, HistoryScreen, RadarScreen, ScreenActivity, ScreenError, StandaloneSettingsScreen, SupportSheet, type ActivityStatus, type ConnectionState } from "../screens/AppScreens";
 import { ACTION_ICONS, LocalFlightIcon, SUPPORT_ICONS } from "../theme/icons";
 import {
   getConnections,
@@ -188,12 +188,6 @@ function refreshActivityForTarget(target: Screen, landscapeFidsActive: boolean):
       detail: "Reading host status and Matrix board live settings."
     };
   }
-  if (target === "help") {
-    return {
-      label: "Refreshing Help",
-      detail: "Reading host status, pairing, updates, and troubleshooting details."
-    };
-  }
   return {
     label: "Talking to Local Flight",
     detail: "Checking the connected server over your LAN."
@@ -203,7 +197,7 @@ function refreshActivityForTarget(target: Screen, landscapeFidsActive: boolean):
 function screenNeedsDashboard(target: Screen, standalone: boolean): boolean {
   return standalone
     ? target === "settings"
-    : target === "control" || target === "help";
+    : target === "control";
 }
 
 export function AppShell() {
@@ -265,7 +259,6 @@ export function AppShell() {
   const [pairingNonce, setPairingNonce] = useState(0);
   const [pairingNotice, setPairingNotice] = useState<string | null>(null);
   const [serverPanelRequest, setServerPanelRequest] = useState(0);
-  const [standaloneHelpVisible, setStandaloneHelpVisible] = useState(false);
 
   const socketRef = useRef<WebSocket | null>(null);
   const initialPairingUrlRef = useRef<string | null>(null);
@@ -1154,6 +1147,12 @@ export function AppShell() {
   }, [isStandalone, radarRadius, screen]);
 
   useEffect(() => {
+    if (!isStandalone && screen === "help") {
+      setScreen("control");
+    }
+  }, [isStandalone, screen]);
+
+  useEffect(() => {
     if (isStandalone || !serverUrl || !connected) return;
     const socket = new WebSocket(wsUrl(serverUrl));
     socketRef.current = socket;
@@ -1367,6 +1366,7 @@ export function AppShell() {
           utcTime={utcTime}
           localTime={localTime}
           metar={snapshot.metar}
+          weatherDisplayMode={weatherDisplayMode}
           snapshotPulse={snapshotPulse}
           rowCount={rows.length}
           view={view}
@@ -1375,7 +1375,13 @@ export function AppShell() {
           onOpenDetail={openFlightDetail}
           onOpenActions={setActionRow}
           onTogglePin={togglePinnedFlight}
-          onOpenConfig={() => isStandalone ? setScreen("settings") : setConfigSheetVisible(true)}
+          onOpenConfig={() => {
+            if (isStandalone) {
+              void rerunCompanionSetup();
+              return;
+            }
+            setConfigSheetVisible(true);
+          }}
           onOpenWeather={() => {
             if (isStandalone) {
               setScreen("settings");
@@ -1467,7 +1473,7 @@ export function AppShell() {
             />
           ) : null}
 
-          {screen === "control" || screen === "settings" || screen === "help" ? (
+          {screen === "control" || screen === "settings" ? (
             <ScrollView
               style={styles.screenScroll}
               contentContainerStyle={[styles.screenContent, { paddingBottom: screenContentPadding }]}
@@ -1494,191 +1500,32 @@ export function AppShell() {
               ) : null}
 
               {screen === "settings" && isStandalone ? (
-                <>
-                  <View style={styles.settingsCard}>
-                    <Text style={styles.settingsTitle}>MOBILE SETTINGS</Text>
-                    <Text style={styles.moduleIntro}>
-                      Standalone keeps the companion-style control center, just without LAN server, Matrix, or scheduler controls.
-                    </Text>
-                  </View>
-
-                  <View style={styles.settingsCard}>
-                    <Text style={styles.settingsTitle}>STANDALONE RELAY</Text>
-                    <View style={styles.settingsSectionGrid}>
-                      <View style={styles.settingsPill}>
-                        <Text style={styles.settingsPillLabel}>AIRPORT</Text>
-                        <Text style={styles.settingsPillValue}>{airportCode} · {airportName}</Text>
-                      </View>
-                      <View style={styles.settingsPill}>
-                        <Text style={styles.settingsPillLabel}>RELAY TOKEN</Text>
-                        <Text style={styles.settingsPillValue}>{mobileSetupState.relayActivationToken?.slice(0, 10) || "not set"}</Text>
-                      </View>
-                      <View style={styles.settingsPill}>
-                        <Text style={styles.settingsPillLabel}>POLICY</Text>
-                        <Text style={styles.settingsPillValue}>3h FIDS · 5m radar · 1/3/5/10 NM</Text>
-                      </View>
-                    </View>
-                    <Text style={styles.moduleIntro}>
-                      This phone asks the Local Flight relay directly. It does not need your desktop or Pi on the LAN.
-                    </Text>
-                  </View>
-
-                  <View style={styles.settingsCard}>
-                    <Text style={styles.settingsTitle}>BOARD DATA</Text>
-                    <View style={styles.settingsSectionGrid}>
-                      <View style={styles.settingsPill}>
-                        <Text style={styles.settingsPillLabel}>FIDS</Text>
-                        <Text style={styles.settingsPillValue}>3h refresh window</Text>
-                      </View>
-                      <View style={styles.settingsPill}>
-                        <Text style={styles.settingsPillLabel}>RADAR</Text>
-                        <Text style={styles.settingsPillValue}>5m refresh · 1/3/5/10 NM</Text>
-                      </View>
-                      <View style={styles.settingsPill}>
-                        <Text style={styles.settingsPillLabel}>HISTORY</Text>
-                        <Text style={styles.settingsPillValue}>stored on this device</Text>
-                      </View>
-                    </View>
-                  </View>
-
-                  <View style={styles.settingsCard}>
-                    <Text style={styles.settingsTitle}>MOBILE CUSTOMIZATION</Text>
-                    <Text style={styles.moduleIntro}>
-                      Match the same look controls used by LAN Mobile, without host display settings.
-                    </Text>
-                    <Text style={styles.settingsProfileTitle}>INTERFACE</Text>
-                    <View style={styles.settingsInlineActions}>
-                      {(["dark", "light"] as const).map((mode) => (
-                        <Pressable
-                          key={mode}
-                          style={[styles.settingsCompactButton, themeMode === mode && styles.settingsProfileChipActive]}
-                          onPress={() => setThemeMode(mode)}
-                          hitSlop={tapTargetHitSlop}
-                          {...accessibleButton({
-                            label: `Use ${mode} interface`,
-                            selected: themeMode === mode
-                          })}
-                        >
-                          <Text style={styles.settingsCompactButtonText}>{mode.toUpperCase()}</Text>
-                        </Pressable>
-                      ))}
-                    </View>
-                    <Text style={styles.settingsProfileTitle}>SKIN</Text>
-                    <View style={styles.settingsInlineActions}>
-                      {(["standard", "technical", "neon", "cyan", "crt"] as const).map((nextSkin) => (
-                        <Pressable
-                          key={nextSkin}
-                          style={[styles.settingsCompactButton, skin === nextSkin && styles.settingsProfileChipActive]}
-                          onPress={() => setSkin(nextSkin)}
-                          hitSlop={tapTargetHitSlop}
-                          {...accessibleButton({
-                            label: `Use ${nextSkin} skin`,
-                            selected: skin === nextSkin
-                          })}
-                        >
-                          <Text style={styles.settingsCompactButtonText}>{nextSkin.toUpperCase()}</Text>
-                        </Pressable>
-                      ))}
-                    </View>
-                    <Text style={styles.settingsProfileTitle}>WEATHER WORDING</Text>
-                    <View style={styles.settingsInlineActions}>
-                      {([
-                        ["passenger", "PAX"],
-                        ["pilot", "PILOT"],
-                        ["vatsim", "VATSIM"]
-                      ] as Array<[MobileWeatherDisplayMode, string]>).map(([mode, label]) => (
-                        <Pressable
-                          key={mode}
-                          style={[styles.settingsCompactButton, weatherDisplayMode === mode && styles.settingsProfileChipActive]}
-                          onPress={() => void chooseWeatherDisplayMode(mode)}
-                          hitSlop={tapTargetHitSlop}
-                          {...accessibleButton({
-                            label: `Use ${label} weather wording`,
-                            selected: weatherDisplayMode === mode
-                          })}
-                        >
-                          <Text style={styles.settingsCompactButtonText}>{label}</Text>
-                        </Pressable>
-                      ))}
-                    </View>
-                  </View>
-
-                  <View style={styles.settingsCard}>
-                    <Text style={styles.settingsTitle}>MOBILE DIAGNOSTICS</Text>
-                    <Text style={styles.moduleIntro}>
-                      Manual reports are always available. Automatic reports follow this device's choice.
-                    </Text>
-                    <View style={styles.settingsInlineActions}>
-                      {(["manual", "auto", "auto_logs"] as MobileDiagnosticsMode[]).map((mode) => (
-                        <Pressable
-                          key={mode}
-                          style={[styles.settingsCompactButton, mobileDiagnosticsMode === mode && styles.settingsProfileChipActive]}
-                          onPress={() => void chooseMobileDiagnosticsMode(mode)}
-                          hitSlop={tapTargetHitSlop}
-                          {...accessibleButton({
-                            label: `Set mobile diagnostics to ${mode === "auto_logs" ? "automatic with context" : mode}`,
-                            selected: mobileDiagnosticsMode === mode
-                          })}
-                        >
-                          <Text style={styles.settingsCompactButtonText}>{mode === "auto_logs" ? "AUTO + CONTEXT" : mode.toUpperCase()}</Text>
-                        </Pressable>
-                      ))}
-                    </View>
-                    <Pressable
-                      style={[styles.connectButton, styles.crashButton]}
-                      onPress={rerunCompanionSetup}
-                      {...accessibleButton({
-                        label: "Reset mobile setup",
-                        hint: "Starts the first launch setup flow again."
-                      })}
-                    >
-                      <Text style={styles.connectButtonText}>RERUN MOBILE SETUP</Text>
-                    </Pressable>
-                  </View>
-
-                  <View style={styles.settingsCard}>
-                    <Text style={styles.settingsTitle}>HELP & REPORTS</Text>
-                    <Text style={styles.moduleIntro}>
-                      Troubleshooting, relay status, and manual reports live here without adding another bottom tab.
-                    </Text>
-                    <View style={styles.settingsSectionGrid}>
-                      <View style={styles.settingsPill}>
-                        <Text style={styles.settingsPillLabel}>RELAY CHECK</Text>
-                        <Text style={styles.settingsPillValue}>internet first</Text>
-                      </View>
-                      <View style={styles.settingsPill}>
-                        <Text style={styles.settingsPillLabel}>STALE BOARD</Text>
-                        <Text style={styles.settingsPillValue}>pull to refresh intentionally</Text>
-                      </View>
-                    </View>
-                    <Pressable
-                      style={styles.settingsPill}
-                      onPress={() => setStandaloneHelpVisible(true)}
-                      {...accessibleButton({
-                        label: "Open mobile help",
-                        hint: "Shows pairing details, relay limits, reports, and support options."
-                      })}
-                    >
-                      <View style={styles.settingsPillCopy}>
-                        <Text style={styles.settingsPillLabel}>Open mobile help</Text>
-                        <Text style={styles.settingsPillValue}>Pairing details, relay limits, reports, support</Text>
-                      </View>
-                    </Pressable>
-                  </View>
-
-                  <Pressable
-                    style={styles.supportFooter}
-                    onPress={() => setSupportVisible(true)}
-                    {...accessibleButton({
-                      label: "Support Local Flight",
-                      hint: "Opens the optional in-app support sheet."
-                    })}
-                  >
-                    <LocalFlightIcon name={SUPPORT_ICONS.support} size={15} color={palette.amber} />
-                    <Text style={styles.supportFooterText}>Support Local Flight</Text>
-                    <LocalFlightIcon name={ACTION_ICONS.supportExpand} size={13} color={palette.textDim} />
-                  </Pressable>
-                </>
+                <StandaloneSettingsScreen
+                  snapshot={snapshot}
+                  companionIdentity={companionIdentity}
+                  connected={isLive}
+                  airportCode={airportCode}
+                  airportName={airportName}
+                  relayTokenPrefix={mobileSetupState.relayActivationToken?.slice(0, 10) || "not set"}
+                  themeMode={themeMode}
+                  skin={skin}
+                  weatherDisplayMode={weatherDisplayMode}
+                  mobileDiagnosticsMode={mobileDiagnosticsMode}
+                  feedbackTitle={feedbackTitle}
+                  feedbackDescription={feedbackDescription}
+                  feedbackSending={feedbackSending}
+                  feedbackMessage={feedbackMessage}
+                  feedbackTone={feedbackTone}
+                  onThemeModeChange={setThemeMode}
+                  onSkinChange={setSkin}
+                  onWeatherDisplayModeChange={chooseWeatherDisplayMode}
+                  onMobileDiagnosticsModeChange={chooseMobileDiagnosticsMode}
+                  onRerunSetup={rerunCompanionSetup}
+                  onOpenSupport={() => setSupportVisible(true)}
+                  onFeedbackTitleChange={setFeedbackTitle}
+                  onFeedbackDescriptionChange={setFeedbackDescription}
+                  onSubmitFeedback={sendFeedbackReport}
+                />
               ) : null}
 
               {screen === "control" && !isStandalone ? (
@@ -1714,12 +1561,20 @@ export function AppShell() {
                   onSkinChange={setSkin}
                   onWeatherDisplayModeChange={chooseWeatherDisplayMode}
                   onMobileDiagnosticsModeChange={chooseMobileDiagnosticsMode}
+                  onMatrixPresetChange={(preset) => updateMatrixDraft({ preset })}
                   onMatrixViewChange={(nextView) => updateMatrixDraft({ default_view: nextView })}
                   onMatrixWeatherToggle={(enabled) => updateMatrixDraft({
                     options: {
                       ...matrixRuntime.options,
                       show_metar: enabled,
                       show_weather: enabled
+                    }
+                  })}
+                  onMatrixGateToggle={(enabled) => updateMatrixDraft({
+                    show_gate_info: enabled,
+                    options: {
+                      ...matrixRuntime.options,
+                      show_gate_info: enabled
                     }
                   })}
                   onMatrixPaletteChange={(nextPalette) => updateMatrixDraft({
@@ -1730,27 +1585,24 @@ export function AppShell() {
                     }
                   })}
                   onMatrixBrightnessChange={(brightness) => updateMatrixDraft({ brightness })}
+                  onMatrixRowsChange={(maxRows) => updateMatrixDraft({ max_rows: maxRows })}
+                  onMatrixRotationChange={(pageRotationSeconds) => updateMatrixDraft({ page_rotation_seconds: pageRotationSeconds })}
+                  onMatrixAnimationModeChange={(animationMode) => updateMatrixDraft({
+                    animation_enabled: animationMode !== "static",
+                    animation_mode: animationMode,
+                    options: {
+                      ...matrixRuntime.options,
+                      animation_mode: animationMode
+                    }
+                  })}
+                  onMatrixAnimationSpeedChange={(animationSpeed) => updateMatrixDraft({ animation_speed: animationSpeed })}
+                  onMatrixStatusAnimationToggle={(enabled) => updateMatrixDraft({ status_animation_enabled: enabled })}
                   onMatrixRefreshChange={(nextRefreshSeconds) => updateMatrixDraft({ refresh_seconds: nextRefreshSeconds })}
                   onMatrixSave={() => void saveMatrixDraftNow()}
                   onMatrixReset={() => void resetMatrixDraft()}
                   onApplyProfile={(profile) => void applySettingsProfile(profile)}
                   onOpenConfig={() => setConfigSheetVisible(true)}
                   onOpenSupport={() => setSupportVisible(true)}
-                  onOpenHelp={() => setScreen("help")}
-                  onRestartScheduler={restartSchedulerNow}
-                  onRerunSetup={rerunCompanionSetup}
-                  onChangeUrl={setDraftUrl}
-                  onPairingUrl={connectPairingUrl}
-                  onConnect={() => void connect()}
-                />
-              ) : null}
-
-              {screen === "help" && !isStandalone ? (
-                <HelpScreen
-                  snapshot={snapshot}
-                  companionIdentity={companionIdentity}
-                  connected={isLive}
-                  error={error}
                   feedbackTitle={feedbackTitle}
                   feedbackDescription={feedbackDescription}
                   feedbackSending={feedbackSending}
@@ -1759,8 +1611,11 @@ export function AppShell() {
                   onFeedbackTitleChange={setFeedbackTitle}
                   onFeedbackDescriptionChange={setFeedbackDescription}
                   onSubmitFeedback={sendFeedbackReport}
-                  onOpenSupport={() => setSupportVisible(true)}
-                  onBackControl={() => setScreen("control")}
+                  onRestartScheduler={restartSchedulerNow}
+                  onRerunSetup={rerunCompanionSetup}
+                  onChangeUrl={setDraftUrl}
+                  onPairingUrl={connectPairingUrl}
+                  onConnect={() => void connect()}
                 />
               ) : null}
 
@@ -1782,38 +1637,6 @@ export function AppShell() {
         visible={supportVisible}
         onClose={() => setSupportVisible(false)}
       />
-
-      <Modal visible={standaloneHelpVisible} transparent presentationStyle="overFullScreen" animationType="slide" onRequestClose={() => setStandaloneHelpVisible(false)}>
-        <View style={styles.sheetBackdrop}>
-          <Pressable
-            style={styles.sheetBackdropPress}
-            onPress={() => setStandaloneHelpVisible(false)}
-            {...accessibleButton({ label: "Close mobile help" })}
-          />
-          <View style={styles.sheetCard}>
-            <View style={styles.sheetHandle} />
-            <ScrollView style={styles.sheetScroll} contentContainerStyle={styles.sheetContent}>
-              <HelpScreen
-                snapshot={snapshot}
-                companionIdentity={companionIdentity}
-                connected={isLive}
-                error={error}
-                standalone
-                feedbackTitle={feedbackTitle}
-                feedbackDescription={feedbackDescription}
-                feedbackSending={feedbackSending}
-                feedbackMessage={feedbackMessage}
-                feedbackTone={feedbackTone}
-                onFeedbackTitleChange={setFeedbackTitle}
-                onFeedbackDescriptionChange={setFeedbackDescription}
-                onSubmitFeedback={sendFeedbackReport}
-                onOpenSupport={() => setSupportVisible(true)}
-                onBackControl={() => setStandaloneHelpVisible(false)}
-              />
-            </ScrollView>
-          </View>
-        </View>
-      </Modal>
 
       <FlightDetailSheet
         visible={detailVisible}
@@ -3041,7 +2864,7 @@ function createStyles() {
     alignItems: "center",
     gap: 6,
     paddingTop: 16,
-    paddingRight: 86
+    paddingRight: 104
   },
   headerCompactBrand: {
     flex: 1,
@@ -3059,16 +2882,21 @@ function createStyles() {
     includeFontPadding: false
   },
   headerCompactWeather: {
-    width: 74,
+    position: "absolute",
+    left: "50%",
+    top: 17,
+    width: 76,
+    marginLeft: -38,
     minHeight: 34,
-    justifyContent: "center"
+    justifyContent: "center",
+    zIndex: 3
   },
   headerCompactRightColumn: {
     position: "absolute",
     right: 0,
     top: 0,
     zIndex: 2,
-    width: 80,
+    width: 96,
     minHeight: 54,
     alignItems: "flex-end",
     justifyContent: "flex-start",
@@ -3096,7 +2924,7 @@ function createStyles() {
   },
   headerCompactClock: {
     minHeight: 24,
-    minWidth: 80,
+    minWidth: 96,
     alignItems: "flex-end",
     justifyContent: "flex-start"
   },
@@ -3133,9 +2961,9 @@ function createStyles() {
   headerCompactFlightText: {
     fontFamily: mono,
     color: palette.textDim,
-    fontSize: 6,
+    fontSize: 6.5,
     fontWeight: "900",
-    letterSpacing: 1,
+    letterSpacing: 0.5,
     includeFontPadding: false
   },
   headerCompactFlightRoute: {
@@ -3455,9 +3283,10 @@ function createStyles() {
     flexShrink: 0
   },
   boardHeroWeatherCardStacked: {
-    width: "100%",
-    maxWidth: 240,
-    alignSelf: "flex-end",
+    width: "72%",
+    minWidth: 220,
+    maxWidth: 320,
+    alignSelf: "center",
     marginTop: 0
   },
   boardHeroWeatherInner: {
@@ -3490,6 +3319,12 @@ function createStyles() {
     textAlign: "center",
     includeFontPadding: false
   },
+  boardHeroWeatherConditionRaw: {
+    fontFamily: mono,
+    fontSize: 8,
+    lineHeight: 10,
+    letterSpacing: 0.2
+  },
   boardHeroWeatherPills: {
     flexDirection: "row",
     alignItems: "center",
@@ -3497,7 +3332,7 @@ function createStyles() {
     gap: 6
   },
   boardHeroWeatherPill: {
-    maxWidth: 58,
+    maxWidth: 64,
     paddingHorizontal: 6,
     paddingVertical: 2,
     borderRadius: 8,
@@ -5305,6 +5140,25 @@ function createStyles() {
     borderColor: accent15,
     backgroundColor: palette.row
   },
+  controlAccordionCard: {
+    padding: 0,
+    overflow: "hidden"
+  },
+  controlAccordionHeader: {
+    minHeight: 70,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12
+  },
+  controlAccordionBody: {
+    borderTopWidth: 1,
+    borderTopColor: palette.lineSoft,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 16
+  },
   settingsTitle: {
     fontFamily: mono,
     color: palette.blue,
@@ -6937,20 +6791,121 @@ function createStyles() {
     fontSize: 10,
     lineHeight: 14
   },
-  matrixLivePaletteRow: {
-    gap: 8,
-    paddingRight: 4
+  matrixLiveSheetCard: {
+    minHeight: "56%",
+    maxHeight: "82%",
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24
   },
-  matrixLivePaletteChip: {
-    width: 128,
-    minHeight: 66,
+  matrixLiveSheetHeader: {
+    alignItems: "center",
+    paddingTop: 10,
+    paddingBottom: 10,
+    paddingHorizontal: 16
+  },
+  matrixLiveSheetTitle: {
+    marginTop: 2,
+    fontSize: 18,
+    lineHeight: 22
+  },
+  matrixLiveSheetAction: {
+    minHeight: 42,
+    minWidth: 76,
+    paddingHorizontal: 12
+  },
+  matrixLiveSheetContent: {
+    paddingTop: 12,
+    paddingHorizontal: 16
+  },
+  matrixLiveStatusStrip: {
+    minHeight: 40,
+    marginHorizontal: 0,
+    marginBottom: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: accent14,
+    backgroundColor: accent06,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10
+  },
+  matrixLiveStatusText: {
+    flex: 1,
+    fontFamily: mono,
+    color: palette.textMuted,
+    fontSize: 10,
+    fontWeight: "800",
+    letterSpacing: 0.8,
+    includeFontPadding: false,
+    lineHeight: 13,
+    textTransform: "uppercase"
+  },
+  matrixLiveStatusAccent: {
+    flex: 0,
+    color: palette.green,
+    textAlign: "right"
+  },
+  matrixLiveStatusWarn: {
+    color: palette.amber
+  },
+  matrixLivePresetRow: {
+    gap: 8
+  },
+  matrixLivePresetChip: {
+    minHeight: 52,
     justifyContent: "center",
     paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingVertical: 9,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: accent14,
+    backgroundColor: accent06
+  },
+  matrixLivePresetChipActive: {
+    borderColor: success25,
+    backgroundColor: success08
+  },
+  matrixLivePresetLabel: {
+    color: palette.text,
+    fontSize: 12,
+    fontWeight: "800",
+    includeFontPadding: false,
+    lineHeight: 15
+  },
+  matrixLivePresetMeta: {
+    marginTop: 4,
+    color: palette.textMuted,
+    fontSize: 10,
+    lineHeight: 13
+  },
+  matrixLiveSubRow: {
+    marginTop: 8
+  },
+  matrixLivePaletteRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8
+  },
+  matrixLivePaletteChip: {
+    width: "48.5%",
+    minWidth: 132,
+    minHeight: 50,
+    justifyContent: "center",
+    paddingHorizontal: 11,
+    paddingVertical: 9,
     borderRadius: 12,
     borderWidth: 1,
     borderColor: accent14,
     backgroundColor: softPanel
+  },
+  filterHelper: {
+    color: palette.textMuted,
+    fontSize: 13,
+    lineHeight: 18,
+    marginBottom: 10
   },
   matrixActionRow: {
     flexDirection: "row",

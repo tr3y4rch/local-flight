@@ -2285,6 +2285,14 @@ def api_admin_connections() -> Dict[str, Any]:
             model = str(raw_device.get("model") or raw_device.get("hardware") or raw_device.get("label") or "LED matrix").strip()
             hardware_name = str(raw_device.get("hardware_name") or " ".join(part for part in (brand, model) if part) or model).strip()
             renderers = raw_device.get("renderers") if isinstance(raw_device.get("renderers"), list) else []
+            configured_panel_w = int(raw_device.get("configured_panel_w") or raw_device.get("panel_w") or 0)
+            configured_panel_h = int(raw_device.get("configured_panel_h") or raw_device.get("panel_h") or 0)
+            actual_panel_w = int(raw_device.get("actual_panel_w") or raw_device.get("panel_w") or configured_panel_w)
+            actual_panel_h = int(raw_device.get("actual_panel_h") or raw_device.get("panel_h") or configured_panel_h)
+            geometry_mismatch = bool(raw_device.get("geometry_mismatch")) or (
+                bool(configured_panel_w and actual_panel_w and configured_panel_w != actual_panel_w)
+                or bool(configured_panel_h and actual_panel_h and configured_panel_h != actual_panel_h)
+            )
             matrix_devices.append(
                 {
                     "device_id": str(raw_device.get("device_id") or ""),
@@ -2293,9 +2301,17 @@ def api_admin_connections() -> Dict[str, Any]:
                     "brand": brand,
                     "model": model,
                     "hardware_name": hardware_name,
-                    "panel_w": int(raw_device.get("panel_w") or 0),
-                    "panel_h": int(raw_device.get("panel_h") or 0),
+                    "panel_w": actual_panel_w,
+                    "panel_h": actual_panel_h,
+                    "configured_panel_w": configured_panel_w,
+                    "configured_panel_h": configured_panel_h,
+                    "actual_panel_w": actual_panel_w,
+                    "actual_panel_h": actual_panel_h,
+                    "display_panels": int(raw_device.get("display_panels") or 0),
+                    "geometry_mismatch": geometry_mismatch,
+                    "geometry_warning": str(raw_device.get("geometry_warning") or ""),
                     "firmware": str(raw_device.get("firmware") or ""),
+                    "renderer_revision": str(raw_device.get("renderer_revision") or ""),
                     "renderers": [str(item) for item in renderers],
                     "assigned_config_id": str(raw_device.get("assigned_config_id") or ""),
                     "last_seen": last_seen,
@@ -3087,6 +3103,16 @@ def _normalize_matrix_store(data: Dict[str, Any]) -> Dict[str, Any]:
         assigned = str(item.get("assigned_config_id") or default_id)
         if assigned not in {cfg["id"] for cfg in unique_configs}:
             assigned = default_id
+        configured_panel_w = max(32, min(4096, int(item.get("configured_panel_w") or item.get("panel_w") or 256)))
+        configured_panel_h = max(16, min(512, int(item.get("configured_panel_h") or item.get("panel_h") or 64)))
+        actual_panel_w = max(32, min(4096, int(item.get("actual_panel_w") or item.get("panel_w") or configured_panel_w)))
+        actual_panel_h = max(16, min(512, int(item.get("actual_panel_h") or item.get("panel_h") or configured_panel_h)))
+        geometry_mismatch = bool(item.get("geometry_mismatch")) or (
+            actual_panel_w != configured_panel_w or actual_panel_h != configured_panel_h
+        )
+        geometry_warning = str(item.get("geometry_warning") or "").strip()[:180]
+        if geometry_mismatch and not geometry_warning:
+            geometry_warning = f"Configured {configured_panel_w}x{configured_panel_h}; actual {actual_panel_w}x{actual_panel_h}."
         devices.append({
             "device_id": device_id,
             "label": str(item.get("label") or device_id)[:80],
@@ -3095,9 +3121,17 @@ def _normalize_matrix_store(data: Dict[str, Any]) -> Dict[str, Any]:
             "model": str(item.get("model") or "")[:80],
             "hardware": str(item.get("hardware") or "")[:100],
             "hardware_name": str(item.get("hardware_name") or "")[:120],
-            "panel_w": max(32, min(4096, int(item.get("panel_w") or 256))),
-            "panel_h": max(16, min(512, int(item.get("panel_h") or 64))),
+            "panel_w": actual_panel_w,
+            "panel_h": actual_panel_h,
+            "configured_panel_w": configured_panel_w,
+            "configured_panel_h": configured_panel_h,
+            "actual_panel_w": actual_panel_w,
+            "actual_panel_h": actual_panel_h,
+            "display_panels": max(0, min(64, int(item.get("display_panels") or 0))),
+            "geometry_mismatch": geometry_mismatch,
+            "geometry_warning": geometry_warning,
             "firmware": str(item.get("firmware") or "")[:32],
+            "renderer_revision": str(item.get("renderer_revision") or "")[:80],
             "renderers": [str(v)[:40] for v in (item.get("renderers") or []) if isinstance(v, str)],
             "assigned_config_id": assigned,
             "last_seen": item.get("last_seen"),
@@ -3193,7 +3227,12 @@ class MatrixDeviceCheckIn(BaseModel):
     hardware_name: str = Field("", max_length=120)
     panel_w: int = Field(256, ge=32, le=4096)
     panel_h: int = Field(64, ge=16, le=512)
+    actual_panel_w: Optional[int] = Field(None, ge=32, le=4096)
+    actual_panel_h: Optional[int] = Field(None, ge=16, le=512)
+    display_panels: Optional[int] = Field(None, ge=1, le=64)
     firmware: str = Field("", max_length=32)
+    renderer_revision: str = Field("", max_length=80)
+    geometry_warning: str = Field("", max_length=180)
     renderers: List[str] = Field(default_factory=list)
 
 
@@ -3338,6 +3377,14 @@ def api_matrix_v2_device_checkin(body: MatrixDeviceCheckIn) -> Dict[str, Any]:
     store = _load_matrix_store()
     device_id = _matrix_slug(body.device_id or f"matrix-{uuid4().hex[:8]}", "matrix")
     device = _matrix_device_by_id(store, device_id)
+    configured_panel_w = int(body.panel_w)
+    configured_panel_h = int(body.panel_h)
+    actual_panel_w = int(body.actual_panel_w or configured_panel_w)
+    actual_panel_h = int(body.actual_panel_h or configured_panel_h)
+    geometry_mismatch = actual_panel_w != configured_panel_w or actual_panel_h != configured_panel_h
+    geometry_warning = (body.geometry_warning or "").strip()[:180]
+    if geometry_mismatch and not geometry_warning:
+        geometry_warning = f"Configured {configured_panel_w}x{configured_panel_h}; actual {actual_panel_w}x{actual_panel_h}."
     if not device:
         device = {
             "device_id": device_id,
@@ -3351,9 +3398,17 @@ def api_matrix_v2_device_checkin(body: MatrixDeviceCheckIn) -> Dict[str, Any]:
         "model": body.model[:80],
         "hardware": body.hardware[:100],
         "hardware_name": body.hardware_name[:120] or " ".join(part for part in (body.brand.strip(), body.model.strip()) if part)[:120],
-        "panel_w": int(body.panel_w),
-        "panel_h": int(body.panel_h),
+        "panel_w": actual_panel_w,
+        "panel_h": actual_panel_h,
+        "configured_panel_w": configured_panel_w,
+        "configured_panel_h": configured_panel_h,
+        "actual_panel_w": actual_panel_w,
+        "actual_panel_h": actual_panel_h,
+        "display_panels": int(body.display_panels or 0),
+        "geometry_mismatch": geometry_mismatch,
+        "geometry_warning": geometry_warning,
         "firmware": body.firmware[:32],
+        "renderer_revision": body.renderer_revision[:80],
         "renderers": [str(v)[:40] for v in body.renderers],
         "last_seen": _utc_now_iso(),
     })

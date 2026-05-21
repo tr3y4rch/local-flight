@@ -2864,6 +2864,58 @@ def test_matrix_device_checkin_is_exposed_as_hardware_inventory(monkeypatch, tmp
     assert device["online"] is True
 
 
+def test_matrix_device_checkin_exposes_actual_geometry_mismatch(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(ui_server, "_setup_complete", lambda: True)
+    monkeypatch.setattr(ui_api, "_matrix_config_path", lambda: tmp_path / "matrix_config.json")
+
+    client = TestClient(app)
+    response = client.post(
+        "/api/matrix/v2/devices/checkin",
+        json={
+            "device_id": "i75w-wide",
+            "label": "Wide Matrix",
+            "kind": "led_matrix",
+            "brand": "Pimoroni",
+            "model": "Interstate 75 W",
+            "hardware": "Pimoroni Interstate 75 W",
+            "hardware_name": "Pimoroni Interstate 75 W",
+            "panel_w": 256,
+            "panel_h": 64,
+            "actual_panel_w": 128,
+            "actual_panel_h": 64,
+            "display_panels": 1,
+            "firmware": "2.0",
+            "renderer_revision": "matrix-display-contract-v3",
+            "renderers": ["modern_fids"],
+        },
+    )
+
+    assert response.status_code == 200
+    device = response.json()["device"]
+    assert device["configured_panel_w"] == 256
+    assert device["configured_panel_h"] == 64
+    assert device["actual_panel_w"] == 128
+    assert device["actual_panel_h"] == 64
+    assert device["panel_w"] == 128
+    assert device["panel_h"] == 64
+    assert device["display_panels"] == 1
+    assert device["geometry_mismatch"] is True
+    assert "Configured 256x64; actual 128x64" in device["geometry_warning"]
+    assert device["renderer_revision"] == "matrix-display-contract-v3"
+
+    devices = client.get("/api/matrix/v2/devices").json()["devices"]
+    assert devices[0]["geometry_mismatch"] is True
+    assert devices[0]["configured_panel_w"] == 256
+    assert devices[0]["actual_panel_w"] == 128
+
+    connections = client.get("/api/admin/connections").json()
+    reported = connections["matrix_devices"][0]
+    assert reported["geometry_mismatch"] is True
+    assert reported["configured_panel_w"] == 256
+    assert reported["actual_panel_w"] == 128
+    assert reported["panel_w"] == 128
+
+
 def test_fids_page_keeps_recent_departures_inside_grace_window(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setattr(ui_server, "_setup_complete", lambda: True)
     monkeypatch.setattr(
@@ -4418,6 +4470,11 @@ def test_matrix_script_endpoint_uses_current_i75w_client_template() -> None:
     assert ".ljust(" not in script
     assert "DISPLAY, DISPLAY_PANELS = _display_for_size(PANEL_W, PANEL_H)" in script
     assert "Unsupported Interstate 75 display size" in script
+    assert "does not support chained panel init" in script
+    assert "GEOMETRY_MISMATCH = WIDTH != PANEL_W or HEIGHT != PANEL_H" in script
+    assert "GEOMETRY_WARNING = \"\"" in script
+    assert '"actual_panel_w": WIDTH' in script
+    assert '"actual_panel_h": HEIGHT' in script
     assert "compact = WIDTH < 180" in script
     assert "compact = WIDTH < 190" in script
     assert "if WIDTH < 200:" in script
@@ -4560,6 +4617,11 @@ def test_matrix_preview_panel_geometry_stays_in_sync() -> None:
     template = (root / "src" / "localflight" / "ui" / "templates" / "matrix_preview.html").read_text(encoding="utf-8")
 
     assert "function syncPanelGeometry(w, h)" in template
+    assert "const MATRIX_CHAR_W = 8" in template
+    assert "const ROW_LEN = 42" in template
+    assert "MATRIX_CHAR_W > x + maxW" in template
+    assert "Math.floor(PANEL_W / MATRIX_CHAR_W)" in template
+    assert "download and reinstall main.py" in template
     assert 'id="panelWidthInput"' in template
     assert 'id="panelHeightInput"' in template
     assert "window.setCustomPanelSize" in template
@@ -4609,6 +4671,7 @@ def test_native_matrix_panel_geometry_matches_web_controls() -> None:
     assert 'form_layout.addRow("Custom size", self._panel_size_row())' in source
     assert 'form_layout.addRow("Startup lane", self.default_view_select)' in source
     assert "def _panel_dimensions_changed" in source
+    assert "main.py mismatch" in source
     assert "if self.panel_w < 180:" in source
     assert "text[39:43]" in source
     assert "def _flight_cycle_display" in source

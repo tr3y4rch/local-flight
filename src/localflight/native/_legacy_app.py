@@ -3946,8 +3946,15 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
         if idx >= 0:
             self.device_config.setCurrentIndex(idx)
         renderers = ", ".join(device.get("renderers") or [])
+        configured_w = device.get("configured_panel_w") or device.get("panel_w")
+        configured_h = device.get("configured_panel_h") or device.get("panel_h")
+        actual_w = device.get("actual_panel_w") or device.get("panel_w")
+        actual_h = device.get("actual_panel_h") or device.get("panel_h")
+        geometry = f"{actual_w}x{actual_h}"
+        if device.get("geometry_mismatch"):
+            geometry = f"configured {configured_w}x{configured_h}; actual {actual_w}x{actual_h} (main.py mismatch)"
         self.device_meta.setText(
-            f"{device.get('device_id')} | {device.get('panel_w')}x{device.get('panel_h')} | "
+            f"{device.get('device_id')} | {geometry} | "
             f"firmware {device.get('firmware') or '-'} | renderers {renderers or '-'}"
         )
         self.board_status.setText(f"Selected board: {device.get('label')} | last seen {device.get('last_seen') or 'never'}")

@@ -665,6 +665,7 @@ export function Header({
   utcTime,
   localTime,
   metar,
+  weatherDisplayMode,
   snapshotPulse,
   rowCount,
   view,
@@ -689,6 +690,7 @@ export function Header({
   utcTime: string;
   localTime: string;
   metar: Metar | null;
+  weatherDisplayMode: MobileWeatherDisplayMode;
   snapshotPulse?: Animated.Value;
   rowCount: number;
   view: FlightView;
@@ -837,22 +839,21 @@ export function Header({
               {isCompactHeader ? "TAP FOR BOARD" : "BOARD HOME"}
             </Text>
           </Pressable>
-
-          <Pressable
-            style={styles.headerCompactWeather}
-            onPress={() => {
-              hapticLight();
-              onOpenWeather();
-            }}
-            hitSlop={tapTargetHitSlop}
-            {...accessibleButton({
-              label: `Weather ${category}, ${metarTemperature(metar)}. UTC ${utcTime}. Local ${localTime}.`,
-              hint: "Opens weather and control information."
-            })}
-          >
-            <CompactRailWeather metar={metar} accent={accent} airportCode={railAirportCode} />
-          </Pressable>
         </View>
+        <Pressable
+          style={styles.headerCompactWeather}
+          onPress={() => {
+            hapticLight();
+            onOpenWeather();
+          }}
+          hitSlop={tapTargetHitSlop}
+          {...accessibleButton({
+            label: `Weather ${category}, ${metarTemperature(metar)}. UTC ${utcTime}. Local ${localTime}.`,
+            hint: "Opens weather and control information."
+          })}
+        >
+          <CompactRailWeather metar={metar} accent={accent} airportCode={railAirportCode} />
+        </Pressable>
       </View>
     );
   };
@@ -949,7 +950,7 @@ export function Header({
             hint: "Opens weather and control information."
           })}
         >
-          <BoardHeroWeatherCard metar={metar} accent={accent} airportCode={railAirportCode} />
+          <BoardHeroWeatherCard metar={metar} accent={accent} airportCode={railAirportCode} mode={weatherDisplayMode} />
         </Pressable>
       </View>
 
@@ -1029,15 +1030,19 @@ function CompactRailWeather({
 function BoardHeroWeatherCard({
   metar,
   accent,
-  airportCode
+  airportCode,
+  mode
 }: {
   metar: Metar | null;
   accent: string;
   airportCode: string;
+  mode: MobileWeatherDisplayMode;
 }) {
   const category = metarCategory(metar);
   const temp = metarTemperature(metar);
-  const condition = weatherCondition(metar);
+  const modeOption = weatherModeOption(mode);
+  const summary = boardWeatherSummaryForMode(metar, mode);
+  const rawMode = mode === "vatsim";
   const iconName = weatherIconForMetar(metar);
   const iconScale = useRef(new Animated.Value(0.78)).current;
   const bubbleScale = useRef(new Animated.Value(0.96)).current;
@@ -1082,10 +1087,20 @@ function BoardHeroWeatherCard({
         </Animated.View>
         <Text style={styles.boardHeroWeatherTemp} numberOfLines={1}>{temp}</Text>
       </View>
-      <Text style={styles.boardHeroWeatherCondition} numberOfLines={1}>{condition}</Text>
+      <Text
+        style={[styles.boardHeroWeatherCondition, rawMode && styles.boardHeroWeatherConditionRaw]}
+        numberOfLines={rawMode ? 2 : 1}
+        adjustsFontSizeToFit={rawMode}
+        minimumFontScale={0.68}
+      >
+        {summary}
+      </Text>
       <View style={styles.boardHeroWeatherPills}>
         <Text style={[styles.boardHeroWeatherPill, { borderColor: `${accent}55`, color: accent }]} numberOfLines={1}>
           {category}
+        </Text>
+        <Text style={styles.boardHeroWeatherPill} numberOfLines={1}>
+          {modeOption.label}
         </Text>
         <Text style={styles.boardHeroWeatherPill} numberOfLines={1}>
           {airportCode || "---"}
@@ -1093,6 +1108,22 @@ function BoardHeroWeatherCard({
       </View>
     </Animated.View>
   );
+}
+
+function boardWeatherSummaryForMode(metar: Metar | null, mode: MobileWeatherDisplayMode): string {
+  if (mode === "vatsim") {
+    return metarRawText(metar) || "Raw METAR unavailable";
+  }
+  if (mode === "pilot") {
+    const chips = weatherChips(metar)
+      .filter((chip) => ["WND", "VIS", "CLD", "QNH"].includes(chip.label))
+      .slice(0, 4);
+    if (chips.length) {
+      return chips.map((chip) => `${chip.label} ${chip.value}`).join(" · ");
+    }
+    return weatherSummaryForMode(metar, mode);
+  }
+  return weatherCondition(metar);
 }
 
 function railStatusShort(status: string): string {
@@ -1120,6 +1151,7 @@ function CompactRailFlightSummary({
   onOpenActions: (row: FidsRow) => void;
 }) {
   const tone = statusTone(row.status_display);
+  const flightNumber = cleanInfoValue(row.flight_display) || cleanInfoValue(row.callsign) || "--";
   const statusColor =
     tone === "delayed" ? palette.amber :
       tone === "cancelled" ? palette.red :
@@ -1142,7 +1174,7 @@ function CompactRailFlightSummary({
       })}
     >
       <Text style={[styles.headerCompactFlightText, { color: live ? palette.blue2 : palette.textDim }]} numberOfLines={1}>
-        {row.view === "arrivals" ? "ARR" : "DEP"}
+        {row.view === "arrivals" ? "ARR" : "DEP"} {flightNumber}
       </Text>
       <Text style={[styles.headerCompactFlightStatus, { color: statusColor }]} numberOfLines={1}>
         {row.display_time || "--:--"} {railStatusShort(row.status_display)}
@@ -2479,8 +2511,8 @@ function MatrixScreen({
                   <Text style={[styles.optionChipLabel, matrixPalette === item.id && styles.optionChipLabelActive]}>{item.label}</Text>
                   <Text style={[styles.optionChipMeta, matrixPalette === item.id && styles.optionChipMetaActive]}>{item.meta}</Text>
                   <View style={styles.paletteDots}>
-                    {[item.colors.green, item.colors.white, item.colors.cyan, item.colors.amber, item.colors.red].map((color) => (
-                      <View key={`${item.id}-${color}`} style={[styles.paletteDot, { backgroundColor: color }]} />
+                    {[item.colors.green, item.colors.white, item.colors.cyan, item.colors.amber, item.colors.red].map((color, index) => (
+                      <View key={`${item.id}-${index}-${color}`} style={[styles.paletteDot, { backgroundColor: color }]} />
                     ))}
                   </View>
                 </Pressable>
@@ -5612,17 +5644,31 @@ export function ControlScreen({
   onSkinChange,
   onWeatherDisplayModeChange,
   onMobileDiagnosticsModeChange,
+  onMatrixPresetChange,
   onMatrixViewChange,
   onMatrixWeatherToggle,
+  onMatrixGateToggle,
   onMatrixPaletteChange,
   onMatrixBrightnessChange,
+  onMatrixRowsChange,
+  onMatrixRotationChange,
+  onMatrixAnimationModeChange,
+  onMatrixAnimationSpeedChange,
+  onMatrixStatusAnimationToggle,
   onMatrixRefreshChange,
   onMatrixSave,
   onMatrixReset,
   onApplyProfile,
   onOpenConfig,
-  onOpenHelp,
   onOpenSupport,
+  feedbackTitle,
+  feedbackDescription,
+  feedbackSending,
+  feedbackMessage,
+  feedbackTone,
+  onFeedbackTitleChange,
+  onFeedbackDescriptionChange,
+  onSubmitFeedback,
   onRestartScheduler,
   onRerunSetup,
   onChangeUrl,
@@ -5660,17 +5706,31 @@ export function ControlScreen({
   onSkinChange: (value: MobileSkin) => void;
   onWeatherDisplayModeChange: (value: MobileWeatherDisplayMode) => void;
   onMobileDiagnosticsModeChange: (value: MobileDiagnosticsMode) => void;
+  onMatrixPresetChange: (value: MatrixPresetId) => void;
   onMatrixViewChange: (value: FlightView) => void;
   onMatrixWeatherToggle: (value: boolean) => void;
+  onMatrixGateToggle: (value: boolean) => void;
   onMatrixPaletteChange: (value: MatrixPaletteId) => void;
   onMatrixBrightnessChange: (value: number) => void;
+  onMatrixRowsChange: (value: number) => void;
+  onMatrixRotationChange: (value: number) => void;
+  onMatrixAnimationModeChange: (value: MatrixAnimationMode) => void;
+  onMatrixAnimationSpeedChange: (value: number) => void;
+  onMatrixStatusAnimationToggle: (value: boolean) => void;
   onMatrixRefreshChange: (value: number) => void;
   onMatrixSave: () => void;
   onMatrixReset: () => void;
   onApplyProfile: (profile: ConfigProfile) => void;
   onOpenConfig: () => void;
-  onOpenHelp: () => void;
   onOpenSupport: () => void;
+  feedbackTitle: string;
+  feedbackDescription: string;
+  feedbackSending: boolean;
+  feedbackMessage: string | null;
+  feedbackTone: FeedbackTone;
+  onFeedbackTitleChange: (value: string) => void;
+  onFeedbackDescriptionChange: (value: string) => void;
+  onSubmitFeedback: () => void;
   onRestartScheduler: () => void;
   onRerunSetup: () => void;
   onChangeUrl: (value: string) => void;
@@ -5678,6 +5738,7 @@ export function ControlScreen({
   onConnect: () => void;
 }) {
   const [activeSheet, setActiveSheet] = useState<"connection" | "appearance" | "matrix" | null>(null);
+  const [activeControlSection, setActiveControlSection] = useState<ControlSection | null>("connection");
   const outputValue = outputs.length ? outputs.join(", ").toUpperCase() : "WEB";
   const schedulerRunning = snapshot.scheduler?.running ?? false;
   const hostDiagnostics = snapshot.system?.client?.diagnostics_mode || snapshot.config?.diagnostics_mode || "manual";
@@ -5686,9 +5747,23 @@ export function ControlScreen({
     snapshot.connections?.companions?.find((item) => item.companion_id === companionIdentity?.companionId) || null;
   const matrixPaletteOption = MATRIX_PALETTE_OPTIONS.find((item) => item.id === matrixRuntime.palette) || MATRIX_PALETTE_OPTIONS[0]!;
   const matrixShowWeather = Boolean(matrixRuntime.options.show_metar ?? matrixRuntime.options.show_weather);
+  const updateValue = snapshot.updates?.update_available
+    ? `V${snapshot.updates.latest || "NEW"} READY`
+    : `V${snapshot.updates?.current || snapshot.system?.version || APP_VERSION}`;
+  const feedbackContext = [
+    `Reporter      ${companionIdentity?.clientName || "Local Flight Mobile"}`,
+    `Mobile ID     ${companionIdentity?.companionId || "UNKNOWN"}`,
+    `Mobile OS     ${companionIdentity?.mobileOs || "UNKNOWN"}`,
+    `Build         ${companionIdentity?.appVersion || APP_VERSION}`,
+    `Server ID     ${snapshot.system?.install_id || "UNKNOWN"}`,
+    `Server        ${snapshot.system?.platform || "UNKNOWN"}`,
+    `Airport       ${snapshot.config?.airport_iata || "---"}`,
+    `Source        ${snapshot.state?.source_name || snapshot.config?.source || "UNKNOWN"}`
+  ].join("\n");
 
   useEffect(() => {
     if (serverPanelRequest) {
+      setActiveControlSection("connection");
       setActiveSheet("connection");
     }
   }, [serverPanelRequest]);
@@ -5698,20 +5773,18 @@ export function ControlScreen({
       <View style={styles.settingsCard}>
         <Text style={styles.settingsTitle}>MOBILE CONTROL</Text>
         <Text style={styles.moduleIntro}>
-          Connection, board display, Matrix, diagnostics, and help for the Local Flight server you already run.
+          One-tap control center for pairing, board settings, Matrix, diagnostics, and help.
         </Text>
       </View>
 
-      <View style={styles.settingsCard}>
-        <Text style={styles.settingsTitle}>CONNECT TO LOCAL FLIGHT</Text>
-        <Text style={styles.moduleIntro}>
-          Start here when this phone needs to pair with a desktop or Pi on your LAN.
-        </Text>
-        <View style={styles.metricRow}>
-          <InfoCard label="PAIRING" value={serverUrl ? "SAVED" : "SETUP"} tone={serverUrl ? "green" : "amber"} />
-          <InfoCard label="MOBILES" value={String(companionCount)} tone="blue" />
-          <InfoCard label="DISPLAYS" value={outputValue} tone="blue" />
-        </View>
+      <ControlAccordionCard
+        section="connection"
+        activeSection={activeControlSection}
+        icon={TOOL_ICONS.setup}
+        title="Connect to Local Flight"
+        summary={serverUrl ? `${companionCount} mobiles · ${outputValue}` : "Pair this phone with your LAN server"}
+        onSelect={setActiveControlSection}
+      >
         <SettingsToolPill
           icon={TOOL_ICONS.setup}
           label="Pair or change server"
@@ -5719,12 +5792,23 @@ export function ControlScreen({
           onPress={() => setActiveSheet("connection")}
           loading={schedulerRestarting}
         />
+        <View style={styles.metricRow}>
+          <InfoCard label="PAIRING" value={serverUrl ? "SAVED" : "SETUP"} tone={serverUrl ? "green" : "amber"} />
+          <InfoCard label="MOBILES" value={String(companionCount)} tone="blue" />
+          <InfoCard label="DISPLAYS" value={outputValue} tone="blue" />
+        </View>
         <InfoLine label="Saved server" value={serverUrl || "Not paired yet"} />
         <InfoLine label="Last mobile check-in" value={companionRecord?.last_seen ? formatRelative(companionRecord.last_seen) : "Not seen yet"} />
-      </View>
+      </ControlAccordionCard>
 
-      <View style={styles.settingsCard}>
-        <Text style={styles.settingsTitle}>HOST INFORMATION</Text>
+      <ControlAccordionCard
+        section="host"
+        activeSection={activeControlSection}
+        icon={TOOL_ICONS.admin}
+        title="Host Information"
+        summary={`${serverUrl ? "Ready" : "Setup"} · ${schedulerRunning ? "scheduler healthy" : "scheduler check"}`}
+        onSelect={setActiveControlSection}
+      >
         <View style={styles.metricRow}>
           <InfoCard label="SERVER" value={serverUrl ? "READY" : "SETUP"} tone={serverUrl ? "green" : "amber"} />
           <InfoCard label="SCHEDULER" value={schedulerRunning ? "HEALTHY" : "CHECK"} tone={schedulerRunning ? "green" : "amber"} />
@@ -5733,10 +5817,17 @@ export function ControlScreen({
         <InfoLine label="Airport" value={snapshot.config?.airport_iata || "---"} />
         <InfoLine label="Source" value={snapshot.state?.source_name || snapshot.config?.source || "Unknown"} />
         <InfoLine label="Last successful fetch" value={formatRelative(snapshot.state?.last_success_utc)} />
-      </View>
+        <InfoLine label="Host install" value={snapshot.system?.install_id || "Unknown host"} />
+      </ControlAccordionCard>
 
-      <View style={styles.settingsCard}>
-        <Text style={styles.settingsTitle}>FIDS DISPLAY SETTINGS</Text>
+      <ControlAccordionCard
+        section="fids"
+        activeSection={activeControlSection}
+        icon={TOOL_ICONS.control}
+        title="FIDS Display Settings"
+        summary={`${snapshot.config?.airport_iata || "---"} · ${snapshot.config?.source || "unknown"} · ${refreshSeconds ? formatInterval(refreshSeconds) : "waiting"}`}
+        onSelect={setActiveControlSection}
+      >
         <SettingsToolPill
           icon={TOOL_ICONS.control}
           label="Airport, source & refresh"
@@ -5747,10 +5838,16 @@ export function ControlScreen({
           label="Current board"
           value={`${snapshot.config?.airport_iata || "---"} · ${snapshot.config?.source || "unknown"} · ${refreshSeconds ? formatInterval(refreshSeconds) : "waiting"}`}
         />
-      </View>
+      </ControlAccordionCard>
 
-      <View style={styles.settingsCard}>
-        <Text style={styles.settingsTitle}>MATRIX BOARD</Text>
+      <ControlAccordionCard
+        section="matrix"
+        activeSection={activeControlSection}
+        icon={TOOL_ICONS.matrix}
+        title="Matrix Board"
+        summary={`${matrixPaletteOption.label} · ${matrixRuntime.max_rows} rows · WX ${matrixShowWeather ? "on" : "off"}`}
+        onSelect={setActiveControlSection}
+      >
         <SettingsToolPill
           icon={TOOL_ICONS.matrix}
           label="Live Matrix controls"
@@ -5758,10 +5855,16 @@ export function ControlScreen({
           onPress={() => setActiveSheet("matrix")}
         />
         <InfoLine label="Matrix look" value={`${matrixPaletteOption.label} · ${matrixRuntime.max_rows} rows · ${Math.round(matrixRuntime.brightness * 100)}%`} />
-      </View>
+      </ControlAccordionCard>
 
-      <View style={styles.settingsCard}>
-        <Text style={styles.settingsTitle}>MOBILE CUSTOMIZATION</Text>
+      <ControlAccordionCard
+        section="appearance"
+        activeSection={activeControlSection}
+        icon={TOOL_ICONS.appearance}
+        title="Mobile Customization"
+        summary={`${themeMode} · ${skin} · ${weatherModeOption(weatherDisplayMode).label} weather`}
+        onSelect={setActiveControlSection}
+      >
         <SettingsToolPill
           icon={TOOL_ICONS.appearance}
           label="Mobile look"
@@ -5769,13 +5872,16 @@ export function ControlScreen({
           onPress={() => setActiveSheet("appearance")}
         />
         <InfoLine label="Weather wording" value={weatherModeOption(weatherDisplayMode).detail} />
-      </View>
+      </ControlAccordionCard>
 
-      <View style={styles.settingsCard}>
-        <Text style={styles.settingsTitle}>MOBILE DIAGNOSTICS</Text>
-        <Text style={styles.moduleIntro}>
-          Manual reports are always available. Automatic mobile reports still honor the host diagnostics choice.
-        </Text>
+      <ControlAccordionCard
+        section="diagnostics"
+        activeSection={activeControlSection}
+        icon={TOOL_ICONS.report}
+        title="Diagnostics & Reset"
+        summary={`${String(hostDiagnostics).replace(/_/g, " ")} host · ${mobileDiagnosticsMode.replace(/_/g, " ")} mobile`}
+        onSelect={setActiveControlSection}
+      >
         <InfoLine label="Host diagnostics" value={String(hostDiagnostics).replace(/_/g, " ").toUpperCase()} />
         <FilterSection title="MOBILE REPORTING">
           <View style={styles.filterRow}>
@@ -5803,42 +5909,66 @@ export function ControlScreen({
         >
           <Text style={styles.connectButtonText}>RERUN MOBILE SETUP</Text>
         </Pressable>
-      </View>
+      </ControlAccordionCard>
 
-      <View style={styles.settingsCard}>
-        <Text style={styles.settingsTitle}>HELP & REPORTS</Text>
-        <Text style={styles.moduleIntro}>
-          Keep support separate from daily controls. Open Help for host identity, pairing, troubleshooting, and reports.
-        </Text>
-        <InfoLine label="Pairing & host" value="Saved server, host install, version, and mobile check-in." />
-        <InfoLine label="Troubleshooting" value="Connection, stale board, scheduler, and rate-limit guidance." />
-        <InfoLine label="Reports" value="Send mobile and host context through Local Flight only when you choose to." />
-        <SettingsToolPill
-          icon={TOOL_ICONS.help}
-          label="Open mobile help"
-          value="Host identity, troubleshooting, reports, support"
-          onPress={onOpenHelp}
-        />
+      <ControlAccordionCard
+        section="help"
+        activeSection={activeControlSection}
+        icon={TOOL_ICONS.help}
+        title="Help & Reports"
+        summary="Troubleshooting, report flow, GitHub, support"
+        onSelect={setActiveControlSection}
+      >
+        <InfoLine label="Pairing & host" value={`${connected ? "Connected" : "Check connection"} · ${updateValue} · ${schedulerRunning ? "scheduler running" : "scheduler check"}`} />
+        <InfoLine label="Cannot connect" value="Confirm Local Flight is running on the same Wi-Fi and use the desktop or Pi LAN address, not phone localhost." />
+        <InfoLine label="Board looks stale" value="Use Restart Fetch from the pairing sheet, then wait for the next snapshot push or open the board again." />
+        <InfoLine label="Display data" value="Flight, weather, and radar information are for personal display only, not for navigation or safety decisions." />
         <SettingsToolPill
           icon={TOOL_ICONS.github}
           label="GitHub & releases"
           value="Source, issues, and release notes"
           onPress={() => void Linking.openURL("https://github.com/tr3y4rch/local-flight")}
         />
-      </View>
+        <Text style={styles.settingsProfileTitle}>REPORT PROBLEM</Text>
+        <TextInput
+          value={feedbackTitle}
+          onChangeText={onFeedbackTitleChange}
+          placeholder="Short summary, for example Radar stopped updating"
+          placeholderTextColor={palette.textDim}
+          style={styles.serverInput}
+        />
+        <TextInput
+          value={feedbackDescription}
+          onChangeText={onFeedbackDescriptionChange}
+          placeholder="What happened, what you expected, and how to reproduce it"
+          placeholderTextColor={palette.textDim}
+          multiline
+          textAlignVertical="top"
+          style={[styles.serverInput, styles.feedbackInput]}
+        />
+        <View style={styles.feedbackContextBox}>
+          <Text style={styles.feedbackContextText}>{feedbackContext}</Text>
+        </View>
+        <Pressable
+          style={[styles.connectButton, feedbackSending && styles.connectButtonDisabled]}
+          onPress={onSubmitFeedback}
+          disabled={feedbackSending}
+          {...accessibleButton({
+            label: feedbackSending ? "Sending report" : "Send report",
+            disabled: feedbackSending,
+            busy: feedbackSending
+          })}
+        >
+          {feedbackSending ? <ActivityIndicator color={solidButtonInk()} /> : <Text style={styles.connectButtonText}>SEND REPORT</Text>}
+        </Pressable>
+        {feedbackMessage ? (
+          <Text style={[styles.feedbackMessage, feedbackTone === "ok" ? styles.feedbackMessageOk : styles.feedbackMessageError]}>
+            {feedbackMessage}
+          </Text>
+        ) : null}
+      </ControlAccordionCard>
 
-      <Pressable
-        style={styles.supportFooter}
-        onPress={onOpenSupport}
-        {...accessibleButton({
-          label: "Support Local Flight",
-          hint: "Opens the optional in-app support sheet."
-        })}
-      >
-        <LocalFlightIcon name={SUPPORT_ICONS.support} size={15} color={palette.amber} />
-        <Text style={styles.supportFooterText}>Support Local Flight</Text>
-        <LocalFlightIcon name={ACTION_ICONS.supportExpand} size={13} color={palette.textDim} />
-      </Pressable>
+      <SupportFooterButton onOpenSupport={onOpenSupport} />
 
       <ConnectionPairingSheet
         visible={activeSheet === "connection"}
@@ -5879,14 +6009,370 @@ export function ControlScreen({
         matrixSaveMessage={matrixSaveMessage}
         matrixSaveTone={matrixSaveTone}
         onClose={() => setActiveSheet(null)}
+        onMatrixPresetChange={onMatrixPresetChange}
         onMatrixViewChange={onMatrixViewChange}
         onMatrixWeatherToggle={onMatrixWeatherToggle}
+        onMatrixGateToggle={onMatrixGateToggle}
         onMatrixPaletteChange={onMatrixPaletteChange}
         onMatrixBrightnessChange={onMatrixBrightnessChange}
+        onMatrixRowsChange={onMatrixRowsChange}
+        onMatrixRotationChange={onMatrixRotationChange}
+        onMatrixAnimationModeChange={onMatrixAnimationModeChange}
+        onMatrixAnimationSpeedChange={onMatrixAnimationSpeedChange}
+        onMatrixStatusAnimationToggle={onMatrixStatusAnimationToggle}
         onMatrixRefreshChange={onMatrixRefreshChange}
         onMatrixSave={onMatrixSave}
         onMatrixReset={onMatrixReset}
       />
+    </View>
+  );
+}
+
+type ControlSection =
+  | "connection"
+  | "host"
+  | "fids"
+  | "matrix"
+  | "appearance"
+  | "diagnostics"
+  | "help"
+  | "standalone"
+  | "board";
+
+export function StandaloneSettingsScreen({
+  snapshot,
+  companionIdentity,
+  connected,
+  airportCode,
+  airportName,
+  relayTokenPrefix,
+  themeMode,
+  skin,
+  weatherDisplayMode,
+  mobileDiagnosticsMode,
+  feedbackTitle,
+  feedbackDescription,
+  feedbackSending,
+  feedbackMessage,
+  feedbackTone,
+  onThemeModeChange,
+  onSkinChange,
+  onWeatherDisplayModeChange,
+  onMobileDiagnosticsModeChange,
+  onRerunSetup,
+  onOpenSupport,
+  onFeedbackTitleChange,
+  onFeedbackDescriptionChange,
+  onSubmitFeedback
+}: {
+  snapshot: DashboardSnapshot;
+  companionIdentity: CompanionIdentity | null;
+  connected: boolean;
+  airportCode: string;
+  airportName: string;
+  relayTokenPrefix: string;
+  themeMode: MobileThemeMode;
+  skin: MobileSkin;
+  weatherDisplayMode: MobileWeatherDisplayMode;
+  mobileDiagnosticsMode: MobileDiagnosticsMode;
+  feedbackTitle: string;
+  feedbackDescription: string;
+  feedbackSending: boolean;
+  feedbackMessage: string | null;
+  feedbackTone: FeedbackTone;
+  onThemeModeChange: (value: MobileThemeMode) => void;
+  onSkinChange: (value: MobileSkin) => void;
+  onWeatherDisplayModeChange: (value: MobileWeatherDisplayMode) => void;
+  onMobileDiagnosticsModeChange: (value: MobileDiagnosticsMode) => void;
+  onRerunSetup: () => void;
+  onOpenSupport: () => void;
+  onFeedbackTitleChange: (value: string) => void;
+  onFeedbackDescriptionChange: (value: string) => void;
+  onSubmitFeedback: () => void;
+}) {
+  const [activeSection, setActiveSection] = useState<ControlSection | null>("standalone");
+  const weatherOption = weatherModeOption(weatherDisplayMode);
+  const airportLabel = [airportCode, airportName].filter(Boolean).join(" · ") || "Airport not set";
+  const tokenRef = relayTokenPrefix || snapshot.system?.client?.activation_token_prefix || "not set";
+  const feedbackContext = [
+    `Reporter      ${companionIdentity?.clientName || "Local Flight Mobile"}`,
+    `Mobile ID     ${companionIdentity?.companionId || "UNKNOWN"}`,
+    `Mobile OS     ${companionIdentity?.mobileOs || "UNKNOWN"}`,
+    `Build         ${companionIdentity?.appVersion || APP_VERSION}`,
+    `Mode          Standalone relay`,
+    `Token ref     ${tokenRef}`,
+    `Airport       ${snapshot.config?.airport_iata || airportCode || "---"}`,
+    `Source        ${snapshot.state?.source_name || snapshot.config?.source || "relay"}`
+  ].join("\n");
+
+  return (
+    <View style={styles.cardStack}>
+      <View style={styles.settingsCard}>
+        <Text style={styles.settingsTitle}>MOBILE SETTINGS</Text>
+        <Text style={styles.moduleIntro}>
+          Standalone is the lighter mobile board: relay data, local history, appearance, diagnostics, and help without host controls.
+        </Text>
+      </View>
+
+      <ControlAccordionCard
+        section="standalone"
+        activeSection={activeSection}
+        icon={SETUP_ICONS.lan}
+        title="Standalone Relay"
+        summary={`${airportCode || "---"} · no desktop or Pi needed`}
+        onSelect={setActiveSection}
+      >
+        <View style={styles.metricRow}>
+          <InfoCard label="AIRPORT" value={airportCode || "---"} tone="blue" />
+          <InfoCard label="MODE" value="RELAY" tone={connected ? "green" : "amber"} />
+          <InfoCard label="POLICY" value="3H / 5M" tone="blue" />
+        </View>
+        <InfoLine label="Airport" value={airportLabel} />
+        <InfoLine label="Relay token" value={tokenRef} />
+        <InfoLine label="How it works" value="This phone asks the Local Flight relay directly. It does not need your desktop or Pi on the LAN." />
+      </ControlAccordionCard>
+
+      <ControlAccordionCard
+        section="board"
+        activeSection={activeSection}
+        icon={TOOL_ICONS.displayModes}
+        title="Board Data"
+        summary="FIDS, radar, and local movement history"
+        onSelect={setActiveSection}
+      >
+        <View style={styles.metricRow}>
+          <InfoCard label="FIDS" value="3H" tone="blue" />
+          <InfoCard label="RADAR" value="5M" tone="blue" />
+          <InfoCard label="HISTORY" value="LOCAL" tone="green" />
+        </View>
+        <InfoLine label="FIDS board" value="Standalone refreshes the board no faster than every 3 hours to protect shared relay limits." />
+        <InfoLine label="Radar" value="Radar refreshes no faster than every 5 minutes and supports 1, 3, 5, and 10 NM." />
+        <InfoLine label="History" value="Successful board rows are stored on this device only for quick movement summaries." />
+      </ControlAccordionCard>
+
+      <ControlAccordionCard
+        section="appearance"
+        activeSection={activeSection}
+        icon={TOOL_ICONS.appearance}
+        title="Mobile Customization"
+        summary={`${themeMode} · ${skin} · ${weatherOption.label} weather`}
+        onSelect={setActiveSection}
+      >
+        <Text style={styles.settingsProfileTitle}>INTERFACE</Text>
+        <View style={styles.settingsInlineActions}>
+          {MOBILE_THEME_OPTIONS.map((option) => (
+            <Pressable
+              key={option.id}
+              style={[styles.settingsCompactButton, themeMode === option.id && styles.settingsProfileChipActive]}
+              onPress={() => onThemeModeChange(option.id)}
+              hitSlop={tapTargetHitSlop}
+              {...accessibleButton({
+                label: `Use ${option.label} interface`,
+                selected: themeMode === option.id
+              })}
+            >
+              <Text style={styles.settingsCompactButtonText}>{option.label.toUpperCase()}</Text>
+            </Pressable>
+          ))}
+        </View>
+        <Text style={styles.settingsProfileTitle}>SKIN</Text>
+        <View style={styles.settingsInlineActions}>
+          {MOBILE_SKIN_OPTIONS.map((option) => (
+            <Pressable
+              key={option.id}
+              style={[styles.settingsCompactButton, skin === option.id && styles.settingsProfileChipActive]}
+              onPress={() => onSkinChange(option.id)}
+              hitSlop={tapTargetHitSlop}
+              {...accessibleButton({
+                label: `Use ${option.label} skin`,
+                selected: skin === option.id
+              })}
+            >
+              <Text style={styles.settingsCompactButtonText}>{option.label.toUpperCase()}</Text>
+            </Pressable>
+          ))}
+        </View>
+        <Text style={styles.settingsProfileTitle}>WEATHER WORDING</Text>
+        <View style={styles.settingsInlineActions}>
+          {WEATHER_DISPLAY_OPTIONS.map((option) => (
+            <Pressable
+              key={option.id}
+              style={[styles.settingsCompactButton, weatherDisplayMode === option.id && styles.settingsProfileChipActive]}
+              onPress={() => onWeatherDisplayModeChange(option.id)}
+              hitSlop={tapTargetHitSlop}
+              {...accessibleButton({
+                label: `Use ${option.meta} weather wording`,
+                selected: weatherDisplayMode === option.id
+              })}
+            >
+              <Text style={styles.settingsCompactButtonText}>{option.label}</Text>
+            </Pressable>
+          ))}
+        </View>
+        <InfoLine label="Weather wording" value={weatherOption.detail} />
+      </ControlAccordionCard>
+
+      <ControlAccordionCard
+        section="diagnostics"
+        activeSection={activeSection}
+        icon={TOOL_ICONS.report}
+        title="Diagnostics & Reset"
+        summary={`${mobileDiagnosticsMode.replace(/_/g, " ")} reports · setup reset`}
+        onSelect={setActiveSection}
+      >
+        <InfoLine label="Mobile diagnostics" value={mobileDiagnosticsMode.replace(/_/g, " ").toUpperCase()} />
+        <FilterSection title="MOBILE REPORTING">
+          <View style={styles.filterRow}>
+            {([
+              ["manual", "MANUAL"],
+              ["auto", "AUTO"],
+              ["auto_logs", "AUTO + CONTEXT"]
+            ] as Array<[MobileDiagnosticsMode, string]>).map(([mode, label]) => (
+              <DirectionButton
+                key={mode}
+                active={mobileDiagnosticsMode === mode}
+                label={label}
+                onPress={() => onMobileDiagnosticsModeChange(mode)}
+              />
+            ))}
+          </View>
+        </FilterSection>
+        <Pressable
+          style={[styles.connectButton, styles.crashButton]}
+          onPress={onRerunSetup}
+          {...accessibleButton({
+            label: "Rerun mobile setup",
+            hint: "Starts the first launch setup flow again."
+          })}
+        >
+          <Text style={styles.connectButtonText}>RERUN MOBILE SETUP</Text>
+        </Pressable>
+      </ControlAccordionCard>
+
+      <ControlAccordionCard
+        section="help"
+        activeSection={activeSection}
+        icon={TOOL_ICONS.help}
+        title="Help & Reports"
+        summary="Troubleshooting, reporting, GitHub, support"
+        onSelect={setActiveSection}
+      >
+        <InfoLine label="Relay check" value="If standalone requests fail, check internet access first. Standalone does not need your desktop or Pi." />
+        <InfoLine label="Board looks stale" value="Standalone refreshes intentionally slowly; pull to refresh when you want to request the latest allowed board." />
+        <InfoLine label="Display data" value="Flight, weather, and radar information are for personal display only, not navigation, dispatch, operations, or safety decisions." />
+        <SettingsToolPill
+          icon={TOOL_ICONS.github}
+          label="GitHub & releases"
+          value="Source, issues, and release notes"
+          onPress={() => void Linking.openURL("https://github.com/tr3y4rch/local-flight")}
+        />
+        <Text style={styles.settingsProfileTitle}>REPORT PROBLEM</Text>
+        <TextInput
+          value={feedbackTitle}
+          onChangeText={onFeedbackTitleChange}
+          placeholder="Short summary, for example Standalone board did not refresh"
+          placeholderTextColor={palette.textDim}
+          style={styles.serverInput}
+        />
+        <TextInput
+          value={feedbackDescription}
+          onChangeText={onFeedbackDescriptionChange}
+          placeholder="What happened, what you expected, and which airport/source you were using"
+          placeholderTextColor={palette.textDim}
+          multiline
+          textAlignVertical="top"
+          style={[styles.serverInput, styles.feedbackInput]}
+        />
+        <View style={styles.feedbackContextBox}>
+          <Text style={styles.feedbackContextText}>{feedbackContext}</Text>
+        </View>
+        <Pressable
+          style={[styles.connectButton, feedbackSending && styles.connectButtonDisabled]}
+          onPress={onSubmitFeedback}
+          disabled={feedbackSending}
+          {...accessibleButton({
+            label: feedbackSending ? "Sending report" : "Send report",
+            disabled: feedbackSending,
+            busy: feedbackSending
+          })}
+        >
+          {feedbackSending ? <ActivityIndicator color={solidButtonInk()} /> : <Text style={styles.connectButtonText}>SEND REPORT</Text>}
+        </Pressable>
+        {feedbackMessage ? (
+          <Text style={[styles.feedbackMessage, feedbackTone === "ok" ? styles.feedbackMessageOk : styles.feedbackMessageError]}>
+            {feedbackMessage}
+          </Text>
+        ) : null}
+      </ControlAccordionCard>
+
+      <SupportFooterButton onOpenSupport={onOpenSupport} />
+    </View>
+  );
+}
+
+function SupportFooterButton({ onOpenSupport }: { onOpenSupport: () => void }) {
+  return (
+    <Pressable
+      style={styles.supportFooter}
+      onPress={onOpenSupport}
+      {...accessibleButton({
+        label: "Support Local Flight",
+        hint: "Opens the optional in-app support sheet."
+      })}
+    >
+      <LocalFlightIcon name={SUPPORT_ICONS.support} size={15} color={palette.amber} />
+      <Text style={styles.supportFooterText}>Support Local Flight</Text>
+      <LocalFlightIcon name={ACTION_ICONS.supportExpand} size={13} color={palette.textDim} />
+    </Pressable>
+  );
+}
+
+function ControlAccordionCard({
+  section,
+  activeSection,
+  icon,
+  title,
+  summary,
+  onSelect,
+  children
+}: {
+  section: ControlSection;
+  activeSection: ControlSection | null;
+  icon: AppIconName;
+  title: string;
+  summary: string;
+  onSelect: (section: ControlSection | null) => void;
+  children: ReactNode;
+}) {
+  const expanded = section === activeSection;
+  return (
+    <View style={[styles.settingsCard, styles.controlAccordionCard]}>
+      <Pressable
+        style={styles.controlAccordionHeader}
+        onPress={() => {
+          hapticSelection();
+          onSelect(expanded ? null : section);
+        }}
+        {...accessibleButton({
+          label: title,
+          hint: summary,
+          expanded
+        })}
+      >
+        <View style={styles.settingsPillIcon}>
+          <LocalFlightIcon name={icon} size={18} color={palette.blue2} />
+        </View>
+        <View style={styles.settingsPillCopy}>
+          <Text style={styles.settingsPillLabel}>{title}</Text>
+          <Text style={styles.settingsPillValue} numberOfLines={2}>{summary}</Text>
+        </View>
+        <LocalFlightIcon
+          name={expanded ? ACTION_ICONS.supportExpand : ACTION_ICONS.drillIn}
+          size={18}
+          color={expanded ? palette.blue2 : palette.textDim}
+        />
+      </Pressable>
+      {expanded ? <View style={styles.controlAccordionBody}>{children}</View> : null}
     </View>
   );
 }
@@ -6618,10 +7104,17 @@ function MatrixLiveSheet({
   matrixSaveMessage,
   matrixSaveTone,
   onClose,
+  onMatrixPresetChange,
   onMatrixViewChange,
   onMatrixWeatherToggle,
+  onMatrixGateToggle,
   onMatrixPaletteChange,
   onMatrixBrightnessChange,
+  onMatrixRowsChange,
+  onMatrixRotationChange,
+  onMatrixAnimationModeChange,
+  onMatrixAnimationSpeedChange,
+  onMatrixStatusAnimationToggle,
   onMatrixRefreshChange,
   onMatrixSave,
   onMatrixReset
@@ -6633,16 +7126,25 @@ function MatrixLiveSheet({
   matrixSaveMessage: string | null;
   matrixSaveTone: FeedbackTone;
   onClose: () => void;
+  onMatrixPresetChange: (value: MatrixPresetId) => void;
   onMatrixViewChange: (value: FlightView) => void;
   onMatrixWeatherToggle: (value: boolean) => void;
+  onMatrixGateToggle: (value: boolean) => void;
   onMatrixPaletteChange: (value: MatrixPaletteId) => void;
   onMatrixBrightnessChange: (value: number) => void;
+  onMatrixRowsChange: (value: number) => void;
+  onMatrixRotationChange: (value: number) => void;
+  onMatrixAnimationModeChange: (value: MatrixAnimationMode) => void;
+  onMatrixAnimationSpeedChange: (value: number) => void;
+  onMatrixStatusAnimationToggle: (value: boolean) => void;
   onMatrixRefreshChange: (value: number) => void;
   onMatrixSave: () => void;
   onMatrixReset: () => void;
 }) {
   const matrixPaletteOption = MATRIX_PALETTE_OPTIONS.find((item) => item.id === matrixRuntime.palette) || MATRIX_PALETTE_OPTIONS[0]!;
+  const matrixPresetOption = MATRIX_PRESETS.find((item) => item.id === matrixRuntime.preset) || MATRIX_PRESETS[0]!;
   const matrixShowWeather = Boolean(matrixRuntime.options.show_metar ?? matrixRuntime.options.show_weather);
+  const matrixShowGates = Boolean(matrixRuntime.show_gate_info ?? matrixRuntime.options.show_gate_info);
   const matrixBrightnessPct = Math.round(matrixRuntime.brightness * 100);
 
   return (
@@ -6653,15 +7155,15 @@ function MatrixLiveSheet({
           onPress={onClose}
           {...accessibleButton({ label: "Close Matrix board controls" })}
         />
-        <View style={styles.sheetCard}>
+        <View style={[styles.sheetCard, styles.matrixLiveSheetCard]}>
           <View style={styles.sheetHandle} />
-          <View style={styles.sheetHeader}>
+          <View style={[styles.sheetHeader, styles.matrixLiveSheetHeader]}>
             <View style={styles.sheetHeaderText}>
               <Text style={styles.sheetEyebrow}>MATRIX BOARD</Text>
-              <Text style={styles.sheetTitle}>Live Board Controls</Text>
+              <Text style={[styles.sheetTitle, styles.matrixLiveSheetTitle]} numberOfLines={1}>Matrix Controls</Text>
             </View>
             <Pressable
-              style={styles.sheetAction}
+              style={[styles.sheetAction, styles.matrixLiveSheetAction]}
               onPress={onClose}
               hitSlop={tapTargetHitSlop}
               {...accessibleButton({ label: "Close Matrix board controls" })}
@@ -6670,25 +7172,47 @@ function MatrixLiveSheet({
             </Pressable>
           </View>
 
-          <ScrollView style={styles.sheetScroll} contentContainerStyle={styles.sheetContent}>
-            <Text style={styles.moduleIntro}>
-              Safe mobile controls for the physical board. Panel size, rows, and script-level setup stay on the host.
-            </Text>
-
-            <View style={styles.metricRow}>
-              <InfoCard
-                label="VIEW"
-                value={matrixRuntime.default_view === "arrivals" ? "ARRIVALS" : "DEPARTURES"}
-                tone="blue"
-              />
-              <InfoCard label="WEATHER" value={matrixShowWeather ? "ON" : "OFF"} tone={matrixShowWeather ? "green" : "amber"} />
-              <InfoCard label="BRIGHT" value={`${matrixBrightnessPct}%`} />
+          <ScrollView style={styles.sheetScroll} contentContainerStyle={[styles.sheetContent, styles.matrixLiveSheetContent]}>
+            <View style={styles.matrixLiveStatusStrip}>
+              <Text style={styles.matrixLiveStatusText} numberOfLines={1}>
+                {matrixPresetOption.label} · {matrixPaletteOption.label}
+              </Text>
+              <Text
+                style={[
+                  styles.matrixLiveStatusText,
+                  styles.matrixLiveStatusAccent,
+                  matrixDirty && styles.matrixLiveStatusWarn
+                ]}
+                numberOfLines={1}
+              >
+                {matrixDirty ? "UNSAVED" : "SYNCED"}
+              </Text>
             </View>
-            <InfoLine label="Palette" value={`${matrixPaletteOption.label} · ${matrixPaletteOption.meta}`} />
-            <InfoLine label="Board refresh" value={formatInterval(matrixRuntime.refresh_seconds)} />
-            <InfoLine label="Sync state" value={matrixDirty ? "Unsaved live changes" : "Saved on server"} />
 
-            <FilterSection title="SHOW BOARD">
+            <FilterSection title="DISPLAY PRESET">
+              <View style={styles.matrixLivePresetRow}>
+                {MATRIX_PRESETS.map((item) => (
+                  <Pressable
+                    key={item.id}
+                    style={[styles.matrixLivePresetChip, matrixRuntime.preset === item.id && styles.matrixLivePresetChipActive]}
+                    onPress={() => onMatrixPresetChange(item.id)}
+                    hitSlop={tapTargetHitSlop}
+                    {...accessibleButton({
+                      label: `Use ${item.label} Matrix preset`,
+                      hint: item.detail,
+                      selected: matrixRuntime.preset === item.id
+                    })}
+                  >
+                    <Text style={[styles.matrixLivePresetLabel, matrixRuntime.preset === item.id && styles.matrixPresetLabelActive]} numberOfLines={1}>
+                      {item.label}
+                    </Text>
+                    <Text style={styles.matrixLivePresetMeta} numberOfLines={1}>{item.meta}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            </FilterSection>
+
+            <FilterSection title="BOARD OUTPUT">
               <View style={styles.filterRow}>
                 <DirectionButton
                   active={matrixRuntime.default_view === "departures"}
@@ -6701,17 +7225,18 @@ function MatrixLiveSheet({
                   onPress={() => onMatrixViewChange("arrivals")}
                 />
               </View>
-            </FilterSection>
-
-            <FilterSection title="WEATHER STRIP">
-              <View style={styles.filterRow}>
-                <DirectionButton active={matrixShowWeather} label="SHOW" onPress={() => onMatrixWeatherToggle(true)} />
-                <DirectionButton active={!matrixShowWeather} label="HIDE" onPress={() => onMatrixWeatherToggle(false)} />
+              <View style={[styles.filterRow, styles.matrixLiveSubRow]}>
+                <DirectionButton active={matrixShowWeather} label="WX ON" onPress={() => onMatrixWeatherToggle(true)} />
+                <DirectionButton active={!matrixShowWeather} label="WX OFF" onPress={() => onMatrixWeatherToggle(false)} />
+              </View>
+              <View style={[styles.filterRow, styles.matrixLiveSubRow]}>
+                <DirectionButton active={matrixShowGates} label="GATES ON" onPress={() => onMatrixGateToggle(true)} />
+                <DirectionButton active={!matrixShowGates} label="GATES OFF" onPress={() => onMatrixGateToggle(false)} />
               </View>
             </FilterSection>
 
             <FilterSection title="COLOR LOOK">
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.matrixLivePaletteRow}>
+              <View style={styles.matrixLivePaletteRow}>
                 {MATRIX_PALETTE_OPTIONS.map((item) => (
                   <Pressable
                     key={item.id}
@@ -6727,20 +7252,79 @@ function MatrixLiveSheet({
                     <Text style={[styles.optionChipLabel, matrixRuntime.palette === item.id && styles.optionChipLabelActive]} numberOfLines={1}>
                       {item.label}
                     </Text>
-                    <Text style={[styles.optionChipMeta, matrixRuntime.palette === item.id && styles.optionChipMetaActive]} numberOfLines={1}>
-                      {item.meta}
-                    </Text>
                     <View style={styles.paletteDots}>
-                      {[item.colors.green, item.colors.white, item.colors.cyan, item.colors.amber].map((color) => (
-                        <View key={`${item.id}-${color}`} style={[styles.paletteDot, { backgroundColor: color }]} />
+                      {[item.colors.green, item.colors.white, item.colors.cyan, item.colors.amber].map((color, index) => (
+                        <View key={`${item.id}-${index}-${color}`} style={[styles.paletteDot, { backgroundColor: color }]} />
                       ))}
                     </View>
                   </Pressable>
                 ))}
-              </ScrollView>
+              </View>
             </FilterSection>
 
-            <FilterSection title="BRIGHTNESS">
+            <FilterSection title="DENSITY & TIMING">
+              <View style={styles.filterWrap}>
+                {MATRIX_ROWS.map((item) => (
+                  <OptionChip
+                    key={item}
+                    active={matrixRuntime.max_rows === item}
+                    label={`${item}`}
+                    meta="rows"
+                    onPress={() => onMatrixRowsChange(item)}
+                  />
+                ))}
+              </View>
+              <View style={styles.filterWrap}>
+                {MATRIX_ROTATION_SECONDS.map((item) => (
+                  <OptionChip
+                    key={item}
+                    active={matrixRuntime.page_rotation_seconds === item}
+                    label={`${item}s`}
+                    meta="cycle"
+                    onPress={() => onMatrixRotationChange(item)}
+                  />
+                ))}
+              </View>
+            </FilterSection>
+
+            <FilterSection title="MOTION & SPEED">
+              <View style={styles.filterWrap}>
+                {MATRIX_ANIMATION_MODES.map((item) => (
+                  <OptionChip
+                    key={item.id}
+                    active={matrixRuntime.animation_mode === item.id}
+                    label={item.label}
+                    meta={item.meta}
+                    onPress={() => onMatrixAnimationModeChange(item.id)}
+                  />
+                ))}
+              </View>
+              <View style={styles.filterWrap}>
+                {MATRIX_ANIMATION_SPEEDS.map((item) => (
+                  <OptionChip
+                    key={item}
+                    active={matrixRuntime.animation_speed === item}
+                    label={`${item}`}
+                    meta="speed"
+                    onPress={() => onMatrixAnimationSpeedChange(item)}
+                  />
+                ))}
+              </View>
+              <View style={styles.filterRow}>
+                <DirectionButton
+                  active={matrixRuntime.status_animation_enabled}
+                  label="STATUS MOTION"
+                  onPress={() => onMatrixStatusAnimationToggle(true)}
+                />
+                <DirectionButton
+                  active={!matrixRuntime.status_animation_enabled}
+                  label="STATUS STATIC"
+                  onPress={() => onMatrixStatusAnimationToggle(false)}
+                />
+              </View>
+            </FilterSection>
+
+            <FilterSection title="BRIGHTNESS & REFRESH">
               <View style={styles.filterWrap}>
                 {MATRIX_BRIGHTNESS.map((item) => (
                   <OptionChip
@@ -6752,9 +7336,6 @@ function MatrixLiveSheet({
                   />
                 ))}
               </View>
-            </FilterSection>
-
-            <FilterSection title="REFRESH">
               <View style={styles.filterWrap}>
                 {MATRIX_REFRESH_SECONDS.map((item) => (
                   <OptionChip

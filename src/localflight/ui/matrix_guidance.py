@@ -13,7 +13,7 @@ MATRIX_GUIDE_STEPS = (
     },
     {
         "title": "3 Apply live config",
-        "body": "Save the board config. A flashed v2 board picks it up over Wi-Fi in about a minute.",
+        "body": "Save the board config. A flashed v2 board picks up live settings over Wi-Fi in about a minute.",
     },
     {
         "title": "4 Generate main.py",
@@ -44,6 +44,7 @@ MATRIX_SAFE_NOTES = (
     "Use localflight.local or the server LAN IP. Do not use localhost, 127.0.0.1, or ::1.",
     "Save the generated file to the MicroPython device as main.py in Thonny.",
     "Wi-Fi password is only placed into the generated main.py file and is not saved by the Matrix settings page.",
+    "Panel size and wiring are flash-time settings; regenerate main.py after changing them.",
 )
 
 MATRIX_ADVANCED_FLOW = (

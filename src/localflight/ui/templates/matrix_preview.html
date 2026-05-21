@@ -693,7 +693,7 @@
   <div id="tab-configurator" class="tab-panel">
   <!-- ── Controls ── -->
   <div class="setup-hint" style="margin: -4px 0 10px 0;">
-    Live board settings. Press <strong>Apply live config</strong>; a flashed v2 board picks them up over Wi-Fi in about 60 seconds.
+    Live board settings. Press <strong>Apply live config</strong>; a flashed v2 board picks them up over Wi-Fi in about 60 seconds. Panel geometry is baked into <code>main.py</code>.
   </div>
   <div class="controls">
     <div class="ctrl-group">
@@ -705,7 +705,7 @@
     </div>
 
     <div class="ctrl-group">
-      <label>Panel combo</label>
+      <label>Panel combo (main.py)</label>
       <select id="panelPreset" onchange="applyPreset(this.value)">
         <option value="custom">Custom size</option>
         <optgroup label="128x64 rectangular modules">
@@ -856,7 +856,7 @@
         </div>
         <div class="guide-pill">
           <strong>Automatic config pull</strong>
-          Each board polls its assigned config about once per refresh interval. No restart or reflash is needed after changing settings here.
+          Each board polls its assigned config about once per refresh interval. No restart or reflash is needed after changing live settings here.
         </div>
         <div class="guide-pill">
           <strong>Labels and assignments</strong>
@@ -864,7 +864,7 @@
         </div>
         <div class="guide-pill">
           <strong>Multiple boards</strong>
-          Each board registers itself on first contact. Create additional configs in the native app to give different boards different palettes or panel sizes.
+          Each board registers itself on first contact. Create additional configs in the native app to give different boards different palettes; panel-size changes still need a fresh main.py.
         </div>
       </div>
       <div class="setup-note">
@@ -911,7 +911,7 @@
     <div class="setup-row">
       <div class="setup-col">
         <div class="setup-label">Create the board file</div>
-        <div class="setup-hint">Enter Wi-Fi and server details, download, then save it in Thonny as <code>main.py</code> on the MicroPython device.</div>
+        <div class="setup-hint">Enter Wi-Fi, server, and physical panel geometry, download, then save it in Thonny as <code>main.py</code> on the MicroPython device.</div>
         <div class="wifi-row">
           <div class="wifi-field">
             <label>Network name</label>
@@ -1003,6 +1003,7 @@
   let PANEL_H       = {{ panel_h }};
   let PIXEL_SIZE    = {{ pixel_size }};
   let RENDER_PIXEL_SIZE = PIXEL_SIZE;
+  const MATRIX_CHAR_W = 8;
   let VIEW          = "{{ view }}";
   let MAX_ROWS      = {{ rows }};
   let BRIGHTNESS    = 0.8;
@@ -1021,6 +1022,8 @@
   let MATRIX_PALETTE_OPTIONS = [];
   let MATRIX_PANEL_PRESETS = [];
   let CURRENT_CONFIG_ID = "";
+  let LOADED_PANEL_W = PANEL_W;
+  let LOADED_PANEL_H = PANEL_H;
   let MATRIX_METAR = null;
   let MATRIX_PAGES = null;
   let MATRIX_WEATHER_PAGE = null;
@@ -1108,8 +1111,21 @@
     const modeStatus = document.getElementById("matrixModeStatus");
     if (boardSeen) boardSeen.textContent = MATRIX_DEVICES.length ? `${seen}/${MATRIX_DEVICES.length} seen` : "No i75W seen";
     if (configName) configName.textContent = currentConfig.name || currentConfig.id || "Default Board";
-    if (panelStatus) panelStatus.textContent = `${PANEL_W} x ${PANEL_H}`;
+    const geometryMismatch = matrixGeometryNeedsMainPy();
+    if (panelStatus) panelStatus.textContent = geometryMismatch ? `${PANEL_W} x ${PANEL_H} · main.py` : `${PANEL_W} x ${PANEL_H}`;
     if (modeStatus) modeStatus.textContent = currentPreset.label || MATRIX_PRESET || "Real FIDS";
+  }
+
+  function matrixGeometryNeedsMainPy() {
+    const changed = Number(PANEL_W) !== Number(LOADED_PANEL_W) || Number(PANEL_H) !== Number(LOADED_PANEL_H);
+    const mismatchedDevice = MATRIX_DEVICES.some((device) => {
+      if (!device) return false;
+      const actualW = parseInt(device.actual_panel_w || device.panel_w || 0, 10);
+      const actualH = parseInt(device.actual_panel_h || device.panel_h || 0, 10);
+      if (device.geometry_mismatch) return true;
+      return Boolean(actualW && actualH && (actualW !== PANEL_W || actualH !== PANEL_H));
+    });
+    return changed || mismatchedDevice;
   }
 
   const FONT = {
@@ -1172,9 +1188,9 @@
     str = (str||"").toUpperCase();
     let cx = x;
     for (let i = 0; i < str.length; i++) {
-      if (maxW && cx + 6 > x + maxW) break;
+      if (maxW && cx + MATRIX_CHAR_W > x + maxW) break;
       drawChar(str[i], cx, y, color);
-      cx += 6;
+      cx += MATRIX_CHAR_W;
     }
     return cx;
   }
@@ -1241,8 +1257,8 @@
     }));
   }
 
-  // Per-row flap cells — 44 chars wide
-  const ROW_LEN = 44;
+  // Per-row flap cells — matches the MicroPython bitmap8 row budget.
+  const ROW_LEN = 42;
   let flapRows  = Array.from({length:8}, () =>
     Array.from({length: ROW_LEN}, () => new FlapCell())
   );
@@ -1587,7 +1603,7 @@
     if (!SHOW_WEATHER || !MATRIX_METAR) return false;
     const temp = weatherTempText();
     if (!temp) return false;
-    const width = 8 + temp.length * 6;
+    const width = 8 + temp.length * MATRIX_CHAR_W;
     if (width > maxW) return false;
     const glyph = weatherGlyphName();
     drawGlyph(glyph, x, y + 1, glyph === "sun" || glyph === "storm" ? C.amber : C.dim);
@@ -1602,12 +1618,12 @@
     const rawTemp = MATRIX_METAR.matrix_weather_temp || MATRIX_METAR.temperature_short || MATRIX_METAR.temperature_display || MATRIX_METAR.temp_c || MATRIX_METAR.temperature_c || "";
     const temp = rawTemp === "" ? "" : String(rawTemp).replace(" C", "C").replace(/\s+/g, "").toUpperCase().replace(/([^C])$/, "$1C");
     const condition = String(MATRIX_METAR.matrix_weather_label || MATRIX_METAR.condition_display || MATRIX_METAR.weather_label || MATRIX_METAR.summary || "").toUpperCase();
-    let chars = Math.max(3, Math.floor((maxW - 14) / 6));
+    let chars = Math.max(3, Math.floor((maxW - 14) / MATRIX_CHAR_W));
     if (temp) chars = Math.max(3, chars - temp.length - 1);
     const label = condition.length > chars ? marquee(condition, chars).trim() : condition.slice(0, chars);
     drawString(label, x + 8, y, C.dim, maxW - 8);
-    const tempX = x + 8 + label.length * 6 + 3;
-    if (temp && tempX + 6 + temp.length * 6 < x + maxW) {
+    const tempX = x + 8 + label.length * MATRIX_CHAR_W + 3;
+    if (temp && tempX + MATRIX_CHAR_W + temp.length * MATRIX_CHAR_W < x + maxW) {
       drawGlyph("temp", tempX, y + 1, C.amber);
       drawString(temp, tempX + 7, y, C.amber, maxW - (tempX - x) - 7);
     }
@@ -1621,30 +1637,30 @@
     const clock = clockLabel(PANEL_W < 200);
 
     if (PANEL_W < 200) {
-      const chars = Math.max(8, Math.floor(PANEL_W / 6));
+      const chars = Math.max(8, Math.floor(PANEL_W / MATRIX_CHAR_W));
       const label = `${marquee(airportBase, Math.max(6, chars - 4)).trim()} ${lane}`.toUpperCase();
       drawString(label.slice(0, chars), 0, 0, C.green, PANEL_W);
       let topWeatherDrawn = false;
       if (weatherTemp) {
-        const weatherWidth = 8 + weatherTemp.length * 6;
+        const weatherWidth = 8 + weatherTemp.length * MATRIX_CHAR_W;
         const weatherX = PANEL_W - weatherWidth - 1;
-        if (weatherX > label.length * 6 + 4) topWeatherDrawn = drawWeatherMini(weatherX, 0, weatherWidth + 1);
+        if (weatherX > label.length * MATRIX_CHAR_W + 4) topWeatherDrawn = drawWeatherMini(weatherX, 0, weatherWidth + 1);
       }
       const secondLine = weatherTemp && !topWeatherDrawn && Math.floor(Date.now() / 8000) % 2 === 1 ? weatherTemp : clock;
       drawString(secondLine.slice(0, chars), 0, 10, secondLine === weatherTemp ? C.amber : C.dim, PANEL_W);
       return;
     }
 
-    const clockW = clock.length * 6;
+    const clockW = clock.length * MATRIX_CHAR_W;
     const clockX = Math.max(0, PANEL_W - clockW - 1);
     drawString(clock, clockX, 0, C.dim, PANEL_W - clockX);
 
     let weatherStart = clockX;
-    const fullWeather = weatherLine(Math.max(8, Math.floor(PANEL_W / 6)));
+    const fullWeather = weatherLine(Math.max(8, Math.floor(PANEL_W / MATRIX_CHAR_W)));
     if (fullWeather || weatherTemp) {
-      const desired = PANEL_W >= 384 ? Math.min(24, Math.max(8, Math.floor((clockX - 96) / 6))) : 10;
+      const desired = PANEL_W >= 384 ? Math.min(24, Math.max(8, Math.floor((clockX - 96) / MATRIX_CHAR_W))) : 10;
       const weatherText = (fullWeather || weatherTemp).slice(0, desired);
-      const weatherW = 10 + weatherText.length * 6;
+      const weatherW = 10 + weatherText.length * MATRIX_CHAR_W;
       const weatherX = Math.max(0, clockX - weatherW - 8);
       if (weatherX > (PANEL_W >= 320 ? 96 : 54)) {
         drawWeatherCompact(weatherX, 0, clockX - weatherX - 4);
@@ -1655,7 +1671,7 @@
       }
     }
 
-    const labelChars = Math.max(8, Math.floor((weatherStart - 4) / 6));
+    const labelChars = Math.max(8, Math.floor((weatherStart - 4) / MATRIX_CHAR_W));
     const label = rawLabel.length > labelChars ? marquee(rawLabel, labelChars).trim() : rawLabel;
     drawString(label, 0, 0, C.green, Math.max(0, weatherStart - 4));
   }
@@ -1688,7 +1704,7 @@
   }
 
   function drawSourceMessage() {
-    const chars = Math.max(8, Math.floor(PANEL_W / 6));
+    const chars = Math.max(8, Math.floor(PANEL_W / MATRIX_CHAR_W));
     drawString(clockLabel(PANEL_W < 200).slice(0, chars), 0, 0, C.dim, PANEL_W);
     drawString(cycleChunks(MATRIX_MESSAGE || "NO DATA", chars).trim(), 2, Math.max(0, Math.floor(PANEL_H / 2) - 8), C.amber, PANEL_W);
     if (PANEL_H >= 32) drawString("CHECK SETTINGS", 2, Math.floor(PANEL_H / 2) + 2, C.dim, PANEL_W);
@@ -1713,7 +1729,7 @@
   }
 
   function drawVatsimWeatherPage() {
-    const chars = Math.max(8, Math.floor(PANEL_W / 6) - 1);
+    const chars = Math.max(8, Math.floor(PANEL_W / MATRIX_CHAR_W) - 1);
     const title = String(MATRIX_WEATHER_PAGE?.title || "VATSIM WX").toUpperCase();
     const titleText = `${asciiText(CFG.airport_label || CFG.airport_iata)} ${title}`.slice(0, chars);
     drawString(titleText, 0, 0, C.green, PANEL_W);
@@ -1721,8 +1737,8 @@
       drawString(clockLabel(true).slice(0, chars), 0, 10, C.dim, PANEL_W);
     } else {
       const clock = clockLabel();
-      const clockX = PANEL_W - clock.length * 6 - 1;
-      if (clockX > titleText.length * 6 + 4) drawString(clock, clockX, 0, C.dim, PANEL_W - clockX);
+      const clockX = PANEL_W - clock.length * MATRIX_CHAR_W - 1;
+      if (clockX > titleText.length * MATRIX_CHAR_W + 4) drawString(clock, clockX, 0, C.dim, PANEL_W - clockX);
     }
     for (let x=0; x<PANEL_W; x++) drawPixel(x, headerHeight() - 2, C.dim);
     const glyph = weatherGlyphName();
@@ -1798,7 +1814,7 @@
       }
 
       if (compact) {
-        const chars = Math.max(8, Math.floor(PANEL_W / 6));
+        const chars = Math.max(8, Math.floor(PANEL_W / MATRIX_CHAR_W));
         const timeLabel = String(row?.matrix_time_label || row?.display_time || row?.time || "--:--").padEnd(5, " ").slice(0,5);
         const flightLabel = String(flightCycleDisplay(row || {})).padEnd(8, " ").slice(0,8);
         drawGlyph(cancelled ? "warn" : (renderView === "arrivals" ? "arr" : "dep"), 0, y + 1, cancelled ? C.red : C.dim);
@@ -1829,25 +1845,32 @@
       const sc = row ? statusColor(row) : (flightColors[ri] || C.green);
       const timeLabel = row ? String(row.matrix_time_label || row.display_time || row.time || txt.slice(0,5)).padEnd(5, " ").slice(0,5) : txt.slice(0,5);
       const flightLabel = row ? String(flightCycleDisplay(row)).padEnd(8, " ").slice(0,8) : txt.slice(6,14);
-      const statusX = PANEL_W >= 420 ? Math.floor(PANEL_W * 0.60) : PANEL_W >= 300 ? Math.floor(PANEL_W * 0.56) : PANEL_W >= 150 ? 186 : 96;
+      const routeX = 116;
+      const statusX = PANEL_W >= 420
+        ? Math.floor(PANEL_W * 0.60)
+        : PANEL_W >= 300
+          ? Math.floor(PANEL_W * 0.56)
+          : PANEL_W >= 245
+            ? Math.max(routeX, PANEL_W - 76)
+            : PANEL_W >= 150 ? routeX : 96;
       const gateX = PANEL_W >= 360 ? Math.floor(PANEL_W * 0.80) : PANEL_W - 25;
       const aircraftX = PANEL_W >= 420 ? Math.floor(PANEL_W * 0.89) : PANEL_W - 25;
-      const routeChars = Math.max(6, Math.floor((statusX - 104) / 6));
-      const statusChars = Math.max(7, Math.floor(((PANEL_W >= 360 ? gateX : PANEL_W) - statusX - 4) / 6));
-      drawString(timeLabel, 0, y, cancelled ? C.white : C.green);
+      const routeChars = Math.max(6, Math.floor((statusX - routeX - 2) / MATRIX_CHAR_W));
+      const statusChars = Math.max(7, Math.floor(((PANEL_W >= 360 ? gateX : PANEL_W) - statusX - 4) / MATRIX_CHAR_W));
+      drawString(timeLabel, 8, y, cancelled ? C.white : C.green);
 
       // Flight number (6-13) white
-      drawString(flightLabel, 36, y, C.white);
+      drawString(flightLabel, 52, y, C.white);
 
       // Destination (15-28) white — only if wide enough
-      if (PANEL_W >= 150 && row) drawString(routeChunk(row, routeChars), 102, y, C.white, Math.max(20, statusX - 104));
-      else if (PANEL_W >= 150) drawString(txt.slice(15,29), 102, y, C.white);
+      if (PANEL_W >= 150 && row) drawString(routeChunk(row, routeChars), routeX, y, C.white, Math.max(20, statusX - routeX - 2));
+      else if (PANEL_W >= 150) drawString(txt.slice(15,29), routeX, y, C.white);
 
       // Status (30-39) — color; position scales with panel width
       drawString(row ? statusOrGateChunk(row, statusChars) : txt.slice(30,40), statusX, y, sc);
 
       // Gate dim right (only if enough room)
-      if (row && PANEL_W >= 260) {
+      if (row && PANEL_W >= 300) {
         const gate = gateLabel(row);
         const aircraft = String(row.aircraft_type || row.aircraft || "").toUpperCase();
         if (gate) drawString(gate.slice(0, 5), gateX, y, C.dim);
@@ -2070,6 +2093,8 @@
     if (heightInput && parseInt(heightInput.value, 10) !== PANEL_H) heightInput.value = PANEL_H;
     const sub = document.getElementById("panelSubtitle");
     if (sub) sub.textContent = `${PANEL_W}x${PANEL_H} · Interstate 75 W · style: ${MATRIX_PALETTE}`;
+    updateDownloadState();
+    updateMatrixStatusChips();
   }
 
   // ── Controls ───────────────────────────────────────────────────────────────
@@ -2189,7 +2214,7 @@
     if (PANEL_W < 32 || PANEL_W > 4096 || PANEL_H < 16 || PANEL_H > 512) {
       return { ok: false, message: "Choose a panel size between 32x16 and 4096x512." };
     }
-    return { ok: true, message: `Board file is ready to download for ${PANEL_W}x${PANEL_H}.` };
+    return { ok: true, message: `Board file is ready to download for ${PANEL_W}x${PANEL_H}; panel geometry changes require reinstalling main.py.` };
   }
 
   function updateDownloadState() {
@@ -2271,6 +2296,8 @@ Board reads: /api/config -> /api/matrix/v2/devices/{id}/config -> /api/matrix/v2
       "ACTIVE_BREATH",
       "PALETTE",
       "RENDERER",
+      "GEOMETRY_MISMATCH",
+      '"actual_panel_w": WIDTH',
       '"pax_blue"',
       '"tower_scope"',
     ];
@@ -2419,6 +2446,8 @@ Board reads: /api/config -> /api/matrix/v2/devices/{id}/config -> /api/matrix/v2
     if (configSel && CURRENT_CONFIG_ID) configSel.value = CURRENT_CONFIG_ID;
     if (d.panel_w && d.panel_h) {
       syncPanelGeometry(d.panel_w, d.panel_h);
+      LOADED_PANEL_W = PANEL_W;
+      LOADED_PANEL_H = PANEL_H;
     }
     if (d.brightness !== undefined) {
       BRIGHTNESS = d.brightness;
@@ -2604,8 +2633,13 @@ Board reads: /api/config -> /api/matrix/v2/devices/{id}/config -> /api/matrix/v2
         if (!v2.ok) throw new Error(`HTTP ${v2.status}`);
       }
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      msg.textContent = "Saved — board picks up in about 60 seconds";
+      const needsMainPy = matrixGeometryNeedsMainPy();
+      msg.textContent = needsMainPy
+        ? `Saved — download and reinstall main.py for ${PANEL_W}x${PANEL_H} panel geometry`
+        : "Saved — board picks up in about 60 seconds";
       msg.style.color = "#00e84a";
+      LOADED_PANEL_W = PANEL_W;
+      LOADED_PANEL_H = PANEL_H;
     } catch (e) {
       msg.textContent = `Failed: ${e.message}`;
       msg.style.color = "#ff6060";

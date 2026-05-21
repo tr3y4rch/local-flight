@@ -27,7 +27,7 @@ export const MATRIX_PRESETS: Array<{
     label: "Real FIDS",
     meta: "Passenger board",
     detail: "Routes, gates, status, and compact weather for physical display.",
-    palettes: ["pax_blue", "solari_amber", "ice_white", "sunset_terminal"],
+    palettes: ["pax_blue", "solari_amber", "ice_white", "sunset_terminal", "amber", "green", "cyan", "technical"],
     showGateInfo: true
   },
   {
@@ -35,7 +35,7 @@ export const MATRIX_PRESETS: Array<{
     label: "VATSIM Pilot",
     meta: "Virtual flying",
     detail: "Callsign-focused board with quieter virtual flight context.",
-    palettes: ["vatsim_scope", "tower_scope", "night_ops"],
+    palettes: ["vatsim_scope", "tower_scope", "night_ops", "phosphor", "indigo_night", "neon"],
     showGateInfo: false
   },
   {
@@ -43,13 +43,15 @@ export const MATRIX_PRESETS: Array<{
     label: "VATSIM ATC",
     meta: "Controller view",
     detail: "Cycles departures, arrivals, and weather for ATC-style ops.",
-    palettes: ["tower_scope", "vatsim_scope", "night_ops"],
+    palettes: ["tower_scope", "vatsim_scope", "night_ops", "phosphor", "indigo_night"],
     showGateInfo: false
   }
 ];
 
 export const MATRIX_ANIMATION_MODES: Array<{ id: MatrixAnimationMode; label: string; meta: string }> = [
   { id: "split_flap", label: "Split-flap", meta: "classic" },
+  { id: "typewriter", label: "Typewriter", meta: "ticker" },
+  { id: "cascade", label: "Cascade", meta: "rows" },
   { id: "slide_left", label: "Slide left", meta: "scroll" },
   { id: "slide_right", label: "Slide right", meta: "scroll" },
   { id: "static", label: "Static", meta: "calm" }
@@ -110,6 +112,60 @@ export const MATRIX_PALETTE_OPTIONS: Array<{
     label: "Ice White",
     meta: "bright",
     colors: { off: "#060a0f", green: "#bde9ff", white: "#ffffff", dim: "#6a8195", amber: "#ffd35a", red: "#ff5252", cyan: "#66d9ff" }
+  },
+  {
+    id: "crt",
+    label: "CRT Amber",
+    meta: "retro",
+    colors: { off: "#060400", green: "#ffcc44", white: "#ffeeaa", dim: "#7a5000", amber: "#ffdd00", red: "#ff4020", cyan: "#ffaa00" }
+  },
+  {
+    id: "neon",
+    label: "Neon Green",
+    meta: "showpiece",
+    colors: { off: "#000d00", green: "#00ff50", white: "#dcffdc", dim: "#007a28", amber: "#aaff00", red: "#ff4040", cyan: "#aaff00" }
+  },
+  {
+    id: "amber",
+    label: "Amber",
+    meta: "classic",
+    colors: { off: "#0b0600", green: "#ffae2e", white: "#ffebb4", dim: "#7e5416", amber: "#ffdf55", red: "#ff5738", cyan: "#ffc56b" }
+  },
+  {
+    id: "green",
+    label: "Green",
+    meta: "terminal",
+    colors: { off: "#001006", green: "#28f76e", white: "#dcffe6", dim: "#227c3e", amber: "#ffc94a", red: "#ff4d4d", cyan: "#55e7ff" }
+  },
+  {
+    id: "cyan",
+    label: "Cyan",
+    meta: "cool",
+    colors: { off: "#00080f", green: "#00ccff", white: "#d7fcff", dim: "#006688", amber: "#ffcc00", red: "#ff4060", cyan: "#00ffcc" }
+  },
+  {
+    id: "technical",
+    label: "Technical",
+    meta: "app",
+    colors: { off: "#040608", green: "#4a9eda", white: "#d2e6f8", dim: "#507494", amber: "#d4a020", red: "#c04040", cyan: "#7ce7ff" }
+  },
+  {
+    id: "phosphor",
+    label: "Phosphor",
+    meta: "mono",
+    colors: { off: "#031006", green: "#39ff14", white: "#cdffc6", dim: "#3a8a18", amber: "#aaff00", red: "#ff3232", cyan: "#b4ffb4" }
+  },
+  {
+    id: "indigo_night",
+    label: "Indigo Night",
+    meta: "ambient",
+    colors: { off: "#06051a", green: "#8272ff", white: "#d8d4ff", dim: "#5548b8", amber: "#ffd84a", red: "#ff6b8a", cyan: "#4deaff" }
+  },
+  {
+    id: "rose_gold",
+    label: "Rose Gold",
+    meta: "decor",
+    colors: { off: "#170712", green: "#ff7ecb", white: "#ffd8ee", dim: "#a04878", amber: "#ffd166", red: "#ff3864", cyan: "#ffb8c8" }
   }
 ];
 
