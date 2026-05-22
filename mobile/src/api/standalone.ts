@@ -15,7 +15,7 @@ import { LocalFlightApiError, normalizeServerUrl } from "./client";
 import { appVersion, getCompanionIdentity, mobileOsLabel } from "../device/identity";
 import type { MobileDiagnosticsMode, StandaloneAirport } from "../storage/settings";
 
-export const DEFAULT_RELAY_URL = "https://localflight-community-relay.fly.dev";
+export const DEFAULT_RELAY_URL = "https://relay.beacontools.cc";
 const CLIENT_KIND = "mobile_standalone";
 
 export type StandaloneCredentials = {

@@ -204,7 +204,7 @@ function Write-ClientEnv {
 # The setup wizard writes these on first launch.
 
 LOCALFLIGHT_ACTIVATION_TOKEN=
-LOCALFLIGHT_RELAY_URL=https://localflight-community-relay.fly.dev
+LOCALFLIGHT_RELAY_URL=https://relay.beacontools.cc
 LOCALFLIGHT_GUI_MODE=$GuiMode
 
 AVIATIONSTACK_API_KEY=

@@ -702,7 +702,7 @@ def test_native_setup_internal_close_does_not_shutdown_backend(monkeypatch: pyte
 
         def get_json(self, path: str, *, params: dict[str, object] | None = None) -> dict[str, object]:
             if path == "/api/setup/client-info":
-                return {"relay_url": "https://localflight-community-relay.fly.dev"}
+                return {"relay_url": "https://relay.beacontools.cc"}
             return {}
 
         def post_json(self, path: str, payload: dict[str, object]) -> dict[str, object]:
@@ -828,7 +828,7 @@ def test_native_parity_screens_construct_core_controls(monkeypatch: pytest.Monke
     class _Client:
         def get_json(self, path: str, *, params: dict[str, object] | None = None) -> dict[str, object]:
             if path == "/api/setup/client-info":
-                return {"relay_url": "https://localflight-community-relay.fly.dev", "has_activation_token": False}
+                return {"relay_url": "https://relay.beacontools.cc", "has_activation_token": False}
             return {}
 
     QtCore, _QtGui, QtWidgets2 = import_qt()
@@ -844,7 +844,7 @@ def test_native_parity_screens_construct_core_controls(monkeypatch: pytest.Monke
     assert app is not None
     assert setup.tabs.count() == 6
     assert setup.step_names == ["Welcome", "Airport", "Flight Data", "Optional Keys", "Diagnostics", "Review & Launch"]
-    assert setup.relay_url.text() == "https://localflight-community-relay.fly.dev"
+    assert setup.relay_url.text() == "https://relay.beacontools.cc"
     assert setup.web_fallback_btn.text().endswith("Open LAN browser setup")
     assert setup.loading_indicator.isVisible() is False
     assert setup.provider_action_status.text()
@@ -896,7 +896,7 @@ def test_native_setup_welcome_layout_is_scroll_safe(monkeypatch: pytest.MonkeyPa
     class _Client:
         def get_json(self, path: str, *, params: dict[str, object] | None = None) -> dict[str, object]:
             if path == "/api/setup/client-info":
-                return {"relay_url": "https://localflight-community-relay.fly.dev", "has_activation_token": False}
+                return {"relay_url": "https://relay.beacontools.cc", "has_activation_token": False}
             return {}
 
     QtCore2, QtGui, QtWidgets2 = import_qt()
@@ -1078,7 +1078,7 @@ def test_native_setup_reuses_stored_relay_token(monkeypatch: pytest.MonkeyPatch)
         def get_json(self, path: str, *, params: dict[str, object] | None = None) -> dict[str, object]:
             if path == "/api/setup/client-info":
                 return {
-                    "relay_url": "https://localflight-community-relay.fly.dev/v1/flights",
+                    "relay_url": "https://relay.beacontools.cc/v1/flights",
                     "activation_token_present": True,
                     "activation_token_prefix": "tok-prefix",
                 }
@@ -1090,7 +1090,7 @@ def test_native_setup_reuses_stored_relay_token(monkeypatch: pytest.MonkeyPatch)
 
     assert app is not None
     assert setup.setup_mode.currentData() == "community"
-    assert setup.relay_url.text() == "https://localflight-community-relay.fly.dev"
+    assert setup.relay_url.text() == "https://relay.beacontools.cc"
     assert "Stored token linked" in setup.activation_token.placeholderText()
     assert setup.diagnostics_mode.currentData() == "manual"
 
@@ -1112,7 +1112,7 @@ def test_native_setup_defaults_to_community_without_token(monkeypatch: pytest.Mo
     class _Client:
         def get_json(self, path: str, *, params: dict[str, object] | None = None) -> dict[str, object]:
             if path == "/api/setup/client-info":
-                return {"relay_url": "https://localflight-community-relay.fly.dev", "activation_token_present": False}
+                return {"relay_url": "https://relay.beacontools.cc", "activation_token_present": False}
             return {}
 
     QtCore, _QtGui, QtWidgets2 = import_qt()
@@ -1137,7 +1137,7 @@ def test_native_setup_airport_selection_updates_finish_summary(monkeypatch: pyte
     class _Client:
         def get_json(self, path: str, *, params: dict[str, object] | None = None) -> dict[str, object]:
             if path == "/api/setup/client-info":
-                return {"relay_url": "https://localflight-community-relay.fly.dev"}
+                return {"relay_url": "https://relay.beacontools.cc"}
             return {}
 
     QtCore, _QtGui, QtWidgets2 = import_qt()
@@ -1169,7 +1169,7 @@ def test_native_setup_provider_links_open_public_urls(monkeypatch: pytest.Monkey
     class _Client:
         def get_json(self, path: str, *, params: dict[str, object] | None = None) -> dict[str, object]:
             if path == "/api/setup/client-info":
-                return {"relay_url": "https://localflight-community-relay.fly.dev"}
+                return {"relay_url": "https://relay.beacontools.cc"}
             return {}
 
     opened: list[str] = []
@@ -1197,12 +1197,12 @@ def test_native_setup_relay_actions_show_local_status(monkeypatch: pytest.Monkey
     class _Client:
         def get_json(self, path: str, *, params: dict[str, object] | None = None) -> dict[str, object]:
             if path == "/api/setup/client-info":
-                return {"relay_url": "https://localflight-community-relay.fly.dev"}
+                return {"relay_url": "https://relay.beacontools.cc"}
             return {}
 
     class _Service:
         def setup_client_info(self) -> dict[str, object]:
-            return {"relay_url": "https://localflight-community-relay.fly.dev"}
+            return {"relay_url": "https://relay.beacontools.cc"}
 
         def setup_activate(self, payload: dict[str, object]) -> dict[str, object]:
             return {"ok": True, "activation_token_prefix": "tok-prefix"}
@@ -1246,14 +1246,14 @@ def test_native_setup_relay_errors_are_friendly_and_not_global_json(monkeypatch:
     class _Client:
         def get_json(self, path: str, *, params: dict[str, object] | None = None) -> dict[str, object]:
             if path == "/api/setup/client-info":
-                return {"relay_url": "https://localflight-community-relay.fly.dev"}
+                return {"relay_url": "https://relay.beacontools.cc"}
             return {}
 
     class _Service:
         activation_calls = 0
 
         def setup_client_info(self) -> dict[str, object]:
-            return {"relay_url": "https://localflight-community-relay.fly.dev"}
+            return {"relay_url": "https://relay.beacontools.cc"}
 
         def setup_activate(self, payload: dict[str, object]) -> dict[str, object]:
             self.activation_calls += 1
@@ -1302,12 +1302,12 @@ def test_native_setup_provider_key_actions_show_feedback(monkeypatch: pytest.Mon
     class _Client:
         def get_json(self, path: str, *, params: dict[str, object] | None = None) -> dict[str, object]:
             if path == "/api/setup/client-info":
-                return {"relay_url": "https://localflight-community-relay.fly.dev"}
+                return {"relay_url": "https://relay.beacontools.cc"}
             return {}
 
     class _Service:
         def setup_client_info(self) -> dict[str, object]:
-            return {"relay_url": "https://localflight-community-relay.fly.dev"}
+            return {"relay_url": "https://relay.beacontools.cc"}
 
         def setup_test_provider_key(self, path: str, key: str) -> dict[str, object]:
             assert key == "secret-test-key"
@@ -1346,7 +1346,7 @@ def test_native_setup_byok_finish_sends_keys_only_for_byok(monkeypatch: pytest.M
 
         def get_json(self, path: str, *, params: dict[str, object] | None = None) -> dict[str, object]:
             if path == "/api/setup/client-info":
-                return {"relay_url": "https://localflight-community-relay.fly.dev"}
+                return {"relay_url": "https://relay.beacontools.cc"}
             return {}
 
         def post_json(self, path: str, payload: dict[str, object]) -> dict[str, object]:
@@ -1391,7 +1391,7 @@ def test_native_setup_virtual_finish_sends_virtual_source(monkeypatch: pytest.Mo
 
         def get_json(self, path: str, *, params: dict[str, object] | None = None) -> dict[str, object]:
             if path == "/api/setup/client-info":
-                return {"relay_url": "https://localflight-community-relay.fly.dev", "activation_token_present": False}
+                return {"relay_url": "https://relay.beacontools.cc", "activation_token_present": False}
             return {}
 
         def post_json(self, path: str, payload: dict[str, object]) -> dict[str, object]:
@@ -1431,7 +1431,7 @@ def test_native_setup_saves_selected_diagnostics_mode(monkeypatch: pytest.Monkey
 
         def get_json(self, path: str, *, params: dict[str, object] | None = None) -> dict[str, object]:
             if path == "/api/setup/client-info":
-                return {"relay_url": "https://localflight-community-relay.fly.dev", "activation_token_present": False}
+                return {"relay_url": "https://relay.beacontools.cc", "activation_token_present": False}
             return {}
 
         def post_json(self, path: str, payload: dict[str, object]) -> dict[str, object]:

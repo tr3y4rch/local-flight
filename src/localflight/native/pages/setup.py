@@ -38,7 +38,7 @@ from localflight.ui.setup_guidance import (
 )
 
 
-DEFAULT_RELAY_URL = "https://localflight-community-relay.fly.dev"
+DEFAULT_RELAY_URL = "https://relay.beacontools.cc"
 PROVIDER_LINKS: tuple[tuple[str, str], ...] = tuple((item["label"], item["url"]) for item in SETUP_PROVIDER_LINKS)
 
 

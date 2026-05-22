@@ -624,7 +624,7 @@
         </div>
         <div class="field" style="margin-top:12px; margin-bottom:0;">
           <label for="relayUrl">Relay address</label>
-          <input type="text" id="relayUrl" placeholder="{{ relay_url_default or 'https://localflight-community-relay.fly.dev' }}" />
+          <input type="text" id="relayUrl" placeholder="{{ relay_url_default or 'https://relay.beacontools.cc' }}" />
           <div class="hint">Leave this on the hosted Local Flight relay unless you run your own. Only the relay base address belongs here.</div>
         </div>
         <div class="mini-actions" id="managedActions">
@@ -780,7 +780,7 @@
   function cleanRelayDisplay(value) {
     let clean = String(value || "").trim().replace(/\/+$/, "");
     clean = clean.replace(/\/(?:v1\/)?(?:flights|schedule)$/i, "");
-    return clean || "{{ relay_url_default or 'https://localflight-community-relay.fly.dev' }}";
+    return clean || "{{ relay_url_default or 'https://relay.beacontools.cc' }}";
   }
 
   function setGlobal(text, kind) {

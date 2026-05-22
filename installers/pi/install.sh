@@ -220,7 +220,7 @@ if [ ! -f "$ROOT/.env" ]; then
 # Restart after any manual changes: sudo systemctl restart localflight
 
 LOCALFLIGHT_ACTIVATION_TOKEN=
-LOCALFLIGHT_RELAY_URL=https://localflight-community-relay.fly.dev
+LOCALFLIGHT_RELAY_URL=https://relay.beacontools.cc
 LOCALFLIGHT_GUI_MODE=headless
 
 AVIATIONSTACK_API_KEY=

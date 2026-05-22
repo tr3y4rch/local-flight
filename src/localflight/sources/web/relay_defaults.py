@@ -4,10 +4,10 @@ import ipaddress
 import os
 from urllib.parse import urlparse
 
-DEFAULT_PUBLIC_RELAY_HOST = "localflight-community-relay.fly.dev"
+DEFAULT_PUBLIC_RELAY_HOST = "relay.beacontools.cc"
 DEFAULT_ADMIN_RELAY_HOST = "network.beacontools.cc"
 DEFAULT_PUBLIC_RELAY_URL = f"https://{DEFAULT_PUBLIC_RELAY_HOST}"
-OFFICIAL_PUBLIC_RELAY_HOSTS = {DEFAULT_PUBLIC_RELAY_HOST, "relay.beacontools.cc"}
+OFFICIAL_PUBLIC_RELAY_HOSTS = {DEFAULT_PUBLIC_RELAY_HOST, "localflight-community-relay.fly.dev"}
 
 
 def default_public_relay_url() -> str:

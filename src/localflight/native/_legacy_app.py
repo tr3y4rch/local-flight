@@ -1428,8 +1428,8 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
         layout.addWidget(self.mode_help)
 
         relay_box, relay_layout = panel(self.QtWidgets, "Community Relay")
-        self.relay_url = self.QtWidgets.QLineEdit("https://localflight-community-relay.fly.dev")
-        self.relay_url.setPlaceholderText("https://localflight-community-relay.fly.dev")
+        self.relay_url = self.QtWidgets.QLineEdit("https://relay.beacontools.cc")
+        self.relay_url.setPlaceholderText("https://relay.beacontools.cc")
         self.relay_url.setMaximumWidth(540)
         self.activation_token = self.QtWidgets.QLineEdit()
         self.activation_token.setEchoMode(self.QtWidgets.QLineEdit.Password)
@@ -1712,7 +1712,7 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
         for suffix in ("/v1/flights", "/v1/schedule", "/flights", "/schedule"):
             if clean.endswith(suffix):
                 clean = clean[: -len(suffix)]
-        return clean or "https://localflight-community-relay.fly.dev"
+        return clean or "https://relay.beacontools.cc"
 
     def _toggle_secret(self, field: Any, button: Any, label_text: str) -> None:
         is_password = field.echoMode() == self.QtWidgets.QLineEdit.Password

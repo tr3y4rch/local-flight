@@ -130,7 +130,7 @@ if [ ! -f "$ROOT/.env" ]; then
 # Fill these in via the setup wizard on first launch.
 
 LOCALFLIGHT_ACTIVATION_TOKEN=
-LOCALFLIGHT_RELAY_URL=https://localflight-community-relay.fly.dev
+LOCALFLIGHT_RELAY_URL=https://relay.beacontools.cc
 LOCALFLIGHT_GUI_MODE=native
 
 AVIATIONSTACK_API_KEY=

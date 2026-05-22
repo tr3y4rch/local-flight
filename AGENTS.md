@@ -291,7 +291,7 @@ Two separate integrations — do not confuse them:
 ```
 # Community relay / activation
 LOCALFLIGHT_ACTIVATION_TOKEN=
-LOCALFLIGHT_RELAY_URL=https://localflight-community-relay.fly.dev
+LOCALFLIGHT_RELAY_URL=https://relay.beacontools.cc
 LOCALFLIGHT_GUI_MODE=native
 
 # BYOK AviationStack (leave blank to use community relay)
@@ -431,7 +431,7 @@ fly deploy --remote-only --config relay/fly.toml --dockerfile relay/Dockerfile -
 ### Verify relay health
 
 ```powershell
-curl.exe -I --max-time 20 https://localflight-community-relay.fly.dev/health
+curl.exe -I --max-time 20 https://relay.beacontools.cc/health
 ```
 
 Expected: HTTP `200`.
@@ -440,7 +440,7 @@ Then smoke a fresh schedule lane. If an old cached lane already exists, either c
 
 ```powershell
 $installId = [guid]::NewGuid().ToString()
-$uri = "https://localflight-community-relay.fly.dev/v1/schedule?airport_iata=ZRH&timezone=Europe%2FZurich&display_grace_minutes=120&display_horizon_hours=24&refresh_seconds=3600&install_id=$installId&app_version=0.2.7-smoke&os_family=windows&requested_gui=native&effective_gui=native&source_mode=real&diagnostics_mode=manual"
+$uri = "https://relay.beacontools.cc/v1/schedule?airport_iata=ZRH&timezone=Europe%2FZurich&display_grace_minutes=120&display_horizon_hours=24&refresh_seconds=3600&install_id=$installId&app_version=0.2.7-smoke&os_family=windows&requested_gui=native&effective_gui=native&source_mode=real&diagnostics_mode=manual"
 $schedule = Invoke-RestMethod -Method Get -Uri $uri
 $schedule.provider
 $schedule.cache_state
@@ -467,7 +467,7 @@ $body = @{
 
 Invoke-RestMethod `
   -Method Post `
-  -Uri "https://localflight-community-relay.fly.dev/v1/reports" `
+  -Uri "https://relay.beacontools.cc/v1/reports" `
   -ContentType "application/json" `
   -Body $body
 ```
@@ -670,7 +670,7 @@ npm run ios
 - Mobile validation belongs on the Mac/Xcode machine: `cd mobile`, `npm install`, `npm run typecheck`, `npm run doctor`, then `npm run ios` or `npm run ios:device`. LAN Companion should prefer the desktop/Pi LAN IP or the native Settings QR; `http://localflight.local:8000` is only a fallback when exactly one Local Flight server is on the LAN. Do not use phone-local `localhost`. Standalone should verify airport search, activation, FIDS, Radar, local History, Settings, and direct relay reporting without a LAN server.
 - Keep public/internal separation intact during the Mac pass: public docs may describe the native privacy-first GUI and user reporting, but should not expose operator Network Admin routes, Fly secrets, `DEV_README.md`, `AGENTS.md`, or raw relay admin paths.
 - Active desktop/server version is `0.2.7`: `pyproject.toml`, runtime fallbacks, bundled release notes, docs, and mobile metadata should all agree unless we deliberately split the mobile preview version later.
-- Community relay root is still the staged client default at `https://localflight-community-relay.fly.dev` until Beacon Tools DNS/Fly TLS are verified. `relay.beacontools.cc` is the staged public relay host and `network.beacontools.cc` is the operator admin host. The client derives `/v1/schedule`, `/v1/radar`, `/v1/airport-surface`, `/v1/reports`, and activation routes internally; `/v1/flights` is raw-provider debug only.
+- Community relay root is now `https://relay.beacontools.cc` after Beacon Tools DNS and Fly TLS verification. `network.beacontools.cc` is the operator admin host, and the Fly.io root remains accepted for existing installs. The client derives `/v1/schedule`, `/v1/radar`, `/v1/airport-surface`, `/v1/reports`, and activation routes internally; `/v1/flights` is raw-provider debug only.
 - Relay admin panel: prefer Fly dashboard/CLI or `fly ssh console`. The local `start_network.bat` helper is operator-only and gitignored. Public admin access is optional and must stay password-protected; do not publish operator-only entrypoints in public docs.
 - Chrome-free GUI foundation is now native-first by default: blank/invalid `LOCALFLIGHT_GUI_MODE` resolves to `native`, `platform/gui_launcher.py` verifies PySide6/Qt before native launch, display-attached Pi/Linux can use native fullscreen when installed through `--native-kiosk`, and browser/kiosk mode remains a supported LAN/browser display path for users who prefer or need it. Source installers now expose the display choice directly: Windows `install.ps1 -DisplayMode Native|Browser|Headless`, macOS `install.sh --display native|browser|headless`, and Pi `install.sh` prompts when no flag is passed while preserving `--headless`, `--native-kiosk`, and `--kiosk`. The native client now mirrors the browser/LAN UI structure with a top nav and user pages, loads the shared SVG splash/brand/preview media, embeds the public README/privacy/changelog reader inside Settings, has native setup/matrix/logs/traffic/report controls wired to declared local routes, connects to local `/ws` via QtWebSockets, and includes a required first-run Diagnostics step that saves `diagnostics_mode` through `/api/setup/complete` before the Display shell opens. Its design layer maps the same dark/light theme plus standard/technical/neon/cyan/crt skins into Qt styling and native canvas painters, so FIDS/Radar/Matrix no longer drift into a single debug palette. Native local API calls use a short TTL cache for duplicate-safe GET routes, mutate actions clear that cache, hidden canvases pause animation timers, and active-page polling is intentionally lighter than the browser UI. Network Admin remains a separate operator-only Qt shell backed by styled `/admin/api/*` relay read/action endpoints.
 - Fly deployment: one warm machine in `fra`, one SQLite volume (`relay_data`), host-based public/admin gating in `relay/main.py`. Shared-schedule relay deploys must use the repo-root command `fly deploy --config relay/fly.toml --dockerfile relay/Dockerfile --remote-only -a localflight-community-relay` so the image includes `src/localflight`.
@@ -913,7 +913,7 @@ npm run ios
 - [ ] Rebuild the Windows artifact on the Windows dev machine from this commit: `python build.py --clean`, verify `dist/LocalFlight-windows.zip.sha256`, and confirm the zip carries `localflight-0.2.7.dist-info`.
 - [ ] Rebuild the Pi source artifact from this commit: `python scripts/package_pi_source.py`, verify `dist/LocalFlight-pi-source-0.2.7.zip.sha256`, and confirm internal handoff docs are excluded.
 - [ ] Build the macOS artifact from this commit, then create the GitHub release `v0.2.7` and attach Windows, macOS, and Pi artifacts plus all matching `.sha256` files.
-- [ ] Deploy the Beacon Tools Cloudflare Pages site from `site/`, then wire `relay.beacontools.cc` and `network.beacontools.cc` DNS/TLS to `localflight-community-relay.fly.dev`; after `/health` and `/admin` pass, flip client relay defaults from the Fly root to `https://relay.beacontools.cc`.
+- [x] Deploy the Beacon Tools Cloudflare Pages site from `site/`, wire `relay.beacontools.cc` and `network.beacontools.cc` DNS/TLS to Fly, and flip client relay defaults from the Fly root to `https://relay.beacontools.cc`.
 - [ ] End-to-end community client activation test against live relay.
 - [x] Sparse AviationStack airport next step is implemented as the AeroDataBox/fusion/cache-hardening path: AeroDataBox is primary when configured, AviationStack is sparse fill/fallback, and stale merged cache can serve instead of replacing a healthy board with suspiciously thin data.
 - [ ] Mobile — run `npm run ios` or `npm run ios:device` on the Mac/Xcode machine after the docs/standalone commit lands.

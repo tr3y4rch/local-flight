@@ -27,7 +27,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Beacon Tools public home
 - Beacon Tools is now the public home for Local Flight at `https://beacontools.cc/local-flight`, with the public privacy policy at `https://beacontools.cc/privacy`.
 - Added a no-build Cloudflare Pages site under `site/` for the Beacon Tools home, Local Flight product page, privacy page, and `/local-flight/privacy` redirect.
-- Added `relay.beacontools.cc` as the staged official relay hostname and moved the relay's public/admin host defaults to `relay.beacontools.cc` and `network.beacontools.cc`; client relay defaults remain on the Fly.io root until DNS and Fly TLS are live.
+- Added `relay.beacontools.cc` as the official relay hostname, moved the relay's public/admin host defaults to `relay.beacontools.cc` and `network.beacontools.cc`, and flipped client relay defaults to `https://relay.beacontools.cc` after DNS and Fly TLS were verified. The Fly.io root remains accepted for existing installs.
 - Public copy now uses `home@beacontools.cc` for general/support contact and `privacy@beacontools.cc` for privacy and diagnostics requests.
 
 ### History movement hardening
