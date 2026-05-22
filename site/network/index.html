@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Network | Beacon Tools</title>
+  <meta name="description" content="Public notes for the Beacon Tools relay, Local Flight Standalone, and operator network separation.">
+  <link rel="stylesheet" href="/assets/site.css">
+</head>
+<body>
+  <div class="site-shell">
+    <nav class="topbar" aria-label="Main navigation">
+      <div class="nav">
+        <a class="brand" href="/">
+          <span class="brand-mark"><img src="/assets/localflight-logo.svg" alt=""></span>
+          <span class="brand-text">Beacon Tools <small>Network</small></span>
+        </a>
+        <div class="nav-links">
+          <a class="home-button" href="/">Home</a>
+          <a href="/local-flight/">Local Flight</a>
+          <a href="/local-flight/mobile/">Mobile</a>
+          <a href="/network/">Network</a>
+          <a href="/privacy/">Privacy</a>
+          <a href="/support/">Support</a>
+          <a href="https://github.com/tr3y4rch/local-flight">GitHub</a>
+        </div>
+      </div>
+    </nav>
+
+    <header class="hero compact" style="--hero-image: url('/assets/radar-preview.svg');">
+      <div class="wrap">
+        <div class="hero-content">
+          <div class="eyebrow">Beacon Tools Network</div>
+          <h1>Public relay for Local Flight, with admin kept separate.</h1>
+          <p class="lede">The hosted relay helps Local Flight clients use shared cached data without shipping provider keys inside every install.</p>
+          <div class="status-strip">
+            <span class="status-chip">Public relay: relay.beacontools.cc</span>
+            <span class="status-chip amber">Admin: operator-only</span>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <main>
+      <section class="section">
+        <div class="wrap">
+          <div class="grid two">
+            <article class="card good-card">
+              <h3>Public client host</h3>
+              <p><code>https://relay.beacontools.cc</code><br>Local Flight Relay and Mobile Standalone use public `/v1/*` API paths for activation, schedules, radar, METAR, reports, status, heartbeat, and mobile summaries.</p>
+            </article>
+            <article class="card warning-card">
+              <h3>Operator host</h3>
+              <p><code>https://network.beacontools.cc/admin</code><br>This is the operator admin surface. It is not part of normal public client navigation and should require operator authentication.</p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="wrap">
+          <div class="section-head">
+            <div>
+              <div class="eyebrow">What the relay does</div>
+              <h2>Shared data, guarded usage.</h2>
+            </div>
+          </div>
+          <ul class="console-list">
+            <li>Caches shared airport schedule snapshots so many installs can watch the same airport without each one calling a paid provider.</li>
+            <li>Applies activation, rate limits, refresh policies, and stale-safe serving to protect shared upstream quotas.</li>
+            <li>Supports Mobile Standalone and Local Flight Relay without requiring user accounts.</li>
+            <li>Accepts consent-based reports and diagnostics through the relay reporting path.</li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="wrap">
+          <div class="section-head">
+            <div>
+              <div class="eyebrow">If Standalone is offline</div>
+              <h2>Basic checks first.</h2>
+            </div>
+          </div>
+          <ol class="timeline">
+            <li>Check the phone has internet access. Standalone does not use your desktop or Pi server.</li>
+            <li>Try again after a few minutes. Relay-backed data can intentionally serve stale cached boards during upstream problems.</li>
+            <li>Check whether only radar is affected. Radar refresh and range are intentionally limited on mobile.</li>
+            <li>If it still fails, use <a href="/support/">Support</a> and include the app mode, airport, approximate time, and diagnostics setting.</li>
+          </ol>
+        </div>
+      </section>
+
+      <section class="section tight">
+        <div class="wrap">
+          <article class="card warning-card">
+            <h3>Public safety note</h3>
+            <p>Relay responses and cached board data are informational display aids. They can be delayed, incomplete, wrong, unavailable, or intentionally stale. Do not use them for professional or safety-critical aviation decisions.</p>
+          </article>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <div class="wrap footer-row">
+        <span>Beacon Tools</span>
+        <span><a href="/">Home</a> &middot; <a href="/local-flight/">Local Flight</a> &middot; <a href="/local-flight/mobile/">Mobile</a> &middot; <a href="/privacy/">Privacy</a> &middot; <a href="/privacy/choices/">Choices</a> &middot; <a href="/support/">Support</a> &middot; <a href="https://github.com/tr3y4rch/local-flight">GitHub</a></span>
+      </div>
+    </footer>
+  </div>
+</body>
+</html>

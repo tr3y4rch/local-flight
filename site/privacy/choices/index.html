@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Privacy Choices | Beacon Tools</title>
+  <meta name="description" content="Plain-language privacy choices, diagnostics, data reset, and deletion guidance for Local Flight by Beacon Tools.">
+  <link rel="stylesheet" href="/assets/site.css">
+</head>
+<body>
+  <div class="site-shell">
+    <nav class="topbar" aria-label="Main navigation">
+      <div class="nav">
+        <a class="brand" href="/">
+          <span class="brand-mark"><img src="/assets/localflight-logo.svg" alt=""></span>
+          <span class="brand-text">Beacon Tools <small>Privacy choices</small></span>
+        </a>
+        <div class="nav-links">
+          <a class="home-button" href="/">Home</a>
+          <a href="/local-flight/">Local Flight</a>
+          <a href="/local-flight/mobile/">Mobile</a>
+          <a href="/network/">Network</a>
+          <a href="/privacy/">Privacy</a>
+          <a href="/support/">Support</a>
+          <a href="https://github.com/tr3y4rch/local-flight">GitHub</a>
+        </div>
+      </div>
+    </nav>
+
+    <header class="hero compact" style="--hero-image: url('/assets/mobile-fids-preview.svg');">
+      <div class="wrap">
+        <div class="hero-content">
+          <div class="eyebrow">Privacy choices</div>
+          <h1>Control what leaves your device.</h1>
+          <p class="lede">This page is the short checklist for diagnostics, local data removal, mobile resets, and relay data questions. The full policy remains at <a href="/privacy/">beacontools.cc/privacy</a>.</p>
+          <div class="actions">
+            <a class="button primary" href="mailto:privacy@beacontools.cc">Email privacy contact</a>
+            <a class="button secondary" href="/privacy/">Full privacy policy</a>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <main>
+      <section class="section">
+        <div class="wrap">
+          <div class="section-head">
+            <div>
+              <div class="eyebrow">Diagnostics</div>
+              <h2>Reports are consent-based.</h2>
+            </div>
+          </div>
+          <div class="grid three">
+            <article class="card good-card"><h3>Off</h3><p>No automatic crash diagnostics. Manual reports still only send if you submit them.</p></article>
+            <article class="card"><h3>Auto</h3><p>Automatic crash reports can send sanitized technical context when the app's diagnostics setting allows it.</p></article>
+            <article class="card"><h3>Auto with logs</h3><p>Automatic reports can include a sanitized recent log excerpt when that stronger diagnostics option is enabled.</p></article>
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="wrap">
+          <div class="section-head">
+            <div>
+              <div class="eyebrow">Local data</div>
+              <h2>Delete local data on your own devices.</h2>
+            </div>
+          </div>
+          <ol class="timeline">
+            <li>Desktop or Raspberry Pi: stop Local Flight, then remove <code>~/.localflight/</code> to wipe local config, snapshots, history, logs, setup state, and local request logs.</li>
+            <li>Mobile: use the app's reset flows where available, or remove the app to clear its local setup, selected airport, appearance, pinned flight, diagnostics choice, and local standalone history.</li>
+            <li>Bring-your-own provider keys are local to your install. Removing local app data removes Local Flight's stored copy.</li>
+          </ol>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="wrap">
+          <div class="grid two">
+            <article class="card">
+              <h3>Relay records</h3>
+              <p>Relay-backed features may create technical records such as random install UUIDs, hashed install fingerprints, token prefixes, usage counters, last-seen timestamps, short-lived airport interest rows, shared cache entries, and coarse app/platform profile fields.</p>
+            </article>
+            <article class="card">
+              <h3>What is not intended</h3>
+              <p>The relay is not intended to store raw IP addresses, readable personal identifiers, personal provider keys from your install, local flight history, phone standalone history, full logs, screenshots, recordings, or account data.</p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="wrap">
+          <div class="section-head">
+            <div>
+              <div class="eyebrow">Requests</div>
+              <h2>Ask through the privacy contact.</h2>
+            </div>
+            <p>Local Flight does not require an account or email address. If you contact Beacon Tools directly, your email address and message are handled by the email provider so Beacon Tools can reply.</p>
+          </div>
+          <div class="grid two">
+            <article class="card contact-card">
+              <h3>Privacy and diagnostics</h3>
+              <p><a href="mailto:privacy@beacontools.cc">privacy@beacontools.cc</a></p>
+            </article>
+            <article class="card contact-card">
+              <h3>General support</h3>
+              <p><a href="mailto:home@beacontools.cc">home@beacontools.cc</a></p>
+            </article>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <div class="wrap footer-row">
+        <span>Beacon Tools</span>
+        <span><a href="/">Home</a> &middot; <a href="/local-flight/">Local Flight</a> &middot; <a href="/local-flight/mobile/">Mobile</a> &middot; <a href="/network/">Network</a> &middot; <a href="/privacy/">Privacy</a> &middot; <a href="/support/">Support</a> &middot; <a href="https://github.com/tr3y4rch/local-flight">GitHub</a></span>
+      </div>
+    </footer>
+  </div>
+</body>
+</html>

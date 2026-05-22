@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Local Flight Mobile | Beacon Tools</title>
+  <meta name="description" content="Local Flight Mobile is preparing for TestFlight and Play Store testing with LAN Companion and Standalone relay modes.">
+  <link rel="stylesheet" href="/assets/site.css">
+</head>
+<body>
+  <div class="site-shell">
+    <nav class="topbar" aria-label="Main navigation">
+      <div class="nav">
+        <a class="brand" href="/">
+          <span class="brand-mark"><img src="/assets/localflight-logo.svg" alt=""></span>
+          <span class="brand-text">Beacon Tools <small>Mobile</small></span>
+        </a>
+        <div class="nav-links">
+          <a class="home-button" href="/">Home</a>
+          <a href="/local-flight/">Local Flight</a>
+          <a href="/local-flight/mobile/">Mobile</a>
+          <a href="/network/">Network</a>
+          <a href="/privacy/">Privacy</a>
+          <a href="/support/">Support</a>
+          <a href="https://github.com/tr3y4rch/local-flight">GitHub</a>
+        </div>
+      </div>
+    </nav>
+
+    <header class="hero" style="--hero-image: url('/assets/mobile-fids-preview.svg');">
+      <div class="wrap">
+        <div class="hero-content">
+          <div class="eyebrow">Local Flight Mobile</div>
+          <h1>Phone-sized flight boards, TestFlight and Play Store soon.</h1>
+          <p class="lede">Local Flight Mobile brings the same board, radar, history, and reporting model to iPhone, iPad, and Android testing builds. Public store distribution is not live yet.</p>
+          <div class="actions">
+            <a class="button primary" href="mailto:home@beacontools.cc?subject=Local%20Flight%20Mobile%20testing">Ask about mobile testing</a>
+            <a class="button secondary" href="/privacy/choices/">Privacy choices</a>
+            <a class="button" href="/support/">Support</a>
+          </div>
+          <div class="status-strip">
+            <span class="status-chip amber">TestFlight soon</span>
+            <span class="status-chip amber">Play Store soon</span>
+            <span class="status-chip">Relay: relay.beacontools.cc</span>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <main>
+      <section class="section">
+        <div class="wrap">
+          <div class="section-head">
+            <div>
+              <div class="eyebrow">Two setup paths</div>
+              <h2>Companion when you have a server. Standalone when you do not.</h2>
+            </div>
+          </div>
+          <div class="grid two">
+            <article class="card good-card">
+              <h3>LAN Companion</h3>
+              <p>Pairs with your Local Flight desktop or Raspberry Pi server over your own Wi-Fi/LAN. It uses the paired server for Board, Radar, History, Control, Help, WebSocket updates, reports, and safe Matrix controls.</p>
+            </article>
+            <article class="card">
+              <h3>Standalone</h3>
+              <p>Talks directly to the Beacon Tools relay for a simplified mobile board, radar, METAR, history, settings, and reports. It does not need your desktop or Pi server online.</p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="wrap">
+          <div class="visual-grid">
+            <div class="visual-panel">
+              <img src="/assets/mobile-fids-preview.svg" alt="Local Flight Mobile board preview">
+            </div>
+            <div class="grid two">
+              <article class="card"><h3>Board</h3><p>Airport header, METAR strip, pinned flight, compact rows, local/UTC time, and passenger-friendly status labels.</p></article>
+              <article class="card"><h3>Radar</h3><p>Mobile-owned range rings with LAN or relay-backed aircraft data, depending on setup mode.</p></article>
+              <article class="card"><h3>History</h3><p>LAN Companion reads server history. Standalone keeps deduped movement history locally on the phone.</p></article>
+              <article class="card"><h3>Reports</h3><p>Manual reports are user-triggered. Automatic crash diagnostics only run when the mobile diagnostics choice allows them.</p></article>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="wrap">
+          <div class="section-head">
+            <div>
+              <div class="eyebrow">Relay limits</div>
+              <h2>Standalone is intentionally slower and smaller.</h2>
+            </div>
+            <p>The hosted relay is shared infrastructure, so mobile Standalone protects it with conservative refresh and radar limits.</p>
+          </div>
+          <ul class="console-list">
+            <li>Standalone FIDS refresh is designed around a 3-hour policy rather than rapid polling.</li>
+            <li>Standalone radar refresh is designed around a 5-minute policy while visible.</li>
+            <li>Standalone radar ranges are limited to 1, 3, 5, and 10 nautical miles.</li>
+            <li>Standalone does not expose Matrix, admin, scheduler restart, server URL tools, or LAN control panels.</li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="wrap">
+          <div class="grid two">
+            <article class="card warning-card">
+              <h3>Safety disclaimer</h3>
+              <p>Local Flight Mobile is an informational display aid. Flight, radar, weather, and surface data can be delayed, incomplete, cached, wrong, or unavailable. Do not use it for navigation, dispatch, operational control, flight planning, or safety decisions.</p>
+            </article>
+            <article class="card">
+              <h3>Privacy model</h3>
+              <p>No accounts, no ads SDKs, and no cross-app tracking. LAN Companion talks to your server first. Standalone uses the hosted relay and stores its own history locally on the phone. See <a href="/privacy/">privacy policy</a> and <a href="/privacy/choices/">privacy choices</a>.</p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="wrap">
+          <div class="section-head">
+            <div>
+              <div class="eyebrow">Testing status</div>
+              <h2>Not publicly released yet.</h2>
+            </div>
+          </div>
+          <ol class="timeline">
+            <li>Internal mobile preview builds validate LAN Companion, Standalone relay, privacy prompts, diagnostics, and store metadata.</li>
+            <li>TestFlight and Play Store testing links will come after the submitted builds and review metadata are ready.</li>
+            <li>Until then, testing interest and support questions can go to <a href="mailto:home@beacontools.cc">home@beacontools.cc</a>.</li>
+          </ol>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <div class="wrap footer-row">
+        <span>Beacon Tools</span>
+        <span><a href="/">Home</a> &middot; <a href="/local-flight/">Local Flight</a> &middot; <a href="/network/">Network</a> &middot; <a href="/privacy/">Privacy</a> &middot; <a href="/privacy/choices/">Choices</a> &middot; <a href="/support/">Support</a> &middot; <a href="https://github.com/tr3y4rch/local-flight">GitHub</a></span>
+      </div>
+    </footer>
+  </div>
+</body>
+</html>

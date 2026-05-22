@@ -18,9 +18,11 @@
         <div class="nav-links">
           <a class="home-button" href="/">Home</a>
           <a href="/local-flight/">Local Flight</a>
+          <a href="/local-flight/mobile/">Mobile</a>
+          <a href="/network/">Network</a>
           <a href="/privacy/">Privacy</a>
+          <a href="/support/">Support</a>
           <a href="https://github.com/tr3y4rch/local-flight">GitHub</a>
-          <a href="mailto:home@beacontools.cc">Contact</a>
         </div>
       </div>
     </nav>
@@ -33,10 +35,11 @@
           <p class="lede">Local Flight is a self-hosted FIDS for Windows, macOS, Raspberry Pi, LAN browsers, mobile devices, radar/history dashboards, and HUB75 LED matrix panels.</p>
           <div class="actions">
             <a class="button primary" href="https://github.com/tr3y4rch/local-flight/releases">Download releases</a>
+            <a class="button secondary" href="/local-flight/mobile/">Mobile apps</a>
             <a class="button" href="https://github.com/tr3y4rch/local-flight">Source on GitHub</a>
-            <a class="button secondary" href="/privacy/">Privacy</a>
+            <a class="button secondary" href="/support/">Support</a>
           </div>
-          <p class="note">Current beta target: <strong>0.2.7</strong>. Flight, radar, weather, and surface data are informational display aids only and are not for navigation, dispatch, operational control, or safety decisions.</p>
+          <p class="note">Current beta target: <strong>0.2.7</strong>. Flight, radar, weather, surface, relay, and mobile data are informational display aids only and are not for navigation, dispatch, operational control, flight planning, or safety decisions.</p>
         </div>
       </div>
     </header>
@@ -77,7 +80,10 @@
                 </span>
                 Mobile
               </h3>
-              <p>The Expo mobile app supports LAN Companion mode for a paired server and Standalone mode through the hosted Beacon Tools relay.</p>
+              <p>The Expo mobile app supports LAN Companion mode for a paired server and Standalone mode through the hosted Beacon Tools relay. TestFlight and Play Store testing are coming soon.</p>
+              <div class="actions">
+                <a class="button secondary" href="/local-flight/mobile/">Mobile details</a>
+              </div>
             </article>
           </div>
         </div>
@@ -122,9 +128,9 @@
               <img src="/assets/fids-preview.svg" alt="Local Flight FIDS preview">
             </div>
             <div class="grid two">
-              <article class="card"><h3>Native desktop</h3><p>Windows and macOS shell with Classic, PAX, VATSIM, and Nerd FIDS styles.</p></article>
-              <article class="card"><h3>LAN browser</h3><p>Remote screens, tablets, headless installs, and compact Raspberry Pi layouts.</p></article>
-              <article class="card"><h3>Mobile</h3><p>LAN Companion and Standalone modes for phone-sized board, radar, history, and reporting workflows.</p></article>
+            <article class="card"><h3>Native desktop</h3><p>Windows and macOS shell with Classic, PAX, VATSIM, and Nerd FIDS styles.</p></article>
+            <article class="card"><h3>LAN browser</h3><p>Remote screens, tablets, headless installs, and compact Raspberry Pi layouts.</p></article>
+              <article class="card"><h3>Mobile</h3><p>LAN Companion and Standalone modes for phone-sized board, radar, history, and reporting workflows. TestFlight and Play Store testing are planned next.</p></article>
               <article class="card"><h3>Matrix</h3><p>Preview and generated MicroPython client for Interstate 75 W / HUB75 panels.</p></article>
             </div>
           </div>
@@ -149,6 +155,10 @@
               <h3>What it does</h3>
               <p>The relay protects provider keys, caches shared airport snapshots, applies rate limits, and keeps the hobbyist path usable without every install needing paid API credentials.</p>
             </article>
+            <article class="card">
+              <h3>Network page</h3>
+              <p>Public relay and operator-admin separation are documented at <a href="/network/">beacontools.cc/network</a>.</p>
+            </article>
           </div>
         </div>
       </section>
@@ -169,9 +179,18 @@
             </article>
             <article class="card">
               <h3>Policy</h3>
-              <p>The public privacy policy is at <a href="/privacy/">beacontools.cc/privacy</a>. Privacy and diagnostics requests go to <a href="mailto:privacy@beacontools.cc">privacy@beacontools.cc</a>.</p>
+              <p>The public privacy policy is at <a href="/privacy/">beacontools.cc/privacy</a>. Privacy controls and data deletion guidance live at <a href="/privacy/choices/">beacontools.cc/privacy/choices</a>.</p>
             </article>
           </div>
+        </div>
+      </section>
+
+      <section class="section tight" id="safety">
+        <div class="wrap">
+          <article class="card warning-card">
+            <h3>No professional or operational use</h3>
+            <p>Local Flight is a hobbyist display tool. Data can be delayed, incomplete, cached, wrong, or unavailable. Always use official aviation sources and certified systems for real-world decisions.</p>
+          </article>
         </div>
       </section>
 
@@ -180,7 +199,7 @@
           <div class="grid two">
             <article class="card contact-card">
               <h3>General and support</h3>
-              <p><a href="mailto:home@beacontools.cc">home@beacontools.cc</a></p>
+              <p><a href="/support/">Open support routes</a><br><a href="mailto:home@beacontools.cc">home@beacontools.cc</a></p>
             </article>
             <article class="card contact-card">
               <h3>Release notes and notices</h3>
@@ -194,7 +213,7 @@
     <footer class="footer">
       <div class="wrap footer-row">
         <span>Beacon Tools</span>
-        <span><a href="/">Home</a> &middot; <a href="/privacy/">Privacy</a> &middot; <a href="https://github.com/tr3y4rch/local-flight">GitHub</a></span>
+        <span><a href="/">Home</a> &middot; <a href="/local-flight/mobile/">Mobile</a> &middot; <a href="/network/">Network</a> &middot; <a href="/privacy/">Privacy</a> &middot; <a href="/support/">Support</a> &middot; <a href="https://github.com/tr3y4rch/local-flight">GitHub</a></span>
       </div>
     </footer>
   </div>

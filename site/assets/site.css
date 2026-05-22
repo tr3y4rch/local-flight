@@ -262,6 +262,11 @@ p {
   border-color: rgba(112, 240, 170, 0.38);
 }
 
+.button.warning {
+  background: rgba(31, 29, 17, 0.9);
+  border-color: rgba(255, 213, 106, 0.5);
+}
+
 .button::after {
   content: "";
   width: 12px;
@@ -302,6 +307,16 @@ p {
   border-radius: 50%;
   background: var(--green);
   box-shadow: 0 0 14px rgba(112, 240, 170, 0.7);
+}
+
+.status-chip.amber::before {
+  background: var(--amber);
+  box-shadow: 0 0 14px rgba(255, 213, 106, 0.7);
+}
+
+.status-chip.red::before {
+  background: var(--red);
+  box-shadow: 0 0 14px rgba(255, 139, 139, 0.55);
 }
 
 .section {
@@ -351,6 +366,20 @@ p {
 
 .card p {
   margin: 0;
+}
+
+.card.warning-card {
+  border-color: rgba(255, 213, 106, 0.52);
+  background:
+    linear-gradient(180deg, rgba(255, 213, 106, 0.08), transparent),
+    rgba(31, 29, 17, 0.86);
+}
+
+.card.good-card {
+  border-color: rgba(112, 240, 170, 0.38);
+  background:
+    linear-gradient(180deg, rgba(112, 240, 170, 0.07), transparent),
+    rgba(13, 31, 25, 0.9);
 }
 
 .icon-card h3,
@@ -462,6 +491,71 @@ p {
 .side-panel img {
   width: 96px;
   margin-bottom: 14px;
+}
+
+.link-list {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.link-list a {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  background: rgba(11, 21, 31, 0.74);
+  text-decoration: none;
+  font-weight: 900;
+}
+
+.link-list a::after {
+  content: "";
+  width: 11px;
+  height: 11px;
+  margin-top: 5px;
+  border-top: 2px solid currentColor;
+  border-right: 2px solid currentColor;
+  transform: rotate(45deg);
+  flex: 0 0 auto;
+}
+
+.timeline {
+  display: grid;
+  gap: 12px;
+  counter-reset: step;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.timeline li {
+  counter-increment: step;
+  position: relative;
+  padding: 14px 14px 14px 52px;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  background: rgba(11, 21, 31, 0.74);
+  color: var(--muted);
+}
+
+.timeline li::before {
+  content: counter(step);
+  position: absolute;
+  left: 14px;
+  top: 14px;
+  width: 24px;
+  height: 24px;
+  border: 1px solid rgba(99, 214, 255, 0.5);
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  color: var(--accent);
+  font: 900 0.78rem ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
 .footer {

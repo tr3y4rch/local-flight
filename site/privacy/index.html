@@ -18,9 +18,11 @@
         <div class="nav-links">
           <a class="home-button" href="/">Home</a>
           <a href="/local-flight/">Local Flight</a>
+          <a href="/local-flight/mobile/">Mobile</a>
+          <a href="/network/">Network</a>
           <a href="/privacy/">Privacy</a>
+          <a href="/support/">Support</a>
           <a href="https://github.com/tr3y4rch/local-flight">GitHub</a>
-          <a href="mailto:home@beacontools.cc">Contact</a>
         </div>
       </div>
     </nav>
@@ -35,6 +37,11 @@
             <span class="status-chip">Last updated: May 22, 2026</span>
             <span class="status-chip">No accounts</span>
             <span class="status-chip">Diagnostics by consent</span>
+            <span class="status-chip amber">Choices and deletion guidance available</span>
+          </div>
+          <div class="actions">
+            <a class="button secondary" href="/privacy/choices/">Privacy choices</a>
+            <a class="button" href="/support/">Support</a>
           </div>
         </div>
       </div>
@@ -52,6 +59,10 @@
               <h3>Privacy and diagnostics</h3>
               <p><a href="mailto:privacy@beacontools.cc">privacy@beacontools.cc</a></p>
             </article>
+            <article class="card contact-card">
+              <h3>Choices and deletion</h3>
+              <p><a href="/privacy/choices/">Open privacy choices</a></p>
+            </article>
           </div>
         </div>
       </section>
@@ -67,7 +78,7 @@
           <div class="grid three">
             <article class="card"><h3>No accounts</h3><p>No advertising SDKs, no data brokers, and no cross-app or cross-site tracking.</p></article>
             <article class="card"><h3>Local by default</h3><p>Your config, API keys, snapshots, history, and logs stay on your own machine or device unless you explicitly use relay-backed features or send a report.</p></article>
-            <article class="card"><h3>Native shell</h3><p>The native desktop GUI is a Qt shell, not a browser profile or webview.</p></article>
+            <article class="card"><h3>Choices</h3><p>Diagnostics, local resets, mobile resets, and relay data-request paths are summarized at <a href="/privacy/choices/">beacontools.cc/privacy/choices</a>.</p></article>
           </div>
           <ul class="console-list" style="margin-top: 14px;">
             <li>LAN Companion and Matrix talk to your own Local Flight server first; Mobile Standalone talks directly to the hosted relay.</li>
@@ -143,7 +154,7 @@
             </article>
             <article class="card">
               <h3>Your control</h3>
-              <p>Your local app data is under your control. To wipe desktop/Pi data, stop Local Flight and remove <code>~/.localflight/</code>. Mobile app setup/history data can be removed by clearing the app or using its reset flows.</p>
+              <p>Your local app data is under your control. To wipe desktop/Pi data, stop Local Flight and remove <code>~/.localflight/</code>. Mobile app setup/history data can be removed by clearing the app or using its reset flows. See <a href="/privacy/choices/">privacy choices</a> for the shorter checklist.</p>
             </article>
           </div>
         </div>
@@ -165,7 +176,7 @@
     <footer class="footer">
       <div class="wrap footer-row">
         <span>Beacon Tools</span>
-        <span><a href="/">Home</a> &middot; <a href="/local-flight/">Local Flight</a> &middot; <a href="https://github.com/tr3y4rch/local-flight">GitHub</a></span>
+        <span><a href="/">Home</a> &middot; <a href="/local-flight/">Local Flight</a> &middot; <a href="/local-flight/mobile/">Mobile</a> &middot; <a href="/network/">Network</a> &middot; <a href="/privacy/choices/">Choices</a> &middot; <a href="/support/">Support</a> &middot; <a href="https://github.com/tr3y4rch/local-flight">GitHub</a></span>
       </div>
     </footer>
   </div>
