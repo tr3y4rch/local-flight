@@ -1,12 +1,15 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "beacontools",
+  "main": "workers/beacontools.js",
   "compatibility_date": "2026-05-22",
   "observability": {
     "enabled": true
   },
   "assets": {
-    "directory": "site"
+    "directory": "site",
+    "binding": "ASSETS",
+    "run_worker_first": true
   },
   "compatibility_flags": [
     "nodejs_compat"
