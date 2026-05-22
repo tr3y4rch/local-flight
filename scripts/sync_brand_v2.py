@@ -260,7 +260,6 @@ def sync_local_flight(sources: BrandSources, renderer: SvgRenderer) -> None:
 
     copy_svg(icon_dark, assets / "localflight-logo.svg")
     copy_svg(icon_dark, static / "localflight-logo.svg")
-    copy_svg(icon_dark, site_assets / "localflight-logo.svg")
 
     renderer.render(icon_dark, assets / "icon.png", 1024, 1024)
     write_ico(icon_dark, assets / "icon.ico", renderer)
