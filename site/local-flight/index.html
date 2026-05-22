@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Local Flight | Beacon Tools</title>
-  <meta name="description" content="Local Flight is a local-first Flight Information Display System for desktop, LAN, Raspberry Pi, mobile, and LED matrix displays.">
+  <meta name="description" content="Local Flight is a local-first Flight Information Display System for desktop, LAN, Raspberry Pi, mobile, radar, history, and LED matrix displays.">
   <style>
     :root {
       color-scheme: dark;
@@ -63,7 +63,7 @@
     <div>
       <div class="eyebrow">Local Flight by Beacon Tools</div>
       <h1>Local-first flight boards for screens you own.</h1>
-      <p class="lede">Local Flight is a self-hosted Flight Information Display System for Windows, macOS, Raspberry Pi, LAN browsers, mobile companion screens, and HUB75 LED matrix panels.</p>
+      <p class="lede">Local Flight is a self-hosted Flight Information Display System for Windows, macOS, Raspberry Pi, LAN browsers, mobile devices, radar/history dashboards, and HUB75 LED matrix panels.</p>
       <div class="actions">
         <a class="button primary" href="https://github.com/tr3y4rch/local-flight/releases">Download releases</a>
         <a class="button" href="https://github.com/tr3y4rch/local-flight">Source on GitHub</a>
@@ -86,9 +86,21 @@
       </article>
       <article class="card">
         <h3>Mobile</h3>
-        <p>The Expo mobile app supports LAN Companion mode for a paired server and Standalone mode through the hosted relay.</p>
+        <p>The Expo mobile app supports LAN Companion mode for a paired server and Standalone mode through the hosted Beacon Tools relay. iOS is the primary validation path; Android local development builds are supported.</p>
       </article>
     </div>
+  </section>
+
+  <section id="features">
+    <h2>What It Does</h2>
+    <ul class="list">
+      <li>Guided setup for Local Flight Relay, bring-your-own provider keys, or VATSIM-only virtual traffic.</li>
+      <li>Real-world schedule boards using cached shared snapshots, AeroDataBox primary schedule data, AviationStack sparse fill/fallback compatibility, and stale-safe serving when live providers are slow or capped.</li>
+      <li>Passenger-style FIDS boards with airport-local time, city/country headers, status and gate chips, codeshare grouping, pinned flights, and four native board styles: Classic, PAX, VATSIM, and Nerd.</li>
+      <li>VATSIM display mode with callsign-first rows, filed plan, aircraft, altitude/speed, XPDR, source freshness, and suppression of pilot/controller personal identifiers.</li>
+      <li>Radar with real or virtual traffic, METAR weather, range controls, runway/surface/map/terrain context, and richer aircraft/status detail.</li>
+      <li>Deduped History analytics, Matrix preview/config/script generation, local logs, local settings, and consent-based diagnostics.</li>
+    </ul>
   </section>
 
   <section id="display-modes">
@@ -103,7 +115,7 @@
 
   <section id="relay">
     <h2>Relay</h2>
-    <p>Local Flight can run with your own provider keys, VATSIM-only virtual data, or the hosted Local Flight relay. The relay exists to protect provider keys, cache shared airport snapshots, and keep the hobbyist path usable without every install needing paid API credentials.</p>
+    <p>Local Flight can run with your own provider keys, VATSIM-only virtual data, or the hosted Beacon Tools relay. The relay exists to protect provider keys, cache shared airport snapshots, and keep the hobbyist path usable without every install needing paid API credentials.</p>
     <p>Official Beacon Tools relay hostname:</p>
     <ul class="list">
       <li>Public relay: <code>https://relay.beacontools.cc</code></li>
@@ -112,8 +124,14 @@
 
   <section id="release-notes">
     <h2>Release Notes</h2>
-    <p>The 0.2.7 release-candidate line focuses on native shell polish, FIDS readability, History analytics, Matrix display integrity, mobile LAN Companion and Standalone flows, and relay-facing hardening.</p>
+    <p>The 0.2.7 release-candidate line focuses on native shell polish, FIDS readability, History analytics, Matrix display integrity, mobile LAN Companion and Standalone flows, Beacon Tools public URLs, and relay-facing hardening.</p>
     <a href="https://github.com/tr3y4rch/local-flight/blob/main/CHANGELOG.md">Read the changelog</a>
+  </section>
+
+  <section id="privacy">
+    <h2>Privacy</h2>
+    <p>Local Flight has no accounts, no advertising SDKs, no data brokers, and no cross-app/site tracking. Config, API keys, snapshots, history, logs, mobile appearance, and Matrix settings stay local unless you choose a relay-backed feature or send a report.</p>
+    <a href="/privacy">Read the privacy policy</a>
   </section>
 
   <section id="third-party">

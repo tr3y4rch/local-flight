@@ -11,6 +11,8 @@ For most home setups, start with LAN Companion. Use Standalone when you want a l
 
 Local Flight Mobile is a personal display aid. Flight, weather, radar, and airport-surface data can be delayed, incomplete, or unavailable, so it must not be used for navigation, dispatch, operational control, or safety decisions.
 
+Public project docs live at [beacontools.cc/local-flight](https://beacontools.cc/local-flight). The public privacy policy is [beacontools.cc/privacy](https://beacontools.cc/privacy). Standalone uses the Beacon Tools relay at `https://relay.beacontools.cc`.
+
 > **Quick alternative:** if
 > you only need to glance at the board from a phone, you don't have
 > to build this app. Open the LAN browser UI
@@ -196,7 +198,7 @@ The screenshot script builds a self-contained simulator app and captures portrai
 - Fullscreen landscape FIDS from any screen, with normal portrait state restored when rotating back
 - Mobile-owned radar radius controls. LAN Companion uses the paired server for runway and airport-surface drawing; Standalone uses the relay mobile radar response for this pass.
 - Local standalone movement history database with Expo SQLite
-- Feedback and crash reporting through the connected Local Flight server in LAN Companion mode, or directly through the hosted relay in Standalone mode
+- Feedback and crash reporting through the connected Local Flight server in LAN Companion mode, or directly through the Beacon Tools relay in Standalone mode
 
 Standalone deliberately hides Matrix, Admin, scheduler restart, server-control panels, and LAN Companion check-in. The goal is a useful mobile board, not a mini desktop clone.
 
@@ -216,6 +218,7 @@ Standalone deliberately hides Matrix, Admin, scheduler restart, server-control p
 ### Standalone
 
 - It talks directly to the hosted Local Flight relay.
+- The default relay URL is `https://relay.beacontools.cc`.
 - It registers a separate relay install UUID and activation token for this mobile install.
 - It stores the selected airport and local deduped movement history on the device.
 - Manual reports go directly to relay `/v1/reports`.

@@ -49,6 +49,7 @@
       <li>No accounts, no advertising SDKs, no data brokers, and no cross-app or cross-site tracking.</li>
       <li>Your config, API keys, snapshots, history, and logs stay on your own machine or device unless you explicitly use relay-backed features or send a report.</li>
       <li>The native desktop GUI is a Qt shell, not a browser profile or webview.</li>
+      <li>LAN Companion and Matrix talk to your own Local Flight server first; Mobile Standalone talks directly to the hosted relay.</li>
       <li>Manual reports are always your choice. Automatic crash diagnostics only run if you opt in.</li>
       <li>Local Flight is an informational display aid, not a navigation, dispatch, operational-control, or safety system.</li>
     </ul>
@@ -58,9 +59,18 @@
     <p>Mobile Standalone stores its setup mode, relay install UUID, activation token, selected airport, appearance, diagnostics choice, pinned flight, and local deduped movement history on the device. Standalone history is not stored on the hosted relay.</p>
 
     <h2>Hosted Relay</h2>
-    <p>If you choose Community Relay or Mobile Standalone, Local Flight may talk to the hosted relay for shared schedule snapshots, relay-backed radar, activation, rate limits, reports, and optional cached surface/map data.</p>
+    <p>If you choose Community Relay or Mobile Standalone, Local Flight may talk to the hosted Beacon Tools relay at <code>https://relay.beacontools.cc</code> for shared schedule snapshots, relay-backed radar, activation, rate limits, reports, and optional cached surface/map data.</p>
+    <p>The current relay schedule path is cache-first and can use AeroDataBox as the primary schedule provider with AviationStack sparse fill/fallback where configured. Bring-your-own-key installs keep their personal provider keys locally.</p>
     <p>The relay stores only the technical metadata needed to run that shared service safely, such as random install UUIDs, hashed install fingerprints, token prefixes, usage counters, last-seen timestamps, short-lived airport interest rows, shared schedule/radar cache entries, and coarse app/platform profile fields.</p>
     <p>The relay does not store raw IP addresses, personal API keys from your install, readable personal identifiers, local flight history, phone standalone history, or local logs unless you explicitly allow diagnostic reports with sanitized logs.</p>
+
+    <h2>Mobile And Matrix</h2>
+    <p>LAN Companion stores its paired server URL, companion ID, appearance, pinned flight, local profiles, and diagnostics choice on the device. It reports a companion-scoped ID to your own Local Flight server so server actions can distinguish desktop/server/mobile clients.</p>
+    <p>Mobile Standalone stores its separate relay install UUID, activation token, selected airport, appearance, pinned flight, diagnostics choice, and deduped movement history on the device. Standalone history is not stored on the hosted relay.</p>
+    <p>Matrix boards receive only display feed/config data from your Local Flight server. Generated MicroPython scripts do not receive provider keys, relay secrets, or admin credentials.</p>
+
+    <h2>VATSIM</h2>
+    <p>VATSIM mode uses public virtual-network data for flight-board display. Local Flight keeps callsigns, aircraft, filed route/plan, airport/timing data, and aircraft position where useful. It intentionally avoids storing or displaying pilot names, controller names, CIDs/account IDs, server names, or other person-identifying VATSIM fields.</p>
 
     <h2>Diagnostics And Reports</h2>
     <p>Manual reports can include the title and description you write, Local Flight version, install fingerprint, operating system, Python version, configured airport/source mode, diagnostics mode, display settings, and the reporting surface.</p>

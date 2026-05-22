@@ -8,15 +8,15 @@ This file is the working checklist for the first iOS proof-of-concept review. It
 - Bundle identifier: `com.localflight.companion`
 - Version: `0.2.7`
 - Recommended review path: choose **Standalone** on first launch so the app can be tested without a desktop or Raspberry Pi server.
-- Standalone setup needs an airport, a mobile diagnostics choice, and relay activation. It does not open LAN WebSockets, Matrix controls, scheduler controls, or server-control panels.
+- Standalone setup needs an airport, a mobile diagnostics choice, and relay activation through `https://relay.beacontools.cc`. It does not open LAN WebSockets, Matrix controls, scheduler controls, or server-control panels.
 - Standalone daily surfaces are **Board**, **Radar**, **History**, and **Settings**.
-- LAN Mobile is also included. It pairs with a Local Flight desktop/Pi server over the same local network by QR code or manual URL.
-- LAN Mobile daily surfaces are **Board**, **Radar**, **History**, and **Control**. Help, troubleshooting, reports, and support are folded into Control so there is no separate Help tab in the current build.
+- LAN Companion is also included. It pairs with a Local Flight desktop/Pi server over the same local network by QR code or manual URL.
+- LAN Companion daily surfaces are **Board**, **Radar**, **History**, **Control**, and **Help**.
 
 ## Permission Rationale
 
 - Camera: used only to scan Local Flight pairing QR codes. Manual URL entry remains available if camera access is denied.
-- Local Network: used only by LAN Mobile to connect to the user's own Local Flight server on Wi-Fi/LAN.
+- Local Network: used only by LAN Companion to connect to the user's own Local Flight server on Wi-Fi/LAN.
 - App Transport Security: local HTTP is allowed for LAN pairing with self-hosted desktop/Pi servers. Standalone relay traffic should use HTTPS.
 
 ## Privacy Summary
@@ -50,10 +50,10 @@ Local Flight flight, weather, radar, and surface data are informational display 
 ## Manual Review Checklist
 
 - Fresh install: Standalone setup completes without LAN server hardware.
-- Fresh install: LAN Mobile setup still works by manual URL if camera access is denied.
+- Fresh install: LAN Companion setup still works by manual URL if camera access is denied.
 - Denied local network: app explains LAN pairing cannot reach the server and Standalone remains usable.
 - Bad QR/fingerprint mismatch: app rejects the wrong LAN server.
 - Offline relay: Standalone shows a useful retry/error state.
 - Support sheet: shows coming soon / not active and cannot charge.
-- Bottom navigation: Standalone shows Board/Radar/History/Settings; LAN Mobile shows Board/Radar/History/Control.
+- Bottom navigation: Standalone shows Board/Radar/History/Settings; LAN Companion shows Board/Radar/History/Control/Help.
 - Accessibility labels: only claim App Store Accessibility Nutrition Labels after real common-task testing.

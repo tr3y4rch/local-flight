@@ -4,6 +4,8 @@ Local Flight can run as a desktop app, a Raspberry Pi server, a kiosk display, a
 
 If you are unsure, use the packaged Windows or macOS app on a desktop first. It gives you the native GUI, the local server, browser access, mobile access, and Matrix support from one install.
 
+Public project docs live at [beacontools.cc/local-flight](https://beacontools.cc/local-flight), and the public privacy policy lives at [beacontools.cc/privacy](https://beacontools.cc/privacy). General/support email is [home@beacontools.cc](mailto:home@beacontools.cc); privacy and diagnostics requests go to [privacy@beacontools.cc](mailto:privacy@beacontools.cc).
+
 ---
 
 ## Before You Start
@@ -11,6 +13,7 @@ If you are unsure, use the packaged Windows or macOS app on a desktop first. It 
 - Local Flight is meant for your own trusted LAN, not the open internet.
 - First launch opens a six-step guided setup wizard before the normal app.
 - You can choose **Local Flight Relay**, **Use your own keys**, or **VATSIM**.
+- The official hosted relay is `https://relay.beacontools.cc`; older Fly.io relay roots remain compatibility-only for existing installs.
 - Diagnostics are optional. Manual reports stay available even if automatic diagnostics are off.
 - The current client target is `0.2.7`. It is still beta software, but the client paths are now intended to work across the supported display types.
 
@@ -140,7 +143,7 @@ lf update
 
 ## Mobile App
 
-The mobile app is an iOS-first developer preview. It is not on the App Store or TestFlight yet.
+The mobile app is a developer preview. iOS is the primary validation path; Android local development builds are also supported. It is not on the App Store, TestFlight, Play Store, or available as a release APK yet.
 
 Use it when you want a lightweight airport-board view, radar, history, control, and support tools from an iPhone, iPad, or simulator.
 
@@ -150,6 +153,14 @@ npm install
 npx expo install --fix
 npm run verify
 npm run ios
+```
+
+For Android emulator/device development:
+
+```bash
+cd mobile
+npm run verify
+npm run android
 ```
 
 For a physical iPhone or iPad:
@@ -180,7 +191,7 @@ LAN Companion keeps the richer paired experience: server WebSocket updates, host
 
 ### Standalone
 
-Choose **Standalone** if the phone should use the hosted relay directly without a desktop or Pi server.
+Choose **Standalone** if the phone should use the hosted Beacon Tools relay directly without a desktop or Pi server.
 
 Standalone is intentionally simpler and rate-limited:
 
@@ -207,7 +218,7 @@ Setup asks for:
 
 ### Data Access Choices
 
-- **Local Flight Relay**: recommended first path. Uses shared hosted schedule snapshots so you do not need a paid schedule key on day one. The relay is cache-first and may combine compatible real schedule providers behind the scenes to keep boards populated.
+- **Local Flight Relay**: recommended first path. Uses `https://relay.beacontools.cc` and shared hosted schedule snapshots so you do not need a paid schedule key on day one. The relay is cache-first and may combine compatible real schedule providers behind the scenes, currently AeroDataBox primary schedule data plus AviationStack sparse fill/fallback where configured, to keep boards populated.
 - **Use your own keys**: use your own AeroDataBox schedule key (API.Market by default, RapidAPI if selected by env), AviationStack schedule key, plus optional RapidAPI ADS-B Exchange and OpenSky credentials.
 - **VATSIM**: no real-world schedule key. Uses virtual network data.
 

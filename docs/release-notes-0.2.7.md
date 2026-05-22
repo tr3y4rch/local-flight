@@ -10,6 +10,11 @@ This release does not change the basic setup choices. You can still use
 Local Flight Relay, use your own provider keys, or run VATSIM-only virtual
 traffic.
 
+Public docs now live under Beacon Tools at
+[beacontools.cc/local-flight](https://beacontools.cc/local-flight), with the
+public privacy policy at [beacontools.cc/privacy](https://beacontools.cc/privacy)
+and the official hosted relay at `https://relay.beacontools.cc`.
+
 ---
 
 ## Highlights
@@ -41,6 +46,12 @@ traffic.
 - **Mobile Standalone mode.** The same Expo app can now be set up as either
   a LAN Companion for your desktop/Pi server or as a simplified Standalone phone
   board through the hosted relay.
+- **Beacon Tools public home.** Public product, privacy, and relay URLs are now
+  under `beacontools.cc`, so app metadata, docs links, and support contact copy
+  no longer point users at GitHub as the primary public home.
+- **Android local development path.** The mobile app remains iOS-first for
+  release validation, but Android emulator/device development is wired through
+  Expo/Android Studio for local testing.
 
 ---
 
@@ -135,13 +146,15 @@ traffic.
 
 ## Data And Relay Notes
 
-- AeroDataBox remains the staged primary real-schedule path, with AviationStack
-  available as compatible sparse fill/fallback where configured.
+- AeroDataBox is the primary real-schedule path where configured, with
+  AviationStack available as compatible sparse fill/fallback.
 - Local Flight Relay remains cache-first and may keep serving the last safe shared
   airport snapshot if a live provider is slow, capped, or suspiciously sparse.
 - Mobile Standalone uses the same relay provider policy as Local Flight Relay, but
   adds stricter mobile-specific cadence and radar-range limits.
 - Public client docs continue to avoid operator-only relay/admin details.
+- Existing installs that still point at the Fly.io relay root remain accepted,
+  but new setup defaults now use `https://relay.beacontools.cc`.
 
 ---
 

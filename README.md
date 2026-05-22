@@ -1,12 +1,14 @@
 # Local Flight
 
-Local Flight is a local-first Flight Information Display System (FIDS) for Windows, macOS, Raspberry Pi, the mobile app, HDMI displays, LAN browsers, and LED matrix boards.
+Local Flight is a local-first Flight Information Display System (FIDS) for Windows, macOS, Raspberry Pi, mobile devices, HDMI displays, LAN browsers, and LED matrix boards.
 
 It fetches real or virtual flight data, keeps a local history, and renders airport-style departures, arrivals, radar, weather, and Matrix feeds without accounts or a signup wall.
 
 The recommended desktop client is now the native Qt app. The LAN browser UI, Pi display modes, Matrix board, and LAN Companion mode all use the same local server underneath, so you can pick the display style that fits your setup without splitting the app into different products. The same Expo mobile app can also run in a simplified Standalone mode through the hosted relay when you only want a light phone board.
 
 - **Website:** [beacontools.cc/local-flight](https://beacontools.cc/local-flight)
+- **Privacy:** [beacontools.cc/privacy](https://beacontools.cc/privacy)
+- **Public relay:** `https://relay.beacontools.cc`
 - **Source:** [github.com/tr3y4rch/local-flight](https://github.com/tr3y4rch/local-flight)
 - **Contact:** [home@beacontools.cc](mailto:home@beacontools.cc) for general/support questions, [privacy@beacontools.cc](mailto:privacy@beacontools.cc) for privacy requests
 
@@ -19,8 +21,9 @@ The recommended desktop client is now the native Qt app. The LAN browser UI, Pi 
 - Native desktop app for Windows and macOS, with four switchable FIDS board styles (Classic / PAX / VATSIM / Nerd) that each render their own design
 - LAN browser UI that mirrors the native Qt shell — same nav, same tokens, same components — with an automatic mobile view for phones and a compact layout for 7" Raspberry Pi screens
 - Raspberry Pi headless server, native Qt HDMI kiosk, or Chromium HDMI kiosk
-- iOS-first mobile developer preview with LAN Companion and Standalone setup modes
+- Mobile developer preview with LAN Companion and Standalone setup modes. iOS is the primary validation path; Android local development builds are supported.
 - Interstate 75 W / HUB75 Matrix client and preview tools
+- Beacon Tools public site and privacy page for release/App Store/TestFlight metadata
 
 ---
 
@@ -50,20 +53,20 @@ Read the detailed guides:
 ## What It Does
 
 - Guided setup with **Local Flight Relay**, **Use your own keys**, and **VATSIM** paths
-- Real schedule support designed around cached shared snapshots, AeroDataBox/AviationStack provider compatibility, and stale-safe serving when live providers are slow or capped
+- Real schedule support designed around cached shared snapshots, AeroDataBox primary schedule data, AviationStack sparse fill/fallback compatibility, and stale-safe serving when live providers are slow or capped
 - Passenger-style FIDS boards for real-world data with city/country airport headers, arrivals/departures, airport-local time, status/gate chips, codeshare grouping, pinned flights, live refresh, and native Classic/PAX/VATSIM/Nerd board styles
 - VATSIM mode uses a pilot/ATC display contract instead of passenger/codeshare fields: callsign-first rows, filed route/flight rules, aircraft, altitude/speed, XPDR, VATSIM freshness, and strict suppression of pilot/controller personal identifiers
 - Four switchable FIDS board styles in the native shell — **Classic**, **PAX**, **VATSIM**, **Nerd** — each with its own chrome, palette, column set, status styling, and viewport-aware scaling
-- Radar with real/VATSIM traffic, METAR weather, range controls, optional runway/surface/map/terrain context, and richer aircraft/status detail
+- Radar with real/VATSIM traffic, METAR weather, range controls, optional runway/surface/map/terrain context, mobile-specific range policies, and richer aircraft/status detail
 - Native Qt desktop shell with Display, FIDS, Radar, Matrix, Settings, Admin, History, Logs, Report, and local docs
 - Settings page built from clear disclosure cards instead of opaque checkbox-titled groups
 - LAN browser UI for headless installs, remote screens, tablets, phones, and browser-mode displays, with compact layouts for 7" Pi touch screens
-- Mobile app with a first-run choice between **LAN Companion** and **Standalone**: Companion focuses on Board, Radar, History, Control, and Help for an existing desktop/Pi host, with safe Matrix live-remote controls where they make sense. Standalone offers a simpler FIDS/Radar/History/Settings experience through the hosted relay with slower refreshes and no server-control tools. The mobile shell keeps its own appearance, branded launch overlay, and small native-feeling interactions.
+- Mobile app with a first-run choice between **LAN Companion** and **Standalone**: Companion focuses on Board, Radar, History, Control, and Help for an existing desktop/Pi host, with safe Matrix live-remote controls where they make sense. Standalone offers a simpler FIDS/Radar/History/Settings experience through the Beacon Tools relay with slower refreshes and no server-control tools. The mobile shell keeps its own appearance, branded launch overlay, and small native-feeling interactions.
 - QR pairing in native Settings now prefers the actual LAN IP and carries the server fingerprint, so an iPhone will not silently connect to a different Local Flight host if `localflight.local` resolves to another Pi/desktop on the same network.
 - History dashboard with filters, delay buckets, airline delay quotas, route/aircraft stats, sortable recent movements, and detail panels. Repeated snapshots and known codeshares are deduped so the count means actual movements, not raw board rows.
 - Matrix tooling for Interstate 75 W / HUB75 boards, including panel presets, live preview, optional real-world gate/stand display, compact weather headers, runtime settings, split-flap/typewriter/cascade motion, and generated MicroPython `main.py`
 - Shared flight detail intelligence for FIDS, Radar, History, Matrix, native Qt, and LAN browser views, using current local snapshots, radar data, weather, and history without new per-click provider calls
-- Local history, local logs, local settings, and install-scoped diagnostics
+- Local history, local logs, local settings, install-scoped diagnostics, and Beacon Tools support/privacy contact paths
 
 ---
 
@@ -131,6 +134,14 @@ npm run verify
 npm run ios
 ```
 
+For Android development builds:
+
+```bash
+cd mobile
+npm run verify
+npm run android
+```
+
 For full setup details, see [docs/install.md](docs/install.md).
 
 ---
@@ -148,7 +159,7 @@ Setup guides you through:
 5. Diagnostics choice
 6. Review and open
 
-Local Flight Relay is the recommended first path. It uses cached shared schedule snapshots so many installs can watch the same airport without each one calling a paid provider. Local Flight Relay schedule refresh choices are hourly-or-slower in the client UI; BYOK and VATSIM can still use the standard local refresh choices. BYOK is for users who already have provider keys such as AeroDataBox through API.Market or RapidAPI, AviationStack, RapidAPI ADS-B Exchange, or OpenSky. VATSIM is the no-key virtual traffic path.
+Local Flight Relay is the recommended first path. It uses the Beacon Tools relay at `https://relay.beacontools.cc` with cached shared schedule snapshots so many installs can watch the same airport without each one calling a paid provider. Local Flight Relay schedule refresh choices are hourly-or-slower in the client UI; BYOK and VATSIM can still use the standard local refresh choices. BYOK is for users who already have provider keys such as AeroDataBox through API.Market or RapidAPI, AviationStack, RapidAPI ADS-B Exchange, or OpenSky. VATSIM is the no-key virtual traffic path.
 
 ---
 

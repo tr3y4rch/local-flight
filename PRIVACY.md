@@ -15,7 +15,7 @@ Beacon Tools is the dev studio home for Local Flight. General/support questions 
 - Your config, API keys, snapshots, history, and logs stay on your own machine.
 - The desktop native GUI is a real Qt shell, not a webview. The primary client does not launch Chrome, Edge, Chromium, QWebEngine, or a browser profile.
 - Native mode avoids browser sync, extensions, cookies, browsing history, default-browser behavior, online fonts, and CDN assets for the main Local Flight window.
-- The LAN browser UI, LAN Companion mode, and Matrix board talk to your Local Flight server over your LAN. LAN Companion and Matrix do not call AviationStack, ADS-B Exchange, RapidAPI, OpenSky, VATSIM, or the hosted relay directly.
+- The LAN browser UI, LAN Companion mode, and Matrix board talk to your Local Flight server over your LAN. LAN Companion and Matrix do not call AeroDataBox, AviationStack, ADS-B Exchange, RapidAPI, OpenSky, VATSIM, or the hosted relay directly.
 - Mobile Standalone mode is the exception: it talks directly to the hosted relay as a simplified, rate-limited phone board.
 - Community mode can use the hosted Local Flight relay for shared schedules and relay-backed radar. Optional radar runway/surface/map/terrain layers use cached public data where available, stay opt-in/visual-only, and do not create Local Flight accounts or user profiles.
 - Richer FIDS/Radar/History detail views reuse data Local Flight already fetched or stored locally. Opening a detail panel should not trigger surprise per-flight paid provider calls.
@@ -66,7 +66,7 @@ Native mode does not change the aviation data sources you choose. If you enable 
 
 ### Community Relay
 
-If you choose **Community**, your install uses the hosted relay for shared AviationStack schedule snapshots and, when available, relay-backed ADS-B radar. The relay is there to protect provider keys and make the hobbyist path usable without everybody bringing paid API credentials on day one.
+If you choose **Community**, your install uses the hosted Beacon Tools relay at `https://relay.beacontools.cc` for shared real-world schedule snapshots and, when available, relay-backed ADS-B radar. The relay is there to protect provider keys and make the hobbyist path usable without everybody bringing paid API credentials on day one. The current relay schedule path is cache-first and can use AeroDataBox as the primary schedule provider with AviationStack sparse fill/fallback where configured.
 
 The relay stores the minimum metadata needed to run that shared service safely:
 

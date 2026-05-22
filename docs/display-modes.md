@@ -2,6 +2,8 @@
 
 Local Flight is one local server with several client surfaces. The important idea is simple: choose where the board should be seen, and Local Flight keeps the same data, setup, history, diagnostics, and APIs underneath.
 
+Public project docs live at [beacontools.cc/local-flight](https://beacontools.cc/local-flight). The hosted relay used by Community Relay and Mobile Standalone is `https://relay.beacontools.cc`.
+
 ---
 
 ## Recommended Default
@@ -175,7 +177,7 @@ Use LAN Companion for:
 
 ### Standalone
 
-Standalone talks directly to the hosted Local Flight relay and does not need your own desktop/Pi server online. It is simplified on purpose so a phone install cannot burn through shared relay/provider tokens.
+Standalone talks directly to the hosted Beacon Tools relay and does not need your own desktop/Pi server online. It is simplified on purpose so a phone install cannot burn through shared relay/provider tokens.
 
 Use Standalone for:
 
@@ -225,6 +227,8 @@ You can use any display mode with:
 Changing display mode does not change your data source by itself.
 
 Mobile Standalone is the one special case: because there is no paired local server, it always uses the hosted relay's current shared real-data policy and local on-device history. It does not expose BYOK or VATSIM controls in this first pass.
+
+The hosted relay's current real-data path is cache-first and can use AeroDataBox primary schedule data with AviationStack sparse fill/fallback where configured. That provider mix is separate from the display mode you choose.
 
 ---
 
