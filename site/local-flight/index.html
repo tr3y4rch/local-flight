@@ -5,157 +5,198 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Local Flight | Beacon Tools</title>
   <meta name="description" content="Local Flight is a local-first Flight Information Display System for desktop, LAN, Raspberry Pi, mobile, radar, history, and LED matrix displays.">
-  <style>
-    :root {
-      color-scheme: dark;
-      --bg: #071019;
-      --panel: #0d1a27;
-      --panel-2: #102235;
-      --line: #1d3548;
-      --text: #eef7ff;
-      --muted: #9fc0d6;
-      --accent: #63d6ff;
-      --good: #70f0aa;
-      --warn: #ffd56a;
-    }
-    * { box-sizing: border-box; }
-    body {
-      margin: 0;
-      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      background: #071019;
-      color: var(--text);
-      line-height: 1.55;
-    }
-    header, section, footer { max-width: 1040px; margin: 0 auto; padding: 0 20px; }
-    header { min-height: 80vh; display: grid; align-content: center; padding-top: 36px; padding-bottom: 36px; background: radial-gradient(circle at 50% 10%, #173a55 0, #071019 42rem); }
-    .eyebrow { color: var(--accent); font-size: 0.78rem; letter-spacing: 0.12em; text-transform: uppercase; }
-    h1 { margin: 12px 0 14px; font-size: clamp(2.8rem, 8vw, 6.5rem); line-height: 0.93; letter-spacing: 0; }
-    h2 { margin: 0 0 12px; font-size: clamp(1.7rem, 3vw, 2.4rem); }
-    h3 { margin: 0 0 6px; font-size: 1.05rem; }
-    p { color: var(--muted); max-width: 72ch; }
-    a { color: var(--text); text-decoration-color: var(--accent); text-underline-offset: 4px; }
-    code { color: var(--good); }
-    .lede { font-size: 1.18rem; }
-    .actions { display: flex; flex-wrap: wrap; gap: 12px; margin: 28px 0 20px; }
-    .button {
-      display: inline-flex;
-      align-items: center;
-      min-height: 42px;
-      padding: 0 16px;
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      background: var(--panel-2);
-      text-decoration: none;
-      font-weight: 700;
-    }
-    .button.primary { background: var(--accent); color: #051018; border-color: var(--accent); }
-    section { padding-top: 42px; padding-bottom: 42px; border-top: 1px solid var(--line); }
-    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
-    .card { border: 1px solid var(--line); border-radius: 8px; background: var(--panel); padding: 18px; }
-    .list { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
-    .list li { border-left: 3px solid var(--accent); padding-left: 12px; color: var(--muted); }
-    .note { border: 1px solid color-mix(in srgb, var(--warn) 50%, var(--line)); border-radius: 8px; padding: 14px 16px; color: var(--muted); background: #151d20; }
-    footer { padding-top: 24px; padding-bottom: 40px; color: var(--muted); }
-  </style>
+  <link rel="stylesheet" href="/assets/site.css">
 </head>
 <body>
-  <header>
-    <div>
-      <div class="eyebrow">Local Flight by Beacon Tools</div>
-      <h1>Local-first flight boards for screens you own.</h1>
-      <p class="lede">Local Flight is a self-hosted Flight Information Display System for Windows, macOS, Raspberry Pi, LAN browsers, mobile devices, radar/history dashboards, and HUB75 LED matrix panels.</p>
-      <div class="actions">
-        <a class="button primary" href="https://github.com/tr3y4rch/local-flight/releases">Download releases</a>
-        <a class="button" href="https://github.com/tr3y4rch/local-flight">Source on GitHub</a>
-        <a class="button" href="/privacy">Privacy</a>
+  <div class="site-shell">
+    <nav class="topbar" aria-label="Main navigation">
+      <div class="nav">
+        <a class="brand" href="/">
+          <span class="brand-mark"><img src="/assets/localflight-logo.svg" alt=""></span>
+          <span class="brand-text">Beacon Tools <small>Local Flight</small></span>
+        </a>
+        <div class="nav-links">
+          <a class="home-button" href="/">Home</a>
+          <a href="/local-flight/">Local Flight</a>
+          <a href="/privacy/">Privacy</a>
+          <a href="https://github.com/tr3y4rch/local-flight">GitHub</a>
+          <a href="mailto:home@beacontools.cc">Contact</a>
+        </div>
       </div>
-      <p class="note">Current beta target: <strong>0.2.7</strong>. Flight, radar, weather, and surface data are informational display aids only and are not for navigation, dispatch, operational control, or safety decisions.</p>
-    </div>
-  </header>
+    </nav>
 
-  <section id="install">
-    <h2>Install</h2>
-    <div class="grid">
-      <article class="card">
-        <h3>Desktop</h3>
-        <p>Use the packaged Windows or macOS app for the native Qt shell, local server, browser access, mobile pairing, and Matrix support from one install.</p>
-      </article>
-      <article class="card">
-        <h3>Raspberry Pi</h3>
-        <p>Run as a headless server, native Qt HDMI kiosk, or Chromium kiosk. The Pi source bundle is made for small always-on display boxes.</p>
-      </article>
-      <article class="card">
-        <h3>Mobile</h3>
-        <p>The Expo mobile app supports LAN Companion mode for a paired server and Standalone mode through the hosted Beacon Tools relay. iOS is the primary validation path; Android local development builds are supported.</p>
-      </article>
-    </div>
-  </section>
+    <header class="hero" style="--hero-image: url('/assets/radar-preview.svg');">
+      <div class="wrap">
+        <div class="hero-content">
+          <div class="eyebrow">Local Flight by Beacon Tools</div>
+          <h1>Flight boards for local screens and home cockpits.</h1>
+          <p class="lede">Local Flight is a self-hosted FIDS for Windows, macOS, Raspberry Pi, LAN browsers, mobile devices, radar/history dashboards, and HUB75 LED matrix panels.</p>
+          <div class="actions">
+            <a class="button primary" href="https://github.com/tr3y4rch/local-flight/releases">Download releases</a>
+            <a class="button" href="https://github.com/tr3y4rch/local-flight">Source on GitHub</a>
+            <a class="button secondary" href="/privacy/">Privacy</a>
+          </div>
+          <p class="note">Current beta target: <strong>0.2.7</strong>. Flight, radar, weather, and surface data are informational display aids only and are not for navigation, dispatch, operational control, or safety decisions.</p>
+        </div>
+      </div>
+    </header>
 
-  <section id="features">
-    <h2>What It Does</h2>
-    <ul class="list">
-      <li>Guided setup for Local Flight Relay, bring-your-own provider keys, or VATSIM-only virtual traffic.</li>
-      <li>Real-world schedule boards using cached shared snapshots, AeroDataBox primary schedule data, AviationStack sparse fill/fallback compatibility, and stale-safe serving when live providers are slow or capped.</li>
-      <li>Passenger-style FIDS boards with airport-local time, city/country headers, status and gate chips, codeshare grouping, pinned flights, and four native board styles: Classic, PAX, VATSIM, and Nerd.</li>
-      <li>VATSIM display mode with callsign-first rows, filed plan, aircraft, altitude/speed, XPDR, source freshness, and suppression of pilot/controller personal identifiers.</li>
-      <li>Radar with real or virtual traffic, METAR weather, range controls, runway/surface/map/terrain context, and richer aircraft/status detail.</li>
-      <li>Deduped History analytics, Matrix preview/config/script generation, local logs, local settings, and consent-based diagnostics.</li>
-    </ul>
-  </section>
+    <main>
+      <section class="section" id="install">
+        <div class="wrap">
+          <div class="section-head">
+            <div>
+              <div class="eyebrow">Install paths</div>
+              <h2>Choose the screen first.</h2>
+            </div>
+            <p>The same Local Flight server can drive a native app, LAN browser, mobile app, Matrix board, or Pi display mode.</p>
+          </div>
+          <div class="grid">
+            <article class="card icon-card">
+              <h3>
+                <span class="icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24"><path d="M4 5h16v11H4z"/><path d="M8 20h8"/><path d="M12 16v4"/></svg>
+                </span>
+                Desktop
+              </h3>
+              <p>Use the packaged Windows or macOS app for the native Qt shell, local server, browser access, mobile pairing, and Matrix support from one install.</p>
+            </article>
+            <article class="card icon-card">
+              <h3>
+                <span class="icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24"><path d="M6 5h12v14H6z"/><path d="M9 9h6"/><path d="M9 13h6"/></svg>
+                </span>
+                Raspberry Pi
+              </h3>
+              <p>Run as a headless server, native Qt HDMI kiosk, or Chromium kiosk. The Pi source bundle is made for small always-on display boxes.</p>
+            </article>
+            <article class="card icon-card">
+              <h3>
+                <span class="icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24"><path d="M8 3h8v18H8z"/><path d="M11 18h2"/></svg>
+                </span>
+                Mobile
+              </h3>
+              <p>The Expo mobile app supports LAN Companion mode for a paired server and Standalone mode through the hosted Beacon Tools relay.</p>
+            </article>
+          </div>
+        </div>
+      </section>
 
-  <section id="display-modes">
-    <h2>Display Modes</h2>
-    <ul class="list">
-      <li>Native desktop shell for Windows and macOS, with Classic, PAX, VATSIM, and Nerd FIDS styles.</li>
-      <li>LAN browser UI for remote screens, tablets, headless installs, and compact Raspberry Pi layouts.</li>
-      <li>Mobile LAN Companion and Standalone modes for phone-sized board, radar, history, and reporting workflows.</li>
-      <li>Matrix preview and generated MicroPython client for Interstate 75 W / HUB75 panels.</li>
-    </ul>
-  </section>
+      <section class="section" id="features">
+        <div class="wrap">
+          <div class="section-head">
+            <div>
+              <div class="eyebrow">Feature set</div>
+              <h2>Built around a real board workflow.</h2>
+            </div>
+          </div>
+          <div class="split">
+            <ul class="console-list">
+              <li>Guided setup for Local Flight Relay, bring-your-own provider keys, or VATSIM-only virtual traffic.</li>
+              <li>Real-world schedule boards using cached shared snapshots, AeroDataBox primary schedule data, AviationStack sparse fill/fallback compatibility, and stale-safe serving.</li>
+              <li>Passenger-style FIDS boards with airport-local time, city/country headers, status and gate chips, codeshare grouping, pinned flights, and Classic/PAX/VATSIM/Nerd styles.</li>
+              <li>VATSIM display mode with callsign-first rows, filed plan, aircraft, altitude/speed, XPDR, source freshness, and suppression of pilot/controller personal identifiers.</li>
+              <li>Radar with real or virtual traffic, METAR weather, range controls, runway/surface/map/terrain context, and richer aircraft/status detail.</li>
+              <li>Deduped History analytics, Matrix preview/config/script generation, local logs, local settings, and consent-based diagnostics.</li>
+            </ul>
+            <aside class="side-panel">
+              <img src="/assets/localflight-icon.png" alt="Local Flight icon">
+              <h3>Current beta</h3>
+              <p>Version target <code>0.2.7</code>. GitHub remains the source repository and issue tracker; Beacon Tools is the public product/privacy home.</p>
+            </aside>
+          </div>
+        </div>
+      </section>
 
-  <section id="relay">
-    <h2>Relay</h2>
-    <p>Local Flight can run with your own provider keys, VATSIM-only virtual data, or the hosted Beacon Tools relay. The relay exists to protect provider keys, cache shared airport snapshots, and keep the hobbyist path usable without every install needing paid API credentials.</p>
-    <p>Official Beacon Tools relay hostname:</p>
-    <ul class="list">
-      <li>Public relay: <code>https://relay.beacontools.cc</code></li>
-    </ul>
-  </section>
+      <section class="section" id="display-modes">
+        <div class="wrap">
+          <div class="section-head">
+            <div>
+              <div class="eyebrow">Screens</div>
+              <h2>Display modes</h2>
+            </div>
+          </div>
+          <div class="visual-grid">
+            <div class="visual-panel">
+              <img src="/assets/fids-preview.svg" alt="Local Flight FIDS preview">
+            </div>
+            <div class="grid two">
+              <article class="card"><h3>Native desktop</h3><p>Windows and macOS shell with Classic, PAX, VATSIM, and Nerd FIDS styles.</p></article>
+              <article class="card"><h3>LAN browser</h3><p>Remote screens, tablets, headless installs, and compact Raspberry Pi layouts.</p></article>
+              <article class="card"><h3>Mobile</h3><p>LAN Companion and Standalone modes for phone-sized board, radar, history, and reporting workflows.</p></article>
+              <article class="card"><h3>Matrix</h3><p>Preview and generated MicroPython client for Interstate 75 W / HUB75 panels.</p></article>
+            </div>
+          </div>
+        </div>
+      </section>
 
-  <section id="release-notes">
-    <h2>Release Notes</h2>
-    <p>The 0.2.7 release-candidate line focuses on native shell polish, FIDS readability, History analytics, Matrix display integrity, mobile LAN Companion and Standalone flows, Beacon Tools public URLs, and relay-facing hardening.</p>
-    <a href="https://github.com/tr3y4rch/local-flight/blob/main/CHANGELOG.md">Read the changelog</a>
-  </section>
+      <section class="section" id="relay">
+        <div class="wrap">
+          <div class="section-head">
+            <div>
+              <div class="eyebrow">Hosted relay</div>
+              <h2>Shared data without shipping provider keys.</h2>
+            </div>
+            <p>Local Flight can run with your own provider keys, VATSIM-only virtual data, or the hosted Beacon Tools relay.</p>
+          </div>
+          <div class="grid two">
+            <article class="card">
+              <h3>Public relay</h3>
+              <p><code>https://relay.beacontools.cc</code></p>
+            </article>
+            <article class="card">
+              <h3>What it does</h3>
+              <p>The relay protects provider keys, caches shared airport snapshots, applies rate limits, and keeps the hobbyist path usable without every install needing paid API credentials.</p>
+            </article>
+          </div>
+        </div>
+      </section>
 
-  <section id="privacy">
-    <h2>Privacy</h2>
-    <p>Local Flight has no accounts, no advertising SDKs, no data brokers, and no cross-app/site tracking. Config, API keys, snapshots, history, logs, mobile appearance, and Matrix settings stay local unless you choose a relay-backed feature or send a report.</p>
-    <a href="/privacy">Read the privacy policy</a>
-  </section>
+      <section class="section" id="privacy">
+        <div class="wrap">
+          <div class="section-head">
+            <div>
+              <div class="eyebrow">Privacy</div>
+              <h2>Local first by default.</h2>
+            </div>
+            <p>No accounts, no advertising SDKs, no data brokers, and no cross-app/site tracking.</p>
+          </div>
+          <div class="grid two">
+            <article class="card">
+              <h3>Local data</h3>
+              <p>Config, API keys, snapshots, history, logs, mobile appearance, and Matrix settings stay local unless you choose a relay-backed feature or send a report.</p>
+            </article>
+            <article class="card">
+              <h3>Policy</h3>
+              <p>The public privacy policy is at <a href="/privacy/">beacontools.cc/privacy</a>. Privacy and diagnostics requests go to <a href="mailto:privacy@beacontools.cc">privacy@beacontools.cc</a>.</p>
+            </article>
+          </div>
+        </div>
+      </section>
 
-  <section id="third-party">
-    <h2>Third-Party Notices</h2>
-    <p>Bundled font licenses and source attribution stay in the project repository and packaged local docs.</p>
-    <a href="https://github.com/tr3y4rch/local-flight/blob/main/THIRD_PARTY_NOTICES.md">Open third-party notices</a>
-  </section>
+      <section class="section" id="contact">
+        <div class="wrap">
+          <div class="grid two">
+            <article class="card contact-card">
+              <h3>General and support</h3>
+              <p><a href="mailto:home@beacontools.cc">home@beacontools.cc</a></p>
+            </article>
+            <article class="card contact-card">
+              <h3>Release notes and notices</h3>
+              <p><a href="https://github.com/tr3y4rch/local-flight/blob/main/CHANGELOG.md">Read the changelog</a><br><a href="https://github.com/tr3y4rch/local-flight/blob/main/THIRD_PARTY_NOTICES.md">Open third-party notices</a></p>
+            </article>
+          </div>
+        </div>
+      </section>
+    </main>
 
-  <section id="contact">
-    <h2>Contact</h2>
-    <div class="grid">
-      <article class="card">
-        <h3>General and support</h3>
-        <p><a href="mailto:home@beacontools.cc">home@beacontools.cc</a></p>
-      </article>
-      <article class="card">
-        <h3>Privacy</h3>
-        <p><a href="mailto:privacy@beacontools.cc">privacy@beacontools.cc</a></p>
-      </article>
-    </div>
-  </section>
-
-  <footer>
-    Beacon Tools &middot; <a href="/">Home</a> &middot; <a href="/privacy">Privacy</a> &middot; <a href="https://github.com/tr3y4rch/local-flight">GitHub</a>
-  </footer>
+    <footer class="footer">
+      <div class="wrap footer-row">
+        <span>Beacon Tools</span>
+        <span><a href="/">Home</a> &middot; <a href="/privacy/">Privacy</a> &middot; <a href="https://github.com/tr3y4rch/local-flight">GitHub</a></span>
+      </div>
+    </footer>
+  </div>
 </body>
 </html>

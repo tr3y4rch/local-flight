@@ -4,84 +4,120 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Beacon Tools</title>
-  <meta name="description" content="Beacon Tools makes local-first aviation utilities, starting with Local Flight.">
-  <style>
-    :root {
-      color-scheme: dark;
-      --bg: #071019;
-      --panel: #0d1a27;
-      --line: #1d3548;
-      --text: #eef7ff;
-      --muted: #9fc0d6;
-      --accent: #63d6ff;
-      --good: #70f0aa;
-    }
-    * { box-sizing: border-box; }
-    body {
-      margin: 0;
-      min-height: 100vh;
-      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      background: radial-gradient(circle at 50% 0%, #123047 0, #071019 44rem);
-      color: var(--text);
-      line-height: 1.55;
-    }
-    main { max-width: 960px; margin: 0 auto; padding: 56px 20px 48px; }
-    .eyebrow { color: var(--accent); font-size: 0.78rem; letter-spacing: 0.12em; text-transform: uppercase; }
-    h1 { margin: 12px 0 12px; font-size: clamp(2.5rem, 7vw, 5.8rem); line-height: 0.95; letter-spacing: 0; }
-    h2 { margin: 0 0 8px; font-size: 1.35rem; }
-    p { color: var(--muted); max-width: 68ch; }
-    a { color: var(--text); text-decoration-color: var(--accent); text-underline-offset: 4px; }
-    .lede { font-size: 1.18rem; }
-    .actions { display: flex; flex-wrap: wrap; gap: 12px; margin: 28px 0 42px; }
-    .button {
-      display: inline-flex;
-      align-items: center;
-      min-height: 42px;
-      padding: 0 16px;
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      background: #102235;
-      text-decoration: none;
-      font-weight: 700;
-    }
-    .button.primary { background: var(--accent); color: #051018; border-color: var(--accent); }
-    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
-    .card {
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      background: color-mix(in srgb, var(--panel) 92%, transparent);
-      padding: 18px;
-    }
-    footer { border-top: 1px solid var(--line); margin-top: 48px; padding-top: 18px; color: var(--muted); font-size: 0.95rem; }
-  </style>
+  <meta name="description" content="Beacon Tools is the software home for Local Flight and related local-first aviation utilities.">
+  <link rel="stylesheet" href="/assets/site.css">
 </head>
 <body>
-  <main>
-    <div class="eyebrow">Beacon Tools</div>
-    <h1>Small tools for local-first flight displays.</h1>
-    <p class="lede">Beacon Tools is the dev studio home for Local Flight, a self-hosted flight information display system for desktops, Raspberry Pi, LAN browsers, mobile devices, radar/history dashboards, and LED matrix panels.</p>
-    <div class="actions">
-      <a class="button primary" href="/local-flight">Open Local Flight</a>
-      <a class="button" href="/privacy">Privacy</a>
-      <a class="button" href="mailto:home@beacontools.cc">Contact</a>
-    </div>
+  <div class="site-shell">
+    <nav class="topbar" aria-label="Main navigation">
+      <div class="nav">
+        <a class="brand" href="/">
+          <span class="brand-mark"><img src="/assets/localflight-logo.svg" alt=""></span>
+          <span class="brand-text">Beacon Tools <small>local-first aviation</small></span>
+        </a>
+        <div class="nav-links">
+          <a class="home-button" href="/">Home</a>
+          <a href="/local-flight/">Local Flight</a>
+          <a href="/privacy/">Privacy</a>
+          <a href="https://github.com/tr3y4rch/local-flight">GitHub</a>
+          <a href="mailto:home@beacontools.cc">Contact</a>
+        </div>
+      </div>
+    </nav>
 
-    <section class="grid" aria-label="Beacon Tools projects">
-      <article class="card">
-        <h2>Local Flight</h2>
-        <p>A local-first FIDS for home labs, hobby airports, Raspberry Pi kiosks, LAN browsers, native desktop displays, mobile companion/standalone boards, radar, history, and Matrix panels.</p>
-        <a href="/local-flight">Project page</a>
-      </article>
-      <article class="card">
-        <h2>Contact</h2>
-        <p>General support and project questions go to home@beacontools.cc. Privacy and diagnostics requests go to privacy@beacontools.cc.</p>
-        <a href="mailto:home@beacontools.cc">home@beacontools.cc</a>
-      </article>
-    </section>
+    <header class="hero" style="--hero-image: url('/assets/fids-preview.svg');">
+      <div class="wrap">
+        <div class="hero-content">
+          <div class="eyebrow">Beacon Tools</div>
+          <h1>Local-first aviation software, starting with Local Flight.</h1>
+          <p class="lede">Beacon Tools is the public home for Local Flight: a hobbyist-friendly flight information display system for desktops, Raspberry Pi, LAN browsers, mobile devices, and LED matrix panels.</p>
+          <div class="actions">
+            <a class="button primary" href="/local-flight/">Open Local Flight</a>
+            <a class="button secondary" href="/privacy/">Privacy Policy</a>
+            <a class="button" href="mailto:home@beacontools.cc">Contact</a>
+          </div>
+          <div class="status-strip" aria-label="Site status">
+            <span class="status-chip">Static Cloudflare Pages</span>
+            <span class="status-chip">Relay: relay.beacontools.cc</span>
+            <span class="status-chip">Current beta: 0.2.7</span>
+          </div>
+        </div>
+      </div>
+    </header>
 
-    <footer>
-      Beacon Tools &middot; <a href="/local-flight">Local Flight</a> &middot; <a href="/privacy">Privacy</a>
+    <main>
+      <section class="section">
+        <div class="wrap">
+          <div class="section-head">
+            <div>
+              <div class="eyebrow">Current project</div>
+              <h2>Local Flight</h2>
+            </div>
+            <p>One local server, several display surfaces, and a privacy-minded setup path for real or virtual flight boards.</p>
+          </div>
+
+          <div class="visual-grid">
+            <article class="card icon-card">
+              <h3>
+                <span class="icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24"><path d="M3 19h18"/><path d="M5 15l14-8"/><path d="M8 13l3 6"/><path d="M14 10l5 4"/></svg>
+                </span>
+                Flight boards for screens you own
+              </h3>
+              <p>Local Flight runs as a native desktop app, Pi server, LAN browser board, mobile companion or standalone board, and Matrix display feed.</p>
+              <div class="actions">
+                <a class="button primary" href="/local-flight/">Project page</a>
+                <a class="button" href="https://github.com/tr3y4rch/local-flight/releases">Downloads</a>
+              </div>
+            </article>
+            <div class="visual-panel small">
+              <img src="/assets/localflight-logo.svg" alt="Local Flight app mark">
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="wrap">
+          <div class="grid three">
+            <article class="card icon-card">
+              <h3>
+                <span class="icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24"><path d="M4 5h16v14H4z"/><path d="M8 9h8"/><path d="M8 13h5"/></svg>
+                </span>
+                Public docs
+              </h3>
+              <p>Product notes, install guidance, privacy, and release links live here first, with GitHub kept as the source and issue tracker.</p>
+            </article>
+            <article class="card icon-card">
+              <h3>
+                <span class="icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24"><path d="M12 3v18"/><path d="M5 8h14"/><path d="M7 16h10"/></svg>
+                </span>
+                Hosted relay
+              </h3>
+              <p>The public relay hostname is <code>https://relay.beacontools.cc</code>. Existing Fly roots remain compatibility-only for older installs.</p>
+            </article>
+            <article class="card contact-card">
+              <h3>
+                <span class="icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24"><path d="M4 6h16v12H4z"/><path d="M4 7l8 6 8-6"/></svg>
+                </span>
+                Contact
+              </h3>
+              <p>General support: <a href="mailto:home@beacontools.cc">home@beacontools.cc</a><br>Privacy and diagnostics: <a href="mailto:privacy@beacontools.cc">privacy@beacontools.cc</a></p>
+            </article>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <div class="wrap footer-row">
+        <span>Beacon Tools</span>
+        <span><a href="/local-flight/">Local Flight</a> &middot; <a href="/privacy/">Privacy</a> &middot; <a href="https://github.com/tr3y4rch/local-flight">GitHub</a></span>
+      </div>
     </footer>
-  </main>
+  </div>
 </body>
 </html>

@@ -5,90 +5,169 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Privacy | Beacon Tools</title>
   <meta name="description" content="Privacy policy for Local Flight by Beacon Tools.">
-  <style>
-    :root {
-      color-scheme: dark;
-      --bg: #071019;
-      --panel: #0d1a27;
-      --line: #1d3548;
-      --text: #eef7ff;
-      --muted: #9fc0d6;
-      --accent: #63d6ff;
-    }
-    * { box-sizing: border-box; }
-    body {
-      margin: 0;
-      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      background: #071019;
-      color: var(--text);
-      line-height: 1.58;
-    }
-    main { max-width: 920px; margin: 0 auto; padding: 48px 20px; }
-    .eyebrow { color: var(--accent); font-size: 0.78rem; letter-spacing: 0.12em; text-transform: uppercase; }
-    h1 { margin: 12px 0 10px; font-size: clamp(2.5rem, 7vw, 5rem); line-height: 0.98; letter-spacing: 0; }
-    h2 { margin-top: 34px; padding-top: 24px; border-top: 1px solid var(--line); }
-    p, li { color: var(--muted); }
-    a { color: var(--text); text-decoration-color: var(--accent); text-underline-offset: 4px; }
-    .card { border: 1px solid var(--line); border-radius: 8px; background: var(--panel); padding: 16px; }
-    footer { border-top: 1px solid var(--line); margin-top: 42px; padding-top: 18px; color: var(--muted); }
-  </style>
+  <link rel="stylesheet" href="/assets/site.css">
 </head>
 <body>
-  <main>
-    <div class="eyebrow">Beacon Tools</div>
-    <h1>Privacy Policy</h1>
-    <p>Last updated: May 22, 2026</p>
-    <p>This policy covers Local Flight by Beacon Tools. Local Flight is built around a simple rule: stay local unless a feature genuinely needs a network hop.</p>
+  <div class="site-shell">
+    <nav class="topbar" aria-label="Main navigation">
+      <div class="nav">
+        <a class="brand" href="/">
+          <span class="brand-mark"><img src="/assets/localflight-logo.svg" alt=""></span>
+          <span class="brand-text">Beacon Tools <small>Privacy</small></span>
+        </a>
+        <div class="nav-links">
+          <a class="home-button" href="/">Home</a>
+          <a href="/local-flight/">Local Flight</a>
+          <a href="/privacy/">Privacy</a>
+          <a href="https://github.com/tr3y4rch/local-flight">GitHub</a>
+          <a href="mailto:home@beacontools.cc">Contact</a>
+        </div>
+      </div>
+    </nav>
 
-    <div class="card">
-      <p><strong>Contacts:</strong> general and support questions go to <a href="mailto:home@beacontools.cc">home@beacontools.cc</a>. Privacy, diagnostics, and data-request questions go to <a href="mailto:privacy@beacontools.cc">privacy@beacontools.cc</a>.</p>
-    </div>
+    <header class="hero compact" style="--hero-image: url('/assets/mobile-fids-preview.svg');">
+      <div class="wrap">
+        <div class="hero-content">
+          <div class="eyebrow">Beacon Tools</div>
+          <h1>Privacy Policy</h1>
+          <p class="lede">This policy covers Local Flight by Beacon Tools. Local Flight is built around a simple rule: stay local unless a feature genuinely needs a network hop.</p>
+          <div class="status-strip">
+            <span class="status-chip">Last updated: May 22, 2026</span>
+            <span class="status-chip">No accounts</span>
+            <span class="status-chip">Diagnostics by consent</span>
+          </div>
+        </div>
+      </div>
+    </header>
 
-    <h2>Quick Summary</h2>
-    <ul>
-      <li>No accounts, no advertising SDKs, no data brokers, and no cross-app or cross-site tracking.</li>
-      <li>Your config, API keys, snapshots, history, and logs stay on your own machine or device unless you explicitly use relay-backed features or send a report.</li>
-      <li>The native desktop GUI is a Qt shell, not a browser profile or webview.</li>
-      <li>LAN Companion and Matrix talk to your own Local Flight server first; Mobile Standalone talks directly to the hosted relay.</li>
-      <li>Manual reports are always your choice. Automatic crash diagnostics only run if you opt in.</li>
-      <li>Local Flight is an informational display aid, not a navigation, dispatch, operational-control, or safety system.</li>
-    </ul>
+    <main>
+      <section class="section tight">
+        <div class="wrap">
+          <div class="grid two">
+            <article class="card contact-card">
+              <h3>General and support</h3>
+              <p><a href="mailto:home@beacontools.cc">home@beacontools.cc</a></p>
+            </article>
+            <article class="card contact-card">
+              <h3>Privacy and diagnostics</h3>
+              <p><a href="mailto:privacy@beacontools.cc">privacy@beacontools.cc</a></p>
+            </article>
+          </div>
+        </div>
+      </section>
 
-    <h2>What Stays Local</h2>
-    <p>Flight snapshots, config, personal API keys, local history, logs, native GUI state, LAN Companion pairing state, and Matrix settings are stored locally. The LAN browser UI, LAN Companion, and Matrix board talk to your own Local Flight server first.</p>
-    <p>Mobile Standalone stores its setup mode, relay install UUID, activation token, selected airport, appearance, diagnostics choice, pinned flight, and local deduped movement history on the device. Standalone history is not stored on the hosted relay.</p>
+      <section class="section">
+        <div class="wrap">
+          <div class="section-head">
+            <div>
+              <div class="eyebrow">Quick summary</div>
+              <h2>The short version.</h2>
+            </div>
+          </div>
+          <div class="grid three">
+            <article class="card"><h3>No accounts</h3><p>No advertising SDKs, no data brokers, and no cross-app or cross-site tracking.</p></article>
+            <article class="card"><h3>Local by default</h3><p>Your config, API keys, snapshots, history, and logs stay on your own machine or device unless you explicitly use relay-backed features or send a report.</p></article>
+            <article class="card"><h3>Native shell</h3><p>The native desktop GUI is a Qt shell, not a browser profile or webview.</p></article>
+          </div>
+          <ul class="console-list" style="margin-top: 14px;">
+            <li>LAN Companion and Matrix talk to your own Local Flight server first; Mobile Standalone talks directly to the hosted relay.</li>
+            <li>Manual reports are always your choice. Automatic crash diagnostics only run if you opt in.</li>
+            <li>Local Flight is an informational display aid, not a navigation, dispatch, operational-control, or safety system.</li>
+          </ul>
+        </div>
+      </section>
 
-    <h2>Hosted Relay</h2>
-    <p>If you choose Community Relay or Mobile Standalone, Local Flight may talk to the hosted Beacon Tools relay at <code>https://relay.beacontools.cc</code> for shared schedule snapshots, relay-backed radar, activation, rate limits, reports, and optional cached surface/map data.</p>
-    <p>The current relay schedule path is cache-first and can use AeroDataBox as the primary schedule provider with AviationStack sparse fill/fallback where configured. Bring-your-own-key installs keep their personal provider keys locally.</p>
-    <p>The relay stores only the technical metadata needed to run that shared service safely, such as random install UUIDs, hashed install fingerprints, token prefixes, usage counters, last-seen timestamps, short-lived airport interest rows, shared schedule/radar cache entries, and coarse app/platform profile fields.</p>
-    <p>The relay does not store raw IP addresses, personal API keys from your install, readable personal identifiers, local flight history, phone standalone history, or local logs unless you explicitly allow diagnostic reports with sanitized logs.</p>
+      <section class="section">
+        <div class="wrap">
+          <div class="section-head">
+            <div>
+              <div class="eyebrow">Local storage</div>
+              <h2>What stays local</h2>
+            </div>
+          </div>
+          <p>Flight snapshots, config, personal API keys, local history, logs, native GUI state, LAN Companion pairing state, and Matrix settings are stored locally. The LAN browser UI, LAN Companion, and Matrix board talk to your own Local Flight server first.</p>
+          <p>Mobile Standalone stores its setup mode, relay install UUID, activation token, selected airport, appearance, diagnostics choice, pinned flight, and local deduped movement history on the device. Standalone history is not stored on the hosted relay.</p>
+        </div>
+      </section>
 
-    <h2>Mobile And Matrix</h2>
-    <p>LAN Companion stores its paired server URL, companion ID, appearance, pinned flight, local profiles, and diagnostics choice on the device. It reports a companion-scoped ID to your own Local Flight server so server actions can distinguish desktop/server/mobile clients.</p>
-    <p>Mobile Standalone stores its separate relay install UUID, activation token, selected airport, appearance, pinned flight, diagnostics choice, and deduped movement history on the device. Standalone history is not stored on the hosted relay.</p>
-    <p>Matrix boards receive only display feed/config data from your Local Flight server. Generated MicroPython scripts do not receive provider keys, relay secrets, or admin credentials.</p>
+      <section class="section">
+        <div class="wrap">
+          <div class="section-head">
+            <div>
+              <div class="eyebrow">Hosted relay</div>
+              <h2>Relay-backed features</h2>
+            </div>
+          </div>
+          <p>If you choose Community Relay or Mobile Standalone, Local Flight may talk to the hosted Beacon Tools relay at <code>https://relay.beacontools.cc</code> for shared schedule snapshots, relay-backed radar, activation, rate limits, reports, and optional cached surface/map data.</p>
+          <p>The current relay schedule path is cache-first and can use AeroDataBox as the primary schedule provider with AviationStack sparse fill/fallback where configured. Bring-your-own-key installs keep their personal provider keys locally.</p>
+          <p>The relay stores only the technical metadata needed to run that shared service safely, such as random install UUIDs, hashed install fingerprints, token prefixes, usage counters, last-seen timestamps, short-lived airport interest rows, shared schedule/radar cache entries, and coarse app/platform profile fields.</p>
+          <p>The relay does not store raw IP addresses, personal API keys from your install, readable personal identifiers, local flight history, phone standalone history, or local logs unless you explicitly allow diagnostic reports with sanitized logs.</p>
+        </div>
+      </section>
 
-    <h2>VATSIM</h2>
-    <p>VATSIM mode uses public virtual-network data for flight-board display. Local Flight keeps callsigns, aircraft, filed route/plan, airport/timing data, and aircraft position where useful. It intentionally avoids storing or displaying pilot names, controller names, CIDs/account IDs, server names, or other person-identifying VATSIM fields.</p>
+      <section class="section">
+        <div class="wrap">
+          <div class="grid two">
+            <article class="card">
+              <h3>Mobile and Matrix</h3>
+              <p>LAN Companion stores its paired server URL, companion ID, appearance, pinned flight, local profiles, and diagnostics choice on the device. Mobile Standalone stores its separate relay install UUID, activation token, selected airport, appearance, pinned flight, diagnostics choice, and deduped movement history on the device. Matrix boards receive only display feed/config data from your Local Flight server.</p>
+            </article>
+            <article class="card">
+              <h3>VATSIM</h3>
+              <p>VATSIM mode uses public virtual-network data for flight-board display. Local Flight keeps callsigns, aircraft, filed route/plan, airport/timing data, and aircraft position where useful. It intentionally avoids storing or displaying pilot names, controller names, CIDs/account IDs, server names, or other person-identifying VATSIM fields.</p>
+            </article>
+          </div>
+        </div>
+      </section>
 
-    <h2>Diagnostics And Reports</h2>
-    <p>Manual reports can include the title and description you write, Local Flight version, install fingerprint, operating system, Python version, configured airport/source mode, diagnostics mode, display settings, and the reporting surface.</p>
-    <p>Automatic crash reports, if enabled, can include crash context, traceback, native/mobile screen context, and optionally a sanitized recent log excerpt. Reports are sanitized locally, forwarded through the hosted relay reporting gateway, deduplicated/rate-limited, and filed into the developer triage inbox.</p>
-    <p>Diagnostics do not intentionally include API keys, activation tokens, raw install IDs, raw IP addresses, screenshots, recordings, stored flight history, full local logs, or account data.</p>
+      <section class="section">
+        <div class="wrap">
+          <div class="section-head">
+            <div>
+              <div class="eyebrow">Diagnostics</div>
+              <h2>Reports are opt-in.</h2>
+            </div>
+          </div>
+          <p>Manual reports can include the title and description you write, Local Flight version, install fingerprint, operating system, Python version, configured airport/source mode, diagnostics mode, display settings, and the reporting surface.</p>
+          <p>Automatic crash reports, if enabled, can include crash context, traceback, native/mobile screen context, and optionally a sanitized recent log excerpt. Reports are sanitized locally, forwarded through the hosted relay reporting gateway, deduplicated/rate-limited, and filed into the developer triage inbox.</p>
+          <p>Diagnostics do not intentionally include API keys, activation tokens, raw install IDs, raw IP addresses, screenshots, recordings, stored flight history, full local logs, or account data.</p>
+        </div>
+      </section>
 
-    <h2>Email</h2>
-    <p>Local Flight does not require an email address and does not collect email addresses during normal app use. If you email Beacon Tools directly, your email address and message are handled by the email provider so Beacon Tools can reply to you.</p>
+      <section class="section">
+        <div class="wrap">
+          <div class="grid two">
+            <article class="card">
+              <h3>Email</h3>
+              <p>Local Flight does not require an email address and does not collect email addresses during normal app use. If you email Beacon Tools directly, your email address and message are handled by the email provider so Beacon Tools can reply to you.</p>
+            </article>
+            <article class="card">
+              <h3>Your control</h3>
+              <p>Your local app data is under your control. To wipe desktop/Pi data, stop Local Flight and remove <code>~/.localflight/</code>. Mobile app setup/history data can be removed by clearing the app or using its reset flows.</p>
+            </article>
+          </div>
+        </div>
+      </section>
 
-    <h2>Third-Party Data Sources</h2>
-    <p>Depending on your setup, Local Flight may communicate with AeroDataBox, AviationStack, ADS-B Exchange/RapidAPI, OpenSky, VATSIM, aviationweather.gov, OurAirports, OpenStreetMap/Overpass, and public terrain tile sources. Direct Bring Your Own Keys requests use your local provider keys. Relay-backed paths use the hosted relay and shared cache.</p>
+      <section class="section">
+        <div class="wrap">
+          <div class="section-head">
+            <div>
+              <div class="eyebrow">Third-party data sources</div>
+              <h2>Only when your setup uses them.</h2>
+            </div>
+          </div>
+          <p>Depending on your setup, Local Flight may communicate with AeroDataBox, AviationStack, ADS-B Exchange/RapidAPI, OpenSky, VATSIM, aviationweather.gov, OurAirports, OpenStreetMap/Overpass, and public terrain tile sources. Direct Bring Your Own Keys requests use your local provider keys. Relay-backed paths use the hosted relay and shared cache.</p>
+        </div>
+      </section>
+    </main>
 
-    <h2>Your Control</h2>
-    <p>Your local app data is under your control. To wipe desktop/Pi data, stop Local Flight and remove <code>~/.localflight/</code>. Mobile app setup/history data can be removed by clearing the app or using its reset flows.</p>
-
-    <footer>
-      Beacon Tools &middot; <a href="/">Home</a> &middot; <a href="/local-flight">Local Flight</a>
+    <footer class="footer">
+      <div class="wrap footer-row">
+        <span>Beacon Tools</span>
+        <span><a href="/">Home</a> &middot; <a href="/local-flight/">Local Flight</a> &middot; <a href="https://github.com/tr3y4rch/local-flight">GitHub</a></span>
+      </div>
     </footer>
-  </main>
+  </div>
 </body>
 </html>
