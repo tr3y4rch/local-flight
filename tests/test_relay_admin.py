@@ -383,12 +383,12 @@ def test_mobile_standalone_known_install_reissues_during_network_review(tmp_path
     old_status = client.get(
         "/v1/client/status",
         params={"install_id": install_id, "activation_token": first_token},
-        headers={"host": "relay.localflight.app"},
+        headers={"host": "relay.beacontools.cc"},
     )
     new_status = client.get(
         "/v1/client/status",
         params={"install_id": install_id, "activation_token": reissued_payload["activation_token"]},
-        headers={"host": "relay.localflight.app"},
+        headers={"host": "relay.beacontools.cc"},
     )
     assert old_status.status_code == 403
     assert new_status.status_code == 200
@@ -579,8 +579,8 @@ def test_admin_dashboard_handles_live_lane_without_snapshot(tmp_path: Path, monk
     conn.close()
     client = TestClient(relay_main.app)
 
-    admin = client.get("/admin", headers={"host": "network.localflight.app"}, auth=("admin", "correct-horse"))
-    schedules = client.get("/admin/api/schedules", headers={"host": "network.localflight.app"}, auth=("admin", "correct-horse")).json()
+    admin = client.get("/admin", headers={"host": "network.beacontools.cc"}, auth=("admin", "correct-horse"))
+    schedules = client.get("/admin/api/schedules", headers={"host": "network.beacontools.cc"}, auth=("admin", "correct-horse")).json()
 
     assert admin.status_code == 200
     assert "Presence is coarse" in admin.text
@@ -694,7 +694,7 @@ def test_admin_clean_trial_state_keeps_tokens_and_usage_counters(tmp_path: Path,
 
     response = client.post(
         "/admin/maintenance/clean-trial",
-        headers={"host": "network.localflight.app"},
+        headers={"host": "network.beacontools.cc"},
         auth=("admin", "correct-horse"),
     )
 
@@ -830,8 +830,8 @@ def test_public_host_hides_admin_surface(tmp_path: Path, monkeypatch) -> None:
     _use_temp_db(tmp_path, monkeypatch)
     client = TestClient(relay_main.app)
 
-    response = client.get("/admin", headers={"host": "relay.localflight.app"})
-    api_response = client.get("/admin/api/overview", headers={"host": "relay.localflight.app"})
+    response = client.get("/admin", headers={"host": "relay.beacontools.cc"})
+    api_response = client.get("/admin/api/overview", headers={"host": "relay.beacontools.cc"})
 
     assert response.status_code == 404
     assert api_response.status_code == 404
@@ -881,16 +881,16 @@ def test_admin_api_requires_auth_and_redacts_private_values(tmp_path: Path, monk
             "requested_mode": "community",
             "app_version": "0.2.5",
         },
-        headers={"host": "relay.localflight.app", "x-forwarded-for": "198.51.100.88"},
+        headers={"host": "relay.beacontools.cc", "x-forwarded-for": "198.51.100.88"},
     )
     assert activate.status_code == 200
     raw_token = activate.json()["activation_token"]
 
-    unauth = client.get("/admin/api/overview", headers={"host": "network.localflight.app"})
+    unauth = client.get("/admin/api/overview", headers={"host": "network.beacontools.cc"})
     assert unauth.status_code == 401
 
     responses = [
-        client.get(path, headers={"host": "network.localflight.app"}, auth=("admin", "correct-horse"))
+        client.get(path, headers={"host": "network.beacontools.cc"}, auth=("admin", "correct-horse"))
         for path in (
             "/admin/api/overview",
             "/admin/api/usage",
@@ -922,7 +922,7 @@ def test_admin_api_provider_and_token_actions(tmp_path: Path, monkeypatch) -> No
     _use_temp_db(tmp_path, monkeypatch)
     monkeypatch.setenv("RELAY_ADMIN_PASSWORD", "correct-horse")
     client = TestClient(relay_main.app)
-    headers = {"host": "network.localflight.app"}
+    headers = {"host": "network.beacontools.cc"}
     auth = ("admin", "correct-horse")
 
     save = client.post(
@@ -1003,7 +1003,7 @@ def test_admin_api_activation_request_action_issues_token(tmp_path: Path, monkey
     _use_temp_db(tmp_path, monkeypatch)
     monkeypatch.setenv("RELAY_ADMIN_PASSWORD", "correct-horse")
     client = TestClient(relay_main.app)
-    headers = {"host": "network.localflight.app"}
+    headers = {"host": "network.beacontools.cc"}
     auth = ("admin", "correct-horse")
     install_id = "00000000-0000-0000-0000-000000000616"
     request_id = "req_manual_test"
@@ -1047,7 +1047,7 @@ def test_admin_api_activation_request_action_issues_token(tmp_path: Path, monkey
     status = client.get(
         "/v1/client/status",
         params={"install_id": install_id, "activation_token": payload["activation_token"]},
-        headers={"host": "relay.localflight.app"},
+        headers={"host": "relay.beacontools.cc"},
     )
     assert status.status_code == 200
     assert status.json()["plan"] == "managed"
@@ -1057,7 +1057,7 @@ def test_admin_api_activation_request_action_uses_standalone_limits(tmp_path: Pa
     _use_temp_db(tmp_path, monkeypatch)
     monkeypatch.setenv("RELAY_ADMIN_PASSWORD", "correct-horse")
     client = TestClient(relay_main.app)
-    headers = {"host": "network.localflight.app"}
+    headers = {"host": "network.beacontools.cc"}
     auth = ("admin", "correct-horse")
     install_id = "00000000-0000-0000-0000-000000000618"
     request_id = "req_mobile_standalone_manual"
@@ -1100,7 +1100,7 @@ def test_admin_api_activation_request_action_uses_standalone_limits(tmp_path: Pa
     status = client.get(
         "/v1/client/status",
         params={"install_id": install_id, "activation_token": payload["activation_token"]},
-        headers={"host": "relay.localflight.app"},
+        headers={"host": "relay.beacontools.cc"},
     )
     assert status.status_code == 200
     assert status.json()["limits"]["schedule"] == 600
@@ -1111,7 +1111,7 @@ def test_admin_api_write_actions_tolerate_blank_optional_text(tmp_path: Path, mo
     _use_temp_db(tmp_path, monkeypatch)
     monkeypatch.setenv("RELAY_ADMIN_PASSWORD", "correct-horse")
     client = TestClient(relay_main.app)
-    headers = {"host": "network.localflight.app"}
+    headers = {"host": "network.beacontools.cc"}
     auth = ("admin", "correct-horse")
 
     provider_save = client.post(
@@ -1225,7 +1225,7 @@ def test_admin_host_hides_public_api_surface(tmp_path: Path, monkeypatch) -> Non
     response = client.get(
         "/v1/client/status",
         params={"install_id": "00000000-0000-0000-0000-000000000111"},
-        headers={"host": "network.localflight.app"},
+        headers={"host": "network.beacontools.cc"},
     )
 
     assert response.status_code == 404
@@ -1235,13 +1235,13 @@ def test_relay_root_switches_by_hostname(tmp_path: Path, monkeypatch) -> None:
     _use_temp_db(tmp_path, monkeypatch)
     client = TestClient(relay_main.app)
 
-    public_response = client.get("/", headers={"host": "relay.localflight.app"})
+    public_response = client.get("/", headers={"host": "relay.beacontools.cc"})
     assert public_response.status_code == 200
     public_payload = public_response.json()
-    assert public_payload["public_host"] == "relay.localflight.app"
-    assert public_payload["admin_host"] == "network.localflight.app"
+    assert public_payload["public_host"] == "relay.beacontools.cc"
+    assert public_payload["admin_host"] == "network.beacontools.cc"
 
-    admin_response = client.get("/", headers={"host": "network.localflight.app"}, follow_redirects=False)
+    admin_response = client.get("/", headers={"host": "network.beacontools.cc"}, follow_redirects=False)
     assert admin_response.status_code == 307
     assert admin_response.headers["location"] == "/admin"
 
@@ -1253,9 +1253,9 @@ def test_admin_auth_throttles_repeated_bad_passwords(tmp_path: Path, monkeypatch
     relay_main._admin_auth_failures.clear()
     client = TestClient(relay_main.app)
 
-    first = client.get("/admin", headers={"host": "network.localflight.app"}, auth=("admin", "wrong"))
-    second = client.get("/admin", headers={"host": "network.localflight.app"}, auth=("admin", "wrong"))
-    third = client.get("/admin", headers={"host": "network.localflight.app"}, auth=("admin", "wrong"))
+    first = client.get("/admin", headers={"host": "network.beacontools.cc"}, auth=("admin", "wrong"))
+    second = client.get("/admin", headers={"host": "network.beacontools.cc"}, auth=("admin", "wrong"))
+    third = client.get("/admin", headers={"host": "network.beacontools.cc"}, auth=("admin", "wrong"))
 
     assert first.status_code == 401
     assert second.status_code == 401
@@ -1278,7 +1278,7 @@ def test_activation_requests_persist_review_airport_fields(tmp_path: Path, monke
             "requested_mode": "community",
             "app_version": "0.2.5",
         },
-        headers={"host": "relay.localflight.app", "x-forwarded-for": "203.0.113.55"},
+        headers={"host": "relay.beacontools.cc", "x-forwarded-for": "203.0.113.55"},
     )
     assert response.status_code == 200
 
@@ -1583,8 +1583,8 @@ def test_admin_dashboard_surfaces_report_gateway_events(tmp_path: Path, monkeypa
 
     first = client.post("/v1/reports", json=payload)
     second = client.post("/v1/reports", json=payload)
-    admin = client.get("/admin", headers={"host": "network.localflight.app"}, auth=("admin", "correct-horse"))
-    reports = client.get("/admin/api/reports", headers={"host": "network.localflight.app"}, auth=("admin", "correct-horse")).json()
+    admin = client.get("/admin", headers={"host": "network.beacontools.cc"}, auth=("admin", "correct-horse"))
+    reports = client.get("/admin/api/reports", headers={"host": "network.beacontools.cc"}, auth=("admin", "correct-horse")).json()
 
     assert first.status_code == 200
     assert second.status_code == 200
@@ -1632,8 +1632,8 @@ def test_admin_dashboard_sorts_recent_report_events_newest_first(tmp_path: Path,
             client_context="Reporter Web UI",
         ),
     )
-    admin = client.get("/admin", headers={"host": "network.localflight.app"}, auth=("admin", "correct-horse"))
-    reports = client.get("/admin/api/reports?sort=ts&dir=desc", headers={"host": "network.localflight.app"}, auth=("admin", "correct-horse")).json()
+    admin = client.get("/admin", headers={"host": "network.beacontools.cc"}, auth=("admin", "correct-horse"))
+    reports = client.get("/admin/api/reports?sort=ts&dir=desc", headers={"host": "network.beacontools.cc"}, auth=("admin", "correct-horse")).json()
 
     assert old_report.status_code == 200
     assert new_report.status_code == 200
@@ -1717,7 +1717,7 @@ def test_raw_provider_debug_route_stays_hidden_on_public_surface(tmp_path: Path,
             "dep_iata": "ZRH",
             "install_id": "00000000-0000-0000-0000-000000000321",
         },
-        headers={"host": "relay.localflight.app"},
+        headers={"host": "relay.beacontools.cc"},
     )
 
     assert response.status_code == 404
@@ -1728,7 +1728,7 @@ def test_raw_provider_debug_route_hidden_before_query_validation(tmp_path: Path,
     monkeypatch.setenv("RELAY_ALLOW_RAW_PROVIDER_DEBUG", "1")
     client = TestClient(relay_main.app)
 
-    response = client.get("/v1/flights", headers={"host": "relay.localflight.app"})
+    response = client.get("/v1/flights", headers={"host": "relay.beacontools.cc"})
 
     assert response.status_code == 404
     assert response.json() == {"detail": "Not found"}
@@ -2964,7 +2964,7 @@ def test_client_checkin_records_redacted_fleet_profile_and_preserves_first_seen(
     _use_temp_db(tmp_path, monkeypatch)
     monkeypatch.setenv("RELAY_ADMIN_PASSWORD", "correct-horse")
     client = TestClient(relay_main.app)
-    headers = {"host": "network.localflight.app"}
+    headers = {"host": "network.beacontools.cc"}
     auth = ("admin", "correct-horse")
     install_id = "00000000-0000-0000-0000-000000000406"
 
@@ -3210,7 +3210,7 @@ def test_admin_fleet_install_refs_support_actions(tmp_path: Path, monkeypatch) -
     _use_temp_db(tmp_path, monkeypatch)
     monkeypatch.setenv("RELAY_ADMIN_PASSWORD", "correct-horse")
     client = TestClient(relay_main.app)
-    headers = {"host": "network.localflight.app"}
+    headers = {"host": "network.beacontools.cc"}
     auth = ("admin", "correct-horse")
     install_id = "00000000-0000-0000-0000-000000000407"
 
@@ -3241,7 +3241,7 @@ def test_admin_overview_exposes_heartbeat_summary_without_private_ids(tmp_path: 
     _use_temp_db(tmp_path, monkeypatch)
     monkeypatch.setenv("RELAY_ADMIN_PASSWORD", "correct-horse")
     client = TestClient(relay_main.app)
-    headers = {"host": "network.localflight.app"}
+    headers = {"host": "network.beacontools.cc"}
     auth = ("admin", "correct-horse")
     install_id = "00000000-0000-0000-0000-000000000408"
 
@@ -3265,7 +3265,7 @@ def test_admin_fleet_supports_server_filters_pagination_and_facets(tmp_path: Pat
     _use_temp_db(tmp_path, monkeypatch)
     monkeypatch.setenv("RELAY_ADMIN_PASSWORD", "correct-horse")
     client = TestClient(relay_main.app)
-    headers = {"host": "network.localflight.app"}
+    headers = {"host": "network.beacontools.cc"}
     auth = ("admin", "correct-horse")
     installs = [
         ("00000000-0000-0000-0000-000000001001", "Windows", "native", "0.2.5", "ZRH", 1, 0),
@@ -3352,7 +3352,7 @@ def test_admin_html_is_lazy_query_driven_shell(tmp_path: Path, monkeypatch) -> N
     _use_temp_db(tmp_path, monkeypatch)
     monkeypatch.setenv("RELAY_ADMIN_PASSWORD", "correct-horse")
     client = TestClient(relay_main.app)
-    response = client.get("/admin", headers={"host": "network.localflight.app"}, auth=("admin", "correct-horse"))
+    response = client.get("/admin", headers={"host": "network.beacontools.cc"}, auth=("admin", "correct-horse"))
     text = response.text
 
     assert response.status_code == 200

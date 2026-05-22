@@ -325,48 +325,59 @@ def _activation_request_status_url(relay_url: str) -> str:
     return _activation_request_url(relay_url).rstrip("/") + "/status"
 
 
+BEACON_TOOLS_URL = "https://beacontools.cc"
+LOCAL_FLIGHT_WEB_URL = f"{BEACON_TOOLS_URL}/local-flight"
+PRIVACY_WEB_URL = f"{BEACON_TOOLS_URL}/privacy"
+
 _DOC_PAGES: Dict[str, Dict[str, str]] = {
     "readme": {
         "title": "Project README",
         "filename": "README.md",
         "summary": "Friendly overview, quick path chooser, previews, and links to deeper docs.",
-        "github_url": "https://github.com/tr3y4rch/local-flight#readme",
+        "external_url": LOCAL_FLIGHT_WEB_URL,
+        "external_label": "Open online",
     },
     "install": {
         "title": "Install Guide",
         "filename": "install.md",
         "summary": "Platform install steps for Windows, macOS, Raspberry Pi, source checkout, and mobile testing.",
-        "github_url": "https://github.com/tr3y4rch/local-flight/blob/main/docs/install.md",
+        "external_url": f"{LOCAL_FLIGHT_WEB_URL}#install",
+        "external_label": "Open online",
     },
     "display-modes": {
         "title": "Display Modes",
         "filename": "display-modes.md",
         "summary": "How native desktop, LAN browser, Pi kiosk, mobile, and Matrix clients fit together.",
-        "github_url": "https://github.com/tr3y4rch/local-flight/blob/main/docs/display-modes.md",
+        "external_url": f"{LOCAL_FLIGHT_WEB_URL}#display-modes",
+        "external_label": "Open online",
     },
     "client-notes": {
         "title": "0.2.7 Client Notes",
         "filename": "release-notes-0.2.7.md",
         "summary": "0.2.7 client polish: native shell, FIDS, History, Matrix, mobile, and relay-facing client changes.",
-        "github_url": "https://github.com/tr3y4rch/local-flight/blob/main/docs/release-notes-0.2.7.md",
+        "external_url": f"{LOCAL_FLIGHT_WEB_URL}#release-notes",
+        "external_label": "Open online",
     },
     "privacy": {
         "title": "Privacy & Diagnostics",
         "filename": "PRIVACY.md",
         "summary": "What stays local, what reporting can send, and how diagnostics modes work.",
-        "github_url": "https://github.com/tr3y4rch/local-flight/blob/main/PRIVACY.md",
+        "external_url": PRIVACY_WEB_URL,
+        "external_label": "Open privacy policy",
     },
     "changelog": {
         "title": "Release Notes",
         "filename": "CHANGELOG.md",
         "summary": "Version history and recent release changes.",
-        "github_url": "https://github.com/tr3y4rch/local-flight/blob/main/CHANGELOG.md",
+        "external_url": f"{LOCAL_FLIGHT_WEB_URL}#release-notes",
+        "external_label": "Open online",
     },
     "third-party": {
         "title": "Third-Party Notices",
         "filename": "THIRD_PARTY_NOTICES.md",
         "summary": "Bundled font licenses and source attribution for local app assets.",
-        "github_url": "https://github.com/tr3y4rch/local-flight/blob/main/THIRD_PARTY_NOTICES.md",
+        "external_url": f"{LOCAL_FLIGHT_WEB_URL}#third-party",
+        "external_label": "Open online",
     },
 }
 
@@ -398,12 +409,17 @@ def _doc_payload(slug: str) -> Dict[str, Any]:
         else f"{page['filename']} is not bundled with this build."
     )
 
+    external_url = page.get("external_url") or page.get("github_url") or LOCAL_FLIGHT_WEB_URL
+    external_label = page.get("external_label") or "Open online"
     return {
         "slug": doc_slug,
         "title": page["title"],
         "summary": page["summary"],
         "filename": page["filename"],
-        "github_url": page["github_url"],
+        "external_url": external_url,
+        "external_label": external_label,
+        # Deprecated compatibility alias for older mobile clients.
+        "github_url": external_url,
         "content": content,
         "bundled": bundled,
     }
@@ -1492,6 +1508,8 @@ def docs_page(request: Request, slug: str) -> HTMLResponse:
             "doc_filename": payload["filename"],
             "doc_text": payload["content"],
             "doc_github_url": payload["github_url"],
+            "doc_external_url": payload["external_url"],
+            "doc_external_label": payload["external_label"],
             "doc_pages": _DOC_PAGES,
         },
     )

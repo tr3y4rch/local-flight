@@ -89,7 +89,7 @@
     {% for key, page in doc_pages.items() %}
       <a href="/docs/{{ key }}" class="doc-link {% if key == doc_slug %}active{% endif %}">{{ page.title }}</a>
     {% endfor %}
-    <a href="{{ doc_github_url }}" class="doc-link" target="_blank" rel="noreferrer">Open on GitHub</a>
+    <a href="{{ doc_external_url or doc_github_url }}" class="doc-link" target="_blank" rel="noreferrer">{{ doc_external_label or "Open online" }}</a>
   </div>
 
   <p class="doc-meta">

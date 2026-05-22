@@ -41,6 +41,7 @@ native = [
 ]
 
 [project.urls]
+Homepage   = "https://beacontools.cc/local-flight"
 Repository = "https://github.com/tr3y4rch/local-flight"
 Issues    = "https://github.com/tr3y4rch/local-flight/issues"
 

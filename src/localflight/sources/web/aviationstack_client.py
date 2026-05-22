@@ -632,7 +632,7 @@ def _fetch_relay_status(timeout_s: int = 8, *, require_token: bool = False) -> D
         response = requests.get(
             _client_status_url(),
             params=params,
-            headers={"Accept": "application/json", "User-Agent": "local-flight/1.0 (+https://localflight.invalid)"},
+            headers={"Accept": "application/json", "User-Agent": "local-flight/1.0 (+https://beacontools.cc/local-flight)"},
             timeout=timeout_s,
         )
     except requests.RequestException as exc:
@@ -689,7 +689,7 @@ def _request_json(
             params=params,
             headers=headers
             or {
-                "User-Agent": "local-flight/1.0 (+https://localflight.invalid)",
+                "User-Agent": "local-flight/1.0 (+https://beacontools.cc/local-flight)",
                 "Accept": "application/json",
             },
             timeout=timeout_s,

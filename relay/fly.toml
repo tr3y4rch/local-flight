@@ -13,8 +13,8 @@ primary_region = 'fra'
   DB_PATH = '/data/relay.db'
   PORT = '8080'
   RELAY_COMMUNITY_SCHEDULE_LIMIT = '50'
-  RELAY_PUBLIC_HOST = 'relay.localflight.app'
-  RELAY_ADMIN_HOST = 'network.localflight.app'
+  RELAY_PUBLIC_HOST = 'relay.beacontools.cc'
+  RELAY_ADMIN_HOST = 'network.beacontools.cc'
 
 [[mounts]]
   source = 'relay_data'

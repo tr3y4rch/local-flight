@@ -6,6 +6,8 @@ No accounts. No analytics SDKs. No ad tech. No sign-up flow.
 
 This is a hobbyist/open-source project, not a legal document, but the app is designed to be privacy-minimal and GDPR-friendly: collect as little as possible, keep identifiers technical and install-scoped, and make diagnostics opt-in.
 
+Beacon Tools is the dev studio home for Local Flight. General/support questions can go to [home@beacontools.cc](mailto:home@beacontools.cc). Privacy, diagnostics, and data-request questions can go to [privacy@beacontools.cc](mailto:privacy@beacontools.cc). The public privacy URL is [beacontools.cc/privacy](https://beacontools.cc/privacy).
+
 ---
 
 ## Quick Summary
@@ -22,6 +24,7 @@ This is a hobbyist/open-source project, not a legal document, but the app is des
 - LAN Companion automatic diagnostics require two yeses: the mobile app's local diagnostics choice and the connected server's diagnostics mode.
 - Mobile Standalone automatic diagnostics require the phone-local diagnostics choice because there is no paired server.
 - Developer reporting credentials are kept on the hosted relay, not in the desktop package, mobile app, installers, or docs.
+- Local Flight does not collect your email address during normal app use. If you email Beacon Tools directly, your email address and message are handled by the email provider so Beacon Tools can reply to you.
 - Local Flight is an informational display aid, not a navigation, dispatch, operational-control, or safety system.
 
 ---
@@ -229,7 +232,7 @@ Local Flight does not embed tracking or advertising SDKs from any of these servi
 Local Flight is designed to avoid collecting personal data in normal use:
 
 - no user accounts
-- no email addresses
+- no email addresses unless you email Beacon Tools directly
 - no analytics profiles
 - no ad tracking
 - no raw IP storage in the hosted relay

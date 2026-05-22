@@ -74,7 +74,7 @@ def _send_now() -> None:
             url,
             json=payload,
             headers={
-                "User-Agent": "local-flight/1.0 (+https://localflight.invalid)",
+                "User-Agent": "local-flight/1.0 (+https://beacontools.cc/local-flight)",
                 "Accept": "application/json",
             },
             timeout=_HTTP_TIMEOUT_S,

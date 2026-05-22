@@ -76,6 +76,7 @@ from localflight.ui.matrix_guidance import (
 )
 
 COFFEE_URL = "https://buymeacoffee.com/localflight"
+WEBSITE_URL = "https://beacontools.cc/local-flight"
 GITHUB_URL = "https://github.com/tr3y4rch/local-flight"
 
 
@@ -791,8 +792,8 @@ class NativeMainWindow:  # pragma: no cover - exercised with optional Qt
                 tagline.setSizePolicy(QtWidgets.QSizePolicy.Ignored, QtWidgets.QSizePolicy.Preferred)
                 github = QtWidgets.QPushButton("")
                 github.setObjectName("FooterLink")
-                github.setToolTip("GitHub")
-                github.setAccessibleName("GitHub")
+                github.setToolTip("Beacon Tools")
+                github.setAccessibleName("Beacon Tools")
                 github.setMinimumSize(36, 30)
                 github.setMaximumWidth(38)
                 # Theme-aware: white invertocat on dark theme, black on light.
@@ -807,7 +808,7 @@ class NativeMainWindow:  # pragma: no cover - exercised with optional Qt
                 else:
                     github.setIcon(github_icon)
                     github.setIconSize(QtCore.QSize(20, 20))
-                github.clicked.connect(lambda: webbrowser.open(GITHUB_URL))
+                github.clicked.connect(lambda: webbrowser.open(WEBSITE_URL))
                 coffee = QtWidgets.QPushButton("")
                 coffee.setObjectName("FooterLink")
                 coffee.setToolTip("Buy Me a Coffee")

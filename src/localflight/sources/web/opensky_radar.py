@@ -125,7 +125,7 @@ def fetch_radar_blips(
             params=params,
             auth=auth,
             timeout=timeout_s,
-            headers={"User-Agent": "local-flight/1.0 (+https://localflight.invalid)"},
+            headers={"User-Agent": "local-flight/1.0 (+https://beacontools.cc/local-flight)"},
         )
     except requests.RequestException as exc:
         raise OpenSkyError(f"OpenSky request failed: {exc}") from exc

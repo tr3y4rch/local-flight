@@ -8,8 +8,8 @@ from typing import Any
 from localflight.native.design import icon_from_media
 
 APP_NAME = "Local Flight"
-APP_ORGANIZATION = "Local Flight"
-APP_DOMAIN = "localflight.app"
+APP_ORGANIZATION = "Beacon Tools"
+APP_DOMAIN = "beacontools.cc"
 APP_BUNDLE_ID = "com.localflight.app"
 DESKTOP_FILE_NAME = "localflight"
 

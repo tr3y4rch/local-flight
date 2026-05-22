@@ -7,6 +7,8 @@ export type DocDocument = {
   summary: string;
   filename: string;
   github_url: string;
+  external_url?: string;
+  external_label?: string;
   content: string;
   bundled?: boolean;
 };

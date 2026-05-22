@@ -256,4 +256,4 @@ def _normalize_relay_base_url(value: str) -> str:
         if base.lower().endswith(suffix):
             base = base[: -len(suffix)]
             break
-    return base or "https://localflight-community-relay.fly.dev"
+    return base or "https://network.beacontools.cc"

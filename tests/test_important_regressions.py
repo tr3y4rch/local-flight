@@ -5345,9 +5345,9 @@ def test_setup_relay_url_validation_blocks_untrusted_roots(monkeypatch) -> None:
 
     assert relay_defaults.validate_public_relay_url(default_url, trusted_default=default_url) == default_url
     assert relay_defaults.validate_public_relay_url(
-        "https://relay.localflight.app/v1/flights",
+        "https://relay.beacontools.cc/v1/flights",
         trusted_default=default_url,
-    ) == "https://relay.localflight.app/v1/flights"
+    ) == "https://relay.beacontools.cc/v1/flights"
 
     with pytest.raises(ValueError, match="Custom relay hosts"):
         relay_defaults.validate_public_relay_url("https://relay.example.test/v1/flights", trusted_default=default_url)
@@ -5452,7 +5452,9 @@ def test_api_docs_serves_bundled_markdown(monkeypatch) -> None:
     assert payload["filename"] == "README.md"
     assert payload["bundled"] is True
     assert payload["content"].startswith("# Local Flight")
-    assert payload["github_url"].startswith("https://github.com/tr3y4rch/local-flight")
+    assert payload["external_url"] == "https://beacontools.cc/local-flight"
+    assert payload["external_label"] == "Open online"
+    assert payload["github_url"] == payload["external_url"]
 
     install_response = TestClient(ui_server.app).get("/api/docs/install")
     display_response = TestClient(ui_server.app).get("/api/docs/display-modes")
@@ -5584,7 +5586,7 @@ def test_operator_power_stays_out_of_public_docs_and_examples() -> None:
     forbidden_public_terms = (
         "start_network.bat",
         "/admin/api",
-        "network.localflight.app",
+        "network.beacontools.cc",
         "RELAY_ADMIN_PASSWORD",
         "LINEAR_REPORTER_API_KEY",
         "DEV_README.md",

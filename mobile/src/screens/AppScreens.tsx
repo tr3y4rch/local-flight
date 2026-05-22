@@ -141,31 +141,36 @@ export type ActivityStatus = {
 };
 export type ConnectionState = "live" | "retrying" | "offline";
 
-const DOC_SOURCES: Record<DocSlug, { title: string; detail: string; githubUrl: string }> = {
+const DOC_SOURCES: Record<DocSlug, { title: string; detail: string; externalUrl: string; externalLabel: string }> = {
   readme: {
     title: "README",
     detail: "Friendly overview, path chooser, previews, and operating model",
-    githubUrl: "https://github.com/tr3y4rch/local-flight#readme"
+    externalUrl: "https://beacontools.cc/local-flight",
+    externalLabel: "Open online"
   },
   install: {
     title: "Install Guide",
     detail: "Platform setup, Pi modes, source checkout, and mobile testing",
-    githubUrl: "https://github.com/tr3y4rch/local-flight/blob/main/docs/install.md"
+    externalUrl: "https://beacontools.cc/local-flight#install",
+    externalLabel: "Open online"
   },
   "display-modes": {
     title: "Display Modes",
     detail: "Native, browser, Pi, mobile, and Matrix display choices",
-    githubUrl: "https://github.com/tr3y4rch/local-flight/blob/main/docs/display-modes.md"
+    externalUrl: "https://beacontools.cc/local-flight#display-modes",
+    externalLabel: "Open online"
   },
   privacy: {
     title: "Privacy",
     detail: "What stays local and what diagnostics can send",
-    githubUrl: "https://github.com/tr3y4rch/local-flight/blob/main/PRIVACY.md"
+    externalUrl: "https://beacontools.cc/privacy",
+    externalLabel: "Open privacy policy"
   },
   changelog: {
     title: "Changelog",
     detail: "Release history and beta notes",
-    githubUrl: "https://github.com/tr3y4rch/local-flight/blob/main/CHANGELOG.md"
+    externalUrl: "https://beacontools.cc/local-flight#release-notes",
+    externalLabel: "Open online"
   }
 };
 
@@ -5916,7 +5921,7 @@ export function ControlScreen({
         activeSection={activeControlSection}
         icon={TOOL_ICONS.help}
         title="Help & Reports"
-        summary="Troubleshooting, report flow, GitHub, support"
+        summary="Troubleshooting, reports, Beacon Tools, source"
         onSelect={setActiveControlSection}
       >
         <InfoLine label="Pairing & host" value={`${connected ? "Connected" : "Check connection"} · ${updateValue} · ${schedulerRunning ? "scheduler running" : "scheduler check"}`} />
@@ -5925,9 +5930,9 @@ export function ControlScreen({
         <InfoLine label="Display data" value="Flight, weather, and radar information are for personal display only, not for navigation or safety decisions." />
         <SettingsToolPill
           icon={TOOL_ICONS.github}
-          label="GitHub & releases"
-          value="Source, issues, and release notes"
-          onPress={() => void Linking.openURL("https://github.com/tr3y4rch/local-flight")}
+          label="Beacon Tools"
+          value="Website, privacy, source, and releases"
+          onPress={() => void Linking.openURL("https://beacontools.cc/local-flight")}
         />
         <Text style={styles.settingsProfileTitle}>REPORT PROBLEM</Text>
         <TextInput
@@ -6254,7 +6259,7 @@ export function StandaloneSettingsScreen({
         activeSection={activeSection}
         icon={TOOL_ICONS.help}
         title="Help & Reports"
-        summary="Troubleshooting, reporting, GitHub, support"
+        summary="Troubleshooting, reports, Beacon Tools, source"
         onSelect={setActiveSection}
       >
         <InfoLine label="Relay check" value="If standalone requests fail, check internet access first. Standalone does not need your desktop or Pi." />
@@ -6262,9 +6267,9 @@ export function StandaloneSettingsScreen({
         <InfoLine label="Display data" value="Flight, weather, and radar information are for personal display only, not navigation, dispatch, operations, or safety decisions." />
         <SettingsToolPill
           icon={TOOL_ICONS.github}
-          label="GitHub & releases"
-          value="Source, issues, and release notes"
-          onPress={() => void Linking.openURL("https://github.com/tr3y4rch/local-flight")}
+          label="Beacon Tools"
+          value="Website, privacy, source, and releases"
+          onPress={() => void Linking.openURL("https://beacontools.cc/local-flight")}
         />
         <Text style={styles.settingsProfileTitle}>REPORT PROBLEM</Text>
         <TextInput
@@ -6799,7 +6804,8 @@ function DocsScreen({
 
   const title = document?.title || source.title;
   const detail = document?.summary || source.detail;
-  const githubUrl = document?.github_url || source.githubUrl;
+  const externalUrl = document?.external_url || document?.github_url || source.externalUrl;
+  const externalLabel = document?.external_label || source.externalLabel;
   const headings = extractDocHeadings(document?.content || "");
 
   const jumpToHeading = useCallback((heading: DocHeading) => {
@@ -6865,9 +6871,9 @@ function DocsScreen({
               </Text>
               <SettingsToolPill
                 icon={ACTION_ICONS.openExternal}
-                label="Open in GitHub"
-                value="External GitHub link opens only when you tap"
-                onPress={() => void Linking.openURL(githubUrl)}
+                label={externalLabel}
+                value="External website link opens only when you tap"
+                onPress={() => void Linking.openURL(externalUrl)}
               />
             </>
           ) : null}

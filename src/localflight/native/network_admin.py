@@ -161,7 +161,7 @@ class NetworkAdminWindow:  # pragma: no cover - optional Qt runtime
                 )
 
                 self.url = QtWidgets.QLineEdit(
-                    os.environ.get("LOCALFLIGHT_NETWORK_ADMIN_URL", "https://localflight-community-relay.fly.dev/admin")
+                    os.environ.get("LOCALFLIGHT_NETWORK_ADMIN_URL", "https://network.beacontools.cc/admin")
                 )
                 self.user = QtWidgets.QLineEdit(os.environ.get("LOCALFLIGHT_NETWORK_ADMIN_USER", "admin"))
                 self.password = QtWidgets.QLineEdit()

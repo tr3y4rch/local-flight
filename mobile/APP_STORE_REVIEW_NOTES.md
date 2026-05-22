@@ -23,7 +23,7 @@ This file is the working checklist for the first iOS proof-of-concept review. It
 
 App Store Connect privacy answers should be conservative:
 
-- Privacy Policy URL: `https://github.com/tr3y4rch/local-flight/blob/main/PRIVACY.md` until a dedicated project website is available.
+- Privacy Policy URL: `https://beacontools.cc/privacy`.
 - Data collected: yes.
 - Data linked to the user: yes, conservatively, because install-scoped IDs are sent with app-functionality requests.
 - Tracking: no advertising, no data brokers, and no cross-app/site tracking.
@@ -40,7 +40,7 @@ The bundled iOS privacy manifest declares required-reason APIs and conservative 
 - This proof-of-concept build keeps support tips as a stub-only in-app sheet.
 - No features are locked behind support.
 - No external Buy Me a Coffee or other external purchase call-to-action should appear in App Store builds.
-- External GitHub/release links are informational/support links only, not purchase links.
+- External Beacon Tools, GitHub, and release links are informational/support links only, not purchase links.
 - Real tips later require Apple in-app purchase products matching the stable product IDs, a native StoreKit adapter, relay App Store Server API verification, and TestFlight/sandbox verification.
 
 ## Safety Copy

@@ -24,6 +24,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 >
 > For the user-facing summary, see [docs/release-notes-0.2.7.md](docs/release-notes-0.2.7.md).
 
+### Beacon Tools public home
+- Beacon Tools is now the public home for Local Flight at `https://beacontools.cc/local-flight`, with the public privacy policy at `https://beacontools.cc/privacy`.
+- Added a no-build Cloudflare Pages site under `site/` for the Beacon Tools home, Local Flight product page, privacy page, and `/local-flight/privacy` redirect.
+- Added `relay.beacontools.cc` as the staged official relay hostname and moved the relay's public/admin host defaults to `relay.beacontools.cc` and `network.beacontools.cc`; client relay defaults remain on the Fly.io root until DNS and Fly TLS are live.
+- Public copy now uses `home@beacontools.cc` for general/support contact and `privacy@beacontools.cc` for privacy and diagnostics requests.
+
 ### History movement hardening
 - Added a canonical `history_movements` layer beside the raw `flights` observation table. User-facing History now counts deduped movements instead of repeated board snapshot rows.
 - History windows now filter by movement `event_time` (actual time first, scheduled time second), not by when a snapshot was fetched. Future scheduled board rows no longer inflate "last 24h" history until the movement time is current.
@@ -624,7 +630,7 @@ All seven phases are additive visual polish on the existing data contracts. No r
 ## [0.2.4b1] - 2026-04-28
 
 ### Changed
-- Community relay URL updated to the live Fly.io endpoint (`https://localflight-community-relay.fly.dev/v1/flights`). The `relay.localflight.app` custom domain is planned once DNS is configured.
+- Community relay URL updated to the live Fly.io endpoint (`https://localflight-community-relay.fly.dev/v1/flights`). The older `relay.localflight.app` custom-domain plan was later superseded by the Beacon Tools domain plan.
 - Source installers (Windows, macOS, Pi) and `.env` defaults now point to the confirmed-working relay endpoint.
 - Version bumped to `0.2.4b1` across `pyproject.toml`, runtime fallbacks, and mobile metadata.
 - Removed orphaned `claude2.md` and root `package-lock.json`.
@@ -643,7 +649,7 @@ All seven phases are additive visual polish on the existing data contracts. No r
 - Regression coverage for public/admin hostname gating, relay privacy writes, hosted relay defaults, and the `0.2.3b2` runtime metadata sweep.
 
 ### Changed
-- Community mode now defaults to the hosted relay URL `https://relay.localflight.app/v1/flights` across the client, setup flow, and source installers.
+- Community mode now defaults to the hosted relay URL `https://relay.localflight.app/v1/flights` across the client, setup flow, and source installers. This historical hostname was later superseded first by the Fly.io root and then by the Beacon Tools hostname plan.
 - The relay now runs as one Fly app with one warm machine in `fra`, one SQLite volume, and separate public/admin hostnames on top.
 - Setup keeps the user-facing model to exactly three paths: Community, Bring your own keys, or VATSIM.
 - Source-install templates, `.env.example`, and handoff docs now describe the hosted relay as the standard community path instead of a local-only relay experiment.

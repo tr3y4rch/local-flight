@@ -6,7 +6,9 @@ It fetches real or virtual flight data, keeps a local history, and renders airpo
 
 The recommended desktop client is now the native Qt app. The LAN browser UI, Pi display modes, Matrix board, and LAN Companion mode all use the same local server underneath, so you can pick the display style that fits your setup without splitting the app into different products. The same Expo mobile app can also run in a simplified Standalone mode through the hosted relay when you only want a light phone board.
 
-**Source:** [github.com/tr3y4rch/local-flight](https://github.com/tr3y4rch/local-flight)
+- **Website:** [beacontools.cc/local-flight](https://beacontools.cc/local-flight)
+- **Source:** [github.com/tr3y4rch/local-flight](https://github.com/tr3y4rch/local-flight)
+- **Contact:** [home@beacontools.cc](mailto:home@beacontools.cc) for general/support questions, [privacy@beacontools.cc](mailto:privacy@beacontools.cc) for privacy requests
 
 ---
 
@@ -162,7 +164,7 @@ Local Flight stores runtime data under `~/.localflight/`:
 
 Manual reports are always user-triggered. Automatic diagnostics require consent and are sanitized before leaving the device. LAN Companion mode requires both the phone-local diagnostics choice and the connected server diagnostics mode to allow automatic reports. Standalone mobile automatic reports require the phone-local diagnostics choice only, because there is no paired local server in that mode.
 
-See [PRIVACY.md](PRIVACY.md) for the detailed privacy model.
+See [PRIVACY.md](PRIVACY.md) or the online policy at [beacontools.cc/privacy](https://beacontools.cc/privacy) for the detailed privacy model.
 
 ---
 

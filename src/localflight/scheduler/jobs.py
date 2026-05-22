@@ -406,7 +406,7 @@ def _enrich_with_opensky(
             },
             auth=_get_auth(),
             timeout=20,
-            headers={"User-Agent": "local-flight/1.0 (+https://localflight.invalid)"},
+            headers={"User-Agent": "local-flight/1.0 (+https://beacontools.cc/local-flight)"},
         )
 
         if r.status_code == 429:

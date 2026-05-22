@@ -197,7 +197,7 @@ def _fetch_managed_relay(lat: float, lon: float, dist_nm: int, timeout_s: int) -
         r = requests.get(
             _get_relay_url(),
             params=params,
-            headers={"Accept": "application/json", "User-Agent": "local-flight/1.0 (+https://localflight.invalid)"},
+            headers={"Accept": "application/json", "User-Agent": "local-flight/1.0 (+https://beacontools.cc/local-flight)"},
             timeout=timeout_s,
         )
     except requests.RequestException as exc:

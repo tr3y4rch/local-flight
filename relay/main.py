@@ -162,11 +162,11 @@ def _int_env(key: str, default: int, *, minimum: int = 0) -> int:
 
 
 def _public_host() -> str:
-    return _normalized_host(_env("RELAY_PUBLIC_HOST", "relay.localflight.app"))
+    return _normalized_host(_env("RELAY_PUBLIC_HOST", "relay.beacontools.cc"))
 
 
 def _admin_host() -> str:
-    return _normalized_host(_env("RELAY_ADMIN_HOST", "network.localflight.app"))
+    return _normalized_host(_env("RELAY_ADMIN_HOST", "network.beacontools.cc"))
 
 
 def _normalized_host(value: str) -> str:

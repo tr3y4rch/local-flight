@@ -333,13 +333,13 @@ def test_native_client_window_footer_links(monkeypatch: pytest.MonkeyPatch) -> N
     assert not window.footer_coffee_button.icon().isNull() or window.footer_coffee_button.text()
     assert window.footer_github_button.text() != "GitHub"
     assert window.footer_coffee_button.text() != "Buy Me a Coffee"
-    assert window.footer_github_button.toolTip() == "GitHub"
+    assert window.footer_github_button.toolTip() == "Beacon Tools"
     assert window.footer_coffee_button.toolTip() == "Buy Me a Coffee"
-    assert window.footer_github_button.accessibleName() == "GitHub"
+    assert window.footer_github_button.accessibleName() == "Beacon Tools"
     assert window.footer_coffee_button.accessibleName() == "Buy Me a Coffee"
     assert window.footer_status_label.text().endswith("Local-first \u00b7 private by design")
     assert window.footer_status_label.text().startswith("v")
-    assert opened == [legacy_app.GITHUB_URL, legacy_app.COFFEE_URL]
+    assert opened == [legacy_app.WEBSITE_URL, legacy_app.COFFEE_URL]
 
 
 def test_native_footer_support_assets_resolve() -> None:

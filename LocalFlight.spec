@@ -49,7 +49,7 @@ VSVersionInfo(
       StringTable(
         '040904B0',
         [
-          StringStruct('CompanyName', 'Local Flight'),
+          StringStruct('CompanyName', 'Beacon Tools'),
           StringStruct('FileDescription', 'Local Flight'),
           StringStruct('FileVersion', '{_VERSION}'),
           StringStruct('InternalName', 'LocalFlight'),

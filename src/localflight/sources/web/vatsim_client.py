@@ -78,7 +78,7 @@ def fetch_vatsim_data(*, timeout_s: int = _TIMEOUT_S) -> Dict[str, Any]:
         r = requests.get(
             VATSIM_DATA_URL,
             timeout=timeout_s,
-            headers={"User-Agent": "local-flight/1.0 (+https://localflight.invalid)"},
+            headers={"User-Agent": "local-flight/1.0 (+https://beacontools.cc/local-flight)"},
         )
     except requests.RequestException as exc:
         raise VatsimError(f"VATSIM request failed: {exc}") from exc

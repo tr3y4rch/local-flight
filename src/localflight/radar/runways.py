@@ -134,7 +134,7 @@ def refresh_ourairports_runway_cache(*, force: bool = False, timeout_s: float = 
     response = requests.get(
         OURAIRPORTS_RUNWAYS_URL,
         timeout=timeout_s,
-        headers={"Accept": "text/csv", "User-Agent": "local-flight/1.0 (+https://localflight.invalid)"},
+        headers={"Accept": "text/csv", "User-Agent": "local-flight/1.0 (+https://beacontools.cc/local-flight)"},
     )
     response.raise_for_status()
     text = response.text
