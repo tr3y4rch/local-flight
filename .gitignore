@@ -139,3 +139,8 @@ docs/internal/
 docs/handoff/
 docs/*handoff*.md
 docs/*internal*.md
+
+# wrangler files
+.wrangler
+.dev.vars*
+!.dev.vars.example
