@@ -2,7 +2,7 @@
 
 React Native / Expo mobile app for Local Flight.
 
-The mobile app is an iOS-first developer preview. It is not on the App Store, TestFlight, Play Store, or available as an APK yet, but it now supports two first-run paths:
+The mobile app is an iOS-first developer preview with a working local Android development path. It is not on the App Store, TestFlight, Play Store, or available as a release APK yet, but it now supports two first-run paths:
 
 - **LAN Companion:** pair with the Local Flight desktop or Raspberry Pi server on your Wi-Fi/LAN.
 - **Standalone:** use the hosted Local Flight relay directly for a simplified phone board. This is intentionally rate-limited to protect shared relay/API tokens.
@@ -26,8 +26,10 @@ Local Flight Mobile is a personal display aid. Flight, weather, radar, and airpo
 ## Requirements
 
 - macOS with an Xcode version compatible with Expo SDK 55
+- Android Studio with the Android SDK command-line tools for Android builds
 - Node.js 24 LTS recommended. Node.js 26 Current is also supported for local development. The repo includes a root `.nvmrc`; run `nvm use` from the project root if you use nvm and want the LTS default.
 - iPhone/iPad connected for device builds, or an iOS simulator
+- Android phone with USB debugging enabled, or an Android Studio emulator
 - For LAN Companion: Local Flight already running on the same Wi-Fi/LAN
 - For Standalone: internet access to the hosted relay
 
@@ -44,6 +46,15 @@ sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
 ```
 
 If `expo run:ios` exits with a destination/runtime error, open Xcode -> Settings -> Components and install the matching iOS simulator runtime.
+
+For Android, expose Android Studio's SDK tools to the current terminal before running Expo:
+
+```bash
+export ANDROID_HOME="$HOME/Library/Android/sdk"
+export PATH="$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$ANDROID_HOME/cmdline-tools/latest/bin:$PATH"
+```
+
+If `adb` or `emulator` is still missing, open Android Studio -> Settings -> Android SDK and install Android SDK Platform-Tools, Android SDK Command-line Tools, and Android Emulator.
 
 ---
 
@@ -65,6 +76,16 @@ npm run verify
 npm run ios
 ```
 
+For Android emulator/device development:
+
+```bash
+cd mobile
+npm run verify
+npm run android
+```
+
+`npm run android` creates or updates the generated `android/` project with Expo prebuild, builds a debug APK, installs it on the running emulator or connected phone, and opens Local Flight.
+
 `npm run verify` runs TypeScript plus Expo Doctor. Use the running simulator or device for visual checks instead of the screenshot matrix during regular feature work.
 
 To retest the forced first-launch setup and diagnostics consent on a simulator:
@@ -82,6 +103,30 @@ For a physical iPhone or iPad:
 ```bash
 cd mobile
 npm run ios:device
+```
+
+For a physical Android phone:
+
+```bash
+export ANDROID_HOME="$HOME/Library/Android/sdk"
+export PATH="$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$ANDROID_HOME/cmdline-tools/latest/bin:$PATH"
+
+cd mobile
+adb devices
+npm run android:device
+```
+
+Enable Developer Options and USB debugging on the phone first. Accept the phone's USB debugging prompt before running the build.
+
+The first Android build may install NDK `27.1.12297006` and can temporarily need `15-20 GB` of free disk space. If it fails with `No space left on device`, stop Gradle and clear the partial SDK download before retrying:
+
+```bash
+cd mobile
+./android/gradlew --stop 2>/dev/null || true
+rm -rf "$ANDROID_HOME/.temp"
+rm -rf "$ANDROID_HOME/ndk/27.1.12297006"
+sdkmanager "ndk;27.1.12297006"
+npm run android
 ```
 
 On first launch, choose how this device should work.
@@ -131,6 +176,7 @@ The screenshot script builds a self-contained simulator app and captures portrai
 ## What Works Now
 
 - First-run setup choice for LAN Companion or Standalone
+- Local Android development build path through Expo/Android Studio
 - LAN Companion daily surfaces: Board, Radar, History, Control, and Help
 - Standalone daily surfaces: Board, Radar, History, and Settings
 - SecureStore persistence for setup mode, server URL, mobile install ID, standalone relay install ID, standalone activation token, standalone airport, mobile diagnostics mode, pinned flight, profiles, and mobile appearance choices
@@ -207,7 +253,7 @@ The intended support-tip flow is:
 ## Not Yet
 
 - Public iOS release
-- Public Android release
+- Public Android / Play Store release
 - Per-device authorization/revoke tokens for broader mutating LAN controls. Current LAN Companion identifies each device with an install-scoped companion ID and check-in, while Standalone uses its relay activation token.
 - Production-ready admin permission model
 - Native crash capture before JavaScript starts
@@ -223,5 +269,5 @@ The intended support-tip flow is:
 - App Store Connect privacy/review metadata using `APP_STORE_REVIEW_NOTES.md`
 - Full standalone flight-detail endpoint parity if Standalone should expose the same detail sheet depth as LAN Companion
 - Real Apple in-app purchase support tips after App Store Connect products, StoreKit/TestFlight testing, and relay App Store Server API verification are ready
-- Android test pass after the iOS mobile app stabilizes
+- Broader Android device matrix pass after the first local Android smoke test
 - Optional React Navigation stack only if future deep links need true back-stack behavior
