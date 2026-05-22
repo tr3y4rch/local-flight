@@ -311,9 +311,9 @@ The intended Android support-tip flow is separate and later:
 ## Next
 
 - Per-device authorization/revoke tokens before broader mutating LAN admin controls
-- App Store/TestFlight proof pass on a fresh real iPhone and iPad: Standalone setup, LAN QR/manual pairing, denied camera/local-network paths, support stub, and accessibility settings
+- App Store/TestFlight proof pass on a fresh real iPhone and iPad once Apple Developer/App Store Connect credentials are available: Standalone setup, LAN QR/manual pairing, denied camera/local-network paths, support stub, and accessibility settings
 - App Store Connect privacy/review metadata using `APP_STORE_REVIEW_NOTES.md`
-- Google Play internal-test proof pass on a fresh Android phone: Standalone setup, LAN QR/manual pairing, denied camera path, support stub, permissions, and accessibility settings
+- Google Play internal-test proof pass on a fresh Android phone once Play Console/client credentials are available: Standalone setup, LAN QR/manual pairing, denied camera path, support stub, permissions, and accessibility settings
 - Play Console privacy/Data Safety/review metadata using `PLAY_STORE_REVIEW_NOTES.md`
 - Full standalone flight-detail endpoint parity if Standalone should expose the same detail sheet depth as LAN Companion
 - Real in-app purchase support tips after App Store Connect / Google Play Billing products, native purchase testing, and relay verification are ready
