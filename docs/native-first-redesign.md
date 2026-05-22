@@ -16,7 +16,7 @@ As of the `0.2.7` client-polish line on 2026-05-22:
 - FIDS now uses a passenger-facing city/country title, compact weather hero, readable ARR/DEP/Refresh actions, operating-first flight identity, compact aircraft codes on the board, true Classic/PAX/VATSIM/Nerd visual styles, and richer detail drawers.
 - History, Matrix, Settings, Setup, Radar details, LAN/browser parity, mobile LAN Companion/Standalone, Beacon Tools docs links, and relay defaults are current release-candidate smoke areas.
 - Beacon Tools is the public home: product/docs at `https://beacontools.cc/local-flight`, privacy at `https://beacontools.cc/privacy`, public relay at `https://relay.beacontools.cc`, and operator admin at `https://network.beacontools.cc/admin`. Native and browser docs links should say "Open online" when they point to Beacon Tools, not "Open on GitHub".
-- Current validation history: earlier full Windows release-candidate sweep returned `423 passed`; after the Beacon relay/default work, focused relay/native tests returned `392 passed`, compileall passed, mobile typecheck passed, and `git diff --check` passed; after the public/dev docs refresh, the doc/native regression slice returned `287 passed` and the static HTML parse check passed.
+- Current validation history: earlier full Windows release-candidate sweep returned `423 passed`; after the Beacon relay/default work, focused relay/native tests returned `392 passed`, compileall passed, mobile typecheck passed, and `git diff --check` passed; after the public/dev docs refresh, the doc/native regression slice returned `287 passed` and the static HTML parse check passed. After Matrix v4 renderer/live-settings/local-clock/web-preview hardening, focused Matrix checks passed and the full Windows/Codex suite returned `432 passed`.
 - Release packages must be rebuilt from the current `0.2.7` tree; older `0.2.6`, pre-Matrix-integrity `0.2.7`, and pre-Beacon-docs/relay-default artifact hashes are stale after this polish pass.
 
 ## Goal
@@ -165,11 +165,11 @@ Current checkpoint as of 2026-05-20 / 0.2.7:
 - Native remains the intended primary desktop/display GUI, with browser/LAN kept as a supported parity and recovery surface.
 - The latest polish wave moved beyond the original shell parity goal: History, Matrix, Settings/setup, FIDS details, and Radar details now need to be validated as one shared native/browser product surface.
 - History now uses the shared `/api/history` + `/api/history/summary` analytics contract for KPIs, delay buckets, status mix, airline delay quotas, route/aircraft stats, daily/hourly volume, sortable recent rows, and detail surfaces.
-- Matrix now has shared panel presets, live preview overrides, friendly save/apply/generate feedback, compact weather header rules, stable Matrix-specific display labels, Matrix-safe weather icons, split-flap/typewriter/cascade motion, and real-source gate/stand display. VATSIM Matrix presets intentionally hide unreliable gate placeholders.
+- Matrix now has shared panel presets, board-mirror preview truth, v4 renderer/geometry warnings, live preview overrides, friendly save/apply/generate feedback, compact weather header rules, local-time clock fixes, stable Matrix-specific display labels, Matrix-safe weather icons, split-flap/typewriter/cascade motion, full-width wide-board layout, and real-source gate/stand display. VATSIM Matrix presets intentionally hide unreliable gate placeholders.
 - FIDS/Radar/History detail views are converging on the shared current-source intelligence model: schedule, live motion, aircraft, airport operations, weather context, source evidence, and recent history from current sources only.
 - Settings/setup now follow dashboard-card/user-first structure with hidden advanced sections, contrast-safe theme/skin handling, and cleaner brand/icon usage.
-- Windows validation is green: `pip check`, no outdated packages, `python -m compileall -q src relay installers scripts tests`, and `python -m pytest tests -q` -> `293 passed`.
-- Windows and Pi `0.2.7` artifacts have been rebuilt from the Windows workspace; macOS packaging/smoke remains the next platform checkpoint.
+- Latest Windows validation is green through the Matrix v4 sweep: focused Matrix checks passed and `python -m pytest tests -q` -> `432 passed`.
+- Windows and Pi `0.2.7` artifacts built before the Beacon/domain/docs and Matrix v4 changes are stale; rebuild Windows, Pi, and macOS from the current tree before publishing.
 
 Previous native checkpoint as of 2026-05-09:
 
@@ -372,7 +372,7 @@ Recommended next slice:
    - dark/light theme contrast.
    - no OSM cache, stale cache, and estimated fallback states.
 4. Visual QA the 0.2.7 polish pages at desktop and compact sizes: History dashboard, Matrix configurator/preview, Settings/setup cards, FIDS detail drawer, and LAN radar parity.
-5. Mobile QA: LAN Companion setup/Board/Radar/History/Control/Help, Standalone setup/Board/Radar/History/Settings, iOS simulator/device validation, and Android local dev smoke when Android Studio is available.
+5. Mobile QA: LAN Companion setup/Board/Radar/History/Control with Help & Reports inside Control, Standalone setup/Board/Radar/History/Settings, iOS simulator/device validation, and Android local dev smoke when Android Studio is available.
 6. Continue full native extraction/polish for Logs, Requests, Admin, and Feedback until each page has native tests and browser-parity checklists.
 7. Keep browser/LAN parity checks running as native acceptance passes, because both surfaces remain supported.
 
@@ -387,7 +387,7 @@ Use this when migrating or polishing each page:
 | Display split | Screen layout saved, one side temporarily unavailable, fullscreen/window state. | composed page ids, splitter mode, active routes, refresh event. |
 | Setup | Plain setup choices, key/activation tests as pass/fail with next step, diagnostics choice explained. | `/api/setup/*` action, provider test result status, diagnostics mode, no raw keys/tokens. |
 | Settings | Saved, restart queued, profile loaded, setup reset confirmation. | changed config keys, scheduler restart route, profile name, timestamp. |
-| Matrix | Device not seen yet, script ready, preview using current board, Wi-Fi/server URL reminder. | config id, device id/ref, `/api/matrix/*` route, feed timestamp. |
+| Matrix | Device not seen yet, board mirror/draft preview state, stale renderer warning, geometry mismatch warning, script ready, Wi-Fi/server URL reminder. | config id, device id/ref, Matrix V2 device/config/feed route, renderer revision, geometry, feed timestamp. |
 | History | No records yet, filters too narrow, detail unavailable. | `/api/history`, callsign, filter window, DB stats. |
 | Logs | Friendly retained-log browser with clear privacy note. | file name, selected offset/tail time, redacted content only. |
 | Requests | Local traffic summary for troubleshooting, not scary network language. | client type/id prefix only, route, status code, latency. |

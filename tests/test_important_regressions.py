@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import struct
 import sys
 import threading
 import types
@@ -5328,14 +5329,85 @@ def test_public_preview_gallery_includes_matrix_artwork() -> None:
     root = Path(__file__).resolve().parents[1]
     readme = (root / "README.md").read_text(encoding="utf-8")
     gallery = (root / "docs" / "previews" / "index.html").read_text(encoding="utf-8")
-    matrix_preview = root / "docs" / "previews" / "matrix-preview.svg"
+    preview_dir = root / "docs" / "previews"
+    desktop_previews = [
+        "fids-preview-0.2.7.png",
+        "radar-preview-0.2.7.png",
+        "history-preview-0.2.7.png",
+        "settings-preview-0.2.7.png",
+        "matrix-preview-0.2.7.png",
+    ]
 
-    assert "docs/previews/matrix-preview.svg" in readme
-    assert "matrix-preview.svg" in gallery
+    for preview in desktop_previews:
+        assert f"docs/previews/{preview}" in readme
+        assert preview in gallery
+        path = preview_dir / preview
+        assert path.exists()
+        header = path.read_bytes()[:24]
+        assert header.startswith(b"\x89PNG\r\n\x1a\n")
+        assert struct.unpack(">II", header[16:24]) == (1440, 900)
     assert readme.count("<img src=\"docs/previews/") == 9
     assert gallery.count("<article class=\"card\">") == 9
-    assert matrix_preview.exists()
-    ET.parse(matrix_preview)
+    matrix_alias = preview_dir / "matrix-preview.svg"
+    assert matrix_alias.exists()
+    assert "matrix-preview-0.2.7.png" in matrix_alias.read_text(encoding="utf-8")
+    ET.parse(matrix_alias)
+
+
+def test_beacon_tools_site_uses_current_brand_assets() -> None:
+    from PIL import Image
+
+    root = Path(__file__).resolve().parents[1]
+    site = root / "site"
+    assets = site / "assets"
+    expected_assets = {
+        "beacon-tools-logo.png": (1200, 349),
+        "beacon-tools-mark.png": (512, 512),
+        "beacon-tools-mark-96.png": (96, 96),
+        "beacon-tools-mark-64.png": (64, 64),
+        "beacon-tools-icon-512.png": (512, 512),
+        "apple-touch-icon.png": (180, 180),
+        "favicon-32.png": (32, 32),
+    }
+
+    for name, size in expected_assets.items():
+        path = assets / name
+        assert path.exists()
+        with Image.open(path) as image:
+            assert image.size == size
+            assert image.mode == "RGBA"
+            if name.startswith("beacon-tools-logo") or name.startswith("beacon-tools-mark"):
+                assert image.getchannel("A").getextrema()[0] == 0
+
+    for page in site.glob("**/*.html"):
+        html = page.read_text(encoding="utf-8")
+        assert 'href="/assets/favicon-32.png"' in html
+        assert 'href="/assets/beacon-tools-icon-512.png"' in html
+        assert 'href="/assets/apple-touch-icon.png"' in html
+        assert '<span class="brand-mark"><img src="/assets/beacon-tools-mark-96.png" alt=""></span>' in html
+        assert '<span class="brand-mark"><img src="/assets/localflight-logo.svg" alt=""></span>' not in html
+
+    home = (site / "index.html").read_text(encoding="utf-8")
+    local_flight = (site / "local-flight" / "index.html").read_text(encoding="utf-8")
+    assert 'src="/assets/beacon-tools-logo.png" alt="Beacon Tools logo"' in home
+    assert 'src="/assets/localflight-icon.png" alt="Local Flight icon"' in local_flight
+
+
+def test_privacy_docs_disclose_linear_report_triage() -> None:
+    root = Path(__file__).resolve().parents[1]
+    privacy = (root / "PRIVACY.md").read_text(encoding="utf-8")
+    site_privacy = (root / "site" / "privacy" / "index.html").read_text(encoding="utf-8")
+    choices = (root / "site" / "privacy" / "choices" / "index.html").read_text(encoding="utf-8")
+
+    assert "filed into Linear as the developer triage inbox" in privacy
+    assert "| Linear | Manual reports and automatic diagnostics" in privacy
+    assert "[linear.app/privacy](https://linear.app/privacy)" in privacy
+    assert "Hosted relay reporting gateway, then Linear developer triage inbox" in privacy
+    assert "Linear for consent-based report triage" in site_privacy
+    assert "https://linear.app/privacy" in site_privacy
+    assert "filed into Linear for developer triage" in choices
+    assert "https://linear.app/privacy" in choices
+    assert "network.beacontools.cc/admin" not in site_privacy
 
 
 def test_setup_relay_url_validation_blocks_untrusted_roots(monkeypatch) -> None:

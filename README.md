@@ -61,10 +61,10 @@ Read the detailed guides:
 - Native Qt desktop shell with Display, FIDS, Radar, Matrix, Settings, Admin, History, Logs, Report, and local docs
 - Settings page built from clear disclosure cards instead of opaque checkbox-titled groups
 - LAN browser UI for headless installs, remote screens, tablets, phones, and browser-mode displays, with compact layouts for 7" Pi touch screens
-- Mobile app with a first-run choice between **LAN Companion** and **Standalone**: Companion focuses on Board, Radar, History, Control, and Help for an existing desktop/Pi host, with safe Matrix live-remote controls where they make sense. Standalone offers a simpler FIDS/Radar/History/Settings experience through the Beacon Tools relay with slower refreshes and no server-control tools. The mobile shell keeps its own appearance, branded launch overlay, and small native-feeling interactions.
+- Mobile app with a first-run choice between **LAN Companion** and **Standalone**: Companion focuses on Board, Radar, History, and Control for an existing desktop/Pi host, with Help & Reports tucked into Control and safe Matrix live-remote controls where they make sense. Standalone offers a simpler FIDS/Radar/History/Settings experience through the Beacon Tools relay with slower refreshes and no server-control tools. The mobile shell keeps its own appearance, branded launch overlay, and small native-feeling interactions.
 - QR pairing in native Settings now prefers the actual LAN IP and carries the server fingerprint, so an iPhone will not silently connect to a different Local Flight host if `localflight.local` resolves to another Pi/desktop on the same network.
 - History dashboard with filters, delay buckets, airline delay quotas, route/aircraft stats, sortable recent movements, and detail panels. Repeated snapshots and known codeshares are deduped so the count means actual movements, not raw board rows.
-- Matrix tooling for Interstate 75 W / HUB75 boards, including panel presets, live preview, optional real-world gate/stand display, compact weather headers, runtime settings, split-flap/typewriter/cascade motion, and generated MicroPython `main.py`
+- Matrix tooling for Interstate 75 W / HUB75 boards, including panel presets, board-mirror preview, optional real-world gate/stand display, compact weather headers, runtime settings, split-flap/typewriter/cascade motion, generated MicroPython `main.py`, and renderer-revision warnings when a board needs a refreshed file.
 - Shared flight detail intelligence for FIDS, Radar, History, Matrix, native Qt, and LAN browser views, using current local snapshots, radar data, weather, and history without new per-click provider calls
 - Local history, local logs, local settings, install-scoped diagnostics, and Beacon Tools support/privacy contact paths
 
@@ -72,22 +72,22 @@ Read the detailed guides:
 
 ## Preview
 
-These are lightweight illustrative previews with sample data, not live telemetry screenshots.
+These previews mix current Qt screenshot cards with lightweight mobile illustrations. They are product previews, not operational telemetry.
 
 Open [docs/previews/index.html](docs/previews/index.html) locally for the standalone HTML gallery.
 
 <p align="center">
-  <img src="docs/previews/fids-preview-0.2.7.svg" alt="Local Flight FIDS preview" width="48%">
-  <img src="docs/previews/radar-preview-0.2.7.svg" alt="Local Flight radar preview" width="48%">
+  <img src="docs/previews/fids-preview-0.2.7.png" alt="Local Flight FIDS preview" width="48%">
+  <img src="docs/previews/radar-preview-0.2.7.png" alt="Local Flight radar preview" width="48%">
 </p>
 
 <p align="center">
-  <img src="docs/previews/history-preview-0.2.7.svg" alt="Local Flight history analytics preview" width="48%">
-  <img src="docs/previews/settings-preview-0.2.7.svg" alt="Local Flight native settings preview" width="48%">
+  <img src="docs/previews/history-preview-0.2.7.png" alt="Local Flight history analytics preview" width="48%">
+  <img src="docs/previews/settings-preview-0.2.7.png" alt="Local Flight native settings preview" width="48%">
 </p>
 
 <p align="center">
-  <img src="docs/previews/matrix-preview.svg" alt="Local Flight LED matrix preview" width="48%">
+  <img src="docs/previews/matrix-preview-0.2.7.png" alt="Local Flight LED matrix preview" width="48%">
   <img src="docs/previews/mobile-fids-preview.svg" alt="Local Flight mobile board preview" width="48%">
 </p>
 

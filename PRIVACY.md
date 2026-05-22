@@ -136,7 +136,7 @@ When you send a report yourself, Local Flight sends:
 - the reporting surface, such as native GUI, LAN browser UI, server, LAN Companion, or Mobile Standalone
 - optional mobile context if the report came from LAN Companion or Mobile Standalone
 
-Manual reports are sanitized locally, forwarded to the hosted relay reporting gateway, deduplicated/rate-limited there, and then filed for developer triage.
+Manual reports are sanitized locally, forwarded to the hosted relay reporting gateway, deduplicated/rate-limited there, and then filed into Linear as the developer triage inbox.
 
 ### Automatic Crash Reports
 
@@ -222,6 +222,7 @@ When Local Flight fetches data, it may communicate with:
 | OurAirports | Public airport/runway CSV data may be bundled or refreshed/cached locally for runway IDs, headings, dimensions, and reference geometry. No account or user identifier is required. | [ourairports.com/data](https://ourairports.com/data/) |
 | OpenStreetMap / Overpass | Only when optional radar surface/map layers are enabled or prepared: airport code/coordinates and bounded airport-area geometry requests. Local Flight stores simplified display geometry with attribution, not raw personal data. | [openstreetmap.org/copyright](https://www.openstreetmap.org/copyright) |
 | AWS Terrain Tiles | Optional radar terrain/relief layer requests public terrain tile data for the displayed airport area/range. It is cached locally and used only as a subtle visual layer. | [registry.opendata.aws/terrain-tiles](https://registry.opendata.aws/terrain-tiles/) |
+| Linear | Manual reports and automatic diagnostics are routed there after local sanitization and relay-side dedupe/rate limiting. This can include the report title/description you wrote, sanitized technical metadata, crash context/traceback, and an optional sanitized log excerpt if you enabled that mode. | [linear.app/privacy](https://linear.app/privacy) |
 
 Local Flight does not embed tracking or advertising SDKs from any of these services.
 
@@ -256,6 +257,6 @@ Your local data is under your control. To wipe local app data, stop Local Flight
 | Standalone mobile history | Your phone/tablet | You |
 | Local traffic log | Your machine | You, if network tools are enabled |
 | Flight history | Your machine | You |
-| Manual reports and automatic diagnostics | Hosted relay reporting gateway, then developer triage inbox | Developer |
+| Manual reports and automatic diagnostics | Hosted relay reporting gateway, then Linear developer triage inbox | Developer |
 | Community/standalone relay usage metadata and short-lived shared schedule/radar cache | Relay server | Relay operator |
 | Cached radar surface/map/terrain geometry | Your machine and, for relay-backed surface/map data, short-lived hosted relay cache when optional overlays are enabled | You and relay operator |

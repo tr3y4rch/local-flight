@@ -85,12 +85,21 @@ and the official hosted relay at `https://relay.beacontools.cc`.
 - Panel presets, startup lane, row count, weather, gate/stand, brightness,
   palette, animation, and live preview behavior are aligned across native Qt,
   LAN browser, and generated MicroPython.
+- Connected i75W boards now report renderer revision and panel geometry, so the
+  Matrix page can mirror the board first and warn when `main.py` is stale or the
+  configured panel size does not match what the board reports.
 - Matrix display labels now use the same operating-first identity contract as
   FIDS. The board receives stable `matrix_*` labels for time, flight, route,
   status, gate, aircraft, and weather so codeshares do not rotate into the
   primary flight-number slot.
+- Wide boards such as `256x64` and larger use a full-width layout: airport/lane
+  at left, weather centered when enabled, UTC/LT flush right, route given more
+  room, and gate/aircraft/status compressed in that order.
 - Split-flap remains the default motion, with typewriter and cascade preview
   modes available across native Qt, LAN browser, and generated `main.py`.
+- The generated i75W client now carries the `matrix-display-contract-v4`
+  renderer marker and uses a server-sent `clock_local_epoch`, fixing cases where
+  Qt/LAN preview local time was correct but the physical board's LT was wrong.
 - Compact Matrix FIDS headers keep weather inside the existing header space so
   small boards such as `128x128` do not lose a flight row.
 - Real-world Matrix boards can show gate/stand data when available. VATSIM
@@ -103,9 +112,9 @@ and the official hosted relay at `https://relay.beacontools.cc`.
 
 - First-run mobile setup now asks whether the device should be a **LAN
   Companion** or **Standalone** install.
-- LAN Companion now has a clearer phone-side job: Board, Radar, History,
-  Control, and Help for an existing desktop/Pi host, plus safe Matrix
-  live-remote controls where they make sense.
+- LAN Companion now has a clearer phone-side job: Board, Radar, History, and
+  Control for an existing desktop/Pi host. Help & Reports is reachable from
+  Control instead of crowding the bottom nav.
 - LAN Companion QR pairing now prefers the server's LAN IP and carries the
   server fingerprint. If `localflight.local` resolves to another Local Flight
   host on a busy test LAN, the mobile app rejects that scan instead of saving

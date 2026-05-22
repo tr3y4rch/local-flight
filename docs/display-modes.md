@@ -171,7 +171,7 @@ Use LAN Companion for:
 - Radar with mobile-owned range rings
 - History
 - Control for host status plus airport/source/refresh changes
-- Help, troubleshooting, and manual feedback
+- Help, troubleshooting, and manual feedback from the Help & Reports card inside Control
 - Safe Matrix live-remote controls from Control
 - Automatic diagnostics only when both mobile and host allow them
 
@@ -211,6 +211,7 @@ Matrix configuration is shared across the native app and LAN browser UI:
 - compact weather headers that keep small boards such as `128x128` readable
 - optional real-world gate/stand display when the schedule source provides it
 - VATSIM presets that hide gate placeholders and focus on virtual callsign, aircraft, route/status, flight-plan, and weather/ATIS information
+- connected-board mirror mode with renderer/geometry warnings so stale `main.py` files are visible before the physical board and preview drift
 
 ---
 

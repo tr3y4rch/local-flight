@@ -215,7 +215,7 @@ The screenshot script builds a self-contained simulator app and captures portrai
 
 - First-run setup choice for LAN Companion or Standalone
 - Local Android development build path through Expo/Android Studio
-- LAN Companion daily surfaces: Board, Radar, History, Control, and Help
+- LAN Companion daily surfaces: Board, Radar, History, and Control. Help & Reports lives inside Control instead of taking a bottom-nav slot.
 - Standalone daily surfaces: Board, Radar, History, and Settings
 - SecureStore persistence for setup mode, server URL, mobile install ID, standalone relay install ID, standalone activation token, standalone airport, mobile diagnostics mode, pinned flight, profiles, and mobile appearance choices
 - LAN Companion connection checks against `/api/health`
@@ -230,7 +230,7 @@ The screenshot script builds a self-contained simulator app and captures portrai
 - Independent mobile appearance with dark/light theme plus `standard`, `technical`, `neon`, `cyan`, and `crt` skins
 - Branded launch overlay with a continuous radar sweep, status text fade, breathing status dot, blinking board LED, and shared Local Flight wordmark text
 - Native-feeling interaction polish on key taps, chips, pinned-flight actions, and weather icon changes through haptics, press-scale feedback, and small transitions
-- Companion Matrix live-remote controls from Control using `/api/matrix/config`, focused on runtime settings such as timing, palette, weather badge visibility, brightness, and refresh cadence.
+- Companion Matrix live-remote controls from Control using the host Matrix runtime config APIs, focused on runtime settings such as timing, palette, weather badge visibility, gate display, brightness, row count, animation, and refresh cadence.
 - Fullscreen landscape FIDS from any screen, with normal portrait state restored when rotating back
 - Mobile-owned radar radius controls. LAN Companion uses the paired server for runway and airport-surface drawing; Standalone uses the relay mobile radar response for this pass.
 - Local standalone movement history database with Expo SQLite

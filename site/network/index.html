@@ -4,15 +4,18 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Network | Beacon Tools</title>
-  <meta name="description" content="Public notes for the Beacon Tools relay, Local Flight Standalone, and operator network separation.">
+  <meta name="description" content="Plain-language notes for the Beacon Tools relay, Local Flight Relay, and Mobile Standalone.">
   <link rel="stylesheet" href="/assets/site.css">
+  <link rel="icon" type="image/png" sizes="32x32" href="/assets/favicon-32.png">
+  <link rel="icon" type="image/png" sizes="512x512" href="/assets/beacon-tools-icon-512.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="/assets/apple-touch-icon.png">
 </head>
 <body>
   <div class="site-shell">
     <nav class="topbar" aria-label="Main navigation">
       <div class="nav">
         <a class="brand" href="/">
-          <span class="brand-mark"><img src="/assets/localflight-logo.svg" alt=""></span>
+          <span class="brand-mark"><img src="/assets/beacon-tools-mark-96.png" alt=""></span>
           <span class="brand-text">Beacon Tools <small>Network</small></span>
         </a>
         <div class="nav-links">
@@ -27,15 +30,16 @@
       </div>
     </nav>
 
-    <header class="hero compact" style="--hero-image: url('/assets/radar-preview.svg');">
+    <header class="hero compact" style="--hero-image: url('/assets/radar-preview.png');">
       <div class="wrap">
         <div class="hero-content">
           <div class="eyebrow">Beacon Tools Network</div>
-          <h1>Public relay for Local Flight, with admin kept separate.</h1>
-          <p class="lede">The hosted relay helps Local Flight clients use shared cached data without shipping provider keys inside every install.</p>
+          <h1>The shared relay that helps Local Flight stay simple.</h1>
+          <p class="lede">The Beacon Tools relay gives Local Flight and Mobile Standalone a safe shared data path without putting provider keys inside every install.</p>
           <div class="status-strip">
             <span class="status-chip">Public relay: relay.beacontools.cc</span>
-            <span class="status-chip amber">Admin: operator-only</span>
+            <span class="status-chip">Shared cached schedules</span>
+            <span class="status-chip amber">Safety-first refresh limits</span>
           </div>
         </div>
       </div>
@@ -46,12 +50,12 @@
         <div class="wrap">
           <div class="grid two">
             <article class="card good-card">
-              <h3>Public client host</h3>
-              <p><code>https://relay.beacontools.cc</code><br>Local Flight Relay and Mobile Standalone use public `/v1/*` API paths for activation, schedules, radar, METAR, reports, status, heartbeat, and mobile summaries.</p>
+              <h3>What your app talks to</h3>
+              <p><code>https://relay.beacontools.cc</code><br>Local Flight Relay and Mobile Standalone use this public relay for activation, shared schedules, radar/weather helpers, mobile summaries, and consent-based reports.</p>
             </article>
             <article class="card warning-card">
-              <h3>Operator host</h3>
-              <p><code>https://network.beacontools.cc/admin</code><br>This is the operator admin surface. It is not part of normal public client navigation and should require operator authentication.</p>
+              <h3>What stays separate</h3>
+              <p>The public relay only exposes the client paths normal installs need. Maintenance, monitoring, provider keys, and operational controls stay outside public navigation and are not part of the end-user app flow.</p>
             </article>
           </div>
         </div>
@@ -62,14 +66,14 @@
           <div class="section-head">
             <div>
               <div class="eyebrow">What the relay does</div>
-              <h2>Shared data, guarded usage.</h2>
+              <h2>Shared data, gentle limits.</h2>
             </div>
           </div>
           <ul class="console-list">
-            <li>Caches shared airport schedule snapshots so many installs can watch the same airport without each one calling a paid provider.</li>
-            <li>Applies activation, rate limits, refresh policies, and stale-safe serving to protect shared upstream quotas.</li>
-            <li>Supports Mobile Standalone and Local Flight Relay without requiring user accounts.</li>
-            <li>Accepts consent-based reports and diagnostics through the relay reporting path.</li>
+            <li>Reuses cached airport schedules so many hobby installs can watch the same airport without each one burning a separate provider call.</li>
+            <li>Keeps refreshes intentionally modest, which protects shared provider quotas and makes the free/community path more sustainable.</li>
+            <li>Lets Mobile Standalone work without your desktop or Raspberry Pi server being online.</li>
+            <li>Can forward consent-based reports when you choose to send diagnostics, while keeping provider keys and internal maintenance details out of the app.</li>
           </ul>
         </div>
       </section>

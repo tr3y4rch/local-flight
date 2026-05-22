@@ -6,13 +6,16 @@
   <title>Privacy | Beacon Tools</title>
   <meta name="description" content="Privacy policy for Local Flight by Beacon Tools.">
   <link rel="stylesheet" href="/assets/site.css">
+  <link rel="icon" type="image/png" sizes="32x32" href="/assets/favicon-32.png">
+  <link rel="icon" type="image/png" sizes="512x512" href="/assets/beacon-tools-icon-512.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="/assets/apple-touch-icon.png">
 </head>
 <body>
   <div class="site-shell">
     <nav class="topbar" aria-label="Main navigation">
       <div class="nav">
         <a class="brand" href="/">
-          <span class="brand-mark"><img src="/assets/localflight-logo.svg" alt=""></span>
+          <span class="brand-mark"><img src="/assets/beacon-tools-mark-96.png" alt=""></span>
           <span class="brand-text">Beacon Tools <small>Privacy</small></span>
         </a>
         <div class="nav-links">
@@ -140,7 +143,7 @@
             </div>
           </div>
           <p>Manual reports can include the title and description you write, Local Flight version, install fingerprint, operating system, Python version, configured airport/source mode, diagnostics mode, display settings, and the reporting surface.</p>
-          <p>Automatic crash reports, if enabled, can include crash context, traceback, native/mobile screen context, and optionally a sanitized recent log excerpt. Reports are sanitized locally, forwarded through the hosted relay reporting gateway, deduplicated/rate-limited, and filed into the developer triage inbox.</p>
+          <p>Automatic crash reports, if enabled, can include crash context, traceback, native/mobile screen context, and optionally a sanitized recent log excerpt. Reports are sanitized locally, forwarded through the hosted relay reporting gateway, deduplicated/rate-limited, and filed into Linear as the developer triage inbox.</p>
           <p>Diagnostics do not intentionally include API keys, activation tokens, raw install IDs, raw IP addresses, screenshots, recordings, stored flight history, full local logs, or account data.</p>
         </div>
       </section>
@@ -168,7 +171,7 @@
               <h2>Only when your setup uses them.</h2>
             </div>
           </div>
-          <p>Depending on your setup, Local Flight may communicate with AeroDataBox, AviationStack, ADS-B Exchange/RapidAPI, OpenSky, VATSIM, aviationweather.gov, OurAirports, OpenStreetMap/Overpass, and public terrain tile sources. Direct Bring Your Own Keys requests use your local provider keys. Relay-backed paths use the hosted relay and shared cache.</p>
+          <p>Depending on your setup, Local Flight may communicate with AeroDataBox, AviationStack, ADS-B Exchange/RapidAPI, OpenSky, VATSIM, aviationweather.gov, OurAirports, OpenStreetMap/Overpass, public terrain tile sources, and Linear for consent-based report triage. Direct Bring Your Own Keys requests use your local provider keys. Relay-backed paths use the hosted relay and shared cache. Linear's policy is at <a href="https://linear.app/privacy">linear.app/privacy</a>.</p>
         </div>
       </section>
     </main>

@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="960" height="540" viewBox="0 0 960 540" role="img" aria-labelledby="title desc">
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="900" viewBox="0 0 1440 900" role="img" aria-labelledby="title desc">
   <title id="title">Local Flight Matrix preview</title>
-  <desc id="desc">Stable alias for the current Local Flight LED matrix preview artwork.</desc>
-  <image href="matrix-preview-0.2.7.svg" width="960" height="540" preserveAspectRatio="xMidYMid meet"/>
+  <desc id="desc">Stable alias for the current screenshot-based Local Flight Matrix preview artwork.</desc>
+  <image href="matrix-preview-0.2.7.png" width="1440" height="900" preserveAspectRatio="xMidYMid meet"/>
 </svg>

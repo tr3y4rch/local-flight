@@ -102,21 +102,22 @@ code {
 }
 
 .brand-mark {
-  width: 38px;
-  height: 38px;
-  border: 1px solid rgba(99, 214, 255, 0.42);
-  border-radius: 8px;
+  width: 42px;
+  height: 42px;
+  border: 1px solid rgba(99, 214, 255, 0.46);
+  border-radius: 12px;
   background:
-    linear-gradient(180deg, rgba(99, 214, 255, 0.18), rgba(112, 240, 170, 0.08)),
-    #0b1a26;
+    radial-gradient(circle at 35% 26%, rgba(99, 214, 255, 0.28), transparent 42%),
+    linear-gradient(135deg, #f8fcff 0%, #d9f2ff 100%);
   display: grid;
   place-items: center;
-  box-shadow: 0 12px 28px var(--shadow);
+  box-shadow: 0 12px 30px var(--shadow), 0 0 24px rgba(30, 164, 255, 0.16);
 }
 
 .brand-mark img {
-  width: 24px;
-  height: 24px;
+  width: 31px;
+  height: 31px;
+  object-fit: contain;
 }
 
 .brand-text {
@@ -464,6 +465,21 @@ p {
   object-fit: contain;
   padding: 12px;
   background: #08121c;
+}
+
+.brand-lockup-panel {
+  min-height: 238px;
+  padding: 28px;
+  background:
+    radial-gradient(circle at 32% 24%, rgba(30, 164, 255, 0.14), transparent 34%),
+    linear-gradient(135deg, #f9fcff 0%, #edf8ff 52%, #dff1fb 100%);
+}
+
+.brand-lockup-panel img {
+  object-fit: contain;
+  padding: 0;
+  background: transparent;
+  filter: drop-shadow(0 16px 24px rgba(3, 15, 26, 0.16));
 }
 
 .note {

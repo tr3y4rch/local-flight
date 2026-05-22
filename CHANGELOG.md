@@ -30,6 +30,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Added `relay.beacontools.cc` as the official relay hostname, moved the relay's public/admin host defaults to `relay.beacontools.cc` and `network.beacontools.cc`, and flipped client relay defaults to `https://relay.beacontools.cc` after DNS and Fly TLS were verified. The Fly.io root remains accepted for existing installs.
 - Public copy now uses `home@beacontools.cc` for general/support contact and `privacy@beacontools.cc` for privacy and diagnostics requests.
 - Refreshed the public README, install/display guides, mobile docs, App Store/TestFlight notes, release notes, preview gallery captions, and Cloudflare Pages copy so they describe the current native, LAN browser, mobile Standalone/Companion, Matrix, History, relay, and privacy behavior.
+- Replaced stale desktop preview illustrations with current Qt screenshot cards for FIDS, Radar, History, Settings, and Matrix across the README gallery and Beacon Tools site assets.
+- Added the Beacon Tools website logo system, including the public-site nav mark, favicon/touch icons, and homepage lockup while keeping Local Flight app marks on product-specific panels.
+- Reworded the public Network page as an end-user relay explainer and removed explicit operator/admin route copy from public navigation copy.
+- Disclosed Linear as the developer triage inbox for consent-based manual reports and automatic diagnostics in the privacy documentation.
 - Refreshed developer-facing handoff docs so future release/package work starts from the Beacon Tools relay defaults, current validation status, stale artifact warning, macOS/mobile/Android QA notes, and Cloudflare Pages workflow.
 
 ### History movement hardening
@@ -202,7 +206,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Standalone hides WebSocket, Matrix, Admin, scheduler restart, LAN server controls, and companion check-in surfaces. The mobile bottom nav becomes Board, Radar, History, and Settings.
 - Standalone History now uses Expo SQLite on-device storage and prunes to 30 days or 1,000 deduped movements. No relay-side per-install flight history was added.
 - Standalone manual/crash reports post directly to relay `/v1/reports`; automatic standalone reports require the mobile diagnostics choice to be `auto` or `auto_logs`.
-- LAN Companion behavior remains paired to the local desktop/Pi server, including WebSocket refresh, local host status/control, support/reporting, safe Matrix live-remote controls, and mobile/server double-consent for automatic diagnostics.
+- LAN Companion behavior remains paired to the local desktop/Pi server, including WebSocket refresh, local host status/control, Help & Reports inside Control, safe Matrix live-remote controls, and mobile/server double-consent for automatic diagnostics.
 - The mobile launch overlay now uses shared brand text components, an independent continuous radar sweep, status text cross-fade, breathing status dot, and blinking amber board LED.
 - Mobile screen interactions gained small native-feeling polish: haptics on key taps, press-scale chips/buttons, animated weather icon swaps, and a soft live glow around the pinned-flight island.
 
@@ -210,7 +214,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Operating-first flight identity is now the board rule, so the main FIDS row favors the operating carrier while marketed/codeshare identities remain visible as sold-as detail.
 - AeroDataBox `codeshareStatus` evidence is now preserved before dedupe. `IsOperator` rows win the primary board identity, linked `IsCodeshared` rows collapse into sold-as/codeshare detail, and same-route/time rows without provider linkage stay separate.
 - Aircraft types stay compact on the FIDS board while fuller aircraft/source detail is kept in the click-through detail surfaces.
-- Matrix configuration now uses a guided i75W/HUB75 workflow with panel presets, live preview feedback, compact weather headers, real-only gate display, split-flap/typewriter/cascade motion, stable Matrix-specific display labels, Matrix-safe weather icons, and generated MicroPython `main.py` parity.
+- Matrix configuration now uses a guided i75W/HUB75 workflow with panel presets, connected-board mirror preview, v4 renderer/geometry warnings, live settings parity, compact weather headers, local-time clock fixes, full-width wide-board layout, real-only gate display, split-flap/typewriter/cascade motion, stable Matrix-specific display labels, Matrix-safe weather icons, and generated MicroPython `main.py` parity.
 - History, Settings, Setup, and Matrix are aligned around dashboard-card layouts in native Qt and LAN/browser surfaces.
 - Native and LAN FIDS/Radar/History/Matrix detail surfaces share the current-source flight intelligence model without adding per-click provider calls.
 
@@ -238,7 +242,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `python -m py_compile` clean across every modified native visual-refresh file.
 - Generated stylesheet contains the new shared selectors for pills, page heroes, spinners, info buttons, toasts, primary actions, FIDS style buttons, and setup option cards.
 - FIDS style registry returns `['classic', 'pax', 'vatsim', 'nerd']` with `classic` as the default.
-- Current Windows/Codex validation after AeroDataBox codeshare hardening and Matrix display-integrity merge: `.venv\Scripts\python.exe -m pytest tests -q` returned `423 passed`; focused Matrix regressions passed; `.venv\Scripts\python.exe -m compileall -q src relay installers scripts tests` passed; `cd mobile && npm run typecheck` passed earlier in the same release-candidate sweep; `git diff --check` passed.
+- Current Windows/Codex validation after AeroDataBox codeshare hardening, Matrix display-integrity, and Matrix v4 live-settings/local-clock/web-preview hardening: focused Matrix regressions passed; `.venv\Scripts\python.exe -m pytest tests -q` returned `432 passed`; `.venv\Scripts\python.exe -m compileall -q src relay installers scripts tests` passed in the same release-candidate sweep; `cd mobile && npm run typecheck` passed; `git diff --check` passed.
 
 ### Mobile companion — tip jar redesign + setup wizard polish
 
@@ -356,7 +360,7 @@ All seven phases are additive visual polish on the existing data contracts. No r
 
 - Replaced the single connection screen with a full welcome-first wizard: **Welcome → Mode → Server URL (companion only) → Privacy → Ready**.
 - **Welcome step** shows a breathing logo ring (2 s opacity/scale loop), the Local Flight wordmark, a tagline, and a feature chip row. Entirely new; first thing every new user sees.
-- **Mode step** presents two large `SetupModeCard` components — **LAN Companion** (requires a running Local Flight server on the local network; Board/Radar/History/Control/Help plus safe Matrix live-remote features) and **Standalone** (no LAN server required; simplified relay-backed Board/Radar/History/Settings with stricter refresh limits). Each card shows a RECOMMENDED / OFFLINE badge, a description, and a feature bullet list. Cards animate via `usePressScale` and show a checkmark when selected.
+- **Mode step** presents two large `SetupModeCard` components — **LAN Companion** (requires a running Local Flight server on the local network; Board/Radar/History/Control with Help & Reports inside Control plus safe Matrix live-remote features) and **Standalone** (no LAN server required; simplified relay-backed Board/Radar/History/Settings with stricter refresh limits). Each card shows a RECOMMENDED / OFFLINE badge, a description, and a feature bullet list. Cards animate via `usePressScale` and show a checkmark when selected.
 - **Server URL step** (companion mode only) retains the existing URL input with an inline health-check icon (spinner → green check / red ✗ from `/api/health`) and a LAN pairing tip. Skipped entirely in standalone mode.
 - **Privacy step** presents three `SetupOptionCard` options (Manual reports / Automatic crash reports / Automatic + sanitized logs) with radio-button selection and a RECOMMENDED badge on the middle option.
 - **Ready step** shows an animated `SetupReadyCheck` circle (spring pop-in, stiffness 260, damping 18) confirming setup is complete, with a summary of chosen mode and diagnostics level.
