@@ -2090,27 +2090,47 @@ def _record_site_form_filed(
     )
 
 
+def _contact_env(primary: str, *aliases: str, default: str = "") -> str:
+    for key in (primary, *aliases):
+        value = _env(key)
+        if value:
+            return value
+    return default
+
+
 def _contact_recipient(category: str) -> str:
     if category == "privacy":
-        return _env("RELAY_CONTACT_TO_PRIVACY", _env("RELAY_CONTACT_TO_GENERAL"))
-    return _env("RELAY_CONTACT_TO_GENERAL")
+        return _contact_env(
+            "RELAY_CONTACT_TO_PRIVACY",
+            "PRIVACY_TO",
+            default=_contact_env("RELAY_CONTACT_TO_GENERAL", "MAIL_TO"),
+        )
+    return _contact_env("RELAY_CONTACT_TO_GENERAL", "MAIL_TO")
 
 
 def _send_contact_email(body: SiteContactIn, *, network_tag: str) -> None:
-    host = _env("RELAY_CONTACT_SMTP_HOST")
-    sender = _env("RELAY_CONTACT_FROM")
+    host = _contact_env("RELAY_CONTACT_SMTP_HOST", "SMTP_HOST")
+    sender = _contact_env("RELAY_CONTACT_FROM", "MAIL_FROM")
     recipient = _contact_recipient(body.category)
     if not host or not sender or not recipient:
         raise HTTPException(status_code=503, detail="Contact mailbox is not configured on the relay")
 
     try:
-        port = int(_env("RELAY_CONTACT_SMTP_PORT", "587"))
+        port = int(_contact_env("RELAY_CONTACT_SMTP_PORT", "SMTP_PORT", default="587"))
     except ValueError:
         port = 587
-    username = _env("RELAY_CONTACT_SMTP_USERNAME")
-    password = _env("RELAY_CONTACT_SMTP_PASSWORD")
-    use_ssl = _env("RELAY_CONTACT_SMTP_SSL", "").lower() in {"1", "true", "yes"} or port == 465
-    use_starttls = _env("RELAY_CONTACT_SMTP_STARTTLS", "1").lower() not in {"0", "false", "no"} and not use_ssl
+    username = _contact_env("RELAY_CONTACT_SMTP_USERNAME", "SMTP_USER")
+    password = _contact_env("RELAY_CONTACT_SMTP_PASSWORD", "SMTP_PASSWORD")
+    security = _contact_env("RELAY_CONTACT_SMTP_SECURITY", "SMTP_SECURITY").lower()
+    ssl_flag = _contact_env("RELAY_CONTACT_SMTP_SSL").lower()
+    starttls_flag = _contact_env("RELAY_CONTACT_SMTP_STARTTLS").lower()
+    use_ssl = ssl_flag in {"1", "true", "yes"} or security in {"ssl", "smtps"} or port == 465
+    if starttls_flag:
+        use_starttls = starttls_flag not in {"0", "false", "no"} and not use_ssl
+    elif security:
+        use_starttls = security in {"1", "true", "yes", "tls", "starttls"} and not use_ssl
+    else:
+        use_starttls = not use_ssl
 
     category_label = body.category.replace("_", " ").title()
     message = EmailMessage()
@@ -2134,12 +2154,20 @@ def _send_contact_email(body: SiteContactIn, *, network_tag: str) -> None:
     message.set_content("\n".join(lines))
 
     smtp_cls = smtplib.SMTP_SSL if use_ssl else smtplib.SMTP
-    with smtp_cls(host, port, timeout=12) as smtp:
-        if use_starttls:
-            smtp.starttls()
-        if username:
-            smtp.login(username, password)
-        smtp.send_message(message)
+    try:
+        with smtp_cls(host, port, timeout=12) as smtp:
+            if use_starttls:
+                smtp.starttls()
+            if username:
+                smtp.login(username, password)
+            smtp.send_message(message)
+    except smtplib.SMTPAuthenticationError as exc:
+        print(f"Contact SMTP authentication failed: {exc.__class__.__name__}")
+        raise HTTPException(status_code=502, detail="Contact mailbox authentication failed") from exc
+    except (smtplib.SMTPException, OSError) as exc:
+        safe_error = _collapse(_redact_sensitive(str(exc)), limit=180)
+        print(f"Contact SMTP delivery failed: {exc.__class__.__name__}: {safe_error}")
+        raise HTTPException(status_code=502, detail="Contact mailbox could not send the message") from exc
 
 
 def _site_bug_team(surface: str) -> str:

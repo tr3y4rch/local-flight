@@ -1635,6 +1635,70 @@ def test_site_contact_sends_mailbox_message_and_routes_privacy(tmp_path: Path, m
     assert "RAPIDAPI_KEY=[redacted]" in str(sent[0]["body"])
 
 
+def test_site_contact_accepts_legacy_mail_secret_aliases(tmp_path: Path, monkeypatch) -> None:
+    _use_temp_db(tmp_path, monkeypatch)
+    monkeypatch.setenv("SMTP_HOST", "smtp.alias.test")
+    monkeypatch.setenv("SMTP_PORT", "465")
+    monkeypatch.setenv("SMTP_USER", "alias-user")
+    monkeypatch.setenv("SMTP_PASSWORD", "alias-pass")
+    monkeypatch.setenv("SMTP_SECURITY", "ssl")
+    monkeypatch.setenv("MAIL_FROM", "Beacon Tools <alias@example.test>")
+    monkeypatch.setenv("MAIL_TO", "general@example.test")
+    monkeypatch.setenv("PRIVACY_TO", "privacy@example.test")
+    sent: list[dict[str, object]] = []
+
+    class FakeSMTPSSL:
+        def __init__(self, host: str, port: int, timeout: int) -> None:
+            self.host = host
+            self.port = port
+            self.timeout = timeout
+            self.login_args: tuple[str, str] | None = None
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_exc) -> None:
+            return None
+
+        def login(self, username: str, password: str) -> None:
+            self.login_args = (username, password)
+
+        def send_message(self, message) -> None:
+            sent.append(
+                {
+                    "host": self.host,
+                    "port": self.port,
+                    "login_args": self.login_args,
+                    "to": message["To"],
+                    "from": message["From"],
+                }
+            )
+
+    monkeypatch.setattr(relay_main.smtplib, "SMTP_SSL", FakeSMTPSSL)
+    client = TestClient(relay_main.app)
+
+    response = client.post(
+        "/v1/site/contact",
+        json={
+            "category": "general",
+            "subject": "Alias smoke",
+            "message": "Does the short SMTP secret set work?",
+        },
+        headers={"origin": "https://beacontools.cc", "fly-client-ip": "198.51.100.24"},
+    )
+
+    assert response.status_code == 200
+    assert sent == [
+        {
+            "host": "smtp.alias.test",
+            "port": 465,
+            "login_args": ("alias-user", "alias-pass"),
+            "to": "general@example.test",
+            "from": "Beacon Tools <alias@example.test>",
+        }
+    ]
+
+
 def test_site_contact_requires_config_and_blocks_abuse(tmp_path: Path, monkeypatch) -> None:
     _use_temp_db(tmp_path, monkeypatch)
     client = TestClient(relay_main.app)
