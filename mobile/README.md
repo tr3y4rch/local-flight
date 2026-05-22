@@ -11,7 +11,7 @@ For most home setups, start with LAN Companion. Use Standalone when you want a l
 
 Local Flight Mobile is a personal display aid. Flight, weather, radar, and airport-surface data can be delayed, incomplete, or unavailable, so it must not be used for navigation, dispatch, operational control, or safety decisions.
 
-Public project docs live at [beacontools.cc/local-flight](https://beacontools.cc/local-flight). The public privacy policy is [beacontools.cc/privacy](https://beacontools.cc/privacy). Standalone uses the Beacon Tools relay at `https://relay.beacontools.cc`.
+The public front door for Mobile users is [beacontools.cc/local-flight](https://beacontools.cc/local-flight). Use that page for install guidance, release notes, support links, source links, and store metadata. The public privacy policy is [beacontools.cc/privacy](https://beacontools.cc/privacy). Standalone uses the Beacon Tools relay at `https://relay.beacontools.cc`.
 
 > **Quick alternative:** if
 > you only need to glance at the board from a phone, you don't have
@@ -37,7 +37,7 @@ Public project docs live at [beacontools.cc/local-flight](https://beacontools.cc
 
 Expo SDK 55 targets React Native 0.83 and React 19.2. Run `npm run doctor` after install on the Mac to confirm the active Xcode, CocoaPods, and package versions are compatible.
 
-For App Store/TestFlight preparation, keep [APP_STORE_REVIEW_NOTES.md](APP_STORE_REVIEW_NOTES.md) aligned with the exact build being submitted.
+For App Store/TestFlight preparation, keep [APP_STORE_REVIEW_NOTES.md](APP_STORE_REVIEW_NOTES.md) aligned with the exact build being submitted. For Google Play preparation, keep [PLAY_STORE_REVIEW_NOTES.md](PLAY_STORE_REVIEW_NOTES.md) aligned with the exact Android App Bundle being submitted. Store-facing website/support links should point to `https://beacontools.cc/local-flight`; privacy links should point to `https://beacontools.cc/privacy`.
 
 If Xcode was freshly installed or upgraded, accept the Apple SDK license first:
 
@@ -130,6 +130,42 @@ rm -rf "$ANDROID_HOME/ndk/27.1.12297006"
 sdkmanager "ndk;27.1.12297006"
 npm run android
 ```
+
+### Android Release / Play Store Path
+
+Android release identity is intentionally separate from the existing iOS bundle ID:
+
+- iOS bundle ID: `com.localflight.companion`
+- Android package ID: `com.localflight.mobile`
+- Android `versionCode`: `7`
+
+Do not upload an Android build with the old `com.localflight.companion` package name. Google Play package names are effectively permanent after the first upload.
+
+Signed Android release artifacts are produced through EAS:
+
+```bash
+cd mobile
+npm run verify
+npm run a11y
+npx eas build -p android --profile preview
+```
+
+Use the preview AAB for Play Internal Testing first. When the internal install works on a real Android device, create the production AAB:
+
+```bash
+cd mobile
+npx eas build -p android --profile production
+```
+
+The release build must keep LAN Mobile able to reach `http://localflight.local:8000` and private LAN IP addresses, while Standalone relay traffic stays HTTPS-only at `https://relay.beacontools.cc`. The release manifest should include camera, internet, and vibration only where needed; microphone, storage, and overlay permissions should not ship.
+
+Before leaving Internal Testing, complete the Play Console setup:
+
+- Privacy Policy URL: `https://beacontools.cc/privacy`
+- Website/support URL: `https://beacontools.cc/local-flight`
+- Data Safety answers from [PLAY_STORE_REVIEW_NOTES.md](PLAY_STORE_REVIEW_NOTES.md)
+- Content rating and target audience
+- Safety disclaimer in the store description: Local Flight is not for navigation, dispatch, operational control, or safety decisions
 
 On first launch, choose how this device should work.
 
@@ -239,17 +275,24 @@ The mobile install ID and standalone relay install ID are install-scoped. They a
 - `src/screens/AppScreens.tsx` contains the main screens and sheets.
 - `src/storage/standaloneHistory.ts` stores successful standalone FIDS rows locally with Expo SQLite.
 - `src/theme/` contains mobile appearance tokens, runtime appearance storage, and the style bridge used by extracted screens.
-- `src/iap/` contains the Apple IAP support-tip skeleton. It keeps stable product IDs and the StoreKit/relay verification seam in place, but the active provider remains a non-charging placeholder until App Store Connect products and a native IAP library are added to a development build.
+- `src/iap/` contains the optional support-tip skeleton. It keeps stable product IDs and the purchase-verification seam in place, but the active provider remains a non-charging placeholder until App Store Connect products / Google Play Billing products and native purchase libraries are added to development builds.
 
-### Apple IAP Skeleton
+### Support Tip Skeleton
 
-The intended support-tip flow is:
+The intended iOS support-tip flow is:
 
 1. Create App Store Connect in-app purchase products for `com.localflight.companion.tip.2`, `.tip.5`, `.tip.10`, and `.tip.20`.
 2. Add an Expo-compatible native IAP library such as `expo-iap` to a development/TestFlight build.
 3. Replace the placeholder export in `src/iap/supportProvider.ts` with `createAppleSupportPurchaseProvider(...)`.
 4. Send StoreKit signed transaction info to the relay's scaffolded `POST /v1/mobile/iap/apple/verify` endpoint.
 5. Configure the relay with App Store Server API credentials and verify Apple-signed transaction data before finishing transactions.
+
+The intended Android support-tip flow is separate and later:
+
+1. Create matching Google Play Billing in-app products.
+2. Add an Expo-compatible native billing adapter to a development build.
+3. Switch `src/iap/supportProvider.ts` to a platform-aware provider.
+4. Verify purchases on the relay before acknowledging/finishing them.
 
 ---
 
@@ -261,7 +304,7 @@ The intended support-tip flow is:
 - Production-ready admin permission model
 - Native crash capture before JavaScript starts
 - Full standalone flight-detail endpoint parity; Standalone currently focuses on Board, Radar, History, Settings, and reports
-- Real Apple in-app purchase support tips; the current support sheet has a non-charging StoreKit/relay skeleton
+- Real in-app purchase support tips; the current support sheet has a non-charging purchase/relay skeleton
 
 ---
 
@@ -270,7 +313,9 @@ The intended support-tip flow is:
 - Per-device authorization/revoke tokens before broader mutating LAN admin controls
 - App Store/TestFlight proof pass on a fresh real iPhone and iPad: Standalone setup, LAN QR/manual pairing, denied camera/local-network paths, support stub, and accessibility settings
 - App Store Connect privacy/review metadata using `APP_STORE_REVIEW_NOTES.md`
+- Google Play internal-test proof pass on a fresh Android phone: Standalone setup, LAN QR/manual pairing, denied camera path, support stub, permissions, and accessibility settings
+- Play Console privacy/Data Safety/review metadata using `PLAY_STORE_REVIEW_NOTES.md`
 - Full standalone flight-detail endpoint parity if Standalone should expose the same detail sheet depth as LAN Companion
-- Real Apple in-app purchase support tips after App Store Connect products, StoreKit/TestFlight testing, and relay App Store Server API verification are ready
+- Real in-app purchase support tips after App Store Connect / Google Play Billing products, native purchase testing, and relay verification are ready
 - Broader Android device matrix pass after the first local Android smoke test
 - Optional React Navigation stack only if future deep links need true back-stack behavior

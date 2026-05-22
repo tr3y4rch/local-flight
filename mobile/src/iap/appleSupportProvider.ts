@@ -73,7 +73,7 @@ export const appleIapPlaceholderProvider: SupportPurchaseProvider = {
   async purchaseTier() {
     return {
       ok: false,
-      message: "Apple in-app purchases are scaffolded, but the native StoreKit adapter is not enabled in this build yet."
+      message: "Support tips are scaffolded, but not active in this build yet."
     };
   }
 };

@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "Local Flight",
-    "slug": "localflight-companion",
+    "slug": "localflight-mobile",
     "version": "0.2.7",
     "scheme": "localflight",
     "orientation": "default",
@@ -34,6 +34,7 @@
           "cameraPermission": "Local Flight scans pairing QR codes shown by your Local Flight desktop or Pi app."
         }
       ],
+      "./plugins/with-localflight-android-network",
       "./plugins/with-localflight-privacy-manifest"
     ],
     "ios": {
@@ -51,9 +52,17 @@
       }
     },
     "android": {
-      "package": "com.localflight.companion",
+      "package": "com.localflight.mobile",
+      "versionCode": 7,
       "permissions": [
-        "CAMERA"
+        "CAMERA",
+        "VIBRATE"
+      ],
+      "blockedPermissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.SYSTEM_ALERT_WINDOW"
       ]
     },
     "extra": {

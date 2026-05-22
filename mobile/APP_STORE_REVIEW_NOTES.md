@@ -7,6 +7,8 @@ This file is the working checklist for the first iOS proof-of-concept review. It
 - App name: **Local Flight**
 - Bundle identifier: `com.localflight.companion`
 - Version: `0.2.7`
+- Project / support URL: `https://beacontools.cc/local-flight`
+- Privacy Policy URL: `https://beacontools.cc/privacy`
 - Recommended review path: choose **Standalone** on first launch so the app can be tested without a desktop or Raspberry Pi server.
 - Standalone setup needs an airport, a mobile diagnostics choice, and relay activation through `https://relay.beacontools.cc`. It does not open LAN WebSockets, Matrix controls, scheduler controls, or server-control panels.
 - Standalone daily surfaces are **Board**, **Radar**, **History**, and **Settings**.
@@ -24,6 +26,7 @@ This file is the working checklist for the first iOS proof-of-concept review. It
 App Store Connect privacy answers should be conservative:
 
 - Privacy Policy URL: `https://beacontools.cc/privacy`.
+- Marketing/support URL: `https://beacontools.cc/local-flight`.
 - Data collected: yes.
 - Data linked to the user: yes, conservatively, because install-scoped IDs are sent with app-functionality requests.
 - Tracking: no advertising, no data brokers, and no cross-app/site tracking.
@@ -40,7 +43,7 @@ The bundled iOS privacy manifest declares required-reason APIs and conservative 
 - This proof-of-concept build keeps support tips as a stub-only in-app sheet.
 - No features are locked behind support.
 - No external Buy Me a Coffee or other external purchase call-to-action should appear in App Store builds.
-- External Beacon Tools, GitHub, and release links are informational/support links only, not purchase links.
+- External project website, source, and release-note links are informational/support links only, not purchase links. The app should route users to `https://beacontools.cc/local-flight` first; GitHub remains available from that public project page for source/issues.
 - Real tips later require Apple in-app purchase products matching the stable product IDs, a native StoreKit adapter, relay App Store Server API verification, and TestFlight/sandbox verification.
 
 ## Safety Copy

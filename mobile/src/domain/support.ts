@@ -80,7 +80,7 @@ export const supportStubProvider: SupportPurchaseProvider = {
   async purchaseTier() {
     return {
       ok: false,
-      message: "Support tips are wired for Apple in-app purchase, but not active in this build yet."
+      message: "Support tips are scaffolded, but not active in this build yet."
     };
   }
 };

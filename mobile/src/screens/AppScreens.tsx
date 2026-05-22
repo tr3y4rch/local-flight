@@ -143,8 +143,8 @@ export type ConnectionState = "live" | "retrying" | "offline";
 
 const DOC_SOURCES: Record<DocSlug, { title: string; detail: string; externalUrl: string; externalLabel: string }> = {
   readme: {
-    title: "README",
-    detail: "Friendly overview, path chooser, previews, and operating model",
+    title: "Project Website",
+    detail: "Friendly overview, path chooser, previews, support, and source links",
     externalUrl: "https://beacontools.cc/local-flight",
     externalLabel: "Open online"
   },
@@ -5930,8 +5930,8 @@ export function ControlScreen({
         <InfoLine label="Display data" value="Flight, weather, and radar information are for personal display only, not for navigation or safety decisions." />
         <SettingsToolPill
           icon={TOOL_ICONS.github}
-          label="Beacon Tools"
-          value="Website, privacy, source, and releases"
+          label="Project website"
+          value="Docs, privacy, support, source, and releases"
           onPress={() => void Linking.openURL("https://beacontools.cc/local-flight")}
         />
         <Text style={styles.settingsProfileTitle}>REPORT PROBLEM</Text>
@@ -6267,8 +6267,8 @@ export function StandaloneSettingsScreen({
         <InfoLine label="Display data" value="Flight, weather, and radar information are for personal display only, not navigation, dispatch, operations, or safety decisions." />
         <SettingsToolPill
           icon={TOOL_ICONS.github}
-          label="Beacon Tools"
-          value="Website, privacy, source, and releases"
+          label="Project website"
+          value="Docs, privacy, support, source, and releases"
           onPress={() => void Linking.openURL("https://beacontools.cc/local-flight")}
         />
         <Text style={styles.settingsProfileTitle}>REPORT PROBLEM</Text>
@@ -7575,7 +7575,7 @@ export function SupportSheet({
               </View>
               <View style={styles.supportHeroCopy}>
             <Text style={styles.supportHeroTitle}>Optional tips help keep the boards glowing.</Text>
-                <Text style={styles.supportHeroBody}>Local Flight stays fully usable either way. StoreKit support is scaffolded, but tips are not active in this build yet.</Text>
+                <Text style={styles.supportHeroBody}>Local Flight stays fully usable either way. Support tips are scaffolded, but not active in this build yet.</Text>
               </View>
             </View>
 
