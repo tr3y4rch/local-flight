@@ -1329,6 +1329,23 @@ def test_api_config_get_route_is_registered_once() -> None:
     assert routes[0].endpoint.__name__ == "api_get_config"
 
 
+def test_api_config_exposes_matrix_safe_clock_payload(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(storage_config, "config_path", lambda: tmp_path / "config.json")
+    storage_config.save_config(AppConfig(airport_iata="DXB", airport_icao="OMDB", timezone="Asia/Dubai"))
+
+    response = TestClient(ui_api.app).get("/api/config")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["timezone"] == "Asia/Dubai"
+    assert isinstance(payload["clock_utc_epoch"], int)
+    assert isinstance(payload["clock_local_epoch"], int)
+    assert payload["clock_local_epoch"] - payload["clock_utc_epoch"] == 240 * 60
+    assert payload["clock_utc"]
+    assert payload["clock_local"]
+    assert payload["clock_local_offset_minutes"] == 240
+
+
 def test_api_config_coerces_community_relay_refresh_to_hourly(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr(storage_config, "config_path", lambda: tmp_path / "config.json")
     storage_config.save_config(AppConfig(source="real", refresh_seconds=3600))
@@ -3824,6 +3841,7 @@ def test_matrix_config_endpoint_round_trip(tmp_path: Path, monkeypatch) -> None:
         "skin": "technical",
     }
     assert isinstance(payload["clock_utc_epoch"], int)
+    assert isinstance(payload["clock_local_epoch"], int)
     assert payload["clock_utc"]
     assert payload["clock_local"]
     assert "clock_local_offset_minutes" in payload
@@ -4530,13 +4548,15 @@ def test_matrix_script_endpoint_uses_current_i75w_client_template() -> None:
     assert "def fit_text(value, length):" in script
     assert "def _ascii_text(value):" in script
     assert "def _text_field(value, fallback=\"\"):" in script
-    assert "def _clock_hhmm(offset_minutes=0):" in script
+    assert "_clock_local_epoch = None" in script
+    assert "def _clock_hhmm(base_epoch=None, offset_minutes=0):" in script
     assert "def _clock_label(compact=False):" in script
     assert '"U{} L{}"' in script
     assert "clock = _clock_label(compact=WIDTH < 320)" in script
     assert "label_limit = max(6, min(len(label), 12 if WIDTH < 300 else 18))" in script
     assert "center_left = label_limit * 8 + 6" in script
     assert "clock_utc_epoch" in script
+    assert "clock_local_epoch" in script
     assert "ACTIVE_BREATH" in script
     assert "AMBER_BREATH" in script
     assert "def cycle_chunks(value, width, code=\"\"):" in script
@@ -4688,6 +4708,8 @@ def test_matrix_preview_download_payload_uses_defined_animation_state() -> None:
     assert "row.matrix_detail_cycle" in template
     assert "function wideColumns(charW = MATRIX_CHAR_W)" in template
     assert "function detailChunk(row, chars)" in template
+    assert "const CODE_SHARE_ROTATION_S = 4" in template
+    assert template.index("const CODE_SHARE_ROTATION_S = 4") < template.index("function detailChunk(row, chars)")
     assert "const timeLabel = String(row?.matrix_time_label" in template
     assert "const flightLabel = String(flightCycleDisplay(row || {}))" in template
     assert "let statusText = row ? statusOrGateChunk(row, chars) : \"\"" in template

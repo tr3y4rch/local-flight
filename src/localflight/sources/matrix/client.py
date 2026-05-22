@@ -58,6 +58,7 @@ _airport_iata = "---"
 _airport_label = "LOCAL"
 _device_id = None
 _clock_utc_epoch = None
+_clock_local_epoch = None
 _clock_sync_ticks = 0
 _clock_offset_minutes = 0
 _clock_timezone = "UTC"
@@ -908,29 +909,35 @@ def _option_bool(data, options, top_key, option_keys, fallback):
 
 
 def _sync_clock_from_config(data):
-    global _clock_utc_epoch, _clock_sync_ticks, _clock_offset_minutes, _clock_timezone
+    global _clock_utc_epoch, _clock_local_epoch, _clock_sync_ticks, _clock_offset_minutes, _clock_timezone
     if not isinstance(data, dict) or data.get("clock_utc_epoch") is None:
         return
     try:
         _clock_utc_epoch = int(data.get("clock_utc_epoch"))
         _clock_sync_ticks = time.time()
         _clock_offset_minutes = _clamp_int(data.get("clock_local_offset_minutes", 0), -720, 840, 0)
+        if data.get("clock_local_epoch") is not None:
+            _clock_local_epoch = int(data.get("clock_local_epoch"))
+        else:
+            _clock_local_epoch = _clock_utc_epoch + _clock_offset_minutes * 60
         _clock_timezone = str(data.get("timezone") or "UTC")
     except Exception as e:
         print(f"Clock sync error: {e}")
 
 
-def _clock_epoch_now():
-    if _clock_utc_epoch is None:
+def _clock_epoch_now(base_epoch=None):
+    if base_epoch is None:
+        base_epoch = _clock_utc_epoch
+    if base_epoch is None:
         return None
     try:
-        return int(_clock_utc_epoch + (time.time() - _clock_sync_ticks))
+        return int(base_epoch + (time.time() - _clock_sync_ticks))
     except Exception:
-        return _clock_utc_epoch
+        return base_epoch
 
 
-def _clock_hhmm(offset_minutes=0):
-    epoch = _clock_epoch_now()
+def _clock_hhmm(base_epoch=None, offset_minutes=0):
+    epoch = _clock_epoch_now(base_epoch)
     if epoch is None:
         return "--:--"
     try:
@@ -1323,8 +1330,11 @@ def _weather_page_lines(chars):
     return [marquee(line, chars).rstrip() if len(line) > chars else line[:chars] for line in clean]
 
 def _clock_label(compact=False):
-    utc_ts = _clock_hhmm(0)
-    local_ts = _clock_hhmm(_clock_offset_minutes)
+    utc_ts = _clock_hhmm(_clock_utc_epoch, 0)
+    if _clock_local_epoch is not None:
+        local_ts = _clock_hhmm(_clock_local_epoch, 0)
+    else:
+        local_ts = _clock_hhmm(_clock_utc_epoch, _clock_offset_minutes)
     if compact:
         return "U{} L{}".format(utc_ts, local_ts)
     return "UTC{} LT{}".format(utc_ts, local_ts)

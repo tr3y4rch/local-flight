@@ -803,7 +803,8 @@ def api_health() -> Dict[str, Any]:
 
 @router.get("/api/config")
 def api_get_config() -> Dict[str, Any]:
-    return asdict(load_config())
+    cfg = load_config()
+    return {**asdict(cfg), **_matrix_clock_payload(cfg)}
 
 
 @router.patch("/api/config")
@@ -2960,8 +2961,8 @@ def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _matrix_clock_payload() -> Dict[str, Any]:
-    cfg = load_config()
+def _matrix_clock_payload(cfg: Optional[AppConfig] = None) -> Dict[str, Any]:
+    cfg = cfg or load_config()
     now_utc = datetime.now(timezone.utc)
     timezone_name = resolve_config_timezone(cfg)
     local_now = now_utc.astimezone(ZoneInfo(timezone_name))
@@ -2972,6 +2973,7 @@ def _matrix_clock_payload() -> Dict[str, Any]:
         **airport_payload,
         "timezone": timezone_name,
         "clock_utc_epoch": int(now_utc.timestamp()),
+        "clock_local_epoch": int(now_utc.timestamp()) + offset_minutes * 60,
         "clock_utc": now_utc.strftime("%H:%M"),
         "clock_local": local_now.strftime("%H:%M"),
         "clock_local_offset_minutes": offset_minutes,
