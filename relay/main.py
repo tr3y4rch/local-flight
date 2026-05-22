@@ -7,6 +7,7 @@ import json
 import os
 import re
 import secrets
+import smtplib
 import sqlite3
 import threading
 import time
@@ -14,13 +15,16 @@ import uuid
 from contextlib import asynccontextmanager
 from dataclasses import asdict
 from datetime import date, datetime, time as dt_time, timedelta, timezone
+from email.message import EmailMessage
 from pathlib import Path
 from typing import Any, Dict, Optional
+from urllib.parse import urlparse
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import requests as _req
 import uvicorn
-from fastapi import Depends, FastAPI, Form, HTTPException, Query, Request
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Request, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from pydantic import BaseModel, Field, field_validator
@@ -81,6 +85,13 @@ _REPORT_MANUAL_DEDUPE_MINUTES = 30
 _REPORT_MANUAL_INSTALL_DAILY_LIMIT = 5
 _REPORT_CRASH_INSTALL_DAILY_LIMIT = 20
 _REPORT_NETWORK_DAILY_LIMIT = 60
+_SITE_CONTACT_NETWORK_DAILY_LIMIT = 12
+_SITE_BUG_NETWORK_DAILY_LIMIT = 8
+_SITE_FORM_DEDUPE_MINUTES = 20
+_SITE_LOG_MAX_FILES = 3
+_SITE_LOG_MAX_FILE_BYTES = 128 * 1024
+_SITE_LOG_MAX_TOTAL_BYTES = 384 * 1024
+_SITE_LOG_EXCERPT_CHARS = 5000
 _COMMUNITY_SCHEDULE_NETWORK_DAILY_LIMIT = 240
 _COMMUNITY_SCHEDULE_GLOBAL_DAILY_LIMIT = 1000
 _COMMUNITY_RADAR_NETWORK_DAILY_LIMIT = 600
@@ -96,6 +107,30 @@ _LINEAR_GRAPHQL_URL = "https://api.linear.app/graphql"
 
 _REPORT_ALLOWED_TYPES = {"manual", "crash"}
 _REPORT_ALLOWED_ORIGINS = {"desktop", "web", "server", "scheduler", "mobile", "ios", "relay"}
+_SITE_CONTACT_CATEGORIES = {"general", "mobile_testing", "relay", "privacy"}
+_SITE_BUG_SURFACES = {"windows", "macos", "raspberry-pi", "mobile", "matrix", "relay", "website", "unknown"}
+_SITE_ALLOWED_ORIGIN_HOSTS = {"beacontools.cc", "www.beacontools.cc"}
+_SITE_TEXT_EXTENSIONS = {
+    ".txt",
+    ".log",
+    ".json",
+    ".csv",
+    ".tsv",
+    ".md",
+    ".yaml",
+    ".yml",
+    ".toml",
+    ".ini",
+    ".cfg",
+    ".conf",
+}
+_SITE_TEXT_CONTENT_TYPES = {
+    "text/plain",
+    "text/csv",
+    "application/json",
+    "application/x-ndjson",
+    "application/octet-stream",
+}
 _REPORT_TEAM_ENV = {
     "ios": "LINEAR_TEAM_IOS_ID",
     "desktop": "LINEAR_TEAM_DESKTOP_ID",
@@ -1903,6 +1938,259 @@ def _redact_sensitive(text: str) -> str:
 def _collapse(value: str, *, limit: int) -> str:
     clean = re.sub(r"\s+", " ", _redact_sensitive(value or "")).strip()
     return clean[:limit]
+
+
+def _site_origin_allowed(request: Request) -> bool:
+    origin = (request.headers.get("origin") or "").strip()
+    if not origin:
+        return True
+    try:
+        parsed = urlparse(origin)
+        host = _normalized_host(parsed.netloc or parsed.hostname or "")
+    except Exception:
+        return False
+    return host in _SITE_ALLOWED_ORIGIN_HOSTS or _is_local_host(host)
+
+
+def _require_site_origin(request: Request) -> None:
+    if not _site_origin_allowed(request):
+        raise HTTPException(status_code=403, detail="This form can only be submitted from beacontools.cc")
+
+
+def _valid_reply_email(value: str) -> bool:
+    email = (value or "").strip()
+    if not email:
+        return True
+    if len(email) > 240 or any(ch.isspace() for ch in email):
+        return False
+    return bool(re.match(r"^[^@<>]+@[^@<>\.]+\.[^@<>]+$", email))
+
+
+def _site_form_limit(service: str) -> int:
+    if service == "site_contact":
+        try:
+            return int(_env("RELAY_SITE_CONTACT_NETWORK_DAILY_LIMIT", str(_SITE_CONTACT_NETWORK_DAILY_LIMIT)))
+        except ValueError:
+            return _SITE_CONTACT_NETWORK_DAILY_LIMIT
+    try:
+        return int(_env("RELAY_SITE_BUG_NETWORK_DAILY_LIMIT", str(_SITE_BUG_NETWORK_DAILY_LIMIT)))
+    except ValueError:
+        return _SITE_BUG_NETWORK_DAILY_LIMIT
+
+
+def _site_form_fingerprint(network_tag: str, service: str) -> str:
+    return f"{service}:{network_tag or 'unknown'}"[:80]
+
+
+def _site_form_dedupe_key(*, service: str, network_tag: str, subject: str, message: str, context: str) -> str:
+    normalized = re.sub(r"\s+", " ", _redact_sensitive(f"{subject}\n{message}").lower()).strip()
+    basis = "|".join([service, network_tag or "unknown", context or "-", normalized[:1200]])
+    return hashlib.sha256(basis.encode("utf-8")).hexdigest()
+
+
+def _check_site_form_rate_limit(conn: sqlite3.Connection, *, service: str, network_tag: str) -> None:
+    cutoff = _hours_ago(24)
+    row = conn.execute(
+        """
+        SELECT COUNT(*) AS count
+        FROM report_events
+        WHERE network_tag=? AND report_type=? AND ts>=?
+        """,
+        (network_tag, service, cutoff),
+    ).fetchone()
+    if int(row["count"] or 0) >= _site_form_limit(service):
+        raise HTTPException(status_code=429, detail="Support form rate limit reached. Please try again later.")
+
+
+def _dedupe_site_form(
+    conn: sqlite3.Connection,
+    *,
+    service: str,
+    network_tag: str,
+    context: str,
+    dedupe_key: str,
+) -> bool:
+    install_fingerprint = _site_form_fingerprint(network_tag, service)
+    row = conn.execute(
+        "SELECT last_seen FROM report_dedupe WHERE dedupe_key=?",
+        (dedupe_key,),
+    ).fetchone()
+    if row:
+        try:
+            in_window = str(row["last_seen"] or "") >= (
+                datetime.now(timezone.utc) - timedelta(minutes=_SITE_FORM_DEDUPE_MINUTES)
+            ).isoformat()
+        except Exception:
+            in_window = True
+        if in_window:
+            conn.execute(
+                """
+                UPDATE report_dedupe
+                SET last_seen=?, count=count+1
+                WHERE dedupe_key=?
+                """,
+                (_utc_now(), dedupe_key),
+            )
+            _record_report_event(
+                conn,
+                install_fingerprint=install_fingerprint,
+                network_tag=network_tag,
+                report_type=service,
+                origin="website",
+                context=context,
+                team="site",
+                status="deduped",
+                dedupe_key=dedupe_key,
+            )
+            return True
+    conn.execute(
+        """
+        INSERT INTO report_dedupe (
+            dedupe_key, team, report_type, origin, install_fingerprint, first_seen, last_seen, count, url
+        )
+        VALUES (?, 'site', ?, 'website', ?, ?, ?, 0, NULL)
+        ON CONFLICT(dedupe_key) DO UPDATE SET
+            last_seen=excluded.last_seen,
+            count=0,
+            url=NULL
+        """,
+        (dedupe_key, service, install_fingerprint, _utc_now(), _utc_now()),
+    )
+    return False
+
+
+def _record_site_form_filed(
+    conn: sqlite3.Connection,
+    *,
+    service: str,
+    network_tag: str,
+    context: str,
+    dedupe_key: str,
+    team: str = "site",
+) -> None:
+    install_fingerprint = _site_form_fingerprint(network_tag, service)
+    conn.execute(
+        """
+        UPDATE report_dedupe
+        SET last_seen=?, count=count+1, url=''
+        WHERE dedupe_key=?
+        """,
+        (_utc_now(), dedupe_key),
+    )
+    _record_report_event(
+        conn,
+        install_fingerprint=install_fingerprint,
+        network_tag=network_tag,
+        report_type=service,
+        origin="website",
+        context=context,
+        team=team,
+        status="filed",
+        dedupe_key=dedupe_key,
+    )
+
+
+def _contact_recipient(category: str) -> str:
+    if category == "privacy":
+        return _env("RELAY_CONTACT_TO_PRIVACY", _env("RELAY_CONTACT_TO_GENERAL"))
+    return _env("RELAY_CONTACT_TO_GENERAL")
+
+
+def _send_contact_email(body: SiteContactIn, *, network_tag: str) -> None:
+    host = _env("RELAY_CONTACT_SMTP_HOST")
+    sender = _env("RELAY_CONTACT_FROM")
+    recipient = _contact_recipient(body.category)
+    if not host or not sender or not recipient:
+        raise HTTPException(status_code=503, detail="Contact mailbox is not configured on the relay")
+
+    try:
+        port = int(_env("RELAY_CONTACT_SMTP_PORT", "587"))
+    except ValueError:
+        port = 587
+    username = _env("RELAY_CONTACT_SMTP_USERNAME")
+    password = _env("RELAY_CONTACT_SMTP_PASSWORD")
+    use_ssl = _env("RELAY_CONTACT_SMTP_SSL", "").lower() in {"1", "true", "yes"} or port == 465
+    use_starttls = _env("RELAY_CONTACT_SMTP_STARTTLS", "1").lower() not in {"0", "false", "no"} and not use_ssl
+
+    category_label = body.category.replace("_", " ").title()
+    message = EmailMessage()
+    message["Subject"] = f"[Beacon Tools] {category_label}: {_collapse(body.subject, limit=120)}"
+    message["From"] = sender
+    message["To"] = recipient
+    if body.reply_email.strip():
+        message["Reply-To"] = body.reply_email.strip()
+    lines = [
+        "Beacon Tools public contact form",
+        "",
+        f"Category: {category_label}",
+        f"Name: {_redact_sensitive(body.name.strip()) or 'not provided'}",
+        f"Reply email: {_redact_sensitive(body.reply_email.strip()) or 'not provided'}",
+        f"Page/context: {_redact_sensitive(body.website_context.strip()) or 'not provided'}",
+        f"Network tag: {network_tag}",
+        "",
+        "Message:",
+        _redact_sensitive(body.message.strip())[:4000],
+    ]
+    message.set_content("\n".join(lines))
+
+    smtp_cls = smtplib.SMTP_SSL if use_ssl else smtplib.SMTP
+    with smtp_cls(host, port, timeout=12) as smtp:
+        if use_starttls:
+            smtp.starttls()
+        if username:
+            smtp.login(username, password)
+        smtp.send_message(message)
+
+
+def _site_bug_team(surface: str) -> str:
+    if surface == "mobile":
+        return "ios"
+    if surface == "relay":
+        return "relay"
+    if surface == "website":
+        return "default"
+    return "desktop"
+
+
+def _is_text_upload(filename: str, content_type: str, data: bytes) -> bool:
+    suffix = Path(filename or "").suffix.lower()
+    mime = (content_type or "").split(";", 1)[0].strip().lower()
+    if suffix not in _SITE_TEXT_EXTENSIONS and mime not in _SITE_TEXT_CONTENT_TYPES:
+        return False
+    if b"\x00" in data:
+        return False
+    sample = data[:2048]
+    if not sample:
+        return True
+    control_count = sum(1 for byte in sample if byte < 32 and byte not in {9, 10, 13})
+    return control_count / max(1, len(sample)) < 0.08
+
+
+def _sanitize_site_uploads(logs: Optional[list[UploadFile]]) -> str:
+    if not logs:
+        return ""
+    if len(logs) > _SITE_LOG_MAX_FILES:
+        raise HTTPException(status_code=413, detail=f"Upload at most {_SITE_LOG_MAX_FILES} log files")
+    total = 0
+    parts: list[str] = []
+    for upload in logs:
+        if not upload or not upload.filename:
+            continue
+        data = upload.file.read(_SITE_LOG_MAX_FILE_BYTES + 1)
+        if len(data) > _SITE_LOG_MAX_FILE_BYTES:
+            raise HTTPException(status_code=413, detail="One uploaded log file is too large")
+        total += len(data)
+        if total > _SITE_LOG_MAX_TOTAL_BYTES:
+            raise HTTPException(status_code=413, detail="Uploaded log files are too large")
+        if not _is_text_upload(upload.filename, upload.content_type or "", data):
+            raise HTTPException(status_code=415, detail="Only text-like log files can be uploaded")
+        text = data.decode("utf-8", errors="replace")
+        text = _redact_sensitive(text)
+        if len(text) > _SITE_LOG_EXCERPT_CHARS:
+            text = text[-_SITE_LOG_EXCERPT_CHARS:]
+        safe_name = _collapse(Path(upload.filename).name, limit=80) or "log.txt"
+        parts.append(f"### {safe_name}\n```\n{text}\n```")
+    return "\n\n".join(parts)[:_SITE_LOG_EXCERPT_CHARS * 2]
 
 
 def _report_origin(body: "ReportIn") -> str:
@@ -7360,6 +7648,12 @@ async def _lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="Local Flight Network Admin", lifespan=_lifespan, docs_url=None, redoc_url=None)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["https://beacontools.cc", "https://www.beacontools.cc"],
+    allow_methods=["POST", "OPTIONS"],
+    allow_headers=["accept", "content-type"],
+)
 
 
 @app.middleware("http")
@@ -7501,6 +7795,21 @@ class ReportIn(BaseModel):
     source: str = Field("", max_length=40)
     api_mode: str = Field("", max_length=40)
     diagnostics_mode: str = Field("", max_length=40)
+
+
+class SiteContactIn(BaseModel):
+    category: str = Field("general", max_length=32)
+    name: str = Field("", max_length=120)
+    reply_email: str = Field("", max_length=240)
+    subject: str = Field(..., min_length=1, max_length=180)
+    message: str = Field(..., min_length=1, max_length=4000)
+    website_context: str = Field("", max_length=240)
+    company: str = Field("", max_length=120)
+
+    @field_validator("category", "name", "reply_email", "subject", "message", "website_context", "company", mode="before")
+    @classmethod
+    def _coerce_text(cls, value: Any) -> str:
+        return _admin_text(value)
 
 
 class MobileAppleIapVerifyIn(BaseModel):
@@ -8736,6 +9045,157 @@ def relay_reports(body: ReportIn, request: Request) -> Dict[str, Any]:
         )
         conn.commit()
         return {"ok": True, "url": url, "team": team, "deduped": False}
+    finally:
+        conn.close()
+
+
+@app.post("/v1/site/contact")
+def relay_site_contact(body: SiteContactIn, request: Request) -> Dict[str, Any]:
+    _require_site_origin(request)
+    if body.company.strip():
+        raise HTTPException(status_code=400, detail="Support form was not accepted")
+    category = (body.category or "general").strip().lower()
+    if category not in _SITE_CONTACT_CATEGORIES:
+        raise HTTPException(status_code=422, detail="category must be general, mobile_testing, relay, or privacy")
+    if not body.subject.strip() or not body.message.strip():
+        raise HTTPException(status_code=422, detail="subject and message are required")
+    if not _valid_reply_email(body.reply_email):
+        raise HTTPException(status_code=422, detail="reply_email is not valid")
+
+    clean_body = body.model_copy(update={"category": category})
+    network_tag = _network_tag(_client_ip(request))
+    dedupe_key = _site_form_dedupe_key(
+        service="site_contact",
+        network_tag=network_tag,
+        context=category,
+        subject=clean_body.subject,
+        message=clean_body.message,
+    )
+    conn = _connect()
+    try:
+        _check_site_form_rate_limit(conn, service="site_contact", network_tag=network_tag)
+        if _dedupe_site_form(conn, service="site_contact", network_tag=network_tag, context=category, dedupe_key=dedupe_key):
+            conn.commit()
+            return {"ok": True, "message": "Message already received recently. Thank you.", "deduped": True}
+        _send_contact_email(clean_body, network_tag=network_tag)
+        _record_site_form_filed(
+            conn,
+            service="site_contact",
+            network_tag=network_tag,
+            context=category,
+            dedupe_key=dedupe_key,
+        )
+        conn.commit()
+        return {"ok": True, "message": "Message sent. Thank you.", "deduped": False}
+    finally:
+        conn.close()
+
+
+@app.post("/v1/site/bug-report")
+def relay_site_bug_report(
+    request: Request,
+    title: str = Form(...),
+    description: str = Form(...),
+    reply_email: str = Form(""),
+    product: str = Form("local-flight"),
+    surface: str = Form("unknown"),
+    app_version: str = Form(""),
+    platform: str = Form(""),
+    steps: str = Form(""),
+    expected: str = Form(""),
+    actual: str = Form(""),
+    website_context: str = Form(""),
+    company: str = Form(""),
+    logs: Optional[list[UploadFile]] = File(None),
+) -> Dict[str, Any]:
+    _require_site_origin(request)
+    if company.strip():
+        raise HTTPException(status_code=400, detail="Support form was not accepted")
+    title = _admin_text(title).strip()
+    description = _admin_text(description).strip()
+    if not title or not description:
+        raise HTTPException(status_code=422, detail="title and description are required")
+    if not _valid_reply_email(reply_email):
+        raise HTTPException(status_code=422, detail="reply_email is not valid")
+    surface = _admin_text(surface).strip().lower().replace("_", "-")
+    if surface not in _SITE_BUG_SURFACES:
+        surface = "unknown"
+    product = _collapse(product or "local-flight", limit=80) or "local-flight"
+    log_excerpt = _sanitize_site_uploads(logs)
+
+    detail_parts = [description]
+    if steps.strip():
+        detail_parts.append(f"**Steps to reproduce**\n{_redact_sensitive(steps.strip())[:1200]}")
+    if expected.strip():
+        detail_parts.append(f"**Expected**\n{_redact_sensitive(expected.strip())[:800]}")
+    if actual.strip():
+        detail_parts.append(f"**Actual**\n{_redact_sensitive(actual.strip())[:800]}")
+    if log_excerpt:
+        detail_parts.append(f"**Sanitized uploaded log excerpts**\n{log_excerpt}")
+    issue_description = "\n\n---\n".join(detail_parts)[:4000]
+
+    network_tag = _network_tag(_client_ip(request))
+    dedupe_key = _site_form_dedupe_key(
+        service="site_bug",
+        network_tag=network_tag,
+        context=surface,
+        subject=title,
+        message=issue_description,
+    )
+    team = _site_bug_team(surface)
+    team_id = _report_team_id(team)
+    if not _linear_reporter_key() or not team_id:
+        raise HTTPException(status_code=503, detail="Bug-report triage is not configured on the relay")
+
+    conn = _connect()
+    try:
+        _check_site_form_rate_limit(conn, service="site_bug", network_tag=network_tag)
+        if _dedupe_site_form(conn, service="site_bug", network_tag=network_tag, context=surface, dedupe_key=dedupe_key):
+            conn.commit()
+            return {"ok": True, "message": "Bug report already received recently. Thank you.", "deduped": True}
+
+        context = f"site/bug-report/{surface}"
+        client_context_parts = [
+            f"Product: {product}",
+            f"Surface: {surface}",
+            f"Website context: {_redact_sensitive(website_context.strip()) or 'not provided'}",
+            f"Reply email: {_redact_sensitive(reply_email.strip()) or 'not provided'}",
+            f"Network tag: {network_tag}",
+        ]
+        report = ReportIn(
+            report_type="manual",
+            origin="web",
+            install_id="00000000-0000-0000-0000-000000000000",
+            install_fingerprint=_site_form_fingerprint(network_tag, "site_bug"),
+            title=title,
+            description=issue_description,
+            context=context,
+            client_context="\n".join(client_context_parts),
+            app_version=_collapse(app_version, limit=80),
+            platform=_collapse(platform, limit=160),
+            os=_collapse(platform, limit=160),
+            source="website",
+            api_mode="public site",
+            diagnostics_mode="manual",
+        )
+        linear_title = _linear_issue_title(report, team=team, origin="web")
+        linear_body = _linear_issue_body(
+            report,
+            team=team,
+            origin="web",
+            install_fingerprint=_site_form_fingerprint(network_tag, "site_bug"),
+        )
+        _post_linear_issue(team_id=team_id, title=linear_title, description=linear_body)
+        _record_site_form_filed(
+            conn,
+            service="site_bug",
+            network_tag=network_tag,
+            context=surface,
+            dedupe_key=dedupe_key,
+            team=team,
+        )
+        conn.commit()
+        return {"ok": True, "message": "Bug report sent. Thank you.", "deduped": False}
     finally:
         conn.close()
 

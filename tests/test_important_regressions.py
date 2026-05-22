@@ -5400,14 +5400,38 @@ def test_privacy_docs_disclose_linear_report_triage() -> None:
     choices = (root / "site" / "privacy" / "choices" / "index.html").read_text(encoding="utf-8")
 
     assert "filed into Linear as the developer triage inbox" in privacy
-    assert "| Linear | Manual reports and automatic diagnostics" in privacy
+    assert "| Linear | Manual reports, public website bug reports, and automatic diagnostics" in privacy
     assert "[linear.app/privacy](https://linear.app/privacy)" in privacy
+    assert "Public website bug reports use the same relay-owned triage pattern" in privacy
+    assert "Hosted relay contact gateway, then support mailbox" in privacy
     assert "Hosted relay reporting gateway, then Linear developer triage inbox" in privacy
     assert "Linear for consent-based report triage" in site_privacy
+    assert "configured mailbox provider for website contact messages" in site_privacy
     assert "https://linear.app/privacy" in site_privacy
-    assert "filed into Linear for developer triage" in choices
+    assert "website bug reports, and enabled automatic diagnostics" in choices
     assert "https://linear.app/privacy" in choices
     assert "network.beacontools.cc/admin" not in site_privacy
+
+
+def test_support_site_uses_forms_instead_of_exposed_general_email() -> None:
+    root = Path(__file__).resolve().parents[1]
+    site = root / "site"
+    support = (site / "support" / "index.html").read_text(encoding="utf-8")
+    home = (site / "index.html").read_text(encoding="utf-8")
+    local_flight = (site / "local-flight" / "index.html").read_text(encoding="utf-8")
+    mobile = (site / "local-flight" / "mobile" / "index.html").read_text(encoding="utf-8")
+
+    assert 'data-support-form="contact"' in support
+    assert 'data-support-form="bug"' in support
+    assert "https://relay.beacontools.cc" in support
+    assert "/v1/site/contact" in support
+    assert "/v1/site/bug-report" in support
+    assert 'name="logs" type="file"' in support
+    assert 'name="company" class="honeypot"' in support
+    assert "home@beacontools.cc" not in support
+    assert "mailto:home@beacontools.cc" not in home
+    assert "mailto:home@beacontools.cc" not in local_flight
+    assert "mailto:home@beacontools.cc" not in mobile
 
 
 def test_setup_relay_url_validation_blocks_untrusted_roots(monkeypatch) -> None:

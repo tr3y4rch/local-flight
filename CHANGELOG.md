@@ -28,7 +28,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Beacon Tools is now the public home for Local Flight at `https://beacontools.cc/local-flight`, with the public privacy policy at `https://beacontools.cc/privacy`.
 - Added a no-build Cloudflare Pages site under `site/` for the Beacon Tools home, Local Flight product page, privacy page, and `/local-flight/privacy` redirect.
 - Added `relay.beacontools.cc` as the official relay hostname, moved the relay's public/admin host defaults to `relay.beacontools.cc` and `network.beacontools.cc`, and flipped client relay defaults to `https://relay.beacontools.cc` after DNS and Fly TLS were verified. The Fly.io root remains accepted for existing installs.
-- Public copy now uses `home@beacontools.cc` for general/support contact and `privacy@beacontools.cc` for privacy and diagnostics requests.
+- Public copy now routes general/support contact through the Beacon Tools support page while keeping the privacy contact discoverable on the privacy/choices pages.
+- Added public Beacon Tools support forms: a relay-backed contact form that delivers to the support mailbox and a sanitized manual bug-report form that files into Linear without exposing Linear credentials.
 - Refreshed the public README, install/display guides, mobile docs, App Store/TestFlight notes, release notes, preview gallery captions, and Cloudflare Pages copy so they describe the current native, LAN browser, mobile Standalone/Companion, Matrix, History, relay, and privacy behavior.
 - Replaced stale desktop preview illustrations with current Qt screenshot cards for FIDS, Radar, History, Settings, and Matrix across the README gallery and Beacon Tools site assets.
 - Added the Beacon Tools website logo system, including the public-site nav mark, favicon/touch icons, and homepage lockup while keeping Local Flight app marks on product-specific panels.

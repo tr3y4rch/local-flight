@@ -34,11 +34,11 @@
       <div class="wrap">
         <div class="hero-content">
           <div class="eyebrow">Beacon Tools Support</div>
-          <h1>Start here, then route the issue.</h1>
-          <p class="lede">Beacon Tools is the public support home for Local Flight. GitHub remains the source repository and technical issue tracker.</p>
+          <h1>Tell me what happened, without hunting for an address.</h1>
+          <p class="lede">Pick the light-touch message lane for questions, or send a structured bug report when logs and reproduction details will help.</p>
           <div class="actions">
-            <a class="button primary" href="mailto:home@beacontools.cc">Email support</a>
-            <a class="button secondary" href="mailto:privacy@beacontools.cc">Privacy contact</a>
+            <a class="button primary" href="#message">Send a message</a>
+            <a class="button secondary" href="#bug-report">Report a bug</a>
             <a class="button" href="https://github.com/tr3y4rch/local-flight/issues">GitHub issues</a>
           </div>
         </div>
@@ -46,51 +46,133 @@
     </header>
 
     <main>
-      <section class="section">
+      <section class="section tight">
         <div class="wrap">
-          <div class="section-head">
-            <div>
-              <div class="eyebrow">Support routes</div>
-              <h2>Pick the lane that matches the problem.</h2>
-            </div>
-          </div>
-          <div class="grid two">
-            <article class="card">
-              <h3>Install or desktop help</h3>
-              <p>For Windows, macOS, Raspberry Pi, LAN browser, Matrix, and setup questions, email <a href="mailto:home@beacontools.cc">home@beacontools.cc</a> or open a GitHub issue when you have reproducible technical details.</p>
+          <div class="grid four">
+            <article class="card route-card">
+              <h3>Desktop or Pi</h3>
+              <p>Install, setup, native Qt, LAN browser, and Raspberry Pi kiosk questions.</p>
             </article>
-            <article class="card">
-              <h3>Mobile testing</h3>
-              <p>For TestFlight or Play Store testing interest, email <a href="mailto:home@beacontools.cc?subject=Local%20Flight%20Mobile%20testing">home@beacontools.cc</a>. The app is not publicly listed yet.</p>
+            <article class="card route-card">
+              <h3>Mobile</h3>
+              <p>LAN Companion, Standalone, TestFlight/Play Store testing interest, and pairing.</p>
             </article>
-            <article class="card">
-              <h3>Standalone or relay issue</h3>
-              <p>Check <a href="/network/">Network</a> first. Standalone needs internet access and the hosted relay. It does not need your desktop or Pi server online.</p>
+            <article class="card route-card">
+              <h3>Matrix or radar</h3>
+              <p>LED matrix, generated i75W client, radar rendering, and surface overlays.</p>
             </article>
-            <article class="card">
-              <h3>Privacy or diagnostics request</h3>
-              <p>Use <a href="mailto:privacy@beacontools.cc">privacy@beacontools.cc</a> for privacy questions, diagnostics questions, retention/deletion requests, or data-request follow-up.</p>
+            <article class="card route-card">
+              <h3>Privacy</h3>
+              <p>Privacy, diagnostics, and deletion guidance starts at <a href="/privacy/choices/">Privacy choices</a>.</p>
             </article>
           </div>
         </div>
       </section>
 
-      <section class="section">
+      <section class="section" id="message">
         <div class="wrap">
           <div class="section-head">
             <div>
-              <div class="eyebrow">Useful links</div>
-              <h2>Common destinations</h2>
+              <div class="eyebrow">Message box</div>
+              <h2>Send a simple message.</h2>
             </div>
+            <p>Use this for questions, testing interest, or “I am not sure where this belongs.” It goes through the Beacon Tools relay to the support mailbox.</p>
           </div>
-          <ul class="link-list">
-            <li><a href="/local-flight/">Local Flight project page</a></li>
-            <li><a href="/local-flight/mobile/">Mobile testing page</a></li>
-            <li><a href="/network/">Relay and network notes</a></li>
-            <li><a href="/privacy/">Privacy policy</a></li>
-            <li><a href="/privacy/choices/">Privacy choices and deletion guidance</a></li>
-            <li><a href="https://github.com/tr3y4rch/local-flight/issues">GitHub issue tracker</a></li>
-          </ul>
+          <form class="support-form" data-support-form="contact">
+            <input type="text" name="company" class="honeypot" autocomplete="off" tabindex="-1" aria-hidden="true">
+            <div class="form-grid">
+              <label>Topic
+                <select name="category">
+                  <option value="general">General support</option>
+                  <option value="mobile_testing">Mobile testing</option>
+                  <option value="relay">Relay / network</option>
+                  <option value="privacy">Privacy or diagnostics</option>
+                </select>
+              </label>
+              <label>Name <span class="muted">(optional)</span>
+                <input name="name" type="text" maxlength="120" autocomplete="name">
+              </label>
+              <label>Reply email <span class="muted">(optional)</span>
+                <input name="reply_email" type="email" maxlength="240" autocomplete="email">
+              </label>
+              <label>Subject
+                <input name="subject" type="text" maxlength="180" required>
+              </label>
+            </div>
+            <label>Message
+              <textarea name="message" rows="7" maxlength="4000" required placeholder="What would you like Beacon Tools to know?"></textarea>
+            </label>
+            <input name="website_context" type="hidden" value="/support/">
+            <div class="form-actions">
+              <button class="button primary" type="submit">Send message</button>
+              <span class="form-status" role="status" aria-live="polite"></span>
+            </div>
+          </form>
+        </div>
+      </section>
+
+      <section class="section" id="bug-report">
+        <div class="wrap">
+          <div class="section-head">
+            <div>
+              <div class="eyebrow">Manual bug report</div>
+              <h2>Send a structured report.</h2>
+            </div>
+            <p>Use this when something broke and logs would help. Text logs are sanitized, capped, and filed into Linear for developer triage.</p>
+          </div>
+          <form class="support-form" data-support-form="bug" enctype="multipart/form-data">
+            <input type="text" name="company" class="honeypot" autocomplete="off" tabindex="-1" aria-hidden="true">
+            <div class="form-grid">
+              <label>Affected surface
+                <select name="surface">
+                  <option value="unknown">Not sure</option>
+                  <option value="windows">Windows</option>
+                  <option value="macos">macOS</option>
+                  <option value="raspberry-pi">Raspberry Pi</option>
+                  <option value="mobile">Mobile app</option>
+                  <option value="matrix">LED Matrix</option>
+                  <option value="relay">Relay / Standalone</option>
+                  <option value="website">Website</option>
+                </select>
+              </label>
+              <label>App version <span class="muted">(optional)</span>
+                <input name="app_version" type="text" maxlength="80" placeholder="0.2.7">
+              </label>
+              <label>Platform <span class="muted">(optional)</span>
+                <input name="platform" type="text" maxlength="160" placeholder="Windows 11, Raspberry Pi OS, iOS...">
+              </label>
+              <label>Reply email <span class="muted">(optional)</span>
+                <input name="reply_email" type="email" maxlength="240" autocomplete="email">
+              </label>
+            </div>
+            <input name="product" type="hidden" value="local-flight">
+            <input name="website_context" type="hidden" value="/support/">
+            <label>Title
+              <input name="title" type="text" maxlength="180" required placeholder="Short summary">
+            </label>
+            <label>What happened?
+              <textarea name="description" rows="6" maxlength="4000" required></textarea>
+            </label>
+            <div class="form-grid">
+              <label>Steps to reproduce <span class="muted">(optional)</span>
+                <textarea name="steps" rows="4" maxlength="1200"></textarea>
+              </label>
+              <label>Expected <span class="muted">(optional)</span>
+                <textarea name="expected" rows="4" maxlength="800"></textarea>
+              </label>
+              <label>Actual <span class="muted">(optional)</span>
+                <textarea name="actual" rows="4" maxlength="800"></textarea>
+              </label>
+              <label>Log files <span class="muted">(optional, text/log only)</span>
+                <input name="logs" type="file" multiple accept=".txt,.log,.json,.csv,.md,.yaml,.yml,.toml,.ini,.cfg,.conf,text/plain,application/json">
+              </label>
+            </div>
+            <p class="note">Please do not upload screenshots, recordings, API keys, activation tokens, or private provider credentials. The relay still redacts common secrets before filing.</p>
+            <div class="form-actions">
+              <button class="button primary" type="submit">Send bug report</button>
+              <span class="form-status" role="status" aria-live="polite"></span>
+            </div>
+          </form>
         </div>
       </section>
 
@@ -111,5 +193,62 @@
       </div>
     </footer>
   </div>
+  <script>
+    const SUPPORT_RELAY = "https://relay.beacontools.cc";
+
+    function setStatus(form, text, tone = "") {
+      const target = form.querySelector(".form-status");
+      if (!target) return;
+      target.textContent = text;
+      target.dataset.tone = tone;
+    }
+
+    function disableForm(form, disabled) {
+      form.querySelectorAll("button, input, select, textarea").forEach(el => {
+        if (!el.classList.contains("honeypot")) el.disabled = disabled;
+      });
+    }
+
+    async function submitContact(form) {
+      const data = Object.fromEntries(new FormData(form).entries());
+      const response = await fetch(`${SUPPORT_RELAY}/v1/site/contact`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Accept": "application/json" },
+        body: JSON.stringify(data),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.ok) throw new Error(payload.detail || payload.message || "Message could not be sent.");
+      return payload.message || "Message sent. Thank you.";
+    }
+
+    async function submitBug(form) {
+      const response = await fetch(`${SUPPORT_RELAY}/v1/site/bug-report`, {
+        method: "POST",
+        body: new FormData(form),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.ok) throw new Error(payload.detail || payload.message || "Bug report could not be sent.");
+      return payload.message || "Bug report sent. Thank you.";
+    }
+
+    document.querySelectorAll("[data-support-form]").forEach(form => {
+      form.addEventListener("submit", async event => {
+        event.preventDefault();
+        setStatus(form, "Sending...", "");
+        disableForm(form, true);
+        try {
+          const message = form.dataset.supportForm === "contact"
+            ? await submitContact(form)
+            : await submitBug(form);
+          form.reset();
+          setStatus(form, message, "ok");
+        } catch (error) {
+          setStatus(form, error && error.message ? error.message : "Something went wrong. Please try again.", "bad");
+        } finally {
+          disableForm(form, false);
+        }
+      });
+    });
+  </script>
 </body>
 </html>

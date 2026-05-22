@@ -6,7 +6,7 @@ No accounts. No analytics SDKs. No ad tech. No sign-up flow.
 
 This is a hobbyist/open-source project, not a legal document, but the app is designed to be privacy-minimal and GDPR-friendly: collect as little as possible, keep identifiers technical and install-scoped, and make diagnostics opt-in.
 
-Beacon Tools is the dev studio home for Local Flight. General/support questions can go to [home@beacontools.cc](mailto:home@beacontools.cc). Privacy, diagnostics, and data-request questions can go to [privacy@beacontools.cc](mailto:privacy@beacontools.cc). The public privacy URL is [beacontools.cc/privacy](https://beacontools.cc/privacy).
+Beacon Tools is the dev studio home for Local Flight. General/support questions and public bug reports start at [beacontools.cc/support](https://beacontools.cc/support). Privacy, diagnostics, and data-request questions can go through [beacontools.cc/privacy/choices](https://beacontools.cc/privacy/choices) or [privacy@beacontools.cc](mailto:privacy@beacontools.cc). The public privacy URL is [beacontools.cc/privacy](https://beacontools.cc/privacy).
 
 ---
 
@@ -138,6 +138,10 @@ When you send a report yourself, Local Flight sends:
 
 Manual reports are sanitized locally, forwarded to the hosted relay reporting gateway, deduplicated/rate-limited there, and then filed into Linear as the developer triage inbox.
 
+Public website bug reports use the same relay-owned triage pattern. They can include the text you write, optional reply email, product/surface/version/platform fields, and optional text/log uploads. Uploaded logs are capped, sanitized, and embedded as excerpts rather than stored as raw files.
+
+The public website contact form is separate from bug triage. It sends the message you write, optional name/reply email, category, page context, and relay anti-spam metadata through the Beacon Tools relay to the support mailbox.
+
 ### Automatic Crash Reports
 
 If you enable automatic diagnostics, Local Flight can send a crash report when a serious error is caught. Automatic reports use the same relay reporting gateway as manual reports.
@@ -222,7 +226,8 @@ When Local Flight fetches data, it may communicate with:
 | OurAirports | Public airport/runway CSV data may be bundled or refreshed/cached locally for runway IDs, headings, dimensions, and reference geometry. No account or user identifier is required. | [ourairports.com/data](https://ourairports.com/data/) |
 | OpenStreetMap / Overpass | Only when optional radar surface/map layers are enabled or prepared: airport code/coordinates and bounded airport-area geometry requests. Local Flight stores simplified display geometry with attribution, not raw personal data. | [openstreetmap.org/copyright](https://www.openstreetmap.org/copyright) |
 | AWS Terrain Tiles | Optional radar terrain/relief layer requests public terrain tile data for the displayed airport area/range. It is cached locally and used only as a subtle visual layer. | [registry.opendata.aws/terrain-tiles](https://registry.opendata.aws/terrain-tiles/) |
-| Linear | Manual reports and automatic diagnostics are routed there after local sanitization and relay-side dedupe/rate limiting. This can include the report title/description you wrote, sanitized technical metadata, crash context/traceback, and an optional sanitized log excerpt if you enabled that mode. | [linear.app/privacy](https://linear.app/privacy) |
+| Mailbox provider | Public website contact forms are delivered through the Beacon Tools relay to the support mailbox. This can include your optional name/reply email, selected category, subject, and message. | Depends on the configured mailbox provider |
+| Linear | Manual reports, public website bug reports, and automatic diagnostics are routed there after sanitization and relay-side dedupe/rate limiting. This can include the report title/description you wrote, optional reply email for website bug reports, sanitized technical metadata, crash context/traceback, and optional sanitized log excerpts. | [linear.app/privacy](https://linear.app/privacy) |
 
 Local Flight does not embed tracking or advertising SDKs from any of these services.
 
@@ -233,7 +238,7 @@ Local Flight does not embed tracking or advertising SDKs from any of these servi
 Local Flight is designed to avoid collecting personal data in normal use:
 
 - no user accounts
-- no email addresses unless you email Beacon Tools directly
+- no email addresses unless you contact Beacon Tools directly or include a reply email in a support form
 - no analytics profiles
 - no ad tracking
 - no raw IP storage in the hosted relay
@@ -257,6 +262,7 @@ Your local data is under your control. To wipe local app data, stop Local Flight
 | Standalone mobile history | Your phone/tablet | You |
 | Local traffic log | Your machine | You, if network tools are enabled |
 | Flight history | Your machine | You |
-| Manual reports and automatic diagnostics | Hosted relay reporting gateway, then Linear developer triage inbox | Developer |
+| Website contact messages | Hosted relay contact gateway, then support mailbox | Developer |
+| Manual reports, website bug reports, and automatic diagnostics | Hosted relay reporting gateway, then Linear developer triage inbox | Developer |
 | Community/standalone relay usage metadata and short-lived shared schedule/radar cache | Relay server | Relay operator |
 | Cached radar surface/map/terrain geometry | Your machine and, for relay-backed surface/map data, short-lived hosted relay cache when optional overlays are enabled | You and relay operator |

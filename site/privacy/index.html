@@ -56,11 +56,11 @@
           <div class="grid two">
             <article class="card contact-card">
               <h3>General and support</h3>
-              <p><a href="mailto:home@beacontools.cc">home@beacontools.cc</a></p>
+              <p><a href="/support/#message">Use the support message box</a></p>
             </article>
             <article class="card contact-card">
               <h3>Privacy and diagnostics</h3>
-              <p><a href="mailto:privacy@beacontools.cc">privacy@beacontools.cc</a></p>
+              <p><a href="/privacy/choices/">Open privacy choices</a><br><a href="mailto:privacy@beacontools.cc">privacy@beacontools.cc</a></p>
             </article>
             <article class="card contact-card">
               <h3>Choices and deletion</h3>
@@ -143,6 +143,7 @@
             </div>
           </div>
           <p>Manual reports can include the title and description you write, Local Flight version, install fingerprint, operating system, Python version, configured airport/source mode, diagnostics mode, display settings, and the reporting surface.</p>
+          <p>Public website bug reports can include the message you write, optional reply email, product/surface/version/platform fields, and optional text/log files. Uploaded logs are capped, sanitized, and embedded as excerpts rather than stored as raw attachments.</p>
           <p>Automatic crash reports, if enabled, can include crash context, traceback, native/mobile screen context, and optionally a sanitized recent log excerpt. Reports are sanitized locally, forwarded through the hosted relay reporting gateway, deduplicated/rate-limited, and filed into Linear as the developer triage inbox.</p>
           <p>Diagnostics do not intentionally include API keys, activation tokens, raw install IDs, raw IP addresses, screenshots, recordings, stored flight history, full local logs, or account data.</p>
         </div>
@@ -153,7 +154,7 @@
           <div class="grid two">
             <article class="card">
               <h3>Email</h3>
-              <p>Local Flight does not require an email address and does not collect email addresses during normal app use. If you email Beacon Tools directly, your email address and message are handled by the email provider so Beacon Tools can reply to you.</p>
+              <p>Local Flight does not require an email address and does not collect email addresses during normal app use. If you use a Beacon Tools website contact form or email Beacon Tools directly, your optional reply email and message are handled by the relay/mailbox provider so Beacon Tools can reply to you.</p>
             </article>
             <article class="card">
               <h3>Your control</h3>
@@ -171,7 +172,7 @@
               <h2>Only when your setup uses them.</h2>
             </div>
           </div>
-          <p>Depending on your setup, Local Flight may communicate with AeroDataBox, AviationStack, ADS-B Exchange/RapidAPI, OpenSky, VATSIM, aviationweather.gov, OurAirports, OpenStreetMap/Overpass, public terrain tile sources, and Linear for consent-based report triage. Direct Bring Your Own Keys requests use your local provider keys. Relay-backed paths use the hosted relay and shared cache. Linear's policy is at <a href="https://linear.app/privacy">linear.app/privacy</a>.</p>
+          <p>Depending on your setup, Local Flight may communicate with AeroDataBox, AviationStack, ADS-B Exchange/RapidAPI, OpenSky, VATSIM, aviationweather.gov, OurAirports, OpenStreetMap/Overpass, public terrain tile sources, Linear for consent-based report triage, and the configured mailbox provider for website contact messages. Direct Bring Your Own Keys requests use your local provider keys. Relay-backed paths use the hosted relay and shared cache. Linear's policy is at <a href="https://linear.app/privacy">linear.app/privacy</a>.</p>
         </div>
       </section>
     </main>

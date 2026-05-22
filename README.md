@@ -10,7 +10,7 @@ The recommended desktop client is now the native Qt app. The LAN browser UI, Pi 
 - **Privacy:** [beacontools.cc/privacy](https://beacontools.cc/privacy)
 - **Public relay:** `https://relay.beacontools.cc`
 - **Source:** [github.com/tr3y4rch/local-flight](https://github.com/tr3y4rch/local-flight)
-- **Contact:** [home@beacontools.cc](mailto:home@beacontools.cc) for general/support questions, [privacy@beacontools.cc](mailto:privacy@beacontools.cc) for privacy requests
+- **Support:** [beacontools.cc/support](https://beacontools.cc/support) for messages and bug reports; privacy requests start at [beacontools.cc/privacy/choices](https://beacontools.cc/privacy/choices)
 
 ---
 

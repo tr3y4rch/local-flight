@@ -1563,6 +1563,203 @@ def test_relay_reports_require_linear_configuration(tmp_path: Path, monkeypatch)
     assert response.status_code == 503
 
 
+def test_site_contact_sends_mailbox_message_and_routes_privacy(tmp_path: Path, monkeypatch) -> None:
+    _use_temp_db(tmp_path, monkeypatch)
+    monkeypatch.setenv("RELAY_CONTACT_SMTP_HOST", "smtp.example.test")
+    monkeypatch.setenv("RELAY_CONTACT_SMTP_PORT", "587")
+    monkeypatch.setenv("RELAY_CONTACT_SMTP_USERNAME", "smtp-user")
+    monkeypatch.setenv("RELAY_CONTACT_SMTP_PASSWORD", "smtp-pass")
+    monkeypatch.setenv("RELAY_CONTACT_FROM", "support@example.test")
+    monkeypatch.setenv("RELAY_CONTACT_TO_GENERAL", "general@example.test")
+    monkeypatch.setenv("RELAY_CONTACT_TO_PRIVACY", "privacy@example.test")
+    sent: list[dict[str, object]] = []
+
+    class FakeSMTP:
+        def __init__(self, host: str, port: int, timeout: int) -> None:
+            self.host = host
+            self.port = port
+            self.timeout = timeout
+            self.started_tls = False
+            self.login_args: tuple[str, str] | None = None
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_exc) -> None:
+            return None
+
+        def starttls(self) -> None:
+            self.started_tls = True
+
+        def login(self, username: str, password: str) -> None:
+            self.login_args = (username, password)
+
+        def send_message(self, message) -> None:
+            sent.append(
+                {
+                    "host": self.host,
+                    "port": self.port,
+                    "started_tls": self.started_tls,
+                    "login_args": self.login_args,
+                    "to": message["To"],
+                    "reply_to": message["Reply-To"],
+                    "subject": message["Subject"],
+                    "body": message.get_content(),
+                }
+            )
+
+    monkeypatch.setattr(relay_main.smtplib, "SMTP", FakeSMTP)
+    client = TestClient(relay_main.app)
+
+    response = client.post(
+        "/v1/site/contact",
+        json={
+            "category": "privacy",
+            "name": "Tester",
+            "reply_email": "tester@example.test",
+            "subject": "Data question",
+            "message": "Can you help with privacy choices? RAPIDAPI_KEY=secret",
+            "website_context": "/support/",
+        },
+        headers={"origin": "https://beacontools.cc", "fly-client-ip": "198.51.100.22"},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"ok": True, "message": "Message sent. Thank you.", "deduped": False}
+    assert sent
+    assert sent[0]["to"] == "privacy@example.test"
+    assert sent[0]["reply_to"] == "tester@example.test"
+    assert sent[0]["started_tls"] is True
+    assert sent[0]["login_args"] == ("smtp-user", "smtp-pass")
+    assert "RAPIDAPI_KEY=secret" not in str(sent[0]["body"])
+    assert "RAPIDAPI_KEY=[redacted]" in str(sent[0]["body"])
+
+
+def test_site_contact_requires_config_and_blocks_abuse(tmp_path: Path, monkeypatch) -> None:
+    _use_temp_db(tmp_path, monkeypatch)
+    client = TestClient(relay_main.app)
+    payload = {
+        "category": "general",
+        "subject": "Hello",
+        "message": "Support question",
+    }
+
+    missing_config = client.post(
+        "/v1/site/contact",
+        json=payload,
+        headers={"origin": "https://beacontools.cc", "fly-client-ip": "198.51.100.33"},
+    )
+    honeypot = client.post(
+        "/v1/site/contact",
+        json={**payload, "company": "bot"},
+        headers={"origin": "https://beacontools.cc", "fly-client-ip": "198.51.100.33"},
+    )
+    bad_origin = client.post(
+        "/v1/site/contact",
+        json=payload,
+        headers={"origin": "https://evil.example", "fly-client-ip": "198.51.100.33"},
+    )
+
+    assert missing_config.status_code == 503
+    assert honeypot.status_code == 400
+    assert bad_origin.status_code == 403
+
+
+def test_site_contact_rate_limits_by_network(tmp_path: Path, monkeypatch) -> None:
+    _use_temp_db(tmp_path, monkeypatch)
+    monkeypatch.setenv("RELAY_SITE_CONTACT_NETWORK_DAILY_LIMIT", "1")
+    monkeypatch.setenv("RELAY_CONTACT_SMTP_HOST", "smtp.example.test")
+    monkeypatch.setenv("RELAY_CONTACT_FROM", "support@example.test")
+    monkeypatch.setenv("RELAY_CONTACT_TO_GENERAL", "general@example.test")
+    monkeypatch.setattr(relay_main, "_send_contact_email", lambda *_args, **_kwargs: None)
+    client = TestClient(relay_main.app)
+    headers = {"origin": "https://beacontools.cc", "fly-client-ip": "198.51.100.44"}
+
+    first = client.post(
+        "/v1/site/contact",
+        json={"category": "general", "subject": "One", "message": "First"},
+        headers=headers,
+    )
+    second = client.post(
+        "/v1/site/contact",
+        json={"category": "general", "subject": "Two", "message": "Second"},
+        headers=headers,
+    )
+
+    assert first.status_code == 200
+    assert second.status_code == 429
+
+
+def test_site_bug_report_files_sanitized_linear_issue_without_install(tmp_path: Path, monkeypatch) -> None:
+    _use_temp_db(tmp_path, monkeypatch)
+    _enable_reporter_env(monkeypatch)
+    filed: list[dict[str, str]] = []
+    monkeypatch.setattr(
+        relay_main,
+        "_post_linear_issue",
+        lambda **kwargs: filed.append(kwargs) or "https://linear.test/public-site",
+    )
+    client = TestClient(relay_main.app)
+
+    response = client.post(
+        "/v1/site/bug-report",
+        data={
+            "title": "Matrix preview broke",
+            "description": "The browser preview went blank.",
+            "surface": "matrix",
+            "app_version": "0.2.7",
+            "platform": "Windows 11",
+            "reply_email": "tester@example.test",
+            "steps": "Open Matrix page",
+            "expected": "Preview renders",
+            "actual": "Canvas is empty",
+        },
+        files={
+            "logs": (
+                "localflight.log",
+                b"RAPIDAPI_KEY=secret\nlin_api_abcdef\n192.168.1.44\nTraceback here",
+                "text/plain",
+            )
+        },
+        headers={"origin": "https://beacontools.cc", "fly-client-ip": "198.51.100.55"},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"ok": True, "message": "Bug report sent. Thank you.", "deduped": False}
+    assert filed
+    assert filed[0]["team_id"] == "team-desktop"
+    assert filed[0]["title"].startswith("[Web][Manual]")
+    description = filed[0]["description"]
+    assert "Matrix preview broke" in filed[0]["title"]
+    assert "Sanitized uploaded log excerpts" in description
+    assert "Traceback here" in description
+    assert "secret" not in description
+    assert "lin_api_abcdef" not in description
+    assert "192.168.1.44" not in description
+    assert "tester@example.test" in description
+    assert "url" not in response.json()
+    assert "team" not in response.json()
+
+
+def test_site_bug_report_rejects_non_text_upload(tmp_path: Path, monkeypatch) -> None:
+    _use_temp_db(tmp_path, monkeypatch)
+    _enable_reporter_env(monkeypatch)
+    client = TestClient(relay_main.app)
+
+    response = client.post(
+        "/v1/site/bug-report",
+        data={
+            "title": "Bad upload",
+            "description": "Binary file",
+            "surface": "website",
+        },
+        files={"logs": ("screenshot.png", b"\x89PNG\x00\x00binary", "image/png")},
+        headers={"origin": "https://beacontools.cc", "fly-client-ip": "198.51.100.66"},
+    )
+
+    assert response.status_code == 415
+
+
 def test_admin_dashboard_surfaces_report_gateway_events(tmp_path: Path, monkeypatch) -> None:
     _use_temp_db(tmp_path, monkeypatch)
     _enable_reporter_env(monkeypatch)
