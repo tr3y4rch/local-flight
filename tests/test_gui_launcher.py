@@ -3800,6 +3800,7 @@ def test_native_service_adapters_cover_native_actions() -> None:
         "refresh_seconds": 60,
         "page_rotation_seconds": 10,
         "animation_enabled": True,
+        "show_weather": False,
         "show_gate_info": False,
     }
 
@@ -3831,6 +3832,7 @@ def test_native_service_adapters_cover_native_actions() -> None:
     assert "/api/matrix/config" in paths
     assert "/api/matrix/script" in paths
     compat_payload = next(payload for method, path, payload in client.calls if method == "post_json" and path == "/api/matrix/config")
+    assert compat_payload["show_weather"] is False
     assert compat_payload["show_gate_info"] is False
     assert "/api/admin/scheduler/restart" in paths
     assert "/profiles/save" in paths

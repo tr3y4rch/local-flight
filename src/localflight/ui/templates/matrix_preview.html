@@ -1191,13 +1191,13 @@
     }
   }
 
-  function drawString(str, x, y, color, maxW) {
+  function drawString(str, x, y, color, maxW, charW = MATRIX_CHAR_W) {
     str = (str||"").toUpperCase();
     let cx = x;
     for (let i = 0; i < str.length; i++) {
-      if (maxW && cx + MATRIX_CHAR_W > x + maxW) break;
+      if (maxW && cx + charW > x + maxW) break;
       drawChar(str[i], cx, y, color);
-      cx += MATRIX_CHAR_W;
+      cx += charW;
     }
     return cx;
   }
@@ -1542,16 +1542,18 @@
     return cycleChunks(items[slot], chars).trim();
   }
 
-  function wideColumns() {
+  function wideColumns(charW = MATRIX_CHAR_W) {
     if (PANEL_W < 240) return null;
-    const routeX = PANEL_W < 300 ? 104 : 112;
+    const timeX = 8;
+    const flightX = timeX + 5 * charW + 6;
+    const routeX = flightX + 8 * charW + 6;
     let statusX;
     let gateX;
     let aircraftX;
     if (PANEL_W < 300) {
-      statusX = Math.max(routeX + 56, Math.floor(PANEL_W * 0.64));
-      gateX = PANEL_W - 34;
-      aircraftX = PANEL_W - 34;
+      statusX = Math.max(routeX + 10 * charW, Math.floor(PANEL_W * 0.70));
+      gateX = PANEL_W - 5 * charW;
+      aircraftX = PANEL_W - 5 * charW;
     } else if (PANEL_W < 420) {
       statusX = Math.floor(PANEL_W * 0.60);
       gateX = Math.floor(PANEL_W * 0.82);
@@ -1561,17 +1563,20 @@
       gateX = Math.floor(PANEL_W * 0.80);
       aircraftX = Math.floor(PANEL_W * 0.90);
     }
-    statusX = Math.min(Math.max(statusX, routeX + 42), PANEL_W - 48);
-    gateX = Math.min(Math.max(gateX, statusX + 42), PANEL_W - 28);
-    aircraftX = Math.min(Math.max(aircraftX, gateX + 24), PANEL_W - 28);
+    statusX = Math.min(Math.max(statusX, routeX + 7 * charW), PANEL_W - 8 * charW);
+    gateX = Math.min(Math.max(gateX, statusX + 6 * charW), PANEL_W - 5 * charW);
+    aircraftX = Math.min(Math.max(aircraftX, gateX + 4 * charW), PANEL_W - 5 * charW);
     return {
+      timeX,
+      flightX,
       routeX,
       statusX,
       gateX,
       aircraftX,
-      routeChars: Math.max(4, Math.floor((statusX - routeX - 2) / MATRIX_CHAR_W)),
-      statusChars: Math.max(5, Math.floor(((PANEL_W >= 300 ? gateX : PANEL_W) - statusX - 2) / MATRIX_CHAR_W)),
-      detailChars: Math.max(6, Math.floor((PANEL_W - routeX - 2) / MATRIX_CHAR_W)),
+      routeChars: Math.max(4, Math.floor((statusX - routeX - 2) / charW)),
+      statusChars: Math.max(5, Math.floor(((PANEL_W >= 300 ? gateX : PANEL_W) - statusX - 2) / charW)),
+      rightChars: Math.max(3, Math.floor((PANEL_W - gateX - 1) / charW)),
+      detailChars: Math.max(6, Math.floor((PANEL_W - routeX - 2) / charW)),
     };
   }
 
@@ -1772,8 +1777,10 @@
   }
 
   function visibleRows() {
-    if (PANEL_W < 180) return Math.max(1, Math.min(MAX_ROWS, Math.floor((PANEL_H - headerHeight()) / 27)));
-    return MAX_ROWS;
+    const dataH = Math.max(1, PANEL_H - headerHeight());
+    if (PANEL_W < 180) return Math.max(1, Math.min(MAX_ROWS, Math.floor(dataH / 18)));
+    if (Math.floor(dataH / Math.max(1, MAX_ROWS)) < 6) return Math.max(1, Math.min(MAX_ROWS, Math.floor(dataH / 6)));
+    return Math.max(1, MAX_ROWS);
   }
 
   function vatsimAtcPage() {
@@ -1943,36 +1950,42 @@
       const sc = row ? statusColor(row) : (flightColors[ri] || C.green);
       const timeLabel = row ? String(row.matrix_time_label || row.display_time || row.time || txt.slice(0,5)).padEnd(5, " ").slice(0,5) : txt.slice(0,5);
       const flightLabel = row ? String(flightCycleDisplay(row)).padEnd(8, " ").slice(0,8) : txt.slice(6,14);
-      const cols = wideColumns();
+      const charW = PANEL_W >= 240 && PANEL_H <= 64 ? 6 : MATRIX_CHAR_W;
+      const cols = wideColumns(charW);
       const routeX = cols.routeX;
       const statusX = cols.statusX;
       const gateX = cols.gateX;
       const aircraftX = cols.aircraftX;
       const routeChars = cols.routeChars;
       const statusChars = cols.statusChars;
-      drawString(timeLabel, 8, y, cancelled ? C.white : C.green);
+      drawString(timeLabel, cols.timeX, y, cancelled ? C.white : C.green, undefined, charW);
 
       // Flight number (6-13) white
-      drawString(flightLabel, 52, y, C.white);
+      drawString(flightLabel, cols.flightX, y, C.white, undefined, charW);
 
       // Destination (15-28) white — only if wide enough
-      if (PANEL_W >= 150 && row) drawString(routeChunk(row, routeChars), routeX, y, C.white, Math.max(20, statusX - routeX - 2));
-      else if (PANEL_W >= 150) drawString(txt.slice(15,29), routeX, y, C.white);
+      if (PANEL_W >= 150 && row) drawString(routeChunk(row, routeChars), routeX, y, C.white, Math.max(20, statusX - routeX - 2), charW);
+      else if (PANEL_W >= 150) drawString(txt.slice(15,29), routeX, y, C.white, undefined, charW);
 
       // Status (30-39) — color; position scales with panel width
-      drawString(row ? statusOrGateChunk(row, statusChars) : txt.slice(30,40), statusX, y, sc);
+      let statusText = row ? statusOrGateChunk(row, statusChars) : txt.slice(30,40);
+      if (row && PANEL_W < 300 && rowH < 16) {
+        const detail = detailChunk(row, Math.max(5, Math.floor((PANEL_W - statusX - 1) / charW)));
+        if (detail && Math.floor(Date.now() / Math.max(3000, CODE_SHARE_ROTATION_S * 1000)) % 2 === 1) statusText = detail;
+      }
+      drawString(statusText, statusX, y, sc, Math.max(8, (PANEL_W >= 300 ? gateX : PANEL_W) - statusX - 2), charW);
 
       // Gate dim right (only if enough room)
       if (row && PANEL_W >= 300) {
         const gate = gateLabel(row);
         const aircraft = String(row.aircraft_type || row.aircraft || "").toUpperCase();
-        if (gate) drawString(gate.slice(0, 5), gateX, y, C.dim);
-        if (aircraft && PANEL_W >= 420) drawString(aircraft.slice(0, 5), aircraftX, y, C.dim);
-      } else if (PANEL_W >= 220) drawString(txt.slice(39,43), PANEL_W - 25, y, C.dim);
+        if (gate) drawString(gate.slice(0, 5), gateX, y, C.dim, undefined, charW);
+        if (aircraft && PANEL_W >= 420) drawString(aircraft.slice(0, 5), aircraftX, y, C.dim, undefined, charW);
+      }
       if (row && rowH >= 17 && (MAX_ROWS <= 3 || rowH >= 20)) {
         const detail = detailChunk(row, cols.detailChars);
         if (detail && y + 15 <= dataY + dataH) {
-          drawString(detail.slice(0, cols.detailChars), routeX, y + 8, C.dim, PANEL_W - routeX - 2);
+          drawString(detail.slice(0, cols.detailChars), routeX, y + 8, C.dim, PANEL_W - routeX - 2, charW);
         }
       }
       }
@@ -2072,7 +2085,7 @@
       matrixPreviewPollTimer = null;
     }
     try {
-      const fetchLimit = Math.min(visibleRows() * 4, 32);
+      const fetchLimit = Math.min(Math.max(visibleRows() * 4, 16), 32);
       status.textContent = "Loading Matrix preview feed...";
       const params = new URLSearchParams({ view: VIEW });
       let endpoint = "/api/matrix/v2/devices/preview/feed";
@@ -2611,8 +2624,10 @@ Board reads: /api/config -> /api/matrix/v2/devices/{id}/config -> /api/matrix/v2
       const sel = document.getElementById("paletteSelect");
       if (sel) sel.value = MATRIX_PALETTE;
     }
-    if (options.show_metar !== undefined || options.show_weather !== undefined) {
-      SHOW_WEATHER = options.show_metar !== undefined ? Boolean(options.show_metar) : Boolean(options.show_weather);
+    if (d.show_weather !== undefined || options.show_metar !== undefined || options.show_weather !== undefined) {
+      SHOW_WEATHER = d.show_weather !== undefined
+        ? Boolean(d.show_weather)
+        : (options.show_weather !== undefined ? Boolean(options.show_weather) : Boolean(options.show_metar));
       document.getElementById("weatherToggle")?.classList.toggle("active", SHOW_WEATHER);
     }
     if (d.show_gate_info !== undefined || options.show_gate_info !== undefined) {
@@ -2711,6 +2726,7 @@ Board reads: /api/config -> /api/matrix/v2/devices/{id}/config -> /api/matrix/v2
           animation_mode: ANIMATION_MODE,
           animation_speed: ANIMATION_SPEED,
           status_animation_enabled: STATUS_ANIMATION_ENABLED,
+          show_weather: SHOW_WEATHER,
           show_gate_info: SHOW_GATE_INFO,
           palette: MATRIX_PALETTE,
           options: {
@@ -2739,6 +2755,7 @@ Board reads: /api/config -> /api/matrix/v2/devices/{id}/config -> /api/matrix/v2
             animation_mode: ANIMATION_MODE,
             animation_speed: ANIMATION_SPEED,
             status_animation_enabled: STATUS_ANIMATION_ENABLED,
+            show_weather: SHOW_WEATHER,
             show_gate_info: SHOW_GATE_INFO,
             palette: MATRIX_PALETTE,
             options: {
@@ -2753,9 +2770,10 @@ Board reads: /api/config -> /api/matrix/v2/devices/{id}/config -> /api/matrix/v2
       }
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const needsMainPy = matrixGeometryNeedsMainPy();
+      const echo = `${MAX_ROWS} rows · weather ${SHOW_WEATHER ? "on" : "off"} · gate ${SHOW_GATE_INFO ? "on" : "off"} · ${MATRIX_PALETTE} · ${ANIMATION_MODE}`;
       msg.textContent = needsMainPy
         ? `Saved — download and reinstall main.py for ${PANEL_W}x${PANEL_H} panel geometry`
-        : "Saved — board picks up in about 60 seconds";
+        : `Saved live config: ${echo}. Board picks up in about 60 seconds`;
       msg.style.color = "#00e84a";
       LOADED_PANEL_W = PANEL_W;
       LOADED_PANEL_H = PANEL_H;

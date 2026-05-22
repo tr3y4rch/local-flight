@@ -2764,9 +2764,12 @@ class MatrixCanvas:  # pragma: no cover - optional Qt runtime
                 return False
 
             def _visible_rows(self) -> int:
+                data_height = max(1, self.panel_h - self._header_height())
                 if self.panel_w < 180:
-                    return max(1, min(self.max_rows, (self.panel_h - self._header_height()) // 27))
-                return self.max_rows
+                    return max(1, min(self.max_rows, data_height // 18))
+                if data_height // max(1, self.max_rows) < 6:
+                    return max(1, min(self.max_rows, data_height // 6))
+                return max(1, self.max_rows)
 
             def _flight_cycle_display(self, row: dict[str, Any]) -> str:
                 primary = self._clean_flight_number(
@@ -3041,7 +3044,7 @@ class MatrixCanvas:  # pragma: no cover - optional Qt runtime
 
             def _status_or_gate_chunk(self, row: dict[str, Any], chars: int) -> str:
                 gate = self._gate_chip(row, chars)
-                if gate and self.panel_w < 180 and int(time.monotonic() // 4) % 2 == 1:
+                if gate and self.panel_w < 300 and int(time.monotonic() // 4) % 2 == 1:
                     return gate
                 return self._status_chunk(row, chars)
 
@@ -3075,11 +3078,14 @@ class MatrixCanvas:  # pragma: no cover - optional Qt runtime
                 return self.cycle_chunks(items[slot], chars).strip()
 
             def _wide_columns(self) -> dict[str, int]:
-                route_x = 104 if self.panel_w < 300 else 112
+                char_w = 6
+                time_x = 8
+                flight_x = time_x + 5 * char_w + 6
+                route_x = flight_x + 8 * char_w + 6
                 if self.panel_w < 300:
-                    status_x = max(route_x + 56, int(self.panel_w * 0.64))
-                    gate_x = self.panel_w - 34
-                    aircraft_x = self.panel_w - 34
+                    status_x = max(route_x + 10 * char_w, int(self.panel_w * 0.70))
+                    gate_x = self.panel_w - 5 * char_w
+                    aircraft_x = self.panel_w - 5 * char_w
                 elif self.panel_w < 420:
                     status_x = int(self.panel_w * 0.60)
                     gate_x = int(self.panel_w * 0.82)
@@ -3088,17 +3094,20 @@ class MatrixCanvas:  # pragma: no cover - optional Qt runtime
                     status_x = int(self.panel_w * 0.62)
                     gate_x = int(self.panel_w * 0.80)
                     aircraft_x = int(self.panel_w * 0.90)
-                status_x = min(max(status_x, route_x + 42), self.panel_w - 48)
-                gate_x = min(max(gate_x, status_x + 42), self.panel_w - 28)
-                aircraft_x = min(max(aircraft_x, gate_x + 24), self.panel_w - 28)
+                status_x = min(max(status_x, route_x + 7 * char_w), self.panel_w - 8 * char_w)
+                gate_x = min(max(gate_x, status_x + 6 * char_w), self.panel_w - 5 * char_w)
+                aircraft_x = min(max(aircraft_x, gate_x + 4 * char_w), self.panel_w - 5 * char_w)
                 return {
+                    "time_x": time_x,
+                    "flight_x": flight_x,
                     "route_x": route_x,
                     "status_x": status_x,
                     "gate_x": gate_x,
                     "aircraft_x": aircraft_x,
-                    "route_chars": max(4, int((status_x - route_x - 2) / 6)),
-                    "status_chars": max(5, int(((gate_x if self.panel_w >= 300 else self.panel_w) - status_x - 2) / 6)),
-                    "detail_chars": max(6, int((self.panel_w - route_x - 2) / 6)),
+                    "route_chars": max(4, int((status_x - route_x - 2) / char_w)),
+                    "status_chars": max(5, int(((gate_x if self.panel_w >= 300 else self.panel_w) - status_x - 2) / char_w)),
+                    "right_chars": max(3, int((self.panel_w - gate_x - 1) / char_w)),
+                    "detail_chars": max(6, int((self.panel_w - route_x - 2) / char_w)),
                 }
 
             def _weather_page_lines(self, chars: int) -> list[str]:
@@ -3230,6 +3239,10 @@ class MatrixCanvas:  # pragma: no cover - optional Qt runtime
                 header_h = max(float(self._header_height()) * scale, 18.0)
                 rows_to_draw = self._visible_rows()
                 row_h = (board_h - header_h) / max(1, rows_to_draw)
+                row_px = row_h / max(0.1, scale)
+                font = QtGui.QFont("Space Mono", max(4, int((5.0 if row_px < 8 else 6.5) * scale)))
+                font.setBold(True)
+                painter.setFont(font)
                 self._draw_smart_header(painter, QtGui, left, top, board_w, scale, dim_color)
                 painter.setPen(text_color)
                 paint_rows = self.rows
@@ -3302,24 +3315,35 @@ class MatrixCanvas:  # pragma: no cover - optional Qt runtime
                     flight_text = self._flight_cycle_display(row_data)[:8] if row_data else text[6:14]
                     route_text = self._route_chunk(row_data, route_chars) if row_data else text[15:27]
                     status_text = self._status_or_gate_chunk(row_data, status_chars) if row_data else text[28:40]
-                    painter.setPen(text_color if cancelled else QtGui.QColor(self.colors["green"]))
-                    painter.drawText(int(left + 10), int(y), time_text)
-                    painter.setPen(text_color)
-                    painter.drawText(int(left + 42 * scale), int(y), flight_text)
-                    painter.drawText(int(left + route_x), int(y), route_text)
-                    painter.setPen(status_color)
-                    painter.drawText(int(left + status_x), int(y), status_text)
+                    row_rect_top = row_top
+                    row_rect_h = max(1.0, row_h)
+
+                    def draw_cell(logical_x: float, logical_w: float, text_value: str, color: Any) -> None:
+                        painter.setPen(color)
+                        painter.drawText(
+                            QtCore.QRectF(
+                                left + logical_x * scale,
+                                row_rect_top,
+                                max(1.0, logical_w * scale),
+                                row_rect_h,
+                            ),
+                            QtCore.Qt.AlignmentFlag.AlignLeft | QtCore.Qt.AlignmentFlag.AlignVCenter,
+                            str(text_value or ""),
+                        )
+
+                    draw_cell(10, max(28, cols.get("flight_x", 42) - 12), time_text, text_color if cancelled else QtGui.QColor(self.colors["green"]))
+                    draw_cell(cols.get("flight_x", 42), max(40, cols["route_x"] - cols.get("flight_x", 42) - 2), flight_text, text_color)
+                    draw_cell(cols["route_x"], max(20, cols["status_x"] - cols["route_x"] - 2), route_text, text_color)
+                    status_width = (cols["gate_x"] if self.panel_w >= 300 else self.panel_w) - cols["status_x"] - 2
+                    status_pen = dim_color if str(status_text).upper().startswith("G ") else status_color
+                    draw_cell(cols["status_x"], max(8, status_width), status_text, status_pen)
                     if row_data and self.panel_w >= 300:
                         gate = self._gate_label(row_data)
                         aircraft = (format_value(row_data.get("aircraft_type")) or format_value(row_data.get("aircraft")) or "").upper()
-                        painter.setPen(dim_color)
                         if gate:
-                            painter.drawText(int(left + gate_x), int(y), gate[:5])
+                            draw_cell(cols["gate_x"], max(8, self.panel_w - cols["gate_x"] - 1), gate[:5], dim_color)
                         if aircraft and self.panel_w >= 420:
-                            painter.drawText(int(left + aircraft_x), int(y), aircraft[:5])
-                    else:
-                        painter.setPen(dim_color)
-                        painter.drawText(int(left + board_w - 46 * scale), int(y), text[39:43])
+                            draw_cell(cols["aircraft_x"], max(8, self.panel_w - cols["aircraft_x"] - 1), aircraft[:5], dim_color)
                     if row_data and row_h >= 17 * scale and (self.max_rows <= 3 or row_h >= 20 * scale):
                         detail = self._detail_chunk(row_data, cols["detail_chars"])
                     else:
@@ -4133,7 +4157,7 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
         self.animation_speed.setValue(int(cfg.get("animation_speed") or 3))
         self.status_animation.setChecked(bool(cfg.get("status_animation_enabled", True)))
         options = cfg.get("options") if isinstance(cfg.get("options"), dict) else {}
-        self.weather_toggle.setChecked(bool(options.get("show_metar", options.get("show_weather", True))))
+        self.weather_toggle.setChecked(bool(cfg.get("show_weather", options.get("show_weather", options.get("show_metar", True)))))
         preset_name = str(cfg.get("preset") or "real_fids")
         is_vatsim = preset_name.startswith("vatsim_")
         self.gate_toggle.setChecked(bool(options.get("show_gate_info", cfg.get("show_gate_info", not is_vatsim))) and not is_vatsim)
@@ -4221,6 +4245,7 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
             "animation_mode": str(self.animation_mode.currentData() or "split_flap"),
             "animation_speed": int(self.animation_speed.value()),
             "status_animation_enabled": bool(self.status_animation.isChecked()),
+            "show_weather": bool(self.weather_toggle.isChecked()),
             "show_gate_info": bool(self.gate_toggle.isChecked()),
             "palette": str(self.palette.currentData() or "pax_blue"),
             "options": {
@@ -4304,7 +4329,15 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
             self.action_status.setText(f"Save failed: {exc}")
             return
         _set_native_feedback(self, "Matrix config saved." if result.get("ok") else format_value(result), "StatusGood" if result.get("ok") else "StatusWarn")
-        self.action_status.setText("Saved. A connected board will pick this up on its next config refresh.")
+        saved = result.get("config") if isinstance(result.get("config"), dict) else payload
+        self.action_status.setText(
+            "Saved live config: "
+            f"{int(saved.get('max_rows', payload['max_rows']))} rows, "
+            f"weather {'on' if saved.get('show_weather', payload['show_weather']) else 'off'}, "
+            f"gate {'on' if saved.get('show_gate_info', payload['show_gate_info']) else 'off'}, "
+            f"{saved.get('palette', payload['palette'])}, "
+            f"{saved.get('animation_mode', payload['animation_mode'])}."
+        )
         self.refresh()
         self._set_busy(False)
 

@@ -255,6 +255,7 @@ class NativeApiService:
                 "animation_mode": payload.get("animation_mode", "split_flap"),
                 "animation_speed": payload.get("animation_speed", 3),
                 "status_animation_enabled": payload.get("status_animation_enabled", True),
+                "show_weather": payload.get("show_weather", True),
                 "show_gate_info": payload.get("show_gate_info", True),
                 "palette": payload.get("palette", "pax_blue"),
                 "options": payload.get("options", {}),

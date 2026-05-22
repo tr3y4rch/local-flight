@@ -2908,6 +2908,7 @@ _MATRIX_CONFIG_DEFAULTS: Dict[str, Any] = {
     "animation_mode": "split_flap",
     "animation_speed": 3,
     "status_animation_enabled": True,
+    "show_weather": True,
     "show_gate_info": True,
     "palette": "pax_blue",
     "options": {},
@@ -2924,6 +2925,7 @@ _MATRIX_V1_FIELDS = {
     "animation_mode",
     "animation_speed",
     "status_animation_enabled",
+    "show_weather",
     "show_gate_info",
     "palette",
     "options",
@@ -3011,12 +3013,16 @@ def _normalize_matrix_config(raw: Dict[str, Any], *, fallback_id: str) -> Dict[s
     view = str(raw.get("default_view") or "departures").strip().lower()
     if view not in {"departures", "arrivals"}:
         view = "departures"
-    options = raw.get("options") if isinstance(raw.get("options"), dict) else {}
+    options = dict(raw.get("options")) if isinstance(raw.get("options"), dict) else {}
     preset_options = _MATRIX_PRESETS[preset].get("options", {})
-    if "show_metar" not in options and "show_weather" not in options:
-        options = {**options, "show_metar": bool(preset_options.get("show_metar", True))}
-    elif "show_weather" in options and "show_metar" not in options:
-        options = {**options, "show_metar": bool(options.get("show_weather"))}
+    if "show_weather" in raw:
+        show_weather = bool(raw.get("show_weather"))
+    elif "show_weather" in options:
+        show_weather = bool(options.get("show_weather"))
+    elif "show_metar" in options:
+        show_weather = bool(options.get("show_metar"))
+    else:
+        show_weather = bool(preset_options.get("show_metar", True))
     if "show_gate_info" in raw:
         show_gate_info = bool(raw.get("show_gate_info"))
     elif "show_gate_info" in options:
@@ -3049,9 +3055,17 @@ def _normalize_matrix_config(raw: Dict[str, Any], *, fallback_id: str) -> Dict[s
         "animation_mode": animation_mode,
         "animation_speed": max(1, min(5, int(raw.get("animation_speed") or 3))),
         "status_animation_enabled": bool(raw.get("status_animation_enabled", True)),
+        "show_weather": show_weather,
         "show_gate_info": show_gate_info,
         "palette": palette,
-        "options": {**options, "palette": palette, "animation_mode": animation_mode, "show_gate_info": show_gate_info},
+        "options": {
+            **options,
+            "palette": palette,
+            "animation_mode": animation_mode,
+            "show_metar": show_weather,
+            "show_weather": show_weather,
+            "show_gate_info": show_gate_info,
+        },
     }
 
 
@@ -3243,6 +3257,7 @@ class MatrixConfigIn(BaseModel):
     animation_mode: str = "split_flap"
     animation_speed: int = Field(3, ge=1, le=5)
     status_animation_enabled: bool = True
+    show_weather: bool = True
     show_gate_info: bool = True
     palette: str = "pax_blue"
     options: Dict[str, Any] = Field(default_factory=dict)
@@ -3263,6 +3278,7 @@ class MatrixV2ConfigIn(BaseModel):
     animation_mode: Optional[str] = None
     animation_speed: Optional[int] = Field(None, ge=1, le=5)
     status_animation_enabled: Optional[bool] = None
+    show_weather: Optional[bool] = None
     show_gate_info: Optional[bool] = None
     palette: Optional[str] = None
     options: Dict[str, Any] = Field(default_factory=dict)
@@ -3316,9 +3332,10 @@ def api_matrix_config_post(body: MatrixConfigIn) -> Dict[str, Any]:
         "animation_mode": body.animation_mode,
         "animation_speed": int(body.animation_speed),
         "status_animation_enabled": bool(body.status_animation_enabled),
+        "show_weather": bool(body.show_weather),
         "show_gate_info": bool(body.show_gate_info),
         "palette": body.palette,
-        "options": body.options,
+        "options": {**(cfg.get("options") if isinstance(cfg.get("options"), dict) else {}), **body.options},
     }
     merged = _normalize_matrix_config({**cfg, **updates}, fallback_id=cfg["id"])
     store["configs"] = [merged if item["id"] == cfg["id"] else item for item in store["configs"]]
@@ -3356,6 +3373,8 @@ def api_matrix_v2_config_create(body: MatrixV2ConfigIn) -> Dict[str, Any]:
         "name": body.name or "New Matrix Config",
     })
     updates = body.model_dump(exclude_unset=True) if hasattr(body, "model_dump") else body.dict(exclude_unset=True)
+    if isinstance(updates.get("options"), dict):
+        updates["options"] = {**(base.get("options") if isinstance(base.get("options"), dict) else {}), **updates["options"]}
     cfg = _normalize_matrix_config({**base, **updates}, fallback_id=base["id"])
     existing = {item["id"] for item in store["configs"]}
     if cfg["id"] in existing:
@@ -3382,6 +3401,8 @@ def api_matrix_v2_config_patch(config_id: str, body: MatrixV2ConfigIn) -> Dict[s
         raise HTTPException(status_code=404, detail="Matrix config not found")
     updates = body.model_dump(exclude_unset=True) if hasattr(body, "model_dump") else body.dict(exclude_unset=True)
     updates.pop("id", None)
+    if isinstance(updates.get("options"), dict):
+        updates["options"] = {**(cfg.get("options") if isinstance(cfg.get("options"), dict) else {}), **updates["options"]}
     merged = _normalize_matrix_config({**cfg, **updates}, fallback_id=cfg["id"])
     store["configs"] = [merged if item["id"] == cfg["id"] else item for item in store["configs"]]
     if bool(updates.get("set_default", False)):
@@ -3894,7 +3915,12 @@ def _matrix_is_vatsim_preset(preset: Any) -> bool:
 
 def _matrix_option_enabled(resolved: Dict[str, Any], key: str, default: bool = True) -> bool:
     options = resolved.get("options") if isinstance(resolved.get("options"), dict) else {}
-    value = options.get(key, default)
+    if key in {"show_metar", "show_weather"} and "show_weather" in resolved:
+        value = resolved.get("show_weather")
+    elif key == "show_gate_info" and "show_gate_info" in resolved:
+        value = resolved.get("show_gate_info")
+    else:
+        value = options.get(key, default)
     if isinstance(value, str):
         return value.strip().lower() not in {"0", "false", "no", "off"}
     return bool(value)
@@ -4056,6 +4082,7 @@ def api_matrix_v2_device_feed(
         preview_options: Dict[str, Any] = {}
         if show_weather is not None:
             preview_options.update({"show_metar": bool(show_weather), "show_weather": bool(show_weather)})
+            preview_overrides["show_weather"] = bool(show_weather)
         if show_gate_info is not None:
             preview_options["show_gate_info"] = bool(show_gate_info)
             preview_overrides["show_gate_info"] = bool(show_gate_info)
@@ -4070,7 +4097,7 @@ def api_matrix_v2_device_feed(
     requested_view = view if view in {"departures", "arrivals"} else resolved["default_view"]
     effective_view = requested_view
     cfg = load_config()
-    limit = min(max(1, resolved["max_rows"]) * 4, 32)
+    limit = min(max(16, max(1, resolved["max_rows"]) * 4), 32)
     payload: Dict[str, Any] = {
         "config_rev": resolved["config_rev"],
         "data_rev": int(time.time()),
@@ -4100,6 +4127,7 @@ def api_matrix_v2_device_feed(
     if _matrix_is_vatsim_preset(resolved["preset"]):
         show_gate = False
     payload["show_gate_info"] = show_gate
+    payload["show_weather"] = show_metar
     if _matrix_is_vatsim_preset(resolved["preset"]) and (cfg.source or "").strip().lower() != "virtual":
         message = "SET SOURCE TO VATSIM"
         return {

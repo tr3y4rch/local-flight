@@ -579,7 +579,7 @@ def _gate_chip(row, chars):
 
 def _status_or_gate_chunk(row, chars):
     gate = _gate_chip(row, chars)
-    if gate and WIDTH < 180:
+    if gate and WIDTH < 300:
         try:
             if int(time.time() // 4) % 2 == 1:
                 return gate
@@ -626,16 +626,117 @@ def _detail_chunk(row, chars):
     text = items[slot % len(items)]
     return cycle_chunks(text, chars).rstrip()
 
-def _wide_columns():
+def _font_profile(row_h=9, *, wide=False):
+    row_h = int(row_h or 9)
+    if wide and WIDTH >= 240 and HEIGHT <= 64:
+        return ("bitmap6", 6, 7, False)
+    if row_h >= 9:
+        return ("bitmap8", 8, 9, False)
+    if row_h >= 7:
+        return ("bitmap6", 6, 7, False)
+    return ("tiny", 4, 6, True)
+
+_FONT_OK = {}
+
+def _resolve_font(profile):
+    name, char_w, line_h, tiny = profile
+    if tiny:
+        return profile
+    cached = _FONT_OK.get(name)
+    if cached is None:
+        try:
+            graphics.set_font(name)
+            cached = True
+        except Exception:
+            cached = False
+        _FONT_OK[name] = cached
+    if cached:
+        return profile
+    return ("tiny", 4, 6, True)
+
+_TINY_FONT = {
+    " ": ["000", "000", "000", "000", "000"],
+    "-": ["000", "000", "111", "000", "000"],
+    ".": ["000", "000", "000", "000", "010"],
+    ":": ["000", "010", "000", "010", "000"],
+    "/": ["001", "001", "010", "100", "100"],
+    "+": ["000", "010", "111", "010", "000"],
+    "|": ["010", "010", "010", "010", "010"],
+    "0": ["111", "101", "101", "101", "111"],
+    "1": ["010", "110", "010", "010", "111"],
+    "2": ["111", "001", "111", "100", "111"],
+    "3": ["111", "001", "111", "001", "111"],
+    "4": ["101", "101", "111", "001", "001"],
+    "5": ["111", "100", "111", "001", "111"],
+    "6": ["111", "100", "111", "101", "111"],
+    "7": ["111", "001", "010", "010", "010"],
+    "8": ["111", "101", "111", "101", "111"],
+    "9": ["111", "101", "111", "001", "111"],
+    "A": ["010", "101", "111", "101", "101"],
+    "B": ["110", "101", "110", "101", "110"],
+    "C": ["111", "100", "100", "100", "111"],
+    "D": ["110", "101", "101", "101", "110"],
+    "E": ["111", "100", "110", "100", "111"],
+    "F": ["111", "100", "110", "100", "100"],
+    "G": ["111", "100", "101", "101", "111"],
+    "H": ["101", "101", "111", "101", "101"],
+    "I": ["111", "010", "010", "010", "111"],
+    "J": ["001", "001", "001", "101", "111"],
+    "K": ["101", "101", "110", "101", "101"],
+    "L": ["100", "100", "100", "100", "111"],
+    "M": ["101", "111", "111", "101", "101"],
+    "N": ["101", "111", "111", "111", "101"],
+    "O": ["111", "101", "101", "101", "111"],
+    "P": ["111", "101", "111", "100", "100"],
+    "Q": ["111", "101", "101", "111", "001"],
+    "R": ["111", "101", "111", "110", "101"],
+    "S": ["111", "100", "111", "001", "111"],
+    "T": ["111", "010", "010", "010", "010"],
+    "U": ["101", "101", "101", "101", "111"],
+    "V": ["101", "101", "101", "101", "010"],
+    "W": ["101", "101", "111", "111", "101"],
+    "X": ["101", "101", "010", "101", "101"],
+    "Y": ["101", "101", "010", "010", "010"],
+    "Z": ["111", "001", "010", "100", "111"],
+}
+
+def _draw_tiny_text(text, x, y, color, max_width):
+    graphics.set_pen(color)
+    cursor = int(x)
+    limit = int(x + max(0, max_width))
+    for ch in _upper_text(text):
+        if cursor + 3 > limit:
+            break
+        mask = _TINY_FONT.get(ch, _TINY_FONT.get(" "))
+        for yy, row in enumerate(mask):
+            for xx, bit in enumerate(row):
+                if bit == "1":
+                    try:
+                        graphics.pixel(cursor + xx, int(y) + yy)
+                    except Exception:
+                        graphics.rectangle(cursor + xx, int(y) + yy, 1, 1)
+        cursor += 4
+
+def draw_text(text, x, y, color, max_width, profile=None):
+    profile = _resolve_font(profile or ("bitmap8", 8, 9, False))
+    if profile[3]:
+        _draw_tiny_text(text, x, y, color, max_width)
+        return
+    graphics.set_font(profile[0])
+    graphics.set_pen(color)
+    graphics.text(str(text or ""), int(x), int(y), max(0, int(max_width)), 1)
+
+def _wide_columns(char_w=8):
     if WIDTH < 240:
         return None
+    char_w = max(4, int(char_w or 8))
     time_x = 8
-    flight_x = 50
-    route_x = 104 if WIDTH < 300 else 112
+    flight_x = time_x + 5 * char_w + 6
+    route_x = flight_x + 8 * char_w + 6
     if WIDTH < 300:
-        status_x = max(route_x + 56, int(WIDTH * 0.64))
-        gate_x = WIDTH - 34
-        aircraft_x = WIDTH - 34
+        status_x = max(route_x + 10 * char_w, int(WIDTH * 0.70))
+        gate_x = WIDTH - 5 * char_w
+        aircraft_x = WIDTH - 5 * char_w
     elif WIDTH < 420:
         status_x = int(WIDTH * 0.60)
         gate_x = int(WIDTH * 0.82)
@@ -644,9 +745,9 @@ def _wide_columns():
         status_x = int(WIDTH * 0.62)
         gate_x = int(WIDTH * 0.80)
         aircraft_x = int(WIDTH * 0.90)
-    status_x = min(max(status_x, route_x + 42), WIDTH - 48)
-    gate_x = min(max(gate_x, status_x + 42), WIDTH - 28)
-    aircraft_x = min(max(aircraft_x, gate_x + 24), WIDTH - 28)
+    status_x = min(max(status_x, route_x + 7 * char_w), WIDTH - 8 * char_w)
+    gate_x = min(max(gate_x, status_x + 6 * char_w), WIDTH - 5 * char_w)
+    aircraft_x = min(max(aircraft_x, gate_x + 4 * char_w), WIDTH - 5 * char_w)
     return {
         "time_x": time_x,
         "flight_x": flight_x,
@@ -654,9 +755,10 @@ def _wide_columns():
         "status_x": status_x,
         "gate_x": gate_x,
         "aircraft_x": aircraft_x,
-        "route_chars": max(4, (status_x - route_x - 2) // 8),
-        "status_chars": max(5, ((gate_x if WIDTH >= 300 else WIDTH) - status_x - 2) // 8),
-        "detail_chars": max(6, (WIDTH - route_x - 2) // 8),
+        "route_chars": max(4, (status_x - route_x - 2) // char_w),
+        "status_chars": max(5, ((gate_x if WIDTH >= 300 else WIDTH) - status_x - 2) // char_w),
+        "right_chars": max(3, (WIDTH - gate_x - 1) // char_w),
+        "detail_chars": max(6, (WIDTH - route_x - 2) // char_w),
     }
 
 def build_row_text(row):
@@ -794,6 +896,15 @@ def _truthy(value, fallback=True):
     if text in ("1", "true", "yes", "on"):
         return True
     return bool(value)
+
+def _option_bool(data, options, top_key, option_keys, fallback):
+    if isinstance(data, dict) and top_key in data:
+        return _truthy(data.get(top_key), fallback)
+    if isinstance(options, dict):
+        for key in option_keys:
+            if key in options:
+                return _truthy(options.get(key), fallback)
+    return fallback
 
 
 def _sync_clock_from_config(data):
@@ -940,8 +1051,8 @@ def fetch_matrix_config():
     ANIMATION_SPEED = _clamp_int(data.get("animation_speed", ANIMATION_SPEED), 1, 5, ANIMATION_SPEED)
     STATUS_ANIMATION_ENABLED = bool(data.get("status_animation_enabled", STATUS_ANIMATION_ENABLED))
     options = data.get("options") if isinstance(data.get("options"), dict) else {}
-    SHOW_WEATHER = _truthy(options.get("show_metar", options.get("show_weather")), SHOW_WEATHER)
-    SHOW_GATE_INFO = _truthy(data.get("show_gate_info", options.get("show_gate_info")), SHOW_GATE_INFO)
+    SHOW_WEATHER = _option_bool(data, options, "show_weather", ("show_weather", "show_metar"), SHOW_WEATHER)
+    SHOW_GATE_INFO = _option_bool(data, options, "show_gate_info", ("show_gate_info",), SHOW_GATE_INFO)
     PRESET = data.get("preset", PRESET)
     RENDERER = data.get("renderer", RENDERER)
     if RENDERER not in SUPPORTED_RENDERERS:
@@ -963,7 +1074,7 @@ def fetch_fids(view="departures", limit=4):
     global DEFAULT_VIEW, _matrix_metar, _matrix_pages, _matrix_weather_page, _matrix_message, _airport_iata, _airport_label
     view = _normalize_view(view, "departures")
     limit = _clamp_int(limit, 1, 32, max(MAX_ROWS, limit))
-    data = _get_json(f"/api/matrix/v2/devices/{device_id()}/feed?view={view}", timeout=10)
+    data = _get_json(f"/api/matrix/v2/devices/{device_id()}/feed?view={view}&limit={limit}", timeout=10)
     if isinstance(data, dict) and isinstance(data.get("rows"), list):
         DEFAULT_VIEW = _normalize_view(data.get("view", DEFAULT_VIEW), DEFAULT_VIEW)
         _airport_iata = _normalize_airport_iata(data.get("airport_iata", _airport_iata))
@@ -1224,9 +1335,12 @@ def _header_height():
     return 20 if HEIGHT >= 96 else 11
 
 def _visible_rows():
+    data_height = max(1, HEIGHT - _header_height())
     if WIDTH < 180:
-        return max(1, min(MAX_ROWS, (HEIGHT - _header_height()) // 27))
-    return MAX_ROWS
+        return max(1, min(MAX_ROWS, data_height // 18))
+    if data_height // max(1, MAX_ROWS) < 6:
+        return max(1, min(MAX_ROWS, data_height // 6))
+    return max(1, MAX_ROWS)
 
 def draw_source_message():
     graphics.set_pen(BLACK)
@@ -1370,12 +1484,15 @@ def draw_modern_fids(flap_rows, page_data, view):
     draw_header(view)
     data_start = _header_height()
     rows = _visible_rows()
-    row_h = max(14, (HEIGHT - data_start) // rows)
+    row_h = max(6, (HEIGHT - data_start) // rows)
+    profile = _resolve_font(_font_profile(row_h, wide=WIDTH >= 240))
+    char_w = profile[1]
+    line_h = profile[2]
     compact = WIDTH < 180
     medium = 180 <= WIDTH < 240
     for i in range(rows):
         y = data_start + i * row_h
-        if y + 7 > HEIGHT:
+        if y + max(5, line_h - 1) > HEIGHT:
             break
         row = page_data[i] if i < len(page_data) else None
         if not row:
@@ -1392,43 +1509,39 @@ def draw_modern_fids(flap_rows, page_data, view):
             graphics.set_pen(RED)
             graphics.rectangle(0, y - 1, WIDTH, max(9, row_h - 1))
         draw_glyph("arr" if view == "arrivals" else "dep", 0, y + 1, DIM)
-        graphics.set_pen(GREEN if not cancelled else WHITE)
-        graphics.text(time_label, 8, y, 44, 1)
-        graphics.set_pen(WHITE)
-        graphics.text(flight_label, 52, y, 64, 1)
+        time_x = 8
+        flight_x = time_x + 5 * char_w + 5
+        draw_text(time_label, time_x, y, GREEN if not cancelled else WHITE, 5 * char_w + 2, profile)
+        draw_text(flight_label, flight_x, y, WHITE, 8 * char_w + 2, profile)
         if compact:
-            route_y = y + 8
-            status_y = y + 16
-            graphics.set_pen(WHITE)
-            graphics.text(_route_chunk(row, max(8, WIDTH // 8))[:max(8, WIDTH // 8)], 0, route_y, WIDTH, 1)
-            if row_h >= 25 and status_y + 7 <= y + row_h:
-                graphics.set_pen(status_color(row))
-                status = _status_or_gate_chunk(row, max(8, WIDTH // 8))
-                graphics.text(status, 0, status_y, WIDTH, 1)
+            chars = max(8, WIDTH // char_w)
+            route_y = y + line_h
+            status_y = y + line_h * 2
+            if route_y + 5 <= y + row_h:
+                draw_text(_route_chunk(row, chars)[:chars], 0, route_y, WHITE, WIDTH, profile)
+            if status_y + 5 <= y + row_h:
+                status = _status_or_gate_chunk(row, chars)
+                draw_text(status, 0, status_y, status_color(row), WIDTH, profile)
         elif medium:
-            route_x = 96
-            status_x = max(route_x, WIDTH - 72)
-            route_chars = max(5, (status_x - route_x - 2) // 8)
-            status_chars = max(5, (WIDTH - status_x - 1) // 8)
-            graphics.set_pen(WHITE)
-            graphics.text(_route_chunk(row, route_chars)[:route_chars], route_x, y, max(20, status_x - route_x - 2), 1)
-            graphics.set_pen(status_color(row))
-            graphics.text(_status_or_gate_chunk(row, status_chars)[:status_chars], status_x, y, max(8, WIDTH - status_x), 1)
-            if row_h >= 20:
-                detail = _detail_chunk(row, max(8, (WIDTH - 8) // 8))
+            route_x = flight_x + 8 * char_w + 6
+            status_x = max(route_x + 6 * char_w, WIDTH - 10 * char_w)
+            route_chars = max(5, (status_x - route_x - 2) // char_w)
+            status_chars = max(5, (WIDTH - status_x - 1) // char_w)
+            draw_text(_route_chunk(row, route_chars)[:route_chars], route_x, y, WHITE, max(20, status_x - route_x - 2), profile)
+            draw_text(_status_or_gate_chunk(row, status_chars)[:status_chars], status_x, y, status_color(row), max(8, WIDTH - status_x), profile)
+            if row_h >= line_h * 2:
+                detail = _detail_chunk(row, max(8, (WIDTH - 8) // char_w))
                 if detail:
-                    graphics.set_pen(DIM)
-                    graphics.text(detail, 8, y + 8, WIDTH - 8, 1)
+                    draw_text(detail, 8, y + line_h, DIM, WIDTH - 8, profile)
         else:
-            cols = _wide_columns()
+            cols = _wide_columns(char_w)
             route_x = cols["route_x"]
             status_x = cols["status_x"]
             gate_x = cols["gate_x"]
             aircraft_x = cols["aircraft_x"]
             route_chars = cols["route_chars"]
-            graphics.text(_route_chunk(row, route_chars)[:route_chars], route_x, y, max(20, status_x - route_x - 2), 1)
-            if row_h >= 17:
-                graphics.set_pen(status_color(row))
+            draw_text(_route_chunk(row, route_chars)[:route_chars], route_x, y, WHITE, max(20, status_x - route_x - 2), profile)
+            if row_h >= line_h:
                 status_chars = cols["status_chars"]
                 status = _status_or_gate_chunk(row, status_chars) or text[28:38].strip()
                 if RENDERER in ("vatsim_pilot", "vatsim_atc"):
@@ -1439,23 +1552,29 @@ def draw_modern_fids(flap_rows, page_data, view):
                     gate = _gate_label(row)
                     aircraft = _upper_text(row.get("aircraft_type") or row.get("aircraft") or "")
                     if gate and WIDTH >= 300:
-                        graphics.set_pen(DIM)
-                        graphics.text(gate[:5], gate_x, y, max(8, WIDTH - gate_x), 1)
+                        draw_text(gate[:5], gate_x, y, DIM, max(8, WIDTH - gate_x), profile)
                     if aircraft and WIDTH >= 420:
-                        graphics.set_pen(DIM)
-                        graphics.text(aircraft[:5], aircraft_x, y, max(8, WIDTH - aircraft_x), 1)
-                    graphics.set_pen(status_color(row))
-                graphics.text(status[:status_chars], status_x, y, max(8, WIDTH - status_x), 1)
-                if row_h >= 17 and (MAX_ROWS <= 3 or row_h >= 20):
+                        draw_text(aircraft[:5], aircraft_x, y, DIM, max(8, WIDTH - aircraft_x), profile)
+                status_color_pen = status_color(row)
+                if WIDTH < 300 and row_h < line_h * 2:
+                    detail = _detail_chunk(row, max(5, (WIDTH - status_x - 1) // char_w))
+                    if detail:
+                        try:
+                            show_detail = int(time.time() // max(3, CODE_SHARE_ROTATION_S)) % 2 == 1
+                        except Exception:
+                            show_detail = False
+                        if show_detail:
+                            status = detail
+                            status_color_pen = DIM
+                draw_text(status[:status_chars], status_x, y, status_color_pen, max(8, (gate_x if WIDTH >= 300 else WIDTH) - status_x - 2), profile)
+                if row_h >= line_h * 2 and (MAX_ROWS <= 3 or row_h >= line_h * 2 + 2):
                     detail = _detail_chunk(row, cols["detail_chars"])
                     if detail:
-                        detail_y = y + 8
-                        if detail_y + 7 <= y + row_h:
-                            graphics.set_pen(DIM)
-                            graphics.text(detail[:cols["detail_chars"]], route_x, detail_y, max(8, WIDTH - route_x - 1), 1)
+                        detail_y = y + line_h
+                        if detail_y + 5 <= y + row_h:
+                            draw_text(detail[:cols["detail_chars"]], route_x, detail_y, DIM, max(8, WIDTH - route_x - 1), profile)
             else:
-                graphics.set_pen(status_color(row))
-                graphics.text(text[28:38], max(116, int(WIDTH * 0.60)), y, 76, 1)
+                draw_text(text[28:38], max(116, int(WIDTH * 0.60)), y, status_color(row), max(8, WIDTH - max(116, int(WIDTH * 0.60))), profile)
         if i < rows - 1:
             graphics.set_pen(DIMBG)
             graphics.line(0, y + row_h - 1, WIDTH, y + row_h - 1)
@@ -1567,7 +1686,33 @@ def main():
                 old_mode = ANIMATION_MODE
                 old_view = view
                 old_row_count = len(flap_rows)
+                old_live = (
+                    MAX_ROWS,
+                    BRIGHTNESS,
+                    DEFAULT_VIEW,
+                    ANIMATION_MODE,
+                    ANIMATION_SPEED,
+                    STATUS_ANIMATION_ENABLED,
+                    SHOW_WEATHER,
+                    SHOW_GATE_INFO,
+                    PALETTE,
+                    PRESET,
+                    PAGE_ROTATION_S,
+                )
                 fetch_matrix_config()
+                new_live = (
+                    MAX_ROWS,
+                    BRIGHTNESS,
+                    DEFAULT_VIEW,
+                    ANIMATION_MODE,
+                    ANIMATION_SPEED,
+                    STATUS_ANIMATION_ENABLED,
+                    SHOW_WEATHER,
+                    SHOW_GATE_INFO,
+                    PALETTE,
+                    PRESET,
+                    PAGE_ROTATION_S,
+                )
                 if DEFAULT_VIEW != old_view:
                     view = DEFAULT_VIEW
                     force_fetch = True
@@ -1579,7 +1724,7 @@ def main():
                     page_data = pages[0] if pages else []
                     _apply_visible_page(page_data)
                     force_fetch = True
-                elif old_mode != ANIMATION_MODE:
+                elif old_mode != ANIMATION_MODE or old_live != new_live:
                     _apply_visible_page(page_data)
             last_config = now
 
@@ -1596,7 +1741,7 @@ def main():
             _draw_message("Fetching flights...", GREEN)
 
             if ensure_wifi():
-                data = fetch_fids(view=view, limit=min(_visible_rows() * 4, 32))
+                data = fetch_fids(view=view, limit=min(max(_visible_rows() * 4, 16), 32))
                 view = DEFAULT_VIEW
                 if data:
                     flight_data = data

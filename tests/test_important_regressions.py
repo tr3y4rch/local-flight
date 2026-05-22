@@ -3852,6 +3852,7 @@ def test_matrix_config_endpoint_round_trip(tmp_path: Path, monkeypatch) -> None:
         "animation_mode": "static",
         "animation_speed": 3,
         "status_animation_enabled": True,
+        "show_weather": True,
         "show_gate_info": True,
         "palette": "pax_blue",
         "options": {
@@ -3859,6 +3860,7 @@ def test_matrix_config_endpoint_round_trip(tmp_path: Path, monkeypatch) -> None:
             "palette": "pax_blue",
             "show_gate_info": True,
             "show_metar": True,
+            "show_weather": True,
         },
     }
     saved = json.loads(matrix_config.read_text(encoding="utf-8"))
@@ -3952,6 +3954,7 @@ def test_matrix_v2_migrates_flat_config_and_registers_device(tmp_path: Path, mon
     resolved = response.json()
     assert resolved["renderer"] == "modern_fids"
     assert resolved["device_id"] == "i75w-test"
+    assert resolved["show_weather"] is True
     assert resolved["show_gate_info"] is True
 
 
@@ -4029,9 +4032,10 @@ def test_matrix_device_feed_uses_assigned_config_and_exposes_board_contract(tmp_
     assert client.get(f"/api/matrix/v2/configs/{created['id']}").json()["palette"] == "neon"
     assert client.get("/api/matrix/v2/devices/board-a/config").json()["palette"] == "neon"
     assert feed.status_code == 200
-    assert captured == {"view": "arrivals", "limit": 8}
+    assert captured == {"view": "arrivals", "limit": 16}
     payload = feed.json()
     assert payload["view"] == "arrivals"
+    assert payload["show_weather"] is True
     assert payload["show_gate_info"] is True
     assert payload["config_id"] == "tiny-arr"
     assert payload["assigned_config_id"] == "tiny-arr"
@@ -4041,6 +4045,44 @@ def test_matrix_device_feed_uses_assigned_config_and_exposes_board_contract(tmp_
     assert payload["renderer_status"] == "unknown"
     assert payload["rows"][0]["gate_label"] == "T1 / A42"
     assert payload["rows"][0]["flight_number"] == "LX42"
+
+
+def test_matrix_v2_partial_patch_preserves_live_options(tmp_path: Path, monkeypatch) -> None:
+    matrix_config = tmp_path / "matrix_config.json"
+    monkeypatch.setattr(ui_api, "_matrix_config_path", lambda: matrix_config)
+    client = TestClient(ui_api.app)
+
+    created = client.post(
+        "/api/matrix/v2/configs",
+        json={
+            "id": "live-options",
+            "name": "Live options",
+            "show_weather": False,
+            "show_gate_info": False,
+            "palette": "tower_scope",
+            "options": {
+                "show_metar": False,
+                "show_weather": False,
+                "show_gate_info": False,
+                "palette": "tower_scope",
+            },
+        },
+    ).json()["config"]
+
+    patched = client.patch(
+        f"/api/matrix/v2/configs/{created['id']}",
+        json={"palette": "neon", "options": {"palette": "neon"}},
+    )
+
+    assert patched.status_code == 200
+    cfg = patched.json()["config"]
+    assert cfg["palette"] == "neon"
+    assert cfg["show_weather"] is False
+    assert cfg["show_gate_info"] is False
+    assert cfg["options"]["show_metar"] is False
+    assert cfg["options"]["show_weather"] is False
+    assert cfg["options"]["show_gate_info"] is False
+    assert cfg["options"]["palette"] == "neon"
 
 
 def test_matrix_v2_legacy_presets_are_removed_from_public_profiles(tmp_path: Path, monkeypatch) -> None:
@@ -4507,7 +4549,10 @@ def test_matrix_script_endpoint_uses_current_i75w_client_template() -> None:
     assert "matrix_codeshare_label" in script
     assert "matrix_detail_cycle" in script
     assert "matrix_weather_icon" in script
-    assert "def _wide_columns():" in script
+    assert "def _option_bool(data, options, top_key, option_keys, fallback):" in script
+    assert "def _font_profile(row_h=9, *, wide=False):" in script
+    assert "def draw_text(text, x, y, color, max_width, profile=None):" in script
+    assert "def _wide_columns(char_w=8):" in script
     assert "def _detail_chunk(row, chars):" in script
     assert "def _weather_line(chars=18):" in script
     assert "SHOW_WEATHER" in script
@@ -4525,7 +4570,8 @@ def test_matrix_script_endpoint_uses_current_i75w_client_template() -> None:
     assert "def draw_vatsim_atc(flap_rows, fallback_rows, fallback_view):" in script
     assert 'time_label = fit_text(_text_field(row.get("matrix_time_label")' in script
     assert "flight_label = fit_text(_flight_cycle_display(row), 8)" in script
-    assert "status = _status_or_gate_chunk(row, max(8, WIDTH // 8))" in script
+    assert "SHOW_WEATHER = _option_bool(data, options, \"show_weather\", (\"show_weather\", \"show_metar\"), SHOW_WEATHER)" in script
+    assert "SHOW_GATE_INFO = _option_bool(data, options, \"show_gate_info\", (\"show_gate_info\",), SHOW_GATE_INFO)" in script
     assert "\"real_fids\"" in script
     assert "\"vatsim_pilot\"" in script
     assert "\"vatsim_atc\"" in script
@@ -4546,7 +4592,7 @@ def test_matrix_script_endpoint_uses_current_i75w_client_template() -> None:
     assert "text[39:43]" in script
     assert "CODE_SHARE_ROTATION_S = 4" in script
     assert "def _flight_cycle_display(row):" in script
-    assert "limit=min(_visible_rows() * 4, 32)" in script
+    assert "limit=min(max(_visible_rows() * 4, 16), 32)" in script
     assert "urequests.get(_api_url(path))" in script
     assert "timeout=timeout" not in script
     assert "/api/matrix/v2/devices/checkin" in script
@@ -4640,7 +4686,7 @@ def test_matrix_preview_download_payload_uses_defined_animation_state() -> None:
     assert "row.matrix_operator_label" in template
     assert "row.matrix_codeshare_label" in template
     assert "row.matrix_detail_cycle" in template
-    assert "function wideColumns()" in template
+    assert "function wideColumns(charW = MATRIX_CHAR_W)" in template
     assert "function detailChunk(row, chars)" in template
     assert "const timeLabel = String(row?.matrix_time_label" in template
     assert "const flightLabel = String(flightCycleDisplay(row || {}))" in template
@@ -4650,6 +4696,7 @@ def test_matrix_preview_download_payload_uses_defined_animation_state() -> None:
     assert "palette: MATRIX_PALETTE" in template
     assert "default_view: VIEW" in template
     assert "status_animation_enabled: STATUS_ANIMATION_ENABLED" in template
+    assert "show_weather: SHOW_WEATHER" in template
     assert "show_gate_info: SHOW_GATE_INFO" in template
     assert "preset: MATRIX_PRESET" in template
     assert "condition_display" in template
@@ -4689,7 +4736,7 @@ def test_matrix_preview_panel_geometry_stays_in_sync() -> None:
     assert "function syncPanelGeometry(w, h)" in template
     assert "const MATRIX_CHAR_W = 8" in template
     assert "const ROW_LEN = 42" in template
-    assert "MATRIX_CHAR_W > x + maxW" in template
+    assert "charW > x + maxW" in template
     assert "Math.floor(PANEL_W / MATRIX_CHAR_W)" in template
     assert "download and reinstall main.py" in template
     assert 'id="panelWidthInput"' in template
@@ -4700,7 +4747,7 @@ def test_matrix_preview_panel_geometry_stays_in_sync() -> None:
     assert "const compact = PANEL_W < 180" in template
     assert "const medium = PANEL_W >= 180 && PANEL_W < 240" in template
     assert "if (compact)" in template
-    assert "txt.slice(39,43)" in template
+    assert "gateLabel(row)" in template
     assert "function flightCycleDisplay(row)" in template
     assert "function codeshareFlightNumbers(row)" in template
     assert "function breathAmount(periodMs = 1800)" in template
@@ -4718,7 +4765,7 @@ def test_matrix_preview_panel_geometry_stays_in_sync() -> None:
     assert "function drawVatsimWeatherPage()" in template
     assert "function vatsimAtcPage()" in template
     assert "lastCodeshareCycle" in template
-    assert "const fetchLimit = Math.min(visibleRows() * 4, 32)" in template
+    assert "const fetchLimit = Math.min(Math.max(visibleRows() * 4, 16), 32)" in template
     assert "canvas.style.width" in template
     assert "canvas.style.height" in template
     assert "let RENDER_PIXEL_SIZE = PIXEL_SIZE" in template
@@ -4746,7 +4793,9 @@ def test_native_matrix_panel_geometry_matches_web_controls() -> None:
     assert "def _panel_dimensions_changed" in source
     assert "main.py mismatch" in source
     assert "if self.panel_w < 180:" in source
-    assert "text[39:43]" in source
+    assert "def draw_cell(logical_x" in source
+    assert "status_width = (cols[\"gate_x\"] if self.panel_w >= 300 else self.panel_w)" in source
+    assert "painter.drawText(int(left + board_w - 46 * scale), int(y), text[39:43])" not in source
     assert "def _flight_cycle_display" in source
     assert "def _codeshare_flights" in source
     assert "def _breath_color" in source
