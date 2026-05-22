@@ -1010,6 +1010,7 @@
   let REFRESH_S_SRV = 60;   // device refresh interval saved to server
   let PAGE_ROTATION_S = 10;
   const CODE_SHARE_ROTATION_S = 4; // Keep secondary detail cycling aligned with the i75W client.
+  const MATRIX_SUPPORTED_ANIMATIONS = ["split_flap", "typewriter", "cascade", "slide_left", "slide_right", "static"];
   let MATRIX_PRESET = "real_fids";
   let ANIMATION_MODE = "split_flap";
   let ANIMATION_SPEED = 3;
@@ -2239,9 +2240,11 @@
 
   window.setAnimationMode = function(v) {
     ANIMATION_MODE = v || "split_flap";
-    if (!["split_flap", "slide_left", "slide_right", "static"].includes(ANIMATION_MODE)) {
+    if (!MATRIX_SUPPORTED_ANIMATIONS.includes(ANIMATION_MODE)) {
       ANIMATION_MODE = "split_flap";
     }
+    const sel = document.getElementById("animationModeSelect");
+    if (sel) sel.value = ANIMATION_MODE;
     flapRows = Array.from({length:8}, () =>
       Array.from({length: ROW_LEN}, () => new FlapCell())
     );
@@ -2406,22 +2409,24 @@ Board reads: /api/config -> /api/matrix/v2/devices/{id}/config -> /api/matrix/v2
 
   function validateDownloadedMainPy(content) {
     const required = [
-      'CLIENT_VER       = "2.0"',
-      "/api/matrix/v2/devices/checkin",
-      "/api/matrix/v2/devices/{device_id()}/config",
-      "/api/matrix/v2/devices/{device_id()}/feed",
-      "def fit_text(value, length):",
-      "def _clock_hhmm(offset_minutes=0):",
-      "ACTIVE_BREATH",
-      "PALETTE",
-      "RENDERER",
-      "GEOMETRY_MISMATCH",
-      '"actual_panel_w": WIDTH',
-      '"pax_blue"',
-      '"tower_scope"',
+      { label: "client version", test: /CLIENT_VER\s*=\s*"2\.0"/ },
+      { label: "renderer revision", test: /CLIENT_RENDERER_REV\s*=\s*"matrix-display-contract-v4"/ },
+      { label: "device check-in", test: /\/api\/matrix\/v2\/devices\/checkin/ },
+      { label: "device config", test: /\/api\/matrix\/v2\/devices\/\{device_id\(\)\}\/config/ },
+      { label: "device feed", test: /\/api\/matrix\/v2\/devices\/\{device_id\(\)\}\/feed/ },
+      { label: "text fitting", test: /def fit_text\(value, length\):/ },
+      { label: "local clock helper", test: /def _clock_hhmm\(base_epoch=None, offset_minutes=0\):/ },
+      { label: "status pulse palette", test: /ACTIVE_BREATH/ },
+      { label: "palette setting", test: /PALETTE/ },
+      { label: "renderer setting", test: /RENDERER/ },
+      { label: "geometry reporting", test: /GEOMETRY_MISMATCH/ },
+      { label: "actual panel width", test: /"actual_panel_w": WIDTH/ },
+      { label: "pax palette", test: /"pax_blue"/ },
+      { label: "tower palette", test: /"tower_scope"/ },
     ];
-    const missing = required.filter((marker) => !content.includes(marker));
+    const missing = required.filter((marker) => !marker.test.test(content)).map((marker) => marker.label);
     if (missing.length) {
+      console.warn("Generated Matrix main.py failed freshness markers:", missing);
       throw new Error("Generated board file is stale. Restart Local Flight and refresh this page.");
     }
   }
@@ -2605,7 +2610,7 @@ Board reads: /api/config -> /api/matrix/v2/devices/{id}/config -> /api/matrix/v2
     }
     if (d.animation_mode !== undefined || d.animation_enabled !== undefined) {
       ANIMATION_MODE = d.animation_enabled === false ? "static" : (d.animation_mode || ANIMATION_MODE);
-      if (!["split_flap", "typewriter", "cascade", "slide_left", "slide_right", "static"].includes(ANIMATION_MODE)) ANIMATION_MODE = "split_flap";
+      if (!MATRIX_SUPPORTED_ANIMATIONS.includes(ANIMATION_MODE)) ANIMATION_MODE = "split_flap";
       const sel = document.getElementById("animationModeSelect");
       if (sel) sel.value = ANIMATION_MODE;
       window.setAnimationMode(ANIMATION_MODE);
@@ -2657,6 +2662,16 @@ Board reads: /api/config -> /api/matrix/v2/devices/{id}/config -> /api/matrix/v2
     const suggested = preset?.options?.palette;
     if (Array.isArray(suggested) && suggested.length && !suggested.includes(MATRIX_PALETTE)) {
       window.setMatrixPalette(suggested[0]);
+    }
+    const allowedMotion = Array.isArray(preset?.options?.animation_mode)
+      ? preset.options.animation_mode.filter((mode) => MATRIX_SUPPORTED_ANIMATIONS.includes(mode))
+      : [];
+    if (allowedMotion.length && !allowedMotion.includes(ANIMATION_MODE)) {
+      window.setAnimationMode(allowedMotion[0]);
+    }
+    const speedDefault = preset?.options?.animation_speed?.default;
+    if (Number.isFinite(Number(speedDefault)) && allowedMotion.length) {
+      window.setAnimationSpeed(speedDefault);
     }
     syncGateToggleForPreset();
     updateCfgBlock();
@@ -2732,6 +2747,9 @@ Board reads: /api/config -> /api/matrix/v2/devices/{id}/config -> /api/matrix/v2
           palette: MATRIX_PALETTE,
           options: {
             palette: MATRIX_PALETTE,
+            animation_mode: ANIMATION_MODE,
+            animation_speed: ANIMATION_SPEED,
+            status_animation_enabled: STATUS_ANIMATION_ENABLED,
             show_metar: SHOW_WEATHER,
             show_weather: SHOW_WEATHER,
             show_gate_info: SHOW_GATE_INFO,
@@ -2761,6 +2779,9 @@ Board reads: /api/config -> /api/matrix/v2/devices/{id}/config -> /api/matrix/v2
             palette: MATRIX_PALETTE,
             options: {
               palette: MATRIX_PALETTE,
+              animation_mode: ANIMATION_MODE,
+              animation_speed: ANIMATION_SPEED,
+              status_animation_enabled: STATUS_ANIMATION_ENABLED,
               show_metar: SHOW_WEATHER,
               show_weather: SHOW_WEATHER,
               show_gate_info: SHOW_GATE_INFO,

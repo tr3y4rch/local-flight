@@ -4703,6 +4703,9 @@ def test_matrix_preview_download_payload_uses_defined_animation_state() -> None:
     assert "function setPreviewPalette(name)" in template
     assert "MATRIX_PALETTE_OPTIONS" in template
     assert "MATRIX_PANEL_PRESETS" in template
+    assert 'const MATRIX_SUPPORTED_ANIMATIONS = ["split_flap", "typewriter", "cascade", "slide_left", "slide_right", "static"]' in template
+    assert "MATRIX_SUPPORTED_ANIMATIONS.includes(ANIMATION_MODE)" in template
+    assert "preset.options.animation_mode" in template
     assert "row.matrix_flight_label" in template
     assert "row.matrix_operator_label" in template
     assert "row.matrix_codeshare_label" in template
@@ -4719,6 +4722,8 @@ def test_matrix_preview_download_payload_uses_defined_animation_state() -> None:
     assert "palette: MATRIX_PALETTE" in template
     assert "default_view: VIEW" in template
     assert "status_animation_enabled: STATUS_ANIMATION_ENABLED" in template
+    assert "animation_mode: ANIMATION_MODE" in template
+    assert "animation_speed: ANIMATION_SPEED" in template
     assert "show_weather: SHOW_WEATHER" in template
     assert "show_gate_info: SHOW_GATE_INFO" in template
     assert "preset: MATRIX_PRESET" in template
@@ -4729,6 +4734,8 @@ def test_matrix_preview_download_payload_uses_defined_animation_state() -> None:
     assert "return PANEL_H >= 96 && weatherLine(8) ? 30 : 20" not in template
     assert "function asciiText" in template
     assert "function clockLabel" in template
+    assert r"def _clock_hhmm\(base_epoch=None, offset_minutes=0\):" in template
+    assert "def _clock_hhmm(offset_minutes=0):" not in template
     assert "PANEL_W < 200" in template
     assert 'id="btnDep"' not in template
     assert 'id="btnArr"' not in template
