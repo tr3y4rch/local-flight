@@ -1209,6 +1209,7 @@ def _weather_temp_text():
 def draw_weather_mini(x, y, max_width):
     if not SHOW_WEATHER or not isinstance(_matrix_metar, dict):
         return 0
+    graphics.set_font("bitmap8")
     temp_s = _weather_temp_text()
     if not temp_s:
         return 0
@@ -1224,6 +1225,7 @@ def draw_weather_mini(x, y, max_width):
 def draw_weather_compact(x, y, max_width):
     if not SHOW_WEATHER or not isinstance(_matrix_metar, dict):
         return 0
+    graphics.set_font("bitmap8")
     glyph = _weather_glyph_name()
     condition = _upper_text(
         _matrix_metar.get("matrix_weather_label")
@@ -1259,6 +1261,9 @@ def draw_weather_compact(x, y, max_width):
     return cursor - x
 
 def draw_smart_header(view):
+    # Header placement math is based on bitmap8 glyph width. Rows may switch to
+    # bitmap6/tiny profiles, so reset the font before drawing the hero strip.
+    graphics.set_font("bitmap8")
     header_name = _airport_label or _airport_iata
     lane = "DEP" if view == "departures" else "ARR"
     weather_temp = _weather_temp_text()

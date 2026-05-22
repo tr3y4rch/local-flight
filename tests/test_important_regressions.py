@@ -4586,6 +4586,9 @@ def test_matrix_script_endpoint_uses_current_i75w_client_template() -> None:
     assert '"WX "' not in script
     assert "def _weather_temp_text():" in script
     assert "def draw_weather_mini(x, y, max_width):" in script
+    assert "def draw_weather_compact(x, y, max_width):" in script
+    assert 'def draw_smart_header(view):\n    # Header placement math is based on bitmap8 glyph width.' in script
+    assert 'graphics.set_font("bitmap8")\n    header_name = _airport_label or _airport_iata' in script
     assert "return 30 if HEIGHT >= 96 and _weather_line(8) else 20" not in script
     assert "def draw_vatsim_weather_page():" in script
     assert "def draw_vatsim_atc(flap_rows, fallback_rows, fallback_view):" in script
