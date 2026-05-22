@@ -65,15 +65,16 @@ def test_source_macos_app_launcher_redirects_bootstrap_output() -> None:
 def test_macos_icon_source_is_rounded_square_asset() -> None:
     icon = (ROOT / "assets" / "localflight-logo.svg").read_text(encoding="utf-8")
 
-    assert "Local Flight master logo" in icon
-    assert 'rx="196"' in icon
+    assert "Local Flight" in icon
+    assert "app icon dark" in icon
+    assert 'rx="150"' in icon
     assert "LOCAL FLIGHT" not in icon
 
 
-def test_macos_icon_fallback_draws_transparent_dock_tile() -> None:
+def test_macos_icon_fallback_draws_v2_dock_tile() -> None:
     icon = draw_macos_icon(256)
 
     assert icon.mode == "RGBA"
     assert icon.size == (256, 256)
-    assert icon.getpixel((0, 0))[3] == 0
+    assert icon.getpixel((0, 0))[3] == 255
     assert icon.getpixel((128, 128))[3] == 255

@@ -32,6 +32,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
   "httpx",
+  "playwright",
   "pytest",
   "pyinstaller>=6.0",
   "PySide6>=6.7",

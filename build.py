@@ -51,25 +51,19 @@ def make_icons() -> None:
     ]
 
     img = None
-    if svg_file.exists():
+    for png_file in png_candidates:
+        if png_file.exists():
+            img = Image.open(png_file).convert("RGBA")
+            print(f"Loaded synced V2 icon from {png_file.name}")
+            break
+    if img is None and svg_file.exists():
         try:
             import cairosvg
-            data = cairosvg.svg2png(url=str(svg_file), output_width=512, output_height=512)
+            data = cairosvg.svg2png(url=str(svg_file), output_width=1024, output_height=1024)
             img  = Image.open(io.BytesIO(data)).convert("RGBA")
             print(f"Rendered icon from {svg_file.name}")
         except Exception as exc:
             print(f"SVG icon render unavailable ({exc}) - checking for pre-rendered PNG")
-    if img is None:
-        for png_file in png_candidates:
-            if png_file.exists():
-                img = Image.open(png_file).convert("RGBA")
-                print(f"Loaded icon from {png_file.name}")
-                break
-    if img is None:
-        from scripts.brand_assets import draw_master_logo
-
-        img = draw_master_logo(1024, filled_background=False)
-        print("Generated Local Flight master icon via Pillow fallback")
     if img is None:
         img = _make_placeholder()
         print("Using placeholder icon (install cairosvg or pre-render SVG to PNG)")

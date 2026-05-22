@@ -5389,6 +5389,14 @@ def test_beacon_tools_site_uses_current_brand_assets() -> None:
             if name.startswith("beacon-tools-logo") or name.startswith("beacon-tools-mark"):
                 assert image.getchannel("A").getextrema()[0] == 0
 
+    expected_ico_sizes = {(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)}
+    for icon_path in (root / "assets" / "icon.ico", assets / "favicon.ico"):
+        assert icon_path.exists()
+        with Image.open(icon_path) as image:
+            ico = getattr(image, "ico", None)
+            assert ico is not None
+            assert set(ico.sizes()) == expected_ico_sizes
+
     for page in site.glob("**/*.html"):
         html = page.read_text(encoding="utf-8")
         assert 'href="/assets/favicon-32.png"' in html
