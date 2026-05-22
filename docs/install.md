@@ -4,7 +4,7 @@ Local Flight can run as a desktop app, a Raspberry Pi server, a kiosk display, a
 
 If you are unsure, use the packaged Windows or macOS app on a desktop first. It gives you the native GUI, the local server, browser access, mobile access, and Matrix support from one install.
 
-Public project docs live at [beacontools.cc/local-flight](https://beacontools.cc/local-flight), and the public privacy policy lives at [beacontools.cc/privacy](https://beacontools.cc/privacy). General/support email is [home@beacontools.cc](mailto:home@beacontools.cc); privacy and diagnostics requests go to [privacy@beacontools.cc](mailto:privacy@beacontools.cc).
+Public project docs live at [beacontools.cc/local-flight](https://beacontools.cc/local-flight), support starts at [beacontools.cc/support](https://beacontools.cc/support), and the public privacy policy lives at [beacontools.cc/privacy](https://beacontools.cc/privacy). Privacy and diagnostics requests can use [beacontools.cc/privacy/choices](https://beacontools.cc/privacy/choices).
 
 ---
 

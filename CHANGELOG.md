@@ -35,7 +35,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Added the Beacon Tools website logo system, including the public-site nav mark, favicon/touch icons, and homepage lockup while keeping Local Flight app marks on product-specific panels.
 - Reworded the public Network page as an end-user relay explainer and removed explicit operator/admin route copy from public navigation copy.
 - Disclosed Linear as the developer triage inbox for consent-based manual reports and automatic diagnostics in the privacy documentation.
-- Refreshed developer-facing handoff docs so future release/package work starts from the Beacon Tools relay defaults, current validation status, stale artifact warning, macOS/mobile/Android QA notes, and Cloudflare Pages workflow.
+- Refreshed developer-facing handoff docs so future release/package work starts from the Beacon Tools relay defaults, current validation status, current Windows/Pi package status, macOS/mobile/Android QA notes, and Cloudflare Pages workflow.
 
 ### History movement hardening
 - Added a canonical `history_movements` layer beside the raw `flights` observation table. User-facing History now counts deduped movements instead of repeated board snapshot rows.

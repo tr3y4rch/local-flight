@@ -183,9 +183,10 @@ This operator console is not part of the normal public client navigation.
 
 ## Release Packaging
 
-Windows and Raspberry Pi artifacts should be built from the current `0.2.7`
-tree. Older `0.2.6` artifacts and any pre-Standalone/pre-Matrix-integrity
-`0.2.7` artifacts should be treated as stale after the client-polish changes.
+Windows and Raspberry Pi artifacts should be built from the final `0.2.7`
+tree after the client-polish, Beacon Tools, Matrix, and support-form changes.
+Older `0.2.6` artifacts and any pre-final `0.2.7` artifacts should be treated
+as stale.
 
 macOS still needs its own packaging and smoke-test pass on a Mac before a full
 cross-platform GitHub release.

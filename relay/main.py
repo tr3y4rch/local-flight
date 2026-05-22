@@ -8035,7 +8035,7 @@ def _localflight_version_label() -> str:
 
         return version("localflight")
     except Exception:
-        return "0.2.6"
+        return "0.2.7"
 
 
 def _airport_result_payload(rec: Any, *, include_coords: bool = False) -> Dict[str, Any]:

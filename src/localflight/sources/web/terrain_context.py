@@ -62,7 +62,7 @@ def fetch_terrain_tile(*, z: int, x: int, y: int, timeout_s: float = DEFAULT_TER
     response = requests.get(
         _tile_url(z, x, y),
         timeout=timeout_s,
-        headers={"User-Agent": "local-flight/0.2.6 (+https://beacontools.cc/local-flight)"},
+        headers={"User-Agent": "local-flight/0.2.7 (+https://beacontools.cc/local-flight)"},
     )
     response.raise_for_status()
     return Image.open(BytesIO(response.content)).convert("RGB")
