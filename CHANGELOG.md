@@ -30,6 +30,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Added `relay.beacontools.cc` as the official relay hostname, moved the relay's public/admin host defaults to `relay.beacontools.cc` and `network.beacontools.cc`, and flipped client relay defaults to `https://relay.beacontools.cc` after DNS and Fly TLS were verified. The Fly.io root remains accepted for existing installs.
 - Public copy now uses `home@beacontools.cc` for general/support contact and `privacy@beacontools.cc` for privacy and diagnostics requests.
 - Refreshed the public README, install/display guides, mobile docs, App Store/TestFlight notes, release notes, preview gallery captions, and Cloudflare Pages copy so they describe the current native, LAN browser, mobile Standalone/Companion, Matrix, History, relay, and privacy behavior.
+- Refreshed developer-facing handoff docs so future release/package work starts from the Beacon Tools relay defaults, current validation status, stale artifact warning, macOS/mobile/Android QA notes, and Cloudflare Pages workflow.
 
 ### History movement hardening
 - Added a canonical `history_movements` layer beside the raw `flights` observation table. User-facing History now counts deduped movements instead of repeated board snapshot rows.
