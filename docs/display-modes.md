@@ -63,6 +63,12 @@ colour tokens, same shared components (panels, cards, kicker labels,
 disclosure cards, status pills, buttons). Picking a theme or skin in
 Settings retints both surfaces the same way.
 
+Preliminary `0.2.8` polish continues that parity work in Settings: Outputs/Radar,
+Profiles, Pair Mobile, timing, maintenance, relay details, and diagnostics/docs
+now use the same collapsed folder model in the LAN browser as the Qt shell. The
+LAN Settings page also exposes the same Companion QR/manual pairing path, paired
+device refresh, copy-link/copy-URL actions, and reset action.
+
 Use it when:
 
 - You run Local Flight headless on a Pi.
@@ -174,6 +180,10 @@ Use LAN Companion for:
 - Help, troubleshooting, and manual feedback from the Help & Reports card inside Control
 - Safe Matrix live-remote controls from Control
 - Automatic diagnostics only when both mobile and host allow them
+
+Pair from the native Qt Settings page or the LAN browser Settings page. Both
+surfaces show a reusable QR code, the preferred LAN URL, manual fallbacks, and a
+server fingerprint. Keep the `:8000` port in manual URLs.
 
 ### Standalone
 

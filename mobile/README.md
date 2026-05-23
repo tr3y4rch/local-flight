@@ -177,9 +177,12 @@ Enter the Local Flight server URL from your LAN, for example:
 
 ```text
 http://192.168.1.42:8000
+http://localflight.local:8000
 ```
 
-Do not use `localhost` on a physical iPhone. `localhost` means the phone itself, not your Mac, Windows PC, or Raspberry Pi.
+Do not use `localhost` on a physical iPhone or Android phone. `localhost` means the phone itself, not your Mac, Windows PC, or Raspberry Pi. Keep the `:8000` port in manual URLs.
+
+For the easiest setup, open **Pair Mobile** from the native Qt Settings page or the LAN browser Settings page and scan the QR code. The QR is fingerprint-bound to the server that created it, and the same card shows manual LAN URL fallbacks when scanning is not convenient.
 
 ### Standalone
 

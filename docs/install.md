@@ -15,7 +15,7 @@ Public project docs live at [beacontools.cc/local-flight](https://beacontools.cc
 - You can choose **Local Flight Relay**, **Use your own keys**, or **VATSIM**.
 - The official hosted relay is `https://relay.beacontools.cc`; older Fly.io relay roots remain compatibility-only for existing installs.
 - Diagnostics are optional. Manual reports stay available even if automatic diagnostics are off.
-- The current client target is `0.2.7`. It is still beta software, but the client paths are now intended to work across the supported display types.
+- The current client target is `0.2.7`. It is still beta software, but the client paths are now intended to work across the supported display types. Preliminary `0.2.8` notes exist for the next docs/LAN Settings/mobile pairing polish, but release artifacts are still `0.2.7` until the version is deliberately bumped.
 
 ---
 
@@ -183,9 +183,9 @@ http://192.168.1.42:8000
 http://localflight.local:8000
 ```
 
-Do not use `localhost` on a phone. On a phone, `localhost` means the phone itself, not your Mac, Windows PC, or Raspberry Pi. Prefer the LAN IP shown in Local Flight Settings when more than one Local Flight server is on the same network; `localflight.local` is convenient but can point at a different Pi/desktop if you run multiple servers.
+Do not use `localhost` on a phone. On a phone, `localhost` means the phone itself, not your Mac, Windows PC, or Raspberry Pi. Keep the `:8000` port in manual URLs. Prefer the LAN IP shown in Local Flight Settings when more than one Local Flight server is on the same network; `localflight.local` is convenient but can point at a different Pi/desktop if you run multiple servers.
 
-The QR pairing code in native Settings is fingerprint-bound to the server that created it. If your phone scans a QR that resolves to another Local Flight host, the mobile app refuses to save that pairing instead of silently connecting to the wrong server.
+The QR pairing code in native Settings and LAN browser Settings is fingerprint-bound to the server that created it. If your phone scans a QR that resolves to another Local Flight host, the mobile app refuses to save that pairing instead of silently connecting to the wrong server.
 
 LAN Companion keeps the richer paired experience: server WebSocket updates, host status, airport/source/refresh controls, History, support/reporting, safe Matrix live-remote controls, and mobile/server double-consent for automatic diagnostics.
 

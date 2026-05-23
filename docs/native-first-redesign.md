@@ -9,12 +9,14 @@ For user-facing install and display-choice guidance, use:
 
 ## Current Checkpoint
 
-As of the `0.2.7` client-polish line on 2026-05-22:
+As of the `0.2.7` client-polish line on 2026-05-22, with preliminary `0.2.8`
+parity notes added on 2026-05-23:
 
 - Native Qt remains the intended primary desktop/display shell; LAN browser UI remains a supported access/display surface.
 - The native main shell now groups brand/primary pages, a centered UTC/LT clock divider, and utility pages/sync/power as separate visual regions.
 - FIDS now uses a passenger-facing city/country title, compact weather hero, readable ARR/DEP/Refresh actions, operating-first flight identity, compact aircraft codes on the board, true Classic/PAX/VATSIM/Nerd visual styles, and richer detail drawers.
 - History, Matrix, Settings, Setup, Radar details, LAN/browser parity, mobile LAN Companion/Standalone, Beacon Tools docs links, and relay defaults are current release-candidate smoke areas.
+- The next parity checkpoint is LAN Settings: browser Settings should keep the same disclosure-folder order as native Settings and include Pair Mobile QR/manual pairing, paired-device status refresh, copy-link/copy-URL, and reset controls.
 - Beacon Tools is the public home: product/docs at `https://beacontools.cc/local-flight`, privacy at `https://beacontools.cc/privacy`, public relay at `https://relay.beacontools.cc`, and operator admin at `https://network.beacontools.cc/admin`. Native and browser docs links should say "Open online" when they point to Beacon Tools, not "Open on GitHub".
 - Current validation history: earlier full Windows release-candidate sweep returned `423 passed`; after the Beacon relay/default work, focused relay/native tests returned `392 passed`, compileall passed, mobile typecheck passed, and `git diff --check` passed; after the public/dev docs refresh, the doc/native regression slice returned `287 passed` and the static HTML parse check passed. After Matrix v4 renderer/live-settings/local-clock/web-preview hardening, focused Matrix checks passed and the full Windows/Codex suite returned `432 passed`.
 - Release packages must be rebuilt from the current `0.2.7` tree; older `0.2.6`, pre-Matrix-integrity `0.2.7`, and pre-Beacon-docs/relay-default artifact hashes are stale after this polish pass.

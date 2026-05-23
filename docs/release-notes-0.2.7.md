@@ -6,6 +6,11 @@ is calmer, FIDS reads more like a passenger board, setup/settings/history/matrix
 are friendlier, the LAN browser UI remains a supported access surface, and the
 mobile app now has a clear LAN Companion vs Standalone shape.
 
+Post-release-candidate polish is tracked separately in
+[0.2.8 Preliminary Notes](release-notes-0.2.8.md). Those notes do not imply a
+package version bump yet; `0.2.7` remains the current artifact target until the
+version is deliberately changed.
+
 This release does not change the basic setup choices. You can still use
 Local Flight Relay, use your own provider keys, or run VATSIM-only virtual
 traffic.

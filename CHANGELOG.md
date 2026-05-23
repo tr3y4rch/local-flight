@@ -6,6 +6,30 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.2.8] - Preliminary
+
+> Preliminary next-line notes after the `0.2.7` release candidate. The package
+> version has not been bumped yet; this section tracks post-RC polish so docs,
+> handoff notes, and public copy do not drift while the final scope is decided.
+>
+> For the public-facing summary, see
+> [docs/release-notes-0.2.8.md](docs/release-notes-0.2.8.md).
+
+### LAN Settings parity
+- Brought the LAN browser Settings page back into parity with the native Qt shell.
+- Moved Outputs/Radar and Profiles into collapsed folder cards by default, matching the calmer Qt Settings dashboard rhythm.
+- Added the same folder order used by the native shell: Outputs & Radar, Profiles, Pair Mobile, Advanced board timing, Maintenance, Relay details, and Diagnostics & Docs.
+- Added browser-side Pair Mobile pairing controls with reusable QR, preferred LAN URL, manual URL fallbacks, server fingerprint, paired-device refresh, copy-link/copy-URL actions, and reset paired devices.
+- Updated the LAN Settings status strip to follow the Qt client-state shape more closely: Airport, Data, Refresh, Relay, and Surface.
+
+### Documentation and preview planning
+- Added preliminary `0.2.8` release notes without changing the active app/package target from `0.2.7`.
+- Documented `assets/mobile-previews/` as the real screenshot source for future mobile preview graphics, split by Android and iOS.
+- Captured the preview priority order for public docs/site imagery: FIDS, Radar, History, Setup, Display, Splash.
+- Clarified the Beacon Tools production deploy path: the public site is served by the Cloudflare Worker + Assets deploy, while dashboard `.dev` previews do not automatically update the custom domain.
+
+---
+
 ## [0.2.7]
 
 > Client-polish release-candidate pass on top of the `0.2.6` baseline.
@@ -26,16 +50,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Beacon Tools public home
 - Beacon Tools is now the public home for Local Flight at `https://beacontools.cc/local-flight`, with the public privacy policy at `https://beacontools.cc/privacy`.
-- Added a no-build Cloudflare Pages site under `site/` for the Beacon Tools home, Local Flight product page, privacy page, and `/local-flight/privacy` redirect.
+- Added a no-build Cloudflare Worker + Assets site under `site/` for the Beacon Tools home, Local Flight product page, privacy page, and `/local-flight/privacy` redirect.
 - Added `relay.beacontools.cc` as the official relay hostname, moved the relay's public/admin host defaults to `relay.beacontools.cc` and `network.beacontools.cc`, and flipped client relay defaults to `https://relay.beacontools.cc` after DNS and Fly TLS were verified. The Fly.io root remains accepted for existing installs.
 - Public copy now routes general/support contact through the Beacon Tools support page while keeping the privacy contact discoverable on the privacy/choices pages.
 - Added public Beacon Tools support forms: a relay-backed contact form that delivers to the support mailbox and a sanitized manual bug-report form that files into Linear without exposing Linear credentials.
-- Refreshed the public README, install/display guides, mobile docs, App Store/TestFlight notes, release notes, preview gallery captions, and Cloudflare Pages copy so they describe the current native, LAN browser, mobile Standalone/Companion, Matrix, History, relay, and privacy behavior.
+- Refreshed the public README, install/display guides, mobile docs, App Store/TestFlight notes, release notes, preview gallery captions, and Cloudflare public-site copy so they describe the current native, LAN browser, mobile Standalone/Companion, Matrix, History, relay, and privacy behavior.
 - Replaced stale desktop preview illustrations with current Qt screenshot cards for FIDS, Radar, History, Settings, and Matrix across the README gallery and Beacon Tools site assets.
 - Added the Beacon Tools website logo system, including the public-site nav mark, favicon/touch icons, and homepage lockup while keeping Local Flight app marks on product-specific panels.
 - Reworded the public Network page as an end-user relay explainer and removed explicit operator/admin route copy from public navigation copy.
 - Disclosed Linear as the developer triage inbox for consent-based manual reports and automatic diagnostics in the privacy documentation.
-- Refreshed developer-facing handoff docs so future release/package work starts from the Beacon Tools relay defaults, current validation status, current Windows/Pi package status, macOS/mobile/Android QA notes, and Cloudflare Pages workflow.
+- Refreshed developer-facing handoff docs so future release/package work starts from the Beacon Tools relay defaults, current validation status, current Windows/Pi package status, macOS/mobile/Android QA notes, and Cloudflare Worker + Assets workflow.
 
 ### History movement hardening
 - Added a canonical `history_movements` layer beside the raw `flights` observation table. User-facing History now counts deduped movements instead of repeated board snapshot rows.

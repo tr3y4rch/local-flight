@@ -16,7 +16,7 @@ The recommended desktop client is now the native Qt app. The LAN browser UI, Pi 
 
 ## Status
 
-`0.2.7` is the current client-polish release-candidate target on top of the `0.2.6` beta baseline. It is still beta software, but this pass treats Local Flight as a working multi-client app:
+`0.2.7` is the current client-polish release-candidate target on top of the `0.2.6` beta baseline. Preliminary `0.2.8` notes are now tracking the next polish line, but packaged artifacts are still considered `0.2.7` until the version is deliberately bumped. It is still beta software, but this pass treats Local Flight as a working multi-client app:
 
 - Native desktop app for Windows and macOS, with four switchable FIDS board styles (Classic / PAX / VATSIM / Nerd) that each render their own design
 - LAN browser UI that mirrors the native Qt shell — same nav, same tokens, same components — with an automatic mobile view for phones and a compact layout for 7" Raspberry Pi screens
@@ -46,6 +46,7 @@ Read the detailed guides:
 - [Display Modes](docs/display-modes.md)
 - [Privacy & Diagnostics](PRIVACY.md)
 - [0.2.7 Client Notes](docs/release-notes-0.2.7.md)
+- [0.2.8 Preliminary Notes](docs/release-notes-0.2.8.md)
 - [Full Changelog](CHANGELOG.md)
 
 ---
@@ -59,10 +60,10 @@ Read the detailed guides:
 - Four switchable FIDS board styles in the native shell — **Classic**, **PAX**, **VATSIM**, **Nerd** — each with its own chrome, palette, column set, status styling, and viewport-aware scaling
 - Radar with real/VATSIM traffic, METAR weather, range controls, optional runway/surface/map/terrain context, mobile-specific range policies, and richer aircraft/status detail
 - Native Qt desktop shell with Display, FIDS, Radar, Matrix, Settings, Admin, History, Logs, Report, and local docs
-- Settings page built from clear disclosure cards instead of opaque checkbox-titled groups
-- LAN browser UI for headless installs, remote screens, tablets, phones, and browser-mode displays, with compact layouts for 7" Pi touch screens
+- Settings page built from clear disclosure cards instead of opaque checkbox-titled groups; the LAN browser Settings page now follows the same folder rhythm and includes Pair Mobile QR/manual pairing controls.
+- LAN browser UI for headless installs, remote screens, tablets, phones, and browser-mode displays, with compact layouts for 7" Pi touch screens and browser-side access to the same Companion pairing tools as the Qt shell
 - Mobile app with a first-run choice between **LAN Companion** and **Standalone**: Companion focuses on Board, Radar, History, and Control for an existing desktop/Pi host, with Help & Reports tucked into Control and safe Matrix live-remote controls where they make sense. Standalone offers a simpler FIDS/Radar/History/Settings experience through the Beacon Tools relay with slower refreshes and no server-control tools. The mobile shell keeps its own appearance, branded launch overlay, and small native-feeling interactions.
-- QR pairing in native Settings now prefers the actual LAN IP and carries the server fingerprint, so an iPhone will not silently connect to a different Local Flight host if `localflight.local` resolves to another Pi/desktop on the same network.
+- QR pairing in native and LAN Settings now prefers the actual LAN IP and carries the server fingerprint, so an iPhone or Android phone will not silently connect to a different Local Flight host if `localflight.local` resolves to another Pi/desktop on the same network.
 - History dashboard with filters, delay buckets, airline delay quotas, route/aircraft stats, sortable recent movements, and detail panels. Repeated snapshots and known codeshares are deduped so the count means actual movements, not raw board rows.
 - Matrix tooling for Interstate 75 W / HUB75 boards, including panel presets, board-mirror preview, optional real-world gate/stand display, compact weather headers, runtime settings, split-flap/typewriter/cascade motion, generated MicroPython `main.py`, and renderer-revision warnings when a board needs a refreshed file.
 - Shared flight detail intelligence for FIDS, Radar, History, Matrix, native Qt, and LAN browser views, using current local snapshots, radar data, weather, and history without new per-click provider calls
@@ -72,7 +73,7 @@ Read the detailed guides:
 
 ## Preview
 
-These previews mix current Qt screenshot cards with lightweight mobile illustrations. They are product previews, not operational telemetry.
+These previews mix current Qt screenshot cards with lightweight mobile illustrations. They are product previews, not operational telemetry. Preliminary `0.2.8` preview work should use the real Android/iOS source screenshots under `assets/mobile-previews/` when refreshing mobile imagery.
 
 Open [docs/previews/index.html](docs/previews/index.html) locally for the standalone HTML gallery.
 
