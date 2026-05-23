@@ -92,6 +92,12 @@ html, body {
   color: var(--lf-text);
   font-family: var(--font-ui);
 }
+button,
+input,
+select,
+textarea {
+  font-family: var(--font-ui);
+}
 body {
   /* app.css forces grid+place-items:center which breaks full-page
      layouts.  Override here so each page can lay itself out as a
@@ -108,9 +114,9 @@ body {
 
 .lf-shell-nav {
   display: grid;
-  grid-template-columns: minmax(0, auto) minmax(0, 1fr) minmax(0, auto);
+  grid-template-columns: minmax(0, auto) minmax(0, auto) minmax(12px, 1fr) minmax(0, auto) minmax(12px, 1fr) minmax(0, auto);
   align-items: center;
-  gap: 14px;
+  gap: 10px;
   padding: 10px 18px;
   min-height: 60px;
   background: linear-gradient(180deg, rgba(8, 14, 22, 0.96), rgba(8, 14, 22, 0.85));
@@ -130,14 +136,29 @@ html[data-theme="light"] .lf-shell-nav {
 
 .lf-shell-left,
 .lf-shell-center,
+.lf-shell-clock,
 .lf-shell-right {
   display: flex;
   align-items: center;
   gap: 8px;
   min-width: 0;
 }
-.lf-shell-center { justify-self: center; }
-.lf-shell-right  { justify-self: end; }
+.lf-shell-left { justify-self: start; grid-column: 1; }
+.lf-shell-center { justify-self: start; grid-column: 2; }
+.lf-shell-clock { justify-self: center; grid-column: 4; }
+.lf-shell-right  { justify-self: end; grid-column: 6; }
+
+.lf-shell-nav,
+.lf-shell-nav *,
+.lf-display-shell,
+.lf-display-shell * {
+  font-family: var(--font-ui);
+}
+.lf-shell-nav button,
+.lf-display-shell button {
+  width: auto;
+  margin-top: 0;
+}
 
 /* ---- Brand block ----------------------------------------- */
 .lf-brand {
@@ -211,6 +232,10 @@ html[data-theme="light"] .lf-shell-nav {
 .lf-clock-val {
   font-weight: 700;
   color: var(--lf-text);
+}
+.lf-clock-chip,
+.lf-clock-chip * {
+  font-family: var(--font-board);
 }
 
 /* ---- Center tab group ------------------------------------ */
@@ -321,6 +346,7 @@ html[data-theme="light"] .lf-shell-nav {
   color: var(--lf-muted);
   font-size: 0.82rem;
   font-weight: 700;
+  font-family: var(--font-ui);
   cursor: pointer;
   transition: background 0.12s, color 0.12s, border-color 0.12s;
 }
@@ -337,6 +363,102 @@ html[data-theme="light"] .lf-shell-nav {
   stroke-width: 1.8;
   stroke-linecap: round;
   stroke-linejoin: round;
+}
+
+/* ---- Display page controls ------------------------------- */
+.lf-display-shell {
+  height: 100vh;
+  height: 100dvh;
+  width: 100vw;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--lf-bg);
+}
+
+.lf-display-controls {
+  min-height: 42px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 14px;
+  border-bottom: 1px solid var(--lf-line-soft);
+  background: var(--lf-panel);
+}
+
+.lf-display-controls-left,
+.lf-display-controls-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.lf-display-mode-switcher {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  border-radius: var(--lf-radius-md);
+  background: var(--lf-panel-2);
+  border: 1px solid var(--lf-line-soft);
+}
+
+.lf-display-mode-btn,
+.lf-display-fullscreen {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 30px;
+  width: auto;
+  margin-top: 0;
+  padding: 5px 10px;
+  border-radius: var(--lf-radius-sm);
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--lf-muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+}
+
+.lf-display-mode-btn:hover,
+.lf-display-fullscreen:hover {
+  background: var(--lf-surface-soft);
+  color: var(--lf-text);
+}
+
+.lf-display-mode-btn.active {
+  background: var(--lf-accent-soft);
+  border-color: var(--lf-accent-border);
+  color: var(--lf-text);
+}
+
+.lf-display-fullscreen {
+  background: var(--lf-panel-2);
+  border-color: var(--lf-line-soft);
+}
+
+.lf-display-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--lf-muted);
+  font-family: var(--font-board);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.lf-display-status,
+.lf-display-status * {
+  font-family: var(--font-board);
 }
 
 /* ============================================================
@@ -673,6 +795,17 @@ html[data-theme="light"] .lf-shell-nav {
   .lf-power { padding: 5px 10px; font-size: 0.74rem; }
   .lf-power svg { width: 12px; height: 12px; }
 
+  .lf-display-controls {
+    min-height: 36px;
+    padding: 4px 10px;
+  }
+  .lf-display-mode-btn,
+  .lf-display-fullscreen {
+    min-height: 28px;
+    padding: 4px 8px;
+    font-size: 0.72rem;
+  }
+
   /* --- Page body: less whitespace ------------------------- */
   .lf-page { padding: 12px 12px 16px; }
   .lf-page-hero { margin-bottom: 10px; gap: 2px; }
@@ -705,6 +838,7 @@ html[data-theme="light"] .lf-shell-nav {
   .lf-iconbar .lf-iconbtn[href="/feedback"] { display: none; }
   .lf-power .lf-power-label { display: none; }
   .lf-power { padding: 4px 8px; }
+  .lf-display-status { display: none; }
 }
 
 /* Smallest official Pi 7" (800×480) — strip the UTC chip too. */

@@ -3245,6 +3245,33 @@ def test_web_brand_font_is_bundled_and_scoped_to_brand_surfaces() -> None:
     assert "font-family: var(--font-brand)" not in Path("src/localflight/ui/static/app.css").read_text(encoding="utf-8")
 
 
+def test_lan_display_uses_shared_brand_shell_nav_and_fonts() -> None:
+    from pathlib import Path
+
+    base_template = Path("src/localflight/ui/templates/base.html").read_text(encoding="utf-8")
+    display_template = Path("src/localflight/ui/templates/display.html").read_text(encoding="utf-8")
+    nav_template = Path("src/localflight/ui/templates/_nav.html").read_text(encoding="utf-8")
+    shell_css = Path("src/localflight/ui/static/lf-shell.css").read_text(encoding="utf-8")
+
+    assert '{% extends "base.html" %}' in display_template
+    assert 'topnav(active="display", cfg=cfg)' in display_template
+    assert "/static/fonts.css" in base_template
+    assert "/static/lf-shell.css" in base_template
+    assert "/static/localflight-logo.svg" in nav_template
+    assert "/static/localflight-app-icon.png" in base_template
+    assert "topbar" not in display_template
+    assert "site-name" not in display_template
+    assert "settings-link" not in display_template
+
+    assert 'class="lf-shell-clock"' in nav_template
+    assert nav_template.index('class="lf-shell-center"') < nav_template.index('class="lf-shell-clock"') < nav_template.index('class="lf-shell-right"')
+    assert "grid-template-columns: minmax(0, auto) minmax(0, auto) minmax(12px, 1fr) minmax(0, auto) minmax(12px, 1fr) minmax(0, auto);" in shell_css
+    assert ".lf-display-shell" in shell_css
+    assert ".lf-shell-nav button" in shell_css
+    assert "font-family: var(--font-ui)" in shell_css
+    assert ".lf-clock-chip *" in shell_css
+
+
 def test_setup_guidance_copy_is_shared_and_user_facing() -> None:
     from localflight.ui.setup_guidance import DIAGNOSTICS_OPTIONS, SOURCE_OPTIONS, STEP_NAMES, STEP_SHORT_LABELS, WELCOME_CARDS
 

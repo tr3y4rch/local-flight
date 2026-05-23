@@ -19,6 +19,14 @@
 #define OutputDir "..\..\dist"
 #endif
 
+#ifndef WizardImageFile
+#define WizardImageFile "..\..\build\windows-installer-branding\wizard-image.bmp"
+#endif
+
+#ifndef WizardSmallImageFile
+#define WizardSmallImageFile "..\..\build\windows-installer-branding\wizard-small.bmp"
+#endif
+
 #define AppName "Local Flight"
 #define AppExeName "LocalFlight.exe"
 #define AppPublisher "Beacon Tools"
@@ -41,6 +49,8 @@ LicenseFile=..\..\LICENSE
 OutputDir={#OutputDir}
 OutputBaseFilename=LocalFlight-{#AppVersion}-Setup
 SetupIconFile=..\..\assets\icon.ico
+WizardImageFile={#WizardImageFile}
+WizardSmallImageFile={#WizardSmallImageFile}
 UninstallDisplayIcon={app}\{#AppExeName}
 UninstallDisplayName={#AppName}
 VersionInfoVersion={#AppVersion}

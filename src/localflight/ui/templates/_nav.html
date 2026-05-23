@@ -1,24 +1,17 @@
 {#
-  localflight/ui/templates/_nav.html
+  Shared navigation bar for Local Flight browser/LAN pages.
 
-  Shared navigation bar for all Local Flight pages.  Mirrors the
-  layout of the Qt desktop shell (brand + clocks · centred tab group
-  · operator icon-chips · power) using the .lf-shell-* classes in
-  static/lf-shell.css.
+  Mirrors the Qt desktop shell:
+    brand + primary tabs · UTC/LT divider · operator tools + live + power
 
   Usage:
     {% from "_nav.html" import topnav %}
     {{ topnav(active="settings", cfg=cfg) }}
-
-  active: one of "display" | "fids" | "radar" | "matrix" |
-                 "settings" | "admin" | "history" | "logs" | "feedback"
 #}
 
 {% macro topnav(active="", cfg=none, embedded=false) %}
 {% if not embedded %}
 <nav class="lf-shell-nav lf-nav" aria-label="Local Flight navigation">
-
-  {# ── Left: brand mark + name + version + clock chips ─────────── #}
   <div class="lf-shell-left">
     <a href="/display" class="lf-brand" title="Local Flight home">
       <span class="lf-brand-mark" aria-hidden="true">
@@ -29,7 +22,38 @@
         <span class="lf-brand-ver">v{{ app_version }}</span>
       </span>
     </a>
+  </div>
 
+  <div class="lf-shell-center">
+    <div class="lf-tabgroup" role="tablist">
+      <a href="/display"
+         class="lf-tab {% if active == 'display' %}is-active{% endif %}"
+         role="tab" title="Split display">
+        <span class="lf-tab-glyph" aria-hidden="true">&#128421;</span>
+        <span class="lf-tab-label">Display</span>
+      </a>
+      <a href="/fids?view=departures"
+         class="lf-tab {% if active == 'fids' %}is-active{% endif %}"
+         role="tab" title="FIDS board">
+        <span class="lf-tab-glyph" aria-hidden="true">&#9992;</span>
+        <span class="lf-tab-label">FIDS</span>
+      </a>
+      <a href="/radar"
+         class="lf-tab {% if active == 'radar' %}is-active{% endif %}"
+         role="tab" title="Live radar">
+        <span class="lf-tab-glyph" aria-hidden="true">&#9678;</span>
+        <span class="lf-tab-label">Radar</span>
+      </a>
+      <a href="/matrix-preview"
+         class="lf-tab {% if active == 'matrix' %}is-active{% endif %}"
+         role="tab" title="Matrix preview">
+        <span class="lf-tab-glyph" aria-hidden="true">&#9638;</span>
+        <span class="lf-tab-label">Matrix</span>
+      </a>
+    </div>
+  </div>
+
+  <div class="lf-shell-clock">
     <div class="lf-clock-group" aria-label="Current time">
       <span class="lf-clock-chip" title="Coordinated Universal Time">
         <span class="lf-clock-tag">UTC</span>
@@ -42,54 +66,23 @@
     </div>
   </div>
 
-  {# ── Center: primary destinations (Qt segmented tab group) ───── #}
-  <div class="lf-shell-center">
-    <div class="lf-tabgroup" role="tablist">
-      <a href="/display"
-         class="lf-tab {% if active == 'display' %}is-active{% endif %}"
-         role="tab" title="Split display">
-        <span class="lf-tab-glyph" aria-hidden="true">🖥</span>
-        <span class="lf-tab-label">Display</span>
-      </a>
-      <a href="/fids?view=departures"
-         class="lf-tab {% if active == 'fids' %}is-active{% endif %}"
-         role="tab" title="FIDS board">
-        <span class="lf-tab-glyph" aria-hidden="true">🛫</span>
-        <span class="lf-tab-label">FIDS</span>
-      </a>
-      <a href="/radar"
-         class="lf-tab {% if active == 'radar' %}is-active{% endif %}"
-         role="tab" title="Live radar">
-        <span class="lf-tab-glyph" aria-hidden="true">🛰</span>
-        <span class="lf-tab-label">Radar</span>
-      </a>
-      <a href="/matrix-preview"
-         class="lf-tab {% if active == 'matrix' %}is-active{% endif %}"
-         role="tab" title="Matrix preview">
-        <span class="lf-tab-glyph" aria-hidden="true">🟩</span>
-        <span class="lf-tab-label">Matrix</span>
-      </a>
-    </div>
-  </div>
-
-  {# ── Right: operator chips (settings/admin/history/logs/report) + power ── #}
   <div class="lf-shell-right">
     <div class="lf-iconbar" aria-label="Operator tools">
       <a href="/"
          class="lf-iconbtn {% if active == 'settings' %}is-active{% endif %}"
-         title="Settings" aria-label="Settings">⚙</a>
+         title="Settings" aria-label="Settings">&#9881;</a>
       <a href="/admin"
          class="lf-iconbtn {% if active == 'admin' %}is-active{% endif %}"
-         title="Admin hub" aria-label="Admin">🛠</a>
+         title="Admin hub" aria-label="Admin">&#128736;</a>
       <a href="/history"
          class="lf-iconbtn {% if active == 'history' %}is-active{% endif %}"
-         title="Flight history" aria-label="History">📅</a>
+         title="Flight history" aria-label="History">&#128197;</a>
       <a href="/logs"
          class="lf-iconbtn {% if active == 'logs' %}is-active{% endif %}"
-         title="Logs" aria-label="Logs">📜</a>
+         title="Logs" aria-label="Logs">&#128220;</a>
       <a href="/feedback"
          class="lf-iconbtn {% if active == 'feedback' %}is-active{% endif %}"
-         title="Report an issue" aria-label="Report">💬</a>
+         title="Report an issue" aria-label="Report">&#128172;</a>
       <span class="lf-iconbtn is-status" title="Scheduler heartbeat" aria-label="Live"></span>
     </div>
 
@@ -143,4 +136,4 @@ async function lfQuitConfirm() {
 {% endif %}
 {% endmacro %}
 
-{% macro nav_styles() %}{# NOOP — superseded by static/lf-shell.css #}{% endmacro %}
+{% macro nav_styles() %}{# NOOP - superseded by static/lf-shell.css #}{% endmacro %}
