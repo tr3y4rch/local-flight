@@ -5370,6 +5370,9 @@ def test_beacon_tools_site_uses_current_brand_assets() -> None:
     root = Path(__file__).resolve().parents[1]
     site = root / "site"
     assets = site / "assets"
+    manifest = json.loads((root / "assets" / "brand-manifest.json").read_text(encoding="utf-8"))
+    assert manifest["phase"] == "package-qt-lan-mobile-site"
+    manifest_paths = {entry["path"] for entry in manifest["active_outputs"]}
     expected_assets = {
         "beacon-tools-logo.png": (1200, 349),
         "beacon-tools-mark.png": (512, 512),
@@ -5378,14 +5381,20 @@ def test_beacon_tools_site_uses_current_brand_assets() -> None:
         "beacon-tools-icon-512.png": (512, 512),
         "apple-touch-icon.png": (180, 180),
         "favicon-32.png": (32, 32),
+        "localflight-icon.png": (1024, 1024),
+        "localflight-icon-light.png": (1024, 1024),
     }
 
     for name, size in expected_assets.items():
+        assert f"site/assets/{name}" in manifest_paths
         path = assets / name
         assert path.exists()
         with Image.open(path) as image:
             assert image.size == size
-            assert image.mode == "RGBA"
+            if name.startswith("localflight-icon"):
+                assert image.mode in {"RGB", "RGBA"}
+            else:
+                assert image.mode == "RGBA"
             if name.startswith("beacon-tools-logo") or name.startswith("beacon-tools-mark"):
                 assert image.getchannel("A").getextrema()[0] == 0
 
@@ -5399,6 +5408,7 @@ def test_beacon_tools_site_uses_current_brand_assets() -> None:
 
     for page in site.glob("**/*.html"):
         html = page.read_text(encoding="utf-8")
+        assert 'href="/assets/favicon.ico"' in html
         assert 'href="/assets/favicon-32.png"' in html
         assert 'href="/assets/beacon-tools-icon-512.png"' in html
         assert 'href="/assets/apple-touch-icon.png"' in html
@@ -5409,6 +5419,10 @@ def test_beacon_tools_site_uses_current_brand_assets() -> None:
     local_flight = (site / "local-flight" / "index.html").read_text(encoding="utf-8")
     assert 'src="/assets/beacon-tools-logo.png" alt="Beacon Tools logo"' in home
     assert 'src="/assets/localflight-icon.png" alt="Local Flight icon"' in local_flight
+    for preview in ("history-preview.png", "matrix-preview.png", "settings-preview.png"):
+        assert f'src="/assets/{preview}"' in local_flight
+    for stale_alias in ("fids-preview.svg", "history-preview.svg", "matrix-preview.svg", "radar-preview.svg"):
+        assert not (assets / stale_alias).exists()
 
 
 def test_privacy_docs_disclose_linear_report_triage() -> None:

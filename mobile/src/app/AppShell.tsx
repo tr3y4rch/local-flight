@@ -2381,9 +2381,20 @@ function createStyles() {
     zIndex: 40,
     alignItems: "center",
     justifyContent: "space-between",
-    gap: 16,
-    backgroundColor: palette.bg,
+    gap: 18,
+    backgroundColor: "#080c12",
     overflow: "hidden"
+  },
+  launchAtmosphere: {
+    position: "absolute",
+    top: -120,
+    left: -90,
+    right: -90,
+    height: "72%",
+    borderBottomLeftRadius: 999,
+    borderBottomRightRadius: 999,
+    backgroundColor: "rgba(18,102,139,0.18)",
+    opacity: 0.72
   },
   launchSkyGrid: {
     position: "absolute",
@@ -2392,25 +2403,36 @@ function createStyles() {
     right: 0,
     bottom: 0,
     justifyContent: "space-evenly",
-    opacity: 0.32
+    opacity: 0.18
   },
   launchGridLine: {
     height: 1,
-    backgroundColor: palette.lineSoft
+    backgroundColor: "rgba(82,246,255,0.13)"
+  },
+  launchParticle: {
+    position: "absolute",
+    borderRadius: 999,
+    backgroundColor: "#62efff",
+    shadowColor: "#35e8ff",
+    shadowOpacity: 0.7,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 0 }
   },
   launchHalo: {
     position: "absolute",
     borderRadius: 999,
-    backgroundColor: accent12
+    borderWidth: 1,
+    borderColor: "rgba(107,231,255,0.20)",
+    backgroundColor: "rgba(18,205,225,0.055)"
   },
   launchHaloInner: {
     position: "absolute",
     borderRadius: 999,
     borderWidth: 1,
-    borderColor: "rgba(122,176,216,0.24)",
-    borderTopColor: "rgba(41,226,135,0.72)",
-    borderRightColor: warn38,
-    backgroundColor: "rgba(255,255,255,0.018)"
+    borderColor: "rgba(122,176,216,0.18)",
+    borderTopColor: "rgba(82,246,255,0.82)",
+    borderRightColor: "rgba(82,246,255,0.34)",
+    backgroundColor: "rgba(255,255,255,0.012)"
   },
   launchRunwayField: {
     position: "absolute",
@@ -2470,24 +2492,20 @@ function createStyles() {
     width: "100%",
     flex: 1,
     alignItems: "center",
-    justifyContent: "center"
+    justifyContent: "center",
+    minHeight: 0
   },
   launchScene: {
     width: "100%",
-    borderRadius: 30,
-    borderWidth: 1,
-    borderColor: hairline,
-    backgroundColor: fieldPanel,
+    alignItems: "center",
+    justifyContent: "center",
     overflow: "hidden",
-    gap: 16,
-    shadowColor: "#000",
-    shadowOpacity: 0.24,
-    shadowRadius: 28,
-    shadowOffset: { width: 0, height: 18 }
+    gap: 22,
+    paddingVertical: 10
   },
   launchSceneCompact: {
-    borderRadius: 24,
-    gap: 10
+    gap: 16,
+    paddingVertical: 4
   },
   launchTopBar: {
     width: "100%",
@@ -2542,16 +2560,16 @@ function createStyles() {
   launchRadarRing: {
     position: "absolute",
     borderRadius: 999,
-    borderWidth: 1,
-    borderColor: "rgba(122,176,216,0.24)"
+    borderWidth: 2,
+    borderColor: "rgba(216,247,255,0.22)"
   },
   launchRadarRingOuter: {
     position: "absolute",
     borderRadius: 999,
     borderWidth: 1,
-    borderColor: hairline,
-    borderLeftColor: accent30,
-    borderBottomColor: success25
+    borderColor: "rgba(107,231,255,0.12)",
+    borderLeftColor: "rgba(107,231,255,0.34)",
+    borderBottomColor: "rgba(107,231,255,0.22)"
   },
   launchSweepRotor: {
     position: "absolute",
@@ -2559,27 +2577,57 @@ function createStyles() {
   },
   launchSweep: {
     position: "absolute",
-    top: "9%",
-    width: 2,
+    top: "6%",
+    width: 3,
     borderRadius: 999,
-    backgroundColor: "rgba(41,226,135,0.72)"
+    backgroundColor: "rgba(92,249,255,0.78)",
+    shadowColor: "#52f6ff",
+    shadowOpacity: 0.8,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 0 }
+  },
+  launchIconBloom: {
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#52f6ff",
+    shadowOpacity: 0.38,
+    shadowRadius: 30,
+    shadowOffset: { width: 0, height: 0 }
   },
   launchMarkCrop: {
-    borderRadius: 999,
+    borderRadius: 46,
     overflow: "hidden",
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: palette.bg,
+    backgroundColor: "#060e18",
     borderWidth: 1,
-    borderColor: "rgba(122,176,216,0.24)"
+    borderColor: "rgba(216,247,255,0.28)"
   },
   launchMark: {
-    width: "122%",
-    height: "122%",
+    width: "100%",
+    height: "100%",
     shadowColor: palette.blue,
     shadowOpacity: 0.18,
     shadowRadius: 24,
     shadowOffset: { width: 0, height: 10 }
+  },
+  launchTarget: {
+    position: "absolute",
+    borderRadius: 999,
+    borderWidth: 2,
+    borderColor: "rgba(82,246,255,0.46)",
+    backgroundColor: "rgba(82,246,255,0.045)"
+  },
+  launchTargetCore: {
+    position: "absolute",
+    borderRadius: 999,
+    borderWidth: 3,
+    borderColor: "#061019",
+    backgroundColor: "#52f6ff",
+    shadowColor: "#52f6ff",
+    shadowOpacity: 0.9,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 0 }
   },
   launchCopy: {
     width: "100%",
@@ -2599,13 +2647,13 @@ function createStyles() {
     letterSpacing: 0.8
   },
   launchTitle: {
-    marginTop: 8,
+    marginTop: 0,
     fontFamily: brand,
     color: palette.text,
     fontSize: 34,
     lineHeight: 38,
     fontWeight: "400",
-    letterSpacing: 0.8,
+    letterSpacing: 0,
     textAlign: "center",
     includeFontPadding: false
   },
@@ -2619,11 +2667,12 @@ function createStyles() {
     textAlign: "left"
   },
   launchSubtitle: {
-    marginTop: 8,
-    color: palette.textMuted,
+    marginTop: 10,
+    color: "rgba(213,226,235,0.72)",
     fontSize: 13,
     lineHeight: 18,
-    textAlign: "center"
+    textAlign: "center",
+    maxWidth: 330
   },
   launchSubtitleWide: {
     textAlign: "left",
@@ -2631,18 +2680,12 @@ function createStyles() {
     lineHeight: 20
   },
   launchVersion: {
-    marginTop: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: accent18,
-    backgroundColor: accent08,
+    marginTop: 12,
     fontFamily: mono,
-    color: palette.textMuted,
-    fontSize: 11,
+    color: "rgba(213,226,235,0.42)",
+    fontSize: 10,
     fontWeight: "700",
-    letterSpacing: 1
+    letterSpacing: 0.8
   },
   launchBoard: {
     width: "100%",
@@ -2730,7 +2773,11 @@ function createStyles() {
     width: 7,
     height: 7,
     borderRadius: 999,
-    backgroundColor: palette.green
+    backgroundColor: "#52f6ff",
+    shadowColor: "#52f6ff",
+    shadowOpacity: 0.9,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 0 }
   },
   launchStatusRow: {
     width: "100%",
@@ -2741,7 +2788,7 @@ function createStyles() {
   },
   launchStatus: {
     fontFamily: mono,
-    color: palette.textMuted,
+    color: "rgba(213,226,235,0.66)",
     fontSize: 10,
     fontWeight: "700",
     letterSpacing: 1.2,
@@ -2749,16 +2796,16 @@ function createStyles() {
   },
   launchProgressTrack: {
     width: "100%",
-    height: 4,
+    height: 3,
     marginTop: 12,
     overflow: "hidden",
     borderRadius: 999,
-    backgroundColor: softPanelStrong
+    backgroundColor: "rgba(213,244,255,0.11)"
   },
   launchProgressFill: {
     height: "100%",
     borderRadius: 999,
-    backgroundColor: palette.green
+    backgroundColor: "#52f6ff"
   },
   launchFooterCodes: {
     flexDirection: "row",
@@ -2779,14 +2826,31 @@ function createStyles() {
     fontWeight: "800",
     letterSpacing: 0.8
   },
+  launchBeaconFooter: {
+    marginTop: 16,
+    minHeight: 20,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 7,
+    opacity: 0.78
+  },
+  launchBeaconText: {
+    fontFamily: mono,
+    color: "rgba(205,238,248,0.48)",
+    fontSize: 9,
+    fontWeight: "900",
+    letterSpacing: 1.6,
+    includeFontPadding: false
+  },
   launchStatusPanel: {
     width: "100%",
     maxWidth: 520,
-    padding: 14,
-    borderRadius: 22,
-    borderWidth: 1,
-    borderColor: hairline,
-    backgroundColor: fieldPanel
+    paddingHorizontal: 14,
+    paddingTop: 12,
+    paddingBottom: 4,
+    borderRadius: 0,
+    backgroundColor: "transparent"
   },
   launchBottomBoard: {
     position: "absolute",

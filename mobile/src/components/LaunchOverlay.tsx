@@ -1,10 +1,13 @@
 import { useEffect, useRef } from "react";
 import { Animated, Image, Text, useWindowDimensions, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { hideFromAccessibility, useReducedMotionPreference } from "../accessibility/mobileA11y";
 import { APP_VERSION } from "../domain/constants";
+import { LOCAL_FLIGHT_BRAND_ASSETS } from "../theme/brandAssets";
 import { palette } from "../theme/styleBridge";
-import { BrandKicker, BrandWordmark } from "./Brand";
+import { BeaconToolsMark } from "./BeaconToolsMark";
+import { BrandWordmark } from "./Brand";
 
 type LaunchOverlayProps = {
   visible: boolean;
@@ -12,16 +15,22 @@ type LaunchOverlayProps = {
   shift: Animated.Value;
   scale: Animated.Value;
   progress: Animated.Value;
-  // Slow sinusoidal breath — drives halo scale/opacity, runway lift, status dot,
-  // and amber LED glow. Period ~3.2 s.
   pulse: Animated.Value;
-  // Independent continuous radar sweep — linear 360° rotation at ~3.2 s/rev.
-  // Kept separate from pulse so the needle feels physically detached from the
-  // halo breathing.
   sweep: Animated.Value;
   status: string;
   styles: Record<string, any>;
 };
+
+const PARTICLES = [
+  { left: "18%", top: "18%", size: 2, opacity: 0.55 },
+  { left: "77%", top: "17%", size: 2, opacity: 0.5 },
+  { left: "28%", top: "31%", size: 1.5, opacity: 0.38 },
+  { left: "67%", top: "36%", size: 2.5, opacity: 0.42 },
+  { left: "12%", top: "52%", size: 1.5, opacity: 0.32 },
+  { left: "87%", top: "58%", size: 1.5, opacity: 0.35 },
+  { left: "25%", top: "78%", size: 2, opacity: 0.44 },
+  { left: "72%", top: "82%", size: 1.5, opacity: 0.34 }
+] as const;
 
 export function LaunchOverlay({
   visible,
@@ -35,9 +44,9 @@ export function LaunchOverlay({
   styles
 }: LaunchOverlayProps) {
   const { width, height } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const reduceMotion = useReducedMotionPreference();
 
-  // Status text cross-fade — quick fade-out → fade-in on each step change.
   const statusFade = useRef(new Animated.Value(1)).current;
   const prevStatusRef = useRef(status);
   useEffect(() => {
@@ -59,200 +68,168 @@ export function LaunchOverlay({
   const isWide = width >= 700;
   const isLandscape = width > height;
   const shortestSide = Math.min(width, height);
-  const sidePadding = Math.max(18, Math.min(isWide ? 48 : 28, width * 0.055));
-  const verticalPaddingTop = Math.max(30, Math.min(isWide ? 72 : 54, height * 0.058));
-  const verticalPaddingBottom = Math.max(22, Math.min(isWide ? 44 : 32, height * 0.038));
-  const maxFrameWidth = Math.min(width - sidePadding * 2, isWide ? 760 : 520);
-  const contentGap = Math.max(12, Math.min(24, height * 0.018));
-  const scenePadding = Math.max(compact ? 12 : 16, Math.min(isWide ? 26 : 20, shortestSide * 0.042));
-  const heroSize = Math.max(isLandscape ? 70 : 88, Math.min(isLandscape ? 96 : isWide ? 152 : 122, shortestSide * (isWide ? 0.18 : 0.29)));
-  const ringSize = Math.max(heroSize * 2.5, Math.min(Math.max(width, height) * 0.58, shortestSide * (isLandscape ? 0.82 : isWide ? 0.88 : 1.18)));
-  const ringTop = Math.max(verticalPaddingTop + 36, height * (isLandscape ? 0.12 : 0.22));
-  const ringLeft = (width - ringSize) / 2;
+  const sidePadding = Math.max(20, Math.min(isWide ? 64 : 32, width * 0.07));
+  const topPadding = Math.max(insets.top + 24, Math.min(isWide ? 80 : 58, height * 0.07));
+  const bottomPadding = Math.max(insets.bottom + 18, Math.min(isWide ? 56 : 38, height * 0.05));
+  const maxFrameWidth = Math.min(width - sidePadding * 2, isWide ? 620 : 430);
+  const heroSize = Math.max(isLandscape ? 126 : 170, Math.min(isWide ? 280 : 228, shortestSide * (isWide ? 0.36 : 0.57)));
+  const radarSize = Math.max(heroSize * 1.72, Math.min(Math.max(width, height) * 0.62, shortestSide * (isWide ? 0.82 : 1.08)));
+  const targetSize = Math.max(42, heroSize * 0.25);
+  const titleSize = compact ? 30 : isWide ? 44 : 36;
 
-  // Halo — breathes slowly with pulse (unchanged from before).
-  const haloScale   = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.94, 1.08] });
-  const haloOpacity = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.72, 0.34] });
-
-  // Progress bar fill.
+  const haloScale = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.94, 1.07] });
+  const haloOpacity = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.64, 0.34] });
+  const iconScale = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.985, 1.015] });
+  const pingScale = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.68, 1.34] });
+  const pingOpacity = pulse.interpolate({ inputRange: [0, 0.7, 1], outputRange: [0.66, 0.22, 0] });
+  const dotScale = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.78, 1.16] });
   const progressWidth = progress.interpolate({ inputRange: [0, 1], outputRange: ["4%", "100%"] });
-
-  // Radar sweep — full continuous 360° rotation from the independent sweep value.
   const sweepRotate = sweep.interpolate({ inputRange: [0, 1], outputRange: ["0deg", "360deg"] });
-
-  // Runway card gentle float — stays on pulse.
-  const runwayLift = pulse.interpolate({ inputRange: [0, 1], outputRange: [0, compact ? -1 : -3] });
-
-  // Status dot breathing scale.
-  const dotScale = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.75, 1.15] });
-
-  // Amber board LED brightness — pulses opposite to halo so it "blinks" independently.
-  const amberBlink = pulse.interpolate({ inputRange: [0, 0.5, 1], outputRange: [0.35, 1.0, 0.35] });
-
-  const showBoard = !compact && !isLandscape;
-
-  // Responsive title size — passed directly to BrandWordmark so the component's
-  // `size` prop controls fontSize (not the style-factory key, which is overridden).
-  const titleSize = compact ? 28 : isWide ? 42 : 34;
 
   return (
     <Animated.View
+      accessibilityLabel="Local Flight is opening"
       style={[
         { position: "absolute", top: 0, left: 0, right: 0, bottom: 0 },
         styles.launchOverlay,
         {
           opacity,
           paddingHorizontal: sidePadding,
-          paddingTop: verticalPaddingTop,
-          paddingBottom: verticalPaddingBottom,
+          paddingTop: topPadding,
+          paddingBottom: bottomPadding,
           transform: [{ translateY: shift }, { scale }]
         }
       ]}
     >
-      <View style={styles.launchSkyGrid}>
-        {Array.from({ length: 9 }).map((_, index) => (
-          <View key={index} style={styles.launchGridLine} {...hideFromAccessibility()} />
+      <View style={styles.launchAtmosphere} {...hideFromAccessibility()} />
+      <View style={styles.launchSkyGrid} {...hideFromAccessibility()}>
+        {Array.from({ length: 7 }).map((_, index) => (
+          <View key={index} style={styles.launchGridLine} />
         ))}
       </View>
+      {PARTICLES.map((particle, index) => (
+        <View
+          key={index}
+          style={[
+            styles.launchParticle,
+            {
+              left: particle.left,
+              top: particle.top,
+              width: particle.size,
+              height: particle.size,
+              opacity: particle.opacity
+            }
+          ]}
+          {...hideFromAccessibility()}
+        />
+      ))}
 
-      {/* Outer halo — breathes with pulse */}
-      <Animated.View
-        {...hideFromAccessibility()}
-        style={[
-          styles.launchHalo,
-          {
-            width: ringSize,
-            height: ringSize,
-            top: ringTop,
-            left: ringLeft,
-            opacity: haloOpacity,
-            transform: [{ scale: haloScale }]
-          }
-        ]}
-      />
-
-      {/* Inner scanner arc — rotates continuously with sweep, tri-color borders */}
-      <Animated.View
-        {...hideFromAccessibility()}
-        style={[
-          styles.launchHaloInner,
-          {
-            width: ringSize * 0.66,
-            height: ringSize * 0.66,
-            top: ringTop + ringSize * 0.17,
-            left: ringLeft + ringSize * 0.17,
-            transform: [{ rotate: sweepRotate }]
-          }
-        ]}
-      />
-
-      <View style={[styles.launchContentStack, { maxWidth: maxFrameWidth, gap: contentGap }]}>
-        <View style={[styles.launchScene, compact && styles.launchSceneCompact, { padding: scenePadding }]}>
-          <View style={styles.launchTopBar}>
-            <BrandKicker color={palette.textDim}>LOCAL FLIGHT</BrandKicker>
-            <Text style={styles.launchTopVersion}>v{APP_VERSION}</Text>
-          </View>
-
-          <View style={[styles.launchHeroCard, isWide && styles.launchHeroCardWide]}>
-            <View style={[styles.launchMarkWrap, { width: heroSize, height: heroSize }]}>
-              <View style={[styles.launchRadarRing, { width: heroSize * 1.08, height: heroSize * 1.08 }]} {...hideFromAccessibility()} />
-              <View style={[styles.launchRadarRingOuter, { width: heroSize * 1.34, height: heroSize * 1.34 }]} {...hideFromAccessibility()} />
-
-              {/* Radar needle — continuous 360° rotation, independent of halo breath */}
-              <Animated.View
-                {...hideFromAccessibility()}
-                style={[
-                  styles.launchSweepRotor,
-                  {
-                    width: heroSize,
-                    height: heroSize,
-                    transform: [{ rotate: sweepRotate }]
-                  }
-                ]}
-              >
-                <View style={[styles.launchSweep, { height: heroSize * 0.42 }]} />
-              </Animated.View>
-
-              <View style={[styles.launchMarkCrop, { width: heroSize * 0.78, height: heroSize * 0.78 }]}>
-                <Image
-                  source={require("../../assets/localflight-logo.png")}
-                  resizeMode="cover"
-                  style={styles.launchMark}
-                />
-              </View>
-            </View>
-
-            <View style={[styles.launchCopy, isWide && styles.launchCopyWide]}>
-              <BrandKicker color={palette.blue2} size={11}>LOCAL FLIGHT MOBILE</BrandKicker>
-              <BrandWordmark
-                color={palette.text}
-                size={titleSize}
-                style={[styles.launchTitle, compact && styles.launchTitleCompact, isWide && styles.launchTitleWide]}
-                numberOfLines={1}
-                adjustsFontSizeToFit
-                minimumFontScale={0.72}
-              >
-                LOCAL FLIGHT
-              </BrandWordmark>
-              <Text style={[styles.launchSubtitle, isWide && styles.launchSubtitleWide]}>
-                Server-mediated FIDS, radar, and history on your LAN.
-              </Text>
-            </View>
-          </View>
-
+      <View style={[styles.launchContentStack, { maxWidth: maxFrameWidth }]}>
+        <View style={[styles.launchScene, compact && styles.launchSceneCompact]}>
           <Animated.View
             style={[
-              styles.launchRunwayDeck,
-              compact && styles.launchRunwayDeckCompact,
-              { transform: [{ translateY: runwayLift }] }
+              styles.launchHalo,
+              {
+                width: radarSize,
+                height: radarSize,
+                opacity: haloOpacity,
+                transform: [{ scale: haloScale }]
+              }
             ]}
-          >
-            <View style={styles.launchRunwayDeckHeader}>
-              <Text style={styles.launchRunwayDeckKicker}>RUNWAY READY</Text>
-              <Text style={styles.launchRunwayDeckMeta}>{isLandscape ? "LAN" : "LOCAL SERVER"}</Text>
-            </View>
-            <View style={styles.launchRunwayPerspective}>
-              <View style={styles.launchRunwayEdge} />
-              <View style={styles.launchRunwayCenter}>
-                {Array.from({ length: compact ? 4 : 6 }).map((_, index) => (
-                  <View key={index} style={styles.launchRunwayCenterMark} />
-                ))}
+            {...hideFromAccessibility()}
+          />
+          <Animated.View
+            style={[
+              styles.launchHaloInner,
+              {
+                width: radarSize * 0.66,
+                height: radarSize * 0.66,
+                transform: [{ rotate: sweepRotate }]
+              }
+            ]}
+            {...hideFromAccessibility()}
+          />
+
+          <View style={[styles.launchMarkWrap, { width: heroSize, height: heroSize }]}>
+            <View style={[styles.launchRadarRingOuter, { width: heroSize * 1.4, height: heroSize * 1.4 }]} {...hideFromAccessibility()} />
+            <View style={[styles.launchRadarRing, { width: heroSize * 1.12, height: heroSize * 1.12 }]} {...hideFromAccessibility()} />
+
+            <Animated.View
+              style={[
+                styles.launchSweepRotor,
+                {
+                  width: heroSize * 1.2,
+                  height: heroSize * 1.2,
+                  transform: [{ rotate: sweepRotate }]
+                }
+              ]}
+              {...hideFromAccessibility()}
+            >
+              <View style={[styles.launchSweep, { height: heroSize * 0.52 }]} />
+            </Animated.View>
+
+            <Animated.View
+              style={[
+                styles.launchTarget,
+                {
+                  width: targetSize,
+                  height: targetSize,
+                  right: heroSize * 0.09,
+                  top: heroSize * 0.18,
+                  transform: [{ scale: pingScale }],
+                  opacity: pingOpacity
+                }
+              ]}
+              {...hideFromAccessibility()}
+            />
+            <View
+              style={[
+                styles.launchTargetCore,
+                {
+                  width: targetSize * 0.42,
+                  height: targetSize * 0.42,
+                  right: heroSize * 0.09 + targetSize * 0.29,
+                  top: heroSize * 0.18 + targetSize * 0.29
+                }
+              ]}
+              {...hideFromAccessibility()}
+            />
+
+            <Animated.View style={[styles.launchIconBloom, { transform: [{ scale: iconScale }] }]}>
+              <View style={[styles.launchMarkCrop, { width: heroSize * 0.82, height: heroSize * 0.82 }]}>
+                <Image source={LOCAL_FLIGHT_BRAND_ASSETS.dark.icon} resizeMode="cover" style={styles.launchMark} />
               </View>
-              <View style={styles.launchRunwayEdge} />
-            </View>
-            {showBoard ? (
-              <View style={styles.launchBoard}>
-                {["SERVER HANDSHAKE", "FIDS STANDBY", "RADAR SURFACE"].map((line, index) => (
-                  <View key={line} style={styles.launchBoardRow}>
-                    <Text style={styles.launchBoardTime}>{index === 0 ? "LAN" : index === 1 ? "UTC" : "NM"}</Text>
-                    <Text style={styles.launchBoardText}>{line}</Text>
-                    {index === 1 ? (
-                      // Amber LED blinks with pulse to signal "pending / connecting"
-                      <Animated.View style={[styles.launchBoardLed, styles.launchBoardLedAmber, { opacity: amberBlink }]} />
-                    ) : (
-                      <View style={styles.launchBoardLed} />
-                    )}
-                  </View>
-                ))}
-              </View>
-            ) : null}
-          </Animated.View>
+            </Animated.View>
+          </View>
+
+          <View style={styles.launchCopy}>
+            <BrandWordmark
+              color={palette.text}
+              size={titleSize}
+              style={[styles.launchTitle, compact && styles.launchTitleCompact]}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.74}
+            >
+              LOCAL FLIGHT
+            </BrandWordmark>
+            <Text style={styles.launchSubtitle}>Flight boards, radar, and history for your airport.</Text>
+            <Text style={styles.launchVersion}>v{APP_VERSION}</Text>
+          </View>
         </View>
       </View>
 
       <View style={[styles.launchStatusPanel, { maxWidth: maxFrameWidth }]}>
         <View style={styles.launchStatusRow}>
-          {/* Status dot breathes with pulse */}
           <Animated.View style={[styles.launchStatusDot, { transform: [{ scale: dotScale }] }]} />
           <Animated.Text style={[styles.launchStatus, { opacity: statusFade }]}>{status}</Animated.Text>
         </View>
         <View style={styles.launchProgressTrack}>
           <Animated.View style={[styles.launchProgressFill, { width: progressWidth }]} />
         </View>
-        <View style={styles.launchFooterCodes}>
-          <Text style={styles.launchFooterCode}>LOCAL SERVER</Text>
-          <Text style={styles.launchFooterCode}>PRIVATE LAN</Text>
-          <Text style={styles.launchFooterCode}>NO DIRECT RELAY</Text>
+        <View style={styles.launchBeaconFooter}>
+          <BeaconToolsMark size={compact ? 14 : 16} color="rgba(205,238,248,0.54)" windowColor="#080c12" />
+          <Text style={styles.launchBeaconText}>BEACON TOOLS</Text>
         </View>
       </View>
     </Animated.View>

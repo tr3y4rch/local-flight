@@ -467,6 +467,34 @@ p {
   background: #08121c;
 }
 
+.preview-gallery {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+  margin-top: 14px;
+}
+
+.preview-card {
+  margin: 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(8, 18, 28, 0.92);
+}
+
+.preview-card img {
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  object-fit: cover;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.preview-card figcaption {
+  padding: 10px 12px;
+  color: var(--text);
+  font-weight: 900;
+}
+
 .brand-lockup-panel {
   min-height: 238px;
   padding: 28px;
@@ -707,6 +735,7 @@ p {
   .grid.two,
   .grid.four,
   .form-grid,
+  .preview-gallery,
   .visual-grid,
   .split {
     grid-template-columns: 1fr;

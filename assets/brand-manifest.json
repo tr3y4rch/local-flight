@@ -1,0 +1,252 @@
+{
+  "version": 1,
+  "phase": "package-qt-lan-mobile-site",
+  "renderer": "playwright-chromium",
+  "masters": {
+    "beacon_lockup": "C:\\Users\\phsch\\Beacon Tools Branding\\Beacon\\brand-v2\\source\\lockup_horizontal_dark.svg",
+    "beacon_mark": "C:\\Users\\phsch\\Beacon Tools Branding\\Beacon\\brand-v2\\source\\icon_mark.svg",
+    "local_flight_dark": "C:\\Users\\phsch\\Beacon Tools Branding\\Local-Flight\\brand-v2\\source\\icon_dark.svg",
+    "local_flight_light": "C:\\Users\\phsch\\Beacon Tools Branding\\Local-Flight\\brand-v2\\source\\icon_light.svg"
+  },
+  "active_outputs": [
+    {
+      "role": "local-flight-master-svg-copy",
+      "path": "assets/localflight-logo.svg",
+      "width": null,
+      "height": null,
+      "sha256": "eceba9b73e370d277190b72e7bbcdff4f43ac16f70ad7047e976656a947f16bc"
+    },
+    {
+      "role": "local-flight-package-png",
+      "path": "assets/icon.png",
+      "width": 1024,
+      "height": 1024,
+      "sha256": "4bd99a19f76ea16bf6940762fe679c93f3d75e6e902570f9e2b7e1144bd07db7"
+    },
+    {
+      "role": "local-flight-windows-ico",
+      "path": "assets/icon.ico",
+      "width": 256,
+      "height": 256,
+      "sha256": "d607b37a51c76c5a1c1309928ae2678a26550d02b6d3944901edcf86d28262a8"
+    },
+    {
+      "role": "local-flight-macos-icns",
+      "path": "assets/icon.icns",
+      "width": 1024,
+      "height": 1024,
+      "sha256": "abfa7e7332dd8568e1d09827684e4cb1b4f3b80acc6f42ccd203ed640f60d17b"
+    },
+    {
+      "role": "local-flight-macos-iconset-member",
+      "path": "assets/icon.iconset/icon_16x16.png",
+      "width": 16,
+      "height": 16,
+      "sha256": "e87761ab4dd88701cb56ad364c28150fc9b40a85badcb7320393bb3f86d80c32"
+    },
+    {
+      "role": "local-flight-macos-iconset-member",
+      "path": "assets/icon.iconset/icon_16x16@2x.png",
+      "width": 32,
+      "height": 32,
+      "sha256": "ed45929918c60299d34f2a6144ff81274eb910a2ff5a84ad7fe333cbcfd1a937"
+    },
+    {
+      "role": "local-flight-macos-iconset-member",
+      "path": "assets/icon.iconset/icon_32x32.png",
+      "width": 32,
+      "height": 32,
+      "sha256": "ed45929918c60299d34f2a6144ff81274eb910a2ff5a84ad7fe333cbcfd1a937"
+    },
+    {
+      "role": "local-flight-macos-iconset-member",
+      "path": "assets/icon.iconset/icon_32x32@2x.png",
+      "width": 64,
+      "height": 64,
+      "sha256": "cc155aac9a102a5736ee406ac3692a16a2dd89cf62dc0285c2c5b7f5a0f70139"
+    },
+    {
+      "role": "local-flight-macos-iconset-member",
+      "path": "assets/icon.iconset/icon_128x128.png",
+      "width": 128,
+      "height": 128,
+      "sha256": "e90da03d1c7165a6353ffaa8b4543959e574104cd5e2b9f70c0f0843a1487b24"
+    },
+    {
+      "role": "local-flight-macos-iconset-member",
+      "path": "assets/icon.iconset/icon_128x128@2x.png",
+      "width": 256,
+      "height": 256,
+      "sha256": "857c7699bb7ce478a657e15911666e45ffa7c0b29a5cd2138bc3b27b8488cdea"
+    },
+    {
+      "role": "local-flight-macos-iconset-member",
+      "path": "assets/icon.iconset/icon_256x256.png",
+      "width": 256,
+      "height": 256,
+      "sha256": "857c7699bb7ce478a657e15911666e45ffa7c0b29a5cd2138bc3b27b8488cdea"
+    },
+    {
+      "role": "local-flight-macos-iconset-member",
+      "path": "assets/icon.iconset/icon_256x256@2x.png",
+      "width": 512,
+      "height": 512,
+      "sha256": "a3cedd0519c98d656f645fabad6fcd30b3250a3b6889a90e0dbb1774c16af5ad"
+    },
+    {
+      "role": "local-flight-macos-iconset-member",
+      "path": "assets/icon.iconset/icon_512x512.png",
+      "width": 512,
+      "height": 512,
+      "sha256": "a3cedd0519c98d656f645fabad6fcd30b3250a3b6889a90e0dbb1774c16af5ad"
+    },
+    {
+      "role": "local-flight-macos-iconset-member",
+      "path": "assets/icon.iconset/icon_512x512@2x.png",
+      "width": 1024,
+      "height": 1024,
+      "sha256": "4bd99a19f76ea16bf6940762fe679c93f3d75e6e902570f9e2b7e1144bd07db7"
+    },
+    {
+      "role": "qt-native-brand-svg",
+      "path": "src/localflight/ui/static/localflight-logo.svg",
+      "width": null,
+      "height": null,
+      "sha256": "eceba9b73e370d277190b72e7bbcdff4f43ac16f70ad7047e976656a947f16bc"
+    },
+    {
+      "role": "qt-native-brand-png",
+      "path": "src/localflight/ui/static/localflight-icon.png",
+      "width": 1024,
+      "height": 1024,
+      "sha256": "4bd99a19f76ea16bf6940762fe679c93f3d75e6e902570f9e2b7e1144bd07db7"
+    },
+    {
+      "role": "lan-browser-brand-svg",
+      "path": "src/localflight/ui/static/localflight-logo.svg",
+      "width": null,
+      "height": null,
+      "sha256": "eceba9b73e370d277190b72e7bbcdff4f43ac16f70ad7047e976656a947f16bc"
+    },
+    {
+      "role": "lan-browser-touch-icon",
+      "path": "src/localflight/ui/static/localflight-app-icon.png",
+      "width": 1024,
+      "height": 1024,
+      "sha256": "4bd99a19f76ea16bf6940762fe679c93f3d75e6e902570f9e2b7e1144bd07db7"
+    },
+    {
+      "role": "mobile-app-icon",
+      "path": "mobile/assets/localflight-icon.png",
+      "width": 1024,
+      "height": 1024,
+      "sha256": "4bd99a19f76ea16bf6940762fe679c93f3d75e6e902570f9e2b7e1144bd07db7"
+    },
+    {
+      "role": "mobile-app-icon-dark",
+      "path": "mobile/assets/localflight-icon-dark.png",
+      "width": 1024,
+      "height": 1024,
+      "sha256": "4bd99a19f76ea16bf6940762fe679c93f3d75e6e902570f9e2b7e1144bd07db7"
+    },
+    {
+      "role": "mobile-app-icon-light",
+      "path": "mobile/assets/localflight-icon-light.png",
+      "width": 1024,
+      "height": 1024,
+      "sha256": "5680faa542d0ebaa0127a481e700f8c0fa37005b8cb298f6e6b94d0b4b372ffc"
+    },
+    {
+      "role": "mobile-splash-logo",
+      "path": "mobile/assets/localflight-logo.png",
+      "width": 1024,
+      "height": 1024,
+      "sha256": "4bd99a19f76ea16bf6940762fe679c93f3d75e6e902570f9e2b7e1144bd07db7"
+    },
+    {
+      "role": "mobile-splash-logo-dark",
+      "path": "mobile/assets/localflight-logo-dark.png",
+      "width": 1024,
+      "height": 1024,
+      "sha256": "4bd99a19f76ea16bf6940762fe679c93f3d75e6e902570f9e2b7e1144bd07db7"
+    },
+    {
+      "role": "mobile-splash-logo-light",
+      "path": "mobile/assets/localflight-logo-light.png",
+      "width": 1024,
+      "height": 1024,
+      "sha256": "5680faa542d0ebaa0127a481e700f8c0fa37005b8cb298f6e6b94d0b4b372ffc"
+    },
+    {
+      "role": "site-beacon-apple-touch-icon",
+      "path": "site/assets/apple-touch-icon.png",
+      "width": 180,
+      "height": 180,
+      "sha256": "24795998acea4580ff82b92faf52576c192ded0732e5a8ad1ed62e98ada1e637"
+    },
+    {
+      "role": "site-beacon-favicon-ico",
+      "path": "site/assets/favicon.ico",
+      "width": 256,
+      "height": 256,
+      "sha256": "bcd77a2e1395a64504a75b963519184d69692bdc9289daee92a667ba11849d96"
+    },
+    {
+      "role": "site-beacon-favicon-32",
+      "path": "site/assets/favicon-32.png",
+      "width": 32,
+      "height": 32,
+      "sha256": "7d27a84b5d6007897d1bd43edbfc3d03b7bb0115d24f77d131bca25268e5b6c2"
+    },
+    {
+      "role": "site-beacon-icon-512",
+      "path": "site/assets/beacon-tools-icon-512.png",
+      "width": 512,
+      "height": 512,
+      "sha256": "8c3858d0ee8f877763f573ab37b17ef41e4d77caa2ccb38860ce8306b4f0db0c"
+    },
+    {
+      "role": "site-beacon-lockup",
+      "path": "site/assets/beacon-tools-logo.png",
+      "width": 1200,
+      "height": 349,
+      "sha256": "1a4430e6e8c6e665e9d35f641b118f8a00c6108924aca42b08a70c5eef51c94a"
+    },
+    {
+      "role": "site-beacon-mark-512",
+      "path": "site/assets/beacon-tools-mark.png",
+      "width": 512,
+      "height": 512,
+      "sha256": "8c3858d0ee8f877763f573ab37b17ef41e4d77caa2ccb38860ce8306b4f0db0c"
+    },
+    {
+      "role": "site-beacon-mark-96",
+      "path": "site/assets/beacon-tools-mark-96.png",
+      "width": 96,
+      "height": 96,
+      "sha256": "4bf3c211961ebf09a4a2991950ff283a1efc46e4f475a313baf6915508c7d960"
+    },
+    {
+      "role": "site-beacon-mark-64",
+      "path": "site/assets/beacon-tools-mark-64.png",
+      "width": 64,
+      "height": 64,
+      "sha256": "bdd433eef32e1f5168645efa814d574495b43713d227f88f933bc18f2e3a6c13"
+    },
+    {
+      "role": "site-local-flight-product-icon",
+      "path": "site/assets/localflight-icon.png",
+      "width": 1024,
+      "height": 1024,
+      "sha256": "4bd99a19f76ea16bf6940762fe679c93f3d75e6e902570f9e2b7e1144bd07db7"
+    },
+    {
+      "role": "site-local-flight-product-icon-light",
+      "path": "site/assets/localflight-icon-light.png",
+      "width": 1024,
+      "height": 1024,
+      "sha256": "5680faa542d0ebaa0127a481e700f8c0fa37005b8cb298f6e6b94d0b4b372ffc"
+    }
+  ],
+  "excluded_until_later_phases": []
+}

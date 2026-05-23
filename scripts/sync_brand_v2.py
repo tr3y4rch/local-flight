@@ -1,27 +1,36 @@
 #!/usr/bin/env python3
-"""Sync Beacon Tools / Local Flight V2 brand assets into repo paths.
+"""Generate the staged V2 brand pipeline outputs.
 
-The V2 brand folders live outside this repository. This script treats their
-SVG masters as source of truth, renders fresh platform assets, and rejects
-empty or undersized outputs so stale transparent exports cannot slip into a
-release build.
+This script handles the source pipeline, package/app icons, Qt/native shared
+static assets, LAN browser shared static assets, mobile app assets, and the
+public Beacon Tools website shell/product assets. It stages every generated
+file, validates it, then copies the approved outputs into active module paths.
 """
 from __future__ import annotations
 
-import argparse
+import hashlib
+import json
 import os
 import shutil
+import subprocess
 import sys
-import tempfile
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 from pathlib import Path
 from typing import Iterable
 
 from PIL import Image
 
 ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_BEACON_ROOT = Path(r"C:\Users\phsch\Beacon Tools Branding\Beacon\brand-v2")
-DEFAULT_LOCAL_FLIGHT_ROOT = Path(r"C:\Users\phsch\Beacon Tools Branding\Local-Flight\brand-v2")
+STAGE = ROOT / "build" / "brand-v2" / "package-icons-stage"
+ASSETS = ROOT / "assets"
+STATIC = ROOT / "src" / "localflight" / "ui" / "static"
+MOBILE_ASSETS = ROOT / "mobile" / "assets"
+SITE_ASSETS = ROOT / "site" / "assets"
+
+BEACON_LOCKUP = Path(r"C:\Users\phsch\Beacon Tools Branding\Beacon\brand-v2\source\lockup_horizontal_dark.svg")
+BEACON_MARK = Path(r"C:\Users\phsch\Beacon Tools Branding\Beacon\brand-v2\source\icon_mark.svg")
+LOCAL_FLIGHT_DARK = Path(r"C:\Users\phsch\Beacon Tools Branding\Local-Flight\brand-v2\source\icon_dark.svg")
+LOCAL_FLIGHT_LIGHT = Path(r"C:\Users\phsch\Beacon Tools Branding\Local-Flight\brand-v2\source\icon_light.svg")
 
 WINDOWS_ICO_SIZES = (16, 24, 32, 48, 64, 128, 256)
 MACOS_ICONSET_SIZES = (
@@ -36,34 +45,56 @@ MACOS_ICONSET_SIZES = (
     ("icon_512x512.png", 512),
     ("icon_512x512@2x.png", 1024),
 )
+MOBILE_BRAND_ASSETS = (
+    "localflight-icon.png",
+    "localflight-icon-dark.png",
+    "localflight-icon-light.png",
+    "localflight-logo.png",
+    "localflight-logo-dark.png",
+    "localflight-logo-light.png",
+)
+SITE_BRAND_ASSETS = (
+    "apple-touch-icon.png",
+    "beacon-tools-icon-512.png",
+    "beacon-tools-logo.png",
+    "beacon-tools-mark.png",
+    "beacon-tools-mark-64.png",
+    "beacon-tools-mark-96.png",
+    "favicon.ico",
+    "favicon-32.png",
+    "localflight-icon.png",
+    "localflight-icon-light.png",
+)
+STALE_SITE_BRAND_ALIASES = (
+    "fids-preview.svg",
+    "history-preview.svg",
+    "matrix-preview.svg",
+    "radar-preview.svg",
+)
 
 
 @dataclass(frozen=True)
-class BrandSources:
-    beacon: Path
-    local_flight: Path
-
-    @property
-    def beacon_source(self) -> Path:
-        return self.beacon / "source"
-
-    @property
-    def local_source(self) -> Path:
-        return self.local_flight / "source"
+class OutputRecord:
+    role: str
+    path: str
+    width: int | None
+    height: int | None
+    sha256: str
 
 
 class SvgRenderer:
-    """Render SVGs with Chromium when available, otherwise Qt SVG."""
+    """Render SVG masters with Chromium when available, otherwise Qt SVG."""
 
     def __init__(self) -> None:
         try:
             from playwright.sync_api import sync_playwright
-        except Exception as exc:  # pragma: no cover - dependency error path
+        except Exception as exc:
             self._sync_playwright = None
             self._playwright_error = exc
         else:
             self._sync_playwright = sync_playwright
             self._playwright_error = None
+        self.name = "qt-svg"
         self._pw = None
         self._browser = None
         self._qt_app = None
@@ -73,6 +104,7 @@ class SvgRenderer:
             self._pw = self._sync_playwright().start()
             try:
                 self._browser = self._pw.chromium.launch()
+                self.name = "playwright-chromium"
             except Exception:
                 self._pw.stop()
                 self._pw = None
@@ -81,12 +113,10 @@ class SvgRenderer:
             try:
                 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
                 from PySide6 import QtGui
-            except Exception as exc:  # pragma: no cover - dependency error path
+            except Exception as exc:
                 raise RuntimeError(
                     "Brand rendering needs Playwright Chromium or PySide6 QtSvg. "
-                    "Install Playwright with `pip install playwright` and "
-                    "`python -m playwright install chromium`, or install the "
-                    "`native`/`dev` extra for PySide6."
+                    "Install the dev/native dependencies before syncing brand assets."
                 ) from (self._playwright_error or exc)
             self._qt_app = QtGui.QGuiApplication.instance() or QtGui.QGuiApplication([])
         return self
@@ -103,29 +133,30 @@ class SvgRenderer:
         dst.parent.mkdir(parents=True, exist_ok=True)
         if self._browser is None:
             self._render_with_qt(svg, dst, width, height)
-            assert_image(dst, width, height)
-            return
+        else:
+            self._render_with_chromium(svg, dst, width, height)
+        assert_image(dst, width, height)
+
+    def _render_with_chromium(self, svg: Path, dst: Path, width: int, height: int) -> None:
         page = self._browser.new_page(
             viewport={"width": width, "height": height},
             device_scale_factor=1,
         )
         try:
             svg_text = svg.read_text(encoding="utf-8")
-            html = (
+            page.set_content(
                 "<!doctype html><html><head><meta charset='utf-8'><style>"
                 "*{margin:0;padding:0;box-sizing:border-box}"
-                f"html,body{{width:{width}px;height:{height}px;"
-                "background:transparent;overflow:hidden}}"
+                f"html,body{{width:{width}px;height:{height}px;background:transparent;overflow:hidden}}"
                 f"svg{{width:{width}px;height:{height}px;display:block}}"
                 "</style></head><body>"
                 f"{svg_text}"
-                "</body></html>"
+                "</body></html>",
+                wait_until="load",
             )
-            page.set_content(html, wait_until="load")
             page.screenshot(path=str(dst), omit_background=True, full_page=False)
         finally:
             page.close()
-        assert_image(dst, width, height)
 
     def _render_with_qt(self, svg: Path, dst: Path, width: int, height: int) -> None:
         from PySide6 import QtGui, QtSvg
@@ -142,6 +173,14 @@ class SvgRenderer:
             raise RuntimeError(f"could not write {dst}")
 
 
+def sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def assert_image(path: Path, width: int | None = None, height: int | None = None) -> None:
     if not path.exists():
         raise FileNotFoundError(path)
@@ -149,9 +188,37 @@ def assert_image(path: Path, width: int | None = None, height: int | None = None
         rgba = image.convert("RGBA")
         if width is not None and height is not None and rgba.size != (width, height):
             raise ValueError(f"{path} has size {rgba.size}, expected {(width, height)}")
-        alpha = rgba.getchannel("A")
-        if alpha.getbbox() is None:
+        if rgba.getchannel("A").getbbox() is None:
             raise ValueError(f"{path} is fully transparent")
+
+
+def assert_images_differ(first: Path, second: Path) -> None:
+    with Image.open(first) as first_image, Image.open(second) as second_image:
+        if first_image.convert("RGB").tobytes() == second_image.convert("RGB").tobytes():
+            raise ValueError(f"{first} and {second} are pixel-identical")
+
+
+def resize_contain(source: Path, dst: Path, width: int, height: int) -> None:
+    with Image.open(source) as image:
+        foreground = image.convert("RGBA")
+    scale = min(width / foreground.width, height / foreground.height)
+    resized = foreground.resize(
+        (max(1, round(foreground.width * scale)), max(1, round(foreground.height * scale))),
+        Image.LANCZOS,
+    )
+    canvas = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    canvas.alpha_composite(resized, ((width - resized.width) // 2, (height - resized.height) // 2))
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    canvas.save(dst)
+    assert_image(dst, width, height)
+
+
+def verify_lockup_wording(path: Path) -> None:
+    with Image.open(path) as image:
+        rgba = image.convert("RGBA")
+    wordmark_area = rgba.crop((rgba.width // 3, 0, rgba.width, rgba.height))
+    if wordmark_area.getchannel("A").getbbox() is None:
+        raise ValueError(f"{path} has no visible Beacon Tools wordmark area")
 
 
 def assert_ico(path: Path, sizes: Iterable[int]) -> None:
@@ -170,188 +237,349 @@ def assert_ico(path: Path, sizes: Iterable[int]) -> None:
         raise ValueError(f"{path} is missing ICO frames: {sorted(missing)}")
 
 
-def copy_svg(src: Path, dst: Path) -> None:
-    if not src.exists():
-        raise FileNotFoundError(src)
+def assert_svg(path: Path) -> None:
+    text = path.read_text(encoding="utf-8")
+    if "<svg" not in text or "</svg>" not in text:
+        raise ValueError(f"{path} does not look like an SVG file")
+
+
+def copy_master_svg(src: Path, dst: Path) -> None:
+    assert_svg(src)
     dst.parent.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(src, dst)
 
 
-def render_icon_series(renderer: SvgRenderer, svg: Path, sizes: Iterable[int]) -> list[Path]:
-    rendered: list[Path] = []
-    tmpdir = Path(tempfile.mkdtemp(prefix="localflight-brand-"))
-    for size in sizes:
-        out = tmpdir / f"icon_{size}.png"
-        renderer.render(svg, out, size, size)
-        rendered.append(out)
-    return rendered
-
-
-def write_ico(svg: Path, dst: Path, renderer: SvgRenderer) -> None:
-    tmpdir = Path(tempfile.mkdtemp(prefix="localflight-brand-"))
-    largest_png = tmpdir / "icon_256.png"
-    renderer.render(svg, largest_png, 256, 256)
-    largest = Image.open(largest_png).convert("RGBA")
+def write_ico(source_png: Path, dst: Path) -> None:
+    with Image.open(source_png) as image:
+        largest = image.convert("RGBA")
     dst.parent.mkdir(parents=True, exist_ok=True)
     largest.save(
         dst,
         format="ICO",
         sizes=[(size, size) for size in WINDOWS_ICO_SIZES],
     )
-    largest.close()
     assert_ico(dst, WINDOWS_ICO_SIZES)
 
 
-def write_iconset(svg: Path, dst: Path, renderer: SvgRenderer) -> None:
+def write_iconset(renderer: SvgRenderer, icon_svg: Path, dst: Path) -> None:
     if dst.exists():
         shutil.rmtree(dst)
     dst.mkdir(parents=True, exist_ok=True)
     for filename, size in MACOS_ICONSET_SIZES:
-        renderer.render(svg, dst / filename, size, size)
+        renderer.render(icon_svg, dst / filename, size, size)
 
 
-def try_write_icns(iconset: Path, dst: Path) -> None:
-    """Write an ICNS when the host toolchain can do it.
-
-    macOS uses iconutil. Pillow can write ICNS in some environments, so try it
-    as a convenience on Windows/Linux too. If both paths fail, keep the iconset.
-    """
-    dst.parent.mkdir(parents=True, exist_ok=True)
+def write_icns(iconset: Path, dst: Path) -> None:
     icon_1024 = iconset / "icon_512x512@2x.png"
+    dst.parent.mkdir(parents=True, exist_ok=True)
     try:
         Image.open(icon_1024).save(dst, format="ICNS")
-        return
     except Exception:
-        pass
-    if sys.platform == "darwin":
-        import subprocess
-
+        if sys.platform != "darwin":
+            raise
         subprocess.run(["iconutil", "-c", "icns", str(iconset), "-o", str(dst)], check=True)
+    if not dst.exists() or dst.stat().st_size == 0:
+        raise ValueError(f"{dst} was not generated")
 
 
-def paste_center(source: Path, dst: Path, canvas: tuple[int, int]) -> None:
-    with Image.open(source) as image:
-        rgba = image.convert("RGBA")
-    out = Image.new("RGBA", canvas, (0, 0, 0, 0))
-    x = (canvas[0] - rgba.width) // 2
-    y = (canvas[1] - rgba.height) // 2
-    out.alpha_composite(rgba, (x, y))
-    dst.parent.mkdir(parents=True, exist_ok=True)
-    out.save(dst)
-    assert_image(dst, *canvas)
+def stage_package_icons(renderer: SvgRenderer) -> None:
+    if STAGE.exists():
+        shutil.rmtree(STAGE)
+    STAGE.mkdir(parents=True, exist_ok=True)
+
+    copy_master_svg(LOCAL_FLIGHT_DARK, STAGE / "localflight-logo.svg")
+    renderer.render(LOCAL_FLIGHT_DARK, STAGE / "icon.png", 1024, 1024)
+    write_ico(STAGE / "icon.png", STAGE / "icon.ico")
+    write_iconset(renderer, LOCAL_FLIGHT_DARK, STAGE / "icon.iconset")
+    write_icns(STAGE / "icon.iconset", STAGE / "icon.icns")
 
 
-def resize_png(src: Path, dst: Path, size: tuple[int, int]) -> None:
-    with Image.open(src) as image:
-        resized = image.convert("RGBA").resize(size, Image.LANCZOS)
-    dst.parent.mkdir(parents=True, exist_ok=True)
-    resized.save(dst)
-    assert_image(dst, *size)
+def stage_qt_lan_static(renderer: SvgRenderer) -> None:
+    qt_lan = STAGE / "qt-lan-static"
+    qt_lan.mkdir(parents=True, exist_ok=True)
+    copy_master_svg(LOCAL_FLIGHT_DARK, qt_lan / "localflight-logo.svg")
+    renderer.render(LOCAL_FLIGHT_DARK, qt_lan / "localflight-icon.png", 1024, 1024)
+    renderer.render(LOCAL_FLIGHT_DARK, qt_lan / "localflight-app-icon.png", 1024, 1024)
 
 
-def sync_local_flight(sources: BrandSources, renderer: SvgRenderer) -> None:
-    src = sources.local_source
-    icon_dark = src / "icon_dark.svg"
-
-    assets = ROOT / "assets"
-    static = ROOT / "src" / "localflight" / "ui" / "static"
-    mobile = ROOT / "mobile" / "assets"
-    site_assets = ROOT / "site" / "assets"
-
-    copy_svg(icon_dark, assets / "localflight-logo.svg")
-    copy_svg(icon_dark, static / "localflight-logo.svg")
-
-    renderer.render(icon_dark, assets / "icon.png", 1024, 1024)
-    write_ico(icon_dark, assets / "icon.ico", renderer)
-    write_iconset(icon_dark, assets / "icon.iconset", renderer)
-    try_write_icns(assets / "icon.iconset", assets / "icon.icns")
-
-    renderer.render(icon_dark, static / "localflight-icon.png", 1024, 1024)
-    renderer.render(icon_dark, static / "localflight-app-icon.png", 1024, 1024)
-    renderer.render(icon_dark, mobile / "localflight-icon.png", 1024, 1024)
-    renderer.render(icon_dark, mobile / "localflight-logo.png", 1024, 1024)
-    renderer.render(icon_dark, site_assets / "localflight-icon.png", 1024, 1024)
+def stage_mobile_assets(renderer: SvgRenderer) -> None:
+    mobile = STAGE / "mobile-assets"
+    mobile.mkdir(parents=True, exist_ok=True)
+    renderer.render(LOCAL_FLIGHT_DARK, mobile / "localflight-icon-dark.png", 1024, 1024)
+    renderer.render(LOCAL_FLIGHT_LIGHT, mobile / "localflight-icon-light.png", 1024, 1024)
+    shutil.copyfile(mobile / "localflight-icon-dark.png", mobile / "localflight-icon.png")
+    shutil.copyfile(mobile / "localflight-icon-dark.png", mobile / "localflight-logo-dark.png")
+    shutil.copyfile(mobile / "localflight-icon-light.png", mobile / "localflight-logo-light.png")
+    shutil.copyfile(mobile / "localflight-logo-dark.png", mobile / "localflight-logo.png")
 
 
-def sync_beacon_tools(sources: BrandSources, renderer: SvgRenderer) -> None:
-    src = sources.beacon_source
-    icon_dark = src / "icon_dark.svg"
-    icon_mark = src / "icon_mark.svg"
-    lockup = src / "lockup_horizontal_transparent.svg"
+def stage_site_assets(renderer: SvgRenderer) -> None:
+    site = STAGE / "site-assets"
+    site.mkdir(parents=True, exist_ok=True)
 
-    site_assets = ROOT / "site" / "assets"
+    lockup_master = site / "beacon-tools-logo-master.png"
+    renderer.render(BEACON_LOCKUP, lockup_master, 1620, 420)
+    verify_lockup_wording(lockup_master)
+    resize_contain(lockup_master, site / "beacon-tools-logo.png", 1200, 349)
+    verify_lockup_wording(site / "beacon-tools-logo.png")
 
-    tmpdir = Path(tempfile.mkdtemp(prefix="beacon-brand-"))
-    lockup_natural = tmpdir / "beacon-lockup-1200x311.png"
-    renderer.render(lockup, lockup_natural, 1200, 311)
-    paste_center(lockup_natural, site_assets / "beacon-tools-logo.png", (1200, 349))
+    for filename, size in (
+        ("beacon-tools-mark.png", 512),
+        ("beacon-tools-mark-96.png", 96),
+        ("beacon-tools-mark-64.png", 64),
+        ("beacon-tools-icon-512.png", 512),
+        ("apple-touch-icon.png", 180),
+        ("favicon-32.png", 32),
+    ):
+        renderer.render(BEACON_MARK, site / filename, size, size)
+    write_ico(site / "beacon-tools-mark.png", site / "favicon.ico")
 
-    renderer.render(icon_mark, site_assets / "beacon-tools-mark.png", 512, 512)
-    resize_png(site_assets / "beacon-tools-mark.png", site_assets / "beacon-tools-mark-96.png", (96, 96))
-    resize_png(site_assets / "beacon-tools-mark.png", site_assets / "beacon-tools-mark-64.png", (64, 64))
-
-    renderer.render(icon_dark, site_assets / "beacon-tools-icon-512.png", 512, 512)
-    renderer.render(icon_dark, site_assets / "apple-touch-icon.png", 180, 180)
-    resize_png(site_assets / "beacon-tools-mark.png", site_assets / "favicon-32.png", (32, 32))
-    write_ico(icon_mark, site_assets / "favicon.ico", renderer)
+    renderer.render(LOCAL_FLIGHT_DARK, site / "localflight-icon.png", 1024, 1024)
+    renderer.render(LOCAL_FLIGHT_LIGHT, site / "localflight-icon-light.png", 1024, 1024)
+    assert_images_differ(site / "localflight-icon.png", site / "localflight-icon-light.png")
 
 
-def validate_required_outputs() -> None:
-    checks = {
-        ROOT / "assets" / "icon.png": (1024, 1024),
-        ROOT / "assets" / "icon.icns": None,
-        ROOT / "src" / "localflight" / "ui" / "static" / "localflight-logo.svg": None,
-        ROOT / "src" / "localflight" / "ui" / "static" / "localflight-icon.png": (1024, 1024),
-        ROOT / "mobile" / "assets" / "localflight-icon.png": (1024, 1024),
-        ROOT / "mobile" / "assets" / "localflight-logo.png": (1024, 1024),
-        ROOT / "site" / "assets" / "beacon-tools-logo.png": (1200, 349),
-        ROOT / "site" / "assets" / "beacon-tools-mark.png": (512, 512),
-        ROOT / "site" / "assets" / "beacon-tools-mark-96.png": (96, 96),
-        ROOT / "site" / "assets" / "beacon-tools-mark-64.png": (64, 64),
-        ROOT / "site" / "assets" / "beacon-tools-icon-512.png": (512, 512),
-        ROOT / "site" / "assets" / "apple-touch-icon.png": (180, 180),
-        ROOT / "site" / "assets" / "favicon-32.png": (32, 32),
-        ROOT / "site" / "assets" / "localflight-icon.png": (1024, 1024),
+def validate_masters() -> None:
+    for path in (BEACON_LOCKUP, BEACON_MARK, LOCAL_FLIGHT_DARK, LOCAL_FLIGHT_LIGHT):
+        if not path.exists():
+            raise FileNotFoundError(path)
+        assert_svg(path)
+
+
+def validate_stage() -> None:
+    assert_svg(STAGE / "localflight-logo.svg")
+    assert_image(STAGE / "icon.png", 1024, 1024)
+    assert_ico(STAGE / "icon.ico", WINDOWS_ICO_SIZES)
+    for filename, size in MACOS_ICONSET_SIZES:
+        assert_image(STAGE / "icon.iconset" / filename, size, size)
+    if not (STAGE / "icon.icns").exists():
+        raise FileNotFoundError(STAGE / "icon.icns")
+    assert_svg(STAGE / "qt-lan-static" / "localflight-logo.svg")
+    assert_image(STAGE / "qt-lan-static" / "localflight-icon.png", 1024, 1024)
+    assert_image(STAGE / "qt-lan-static" / "localflight-app-icon.png", 1024, 1024)
+    for filename in MOBILE_BRAND_ASSETS:
+        assert_image(STAGE / "mobile-assets" / filename, 1024, 1024)
+    assert_images_differ(
+        STAGE / "mobile-assets" / "localflight-icon-dark.png",
+        STAGE / "mobile-assets" / "localflight-icon-light.png",
+    )
+    site = STAGE / "site-assets"
+    for filename, expected_size in (
+        ("apple-touch-icon.png", (180, 180)),
+        ("beacon-tools-icon-512.png", (512, 512)),
+        ("beacon-tools-logo.png", (1200, 349)),
+        ("beacon-tools-mark.png", (512, 512)),
+        ("beacon-tools-mark-64.png", (64, 64)),
+        ("beacon-tools-mark-96.png", (96, 96)),
+        ("favicon-32.png", (32, 32)),
+        ("localflight-icon.png", (1024, 1024)),
+        ("localflight-icon-light.png", (1024, 1024)),
+    ):
+        assert_image(site / filename, *expected_size)
+    assert_ico(site / "favicon.ico", WINDOWS_ICO_SIZES)
+    assert_images_differ(site / "localflight-icon.png", site / "localflight-icon-light.png")
+
+
+def sanitize_module_brand_files(module_dir: Path, keep: set[str]) -> None:
+    """Remove stale Local Flight logo/icon derivatives from a module folder."""
+    module_dir.mkdir(parents=True, exist_ok=True)
+    patterns = (
+        "icon*.png",
+        "icon*.ico",
+        "icon*.icns",
+        "icon*.iconset",
+        "localflight-logo*.svg",
+        "localflight-logo*.png",
+        "localflight-icon*.png",
+        "localflight-app-icon*.png",
+    )
+    for pattern in patterns:
+        for path in module_dir.glob(pattern):
+            if path.name not in keep:
+                if path.is_dir():
+                    shutil.rmtree(path)
+                else:
+                    path.unlink()
+    brand_dir = module_dir / "brand"
+    if brand_dir.exists():
+        shutil.rmtree(brand_dir)
+
+
+def sanitize_site_brand_files() -> None:
+    """Remove stale/generated site brand files that are not part of the V2 site set."""
+    SITE_ASSETS.mkdir(parents=True, exist_ok=True)
+    patterns = (
+        "apple-touch-icon.png",
+        "beacon-tools-*.png",
+        "favicon*.png",
+        "favicon*.ico",
+        "localflight-icon*.png",
+    )
+    keep = set(SITE_BRAND_ASSETS)
+    for pattern in patterns:
+        for path in SITE_ASSETS.glob(pattern):
+            if path.name not in keep:
+                path.unlink()
+    for filename in STALE_SITE_BRAND_ALIASES:
+        path = SITE_ASSETS / filename
+        if path.exists():
+            path.unlink()
+
+
+def copy_validated_outputs() -> None:
+    ASSETS.mkdir(exist_ok=True)
+    sanitize_module_brand_files(
+        ASSETS,
+        {"localflight-logo.svg", "icon.png", "icon.ico", "icon.icns", "icon.iconset"},
+    )
+    shutil.copyfile(STAGE / "localflight-logo.svg", ASSETS / "localflight-logo.svg")
+    shutil.copyfile(STAGE / "icon.png", ASSETS / "icon.png")
+    shutil.copyfile(STAGE / "icon.ico", ASSETS / "icon.ico")
+    shutil.copyfile(STAGE / "icon.icns", ASSETS / "icon.icns")
+    dst_iconset = ASSETS / "icon.iconset"
+    if dst_iconset.exists():
+        shutil.rmtree(dst_iconset)
+    shutil.copytree(STAGE / "icon.iconset", dst_iconset)
+
+    sanitize_module_brand_files(
+        STATIC,
+        {"localflight-logo.svg", "localflight-icon.png", "localflight-app-icon.png"},
+    )
+    shutil.copyfile(STAGE / "qt-lan-static" / "localflight-logo.svg", STATIC / "localflight-logo.svg")
+    shutil.copyfile(STAGE / "qt-lan-static" / "localflight-icon.png", STATIC / "localflight-icon.png")
+    shutil.copyfile(STAGE / "qt-lan-static" / "localflight-app-icon.png", STATIC / "localflight-app-icon.png")
+
+    sanitize_module_brand_files(
+        MOBILE_ASSETS,
+        set(MOBILE_BRAND_ASSETS),
+    )
+    for filename in MOBILE_BRAND_ASSETS:
+        shutil.copyfile(STAGE / "mobile-assets" / filename, MOBILE_ASSETS / filename)
+
+    sanitize_site_brand_files()
+    for filename in SITE_BRAND_ASSETS:
+        shutil.copyfile(STAGE / "site-assets" / filename, SITE_ASSETS / filename)
+
+
+def output_record(role: str, path: Path) -> OutputRecord:
+    width: int | None = None
+    height: int | None = None
+    if path.suffix.lower() in {".png", ".ico", ".icns"}:
+        with Image.open(path) as image:
+            width, height = image.size
+    return OutputRecord(
+        role=role,
+        path=path.relative_to(ROOT).as_posix(),
+        width=width,
+        height=height,
+        sha256=sha256(path),
+    )
+
+
+def write_manifest(renderer_name: str) -> None:
+    outputs = [
+        output_record("local-flight-master-svg-copy", ASSETS / "localflight-logo.svg"),
+        output_record("local-flight-package-png", ASSETS / "icon.png"),
+        output_record("local-flight-windows-ico", ASSETS / "icon.ico"),
+        output_record("local-flight-macos-icns", ASSETS / "icon.icns"),
+    ]
+    for filename, _size in MACOS_ICONSET_SIZES:
+        outputs.append(output_record("local-flight-macos-iconset-member", ASSETS / "icon.iconset" / filename))
+    outputs.extend(
+        [
+            output_record("qt-native-brand-svg", STATIC / "localflight-logo.svg"),
+            output_record("qt-native-brand-png", STATIC / "localflight-icon.png"),
+            output_record("lan-browser-brand-svg", STATIC / "localflight-logo.svg"),
+            output_record("lan-browser-touch-icon", STATIC / "localflight-app-icon.png"),
+            output_record("mobile-app-icon", MOBILE_ASSETS / "localflight-icon.png"),
+            output_record("mobile-app-icon-dark", MOBILE_ASSETS / "localflight-icon-dark.png"),
+            output_record("mobile-app-icon-light", MOBILE_ASSETS / "localflight-icon-light.png"),
+            output_record("mobile-splash-logo", MOBILE_ASSETS / "localflight-logo.png"),
+            output_record("mobile-splash-logo-dark", MOBILE_ASSETS / "localflight-logo-dark.png"),
+            output_record("mobile-splash-logo-light", MOBILE_ASSETS / "localflight-logo-light.png"),
+        ]
+    )
+    outputs.extend(
+        [
+            output_record("site-beacon-apple-touch-icon", SITE_ASSETS / "apple-touch-icon.png"),
+            output_record("site-beacon-favicon-ico", SITE_ASSETS / "favicon.ico"),
+            output_record("site-beacon-favicon-32", SITE_ASSETS / "favicon-32.png"),
+            output_record("site-beacon-icon-512", SITE_ASSETS / "beacon-tools-icon-512.png"),
+            output_record("site-beacon-lockup", SITE_ASSETS / "beacon-tools-logo.png"),
+            output_record("site-beacon-mark-512", SITE_ASSETS / "beacon-tools-mark.png"),
+            output_record("site-beacon-mark-96", SITE_ASSETS / "beacon-tools-mark-96.png"),
+            output_record("site-beacon-mark-64", SITE_ASSETS / "beacon-tools-mark-64.png"),
+            output_record("site-local-flight-product-icon", SITE_ASSETS / "localflight-icon.png"),
+            output_record("site-local-flight-product-icon-light", SITE_ASSETS / "localflight-icon-light.png"),
+        ]
+    )
+    manifest = {
+        "version": 1,
+        "phase": "package-qt-lan-mobile-site",
+        "renderer": renderer_name,
+        "masters": {
+            "beacon_lockup": str(BEACON_LOCKUP),
+            "beacon_mark": str(BEACON_MARK),
+            "local_flight_dark": str(LOCAL_FLIGHT_DARK),
+            "local_flight_light": str(LOCAL_FLIGHT_LIGHT),
+        },
+        "active_outputs": [asdict(record) for record in outputs],
+        "excluded_until_later_phases": [],
     }
-    for path, size in checks.items():
-        if path.suffix.lower() == ".svg":
-            if not path.exists() or path.stat().st_size == 0:
-                raise ValueError(f"{path} is missing or empty")
-            continue
-        if path.suffix.lower() == ".icns":
-            if path.exists() and path.stat().st_size > 0:
-                continue
-            if (ROOT / "assets" / "icon.iconset").exists():
-                continue
-            raise ValueError(f"{path} is missing and no icon.iconset fallback exists")
-        assert_image(path, *(size or (None, None)))
-    assert_ico(ROOT / "assets" / "icon.ico", WINDOWS_ICO_SIZES)
-    assert_ico(ROOT / "site" / "assets" / "favicon.ico", WINDOWS_ICO_SIZES)
+    (ASSETS / "brand-manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
 
 
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--beacon-root", type=Path, default=DEFAULT_BEACON_ROOT)
-    parser.add_argument("--local-flight-root", type=Path, default=DEFAULT_LOCAL_FLIGHT_ROOT)
-    return parser.parse_args()
+def validate_active_outputs() -> None:
+    assert_svg(ASSETS / "localflight-logo.svg")
+    assert_image(ASSETS / "icon.png", 1024, 1024)
+    assert_ico(ASSETS / "icon.ico", WINDOWS_ICO_SIZES)
+    for filename, size in MACOS_ICONSET_SIZES:
+        assert_image(ASSETS / "icon.iconset" / filename, size, size)
+    if not (ASSETS / "icon.icns").exists():
+        raise FileNotFoundError(ASSETS / "icon.icns")
+    assert_svg(STATIC / "localflight-logo.svg")
+    assert_image(STATIC / "localflight-icon.png", 1024, 1024)
+    assert_image(STATIC / "localflight-app-icon.png", 1024, 1024)
+    for filename in MOBILE_BRAND_ASSETS:
+        assert_image(MOBILE_ASSETS / filename, 1024, 1024)
+    assert_images_differ(
+        MOBILE_ASSETS / "localflight-icon-dark.png",
+        MOBILE_ASSETS / "localflight-icon-light.png",
+    )
+    for filename, expected_size in (
+        ("apple-touch-icon.png", (180, 180)),
+        ("beacon-tools-icon-512.png", (512, 512)),
+        ("beacon-tools-logo.png", (1200, 349)),
+        ("beacon-tools-mark.png", (512, 512)),
+        ("beacon-tools-mark-64.png", (64, 64)),
+        ("beacon-tools-mark-96.png", (96, 96)),
+        ("favicon-32.png", (32, 32)),
+        ("localflight-icon.png", (1024, 1024)),
+        ("localflight-icon-light.png", (1024, 1024)),
+    ):
+        assert_image(SITE_ASSETS / filename, *expected_size)
+    assert_ico(SITE_ASSETS / "favicon.ico", WINDOWS_ICO_SIZES)
+    assert_images_differ(SITE_ASSETS / "localflight-icon.png", SITE_ASSETS / "localflight-icon-light.png")
+    for filename in STALE_SITE_BRAND_ALIASES:
+        if (SITE_ASSETS / filename).exists():
+            raise ValueError(f"stale site brand alias still exists: {filename}")
+    manifest = json.loads((ASSETS / "brand-manifest.json").read_text(encoding="utf-8"))
+    if manifest.get("phase") != "package-qt-lan-mobile-site":
+        raise ValueError("brand manifest phase mismatch")
 
 
 def main() -> None:
-    os.environ.setdefault("PYTHONIOENCODING", "utf-8")
-    args = parse_args()
-    sources = BrandSources(
-        beacon=args.beacon_root.resolve(),
-        local_flight=args.local_flight_root.resolve(),
-    )
-    for required in (sources.beacon_source, sources.local_source):
-        if not required.exists():
-            raise FileNotFoundError(required)
-
+    validate_masters()
     with SvgRenderer() as renderer:
-        sync_local_flight(sources, renderer)
-        sync_beacon_tools(sources, renderer)
-    validate_required_outputs()
-    print("Synced Beacon Tools / Local Flight V2 brand assets.")
+        stage_package_icons(renderer)
+        stage_qt_lan_static(renderer)
+        stage_mobile_assets(renderer)
+        stage_site_assets(renderer)
+        validate_stage()
+        copy_validated_outputs()
+        write_manifest(renderer.name)
+    validate_active_outputs()
+    print("Synced V2 package, Qt/LAN, mobile, and site brand assets from masters.")
 
 
 if __name__ == "__main__":

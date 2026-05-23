@@ -16,12 +16,12 @@
         "expo-splash-screen",
         {
           "backgroundColor": "#080c12",
-          "image": "./assets/localflight-logo.png",
+          "image": "./assets/localflight-logo-dark.png",
           "imageWidth": 172,
           "resizeMode": "contain",
           "dark": {
             "backgroundColor": "#080c12",
-            "image": "./assets/localflight-logo.png"
+            "image": "./assets/localflight-logo-dark.png"
           }
         }
       ],

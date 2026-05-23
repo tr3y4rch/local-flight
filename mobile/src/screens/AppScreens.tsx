@@ -113,6 +113,7 @@ import {
   type StandaloneAirport,
   saveProfiles
 } from "../storage/settings";
+import { localFlightLogoForTheme } from "../theme/brandAssets";
 import { palette, styles } from "../theme/styleBridge";
 import {
   ACTION_ICONS,
@@ -4806,7 +4807,7 @@ export function CompanionSetupScreen({
             <View style={styles.companionSetupLogoRing} />
             <View style={styles.companionSetupLogoRingOuter} />
             <Image
-              source={require("../../assets/localflight-logo.png")}
+              source={localFlightLogoForTheme(palette.themeMode)}
               resizeMode="contain"
               style={styles.companionSetupLogoMark}
             />
