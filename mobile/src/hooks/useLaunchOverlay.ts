@@ -47,6 +47,9 @@ export function useLaunchOverlay(onHydrated: (value: LaunchHydration) => void) {
   // Independent continuous sweep — 360° linear rotation, decoupled from the
   // halo breathing so the radar needle feels physically authentic.
   const sweep = useRef(new Animated.Value(0)).current;
+  const orbitFast = useRef(new Animated.Value(0)).current;
+  const orbitMedium = useRef(new Animated.Value(0)).current;
+  const orbitSlow = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     let alive = true;
@@ -84,10 +87,37 @@ export function useLaunchOverlay(onHydrated: (value: LaunchHydration) => void) {
         useNativeDriver: true
       })
     );
+    const orbitFastAnim = Animated.loop(
+      Animated.timing(orbitFast, {
+        toValue: 1,
+        duration: 6800,
+        easing: Easing.linear,
+        useNativeDriver: true
+      })
+    );
+    const orbitMediumAnim = Animated.loop(
+      Animated.timing(orbitMedium, {
+        toValue: 1,
+        duration: 11200,
+        easing: Easing.linear,
+        useNativeDriver: true
+      })
+    );
+    const orbitSlowAnim = Animated.loop(
+      Animated.timing(orbitSlow, {
+        toValue: 1,
+        duration: 18400,
+        easing: Easing.linear,
+        useNativeDriver: true
+      })
+    );
 
     progress.setValue(0);
     pulse.setValue(reduceMotion ? 0.5 : 0);
     sweep.setValue(0);
+    orbitFast.setValue(0);
+    orbitMedium.setValue(0);
+    orbitSlow.setValue(0);
     Animated.timing(progress, {
       toValue: 1,
       duration: reduceMotion ? 180 : LAUNCH_MIN_MS,
@@ -97,6 +127,9 @@ export function useLaunchOverlay(onHydrated: (value: LaunchHydration) => void) {
     if (!reduceMotion) {
       pulseAnim.start();
       sweepAnim.start();
+      orbitFastAnim.start();
+      orbitMediumAnim.start();
+      orbitSlowAnim.start();
     }
 
     Promise.all([
@@ -167,12 +200,15 @@ export function useLaunchOverlay(onHydrated: (value: LaunchHydration) => void) {
       clearInterval(statusTimer);
       pulseAnim.stop();
       sweepAnim.stop();
+      orbitFastAnim.stop();
+      orbitMediumAnim.stop();
+      orbitSlowAnim.stop();
       progress.stopAnimation();
       if (nativeHideTimer) clearTimeout(nativeHideTimer);
       if (hideTimer) clearTimeout(hideTimer);
       if (fadeTimer) clearTimeout(fadeTimer);
     };
-  }, [onHydrated, opacity, progress, pulse, reduceMotion, scale, shift, sweep]);
+  }, [onHydrated, opacity, orbitFast, orbitMedium, orbitSlow, progress, pulse, reduceMotion, scale, shift, sweep]);
 
   return {
     visible,
@@ -182,6 +218,9 @@ export function useLaunchOverlay(onHydrated: (value: LaunchHydration) => void) {
     progress,
     pulse,
     sweep,
+    orbitFast,
+    orbitMedium,
+    orbitSlow,
     status: LAUNCH_STATUS_STEPS[statusIndex] ?? "Opening mobile"
   };
 }

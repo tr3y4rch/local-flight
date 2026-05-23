@@ -23,14 +23,14 @@ Public project docs live at [beacontools.cc/local-flight](https://beacontools.cc
 
 Use this path for the easiest Windows desktop setup.
 
-1. Download `LocalFlight-windows.zip` from the latest GitHub release.
-2. Unzip it to any folder.
-3. Double-click `LocalFlight.exe`.
+1. Download `LocalFlight-0.2.7-Setup.exe` from the latest GitHub release.
+2. Double-click the installer and follow the Local Flight wizard.
+3. Launch Local Flight from the final installer page, Start Menu, or desktop shortcut.
 4. Complete the setup wizard: Welcome, Airport, Flight Data, Optional Keys, Diagnostics, and Review & Open.
 
 Windows may show a SmartScreen warning because the app is not signed yet. Click **More info**, then **Run anyway** if you trust the download source.
 
-The release zip is self-contained. You do not need Python, Node, or the source installer for normal use.
+The installer is self-contained. You do not need Python, Node, or the source installer for normal use. A `LocalFlight-windows.zip` artifact may also be attached for portable/manual installs: unzip it to any folder, then double-click `LocalFlight.exe`.
 The packaged `LocalFlight.exe` is a windowed desktop app, so it should open the branded Local Flight UI without a Python or cmd console in front.
 
 ### Windows Source Checkout

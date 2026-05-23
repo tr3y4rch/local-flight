@@ -17,19 +17,22 @@ type LaunchOverlayProps = {
   progress: Animated.Value;
   pulse: Animated.Value;
   sweep: Animated.Value;
+  orbitFast: Animated.Value;
+  orbitMedium: Animated.Value;
+  orbitSlow: Animated.Value;
   status: string;
   styles: Record<string, any>;
 };
 
 const PARTICLES = [
-  { left: "18%", top: "18%", size: 2, opacity: 0.55 },
-  { left: "77%", top: "17%", size: 2, opacity: 0.5 },
-  { left: "28%", top: "31%", size: 1.5, opacity: 0.38 },
-  { left: "67%", top: "36%", size: 2.5, opacity: 0.42 },
-  { left: "12%", top: "52%", size: 1.5, opacity: 0.32 },
-  { left: "87%", top: "58%", size: 1.5, opacity: 0.35 },
-  { left: "25%", top: "78%", size: 2, opacity: 0.44 },
-  { left: "72%", top: "82%", size: 1.5, opacity: 0.34 }
+  { left: "13%", top: "17%", size: 2, opacity: 0.45 },
+  { left: "67%", top: "15%", size: 2, opacity: 0.34 },
+  { left: "83%", top: "27%", size: 1.5, opacity: 0.38 },
+  { left: "24%", top: "34%", size: 1.5, opacity: 0.32 },
+  { left: "9%", top: "56%", size: 2, opacity: 0.35 },
+  { left: "88%", top: "59%", size: 1.5, opacity: 0.4 },
+  { left: "20%", top: "81%", size: 2, opacity: 0.44 },
+  { left: "62%", top: "86%", size: 1.5, opacity: 0.32 }
 ] as const;
 
 export function LaunchOverlay({
@@ -40,6 +43,9 @@ export function LaunchOverlay({
   progress,
   pulse,
   sweep,
+  orbitFast,
+  orbitMedium,
+  orbitSlow,
   status,
   styles
 }: LaunchOverlayProps) {
@@ -68,23 +74,43 @@ export function LaunchOverlay({
   const isWide = width >= 700;
   const isLandscape = width > height;
   const shortestSide = Math.min(width, height);
-  const sidePadding = Math.max(20, Math.min(isWide ? 64 : 32, width * 0.07));
-  const topPadding = Math.max(insets.top + 24, Math.min(isWide ? 80 : 58, height * 0.07));
-  const bottomPadding = Math.max(insets.bottom + 18, Math.min(isWide ? 56 : 38, height * 0.05));
-  const maxFrameWidth = Math.min(width - sidePadding * 2, isWide ? 620 : 430);
-  const heroSize = Math.max(isLandscape ? 126 : 170, Math.min(isWide ? 280 : 228, shortestSide * (isWide ? 0.36 : 0.57)));
-  const radarSize = Math.max(heroSize * 1.72, Math.min(Math.max(width, height) * 0.62, shortestSide * (isWide ? 0.82 : 1.08)));
-  const targetSize = Math.max(42, heroSize * 0.25);
-  const titleSize = compact ? 30 : isWide ? 44 : 36;
+  const longestSide = Math.max(width, height);
+  const sidePadding = Math.max(22, Math.min(isWide ? 72 : 34, width * 0.072));
+  const topPadding = Math.max(insets.top + 18, Math.min(isWide ? 76 : 52, height * 0.062));
+  const bottomPadding = Math.max(insets.bottom + 18, Math.min(isWide ? 50 : 36, height * 0.048));
+  const maxFrameWidth = Math.min(width - sidePadding * 2, isWide ? 650 : 450);
+  const heroSize = Math.max(isLandscape ? 118 : compact ? 152 : 176, Math.min(isWide ? 288 : 222, shortestSide * (isWide ? 0.34 : 0.53)));
+  const iconSize = heroSize * 0.74;
+  const glassSize = heroSize * 0.94;
+  const titleSize = compact ? 31 : isWide ? 46 : 38;
+  const orbitCenterY = height * (isLandscape ? 0.48 : 0.43);
+  const orbitBase = Math.max(longestSide * 1.16, shortestSide * 1.62, 520);
+  const orbitMediumSize = orbitBase * 0.82;
+  const orbitSlowSize = orbitBase * 1.24;
+  const orbitFastSize = orbitBase * 0.58;
+  const targetSize = Math.max(44, heroSize * 0.24);
+  const isDark = palette.themeMode !== "light";
+  const brandAsset = LOCAL_FLIGHT_BRAND_ASSETS[palette.themeMode].icon;
+  const watermarkColor = isDark ? "rgba(205,238,248,0.54)" : "rgba(33,75,112,0.54)";
+  const watermarkWindow = isDark ? "#080c12" : "#f8fbff";
 
-  const haloScale = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.94, 1.07] });
-  const haloOpacity = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.64, 0.34] });
-  const iconScale = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.985, 1.015] });
-  const pingScale = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.68, 1.34] });
-  const pingOpacity = pulse.interpolate({ inputRange: [0, 0.7, 1], outputRange: [0.66, 0.22, 0] });
-  const dotScale = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.78, 1.16] });
+  const haloScale = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.96, 1.07] });
+  const iconScale = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.985, 1.018] });
+  const pingScale = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.72, 1.42] });
+  const pingOpacity = pulse.interpolate({ inputRange: [0, 0.72, 1], outputRange: [0.68, 0.2, 0] });
+  const dotScale = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.78, 1.18] });
   const progressWidth = progress.interpolate({ inputRange: [0, 1], outputRange: ["4%", "100%"] });
   const sweepRotate = sweep.interpolate({ inputRange: [0, 1], outputRange: ["0deg", "360deg"] });
+  const orbitFastRotate = orbitFast.interpolate({ inputRange: [0, 1], outputRange: ["0deg", "360deg"] });
+  const orbitMediumRotate = orbitMedium.interpolate({ inputRange: [0, 1], outputRange: ["360deg", "0deg"] });
+  const orbitSlowRotate = orbitSlow.interpolate({ inputRange: [0, 1], outputRange: ["-18deg", "342deg"] });
+
+  const orbitStyle = (size: number) => ({
+    width: size,
+    height: size,
+    left: (width - size) / 2,
+    top: orbitCenterY - size / 2
+  });
 
   return (
     <Animated.View
@@ -102,11 +128,15 @@ export function LaunchOverlay({
       ]}
     >
       <View style={styles.launchAtmosphere} {...hideFromAccessibility()} />
+      <View style={styles.launchGlowNorth} {...hideFromAccessibility()} />
+      <View style={styles.launchGlowSouth} {...hideFromAccessibility()} />
       <View style={styles.launchSkyGrid} {...hideFromAccessibility()}>
-        {Array.from({ length: 7 }).map((_, index) => (
+        {Array.from({ length: 8 }).map((_, index) => (
           <View key={index} style={styles.launchGridLine} />
         ))}
       </View>
+      <View style={[styles.launchCrosshairHorizontal, { top: orbitCenterY }]} {...hideFromAccessibility()} />
+      <View style={[styles.launchCrosshairVertical, { left: width / 2 }]} {...hideFromAccessibility()} />
       {PARTICLES.map((particle, index) => (
         <View
           key={index}
@@ -124,58 +154,58 @@ export function LaunchOverlay({
         />
       ))}
 
+      <Animated.View
+        style={[
+          styles.launchOrbitRing,
+          styles.launchOrbitRingSlow,
+          orbitStyle(orbitSlowSize),
+          { transform: [{ rotate: orbitSlowRotate }, { scale: haloScale }] }
+        ]}
+        {...hideFromAccessibility()}
+      />
+      <Animated.View
+        style={[
+          styles.launchOrbitRing,
+          styles.launchOrbitRingMedium,
+          orbitStyle(orbitMediumSize),
+          { transform: [{ rotate: orbitMediumRotate }] }
+        ]}
+        {...hideFromAccessibility()}
+      />
+      <Animated.View
+        style={[
+          styles.launchOrbitRing,
+          styles.launchOrbitRingFast,
+          orbitStyle(orbitFastSize),
+          { transform: [{ rotate: orbitFastRotate }] }
+        ]}
+        {...hideFromAccessibility()}
+      />
+      <Animated.View
+        style={[
+          styles.launchSweepRotor,
+          orbitStyle(orbitMediumSize * 0.78),
+          { transform: [{ rotate: sweepRotate }] }
+        ]}
+        {...hideFromAccessibility()}
+      >
+        <View style={[styles.launchSweep, { height: orbitMediumSize * 0.34 }]} />
+      </Animated.View>
+
       <View style={[styles.launchContentStack, { maxWidth: maxFrameWidth }]}>
         <View style={[styles.launchScene, compact && styles.launchSceneCompact]}>
-          <Animated.View
-            style={[
-              styles.launchHalo,
-              {
-                width: radarSize,
-                height: radarSize,
-                opacity: haloOpacity,
-                transform: [{ scale: haloScale }]
-              }
-            ]}
-            {...hideFromAccessibility()}
-          />
-          <Animated.View
-            style={[
-              styles.launchHaloInner,
-              {
-                width: radarSize * 0.66,
-                height: radarSize * 0.66,
-                transform: [{ rotate: sweepRotate }]
-              }
-            ]}
-            {...hideFromAccessibility()}
-          />
-
           <View style={[styles.launchMarkWrap, { width: heroSize, height: heroSize }]}>
-            <View style={[styles.launchRadarRingOuter, { width: heroSize * 1.4, height: heroSize * 1.4 }]} {...hideFromAccessibility()} />
-            <View style={[styles.launchRadarRing, { width: heroSize * 1.12, height: heroSize * 1.12 }]} {...hideFromAccessibility()} />
-
-            <Animated.View
-              style={[
-                styles.launchSweepRotor,
-                {
-                  width: heroSize * 1.2,
-                  height: heroSize * 1.2,
-                  transform: [{ rotate: sweepRotate }]
-                }
-              ]}
-              {...hideFromAccessibility()}
-            >
-              <View style={[styles.launchSweep, { height: heroSize * 0.52 }]} />
-            </Animated.View>
-
+            <View style={[styles.launchHeroAura, { width: heroSize * 1.22, height: heroSize * 1.22 }]} {...hideFromAccessibility()} />
+            <View style={[styles.launchRadarRingOuter, { width: heroSize * 1.36, height: heroSize * 1.36 }]} {...hideFromAccessibility()} />
+            <View style={[styles.launchRadarRing, { width: heroSize * 1.04, height: heroSize * 1.04 }]} {...hideFromAccessibility()} />
             <Animated.View
               style={[
                 styles.launchTarget,
                 {
                   width: targetSize,
                   height: targetSize,
-                  right: heroSize * 0.09,
-                  top: heroSize * 0.18,
+                  right: heroSize * 0.08,
+                  top: heroSize * 0.17,
                   transform: [{ scale: pingScale }],
                   opacity: pingOpacity
                 }
@@ -188,16 +218,18 @@ export function LaunchOverlay({
                 {
                   width: targetSize * 0.42,
                   height: targetSize * 0.42,
-                  right: heroSize * 0.09 + targetSize * 0.29,
-                  top: heroSize * 0.18 + targetSize * 0.29
+                  right: heroSize * 0.08 + targetSize * 0.29,
+                  top: heroSize * 0.17 + targetSize * 0.29
                 }
               ]}
               {...hideFromAccessibility()}
             />
 
             <Animated.View style={[styles.launchIconBloom, { transform: [{ scale: iconScale }] }]}>
-              <View style={[styles.launchMarkCrop, { width: heroSize * 0.82, height: heroSize * 0.82 }]}>
-                <Image source={LOCAL_FLIGHT_BRAND_ASSETS.dark.icon} resizeMode="cover" style={styles.launchMark} />
+              <View style={[styles.launchIconPlate, { width: glassSize, height: glassSize, borderRadius: glassSize * 0.24 }]}>
+                <View style={[styles.launchMarkCrop, { width: iconSize, height: iconSize, borderRadius: iconSize * 0.22 }]}>
+                  <Image source={brandAsset} resizeMode="cover" style={styles.launchMark} />
+                </View>
               </View>
             </Animated.View>
           </View>
@@ -209,26 +241,28 @@ export function LaunchOverlay({
               style={[styles.launchTitle, compact && styles.launchTitleCompact]}
               numberOfLines={1}
               adjustsFontSizeToFit
-              minimumFontScale={0.74}
+              minimumFontScale={0.72}
             >
               LOCAL FLIGHT
             </BrandWordmark>
             <Text style={styles.launchSubtitle}>Flight boards, radar, and history for your airport.</Text>
-            <Text style={styles.launchVersion}>v{APP_VERSION}</Text>
+            <View style={styles.launchStatusPanel}>
+              <View style={styles.launchStatusRow}>
+                <Animated.View style={[styles.launchStatusDot, { transform: [{ scale: dotScale }] }]} />
+                <Animated.Text style={[styles.launchStatus, { opacity: statusFade }]}>{status}</Animated.Text>
+              </View>
+              <View style={styles.launchProgressTrack}>
+                <Animated.View style={[styles.launchProgressFill, { width: progressWidth }]} />
+              </View>
+            </View>
           </View>
         </View>
       </View>
 
-      <View style={[styles.launchStatusPanel, { maxWidth: maxFrameWidth }]}>
-        <View style={styles.launchStatusRow}>
-          <Animated.View style={[styles.launchStatusDot, { transform: [{ scale: dotScale }] }]} />
-          <Animated.Text style={[styles.launchStatus, { opacity: statusFade }]}>{status}</Animated.Text>
-        </View>
-        <View style={styles.launchProgressTrack}>
-          <Animated.View style={[styles.launchProgressFill, { width: progressWidth }]} />
-        </View>
+      <View style={styles.launchBottomMeta}>
+        <Text style={styles.launchVersion}>v{APP_VERSION}</Text>
         <View style={styles.launchBeaconFooter}>
-          <BeaconToolsMark size={compact ? 14 : 16} color="rgba(205,238,248,0.54)" windowColor="#080c12" />
+          <BeaconToolsMark size={compact ? 14 : 16} color={watermarkColor} windowColor={watermarkWindow} />
           <Text style={styles.launchBeaconText}>BEACON TOOLS</Text>
         </View>
       </View>

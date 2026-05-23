@@ -5232,6 +5232,32 @@ def test_client_settings_explain_refresh_cadence_and_relay_policy() -> None:
         assert "hourly" in text or "hourly-or-slower" in text or "schedule_policy" in text
 
 
+def test_lan_settings_matches_native_settings_folder_contract() -> None:
+    root = Path(__file__).resolve().parents[1]
+    web_settings = (root / "src" / "localflight" / "ui" / "templates" / "settings.html").read_text(encoding="utf-8")
+    server = (root / "src" / "localflight" / "ui" / "server.py").read_text(encoding="utf-8")
+
+    expected_order = [
+        "Outputs &amp; Radar",
+        "Profiles",
+        "Pair Mobile",
+        "Advanced board timing",
+        "Maintenance",
+        "Relay details",
+        "Diagnostics &amp; Docs",
+    ]
+    positions = [web_settings.index(text) for text in expected_order]
+    assert positions == sorted(positions)
+
+    assert 'class="details-card settings-folder"' in web_settings
+    assert "companion_pairing" in web_settings
+    assert "localflight://pair" not in web_settings
+    assert "/api/admin/connections" in web_settings
+    assert '/api/admin/companion", { method: "DELETE" }' in web_settings
+    assert "pairing_gateway_payload" in server
+    assert "pairing_qr_png_bytes" in server
+
+
 def test_fids_template_has_vatsim_display_contract_guards() -> None:
     root = Path(__file__).resolve().parents[1]
     template = (root / "src" / "localflight" / "ui" / "templates" / "fids.html").read_text(encoding="utf-8")

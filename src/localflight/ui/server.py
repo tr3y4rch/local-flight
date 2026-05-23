@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import logging
 import os
@@ -19,6 +20,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
+from localflight.companion_pairing import pairing_gateway_payload, pairing_qr_png_bytes
 from localflight.ui.api import router as api_router
 from localflight.ui.matrix_guidance import matrix_guidance_payload
 from localflight.core.airports import best_label, city_country_label
@@ -1084,6 +1086,11 @@ def settings_page(
     state = load_state()
     profiles = list_profiles()
     schedule_policy = _schedule_policy_for_source(cfg.source)
+    companion_pairing = pairing_gateway_payload(base_url=str(request.base_url).rstrip("/"))
+    qr_bytes = pairing_qr_png_bytes(str(companion_pairing.get("deep_link") or ""), size=190)
+    companion_pairing["qr_data_uri"] = (
+        f"data:image/png;base64,{base64.b64encode(qr_bytes).decode('ascii')}" if qr_bytes else ""
+    )
     return templates.TemplateResponse(
         request=request,
         name="settings.html",
@@ -1091,6 +1098,7 @@ def settings_page(
             "cfg": cfg,
             "state": state,
             "profiles": profiles,
+            "companion_pairing": companion_pairing,
             "settings_options": _settings_options_for_policy(schedule_policy),
             "schedule_policy": schedule_policy,
             "saved": (saved == "1"),

@@ -223,10 +223,48 @@
     padding: 14px 16px;
     cursor: pointer;
     list-style: none;
-    color: #7cc4f0;
+    color: var(--text);
     font-size: .78rem;
+    display: flex;
+    align-items: center;
+    gap: 12px;
   }
   .details-card summary::-webkit-details-marker { display: none; }
+  .folder-icon {
+    width: 28px;
+    height: 28px;
+    flex: 0 0 auto;
+    display: grid;
+    place-items: center;
+    border-radius: 10px;
+    border: 1px solid color-mix(in srgb, #4a9eda 38%, transparent);
+    background: color-mix(in srgb, #4a9eda 12%, transparent);
+  }
+  .folder-copy {
+    min-width: 0;
+    display: grid;
+    gap: 3px;
+    text-transform: none;
+    letter-spacing: 0;
+    font-family: inherit;
+  }
+  .folder-copy strong {
+    font-family: var(--font-board);
+    letter-spacing: .08em;
+    text-transform: none;
+    color: var(--text);
+  }
+  .folder-copy span {
+    color: color-mix(in srgb, var(--text) 66%, transparent);
+    line-height: 1.35;
+    font-size: .78rem;
+  }
+  .folder-caret {
+    margin-left: auto;
+    color: #7cc4f0;
+    transition: transform .14s ease;
+  }
+  .details-card[open] .folder-caret { transform: rotate(90deg); }
   .details-body {
     padding: 0 16px 16px;
   }
@@ -250,6 +288,46 @@
     opacity: .62;
     text-transform: uppercase;
     letter-spacing: .06em;
+  }
+  .mini-cell .mono,
+  .mono-wrap {
+    font-family: var(--font-board);
+    word-break: break-all;
+  }
+  .pairing-layout {
+    display: grid;
+    grid-template-columns: 210px minmax(0, 1fr);
+    gap: 16px;
+    align-items: start;
+  }
+  .pairing-qr {
+    min-height: 210px;
+    display: grid;
+    place-items: center;
+    border-radius: 14px;
+    border: 1px solid color-mix(in srgb, #4a9eda 28%, transparent);
+    background:
+      radial-gradient(circle at 50% 50%, rgba(74,158,218,.18), transparent 58%),
+      color-mix(in srgb, var(--bg) 56%, transparent);
+  }
+  .pairing-qr img {
+    width: 190px;
+    height: 190px;
+    border-radius: 8px;
+    image-rendering: pixelated;
+  }
+  .pairing-qr-fallback {
+    padding: 16px;
+    text-align: center;
+    color: color-mix(in srgb, var(--text) 66%, transparent);
+    line-height: 1.45;
+  }
+  .pairing-status {
+    margin-top: 10px;
+    color: color-mix(in srgb, var(--text) 72%, transparent);
+    font-size: .82rem;
+    line-height: 1.45;
+    white-space: pre-line;
   }
   .resource-card {
     display: block;
@@ -305,16 +383,20 @@
       margin-bottom: 8px;
     }
     .metric-card,
-    .settings-card,
-    .details-card {
+    .settings-card {
       border-radius: 12px;
       padding: 10px 12px;
     }
+    .details-card { border-radius: 12px; }
     .settings-actions button,
     .settings-actions a { padding: 6px 12px; font-size: 0.82rem; min-height: 32px; }
   }
   @media (max-width: 880px) and (max-height: 520px) {
     .status-strip { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  }
+  @media (max-width: 760px) {
+    .pairing-layout { grid-template-columns: 1fr; }
+    .pairing-qr { min-height: 190px; }
   }
 {% endblock %}
 
@@ -331,7 +413,7 @@
       </div>
     </div>
     <div class="settings-actions">
-      <button type="button" id="restartSchedulerBtn" onclick="restartSchedulerNow()">Restart scheduler</button>
+      <button type="button" onclick="window.location.reload()">Refresh</button>
       <button type="submit" form="settingsForm">Apply settings</button>
     </div>
   </section>
@@ -339,15 +421,12 @@
   {% if profile_msg %}<div class="toast">{{ profile_msg }}</div>{% endif %}
   {% if saved %}<div class="toast">Saved. Settings were applied to this install.</div>{% endif %}
 
-  <section class="status-strip" id="statusGrid"
-    data-last-attempt="{{ state.last_attempt_utc or '' }}"
-    data-last-success="{{ state.last_success_utc or '' }}"
-    data-refresh-seconds="{{ cfg.refresh_seconds }}">
+  <section class="status-strip" id="statusGrid">
     <div class="metric-card"><b>Airport</b><strong>{{ cfg.airport_iata }} / {{ cfg.airport_icao }}</strong><span>{{ cfg.timezone }}</span></div>
-    <div class="metric-card"><b>Source</b><strong>{{ cfg.source or "real" }}</strong><span>Runtime: {{ state.source_name }}</span></div>
+    <div class="metric-card"><b>Data</b><strong>{{ (cfg.source or "real")|upper }}</strong><span>{{ state.source_name or "Real schedule or VATSIM source." }}</span></div>
     <div class="metric-card"><b>Refresh</b><strong>{{ cfg.refresh_seconds // 60 }} min</strong><span>Provider-friendly cadence</span></div>
-    <div class="metric-card"><b>Last refresh</b><strong id="lastAbs">{{ state.last_success_utc or "-" }}</strong><span id="lastRel">-</span></div>
-    <div class="metric-card"><b>Next refresh</b><strong id="nextAbs">-</strong><span id="nextRel">-</span></div>
+    <div class="metric-card"><b>Relay</b><strong id="relayStatusMetric">Checking...</strong><span id="relayDetailMetric">Tokens stay hidden.</span></div>
+    <div class="metric-card"><b>Surface</b><strong>{{ "On" if cfg.radar_surface_enabled else "Off" }}</strong><span>Runways/surface draw when map data is available.</span></div>
   </section>
 
   {% if state.last_error %}
@@ -438,90 +517,105 @@
         </div>
       </div>
 
-      <div class="settings-card">
-        <h2>Outputs &amp; Radar</h2>
-        <p class="intro">Choose which display surfaces this install should serve and whether radar draws the airport surface layer.</p>
-        <div class="output-grid">
-          {% for option in settings_options.outputs %}
-            <label class="choice-tile">
-              <input type="checkbox" name="display_outputs" value="{{ option.value }}"
-                {% if option.value in (cfg.display_outputs or ['web']) %}checked{% endif %} />
-              <span><strong>{{ option.label }}</strong><span>{{ option.description }}</span></span>
-            </label>
-          {% endfor %}
-        </div>
-        <label class="choice-tile" style="margin-top:12px;">
-          <input type="checkbox" name="radar_surface_enabled" value="1" {% if cfg.radar_surface_enabled %}checked{% endif %} />
-          <span><strong>Airport surface overlay</strong><span>Draw cached runway/surface geometry under the radar when available. Visual only, not navigation data.</span></span>
-        </label>
-      </div>
-
-      <div class="settings-card">
-        <h2>Profiles</h2>
-        <p class="intro">Save airport and board presets for quick swaps without re-running setup.</p>
-        <div class="profile-row">
-          <select form="profileLoadForm" name="profile_name">
-            {% for p in profiles %}<option value="{{ p }}">{{ p }}</option>{% endfor %}
-          </select>
-          <button type="submit" form="profileLoadForm">Load</button>
-        </div>
-        <div class="profile-row">
-          <input form="profileSaveForm" name="profile_name" placeholder="New profile name" />
-          <button type="submit" form="profileSaveForm">Save current</button>
-        </div>
-        <div class="profile-row">
-          <select form="profileDeleteForm" name="profile_name">
-            {% for p in profiles %}<option value="{{ p }}">{{ p }}</option>{% endfor %}
-          </select>
-          <button type="submit" form="profileDeleteForm" class="danger-link">Delete</button>
-        </div>
-      </div>
     </section>
 
     <section class="details-stack">
-      <details class="details-card">
-        <summary>Relay details</summary>
+      <details class="details-card settings-folder">
+        <summary>
+          <span class="folder-icon">🛰️</span>
+          <span class="folder-copy"><strong>Outputs &amp; Radar</strong><span>Choose display outputs and the optional radar ground drawing layer.</span></span>
+          <span class="folder-caret">›</span>
+        </summary>
         <div class="details-body">
-          <p class="intro">Read-only access status. Tokens, raw install IDs, and operator internals are not shown.</p>
-          <div class="mini-grid">
-            <div class="mini-cell"><b>Support ID</b><span id="clientInstallId" class="mono">Loading...</span></div>
-            <div class="mini-cell"><b>Data mode</b><span id="clientMode">Loading...</span></div>
-            <div class="mini-cell"><b>Community key</b><span id="clientCommunityKey">Loading...</span></div>
-            <div class="mini-cell"><b>Managed token</b><span id="clientToken">Loading...</span></div>
-            <div class="mini-cell"><b>Relay host</b><span id="clientRelayUrl" class="mono">Loading...</span></div>
-            <div class="mini-cell"><b>Access path</b><span id="clientAccessStatus">Loading...</span></div>
-            <div class="mini-cell"><b>Schedule window</b><span id="clientFetchWindow">Loading...</span></div>
-            <div class="mini-cell"><b>Access summary</b><span id="clientBurnRate">Loading...</span></div>
-            <div class="mini-cell"><b>Data note</b><span id="clientCadenceNote">Loading...</span></div>
+          <p class="intro">Choose which display surfaces this install should serve and whether radar draws the airport surface layer.</p>
+          <div class="output-grid">
+            {% for option in settings_options.outputs %}
+              <label class="choice-tile">
+                <input type="checkbox" name="display_outputs" value="{{ option.value }}"
+                  {% if option.value in (cfg.display_outputs or ['web']) %}checked{% endif %} />
+                <span><strong>{{ option.label }}</strong><span>{{ option.description }}</span></span>
+              </label>
+            {% endfor %}
           </div>
-        </div>
-      </details>
-
-      <details class="details-card">
-        <summary>Diagnostics &amp; Docs</summary>
-        <div class="details-body">
-          <label>
-            <span>Diagnostics mode</span>
-            <select name="diagnostics_mode">
-              {% for option in settings_options.diagnostics %}
-                <option value="{{ option.value }}" {% if (cfg.diagnostics_mode or "unset") == option.value %}selected{% endif %}>{{ option.label }}</option>
-              {% endfor %}
-            </select>
-            <small>Manual reports stay available from Report. Automatic diagnostics are sanitized locally first.</small>
+          <label class="choice-tile" style="margin-top:12px;">
+            <input type="checkbox" name="radar_surface_enabled" value="1" {% if cfg.radar_surface_enabled %}checked{% endif %} />
+            <span><strong>Airport surface overlay</strong><span>Draw cached runway/surface geometry under the radar when available. Visual only, not navigation data.</span></span>
           </label>
-          <div class="resource-grid">
-            <a class="resource-card" href="/feedback"><strong>Report an issue</strong><span>Send a manual report with local app context.</span></a>
-            <a class="resource-card" href="/docs/readme"><strong>README</strong><span>Friendly overview and quick path chooser.</span></a>
-            <a class="resource-card" href="/docs/install"><strong>Install guide</strong><span>Windows, macOS, Pi, source, and mobile steps.</span></a>
-            <a class="resource-card" href="/docs/display-modes"><strong>Display modes</strong><span>Native, browser fallback, Pi, mobile, and Matrix.</span></a>
-            <a class="resource-card" href="/docs/privacy"><strong>Privacy</strong><span>What stays local and how reporting works.</span></a>
-            <a class="resource-card" href="/docs/third-party"><strong>Third-party notices</strong><span>Bundled fonts and asset attributions.</span></a>
+        </div>
+      </details>
+
+      <details class="details-card settings-folder">
+        <summary>
+          <span class="folder-icon">👤</span>
+          <span class="folder-copy"><strong>Profiles</strong><span>Save airport, source, and board presets for quick swaps.</span></span>
+          <span class="folder-caret">›</span>
+        </summary>
+        <div class="details-body">
+          <p class="intro">Save airport and board presets for quick swaps without re-running setup.</p>
+          <div class="profile-row">
+            <select form="profileLoadForm" name="profile_name">
+              {% for p in profiles %}<option value="{{ p }}">{{ p }}</option>{% endfor %}
+            </select>
+            <button type="submit" form="profileLoadForm">Load</button>
+          </div>
+          <div class="profile-row">
+            <input form="profileSaveForm" name="profile_name" placeholder="New profile name" />
+            <button type="submit" form="profileSaveForm">Save current</button>
+          </div>
+          <div class="profile-row">
+            <select form="profileDeleteForm" name="profile_name">
+              {% for p in profiles %}<option value="{{ p }}">{{ p }}</option>{% endfor %}
+            </select>
+            <button type="submit" form="profileDeleteForm" class="danger-link">Delete</button>
           </div>
         </div>
       </details>
 
-      <details class="details-card">
-        <summary>Advanced board timing</summary>
+      <details class="details-card settings-folder" id="pairMobileCard">
+        <summary>
+          <span class="folder-icon">📱</span>
+          <span class="folder-copy"><strong>Pair Mobile</strong><span>QR pairing for LAN Companion devices on the same network.</span></span>
+          <span class="folder-caret">›</span>
+        </summary>
+        <div class="details-body">
+          <p class="intro">Scan this from each Companion device. The same QR can be reused by multiple phones or tablets on your LAN.</p>
+          <div class="pairing-layout">
+            <div class="pairing-qr">
+              {% if companion_pairing.qr_data_uri %}
+                <img src="{{ companion_pairing.qr_data_uri }}" alt="Local Flight Companion pairing QR code" />
+              {% else %}
+                <div class="pairing-qr-fallback">QR rendering is unavailable in this build. Use the pairing link or manual LAN URL.</div>
+              {% endif %}
+            </div>
+            <div>
+              <div class="mini-grid">
+                <div class="mini-cell"><b>Paired devices</b><span id="companionCount">Checking...</span></div>
+                <div class="mini-cell"><b>QR target</b><span id="companionQrTarget" class="mono mono-wrap">{{ companion_pairing.preferred_url }}</span></div>
+                <div class="mini-cell"><b>Server fingerprint</b><span id="companionFingerprint" class="mono mono-wrap">{{ companion_pairing.server_fingerprint or "Unavailable" }}</span></div>
+                <div class="mini-cell"><b>Pairing link</b><span id="companionPairingLink" class="mono mono-wrap">{{ companion_pairing.deep_link }}</span></div>
+                {% for url in companion_pairing.manual_urls or [] %}
+                  <div class="mini-cell"><b>Manual URL {{ loop.index }}</b><span class="mono mono-wrap">{{ url }}</span></div>
+                {% endfor %}
+              </div>
+              <div class="card-actions" style="margin-top:12px;">
+                <button type="button" onclick="refreshCompanionStatus()">Refresh paired devices</button>
+                <button type="button" onclick="copyPairingLink()">Copy pairing link</button>
+                <button type="button" onclick="copyLanUrl()">Copy LAN URL</button>
+                <button type="button" class="danger-link" onclick="resetCompanionConnections()">Reset paired devices</button>
+              </div>
+              <div class="pairing-status" id="companionEntries">No mobile check-ins yet.</div>
+              <div class="pairing-status" id="companionCopyStatus"></div>
+            </div>
+          </div>
+        </div>
+      </details>
+
+      <details class="details-card settings-folder">
+        <summary>
+          <span class="folder-icon">⚙️</span>
+          <span class="folder-copy"><strong>Advanced board timing</strong><span>Rotation, retention, and kiosk timing. Most users can leave these alone.</span></span>
+          <span class="folder-caret">›</span>
+        </summary>
         <div class="details-body">
           <div class="form-grid">
             <label>
@@ -560,14 +654,67 @@
         </div>
       </details>
 
-      <details class="details-card">
-        <summary>Maintenance</summary>
+      <details class="details-card settings-folder">
+        <summary>
+          <span class="folder-icon">🔧</span>
+          <span class="folder-copy"><strong>Maintenance</strong><span>Nudge the local scheduler, file a report, or re-run first-time setup.</span></span>
+          <span class="folder-caret">›</span>
+        </summary>
         <div class="details-body">
           <p class="intro">Most users can ignore this. Use setup reset only when you want to re-run the first-launch guide.</p>
           <div class="card-actions">
             <button type="button" onclick="restartSchedulerNow()">Restart scheduler</button>
             <button type="button" class="danger-link" onclick="resetSetup()">Re-run setup wizard</button>
             <span id="restartSchedulerMsg" class="dim">Reloads config and starts a fresh fetch cycle.</span>
+          </div>
+        </div>
+      </details>
+
+      <details class="details-card settings-folder">
+        <summary>
+          <span class="folder-icon">🔗</span>
+          <span class="folder-copy"><strong>Relay details</strong><span>Community Relay or managed-access status — tokens stay hidden.</span></span>
+          <span class="folder-caret">›</span>
+        </summary>
+        <div class="details-body">
+          <p class="intro">Read-only access status. Tokens, raw install IDs, and operator internals are not shown.</p>
+          <div class="mini-grid">
+            <div class="mini-cell"><b>Support ID</b><span id="clientInstallId" class="mono">Loading...</span></div>
+            <div class="mini-cell"><b>Data mode</b><span id="clientMode">Loading...</span></div>
+            <div class="mini-cell"><b>Community key</b><span id="clientCommunityKey">Loading...</span></div>
+            <div class="mini-cell"><b>Managed token</b><span id="clientToken">Loading...</span></div>
+            <div class="mini-cell"><b>Relay host</b><span id="clientRelayUrl" class="mono">Loading...</span></div>
+            <div class="mini-cell"><b>Access path</b><span id="clientAccessStatus">Loading...</span></div>
+            <div class="mini-cell"><b>Schedule window</b><span id="clientFetchWindow">Loading...</span></div>
+            <div class="mini-cell"><b>Access summary</b><span id="clientBurnRate">Loading...</span></div>
+            <div class="mini-cell"><b>Data note</b><span id="clientCadenceNote">Loading...</span></div>
+          </div>
+        </div>
+      </details>
+
+      <details class="details-card settings-folder">
+        <summary>
+          <span class="folder-icon">📚</span>
+          <span class="folder-copy"><strong>Diagnostics &amp; Docs</strong><span>Diagnostics mode and the bundled documentation pages.</span></span>
+          <span class="folder-caret">›</span>
+        </summary>
+        <div class="details-body">
+          <label>
+            <span>Diagnostics mode</span>
+            <select name="diagnostics_mode">
+              {% for option in settings_options.diagnostics %}
+                <option value="{{ option.value }}" {% if (cfg.diagnostics_mode or "unset") == option.value %}selected{% endif %}>{{ option.label }}</option>
+              {% endfor %}
+            </select>
+            <small>Manual reports stay available from Report. Automatic diagnostics are sanitized locally first.</small>
+          </label>
+          <div class="resource-grid">
+            <a class="resource-card" href="/feedback"><strong>Report an issue</strong><span>Send a manual report with local app context.</span></a>
+            <a class="resource-card" href="/docs/readme"><strong>README</strong><span>Friendly overview and quick path chooser.</span></a>
+            <a class="resource-card" href="/docs/install"><strong>Install guide</strong><span>Windows, macOS, Pi, source, and mobile steps.</span></a>
+            <a class="resource-card" href="/docs/display-modes"><strong>Display modes</strong><span>Native, browser fallback, Pi, mobile, and Matrix.</span></a>
+            <a class="resource-card" href="/docs/privacy"><strong>Privacy</strong><span>What stays local and how reporting works.</span></a>
+            <a class="resource-card" href="/docs/third-party"><strong>Third-party notices</strong><span>Bundled fonts and asset attributions.</span></a>
           </div>
         </div>
       </details>
@@ -612,35 +759,6 @@ document.getElementById("themeSelect")?.addEventListener("change", event => {
   document.documentElement.dataset.theme = event.target.value || "dark";
 });
 
-(function () {
-  const el = document.getElementById("statusGrid");
-  if (!el) return;
-  const refreshSeconds = parseInt(el.dataset.refreshSeconds || "0", 10);
-  const lastAttempt = el.dataset.lastAttempt || "";
-  const lastSuccess = el.dataset.lastSuccess || "";
-  const lastRel = document.getElementById("lastRel");
-  const nextAbs = document.getElementById("nextAbs");
-  const nextRel = document.getElementById("nextRel");
-  function parseIso(s) { const d = new Date(s); return isNaN(d.getTime()) ? null : d; }
-  function fmtRel(ms) {
-    const sec = Math.max(0, Math.floor(ms / 1000));
-    const m = Math.floor(sec / 60), s = sec % 60;
-    if (m >= 60) { const h = Math.floor(m / 60); return `${h}h ${m % 60}m`; }
-    return `${m}m ${s}s`;
-  }
-  function tick() {
-    const now = new Date();
-    const lastS = parseIso(lastSuccess);
-    if (lastRel) lastRel.textContent = lastS ? `${fmtRel(now - lastS)} ago` : "-";
-    const lastA = parseIso(lastAttempt);
-    if (!lastA || !refreshSeconds) { if (nextAbs) nextAbs.textContent = "-"; return; }
-    const next = new Date(lastA.getTime() + refreshSeconds * 1000);
-    if (nextAbs) nextAbs.textContent = next.toISOString().replace(".000Z", "Z");
-    if (nextRel) nextRel.textContent = next > now ? `in ${fmtRel(next - now)}` : "due now";
-  }
-  tick(); setInterval(tick, 1000);
-})();
-
 (async function () {
   function setText(id, value) {
     const target = document.getElementById(id);
@@ -684,14 +802,104 @@ document.getElementById("themeSelect")?.addEventListener("change", event => {
     setText("clientFetchWindow", mode === "virtual" ? "VATSIM live only" : `${estimate.dates_touched || 0} date(s), ${estimate.page_size || 100}/page`);
     setText("clientBurnRate", mode === "virtual" ? "No schedule calls" : `~${estimate.estimated_calls_per_refresh || 0} per refresh, ~${estimate.estimated_calls_per_month || 0}/30d`);
     setText("clientCadenceNote", estimate.cadence_warning || (mode === "virtual" ? "Not applicable" : `Recent avg ${estimate.recent_avg_pages_per_direction || 0} pages/direction`));
+    setText("relayStatusMetric", modeLabel);
+    setText("relayDetailMetric", accessLabel);
     if (sharedMode) {
       setText("clientBurnRate", sharedStats.client_accesses != null ? `${sharedStats.client_accesses || 0} relay accesses, ${sharedStats.upstream_pulls || 0} upstream pulls` : "Waiting for first shared relay snapshot");
       setText("clientCadenceNote", sharedStats.client_accesses != null ? `${shared.cache_state || "fresh"} snapshot, ${sharedStats.cache_hit_rate_pct || 0}% hit rate, ~${sharedStats.estimated_savings || 0} refreshes shared` : "Relay-backed mode shares upstream fetches by airport/window");
     }
   } catch {
     ["clientInstallId","clientMode","clientCommunityKey","clientToken","clientRelayUrl","clientAccessStatus","clientFetchWindow","clientBurnRate","clientCadenceNote"].forEach(id => setText(id, "Unavailable"));
+    setText("relayStatusMetric", "Unavailable");
+    setText("relayDetailMetric", "Relay status could not be loaded.");
   }
 })();
+
+const companionPairing = {{ companion_pairing|tojson }};
+
+function setCompanionText(id, value) {
+  const target = document.getElementById(id);
+  if (target) target.textContent = value;
+}
+
+async function copyTextToClipboard(value, label) {
+  const text = String(value || "").trim();
+  if (!text) {
+    setCompanionText("companionCopyStatus", `${label} is unavailable.`);
+    return;
+  }
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+    } else {
+      const area = document.createElement("textarea");
+      area.value = text;
+      area.setAttribute("readonly", "");
+      area.style.position = "fixed";
+      area.style.left = "-9999px";
+      document.body.appendChild(area);
+      area.select();
+      document.execCommand("copy");
+      area.remove();
+    }
+    setCompanionText("companionCopyStatus", `${label} copied.`);
+  } catch {
+    setCompanionText("companionCopyStatus", `${label}: ${text}`);
+  }
+}
+
+function copyPairingLink() {
+  copyTextToClipboard(companionPairing.deep_link, "Pairing link");
+}
+
+function copyLanUrl() {
+  copyTextToClipboard(companionPairing.preferred_url, "LAN URL");
+}
+
+function describeCompanion(entry) {
+  const name = entry.client_name || "Local Flight Companion";
+  const device = entry.device_type || entry.mobile_os || "mobile";
+  const version = entry.app_version ? ` v${entry.app_version}` : "";
+  const seen = entry.last_seen ? ` · last seen ${entry.last_seen}` : "";
+  return `${name}${version} · ${device}${seen}`;
+}
+
+async function refreshCompanionStatus() {
+  setCompanionText("companionCount", "Checking...");
+  setCompanionText("companionEntries", "Refreshing paired devices...");
+  try {
+    const response = await fetch("/api/admin/connections");
+    const data = await response.json();
+    const count = Number(data.companion_count || 0);
+    setCompanionText("companionCount", `${count} paired`);
+    const companions = Array.isArray(data.companions) ? data.companions : [];
+    if (!companions.length) {
+      setCompanionText("companionEntries", "No mobile check-ins yet. Scan the QR or enter the LAN URL in Companion setup.");
+      return;
+    }
+    setCompanionText("companionEntries", companions.map(describeCompanion).join("\n"));
+  } catch {
+    setCompanionText("companionCount", "Unavailable");
+    setCompanionText("companionEntries", "Could not load paired devices from this server.");
+  }
+}
+
+async function resetCompanionConnections() {
+  if (!confirm("Reset paired mobile check-ins on this server? Existing phones can pair again with the same QR.")) {
+    return;
+  }
+  setCompanionText("companionEntries", "Resetting paired devices...");
+  try {
+    const response = await fetch("/api/admin/companion", { method: "DELETE" });
+    if (!response.ok) throw new Error("reset failed");
+    setCompanionText("companionCopyStatus", "Paired mobile check-ins cleared.");
+    refreshCompanionStatus();
+  } catch {
+    setCompanionText("companionCopyStatus", "Could not reset paired mobile devices.");
+  }
+}
+
+refreshCompanionStatus();
 
 (function () {
   const searchInput = document.getElementById("airportSearch");

@@ -4,11 +4,13 @@ Build Local Flight for the current platform.
 
 Produces:
   Windows  -> dist/LocalFlight/ + dist/LocalFlight-windows.zip + .sha256
+              optional Inno Setup installer with --installer
   macOS    -> dist/LocalFlight.app + dist/LocalFlight-macos.zip + .sha256
 
 Usage:
     python build.py           # build
     python build.py --clean   # wipe dist/ and build/ first
+    python build.py --installer  # Windows only: also build LocalFlight-<version>-Setup.exe
 """
 from __future__ import annotations
 
@@ -262,6 +264,8 @@ def _ensure_project_metadata() -> None:
 
 
 def main() -> None:
+    build_installer = "--installer" in sys.argv
+
     if "--clean" in sys.argv:
         for name in ("dist", "build"):
             shutil.rmtree(ROOT / name, ignore_errors=True)
@@ -299,6 +303,12 @@ def main() -> None:
         print(f"\nDone: dist/LocalFlight-windows.zip")
         print(f"Checksum: {checksum_path.relative_to(ROOT)}")
         print("Distribute: unzip, then double-click LocalFlight.exe")
+        if build_installer:
+            subprocess.run(
+                [sys.executable, str(ROOT / "scripts" / "package_windows_installer.py")],
+                check=True,
+                cwd=ROOT,
+            )
     elif sys.platform == "darwin":
         app = dist / "LocalFlight.app"
         _sign_macos(app)

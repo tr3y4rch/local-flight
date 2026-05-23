@@ -1,7 +1,8 @@
 # Local Flight - Windows source installer
 #
 # This script is for running Local Flight from a source checkout.
-# End users who download LocalFlight-windows.zip do not need this script:
+# End users should prefer the LocalFlight-<version>-Setup.exe release wizard.
+# LocalFlight-windows.zip remains available as a portable/manual artifact:
 # unzip the release and double-click LocalFlight.exe. The release app is
 # native Qt first; the local browser UI remains available at localhost.
 #
@@ -223,7 +224,8 @@ OPENSKY_CLIENT_SECRET=
 Write-Section "LOCAL FLIGHT - Source Installer"
 
 Write-Host " Source root: $ROOT" -ForegroundColor Gray
-Write-Host " Release zip: unzip LocalFlight-windows.zip and run LocalFlight.exe; no installer needed." -ForegroundColor Gray
+Write-Host " Release wizard: run LocalFlight-<version>-Setup.exe for the normal Windows install." -ForegroundColor Gray
+Write-Host " Portable zip: unzip LocalFlight-windows.zip and run LocalFlight.exe." -ForegroundColor Gray
 Write-Host " GUI default: native Qt shell; LAN browser UI stays at http://localhost:8000." -ForegroundColor Gray
 Write-Host ""
 
@@ -356,7 +358,7 @@ Write-Section "Installation complete"
 Write-Host " Source launcher: $launcherPath" -ForegroundColor White
 Write-Host " Display mode: $resolvedDisplayMode" -ForegroundColor Gray
 Write-Host " LAN browser UI remains available at http://localhost:8000 when the backend is running." -ForegroundColor Gray
-Write-Host " Release users should run LocalFlight.exe from the downloaded zip." -ForegroundColor Gray
+Write-Host " Release users should run LocalFlight-<version>-Setup.exe, or use LocalFlight.exe from the portable zip." -ForegroundColor Gray
 Write-Host ""
 if (-not $NoPause) {
     Read-Host " Press Enter to exit"

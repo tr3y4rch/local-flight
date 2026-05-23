@@ -128,6 +128,13 @@ let palette: MobileAppearance = DEFAULT_MOBILE_APPEARANCE;
 let brand = DEFAULT_MOBILE_APPEARANCE.brand;
 let mono = DEFAULT_MOBILE_APPEARANCE.mono;
 
+type SetupSuccessState = {
+  mode: "lan_companion" | "standalone";
+  title: string;
+  body: string;
+  meta: string;
+};
+
 void SplashScreen.preventAutoHideAsync().catch(() => {
   // Ignore duplicate registration during fast refresh.
 });
@@ -259,6 +266,7 @@ export function AppShell() {
   const [pairingNonce, setPairingNonce] = useState(0);
   const [pairingNotice, setPairingNotice] = useState<string | null>(null);
   const [serverPanelRequest, setServerPanelRequest] = useState(0);
+  const [setupSuccess, setSetupSuccess] = useState<SetupSuccessState | null>(null);
 
   const socketRef = useRef<WebSocket | null>(null);
   const initialPairingUrlRef = useRef<string | null>(null);
@@ -365,6 +373,7 @@ export function AppShell() {
   );
   const launch = useLaunchOverlay(onLaunchHydrated);
   const mobileSetupComplete = launchHydrated && isMobileSetupComplete(mobileSetupState, serverUrl, mobileDiagnosticsMode);
+  const dismissSetupSuccess = useCallback(() => setSetupSuccess(null), []);
   const isStandalone = mobileSetupState.mode === "standalone";
   const standaloneCredentials: StandaloneCredentials | null = useMemo(() =>
     isStandalone &&
@@ -912,6 +921,12 @@ export function AppShell() {
       setConnected(true);
       setError(null);
       setScreen("fids");
+      setSetupSuccess({
+        mode: "standalone",
+        title: "You are ready",
+        body: "Standalone board is set up for this phone.",
+        meta: airport.iata || airport.icao || airport.name
+      });
       hapticSuccess();
       return;
     }
@@ -937,6 +952,12 @@ export function AppShell() {
     setPairingNotice(null);
     setPairingUrl("");
     setScreen("fids");
+    setSetupSuccess({
+      mode: "lan_companion",
+      title: "You are connected",
+      body: "This phone is paired with your Local Flight host.",
+      meta: normalized
+    });
     hapticSuccess();
     void refreshScreen({ nextUrl: normalized, target: "fids" });
   }, [refreshScreen]);
@@ -959,6 +980,7 @@ export function AppShell() {
     setConfigSheetVisible(false);
     closeFlightDetail();
     setError(null);
+    setSetupSuccess(null);
   }, [closeFlightDetail, isStandalone, mobileDiagnosticsMode, serverUrl]);
 
   const restartSchedulerNow = useCallback(async () => {
@@ -1322,6 +1344,9 @@ export function AppShell() {
           progress={launch.progress}
           pulse={launch.pulse}
           sweep={launch.sweep}
+          orbitFast={launch.orbitFast}
+          orbitMedium={launch.orbitMedium}
+          orbitSlow={launch.orbitSlow}
           status={launch.status}
           styles={styles}
         />
@@ -1685,10 +1710,110 @@ export function AppShell() {
         progress={launch.progress}
         pulse={launch.pulse}
         sweep={launch.sweep}
+        orbitFast={launch.orbitFast}
+        orbitMedium={launch.orbitMedium}
+        orbitSlow={launch.orbitSlow}
         status={launch.status}
         styles={styles}
       />
+      {setupSuccess ? (
+        <SetupCompleteOverlay success={setupSuccess} onDismiss={dismissSetupSuccess} />
+      ) : null}
     </SafeAreaView>
+  );
+}
+
+function SetupCompleteOverlay({
+  success,
+  onDismiss
+}: {
+  success: SetupSuccessState;
+  onDismiss: () => void;
+}) {
+  const reduceMotion = useReducedMotionPreference();
+  const opacity = useRef(new Animated.Value(reduceMotion ? 1 : 0)).current;
+  const scale = useRef(new Animated.Value(reduceMotion ? 1 : 0.96)).current;
+  const dismissedRef = useRef(false);
+
+  const dismiss = useCallback(() => {
+    if (dismissedRef.current) return;
+    dismissedRef.current = true;
+    if (reduceMotion) {
+      onDismiss();
+      return;
+    }
+    Animated.parallel([
+      Animated.timing(opacity, {
+        toValue: 0,
+        duration: 180,
+        useNativeDriver: true
+      }),
+      Animated.timing(scale, {
+        toValue: 0.98,
+        duration: 180,
+        useNativeDriver: true
+      })
+    ]).start(() => onDismiss());
+  }, [opacity, onDismiss, reduceMotion, scale]);
+
+  useEffect(() => {
+    dismissedRef.current = false;
+    if (reduceMotion) {
+      opacity.setValue(1);
+      scale.setValue(1);
+    } else {
+      opacity.setValue(0);
+      scale.setValue(0.96);
+      Animated.parallel([
+        Animated.timing(opacity, {
+          toValue: 1,
+          duration: 220,
+          useNativeDriver: true
+        }),
+        Animated.spring(scale, {
+          toValue: 1,
+          damping: 17,
+          stiffness: 190,
+          mass: 0.8,
+          useNativeDriver: true
+        })
+      ]).start();
+    }
+    const timer = setTimeout(dismiss, 1850);
+    return () => clearTimeout(timer);
+  }, [dismiss, opacity, reduceMotion, scale, success]);
+
+  return (
+    <Animated.View
+      pointerEvents="auto"
+      style={[
+        styles.setupSuccessOverlay,
+        {
+          opacity,
+          transform: [{ scale }]
+        }
+      ]}
+    >
+      <View style={styles.setupSuccessCard}>
+        <View style={styles.setupSuccessIconWrap}>
+          <View style={styles.setupSuccessIconHalo} />
+          <LocalFlightIcon name={ACTION_ICONS.finish} size={34} color={palette.green} />
+        </View>
+        <Text style={styles.setupSuccessTitle}>{success.title}</Text>
+        <Text style={styles.setupSuccessBody}>{success.body}</Text>
+        <Text style={styles.setupSuccessMeta} numberOfLines={1}>{success.meta}</Text>
+        <Pressable
+          style={styles.setupSuccessButton}
+          onPress={dismiss}
+          {...accessibleButton({
+            label: "Open board",
+            hint: "Dismiss setup complete and show the board."
+          })}
+        >
+          <Text style={styles.setupSuccessButtonText}>OPEN BOARD</Text>
+        </Pressable>
+      </View>
+    </Animated.View>
   );
 }
 
@@ -1817,6 +1942,19 @@ function createStyles() {
   const scopeField = lightMode ? palette.shell : "rgba(0,0,0,0.18)";
   const modalPanel = palette.shell;
   const handleColor = lightMode ? hexToRgba(palette.line, 0.5) : "rgba(255,255,255,0.18)";
+  const splashBg = lightMode ? "#f5f9fc" : "#080c12";
+  const splashAtmosphere = lightMode ? hexToRgba(palette.blue, 0.16) : "rgba(18,102,139,0.22)";
+  const splashLine = lightMode ? hexToRgba(palette.line, 0.32) : "rgba(82,246,255,0.13)";
+  const splashLineSoft = lightMode ? hexToRgba(palette.line, 0.18) : "rgba(213,244,255,0.08)";
+  const splashAccent = lightMode ? palette.blue : "#52f6ff";
+  const splashAccentSoft = lightMode ? hexToRgba(palette.blue, 0.28) : "rgba(82,246,255,0.34)";
+  const splashAccentFaint = lightMode ? hexToRgba(palette.blue, 0.10) : "rgba(82,246,255,0.08)";
+  const splashTextMuted = lightMode ? hexToRgba(palette.text, 0.72) : "rgba(213,226,235,0.76)";
+  const splashTextDim = lightMode ? hexToRgba(palette.text, 0.50) : "rgba(213,226,235,0.52)";
+  const splashTextGhost = lightMode ? hexToRgba(palette.text, 0.40) : "rgba(213,226,235,0.40)";
+  const splashPlate = lightMode ? "rgba(255,255,255,0.86)" : "rgba(5,12,20,0.84)";
+  const splashPlateInner = lightMode ? "rgba(245,250,255,0.94)" : "#060e18";
+  const splashPlateBorder = lightMode ? hexToRgba(palette.blue, 0.34) : "rgba(216,247,255,0.30)";
   const onGreenText = lightMode && palette.skin === "high_contrast" ? "#ffffff" : "#051009";
   const onBlueText = lightMode && ["standard", "technical", "high_contrast"].includes(palette.skin) ? "#ffffff" : "#051009";
   return StyleSheet.create({
@@ -1836,6 +1974,95 @@ function createStyles() {
     flex: 1,
     backgroundColor: palette.bg
   },
+  setupSuccessOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 90,
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 22,
+    backgroundColor: lightMode ? "rgba(245,249,252,0.72)" : "rgba(3,7,12,0.76)"
+  },
+  setupSuccessCard: {
+    width: "100%",
+    maxWidth: 360,
+    alignItems: "center",
+    gap: 10,
+    paddingHorizontal: 22,
+    paddingVertical: 24,
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: success25,
+    backgroundColor: lightMode ? "rgba(255,255,255,0.94)" : "rgba(8,16,25,0.94)",
+    shadowColor: lightMode ? palette.blue : "#000000",
+    shadowOpacity: lightMode ? 0.16 : 0.46,
+    shadowRadius: 28,
+    shadowOffset: { width: 0, height: 16 }
+  },
+  setupSuccessIconWrap: {
+    width: 72,
+    height: 72,
+    borderRadius: 24,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: success25,
+    backgroundColor: success10,
+    overflow: "hidden"
+  },
+  setupSuccessIconHalo: {
+    position: "absolute",
+    width: 96,
+    height: 96,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: accent20,
+    borderTopColor: success25
+  },
+  setupSuccessTitle: {
+    marginTop: 4,
+    fontFamily: mono,
+    color: palette.text,
+    fontSize: 22,
+    lineHeight: 28,
+    fontWeight: "900",
+    letterSpacing: 0.6,
+    textAlign: "center",
+    includeFontPadding: false
+  },
+  setupSuccessBody: {
+    color: palette.textMuted,
+    fontSize: 13,
+    lineHeight: 19,
+    textAlign: "center"
+  },
+  setupSuccessMeta: {
+    maxWidth: "100%",
+    color: palette.blue2,
+    fontFamily: mono,
+    fontSize: 10,
+    fontWeight: "900",
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
+    includeFontPadding: false
+  },
+  setupSuccessButton: {
+    marginTop: 6,
+    minHeight: 42,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 18,
+    borderRadius: 999,
+    backgroundColor: palette.green
+  },
+  setupSuccessButtonText: {
+    fontFamily: mono,
+    color: onGreenText,
+    fontSize: 11,
+    fontWeight: "900",
+    letterSpacing: 1,
+    includeFontPadding: false
+  },
   companionSetupScroll: {
     flex: 1,
     backgroundColor: palette.bg
@@ -1844,9 +2071,9 @@ function createStyles() {
     flexGrow: 1,
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 18,
-    paddingTop: 18,
-    paddingBottom: 24,
+    paddingHorizontal: 14,
+    paddingTop: 14,
+    paddingBottom: 20,
     overflow: "hidden"
   },
   companionSetupGlowA: {
@@ -1870,14 +2097,14 @@ function createStyles() {
   companionSetupShell: {
     width: "100%",
     maxWidth: 760,
-    gap: 16
+    gap: 12
   },
   companionSetupHero: {
     alignItems: "center",
-    paddingHorizontal: 18,
-    paddingTop: 18,
-    paddingBottom: 16,
-    borderRadius: 28,
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 14,
+    borderRadius: 22,
     borderWidth: 1,
     borderColor: accent16,
     backgroundColor: softPanelStrong,
@@ -1887,33 +2114,48 @@ function createStyles() {
     shadowOffset: { width: 0, height: 14 }
   },
   companionSetupLogoWrap: {
-    width: 116,
-    height: 116,
+    width: 104,
+    height: 104,
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 14
+    marginBottom: 10
   },
   companionSetupLogoRing: {
     position: "absolute",
-    width: 108,
-    height: 108,
+    width: 96,
+    height: 96,
     borderRadius: 999,
     borderWidth: 1,
     borderColor: accent30
   },
   companionSetupLogoRingOuter: {
     position: "absolute",
-    width: 132,
-    height: 132,
+    width: 120,
+    height: 120,
     borderRadius: 999,
     borderWidth: 1,
     borderColor: hairline,
     borderTopColor: success25,
     borderRightColor: warn24
   },
+  companionSetupLogoPlate: {
+    width: 76,
+    height: 76,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: splashPlateBorder,
+    backgroundColor: splashPlate,
+    shadowColor: splashAccent,
+    shadowOpacity: lightMode ? 0.14 : 0.32,
+    shadowRadius: 22,
+    shadowOffset: { width: 0, height: 10 }
+  },
   companionSetupLogoMark: {
-    width: 86,
-    height: 86
+    width: 82,
+    height: 82
   },
   companionSetupEyebrow: {
     color: palette.blue2,
@@ -1923,27 +2165,27 @@ function createStyles() {
     textAlign: "center"
   },
   companionSetupTitle: {
-    marginTop: 8,
+    marginTop: 7,
     fontFamily: mono,
     color: palette.text,
-    fontSize: 30,
+    fontSize: 27,
     fontWeight: "800",
-    letterSpacing: 1.2,
+    letterSpacing: 0.8,
     textAlign: "center"
   },
   companionSetupBody: {
-    marginTop: 10,
+    marginTop: 8,
     color: palette.textMuted,
-    fontSize: 13,
-    lineHeight: 20,
+    fontSize: 12.5,
+    lineHeight: 18,
     textAlign: "center"
   },
   companionSetupRoute: {
     flexDirection: "row",
     alignItems: "flex-start",
     justifyContent: "center",
-    gap: 10,
-    marginTop: 20,
+    gap: 6,
+    marginTop: 16,
     width: "100%"
   },
   companionSetupRouteItem: {
@@ -1952,8 +2194,8 @@ function createStyles() {
     gap: 6
   },
   companionSetupStepDot: {
-    width: 28,
-    height: 28,
+    width: 24,
+    height: 24,
     borderRadius: 999,
     alignItems: "center",
     justifyContent: "center",
@@ -1968,7 +2210,7 @@ function createStyles() {
   companionSetupStepNumber: {
     fontFamily: mono,
     color: palette.textDim,
-    fontSize: 10,
+    fontSize: 9,
     fontWeight: "900",
     textAlign: "center",
     includeFontPadding: false
@@ -1979,7 +2221,7 @@ function createStyles() {
   companionSetupStepLabel: {
     fontFamily: mono,
     color: palette.textDim,
-    fontSize: 8,
+    fontSize: 7,
     fontWeight: "800",
     letterSpacing: 0.8,
     textAlign: "center",
@@ -1990,9 +2232,9 @@ function createStyles() {
     color: palette.text
   },
   companionSetupPanel: {
-    gap: 12,
-    padding: 18,
-    borderRadius: 24,
+    gap: 10,
+    padding: 16,
+    borderRadius: 20,
     borderWidth: 1,
     borderColor: accent16,
     backgroundColor: palette.rowAlt
@@ -2000,9 +2242,9 @@ function createStyles() {
   companionSetupPanelTitle: {
     fontFamily: mono,
     color: palette.text,
-    fontSize: 18,
+    fontSize: 17,
     fontWeight: "800",
-    letterSpacing: 0.9,
+    letterSpacing: 0.6,
     textAlign: "center"
   },
   companionSetupChecklist: {
@@ -2013,15 +2255,15 @@ function createStyles() {
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
-    padding: 12,
-    borderRadius: 16,
+    padding: 10,
+    borderRadius: 14,
     borderWidth: 1,
     borderColor: accent14,
     backgroundColor: accent06
   },
   companionSetupChecklistIcon: {
-    width: 34,
-    height: 34,
+    width: 32,
+    height: 32,
     borderRadius: 999,
     alignItems: "center",
     justifyContent: "center",
@@ -2033,14 +2275,14 @@ function createStyles() {
   },
   companionSetupChecklistTitle: {
     color: palette.text,
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: "800"
   },
   companionSetupChecklistBody: {
     marginTop: 2,
     color: palette.textMuted,
-    fontSize: 11,
-    lineHeight: 16
+    fontSize: 10.5,
+    lineHeight: 15
   },
   companionSetupInfoGrid: {
     flexDirection: "row",
@@ -2072,8 +2314,8 @@ function createStyles() {
     fontWeight: "800"
   },
   companionSetupExampleBox: {
-    padding: 12,
-    borderRadius: 16,
+    padding: 11,
+    borderRadius: 14,
     borderWidth: 1,
     borderColor: accent14,
     backgroundColor: fieldPanel
@@ -2090,7 +2332,7 @@ function createStyles() {
     marginTop: 6,
     fontFamily: mono,
     color: palette.blue2,
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: "800"
   },
   companionSetupInputWrap: {
@@ -2147,7 +2389,7 @@ function createStyles() {
     color: palette.red
   },
   companionSetupPrimary: {
-    minHeight: 48,
+    minHeight: 46,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
@@ -2381,20 +2623,38 @@ function createStyles() {
     zIndex: 40,
     alignItems: "center",
     justifyContent: "space-between",
-    gap: 18,
-    backgroundColor: "#080c12",
+    gap: 14,
+    backgroundColor: splashBg,
     overflow: "hidden"
   },
   launchAtmosphere: {
     position: "absolute",
-    top: -120,
-    left: -90,
-    right: -90,
-    height: "72%",
+    top: -110,
+    left: -110,
+    right: -110,
+    height: "62%",
     borderBottomLeftRadius: 999,
     borderBottomRightRadius: 999,
-    backgroundColor: "rgba(18,102,139,0.18)",
-    opacity: 0.72
+    backgroundColor: splashAtmosphere,
+    opacity: lightMode ? 0.86 : 0.74
+  },
+  launchGlowNorth: {
+    position: "absolute",
+    top: -180,
+    left: "12%",
+    right: "12%",
+    height: 360,
+    borderRadius: 999,
+    backgroundColor: splashAccentFaint
+  },
+  launchGlowSouth: {
+    position: "absolute",
+    left: -70,
+    right: -70,
+    bottom: -160,
+    height: 320,
+    borderRadius: 999,
+    backgroundColor: lightMode ? hexToRgba(palette.blue2, 0.08) : "rgba(0,0,0,0.36)"
   },
   launchSkyGrid: {
     position: "absolute",
@@ -2403,90 +2663,70 @@ function createStyles() {
     right: 0,
     bottom: 0,
     justifyContent: "space-evenly",
-    opacity: 0.18
+    opacity: lightMode ? 0.34 : 0.22
   },
   launchGridLine: {
     height: 1,
-    backgroundColor: "rgba(82,246,255,0.13)"
+    backgroundColor: splashLine
+  },
+  launchCrosshairHorizontal: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    height: 1,
+    backgroundColor: splashLineSoft
+  },
+  launchCrosshairVertical: {
+    position: "absolute",
+    top: 0,
+    bottom: 0,
+    width: 1,
+    backgroundColor: splashLineSoft
   },
   launchParticle: {
     position: "absolute",
     borderRadius: 999,
-    backgroundColor: "#62efff",
-    shadowColor: "#35e8ff",
-    shadowOpacity: 0.7,
+    backgroundColor: splashAccent,
+    shadowColor: splashAccent,
+    shadowOpacity: lightMode ? 0.32 : 0.72,
     shadowRadius: 8,
     shadowOffset: { width: 0, height: 0 }
   },
-  launchHalo: {
+  launchOrbitRing: {
     position: "absolute",
     borderRadius: 999,
-    borderWidth: 1,
-    borderColor: "rgba(107,231,255,0.20)",
-    backgroundColor: "rgba(18,205,225,0.055)"
+    borderWidth: 1
   },
-  launchHaloInner: {
+  launchOrbitRingSlow: {
+    borderColor: splashLineSoft,
+    borderLeftColor: splashAccentSoft,
+    borderBottomColor: splashAccentFaint
+  },
+  launchOrbitRingMedium: {
+    borderWidth: 2,
+    borderColor: lightMode ? hexToRgba(palette.blue, 0.16) : "rgba(213,244,255,0.14)",
+    borderTopColor: splashAccentSoft,
+    borderRightColor: lightMode ? hexToRgba(palette.blue2, 0.28) : "rgba(82,246,255,0.42)"
+  },
+  launchOrbitRingFast: {
+    borderColor: lightMode ? hexToRgba(palette.blue, 0.20) : "rgba(107,231,255,0.22)",
+    borderTopColor: splashAccent,
+    borderLeftColor: "transparent"
+  },
+  launchSweepRotor: {
     position: "absolute",
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: "rgba(122,176,216,0.18)",
-    borderTopColor: "rgba(82,246,255,0.82)",
-    borderRightColor: "rgba(82,246,255,0.34)",
-    backgroundColor: "rgba(255,255,255,0.012)"
+    alignItems: "center"
   },
-  launchRunwayField: {
+  launchSweep: {
     position: "absolute",
-    left: 0,
-    right: 0,
-    bottom: -30,
-    height: 230,
-    alignItems: "center",
-    justifyContent: "flex-end",
-    opacity: 0.8
-  },
-  launchRunwayFieldCompact: {
-    opacity: 0.48
-  },
-  launchRunwayPerspective: {
-    width: "78%",
-    maxWidth: 520,
-    height: 104,
-    flexDirection: "row",
-    justifyContent: "center",
-    gap: 28,
-    transform: [{ perspective: 720 }, { rotateX: "56deg" }]
-  },
-  launchRunwayEdge: {
-    width: 2,
-    height: "100%",
+    top: "9%",
+    width: 3,
     borderRadius: 999,
-    backgroundColor: accent25
-  },
-  launchRunwayCenter: {
-    width: 18,
-    height: "100%",
-    alignItems: "center",
-    justifyContent: "space-evenly"
-  },
-  launchRunwayCenterMark: {
-    width: 6,
-    height: 12,
-    borderRadius: 999,
-    backgroundColor: warn38
-  },
-  launchStage: {
-    flexGrow: 1,
-    flexShrink: 1,
-    width: "100%",
-    alignItems: "center",
-    justifyContent: "flex-end",
-    gap: 16,
-    paddingTop: 10,
-    paddingBottom: 0
-  },
-  launchStageCompact: {
-    gap: 10,
-    paddingVertical: 10
+    backgroundColor: splashAccent,
+    shadowColor: splashAccent,
+    shadowOpacity: lightMode ? 0.28 : 0.8,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 0 }
   },
   launchContentStack: {
     width: "100%",
@@ -2499,392 +2739,191 @@ function createStyles() {
     width: "100%",
     alignItems: "center",
     justifyContent: "center",
-    overflow: "hidden",
-    gap: 22,
-    paddingVertical: 10
+    gap: 20,
+    paddingVertical: 8
   },
   launchSceneCompact: {
-    gap: 16,
-    paddingVertical: 4
-  },
-  launchTopBar: {
-    width: "100%",
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 2,
-    paddingBottom: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: palette.lineSoft
-  },
-  launchTopCode: {
-    fontFamily: brand,
-    color: palette.textDim,
-    fontSize: 10,
-    fontWeight: "400",
-    letterSpacing: 0.8,
-    includeFontPadding: false
-  },
-  launchTopVersion: {
-    paddingHorizontal: 11,
-    paddingVertical: 6,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: accent18,
-    backgroundColor: fieldPanel,
-    fontFamily: mono,
-    color: palette.textMuted,
-    fontSize: 10,
-    fontWeight: "800",
-    letterSpacing: 0.8,
-    includeFontPadding: false
-  },
-  launchHeroCard: {
-    width: "100%",
-    alignItems: "center",
     gap: 14,
-    paddingHorizontal: 4,
-    paddingTop: 2,
-    paddingBottom: 0
-  },
-  launchHeroCardWide: {
-    flexDirection: "row",
-    justifyContent: "center",
-    gap: 24
+    paddingVertical: 2
   },
   launchMarkWrap: {
     alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 2
+    justifyContent: "center"
+  },
+  launchHeroAura: {
+    position: "absolute",
+    borderRadius: 999,
+    backgroundColor: splashAccentFaint,
+    shadowColor: splashAccent,
+    shadowOpacity: lightMode ? 0.20 : 0.42,
+    shadowRadius: 32,
+    shadowOffset: { width: 0, height: 0 }
   },
   launchRadarRing: {
     position: "absolute",
     borderRadius: 999,
     borderWidth: 2,
-    borderColor: "rgba(216,247,255,0.22)"
+    borderColor: lightMode ? hexToRgba(palette.blue, 0.22) : "rgba(216,247,255,0.22)"
   },
   launchRadarRingOuter: {
     position: "absolute",
     borderRadius: 999,
     borderWidth: 1,
-    borderColor: "rgba(107,231,255,0.12)",
-    borderLeftColor: "rgba(107,231,255,0.34)",
-    borderBottomColor: "rgba(107,231,255,0.22)"
-  },
-  launchSweepRotor: {
-    position: "absolute",
-    alignItems: "center"
-  },
-  launchSweep: {
-    position: "absolute",
-    top: "6%",
-    width: 3,
-    borderRadius: 999,
-    backgroundColor: "rgba(92,249,255,0.78)",
-    shadowColor: "#52f6ff",
-    shadowOpacity: 0.8,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 0 }
-  },
-  launchIconBloom: {
-    alignItems: "center",
-    justifyContent: "center",
-    shadowColor: "#52f6ff",
-    shadowOpacity: 0.38,
-    shadowRadius: 30,
-    shadowOffset: { width: 0, height: 0 }
-  },
-  launchMarkCrop: {
-    borderRadius: 46,
-    overflow: "hidden",
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#060e18",
-    borderWidth: 1,
-    borderColor: "rgba(216,247,255,0.28)"
-  },
-  launchMark: {
-    width: "100%",
-    height: "100%",
-    shadowColor: palette.blue,
-    shadowOpacity: 0.18,
-    shadowRadius: 24,
-    shadowOffset: { width: 0, height: 10 }
+    borderColor: splashLineSoft,
+    borderLeftColor: splashAccentSoft,
+    borderBottomColor: splashAccentFaint
   },
   launchTarget: {
     position: "absolute",
     borderRadius: 999,
     borderWidth: 2,
-    borderColor: "rgba(82,246,255,0.46)",
-    backgroundColor: "rgba(82,246,255,0.045)"
+    borderColor: splashAccentSoft,
+    backgroundColor: splashAccentFaint
   },
   launchTargetCore: {
     position: "absolute",
     borderRadius: 999,
     borderWidth: 3,
-    borderColor: "#061019",
-    backgroundColor: "#52f6ff",
-    shadowColor: "#52f6ff",
-    shadowOpacity: 0.9,
+    borderColor: splashBg,
+    backgroundColor: splashAccent,
+    shadowColor: splashAccent,
+    shadowOpacity: lightMode ? 0.36 : 0.9,
     shadowRadius: 18,
     shadowOffset: { width: 0, height: 0 }
   },
+  launchIconBloom: {
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: splashAccent,
+    shadowOpacity: lightMode ? 0.26 : 0.46,
+    shadowRadius: 34,
+    shadowOffset: { width: 0, height: 0 }
+  },
+  launchIconPlate: {
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: splashPlate,
+    borderWidth: 1,
+    borderColor: splashPlateBorder,
+    shadowColor: lightMode ? palette.blue : "#000000",
+    shadowOpacity: lightMode ? 0.18 : 0.52,
+    shadowRadius: 30,
+    shadowOffset: { width: 0, height: 16 }
+  },
+  launchMarkCrop: {
+    overflow: "hidden",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: splashPlateInner,
+    borderWidth: 1,
+    borderColor: splashPlateBorder
+  },
+  launchMark: {
+    width: "108%",
+    height: "108%"
+  },
   launchCopy: {
     width: "100%",
-    maxWidth: 390,
+    maxWidth: 400,
     alignItems: "center"
-  },
-  launchCopyWide: {
-    flex: 1,
-    maxWidth: 470,
-    alignItems: "flex-start"
-  },
-  launchEyebrow: {
-    fontFamily: brand,
-    color: palette.blue2,
-    fontSize: 11,
-    fontWeight: "400",
-    letterSpacing: 0.8
   },
   launchTitle: {
     marginTop: 0,
     fontFamily: brand,
     color: palette.text,
-    fontSize: 34,
-    lineHeight: 38,
+    fontSize: 38,
+    lineHeight: 42,
     fontWeight: "400",
     letterSpacing: 0,
     textAlign: "center",
     includeFontPadding: false
   },
   launchTitleCompact: {
-    fontSize: 28,
-    lineHeight: 32
-  },
-  launchTitleWide: {
-    fontSize: 42,
-    lineHeight: 46,
-    textAlign: "left"
+    fontSize: 31,
+    lineHeight: 35
   },
   launchSubtitle: {
     marginTop: 10,
-    color: "rgba(213,226,235,0.72)",
-    fontSize: 13,
-    lineHeight: 18,
-    textAlign: "center",
-    maxWidth: 330
-  },
-  launchSubtitleWide: {
-    textAlign: "left",
+    color: splashTextMuted,
     fontSize: 14,
-    lineHeight: 20
+    lineHeight: 20,
+    textAlign: "center",
+    maxWidth: 360
   },
-  launchVersion: {
-    marginTop: 12,
-    fontFamily: mono,
-    color: "rgba(213,226,235,0.42)",
-    fontSize: 10,
-    fontWeight: "700",
-    letterSpacing: 0.8
-  },
-  launchBoard: {
+  launchStatusPanel: {
     width: "100%",
-    marginTop: 10,
-    padding: 10,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: hairlineSoft,
-    backgroundColor: fieldPanel
-  },
-  launchBoardRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    paddingVertical: 6
-  },
-  launchBoardTime: {
-    width: 34,
-    fontFamily: mono,
-    color: palette.green,
-    fontSize: 10,
-    fontWeight: "800",
-    letterSpacing: 1
-  },
-  launchBoardText: {
-    flex: 1,
-    fontFamily: mono,
-    color: palette.text,
-    fontSize: 10,
-    fontWeight: "700",
-    letterSpacing: 1
-  },
-  launchBoardLed: {
-    width: 7,
-    height: 7,
-    borderRadius: 999,
-    backgroundColor: palette.green
-  },
-  launchBoardLedAmber: {
-    backgroundColor: palette.amber
-  },
-  launchRunwayDeck: {
-    width: "100%",
-    minHeight: 138,
-    paddingHorizontal: 14,
-    paddingTop: 12,
-    paddingBottom: 12,
-    borderRadius: 22,
-    borderWidth: 1,
-    borderColor: accent16,
-    backgroundColor: fieldPanel,
-    overflow: "hidden",
-    alignItems: "center",
-    justifyContent: "center"
-  },
-  launchRunwayDeckCompact: {
-    minHeight: 106,
-    paddingTop: 10,
-    paddingBottom: 10
-  },
-  launchRunwayDeckHeader: {
-    width: "100%",
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 2
-  },
-  launchRunwayDeckKicker: {
-    fontFamily: mono,
-    color: palette.blue2,
-    fontSize: 9,
-    fontWeight: "900",
-    letterSpacing: 1.8,
-    includeFontPadding: false
-  },
-  launchRunwayDeckMeta: {
-    fontFamily: mono,
-    color: palette.textDim,
-    fontSize: 9,
-    fontWeight: "900",
-    letterSpacing: 1.1,
-    includeFontPadding: false
-  },
-  launchStatusDot: {
-    width: 7,
-    height: 7,
-    borderRadius: 999,
-    backgroundColor: "#52f6ff",
-    shadowColor: "#52f6ff",
-    shadowOpacity: 0.9,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 0 }
+    maxWidth: 360,
+    marginTop: 18,
+    paddingHorizontal: 14
   },
   launchStatusRow: {
     width: "100%",
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 8
+    gap: 9
+  },
+  launchStatusDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 999,
+    backgroundColor: splashAccent,
+    shadowColor: splashAccent,
+    shadowOpacity: lightMode ? 0.36 : 0.9,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 0 }
   },
   launchStatus: {
     fontFamily: mono,
-    color: "rgba(213,226,235,0.66)",
+    color: splashTextDim,
     fontSize: 10,
-    fontWeight: "700",
-    letterSpacing: 1.2,
-    textTransform: "uppercase"
+    fontWeight: "900",
+    letterSpacing: 1.4,
+    textTransform: "uppercase",
+    includeFontPadding: false
   },
   launchProgressTrack: {
     width: "100%",
-    height: 3,
-    marginTop: 12,
+    height: 4,
+    marginTop: 13,
     overflow: "hidden",
     borderRadius: 999,
-    backgroundColor: "rgba(213,244,255,0.11)"
+    backgroundColor: lightMode ? hexToRgba(palette.line, 0.28) : "rgba(213,244,255,0.12)"
   },
   launchProgressFill: {
     height: "100%",
     borderRadius: 999,
-    backgroundColor: "#52f6ff"
+    backgroundColor: splashAccent
   },
-  launchFooterCodes: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    justifyContent: "center",
-    gap: 8,
-    marginTop: 14
+  launchBottomMeta: {
+    width: "100%",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    minHeight: 48
   },
-  launchFooterCode: {
-    paddingHorizontal: 9,
-    paddingVertical: 5,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: hairline,
+  launchVersion: {
     fontFamily: mono,
-    color: palette.textDim,
-    fontSize: 8,
+    color: splashTextGhost,
+    fontSize: 10,
     fontWeight: "800",
-    letterSpacing: 0.8
+    letterSpacing: 0.9,
+    includeFontPadding: false
   },
   launchBeaconFooter: {
-    marginTop: 16,
+    marginTop: 10,
     minHeight: 20,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 7,
-    opacity: 0.78
+    opacity: lightMode ? 0.86 : 0.78
   },
   launchBeaconText: {
     fontFamily: mono,
-    color: "rgba(205,238,248,0.48)",
+    color: splashTextGhost,
     fontSize: 9,
     fontWeight: "900",
     letterSpacing: 1.6,
-    includeFontPadding: false
-  },
-  launchStatusPanel: {
-    width: "100%",
-    maxWidth: 520,
-    paddingHorizontal: 14,
-    paddingTop: 12,
-    paddingBottom: 4,
-    borderRadius: 0,
-    backgroundColor: "transparent"
-  },
-  launchBottomBoard: {
-    position: "absolute",
-    left: 16,
-    right: 16,
-    bottom: 18,
-    flexDirection: "row",
-    gap: 8
-  },
-  launchBottomCell: {
-    flex: 1,
-    minHeight: 48,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: hairline,
-    backgroundColor: fieldPanel
-  },
-  launchBottomLabel: {
-    fontFamily: mono,
-    color: palette.textDim,
-    fontSize: 8,
-    fontWeight: "900",
-    letterSpacing: 1,
-    includeFontPadding: false
-  },
-  launchBottomValue: {
-    marginTop: 4,
-    fontFamily: mono,
-    color: palette.blue2,
-    fontSize: 9,
-    fontWeight: "900",
-    letterSpacing: 0.8,
     includeFontPadding: false
   },
   header: {

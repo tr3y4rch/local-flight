@@ -113,7 +113,7 @@ import {
   type StandaloneAirport,
   saveProfiles
 } from "../storage/settings";
-import { localFlightLogoForTheme } from "../theme/brandAssets";
+import { LOCAL_FLIGHT_BRAND_ASSETS } from "../theme/brandAssets";
 import { palette, styles } from "../theme/styleBridge";
 import {
   ACTION_ICONS,
@@ -376,7 +376,15 @@ function PairingScannerSheet({
 
 type AdminSettingsSection = "health" | "devices" | "reports" | "developer";
 type MatrixSettingsSection = "status" | "look" | "runtime" | "motion";
-type CompanionSetupStep = "welcome" | "server" | "airport" | "diagnostics" | "ready";
+type CompanionSetupStep =
+  | "welcome"
+  | "mode"
+  | "pairing"
+  | "server"
+  | "airport"
+  | "policy"
+  | "diagnostics"
+  | "ready";
 type SetupUrlCheckState = "idle" | "checking" | "ok" | "error" | "invalid";
 type DocHeading = {
   id: string;
@@ -4687,7 +4695,7 @@ export function CompanionSetupScreen({
         config,
         state
       };
-      setSetupProgress("Host answered. Moving to diagnostics...");
+      setSetupProgress("Host answered. Moving to reports...");
       setServerInput(normalizedUrl);
       setUrlCheckState("ok");
       setUrlCheckMessage("Host and companion setup are ready.");
@@ -4718,6 +4726,7 @@ export function CompanionSetupScreen({
 
   const handleScannedServer = useCallback((pairing: PairingLinkResult) => {
     setScannerVisible(false);
+    setSetupMode("lan_companion");
     setServerInput(pairing.serverUrl);
     setStep("server");
     setSetupError(null);
@@ -4728,6 +4737,7 @@ export function CompanionSetupScreen({
 
   useEffect(() => {
     if (!pairingUrl || pairingNonce <= 0) return;
+    setSetupMode("lan_companion");
     setServerInput(pairingUrl);
     setStep("server");
     setSetupError(null);
@@ -4788,8 +4798,8 @@ export function CompanionSetupScreen({
 
   const activeStepIndex = setupStepRank(step);
   const routeSteps: CompanionSetupStep[] = setupMode === "standalone"
-    ? ["welcome", "airport", "diagnostics", "ready"]
-    : ["welcome", "server", "diagnostics", "ready"];
+    ? ["welcome", "mode", "airport", "policy", "diagnostics", "ready"]
+    : ["welcome", "mode", "pairing", "server", "diagnostics", "ready"];
   const panelMotion = {
     opacity: stepAnim,
     transform: [{
@@ -4806,11 +4816,13 @@ export function CompanionSetupScreen({
           <View style={styles.companionSetupLogoWrap}>
             <View style={styles.companionSetupLogoRing} />
             <View style={styles.companionSetupLogoRingOuter} />
-            <Image
-              source={localFlightLogoForTheme(palette.themeMode)}
-              resizeMode="contain"
-              style={styles.companionSetupLogoMark}
-            />
+            <View style={styles.companionSetupLogoPlate}>
+              <Image
+                source={LOCAL_FLIGHT_BRAND_ASSETS[palette.themeMode].icon}
+                resizeMode="contain"
+                style={styles.companionSetupLogoMark}
+              />
+            </View>
           </View>
           <Text style={styles.companionSetupEyebrow}>
             <Text style={styles.companionSetupBrandText}>LOCAL FLIGHT</Text>
@@ -4818,7 +4830,7 @@ export function CompanionSetupScreen({
           </Text>
           <Text style={styles.companionSetupTitle}>Set up your flight board</Text>
           <Text style={styles.companionSetupBody}>
-            Choose Companion when Local Flight already runs on a desktop or Pi. Choose Standalone when this phone should use the hosted relay directly with simpler, slower updates.
+            A calmer mobile board for flights, radar, and recent movement history. Pick the setup path that matches how you want this phone to connect.
           </Text>
           <View style={styles.companionSetupRoute}>
             {routeSteps.map((item, index) => (
@@ -4843,14 +4855,39 @@ export function CompanionSetupScreen({
 
         {step === "welcome" ? (
           <Animated.View style={[styles.companionSetupPanel, panelMotion]}>
-            <Text style={styles.companionSetupPanelTitle}>Choose how this phone is used</Text>
+            <Text style={styles.companionSetupPanelTitle}>Welcome to Local Flight Mobile</Text>
             <Text style={styles.companionSetupBody}>
-              Companion keeps this phone as a remote and glance screen for your Local Flight host. Standalone is a lighter board with slower refresh and no host controls.
+              This phone can show your airport board, radar view, and recent flight history. Setup only asks for the connection path, an airport if needed, and your report preference.
+            </Text>
+            <View style={styles.companionSetupChecklist}>
+              <SetupChecklistItem icon={SETUP_ICONS.server} title="One app, two paths" body="Use a Local Flight host, or run a lighter standalone board from the relay." />
+              <SetupChecklistItem icon={SETUP_ICONS.lan} title="Easy to change later" body="You can rerun setup from Settings whenever your setup changes." />
+              <SetupChecklistItem icon={SETUP_ICONS.privacy} title="You choose reports" body="Manual reports stay available. Automatic reports are optional." />
+            </View>
+            <Pressable
+              style={styles.companionSetupPrimary}
+              onPress={() => setStep("mode")}
+              {...accessibleButton({
+                label: "Continue",
+                hint: "Choose how this phone connects to Local Flight."
+              })}
+            >
+              <LocalFlightIcon name={ACTION_ICONS.next} size={16} color={solidButtonInk()} />
+              <Text style={styles.companionSetupPrimaryText}>CONTINUE</Text>
+            </Pressable>
+          </Animated.View>
+        ) : null}
+
+        {step === "mode" ? (
+          <Animated.View style={[styles.companionSetupPanel, panelMotion]}>
+            <Text style={styles.companionSetupPanelTitle}>How should this phone connect?</Text>
+            <Text style={styles.companionSetupBody}>
+              Choose Companion if Local Flight already runs on a desktop or Pi. Choose Standalone if this phone should use the hosted relay by itself.
             </Text>
             <View style={styles.companionSetupOptionStack}>
               {([
-                ["lan_companion", "Companion", "Connects to your Local Flight desktop or Pi for Board, Radar, History, Control, Help, and Matrix remote controls."],
-                ["standalone", "Standalone", "Runs as a lighter relay-backed board with Board, Radar, History, and Settings. No Matrix, no host controls, and slower refresh."]
+                ["lan_companion", "Companion", "Best experience. Connects to your desktop or Pi for Board, Radar, History, Control, Help, and Matrix tools."],
+                ["standalone", "Standalone", "Simpler board. Uses the relay directly with Board, Radar, History, and Settings only."]
               ] as Array<[MobileSetupMode, string, string]>).map(([mode, title, body]) => (
                 <Pressable
                   key={mode}
@@ -4876,45 +4913,44 @@ export function CompanionSetupScreen({
                 </Pressable>
               ))}
             </View>
-            <View style={styles.companionSetupChecklist}>
-              <SetupChecklistItem icon={SETUP_ICONS.server} title="One mobile app" body="You can rerun setup later and switch between Companion and Standalone." />
-              <SetupChecklistItem icon={SETUP_ICONS.lan} title="Standalone stays light" body="Standalone never opens WebSockets and never controls a Local Flight host." />
-              <SetupChecklistItem icon={SETUP_ICONS.privacy} title="Privacy choice" body="Pick manual or automatic mobile diagnostics before entering the app." />
-              <SetupChecklistItem icon={SETUP_ICONS.privacy} title="Display aid" body="Flight and radar data are informational only, not for navigation, operations, dispatch, or safety decisions." />
-            </View>
             <View style={styles.companionSetupInfoGrid}>
               <SetupInfoTile label="Mode" value={setupMode === "standalone" ? "Standalone" : "Companion"} />
-              <SetupInfoTile label="Connection" value={setupMode === "standalone" ? "Relay direct" : "Host on your LAN"} />
-              <SetupInfoTile label="Needed" value={setupMode === "standalone" ? "Airport only" : "Running desktop or Pi host"} />
-              <SetupInfoTile label="Next" value={setupMode === "standalone" ? "Pick airport" : "Test host address"} />
+              <SetupInfoTile label="Next" value={setupMode === "standalone" ? "Choose airport" : "Pair host"} />
             </View>
             <Pressable
               style={styles.companionSetupPrimary}
-              onPress={() => setStep(setupMode === "standalone" ? "airport" : "server")}
+              onPress={() => setStep(setupMode === "standalone" ? "airport" : "pairing")}
               {...accessibleButton({
-                label: "Start setup",
-                hint: setupMode === "standalone" ? "Moves to airport selection." : "Moves to server connection."
+                label: "Continue",
+                hint: setupMode === "standalone" ? "Moves to airport search." : "Moves to pairing choices."
               })}
             >
               <LocalFlightIcon name={ACTION_ICONS.next} size={16} color={solidButtonInk()} />
-              <Text style={styles.companionSetupPrimaryText}>START SETUP</Text>
+              <Text style={styles.companionSetupPrimaryText}>CONTINUE</Text>
+            </Pressable>
+            <Pressable
+              style={styles.companionSetupSecondary}
+              onPress={() => setStep("welcome")}
+              {...accessibleButton({ label: "Back to welcome" })}
+            >
+              <Text style={styles.companionSetupSecondaryText}>BACK</Text>
             </Pressable>
           </Animated.View>
         ) : null}
 
-        {step === "server" ? (
+        {step === "pairing" ? (
           <Animated.View style={[styles.companionSetupPanel, panelMotion]}>
-            <Text style={styles.companionSetupPanelTitle}>Connect your Local Flight host</Text>
+            <Text style={styles.companionSetupPanelTitle}>Pair with your Local Flight host</Text>
             <Text style={styles.companionSetupBody}>
-              Use the LAN address shown by the desktop or Pi app. The QR includes a server fingerprint so this phone can reject the wrong Local Flight host.
+              Open Local Flight Settings on the desktop or Pi. Scan its pairing QR, or enter the Wi-Fi address shown there.
             </Text>
             <View style={styles.pairingChoiceRow}>
               <Pressable
                 style={styles.pairingChoiceCard}
                 onPress={() => setScannerVisible(true)}
                 {...accessibleButton({
-                  label: "Scan pairing QR code",
-                  hint: "Opens the camera to scan the pairing code shown in Local Flight Settings."
+                  label: "Scan QR",
+                  hint: "Opens the camera to scan the Local Flight pairing code."
                 })}
               >
                 <View style={styles.pairingChoiceIcon}>
@@ -4922,23 +4958,64 @@ export function CompanionSetupScreen({
                 </View>
                 <View style={styles.pairingChoiceCopy}>
                   <Text style={styles.pairingChoiceTitle}>Scan QR</Text>
-                  <Text style={styles.pairingChoiceBody}>Use the pairing code shown in Local Flight Settings.</Text>
+                  <Text style={styles.pairingChoiceBody}>Fastest and safest. The code includes the host fingerprint.</Text>
                 </View>
               </Pressable>
-              <View style={styles.pairingChoiceCard}>
+              <Pressable
+                style={styles.pairingChoiceCard}
+                onPress={() => setStep("server")}
+                {...accessibleButton({
+                  label: "Enter address",
+                  hint: "Type or paste the Local Flight server address."
+                })}
+              >
                 <View style={styles.pairingChoiceIcon}>
                   <LocalFlightIcon name={SETUP_ICONS.keyboard} size={18} color={palette.blue2} />
                 </View>
                 <View style={styles.pairingChoiceCopy}>
-                  <Text style={styles.pairingChoiceTitle}>Enter URL</Text>
-                  <Text style={styles.pairingChoiceBody}>Paste the desktop or Pi LAN address below. localflight.local is only a fallback on simple one-host LANs.</Text>
+                  <Text style={styles.pairingChoiceTitle}>Enter address</Text>
+                  <Text style={styles.pairingChoiceBody}>Use this if the QR is not handy or the camera is unavailable.</Text>
                 </View>
-              </View>
+              </Pressable>
             </View>
+            <View style={styles.companionSetupExampleBox}>
+              <Text style={styles.companionSetupExampleLabel}>WHAT YOU NEED</Text>
+              <Text style={styles.companionSetupExampleText}>Local Flight running on the same Wi-Fi</Text>
+              <Text style={styles.companionSetupExampleText}>The mobile pairing QR or host address</Text>
+            </View>
+            <Pressable
+              style={styles.companionSetupPrimary}
+              onPress={() => setStep("server")}
+              {...accessibleButton({ label: "Enter address" })}
+            >
+              <LocalFlightIcon name={SETUP_ICONS.keyboard} size={16} color={solidButtonInk()} />
+              <Text style={styles.companionSetupPrimaryText}>ENTER ADDRESS</Text>
+            </Pressable>
+            <Pressable
+              style={styles.companionSetupSecondary}
+              onPress={() => setStep("mode")}
+              {...accessibleButton({ label: "Back to connection mode" })}
+            >
+              <Text style={styles.companionSetupSecondaryText}>BACK</Text>
+            </Pressable>
+            <PairingScannerSheet
+              visible={scannerVisible}
+              onClose={() => setScannerVisible(false)}
+              onPairingUrl={handleScannedServer}
+            />
+          </Animated.View>
+        ) : null}
+
+        {step === "server" ? (
+          <Animated.View style={[styles.companionSetupPanel, panelMotion]}>
+            <Text style={styles.companionSetupPanelTitle}>Test the host address</Text>
+            <Text style={styles.companionSetupBody}>
+              Enter the address shown by the desktop or Pi app. We will check that the host is reachable and ready for mobile.
+            </Text>
             <View style={styles.companionSetupExampleBox}>
               <Text style={styles.companionSetupExampleLabel}>GOOD EXAMPLES</Text>
               <Text style={styles.companionSetupExampleText}>http://192.168.1.42:8000</Text>
-              <Text style={styles.companionSetupExampleText}>http://localflight.local:8000 (fallback)</Text>
+              <Text style={styles.companionSetupExampleText}>http://localflight.local:8000</Text>
             </View>
             <View
               style={[
@@ -4982,49 +5059,38 @@ export function CompanionSetupScreen({
             <SetupProgressRail
               active={testing}
               label={setupProgress || "Waiting to test the host address."}
-              steps={["LAN reachability", "Host status", "Board config"]}
+              steps={["Reach host", "Read status", "Load board"]}
             />
               <Pressable
                 style={[styles.companionSetupPrimary, testing && styles.connectButtonDisabled]}
                 onPress={() => void testServer()}
                 disabled={testing}
                 {...accessibleButton({
-                  label: testing ? "Testing host" : "Test host",
-                  hint: "Checks the Local Flight host, companion status, and board configuration.",
+                  label: testing ? "Testing connection" : "Test connection",
+                  hint: "Checks the Local Flight host and board setup.",
                   disabled: testing,
                   busy: testing
                 })}
               >
               {testing ? <ActivityIndicator color={solidButtonInk()} /> : <LocalFlightIcon name={ACTION_ICONS.connect} size={16} color={solidButtonInk()} />}
-              <Text style={styles.companionSetupPrimaryText}>{testing ? "TESTING HOST" : "TEST HOST"}</Text>
+              <Text style={styles.companionSetupPrimaryText}>{testing ? "TESTING" : "TEST CONNECTION"}</Text>
             </Pressable>
             <Pressable
               style={styles.companionSetupSecondary}
-              onPress={() => setStep("welcome")}
-              {...accessibleButton({ label: "Back to setup mode selection" })}
+              onPress={() => setStep("pairing")}
+              {...accessibleButton({ label: "Back to pairing choices" })}
             >
               <Text style={styles.companionSetupSecondaryText}>BACK</Text>
             </Pressable>
-            <PairingScannerSheet
-              visible={scannerVisible}
-              onClose={() => setScannerVisible(false)}
-              onPairingUrl={handleScannedServer}
-            />
           </Animated.View>
         ) : null}
 
         {step === "airport" ? (
           <Animated.View style={[styles.companionSetupPanel, panelMotion]}>
-            <Text style={styles.companionSetupPanelTitle}>Pick your standalone airport</Text>
+            <Text style={styles.companionSetupPanelTitle}>Choose your airport</Text>
             <Text style={styles.companionSetupBody}>
-              Standalone keeps the app useful without a LAN server, but it intentionally refreshes FIDS slowly and limits radar ranges to protect shared relay/provider tokens.
+              Standalone uses one airport at a time. Search by airport code, city, or airport name.
             </Text>
-            <View style={styles.companionSetupExampleBox}>
-              <Text style={styles.companionSetupExampleLabel}>STANDALONE LIMITS</Text>
-              <Text style={styles.companionSetupExampleText}>FIDS auto-refresh: 3 hours minimum</Text>
-              <Text style={styles.companionSetupExampleText}>Radar refresh: 5 minutes minimum · 1/3/5/10 NM</Text>
-              <Text style={styles.companionSetupExampleText}>Display-only data: not for navigation or operational decisions</Text>
-            </View>
             <View style={styles.companionSetupInputWrap}>
               <TextInput
                 autoCapitalize="characters"
@@ -5063,7 +5129,7 @@ export function CompanionSetupScreen({
                         type: airport.type
                       };
                       setSelectedStandaloneAirport(nextAirport);
-                      setAirportInput(`${airport.iata || airport.icao} · ${airport.name}`);
+                      setAirportInput(`${airport.iata || airport.icao} - ${airport.name}`);
                       setSetupError(null);
                     }}
                   >
@@ -5072,7 +5138,7 @@ export function CompanionSetupScreen({
                       <Text style={styles.companionSetupRecommended}>{airport.timezone || "UTC"}</Text>
                     </View>
                     <Text style={styles.companionSetupOptionBody}>
-                      {[airport.name, airport.city, airport.country].filter(Boolean).join(" · ")}
+                      {[airport.name, airport.city, airport.country].filter(Boolean).join(" - ")}
                     </Text>
                   </Pressable>
                 );
@@ -5083,20 +5149,49 @@ export function CompanionSetupScreen({
             </View>
             <Pressable
               style={[styles.companionSetupPrimary, !selectedStandaloneAirport && styles.connectButtonDisabled]}
-              onPress={() => selectedStandaloneAirport && setStep("diagnostics")}
+              onPress={() => selectedStandaloneAirport && setStep("policy")}
               disabled={!selectedStandaloneAirport}
               {...accessibleButton({
-                label: "Continue to diagnostics",
+                label: "Use this airport",
                 disabled: !selectedStandaloneAirport
               })}
+            >
+              <LocalFlightIcon name={ACTION_ICONS.next} size={16} color={solidButtonInk()} />
+              <Text style={styles.companionSetupPrimaryText}>USE THIS AIRPORT</Text>
+            </Pressable>
+            <Pressable
+              style={styles.companionSetupSecondary}
+              onPress={() => setStep("mode")}
+              {...accessibleButton({ label: "Back to connection mode" })}
+            >
+              <Text style={styles.companionSetupSecondaryText}>BACK</Text>
+            </Pressable>
+          </Animated.View>
+        ) : null}
+
+        {step === "policy" ? (
+          <Animated.View style={[styles.companionSetupPanel, panelMotion]}>
+            <Text style={styles.companionSetupPanelTitle}>Standalone stays lightweight</Text>
+            <Text style={styles.companionSetupBody}>
+              Standalone is built for quick checks when you do not have a Local Flight host nearby. It uses shared relay resources gently.
+            </Text>
+            <View style={styles.companionSetupChecklist}>
+              <SetupChecklistItem icon={SETUP_ICONS.server} title="Board refreshes slowly" body="Flight boards refresh no faster than every 3 hours." />
+              <SetupChecklistItem icon={SETUP_ICONS.lan} title="Radar is compact" body="Radar updates no faster than every 5 minutes and uses 1, 3, 5, or 10 NM ranges." />
+              <SetupChecklistItem icon={SETUP_ICONS.privacy} title="Display aid only" body="Do not use this data for navigation, dispatch, safety, or operational decisions." />
+            </View>
+            <Pressable
+              style={styles.companionSetupPrimary}
+              onPress={() => setStep("diagnostics")}
+              {...accessibleButton({ label: "Continue to reports" })}
             >
               <LocalFlightIcon name={ACTION_ICONS.next} size={16} color={solidButtonInk()} />
               <Text style={styles.companionSetupPrimaryText}>CONTINUE</Text>
             </Pressable>
             <Pressable
               style={styles.companionSetupSecondary}
-              onPress={() => setStep("welcome")}
-              {...accessibleButton({ label: "Back to setup mode selection" })}
+              onPress={() => setStep("airport")}
+              {...accessibleButton({ label: "Back to airport search" })}
             >
               <Text style={styles.companionSetupSecondaryText}>BACK</Text>
             </Pressable>
@@ -5105,15 +5200,15 @@ export function CompanionSetupScreen({
 
         {step === "diagnostics" ? (
           <Animated.View style={[styles.companionSetupPanel, panelMotion]}>
-            <Text style={styles.companionSetupPanelTitle}>Choose mobile diagnostics</Text>
+            <Text style={styles.companionSetupPanelTitle}>Choose how reports work</Text>
             <Text style={styles.companionSetupBody}>
-              Manual reports are always available. In Companion mode, automatic reports only send when this device and the connected host both allow diagnostics. In Standalone mode, this device choice controls relay crash reports.
+              Manual reports are always available from Help. Automatic crash reports are optional and can be changed later in Settings.
             </Text>
             <View style={styles.companionSetupOptionStack}>
               {([
-                ["manual", "Manual only", "No automatic mobile reports. Send feedback yourself from Help."],
-                ["auto", "Auto crash reports", "Send serious React/JS mobile crashes with app and server context."],
-                ["auto_logs", "Auto + extra context", "Adds a little more mobile context when available. Full native device logs are still not included."]
+                ["manual", "Ask me first", "No automatic mobile reports. You can still send feedback yourself from Help."],
+                ["auto", "Send crash reports", "Send serious mobile crashes with app state needed to fix the problem."],
+                ["auto_logs", "Crash reports + context", "Adds a little more mobile context when available. Native device logs are not included."]
               ] as Array<[MobileDiagnosticsMode, string, string]>).map(([mode, title, body]) => (
                   <Pressable
                     key={mode}
@@ -5142,11 +5237,11 @@ export function CompanionSetupScreen({
               {...accessibleButton({ label: "Review setup" })}
             >
               <LocalFlightIcon name={ACTION_ICONS.checklist} size={16} color={solidButtonInk()} />
-              <Text style={styles.companionSetupPrimaryText}>REVIEW SETUP</Text>
+              <Text style={styles.companionSetupPrimaryText}>REVIEW</Text>
             </Pressable>
             <Pressable
               style={styles.companionSetupSecondary}
-              onPress={() => setStep(setupMode === "standalone" ? "airport" : "server")}
+              onPress={() => setStep(setupMode === "standalone" ? "policy" : "server")}
               {...accessibleButton({ label: "Back to previous setup step" })}
             >
               <Text style={styles.companionSetupSecondaryText}>BACK</Text>
@@ -5156,31 +5251,31 @@ export function CompanionSetupScreen({
 
         {step === "ready" ? (
           <Animated.View style={[styles.companionSetupPanel, panelMotion]}>
-            <Text style={styles.companionSetupPanelTitle}>Ready for the board</Text>
+            <Text style={styles.companionSetupPanelTitle}>Review setup</Text>
             <Text style={styles.companionSetupBody}>
               {setupMode === "standalone"
-                ? "The app will activate this phone as a standalone relay client, save the token locally, and open the simplified mobile board."
-                : "The app will save this companion pairing locally, ask the Local Flight host for fresh FIDS rows, and open the main mobile view."}
+                ? "We will save this airport and activate the standalone board on this phone."
+                : "We will save this host on this phone and open the main mobile board."}
             </Text>
             <View style={styles.companionSetupSummary}>
               <InfoLine label="Mode" value={setupMode === "standalone" ? "Standalone relay client" : "Companion"} />
               <InfoLine label={setupMode === "standalone" ? "Airport" : "Host"} value={setupMode === "standalone" ? (selectedStandaloneAirport?.iata || "---") : (serverSummary?.serverUrl || normalizeServerUrl(serverInput) || "Not tested")} />
-              <InfoLine label={setupMode === "standalone" ? "Relay policy" : "Airport"} value={setupMode === "standalone" ? "3h FIDS · 5m radar" : (serverSummary?.config.airport_iata || "---")} />
+              <InfoLine label={setupMode === "standalone" ? "Refresh" : "Airport"} value={setupMode === "standalone" ? "3h board, 5m radar" : (serverSummary?.config.airport_iata || "---")} />
               <InfoLine label={setupMode === "standalone" ? "Status" : "Host status"} value={setupMode === "standalone" ? "Activation on finish" : (serverSummary?.state.ok === false ? "Needs attention" : "Ready")} />
-              <InfoLine label="Diagnostics" value={diagnosticsMode === "manual" ? "Manual reports only" : diagnosticsMode === "auto" ? "Automatic crash reports" : "Automatic crash reports + context"} />
+              <InfoLine label="Reports" value={diagnosticsMode === "manual" ? "Ask me first" : diagnosticsMode === "auto" ? "Crash reports" : "Crash reports + context"} />
             </View>
             <Pressable
               style={[styles.companionSetupPrimary, finishing && styles.connectButtonDisabled]}
               onPress={() => void finishSetup()}
               disabled={finishing}
               {...accessibleButton({
-                label: finishing ? "Saving setup" : "Finish setup",
+                  label: finishing ? "Saving setup" : "Finish",
                 disabled: finishing,
                 busy: finishing
               })}
             >
               {finishing ? <ActivityIndicator color={solidButtonInk()} /> : <LocalFlightIcon name={ACTION_ICONS.finish} size={16} color={solidButtonInk()} />}
-              <Text style={styles.companionSetupPrimaryText}>{finishing ? "SAVING SETUP" : "FINISH SETUP"}</Text>
+              <Text style={styles.companionSetupPrimaryText}>{finishing ? "SAVING" : "FINISH"}</Text>
             </Pressable>
             <Pressable
               style={styles.companionSetupSecondary}
@@ -5274,16 +5369,28 @@ function setupUrlCheckColor(state: SetupUrlCheckState): string {
 }
 
 function setupStepRank(step: CompanionSetupStep): number {
-  return { welcome: 0, server: 1, airport: 1, diagnostics: 2, ready: 3 }[step];
+  return {
+    welcome: 0,
+    mode: 1,
+    pairing: 2,
+    server: 3,
+    airport: 2,
+    policy: 3,
+    diagnostics: 4,
+    ready: 5
+  }[step];
 }
 
 function setupStepTitle(step: CompanionSetupStep): string {
   return {
-    welcome: "Welcome",
-    server: "Server",
+    welcome: "Start",
+    mode: "Mode",
+    pairing: "Pair",
+    server: "Test",
     airport: "Airport",
+    policy: "Limits",
     diagnostics: "Reports",
-    ready: "Ready"
+    ready: "Review"
   }[step];
 }
 
@@ -5296,7 +5403,7 @@ function companionSetupUrlProblem(input: string): string | null {
     const parsed = new URL(normalized);
     const host = parsed.hostname.replace(/^\[|\]$/g, "").toLowerCase();
     if (["localhost", "127.0.0.1", "::1", "0.0.0.0"].includes(host)) {
-      return "A physical iPhone cannot use localhost because that points at the phone. Use the Pi or desktop LAN IP, or localflight.local if mDNS works.";
+      return "This phone cannot use localhost because that points back at the phone. Use the Pi or desktop LAN address, or localflight.local if it works on your Wi-Fi.";
     }
     if (!["http:", "https:"].includes(parsed.protocol)) {
       return "Use an http:// or https:// Local Flight server URL.";
@@ -5310,7 +5417,7 @@ function companionSetupUrlProblem(input: string): string | null {
 function companionSetupErrorMessage(value: unknown): string {
   const message = errorMessage(value);
   if (/Network request failed/i.test(message)) {
-    return "Could not reach Local Flight on the LAN. Make sure the iPhone and Pi/desktop are on the same Wi-Fi, Local Flight is running, and the URL uses the server IP or localflight.local.";
+    return "Could not reach Local Flight on the Wi-Fi network. Make sure this phone and the Pi or desktop are on the same Wi-Fi, Local Flight is running, and the address uses the server IP or localflight.local.";
   }
   return message;
 }

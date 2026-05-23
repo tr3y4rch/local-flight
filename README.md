@@ -106,8 +106,8 @@ Open [docs/previews/index.html](docs/previews/index.html) locally for the standa
 
 ### Windows
 
-Download `LocalFlight-windows.zip`, unzip it, and run `LocalFlight.exe`.
-The release app launches as a branded desktop app without a Python console window.
+Download `LocalFlight-0.2.7-Setup.exe`, run the wizard, then launch Local Flight from the final installer page, Start Menu, or desktop shortcut.
+The release app launches as a branded desktop app without a Python or cmd console window. `LocalFlight-windows.zip` remains available as a portable/manual install artifact.
 
 ### macOS
 
