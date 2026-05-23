@@ -5412,10 +5412,27 @@ def test_beacon_tools_site_uses_current_brand_assets() -> None:
 
     home = (site / "index.html").read_text(encoding="utf-8")
     local_flight = (site / "local-flight" / "index.html").read_text(encoding="utf-8")
+    mobile = (site / "local-flight" / "mobile" / "index.html").read_text(encoding="utf-8")
     assert 'src="/assets/beacon-tools-logo.png" alt="Beacon Tools logo"' in home
     assert 'src="/assets/localflight-lockup.png" alt="Local Flight"' in local_flight
     assert 'src="/assets/localflight-icon.png"' not in local_flight
     assert 'background: url("/assets/beacon-tools-logo.png")' in (assets / "site.css").read_text(encoding="utf-8")
+    assert 'src="/assets/store-badges/download-on-app-store.svg" alt="Download on the App Store"' in mobile
+    assert 'src="/assets/store-badges/get-it-on-google-play.png" alt="Get it on Google Play"' in mobile
+    assert 'href="/assets/store-badges/' not in mobile
+    assert 'role="link" aria-disabled="true" aria-label="Download on the App Store"' in mobile
+    assert 'role="link" aria-disabled="true" aria-label="Get it on Google Play"' in mobile
+    assert "Future App Store URL requires the App Store app ID" in mobile
+    assert "https://play.google.com/store/apps/details?id=com.localflight.mobile" in mobile
+    assert "Android&trade; testing builds" in mobile
+    assert "Apple, the Apple logo, iPhone, and iPad are trademarks of Apple Inc." in mobile
+    assert "Google Play and the Google Play logo are trademarks of Google LLC." in mobile
+    assert (assets / "store-badges" / "download-on-app-store.svg").stat().st_size > 1000
+    google_badge = assets / "store-badges" / "get-it-on-google-play.png"
+    assert google_badge.stat().st_size > 1000
+    with Image.open(google_badge) as image:
+        assert image.size == (478, 142)
+        assert image.mode == "RGBA"
     for preview in ("history-preview.png", "matrix-preview.png", "settings-preview.png"):
         assert f'src="/assets/{preview}"' in local_flight
     for stale_alias in ("fids-preview.svg", "history-preview.svg", "matrix-preview.svg", "radar-preview.svg"):
@@ -5424,9 +5441,11 @@ def test_beacon_tools_site_uses_current_brand_assets() -> None:
     for path in list(site.glob("**/*.html")) + [assets / "site.css"]:
         referenced_assets.update(re.findall(r"/assets/([^\"')]+)", path.read_text(encoding="utf-8")))
     unused_assets = {
-        path.name
-        for path in assets.iterdir()
-        if path.is_file() and path.name != "site.css" and path.name not in referenced_assets
+        path.relative_to(assets).as_posix()
+        for path in assets.rglob("*")
+        if path.is_file()
+        and path.name != "site.css"
+        and path.relative_to(assets).as_posix() not in referenced_assets
     }
     assert unused_assets == set()
 

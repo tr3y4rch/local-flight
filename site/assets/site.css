@@ -279,6 +279,48 @@ p {
   display: none;
 }
 
+.store-release {
+  display: grid;
+  gap: 8px;
+  margin: -2px 0 22px;
+}
+
+.store-badges {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.store-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 54px;
+  padding: 4px;
+  border: 1px solid rgba(99, 214, 255, 0.2);
+  border-radius: 8px;
+  background: rgba(4, 10, 16, 0.56);
+}
+
+.store-badge.is-disabled {
+  cursor: not-allowed;
+  opacity: 0.76;
+}
+
+.store-badge img {
+  width: auto;
+  height: 42px;
+  max-width: 180px;
+  object-fit: contain;
+}
+
+.store-note {
+  margin: 0;
+  color: var(--subtle);
+  font: 800 0.78rem ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
 .status-strip {
   display: flex;
   flex-wrap: wrap;
@@ -722,6 +764,23 @@ p {
   padding-top: 18px;
 }
 
+.store-legal {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  gap: 8px;
+  margin-bottom: 16px;
+  color: var(--subtle);
+  font-size: 0.74rem;
+  line-height: 1.45;
+}
+
+.store-legal p {
+  max-width: 104ch;
+  margin: 0;
+  color: inherit;
+}
+
 .footer-brand {
   flex: 0 0 auto;
 }
@@ -804,5 +863,14 @@ p {
   .button {
     width: 100%;
     justify-content: space-between;
+  }
+
+  .store-badge {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .store-badge img {
+    height: 40px;
   }
 }
