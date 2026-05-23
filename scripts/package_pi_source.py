@@ -95,6 +95,7 @@ def _release_files() -> list[Path]:
         raise SystemExit(f"Could not list release files with git: {exc}") from exc
 
     paths = sorted({Path(item) for item in raw.decode("utf-8").split("\0") if item})
+    paths = [path for path in paths if (ROOT / path).exists()]
     return [path for path in paths if _is_release_file(path)]
 
 

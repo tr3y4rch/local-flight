@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import struct
 import sys
 import threading
@@ -5375,14 +5376,11 @@ def test_beacon_tools_site_uses_current_brand_assets() -> None:
     manifest_paths = {entry["path"] for entry in manifest["active_outputs"]}
     expected_assets = {
         "beacon-tools-logo.png": (1200, 349),
-        "beacon-tools-mark.png": (512, 512),
         "beacon-tools-mark-96.png": (96, 96),
-        "beacon-tools-mark-64.png": (64, 64),
         "beacon-tools-icon-512.png": (512, 512),
         "apple-touch-icon.png": (180, 180),
         "favicon-32.png": (32, 32),
-        "localflight-icon.png": (1024, 1024),
-        "localflight-icon-light.png": (1024, 1024),
+        "localflight-lockup.png": (960, 260),
     }
 
     for name, size in expected_assets.items():
@@ -5391,10 +5389,7 @@ def test_beacon_tools_site_uses_current_brand_assets() -> None:
         assert path.exists()
         with Image.open(path) as image:
             assert image.size == size
-            if name.startswith("localflight-icon"):
-                assert image.mode in {"RGB", "RGBA"}
-            else:
-                assert image.mode == "RGBA"
+            assert image.mode == "RGBA"
             if name.startswith("beacon-tools-logo") or name.startswith("beacon-tools-mark"):
                 assert image.getchannel("A").getextrema()[0] == 0
 
@@ -5418,11 +5413,22 @@ def test_beacon_tools_site_uses_current_brand_assets() -> None:
     home = (site / "index.html").read_text(encoding="utf-8")
     local_flight = (site / "local-flight" / "index.html").read_text(encoding="utf-8")
     assert 'src="/assets/beacon-tools-logo.png" alt="Beacon Tools logo"' in home
-    assert 'src="/assets/localflight-icon.png" alt="Local Flight icon"' in local_flight
+    assert 'src="/assets/localflight-lockup.png" alt="Local Flight"' in local_flight
+    assert 'src="/assets/localflight-icon.png"' not in local_flight
+    assert 'background: url("/assets/beacon-tools-logo.png")' in (assets / "site.css").read_text(encoding="utf-8")
     for preview in ("history-preview.png", "matrix-preview.png", "settings-preview.png"):
         assert f'src="/assets/{preview}"' in local_flight
     for stale_alias in ("fids-preview.svg", "history-preview.svg", "matrix-preview.svg", "radar-preview.svg"):
         assert not (assets / stale_alias).exists()
+    referenced_assets = set()
+    for path in list(site.glob("**/*.html")) + [assets / "site.css"]:
+        referenced_assets.update(re.findall(r"/assets/([^\"')]+)", path.read_text(encoding="utf-8")))
+    unused_assets = {
+        path.name
+        for path in assets.iterdir()
+        if path.is_file() and path.name != "site.css" and path.name not in referenced_assets
+    }
+    assert unused_assets == set()
 
 
 def test_privacy_docs_disclose_linear_report_triage() -> None:

@@ -57,13 +57,10 @@ SITE_BRAND_ASSETS = (
     "apple-touch-icon.png",
     "beacon-tools-icon-512.png",
     "beacon-tools-logo.png",
-    "beacon-tools-mark.png",
-    "beacon-tools-mark-64.png",
     "beacon-tools-mark-96.png",
     "favicon.ico",
     "favicon-32.png",
-    "localflight-icon.png",
-    "localflight-icon-light.png",
+    "localflight-lockup.png",
 )
 STALE_SITE_BRAND_ALIASES = (
     "fids-preview.svg",
@@ -221,6 +218,55 @@ def verify_lockup_wording(path: Path) -> None:
         raise ValueError(f"{path} has no visible Beacon Tools wordmark area")
 
 
+def write_transparent_beacon_lockup(src: Path, dst: Path) -> None:
+    text = src.read_text(encoding="utf-8")
+    text = text.replace('  <!-- BACKGROUND -->\n  <rect width="1620" height="420" fill="url(#bthd-bg)"/>\n  <rect width="1620" height="420" fill="url(#bthd-bgGlow)"/>\n\n', "")
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    dst.write_text(text, encoding="utf-8")
+    assert_svg(dst)
+
+
+def _font(size: int, bold: bool = False) -> ImageFont.ImageFont:
+    from PIL import ImageFont
+
+    names = (
+        "arialbd.ttf",
+        "Arial Bold.ttf",
+        "DejaVuSans-Bold.ttf",
+    ) if bold else (
+        "arial.ttf",
+        "Arial.ttf",
+        "DejaVuSans.ttf",
+    )
+    for name in names:
+        try:
+            return ImageFont.truetype(name, size)
+        except OSError:
+            continue
+    return ImageFont.load_default()
+
+
+def write_localflight_lockup(icon_png: Path, dst: Path) -> None:
+    from PIL import ImageDraw
+
+    width, height = 960, 260
+    canvas = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    with Image.open(icon_png) as image:
+        mark = image.convert("RGBA").resize((190, 190), Image.LANCZOS)
+    canvas.alpha_composite(mark, (30, 35))
+
+    draw = ImageDraw.Draw(canvas)
+    title_font = _font(82, bold=True)
+    sub_font = _font(28, bold=True)
+    draw.text((252, 70), "Local", font=title_font, fill=(240, 248, 255, 255))
+    local_width = draw.textlength("Local", font=title_font)
+    draw.text((252 + local_width + 18, 70), "Flight", font=title_font, fill=(42, 172, 248, 255))
+    draw.text((258, 166), "LOCAL-FIRST FLIGHT BOARDS", font=sub_font, fill=(158, 187, 208, 220))
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    canvas.save(dst)
+    assert_image(dst, width, height)
+
+
 def assert_ico(path: Path, sizes: Iterable[int]) -> None:
     if not path.exists():
         raise FileNotFoundError(path)
@@ -317,26 +363,26 @@ def stage_site_assets(renderer: SvgRenderer) -> None:
     site = STAGE / "site-assets"
     site.mkdir(parents=True, exist_ok=True)
 
+    lockup_svg = site / "beacon-tools-logo-transparent.svg"
+    write_transparent_beacon_lockup(BEACON_LOCKUP, lockup_svg)
     lockup_master = site / "beacon-tools-logo-master.png"
-    renderer.render(BEACON_LOCKUP, lockup_master, 1620, 420)
+    renderer.render(lockup_svg, lockup_master, 1620, 420)
     verify_lockup_wording(lockup_master)
     resize_contain(lockup_master, site / "beacon-tools-logo.png", 1200, 349)
     verify_lockup_wording(site / "beacon-tools-logo.png")
 
     for filename, size in (
-        ("beacon-tools-mark.png", 512),
         ("beacon-tools-mark-96.png", 96),
-        ("beacon-tools-mark-64.png", 64),
         ("beacon-tools-icon-512.png", 512),
         ("apple-touch-icon.png", 180),
         ("favicon-32.png", 32),
     ):
         renderer.render(BEACON_MARK, site / filename, size, size)
-    write_ico(site / "beacon-tools-mark.png", site / "favicon.ico")
+    write_ico(site / "beacon-tools-icon-512.png", site / "favicon.ico")
 
-    renderer.render(LOCAL_FLIGHT_DARK, site / "localflight-icon.png", 1024, 1024)
-    renderer.render(LOCAL_FLIGHT_LIGHT, site / "localflight-icon-light.png", 1024, 1024)
-    assert_images_differ(site / "localflight-icon.png", site / "localflight-icon-light.png")
+    localflight_icon = site / "localflight-lockup-source.png"
+    renderer.render(LOCAL_FLIGHT_DARK, localflight_icon, 1024, 1024)
+    write_localflight_lockup(localflight_icon, site / "localflight-lockup.png")
 
 
 def validate_masters() -> None:
@@ -368,16 +414,12 @@ def validate_stage() -> None:
         ("apple-touch-icon.png", (180, 180)),
         ("beacon-tools-icon-512.png", (512, 512)),
         ("beacon-tools-logo.png", (1200, 349)),
-        ("beacon-tools-mark.png", (512, 512)),
-        ("beacon-tools-mark-64.png", (64, 64)),
         ("beacon-tools-mark-96.png", (96, 96)),
         ("favicon-32.png", (32, 32)),
-        ("localflight-icon.png", (1024, 1024)),
-        ("localflight-icon-light.png", (1024, 1024)),
+        ("localflight-lockup.png", (960, 260)),
     ):
         assert_image(site / filename, *expected_size)
     assert_ico(site / "favicon.ico", WINDOWS_ICO_SIZES)
-    assert_images_differ(site / "localflight-icon.png", site / "localflight-icon-light.png")
 
 
 def sanitize_module_brand_files(module_dir: Path, keep: set[str]) -> None:
@@ -413,7 +455,7 @@ def sanitize_site_brand_files() -> None:
         "beacon-tools-*.png",
         "favicon*.png",
         "favicon*.ico",
-        "localflight-icon*.png",
+        "localflight-*.png",
     )
     keep = set(SITE_BRAND_ASSETS)
     for pattern in patterns:
@@ -506,11 +548,8 @@ def write_manifest(renderer_name: str) -> None:
             output_record("site-beacon-favicon-32", SITE_ASSETS / "favicon-32.png"),
             output_record("site-beacon-icon-512", SITE_ASSETS / "beacon-tools-icon-512.png"),
             output_record("site-beacon-lockup", SITE_ASSETS / "beacon-tools-logo.png"),
-            output_record("site-beacon-mark-512", SITE_ASSETS / "beacon-tools-mark.png"),
             output_record("site-beacon-mark-96", SITE_ASSETS / "beacon-tools-mark-96.png"),
-            output_record("site-beacon-mark-64", SITE_ASSETS / "beacon-tools-mark-64.png"),
-            output_record("site-local-flight-product-icon", SITE_ASSETS / "localflight-icon.png"),
-            output_record("site-local-flight-product-icon-light", SITE_ASSETS / "localflight-icon-light.png"),
+            output_record("site-local-flight-product-lockup", SITE_ASSETS / "localflight-lockup.png"),
         ]
     )
     manifest = {
@@ -550,16 +589,12 @@ def validate_active_outputs() -> None:
         ("apple-touch-icon.png", (180, 180)),
         ("beacon-tools-icon-512.png", (512, 512)),
         ("beacon-tools-logo.png", (1200, 349)),
-        ("beacon-tools-mark.png", (512, 512)),
-        ("beacon-tools-mark-64.png", (64, 64)),
         ("beacon-tools-mark-96.png", (96, 96)),
         ("favicon-32.png", (32, 32)),
-        ("localflight-icon.png", (1024, 1024)),
-        ("localflight-icon-light.png", (1024, 1024)),
+        ("localflight-lockup.png", (960, 260)),
     ):
         assert_image(SITE_ASSETS / filename, *expected_size)
     assert_ico(SITE_ASSETS / "favicon.ico", WINDOWS_ICO_SIZES)
-    assert_images_differ(SITE_ASSETS / "localflight-icon.png", SITE_ASSETS / "localflight-icon-light.png")
     for filename in STALE_SITE_BRAND_ALIASES:
         if (SITE_ASSETS / filename).exists():
             raise ValueError(f"stale site brand alias still exists: {filename}")

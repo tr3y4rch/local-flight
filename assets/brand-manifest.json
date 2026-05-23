@@ -210,14 +210,7 @@
       "path": "site/assets/beacon-tools-logo.png",
       "width": 1200,
       "height": 349,
-      "sha256": "1a4430e6e8c6e665e9d35f641b118f8a00c6108924aca42b08a70c5eef51c94a"
-    },
-    {
-      "role": "site-beacon-mark-512",
-      "path": "site/assets/beacon-tools-mark.png",
-      "width": 512,
-      "height": 512,
-      "sha256": "8c3858d0ee8f877763f573ab37b17ef41e4d77caa2ccb38860ce8306b4f0db0c"
+      "sha256": "675e2352b5820e047720aa7f077d894b1f3aeedd9393bd8ad6b4c3b1a643ba84"
     },
     {
       "role": "site-beacon-mark-96",
@@ -227,25 +220,11 @@
       "sha256": "4bf3c211961ebf09a4a2991950ff283a1efc46e4f475a313baf6915508c7d960"
     },
     {
-      "role": "site-beacon-mark-64",
-      "path": "site/assets/beacon-tools-mark-64.png",
-      "width": 64,
-      "height": 64,
-      "sha256": "bdd433eef32e1f5168645efa814d574495b43713d227f88f933bc18f2e3a6c13"
-    },
-    {
-      "role": "site-local-flight-product-icon",
-      "path": "site/assets/localflight-icon.png",
-      "width": 1024,
-      "height": 1024,
-      "sha256": "4bd99a19f76ea16bf6940762fe679c93f3d75e6e902570f9e2b7e1144bd07db7"
-    },
-    {
-      "role": "site-local-flight-product-icon-light",
-      "path": "site/assets/localflight-icon-light.png",
-      "width": 1024,
-      "height": 1024,
-      "sha256": "5680faa542d0ebaa0127a481e700f8c0fa37005b8cb298f6e6b94d0b4b372ffc"
+      "role": "site-local-flight-product-lockup",
+      "path": "site/assets/localflight-lockup.png",
+      "width": 960,
+      "height": 260,
+      "sha256": "8dac16d59f94436360a92109961bba1beb70ae842819506830636ca276958fe6"
     }
   ],
   "excluded_until_later_phases": []

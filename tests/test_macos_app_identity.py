@@ -113,13 +113,10 @@ def test_v2_brand_manifest_tracks_package_qt_lan_mobile_and_site() -> None:
         "site/assets/apple-touch-icon.png",
         "site/assets/beacon-tools-icon-512.png",
         "site/assets/beacon-tools-logo.png",
-        "site/assets/beacon-tools-mark.png",
-        "site/assets/beacon-tools-mark-64.png",
         "site/assets/beacon-tools-mark-96.png",
         "site/assets/favicon.ico",
         "site/assets/favicon-32.png",
-        "site/assets/localflight-icon.png",
-        "site/assets/localflight-icon-light.png",
+        "site/assets/localflight-lockup.png",
     }.issubset(output_paths)
 
 

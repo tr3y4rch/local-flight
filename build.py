@@ -51,9 +51,11 @@ def make_icons() -> None:
     ]
 
     img = None
+    loaded_synced_png = False
     for png_file in png_candidates:
         if png_file.exists():
             img = Image.open(png_file).convert("RGBA")
+            loaded_synced_png = png_file == ASSETS / "icon.png"
             print(f"Loaded synced V2 icon from {png_file.name}")
             break
     if img is None and svg_file.exists():
@@ -68,7 +70,8 @@ def make_icons() -> None:
         img = _make_placeholder()
         print("Using placeholder icon (install cairosvg or pre-render SVG to PNG)")
 
-    img.save(ASSETS / "icon.png")
+    if not loaded_synced_png:
+        img.save(ASSETS / "icon.png")
 
     if sys.platform == "win32":
         sizes = [(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)]

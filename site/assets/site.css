@@ -104,19 +104,17 @@ code {
 .brand-mark {
   width: 42px;
   height: 42px;
-  border: 1px solid rgba(99, 214, 255, 0.46);
-  border-radius: 12px;
-  background:
-    radial-gradient(circle at 35% 26%, rgba(99, 214, 255, 0.28), transparent 42%),
-    linear-gradient(135deg, #f8fcff 0%, #d9f2ff 100%);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
   display: grid;
   place-items: center;
-  box-shadow: 0 12px 30px var(--shadow), 0 0 24px rgba(30, 164, 255, 0.16);
+  box-shadow: none;
 }
 
 .brand-mark img {
-  width: 31px;
-  height: 31px;
+  width: 36px;
+  height: 36px;
   object-fit: contain;
 }
 
@@ -499,8 +497,8 @@ p {
   min-height: 238px;
   padding: 28px;
   background:
-    radial-gradient(circle at 32% 24%, rgba(30, 164, 255, 0.14), transparent 34%),
-    linear-gradient(135deg, #f9fcff 0%, #edf8ff 52%, #dff1fb 100%);
+    radial-gradient(circle at 32% 24%, rgba(30, 164, 255, 0.16), transparent 34%),
+    rgba(8, 18, 28, 0.92);
 }
 
 .brand-lockup-panel img {
@@ -619,8 +617,13 @@ p {
 }
 
 .side-panel img {
-  width: 96px;
+  width: min(100%, 280px);
   margin-bottom: 14px;
+}
+
+.side-panel img.product-lockup {
+  width: min(100%, 320px);
+  filter: drop-shadow(0 14px 22px rgba(0, 0, 0, 0.24));
 }
 
 .link-list {
@@ -689,17 +692,45 @@ p {
 }
 
 .footer {
+  position: relative;
+  overflow: hidden;
   padding: 30px 0 46px;
   color: var(--muted);
 }
 
+.footer::before {
+  content: "";
+  position: absolute;
+  right: max(20px, calc((100vw - 1160px) / 2));
+  bottom: -22px;
+  width: min(48vw, 540px);
+  height: 170px;
+  background: url("/assets/beacon-tools-logo.png") right bottom / contain no-repeat;
+  filter: grayscale(1);
+  opacity: 0.08;
+  pointer-events: none;
+}
+
 .footer-row {
+  position: relative;
+  z-index: 1;
   display: flex;
   flex-wrap: wrap;
   justify-content: space-between;
   gap: 14px;
   border-top: 1px solid var(--line-soft);
   padding-top: 18px;
+}
+
+.footer-brand {
+  flex: 0 0 auto;
+}
+
+.footer-logo {
+  width: 186px;
+  max-height: 54px;
+  object-fit: contain;
+  opacity: 0.9;
 }
 
 .footer a {
