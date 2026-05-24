@@ -20,6 +20,7 @@ import shutil
 import hashlib
 import json
 import os
+import tempfile
 from pathlib import Path
 
 ROOT   = Path(__file__).parent
@@ -41,6 +42,54 @@ def _make_placeholder() -> "Image.Image":
     return img
 
 
+def _render_svg_with_qt(svg_file: Path) -> "Image.Image | None":
+    """Render the SVG master with Qt when cairosvg is not available."""
+    try:
+        os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+        from PySide6 import QtGui, QtSvg
+        from PIL import Image
+    except Exception as exc:
+        print(f"Qt SVG icon render unavailable ({exc})")
+        return None
+
+    app = QtGui.QGuiApplication.instance() or QtGui.QGuiApplication([])
+    renderer = QtSvg.QSvgRenderer(str(svg_file))
+    if not renderer.isValid():
+        print(f"Qt SVG icon render unavailable ({svg_file.name} is not a valid SVG)")
+        return None
+
+    image = QtGui.QImage(1024, 1024, QtGui.QImage.Format_ARGB32)
+    image.fill(QtGui.QColor(0, 0, 0, 0))
+    painter = QtGui.QPainter(image)
+    renderer.render(painter)
+    painter.end()
+
+    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+        tmp_path = Path(tmp.name)
+    try:
+        if not image.save(str(tmp_path)):
+            print("Qt SVG icon render unavailable (could not write temporary PNG)")
+            return None
+        rendered = Image.open(tmp_path).convert("RGBA")
+        rendered.load()
+        print(f"Rendered icon from {svg_file.name} via Qt SVG")
+        return rendered
+    finally:
+        tmp_path.unlink(missing_ok=True)
+
+
+def _write_macos_iconset(img: "Image.Image", iconset: Path) -> None:
+    from PIL import Image
+
+    shutil.rmtree(iconset, ignore_errors=True)
+    iconset.mkdir(exist_ok=True)
+    # Valid macOS iconset members are 16/32/128/256/512 plus their @2x
+    # variants (which cover 32/64/256/512/1024 actual pixel sizes).
+    for s in [16, 32, 128, 256, 512]:
+        img.resize((s,    s),    Image.LANCZOS).save(iconset / f"icon_{s}x{s}.png")
+        img.resize((s*2,  s*2),  Image.LANCZOS).save(iconset / f"icon_{s}x{s}@2x.png")
+
+
 def make_icons() -> None:
     import io
     from PIL import Image
@@ -54,23 +103,26 @@ def make_icons() -> None:
 
     img = None
     loaded_synced_png = False
-    for png_file in png_candidates:
-        if png_file.exists():
-            img = Image.open(png_file).convert("RGBA")
-            loaded_synced_png = png_file == ASSETS / "icon.png"
-            print(f"Loaded synced V2 icon from {png_file.name}")
-            break
-    if img is None and svg_file.exists():
+    if svg_file.exists():
         try:
             import cairosvg
             data = cairosvg.svg2png(url=str(svg_file), output_width=1024, output_height=1024)
             img  = Image.open(io.BytesIO(data)).convert("RGBA")
             print(f"Rendered icon from {svg_file.name}")
         except Exception as exc:
-            print(f"SVG icon render unavailable ({exc}) - checking for pre-rendered PNG")
+            print(f"cairosvg icon render unavailable ({exc}) - trying Qt SVG")
+        if img is None:
+            img = _render_svg_with_qt(svg_file)
+    if img is None:
+        for png_file in png_candidates:
+            if png_file.exists():
+                img = Image.open(png_file).convert("RGBA")
+                loaded_synced_png = png_file == ASSETS / "icon.png"
+                print(f"Loaded synced V2 icon from {png_file.name}")
+                break
     if img is None:
         img = _make_placeholder()
-        print("Using placeholder icon (install cairosvg or pre-render SVG to PNG)")
+        print("Using placeholder icon (install cairosvg, PySide6 QtSvg, or pre-render SVG to PNG)")
 
     if not loaded_synced_png:
         img.save(ASSETS / "icon.png")
@@ -82,24 +134,17 @@ def make_icons() -> None:
 
     elif sys.platform == "darwin":
         icns_path = ASSETS / "icon.icns"
-        try:
-            img.save(icns_path, format="ICNS")
-            print("Generated assets/icon.icns via Pillow")
-        except Exception:
-            iconset = ASSETS / "icon.iconset"
-            shutil.rmtree(iconset, ignore_errors=True)
-            iconset.mkdir(exist_ok=True)
-            # Valid macOS iconset members are 16/32/128/256/512 plus their @2x
-            # variants (which cover 32/64/256/512/1024 actual pixel sizes).
-            for s in [16, 32, 128, 256, 512]:
-                img.resize((s,    s),    Image.LANCZOS).save(iconset / f"icon_{s}x{s}.png")
-                img.resize((s*2,  s*2),  Image.LANCZOS).save(iconset / f"icon_{s}x{s}@2x.png")
+        iconset = ASSETS / "icon.iconset"
+        _write_macos_iconset(img, iconset)
+        if shutil.which("iconutil"):
             subprocess.run(
                 ["iconutil", "-c", "icns", str(iconset), "-o", str(icns_path)],
                 check=True,
             )
-            shutil.rmtree(iconset)
             print("Generated assets/icon.icns via iconutil")
+        else:
+            img.save(icns_path, format="ICNS")
+            print("Generated assets/icon.icns via Pillow")
 
     else:
         print("Generated assets/icon.png  (Linux — no .ico/.icns needed)")
