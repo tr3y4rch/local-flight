@@ -61,10 +61,16 @@
             <span class="status-chip">Relay: relay.beacontools.cc</span>
           </div>
         </div>
-        <figure class="screenshot-panel mobile-shot">
-          <img src="/assets/mobile-fids-preview.svg" alt="Local Flight Mobile board preview">
-          <figcaption><strong>Mobile board</strong><span>Airport header, METAR strip, pinned flight, compact rows, and local/UTC timing.</span></figcaption>
-        </figure>
+        <aside class="mobile-device-pair" aria-label="Local Flight Mobile platform previews">
+          <figure class="phone-shot">
+            <img src="/assets/mobile/ios/fids.png" alt="Local Flight Mobile FIDS board on iOS">
+            <figcaption><strong>iOS board</strong><span>Airport header, METAR strip, pinned flight, compact rows, and local/UTC timing.</span></figcaption>
+          </figure>
+          <figure class="phone-shot">
+            <img src="/assets/mobile/android/radar.png" alt="Local Flight Mobile radar on Android">
+            <figcaption><strong>Android radar</strong><span>Range rings, selected traffic, METAR context, and relay-backed standalone limits.</span></figcaption>
+          </figure>
+        </aside>
       </div>
     </header>
 
@@ -90,6 +96,44 @@
             <article class="card"><h3>Radar</h3><p>Mobile-owned range rings with LAN or relay-backed aircraft data, depending on setup mode.</p></article>
             <article class="card"><h3>History</h3><p>LAN Companion reads server history. Standalone keeps deduped movement history locally on the phone.</p></article>
             <article class="card"><h3>Reports</h3><p>Manual reports are user-triggered. Automatic crash diagnostics only run when the mobile diagnostics choice allows them.</p></article>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="platform-previews">
+        <div class="wrap">
+          <div class="section-head">
+            <div>
+              <div class="eyebrow">Platform previews</div>
+              <h2>Same app shape, tuned for each screen.</h2>
+            </div>
+            <p>Preview screenshots are split between iOS and Android so store metadata and product pages can show the real mobile surfaces directly.</p>
+          </div>
+          <div class="mobile-preview-grid" aria-label="Local Flight Mobile screenshots">
+            <figure class="mobile-preview-card">
+              <img src="/assets/mobile/ios/history.png" alt="Local Flight Mobile history view on iOS">
+              <figcaption><strong>iOS History</strong><span>Deduped movement history and local standalone records.</span></figcaption>
+            </figure>
+            <figure class="mobile-preview-card">
+              <img src="/assets/mobile/android/fids.png" alt="Local Flight Mobile FIDS board on Android">
+              <figcaption><strong>Android Board</strong><span>Compact FIDS rows with the same passenger-first hierarchy.</span></figcaption>
+            </figure>
+            <figure class="mobile-preview-card">
+              <img src="/assets/mobile/ios/setup.png" alt="Local Flight Mobile setup on iOS">
+              <figcaption><strong>iOS Setup</strong><span>LAN Companion and Standalone setup paths.</span></figcaption>
+            </figure>
+            <figure class="mobile-preview-card">
+              <img src="/assets/mobile/android/splash.png" alt="Local Flight Mobile splash screen on Android">
+              <figcaption><strong>Android Launch</strong><span>Branded launch state for testing builds.</span></figcaption>
+            </figure>
+            <figure class="mobile-preview-card landscape">
+              <img src="/assets/mobile/ios/display.png" alt="Local Flight Mobile display mode on iOS">
+              <figcaption><strong>iOS Display</strong><span>Landscape board/radar layout for larger mobile screens.</span></figcaption>
+            </figure>
+            <figure class="mobile-preview-card landscape">
+              <img src="/assets/mobile/android/display.png" alt="Local Flight Mobile display mode on Android">
+              <figcaption><strong>Android Display</strong><span>Landscape display mode with the same Local Flight visual language.</span></figcaption>
+            </figure>
           </div>
         </div>
       </section>
