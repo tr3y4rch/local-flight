@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Network | Beacon Tools</title>
-  <meta name="description" content="Plain-language notes for the Beacon Tools relay, Local Flight Relay, and Mobile Standalone.">
+  <meta name="description" content="Plain-language notes for the Beacon Tools shared relay used by Local Flight and phone-only mobile mode.">
   <link rel="stylesheet" href="/assets/site.css">
   <link rel="icon" href="/assets/favicon.ico" sizes="any">
   <link rel="icon" type="image/png" sizes="32x32" href="/assets/favicon-32.png">
@@ -35,11 +35,11 @@
       <div class="wrap">
         <div class="hero-content">
           <div class="eyebrow">Beacon Tools Network</div>
-          <h1>The shared relay that helps Local Flight stay simple.</h1>
-          <p class="lede">The Beacon Tools relay gives Local Flight and Mobile Standalone a safe shared data path without putting provider keys inside every install.</p>
+          <h1>How the shared relay helps Local Flight.</h1>
+          <p class="lede">The Beacon Tools relay is an optional shared service that helps Local Flight and phone-only mobile mode work without every user managing their own aviation data keys.</p>
           <div class="status-strip">
             <span class="status-chip">Public relay: relay.beacontools.cc</span>
-            <span class="status-chip">Shared cached schedules</span>
+            <span class="status-chip">Shared cached boards</span>
             <span class="status-chip amber">Safety-first refresh limits</span>
           </div>
         </div>
@@ -51,12 +51,12 @@
         <div class="wrap">
           <div class="grid two">
             <article class="card good-card">
-              <h3>What your app talks to</h3>
-              <p><code>https://relay.beacontools.cc</code><br>Local Flight Relay and Mobile Standalone use this public relay for activation, shared schedules, radar/weather helpers, mobile summaries, and consent-based reports.</p>
+              <h3>Public relay URL</h3>
+              <p><code>https://relay.beacontools.cc</code><br>Local Flight can use this relay for activation, shared airport boards, radar/weather helpers, phone app data, and reports you choose to send.</p>
             </article>
             <article class="card warning-card">
-              <h3>What stays separate</h3>
-              <p>The public relay only exposes the client paths normal installs need. Maintenance, monitoring, provider keys, and operational controls stay outside public navigation and are not part of the end-user app flow.</p>
+              <h3>What stays private</h3>
+              <p>The public relay only exposes the paths normal apps need. Credentials, maintenance tools, monitoring, and control panels are not part of the public website or end-user app flow.</p>
             </article>
           </div>
         </div>
@@ -67,14 +67,14 @@
           <div class="section-head">
             <div>
               <div class="eyebrow">What the relay does</div>
-              <h2>Shared data, gentle limits.</h2>
+              <h2>Shared data with careful limits.</h2>
             </div>
           </div>
           <ul class="console-list">
-            <li>Reuses cached airport schedules so many hobby installs can watch the same airport without each one burning a separate provider call.</li>
-            <li>Keeps refreshes intentionally modest, which protects shared provider quotas and makes the free/community path more sustainable.</li>
-            <li>Lets Mobile Standalone work without your desktop or Raspberry Pi server being online.</li>
-            <li>Can forward consent-based reports when you choose to send diagnostics, while keeping provider keys and internal maintenance details out of the app.</li>
+            <li>Reuses cached airport boards so multiple personal installs can watch the same airport without each one making separate upstream requests.</li>
+            <li>Keeps refreshes intentionally modest to protect shared limits and keep the community path sustainable.</li>
+            <li>Lets phone-only mobile mode work without your desktop app or Raspberry Pi being online.</li>
+            <li>Can forward reports only when you choose to send them, while keeping shared data keys and maintenance details out of the app.</li>
           </ul>
         </div>
       </section>
@@ -83,13 +83,13 @@
         <div class="wrap">
           <div class="section-head">
             <div>
-              <div class="eyebrow">If Standalone is offline</div>
-              <h2>Basic checks first.</h2>
+              <div class="eyebrow">If phone-only mode is offline</div>
+              <h2>Try these checks first.</h2>
             </div>
           </div>
           <ol class="timeline">
-            <li>Check the phone has internet access. Standalone does not use your desktop or Pi server.</li>
-            <li>Try again after a few minutes. Relay-backed data can intentionally serve stale cached boards during upstream problems.</li>
+            <li>Check that the phone has internet access. Phone-only mode does not use your desktop app or Raspberry Pi server.</li>
+            <li>Try again after a few minutes. Relay-backed data may serve older cached boards during upstream problems.</li>
             <li>Check whether only radar is affected. Radar refresh and range are intentionally limited on mobile.</li>
             <li>If it still fails, use <a href="/support/">Support</a> and include the app mode, airport, approximate time, and diagnostics setting.</li>
           </ol>
@@ -99,8 +99,8 @@
       <section class="section tight">
         <div class="wrap">
           <article class="card warning-card">
-            <h3>Public safety note</h3>
-            <p>Relay responses and cached board data are informational display aids. They can be delayed, incomplete, wrong, unavailable, or intentionally stale. Do not use them for professional or safety-critical aviation decisions.</p>
+            <h3>Not for professional or safety-critical aviation use</h3>
+            <p>Relay responses and cached board data are informational display aids only. They may be delayed, incomplete, cached, wrong, unavailable, or intentionally stale. Do not use them for navigation, dispatch, operational control, flight planning, professional aviation work, or safety decisions.</p>
           </article>
         </div>
       </section>

@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Privacy Choices | Beacon Tools</title>
-  <meta name="description" content="Plain-language privacy choices, diagnostics, data reset, and deletion guidance for Local Flight by Beacon Tools.">
+  <meta name="description" content="Plain-language privacy choices, diagnostics settings, local data reset, and deletion guidance for Local Flight by Beacon Tools.">
   <link rel="stylesheet" href="/assets/site.css">
   <link rel="icon" href="/assets/favicon.ico" sizes="any">
   <link rel="icon" type="image/png" sizes="32x32" href="/assets/favicon-32.png">
@@ -36,7 +36,7 @@
         <div class="hero-content">
           <div class="eyebrow">Privacy choices</div>
           <h1>Control what leaves your device.</h1>
-          <p class="lede">This page is the short checklist for diagnostics, local data removal, mobile resets, and relay data questions. The full policy remains at <a href="/privacy/">beacontools.cc/privacy</a>.</p>
+          <p class="lede">This page is the practical guide for diagnostics settings, local data removal, mobile resets, and relay data questions. The full policy remains at <a href="/privacy/">beacontools.cc/privacy</a>.</p>
           <div class="actions">
             <a class="button primary" href="/support/#message">Open contact form</a>
             <a class="button secondary" href="/privacy/">Full privacy policy</a>
@@ -59,7 +59,7 @@
             <article class="card"><h3>Auto</h3><p>Automatic crash reports can send sanitized technical context when the app's diagnostics setting allows it.</p></article>
             <article class="card"><h3>Auto with logs</h3><p>Automatic reports can include a sanitized recent log excerpt when that stronger diagnostics option is enabled.</p></article>
           </div>
-          <p class="note">Manual reports, website bug reports, and enabled automatic diagnostics are sanitized, forwarded through the Beacon Tools relay, and filed into Linear for developer triage. Website log uploads are accepted only as capped text excerpts. See <a href="https://linear.app/privacy">Linear's privacy policy</a>.</p>
+          <p class="note">Manual reports, website bug reports, and enabled automatic diagnostics are sanitized, forwarded through the Beacon Tools relay, and sent to the developer's Linear triage inbox. Website log uploads are accepted only as capped text excerpts. See <a href="https://linear.app/privacy">Linear's privacy policy</a>.</p>
         </div>
       </section>
 
@@ -68,13 +68,13 @@
           <div class="section-head">
             <div>
               <div class="eyebrow">Local data</div>
-              <h2>Delete local data on your own devices.</h2>
+              <h2>Remove local data on your own devices.</h2>
             </div>
           </div>
           <ol class="timeline">
-            <li>Desktop or Raspberry Pi: stop Local Flight, then remove <code>~/.localflight/</code> to wipe local config, snapshots, history, logs, setup state, and local request logs.</li>
-            <li>Mobile: use the app's reset flows where available, or remove the app to clear its local setup, selected airport, appearance, pinned flight, diagnostics choice, and local standalone history.</li>
-            <li>Bring-your-own provider keys are local to your install. Removing local app data removes Local Flight's stored copy.</li>
+            <li>Desktop or Raspberry Pi: stop Local Flight, then remove <code>~/.localflight/</code> to wipe local settings, board snapshots, history, logs, setup state, and local request logs.</li>
+            <li>Mobile: use the app's reset flows where available, or remove the app to clear setup, selected airport, appearance, pinned flight, diagnostics choice, and phone-only history.</li>
+            <li>Bring-your-own aviation data keys are local to your install. Removing local app data removes Local Flight's stored copy.</li>
           </ol>
         </div>
       </section>
@@ -88,7 +88,7 @@
             </article>
             <article class="card">
               <h3>What is not intended</h3>
-              <p>The relay is not intended to store raw IP addresses, readable personal identifiers, personal provider keys from your install, local flight history, phone standalone history, full logs, screenshots, recordings, or account data.</p>
+              <p>The relay is not intended to store raw IP addresses, readable personal identifiers, personal aviation data keys from your install, local flight history, phone-only history, full logs, screenshots, recordings, or account data.</p>
             </article>
           </div>
         </div>
@@ -99,7 +99,7 @@
           <div class="section-head">
             <div>
               <div class="eyebrow">Requests</div>
-              <h2>Ask through the privacy contact.</h2>
+              <h2>Send privacy requests here.</h2>
             </div>
             <p>Local Flight does not require an account or email address. If you use a Beacon Tools website contact form, your optional reply email and message pass through the relay to the support mailbox so Beacon Tools can reply.</p>
           </div>

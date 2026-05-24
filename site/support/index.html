@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Support | Beacon Tools</title>
-  <meta name="description" content="Support routes for Local Flight, mobile testing, relay issues, privacy requests, and GitHub source/issues.">
+  <meta name="description" content="Support for Local Flight, mobile testing, shared relay issues, privacy requests, and GitHub source/issues.">
   <link rel="stylesheet" href="/assets/site.css">
   <link rel="icon" href="/assets/favicon.ico" sizes="any">
   <link rel="icon" type="image/png" sizes="32x32" href="/assets/favicon-32.png">
@@ -35,8 +35,8 @@
       <div class="wrap">
         <div class="hero-content">
           <div class="eyebrow">Beacon Tools Support</div>
-          <h1>Tell me what happened, without hunting for an address.</h1>
-          <p class="lede">Pick the light-touch message lane for questions, or send a structured bug report when logs and reproduction details will help.</p>
+          <h1>Get help with Local Flight.</h1>
+          <p class="lede">Send a simple message for questions or mobile testing interest, or use the bug report form when details and text logs would help.</p>
           <div class="actions">
             <a class="button primary" href="#message">Send a message</a>
             <a class="button secondary" href="#bug-report">Report a bug</a>
@@ -52,15 +52,15 @@
           <div class="grid four">
             <article class="card route-card">
               <h3>Desktop or Pi</h3>
-              <p>Install, setup, native Qt, LAN browser, and Raspberry Pi kiosk questions.</p>
+              <p>Install, setup, desktop app, LAN browser, and Raspberry Pi display questions.</p>
             </article>
             <article class="card route-card">
               <h3>Mobile</h3>
-              <p>LAN Companion, Standalone, TestFlight/Play Store testing interest, and pairing.</p>
+              <p>Companion mode, phone-only mode, TestFlight/Play Store testing interest, and pairing.</p>
             </article>
             <article class="card route-card">
-              <h3>Matrix or radar</h3>
-              <p>LED matrix, generated i75W client, radar rendering, and surface overlays.</p>
+              <h3>LED matrix or radar</h3>
+              <p>LED matrix setup, generated display files, radar rendering, and map detail.</p>
             </article>
             <article class="card route-card">
               <h3>Privacy</h3>
@@ -116,15 +116,15 @@
         <div class="wrap">
           <div class="section-head">
             <div>
-              <div class="eyebrow">Manual bug report</div>
-              <h2>Send a structured report.</h2>
+              <div class="eyebrow">Bug report</div>
+              <h2>Send details about something that broke.</h2>
             </div>
-            <p>Use this when something broke and logs would help. Text logs are sanitized, capped, and filed into Linear for developer triage.</p>
+            <p>Use this when something broke and steps, platform details, or text logs would help. Log uploads are capped and checked for common secrets before they are sent.</p>
           </div>
           <form class="support-form" data-support-form="bug" enctype="multipart/form-data">
             <input type="text" name="company" class="honeypot" autocomplete="off" tabindex="-1" aria-hidden="true">
             <div class="form-grid">
-              <label>Affected surface
+              <label>Affected area
                 <select name="surface">
                   <option value="unknown">Not sure</option>
                   <option value="windows">Windows</option>
@@ -132,7 +132,7 @@
                   <option value="raspberry-pi">Raspberry Pi</option>
                   <option value="mobile">Mobile app</option>
                   <option value="matrix">LED Matrix</option>
-                  <option value="relay">Relay / Standalone</option>
+                  <option value="relay">Relay / phone-only mode</option>
                   <option value="website">Website</option>
                 </select>
               </label>
@@ -168,7 +168,7 @@
                 <input name="logs" type="file" multiple accept=".txt,.log,.json,.csv,.md,.yaml,.yml,.toml,.ini,.cfg,.conf,text/plain,application/json">
               </label>
             </div>
-            <p class="note">Please do not upload screenshots, recordings, API keys, activation tokens, or private provider credentials. The relay still redacts common secrets before filing.</p>
+            <p class="note">Please do not upload screenshots, recordings, API keys, activation tokens, or private aviation data credentials. The relay still redacts common secret patterns before sending the report.</p>
             <div class="form-actions">
               <button class="button primary" type="submit">Send bug report</button>
               <span class="form-status" role="status" aria-live="polite"></span>
@@ -180,8 +180,8 @@
       <section class="section tight">
         <div class="wrap">
           <article class="card warning-card">
-            <h3>Safety note</h3>
-            <p>Local Flight is not a certified aviation tool. Do not use Beacon Tools pages, apps, relay data, screenshots, or diagnostics for real-world navigation, dispatch, operational control, flight planning, or safety decisions.</p>
+            <h3>Not for professional or safety-critical aviation use</h3>
+            <p>Local Flight is not certified aviation software. Do not use Beacon Tools pages, apps, relay data, screenshots, or diagnostics for navigation, dispatch, operational control, flight planning, professional aviation work, or safety decisions. Data may be delayed, incomplete, cached, wrong, or unavailable.</p>
           </article>
         </div>
       </section>
