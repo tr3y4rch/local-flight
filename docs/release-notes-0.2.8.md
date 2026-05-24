@@ -44,6 +44,15 @@ actual app screens.
 - Preview priority for future docs/site galleries is: FIDS first, then Radar,
   History, Setup, Display, and Splash.
 
+## macOS Installer Path
+
+- The DAU-facing macOS release path is now planned around a signed/notarized
+  `LocalFlight-<version>-macos.pkg` installer instead of a zip/manual drag flow.
+- The package installs only **Local Flight.app** into Applications; setup still
+  happens inside the app and user data stays in the normal local profile.
+- Source checkout app bundles and Terminal launchers remain documented for
+  developers, not normal release users.
+
 ## Public Site Deployment Note
 
 - The Beacon Tools public site is served from the Cloudflare Worker + Assets

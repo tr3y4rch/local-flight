@@ -26,7 +26,6 @@
     "expo": "~55.0.26",
     "expo-camera": "~55.0.19",
     "expo-crypto": "~55.0.15",
-    "expo-dev-client": "~55.0.35",
     "expo-font": "~55.0.8",
     "expo-haptics": "~55.0.14",
     "expo-keep-awake": "~55.0.8",

@@ -193,8 +193,11 @@ tree after the client-polish, Beacon Tools, Matrix, and support-form changes.
 Older `0.2.6` artifacts and any pre-final `0.2.7` artifacts should be treated
 as stale.
 
-macOS still needs its own packaging and smoke-test pass on a Mac before a full
-cross-platform GitHub release.
+macOS release packaging now targets a signed/notarized `.pkg` installer. The
+package installs **Local Flight.app** into Applications and keeps first-run setup
+inside the app, so normal users do not need Python, Terminal, source checkout,
+or a manual drag-to-Applications step. The raw `.app` bundle remains a build
+intermediate for validation.
 
 ---
 

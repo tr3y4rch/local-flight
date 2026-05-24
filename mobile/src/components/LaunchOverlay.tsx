@@ -82,7 +82,9 @@ export function LaunchOverlay({
   const heroSize = Math.max(isLandscape ? 118 : compact ? 152 : 176, Math.min(isWide ? 288 : 222, shortestSide * (isWide ? 0.34 : 0.53)));
   const iconSize = heroSize * 0.74;
   const glassSize = heroSize * 0.94;
-  const titleSize = compact ? 31 : isWide ? 46 : 38;
+  const titleSize = Math.max(compact ? 32 : 36, Math.min(isWide ? 54 : 42, width * (isWide ? 0.068 : 0.102)));
+  const titleLineHeight = Math.round(titleSize * 1.16);
+  const titleWidth = Math.min(maxFrameWidth, isWide ? 520 : 370);
   const orbitCenterY = height * (isLandscape ? 0.48 : 0.43);
   const orbitBase = Math.max(longestSide * 1.16, shortestSide * 1.62, 520);
   const orbitMediumSize = orbitBase * 0.82;
@@ -238,12 +240,14 @@ export function LaunchOverlay({
             <BrandWordmark
               color={palette.text}
               size={titleSize}
-              style={[styles.launchTitle, compact && styles.launchTitleCompact]}
+              style={[
+                styles.launchTitle,
+                compact && styles.launchTitleCompact,
+                { width: titleWidth, lineHeight: titleLineHeight }
+              ]}
               numberOfLines={1}
-              adjustsFontSizeToFit
-              minimumFontScale={0.72}
             >
-              LOCAL FLIGHT
+              Local Flight
             </BrandWordmark>
             <Text style={styles.launchSubtitle}>Flight boards, radar, and history for your airport.</Text>
             <View style={styles.launchStatusPanel}>

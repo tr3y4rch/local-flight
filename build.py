@@ -6,11 +6,12 @@ Produces:
   Windows  -> dist/LocalFlight/ + dist/LocalFlight-windows.zip + .sha256
               optional Inno Setup installer with --installer
   macOS    -> dist/LocalFlight.app + dist/LocalFlight-macos.zip + .sha256
+              optional signed/notarized .pkg installer with --installer
 
 Usage:
     python build.py           # build
     python build.py --clean   # wipe dist/ and build/ first
-    python build.py --installer  # Windows only: also build LocalFlight-<version>-Setup.exe
+    python build.py --installer  # build the platform installer
 """
 from __future__ import annotations
 
@@ -356,13 +357,20 @@ def main() -> None:
             )
     elif sys.platform == "darwin":
         app = dist / "LocalFlight.app"
-        _sign_macos(app)
-        zip_path = _archive_macos_app(app)
-        checksum_path = _write_sha256(zip_path)
-        print(f"\nDone: dist/LocalFlight.app")
-        print(f"Release zip: {zip_path.relative_to(ROOT)}")
-        print(f"Checksum: {checksum_path.relative_to(ROOT)}")
-        print("Distribute: upload the zip; users unzip, then drag LocalFlight.app to /Applications")
+        if build_installer:
+            subprocess.run(
+                [sys.executable, str(ROOT / "scripts" / "package_macos_installer.py")],
+                check=True,
+                cwd=ROOT,
+            )
+        else:
+            _sign_macos(app)
+            zip_path = _archive_macos_app(app)
+            checksum_path = _write_sha256(zip_path)
+            print(f"\nDone: dist/LocalFlight.app")
+            print(f"Developer zip: {zip_path.relative_to(ROOT)}")
+            print(f"Checksum: {checksum_path.relative_to(ROOT)}")
+            print("For public macOS releases, run python build.py --clean --installer to produce the signed .pkg.")
     else:
         print(f"\nDone: dist/LocalFlight/")
 

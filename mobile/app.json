@@ -39,6 +39,10 @@
     ],
     "ios": {
       "bundleIdentifier": "com.localflight.companion",
+      "icon": {
+        "light": "./assets/localflight-icon-light.png",
+        "dark": "./assets/localflight-icon-dark.png"
+      },
       "supportsTablet": true,
       "infoPlist": {
         "NSCameraUsageDescription": "Local Flight scans pairing QR codes shown by your Local Flight desktop or Pi app.",

@@ -12,17 +12,17 @@ Built with: Python 3.11+, FastAPI, uvicorn, SQLite, WebSocket, Jinja2, PIL, and 
 
 ---
 
-## Current 0.2.7 handoff snapshot (2026-05-22)
+## Current 0.2.7 handoff snapshot (2026-05-24)
 
 - Active package target: `0.2.7` as the client-polish/release-candidate line. `pyproject.toml` remains the source of truth; keep runtime fallbacks, native docs, mobile metadata, and preview/release docs aligned with it.
-- Current validation history: after the Beacon relay cutover on 2026-05-22, the focused relay/native suite passed with `392 passed`, compileall passed, mobile `npm run typecheck` passed, and `git diff --check` passed. After the public/docs refresh, the doc/native regression slice passed with `287 passed`, HTML parsing for `site/` and preview pages passed, and Cloudflare served the updated copy. After the Beacon Tools mobile/trust site pass, all `site/**/*.html` parsed, `/assets/*` references resolved, stale URL scans passed, local static routes returned `200`, and Cloudflare served `/local-flight/mobile/`, `/support/`, `/network/`, `/privacy/choices/`, with `/local-flight/privacy` still redirecting to `/privacy`. After Matrix v4 renderer/live-settings/local-clock/web-preview hardening, focused Matrix checks passed and the full Windows/Codex suite returned `432 passed`. The final Windows/Pi docs-and-package sweep passed HTML reference checks, compileall, and full `.venv\Scripts\python.exe -m pytest tests -q` with `441 passed`. `npm audit --omit=dev` still reports 4 moderate advisories through Expo's Metro/PostCSS dependency chain, but the suggested `npm audit fix --force` would install a breaking Expo version, so do not force it inside this release-candidate sweep.
-- Preliminary `0.2.8` documentation state (2026-05-23): no package version bump yet. `CHANGELOG.md` and `docs/release-notes-0.2.8.md` now track the next polish line while `0.2.7` remains the artifact target. Current preliminary scope is LAN browser Settings parity with Qt Settings, browser-side Pair Mobile QR/manual pairing, paired-device refresh/copy/reset actions, mobile preview source assets under `assets/mobile-previews/`, and Cloudflare Worker + Assets deploy guidance.
+- Current validation history: after the Beacon relay cutover on 2026-05-22, the focused relay/native suite passed with `392 passed`, compileall passed, mobile `npm run typecheck` passed, and `git diff --check` passed. After the public/docs refresh, the doc/native regression slice passed with `287 passed`, HTML parsing for `site/` and preview pages passed, and Cloudflare served the updated copy. After the Beacon Tools mobile/trust site pass, all `site/**/*.html` parsed, `/assets/*` references resolved, stale URL scans passed, local static routes returned `200`, and Cloudflare served `/local-flight/mobile/`, `/support/`, `/network/`, `/privacy/choices/`, with `/local-flight/privacy` still redirecting to `/privacy`. After Matrix v4 renderer/live-settings/local-clock/web-preview hardening, focused Matrix checks passed and the full Windows/Codex suite returned `432 passed`. The final Windows/Pi docs-and-package sweep passed HTML reference checks, compileall, and full `.venv\Scripts\python.exe -m pytest tests -q` with `441 passed`. On macOS/Codex, `.venv/bin/python build.py --clean` repacked the unsigned local/dev `dist/LocalFlight.app` and `dist/LocalFlight-macos.zip`; `codesign --verify --deep --strict` passed, the zip checksum verified, and `spctl` rejection is expected until Developer ID signing/notarization is available. `npm audit --omit=dev` still reports 4 moderate advisories through Expo's Metro/PostCSS dependency chain, but the suggested `npm audit fix --force` would install a breaking Expo version, so do not force it inside this release-candidate sweep.
+- Preliminary `0.2.8` documentation state (2026-05-23): no package version bump yet. `CHANGELOG.md` and `docs/release-notes-0.2.8.md` now track the next polish line while `0.2.7` remains the artifact target. Current preliminary scope is LAN browser Settings parity with Qt Settings, browser-side Pair Mobile QR/manual pairing, paired-device refresh/copy/reset actions, preview source assets under `assets/previews/`, and Cloudflare Worker + Assets deploy guidance.
 - Windows and Pi artifacts were rebuilt from the final Windows/Codex workspace on 2026-05-22 after the Beacon Tools support forms, Cloudflare Worker route repair, docs sweep, relay SMTP/contact hardening, and Matrix v4 polish. Fresh artifact hashes:
   - `dist/LocalFlight-windows.zip` — SHA256 `da43e5a8fb96a0326e99d4e584a0519b08bbb409832a7b6502cd7aaaa5141fcc`
   - `dist/LocalFlight-pi-source-0.2.7.zip` — SHA256 `fe578f0e7dd110bd17aae70b6eae2436408cd804f57f7048afb5c0359d5d49cc`
-- macOS still needs its own validation/package pass from this exact source state before publishing the GitHub release. Do not reuse stale `0.2.5b5`, `0.2.6`, or pre-standalone/pre-Matrix-integrity `0.2.7` macOS/Pi handoff notes.
+- macOS local/dev packaging has been refreshed from this source state: `dist/LocalFlight.app`, `dist/LocalFlight-macos.zip`, and `dist/LocalFlight-macos.zip.sha256` exist for local testing. Public macOS release packaging still needs the signed/notarized `.pkg` pass after Apple Developer ID credentials are available. Do not reuse stale `0.2.5b5`, `0.2.6`, or pre-standalone/pre-Matrix-integrity `0.2.7` macOS/Pi handoff notes.
 - Recent client-facing changes to preserve in smoke tests: Beacon Tools website/privacy/relay URLs plus the mobile/support/network/privacy-choices trust pages, public support message/bug-report forms, native shell top-bar grouping and footer support icons, city/country FIDS title, passenger-friendly weather hero, long-title clamping, true visual FIDS style skins for Classic/PAX/VATSIM/Nerd, VATSIM pilot/ATC display contract with passenger-field suppression, native/browser History analytics dashboard, deduped History movement counts with raw-observation diagnostics, Matrix configurator parity, board-mirror Matrix preview, Matrix v4 renderer warnings, compact Matrix weather header, Matrix display-contract labels/weather icons in Qt/LAN/MicroPython, split-flap/typewriter/cascade Matrix motion, real-only Matrix gate labels, correct i75W LT via `clock_local_epoch`, Settings/setup dashboard polish, LAN browser Settings parity with Qt disclosure folders and Pair Mobile QR/manual pairing, FIDS/Radar current-source intelligence details, LAN radar parity with Qt radar behavior, LAN browser phone/7-inch Pi layouts, refreshed public preview gallery/mobile SVGs, mobile preview source screenshots, mobile LAN Companion IA, mobile branded launch/interaction polish, Android local mobile dev path, and the mobile Standalone setup/data/reporting path.
-- Mobile preview source assets now live in `assets/mobile-previews/` with separate Android and iOS screenshot folders. Treat these screenshots as documentation/website implementation source assets for mobile preview imagery; prefer using or deriving from them for public docs/site mobile previews instead of inventing fresh mockups.
+- Preview source assets now live in `assets/previews/`: `assets/previews/mobile/iOS/` for iPhone/iPad companion imagery, `assets/previews/mobile/Android/` for Android companion imagery, and `assets/previews/shell/` for native Qt shell screenshots. Treat these screenshots as documentation/website implementation source assets; prefer using or deriving from them for public docs/site previews instead of inventing fresh mockups.
 - Preview hierarchy of functional importance for docs/site imagery: FIDS first, then Radar, History, Setup, Display, and Splash. When space is limited, prioritize screenshots and copy in that order so the core board/radar/history value is visible before onboarding or launch polish.
 - Schedule-provider work to preserve in relay/client smoke tests: AeroDataBox primary FIDS source, AviationStack sparse fill/fallback, hard upstream caps, 24h stale-cache serving, source-cache re-merge, canonical provider meta, and fused rows compiling through both `/api/fids` and Qt `FlightBoardModel`.
 - Mobile Standalone relay work to preserve in smoke tests: `/v1/airports/search`, `/v1/airports/resolve`, `/v1/mobile/summary`, `/v1/mobile/fids`, `/v1/mobile/radar`, `/v1/mobile/metar`; activation with `requested_mode=mobile_standalone`; standalone FIDS 3h policy; standalone radar 1/3/5/10 NM + 5m cache; local SQLite movement history; direct relay reports with mobile diagnostics gating.
@@ -39,6 +39,14 @@ local-flight/
 ├── LICENSE                      # MIT — Philipp Schumacher 2025
 ├── CHANGELOG.md
 ├── .gitattributes               # LF for sh/command, CRLF for bat/ps1
+├── assets/
+│   ├── icon.png / icon.icns / icon.iconset/  # Generated app icon outputs from localflight-logo.svg
+│   ├── localflight-logo.svg      # Source logo master for app/package icon generation
+│   └── previews/
+│       ├── mobile/
+│       │   ├── iOS/              # iOS companion preview screenshots for docs/site
+│       │   └── Android/          # Android companion preview screenshots for docs/site
+│       └── shell/                # Native Qt shell preview screenshots for docs/site
 ├── src/localflight/
 │   ├── __main__.py              # Entry point — platform-aware startup; installs sys/threading crash hooks
 │   ├── platform/                # Cross-platform abstraction layer
@@ -564,6 +572,7 @@ Internal relay admin JSON endpoints, Basic Auth and admin-surface gated only: `G
 ```bash
 python build.py           # generate icons + build + zip
 python build.py --clean   # wipe dist/ and build/ first
+python build.py --clean --installer   # macOS signed pkg / Windows installer
 ```
 
 Desktop release packaging now requires PySide6 and `LocalFlight.spec` explicitly collects PySide6 plus `localflight.native.*`, so Windows/macOS artifacts are native-GUI capable instead of depending on Chrome/Edge/Chromium.
@@ -571,19 +580,21 @@ End-user desktop launchers should not foreground a Python console: `LocalFlight.
 
 Output:
 - **Windows:** `dist/LocalFlight-windows.zip` + `.sha256` — unzip, double-click `LocalFlight.exe`
-- **macOS:** `dist/LocalFlight.app` plus `dist/LocalFlight-macos.zip` + `.sha256` — upload the zip; users unzip, then drag `LocalFlight.app` to Applications
+- **macOS:** `dist/LocalFlight.app` as the build intermediate plus `dist/LocalFlight-<version>-macos.pkg` + `.sha256` from `--installer` — upload the pkg; users double-click the installer and launch **Local Flight** from Applications
 
 Optional code signing via env vars:
 - Windows: `SIGNTOOL_CERT` (path to .pfx) + `SIGNTOOL_PASS`
-- macOS: `CODESIGN_IDENTITY` (Developer ID string) + `NOTARIZE_PROFILE` (notarytool keychain profile)
+- macOS app zip/dev build: `CODESIGN_IDENTITY` (Developer ID Application string) + `NOTARIZE_PROFILE` (notarytool keychain profile)
+- macOS public pkg build: `CODESIGN_IDENTITY` (Developer ID Application string) + `PKG_SIGN_IDENTITY` (Developer ID Installer string) + `NOTARIZE_PROFILE` (notarytool keychain profile)
 
 Without signing: Windows shows SmartScreen "Unknown publisher"; macOS requires right-click → Open on first launch.
+The macOS `.pkg` path intentionally fails closed when signing/notarization credentials are missing so an unsigned scary installer is not published by accident.
 
 Release build notes:
 - Build Windows artifacts on Windows: `python build.py --clean` → attach `LocalFlight-windows.zip` and `LocalFlight-windows.zip.sha256`.
-- Build macOS artifacts on macOS: `python build.py --clean` → attach `LocalFlight-macos.zip` and `LocalFlight-macos.zip.sha256`.
+- Build macOS artifacts on macOS: `python build.py --clean --installer` → attach `LocalFlight-<version>-macos.pkg` and `.sha256`.
 - Build the Pi source installer bundle on any machine with git available: `python scripts/package_pi_source.py` → attach `LocalFlight-pi-source-<version>.zip` and `.sha256`.
-- `installers/windows/install.ps1` and `installers/macos/install.sh` are source-checkout installers with explicit display-mode choices; release users should prefer the PyInstaller zip artifacts.
+- `installers/windows/install.ps1` and `installers/macos/install.sh` are source-checkout installers with explicit display-mode choices; release users should prefer the packaged artifacts.
 
 ---
 
@@ -640,7 +651,7 @@ npm run ios
 
 ## Current handoff for macOS / dev machine
 
-- **macOS handoff focus (2026-05-22 / 0.2.7):** get the Mac onto the exact same source state as this workspace before running the installer or packaging. The current source must include the Beacon Tools public site/docs refresh, mobile/support/network/privacy-choices site pages, default relay `https://relay.beacontools.cc`, mobile Standalone, Android local dev docs, Matrix integrity work, History movement hardening, AeroDataBox/AviationStack fusion, and native/browser polish. If the current workspace still has uncommitted/unpushed native FIDS, radar, Matrix, Settings, installer, relay, mobile, or docs changes, `git pull` on macOS will not see them. Push the branch/commit first, or transfer an explicit patch bundle; otherwise the Mac installer can rebuild an old app with missing Beacon links, wrong relay defaults, missing FIDS details, missing radar ground/context drawings, stale Matrix/settings screens, or stale docs.
+- **macOS handoff focus (2026-05-24 / 0.2.7):** get the Mac onto the exact same source state as this workspace before running the installer or packaging. The current source must include the Beacon Tools public site/docs refresh, mobile/support/network/privacy-choices site pages, default relay `https://relay.beacontools.cc`, mobile Standalone, Android local dev docs, Matrix integrity work, History movement hardening, AeroDataBox/AviationStack fusion, native/browser polish, macOS icon/package tooling, and the `assets/previews/` screenshot tree. If the current workspace still has uncommitted/unpushed native FIDS, radar, Matrix, Settings, installer, relay, mobile, assets, or docs changes, `git pull` on macOS will not see them. Push the branch/commit first, or transfer an explicit patch bundle; otherwise the Mac installer can rebuild an old app with missing Beacon links, wrong relay defaults, missing FIDS details, missing radar ground/context drawings, stale Matrix/settings screens, stale previews, or stale docs.
 - **Stale Mac artifact warning:** do not trust an existing `~/Applications/LocalFlight.app`, old `.venv`, old `dist/LocalFlight.app`, or a previous editable install when validating current UI. If the Mac shows old FIDS behavior, no radar ground/context drawing, or old Settings layout, stop and confirm the Mac `git rev-parse --short HEAD` matches the expected Windows/current branch before debugging UI code.
 - Start the Mac session with:
   ```bash
@@ -664,14 +675,26 @@ npm run ios
   - Matrix must show panel-preset choices, live preview feedback, compact weather header behavior, and real-only gate display controls; if it looks like the old long technical form, the Mac app is stale.
   - Settings must show the current dashboard-card/user-facing sections and display-mode wording; if it looks like the old crowded/dev Settings page, the Mac app is stale.
   - LAN browser Settings must show collapsed Outputs & Radar, Profiles, Pair Mobile, Advanced board timing, Maintenance, Relay details, and Diagnostics & Docs folders; Pair Mobile must expose QR/manual URL/fingerprint/copy/reset controls.
-  - The macOS source installer should be run as `bash installers/macos/install.sh --display native` after the source is verified current; release users should use the rebuilt `LocalFlight.app`/zip, not an older source-built app in `~/Applications`.
-- macOS packaging runbook:
+  - The macOS source installer should be run as `bash installers/macos/install.sh --display native` after the source is verified current; release users should use the signed/notarized `.pkg`, not an older source-built app in `~/Applications`.
+- macOS local/dev app repack runbook:
   ```bash
-  bash installers/macos/install.sh --display native
   python build.py --clean
   test -d dist/LocalFlight.app
   test -f dist/LocalFlight-macos.zip
-  shasum -a 256 -c dist/LocalFlight-macos.zip.sha256
+  (cd dist && shasum -a 256 -c LocalFlight-macos.zip.sha256)
+  codesign --verify --deep --strict dist/LocalFlight.app
+  ```
+- macOS public signed `.pkg` runbook, only after Apple Developer ID credentials are installed:
+  ```bash
+  export CODESIGN_IDENTITY="Developer ID Application: ..."
+  export PKG_SIGN_IDENTITY="Developer ID Installer: ..."
+  export NOTARIZE_PROFILE="localflight-notary"
+  python build.py --clean --installer
+  test -d dist/LocalFlight.app
+  test -f dist/LocalFlight-0.2.7-macos.pkg
+  shasum -a 256 -c dist/LocalFlight-0.2.7-macos.pkg.sha256
+  pkgutil --check-signature dist/LocalFlight-0.2.7-macos.pkg
+  xcrun stapler validate dist/LocalFlight-0.2.7-macos.pkg
   ```
 - The current Pi source release in `dist/` was rebuilt after the Beacon Tools docs/relay-default commits. The Pi bundle should continue to exclude `AGENTS.md`, `CLAUDE.md`, and `DEV_README.md` on every rebuild.
 - Mobile validation belongs on the Mac/Xcode/Android Studio machine: `cd mobile`, `npm install`, `npm run typecheck`, `npm run doctor`, then `npm run ios` or `npm run ios:device` for iOS. Android local development builds are supported through `npm run android` / `npm run android:device` after Android SDK setup, but iOS remains the primary release validation path. LAN Companion should prefer the desktop/Pi LAN IP or the native Settings QR; `http://localflight.local:8000` is only a fallback when exactly one Local Flight server is on the LAN. Do not use phone-local `localhost`. Standalone should verify airport search, activation, FIDS, Radar, local History, Settings, and direct relay reporting without a LAN server. Store-track validation is intentionally parked until Apple Developer/App Store Connect credentials and Google Play Console/client credentials are available; resume with TestFlight/iOS archive and Google Play Internal Testing from the existing review-note checklists.
@@ -685,12 +708,12 @@ npm run ios
 - AeroDataBox relay handoff: local code and tests now support AeroDataBox primary schedule, AviationStack sparse fill/fallback, hard upstream caps, provider source caches, stale merged cache serving, and web/Qt canonical FIDS compilation. The Fly relay was redeployed on 2026-05-22 with Beacon host config; `/health` and `/` on `https://relay.beacontools.cc` report `public_host=relay.beacontools.cc` and `admin_host=network.beacontools.cc`, and `/admin` on `https://network.beacontools.cc` returns the expected Basic Auth challenge. Before release, still smoke a fresh schedule lane and confirm it returns `provider=aerodatabox` or `aerodatabox+aviationstack` plus `meta.schedule_provider_mode=auto`.
 - Mobile Expo/TypeScript validation after this pass is green on the Mac/Codex workspace: `npm run typecheck && npm run doctor`. Simulator/device validation remains pending.
 - Desktop resume on Windows: run `.\start.bat`, confirm Community setup preloads the hosted relay URL, then verify FIDS/radar/admin against the live relay contract.
-- Release resume: Windows and Pi artifacts have been rebuilt after the mobile Standalone relay work, Beacon Tools domain cutover, support forms, Matrix v4 polish, and docs sweep. macOS remains the missing platform artifact before creating GitHub release `v0.2.7`.
+- Release resume: Windows and Pi artifacts have been rebuilt after the mobile Standalone relay work, Beacon Tools domain cutover, support forms, Matrix v4 polish, and docs sweep. macOS local/dev `.app` and zip were rebuilt on 2026-05-24 with checksum `23d0e8157a334187589ca8cac96715284ce1524c320e1c668d6142969a215c1e`; the public signed/notarized `.pkg` remains blocked until Apple Developer ID credentials are available.
 - Cloudflare site deploy resume: `beacontools.cc` is served by the Cloudflare Worker + Assets config in `wrangler.jsonc`. A dashboard `.dev` preview can be current while production remains stale; use a real `wrangler deploy` from this repo for production updates.
 - Windows/Pi release installer policy: Windows source installs are native Qt first unless `-DisplayMode Browser|Headless` is selected and always write a client-only `.env`; Pi installs default/prompt to headless, write `LOCALFLIGHT_GUI_MODE=native` only for `--native-kiosk`, and keep the backend service forced headless while the user-session Qt service uses `LOCALFLIGHT_NATIVE_FULLSCREEN=1` plus `LOCALFLIGHT_NATIVE_UI_ONLY=1`. `--kiosk` starts only the Chromium browser display service while the Python app stays headless.
 - `scripts/package_pi_source.py` now excludes internal handoff-only files (`AGENTS.md`, `CLAUDE.md`, `DEV_README.md`) from the Pi source zip even if they are tracked locally, and includes non-ignored local additions so pre-release hardware bundles do not miss newly added modules before commit.
 - Settings now split install/relay state, flight setup, app controls, and diagnostics/resources into clearer sections; the community relay card now reports active relay usage truthfully, and the docs buttons open bundled local files through `/docs/readme`, `/docs/install`, `/docs/display-modes`, `/docs/privacy`, and `/docs/changelog`.
-- macOS packaging still needs a fresh `0.2.7` pass on the Mac workspace: `python build.py --clean`, verify `dist/LocalFlight.app`, `dist/LocalFlight-macos.zip`, and `.sha256`, then smoke the native app for the latest History/Matrix/Settings/FIDS/Radar behavior. The macOS artifact is expected to be unsigned Apple Silicon/ARM64 unless signing/universal packaging is deliberately added later.
+- macOS packaging now has two paths: `python build.py --clean` for local/dev `.app` + zip testing, and `python build.py --clean --installer` for the public signed/notarized `.pkg`. The `.pkg` path verifies `dist/LocalFlight.app`, `dist/LocalFlight-0.2.7-macos.pkg`, and `.sha256`, then needs a native app smoke for latest History/Matrix/Settings/FIDS/Radar behavior. The `.pkg` build intentionally fails without Developer ID Application, Developer ID Installer, and notarytool credentials.
 - Mobile package metadata is now aligned to the repo `0.2.7` preview line. Independent mobile appearance, landscape display behavior, responsive radar, and pinch zoom are implemented in code. Matrix runtime/editor code still exists for LAN Companion but is not part of Standalone.
 - Mobile IA now splits by setup mode: LAN Companion main nav is `Board/Radar/History/Control` with Help & Reports inside Control; Standalone main nav is `Board/Radar/History/Settings`. The phone-side product goal is quick glance/control for LAN Companion and a simplified rate-limited board for Standalone.
 - Desktop flight-detail enrichment pass started first: `/api/fids/detail` now returns richer stored snapshot metadata for live track/source coverage without new external calls, and the desktop FIDS drawer renders operations/aircraft, source confidence/freshness, and position fields more clearly.
@@ -707,7 +730,7 @@ npm run ios
 - Mobile resume on Mac/Xcode: run `npm run ios` or `npm run ios:device` and manually verify both first-run paths. Expo Go may reject SDK 55 depending on installed Expo Go; simulator/dev build is the safer path.
 - Windows-side AviationStack reliability pass is now documented in public/internal docs. Important: the local board/filter bug is fixed, but some live airports can still show sparse future departures because AviationStack itself does not return enough near-term rows even after fair paging plus undated rescue. Current observed example: `ZRH` on `2026-05-01`.
 - Sparse-board UX fallback is now active on the client: if a real-data lane has no rows inside the live window, the board shows the nearest available real flights instead of an empty departures page. Current live local check after the patch: `/api/fids?view=departures` returned `20` rows again.
-- Verification after the `0.2.7` native shell/FIDS polish, AeroDataBox codeshare hardening, Matrix display-integrity merge, docs sweep, and Windows/Pi repack was green on that Windows workspace. A later Matrix v4 renderer/live-settings/local-clock/web-preview sweep superseded that full-suite count with `432 passed`; the final Windows/Codex pass rebuilt Windows and Pi again after Beacon/domain/docs/support-form changes. macOS remains the missing platform artifact.
+- Verification after the `0.2.7` native shell/FIDS polish, AeroDataBox codeshare hardening, Matrix display-integrity merge, docs sweep, and Windows/Pi repack was green on that Windows workspace. A later Matrix v4 renderer/live-settings/local-clock/web-preview sweep superseded that full-suite count with `432 passed`; the final Windows/Codex pass rebuilt Windows and Pi again after Beacon/domain/docs/support-form changes. macOS local/dev `.app` now exists; public `.pkg` remains the missing DAU macOS artifact until Developer ID signing/notarization is available.
 
 ## What was done in the latest session (v0.2.7 — Claude UI rescue + FIDS/mobile polish)
 
@@ -767,7 +790,7 @@ npm run ios
 - Current-source flight intelligence remains the shared detail direction for FIDS/Radar/History: current schedule, live motion, aircraft, airport ops, weather context, source evidence, and recent history are merged from existing sources without new paid calls.
 - Public release notes, README, install/display-mode docs, and handoff docs were refreshed for the `0.2.7` client-polish release candidate.
 - Verification from the later Windows workspace now supersedes this older checkpoint: `python -m compileall -q src relay installers scripts tests` passed and the latest full suite returned `432 passed`.
-- Windows and Pi artifacts were rebuilt after the final `0.2.7` polish; macOS still needs a fresh package pass before a full cross-platform GitHub release.
+- Windows and Pi artifacts were rebuilt after the final `0.2.7` polish. This older checkpoint has been superseded for macOS: the local/dev `.app` zip was rebuilt on 2026-05-24, while the public `.pkg` still waits for Developer ID credentials.
 
 ## Archived latest-session notes from v0.2.6
 
@@ -922,7 +945,8 @@ npm run ios
 
 - [x] Rebuild the Windows artifact on the Windows dev machine from the current commit: `python build.py --clean`, verify `dist/LocalFlight-windows.zip.sha256`, and confirm the zip carries `localflight-0.2.7.dist-info`.
 - [x] Rebuild the Pi source artifact from the current commit: `python scripts/package_pi_source.py`, verify `dist/LocalFlight-pi-source-0.2.7.zip.sha256`, and confirm internal handoff docs are excluded.
-- [ ] Build the macOS artifact from this commit, then create the GitHub release `v0.2.7` and attach Windows, macOS, and Pi artifacts plus all matching `.sha256` files.
+- [x] Repack the local/dev macOS `.app` from this commit: `.venv/bin/python build.py --clean`, verify `dist/LocalFlight.app`, `dist/LocalFlight-macos.zip`, and `dist/LocalFlight-macos.zip.sha256`. Current dev zip SHA256: `23d0e8157a334187589ca8cac96715284ce1524c320e1c668d6142969a215c1e`.
+- [ ] After Apple Developer ID credentials are installed, build the public macOS `.pkg`: `python build.py --clean --installer`, verify signing/notarization, then create the GitHub release `v0.2.7` and attach Windows, macOS pkg, and Pi artifacts plus all matching `.sha256` files.
 - [x] Deploy the Beacon Tools Cloudflare Worker + Assets site from `site/`, add the mobile/support/network/privacy-choices trust pages, wire `relay.beacontools.cc` and `network.beacontools.cc` DNS/TLS to Fly, and flip client relay defaults from the Fly root to `https://relay.beacontools.cc`.
 - [x] Refresh public and dev-facing docs for Beacon Tools, current relay defaults, mobile LAN Companion/Standalone, Android local dev, Matrix, History, VATSIM privacy, and AeroDataBox/AviationStack relay behavior.
 - [ ] End-to-end community client activation test against live relay.

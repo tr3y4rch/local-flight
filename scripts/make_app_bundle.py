@@ -16,9 +16,11 @@ Creates:
 from __future__ import annotations
 
 import io
+import os
 import shutil
 import subprocess
 import sys
+import tempfile
 import textwrap
 from pathlib import Path
 
@@ -59,7 +61,30 @@ def _make_icns(root: Path, iconset_dir: Path) -> Path:
             img = Image.open(io.BytesIO(data)).convert("RGBA")
             print(f"  Icon: rendered from {svg.name} (cairosvg)")
         except Exception:
-            pass
+            try:
+                os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+                from PIL import Image
+                from PySide6 import QtGui, QtSvg
+
+                app = QtGui.QGuiApplication.instance() or QtGui.QGuiApplication([])
+                renderer = QtSvg.QSvgRenderer(str(svg))
+                if renderer.isValid():
+                    image = QtGui.QImage(1024, 1024, QtGui.QImage.Format_ARGB32)
+                    image.fill(QtGui.QColor(0, 0, 0, 0))
+                    painter = QtGui.QPainter(image)
+                    renderer.render(painter)
+                    painter.end()
+                    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+                        tmp_path = Path(tmp.name)
+                    try:
+                        if image.save(str(tmp_path)):
+                            img = Image.open(tmp_path).convert("RGBA")
+                            img.load()
+                            print(f"  Icon: rendered from {svg.name} (Qt SVG)")
+                    finally:
+                        tmp_path.unlink(missing_ok=True)
+            except Exception:
+                pass
 
     # 2. Fall back to pre-rendered PNG
     if img is None:
@@ -80,23 +105,21 @@ def _make_icns(root: Path, iconset_dir: Path) -> Path:
         img = draw_macos_icon(1024)
 
     from PIL import Image
-    try:
-        img.save(icns_out, format="ICNS")
-        print(f"  Icon: generated {icns_out.name} via Pillow")
-        return icns_out
-    except Exception:
-        shutil.rmtree(iconset_dir, ignore_errors=True)
-        iconset_dir.mkdir(parents=True, exist_ok=True)
-        for s in [16, 32, 128, 256, 512]:
-            img.resize((s, s), Image.LANCZOS).save(iconset_dir / f"icon_{s}x{s}.png")
-            img.resize((s * 2, s * 2), Image.LANCZOS).save(iconset_dir / f"icon_{s}x{s}@2x.png")
+    shutil.rmtree(iconset_dir, ignore_errors=True)
+    iconset_dir.mkdir(parents=True, exist_ok=True)
+    for s in [16, 32, 128, 256, 512]:
+        img.resize((s, s), Image.LANCZOS).save(iconset_dir / f"icon_{s}x{s}.png")
+        img.resize((s * 2, s * 2), Image.LANCZOS).save(iconset_dir / f"icon_{s}x{s}@2x.png")
 
+    if shutil.which("iconutil"):
         subprocess.run(
             ["iconutil", "-c", "icns", str(iconset_dir), "-o", str(icns_out)],
             check=True,
         )
-        shutil.rmtree(iconset_dir)
         print(f"  Icon: generated {icns_out.name} via iconutil")
+    else:
+        img.save(icns_out, format="ICNS")
+        print(f"  Icon: generated {icns_out.name} via Pillow")
     return icns_out
 
 

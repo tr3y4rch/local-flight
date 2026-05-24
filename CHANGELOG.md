@@ -28,6 +28,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Captured the preview priority order for public docs/site imagery: FIDS, Radar, History, Setup, Display, Splash.
 - Clarified the Beacon Tools production deploy path: the public site is served by the Cloudflare Worker + Assets deploy, while dashboard `.dev` previews do not automatically update the custom domain.
 
+### macOS installer path
+- Added a signed/notarized macOS `.pkg` release path for DAU-facing installs.
+- The package installs only `Local Flight.app` into Applications and preserves local settings, history, logs, install identity, and activation tokens.
+- Kept source checkout launchers and source-built `~/Applications/LocalFlight.app` documented as developer/testing paths, not public release paths.
+
 ---
 
 ## [0.2.7]

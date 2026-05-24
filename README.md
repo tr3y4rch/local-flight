@@ -112,8 +112,8 @@ The release app launches as a branded desktop app without a Python or cmd consol
 
 ### macOS
 
-Download `LocalFlight-macos.zip`, unzip it, drag `LocalFlight.app` to Applications, then right-click **Open** the first time if Gatekeeper warns.
-Finder launches the app bundle directly, so users see the Local Flight app/splash rather than Terminal.
+Download `LocalFlight-0.2.7-macos.pkg`, double-click the installer, then launch **Local Flight** from Applications.
+The release installer is designed to feel like a normal Mac app install: no Python, Terminal, source checkout, or manual drag-to-Applications step.
 
 ### Raspberry Pi
 

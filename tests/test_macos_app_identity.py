@@ -2,8 +2,12 @@ from __future__ import annotations
 
 import json
 import plistlib
+import stat
 from pathlib import Path
 
+import pytest
+
+from scripts import package_macos_installer as macos_pkg
 from scripts.make_app_bundle import _write_info_plist
 from scripts.macos_icon import draw_macos_icon
 
@@ -176,3 +180,57 @@ def test_mobile_brand_config_has_light_and_dark_master_variants() -> None:
     assert (ROOT / "mobile" / "assets" / "localflight-icon-dark.png").read_bytes() != (
         ROOT / "mobile" / "assets" / "localflight-icon-light.png"
     ).read_bytes()
+
+
+def test_macos_pkg_requires_all_release_credentials() -> None:
+    with pytest.raises(RuntimeError) as exc_info:
+        macos_pkg.require_release_credentials({})
+
+    message = str(exc_info.value)
+    assert "CODESIGN_IDENTITY" in message
+    assert "PKG_SIGN_IDENTITY" in message
+    assert "NOTARIZE_PROFILE" in message
+
+    values = macos_pkg.require_release_credentials(
+        {
+            "CODESIGN_IDENTITY": "Developer ID Application: Example",
+            "PKG_SIGN_IDENTITY": "Developer ID Installer: Example",
+            "NOTARIZE_PROFILE": "localflight-notary",
+        }
+    )
+    assert values["CODESIGN_IDENTITY"].startswith("Developer ID Application:")
+    assert values["PKG_SIGN_IDENTITY"].startswith("Developer ID Installer:")
+    assert values["NOTARIZE_PROFILE"] == "localflight-notary"
+
+
+def test_macos_pkg_paths_are_dau_installer_paths(tmp_path: Path) -> None:
+    assert macos_pkg.package_output_path(tmp_path, "0.2.7").name == "LocalFlight-0.2.7-macos.pkg"
+    assert macos_pkg.staged_app_path(tmp_path).as_posix().endswith("/Applications/Local Flight.app")
+    assert macos_pkg.APP_BUNDLE_NAME == "Local Flight.app"
+    assert macos_pkg.LEGACY_APP_BUNDLE_NAME == "LocalFlight.app"
+    assert macos_pkg.BUNDLE_IDENTIFIER == "com.localflight.app"
+
+
+def test_macos_pkg_preinstall_only_cleans_matching_legacy_bundle(tmp_path: Path) -> None:
+    preinstall = macos_pkg.write_preinstall_script(tmp_path)
+    script = preinstall.read_text(encoding="utf-8")
+
+    assert preinstall.stat().st_mode & stat.S_IXUSR
+    assert 'LEGACY_APP="/Applications/LocalFlight.app"' in script
+    assert 'EXPECTED_ID="com.localflight.app"' in script
+    assert "PlistBuddy -c 'Print :CFBundleIdentifier'" in script
+    assert 'if [ "$FOUND_ID" = "$EXPECTED_ID" ]; then' in script
+    assert 'rm -rf "$LEGACY_APP"' in script
+    assert "~/.localflight" not in script
+
+
+def test_build_script_routes_platform_installers() -> None:
+    build_script = (ROOT / "build.py").read_text(encoding="utf-8")
+
+    assert "package_windows_installer.py" in build_script
+    assert "package_macos_installer.py" in build_script
+    assert "For public macOS releases" in build_script
+    assert "LocalFlight-macos.zip" in build_script
+    assert "LocalFlight-{version}-macos.pkg" in (
+        ROOT / "scripts" / "package_macos_installer.py"
+    ).read_text(encoding="utf-8")

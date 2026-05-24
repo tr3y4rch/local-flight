@@ -54,14 +54,13 @@ The source installer creates a **Local Flight** desktop shortcut that launches t
 
 Use this path for the easiest macOS desktop setup.
 
-1. Download `LocalFlight-macos.zip` from the latest GitHub release.
-2. Unzip it.
-3. Drag `LocalFlight.app` to Applications.
-4. Right-click **LocalFlight.app** and choose **Open** the first time if Gatekeeper warns about an unsigned app.
-5. Complete the setup wizard: Welcome, Airport, Flight Data, Optional Keys, Diagnostics, and Review & Open.
+1. Download `LocalFlight-0.2.7-macos.pkg` from the latest GitHub release.
+2. Double-click the package and follow the standard macOS Installer steps.
+3. Launch **Local Flight** from Applications.
+4. Complete the setup wizard: Welcome, Airport, Flight Data, Optional Keys, Diagnostics, and Review & Open.
 
 The app launches the native Qt desktop shell. The LAN browser UI remains available from the local server while the app is running.
-Finder opens `LocalFlight.app` directly, so normal release use should show the branded app/splash rather than Terminal.
+Finder opens the installed app directly, so normal release use should show the branded app/splash rather than Terminal. The installer only places the app in Applications; your Local Flight settings, history, logs, install ID, and activation token remain in your user folder.
 
 ### macOS Source Checkout
 
@@ -75,7 +74,7 @@ bash installers/macos/install.sh --display headless
 
 Use `native` for the normal desktop shell, `browser` when you specifically want the browser UI to open, or `headless` when this Mac should only serve other clients.
 
-The source installer also builds `~/Applications/LocalFlight.app`; use that app bundle for quiet Finder launches. Use `./start.command` from the project root or `bash installers/macos/start.sh` when you intentionally want Terminal output for development/debugging.
+The source installer also builds `~/Applications/LocalFlight.app`; use that app bundle for quiet Finder launches while developing. Use `./start.command` from the project root or `bash installers/macos/start.sh` when you intentionally want Terminal output for development/debugging.
 
 If a quiet app launch fails early, bootstrap output is written locally under `~/.localflight/logs/` so troubleshooting does not require keeping Terminal open.
 
