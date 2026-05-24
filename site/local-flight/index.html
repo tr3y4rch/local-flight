@@ -31,8 +31,8 @@
       </div>
     </nav>
 
-    <header class="hero" style="--hero-image: url('/assets/radar-preview.png');">
-      <div class="wrap">
+    <header class="hero product-hero">
+      <div class="wrap product-hero-grid">
         <div class="hero-content">
           <div class="eyebrow">Local Flight by Beacon Tools</div>
           <h1>Flight boards for local screens and home cockpits.</h1>
@@ -45,6 +45,10 @@
           </div>
           <p class="note">Current beta target: <strong>0.2.7</strong>; preliminary <strong>0.2.8</strong> notes track the next parity polish. Flight, radar, weather, surface, relay, and mobile data are informational display aids only and are not for navigation, dispatch, operational control, flight planning, or safety decisions.</p>
         </div>
+        <aside class="product-masthead">
+          <img src="/assets/localflight-lockup.png" alt="Local Flight">
+          <p>Native desktop, LAN browser, Raspberry Pi, mobile, radar/history, and Matrix display surfaces.</p>
+        </aside>
       </div>
     </header>
 
@@ -111,7 +115,6 @@
               <li>Deduped History analytics, Matrix preview/config/script generation, local logs, local settings, and consent-based diagnostics.</li>
             </ul>
             <aside class="side-panel">
-              <img class="product-lockup" src="/assets/localflight-lockup.png" alt="Local Flight">
               <h3>Current beta</h3>
               <p>Version target <code>0.2.7</code>, with preliminary <code>0.2.8</code> notes for the next LAN/mobile pairing polish. GitHub remains the source repository and issue tracker; Beacon Tools is the public product/privacy home.</p>
             </aside>
@@ -127,10 +130,11 @@
               <h2>Display modes</h2>
             </div>
           </div>
-          <div class="visual-grid">
-            <div class="visual-panel">
+          <div class="visual-grid screenshot-feature">
+            <figure class="screenshot-panel">
               <img src="/assets/fids-preview.png" alt="Local Flight FIDS preview">
-            </div>
+              <figcaption><strong>FIDS board</strong><span>Passenger-style board rows, weather context, local/UTC timing, status labels, and display skins.</span></figcaption>
+            </figure>
             <div class="grid two">
               <article class="card"><h3>Native desktop</h3><p>Windows and macOS shell with Classic, PAX, VATSIM, and Nerd FIDS styles.</p></article>
               <article class="card"><h3>LAN browser</h3><p>Remote screens, tablets, headless installs, compact Raspberry Pi layouts, and Settings with the same mobile pairing tools as the native app.</p></article>
@@ -141,19 +145,19 @@
           <div class="preview-gallery" aria-label="Local Flight interface previews">
             <figure class="preview-card">
               <img src="/assets/radar-preview.png" alt="Local Flight radar preview">
-              <figcaption>Radar</figcaption>
+              <figcaption><strong>Radar</strong><span>Range rings, aircraft detail, METAR, and optional ground context.</span></figcaption>
             </figure>
             <figure class="preview-card">
               <img src="/assets/history-preview.png" alt="Local Flight history preview">
-              <figcaption>History</figcaption>
+              <figcaption><strong>History</strong><span>Deduped movements, filters, KPIs, and route/airline patterns.</span></figcaption>
             </figure>
             <figure class="preview-card">
               <img src="/assets/settings-preview.png" alt="Local Flight settings preview">
-              <figcaption>Settings</figcaption>
+              <figcaption><strong>Settings</strong><span>Airport setup, relay status, appearance, pairing, and diagnostics.</span></figcaption>
             </figure>
             <figure class="preview-card">
               <img src="/assets/matrix-preview.png" alt="Local Flight Matrix preview">
-              <figcaption>Matrix</figcaption>
+              <figcaption><strong>Matrix</strong><span>LED panel preview and generated MicroPython display client.</span></figcaption>
             </figure>
           </div>
         </div>

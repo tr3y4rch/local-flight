@@ -31,8 +31,8 @@
       </div>
     </nav>
 
-    <header class="hero" style="--hero-image: url('/assets/mobile-fids-preview.svg');">
-      <div class="wrap">
+    <header class="hero product-hero mobile-product-hero">
+      <div class="wrap product-hero-grid">
         <div class="hero-content">
           <div class="eyebrow">Local Flight Mobile</div>
           <h1>Phone-sized flight boards, TestFlight and Play Store soon.</h1>
@@ -61,6 +61,10 @@
             <span class="status-chip">Relay: relay.beacontools.cc</span>
           </div>
         </div>
+        <figure class="screenshot-panel mobile-shot">
+          <img src="/assets/mobile-fids-preview.svg" alt="Local Flight Mobile board preview">
+          <figcaption><strong>Mobile board</strong><span>Airport header, METAR strip, pinned flight, compact rows, and local/UTC timing.</span></figcaption>
+        </figure>
       </div>
     </header>
 
@@ -82,22 +86,10 @@
               <h3>Standalone</h3>
               <p>Talks directly to the Beacon Tools relay for a simplified mobile board, radar, METAR, history, settings, and reports. It does not need your desktop or Pi server online.</p>
             </article>
-          </div>
-        </div>
-      </section>
-
-      <section class="section">
-        <div class="wrap">
-          <div class="visual-grid">
-            <div class="visual-panel">
-              <img src="/assets/mobile-fids-preview.svg" alt="Local Flight Mobile board preview">
-            </div>
-            <div class="grid two">
-              <article class="card"><h3>Board</h3><p>Airport header, METAR strip, pinned flight, compact rows, local/UTC time, and passenger-friendly status labels.</p></article>
-              <article class="card"><h3>Radar</h3><p>Mobile-owned range rings with LAN or relay-backed aircraft data, depending on setup mode.</p></article>
-              <article class="card"><h3>History</h3><p>LAN Companion reads server history. Standalone keeps deduped movement history locally on the phone.</p></article>
-              <article class="card"><h3>Reports</h3><p>Manual reports are user-triggered. Automatic crash diagnostics only run when the mobile diagnostics choice allows them.</p></article>
-            </div>
+            <article class="card"><h3>Board</h3><p>Airport header, METAR strip, pinned flight, compact rows, local/UTC time, and passenger-friendly status labels.</p></article>
+            <article class="card"><h3>Radar</h3><p>Mobile-owned range rings with LAN or relay-backed aircraft data, depending on setup mode.</p></article>
+            <article class="card"><h3>History</h3><p>LAN Companion reads server history. Standalone keeps deduped movement history locally on the phone.</p></article>
+            <article class="card"><h3>Reports</h3><p>Manual reports are user-triggered. Automatic crash diagnostics only run when the mobile diagnostics choice allows them.</p></article>
           </div>
         </div>
       </section>

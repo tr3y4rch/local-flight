@@ -181,6 +181,61 @@ code {
   min-height: 48vh;
 }
 
+.studio-hero {
+  background:
+    radial-gradient(circle at 78% 30%, rgba(30, 164, 255, 0.16), transparent 28rem),
+    linear-gradient(90deg, rgba(7, 16, 25, 0.98) 0%, rgba(7, 16, 25, 0.86) 58%, rgba(7, 16, 25, 0.72) 100%);
+}
+
+.studio-hero-grid,
+.product-hero-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 0.78fr);
+  gap: 34px;
+  align-items: center;
+}
+
+.studio-mark-panel,
+.product-masthead {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background:
+    linear-gradient(180deg, rgba(99, 214, 255, 0.07), transparent),
+    rgba(8, 18, 28, 0.88);
+  padding: 26px;
+  box-shadow: 0 24px 56px rgba(0, 0, 0, 0.24);
+}
+
+.studio-mark-panel img,
+.product-masthead img {
+  width: min(100%, 420px);
+  margin: 0 auto 18px;
+  object-fit: contain;
+  filter: drop-shadow(0 18px 28px rgba(0, 0, 0, 0.22));
+}
+
+.studio-mark-panel p,
+.product-masthead p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.product-hero {
+  background:
+    radial-gradient(circle at 78% 30%, rgba(112, 240, 170, 0.1), transparent 28rem),
+    linear-gradient(90deg, rgba(7, 16, 25, 0.98) 0%, rgba(7, 16, 25, 0.88) 58%, rgba(7, 16, 25, 0.76) 100%);
+}
+
+.product-masthead {
+  background:
+    radial-gradient(circle at 35% 20%, rgba(99, 214, 255, 0.14), transparent 34%),
+    rgba(8, 18, 28, 0.9);
+}
+
+.mobile-product-hero .product-hero-grid {
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 0.58fr);
+}
+
 .wrap {
   width: min(1160px, calc(100% - 32px));
   margin: 0 auto;
@@ -507,6 +562,61 @@ p {
   background: #08121c;
 }
 
+.featured-project {
+  grid-template-columns: 1fr 0.72fr;
+}
+
+.screenshot-feature {
+  align-items: center;
+}
+
+.screenshot-panel {
+  margin: 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(8, 18, 28, 0.92);
+  box-shadow: 0 22px 52px rgba(0, 0, 0, 0.22);
+}
+
+.screenshot-panel img {
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  object-fit: cover;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.screenshot-panel.mobile-shot {
+  max-width: 390px;
+  justify-self: center;
+}
+
+.screenshot-panel.mobile-shot img {
+  aspect-ratio: auto;
+  object-fit: contain;
+  background: #08121c;
+}
+
+.screenshot-panel figcaption,
+.preview-card figcaption {
+  display: grid;
+  gap: 3px;
+  padding: 11px 12px 12px;
+}
+
+.screenshot-panel figcaption strong,
+.preview-card figcaption strong {
+  color: var(--text);
+  font-weight: 900;
+}
+
+.screenshot-panel figcaption span,
+.preview-card figcaption span {
+  color: var(--muted);
+  font-size: 0.9rem;
+  line-height: 1.35;
+}
+
 .preview-gallery {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -529,12 +639,6 @@ p {
   border-bottom: 1px solid var(--line-soft);
 }
 
-.preview-card figcaption {
-  padding: 10px 12px;
-  color: var(--text);
-  font-weight: 900;
-}
-
 .brand-lockup-panel {
   min-height: 238px;
   padding: 28px;
@@ -548,6 +652,21 @@ p {
   padding: 0;
   background: transparent;
   filter: drop-shadow(0 16px 24px rgba(3, 15, 26, 0.16));
+}
+
+.product-lockup-panel {
+  min-height: 238px;
+  padding: 28px;
+  background:
+    radial-gradient(circle at 32% 24%, rgba(99, 214, 255, 0.13), transparent 34%),
+    rgba(8, 18, 28, 0.92);
+}
+
+.product-lockup-panel img {
+  object-fit: contain;
+  padding: 0;
+  background: transparent;
+  filter: drop-shadow(0 16px 24px rgba(3, 15, 26, 0.18));
 }
 
 .note {
@@ -813,8 +932,20 @@ p {
       var(--hero-image, none) center bottom / 110% auto no-repeat;
   }
 
+  .studio-hero,
+  .product-hero {
+    background:
+      radial-gradient(circle at 60% 100%, rgba(99, 214, 255, 0.12), transparent 22rem),
+      linear-gradient(180deg, rgba(7, 16, 25, 0.95) 0%, rgba(7, 16, 25, 0.99) 100%);
+  }
+
   .hero-content {
     padding: 54px 0 220px;
+  }
+
+  .studio-hero .hero-content,
+  .product-hero .hero-content {
+    padding-bottom: 0;
   }
 
   .hero.compact .hero-content {
@@ -826,9 +957,18 @@ p {
   .grid.four,
   .form-grid,
   .preview-gallery,
+  .studio-hero-grid,
+  .product-hero-grid,
+  .mobile-product-hero .product-hero-grid,
   .visual-grid,
   .split {
     grid-template-columns: 1fr;
+  }
+
+  .studio-mark-panel,
+  .product-masthead,
+  .screenshot-panel.mobile-shot {
+    margin-bottom: 54px;
   }
 
   .section-head {
