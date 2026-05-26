@@ -98,6 +98,7 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
         self._build_header()
         self._build_status_band()
         self._build_main_controls()
+        self._build_provider_keys()
         self._build_radar_devices()
         self._build_profiles()
         self._build_companion_pairing()
@@ -322,19 +323,73 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
         self._sync_skin_buttons("standard")
         return box
 
+    def _build_provider_keys(self) -> None:
+        self.provider_group, self.provider_body, layout = self._collapsible_section(
+            "Provider Keys & Privacy",
+            subtitle="Personal provider keys stay local and bypass shared relay snapshots.",
+            emoji="\U0001F510",  # 🔐
+        )
+        self.provider_path = label(self.QtWidgets, "Provider status not loaded yet.", "Muted", wrap=True)
+        layout.addWidget(self.provider_path)
+        form = self.QtWidgets.QFormLayout()
+        form.setFieldGrowthPolicy(self.QtWidgets.QFormLayout.AllNonFixedFieldsGrow)
+        self.provider_adb_key = self.QtWidgets.QLineEdit()
+        self.provider_adb_key.setEchoMode(self.QtWidgets.QLineEdit.Password)
+        self.provider_adb_key.setPlaceholderText("Saved key stays hidden; paste to replace")
+        self.provider_adb_marketplace = self.QtWidgets.QComboBox()
+        self.provider_adb_marketplace.addItem("API.Market", "apimarket")
+        self.provider_adb_marketplace.addItem("RapidAPI", "rapidapi")
+        self.provider_adb_limit = self.QtWidgets.QSpinBox()
+        self.provider_adb_limit.setRange(0, 250000)
+        self.provider_adb_limit.setValue(24000)
+        self.provider_as_key = self.QtWidgets.QLineEdit()
+        self.provider_as_key.setEchoMode(self.QtWidgets.QLineEdit.Password)
+        self.provider_as_key.setPlaceholderText("Optional fallback/fill key")
+        self.provider_rapidapi_key = self.QtWidgets.QLineEdit()
+        self.provider_rapidapi_key.setEchoMode(self.QtWidgets.QLineEdit.Password)
+        self.provider_rapidapi_key.setPlaceholderText("Optional ADS-B Exchange key")
+        self.provider_opensky_id = self.QtWidgets.QLineEdit()
+        self.provider_opensky_id.setPlaceholderText("Optional OpenSky client ID")
+        self.provider_opensky_secret = self.QtWidgets.QLineEdit()
+        self.provider_opensky_secret.setEchoMode(self.QtWidgets.QLineEdit.Password)
+        self.provider_opensky_secret.setPlaceholderText("Optional OpenSky client secret")
+        form.addRow("AeroDataBox key", self.provider_adb_key)
+        form.addRow("AeroDataBox marketplace", self.provider_adb_marketplace)
+        form.addRow("AeroDataBox monthly unit guard", self.provider_adb_limit)
+        form.addRow("AviationStack key", self.provider_as_key)
+        form.addRow("ADS-B Exchange RapidAPI key", self.provider_rapidapi_key)
+        form.addRow("OpenSky client ID", self.provider_opensky_id)
+        form.addRow("OpenSky client secret", self.provider_opensky_secret)
+        layout.addLayout(form)
+        actions = self.QtWidgets.QHBoxLayout()
+        save = self.QtWidgets.QPushButton("Save provider keys")
+        save.clicked.connect(self.save_provider_keys)
+        clear = self.QtWidgets.QPushButton("Clear direct keys")
+        clear.setObjectName("Danger")
+        clear.clicked.connect(self.clear_provider_keys)
+        actions.addWidget(save)
+        actions.addWidget(clear)
+        actions.addStretch(1)
+        layout.addLayout(actions)
+        self.provider_status = label(self.QtWidgets, "Blank fields keep saved secrets. Clear removes direct-provider keys.", "Muted", wrap=True)
+        layout.addWidget(self.provider_status)
+
     def _build_radar_devices(self) -> None:
         self.outputs_radar_group, self.outputs_radar_body, layout = self._collapsible_section(
             "Outputs & Radar",
             subtitle="Choose display outputs and the optional radar ground drawing layer.",
             emoji="\U0001F6F0",  # 🛰
         )
-        self.surface = self.QtWidgets.QCheckBox("Runway and airport surface overlay")
-        self.surface.stateChanged.connect(self._surface_changed)
+        self.surface = self.QtWidgets.QComboBox()
+        self.surface.addItem("Off - aircraft only", "off")
+        self.surface.addItem("Estimated local surface", "estimated")
+        self.surface.addItem("Relay surface cache", "relay")
+        self.surface.currentIndexChanged.connect(lambda _idx: self._surface_changed())
         layout.addWidget(self.surface)
         layout.addWidget(
             label(
                 self.QtWidgets,
-                "Optional surface drawing depends on cached local or relay data. It is a visual hobbyist layer, not an operational navigation source.",
+                "Optional surface drawing is visual only. Relay cache mode is the only choice that may use Beacon Tools surface data when local cache is missing.",
                 "Muted",
                 wrap=True,
             )
@@ -700,6 +755,7 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
         self._populate_config(cfg)
         self._refresh_current(cfg)
         self._refresh_install()
+        self._refresh_provider_keys()
         self._refresh_profiles()
         self._refresh_companion_gateway()
         self._set_status("Current local settings loaded.", "StatusGood")
@@ -837,10 +893,13 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
             skin = "standard"
         self._set_combo_value(self.skin, skin)
         self._set_combo_value(self.diagnostics, str(cfg.get("diagnostics_mode") or "unset"))
-        self.surface.setChecked(bool(cfg.get("radar_surface_enabled")))
+        surface_mode = str(cfg.get("radar_surface_mode") or ("relay" if cfg.get("radar_surface_enabled") else "off"))
+        self._set_combo_value(self.surface, surface_mode)
         self._set_surface_status(
-            "Surface overlay is enabled. Apply or check it to load runway data."
-            if self.surface.isChecked()
+            "Surface mode is relay cache. Apply or check it to load runway data."
+            if surface_mode == "relay"
+            else "Estimated-only surface draws locally without relay lookups."
+            if surface_mode == "estimated"
             else "Surface overlay is off. Radar will show aircraft without airport ground drawing."
         )
         self.web_row_limit.setValue(int(cfg.get("web_row_limit") or 20))
@@ -864,12 +923,14 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
         self.current_source_value.value_label.setText(option_label(SOURCE_OPTIONS, source_value).upper())
         self.current_refresh_value.value_label.setText(self.refresh_seconds.currentText() or "-")
         self.current_relay_value.value_label.setText("Checking...")
-        surface_enabled = bool(cfg.get("radar_surface_enabled"))
-        self.current_surface_value.value_label.setText("On" if surface_enabled else "Off")
+        surface_mode = str(cfg.get("radar_surface_mode") or ("relay" if cfg.get("radar_surface_enabled") else "off"))
+        self.current_surface_value.value_label.setText(surface_mode.upper())
         self.current_surface_value.detail_label.setText(
-            "Runways/surface will draw when map data is available."
-            if surface_enabled
-            else "Aircraft-only radar. Enable and apply to draw airport surface."
+            "May use Beacon Tools surface cache when local cache is missing."
+            if surface_mode == "relay"
+            else "Draws local estimated surface without relay lookups."
+            if surface_mode == "estimated"
+            else "Aircraft-only radar. No surface network calls."
         )
 
     def _refresh_install(self) -> None:
@@ -892,6 +953,69 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
             self.relay_access_detail.setText(
                 "Community installs share airport snapshots through the relay; BYOK keeps provider access on this device."
             )
+
+    def _refresh_provider_keys(self) -> None:
+        try:
+            status = self.service.provider_keys_status()
+        except Exception as exc:
+            self.provider_path.setText(f"Provider key status unavailable: {exc}")
+            return
+        self._apply_provider_key_status(status)
+
+    def _apply_provider_key_status(self, status: dict[str, Any]) -> None:
+        active = str(status.get("active_path") or "Unknown provider path")
+        adb = status.get("aerodatabox") if isinstance(status.get("aerodatabox"), dict) else {}
+        aviation = status.get("aviationstack") if isinstance(status.get("aviationstack"), dict) else {}
+        rapid = status.get("adsbexchange") if isinstance(status.get("adsbexchange"), dict) else {}
+        opensky = status.get("opensky") if isinstance(status.get("opensky"), dict) else {}
+        self.provider_path.setText(
+            f"{active}. AeroDataBox {'enabled' if adb.get('enabled') else 'not enabled'}, "
+            f"AviationStack {'enabled' if aviation.get('enabled') else 'not enabled'}, "
+            f"ADS-B {rapid.get('mode') or 'fallback only'}, "
+            f"OpenSky {'set' if opensky.get('configured') else 'not set'}."
+        )
+        self._set_combo_value(self.provider_adb_marketplace, str(adb.get("marketplace") or "apimarket"))
+        try:
+            self.provider_adb_limit.setValue(int(adb.get("monthly_units_limit") or 24000))
+        except Exception:
+            self.provider_adb_limit.setValue(24000)
+
+    def save_provider_keys(self, *_args: Any) -> None:
+        payload = {
+            "aerodatabox_key": self.provider_adb_key.text().strip(),
+            "aerodatabox_marketplace": self._combo_value(self.provider_adb_marketplace, "apimarket"),
+            "aerodatabox_monthly_units_limit": int(self.provider_adb_limit.value()),
+            "aviationstack_key": self.provider_as_key.text().strip(),
+            "rapidapi_key": self.provider_rapidapi_key.text().strip(),
+            "opensky_id": self.provider_opensky_id.text().strip(),
+            "opensky_secret": self.provider_opensky_secret.text().strip(),
+        }
+        self.provider_status.setText("Saving provider keys locally...")
+        try:
+            status = self.service.provider_keys_save(payload)
+        except Exception as exc:
+            self.provider_status.setText(f"Provider keys could not be saved: {exc}")
+            return
+        self._apply_provider_key_status(status)
+        for field in (
+            self.provider_adb_key,
+            self.provider_as_key,
+            self.provider_rapidapi_key,
+            self.provider_opensky_id,
+            self.provider_opensky_secret,
+        ):
+            field.clear()
+        self.provider_status.setText("Provider key preferences saved locally. Scheduler refreshes with the selected path.")
+
+    def clear_provider_keys(self, *_args: Any) -> None:
+        self.provider_status.setText("Clearing direct provider keys...")
+        try:
+            status = self.service.provider_keys_clear()
+        except Exception as exc:
+            self.provider_status.setText(f"Provider keys could not be cleared: {exc}")
+            return
+        self._apply_provider_key_status(status)
+        self.provider_status.setText("Direct provider keys cleared. Relay and virtual settings stay separate.")
 
     def _refresh_profiles(self) -> None:
         current = self.profile_combo.currentText()
@@ -987,7 +1111,8 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
             "web_rotation_seconds": int(self.web_rotation.value()),
             "display_grace_minutes": int(self.grace.value()),
             "display_horizon_hours": int(self.horizon.value()),
-            "radar_surface_enabled": bool(self.surface.isChecked()),
+            "radar_surface_enabled": self._combo_value(self.surface, "off") != "off",
+            "radar_surface_mode": self._combo_value(self.surface, "off"),
             "display_outputs": outputs or ["web"],
         }
 
@@ -1005,14 +1130,17 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
         self._refresh_current(payload)
         self._set_status("Settings saved. Scheduler restarts automatically when needed.", "StatusGood")
         if check_surface:
-            self._start_surface_check() if payload.get("radar_surface_enabled") else self._surface_off()
+            self._start_surface_check() if payload.get("radar_surface_mode") == "relay" else self._surface_off()
 
     def apply_surface_overlay(self, *_args: Any) -> None:
         self.save(check_surface=True)
 
     def _surface_changed(self, _state: int = 0) -> None:
-        if self.surface.isChecked():
-            self._set_surface_status("Surface overlay changed. Apply radar overlay to save and check runway data.", "StatusWarn")
+        mode = self._combo_value(self.surface, "off")
+        if mode == "relay":
+            self._set_surface_status("Relay surface cache selected. Apply radar overlay to save and check runway data.", "StatusWarn")
+        elif mode == "estimated":
+            self._set_surface_status("Estimated-only surface selected. Apply radar overlay to save without relay lookups.", "StatusWarn")
         else:
             self._surface_off()
 
@@ -1021,7 +1149,7 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
         self._set_surface_status("Surface overlay is off. Radar will show aircraft without airport ground drawing.")
 
     def _start_surface_check(self) -> None:
-        if not self.surface.isChecked():
+        if self._combo_value(self.surface, "off") != "relay":
             self._surface_off()
             return
         if self._surface_check_future is not None and not self._surface_check_future.done():

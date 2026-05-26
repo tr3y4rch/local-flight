@@ -376,18 +376,30 @@ html[data-theme="light"] .lf-shell-nav {
   background: var(--lf-bg);
 }
 
+.lf-surface-bar,
 .lf-display-controls {
-  min-height: 42px;
+  min-height: 44px;
   flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 6px 14px;
+  padding: 7px 14px;
   border-bottom: 1px solid var(--lf-line-soft);
-  background: var(--lf-panel);
+  background:
+    linear-gradient(180deg, rgba(74, 158, 218, 0.055), transparent),
+    var(--lf-panel);
 }
 
+html[data-theme="light"] .lf-surface-bar,
+html[data-theme="light"] .lf-display-controls {
+  background:
+    linear-gradient(180deg, rgba(30, 108, 180, 0.06), transparent),
+    var(--lf-panel);
+}
+
+.lf-surface-left,
+.lf-surface-right,
 .lf-display-controls-left,
 .lf-display-controls-right {
   display: flex;
@@ -396,6 +408,58 @@ html[data-theme="light"] .lf-shell-nav {
   min-width: 0;
 }
 
+.lf-surface-left { flex: 1 1 auto; }
+.lf-surface-right { justify-content: flex-end; flex: 0 0 auto; }
+
+.lf-surface-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  color: var(--lf-text);
+  font-family: var(--font-ui);
+  font-size: 0.86rem;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+
+.lf-surface-title-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.lf-surface-meta,
+.lf-toolbar-kicker {
+  color: var(--lf-dim);
+  font-family: var(--font-board);
+  font-size: 0.66rem;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.lf-surface-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--lf-muted);
+  font-family: var(--font-board);
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.lf-surface-status,
+.lf-surface-status * {
+  font-family: var(--font-board);
+}
+
+.lf-segmented,
 .lf-display-mode-switcher {
   display: inline-flex;
   gap: 2px;
@@ -405,6 +469,8 @@ html[data-theme="light"] .lf-shell-nav {
   border: 1px solid var(--lf-line-soft);
 }
 
+.lf-segmented a,
+.lf-segmented button,
 .lf-display-mode-btn,
 .lf-display-fullscreen {
   display: inline-flex;
@@ -421,17 +487,25 @@ html[data-theme="light"] .lf-shell-nav {
   color: var(--lf-muted);
   font-size: 0.78rem;
   font-weight: 800;
+  line-height: 1;
+  text-decoration: none;
   cursor: pointer;
   white-space: nowrap;
   transition: background 0.12s, border-color 0.12s, color 0.12s;
 }
 
+.lf-segmented a:hover,
+.lf-segmented button:hover,
 .lf-display-mode-btn:hover,
 .lf-display-fullscreen:hover {
   background: var(--lf-surface-soft);
   color: var(--lf-text);
 }
 
+.lf-segmented a.active,
+.lf-segmented a.is-active,
+.lf-segmented button.active,
+.lf-segmented button.is-active,
 .lf-display-mode-btn.active {
   background: var(--lf-accent-soft);
   border-color: var(--lf-accent-border);

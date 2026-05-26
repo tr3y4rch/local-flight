@@ -100,7 +100,7 @@ export function BottomNav({ active, onChange, insetBottom, palette, styles, stan
       ];
 
   return (
-    <View style={[styles.bottomNav, { paddingBottom: Math.max(insetBottom, 10) }]}>
+    <View style={[styles.bottomNav, { paddingBottom: Math.max(insetBottom * 0.55, 8) }]}>
       {items.map((item) => {
         const selected = active === item.id;
         return (

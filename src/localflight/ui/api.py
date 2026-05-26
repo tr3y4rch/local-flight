@@ -667,6 +667,7 @@ class ConfigPatch(BaseModel):
     display_grace_minutes: Optional[int] = Field(None, ge=0, le=180)
     display_horizon_hours: Optional[int] = Field(None, ge=1, le=24)
     radar_surface_enabled: Optional[bool] = None
+    radar_surface_mode: Optional[Literal["off", "estimated", "relay"]] = None
 
 
 class FIDSRowOut(BaseModel):
@@ -819,6 +820,8 @@ def api_patch_config(patch: ConfigPatch, background_tasks: BackgroundTasks) -> D
         if mode not in ALLOWED_DIAGNOSTICS_MODES:
             raise HTTPException(status_code=422, detail=f"diagnostics_mode must be one of {sorted(ALLOWED_DIAGNOSTICS_MODES)}")
         data["diagnostics_mode"] = mode
+    if "radar_surface_mode" in data:
+        data["radar_surface_enabled"] = str(data["radar_surface_mode"]).strip().lower() != "off"
     current_cfg = load_config()
     source_for_policy = str(data.get("source") or current_cfg.source)
     if "refresh_seconds" in data:
@@ -1441,7 +1444,8 @@ def api_radar_surface(
     center_lon = float(airport.lon)
     radius = clamp_surface_radius_nm(radius_nm)
 
-    if not cfg.radar_surface_enabled:
+    surface_mode = str(getattr(cfg, "radar_surface_mode", "relay" if cfg.radar_surface_enabled else "off") or "off").lower()
+    if surface_mode == "off":
         return _surface_empty_payload(
             cfg=cfg,
             center_lat=center_lat,
@@ -1449,6 +1453,19 @@ def api_radar_surface(
             radius_nm=radius,
             cache_state="disabled",
             error="Airport surface overlay disabled",
+        )
+    if surface_mode == "estimated":
+        return _with_surface_validation(
+            cfg,
+            build_estimated_surface_payload(
+                airport_iata=cfg.airport_iata,
+                airport_icao=cfg.airport_icao,
+                center_lat=center_lat,
+                center_lon=center_lon,
+                radius_nm=radius,
+                error="Estimated-only surface mode; relay surface cache disabled",
+            ),
+            airport,
         )
 
     cached = _load_local_surface_cache(cfg)
@@ -1508,11 +1525,34 @@ def _radar_surface_payload_for_map(cfg: AppConfig, airport: Any, *, radius_nm: f
     center_lat = float(airport.lat)
     center_lon = float(airport.lon)
     surface_radius = clamp_surface_radius_nm(min(5.0, radius_nm))
-    if cfg.radar_surface_enabled:
+    surface_mode = str(getattr(cfg, "radar_surface_mode", "relay" if cfg.radar_surface_enabled else "off") or "off").lower()
+    if surface_mode == "relay":
         try:
             return api_radar_surface(surface_radius)
         except Exception as exc:
             log.debug("Radar map surface lookup failed, using cache/estimate: %s", exc)
+    if surface_mode == "estimated":
+        return _with_surface_validation(
+            cfg,
+            build_estimated_surface_payload(
+                airport_iata=cfg.airport_iata,
+                airport_icao=cfg.airport_icao,
+                center_lat=center_lat,
+                center_lon=center_lon,
+                radius_nm=surface_radius,
+                error="Estimated-only surface mode; relay surface cache disabled",
+            ),
+            airport,
+        )
+    if surface_mode == "off":
+        return _surface_empty_payload(
+            cfg=cfg,
+            center_lat=center_lat,
+            center_lon=center_lon,
+            radius_nm=surface_radius,
+            cache_state="disabled",
+            error="Airport surface overlay disabled",
+        )
     cached = _load_local_surface_cache(cfg)
     if cached:
         payload = dict(cached)

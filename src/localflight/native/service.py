@@ -114,14 +114,26 @@ class NativeApiService:
     def setup_test_activation(self, payload: dict[str, Any]) -> dict[str, Any]:
         return self.client.post_json("/api/setup/test-activation", payload)
 
-    def setup_test_provider_key(self, path: str, key: str) -> dict[str, Any]:
-        return self.client.post_json(path, {"key": key})
+    def setup_test_provider_key(self, path: str, key: str, *, extra: dict[str, Any] | None = None) -> dict[str, Any]:
+        payload = {"key": key}
+        if extra:
+            payload.update(extra)
+        return self.client.post_json(path, payload)
 
     def setup_complete(self, payload: dict[str, Any]) -> dict[str, Any]:
         return self.client.post_json("/api/setup/complete", payload)
 
     def setup_reset(self) -> dict[str, Any]:
         return self.client.post_json("/api/setup/reset", {})
+
+    def provider_keys_status(self) -> dict[str, Any]:
+        return self.client.get_json("/api/provider-keys/status")
+
+    def provider_keys_save(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return self.client.post_json("/api/provider-keys/save", payload)
+
+    def provider_keys_clear(self) -> dict[str, Any]:
+        return self.client.post_json("/api/provider-keys/clear", {})
 
     def airport_search(self, query: str, *, limit: int = 10) -> Any:
         return self.client.get_any_json("/api/airports/search", params={"q": query, "limit": limit})

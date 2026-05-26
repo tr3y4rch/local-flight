@@ -65,6 +65,12 @@ export function mobileOsLabel(): string {
   return `${humanPlatformName()} ${platformVersionLabel()} (${deviceType})`;
 }
 
+export function mobileReportOrigin(): "ios" | "android" | "mobile" {
+  if (Platform.OS === "ios") return "ios";
+  if (Platform.OS === "android") return "android";
+  return "mobile";
+}
+
 export function platformPairLabel(serverPlatform?: string | null, mobileOs?: string): string {
   return `${serverPlatform || "Unknown server"} / ${mobileOs || mobileOsLabel()}`;
 }

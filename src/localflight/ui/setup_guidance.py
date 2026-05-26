@@ -56,7 +56,7 @@ SOURCE_OPTIONS: tuple[dict[str, str], ...] = (
         "short_title": "BYOK",
         "icon": "\U0001F511",  # 🔑
         "body": "Use your own provider accounts when you want your own quotas and direct real-data keys on this device.",
-        "note": "Use your own keys is selected. The next step collects an AviationStack key and optional radar and enrichment keys.",
+        "note": "Use your own keys is selected. The next step collects AeroDataBox or AviationStack for schedules, plus optional ADS-B Exchange radar.",
         "finish_label": "Your own provider keys",
     },
     {
@@ -98,6 +98,7 @@ DIAGNOSTICS_OPTIONS: tuple[dict[str, str], ...] = (
 )
 
 PROVIDER_LINKS: tuple[dict[str, str], ...] = (
+    {"label": "AeroDataBox docs", "url": "https://doc.aerodatabox.com/"},
     {"label": "Get AviationStack key", "url": "https://aviationstack.com/signup"},
     {"label": "ADS-B Exchange on RapidAPI", "url": "https://rapidapi.com/adsbx/api/adsbexchange-com1"},
     {"label": "OpenSky account", "url": "https://opensky-network.org/login?view=registration"},

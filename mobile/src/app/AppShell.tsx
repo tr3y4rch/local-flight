@@ -88,6 +88,10 @@ import type {
   RefreshOptions,
   Screen
 } from "../domain/types";
+import {
+  buildWidgetExchangeSnapshot,
+  deriveWidgetPreviewSnapshot
+} from "../domain/widgets";
 import { useFlightDetail } from "../hooks/useFlightDetail";
 import { type LaunchHydration, useLaunchOverlay } from "../hooks/useLaunchOverlay";
 import { useMatrixCompanion } from "../hooks/useMatrixCompanion";
@@ -99,11 +103,14 @@ import {
   isMobileSetupComplete,
   saveCachedLanAirport,
   saveCachedLanConfig,
+  DEFAULT_WIDGET_PREFERENCES,
   loadRadarDrawingLayers,
   loadWeatherDisplayMode,
+  loadWidgetPreferences,
   type MobileRadarDrawingLayers,
   type MobileDiagnosticsMode,
   type MobileSetupState,
+  type MobileWidgetPreferences,
   type MobileWeatherDisplayMode,
   saveMobileDiagnosticsMode,
   saveMobileRelayActivationToken,
@@ -112,9 +119,11 @@ import {
   saveRadarDrawingLayers,
   saveServerUrl,
   saveStandaloneAirport,
-  saveWeatherDisplayMode
+  saveWeatherDisplayMode,
+  saveWidgetPreferences
 } from "../storage/settings";
 import { clearStandaloneHistory, getStandaloneHistory, getStandaloneHistorySummary, storeStandaloneFidsRows } from "../storage/standaloneHistory";
+import { writeWidgetSnapshot } from "../storage/widgetSnapshot";
 import { useMobileTheme } from "../theme/runtime";
 import { setStyleBridge } from "../theme/styleBridge";
 import {
@@ -133,6 +142,16 @@ type SetupSuccessState = {
   title: string;
   body: string;
   meta: string;
+};
+
+type WidgetSnapshotStatus = {
+  state: "waiting" | "ready" | "stale" | "error";
+  detail: string;
+};
+
+type WidgetPendingAirport = {
+  key: string;
+  baselineLastSuccess: string;
 };
 
 void SplashScreen.preventAutoHideAsync().catch(() => {
@@ -168,6 +187,20 @@ function airportFallbackFromConfig(config: AppConfig | null | undefined): Airpor
     timezone: config?.timezone || undefined,
     type: "large_airport"
   };
+}
+
+function widgetUpdatedLabel(value?: string | null): string {
+  const timestamp = Date.parse(value || "");
+  if (!Number.isFinite(timestamp)) {
+    return "Waiting";
+  }
+  const diffSeconds = Math.max(0, Math.round((Date.now() - timestamp) / 1000));
+  if (diffSeconds < 60) return "Updated now";
+  const diffMinutes = Math.round(diffSeconds / 60);
+  if (diffMinutes < 60) return `${diffMinutes}m ago`;
+  const diffHours = Math.round(diffMinutes / 60);
+  if (diffHours < 24) return `${diffHours}h ago`;
+  return `${Math.round(diffHours / 24)}d ago`;
 }
 
 function refreshActivityForTarget(target: Screen, landscapeFidsActive: boolean): ActivityStatus {
@@ -254,6 +287,12 @@ export function AppShell() {
   const [companionIdentity, setCompanionIdentity] = useState<CompanionIdentity | null>(null);
   const [mobileDiagnosticsMode, setMobileDiagnosticsMode] = useState<MobileDiagnosticsMode>("unset");
   const [weatherDisplayMode, setWeatherDisplayMode] = useState<MobileWeatherDisplayMode>("passenger");
+  const [widgetPreferences, setWidgetPreferences] = useState<MobileWidgetPreferences>(DEFAULT_WIDGET_PREFERENCES);
+  const [widgetSnapshotStatus, setWidgetSnapshotStatus] = useState<WidgetSnapshotStatus>({
+    state: "waiting",
+    detail: "setup"
+  });
+  const [widgetPendingAirport, setWidgetPendingAirport] = useState<WidgetPendingAirport | null>(null);
   const [radarDrawingLayers, setRadarDrawingLayers] = useState<MobileRadarDrawingLayers>({
     runways: true,
     surface: true,
@@ -273,6 +312,8 @@ export function AppShell() {
   const radarGroundCacheRef = useRef<Map<string, RadarMapResponse>>(new Map());
   const refreshInFlightRef = useRef<Map<string, Promise<void>>>(new Map());
   const lastRadarRefreshAfterRef = useRef<number | null>(null);
+  const widgetSnapshotWasReadyRef = useRef(false);
+  const previousWidgetAirportKeyRef = useRef("");
   const screenOpacity = useRef(new Animated.Value(1)).current;
   const screenLift = useRef(new Animated.Value(0)).current;
   const snapshotPulse = useRef(new Animated.Value(0)).current;
@@ -506,10 +547,11 @@ export function AppShell() {
 
   useEffect(() => {
     let alive = true;
-    void Promise.all([loadWeatherDisplayMode(), loadRadarDrawingLayers()]).then(([mode, layers]) => {
+    void Promise.all([loadWeatherDisplayMode(), loadRadarDrawingLayers(), loadWidgetPreferences()]).then(([mode, layers, widgets]) => {
       if (alive) {
         setWeatherDisplayMode(mode);
         setRadarDrawingLayers(layers);
+        setWidgetPreferences(widgets);
       }
     });
     return () => {
@@ -520,6 +562,11 @@ export function AppShell() {
   const chooseWeatherDisplayMode = useCallback(async (mode: MobileWeatherDisplayMode) => {
     await saveWeatherDisplayMode(mode);
     setWeatherDisplayMode(mode);
+  }, []);
+
+  const chooseWidgetPreferences = useCallback(async (next: MobileWidgetPreferences) => {
+    const normalized = await saveWidgetPreferences(next);
+    setWidgetPreferences(normalized);
   }, []);
 
   const fetchDashboard = useCallback(async (normalized: string) => {
@@ -1070,13 +1117,13 @@ export function AppShell() {
         await submitStandaloneFeedback(standaloneCredentials, {
           title: feedbackTitle.trim(),
           description: feedbackDescription.trim(),
-          client_context: mobileClientContext("standalone-relay", snapshot, companionIdentity)
+          client_context: mobileClientContext("standalone-relay", snapshot, companionIdentity, "standalone")
         });
       } else {
         await submitFeedback(normalized, {
           title: feedbackTitle.trim(),
           description: feedbackDescription.trim(),
-          client_context: mobileClientContext(normalized, snapshot, companionIdentity)
+          client_context: mobileClientContext(normalized, snapshot, companionIdentity, "lan_companion")
         });
       }
       setFeedbackTone("ok");
@@ -1256,6 +1303,36 @@ export function AppShell() {
   const airportName = currentAirportDetail?.name || fallbackDisplayName;
   const airportLocation = [currentAirportDetail?.city, currentAirportDetail?.country].filter(Boolean).join(" · ");
   const sourceLabel = state?.source_name || cfg?.source || "VATSIM";
+  const widgetAirportKey = `${isStandalone ? "standalone" : "lan"}:${airportCode}:${airportIcao || "---"}`;
+  const widgetLastSuccess = state?.last_success_utc || "";
+  const widgetAirportChangedBeforeEffect = Boolean(
+    mobileSetupComplete &&
+    previousWidgetAirportKeyRef.current &&
+    previousWidgetAirportKeyRef.current !== widgetAirportKey
+  );
+  const widgetRowsPendingAirport =
+    widgetAirportChangedBeforeEffect || widgetPendingAirport?.key === widgetAirportKey;
+  const widgetRowsForPreview = useMemo(
+    () => widgetRowsPendingAirport ? [] : rows,
+    [rows, widgetRowsPendingAirport]
+  );
+  const widgetPreview = useMemo(() => deriveWidgetPreviewSnapshot({
+    rows: widgetRowsForPreview,
+    pinnedCallsign,
+    airportCode,
+    airportName,
+    updatedLabel: widgetUpdatedLabel(state?.last_success_utc),
+    view,
+    preferences: widgetPreferences
+  }), [
+    airportCode,
+    airportName,
+    pinnedCallsign,
+    widgetRowsForPreview,
+    state?.last_success_utc,
+    view,
+    widgetPreferences
+  ]);
   const isLive = connected && state?.ok !== false;
   const connectionState: ConnectionState = error
     ? refreshing ? "retrying" : "offline"
@@ -1267,6 +1344,91 @@ export function AppShell() {
   const syncIntervalMs = isStandalone
     ? (screen === "radar" ? 5 * 60 * 1000 : 3 * 60 * 60 * 1000)
     : (screen === "radar" ? radarSyncIntervalMs : companionSyncMs(cfg?.refresh_seconds));
+  const widgetSnapshotLabel = `Snapshot ${widgetSnapshotStatus.state} · ${widgetSnapshotStatus.detail}`;
+
+  useEffect(() => {
+    if (!mobileSetupComplete) {
+      previousWidgetAirportKeyRef.current = "";
+      setWidgetPendingAirport(null);
+      return;
+    }
+    if (!previousWidgetAirportKeyRef.current) {
+      previousWidgetAirportKeyRef.current = widgetAirportKey;
+      return;
+    }
+    if (previousWidgetAirportKeyRef.current !== widgetAirportKey) {
+      previousWidgetAirportKeyRef.current = widgetAirportKey;
+      setWidgetPendingAirport({
+        key: widgetAirportKey,
+        baselineLastSuccess: widgetLastSuccess
+      });
+    }
+  }, [mobileSetupComplete, widgetAirportKey, widgetLastSuccess]);
+
+  useEffect(() => {
+    if (!widgetPendingAirport || widgetPendingAirport.key !== widgetAirportKey) return;
+    if (widgetLastSuccess && widgetLastSuccess !== widgetPendingAirport.baselineLastSuccess) {
+      setWidgetPendingAirport(null);
+    }
+  }, [widgetAirportKey, widgetLastSuccess, widgetPendingAirport]);
+
+  useEffect(() => {
+    if (!launchHydrated) return;
+    if (!mobileSetupComplete && !widgetSnapshotWasReadyRef.current) {
+      setWidgetSnapshotStatus({ state: "waiting", detail: "setup" });
+      return;
+    }
+    const writePreview = mobileSetupComplete
+      ? widgetPreview
+      : deriveWidgetPreviewSnapshot({
+          rows: [],
+          pinnedCallsign: "",
+          airportCode: "---",
+          airportName: "Local Flight Airport",
+          updatedLabel: "Setup reset",
+          view,
+          preferences: widgetPreferences
+        });
+    const payload = buildWidgetExchangeSnapshot({
+      preview: writePreview,
+      preferences: widgetPreferences,
+      mode: isStandalone ? "standalone" : "lan_companion",
+      stale: !mobileSetupComplete || !connected || Boolean(error) || widgetRowsPendingAirport,
+      sourceLabel
+    });
+    let alive = true;
+    void writeWidgetSnapshot(payload, { force: !mobileSetupComplete }).then((result) => {
+      if (!alive) return;
+      if (result.ok) {
+        if (mobileSetupComplete) {
+          widgetSnapshotWasReadyRef.current = true;
+        }
+        setWidgetSnapshotStatus({
+          state: payload.stale ? "stale" : "ready",
+          detail: result.sharedContainer ? "app group" : "app sandbox"
+        });
+      } else {
+        setWidgetSnapshotStatus({
+          state: "error",
+          detail: result.error || "write failed"
+        });
+      }
+    });
+    return () => {
+      alive = false;
+    };
+  }, [
+    connected,
+    error,
+    isStandalone,
+    launchHydrated,
+    mobileSetupComplete,
+    sourceLabel,
+    view,
+    widgetRowsPendingAirport,
+    widgetPreferences,
+    widgetPreview
+  ]);
 
   useEffect(() => {
     if (!dataReady || !connected) return;
@@ -1343,10 +1505,13 @@ export function AppShell() {
           scale={launch.scale}
           progress={launch.progress}
           pulse={launch.pulse}
+          beacon={launch.beacon}
           sweep={launch.sweep}
           orbitFast={launch.orbitFast}
           orbitMedium={launch.orbitMedium}
           orbitSlow={launch.orbitSlow}
+          ready={launch.ready}
+          onEnter={launch.enter}
           status={launch.status}
           styles={styles}
         />
@@ -1527,6 +1692,9 @@ export function AppShell() {
               {screen === "settings" && isStandalone ? (
                 <StandaloneSettingsScreen
                   snapshot={snapshot}
+                  rows={rows}
+                  view={view}
+                  pinnedCallsign={pinnedCallsign}
                   companionIdentity={companionIdentity}
                   connected={isLive}
                   airportCode={airportCode}
@@ -1535,6 +1703,8 @@ export function AppShell() {
                   themeMode={themeMode}
                   skin={skin}
                   weatherDisplayMode={weatherDisplayMode}
+                  widgetPreferences={widgetPreferences}
+                  widgetSnapshotLabel={widgetSnapshotLabel}
                   mobileDiagnosticsMode={mobileDiagnosticsMode}
                   feedbackTitle={feedbackTitle}
                   feedbackDescription={feedbackDescription}
@@ -1544,6 +1714,7 @@ export function AppShell() {
                   onThemeModeChange={setThemeMode}
                   onSkinChange={setSkin}
                   onWeatherDisplayModeChange={chooseWeatherDisplayMode}
+                  onWidgetPreferencesChange={(next) => void chooseWidgetPreferences(next)}
                   onMobileDiagnosticsModeChange={chooseMobileDiagnosticsMode}
                   onRerunSetup={rerunCompanionSetup}
                   onOpenSupport={() => setSupportVisible(true)}
@@ -1556,6 +1727,9 @@ export function AppShell() {
               {screen === "control" && !isStandalone ? (
                 <ControlScreen
                   snapshot={snapshot}
+                  rows={rows}
+                  view={view}
+                  pinnedCallsign={pinnedCallsign}
                   error={error}
                   serverUrl={serverUrl}
                   draftUrl={draftUrl}
@@ -1565,6 +1739,8 @@ export function AppShell() {
                   themeMode={themeMode}
                   skin={skin}
                   weatherDisplayMode={weatherDisplayMode}
+                  widgetPreferences={widgetPreferences}
+                  widgetSnapshotLabel={widgetSnapshotLabel}
                   mobileDiagnosticsMode={mobileDiagnosticsMode}
                   profiles={profiles}
                   activeProfileId={activeProfileId}
@@ -1585,6 +1761,7 @@ export function AppShell() {
                   onThemeModeChange={setThemeMode}
                   onSkinChange={setSkin}
                   onWeatherDisplayModeChange={chooseWeatherDisplayMode}
+                  onWidgetPreferencesChange={(next) => void chooseWidgetPreferences(next)}
                   onMobileDiagnosticsModeChange={chooseMobileDiagnosticsMode}
                   onMatrixPresetChange={(preset) => updateMatrixDraft({ preset })}
                   onMatrixViewChange={(nextView) => updateMatrixDraft({ default_view: nextView })}
@@ -1709,10 +1886,13 @@ export function AppShell() {
         scale={launch.scale}
         progress={launch.progress}
         pulse={launch.pulse}
+        beacon={launch.beacon}
         sweep={launch.sweep}
         orbitFast={launch.orbitFast}
         orbitMedium={launch.orbitMedium}
         orbitSlow={launch.orbitSlow}
+        ready={launch.ready}
+        onEnter={launch.enter}
         status={launch.status}
         styles={styles}
       />
@@ -2063,16 +2243,20 @@ function createStyles() {
     letterSpacing: 1,
     includeFontPadding: false
   },
+  companionSetupKeyboard: {
+    flex: 1,
+    backgroundColor: splashBg
+  },
   companionSetupScroll: {
     flex: 1,
-    backgroundColor: palette.bg
+    backgroundColor: splashBg
   },
   companionSetupContent: {
     flexGrow: 1,
     alignItems: "center",
-    justifyContent: "center",
+    justifyContent: "flex-start",
     paddingHorizontal: 14,
-    paddingTop: 14,
+    paddingTop: 12,
     paddingBottom: 20,
     overflow: "hidden"
   },
@@ -2083,7 +2267,7 @@ function createStyles() {
     width: 310,
     height: 310,
     borderRadius: 999,
-    backgroundColor: accent12
+    backgroundColor: splashAccentFaint
   },
   companionSetupGlowB: {
     position: "absolute",
@@ -2092,7 +2276,7 @@ function createStyles() {
     width: 340,
     height: 340,
     borderRadius: 999,
-    backgroundColor: success08
+    backgroundColor: splashAccentFaint
   },
   companionSetupShell: {
     width: "100%",
@@ -2106,8 +2290,8 @@ function createStyles() {
     paddingBottom: 14,
     borderRadius: 22,
     borderWidth: 1,
-    borderColor: accent16,
-    backgroundColor: softPanelStrong,
+    borderColor: splashLineSoft,
+    backgroundColor: lightMode ? "rgba(255,255,255,0.68)" : "rgba(14,23,34,0.84)",
     shadowColor: "#000",
     shadowOpacity: 0.18,
     shadowRadius: 24,
@@ -2126,7 +2310,7 @@ function createStyles() {
     height: 96,
     borderRadius: 999,
     borderWidth: 1,
-    borderColor: accent30
+    borderColor: splashAccentSoft
   },
   companionSetupLogoRingOuter: {
     position: "absolute",
@@ -2134,9 +2318,9 @@ function createStyles() {
     height: 120,
     borderRadius: 999,
     borderWidth: 1,
-    borderColor: hairline,
-    borderTopColor: success25,
-    borderRightColor: warn24
+    borderColor: splashLineSoft,
+    borderTopColor: splashAccentSoft,
+    borderRightColor: splashAccentFaint
   },
   companionSetupLogoPlate: {
     width: 76,
@@ -2156,6 +2340,90 @@ function createStyles() {
   companionSetupLogoMark: {
     width: 82,
     height: 82
+  },
+  companionSetupCompactRail: {
+    overflow: "hidden",
+    padding: 12,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: splashLineSoft,
+    backgroundColor: lightMode ? "rgba(255,255,255,0.64)" : "rgba(14,23,34,0.82)"
+  },
+  companionSetupCompactBrand: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10
+  },
+  companionSetupCompactLogo: {
+    width: 38,
+    height: 38,
+    borderRadius: 13,
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: splashPlateBorder,
+    backgroundColor: splashPlate
+  },
+  companionSetupCompactLogoMark: {
+    width: 42,
+    height: 42
+  },
+  companionSetupCompactCopy: {
+    flex: 1,
+    minWidth: 0
+  },
+  companionSetupCompactTitle: {
+    fontFamily: brand,
+    color: palette.text,
+    fontSize: 19,
+    lineHeight: 22,
+    fontWeight: "400",
+    includeFontPadding: false
+  },
+  companionSetupCompactMeta: {
+    marginTop: 3,
+    fontFamily: mono,
+    color: palette.blue2,
+    fontSize: 8,
+    fontWeight: "900",
+    letterSpacing: 1.3,
+    textTransform: "uppercase",
+    includeFontPadding: false
+  },
+  companionSetupCompactBeacon: {
+    position: "absolute",
+    top: 18,
+    right: 14,
+    width: 78,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    opacity: lightMode ? 0.42 : 0.62
+  },
+  companionSetupCompactBeaconDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 999,
+    backgroundColor: splashAccent
+  },
+  companionSetupCompactBeaconLine: {
+    flex: 1,
+    height: 1,
+    borderRadius: 999,
+    backgroundColor: splashAccentFaint
+  },
+  companionSetupCompactProgress: {
+    marginTop: 12,
+    height: 4,
+    overflow: "hidden",
+    borderRadius: 999,
+    backgroundColor: lightMode ? hexToRgba(palette.line, 0.28) : "rgba(213,244,255,0.12)"
+  },
+  companionSetupCompactProgressFill: {
+    height: "100%",
+    borderRadius: 999,
+    backgroundColor: splashAccent
   },
   companionSetupEyebrow: {
     color: palette.blue2,
@@ -2236,8 +2504,11 @@ function createStyles() {
     padding: 16,
     borderRadius: 20,
     borderWidth: 1,
-    borderColor: accent16,
-    backgroundColor: palette.rowAlt
+    borderColor: splashLineSoft,
+    backgroundColor: lightMode ? "rgba(255,255,255,0.66)" : "rgba(14,23,34,0.82)"
+  },
+  companionSetupWelcomePanel: {
+    backgroundColor: lightMode ? "rgba(255,255,255,0.7)" : "rgba(14,23,34,0.76)"
   },
   companionSetupPanelTitle: {
     fontFamily: mono,
@@ -2654,7 +2925,7 @@ function createStyles() {
     bottom: -160,
     height: 320,
     borderRadius: 999,
-    backgroundColor: lightMode ? hexToRgba(palette.blue2, 0.08) : "rgba(0,0,0,0.36)"
+    backgroundColor: lightMode ? hexToRgba(palette.blue2, 0.08) : splashAccentFaint
   },
   launchSkyGrid: {
     position: "absolute",
@@ -2758,6 +3029,12 @@ function createStyles() {
     shadowOpacity: lightMode ? 0.20 : 0.42,
     shadowRadius: 32,
     shadowOffset: { width: 0, height: 0 }
+  },
+  launchBeaconPing: {
+    position: "absolute",
+    borderWidth: 1,
+    borderColor: splashAccentSoft,
+    backgroundColor: "transparent"
   },
   launchRadarRing: {
     position: "absolute",
@@ -2895,22 +3172,43 @@ function createStyles() {
     borderRadius: 999,
     backgroundColor: splashAccent
   },
+  launchEnterButton: {
+    alignSelf: "center",
+    marginTop: 15,
+    minHeight: 39,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 18,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: splashAccentSoft,
+    backgroundColor: lightMode ? hexToRgba(palette.blue2, 0.14) : "rgba(82,246,255,0.12)"
+  },
+  launchEnterText: {
+    fontFamily: mono,
+    color: palette.text,
+    fontSize: 10,
+    fontWeight: "900",
+    letterSpacing: 1.2,
+    includeFontPadding: false
+  },
   launchBottomMeta: {
     width: "100%",
     alignItems: "center",
     justifyContent: "flex-end",
-    minHeight: 48
+    minHeight: 56
   },
   launchVersion: {
+    marginLeft: 5,
     fontFamily: mono,
     color: splashTextGhost,
-    fontSize: 10,
+    fontSize: 9,
     fontWeight: "800",
     letterSpacing: 0.9,
     includeFontPadding: false
   },
   launchBeaconFooter: {
-    marginTop: 10,
     minHeight: 20,
     flexDirection: "row",
     alignItems: "center",
@@ -3982,7 +4280,7 @@ function createStyles() {
   },
   filterSection: {
     paddingHorizontal: 12,
-    paddingBottom: 10
+    paddingBottom: 12
   },
   filterLabel: {
     paddingHorizontal: 10,
@@ -3995,16 +4293,17 @@ function createStyles() {
   },
   filterRow: {
     flexDirection: "row",
+    flexWrap: "wrap",
     gap: 8
   },
   filterWrap: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 8
+    gap: 10
   },
   optionChip: {
-    minWidth: 82,
-    minHeight: 52,
+    minWidth: 86,
+    minHeight: 54,
     paddingHorizontal: 12,
     paddingVertical: 10,
     borderRadius: 10,
@@ -4097,6 +4396,7 @@ function createStyles() {
   },
   metricRow: {
     flexDirection: "row",
+    flexWrap: "wrap",
     gap: 8,
     paddingHorizontal: 12,
     paddingBottom: 12
@@ -5208,7 +5508,7 @@ function createStyles() {
   },
   cardStack: {
     paddingHorizontal: 12,
-    gap: 8
+    gap: 10
   },
   infoCard: {
     flex: 1,
@@ -5259,8 +5559,9 @@ function createStyles() {
     borderTopWidth: 1,
     borderTopColor: palette.lineSoft,
     paddingHorizontal: 16,
-    paddingTop: 12,
-    paddingBottom: 16
+    paddingTop: 16,
+    paddingBottom: 18,
+    gap: 10
   },
   settingsTitle: {
     fontFamily: mono,
@@ -5604,7 +5905,7 @@ function createStyles() {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 7,
+    gap: 8,
     marginTop: 4,
     marginBottom: 18,
     paddingHorizontal: 13,
@@ -5657,6 +5958,368 @@ function createStyles() {
   },
   supportHeroBody: {
     marginTop: 3,
+    color: palette.textMuted,
+    fontSize: 12,
+    lineHeight: 17
+  },
+  widgetNotice: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    padding: 14,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: accent18,
+    backgroundColor: accent08
+  },
+  widgetPreviewCard: {
+    marginTop: 14,
+    padding: 13,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: accent14,
+    backgroundColor: softPanel
+  },
+  widgetPreviewCardNested: {
+    marginTop: 10,
+    backgroundColor: fieldPanel
+  },
+  widgetSmallTracker: {
+    overflow: "hidden",
+    backgroundColor: palette.row
+  },
+  widgetPreviewHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10
+  },
+  widgetPreviewTitle: {
+    fontFamily: mono,
+    color: palette.blue,
+    fontSize: 10,
+    fontWeight: "800",
+    letterSpacing: 1.1,
+    includeFontPadding: false,
+    lineHeight: 12,
+    textTransform: "uppercase"
+  },
+  widgetPreviewMeta: {
+    fontFamily: mono,
+    color: palette.textDim,
+    fontSize: 9,
+    fontWeight: "800",
+    letterSpacing: 0.8,
+    includeFontPadding: false,
+    lineHeight: 11
+  },
+  widgetFlightMain: {
+    marginTop: 10,
+    fontFamily: mono,
+    color: palette.text,
+    fontSize: 21,
+    fontWeight: "800",
+    letterSpacing: 0.7,
+    includeFontPadding: false,
+    lineHeight: 26
+  },
+  widgetFlightSub: {
+    marginTop: 4,
+    color: palette.textMuted,
+    fontSize: 12,
+    lineHeight: 16
+  },
+  widgetTrackerRoute: {
+    marginTop: 8,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: palette.lineSoft,
+    color: palette.blue2,
+    fontSize: 12,
+    fontWeight: "700",
+    lineHeight: 16
+  },
+  widgetTrackerEmpty: {
+    marginTop: 10,
+    paddingVertical: 6
+  },
+  widgetEmptyTitle: {
+    fontFamily: mono,
+    color: palette.text,
+    fontSize: 13,
+    fontWeight: "800",
+    letterSpacing: 0.5,
+    includeFontPadding: false,
+    lineHeight: 16
+  },
+  widgetFidsBoard: {
+    marginTop: 14,
+    padding: 11,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: accent18,
+    backgroundColor: palette.bg,
+    overflow: "hidden"
+  },
+  widgetFidsTop: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: 8,
+    paddingBottom: 9,
+    borderBottomWidth: 1,
+    borderBottomColor: palette.lineSoft
+  },
+  widgetFidsBeaconWatermark: {
+    width: 44,
+    alignItems: "flex-start",
+    justifyContent: "center",
+    opacity: 0.82
+  },
+  widgetFidsIdentity: {
+    flex: 1,
+    minWidth: 0,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 5
+  },
+  widgetFidsKickerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+    flexWrap: "wrap"
+  },
+  widgetFidsKicker: {
+    fontFamily: mono,
+    color: palette.blue2,
+    fontSize: 10,
+    fontWeight: "900",
+    letterSpacing: 1.8,
+    includeFontPadding: false,
+    lineHeight: 12
+  },
+  widgetFidsBoardBadge: {
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: accent18,
+    backgroundColor: accent08,
+    fontFamily: mono,
+    color: palette.textMuted,
+    fontSize: 8,
+    fontWeight: "900",
+    letterSpacing: 0.8,
+    includeFontPadding: false,
+    lineHeight: 10,
+    textAlign: "center",
+    overflow: "hidden"
+  },
+  widgetFidsTitle: {
+    color: palette.text,
+    fontSize: 14,
+    fontWeight: "800",
+    lineHeight: 17,
+    textAlign: "center",
+    maxWidth: "100%"
+  },
+  widgetFidsMeta: {
+    width: 108,
+    alignItems: "flex-end",
+    justifyContent: "center",
+    gap: 4,
+    flexShrink: 0
+  },
+  widgetFidsBrand: {
+    maxWidth: 108,
+    textAlign: "right",
+    lineHeight: 17
+  },
+  widgetFidsLive: {
+    fontFamily: mono,
+    color: palette.green,
+    fontSize: 9,
+    fontWeight: "900",
+    letterSpacing: 1.1,
+    includeFontPadding: false,
+    lineHeight: 11
+  },
+  widgetFidsSource: {
+    fontFamily: mono,
+    color: palette.textDim,
+    fontSize: 8,
+    fontWeight: "800",
+    letterSpacing: 0.8,
+    includeFontPadding: false,
+    lineHeight: 10
+  },
+  widgetFidsColumns: {
+    marginTop: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: hairlineSoft,
+    backgroundColor: palette.header
+  },
+  widgetFidsColumnText: {
+    fontFamily: mono,
+    color: palette.textDim,
+    fontSize: 7,
+    fontWeight: "900",
+    letterSpacing: 0.8,
+    includeFontPadding: false,
+    lineHeight: 9
+  },
+  widgetFidsTimeColumn: {
+    width: 48
+  },
+  widgetFidsFlightColumn: {
+    width: 74
+  },
+  widgetFidsRouteColumn: {
+    flex: 1,
+    minWidth: 0
+  },
+  widgetFidsStatusColumn: {
+    width: 78,
+    alignItems: "flex-start"
+  },
+  widgetFidsInfoColumn: {
+    width: 52,
+    textAlign: "right"
+  },
+  widgetFidsRows: {
+    marginTop: 6,
+    gap: 6
+  },
+  widgetFidsRow: {
+    minHeight: 48,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    borderRadius: 9,
+    borderWidth: 1,
+    borderColor: hairlineSoft,
+    backgroundColor: palette.row
+  },
+  widgetFidsRowPinned: {
+    borderColor: warn24,
+    backgroundColor: warn07
+  },
+  widgetFidsTime: {
+    fontFamily: mono,
+    color: palette.text,
+    fontSize: 13,
+    fontWeight: "900",
+    includeFontPadding: false,
+    lineHeight: 16
+  },
+  widgetFidsFlightCell: {
+    minWidth: 0
+  },
+  widgetFidsFlight: {
+    fontFamily: mono,
+    color: palette.blue2,
+    fontSize: 12,
+    fontWeight: "900",
+    letterSpacing: 0.4,
+    includeFontPadding: false,
+    lineHeight: 14
+  },
+  widgetFidsSubline: {
+    marginTop: 2,
+    fontFamily: mono,
+    color: palette.textDim,
+    fontSize: 7,
+    fontWeight: "900",
+    letterSpacing: 0.7,
+    includeFontPadding: false,
+    lineHeight: 9
+  },
+  widgetFidsRouteCell: {
+    minWidth: 0
+  },
+  widgetFidsRouteName: {
+    color: palette.text,
+    fontSize: 12,
+    fontWeight: "700",
+    includeFontPadding: false,
+    lineHeight: 15
+  },
+  widgetFidsRouteMeta: {
+    marginTop: 2,
+    fontFamily: mono,
+    color: palette.textMuted,
+    fontSize: 8,
+    fontWeight: "700",
+    letterSpacing: 0.5,
+    includeFontPadding: false,
+    lineHeight: 10
+  },
+  widgetFidsInfoValue: {
+    fontFamily: mono,
+    color: palette.textDim,
+    fontSize: 8,
+    fontWeight: "800",
+    includeFontPadding: false,
+    lineHeight: 10
+  },
+  widgetFidsEmpty: {
+    padding: 14,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: hairlineSoft,
+    backgroundColor: palette.row
+  },
+  widgetLiveRows: {
+    marginTop: 10,
+    gap: 8
+  },
+  widgetPreviewRow: {
+    minHeight: 48,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingVertical: 8,
+    borderTopWidth: 1,
+    borderTopColor: palette.lineSoft
+  },
+  widgetRowTime: {
+    width: 48,
+    fontFamily: mono,
+    color: palette.text,
+    fontSize: 13,
+    fontWeight: "800",
+    includeFontPadding: false,
+    lineHeight: 16
+  },
+  widgetRowCopy: {
+    flex: 1,
+    minWidth: 0
+  },
+  widgetRowFlight: {
+    fontFamily: mono,
+    color: palette.blue2,
+    fontSize: 12,
+    fontWeight: "800",
+    includeFontPadding: false,
+    lineHeight: 15
+  },
+  widgetRowRoute: {
+    marginTop: 3,
+    color: palette.textMuted,
+    fontSize: 11,
+    includeFontPadding: false,
+    lineHeight: 14
+  },
+  widgetEmptyText: {
+    marginTop: 10,
     color: palette.textMuted,
     fontSize: 12,
     lineHeight: 17
@@ -6112,8 +6775,8 @@ function createStyles() {
     flexDirection: "row",
     justifyContent: "space-around",
     alignItems: "center",
-    minHeight: 72,
-    paddingTop: 10,
+    minHeight: 66,
+    paddingTop: 6,
     paddingHorizontal: 12,
     borderTopWidth: 1,
     borderTopColor: palette.lineSoft,
@@ -6366,7 +7029,8 @@ function createStyles() {
   },
   sheetContent: {
     padding: 18,
-    paddingBottom: 36
+    paddingBottom: 72,
+    gap: 12
   },
   sheetSummary: {
     flexDirection: "row",
@@ -6895,15 +7559,15 @@ function createStyles() {
     lineHeight: 14
   },
   matrixLiveSheetCard: {
-    minHeight: "56%",
-    maxHeight: "82%",
+    minHeight: "62%",
+    maxHeight: "86%",
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24
   },
   matrixLiveSheetHeader: {
     alignItems: "center",
-    paddingTop: 10,
-    paddingBottom: 10,
+    paddingTop: 14,
+    paddingBottom: 14,
     paddingHorizontal: 16
   },
   matrixLiveSheetTitle: {
@@ -6917,13 +7581,15 @@ function createStyles() {
     paddingHorizontal: 12
   },
   matrixLiveSheetContent: {
-    paddingTop: 12,
-    paddingHorizontal: 16
+    paddingTop: 18,
+    paddingHorizontal: 16,
+    paddingBottom: 84,
+    gap: 14
   },
   matrixLiveStatusStrip: {
     minHeight: 40,
     marginHorizontal: 0,
-    marginBottom: 4,
+    marginBottom: 2,
     paddingHorizontal: 12,
     paddingVertical: 9,
     borderRadius: 12,
@@ -6955,10 +7621,10 @@ function createStyles() {
     color: palette.amber
   },
   matrixLivePresetRow: {
-    gap: 8
+    gap: 10
   },
   matrixLivePresetChip: {
-    minHeight: 52,
+    minHeight: 58,
     justifyContent: "center",
     paddingHorizontal: 12,
     paddingVertical: 9,
@@ -6985,17 +7651,17 @@ function createStyles() {
     lineHeight: 13
   },
   matrixLiveSubRow: {
-    marginTop: 8
+    marginTop: 10
   },
   matrixLivePaletteRow: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 8
+    gap: 10
   },
   matrixLivePaletteChip: {
-    width: "48.5%",
+    width: "48%",
     minWidth: 132,
-    minHeight: 50,
+    minHeight: 56,
     justifyContent: "center",
     paddingHorizontal: 11,
     paddingVertical: 9,
@@ -7013,7 +7679,7 @@ function createStyles() {
   matrixActionRow: {
     flexDirection: "row",
     gap: 10,
-    marginTop: 14
+    marginTop: 4
   },
   matrixActionButton: {
     minHeight: 44,

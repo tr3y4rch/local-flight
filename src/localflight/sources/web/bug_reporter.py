@@ -274,7 +274,9 @@ def _origin_for_report(report_type: str, context: str = "", client_context: str 
         return "desktop"
     if "ios" in hint:
         return "ios"
-    if "companion id" in hint or context.startswith("mobile/"):
+    if "android" in hint:
+        return "android"
+    if "companion id" in hint or "mobile id" in hint or context.startswith("mobile/"):
         return "mobile"
     if context.startswith("web/"):
         return "web"

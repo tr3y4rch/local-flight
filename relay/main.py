@@ -106,7 +106,7 @@ _ADMIN_AUTH_WINDOW_SECONDS = 5 * 60
 _LINEAR_GRAPHQL_URL = "https://api.linear.app/graphql"
 
 _REPORT_ALLOWED_TYPES = {"manual", "crash"}
-_REPORT_ALLOWED_ORIGINS = {"desktop", "web", "server", "scheduler", "mobile", "ios", "relay"}
+_REPORT_ALLOWED_ORIGINS = {"desktop", "web", "server", "scheduler", "mobile", "ios", "android", "relay"}
 _SITE_CONTACT_CATEGORIES = {"general", "mobile_testing", "relay", "privacy"}
 _SITE_BUG_SURFACES = {"windows", "macos", "raspberry-pi", "mobile", "matrix", "relay", "website", "unknown"}
 _SITE_ALLOWED_ORIGIN_HOSTS = {"beacontools.cc", "www.beacontools.cc"}
@@ -2229,9 +2229,13 @@ def _report_origin(body: "ReportIn") -> str:
     if origin in _REPORT_ALLOWED_ORIGINS:
         if origin == "mobile" and "ios" in hint:
             return "ios"
+        if origin == "mobile" and "android" in hint:
+            return "android"
         return origin
     if "ios" in hint:
         return "ios"
+    if "android" in hint:
+        return "android"
     if body.context.startswith("web/"):
         return "web"
     if body.context.startswith("mobile/"):
@@ -2246,7 +2250,7 @@ def _report_origin(body: "ReportIn") -> str:
 def _report_team(origin: str, context: str) -> str:
     origin = (origin or "").strip().lower()
     context = (context or "").strip().lower()
-    if origin in {"ios", "mobile"} or context.startswith("mobile/"):
+    if origin in {"ios", "android", "mobile"} or context.startswith("mobile/"):
         return "ios"
     if origin in {"desktop", "web", "native"} or context.startswith("web/") or context.startswith("native/"):
         return "desktop"
@@ -2278,6 +2282,28 @@ def _report_team_label(team: str, origin: str) -> str:
 
 def _report_type_label(report_type: str) -> str:
     return "Manual" if report_type == "manual" else "Crash"
+
+
+def _report_issue_platform_label(body: "ReportIn", *, team: str, origin: str) -> str:
+    if origin in {"desktop", "web", "server", "scheduler", "relay"} or team != "ios":
+        return _report_team_label(team, origin)
+    hint = f"{origin} {body.platform} {body.os} {body.client_context}".lower()
+    if "android" in hint:
+        return "Android"
+    if "ios" in hint:
+        return "iOS"
+    if team == "ios":
+        return "Mobile"
+    return _report_team_label(team, origin)
+
+
+def _report_app_mode_label(body: "ReportIn") -> str:
+    hint = f"{body.context} {body.platform} {body.client_context}".lower()
+    if "mobile_standalone" in hint or "standalone relay" in hint:
+        return "Standalone"
+    if "lan companion" in hint or "lan_companion" in hint or "companion" in hint:
+        return "LAN Companion"
+    return ""
 
 
 def _report_window_start(report_type: str) -> str:
@@ -2436,7 +2462,8 @@ def _mark_report_filed(conn: sqlite3.Connection, *, dedupe_key: str, url: str) -
 
 
 def _linear_issue_title(body: "ReportIn", *, team: str, origin: str) -> str:
-    platform_label = _report_team_label(team, origin)
+    platform_label = _report_issue_platform_label(body, team=team, origin=origin)
+    app_mode_label = _report_app_mode_label(body)
     type_label = _report_type_label(body.report_type)
     if body.report_type == "manual":
         summary = body.title or "Manual report"
@@ -2444,7 +2471,7 @@ def _linear_issue_title(body: "ReportIn", *, team: str, origin: str) -> str:
         summary = body.message or body.title or "Crash report"
     context = _collapse(body.context, limit=40)
     summary = _collapse(summary, limit=96)
-    prefix = f"[{platform_label}][{type_label}]"
+    prefix = f"[{platform_label}][{app_mode_label}][{type_label}]" if app_mode_label else f"[{platform_label}][{type_label}]"
     if body.report_type == "crash" and context:
         return f"{prefix} {context} - {summary}"[:200]
     return f"{prefix} {summary}"[:200]
@@ -2452,10 +2479,12 @@ def _linear_issue_title(body: "ReportIn", *, team: str, origin: str) -> str:
 
 def _linear_issue_body(body: "ReportIn", *, team: str, origin: str, install_fingerprint: str) -> str:
     type_label = _report_type_label(body.report_type)
+    app_mode_label = _report_app_mode_label(body) or "unknown"
     sections = [
         f"**Report type:** {type_label}",
         f"**Origin:** {origin}",
         f"**Linear team bucket:** {team}",
+        f"**App mode:** {app_mode_label}",
         f"**Version/package:** {body.app_version or 'unknown'}",
         f"**Install fingerprint:** `{install_fingerprint}`",
         f"**Platform:** {body.platform or body.os or 'unknown'}",

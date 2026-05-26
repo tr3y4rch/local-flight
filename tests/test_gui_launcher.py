@@ -2849,6 +2849,7 @@ def test_native_settings_has_airport_search_picker(monkeypatch: pytest.MonkeyPat
         card.title_label.text()
         for card in screen.widget.findChildren(QtWidgets.QFrame, "DisclosureCard")
     ] == [
+        "Provider Keys & Privacy",
         "Outputs & Radar",
         "Profiles",
         "Pair Mobile",
@@ -2944,6 +2945,7 @@ def test_native_settings_config_payload_preserves_fields(monkeypatch: pytest.Mon
             "display_grace_minutes": 45,
             "display_horizon_hours": 18,
             "radar_surface_enabled": True,
+            "radar_surface_mode": "relay",
             "display_outputs": [],
         }
     )
@@ -2969,12 +2971,14 @@ def test_native_settings_config_payload_preserves_fields(monkeypatch: pytest.Mon
         "display_grace_minutes",
         "display_horizon_hours",
         "radar_surface_enabled",
+        "radar_surface_mode",
         "display_outputs",
     }
     assert payload["airport_iata"] == "SIN"
     assert payload["airport_icao"] == "WSSS"
     assert payload["refresh_seconds"] == 1800
     assert payload["display_outputs"] == ["web"]
+    assert payload["radar_surface_mode"] == "relay"
 
 
 def test_native_settings_filters_community_relay_refresh_options(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -3250,6 +3254,8 @@ def test_lan_display_uses_shared_brand_shell_nav_and_fonts() -> None:
 
     base_template = Path("src/localflight/ui/templates/base.html").read_text(encoding="utf-8")
     display_template = Path("src/localflight/ui/templates/display.html").read_text(encoding="utf-8")
+    fids_template = Path("src/localflight/ui/templates/fids.html").read_text(encoding="utf-8")
+    radar_template = Path("src/localflight/ui/templates/radar.html").read_text(encoding="utf-8")
     nav_template = Path("src/localflight/ui/templates/_nav.html").read_text(encoding="utf-8")
     shell_css = Path("src/localflight/ui/static/lf-shell.css").read_text(encoding="utf-8")
 
@@ -3270,6 +3276,17 @@ def test_lan_display_uses_shared_brand_shell_nav_and_fonts() -> None:
     assert ".lf-shell-nav button" in shell_css
     assert "font-family: var(--font-ui)" in shell_css
     assert ".lf-clock-chip *" in shell_css
+    assert ".lf-surface-bar" in shell_css
+    assert ".lf-segmented" in shell_css
+
+    assert 'topnav(active="fids", cfg=cfg)' in fids_template
+    assert 'topnav(active="radar", cfg=cfg)' in radar_template
+    assert "lf-surface-bar" in fids_template
+    assert "lf-surface-bar" in radar_template
+    assert "lf-segmented" in fids_template
+    assert "lf-segmented" in radar_template
+    assert "fids-lt" not in fids_template
+    assert "radar-lt" not in radar_template
 
 
 def test_setup_guidance_copy_is_shared_and_user_facing() -> None:

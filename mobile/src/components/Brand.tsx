@@ -28,7 +28,7 @@ export function BrandWordmark({
           color,
           fontSize: size,
           fontWeight: "400",
-          letterSpacing: 0.8,
+          letterSpacing: 1,
           includeFontPadding: false
         }
       ]}
@@ -62,7 +62,7 @@ export function BrandKicker({
           color,
           fontSize: size,
           fontWeight: "400",
-          letterSpacing: 0.8,
+          letterSpacing: 1,
           includeFontPadding: false
         }
       ]}

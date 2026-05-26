@@ -581,36 +581,58 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
 
     def _build_keys_page(self) -> None:
         _page, layout = self._page(
-            "Optional Provider Keys",
-            "Only BYOK needs AviationStack. ADS-B Exchange and OpenSky are optional enrichment sources; Community Relay and VATSIM can skip this page.",
+            "Direct Provider Keys",
+            "BYOK keeps schedule and radar calls on this server install. Use AeroDataBox or AviationStack for schedules, ADS-B Exchange on RapidAPI for radar, and OpenSky only as optional fallback.",
         )
         self.keys_hint = self._status_chip("Community Relay and VATSIM can skip this page.", "muted")
+        self.provider_path_hint = self._status_chip(
+            "Schedules: AeroDataBox primary, AviationStack fill/fallback. Radar: ADS-B Exchange via RapidAPI.",
+            "muted",
+        )
         layout.addWidget(self.keys_hint)
+        layout.addWidget(self.provider_path_hint)
+        self.aerodatabox_key = self.QtWidgets.QLineEdit()
+        self.aerodatabox_marketplace = self.QtWidgets.QComboBox()
+        self.aerodatabox_marketplace.addItem("API.Market", "apimarket")
+        self.aerodatabox_marketplace.addItem("RapidAPI", "rapidapi")
+        self.aerodatabox_monthly_limit = self.QtWidgets.QSpinBox()
+        self.aerodatabox_monthly_limit.setRange(0, 250000)
+        self.aerodatabox_monthly_limit.setValue(24000)
         self.aviationstack_key = self.QtWidgets.QLineEdit()
         self.rapidapi_key = self.QtWidgets.QLineEdit()
         self.opensky_id = self.QtWidgets.QLineEdit()
         self.opensky_secret = self.QtWidgets.QLineEdit()
-        for field in (self.aviationstack_key, self.rapidapi_key, self.opensky_secret):
+        for field in (self.aerodatabox_key, self.aviationstack_key, self.rapidapi_key, self.opensky_secret):
             field.setEchoMode(self.QtWidgets.QLineEdit.Password)
+        self.aerodatabox_key.setPlaceholderText("AeroDataBox API key")
         self.aviationstack_key.setPlaceholderText("AviationStack API key")
-        self.rapidapi_key.setPlaceholderText("RapidAPI key for ADS-B Exchange")
+        self.rapidapi_key.setPlaceholderText("ADS-B Exchange RapidAPI key")
         self.opensky_id.setPlaceholderText("OpenSky client ID")
         self.opensky_secret.setPlaceholderText("OpenSky client secret")
         form = self.QtWidgets.QFormLayout()
         form.setFieldGrowthPolicy(self.QtWidgets.QFormLayout.AllNonFixedFieldsGrow)
         form.addRow(
             self._field_label(
-                "AviationStack",
-                "BYOK schedule provider. Free tier has ~500 calls/month. Required for BYOK mode.",
+                "AeroDataBox schedules",
+                "Recommended BYOK schedule provider. Stored locally, primary in auto mode, and used before any schedule relay.",
+            ),
+            self._secret_row(self.aerodatabox_key, "AeroDataBox key"),
+        )
+        form.addRow("AeroDataBox marketplace", self.aerodatabox_marketplace)
+        form.addRow("AeroDataBox monthly unit guard", self.aerodatabox_monthly_limit)
+        form.addRow(
+            self._field_label(
+                "AviationStack fallback",
+                "Optional if AeroDataBox is set. Used as sparse-fill/fallback or as the direct source by itself.",
             ),
             self._secret_row(self.aviationstack_key, "AviationStack key"),
         )
         form.addRow(
             self._field_label(
-                "RapidAPI",
-                "Optional: ADS-B Exchange via RapidAPI for live aircraft positions on the radar.",
+                "ADS-B Exchange radar",
+                "Optional RapidAPI key for direct live radar positions without the radar relay.",
             ),
-            self._secret_row(self.rapidapi_key, "RapidAPI key"),
+            self._secret_row(self.rapidapi_key, "ADS-B Exchange key"),
         )
         form.addRow(
             self._field_label(
@@ -637,10 +659,13 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
             link_grid.addWidget(button, idx // 2, idx % 2)
         layout.addLayout(link_grid)
         tests = self.QtWidgets.QHBoxLayout()
+        self.test_adb_btn = self.QtWidgets.QPushButton("\U0001F9EA  Test AeroDataBox")
         self.test_as_btn = self.QtWidgets.QPushButton("\U0001F9EA  Test AviationStack")
         self.test_rapidapi_btn = self.QtWidgets.QPushButton("\U0001F9EA  Test RapidAPI")
+        self.test_adb_btn.clicked.connect(self.test_aerodatabox)
         self.test_as_btn.clicked.connect(self.test_aviationstack)
         self.test_rapidapi_btn.clicked.connect(self.test_rapidapi)
+        tests.addWidget(self.test_adb_btn)
         tests.addWidget(self.test_as_btn)
         tests.addWidget(self.test_rapidapi_btn)
         tests.addStretch(1)
@@ -860,7 +885,7 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
         if mode == "community":
             self._set_chip(self.keys_hint, "Community Relay mode skips provider keys. You can add your own keys later in Settings.", "good")
         elif mode == "byok":
-            self._set_chip(self.keys_hint, "Paste an AviationStack key. ADS-B Exchange on RapidAPI and OpenSky are optional enrichment helpers.", "warn")
+            self._set_chip(self.keys_hint, "Paste an AeroDataBox or AviationStack schedule key. ADS-B Exchange on RapidAPI lives on this same page as the optional radar key.", "warn")
         else:
             self._set_chip(self.keys_hint, "VATSIM needs no provider keys. This setup saves source=virtual.", "good")
 
@@ -880,7 +905,18 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
         relay_state = "connected" if self._stored_activation else "token needed or pending"
         if mode != "community":
             relay_state = "not used"
-        key_state = "AviationStack key will be saved" if mode == "byok" and self.aviationstack_key.text().strip() else "no provider keys saved"
+        has_adb = mode == "byok" and bool(self.aerodatabox_key.text().strip())
+        has_as = mode == "byok" and bool(self.aviationstack_key.text().strip())
+        has_adsb = mode == "byok" and bool(self.rapidapi_key.text().strip())
+        radar_note = " + ADS-B Exchange radar" if has_adsb else ""
+        if has_adb and has_as:
+            key_state = f"AeroDataBox primary + AviationStack fill{radar_note}"
+        elif has_adb:
+            key_state = f"AeroDataBox schedules{radar_note}"
+        elif has_as:
+            key_state = f"AviationStack schedules{radar_note}"
+        else:
+            key_state = "no provider keys saved"
         diagnostics = self._current_diagnostics_mode()
         rows = {
             "airport": f"{self.airport_iata.text().strip().upper() or 'ZRH'} / {self.airport_icao.text().strip().upper() or 'LSZH'}",
@@ -897,7 +933,7 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
                     card.value_label.setText(value)
             self.finish_cards["source"].setProperty("tone", "good" if mode in {"community", "virtual"} else "warn")
             self.finish_cards["relay"].setProperty("tone", "good" if relay_state == "connected" else "muted")
-            self.finish_cards["keys"].setProperty("tone", "warn" if mode == "byok" and "will be saved" in key_state else "muted")
+            self.finish_cards["keys"].setProperty("tone", "warn" if mode == "byok" and key_state != "no provider keys saved" else "muted")
             self.finish_cards["diagnostics"].setProperty("tone", "good" if diagnostics == "manual" else "warn")
             for card in self.finish_cards.values():
                 self._repolish(card)
@@ -1068,7 +1104,7 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
         self._set_status(text, role, busy=busy)
 
     def _set_provider_buttons_enabled(self, enabled: bool) -> None:
-        for button in (self.test_as_btn, self.test_rapidapi_btn):
+        for button in (self.test_adb_btn, self.test_as_btn, self.test_rapidapi_btn):
             button.setEnabled(enabled)
 
     def _start_airport_search(self) -> None:
@@ -1210,12 +1246,39 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
             return
         self._test_key("/api/setup/test-aviationstack", key, "AviationStack")
 
+    def test_aerodatabox(self) -> None:
+        key = self.aerodatabox_key.text().strip()
+        if not key:
+            self._set_provider_action_status("Paste an AeroDataBox key first.", "StatusWarn")
+            return
+        self._set_provider_action_status("Checking AeroDataBox key. This may consume a small provider request...", busy=True)
+        self._set_provider_buttons_enabled(False)
+        try:
+            result = self.service.setup_test_provider_key(
+                "/api/setup/test-aerodatabox",
+                key,
+                extra={
+                    "marketplace": self.aerodatabox_marketplace.currentData() or "apimarket",
+                    "airport_iata": self.airport_iata.text().strip().upper() or "ZRH",
+                    "monthly_units_limit": int(self.aerodatabox_monthly_limit.value()),
+                },
+            )
+        except Exception as exc:
+            self._set_provider_action_status(f"Could not check that AeroDataBox key: {exc}", "StatusBad")
+            self._set_provider_buttons_enabled(True)
+            return
+        self._set_provider_buttons_enabled(True)
+        if result.get("ok"):
+            self._set_provider_action_status("AeroDataBox key works.", "StatusGood")
+        else:
+            self._set_provider_action_status(str(result.get("error") or "Could not check that AeroDataBox key."), "StatusBad")
+
     def test_rapidapi(self) -> None:
         key = self.rapidapi_key.text().strip()
         if not key:
-            self._set_provider_action_status("Paste a RapidAPI key first.", "StatusWarn")
+            self._set_provider_action_status("Paste an ADS-B Exchange RapidAPI key first.", "StatusWarn")
             return
-        self._test_key("/api/setup/test-rapidapi", key, "RapidAPI")
+        self._test_key("/api/setup/test-rapidapi", key, "ADS-B Exchange")
 
     def _test_key(self, path: str, key: str, label_text: str) -> None:
         self._set_provider_action_status(f"Checking {label_text} key...", busy=True)
@@ -1244,6 +1307,9 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
             "diagnostics_mode": self._current_diagnostics_mode(),
             "relay_url": self._clean_relay_display(self.relay_url.text()) if mode == "community" else "",
             "activation_token": self.activation_token.text().strip() if mode == "community" else "",
+            "aerodatabox_key": self.aerodatabox_key.text().strip() if mode == "byok" else "",
+            "aerodatabox_marketplace": self.aerodatabox_marketplace.currentData() if mode == "byok" else "apimarket",
+            "aerodatabox_monthly_units_limit": int(self.aerodatabox_monthly_limit.value()) if mode == "byok" else 24000,
             "aviationstack_key": self.aviationstack_key.text().strip() if mode == "byok" else "",
             "rapidapi_key": self.rapidapi_key.text().strip() if mode == "byok" else "",
             "opensky_id": self.opensky_id.text().strip() if mode == "byok" else "",

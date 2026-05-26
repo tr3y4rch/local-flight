@@ -426,7 +426,7 @@
     <div class="metric-card"><b>Data</b><strong>{{ (cfg.source or "real")|upper }}</strong><span>{{ state.source_name or "Real schedule or VATSIM source." }}</span></div>
     <div class="metric-card"><b>Refresh</b><strong>{{ cfg.refresh_seconds // 60 }} min</strong><span>Provider-friendly cadence</span></div>
     <div class="metric-card"><b>Relay</b><strong id="relayStatusMetric">Checking...</strong><span id="relayDetailMetric">Tokens stay hidden.</span></div>
-    <div class="metric-card"><b>Surface</b><strong>{{ "On" if cfg.radar_surface_enabled else "Off" }}</strong><span>Runways/surface draw when map data is available.</span></div>
+    <div class="metric-card"><b>Surface</b><strong>{{ (cfg.radar_surface_mode or "off")|upper }}</strong><span>Relay only when explicitly selected.</span></div>
   </section>
 
   {% if state.last_error %}
@@ -522,6 +522,64 @@
     <section class="details-stack">
       <details class="details-card settings-folder">
         <summary>
+          <span class="folder-icon">🔐</span>
+          <span class="folder-copy"><strong>Provider Keys &amp; Privacy</strong><span>{{ provider_status.active_path }}. Raw keys stay local and hidden.</span></span>
+          <span class="folder-caret">›</span>
+        </summary>
+        <div class="details-body">
+          <p class="intro">Use personal keys when this server should talk directly to providers instead of using shared relay snapshots. Leave a field blank to keep the currently saved secret; use Clear to remove direct-provider keys.</p>
+          <div class="mini-grid">
+            <div class="mini-cell"><b>Active path</b><span id="providerActivePath">{{ provider_status.active_path }}</span></div>
+            <div class="mini-cell"><b>AeroDataBox</b><span id="providerAdbState">{{ "Enabled" if provider_status.aerodatabox.enabled else "Not enabled" }}</span></div>
+            <div class="mini-cell"><b>AviationStack</b><span id="providerAsState">{{ "Enabled" if provider_status.aviationstack.enabled else "Not enabled" }}</span></div>
+            <div class="mini-cell"><b>ADS-B Exchange</b><span id="providerRapidState">{{ provider_status.adsbexchange.mode }}</span></div>
+          </div>
+          <div class="form-grid" style="margin-top:14px;">
+            <label>
+              <span>AeroDataBox key</span>
+              <input type="password" id="providerAdbKey" placeholder="{{ 'Saved locally' if provider_status.aerodatabox.configured else 'Paste AeroDataBox key' }}" />
+            </label>
+            <label>
+              <span>AeroDataBox marketplace</span>
+              <select id="providerAdbMarketplace">
+                <option value="apimarket" {% if provider_status.aerodatabox.marketplace == "apimarket" %}selected{% endif %}>API.Market</option>
+                <option value="rapidapi" {% if provider_status.aerodatabox.marketplace == "rapidapi" %}selected{% endif %}>RapidAPI</option>
+              </select>
+            </label>
+            <label>
+              <span>AeroDataBox monthly unit guard</span>
+              <input type="number" min="0" id="providerAdbLimit" value="{{ provider_status.aerodatabox.monthly_units_limit }}" />
+            </label>
+            <label>
+              <span>AviationStack key</span>
+              <input type="password" id="providerAsKey" placeholder="{{ 'Saved locally' if provider_status.aviationstack.configured else 'Optional fallback/fill key' }}" />
+            </label>
+            <label>
+              <span>RapidAPI ADS-B Exchange key</span>
+              <input type="password" id="providerRapidKey" placeholder="{{ 'Saved locally' if provider_status.adsbexchange.configured else 'Optional live radar key' }}" />
+            </label>
+            <label>
+              <span>OpenSky client ID</span>
+              <input type="text" id="providerOpenSkyId" placeholder="{{ 'Saved locally' if provider_status.opensky.configured else 'Optional OpenSky ID' }}" />
+            </label>
+            <label>
+              <span>OpenSky client secret</span>
+              <input type="password" id="providerOpenSkySecret" placeholder="{{ 'Saved locally' if provider_status.opensky.configured else 'Optional OpenSky secret' }}" />
+            </label>
+          </div>
+          <div class="card-actions" style="margin-top:12px;">
+            <button type="button" onclick="testProviderKey('aerodatabox')">Test AeroDataBox</button>
+            <button type="button" onclick="testProviderKey('aviationstack')">Test AviationStack</button>
+            <button type="button" onclick="testProviderKey('rapidapi')">Test ADS-B Exchange</button>
+            <button type="button" onclick="saveProviderKeys()">Save provider keys</button>
+            <button type="button" class="danger-link" onclick="clearProviderKeys()">Clear direct keys</button>
+          </div>
+          <div class="pairing-status" id="providerKeyStatus">Tests may consume a small provider request. Keys are never echoed back.</div>
+        </div>
+      </details>
+
+      <details class="details-card settings-folder">
+        <summary>
           <span class="folder-icon">🛰️</span>
           <span class="folder-copy"><strong>Outputs &amp; Radar</strong><span>Choose display outputs and the optional radar ground drawing layer.</span></span>
           <span class="folder-caret">›</span>
@@ -537,10 +595,21 @@
               </label>
             {% endfor %}
           </div>
-          <label class="choice-tile" style="margin-top:12px;">
-            <input type="checkbox" name="radar_surface_enabled" value="1" {% if cfg.radar_surface_enabled %}checked{% endif %} />
-            <span><strong>Airport surface overlay</strong><span>Draw cached runway/surface geometry under the radar when available. Visual only, not navigation data.</span></span>
-          </label>
+          <input type="hidden" name="radar_surface_enabled" value="{{ '1' if cfg.radar_surface_enabled else '' }}" />
+          <div class="output-grid" style="margin-top:12px;">
+            <label class="choice-tile">
+              <input type="radio" name="radar_surface_mode" value="off" {% if (cfg.radar_surface_mode or "off") == "off" %}checked{% endif %} />
+              <span><strong>Surface off</strong><span>No runway/surface network calls. Aircraft-only radar.</span></span>
+            </label>
+            <label class="choice-tile">
+              <input type="radio" name="radar_surface_mode" value="estimated" {% if (cfg.radar_surface_mode or "off") == "estimated" %}checked{% endif %} />
+              <span><strong>Estimated local surface</strong><span>Draws a local visual estimate without relay surface lookups.</span></span>
+            </label>
+            <label class="choice-tile">
+              <input type="radio" name="radar_surface_mode" value="relay" {% if (cfg.radar_surface_mode or "off") == "relay" %}checked{% endif %} />
+              <span><strong>Relay surface cache</strong><span>Uses Beacon Tools surface cache when local cache is missing, then serves cached data locally.</span></span>
+            </label>
+          </div>
         </div>
       </details>
 
@@ -758,6 +827,114 @@ function selectSkin(sk) {
 document.getElementById("themeSelect")?.addEventListener("change", event => {
   document.documentElement.dataset.theme = event.target.value || "dark";
 });
+
+function providerText(value) {
+  return String(value || "").trim();
+}
+
+function setProviderStatus(text, tone = "") {
+  const target = document.getElementById("providerKeyStatus");
+  if (!target) return;
+  target.textContent = text;
+  target.style.color = tone === "bad" ? "#fca5a5" : tone === "good" ? "#22c55e" : "";
+}
+
+function refreshProviderSummary(data) {
+  if (!data || !data.ok) return;
+  const set = (id, value) => {
+    const target = document.getElementById(id);
+    if (target) target.textContent = value;
+  };
+  set("providerActivePath", data.active_path || "Unknown");
+  set("providerAdbState", data.aerodatabox?.enabled ? "Enabled" : "Not enabled");
+  set("providerAsState", data.aviationstack?.enabled ? "Enabled" : "Not enabled");
+  set("providerRapidState", data.adsbexchange?.mode || "fallback only");
+}
+
+async function testProviderKey(kind) {
+  const map = {
+    aerodatabox: {
+      input: "providerAdbKey",
+      label: "AeroDataBox",
+      path: "/api/provider-keys/test-aerodatabox",
+      body: () => ({
+        key: providerText(document.getElementById("providerAdbKey")?.value),
+        marketplace: providerText(document.getElementById("providerAdbMarketplace")?.value) || "apimarket",
+        airport_iata: providerText(document.getElementById("airportIata")?.value) || "ZRH",
+        monthly_units_limit: Number(providerText(document.getElementById("providerAdbLimit")?.value) || 24000),
+      }),
+    },
+    aviationstack: {
+      input: "providerAsKey",
+      label: "AviationStack",
+      path: "/api/provider-keys/test-aviationstack",
+      body: () => ({ key: providerText(document.getElementById("providerAsKey")?.value) }),
+    },
+    rapidapi: {
+      input: "providerRapidKey",
+      label: "ADS-B Exchange",
+      path: "/api/provider-keys/test-rapidapi",
+      body: () => ({ key: providerText(document.getElementById("providerRapidKey")?.value) }),
+    },
+  };
+  const spec = map[kind];
+  const body = spec.body();
+  if (!body.key) {
+    setProviderStatus(`Paste a ${spec.label} key first.`, "bad");
+    return;
+  }
+  setProviderStatus(`Testing ${spec.label}...`);
+  try {
+    const response = await fetch(spec.path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const data = await response.json();
+    setProviderStatus(data.ok ? `${spec.label} key works.` : (data.error || `${spec.label} key failed.`), data.ok ? "good" : "bad");
+  } catch (error) {
+    setProviderStatus(error.message || `${spec.label} test failed.`, "bad");
+  }
+}
+
+async function saveProviderKeys() {
+  setProviderStatus("Saving provider keys locally...");
+  try {
+    const response = await fetch("/api/provider-keys/save", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        aerodatabox_key: providerText(document.getElementById("providerAdbKey")?.value),
+        aerodatabox_marketplace: providerText(document.getElementById("providerAdbMarketplace")?.value) || "apimarket",
+        aerodatabox_monthly_units_limit: Number(document.getElementById("providerAdbLimit")?.value || 24000),
+        aviationstack_key: providerText(document.getElementById("providerAsKey")?.value),
+        rapidapi_key: providerText(document.getElementById("providerRapidKey")?.value),
+        opensky_id: providerText(document.getElementById("providerOpenSkyId")?.value),
+        opensky_secret: providerText(document.getElementById("providerOpenSkySecret")?.value),
+      }),
+    });
+    const data = await response.json();
+    if (!response.ok || data.ok === false) throw new Error(data.error || "Provider keys could not be saved.");
+    refreshProviderSummary(data);
+    setProviderStatus("Provider keys saved locally. Scheduler refreshes with the direct path.", "good");
+  } catch (error) {
+    setProviderStatus(error.message || "Provider keys could not be saved.", "bad");
+  }
+}
+
+async function clearProviderKeys() {
+  if (!confirm("Clear all direct provider keys from this Local Flight install?")) return;
+  setProviderStatus("Clearing direct provider keys...");
+  try {
+    const response = await fetch("/api/provider-keys/clear", { method: "POST" });
+    const data = await response.json();
+    if (!response.ok || data.ok === false) throw new Error(data.error || "Provider keys could not be cleared.");
+    refreshProviderSummary(data);
+    setProviderStatus("Direct provider keys cleared. Relay/virtual settings remain separate.", "good");
+  } catch (error) {
+    setProviderStatus(error.message || "Provider keys could not be cleared.", "bad");
+  }
+}
 
 (async function () {
   function setText(id, value) {

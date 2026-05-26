@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import struct
 import sys
@@ -30,6 +31,7 @@ import localflight.sources.web.relay_defaults as relay_defaults
 import localflight.storage.config as storage_config
 import localflight.storage.flights_store as flights_store
 import localflight.storage.install as storage_install
+import localflight.storage.provider_keys as provider_keys
 import localflight.ui.api as ui_api
 import localflight.ui.server as ui_server
 import relay.main as relay_main
@@ -1384,6 +1386,279 @@ def test_api_config_keeps_byok_and_virtual_fast_refresh(tmp_path: Path, monkeypa
     assert virtual["refresh_seconds"] == 900
 
 
+def test_api_config_keeps_aerodatabox_byok_fast_refresh(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(storage_config, "config_path", lambda: tmp_path / "config.json")
+    storage_config.save_config(AppConfig(source="real", refresh_seconds=3600))
+    monkeypatch.setattr(aviationstack_client, "_has_enabled_byok_key", lambda: False)
+    monkeypatch.setattr(aviationstack_client, "_has_enabled_aerodatabox_byok_key", lambda: True)
+    monkeypatch.setattr(aviationstack_client, "_has_activation_token", lambda: False)
+    monkeypatch.setattr(aviationstack_client, "_has_community_api_key", lambda: False)
+
+    result = ui_api.api_patch_config(ui_api.ConfigPatch(refresh_seconds=900), BackgroundTasks())
+
+    assert result["refresh_seconds"] == 900
+    assert storage_config.load_config().refresh_seconds == 900
+
+
+def test_setup_complete_byok_accepts_aerodatabox_only_and_clears_stale_env(tmp_path: Path, monkeypatch) -> None:
+    env_file = tmp_path / ".env"
+    config_file = tmp_path / ".localflight" / "config.json"
+    config_file.parent.mkdir(parents=True, exist_ok=True)
+    env_file.write_text(
+        "\n".join(
+            [
+                "LOCALFLIGHT_ACTIVATION_TOKEN=old-token",
+                "LOCALFLIGHT_RELAY_URL=https://old-relay.example",
+                "AERODATABOX_API_KEY=old-adb",
+                "AVIATIONSTACK_API_KEY=old-as",
+                "RAPIDAPI_KEY=old-rapid",
+                "OPENSKY_CLIENT_ID=old-os",
+                "OPENSKY_CLIENT_SECRET=old-secret",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(storage_config, "config_path", lambda: config_file)
+    monkeypatch.setattr(ui_server, "provider_env_path", lambda: env_file)
+    for key, value in {
+        "LOCALFLIGHT_ACTIVATION_TOKEN": "old-token",
+        "LOCALFLIGHT_RELAY_URL": "https://old-relay.example",
+        "AERODATABOX_API_KEY": "old-adb",
+        "LOCALFLIGHT_AERODATABOX_ENABLED": "1",
+        "AVIATIONSTACK_API_KEY": "old-as",
+        "LOCALFLIGHT_AVIATIONSTACK_ENABLED": "1",
+        "RAPIDAPI_KEY": "old-rapid",
+        "OPENSKY_CLIENT_ID": "old-os",
+        "OPENSKY_CLIENT_SECRET": "old-secret",
+        "LOCALFLIGHT_REAL_SCHEDULE_PROVIDER": "aviationstack",
+    }.items():
+        monkeypatch.setenv(key, value)
+    monkeypatch.setattr("localflight.storage.install.set_activation_token", lambda token: None)
+    monkeypatch.setattr("localflight.ui.events.notify_config_updated", lambda *args, **kwargs: None)
+    monkeypatch.setattr("localflight.ui.events.restart_scheduler_and_notify", lambda *args, **kwargs: None)
+    monkeypatch.setattr("localflight.sources.web.relay_beat.fire_heartbeat", lambda: None)
+
+    response = TestClient(app).post(
+        "/api/setup/complete",
+        json={
+            "setup_mode": "byok",
+            "source": "real",
+            "airport_iata": "HKG",
+            "airport_icao": "VHHH",
+            "timezone": "Asia/Hong_Kong",
+            "display_name": "Local Flight",
+            "aerodatabox_key": "adb-new",
+            "aerodatabox_marketplace": "apimarket",
+            "aerodatabox_monthly_units_limit": 1234,
+            "aviationstack_key": "",
+            "rapidapi_key": "",
+            "opensky_id": "",
+            "opensky_secret": "",
+        },
+    )
+
+    assert response.status_code == 200
+    values = ui_server.read_provider_env(env_file)
+    assert values["AERODATABOX_API_KEY"] == "adb-new"
+    assert values["LOCALFLIGHT_AERODATABOX_ENABLED"] == "1"
+    assert values["LOCALFLIGHT_AERODATABOX_MARKETPLACE"] == "apimarket"
+    assert values["LOCALFLIGHT_AERODATABOX_MONTHLY_UNITS_LIMIT"] == "1234"
+    assert values["LOCALFLIGHT_REAL_SCHEDULE_PROVIDER"] == "auto"
+    assert values["LOCALFLIGHT_AVIATIONSTACK_ENABLED"] == "0"
+    assert "AVIATIONSTACK_API_KEY" not in values
+    assert "LOCALFLIGHT_ACTIVATION_TOKEN" not in values
+    assert "LOCALFLIGHT_RELAY_URL" not in values
+    assert os.environ.get("AVIATIONSTACK_API_KEY") is None
+    assert os.environ.get("LOCALFLIGHT_ACTIVATION_TOKEN") is None
+    assert storage_config.load_config().airport_iata == "HKG"
+
+
+def test_setup_complete_byok_requires_schedule_key(tmp_path: Path, monkeypatch) -> None:
+    env_file = tmp_path / ".env"
+    config_file = tmp_path / ".localflight" / "config.json"
+    config_file.parent.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(storage_config, "config_path", lambda: config_file)
+    monkeypatch.setattr(ui_server, "provider_env_path", lambda: env_file)
+
+    response = TestClient(app).post(
+        "/api/setup/complete",
+        json={
+            "setup_mode": "byok",
+            "source": "real",
+            "airport_iata": "ZRH",
+            "airport_icao": "LSZH",
+            "timezone": "Europe/Zurich",
+            "aerodatabox_key": "",
+            "aviationstack_key": "",
+        },
+    )
+
+    assert response.status_code == 400
+    assert "AeroDataBox or AviationStack" in response.json()["error"]
+    assert not config_file.exists()
+
+
+def test_provider_key_settings_optional_radar_key_preserves_relay_path(tmp_path: Path, monkeypatch) -> None:
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "LOCALFLIGHT_ACTIVATION_TOKEN=relay-token\n"
+        "LOCALFLIGHT_RELAY_URL=https://relay.example\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("LOCALFLIGHT_ACTIVATION_TOKEN", "relay-token")
+    monkeypatch.setenv("LOCALFLIGHT_RELAY_URL", "https://relay.example")
+    monkeypatch.setenv("RAPIDAPI_KEY", "")
+
+    values, removed = provider_keys.save_provider_keys(rapidapi_key="radar-key", path=env_file)
+
+    assert removed == set()
+    assert values["LOCALFLIGHT_ACTIVATION_TOKEN"] == "relay-token"
+    assert values["LOCALFLIGHT_RELAY_URL"] == "https://relay.example"
+    assert values["RAPIDAPI_KEY"] == "radar-key"
+    assert values["LOCALFLIGHT_AERODATABOX_ENABLED"] == "0"
+    assert values["LOCALFLIGHT_AVIATIONSTACK_ENABLED"] == "0"
+
+
+def test_provider_key_settings_schedule_key_switches_to_direct_private_path(tmp_path: Path, monkeypatch) -> None:
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "LOCALFLIGHT_ACTIVATION_TOKEN=relay-token\n"
+        "LOCALFLIGHT_RELAY_URL=https://relay.example\n",
+        encoding="utf-8",
+    )
+    for key, value in {
+        "LOCALFLIGHT_ACTIVATION_TOKEN": "relay-token",
+        "LOCALFLIGHT_RELAY_URL": "https://relay.example",
+        "AERODATABOX_API_KEY": "",
+        "LOCALFLIGHT_AERODATABOX_ENABLED": "0",
+    }.items():
+        monkeypatch.setenv(key, value)
+
+    values, removed = provider_keys.save_provider_keys(aerodatabox_key="adb-direct", path=env_file)
+
+    assert "LOCALFLIGHT_ACTIVATION_TOKEN" in removed
+    assert "LOCALFLIGHT_RELAY_URL" in removed
+    assert "LOCALFLIGHT_ACTIVATION_TOKEN" not in values
+    assert "LOCALFLIGHT_RELAY_URL" not in values
+    assert values["AERODATABOX_API_KEY"] == "adb-direct"
+    assert values["LOCALFLIGHT_AERODATABOX_ENABLED"] == "1"
+    assert values["LOCALFLIGHT_REAL_SCHEDULE_PROVIDER"] == "auto"
+
+
+def test_provider_status_merges_env_file_and_process_with_privacy_posture(tmp_path: Path, monkeypatch) -> None:
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "AERODATABOX_API_KEY=file-adb-secret\n"
+        "LOCALFLIGHT_AERODATABOX_ENABLED=1\n"
+        "LOCALFLIGHT_ACTIVATION_TOKEN=file-relay-token\n",
+        encoding="utf-8",
+    )
+    for key in {
+        *provider_keys.SECRET_KEYS,
+        "LOCALFLIGHT_AERODATABOX_ENABLED",
+        "LOCALFLIGHT_AVIATIONSTACK_ENABLED",
+        "LOCALFLIGHT_ACTIVATION_TOKEN",
+        "LOCALFLIGHT_RELAY_URL",
+    }:
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.setenv("LOCALFLIGHT_AERODATABOX_ENABLED", "0")
+    monkeypatch.setenv("AVIATIONSTACK_API_KEY", "process-aviation-secret")
+    monkeypatch.setenv("LOCALFLIGHT_AVIATIONSTACK_ENABLED", "1")
+    monkeypatch.setattr(provider_keys, "env_path", lambda: env_file)
+    monkeypatch.setattr(provider_keys, "load_config", lambda: AppConfig(source="real"))
+
+    status = provider_keys.provider_status()
+    dumped = json.dumps(status)
+
+    assert status["active_path"] == "AviationStack direct"
+    assert status["privacy_posture"] == "direct_private"
+    assert status["aerodatabox"]["configured"] is True
+    assert status["aerodatabox"]["enabled"] is False
+    assert status["aviationstack"]["configured"] is True
+    assert status["aviationstack"]["enabled"] is True
+    assert "file-adb-secret" not in dumped
+    assert "process-aviation-secret" not in dumped
+    assert "file-relay-token" not in dumped
+
+
+def test_provider_key_opensky_test_routes_do_not_echo_credentials(monkeypatch) -> None:
+    class FakeResponse:
+        status_code = 200
+
+        def json(self) -> dict[str, object]:
+            return {"states": []}
+
+    captured: dict[str, object] = {}
+
+    def fake_get(url: str, **kwargs: object) -> FakeResponse:
+        captured["url"] = url
+        captured.update(kwargs)
+        return FakeResponse()
+
+    monkeypatch.setattr("requests.get", fake_get)
+    client = TestClient(app)
+    payload = {"opensky_id": "opensky-user-secret", "opensky_secret": "opensky-password-secret"}
+
+    setup_response = client.post("/api/setup/test-opensky", json=payload)
+    settings_response = client.post("/api/provider-keys/test-opensky", json=payload)
+
+    assert setup_response.status_code == 200
+    assert settings_response.status_code == 200
+    assert setup_response.json()["ok"] is True
+    assert settings_response.json()["ok"] is True
+    assert captured["auth"] == ("opensky-user-secret", "opensky-password-secret")
+    for response in (setup_response, settings_response):
+        text = response.text
+        assert "opensky-user-secret" not in text
+        assert "opensky-password-secret" not in text
+
+
+def test_provider_secrets_do_not_leak_to_status_config_html_or_logs(tmp_path: Path, monkeypatch) -> None:
+    config_file = tmp_path / ".localflight" / "config.json"
+    log_dir = tmp_path / "logs"
+    log_dir.mkdir(parents=True)
+    config_file.parent.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(storage_config, "config_path", lambda: config_file)
+    storage_config.save_config(AppConfig(source="real", airport_iata="ZRH", airport_icao="LSZH"))
+    (config_file.parent / "setup_complete").write_text("1", encoding="utf-8")
+    log_file = log_dir / "localflight_test.log"
+
+    secrets = {
+        "AERODATABOX_API_KEY": "adb-secret-value",
+        "AVIATIONSTACK_API_KEY": "aviationstack-secret-value",
+        "RAPIDAPI_KEY": "rapidapi-secret-value",
+        "OPENSKY_CLIENT_ID": "opensky-user-value",
+        "OPENSKY_CLIENT_SECRET": "opensky-secret-value",
+        "LOCALFLIGHT_ACTIVATION_TOKEN": "activation-secret-value",
+    }
+    for key, value in secrets.items():
+        monkeypatch.setenv(key, value)
+    monkeypatch.setenv("LOCALFLIGHT_AERODATABOX_ENABLED", "1")
+    monkeypatch.setattr(ui_server, "logs_dir", lambda: log_dir)
+    monkeypatch.setattr(ui_server, "_setup_complete", lambda: True)
+    monkeypatch.setattr(ui_api, "load_config", lambda: AppConfig(source="real", airport_iata="ZRH", airport_icao="LSZH"))
+    monkeypatch.setattr(ui_api, "api_metar", lambda: {"ok": True})
+    log_file.write_text("provider probe used adb-secret-value and rapidapi-secret-value\n", encoding="utf-8")
+
+    client = TestClient(app)
+    responses = [
+        client.get("/api/provider-keys/status"),
+        client.get("/api/config"),
+        client.get("/api/mobile/summary"),
+        client.get("/setup"),
+        client.get("/"),
+        client.get("/logs"),
+        client.get("/logs/tail"),
+    ]
+
+    for response in responses:
+        assert response.status_code == 200
+        for secret in secrets.values():
+            assert secret not in response.text
+    assert "[redacted]" in responses[-1].text
+
+
 def test_admin_budget_exposes_schedule_policy(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr(storage_config, "config_path", lambda: tmp_path / "config.json")
     storage_config.save_config(AppConfig(source="real", refresh_seconds=3600))
@@ -2309,6 +2584,66 @@ def test_api_radar_surface_respects_disabled_config(monkeypatch) -> None:
 
 def test_radar_surface_defaults_to_disabled() -> None:
     assert AppConfig().radar_surface_enabled is False
+    assert AppConfig().radar_surface_mode == "off"
+
+
+def test_radar_surface_mode_migrates_legacy_enabled_to_relay(tmp_path: Path, monkeypatch) -> None:
+    config_file = tmp_path / "config.json"
+    config_file.write_text(json.dumps({"radar_surface_enabled": True}), encoding="utf-8")
+    monkeypatch.setattr(storage_config, "config_path", lambda: config_file)
+
+    cfg = storage_config.load_config()
+
+    assert cfg.radar_surface_enabled is True
+    assert cfg.radar_surface_mode == "relay"
+
+
+def test_api_radar_surface_estimated_mode_avoids_relay(monkeypatch) -> None:
+    cfg = AppConfig(
+        airport_iata="DEN",
+        airport_icao="KDEN",
+        radar_surface_mode="estimated",
+    )
+    monkeypatch.setattr(ui_api, "load_config", lambda: cfg)
+    monkeypatch.setattr(
+        ui_api,
+        "lookup_airport",
+        lambda **kwargs: types.SimpleNamespace(lat=39.8617, lon=-104.6731, icao="KDEN"),
+    )
+    monkeypatch.setattr(ui_api, "_load_local_surface_cache", lambda cfg: None)
+    monkeypatch.setattr(
+        ui_api._req,
+        "get",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("estimated surface mode must not call relay")),
+    )
+
+    result = ui_api.api_radar_surface(5.0)
+
+    assert result["cache_state"] == "estimated"
+    assert result["provider"] == "localflight-estimated"
+    assert result["meta"]["estimated_surface"] is True
+    assert "Estimated-only" in result["error"]
+
+
+def test_api_radar_surface_map_payload_off_makes_no_relay_or_estimate(monkeypatch) -> None:
+    cfg = AppConfig(airport_iata="DEN", airport_icao="KDEN", radar_surface_mode="off")
+    airport = types.SimpleNamespace(lat=39.8617, lon=-104.6731, icao="KDEN")
+    monkeypatch.setattr(
+        ui_api,
+        "_load_local_surface_cache",
+        lambda cfg: (_ for _ in ()).throw(AssertionError("surface off must not read stale surface cache")),
+    )
+    monkeypatch.setattr(
+        ui_api._req,
+        "get",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("surface off must not call relay")),
+    )
+
+    result = ui_api._radar_surface_payload_for_map(cfg, airport, radius_nm=5.0)
+
+    assert result["cache_state"] == "disabled"
+    assert result["features"] == []
+    assert "disabled" in result["error"].lower()
 
 
 def test_api_radar_surface_falls_back_to_local_stale_cache(monkeypatch) -> None:
@@ -3358,6 +3693,54 @@ def test_api_radar_reports_refresh_hint_for_adsb_cache(monkeypatch) -> None:
     assert result["source"] == "adsbexchange_live"
     assert result["refresh_after_s"] >= 60
     assert result["count"] == 1
+
+
+def test_api_radar_byok_without_rapidapi_uses_snapshot_or_opensky_not_adsb_relay(monkeypatch) -> None:
+    ui_api._adsbx_radar_cache.clear()
+    ui_api._opensky_radar_cache.clear()
+    monkeypatch.setattr(
+        ui_api,
+        "load_config",
+        lambda: AppConfig(airport_iata="ZRH", airport_icao="LSZH", source="real"),
+    )
+    monkeypatch.setattr(
+        ui_api,
+        "lookup_airport",
+        lambda **kwargs: types.SimpleNamespace(lat=47.45, lon=8.55, icao="LSZH"),
+    )
+    monkeypatch.setattr(ui_api, "_load_latest_flights", lambda airport_iata: ([], None))
+    monkeypatch.setattr(ui_api, "_radar_map_payload_for_request", lambda *args, **kwargs: {"runways": []})
+    monkeypatch.setenv("AERODATABOX_API_KEY", "adb-direct")
+    monkeypatch.setenv("LOCALFLIGHT_AERODATABOX_ENABLED", "1")
+    monkeypatch.delenv("RAPIDAPI_KEY", raising=False)
+    monkeypatch.delenv("LOCALFLIGHT_ACTIVATION_TOKEN", raising=False)
+    monkeypatch.setattr(adsbexchange_client, "_get_activation_token", lambda: "")
+    monkeypatch.setattr(
+        adsbexchange_client,
+        "fetch_aircraft",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("ADS-B relay/direct radar should not be used")),
+    )
+
+    opensky_module = types.ModuleType("localflight.sources.web.opensky_radar")
+    opensky_module.bounding_box = lambda lat, lon, radius_nm: (47.43, 8.53, 47.47, 8.57)
+    opensky_module.fetch_radar_blips = lambda *args, **kwargs: [
+        {
+            "callsign": "OPEN1",
+            "lat": 47.46,
+            "lon": 8.56,
+            "altitude_m": 1200,
+            "speed_ms": 110,
+            "on_ground": False,
+            "source": "opensky",
+        }
+    ]
+    monkeypatch.setitem(sys.modules, "localflight.sources.web.opensky_radar", opensky_module)
+
+    result = ui_api.api_radar(5.0)
+
+    assert result["source"] == "opensky_live"
+    assert result["count"] == 1
+    assert result["blips"][0]["callsign"] == "OPEN1"
 
 
 def test_api_radar_tiny_views_reuse_minimum_adsb_provider_payload(monkeypatch) -> None:
@@ -5064,7 +5447,7 @@ def test_feedback_api_routes_mobile_reports_with_ios_origin(monkeypatch) -> None
         json={
             "title": "Mobile button issue",
             "description": "The board detail drawer feels stuck",
-            "client_context": "Companion OS  iOS 18.0\nCompanion ID  lfc_ios_test",
+            "client_context": "App mode      LAN Companion\nMobile OS     iOS 18.0\nMobile ID     lfc_ios_test",
         },
     )
 
@@ -5072,10 +5455,59 @@ def test_feedback_api_routes_mobile_reports_with_ios_origin(monkeypatch) -> None
     assert submitted[0]["report_type"] == "manual"
     assert submitted[0]["origin"] == "ios"
     assert submitted[0]["title"] == "Mobile button issue"
-    assert "Companion ID" in submitted[0]["client_context"]
+    assert "App mode" in submitted[0]["client_context"]
+    assert "Mobile ID" in submitted[0]["client_context"]
     assert response.json()["team"] == "ios"
     assert response.json()["deduped"] is False
     assert response.json()["url"] == "https://linear.test/mobile-manual"
+
+
+def test_feedback_api_routes_android_companion_reports_as_mobile(monkeypatch) -> None:
+    submitted: list[dict] = []
+    monkeypatch.setattr(
+        bug_reporter,
+        "_system_metadata",
+        lambda: {
+            "install_id": "00000000-0000-0000-0000-000000000335",
+            "install_fingerprint": "fp-test",
+            "activation_token": "",
+            "app_version": "test",
+            "platform": "Linux",
+            "os": "Linux",
+            "arch": "arm64",
+            "python_version": "3.11",
+            "airport": "ZRH",
+            "source": "real",
+            "api_mode": "community relay",
+            "diagnostics_mode": "manual",
+        },
+    )
+    monkeypatch.setattr(bug_reporter, "_system_context", lambda client_context="": client_context)
+    monkeypatch.setattr(
+        bug_reporter,
+        "_post_relay_report",
+        lambda payload: submitted.append(payload) or {
+            "ok": True,
+            "url": "https://linear.test/android-companion",
+            "team": "ios",
+            "deduped": False,
+        },
+    )
+
+    response = TestClient(ui_api.app).post(
+        "/api/feedback",
+        json={
+            "title": "Android companion button issue",
+            "description": "The Control row opened the wrong thing",
+            "client_context": "App mode      LAN Companion\nMobile OS     Android 16 (phone)\nMobile ID     lfc_android_test",
+        },
+    )
+
+    assert response.status_code == 200
+    assert submitted[0]["origin"] == "android"
+    assert "LAN Companion" in submitted[0]["client_context"]
+    assert "Android 16" in submitted[0]["client_context"]
+    assert response.json()["team"] == "ios"
 
 
 def test_feedback_crash_api_routes_mobile_crashes_with_context(monkeypatch) -> None:
@@ -5120,7 +5552,7 @@ def test_feedback_crash_api_routes_mobile_crashes_with_context(monkeypatch) -> N
             "message": "Mobile render crash",
             "traceback": "stack",
             "context": "mobile/manual-auto-test",
-            "client_context": "Companion OS  iOS 18.0\nCompanion ID  lfc_ios_test",
+            "client_context": "App mode      LAN Companion\nMobile OS     iOS 18.0\nMobile ID     lfc_ios_test",
         },
     )
 

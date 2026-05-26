@@ -1397,7 +1397,7 @@ def test_relay_reports_route_to_platform_teams(tmp_path: Path, monkeypatch) -> N
         assert f"**Linear team bucket:** {team}" in filed[-1]["description"]
         assert f"**Context:** `{context}`" in filed[-1]["description"]
 
-    assert filed[0]["title"].startswith("[iOS][Crash]")
+    assert filed[0]["title"].startswith("[iOS][LAN Companion][Crash]")
     assert filed[1]["title"].startswith("[Web][Crash]")
     assert filed[2]["title"].startswith("[Server][Crash]")
     assert filed[3]["title"].startswith("[Relay][Crash]")
@@ -1418,6 +1418,45 @@ def test_relay_reports_route_to_platform_teams(tmp_path: Path, monkeypatch) -> N
     assert filed[-1]["title"].startswith("[Desktop][Crash]")
     assert "**Origin:** desktop" in filed[-1]["description"]
     assert "**Context:** `native/gui`" in filed[-1]["description"]
+
+
+def test_relay_reports_label_android_standalone_without_ios_title(tmp_path: Path, monkeypatch) -> None:
+    _use_temp_db(tmp_path, monkeypatch)
+    _enable_reporter_env(monkeypatch)
+    filed: list[dict[str, str]] = []
+    monkeypatch.setattr(
+        relay_main,
+        "_post_linear_issue",
+        lambda **kwargs: filed.append(kwargs) or "https://linear.test/android-standalone",
+    )
+    client = TestClient(relay_main.app)
+
+    response = client.post(
+        "/v1/reports",
+        json=_report_payload(
+            "00000000-0000-0000-0000-000000000310",
+            report_type="manual",
+            origin="android",
+            context="mobile_standalone/manual",
+            title="Standalone report",
+            description="Standalone board did not refresh",
+            client_context="App mode      Standalone relay\nMobile OS     Android 16 (phone)\nMobile ID     lfc_android_test",
+        )
+        | {
+            "platform": "mobile_standalone",
+            "os": "Android 16 (phone)",
+            "api_mode": "relay",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["team"] == "ios"
+    assert filed[-1]["team_id"] == "team-ios"
+    assert filed[-1]["title"].startswith("[Android][Standalone][Manual]")
+    assert "**Origin:** android" in filed[-1]["description"]
+    assert "**App mode:** Standalone" in filed[-1]["description"]
+    assert "**Platform:** mobile_standalone" in filed[-1]["description"]
+    assert "**OS:** Android 16 (phone)" in filed[-1]["description"]
 
 
 def test_relay_reports_fall_back_to_default_team_when_specific_team_missing(tmp_path: Path, monkeypatch) -> None:

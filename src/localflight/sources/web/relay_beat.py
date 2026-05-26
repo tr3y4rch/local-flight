@@ -25,12 +25,18 @@ def _jitter(base: int, spread: int) -> float:
 
 
 def _is_byok() -> bool:
-    """True if the user supplied their own AviationStack key (bypasses relay)."""
-    key = os.getenv("AVIATIONSTACK_API_KEY", "").strip()
-    if not key:
-        return False
-    enabled = os.getenv("LOCALFLIGHT_AVIATIONSTACK_ENABLED", "").strip().lower()
-    return not enabled or enabled in {"1", "true", "yes", "on"}
+    """True if the user supplied direct schedule keys that bypass the relay."""
+    for key_name, enabled_name in (
+        ("AVIATIONSTACK_API_KEY", "LOCALFLIGHT_AVIATIONSTACK_ENABLED"),
+        ("AERODATABOX_API_KEY", "LOCALFLIGHT_AERODATABOX_ENABLED"),
+    ):
+        key = os.getenv(key_name, "").strip()
+        if not key:
+            continue
+        enabled = os.getenv(enabled_name, "").strip().lower()
+        if not enabled or enabled in {"1", "true", "yes", "on"}:
+            return True
+    return False
 
 
 def _should_send() -> bool:

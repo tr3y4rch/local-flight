@@ -85,8 +85,9 @@
 <div class="lf-display-shell">
   {{ topnav(active="display", cfg=cfg) }}
 
-  <div class="lf-display-controls" aria-label="Display controls">
+  <div class="lf-display-controls lf-surface-bar" aria-label="Display controls">
     <div class="lf-display-controls-left">
+      <span class="lf-toolbar-kicker">Display mode</span>
       <div class="lf-display-mode-switcher" role="group" aria-label="Display mode">
         <button class="lf-display-mode-btn mode-btn" type="button" data-mode="fids" onclick="setMode('fids')">
           <span aria-hidden="true">&#9992;</span><span>FIDS</span>
@@ -100,7 +101,7 @@
       </div>
     </div>
     <div class="lf-display-controls-right">
-      <span class="lf-display-status">
+      <span class="lf-surface-status lf-display-status">
         <span class="live-dot" id="liveDot" title="Live push connection"></span>
         <span>Live display</span>
       </span>

@@ -335,6 +335,31 @@
       gap: 10px;
       margin-top: 12px;
     }
+    .provider-path {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(148px, 1fr));
+      gap: 8px;
+      margin: 14px 0;
+    }
+    .provider-path span {
+      min-height: 48px;
+      padding: 10px 12px;
+      border: 1px solid rgba(74,158,218,.22);
+      border-radius: 12px;
+      color: var(--setup-muted);
+      background: rgba(5, 11, 18, .44);
+      font-size: .74rem;
+      line-height: 1.35;
+    }
+    .provider-path strong {
+      display: block;
+      margin-bottom: 2px;
+      color: var(--setup-cyan);
+      font-family: var(--font-board);
+      font-size: .64rem;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
     .btn-row {
       display: flex;
       justify-content: space-between;
@@ -650,20 +675,52 @@
     <div class="panel" id="panel-3">
         <div class="panel-head">
         <div>
-          <h2>Use your own provider keys</h2>
-          <p class="sub">Only needed for Use Your Own Keys. AviationStack is required there; ADS-B Exchange and OpenSky are optional extras.</p>
+          <h2>Direct provider keys</h2>
+          <p class="sub">Only needed for Use Your Own Keys. Keep schedule and radar private by entering your own providers here: AeroDataBox or AviationStack for schedules, ADS-B Exchange on RapidAPI for radar, and OpenSky as an optional fallback.</p>
         </div>
+      </div>
+      <div class="provider-path" aria-label="Direct provider data path">
+        <span><strong>Schedules</strong>AeroDataBox primary, AviationStack fill or fallback.</span>
+        <span><strong>Radar</strong>ADS-B Exchange via RapidAPI when you provide a key.</span>
+        <span><strong>Fallback</strong>OpenSky positions only when configured or available.</span>
+        <span><strong>Privacy</strong>Provider keys stay on this server install.</span>
       </div>
       <div class="two-col">
         <div class="setup-box">
-          <h3>Schedule and radar keys</h3>
+          <h3>AeroDataBox schedules + ADS-B Exchange radar</h3>
           <div class="field">
-            <label for="aviationstackKey">AviationStack key</label>
+            <label for="aerodataboxKey">AeroDataBox key <span class="hint">recommended</span></label>
             <div class="key-wrap">
-              <input type="password" id="aviationstackKey" placeholder="Required for BYOK schedules..." />
+              <input type="password" id="aerodataboxKey" placeholder="Recommended direct schedule key..." />
+              <button class="key-toggle" type="button" onclick="toggleKey('aerodataboxKey', this)">show</button>
+            </div>
+            <div class="hint">Preferred BYOK schedule provider. Key stays on this device, avoids schedule relay calls, and becomes primary in auto mode.</div>
+          </div>
+          <div class="two-col" style="gap:10px;">
+            <div class="field">
+              <label for="aerodataboxMarketplace">AeroDataBox marketplace</label>
+              <select id="aerodataboxMarketplace">
+                <option value="apimarket" selected>API.Market</option>
+                <option value="rapidapi">RapidAPI</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="aerodataboxMonthlyLimit">Monthly unit guard</label>
+              <input type="number" id="aerodataboxMonthlyLimit" min="0" value="24000" />
+            </div>
+          </div>
+          <div class="provider-actions">
+            <button class="btn btn-secondary" type="button" id="testAdbBtn" onclick="testAerodatabox()">Test AeroDataBox</button>
+          </div>
+          <div class="test-result" id="aerodataboxTest"></div>
+
+          <div class="field">
+            <label for="aviationstackKey">AviationStack key <span class="hint">schedule fallback</span></label>
+            <div class="key-wrap">
+              <input type="password" id="aviationstackKey" placeholder="Optional fallback/fill schedule key..." />
               <button class="key-toggle" type="button" onclick="toggleKey('aviationstackKey', this)">show</button>
             </div>
-            <div class="hint">Required only for Use Your Own Keys. This key stays on this device.</div>
+            <div class="hint">Optional if AeroDataBox is set. Used as sparse-fill/fallback, or as the direct schedule source by itself.</div>
           </div>
           <div class="provider-actions">
             <button class="btn btn-secondary" type="button" id="testAsBtn" onclick="testAviationstack()">Test AviationStack</button>
@@ -671,7 +728,7 @@
           <div class="test-result" id="aviationstackTest"></div>
 
           <div class="field" style="margin-top:18px;">
-            <label for="rapidapiKey">RapidAPI ADS-B Exchange key <span class="hint">optional</span></label>
+            <label for="rapidapiKey">ADS-B Exchange RapidAPI key <span class="hint">radar</span></label>
             <div class="key-wrap">
               <input type="password" id="rapidapiKey" placeholder="Optional live radar key..." />
               <button class="key-toggle" type="button" onclick="toggleKey('rapidapiKey', this)">show</button>
@@ -685,7 +742,7 @@
         </div>
 
         <aside class="setup-box">
-          <h3>Extra optional data</h3>
+          <h3>OpenSky and provider links</h3>
           <div class="field">
             <label for="openskyId">OpenSky client ID</label>
             <input type="text" id="openskyId" placeholder="Optional OpenSky client ID" />
@@ -838,9 +895,9 @@
       searchEl.focus();
       return false;
     }
-    if (currentStep === 3 && mode() === "byok" && !el("aviationstackKey").value.trim()) {
-      setResult("aviationstackTest", "err", "BYOK mode needs an AviationStack key before launch.");
-      el("aviationstackKey").focus();
+    if (currentStep === 3 && mode() === "byok" && !el("aerodataboxKey").value.trim() && !el("aviationstackKey").value.trim()) {
+      setResult("aerodataboxTest", "err", "BYOK mode needs an AeroDataBox or AviationStack schedule key before launch.");
+      el("aerodataboxKey").focus();
       return false;
     }
     return true;
@@ -1144,8 +1201,36 @@
     testKey("testAsBtn", "aviationstackTest", "aviationstackKey", "/api/setup/test-aviationstack", "AviationStack");
   };
 
+  window.testAerodatabox = async function () {
+    const key = el("aerodataboxKey").value.trim();
+    if (!key) {
+      setResult("aerodataboxTest", "err", "Paste an AeroDataBox key first.");
+      return;
+    }
+    setButtons(["testAdbBtn"], false);
+    setResult("aerodataboxTest", "loading", "Testing AeroDataBox. This may consume a small provider request...");
+    try {
+      const response = await fetch("/api/setup/test-aerodatabox", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          key,
+          marketplace: el("aerodataboxMarketplace").value,
+          airport_iata: iataEl.value || "ZRH",
+          monthly_units_limit: Number(el("aerodataboxMonthlyLimit").value || 24000),
+        }),
+      });
+      const data = await response.json();
+      setResult("aerodataboxTest", data.ok ? "ok" : "err", data.ok ? "AeroDataBox key works." : (data.error || "AeroDataBox key could not be verified."));
+    } catch (error) {
+      setResult("aerodataboxTest", "err", error.message || "AeroDataBox check failed.");
+    } finally {
+      setButtons(["testAdbBtn"], true);
+    }
+  };
+
   window.testRapidapi = function () {
-    testKey("testRapidBtn", "rapidapiTest", "rapidapiKey", "/api/setup/test-rapidapi", "RapidAPI");
+    testKey("testRapidBtn", "rapidapiTest", "rapidapiKey", "/api/setup/test-rapidapi", "ADS-B Exchange");
   };
 
   function buildFinishSummary() {
@@ -1164,8 +1249,9 @@
       ]);
       items.push(["Personal keys", "No personal schedule key required"]);
     } else if (selectedMode === "byok") {
-      items.push(["AviationStack", el("aviationstackKey").value.trim() ? "Key will be saved locally" : "Missing"]);
-      items.push(["Radar enrichment", el("rapidapiKey").value.trim() ? "RapidAPI key will be saved locally" : "Optional key not set"]);
+      items.push(["AeroDataBox", el("aerodataboxKey").value.trim() ? "Primary direct key will be saved locally" : "Not set"]);
+      items.push(["AviationStack", el("aviationstackKey").value.trim() ? "Fill/fallback key will be saved locally" : "Not set"]);
+      items.push(["ADS-B Exchange radar", el("rapidapiKey").value.trim() ? "RapidAPI key will be saved locally" : "Optional key not set"]);
       items.push(["OpenSky", el("openskyId").value.trim() ? "Optional credentials set" : "Optional credentials not set"]);
     } else {
       items.push(["Traffic source", "VATSIM traffic only; no real-flight keys"]);
@@ -1176,8 +1262,8 @@
 
   window.finish = async function () {
     const selectedMode = mode();
-    if (selectedMode === "byok" && !el("aviationstackKey").value.trim()) {
-      setResult("finishStatus", "err", "BYOK mode needs an AviationStack key before launch.");
+    if (selectedMode === "byok" && !el("aerodataboxKey").value.trim() && !el("aviationstackKey").value.trim()) {
+      setResult("finishStatus", "err", "BYOK mode needs an AeroDataBox or AviationStack schedule key before launch.");
       showPanel(3);
       return;
     }
@@ -1193,6 +1279,9 @@
       diagnostics_mode: diagnosticsMode(),
       relay_url: selectedMode === "community" ? cleanRelayDisplay(el("relayUrl").value) : "",
       activation_token: selectedMode === "community" ? el("activationToken").value.trim() : "",
+      aerodatabox_key: selectedMode === "byok" ? el("aerodataboxKey").value.trim() : "",
+      aerodatabox_marketplace: selectedMode === "byok" ? el("aerodataboxMarketplace").value : "apimarket",
+      aerodatabox_monthly_units_limit: selectedMode === "byok" ? Number(el("aerodataboxMonthlyLimit").value || 24000) : 24000,
       aviationstack_key: selectedMode === "byok" ? el("aviationstackKey").value.trim() : "",
       rapidapi_key: selectedMode === "byok" ? el("rapidapiKey").value.trim() : "",
       opensky_id: selectedMode === "byok" ? el("openskyId").value.trim() : "",

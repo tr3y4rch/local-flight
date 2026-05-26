@@ -1,0 +1,173 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="720" viewBox="0 0 1200 720" role="img" aria-labelledby="title desc">
+  <title id="title">Local Flight iOS widget and Dynamic Island design preview</title>
+  <desc id="desc">Design-only preview showing a small pinned-flight tracker, a medium horizontal-FIDS widget, and pinned-flight-only Dynamic Island states.</desc>
+  <defs>
+    <linearGradient id="pageBg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#071018"/>
+      <stop offset="1" stop-color="#101824"/>
+    </linearGradient>
+    <linearGradient id="boardBg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#101b28"/>
+      <stop offset="1" stop-color="#07101a"/>
+    </linearGradient>
+    <linearGradient id="rowBg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#172433"/>
+      <stop offset="1" stop-color="#0d1722"/>
+    </linearGradient>
+    <filter id="drop" x="-20%" y="-20%" width="140%" height="150%">
+      <feDropShadow dx="0" dy="22" stdDeviation="22" flood-color="#000000" flood-opacity="0.38"/>
+    </filter>
+    <style>
+      @font-face {
+        font-family: "LocalFlightBrand";
+        src:
+          url("../../mobile/assets/fonts/Audiowide-Regular.ttf") format("truetype"),
+          url("../../src/localflight/ui/static/fonts/Audiowide-Regular.ttf") format("truetype");
+        font-style: normal;
+        font-weight: 400;
+      }
+      .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+      .sans { font-family: Inter, Segoe UI, Helvetica, Arial, sans-serif; }
+      .brand { font-family: "LocalFlightBrand", Audiowide, ui-sans-serif, system-ui, sans-serif; font-weight: 400; letter-spacing: 1px; }
+      .brandAppTitle { font-size: 15px; letter-spacing: 1px; }
+      .title { fill: #edf6ff; font-weight: 800; }
+      .brand.title { font-weight: 400; }
+      .text { fill: #e8f0fe; }
+      .muted { fill: #7ea6cc; }
+      .dim { fill: #416888; }
+      .blue { fill: #65b8f7; }
+      .green { fill: #23e287; }
+      .amber { fill: #f3b835; }
+      .label { font-size: 13px; letter-spacing: 2.4px; font-weight: 900; }
+      .tiny { font-size: 10px; letter-spacing: 1.6px; font-weight: 900; }
+      .small { font-size: 12px; letter-spacing: 1.2px; font-weight: 900; }
+      .statusText { font-size: 12px; letter-spacing: 1px; font-weight: 900; }
+    </style>
+  </defs>
+
+  <rect width="1200" height="720" rx="34" fill="url(#pageBg)"/>
+  <circle cx="180" cy="88" r="210" fill="#1b79b7" opacity="0.10"/>
+  <circle cx="1020" cy="646" r="260" fill="#23e287" opacity="0.06"/>
+  <path d="M0 540 C240 430 420 650 650 540 S980 450 1200 575" fill="none" stroke="#65dff7" stroke-width="2" opacity="0.18"/>
+
+  <g transform="translate(62 54)">
+    <text class="brand title" x="0" y="0" font-size="26">Local Flight</text>
+    <text class="sans muted" x="0" y="32" font-size="18">Widget previews follow the horizontal mobile FIDS board language</text>
+  </g>
+
+  <!-- Small pinned-flight tracker -->
+  <g transform="translate(70 132)" filter="url(#drop)">
+    <text class="mono label blue" x="0" y="-24">SMALL WIDGET · PINNED TRACKER</text>
+    <rect width="296" height="296" rx="54" fill="url(#boardBg)" stroke="#254769" stroke-width="2"/>
+    <text class="mono tiny blue" x="28" y="43">ZRH · DEP</text>
+    <rect x="184" y="22" width="84" height="30" rx="15" fill="#092817" stroke="#166f42"/>
+    <text class="mono statusText green" x="226" y="42" text-anchor="middle">BOARD</text>
+
+    <text class="mono tiny dim" x="28" y="90">PINNED FLIGHT</text>
+    <text class="mono text" x="28" y="140" font-size="44" font-weight="900">LX 177</text>
+    <text class="sans text" x="28" y="178" font-size="24" font-weight="700">Singapore</text>
+    <text class="mono muted" x="28" y="209" font-size="20">06:11 · SIN</text>
+
+    <line x1="28" x2="268" y1="232" y2="232" stroke="#22384d"/>
+    <text class="mono tiny dim" x="28" y="264">GATE</text>
+    <text class="mono text" x="78" y="264" font-size="18" font-weight="900">E64</text>
+    <text class="mono tiny dim" x="174" y="264">UPDATED</text>
+    <text class="mono text" x="268" y="264" font-size="18" font-weight="900" text-anchor="end">1m</text>
+  </g>
+
+  <!-- Medium horizontal-FIDS widget -->
+  <g transform="translate(416 132)" filter="url(#drop)">
+    <text class="mono label blue" x="0" y="-24">MEDIUM WIDGET · HORIZONTAL FIDS</text>
+    <rect width="690" height="296" rx="54" fill="url(#boardBg)" stroke="#254769" stroke-width="2"/>
+
+    <g transform="translate(30 28)">
+      <g opacity="0.20" transform="translate(0 -9) scale(0.044)">
+        <path d="M140 52H460V974H140A56 56 0 0 1 84 918V108A56 56 0 0 1 140 52Z" fill="#9cc7ea"/>
+        <path d="M480 52C700 52 900 148 900 276C900 406 700 500 480 500Z" fill="#9cc7ea"/>
+        <path d="M480 524C724 524 940 632 940 750C940 866 724 974 480 974Z" fill="#9cc7ea"/>
+        <rect x="140" y="112" width="120" height="150" rx="8" fill="#071018"/>
+        <rect x="290" y="112" width="120" height="150" rx="8" fill="#071018"/>
+        <rect x="140" y="582" width="120" height="150" rx="8" fill="#071018"/>
+        <rect x="290" y="582" width="120" height="150" rx="8" fill="#071018"/>
+        <circle cx="470" cy="512" r="62" fill="none" stroke="#9cc7ea" stroke-width="13"/>
+        <circle cx="470" cy="512" r="44" fill="#9cc7ea" opacity="0.72"/>
+        <circle cx="470" cy="512" r="16" fill="#071018"/>
+      </g>
+
+      <g transform="translate(72 0)">
+        <text class="sans text" x="214" y="14" font-size="22" font-weight="800" text-anchor="middle">Zurich Airport</text>
+        <rect x="160" y="27" width="108" height="26" rx="13" fill="#122232" stroke="#294a68"/>
+        <text class="mono tiny muted" x="214" y="44" text-anchor="middle">DEPARTURES</text>
+      </g>
+
+      <text class="brand brandAppTitle text" x="630" y="13" text-anchor="end">Local Flight</text>
+      <text class="mono tiny dim" x="630" y="40" text-anchor="end">UPDATED 1m AGO</text>
+    </g>
+
+    <g transform="translate(30 92)">
+      <rect width="630" height="32" rx="10" fill="#122031" stroke="#1d3044"/>
+      <text class="mono tiny dim" x="14" y="21">TIME</text>
+      <text class="mono tiny dim" x="96" y="21">FLIGHT</text>
+      <text class="mono tiny dim" x="210" y="21">TO</text>
+      <text class="mono tiny dim" x="482" y="21">STATUS</text>
+      <text class="mono tiny dim" x="584" y="21" text-anchor="end">INFO</text>
+    </g>
+
+    <g transform="translate(30 136)">
+      <rect width="630" height="48" rx="14" fill="#211d16" stroke="#7a5e1b" opacity="0.98"/>
+      <text class="mono text" x="14" y="31" font-size="18" font-weight="900">06:11</text>
+      <text class="mono blue" x="96" y="25" font-size="18" font-weight="900">LX 177</text>
+      <text class="mono dim" x="96" y="40" font-size="10" font-weight="900">PINNED</text>
+      <text class="sans text" x="210" y="25" font-size="18" font-weight="700">Singapore</text>
+      <text class="mono muted" x="210" y="41" font-size="11">SIN</text>
+      <rect x="468" y="10" width="92" height="28" rx="8" fill="#092817" stroke="#166f42"/>
+      <text class="mono green" x="514" y="29" font-size="12" font-weight="900" text-anchor="middle">BOARD</text>
+      <text class="mono muted" x="606" y="30" font-size="12" font-weight="900" text-anchor="end">E64</text>
+    </g>
+
+    <g transform="translate(30 192)">
+      <rect width="630" height="36" rx="12" fill="url(#rowBg)" stroke="#1d3044"/>
+      <text class="mono text" x="14" y="24" font-size="17" font-weight="900">06:00</text>
+      <text class="mono blue" x="96" y="24" font-size="16" font-weight="900">WK 200</text>
+      <text class="sans text" x="210" y="24" font-size="16">Gran Canaria</text>
+      <rect x="468" y="7" width="92" height="24" rx="7" fill="#10202b" stroke="#2f5b7a"/>
+      <text class="mono blue" x="514" y="23" font-size="11" font-weight="900" text-anchor="middle">SCHED</text>
+      <text class="mono dim" x="606" y="23" font-size="11" font-weight="900" text-anchor="end">A320</text>
+    </g>
+    <g transform="translate(30 236)">
+      <rect width="630" height="36" rx="12" fill="url(#rowBg)" stroke="#1d3044"/>
+      <text class="mono text" x="14" y="24" font-size="17" font-weight="900">06:05</text>
+      <text class="mono blue" x="96" y="24" font-size="16" font-weight="900">LX 8350</text>
+      <text class="sans text" x="210" y="24" font-size="16">Heraklion</text>
+      <rect x="468" y="7" width="92" height="24" rx="7" fill="#2a2210" stroke="#8b6c20"/>
+      <text class="mono amber" x="514" y="23" font-size="11" font-weight="900" text-anchor="middle">DELAY</text>
+      <text class="mono dim" x="606" y="23" font-size="11" font-weight="900" text-anchor="end">G22</text>
+    </g>
+  </g>
+
+  <!-- Dynamic Island compact -->
+  <g transform="translate(138 512)" filter="url(#drop)">
+    <text class="mono label blue" x="0" y="-24">COMPACT DYNAMIC ISLAND</text>
+    <rect width="360" height="82" rx="41" fill="#020407" stroke="#1b2632" stroke-width="2"/>
+    <circle cx="48" cy="41" r="8" fill="#23e287"/>
+    <text class="mono text" x="78" y="49" font-size="26" font-weight="900">LX 177 · BOARD</text>
+  </g>
+
+  <!-- Expanded live activity / lock screen -->
+  <g transform="translate(560 488)" filter="url(#drop)">
+    <text class="mono label blue" x="0" y="-24">EXPANDED LIVE ACTIVITY</text>
+    <rect width="500" height="132" rx="36" fill="#050911" stroke="#263f5a" stroke-width="2"/>
+    <text class="mono tiny dim" x="28" y="32">PINNED FLIGHT ONLY</text>
+    <text class="mono text" x="28" y="76" font-size="34" font-weight="900">LX 177</text>
+    <text class="sans muted" x="162" y="74" font-size="21">Singapore · 06:11</text>
+    <rect x="360" y="38" width="104" height="38" rx="19" fill="#092817" stroke="#166f42"/>
+    <text class="mono green" x="412" y="62" font-size="14" font-weight="900" text-anchor="middle">BOARD</text>
+    <line x1="28" y1="95" x2="464" y2="95" stroke="#1d3044"/>
+    <text class="mono tiny dim" x="28" y="117">GATE E64</text>
+    <text class="mono tiny dim" x="224" y="117">LAST UPDATED 1m AGO</text>
+  </g>
+
+  <g transform="translate(70 666)">
+    <text class="sans muted" font-size="16">Design-only: no native extension target, entitlement, App Group, APNs, or Apple Developer account dependency in this pass.</text>
+  </g>
+</svg>

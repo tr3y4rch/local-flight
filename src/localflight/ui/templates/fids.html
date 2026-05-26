@@ -15,8 +15,9 @@
   html, body { height: 100%; overflow: hidden; }
   body { display: block; min-height: 100%; padding: 0; margin: 0; }
 
-  /* nav=42px, subheader=40px; nav hidden when embedded, subheader always shown */
-  :root { --lf-chrome: {{ '40px' if _embedded else '82px' }}; }
+  /* The shared shell nav owns global navigation; this page only keeps
+     a compact FIDS control rail inside the board surface. */
+  :root { --lf-chrome: {{ '40px' if _embedded else '60px' }}; }
 
   .card {
     width: 100%; max-width: none;
@@ -29,8 +30,10 @@
 
   /* ── FIDS subheader ── */
   .fids-sub {
-    display: flex; align-items: center; justify-content: space-between;
-    flex-shrink: 0; gap: 10px; margin-bottom: 8px; flex-wrap: wrap;
+    flex-shrink: 0;
+    margin: -10px -18px 8px;
+    border-top: 0;
+    flex-wrap: wrap;
   }
   .fids-title {
     display: flex; align-items: center; gap: 8px;
@@ -40,25 +43,16 @@
 
   /* ── View toggle ── */
   .view-toggle {
-    display: inline-flex; gap: 2px;
-    background: rgba(255,255,255,0.06);
-    border-radius: 7px; padding: 3px; margin-left: 6px;
+    margin-left: 0;
   }
-  [data-theme="light"] .view-toggle { background: rgba(0,0,0,0.05); }
   .view-toggle a {
-    display: flex; align-items: center; gap: 5px;
-    padding: 4px 11px; border-radius: 5px;
-    text-decoration: none; color: inherit;
-    font-size: 0.8rem; font-weight: 600; opacity: 0.5;
-    transition: opacity 0.12s, background 0.12s;
+    font-family: var(--font-board);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
   }
-  .view-toggle a:hover { opacity: 0.85; background: rgba(255,255,255,0.07); }
-  .view-toggle a.active { opacity: 1; background: rgba(255,255,255,0.1); }
-  [data-theme="light"] .view-toggle a.active { background: rgba(0,0,0,0.08); }
 
   /* ── Live pill ── */
-  .fids-sub-right { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
-  .fids-lt { font-family: var(--font-board); font-size: 0.78rem; opacity: 0.6; font-variant-numeric: tabular-nums; }
+  .fids-sub-right { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
   .fids-live-pill { font-size: 0.75rem; opacity: 0.65; font-family: var(--font-board); display: flex; align-items: center; gap: 4px; }
   .live-dot {
     width: 6px; height: 6px; border-radius: 50%;
@@ -512,13 +506,13 @@
      but shrink padding / fonts / row height.            */
   @media (max-height: 600px) {
     .card { padding: 8px 12px 10px; }
-    .fids-sub { margin-bottom: 6px; }
+    .fids-sub { margin: -8px -12px 6px; }
     .fids-title { font-size: 0.92rem; }
     .metar-bar { padding: 4px 9px; min-height: 26px; margin-bottom: 6px; font-size: 0.72rem; }
     .weather-icon { width: 22px; height: 22px; font-size: 0.92rem; }
     .weather-temp { padding: 2px 6px; font-size: 0.66rem; }
     .view-toggle a { padding: 3px 9px; font-size: 0.74rem; }
-    .fids-lt, .fids-live-pill { font-size: 0.7rem; }
+    .fids-live-pill { font-size: 0.7rem; }
     th { font-size: 0.56rem; padding: 0 8px 6px; }
     .fids-row td { height: 40px; padding: 0 8px; }
     .fids-hhmm { font-size: 1.02rem; }
@@ -553,23 +547,24 @@
 {% if not _embedded %}{{ topnav(active="fids", cfg=cfg) }}{% endif %}
 <main class="card">
 
-  <div class="fids-sub">
-    <div style="display:flex; align-items:center; flex-wrap:wrap; gap:6px;">
+  <div class="fids-sub lf-surface-bar">
+    <div class="lf-surface-left">
       {% if not _embedded %}
-      <span class="fids-title">
+      <span class="fids-title lf-surface-title">
         {{ header_icon(view) }}
-        {{ airport_label }}
+        <span class="lf-surface-title-text">{{ airport_label }}</span>
       </span>
+      {% else %}
+      <span class="lf-toolbar-kicker">Board view</span>
       {% endif %}
-      <div class="view-toggle">
-        <a href="/fids?view=arrivals{% if _embedded %}&embedded=1{% endif %}"   class="{{ 'active' if view == 'arrivals'   else '' }}">🛬 ARR</a>
-        <a href="/fids?view=departures{% if _embedded %}&embedded=1{% endif %}" class="{{ 'active' if view == 'departures' else '' }}">🛫 DEP</a>
+      <div class="view-toggle lf-segmented" role="group" aria-label="FIDS direction">
+        <a href="/fids?view=arrivals{% if _embedded %}&embedded=1{% endif %}"   class="{{ 'active' if view == 'arrivals'   else '' }}">🛬 Arrivals</a>
+        <a href="/fids?view=departures{% if _embedded %}&embedded=1{% endif %}" class="{{ 'active' if view == 'departures' else '' }}">🛫 Departures</a>
       </div>
     </div>
     {% if not _embedded %}
-    <div class="fids-sub-right">
-      <span class="fids-lt">LT <span class="clock-local-val">--:--:--</span></span>
-      <span class="fids-live-pill">
+    <div class="fids-sub-right lf-surface-right">
+      <span class="fids-live-pill lf-surface-status">
         <span class="live-dot" id="liveDot"></span>
         <span id="lastUpdated">{{ last_refreshed }}</span>
       </span>

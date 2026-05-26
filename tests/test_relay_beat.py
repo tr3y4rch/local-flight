@@ -46,6 +46,20 @@ def test_is_byok_true_when_key_and_enabled_one(monkeypatch):
     assert _is_byok() is True
 
 
+def test_is_byok_true_when_aerodatabox_key_enabled(monkeypatch):
+    monkeypatch.delenv("AVIATIONSTACK_API_KEY", raising=False)
+    monkeypatch.setenv("AERODATABOX_API_KEY", "adb-key")
+    monkeypatch.setenv("LOCALFLIGHT_AERODATABOX_ENABLED", "1")
+    assert _is_byok() is True
+
+
+def test_is_byok_false_when_aerodatabox_key_disabled(monkeypatch):
+    monkeypatch.delenv("AVIATIONSTACK_API_KEY", raising=False)
+    monkeypatch.setenv("AERODATABOX_API_KEY", "adb-key")
+    monkeypatch.setenv("LOCALFLIGHT_AERODATABOX_ENABLED", "0")
+    assert _is_byok() is False
+
+
 # ── _should_send ──────────────────────────────────────────────────────────────
 
 def _make_config_path(tmp_path: Path) -> Path:

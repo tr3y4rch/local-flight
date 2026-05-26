@@ -12,7 +12,7 @@ import type {
   RadarResponse
 } from "./types";
 import { LocalFlightApiError, normalizeServerUrl } from "./client";
-import { appVersion, getCompanionIdentity, mobileOsLabel } from "../device/identity";
+import { appVersion, getCompanionIdentity, mobileOsLabel, mobileReportOrigin } from "../device/identity";
 import type { MobileDiagnosticsMode, StandaloneAirport } from "../storage/settings";
 
 export const DEFAULT_RELAY_URL = "https://relay.beacontools.cc";
@@ -220,7 +220,7 @@ export async function submitStandaloneFeedback(
     method: "POST",
     body: JSON.stringify({
       report_type: "manual",
-      origin: "ios",
+      origin: mobileReportOrigin(),
       install_id: credentials.installId,
       install_fingerprint: fingerprint,
       activation_token: credentials.activationToken,
@@ -248,7 +248,7 @@ export async function submitStandaloneCrash(
     method: "POST",
     body: JSON.stringify({
       report_type: "crash",
-      origin: "ios",
+      origin: mobileReportOrigin(),
       install_id: credentials.installId,
       install_fingerprint: fingerprint,
       activation_token: credentials.activationToken,

@@ -1,8 +1,8 @@
 import { useEffect, useRef } from "react";
-import { Animated, Image, Text, useWindowDimensions, View } from "react-native";
+import { Animated, Image, Pressable, Text, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { hideFromAccessibility, useReducedMotionPreference } from "../accessibility/mobileA11y";
+import { accessibleButton, hideFromAccessibility, useReducedMotionPreference } from "../accessibility/mobileA11y";
 import { APP_VERSION } from "../domain/constants";
 import { LOCAL_FLIGHT_BRAND_ASSETS } from "../theme/brandAssets";
 import { palette } from "../theme/styleBridge";
@@ -16,10 +16,13 @@ type LaunchOverlayProps = {
   scale: Animated.Value;
   progress: Animated.Value;
   pulse: Animated.Value;
+  beacon: Animated.Value;
   sweep: Animated.Value;
   orbitFast: Animated.Value;
   orbitMedium: Animated.Value;
   orbitSlow: Animated.Value;
+  ready: boolean;
+  onEnter: () => void;
   status: string;
   styles: Record<string, any>;
 };
@@ -42,10 +45,13 @@ export function LaunchOverlay({
   scale,
   progress,
   pulse,
+  beacon,
   sweep,
   orbitFast,
   orbitMedium,
   orbitSlow,
+  ready,
+  onEnter,
   status,
   styles
 }: LaunchOverlayProps) {
@@ -98,6 +104,8 @@ export function LaunchOverlay({
 
   const haloScale = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.96, 1.07] });
   const iconScale = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.985, 1.018] });
+  const beaconScale = beacon.interpolate({ inputRange: [0, 1], outputRange: [0.42, 1.78] });
+  const beaconOpacity = beacon.interpolate({ inputRange: [0, 0.58, 1], outputRange: [0.52, 0.2, 0] });
   const pingScale = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.72, 1.42] });
   const pingOpacity = pulse.interpolate({ inputRange: [0, 0.72, 1], outputRange: [0.68, 0.2, 0] });
   const dotScale = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.78, 1.18] });
@@ -198,6 +206,19 @@ export function LaunchOverlay({
         <View style={[styles.launchScene, compact && styles.launchSceneCompact]}>
           <View style={[styles.launchMarkWrap, { width: heroSize, height: heroSize }]}>
             <View style={[styles.launchHeroAura, { width: heroSize * 1.22, height: heroSize * 1.22 }]} {...hideFromAccessibility()} />
+            <Animated.View
+              style={[
+                styles.launchBeaconPing,
+                {
+                  width: heroSize * 1.46,
+                  height: heroSize * 1.46,
+                  borderRadius: heroSize,
+                  opacity: beaconOpacity,
+                  transform: [{ scale: beaconScale }]
+                }
+              ]}
+              {...hideFromAccessibility()}
+            />
             <View style={[styles.launchRadarRingOuter, { width: heroSize * 1.36, height: heroSize * 1.36 }]} {...hideFromAccessibility()} />
             <View style={[styles.launchRadarRing, { width: heroSize * 1.04, height: heroSize * 1.04 }]} {...hideFromAccessibility()} />
             <Animated.View
@@ -258,16 +279,28 @@ export function LaunchOverlay({
               <View style={styles.launchProgressTrack}>
                 <Animated.View style={[styles.launchProgressFill, { width: progressWidth }]} />
               </View>
+              {ready ? (
+                <Pressable
+                  style={styles.launchEnterButton}
+                  onPress={onEnter}
+                  {...accessibleButton({
+                    label: "Enter Local Flight",
+                    hint: "Opens the mobile app now."
+                  })}
+                >
+                  <Text style={styles.launchEnterText}>ENTER LOCAL FLIGHT</Text>
+                </Pressable>
+              ) : null}
             </View>
           </View>
         </View>
       </View>
 
       <View style={styles.launchBottomMeta}>
-        <Text style={styles.launchVersion}>v{APP_VERSION}</Text>
         <View style={styles.launchBeaconFooter}>
           <BeaconToolsMark size={compact ? 14 : 16} color={watermarkColor} windowColor={watermarkWindow} />
           <Text style={styles.launchBeaconText}>BEACON TOOLS</Text>
+          <Text style={styles.launchVersion}>v{APP_VERSION}</Text>
         </View>
       </View>
     </Animated.View>

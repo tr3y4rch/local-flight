@@ -39,6 +39,8 @@ Expo SDK 55 targets React Native 0.83 and React 19.2. Run `npm run doctor` after
 
 For App Store/TestFlight preparation, keep [APP_STORE_REVIEW_NOTES.md](APP_STORE_REVIEW_NOTES.md) aligned with the exact build being submitted. For Google Play preparation, keep [PLAY_STORE_REVIEW_NOTES.md](PLAY_STORE_REVIEW_NOTES.md) aligned with the exact Android App Bundle being submitted. Store-facing website/support links should point to `https://beacontools.cc/local-flight`; privacy links should point to `https://beacontools.cc/privacy`.
 
+The design and data-contract handoff for future iOS widgets and Dynamic Island / Live Activity surfaces lives in [`../docs/mobile-ios-widgets-dynamic-island.md`](../docs/mobile-ios-widgets-dynamic-island.md). The app writes a hardened widget snapshot now, and the tracked native skeleton lives in [`native/ios-widget/`](native/ios-widget/), but the WidgetKit target is intentionally not wired into Xcode until App Groups and Apple Developer signing are available.
+
 If Xcode was freshly installed or upgraded, accept the Apple SDK license first:
 
 ```bash
@@ -220,7 +222,7 @@ The screenshot script builds a self-contained simulator app and captures portrai
 - Local Android development build path through Expo/Android Studio
 - LAN Companion daily surfaces: Board, Radar, History, and Control. Help & Reports lives inside Control instead of taking a bottom-nav slot.
 - Standalone daily surfaces: Board, Radar, History, and Settings
-- SecureStore persistence for setup mode, server URL, mobile install ID, standalone relay install ID, standalone activation token, standalone airport, mobile diagnostics mode, pinned flight, profiles, and mobile appearance choices
+- SecureStore persistence for setup mode, server URL, mobile install ID, standalone relay install ID, standalone activation token, standalone airport, mobile diagnostics mode, pinned flight, profiles, mobile appearance choices, and future widget preferences
 - LAN Companion connection checks against `/api/health`
 - LAN Companion dashboard data from `/api/mobile/summary` plus the existing local APIs
 - QR pairing from native Settings prefers the server's LAN IP and carries the server fingerprint, so the app can reject a scan that resolves to another Local Flight host on a multi-server LAN
@@ -233,6 +235,8 @@ The screenshot script builds a self-contained simulator app and captures portrai
 - Independent mobile appearance with dark/light theme plus `standard`, `technical`, `neon`, `cyan`, and `crt` skins
 - Branded launch overlay with a continuous radar sweep, status text fade, breathing status dot, blinking board LED, and shared Local Flight wordmark text
 - Native-feeling interaction polish on key taps, chips, pinned-flight actions, and weather icon changes through haptics, press-scale feedback, and small transitions
+- iOS widget and Dynamic Island design spec, a quiet Mobile settings path for future pinned-flight and airport-board glance preferences, and a hardened `localflight-widget-snapshot.json` app snapshot used by the future native extension skeleton
+- Widget snapshot contract checks run through `npm run widget:contract` and are included in `npm run verify`
 - Companion Matrix live-remote controls from Control using the host Matrix runtime config APIs, focused on runtime settings such as timing, palette, weather badge visibility, gate display, brightness, row count, animation, and refresh cadence.
 - Fullscreen landscape FIDS from any screen, with normal portrait state restored when rotating back
 - Mobile-owned radar radius controls. LAN Companion uses the paired server for runway and airport-surface drawing; Standalone uses the relay mobile radar response for this pass.
@@ -303,6 +307,7 @@ The intended Android support-tip flow is separate and later:
 
 - Public iOS release
 - Public Android / Play Store release
+- Wired native iOS WidgetKit / ActivityKit extension targets, App Groups, APNs, and production Live Activity updates
 - Per-device authorization/revoke tokens for broader mutating LAN controls. Current LAN Companion identifies each device with an install-scoped companion ID and check-in, while Standalone uses its relay activation token.
 - Production-ready admin permission model
 - Native crash capture before JavaScript starts

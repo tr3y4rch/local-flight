@@ -31,9 +31,26 @@ from localflight.storage.config import (
     AppConfig, load_config, save_config,
     ALLOWED_DIAGNOSTICS_MODES, DEFAULT_DIAGNOSTICS_MODE,
     ALLOWED_OUTPUTS, ALLOWED_SOURCES, ALLOWED_SKINS,
+    ALLOWED_RADAR_SURFACE_MODES, DEFAULT_RADAR_SURFACE_MODE,
     DEFAULT_DISPLAY_GRACE_MINUTES, DEFAULT_DISPLAY_HORIZON_HOURS,
     DEFAULT_OUTPUTS, DEFAULT_SOURCE, DEFAULT_SKIN,
     DEFAULT_WEB_ROTATION_SECONDS, DEFAULT_WEB_ROW_LIMIT,
+)
+from localflight.storage.provider_keys import (
+    AERODATABOX_DEFAULT_FIDS_UNITS,
+    AERODATABOX_DEFAULT_MONTHLY_UNITS,
+    SECRET_KEYS,
+    apply_byok_values,
+    apply_relay_values,
+    apply_virtual_values,
+    clear_provider_keys,
+    env_path as provider_env_path,
+    normalize_aerodatabox_marketplace,
+    provider_env_values,
+    provider_status,
+    read_env as read_provider_env,
+    save_provider_keys,
+    write_env as write_provider_env,
 )
 from localflight.storage.logging_setup import (
     logs_dir, setup_logging,
@@ -121,7 +138,9 @@ _SETUP_FREE_PATHS = {
     "/api/setup/request-activation",
     "/api/setup/request-activation/status",
     "/api/setup/test-activation",
+    "/api/setup/test-aerodatabox",
     "/api/setup/test-aviationstack",
+    "/api/setup/test-opensky",
     "/api/setup/test-rapidapi",
     "/api/airports/search",
     "/static",
@@ -548,6 +567,29 @@ class ApiKeyTestIn(BaseModel):
     key: str = Field(..., min_length=1, max_length=256)
 
 
+class AeroDataBoxKeyTestIn(BaseModel):
+    key: str = Field(..., min_length=1, max_length=256)
+    marketplace: str = Field("apimarket", max_length=32)
+    airport_iata: str = Field("ZRH", max_length=4)
+    monthly_units_limit: int = Field(AERODATABOX_DEFAULT_MONTHLY_UNITS, ge=0, le=250_000)
+
+
+class OpenSkyKeyTestIn(BaseModel):
+    opensky_id: str = Field(..., min_length=1, max_length=256)
+    opensky_secret: str = Field(..., min_length=1, max_length=256)
+
+
+class ProviderKeysSaveIn(BaseModel):
+    aerodatabox_key: str = Field("", max_length=256)
+    aerodatabox_marketplace: str = Field("apimarket", max_length=32)
+    aerodatabox_monthly_units_limit: int = Field(AERODATABOX_DEFAULT_MONTHLY_UNITS, ge=0, le=250_000)
+    aerodatabox_daily_units_limit: str = Field("", max_length=16)
+    aviationstack_key: str = Field("", max_length=256)
+    rapidapi_key: str = Field("", max_length=256)
+    opensky_id: str = Field("", max_length=256)
+    opensky_secret: str = Field("", max_length=256)
+
+
 class ActivationSetupIn(BaseModel):
     relay_url: str = Field("", max_length=300)
     airport_iata: str = Field("", max_length=4)
@@ -689,6 +731,113 @@ async def _test_aviationstack_key(key: str) -> Dict[str, Any]:
         return {"ok": False, "error": str(exc)}
 
 
+async def _test_aerodatabox_key(
+    key: str,
+    *,
+    marketplace: str = "apimarket",
+    airport_iata: str = "ZRH",
+    monthly_units_limit: int = AERODATABOX_DEFAULT_MONTHLY_UNITS,
+) -> Dict[str, Any]:
+    """Test an AeroDataBox key without saving it."""
+    import requests as _req
+
+    from localflight.sources.web.aerodatabox_client import (
+        AERODATABOX_APIMARKET_BASE_URL,
+        AERODATABOX_RAPIDAPI_BASE_URL,
+    )
+
+    market = normalize_aerodatabox_marketplace(marketplace)
+    airport = (airport_iata or "ZRH").strip().upper()[:3] or "ZRH"
+    base = AERODATABOX_RAPIDAPI_BASE_URL if market == "rapidapi" else AERODATABOX_APIMARKET_BASE_URL
+    headers = (
+        {
+            "X-RapidAPI-Key": key,
+            "X-RapidAPI-Host": "aerodatabox.p.rapidapi.com",
+            "Accept": "application/json",
+        }
+        if market == "rapidapi"
+        else {
+            "x-magicapi-key": key,
+            "Accept": "application/json",
+        }
+    )
+    try:
+        from localflight.sources.web import local_usage
+
+        monthly_limit = max(0, int(monthly_units_limit or AERODATABOX_DEFAULT_MONTHLY_UNITS))
+        local_usage.check_and_increment_many(
+            [
+                {
+                    "service": "aerodatabox_units",
+                    "amount": AERODATABOX_DEFAULT_FIDS_UNITS,
+                    "monthly_limit": monthly_limit,
+                    "daily_limit": max(1, (monthly_limit + 29) // 30),
+                },
+                {
+                    "service": "aerodatabox_requests",
+                    "amount": 1,
+                    "monthly_limit": None,
+                    "daily_limit": None,
+                },
+            ]
+        )
+    except Exception as exc:
+        if exc.__class__.__name__ == "LocalBudgetExceeded":
+            return {"ok": False, "error": str(exc)}
+        logger.debug("AeroDataBox test budget guard unavailable; continuing with provider probe: %s", exc)
+    try:
+        r = _req.get(
+            f"{base}/flights/airports/iata/{airport}",
+            params={
+                "offsetMinutes": 0,
+                "durationMinutes": 60,
+                "direction": "Both",
+                "withLeg": "true",
+                "withCancelled": "true",
+                "withCodeshared": "true",
+                "withCargo": "false",
+                "withPrivate": "false",
+                "withLocation": "false",
+            },
+            headers=headers,
+            timeout=12,
+        )
+        if r.status_code in {200, 204}:
+            return {"ok": True}
+        if r.status_code in {401, 403}:
+            return {"ok": False, "error": "AeroDataBox key invalid or not subscribed for this marketplace"}
+        if r.status_code == 429:
+            return {"ok": False, "error": "AeroDataBox provider quota or rate limit reached"}
+        return {"ok": False, "error": f"AeroDataBox HTTP {r.status_code}"}
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}
+
+
+@app.post("/api/setup/test-aerodatabox")
+async def setup_test_aerodatabox_post(body: AeroDataBoxKeyTestIn) -> Dict[str, Any]:
+    return await _test_aerodatabox_key(
+        body.key,
+        marketplace=body.marketplace,
+        airport_iata=body.airport_iata,
+        monthly_units_limit=body.monthly_units_limit,
+    )
+
+
+@app.get("/api/setup/test-aerodatabox")
+async def setup_test_aerodatabox_get(
+    key: str = Query(...),
+    marketplace: str = Query("apimarket"),
+    airport_iata: str = Query("ZRH"),
+    monthly_units_limit: int = Query(AERODATABOX_DEFAULT_MONTHLY_UNITS),
+) -> Dict[str, Any]:
+    return await _test_aerodatabox_key(
+        key,
+        marketplace=marketplace,
+        airport_iata=airport_iata,
+        monthly_units_limit=monthly_units_limit,
+    )
+
+
 @app.post("/api/setup/test-aviationstack")
 async def setup_test_aviationstack_post(body: ApiKeyTestIn) -> Dict[str, Any]:
     return await _test_aviationstack_key(body.key)
@@ -722,6 +871,47 @@ async def _test_rapidapi_key(key: str) -> Dict[str, Any]:
         return {"ok": False, "error": str(exc)}
 
 
+async def _test_opensky_key(opensky_id: str, opensky_secret: str) -> Dict[str, Any]:
+    """Test OpenSky credentials with a tiny bounded state-vector probe."""
+    import requests as _req
+
+    user = (opensky_id or "").strip()
+    secret = (opensky_secret or "").strip()
+    if not user or not secret:
+        return {"ok": False, "error": "OpenSky needs both client ID and secret"}
+    try:
+        from localflight.sources.web.opensky_radar import OPENSKY_BASE_URL, bounding_box
+
+        lamin, lomin, lamax, lomax = bounding_box(47.45, 8.55, 1.0)
+        r = _req.get(
+            OPENSKY_BASE_URL,
+            params={
+                "lamin": round(lamin, 6),
+                "lomin": round(lomin, 6),
+                "lamax": round(lamax, 6),
+                "lomax": round(lomax, 6),
+            },
+            auth=(user, secret),
+            timeout=10,
+            headers={"User-Agent": "local-flight/1.0 (+https://beacontools.cc/local-flight)"},
+        )
+        if r.status_code in {401, 403}:
+            return {"ok": False, "error": "OpenSky credentials were rejected"}
+        if r.status_code == 429:
+            return {"ok": False, "error": "OpenSky rate limit reached"}
+        if r.status_code >= 400:
+            return {"ok": False, "error": f"OpenSky HTTP {r.status_code}"}
+        try:
+            payload = r.json()
+        except Exception:
+            return {"ok": False, "error": "OpenSky response was not valid JSON"}
+        if not isinstance(payload, dict):
+            return {"ok": False, "error": "OpenSky response shape was unexpected"}
+        return {"ok": True}
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}
+
+
 @app.post("/api/setup/test-rapidapi")
 async def setup_test_rapidapi_post(body: ApiKeyTestIn) -> Dict[str, Any]:
     return await _test_rapidapi_key(body.key)
@@ -730,6 +920,19 @@ async def setup_test_rapidapi_post(body: ApiKeyTestIn) -> Dict[str, Any]:
 @app.get("/api/setup/test-rapidapi")
 async def setup_test_rapidapi_get(key: str = Query(...)) -> Dict[str, Any]:
     return await _test_rapidapi_key(key)
+
+
+@app.post("/api/setup/test-opensky")
+async def setup_test_opensky_post(body: OpenSkyKeyTestIn) -> Dict[str, Any]:
+    return await _test_opensky_key(body.opensky_id, body.opensky_secret)
+
+
+@app.get("/api/setup/test-opensky")
+async def setup_test_opensky_get(
+    opensky_id: str = Query(...),
+    opensky_secret: str = Query(...),
+) -> Dict[str, Any]:
+    return await _test_opensky_key(opensky_id, opensky_secret)
 
 
 @app.post("/api/setup/activate")
@@ -922,24 +1125,12 @@ async def setup_complete(request: Request, background_tasks: BackgroundTasks) ->
     if diagnostics_mode not in ALLOWED_DIAGNOSTICS_MODES:
         diagnostics_mode = DEFAULT_DIAGNOSTICS_MODE
 
-    # â”€â”€ Find .env path â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-    # __file__ is src/localflight/ui/server.py â†’ project root is 3 levels up
-    here = Path(__file__).resolve().parent
-    src_dir = here.parent.parent
-    env_path = src_dir.parent / ".env"
-
-    existing: Dict[str, str] = {}
-    if env_path.exists():
-        try:
-            for line in env_path.read_text(encoding="utf-8").splitlines():
-                line = line.strip()
-                if not line or line.startswith("#") or "=" not in line:
-                    continue
-                k, _, v = line.partition("=")
-                existing[k.strip()] = v.strip()
-        except Exception:
-            pass
-
+    env_path = provider_env_path()
+    existing = read_provider_env(env_path)
+    adb_key = data.get("aerodatabox_key", "").strip()
+    adb_marketplace = normalize_aerodatabox_marketplace(data.get("aerodatabox_marketplace", "apimarket"))
+    adb_monthly_limit = data.get("aerodatabox_monthly_units_limit", AERODATABOX_DEFAULT_MONTHLY_UNITS)
+    adb_daily_limit = data.get("aerodatabox_daily_units_limit", "")
     as_key = data.get("aviationstack_key", "").strip()
     rp_key = data.get("rapidapi_key", "").strip()
     activation_token = data.get("activation_token", "").strip()
@@ -960,62 +1151,33 @@ async def setup_complete(request: Request, background_tasks: BackgroundTasks) ->
         except Exception:
             activation_token = ""
 
-    def _clear_real_data_keys(*, clear_activation: bool = True) -> None:
-        if clear_activation:
-            existing.pop("LOCALFLIGHT_ACTIVATION_TOKEN", None)
-        existing.pop("AVIATIONSTACK_API_KEY", None)
-        existing.pop("RAPIDAPI_KEY", None)
-        existing["LOCALFLIGHT_AVIATIONSTACK_ENABLED"] = "0"
-
+    removed_keys: set[str] = set()
     if setup_mode == "managed":
-        _clear_real_data_keys()
-        if activation_token:
-            existing["LOCALFLIGHT_ACTIVATION_TOKEN"] = activation_token
-        existing["LOCALFLIGHT_RELAY_URL"] = relay_url or _relay_url_default()
+        removed_keys |= apply_relay_values(existing, activation_token=activation_token, relay_url=relay_url, community=False)
     elif setup_mode == "byok":
-        existing.pop("LOCALFLIGHT_ACTIVATION_TOKEN", None)
-        existing.pop("LOCALFLIGHT_RELAY_URL", None)
-        existing.pop("AVIATIONSTACK_API_KEY", None)
-        existing.pop("RAPIDAPI_KEY", None)
-        if as_key:
-            existing["AVIATIONSTACK_API_KEY"] = as_key
-            existing["LOCALFLIGHT_AVIATIONSTACK_ENABLED"] = "1"
-            current_as_limit = existing.get("LOCALFLIGHT_AVIATIONSTACK_MONTHLY_LIMIT", "").strip()
-            if not current_as_limit or current_as_limit == "10000":
-                existing["LOCALFLIGHT_AVIATIONSTACK_MONTHLY_LIMIT"] = "90"
-        else:
-            existing["LOCALFLIGHT_AVIATIONSTACK_ENABLED"] = "0"
-        if rp_key:
-            existing["RAPIDAPI_KEY"] = rp_key
-            existing.setdefault("LOCALFLIGHT_RAPIDAPI_MONTHLY_LIMIT", "10000")
+        if not (adb_key or as_key):
+            return JSONResponse(
+                {"ok": False, "error": "Use Your Own Keys needs an AeroDataBox or AviationStack schedule key."},
+                status_code=400,
+            )
+        removed_keys |= apply_byok_values(
+            existing,
+            aerodatabox_key=adb_key,
+            aerodatabox_marketplace=adb_marketplace,
+            aerodatabox_monthly_units_limit=adb_monthly_limit,
+            aerodatabox_daily_units_limit=adb_daily_limit,
+            aviationstack_key=as_key,
+            rapidapi_key=rp_key,
+            opensky_id=os_id,
+            opensky_secret=os_sec,
+        )
     elif setup_mode == "community":
-        _clear_real_data_keys(clear_activation=False)
-        if activation_token:
-            existing["LOCALFLIGHT_ACTIVATION_TOKEN"] = activation_token
-        else:
-            existing.pop("LOCALFLIGHT_ACTIVATION_TOKEN", None)
-        existing["LOCALFLIGHT_RELAY_URL"] = relay_url or _relay_url_default()
+        removed_keys |= apply_relay_values(existing, activation_token=activation_token, relay_url=relay_url, community=True)
     else:
-        _clear_real_data_keys()
-        existing.pop("LOCALFLIGHT_RELAY_URL", None)
-
-    if os_id:
-        existing["OPENSKY_CLIENT_ID"] = os_id
-    elif setup_mode in {"managed", "community", "virtual"}:
-        existing.pop("OPENSKY_CLIENT_ID", None)
-    if os_sec:
-        existing["OPENSKY_CLIENT_SECRET"] = os_sec
-    elif setup_mode in {"managed", "community", "virtual"}:
-        existing.pop("OPENSKY_CLIENT_SECRET", None)
+        removed_keys |= apply_virtual_values(existing)
 
     try:
-        lines = ["# Local Flight â€” environment variables\n"]
-        for k, v in existing.items():
-            lines.append(f"{k}={v}\n")
-        env_path.write_text("".join(lines), encoding="utf-8")
-
-        for k, v in existing.items():
-            os.environ[k] = v
+        write_provider_env(existing, removed=removed_keys, path=env_path)
         try:
             from localflight.storage.install import set_activation_token
 
@@ -1099,6 +1261,7 @@ def settings_page(
             "state": state,
             "profiles": profiles,
             "companion_pairing": companion_pairing,
+            "provider_status": provider_status(),
             "settings_options": _settings_options_for_policy(schedule_policy),
             "schedule_policy": schedule_policy,
             "saved": (saved == "1"),
@@ -1114,12 +1277,32 @@ def _list_log_files() -> list[str]:
     return [p.name for p in sorted(d.glob("localflight_*.log"), key=lambda p: p.stat().st_mtime, reverse=True)]
 
 
+def _secret_values_for_redaction() -> list[str]:
+    try:
+        values = provider_env_values()
+    except Exception:
+        values = dict(os.environ)
+    secrets = []
+    for key in {*SECRET_KEYS, "LOCALFLIGHT_ACTIVATION_TOKEN"}:
+        value = str(values.get(key, "") or "").strip()
+        if len(value) >= 6:
+            secrets.append(value)
+    return sorted(set(secrets), key=len, reverse=True)
+
+
+def _redact_sensitive_log_text(text: str) -> str:
+    redacted = text
+    for secret in _secret_values_for_redaction():
+        redacted = redacted.replace(secret, "[redacted]")
+    return redacted
+
+
 def _tail_lines(path: Path, n: int = 500) -> list[str]:
     try:
         text = path.read_text(encoding="utf-8", errors="replace")
     except FileNotFoundError:
         return ["(log file not found)"]
-    lines = text.splitlines()
+    lines = _redact_sensitive_log_text(text).splitlines()
     return lines[-n:] if len(lines) > n else lines
 
 
@@ -1167,11 +1350,83 @@ def logs_tail(file: Optional[str] = Query(None), after: int = Query(0, ge=0)) ->
 
     selected = file if (file in files) else files[0]
     try:
-        all_lines = (logs_dir() / selected).read_text(encoding="utf-8", errors="replace").splitlines()
+        text = (logs_dir() / selected).read_text(encoding="utf-8", errors="replace")
+        all_lines = _redact_sensitive_log_text(text).splitlines()
     except FileNotFoundError:
         return JSONResponse({"lines": [], "total": 0})
 
     return JSONResponse({"lines": all_lines[after:] if after < len(all_lines) else [], "total": len(all_lines)})
+
+
+@app.get("/api/provider-keys/status")
+def api_provider_keys_status() -> Dict[str, Any]:
+    return provider_status()
+
+
+@app.post("/api/provider-keys/test-aerodatabox")
+async def api_provider_keys_test_aerodatabox(body: AeroDataBoxKeyTestIn) -> Dict[str, Any]:
+    return await _test_aerodatabox_key(
+        body.key,
+        marketplace=body.marketplace,
+        airport_iata=body.airport_iata,
+        monthly_units_limit=body.monthly_units_limit,
+    )
+
+
+@app.post("/api/provider-keys/test-aviationstack")
+async def api_provider_keys_test_aviationstack(body: ApiKeyTestIn) -> Dict[str, Any]:
+    return await _test_aviationstack_key(body.key)
+
+
+@app.post("/api/provider-keys/test-rapidapi")
+async def api_provider_keys_test_rapidapi(body: ApiKeyTestIn) -> Dict[str, Any]:
+    return await _test_rapidapi_key(body.key)
+
+
+@app.post("/api/provider-keys/test-opensky")
+async def api_provider_keys_test_opensky(body: OpenSkyKeyTestIn) -> Dict[str, Any]:
+    return await _test_opensky_key(body.opensky_id, body.opensky_secret)
+
+
+@app.post("/api/provider-keys/save")
+def api_provider_keys_save(body: ProviderKeysSaveIn) -> Dict[str, Any]:
+    try:
+        save_provider_keys(
+            aerodatabox_key=body.aerodatabox_key,
+            aerodatabox_marketplace=body.aerodatabox_marketplace,
+            aerodatabox_monthly_units_limit=body.aerodatabox_monthly_units_limit,
+            aerodatabox_daily_units_limit=body.aerodatabox_daily_units_limit,
+            aviationstack_key=body.aviationstack_key,
+            rapidapi_key=body.rapidapi_key,
+            opensky_id=body.opensky_id,
+            opensky_secret=body.opensky_secret,
+        )
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": f"Provider keys could not be saved: {exc}"}, status_code=500)
+    try:
+        from localflight.ui.events import notify_config_updated, restart_scheduler_and_notify
+
+        notify_config_updated(load_config(), reason="provider_keys")
+        restart_scheduler_and_notify("provider_keys")
+    except Exception:
+        pass
+    return provider_status()
+
+
+@app.post("/api/provider-keys/clear")
+def api_provider_keys_clear() -> Dict[str, Any]:
+    try:
+        clear_provider_keys()
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": f"Provider keys could not be cleared: {exc}"}, status_code=500)
+    try:
+        from localflight.ui.events import notify_config_updated, restart_scheduler_and_notify
+
+        notify_config_updated(load_config(), reason="provider_keys_cleared")
+        restart_scheduler_and_notify("provider_keys_cleared")
+    except Exception:
+        pass
+    return provider_status()
 
 
 @app.get("/api/logs")
@@ -1219,6 +1474,7 @@ async def save_settings(
     display_grace_minutes: int = Form(DEFAULT_DISPLAY_GRACE_MINUTES),
     display_horizon_hours: int = Form(DEFAULT_DISPLAY_HORIZON_HOURS),
     radar_surface_enabled: Optional[str] = Form(None),
+    radar_surface_mode: Optional[str] = Form(DEFAULT_RADAR_SURFACE_MODE),
 ) -> RedirectResponse:
     src = (source or DEFAULT_SOURCE).strip().lower()
     if src not in ALLOWED_SOURCES:
@@ -1237,7 +1493,10 @@ async def save_settings(
     web_rotate = max(3, min(60, int(web_rotation_seconds)))
     grace_minutes = max(0, min(180, int(display_grace_minutes)))
     horizon_hours = max(1, min(24, int(display_horizon_hours)))
-    surface_enabled = str(radar_surface_enabled or "").strip().lower() in {"1", "true", "yes", "on"}
+    raw_surface_mode = str(radar_surface_mode or "").strip().lower()
+    if raw_surface_mode not in ALLOWED_RADAR_SURFACE_MODES:
+        raw_surface_mode = "relay" if str(radar_surface_enabled or "").strip().lower() in {"1", "true", "yes", "on"} else DEFAULT_RADAR_SURFACE_MODE
+    surface_enabled = raw_surface_mode != "off"
 
     form_data = await request.form()
     raw_outputs = form_data.getlist("display_outputs")
@@ -1264,6 +1523,7 @@ async def save_settings(
         display_grace_minutes=grace_minutes,
         display_horizon_hours=horizon_hours,
         radar_surface_enabled=surface_enabled,
+        radar_surface_mode=raw_surface_mode,
     )
     save_config(cfg)
 
@@ -1280,7 +1540,7 @@ async def save_settings(
         cfg.web_rotation_seconds,
         cfg.display_grace_minutes,
         cfg.display_horizon_hours,
-        cfg.radar_surface_enabled,
+        cfg.radar_surface_mode,
     )
 
     from localflight.ui.events import notify_config_updated, restart_scheduler_and_notify

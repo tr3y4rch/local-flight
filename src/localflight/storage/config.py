@@ -33,6 +33,8 @@ DEFAULT_WEB_ROTATION_SECONDS = 8
 DEFAULT_DISPLAY_GRACE_MINUTES = 30
 DEFAULT_DISPLAY_HORIZON_HOURS = 12
 DEFAULT_RADAR_SURFACE_ENABLED = False
+ALLOWED_RADAR_SURFACE_MODES = {"off", "estimated", "relay"}
+DEFAULT_RADAR_SURFACE_MODE = "off"
 
 
 @dataclass(frozen=True)
@@ -52,6 +54,17 @@ class AppConfig:
     display_grace_minutes: int = DEFAULT_DISPLAY_GRACE_MINUTES
     display_horizon_hours: int = DEFAULT_DISPLAY_HORIZON_HOURS
     radar_surface_enabled: bool = DEFAULT_RADAR_SURFACE_ENABLED
+    radar_surface_mode: str = DEFAULT_RADAR_SURFACE_MODE
+
+    def __post_init__(self) -> None:
+        surface_mode = str(self.radar_surface_mode or "").strip().lower()
+        if surface_mode not in ALLOWED_RADAR_SURFACE_MODES:
+            surface_mode = "relay" if self.radar_surface_enabled else DEFAULT_RADAR_SURFACE_MODE
+        elif self.radar_surface_enabled and surface_mode == "off":
+            # Preserve older call sites/tests that only toggled the legacy boolean.
+            surface_mode = "relay"
+        object.__setattr__(self, "radar_surface_mode", surface_mode)
+        object.__setattr__(self, "radar_surface_enabled", surface_mode != "off")
 
 
 def config_path() -> Path:
@@ -153,10 +166,16 @@ def load_config() -> AppConfig:
     )
     display_horizon_hours = max(1, min(24, display_horizon_hours))
 
-    radar_surface_enabled = _to_bool(
+    legacy_surface_enabled = _to_bool(
         raw.get("radar_surface_enabled", DEFAULT_RADAR_SURFACE_ENABLED),
         DEFAULT_RADAR_SURFACE_ENABLED,
     )
+    radar_surface_mode = str(raw.get("radar_surface_mode") or "").strip().lower()
+    if not radar_surface_mode:
+        radar_surface_mode = "relay" if legacy_surface_enabled else DEFAULT_RADAR_SURFACE_MODE
+    if radar_surface_mode not in ALLOWED_RADAR_SURFACE_MODES:
+        radar_surface_mode = DEFAULT_RADAR_SURFACE_MODE
+    radar_surface_enabled = radar_surface_mode != "off"
 
     return AppConfig(
         airport_icao=airport_icao,
@@ -174,6 +193,7 @@ def load_config() -> AppConfig:
         display_grace_minutes=display_grace_minutes,
         display_horizon_hours=display_horizon_hours,
         radar_surface_enabled=radar_surface_enabled,
+        radar_surface_mode=radar_surface_mode,
     )
 
 

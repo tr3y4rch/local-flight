@@ -12,6 +12,7 @@ const WEATHER_DISPLAY_KEY = "localflight.weatherDisplayMode";
 const RADAR_DRAWING_LAYERS_KEY = "localflight.radarDrawingLayers";
 const MOBILE_DIAGNOSTICS_KEY = "localflight.mobileDiagnosticsMode";
 const MOBILE_SETUP_STATE_KEY = "localflight.mobileSetupState";
+const WIDGET_PREFERENCES_KEY = "localflight.widgetPreferences";
 const MOBILE_RELAY_INSTALL_ID_KEY = "localflight.mobileRelayInstallId";
 const MOBILE_RELAY_ACTIVATION_TOKEN_KEY = "localflight.mobileRelayActivationToken";
 const STANDALONE_AIRPORT_KEY = "localflight.standaloneAirport";
@@ -42,11 +43,19 @@ export type MobileRadarDrawingLayers = {
   surface: boolean;
   terrain: boolean;
 };
+export type MobileWidgetPreferences = {
+  mediumRowCount: 2 | 3;
+  showGateTerminal: boolean;
+};
 
 const DEFAULT_RADAR_DRAWING_LAYERS: MobileRadarDrawingLayers = {
   runways: true,
   surface: true,
   terrain: false
+};
+export const DEFAULT_WIDGET_PREFERENCES: MobileWidgetPreferences = {
+  mediumRowCount: 3,
+  showGateTerminal: true
 };
 
 export type StandaloneAirport = {
@@ -327,6 +336,17 @@ function normalizeRadarDrawingLayers(value: unknown): MobileRadarDrawingLayers {
   };
 }
 
+function normalizeWidgetPreferences(value: unknown): MobileWidgetPreferences {
+  if (!value || typeof value !== "object") {
+    return { ...DEFAULT_WIDGET_PREFERENCES };
+  }
+  const raw = value as Partial<MobileWidgetPreferences>;
+  return {
+    mediumRowCount: raw.mediumRowCount === 2 ? 2 : 3,
+    showGateTerminal: raw.showGateTerminal !== false
+  };
+}
+
 export function incompleteMobileSetupState(
   serverUrl = "",
   diagnosticsMode: MobileDiagnosticsMode = "unset"
@@ -476,6 +496,24 @@ export async function loadRadarDrawingLayers(): Promise<MobileRadarDrawingLayers
 
 export async function saveRadarDrawingLayers(value: MobileRadarDrawingLayers): Promise<void> {
   await SecureStore.setItemAsync(RADAR_DRAWING_LAYERS_KEY, JSON.stringify(normalizeRadarDrawingLayers(value)));
+}
+
+export async function loadWidgetPreferences(): Promise<MobileWidgetPreferences> {
+  const raw = await SecureStore.getItemAsync(WIDGET_PREFERENCES_KEY);
+  if (!raw) {
+    return { ...DEFAULT_WIDGET_PREFERENCES };
+  }
+  try {
+    return normalizeWidgetPreferences(JSON.parse(raw));
+  } catch {
+    return { ...DEFAULT_WIDGET_PREFERENCES };
+  }
+}
+
+export async function saveWidgetPreferences(value: MobileWidgetPreferences): Promise<MobileWidgetPreferences> {
+  const normalized = normalizeWidgetPreferences(value);
+  await SecureStore.setItemAsync(WIDGET_PREFERENCES_KEY, JSON.stringify(normalized));
+  return normalized;
 }
 
 export async function loadMobileDiagnosticsMode(): Promise<MobileDiagnosticsMode> {

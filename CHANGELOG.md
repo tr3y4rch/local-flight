@@ -15,17 +15,59 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 > For the public-facing summary, see
 > [docs/release-notes-0.2.8.md](docs/release-notes-0.2.8.md).
 
-### LAN Settings parity
+### LAN client and native shell parity
 - Brought the LAN browser Settings page back into parity with the native Qt shell.
 - Moved Outputs/Radar and Profiles into collapsed folder cards by default, matching the calmer Qt Settings dashboard rhythm.
 - Added the same folder order used by the native shell: Outputs & Radar, Profiles, Pair Mobile, Advanced board timing, Maintenance, Relay details, and Diagnostics & Docs.
 - Added browser-side Pair Mobile pairing controls with reusable QR, preferred LAN URL, manual URL fallbacks, server fingerprint, paired-device refresh, copy-link/copy-URL actions, and reset paired devices.
 - Updated the LAN Settings status strip to follow the Qt client-state shape more closely: Airport, Data, Refresh, Relay, and Surface.
+- Started unifying the LAN FIDS, Display, and Radar chrome with the newer Settings/native shell language so stale top bars and mismatched utility controls do not drift from the release UI.
+- Hardened the setup-reset path so rerunning setup from Settings can close the running shell and launch the wizard directly instead of requiring a manual app relaunch.
+- Tightened the desktop/Qt setup wizard window so first-run pages keep their primary guidance and buttons visible, with shorter transient feedback instead of sticky bottom messages.
+
+### Mobile IA, setup, and visual polish
+- Reworked the mobile airport hero into one shared top rail: Board keeps the full airport hero underneath, while Radar, History, Control, and Settings use the compact companion rail.
+- Aligned the app title and UTC/LT clock, centered compact and expanded weather blocks, added board-only fuller weather, and made compact pinned-flight summaries include at-a-glance flight/status data.
+- Made the airport hero behavior consistent across LAN Companion and Standalone modes, including airport-local LT clock handling and compact header behavior.
+- Rebuilt LAN Companion Control and Standalone Settings around the same low-noise IA: top-level rows either open a sheet directly or expand inline, but no longer mix sheet launchers inside accordion bodies.
+- Folded LAN Help into Control, kept standalone help/settings separate where appropriate, preserved the support/tip footer, and removed duplicated settings/help paths.
+- Polished Matrix controls, appearance controls, and pull-up sheets so titles, chip grids, palettes, and live-board controls no longer crowd or visually scrape each other.
+- Added a shared `Widgets & Glances` settings path to both mobile modes as a design/preview surface for future widgets and Live Activities.
+- Updated the mobile launch overlay and setup flow with the newer beacon/splash language, a ready-gated enter state, compact setup rail after the welcome step, keyboard-safe setup pages, reduced-motion-aware transitions, and a lower main bottom nav.
+
+### Mobile store readiness and Android scaffold
+- Locked the Android application ID path to `com.localflight.mobile` before any Play Console upload, while keeping the iOS bundle ID on `com.localflight.companion`.
+- Added Android local-dev pathing and commands for Android Studio, `adb`, emulator/device runs, debug install conflicts, and Expo/Gradle build expectations.
+- Added Android release scaffold notes for EAS/Play AAB generation, package-ID permanence, release-manifest review, cleartext LAN HTTP expectations, and Play Data Safety preparation.
+- Updated mobile store/readiness docs around App Store review notes, Play Store review notes, privacy/support URLs, LAN/camera permission explanations, and support-stub copy.
+- Kept real IAP, StoreKit, Google Play Billing, Apple Developer ID credentials, and Play Console credentials explicitly out of this release-candidate slice.
+
+### iOS widgets, Live Activities, and snapshot contract prep
+- Added a design-only iOS widget and Dynamic Island spec covering small pinned-flight widgets, medium FIDS-style board widgets, compact/expanded Live Activities, empty/stale states, and the future data contract.
+- Added widget preview documentation and refreshed the static SVG preview to follow the horizontal mobile FIDS visual language, with small widget as a pinned-flight tracker and medium widget as a clean board preview.
+- Added pre-entitlement widget skeleton files and README guidance for the future Apple Developer/App Group/WidgetKit/ActivityKit wiring pass.
+- Added mobile widget snapshot helpers and storage scaffolding so the Expo app can prepare bounded, stale-aware, network-free widget data before native extension wiring exists.
+- Kept the widget extension path intentionally read-only and network-free by design; no App Groups, native targets, APNs, or ActivityKit entitlements are wired yet.
+
+### Backend provider keys and private-network hardening
+- Promoted AeroDataBox into the real first-run/settings API key flow alongside AviationStack, ADS-B Exchange/RapidAPI, and OpenSky instead of leaving it as an implicit env-only backend option.
+- Hardened BYOK behavior so direct schedule keys mean a private/direct provider path: AeroDataBox is preferred when present, AviationStack remains fallback/fill, and stale relay credentials are cleared when switching modes.
+- Added provider-key status, save/clear, and test plumbing with redacted status output, explicit `active_path`/`privacy_posture` fields, and OpenSky test parity.
+- Added secrecy regressions so provider keys do not leak through status JSON, admin/mobile config, rendered settings HTML, reports, log-tail responses, or diagnostics payloads.
+- Split radar surface behavior into explicit non-relay/relay choices so `off`, `estimated`, and relay-cache behavior can be reasoned about without surprise network hops.
+- Reinforced BYOK radar privacy: schedule BYOK without RapidAPI uses snapshot/OpenSky fallback and must not silently call the ADS-B relay.
+
+### Relay, reporting, and diagnostics hardening
+- Refreshed relay/client compatibility notes around standalone mobile endpoints, mobile summaries, FIDS/radar/metar paths, activation/check-in behavior, and report forwarding.
+- Hardened report payload metadata so Linear/mobile reports carry OS family and app mode (`lan_companion` vs `standalone`) without exposing provider secrets or raw local paths.
+- Clarified heartbeat/privacy behavior for BYOK, relay, virtual, and standalone paths so relay presence remains coarse, non-blocking, and eligibility-gated.
+- Continued separating public support/contact/report routes from operator-only Network Admin routes and secrets.
 
 ### Documentation and preview planning
 - Added preliminary `0.2.8` release notes without changing the active app/package target from `0.2.7`.
-- Documented `assets/mobile-previews/` as the real screenshot source for future mobile preview graphics, split by Android and iOS.
+- Documented `assets/previews/mobile/iOS/`, `assets/previews/mobile/Android/`, and `assets/previews/shell/` as the source hierarchy for public screenshots and website imagery.
 - Captured the preview priority order for public docs/site imagery: FIDS, Radar, History, Setup, Display, Splash.
+- Updated mobile documentation to point store/review/support/privacy flows at the Beacon Tools public website, including mobile trust, support, network, privacy, and privacy-choice pages.
 - Clarified the Beacon Tools production deploy path: the public site is served by the Cloudflare Worker + Assets deploy, while dashboard `.dev` previews do not automatically update the custom domain.
 
 ### macOS installer path

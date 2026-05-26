@@ -24,20 +24,17 @@
     box-sizing: border-box; gap: clamp(4px, 0.9vh, 8px);
   }
   .radar-subheader {
-    display: flex; justify-content: space-between; align-items: center;
-    flex-shrink: 0; flex-wrap: wrap; gap: clamp(5px, 0.9vw, 8px);
+    flex-shrink: 0; flex-wrap: wrap;
     min-width: 0;
     font-size: clamp(0.76rem, 1.2vw, 0.88rem); font-weight: 700;
+    border-radius: 10px;
+    border: 1px solid rgba(74,158,218,0.16);
+    padding: clamp(5px, 0.9vh, 7px) clamp(8px, 1.1vw, 12px);
   }
   .radar-airport-title {
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .radar-subheader .radar-lt {
-    font-family: var(--font-board); font-size: clamp(0.66rem, 1vw, 0.78rem);
-    opacity: 0.6; font-variant-numeric: tabular-nums;
     white-space: nowrap;
   }
 
@@ -76,27 +73,19 @@
   .metar-loading { opacity: 0.4; font-style: italic; }
 
   .radar-range-btns {
-    display: flex; gap: 5px;
     flex-wrap: wrap;
-    justify-content: center;
     min-width: 0;
   }
   .radar-range-btn {
     width: auto;
     margin-top: 0;
     flex: 0 0 auto;
-    padding: clamp(2px, 0.5vh, 3px) clamp(7px, 1.1vw, 10px); border-radius: 4px; font-size: clamp(0.66rem, 1vw, 0.75rem); font-weight: 700;
-    border: 1px solid rgba(255,255,255,0.18); background: rgba(255,255,255,0.05);
-    color: inherit; cursor: pointer; font-family: var(--font-board);
+    padding: clamp(4px, 0.5vh, 5px) clamp(8px, 1.1vw, 10px); font-size: clamp(0.66rem, 1vw, 0.75rem);
+    font-family: var(--font-board);
     transition: background 0.1s, border-color 0.1s;
   }
-  [data-theme="light"] .radar-range-btn { border-color: rgba(0,0,0,0.18); background: rgba(0,0,0,0.04); }
-  .radar-range-btn.active { background: rgba(255,255,255,0.18); border-color: rgba(255,255,255,0.5); }
-  [data-theme="light"] .radar-range-btn.active { background: rgba(0,0,0,0.12); border-color: rgba(0,0,0,0.4); }
-  .radar-view-btn {
-    border-color: rgba(74,158,218,0.38);
-    background: rgba(74,158,218,0.12);
-  }
+  .radar-range-btn.active { background: var(--lf-accent-soft); border-color: var(--lf-accent-border); color: var(--lf-text); }
+  .radar-view-btn { color: var(--lf-accent); }
   .radar-options {
     display: none;
     align-items: center;
@@ -268,9 +257,6 @@
     }
   }
   @media (max-height: 460px) {
-    .radar-subheader .radar-lt {
-      display: none;
-    }
     .metar-bar {
       min-height: 22px;
     }
@@ -291,13 +277,14 @@
 {% if not _embedded %}{{ topnav(active="radar", cfg=cfg) }}{% endif %}
 <div class="radar-wrap">
 
-  <div class="radar-subheader">
+  <div class="radar-subheader lf-surface-bar">
+    <div class="lf-surface-left">
     {% if not _embedded %}
-    <span class="radar-airport-title">📡 {{ airport_label }} <span style="opacity:0.45; font-weight:500;">({{ cfg.airport_iata }}/{{ cfg.airport_icao }})</span></span>
+    <span class="radar-airport-title lf-surface-title">📡 <span class="lf-surface-title-text">{{ airport_label }}</span> <span class="lf-surface-meta">{{ cfg.airport_iata }}/{{ cfg.airport_icao }}</span></span>
     {% else %}
-    <span class="radar-airport-title" style="opacity:0.55; font-size:0.78rem;">Radar range</span>
+    <span class="radar-airport-title lf-toolbar-kicker">Radar range</span>
     {% endif %}
-    <div class="radar-range-btns" id="rangeButtons">
+    <div class="radar-range-btns lf-segmented" id="rangeButtons">
       <button class="radar-range-btn" data-nm="1" onclick="setRadius(1)">1nm</button>
       <button class="radar-range-btn" data-nm="2" onclick="setRadius(2)">2nm</button>
       <button class="radar-range-btn" data-nm="3" onclick="setRadius(3)">3nm</button>
@@ -307,10 +294,15 @@
       <button class="radar-range-btn" data-nm="40" onclick="setRadius(40)">40nm</button>
       <button class="radar-range-btn radar-view-btn" id="viewOptionsBtn" type="button">View</button>
     </div>
+    </div>
     {% if not _embedded %}
-    <span class="radar-lt">LT <span class="clock-local-val">--:--:--</span></span>
+    <div class="lf-surface-right">
+      <span class="lf-surface-status"><span class="live-dot" id="radarHeaderDot"></span><span>Radar live</span></span>
+    </div>
     {% else %}
-    <span class="radar-lt">live</span>
+    <div class="lf-surface-right">
+      <span class="lf-surface-status">live</span>
+    </div>
     {% endif %}
   </div>
 
