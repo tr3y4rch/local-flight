@@ -48,13 +48,15 @@ same product, with clearer privacy posture and fewer surprising network hops.
 
 ## Store And Platform Readiness
 
-- Android identity is being locked to `com.localflight.mobile` before any Play
-  Console upload. iOS remains `com.localflight.companion` unless the App Store
-  record is intentionally rebuilt.
+- Mobile store identity is being locked to Beacon-owned IDs before first
+  upload: iOS bundle ID and Android package are both
+  `cc.beacontools.localflight`, with first store build counters starting at
+  `1`.
 - Android local development, emulator/device launch, package-uninstall, Gradle,
   and EAS/Play release pathing are documented for the current Expo app.
 - Mobile store copy and review notes now point at the Beacon Tools support,
-  privacy, mobile trust, network, and privacy-choice pages.
+  privacy, mobile trust, network, and privacy-choice pages, with TestFlight and
+  Google Play internal testing as the first target.
 - Support remains stub-only in the app. Real IAP, StoreKit, Google Play Billing,
   Apple Developer ID signing, and Play Console credentials remain future work.
 
@@ -122,5 +124,6 @@ same product, with clearer privacy posture and fewer surprising network hops.
   smoke, and release-manifest review.
 - Refresh public screenshots from the latest native, LAN browser, Matrix, and
   mobile screens before publishing final notes.
-- Wire Apple Developer/App Group/WidgetKit/ActivityKit and Play/App Store
-  credentials only after the required accounts and signing assets are available.
+- Use the new Apple Developer/App Store Connect and Google Play Console access
+  for private beta uploads first; keep WidgetKit/ActivityKit wiring behind the
+  separate App Group/signing pass.

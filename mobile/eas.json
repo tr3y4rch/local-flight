@@ -20,6 +20,15 @@
         "buildType": "app-bundle"
       }
     },
+    "beta": {
+      "distribution": "store",
+      "ios": {
+        "simulator": false
+      },
+      "android": {
+        "buildType": "app-bundle"
+      }
+    },
     "production": {
       "autoIncrement": true,
       "android": {
@@ -28,6 +37,7 @@
     }
   },
   "submit": {
+    "beta": {},
     "production": {}
   }
 }

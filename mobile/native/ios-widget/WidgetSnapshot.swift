@@ -1,7 +1,7 @@
 import Foundation
 
 enum LocalFlightWidgetConstants {
-  static let appGroupID = "group.com.localflight.companion"
+  static let appGroupID = "group.cc.beacontools.localflight"
   static let snapshotFilename = "localflight-widget-snapshot.json"
   static let schemaVersion = 1
   static let maxMediumRowsWithPinned = 4

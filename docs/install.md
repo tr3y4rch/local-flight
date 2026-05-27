@@ -142,7 +142,7 @@ lf update
 
 ## Mobile App
 
-The mobile app is a developer preview. iOS is the primary validation path; Android local development builds are also supported. It is not on the App Store, TestFlight, Play Store, or available as a release APK yet.
+The mobile app is in private beta preparation for TestFlight and Google Play testing. Public store downloads are not live yet; iOS and Android local development builds remain available for validation.
 
 Use it when you want a lightweight airport-board view, radar, history, control, and support tools from an iPhone, iPad, or simulator.
 

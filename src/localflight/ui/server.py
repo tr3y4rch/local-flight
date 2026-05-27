@@ -49,7 +49,9 @@ from localflight.storage.provider_keys import (
     provider_env_values,
     provider_status,
     read_env as read_provider_env,
+    reload_provider_env,
     save_provider_keys,
+    show_provider_key_settings,
     write_env as write_provider_env,
 )
 from localflight.storage.logging_setup import (
@@ -1178,6 +1180,8 @@ async def setup_complete(request: Request, background_tasks: BackgroundTasks) ->
 
     try:
         write_provider_env(existing, removed=removed_keys, path=env_path)
+        reload_provider_env(env_path)
+        logger.info("Setup provider env saved: mode=%s path=%s", setup_mode or source, env_path)
         try:
             from localflight.storage.install import set_activation_token
 
@@ -1253,6 +1257,7 @@ def settings_page(
     companion_pairing["qr_data_uri"] = (
         f"data:image/png;base64,{base64.b64encode(qr_bytes).decode('ascii')}" if qr_bytes else ""
     )
+    provider_key_status = provider_status()
     return templates.TemplateResponse(
         request=request,
         name="settings.html",
@@ -1261,7 +1266,8 @@ def settings_page(
             "state": state,
             "profiles": profiles,
             "companion_pairing": companion_pairing,
-            "provider_status": provider_status(),
+            "provider_status": provider_key_status,
+            "show_provider_key_settings": show_provider_key_settings(provider_key_status),
             "settings_options": _settings_options_for_policy(schedule_policy),
             "schedule_policy": schedule_policy,
             "saved": (saved == "1"),

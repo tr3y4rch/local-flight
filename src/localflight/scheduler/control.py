@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import os
 import threading
 import time
 from datetime import datetime, timezone
@@ -26,10 +25,14 @@ def _utc_now() -> str:
 def _load_dotenv_for_scheduler() -> Optional[str]:
     """
     Reload .env into the current process before starting a new scheduler loop.
-    Values are intentionally allowed to update so setup/API key edits take effect.
+    Local Flight-owned provider/relay values are authoritative so setup/API key
+    edits take effect and stale keys are cleared.
     """
+    from localflight.storage.provider_keys import env_path as provider_env_path
+
     here = Path(__file__).resolve().parent
     candidates = [
+        provider_env_path(),
         here.parent.parent.parent / ".env",
         here.parent.parent / ".env",
         Path.home() / ".localflight" / ".env",
@@ -40,14 +43,9 @@ def _load_dotenv_for_scheduler() -> Optional[str]:
         return None
 
     try:
-        for line in env_path.read_text(encoding="utf-8").splitlines():
-            line = line.strip()
-            if not line or line.startswith("#") or "=" not in line:
-                continue
-            key, _, value = line.partition("=")
-            key = key.strip()
-            if key:
-                os.environ[key] = value.strip()
+        from localflight.storage.provider_keys import reload_provider_env
+
+        reload_provider_env(env_path)
         return str(env_path)
     except Exception as exc:
         log.warning("Scheduler .env reload failed: %s", exc)

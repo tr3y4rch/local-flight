@@ -36,9 +36,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Updated the mobile launch overlay and setup flow with the newer beacon/splash language, a ready-gated enter state, compact setup rail after the welcome step, keyboard-safe setup pages, reduced-motion-aware transitions, and a lower main bottom nav.
 
 ### Mobile store readiness and Android scaffold
-- Locked the Android application ID path to `com.localflight.mobile` before any Play Console upload, while keeping the iOS bundle ID on `com.localflight.companion`.
+- Locked the mobile store identity to Beacon-owned IDs before first upload: iOS bundle ID and Android package are both `cc.beacontools.localflight`, with first store build counters starting at `1`.
 - Added Android local-dev pathing and commands for Android Studio, `adb`, emulator/device runs, debug install conflicts, and Expo/Gradle build expectations.
-- Added Android release scaffold notes for EAS/Play AAB generation, package-ID permanence, release-manifest review, cleartext LAN HTTP expectations, and Play Data Safety preparation.
+- Added EAS beta release scaffold notes for TestFlight and Play Internal Testing, package-ID permanence, release-manifest review, cleartext LAN HTTP expectations, and Play Data Safety preparation.
 - Updated mobile store/readiness docs around App Store review notes, Play Store review notes, privacy/support URLs, LAN/camera permission explanations, and support-stub copy.
 - Kept real IAP, StoreKit, Google Play Billing, Apple Developer ID credentials, and Play Console credentials explicitly out of this release-candidate slice.
 

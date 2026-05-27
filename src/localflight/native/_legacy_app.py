@@ -424,6 +424,10 @@ def launch_native_app(
 ) -> int:
     QtCore, QtGui, QtWidgets = import_qt()
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication(sys.argv[:1])
+    try:
+        app.setQuitOnLastWindowClosed(False)
+    except Exception:
+        pass
     configure_qt_app_identity(QtCore, QtGui, app)
     apply_app_font_defaults(QtGui, app)
     app_icon = localflight_app_icon(QtGui)
@@ -1211,6 +1215,8 @@ class NativeMainWindow:  # pragma: no cover - exercised with optional Qt
                     return
                 self._request_backend_shutdown()
                 event.accept()
+                if self._ui_only:
+                    QtCore.QTimer.singleShot(0, QtWidgets.QApplication.quit)
 
             def resizeEvent(self, event: Any) -> None:
                 super().resizeEvent(event)

@@ -42,6 +42,8 @@ RELAY_KEYS = {
     "LOCALFLIGHT_RELAY_URL",
 }
 
+PROVIDER_ENV_KEYS = frozenset({*DIRECT_PROVIDER_KEYS, *RELAY_KEYS})
+
 
 def env_path() -> Path:
     here = Path(__file__).resolve()
@@ -76,6 +78,24 @@ def provider_env_values(path: Path | None = None) -> Dict[str, str]:
     return values
 
 
+def apply_provider_env(values: Dict[str, str]) -> None:
+    """Make Local Flight-owned provider/relay env mirror the supplied values."""
+    for key in PROVIDER_ENV_KEYS:
+        if key in values:
+            os.environ[key] = values[key]
+        else:
+            os.environ.pop(key, None)
+
+
+def reload_provider_env(path: Path | None = None) -> Path | None:
+    """Reload provider/relay keys from .env, with .env authoritative when present."""
+    target = path or env_path()
+    if not target.exists():
+        return None
+    apply_provider_env(read_env(target))
+    return target
+
+
 def write_env(values: Dict[str, str], *, removed: Iterable[str] = (), path: Path | None = None) -> None:
     target = path or env_path()
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -84,9 +104,12 @@ def write_env(values: Dict[str, str], *, removed: Iterable[str] = (), path: Path
         lines.append(f"{key}={value}\n")
     target.write_text("".join(lines), encoding="utf-8")
     for key in set(removed):
-        os.environ.pop(key, None)
+        if key not in PROVIDER_ENV_KEYS:
+            os.environ.pop(key, None)
+    apply_provider_env(values)
     for key, value in values.items():
-        os.environ[key] = value
+        if key not in PROVIDER_ENV_KEYS and key not in os.environ:
+            os.environ[key] = value
 
 
 def truthy_env(name: str) -> bool:
@@ -279,6 +302,13 @@ def provider_status() -> Dict[str, Any]:
             "url": str(values.get("LOCALFLIGHT_RELAY_URL", "") or default_public_relay_url()).rstrip("/"),
         },
     }
+
+
+def show_provider_key_settings(status: Dict[str, Any] | None) -> bool:
+    """Provider-key controls are only actionable for direct/BYOK installs."""
+    if not isinstance(status, dict):
+        return False
+    return str(status.get("privacy_posture") or "").strip().lower() == "direct_private"
 
 
 def save_provider_keys(

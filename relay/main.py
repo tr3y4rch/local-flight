@@ -139,10 +139,10 @@ _REPORT_TEAM_ENV = {
     "default": "LINEAR_TEAM_DEFAULT_ID",
 }
 _APPLE_IAP_SUPPORT_PRODUCT_IDS = {
-    "com.localflight.companion.tip.2",
-    "com.localflight.companion.tip.5",
-    "com.localflight.companion.tip.10",
-    "com.localflight.companion.tip.20",
+    "cc.beacontools.localflight.tip.2",
+    "cc.beacontools.localflight.tip.5",
+    "cc.beacontools.localflight.tip.10",
+    "cc.beacontools.localflight.tip.20",
 }
 
 _SECRET_PATTERNS = (

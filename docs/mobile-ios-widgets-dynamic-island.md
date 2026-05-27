@@ -99,7 +99,7 @@ The app derives this from the existing `FidsRow` data and `pinnedCallsign` / `fl
 Current app-side file:
 
 - Fallback app sandbox: `localflight-widget-snapshot.json` in the Expo document directory.
-- Future App Group location: `group.com.localflight.companion/localflight-widget-snapshot.json`.
+- Future App Group location: `group.cc.beacontools.localflight/localflight-widget-snapshot.json`.
 - Shared constants and validation: `mobile/src/domain/widgets.ts`.
 - App writer: `mobile/src/storage/widgetSnapshot.ts`.
 - Native skeleton reader: `mobile/native/ios-widget/WidgetSnapshot.swift`.

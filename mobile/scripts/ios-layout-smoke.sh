@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT_ROOT="${ROOT_DIR}/.layout-smoke"
 DERIVED_DATA="${OUT_ROOT}/DerivedData"
-BUNDLE_ID="${BUNDLE_ID:-com.localflight.companion}"
+BUNDLE_ID="${BUNDLE_ID:-cc.beacontools.localflight}"
 BUILD_CONFIGURATION="${BUILD_CONFIGURATION:-Release}"
 WAIT_SECONDS="${WAIT_SECONDS:-4}"
 RUNTIME_MODE="latest"
@@ -34,7 +34,7 @@ Options:
 Environment:
   APP_PATH            Existing .app bundle to install when --skip-build is used.
   BUILD_CONFIGURATION Xcode configuration. Defaults to Release so JS is bundled.
-  BUNDLE_ID           App bundle id. Defaults to com.localflight.companion.
+  BUNDLE_ID           App bundle id. Defaults to cc.beacontools.localflight.
 USAGE
 }
 

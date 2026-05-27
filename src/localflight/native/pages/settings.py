@@ -36,6 +36,7 @@ from localflight.native.design import (
 )
 from localflight.native.service import NativeApiService
 from localflight.native.widgets import DisclosureCard
+from localflight.storage.provider_keys import show_provider_key_settings
 from localflight.storage.profiles import list_profiles
 
 
@@ -373,6 +374,7 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
         layout.addLayout(actions)
         self.provider_status = label(self.QtWidgets, "Blank fields keep saved secrets. Clear removes direct-provider keys.", "Muted", wrap=True)
         layout.addWidget(self.provider_status)
+        self._set_provider_key_controls_visible(False)
 
     def _build_radar_devices(self) -> None:
         self.outputs_radar_group, self.outputs_radar_body, layout = self._collapsible_section(
@@ -958,11 +960,16 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
         try:
             status = self.service.provider_keys_status()
         except Exception as exc:
+            self._set_provider_key_controls_visible(False)
             self.provider_path.setText(f"Provider key status unavailable: {exc}")
             return
         self._apply_provider_key_status(status)
 
     def _apply_provider_key_status(self, status: dict[str, Any]) -> None:
+        if not show_provider_key_settings(status):
+            self._set_provider_key_controls_visible(False)
+            return
+        self._set_provider_key_controls_visible(True)
         active = str(status.get("active_path") or "Unknown provider path")
         adb = status.get("aerodatabox") if isinstance(status.get("aerodatabox"), dict) else {}
         aviation = status.get("aviationstack") if isinstance(status.get("aviationstack"), dict) else {}
@@ -979,6 +986,11 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
             self.provider_adb_limit.setValue(int(adb.get("monthly_units_limit") or 24000))
         except Exception:
             self.provider_adb_limit.setValue(24000)
+
+    def _set_provider_key_controls_visible(self, visible: bool) -> None:
+        self.provider_group.setVisible(bool(visible))
+        if not visible:
+            self.provider_group.setChecked(False)
 
     def save_provider_keys(self, *_args: Any) -> None:
         payload = {

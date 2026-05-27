@@ -31,7 +31,7 @@ export interface SupportPurchaseProvider {
 export const SUPPORT_TIP_TIERS: SupportTipTier[] = [
   {
     id: "tip_2",
-    productId: "com.localflight.companion.tip.2",
+    productId: "cc.beacontools.localflight.tip.2",
     amountUsd: 2,
     displayAmount: "$2",
     label: "Small tip",
@@ -39,7 +39,7 @@ export const SUPPORT_TIP_TIERS: SupportTipTier[] = [
   },
   {
     id: "tip_5",
-    productId: "com.localflight.companion.tip.5",
+    productId: "cc.beacontools.localflight.tip.5",
     amountUsd: 5,
     displayAmount: "$5",
     label: "Nice tip",
@@ -47,7 +47,7 @@ export const SUPPORT_TIP_TIERS: SupportTipTier[] = [
   },
   {
     id: "tip_10",
-    productId: "com.localflight.companion.tip.10",
+    productId: "cc.beacontools.localflight.tip.10",
     amountUsd: 10,
     displayAmount: "$10",
     label: "Generous",
@@ -55,7 +55,7 @@ export const SUPPORT_TIP_TIERS: SupportTipTier[] = [
   },
   {
     id: "tip_20",
-    productId: "com.localflight.companion.tip.20",
+    productId: "cc.beacontools.localflight.tip.20",
     amountUsd: 20,
     displayAmount: "$20",
     label: "Big support",

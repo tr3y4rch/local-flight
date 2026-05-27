@@ -4,8 +4,9 @@ import { createRequire } from "node:module";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
-const mobileRoot = path.resolve(new URL("..", import.meta.url).pathname);
+const mobileRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const tempRoot = mkdtempSync(path.join(tmpdir(), "localflight-widget-contract-"));
 const outDir = path.join(tempRoot, "out");
 const tsconfigPath = path.join(tempRoot, "tsconfig.json");

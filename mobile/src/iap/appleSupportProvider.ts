@@ -7,7 +7,7 @@ import { supportProductPlaceholders } from "../domain/support";
 import { loadMobileRelayInstallId } from "../storage/settings";
 import type { NativeAppleIapAdapter } from "./types";
 
-export const APPLE_IAP_BUNDLE_ID = "com.localflight.companion";
+export const APPLE_IAP_BUNDLE_ID = "cc.beacontools.localflight";
 
 export function createAppleSupportPurchaseProvider(
   adapter: NativeAppleIapAdapter,

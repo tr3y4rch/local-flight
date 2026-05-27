@@ -520,6 +520,7 @@
     </section>
 
     <section class="details-stack">
+      {% if show_provider_key_settings %}
       <details class="details-card settings-folder">
         <summary>
           <span class="folder-icon">🔐</span>
@@ -577,6 +578,7 @@
           <div class="pairing-status" id="providerKeyStatus">Tests may consume a small provider request. Keys are never echoed back.</div>
         </div>
       </details>
+      {% endif %}
 
       <details class="details-card settings-folder">
         <summary>
@@ -828,6 +830,7 @@ document.getElementById("themeSelect")?.addEventListener("change", event => {
   document.documentElement.dataset.theme = event.target.value || "dark";
 });
 
+{% if show_provider_key_settings %}
 function providerText(value) {
   return String(value || "").trim();
 }
@@ -935,6 +938,7 @@ async function clearProviderKeys() {
     setProviderStatus(error.message || "Provider keys could not be cleared.", "bad");
   }
 }
+{% endif %}
 
 (async function () {
   function setText(id, value) {

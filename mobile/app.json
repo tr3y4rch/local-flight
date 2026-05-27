@@ -38,7 +38,8 @@
       "./plugins/with-localflight-privacy-manifest"
     ],
     "ios": {
-      "bundleIdentifier": "com.localflight.companion",
+      "bundleIdentifier": "cc.beacontools.localflight",
+      "buildNumber": "1",
       "icon": {
         "light": "./assets/localflight-icon-light.png",
         "dark": "./assets/localflight-icon-dark.png"
@@ -57,8 +58,8 @@
       }
     },
     "android": {
-      "package": "com.localflight.mobile",
-      "versionCode": 7,
+      "package": "cc.beacontools.localflight",
+      "versionCode": 1,
       "permissions": [
         "CAMERA",
         "VIBRATE"

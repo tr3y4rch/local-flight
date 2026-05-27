@@ -1474,12 +1474,76 @@ def test_setup_complete_byok_accepts_aerodatabox_only_and_clears_stale_env(tmp_p
     assert storage_config.load_config().airport_iata == "HKG"
 
 
+def test_provider_env_reload_makes_dotenv_authoritative_for_managed_keys(tmp_path: Path, monkeypatch) -> None:
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "AERODATABOX_API_KEY=file-adb\n"
+        "LOCALFLIGHT_AERODATABOX_ENABLED=1\n"
+        "LOCALFLIGHT_GUI_MODE=native\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("AERODATABOX_API_KEY", "stale-process-adb")
+    monkeypatch.setenv("LOCALFLIGHT_ACTIVATION_TOKEN", "stale-process-token")
+    monkeypatch.setenv("LOCALFLIGHT_GUI_MODE", "browser")
+
+    assert provider_keys.reload_provider_env(env_file) == env_file
+
+    assert os.environ["AERODATABOX_API_KEY"] == "file-adb"
+    assert os.environ["LOCALFLIGHT_AERODATABOX_ENABLED"] == "1"
+    assert os.environ.get("LOCALFLIGHT_ACTIVATION_TOKEN") is None
+    assert os.environ["LOCALFLIGHT_GUI_MODE"] == "browser"
+
+
+def test_setup_complete_virtual_clears_process_only_provider_env(tmp_path: Path, monkeypatch) -> None:
+    env_file = tmp_path / ".env"
+    config_file = tmp_path / ".localflight" / "config.json"
+    config_file.parent.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(storage_config, "config_path", lambda: config_file)
+    monkeypatch.setattr(ui_server, "provider_env_path", lambda: env_file)
+    monkeypatch.setattr(provider_keys, "env_path", lambda: env_file)
+    monkeypatch.setattr("localflight.sources.web.relay_beat.fire_heartbeat", lambda: None)
+    for key, value in {
+        "AERODATABOX_API_KEY": "stale-adb",
+        "AVIATIONSTACK_API_KEY": "stale-as",
+        "LOCALFLIGHT_ACTIVATION_TOKEN": "stale-token",
+        "LOCALFLIGHT_RELAY_URL": "https://relay.example",
+        "LOCALFLIGHT_AERODATABOX_ENABLED": "1",
+        "LOCALFLIGHT_AVIATIONSTACK_ENABLED": "1",
+    }.items():
+        monkeypatch.setenv(key, value)
+
+    response = TestClient(app).post(
+        "/api/setup/complete",
+        json={
+            "setup_mode": "virtual",
+            "source": "virtual",
+            "airport_iata": "ZRH",
+            "airport_icao": "LSZH",
+            "timezone": "Europe/Zurich",
+        },
+    )
+
+    assert response.status_code == 200
+    values = ui_server.read_provider_env(env_file)
+    assert values["LOCALFLIGHT_AERODATABOX_ENABLED"] == "0"
+    assert values["LOCALFLIGHT_AVIATIONSTACK_ENABLED"] == "0"
+    assert "AERODATABOX_API_KEY" not in values
+    assert "AVIATIONSTACK_API_KEY" not in values
+    assert "LOCALFLIGHT_ACTIVATION_TOKEN" not in values
+    assert "LOCALFLIGHT_RELAY_URL" not in values
+    assert os.environ.get("AERODATABOX_API_KEY") is None
+    assert os.environ.get("AVIATIONSTACK_API_KEY") is None
+    assert os.environ.get("LOCALFLIGHT_ACTIVATION_TOKEN") is None
+    assert os.environ.get("LOCALFLIGHT_RELAY_URL") is None
+
+
 def test_setup_complete_byok_requires_schedule_key(tmp_path: Path, monkeypatch) -> None:
     env_file = tmp_path / ".env"
     config_file = tmp_path / ".localflight" / "config.json"
     config_file.parent.mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(storage_config, "config_path", lambda: config_file)
     monkeypatch.setattr(ui_server, "provider_env_path", lambda: env_file)
+    monkeypatch.setattr(provider_keys, "env_path", lambda: env_file)
 
     response = TestClient(app).post(
         "/api/setup/complete",
@@ -1580,6 +1644,48 @@ def test_provider_status_merges_env_file_and_process_with_privacy_posture(tmp_pa
     assert "file-adb-secret" not in dumped
     assert "process-aviation-secret" not in dumped
     assert "file-relay-token" not in dumped
+
+
+def test_lan_settings_hides_provider_keys_for_relay_and_virtual_modes(tmp_path: Path, monkeypatch) -> None:
+    env_file = tmp_path / ".env"
+    config_file = tmp_path / "config.json"
+    monkeypatch.setattr(storage_config, "config_path", lambda: config_file)
+    monkeypatch.setattr(provider_keys, "env_path", lambda: env_file)
+    monkeypatch.setattr(ui_server, "_setup_complete", lambda: True)
+    for key in provider_keys.PROVIDER_ENV_KEYS:
+        monkeypatch.delenv(key, raising=False)
+
+    client = TestClient(app)
+
+    storage_config.save_config(AppConfig(source="real", airport_iata="ZRH", airport_icao="LSZH"))
+    env_file.write_text(
+        "LOCALFLIGHT_ACTIVATION_TOKEN=relay-token\nLOCALFLIGHT_RELAY_URL=https://relay.example\n",
+        encoding="utf-8",
+    )
+    provider_keys.reload_provider_env(env_file)
+    relay_response = client.get("/")
+
+    assert relay_response.status_code == 200
+    assert "Provider Keys &amp; Privacy" not in relay_response.text
+    assert "providerAdbKey" not in relay_response.text
+
+    storage_config.save_config(AppConfig(source="virtual", airport_iata="ZRH", airport_icao="LSZH"))
+    env_file.write_text("", encoding="utf-8")
+    provider_keys.reload_provider_env(env_file)
+    virtual_response = client.get("/")
+
+    assert virtual_response.status_code == 200
+    assert "Provider Keys &amp; Privacy" not in virtual_response.text
+    assert "providerAdbKey" not in virtual_response.text
+
+    storage_config.save_config(AppConfig(source="real", airport_iata="ZRH", airport_icao="LSZH"))
+    env_file.write_text("AERODATABOX_API_KEY=adb-direct\nLOCALFLIGHT_AERODATABOX_ENABLED=1\n", encoding="utf-8")
+    provider_keys.reload_provider_env(env_file)
+    direct_response = client.get("/")
+
+    assert direct_response.status_code == 200
+    assert "Provider Keys &amp; Privacy" in direct_response.text
+    assert "providerAdbKey" in direct_response.text
 
 
 def test_provider_key_opensky_test_routes_do_not_echo_credentials(monkeypatch) -> None:
@@ -5881,7 +5987,7 @@ def test_beacon_tools_site_uses_current_brand_assets() -> None:
     assert 'role="link" aria-disabled="true" aria-label="Download on the App Store"' in mobile
     assert 'role="link" aria-disabled="true" aria-label="Get it on Google Play"' in mobile
     assert "Future App Store URL requires the App Store app ID" in mobile
-    assert "https://play.google.com/store/apps/details?id=com.localflight.mobile" in mobile
+    assert "https://play.google.com/store/apps/details?id=cc.beacontools.localflight" in mobile
     assert "Android&trade; testing builds" in mobile
     assert "Apple, the Apple logo, iPhone, and iPad are trademarks of Apple Inc." in mobile
     assert "Google Play and the Google Play logo are trademarks of Google LLC." in mobile
@@ -5906,6 +6012,25 @@ def test_beacon_tools_site_uses_current_brand_assets() -> None:
         and path.relative_to(assets).as_posix() not in referenced_assets
     }
     assert unused_assets == set()
+
+
+def test_mobile_store_beta_identity_uses_beacon_ids() -> None:
+    root = Path(__file__).resolve().parents[1]
+    app = json.loads((root / "mobile" / "app.json").read_text(encoding="utf-8"))["expo"]
+    eas = json.loads((root / "mobile" / "eas.json").read_text(encoding="utf-8"))
+    support = (root / "mobile" / "src" / "domain" / "support.ts").read_text(encoding="utf-8")
+    relay = (root / "relay" / "main.py").read_text(encoding="utf-8")
+
+    assert app["ios"]["bundleIdentifier"] == "cc.beacontools.localflight"
+    assert app["ios"]["buildNumber"] == "1"
+    assert app["android"]["package"] == "cc.beacontools.localflight"
+    assert app["android"]["versionCode"] == 1
+    assert eas["build"]["beta"]["distribution"] == "store"
+    assert eas["build"]["beta"]["android"]["buildType"] == "app-bundle"
+    assert "cc.beacontools.localflight.tip.5" in support
+    assert "cc.beacontools.localflight.tip.5" in relay
+    assert "com.localflight.companion.tip" not in support
+    assert "com.localflight.companion.tip" not in relay
 
 
 def test_privacy_docs_disclose_linear_report_triage() -> None:

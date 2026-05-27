@@ -5,10 +5,10 @@ This file is the working checklist for the first Android proof-of-concept releas
 ## Reviewer Test Path
 
 - App name: **Local Flight**
-- Android package: `com.localflight.mobile`
+- Android package: `cc.beacontools.localflight`
 - Version name: `0.2.7`
-- Version code: `7`
-- Project / support URL: `https://beacontools.cc/local-flight`
+- Version code: `1`
+- Project / support URL: `https://beacontools.cc/local-flight/mobile`
 - Privacy Policy URL: `https://beacontools.cc/privacy`
 - Recommended review path: choose **Standalone** on first launch so the app can be tested without a desktop or Raspberry Pi server.
 - Standalone setup needs an airport, a mobile diagnostics choice, and relay activation through `https://relay.beacontools.cc`. It does not open LAN WebSockets, Matrix controls, scheduler controls, or server-control panels.

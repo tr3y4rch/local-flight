@@ -2,7 +2,7 @@
 
 React Native / Expo mobile app for Local Flight.
 
-The mobile app is an iOS-first developer preview with a working local Android development path. It is not on the App Store, TestFlight, Play Store, or available as a release APK yet, but it now supports two first-run paths:
+The mobile app is an iOS-first private beta candidate with a working Android path. It is being prepared for TestFlight and Google Play testing, but public store downloads are not live yet. It supports two first-run paths:
 
 - **LAN Companion:** pair with the Local Flight desktop or Raspberry Pi server on your Wi-Fi/LAN.
 - **Standalone:** use the hosted Local Flight relay directly for a simplified phone board. This is intentionally rate-limited to protect shared relay/API tokens.
@@ -11,7 +11,7 @@ For most home setups, start with LAN Companion. Use Standalone when you want a l
 
 Local Flight Mobile is a personal display aid. Flight, weather, radar, and airport-surface data can be delayed, incomplete, or unavailable, so it must not be used for navigation, dispatch, operational control, or safety decisions.
 
-The public front door for Mobile users is [beacontools.cc/local-flight](https://beacontools.cc/local-flight). Use that page for install guidance, release notes, support links, source links, and store metadata. The public privacy policy is [beacontools.cc/privacy](https://beacontools.cc/privacy). Standalone uses the Beacon Tools relay at `https://relay.beacontools.cc`.
+The public front door for Mobile users is [beacontools.cc/local-flight/mobile](https://beacontools.cc/local-flight/mobile). Use that page for install guidance, release notes, support links, source links, and store metadata. The public privacy policy is [beacontools.cc/privacy](https://beacontools.cc/privacy). Standalone uses the Beacon Tools relay at `https://relay.beacontools.cc`.
 
 > **Quick alternative:** if
 > you only need to glance at the board from a phone, you don't have
@@ -96,7 +96,7 @@ To retest the forced first-launch setup and diagnostics consent on a simulator:
 
 ```bash
 cd mobile
-xcrun simctl uninstall booted com.localflight.companion || true
+xcrun simctl uninstall booted cc.beacontools.localflight || true
 npm run ios
 ```
 
@@ -133,29 +133,34 @@ sdkmanager "ndk;27.1.12297006"
 npm run android
 ```
 
-### Android Release / Play Store Path
+### Store Beta / Release Path
 
-Android release identity is intentionally separate from the existing iOS bundle ID:
+Store identity is now locked to Beacon-owned IDs before the first App Store Connect or Play Console upload:
 
-- iOS bundle ID: `com.localflight.companion`
-- Android package ID: `com.localflight.mobile`
-- Android `versionCode`: `7`
+- iOS bundle ID: `cc.beacontools.localflight`
+- iOS `buildNumber`: `1`
+- Android package ID: `cc.beacontools.localflight`
+- Android `versionCode`: `1`
 
-Do not upload an Android build with the old `com.localflight.companion` package name. Google Play package names are effectively permanent after the first upload.
+Do not upload a store build with any old `com.localflight.*` identifier. App Store bundle IDs and Google Play package names are effectively permanent after first upload.
 
-Signed Android release artifacts are produced through EAS:
+Signed private beta artifacts are produced through EAS:
 
 ```bash
 cd mobile
 npm run verify
 npm run a11y
-npx eas build -p android --profile preview
+npx eas build -p ios --profile beta
+npx eas submit -p ios --profile beta
+npx eas build -p android --profile beta
+npx eas submit -p android --profile beta
 ```
 
-Use the preview AAB for Play Internal Testing first. When the internal install works on a real Android device, create the production AAB:
+Use TestFlight internal testing and Google Play internal testing first. When the internal install works on real devices, create production-track artifacts only when the public release decision is made:
 
 ```bash
 cd mobile
+npx eas build -p ios --profile production
 npx eas build -p android --profile production
 ```
 
@@ -164,7 +169,7 @@ The release build must keep LAN Mobile able to reach `http://localflight.local:8
 Before leaving Internal Testing, complete the Play Console setup:
 
 - Privacy Policy URL: `https://beacontools.cc/privacy`
-- Website/support URL: `https://beacontools.cc/local-flight`
+- Website/support URL: `https://beacontools.cc/local-flight/mobile`
 - Data Safety answers from [PLAY_STORE_REVIEW_NOTES.md](PLAY_STORE_REVIEW_NOTES.md)
 - Content rating and target audience
 - Safety disclaimer in the store description: Local Flight is not for navigation, dispatch, operational control, or safety decisions
@@ -288,7 +293,7 @@ The mobile install ID and standalone relay install ID are install-scoped. They a
 
 The intended iOS support-tip flow is:
 
-1. Create App Store Connect in-app purchase products for `com.localflight.companion.tip.2`, `.tip.5`, `.tip.10`, and `.tip.20`.
+1. Create App Store Connect in-app purchase products for `cc.beacontools.localflight.tip.2`, `.tip.5`, `.tip.10`, and `.tip.20`.
 2. Add an Expo-compatible native IAP library such as `expo-iap` to a development/TestFlight build.
 3. Replace the placeholder export in `src/iap/supportProvider.ts` with `createAppleSupportPurchaseProvider(...)`.
 4. Send StoreKit signed transaction info to the relay's scaffolded `POST /v1/mobile/iap/apple/verify` endpoint.
@@ -305,8 +310,8 @@ The intended Android support-tip flow is separate and later:
 
 ## Not Yet
 
-- Public iOS release
-- Public Android / Play Store release
+- Public App Store release
+- Public Google Play production release
 - Wired native iOS WidgetKit / ActivityKit extension targets, App Groups, APNs, and production Live Activity updates
 - Per-device authorization/revoke tokens for broader mutating LAN controls. Current LAN Companion identifies each device with an install-scoped companion ID and check-in, while Standalone uses its relay activation token.
 - Production-ready admin permission model
@@ -319,9 +324,9 @@ The intended Android support-tip flow is separate and later:
 ## Next
 
 - Per-device authorization/revoke tokens before broader mutating LAN admin controls
-- App Store/TestFlight proof pass on a fresh real iPhone and iPad once Apple Developer/App Store Connect credentials are available: Standalone setup, LAN QR/manual pairing, denied camera/local-network paths, support stub, and accessibility settings
+- TestFlight private beta proof pass on a fresh real iPhone and iPad: Standalone setup, LAN QR/manual pairing, denied camera/local-network paths, support stub, and accessibility settings
 - App Store Connect privacy/review metadata using `APP_STORE_REVIEW_NOTES.md`
-- Google Play internal-test proof pass on a fresh Android phone once Play Console/client credentials are available: Standalone setup, LAN QR/manual pairing, denied camera path, support stub, permissions, and accessibility settings
+- Google Play internal-test proof pass on a fresh Android phone: Standalone setup, LAN QR/manual pairing, denied camera path, support stub, permissions, and accessibility settings
 - Play Console privacy/Data Safety/review metadata using `PLAY_STORE_REVIEW_NOTES.md`
 - Full standalone flight-detail endpoint parity if Standalone should expose the same detail sheet depth as LAN Companion
 - Real in-app purchase support tips after App Store Connect / Google Play Billing products, native purchase testing, and relay verification are ready

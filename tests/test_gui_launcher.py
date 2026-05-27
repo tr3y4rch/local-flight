@@ -740,6 +740,67 @@ def test_native_setup_internal_close_does_not_shutdown_backend(monkeypatch: pyte
     assert client.posts == []
 
 
+def test_current_native_setup_close_paths_distinguish_internal_and_manual(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    pytest.importorskip("PySide6")
+    from PySide6 import QtWidgets
+    from localflight.native.qt_compat import import_qt
+    import localflight.native.pages.setup as setup_page
+
+    class _Client:
+        def __init__(self) -> None:
+            self.posts: list[tuple[str, dict[str, object]]] = []
+
+        def get_json(self, path: str, *, params: dict[str, object] | None = None) -> dict[str, object]:
+            if path == "/api/setup/client-info":
+                return {"relay_url": "https://relay.beacontools.cc"}
+            return {}
+
+        def post_json(self, path: str, payload: dict[str, object]) -> dict[str, object]:
+            self.posts.append((path, payload))
+            return {"ok": True}
+
+    class _CloseEvent:
+        accepted = False
+
+        def accept(self) -> None:
+            self.accepted = True
+
+        def ignore(self) -> None:
+            pass
+
+    client = _Client()
+    monkeypatch.setattr(setup_page, "LocalApiClient", lambda **_kwargs: client)
+
+    QtCore, QtGui, QtWidgets2 = import_qt()
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    setup_window = setup_page.NativeSetupWindow(
+        QtCore,
+        QtGui,
+        QtWidgets2,
+        base_url="http://127.0.0.1:9",
+        on_setup_complete=lambda: None,
+    )
+    manual_event = _CloseEvent()
+    setup_window.closeEvent(manual_event)
+
+    internal_window = setup_page.NativeSetupWindow(
+        QtCore,
+        QtGui,
+        QtWidgets2,
+        base_url="http://127.0.0.1:9",
+        on_setup_complete=lambda: None,
+    )
+    internal_window.allow_close_without_shutdown()
+    internal_event = _CloseEvent()
+    internal_window.closeEvent(internal_event)
+
+    assert app is not None
+    assert manual_event.accepted is True
+    assert internal_event.accepted is True
+    assert client.posts == [("/api/quit", {})]
+
+
 def test_native_display_refreshes_only_visible_child_panels(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
     pytest.importorskip("PySide6")
@@ -2831,6 +2892,20 @@ def test_native_settings_has_airport_search_picker(monkeypatch: pytest.MonkeyPat
     assert screen.apply_surface_button.text() == "Apply radar overlay"
     assert "Surface overlay" in screen.surface_status.text()
     assert screen.surface_progress.isVisible() is False
+    assert screen.provider_group.isHidden()
+    screen._apply_provider_key_status({"privacy_posture": "relay", "active_path": "Community relay"})
+    assert screen.provider_group.isHidden()
+    screen._apply_provider_key_status(
+        {
+            "privacy_posture": "direct_private",
+            "active_path": "AeroDataBox direct",
+            "aerodatabox": {"enabled": True, "marketplace": "apimarket", "monthly_units_limit": 24000},
+            "aviationstack": {"enabled": False},
+            "adsbexchange": {"mode": "fallback only"},
+            "opensky": {"configured": False},
+        }
+    )
+    assert screen.provider_group.isHidden() is False
     assert screen.outputs_radar_group.isChecked() is False
     assert screen.outputs_radar_body.isVisible() is False
     assert screen.profiles_group.isChecked() is False

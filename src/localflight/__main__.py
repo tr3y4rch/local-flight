@@ -145,6 +145,12 @@ def _load_dotenv() -> None:
                 key = key.strip(); value = value.strip()
                 if key and key not in os.environ:
                     os.environ[key] = value
+        try:
+            from localflight.storage.provider_keys import reload_provider_env
+
+            reload_provider_env(env_path)
+        except Exception as exc:
+            print(f"Warning: could not reload provider env: {exc}")
         print(f"Loaded .env from {env_path}")
     except Exception as exc:
         print(f"Warning: could not load .env: {exc}")

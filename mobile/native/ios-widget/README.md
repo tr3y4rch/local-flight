@@ -29,17 +29,17 @@ only. It must never fetch LAN, relay, or third-party flight data directly.
 ## Once Apple Credentials Are Available
 
 1. Confirm the iOS bundle ID that will ship:
-   `com.localflight.companion`.
+   `cc.beacontools.localflight`.
 2. In Apple Developer/App Store Connect, enable App Groups for the app ID.
 3. Create/enable the shared group:
-   `group.com.localflight.companion`.
+   `group.cc.beacontools.localflight`.
 4. Regenerate or refresh signing assets/provisioning profiles so both the app
    and widget extension can use the group.
 5. Run Expo prebuild from a clean mobile tree:
    `npx expo prebuild --platform ios --clean`.
 6. Add a Widget Extension target in Xcode named `LocalFlightWidget`.
 7. Set the widget extension bundle ID to something stable, for example:
-   `com.localflight.companion.widget`.
+   `cc.beacontools.localflight.widget`.
 8. Add `WidgetSnapshot.swift` and `LocalFlightWidget.swift` to the widget target.
 9. Add everything in `Fonts/` to the widget target bundle.
 10. Merge the `UIAppFonts` array from `LocalFlightWidget-Info.plist` into the
@@ -52,7 +52,7 @@ only. It must never fetch LAN, relay, or third-party flight data directly.
    from release builds unless used only inside SwiftUI preview code.
 12. Add App Groups entitlement to both targets:
     app target `LocalFlight` and extension target `LocalFlightWidget`.
-13. Add `group.com.localflight.companion` to both target entitlements.
+13. Add `group.cc.beacontools.localflight` to both target entitlements.
 14. Verify the Expo app can still build and that `Paths.appleSharedContainers`
     exposes the group container before expecting widget data sharing to work.
 15. Build the app, pin a flight, open Widgets & Glances, and confirm the writer

@@ -27,7 +27,7 @@ export type WidgetPreviewSnapshot = {
 };
 
 export const WIDGET_SNAPSHOT_SCHEMA_VERSION = 1;
-export const WIDGET_APP_GROUP_ID = "group.com.localflight.companion";
+export const WIDGET_APP_GROUP_ID = "group.cc.beacontools.localflight";
 export const WIDGET_SNAPSHOT_FILENAME = "localflight-widget-snapshot.json";
 export const WIDGET_SNAPSHOT_STALE_AFTER_MS = 15 * 60 * 1000;
 const WIDGET_MAX_MEDIUM_ROWS_WITH_PIN = 4;
