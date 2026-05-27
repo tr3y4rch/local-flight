@@ -1,0 +1,440 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1000" viewBox="0 0 1200 1000" role="img" aria-labelledby="v2-title v2-desc">
+  <title id="v2-title">Local Flight iOS Widget &amp; Dynamic Island — Design V2</title>
+  <desc id="v2-desc">Dark and light mode variants of the small pinned tracker and medium FIDS board, plus compact and expanded Dynamic Island / Live Activity states.</desc>
+
+  <defs>
+    <!-- ── DARK MODE SURFACES ─────────────────────────────────── -->
+    <linearGradient id="dm-cardBg" x1="0.1" y1="0" x2="0.9" y2="1">
+      <stop offset="0" stop-color="#0e1d2e"/>
+      <stop offset="1" stop-color="#060e18"/>
+    </linearGradient>
+    <linearGradient id="dm-rowBg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#112030"/>
+      <stop offset="1" stop-color="#0b1826"/>
+    </linearGradient>
+    <linearGradient id="dm-pinnedBg" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0"   stop-color="#201e0a"/>
+      <stop offset="0.4" stop-color="#181d0e"/>
+      <stop offset="1"   stop-color="#0e1820"/>
+    </linearGradient>
+
+    <!-- ── LIGHT MODE SURFACES ────────────────────────────────── -->
+    <linearGradient id="lm-cardBg" x1="0.1" y1="0" x2="0.9" y2="1">
+      <stop offset="0" stop-color="#F4F7FC"/>
+      <stop offset="1" stop-color="#EBF0F8"/>
+    </linearGradient>
+    <linearGradient id="lm-rowBg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#E8EDF6"/>
+      <stop offset="1" stop-color="#DEE6F0"/>
+    </linearGradient>
+    <linearGradient id="lm-pinnedBg" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0"   stop-color="#FFF9E8"/>
+      <stop offset="0.5" stop-color="#FFF4D8"/>
+      <stop offset="1"   stop-color="#EEF4FF"/>
+    </linearGradient>
+
+    <!-- ── SHARED ACCENTS ─────────────────────────────────────── -->
+    <linearGradient id="v2-amberBar" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f3b835"/>
+      <stop offset="1" stop-color="#c49010" stop-opacity="0.4"/>
+    </linearGradient>
+    <linearGradient id="v2-amberBleed" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#f3b835" stop-opacity="0.07"/>
+      <stop offset="1" stop-color="#f3b835" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="lm-amberBar" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#C89000"/>
+      <stop offset="1" stop-color="#A07000" stop-opacity="0.4"/>
+    </linearGradient>
+    <linearGradient id="lm-amberBleed" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#C89000" stop-opacity="0.09"/>
+      <stop offset="1" stop-color="#C89000" stop-opacity="0"/>
+    </linearGradient>
+
+    <!-- ── GLOWS ──────────────────────────────────────────────── -->
+    <radialGradient id="dm-cardGlow" cx="0.15" cy="0.10" r="0.90">
+      <stop offset="0"    stop-color="#2bedf9" stop-opacity="0.10"/>
+      <stop offset="0.55" stop-color="#18c8da" stop-opacity="0.03"/>
+      <stop offset="1"    stop-color="#0fb4c8" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="v2-orb1" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#1b79b7" stop-opacity="0.18"/>
+      <stop offset="1" stop-color="#1b79b7" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="v2-orb2" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#23e287" stop-opacity="0.08"/>
+      <stop offset="1" stop-color="#23e287" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- Page background -->
+    <linearGradient id="v2-pageBg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#060e18"/>
+      <stop offset="1" stop-color="#0c1520"/>
+    </linearGradient>
+
+    <!-- ── FILTERS ─────────────────────────────────────────────── -->
+    <filter id="v2-drop" x="-30%" y="-30%" width="162%" height="182%">
+      <feDropShadow dx="0" dy="22" stdDeviation="28" flood-color="#000000" flood-opacity="0.55"/>
+    </filter>
+    <filter id="lm-drop" x="-20%" y="-20%" width="145%" height="155%">
+      <feDropShadow dx="0" dy="14" stdDeviation="18" flood-color="#0A1420" flood-opacity="0.18"/>
+    </filter>
+
+    <!-- ── CLIP PATHS (local widget coordinate space) ──────────── -->
+    <clipPath id="v2-clipSmall">  <rect x="0" y="0" width="296" height="296" rx="54"/></clipPath>
+    <clipPath id="v2-clipMedium"> <rect x="0" y="0" width="690" height="296" rx="54"/></clipPath>
+    <clipPath id="v2-clipDIExp">  <rect x="0" y="0" width="508" height="152" rx="40"/></clipPath>
+
+    <style>
+      @font-face {
+        font-family: "LFBrand";
+        src: url("../../../mobile/assets/fonts/Audiowide-Regular.ttf") format("truetype"),
+             url("../../../src/localflight/ui/static/fonts/Audiowide-Regular.ttf") format("truetype");
+        font-style: normal; font-weight: 400;
+      }
+      .m { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+      .s { font-family: -apple-system, "SF Pro Text", Inter, Helvetica, Arial, sans-serif; }
+      .b { font-family: "LFBrand", Audiowide, system-ui, sans-serif; font-weight: 400; }
+    </style>
+  </defs>
+
+  <!-- ── PAGE ─────────────────────────────────────────────────── -->
+  <rect width="1200" height="1000" rx="34" fill="url(#v2-pageBg)"/>
+  <circle cx="200"  cy="110"  r="280" fill="url(#v2-orb1)"/>
+  <circle cx="1040" cy="660"  r="320" fill="url(#v2-orb2)"/>
+  <circle cx="600"  cy="680"  r="240" fill="url(#v2-orb1)" opacity="0.45"/>
+  <path d="M0 555 C220 445 400 620 640 540 S960 452 1200 572"
+    fill="none" stroke="#48c8f0" stroke-width="1.5" opacity="0.10"/>
+
+  <!-- ── PAGE TITLE ────────────────────────────────────────────── -->
+  <g transform="translate(62 52)">
+    <text class="b" x="0" y="0" font-size="24" fill="#edf6ff" letter-spacing="1px">Local Flight</text>
+    <rect x="186" y="-20" width="38" height="20" rx="5" fill="#072014" stroke="#145c34" stroke-width="1"/>
+    <text class="m" x="205" y="-4" font-size="10" fill="#23e287" text-anchor="middle" font-weight="900" letter-spacing="1px">V2</text>
+    <text class="s" x="0" y="28" font-size="15" fill="#5d88a8">Widget &amp; Dynamic Island — Dark &amp; Light Mode</text>
+  </g>
+
+  <!-- ── SECTION: DARK MODE ────────────────────────────────────── -->
+  <text class="m" x="70" y="106" font-size="9" fill="#416888" letter-spacing="3px" font-weight="900">DARK MODE</text>
+  <line x1="164" y1="101" x2="1130" y2="101" stroke="#1a2e42" stroke-width="1"/>
+
+  <!-- ════════════════════════════════════════════════════════════ -->
+  <!-- DARK · SMALL WIDGET  296 × 296                              -->
+  <!-- ════════════════════════════════════════════════════════════ -->
+  <g transform="translate(70 120)" filter="url(#v2-drop)">
+    <text class="m" x="0" y="-8" font-size="9" fill="#65b8f7" letter-spacing="2px" font-weight="900">SMALL · PINNED TRACKER</text>
+
+    <rect width="296" height="296" rx="54" fill="url(#dm-cardBg)" stroke="#1a2e42" stroke-width="1.5"/>
+    <rect width="296" height="296" rx="54" fill="url(#dm-cardGlow)"/>
+
+    <!-- Faint radar rings bottom-right (clipped) -->
+    <g clip-path="url(#v2-clipSmall)">
+      <circle cx="264" cy="260" r="118" fill="none" stroke="#2bedf9" stroke-width="1.2" stroke-opacity="0.08"/>
+      <circle cx="264" cy="260" r="82"  fill="none" stroke="#2bedf9" stroke-width="1"   stroke-opacity="0.06"/>
+      <circle cx="264" cy="260" r="48"  fill="none" stroke="#2bedf9" stroke-width="1"   stroke-opacity="0.11"/>
+      <path d="M264 142 A118 118 0 0 0 176 196 L264 260 Z" fill="#52f6ff" opacity="0.022"/>
+    </g>
+
+    <!-- Header: airport label + status badge (text only, no dot) -->
+    <text class="m" x="22" y="44" font-size="11" fill="#7ea6cc" letter-spacing="2px" font-weight="900">ZRH · DEPARTURES</text>
+    <rect x="194" y="25" width="80" height="28" rx="14" fill="#072014" stroke="#145c34" stroke-width="1.5"/>
+    <text class="m" x="234" y="44" font-size="10" fill="#23e287" letter-spacing="1.5px" font-weight="900" text-anchor="middle">BOARD</text>
+
+    <line x1="22" y1="65" x2="274" y2="65" stroke="#182b3c" stroke-width="1"/>
+    <text class="m" x="22" y="91" font-size="9" fill="#3d607c" letter-spacing="2.4px" font-weight="900">PINNED FLIGHT</text>
+
+    <!-- Flight number -->
+    <text class="m" x="22" y="152" font-size="50" fill="#edf6ff" font-weight="900" letter-spacing="-1px">LX 177</text>
+    <text class="s" x="22" y="181" font-size="22" fill="#c4d9ee" font-weight="700">Singapore</text>
+
+    <!-- Route arrow -->
+    <text class="m" x="22"  y="208" font-size="13" fill="#7ea6cc" font-weight="700">ZRH</text>
+    <line x1="52" y1="204" x2="84" y2="204" stroke="#3d607c" stroke-width="1.5" stroke-dasharray="3 2"/>
+    <path d="M82 200 L90 204 L82 208" fill="none" stroke="#3d607c" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    <text class="m" x="98"  y="208" font-size="13" fill="#7ea6cc" font-weight="700">SIN</text>
+    <text class="m" x="144" y="208" font-size="13" fill="#4e7494">· 06:11</text>
+
+    <line x1="22" y1="228" x2="274" y2="228" stroke="#182b3c" stroke-width="1"/>
+
+    <!-- Footer -->
+    <text class="m" x="22"  y="263" font-size="9"  fill="#3d607c" letter-spacing="2px"   font-weight="900">GATE</text>
+    <text class="m" x="64"  y="264" font-size="17" fill="#edf6ff" font-weight="900" letter-spacing="0.5px">E64</text>
+    <text class="m" x="274" y="263" font-size="9"  fill="#3d607c" letter-spacing="1.5px" font-weight="900" text-anchor="end">1m AGO</text>
+  </g>
+
+  <!-- ════════════════════════════════════════════════════════════ -->
+  <!-- DARK · MEDIUM WIDGET  690 × 296                             -->
+  <!-- ════════════════════════════════════════════════════════════ -->
+  <g transform="translate(416 120)" filter="url(#v2-drop)">
+    <text class="m" x="0" y="-8" font-size="9" fill="#65b8f7" letter-spacing="2px" font-weight="900">MEDIUM · HORIZONTAL FIDS</text>
+
+    <rect width="690" height="296" rx="54" fill="url(#dm-cardBg)" stroke="#1a2e42" stroke-width="1.5"/>
+    <rect width="690" height="296" rx="54" fill="url(#dm-cardGlow)"/>
+
+    <!-- Header -->
+    <g transform="translate(30 24)">
+      <!-- "B" Beacon watermark (original paths, dark card cutout colour) -->
+      <g opacity="0.22" transform="translate(0 -9) scale(0.044)">
+        <path d="M140 52H460V974H140A56 56 0 0 1 84 918V108A56 56 0 0 1 140 52Z" fill="#9cc7ea"/>
+        <path d="M480 52C700 52 900 148 900 276C900 406 700 500 480 500Z"         fill="#9cc7ea"/>
+        <path d="M480 524C724 524 940 632 940 750C940 866 724 974 480 974Z"       fill="#9cc7ea"/>
+        <rect x="140" y="112" width="120" height="150" rx="8" fill="#060e18"/>
+        <rect x="290" y="112" width="120" height="150" rx="8" fill="#060e18"/>
+        <rect x="140" y="582" width="120" height="150" rx="8" fill="#060e18"/>
+        <rect x="290" y="582" width="120" height="150" rx="8" fill="#060e18"/>
+        <circle cx="470" cy="512" r="62" fill="none" stroke="#9cc7ea" stroke-width="13"/>
+        <circle cx="470" cy="512" r="44" fill="#9cc7ea" opacity="0.72"/>
+        <circle cx="470" cy="512" r="16" fill="#060e18"/>
+      </g>
+
+      <text class="s" x="54" y="17" font-size="19" fill="#edf6ff" font-weight="800">Zurich Airport</text>
+      <rect x="54" y="23" width="108" height="20" rx="10" fill="#091826" stroke="#1a2e42" stroke-width="1"/>
+      <text class="m" x="108" y="37" font-size="9" fill="#6a9ab8" letter-spacing="2px" font-weight="900" text-anchor="middle">DEPARTURES</text>
+      <text class="b"  x="630" y="16" font-size="13" fill="#c4d9ee" text-anchor="end" letter-spacing="0.8px">Local Flight</text>
+      <text class="m"  x="630" y="38" font-size="9"  fill="#3d607c" letter-spacing="1.5px" font-weight="900" text-anchor="end">UPDATED 1m AGO</text>
+    </g>
+
+    <line x1="30" y1="76" x2="660" y2="76" stroke="#152030" stroke-width="1"/>
+
+    <!-- Column headers -->
+    <g transform="translate(20 90)">
+      <text class="m" x="0"   y="0" font-size="9" fill="#3d607c" letter-spacing="2px" font-weight="900">TIME</text>
+      <text class="m" x="76"  y="0" font-size="9" fill="#3d607c" letter-spacing="2px" font-weight="900">FLIGHT</text>
+      <text class="m" x="188" y="0" font-size="9" fill="#3d607c" letter-spacing="2px" font-weight="900">DESTINATION</text>
+      <text class="m" x="440" y="0" font-size="9" fill="#3d607c" letter-spacing="2px" font-weight="900">STATUS</text>
+      <text class="m" x="652" y="0" font-size="9" fill="#3d607c" letter-spacing="2px" font-weight="900" text-anchor="end">INFO</text>
+    </g>
+    <line x1="20" y1="99" x2="668" y2="99" stroke="#152030" stroke-width="1"/>
+
+    <g clip-path="url(#v2-clipMedium)">
+      <!-- Pinned row -->
+      <rect x="0" y="108" width="690" height="58" fill="url(#dm-pinnedBg)"/>
+      <rect x="0" y="108" width="5"   height="58" fill="url(#v2-amberBar)"/>
+      <rect x="5" y="108" width="50"  height="58" fill="url(#v2-amberBleed)"/>
+      <line x1="5" y1="108" x2="690" y2="108" stroke="#2a2506" stroke-width="1"/>
+      <line x1="5" y1="165" x2="690" y2="165" stroke="#2a2506" stroke-width="1"/>
+      <text class="m" x="20" y="132" font-size="17" fill="#edf6ff" font-weight="900">06:11</text>
+      <text class="m" x="20" y="152" font-size="9"  fill="#f3b835" letter-spacing="1.8px" font-weight="900">PINNED</text>
+      <text class="m" x="94"  y="133" font-size="18" fill="#65b8f7" font-weight="900">LX 177</text>
+      <circle cx="157" cy="148" r="3" fill="#f3b835" opacity="0.78"/>
+      <text class="s" x="200" y="132" font-size="17" fill="#edf6ff" font-weight="700">Singapore</text>
+      <text class="m" x="200" y="151" font-size="10" fill="#6a9ab8" letter-spacing="0.5px">SIN</text>
+      <rect x="438" y="117" width="106" height="30" rx="9" fill="#072014" stroke="#145c34" stroke-width="1.5"/>
+      <text class="m" x="491" y="136" font-size="10" fill="#23e287" letter-spacing="1px" font-weight="900" text-anchor="middle">BOARDING</text>
+      <text class="m" x="614" y="133" font-size="14" fill="#c4d9ee" font-weight="900" text-anchor="end">E64</text>
+
+      <!-- Row 2 -->
+      <rect x="0" y="172" width="690" height="44" fill="url(#dm-rowBg)"/>
+      <line x1="20" y1="215" x2="668" y2="215" stroke="#142030" stroke-width="1"/>
+      <text class="m" x="20"  y="199" font-size="16" fill="#d8e8f4" font-weight="900">06:00</text>
+      <text class="m" x="94"  y="199" font-size="16" fill="#65b8f7" font-weight="900">WK 200</text>
+      <text class="s" x="200" y="199" font-size="15" fill="#c4d9ee">Gran Canaria</text>
+      <text class="m" x="200" y="212" font-size="9"  fill="#3d607c" letter-spacing="0.5px">LPA</text>
+      <rect x="438" y="180" width="106" height="26" rx="7" fill="#091826" stroke="#1d3347" stroke-width="1"/>
+      <text class="m" x="491" y="197" font-size="9" fill="#65b8f7" letter-spacing="1.5px" font-weight="900" text-anchor="middle">SCHEDULED</text>
+      <text class="m" x="614" y="199" font-size="12" fill="#3d607c" font-weight="900" text-anchor="end">A320</text>
+
+      <!-- Row 3 -->
+      <rect x="0" y="222" width="690" height="80" fill="url(#dm-rowBg)"/>
+      <line x1="20" y1="265" x2="668" y2="265" stroke="#142030" stroke-width="1"/>
+      <text class="m" x="20"  y="249" font-size="16" fill="#d8e8f4" font-weight="900">06:05</text>
+      <text class="m" x="94"  y="249" font-size="16" fill="#65b8f7" font-weight="900">LX 8350</text>
+      <text class="s" x="200" y="249" font-size="15" fill="#c4d9ee">Heraklion</text>
+      <text class="m" x="200" y="262" font-size="9"  fill="#3d607c" letter-spacing="0.5px">HER</text>
+      <rect x="438" y="231" width="106" height="26" rx="7" fill="#1c1508" stroke="#7a5e1b" stroke-width="1.5"/>
+      <text class="m" x="491" y="248" font-size="9" fill="#f3b835" letter-spacing="1.5px" font-weight="900" text-anchor="middle">DELAYED</text>
+      <text class="m" x="614" y="249" font-size="12" fill="#3d607c" font-weight="900" text-anchor="end">G22</text>
+    </g>
+  </g>
+
+  <!-- ── SECTION: LIGHT MODE ───────────────────────────────────── -->
+  <text class="m" x="70" y="453" font-size="9" fill="#416888" letter-spacing="3px" font-weight="900">LIGHT MODE</text>
+  <line x1="162" y1="448" x2="1130" y2="448" stroke="#1a2e42" stroke-width="1"/>
+
+  <!-- ════════════════════════════════════════════════════════════ -->
+  <!-- LIGHT · SMALL WIDGET  296 × 296                             -->
+  <!-- ════════════════════════════════════════════════════════════ -->
+  <g transform="translate(70 462)" filter="url(#lm-drop)">
+    <text class="m" x="0" y="-8" font-size="9" fill="#3A5878" letter-spacing="2px" font-weight="900">SMALL · PINNED TRACKER</text>
+
+    <rect width="296" height="296" rx="54" fill="url(#lm-cardBg)" stroke="#C0CDD8" stroke-width="1.5"/>
+
+    <!-- Very faint radar rings adapted for light bg -->
+    <g clip-path="url(#v2-clipSmall)">
+      <circle cx="264" cy="260" r="118" fill="none" stroke="#1a7aaa" stroke-width="1.2" stroke-opacity="0.07"/>
+      <circle cx="264" cy="260" r="82"  fill="none" stroke="#1a7aaa" stroke-width="1"   stroke-opacity="0.05"/>
+      <circle cx="264" cy="260" r="48"  fill="none" stroke="#1a7aaa" stroke-width="1"   stroke-opacity="0.09"/>
+    </g>
+
+    <!-- Header -->
+    <text class="m" x="22" y="44" font-size="11" fill="#3A5878" letter-spacing="2px" font-weight="900">ZRH · DEPARTURES</text>
+    <rect x="194" y="25" width="80" height="28" rx="14" fill="#E8FFF4" stroke="#28A060" stroke-width="1.5"/>
+    <text class="m" x="234" y="44" font-size="10" fill="#0A7A3C" letter-spacing="1.5px" font-weight="900" text-anchor="middle">BOARD</text>
+
+    <line x1="22" y1="65" x2="274" y2="65" stroke="#C8D4DF" stroke-width="1"/>
+    <text class="m" x="22" y="91" font-size="9" fill="#6A8EA8" letter-spacing="2.4px" font-weight="900">PINNED FLIGHT</text>
+
+    <text class="m" x="22" y="152" font-size="50" fill="#0A1420" font-weight="900" letter-spacing="-1px">LX 177</text>
+    <text class="s" x="22" y="181" font-size="22" fill="#1E3850" font-weight="700">Singapore</text>
+
+    <text class="m" x="22"  y="208" font-size="13" fill="#3A5878" font-weight="700">ZRH</text>
+    <line x1="52" y1="204" x2="84" y2="204" stroke="#6A8EA8" stroke-width="1.5" stroke-dasharray="3 2"/>
+    <path d="M82 200 L90 204 L82 208" fill="none" stroke="#6A8EA8" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    <text class="m" x="98"  y="208" font-size="13" fill="#3A5878" font-weight="700">SIN</text>
+    <text class="m" x="144" y="208" font-size="13" fill="#6A8EA8">· 06:11</text>
+
+    <line x1="22" y1="228" x2="274" y2="228" stroke="#C8D4DF" stroke-width="1"/>
+
+    <text class="m" x="22"  y="263" font-size="9"  fill="#6A8EA8" letter-spacing="2px"   font-weight="900">GATE</text>
+    <text class="m" x="64"  y="264" font-size="17" fill="#0A1420" font-weight="900" letter-spacing="0.5px">E64</text>
+    <text class="m" x="274" y="263" font-size="9"  fill="#6A8EA8" letter-spacing="1.5px" font-weight="900" text-anchor="end">1m AGO</text>
+  </g>
+
+  <!-- ════════════════════════════════════════════════════════════ -->
+  <!-- LIGHT · MEDIUM WIDGET  690 × 296                            -->
+  <!-- ════════════════════════════════════════════════════════════ -->
+  <g transform="translate(416 462)" filter="url(#lm-drop)">
+    <text class="m" x="0" y="-8" font-size="9" fill="#3A5878" letter-spacing="2px" font-weight="900">MEDIUM · HORIZONTAL FIDS</text>
+
+    <rect width="690" height="296" rx="54" fill="url(#lm-cardBg)" stroke="#C0CDD8" stroke-width="1.5"/>
+
+    <!-- Header -->
+    <g transform="translate(30 24)">
+      <!-- "B" Beacon watermark (navy colour, light card cutout) -->
+      <g opacity="0.18" transform="translate(0 -9) scale(0.044)">
+        <path d="M140 52H460V974H140A56 56 0 0 1 84 918V108A56 56 0 0 1 140 52Z" fill="#0A2040"/>
+        <path d="M480 52C700 52 900 148 900 276C900 406 700 500 480 500Z"         fill="#0A2040"/>
+        <path d="M480 524C724 524 940 632 940 750C940 866 724 974 480 974Z"       fill="#0A2040"/>
+        <rect x="140" y="112" width="120" height="150" rx="8" fill="#EBF0F8"/>
+        <rect x="290" y="112" width="120" height="150" rx="8" fill="#EBF0F8"/>
+        <rect x="140" y="582" width="120" height="150" rx="8" fill="#EBF0F8"/>
+        <rect x="290" y="582" width="120" height="150" rx="8" fill="#EBF0F8"/>
+        <circle cx="470" cy="512" r="62" fill="none" stroke="#0A2040" stroke-width="13"/>
+        <circle cx="470" cy="512" r="44" fill="#0A2040" opacity="0.72"/>
+        <circle cx="470" cy="512" r="16" fill="#EBF0F8"/>
+      </g>
+
+      <text class="s" x="54" y="17" font-size="19" fill="#0A1420" font-weight="800">Zurich Airport</text>
+      <rect x="54" y="23" width="108" height="20" rx="10" fill="#DEE8F4" stroke="#B0C4D8" stroke-width="1"/>
+      <text class="m" x="108" y="37" font-size="9" fill="#3A5878" letter-spacing="2px" font-weight="900" text-anchor="middle">DEPARTURES</text>
+      <text class="b"  x="630" y="16" font-size="13" fill="#1E3850" text-anchor="end" letter-spacing="0.8px">Local Flight</text>
+      <text class="m"  x="630" y="38" font-size="9"  fill="#6A8EA8" letter-spacing="1.5px" font-weight="900" text-anchor="end">UPDATED 1m AGO</text>
+    </g>
+
+    <line x1="30" y1="76" x2="660" y2="76" stroke="#C8D4DF" stroke-width="1"/>
+
+    <!-- Column headers -->
+    <g transform="translate(20 90)">
+      <text class="m" x="0"   y="0" font-size="9" fill="#6A8EA8" letter-spacing="2px" font-weight="900">TIME</text>
+      <text class="m" x="76"  y="0" font-size="9" fill="#6A8EA8" letter-spacing="2px" font-weight="900">FLIGHT</text>
+      <text class="m" x="188" y="0" font-size="9" fill="#6A8EA8" letter-spacing="2px" font-weight="900">DESTINATION</text>
+      <text class="m" x="440" y="0" font-size="9" fill="#6A8EA8" letter-spacing="2px" font-weight="900">STATUS</text>
+      <text class="m" x="652" y="0" font-size="9" fill="#6A8EA8" letter-spacing="2px" font-weight="900" text-anchor="end">INFO</text>
+    </g>
+    <line x1="20" y1="99" x2="668" y2="99" stroke="#C8D4DF" stroke-width="1"/>
+
+    <g clip-path="url(#v2-clipMedium)">
+      <!-- Pinned row -->
+      <rect x="0" y="108" width="690" height="58" fill="url(#lm-pinnedBg)"/>
+      <rect x="0" y="108" width="5"   height="58" fill="url(#lm-amberBar)"/>
+      <rect x="5" y="108" width="50"  height="58" fill="url(#lm-amberBleed)"/>
+      <line x1="5" y1="108" x2="690" y2="108" stroke="#D4B840" stroke-width="1"/>
+      <line x1="5" y1="165" x2="690" y2="165" stroke="#D4B840" stroke-width="1"/>
+      <text class="m" x="20" y="132" font-size="17" fill="#0A1420" font-weight="900">06:11</text>
+      <text class="m" x="20" y="152" font-size="9"  fill="#8A6000" letter-spacing="1.8px" font-weight="900">PINNED</text>
+      <text class="m" x="94"  y="133" font-size="18" fill="#0B60B0" font-weight="900">LX 177</text>
+      <circle cx="157" cy="148" r="3" fill="#B87800" opacity="0.80"/>
+      <text class="s" x="200" y="132" font-size="17" fill="#0A1420" font-weight="700">Singapore</text>
+      <text class="m" x="200" y="151" font-size="10" fill="#3A5878" letter-spacing="0.5px">SIN</text>
+      <rect x="438" y="117" width="106" height="30" rx="9" fill="#E8FFF4" stroke="#28A060" stroke-width="1.5"/>
+      <text class="m" x="491" y="136" font-size="10" fill="#0A7A3C" letter-spacing="1px" font-weight="900" text-anchor="middle">BOARDING</text>
+      <text class="m" x="614" y="133" font-size="14" fill="#1E3850" font-weight="900" text-anchor="end">E64</text>
+
+      <!-- Row 2 -->
+      <rect x="0" y="172" width="690" height="44" fill="url(#lm-rowBg)"/>
+      <line x1="20" y1="215" x2="668" y2="215" stroke="#C8D4DF" stroke-width="1"/>
+      <text class="m" x="20"  y="199" font-size="16" fill="#0A1420" font-weight="900">06:00</text>
+      <text class="m" x="94"  y="199" font-size="16" fill="#0B60B0" font-weight="900">WK 200</text>
+      <text class="s" x="200" y="199" font-size="15" fill="#1E3850">Gran Canaria</text>
+      <text class="m" x="200" y="212" font-size="9"  fill="#6A8EA8" letter-spacing="0.5px">LPA</text>
+      <rect x="438" y="180" width="106" height="26" rx="7" fill="#E8F0FF" stroke="#2870C8" stroke-width="1"/>
+      <text class="m" x="491" y="197" font-size="9" fill="#0A60B0" letter-spacing="1.5px" font-weight="900" text-anchor="middle">SCHEDULED</text>
+      <text class="m" x="614" y="199" font-size="12" fill="#6A8EA8" font-weight="900" text-anchor="end">A320</text>
+
+      <!-- Row 3 -->
+      <rect x="0" y="222" width="690" height="80" fill="url(#lm-rowBg)"/>
+      <line x1="20" y1="265" x2="668" y2="265" stroke="#C8D4DF" stroke-width="1"/>
+      <text class="m" x="20"  y="249" font-size="16" fill="#0A1420" font-weight="900">06:05</text>
+      <text class="m" x="94"  y="249" font-size="16" fill="#0B60B0" font-weight="900">LX 8350</text>
+      <text class="s" x="200" y="249" font-size="15" fill="#1E3850">Heraklion</text>
+      <text class="m" x="200" y="262" font-size="9"  fill="#6A8EA8" letter-spacing="0.5px">HER</text>
+      <rect x="438" y="231" width="106" height="26" rx="7" fill="#FFF8D8" stroke="#C89400" stroke-width="1.5"/>
+      <text class="m" x="491" y="248" font-size="9" fill="#8A6000" letter-spacing="1.5px" font-weight="900" text-anchor="middle">DELAYED</text>
+      <text class="m" x="614" y="249" font-size="12" fill="#6A8EA8" font-weight="900" text-anchor="end">G22</text>
+    </g>
+  </g>
+
+  <!-- ── SECTION: DYNAMIC ISLAND (always dark) ─────────────────── -->
+  <text class="m" x="70" y="803" font-size="9" fill="#416888" letter-spacing="3px" font-weight="900">DYNAMIC ISLAND · ALWAYS DARK</text>
+  <line x1="342" y1="798" x2="1130" y2="798" stroke="#1a2e42" stroke-width="1"/>
+
+  <!-- ════════════════════════════════════════════════════════════ -->
+  <!-- COMPACT DYNAMIC ISLAND  360 × 76                            -->
+  <!-- ════════════════════════════════════════════════════════════ -->
+  <g transform="translate(138 812)" filter="url(#v2-drop)">
+    <text class="m" x="0" y="-8" font-size="9" fill="#65b8f7" letter-spacing="2px" font-weight="900">COMPACT</text>
+
+    <rect width="360" height="76" rx="38" fill="#020508" stroke="#18243a" stroke-width="1.5"/>
+    <rect width="360" height="76" rx="38" fill="none" stroke="#ffffff" stroke-width="0.5" stroke-opacity="0.06"/>
+
+    <!-- Flight · status (no dot, clean text layout) -->
+    <text class="m" x="20" y="32" font-size="20" fill="#edf6ff" font-weight="900">LX 177</text>
+    <circle cx="120" cy="31" r="2.5" fill="#3d607c"/>
+    <text class="m" x="134" y="32" font-size="20" fill="#23e287" font-weight="900">BOARDING</text>
+
+    <!-- Vertical divider + gate -->
+    <line x1="310" y1="18" x2="310" y2="58" stroke="#1a2e42" stroke-width="1"/>
+    <text class="m" x="335" y="29" font-size="9"  fill="#3d607c" letter-spacing="1.5px" font-weight="900" text-anchor="middle">GATE</text>
+    <text class="m" x="335" y="48" font-size="15" fill="#c4d9ee" font-weight="900" text-anchor="middle">E64</text>
+
+    <!-- Route sub-line -->
+    <text class="m" x="20" y="57" font-size="10" fill="#3d607c" letter-spacing="1px" font-weight="900">ZRH → SIN · 06:11</text>
+  </g>
+
+  <!-- ════════════════════════════════════════════════════════════ -->
+  <!-- EXPANDED LIVE ACTIVITY  508 × 152                           -->
+  <!-- ════════════════════════════════════════════════════════════ -->
+  <g transform="translate(560 800)" filter="url(#v2-drop)">
+    <text class="m" x="0" y="-8" font-size="9" fill="#65b8f7" letter-spacing="2px" font-weight="900">EXPANDED LIVE ACTIVITY</text>
+
+    <rect width="508" height="152" rx="40" fill="#050b14" stroke="#1a2e42" stroke-width="1.5"/>
+    <rect width="508" height="152" rx="40" fill="url(#dm-cardGlow)"/>
+    <rect width="508" height="152" rx="40" fill="none" stroke="#ffffff" stroke-width="0.5" stroke-opacity="0.05"/>
+
+    <g clip-path="url(#v2-clipDIExp)">
+      <text class="m" x="28" y="30" font-size="9" fill="#3d607c" letter-spacing="2px" font-weight="900">PINNED FLIGHT</text>
+      <text class="m" x="28" y="78" font-size="38" fill="#edf6ff" font-weight="900">LX 177</text>
+
+      <text class="m" x="172" y="54" font-size="10" fill="#6a9ab8" letter-spacing="1.5px" font-weight="900">ZRH</text>
+      <line x1="200" y1="51" x2="270" y2="51" stroke="#2a4060" stroke-width="1.5" stroke-dasharray="4 3"/>
+      <path d="M268 46 L278 51 L268 56" fill="none" stroke="#2a4060" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+      <text class="m" x="284" y="54" font-size="10" fill="#6a9ab8" letter-spacing="1.5px" font-weight="900">SIN</text>
+
+      <text class="s" x="172" y="74" font-size="18" fill="#c4d9ee" font-weight="700">Singapore</text>
+      <text class="m" x="172" y="90" font-size="13" fill="#7ea6cc">06:11</text>
+
+      <rect x="372" y="38" width="108" height="44" rx="22" fill="#072014" stroke="#145c34" stroke-width="1.5"/>
+      <text class="m" x="426" y="64" font-size="12" fill="#23e287" font-weight="900" text-anchor="middle">BOARD</text>
+
+      <line x1="28" y1="106" x2="480" y2="106" stroke="#152030" stroke-width="1"/>
+      <text class="m" x="28"  y="130" font-size="9"  fill="#3d607c" letter-spacing="2px"   font-weight="900">GATE</text>
+      <text class="m" x="68"  y="131" font-size="16" fill="#edf6ff" font-weight="900">E64</text>
+      <text class="m" x="480" y="130" font-size="9"  fill="#3d607c" letter-spacing="1.5px" font-weight="900" text-anchor="end">LAST UPDATED 1m AGO</text>
+    </g>
+  </g>
+
+  <!-- ── FOOTER ─────────────────────────────────────────────────── -->
+  <text class="s" x="70" y="980" font-size="12" fill="#3d607c">
+    Design-only V2 · No native extension, entitlement, App Group, APNs, or Apple Developer account in this pass.
+  </text>
+</svg>

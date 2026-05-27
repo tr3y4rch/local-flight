@@ -12,8 +12,9 @@ only. It must never fetch LAN, relay, or third-party flight data directly.
 
 - `WidgetSnapshot.swift` contains defensive decoding and normalization for the
   app-written snapshot contract.
-- `LocalFlightWidget.swift` contains the WidgetKit UI skeleton for small and
-  medium widget families.
+- `LocalFlightWidget.swift` is the thin WidgetKit provider/host. The V2 visuals
+  live in `DesignTokens.swift`, `SmallWidgetViewV2.swift`,
+  `MediumWidgetViewV2.swift`, and `LiveActivityViewV2.swift`.
 - `Fonts/` contains the same bundled app fonts the Expo app uses:
   Audiowide for the Local Flight wordmark, DM Sans for readable UI text, and
   Space Mono for board/FIDS text.
@@ -40,7 +41,9 @@ only. It must never fetch LAN, relay, or third-party flight data directly.
 6. Add a Widget Extension target in Xcode named `LocalFlightWidget`.
 7. Set the widget extension bundle ID to something stable, for example:
    `cc.beacontools.localflight.widget`.
-8. Add `WidgetSnapshot.swift` and `LocalFlightWidget.swift` to the widget target.
+8. Add `WidgetSnapshot.swift`, `LocalFlightWidget.swift`, `DesignTokens.swift`,
+   `SmallWidgetViewV2.swift`, and `MediumWidgetViewV2.swift` to the widget
+   target.
 9. Add everything in `Fonts/` to the widget target bundle.
 10. Merge the `UIAppFonts` array from `LocalFlightWidget-Info.plist` into the
    widget target `Info.plist`. The widget template expects these font names:
@@ -68,6 +71,12 @@ only. It must never fetch LAN, relay, or third-party flight data directly.
 - Keep Dynamic Island and Live Activity wiring separate from the WidgetKit
   target pass.
 - Add ActivityKit only after the WidgetKit/App Group path is stable.
+- Use `LiveActivityViewV2.swift` as the source for ActivityKit visuals. Compact
+  and minimal states remain flight/status only; expanded Dynamic Island should
+  use the separate leading, trailing, and bottom region views so route and
+  destination copy stays below the TrueDepth camera area.
+- Keep the richer rounded `LFLockScreenBannerV2` layout for Lock Screen/StandBy
+  only, not as the Dynamic Island expanded region layout.
 - The Live Activity should read the same pinned-flight snapshot shape and should
   never promote a random row when the pinned flight disappears.
 - If remote Live Activity updates are added later, wire APNs and server update
@@ -88,6 +97,10 @@ cd /Applications/local-flight
 xcrun --sdk iphonesimulator swiftc -parse \
   -target arm64-apple-ios15.1-simulator \
   mobile/native/ios-widget/WidgetSnapshot.swift \
+  mobile/native/ios-widget/DesignTokens.swift \
+  mobile/native/ios-widget/SmallWidgetViewV2.swift \
+  mobile/native/ios-widget/MediumWidgetViewV2.swift \
+  mobile/native/ios-widget/LiveActivityViewV2.swift \
   mobile/native/ios-widget/LocalFlightWidget.swift \
   mobile/native/ios-widget/SampleSnapshots.swift
 plutil -lint mobile/native/ios-widget/LocalFlightWidget-Info.plist
