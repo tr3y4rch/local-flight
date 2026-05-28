@@ -156,6 +156,28 @@ npx eas build -p android --profile beta
 npx eas submit -p android --profile beta
 ```
 
+Before the first signed beta build, finish the account-side credential setup:
+
+- Apple Developer -> Certificates, Identifiers & Profiles: create/confirm the
+  `cc.beacontools.localflight` app ID, `cc.beacontools.localflight.widget`
+  widget ID, and `group.cc.beacontools.localflight` App Group. Enable the App
+  Group on both identifiers.
+- App Store Connect -> Users and Access -> Integrations/API Keys: create or
+  select the API key EAS should use for submit. Store `.p8` keys only in
+  EAS/account credential storage or a local keychain path outside git.
+- Play Console -> Setup -> App signing: confirm the permanent package
+  `cc.beacontools.localflight`. Let EAS manage the Android upload key unless a
+  Play upload key already exists and must be reused.
+- Play Console -> Setup -> API access: create/select the service account for
+  EAS Submit. Keep its JSON key outside git; the repo ignores common credential
+  filenames as a safety net.
+
+The first iOS TestFlight beta now intentionally includes the native WidgetKit
+extension. The tracked Expo config plugin copies `native/ios-widget/` into the
+generated Xcode project during prebuild, creates `LocalFlightWidget`, and adds
+the App Group entitlement. Keep ActivityKit / Dynamic Island disabled until the
+WidgetKit and App Group snapshot path has passed TestFlight on real devices.
+
 Use TestFlight internal testing and Google Play internal testing first. When the internal install works on real devices, create production-track artifacts only when the public release decision is made:
 
 ```bash

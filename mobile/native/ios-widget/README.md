@@ -18,8 +18,8 @@ only. It must never fetch LAN, relay, or third-party flight data directly.
 - `Fonts/` contains the same bundled app fonts the Expo app uses:
   Audiowide for the Local Flight wordmark, DM Sans for readable UI text, and
   Space Mono for board/FIDS text.
-- `LocalFlightWidget-Info.plist` is a copy/paste source for the future widget
-  target font declarations.
+- `LocalFlightWidget-Info.plist` is copied into the generated widget extension
+  and carries the WidgetKit extension point plus bundled font declarations.
 - `SampleSnapshots.swift` contains preview/sample states for pinned, no-pinned,
   stale, and empty-board rendering.
 - `LocalFlightWidget.entitlements` documents the future App Group ID, but it is
@@ -36,34 +36,35 @@ only. It must never fetch LAN, relay, or third-party flight data directly.
    `group.cc.beacontools.localflight`.
 4. Regenerate or refresh signing assets/provisioning profiles so both the app
    and widget extension can use the group.
-5. Run Expo prebuild from a clean mobile tree:
+5. Run Expo prebuild from a clean mobile tree. The tracked
+   `with-localflight-ios-widget` config plugin copies this template, creates the
+   `LocalFlightWidget` extension target, and adds the App Group entitlement:
    `npx expo prebuild --platform ios --clean`.
-6. Add a Widget Extension target in Xcode named `LocalFlightWidget`.
-7. Set the widget extension bundle ID to something stable, for example:
-   `cc.beacontools.localflight.widget`.
-8. Add `WidgetSnapshot.swift`, `LocalFlightWidget.swift`, `DesignTokens.swift`,
-   `SmallWidgetViewV2.swift`, and `MediumWidgetViewV2.swift` to the widget
-   target.
-9. Add everything in `Fonts/` to the widget target bundle.
-10. Merge the `UIAppFonts` array from `LocalFlightWidget-Info.plist` into the
-   widget target `Info.plist`. The widget template expects these font names:
+6. Verify the generated extension target is named `LocalFlightWidget` and uses
+   bundle ID `cc.beacontools.localflight.widget`.
+7. Verify the target contains `WidgetSnapshot.swift`, `LocalFlightWidget.swift`,
+   `DesignTokens.swift`, `SmallWidgetViewV2.swift`, and
+   `MediumWidgetViewV2.swift`. Do not add `LiveActivityViewV2.swift` to target
+   membership until ActivityKit is intentionally enabled.
+8. Verify everything in `Fonts/` is present in the widget target bundle.
+9. Verify the widget target `Info.plist` includes these font names:
    `Audiowide-Regular`, `SpaceMono-Regular`, `SpaceMono-Bold`,
    `DMSans-9ptRegular_Regular`, and `DMSans-9ptRegular_Bold`.
    This keeps the medium widget aligned with the mobile header and Qt shell
    hierarchy instead of falling back to SF/Arial-like system text.
-11. Keep `SampleSnapshots.swift` in debug/preview-only membership, or exclude it
+10. Keep `SampleSnapshots.swift` in debug/preview-only membership, or exclude it
    from release builds unless used only inside SwiftUI preview code.
-12. Add App Groups entitlement to both targets:
+11. Confirm App Groups entitlement exists on both targets:
     app target `LocalFlight` and extension target `LocalFlightWidget`.
-13. Add `group.cc.beacontools.localflight` to both target entitlements.
-14. Verify the Expo app can still build and that `Paths.appleSharedContainers`
+12. Confirm `group.cc.beacontools.localflight` is in both target entitlements.
+13. Verify the Expo app can still build and that `Paths.appleSharedContainers`
     exposes the group container before expecting widget data sharing to work.
-15. Build the app, pin a flight, open Widgets & Glances, and confirm the writer
+14. Build the app, pin a flight, open Widgets & Glances, and confirm the writer
     reports `Snapshot ready · app group`.
-16. Add the widget in the simulator/device widget gallery and verify the small
+15. Add the widget in the simulator/device widget gallery and verify the small
     widget stays pinned-flight-only while the medium widget shows pinned plus
     bounded board rows.
-17. Archive with the final signing team and verify the embedded extension is
+16. Archive with the final signing team and verify the embedded extension is
     present in the `.ipa`.
 
 ## ActivityKit / Dynamic Island Later

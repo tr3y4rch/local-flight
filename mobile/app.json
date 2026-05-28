@@ -27,13 +27,20 @@
       ],
       "expo-font",
       "expo-sqlite",
-      "expo-secure-store",
+      [
+        "expo-secure-store",
+        {
+          "faceIDPermission": false
+        }
+      ],
       [
         "expo-camera",
         {
-          "cameraPermission": "Local Flight scans pairing QR codes shown by your Local Flight desktop or Pi app."
+          "cameraPermission": "Local Flight scans pairing QR codes shown by your Local Flight desktop or Pi app.",
+          "microphonePermission": false
         }
       ],
+      "./plugins/with-localflight-ios-widget",
       "./plugins/with-localflight-android-network",
       "./plugins/with-localflight-privacy-manifest"
     ],

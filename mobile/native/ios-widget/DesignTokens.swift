@@ -198,7 +198,6 @@ struct LFStatusCapsuleV2: View {
   var body: some View {
     Text(label.uppercased())
       .font(LocalFlightWidgetFont.boardBold(size: 9))
-      .tracking(1.5)
       .lineLimit(1)
       .minimumScaleFactor(0.7)
       .foregroundStyle(LFWidgetDesignV2.statusColor(tone: tone, scheme: scheme))

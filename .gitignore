@@ -12,6 +12,17 @@ venv/
 .env
 .env.*
 !.env.example
+*.p8
+*.jks
+*.keystore
+mobile/credentials/
+mobile/*service-account*.json
+mobile/*ServiceAccount*.json
+mobile/*app-store-connect*.json
+mobile/*AppStoreConnect*.json
+mobile/*.mobileprovision
+mobile/*.cer
+mobile/*.p12
 
 # ── Local config / runtime ─────────────────────────────
 config/

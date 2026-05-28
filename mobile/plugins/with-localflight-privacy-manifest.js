@@ -1,6 +1,7 @@
 const fs = require("fs");
 const path = require("path");
-const { withDangerousMod } = require("@expo/config-plugins");
+const plist = require("@expo/plist").default;
+const { withDangerousMod, withInfoPlist } = require("@expo/config-plugins");
 
 const privacyManifest = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -113,7 +114,36 @@ const privacyManifest = `<?xml version="1.0" encoding="UTF-8"?>
 </plist>
 `;
 
+function removeUnusedGeneratedUsageDescriptions(infoPlist) {
+  // These can be introduced by native dependencies, but Local Flight does not
+  // request microphone or Face ID access in the submitted mobile app.
+  delete infoPlist.NSFaceIDUsageDescription;
+  delete infoPlist.NSMicrophoneUsageDescription;
+  delete infoPlist.NSSupportsLiveActivities;
+
+  if (Array.isArray(infoPlist.CFBundleURLTypes)) {
+    infoPlist.CFBundleURLTypes = infoPlist.CFBundleURLTypes
+      .map((urlType) => {
+        if (!Array.isArray(urlType.CFBundleURLSchemes)) {
+          return urlType;
+        }
+        return {
+          ...urlType,
+          CFBundleURLSchemes: urlType.CFBundleURLSchemes.filter(
+            (scheme) => scheme !== "com.localflight.companion"
+          ),
+        };
+      })
+      .filter((urlType) => !Array.isArray(urlType.CFBundleURLSchemes) || urlType.CFBundleURLSchemes.length > 0);
+  }
+}
+
 function withLocalFlightPrivacyManifest(config) {
+  config = withInfoPlist(config, (nextConfig) => {
+    removeUnusedGeneratedUsageDescriptions(nextConfig.modResults);
+    return nextConfig;
+  });
+
   return withDangerousMod(config, [
     "ios",
     async (nextConfig) => {
@@ -121,6 +151,14 @@ function withLocalFlightPrivacyManifest(config) {
       const manifestPath = path.join(nextConfig.modRequest.platformProjectRoot, projectName, "PrivacyInfo.xcprivacy");
       fs.mkdirSync(path.dirname(manifestPath), { recursive: true });
       fs.writeFileSync(manifestPath, privacyManifest);
+
+      const infoPlistPath = path.join(nextConfig.modRequest.platformProjectRoot, projectName, "Info.plist");
+      if (fs.existsSync(infoPlistPath)) {
+        const infoPlist = plist.parse(fs.readFileSync(infoPlistPath, "utf8"));
+        removeUnusedGeneratedUsageDescriptions(infoPlist);
+        fs.writeFileSync(infoPlistPath, plist.build(infoPlist));
+      }
+
       return nextConfig;
     }
   ]);

@@ -133,7 +133,6 @@ struct LFDIExpandedBottomV2: View {
       if !attributes.routeCode.isEmpty {
         Text(attributes.routeCode)
           .font(LocalFlightWidgetFont.boardBold(size: 10))
-          .tracking(1.2)
           .lineLimit(1)
           .foregroundStyle(LFWidgetDesignV2.textMuted(diScheme))
       }
@@ -144,7 +143,6 @@ struct LFDIExpandedBottomV2: View {
   private func airportCode(_ code: String) -> some View {
     Text(code)
       .font(LocalFlightWidgetFont.boardBold(size: 12))
-      .tracking(1.4)
       .lineLimit(1)
       .minimumScaleFactor(0.75)
       .foregroundStyle(LFWidgetDesignV2.textMuted(diScheme))
@@ -261,14 +259,12 @@ struct LFLockScreenBannerV2: View {
     HStack(spacing: 4) {
       Text(attributes.originCode)
         .font(LocalFlightWidgetFont.boardBold(size: 10))
-        .tracking(1.5)
         .foregroundStyle(LFWidgetDesignV2.textMuted(diScheme))
       Image(systemName: "arrow.right")
         .font(.system(size: 9, weight: .bold))
         .foregroundStyle(LFWidgetDesignV2.textDim(diScheme))
       Text(attributes.routeCode)
         .font(LocalFlightWidgetFont.boardBold(size: 10))
-        .tracking(1.5)
         .foregroundStyle(LFWidgetDesignV2.textMuted(diScheme))
     }
   }
@@ -295,6 +291,5 @@ private struct DottedRoutePointerV2: View {
 private func sectionLabel(_ text: String) -> some View {
   Text(text)
     .font(LocalFlightWidgetFont.boardBold(size: 8))
-    .tracking(2)
     .foregroundStyle(LFWidgetDesignV2.textDim(diScheme))
 }

@@ -47,7 +47,6 @@ struct LFMediumWidgetViewV2: View {
           .foregroundStyle(LFWidgetDesignV2.textPrimary(scheme))
         Text(snapshot.airport.view == "arrivals" ? "ARRIVALS" : "DEPARTURES")
           .font(LocalFlightWidgetFont.boardBold(size: 9))
-          .tracking(2)
           .foregroundStyle(LFWidgetDesignV2.textCyan(scheme))
           .padding(.horizontal, 14)
           .padding(.vertical, 5)
@@ -67,13 +66,11 @@ struct LFMediumWidgetViewV2: View {
       VStack(alignment: .trailing, spacing: 5) {
         Text("Local Flight")
           .font(LocalFlightWidgetFont.brand(size: 15))
-          .tracking(0.6)
           .lineLimit(1)
           .minimumScaleFactor(0.62)
           .foregroundStyle(LFWidgetDesignV2.textSecondary(scheme))
         Text(snapshot.source.lastUpdatedLabel.uppercased())
           .font(LocalFlightWidgetFont.boardBold(size: 9))
-          .tracking(1.5)
           .lineLimit(1)
           .minimumScaleFactor(0.7)
           .foregroundStyle(snapshot.stale
@@ -93,7 +90,6 @@ struct LFMediumWidgetViewV2: View {
       col("INFO", width: 44, trailing: true)
     }
     .font(LocalFlightWidgetFont.boardBold(size: 8))
-    .tracking(2)
     .foregroundStyle(LFWidgetDesignV2.textDim(scheme))
   }
 
@@ -199,7 +195,6 @@ struct LFMediumRowV2: View {
         if isPinned {
           Text("PINNED")
             .font(LocalFlightWidgetFont.boardBold(size: 7))
-            .tracking(1.8)
             .foregroundStyle(scheme == .dark
               ? Color(red: 0.953, green: 0.722, blue: 0.207)
               : Color(red: 0.541, green: 0.376, blue: 0.000))
@@ -225,7 +220,6 @@ struct LFMediumRowV2: View {
         if !flight.routeCode.isEmpty {
           Text(flight.routeCode)
             .font(LocalFlightWidgetFont.boardBold(size: 8))
-            .tracking(0.5)
             .foregroundStyle(LFWidgetDesignV2.textMuted(scheme))
             .lineLimit(1)
         }
@@ -289,7 +283,7 @@ struct BeaconBMarkV2: View {
       ctx.fill(bowl, with: .color(tint))
 
       for y in [180, 300, 650, 770] as [CGFloat] {
-        var slot = Path(roundedRect: CGRect(
+        let slot = Path(roundedRect: CGRect(
           x: pt(190, y).x,
           y: pt(190, y).y,
           width: 145 * sx,

@@ -56,7 +56,6 @@ struct LFSmallWidgetViewV2: View {
     HStack(alignment: .center, spacing: 0) {
       Text("\(snapshot.airport.code) · \(snapshot.airport.view == "arrivals" ? "ARRIVALS" : "DEPARTURES")")
         .font(LocalFlightWidgetFont.boardBold(size: 10))
-        .tracking(2)
         .lineLimit(1)
         .minimumScaleFactor(0.7)
         .foregroundStyle(LFWidgetDesignV2.textMuted(scheme))
@@ -132,7 +131,6 @@ struct LFSmallWidgetViewV2: View {
       Spacer()
       Text(snapshot.source.lastUpdatedLabel.uppercased())
         .font(LocalFlightWidgetFont.boardBold(size: 8))
-        .tracking(1.5)
         .lineLimit(1)
         .minimumScaleFactor(0.75)
         .foregroundStyle(LFWidgetDesignV2.textDim(scheme))
@@ -148,7 +146,6 @@ struct LFSmallWidgetViewV2: View {
   private func sectionLabel(_ text: String) -> some View {
     Text(text)
       .font(LocalFlightWidgetFont.boardBold(size: 8))
-      .tracking(2.4)
       .foregroundStyle(LFWidgetDesignV2.textDim(scheme))
   }
 }
