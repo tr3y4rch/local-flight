@@ -82,7 +82,24 @@
       "localFlightServerHint": "http://192.168.1.10:8000",
       "localFlightVersion": "0.2.7",
       "eas": {
-        "projectId": "085634ce-4117-4fd6-b2d6-cbb7f90b4fdd"
+        "projectId": "085634ce-4117-4fd6-b2d6-cbb7f90b4fdd",
+        "build": {
+          "experimental": {
+            "ios": {
+              "appExtensions": [
+                {
+                  "targetName": "LocalFlightWidget",
+                  "bundleIdentifier": "cc.beacontools.localflight.widget",
+                  "entitlements": {
+                    "com.apple.security.application-groups": [
+                      "group.cc.beacontools.localflight"
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        }
       }
     },
     "owner": "tr3y4rch"

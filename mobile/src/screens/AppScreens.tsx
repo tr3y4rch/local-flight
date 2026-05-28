@@ -214,7 +214,10 @@ const RADAR_SWEEP_CLIP_ID = "mobile-radar-sweep-clip";
 const RADAR_SWEEP_WIDTH_DEG = 72;
 const RADAR_SWEEP_INTERVAL_MS = 80;
 const RADAR_SWEEP_STEP_DEG = 1.92;
+const RADAR_REDUCED_SWEEP_INTERVAL_MS = 120;
+const RADAR_REDUCED_SWEEP_STEP_DEG = 0.96;
 const RADAR_BLIP_FADE_DEG = 75;
+const RADAR_BLIP_BASE_OPACITY = 0.42;
 
 export function ScreenActivity({
   activity,
@@ -3145,17 +3148,14 @@ function RadarScope({
     .filter((item): item is ProjectedBlip => Boolean(item));
   const projected = projectedInRange
     .map((item) => ({ item, opacity: reduceMotion ? 1 : radarSweepOpacity(item.angleDeg, sweepDeg) }))
-    .filter(({ opacity }) => opacity > 0.08)
     .sort((a, b) => a.item.distanceNm - b.item.distanceNm);
 
   useEffect(() => {
-    if (reduceMotion) {
-      setSweepDeg(0);
-      return;
-    }
+    const intervalMs = reduceMotion ? RADAR_REDUCED_SWEEP_INTERVAL_MS : RADAR_SWEEP_INTERVAL_MS;
+    const stepDeg = reduceMotion ? RADAR_REDUCED_SWEEP_STEP_DEG : RADAR_SWEEP_STEP_DEG;
     const timer = setInterval(() => {
-      setSweepDeg((value) => (value + RADAR_SWEEP_STEP_DEG) % 360);
-    }, RADAR_SWEEP_INTERVAL_MS);
+      setSweepDeg((value) => (value + stepDeg) % 360);
+    }, intervalMs);
     return () => clearInterval(timer);
   }, [reduceMotion]);
 
@@ -3231,7 +3231,7 @@ function RadarScope({
           scopeSize={scopeSize}
           drawingLayers={effectiveLayers}
         />
-        <RadarSweepLayer scopeSize={scopeSize} sweepDeg={sweepDeg} />
+        <RadarSweepLayer scopeSize={scopeSize} sweepDeg={sweepDeg} reducedMotion={reduceMotion} />
         <View style={styles.scopeRingOuter} />
         <View style={styles.scopeRingMid} />
         <View style={styles.scopeRingInner} />
@@ -3293,10 +3293,14 @@ function RadarScope({
   );
 }
 
-function RadarSweepLayer({ scopeSize, sweepDeg }: { scopeSize: number; sweepDeg: number }) {
+function RadarSweepLayer({ scopeSize, sweepDeg, reducedMotion }: { scopeSize: number; sweepDeg: number; reducedMotion: boolean }) {
   const center = scopeSize / 2;
   const radius = scopeSize * 0.44;
   const closing = radarSweepPoint(scopeSize, RADAR_SWEEP_WIDTH_DEG);
+  const sweepFillOpacity = reducedMotion ? 0.07 : 0.16;
+  const sweepSheenOpacity = reducedMotion ? 0.018 : 0.035;
+  const sweepLineOpacity = reducedMotion ? 0.34 : 0.58;
+  const sweepEdgeOpacity = reducedMotion ? 0.16 : 0.28;
 
   return (
     <Animated.View
@@ -3318,14 +3322,14 @@ function RadarSweepLayer({ scopeSize, sweepDeg }: { scopeSize: number; sweepDeg:
           </ClipPath>
         </Defs>
         <G clipPath={`url(#${RADAR_SWEEP_CLIP_ID})`}>
-          <Path d={radarSweepSectorPath(scopeSize)} fill={hexToRgba(palette.blue2, 0.16)} />
-          <Path d={radarSweepSectorPath(scopeSize)} fill={hexToRgba(palette.text, 0.035)} />
+          <Path d={radarSweepSectorPath(scopeSize)} fill={hexToRgba(palette.blue2, sweepFillOpacity)} />
+          <Path d={radarSweepSectorPath(scopeSize)} fill={hexToRgba(palette.text, sweepSheenOpacity)} />
           <Line
             x1={center}
             y1={center}
             x2={center}
             y2={center - radius}
-            stroke={hexToRgba(palette.blue2, 0.58)}
+            stroke={hexToRgba(palette.blue2, sweepLineOpacity)}
             strokeWidth={1.4}
             strokeLinecap="round"
           />
@@ -3334,7 +3338,7 @@ function RadarSweepLayer({ scopeSize, sweepDeg }: { scopeSize: number; sweepDeg:
             y1={center}
             x2={closing.x}
             y2={closing.y}
-            stroke={hexToRgba(palette.blue2, 0.28)}
+            stroke={hexToRgba(palette.blue2, sweepEdgeOpacity)}
             strokeWidth={1}
             strokeLinecap="round"
           />
@@ -3540,9 +3544,9 @@ function radarSweepOpacity(angleDeg: number, sweepDeg: number): number {
     return 1;
   }
   if (age <= RADAR_BLIP_FADE_DEG) {
-    return Math.max(0.1, 1 - ((age - 5) / (RADAR_BLIP_FADE_DEG - 5)) * 0.9);
+    return Math.max(RADAR_BLIP_BASE_OPACITY, 1 - ((age - 5) / (RADAR_BLIP_FADE_DEG - 5)) * (1 - RADAR_BLIP_BASE_OPACITY));
   }
-  return 0;
+  return RADAR_BLIP_BASE_OPACITY;
 }
 
 function radarDrawableFeatures(features: RadarMapFeature[] | undefined): RadarMapFeature[] {
@@ -6555,7 +6559,7 @@ function WidgetSettingsSheet({
           <View style={styles.sheetHeader}>
             <View style={styles.sheetHeaderText}>
               <Text style={styles.sheetEyebrow}>WIDGETS & GLANCES</Text>
-              <Text style={styles.sheetTitle}>Future Widget Preview</Text>
+              <Text style={styles.sheetTitle}>Widget Preview</Text>
             </View>
             <Pressable
               style={styles.sheetAction}
@@ -6573,9 +6577,9 @@ function WidgetSettingsSheet({
                 <LocalFlightIcon name={TOOL_ICONS.displayModes} size={22} color={palette.blue2} />
               </View>
               <View style={styles.supportHeroCopy}>
-                <Text style={styles.supportHeroTitle}>Prepared, not active yet.</Text>
+                <Text style={styles.supportHeroTitle}>Ready for iOS widgets.</Text>
                 <Text style={styles.supportHeroBody}>
-                  These choices shape the future widget snapshot. This build does not install native widgets, Live Activities, or Dynamic Island features yet.
+                  Widgets use the current pinned-flight and board snapshot. After installing, add Local Flight from the iOS widget gallery if it is not already on your Home Screen.
                 </Text>
               </View>
             </View>
@@ -6626,7 +6630,7 @@ function WidgetSettingsSheet({
 
             <InfoLine label="Dynamic Island" value="Future iOS Live Activity stays pinned-flight-only: flight number and short status first, no mini FIDS board." />
             <InfoLine label="Snapshot" value={snapshotLabel} />
-            <InfoLine label="Data source" value="Future widgets read the app-written snapshot. They will not poll LAN or relay data directly." />
+            <InfoLine label="Data source" value="Widgets read the app-written snapshot. They do not poll LAN or relay data directly." />
           </ScrollView>
         </View>
       </View>

@@ -626,7 +626,9 @@ export function AppShell() {
     if (standaloneCredentials) {
       const fids = await getStandaloneFids(standaloneCredentials, nextView);
       setRows(fids);
-      await storeStandaloneFidsRows(standaloneCredentials.airport, fids);
+      void storeStandaloneFidsRows(standaloneCredentials.airport, fids).catch(() => {
+        // Local history is useful, but it must never block the live board on launch.
+      });
       return;
     }
     const fids = await getFids(normalized, nextView);
@@ -704,10 +706,13 @@ export function AppShell() {
         Number(data.center?.lat || standaloneCredentials.airport.lat || 0).toFixed(5),
         Number(data.center?.lon || standaloneCredentials.airport.lon || 0).toFixed(5)
       ].join("|");
+      if (data.radar_map) {
+        radarGroundCacheRef.current.set(cacheKey, data.radar_map);
+      }
       const cachedGround = radarGroundCacheRef.current.get(cacheKey) || null;
       if (cachedGround && !forceGround) {
         setRadarGroundData(cachedGround);
-        setRadarGroundError(null);
+        setRadarGroundError(data.radar_map_error || null);
         return;
       }
       try {
@@ -1397,23 +1402,31 @@ export function AppShell() {
       sourceLabel
     });
     let alive = true;
-    void writeWidgetSnapshot(payload, { force: !mobileSetupComplete }).then((result) => {
-      if (!alive) return;
-      if (result.ok) {
-        if (mobileSetupComplete) {
-          widgetSnapshotWasReadyRef.current = true;
+    void writeWidgetSnapshot(payload, { force: !mobileSetupComplete })
+      .then((result) => {
+        if (!alive) return;
+        if (result.ok) {
+          if (mobileSetupComplete) {
+            widgetSnapshotWasReadyRef.current = true;
+          }
+          setWidgetSnapshotStatus({
+            state: payload.stale ? "stale" : "ready",
+            detail: result.sharedContainer ? "app group" : "app sandbox"
+          });
+        } else {
+          setWidgetSnapshotStatus({
+            state: "waiting",
+            detail: "write deferred"
+          });
         }
+      })
+      .catch(() => {
+        if (!alive) return;
         setWidgetSnapshotStatus({
-          state: payload.stale ? "stale" : "ready",
-          detail: result.sharedContainer ? "app group" : "app sandbox"
+          state: "waiting",
+          detail: "write deferred"
         });
-      } else {
-        setWidgetSnapshotStatus({
-          state: "error",
-          detail: result.error || "write failed"
-        });
-      }
-    });
+      });
     return () => {
       alive = false;
     };

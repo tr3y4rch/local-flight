@@ -62,12 +62,75 @@ type StoredInsert = {
 };
 
 let dbPromise: Promise<SQLite.SQLiteDatabase> | null = null;
+let historyQueue: Promise<void> = Promise.resolve();
+
+const SQLITE_TRANSIENT_RETRIES = 3;
+const SQLITE_TRANSIENT_BASE_DELAY_MS = 80;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function transientSqliteMessage(value: unknown): string {
+  if (value instanceof Error) {
+    return value.message;
+  }
+  if (typeof value === "object" && value !== null && "message" in value) {
+    return String((value as { message?: unknown }).message || "");
+  }
+  return String(value || "");
+}
+
+function isTransientSqliteError(value: unknown): boolean {
+  const code = typeof value === "object" && value !== null && "code" in value
+    ? String((value as { code?: unknown }).code || "")
+    : "";
+  const message = transientSqliteMessage(value).toLowerCase();
+  return (
+    code === "5" ||
+    message.includes("code 5") ||
+    message.includes("sqlite_busy") ||
+    message.includes("database is locked") ||
+    message.includes("database table is locked") ||
+    message.includes("finalizeasync") ||
+    message.includes("finalize failed")
+  );
+}
+
+async function withTransientSqliteRetry<T>(task: () => Promise<T>): Promise<T> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= SQLITE_TRANSIENT_RETRIES; attempt += 1) {
+    try {
+      return await task();
+    } catch (exc) {
+      lastError = exc;
+      if (!isTransientSqliteError(exc) || attempt >= SQLITE_TRANSIENT_RETRIES) {
+        throw exc;
+      }
+      await sleep(SQLITE_TRANSIENT_BASE_DELAY_MS * (attempt + 1));
+    }
+  }
+  throw lastError;
+}
+
+function enqueueHistory<T>(task: () => Promise<T>): Promise<T> {
+  const run = historyQueue.then(
+    () => withTransientSqliteRetry(task),
+    () => withTransientSqliteRetry(task)
+  );
+  historyQueue = run.then(
+    () => undefined,
+    () => undefined
+  );
+  return run;
+}
 
 async function db(): Promise<SQLite.SQLiteDatabase> {
   if (!dbPromise) {
     dbPromise = SQLite.openDatabaseAsync("localflight_standalone_history.db").then(async (database) => {
       await database.execAsync(`
         PRAGMA journal_mode = WAL;
+        PRAGMA busy_timeout = 5000;
         CREATE TABLE IF NOT EXISTS standalone_fids_history (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           movement_key TEXT,
@@ -109,6 +172,9 @@ async function db(): Promise<SQLite.SQLiteDatabase> {
           ON standalone_fids_history (callsign);
       `);
       return database;
+    }).catch((exc) => {
+      dbPromise = null;
+      throw exc;
     });
   }
   return dbPromise;
@@ -340,7 +406,7 @@ async function pruneHistory(database: SQLite.SQLiteDatabase): Promise<void> {
   `);
 }
 
-export async function storeStandaloneFidsRows(
+async function storeStandaloneFidsRowsNow(
   airport: StandaloneAirport,
   rows: FidsRow[],
   snapshotTs = nowIso()
@@ -410,6 +476,14 @@ export async function storeStandaloneFidsRows(
   await pruneHistory(database);
 }
 
+export async function storeStandaloneFidsRows(
+  airport: StandaloneAirport,
+  rows: FidsRow[],
+  snapshotTs = nowIso()
+): Promise<void> {
+  return enqueueHistory(() => storeStandaloneFidsRowsNow(airport, rows, snapshotTs));
+}
+
 function rowMatchesFilters(row: StoredHistoryRow, callsign: string, airline: string): boolean {
   const callsignTerm = cleanIdentity(callsign);
   if (callsignTerm) {
@@ -471,7 +545,7 @@ function storedToHistory(row: StoredHistoryRow): HistoryFlightRow {
   };
 }
 
-export async function getStandaloneHistory(
+async function getStandaloneHistoryNow(
   airport: StandaloneAirport,
   {
     hours = 24,
@@ -525,28 +599,25 @@ export async function getStandaloneHistory(
   };
 }
 
-export async function getStandaloneHistorySummary(
+export async function getStandaloneHistory(
   airport: StandaloneAirport,
-  {
-    hours = 24,
-    direction = "both",
-    callsign = "",
-    airline_iata = ""
-  }: {
+  options: {
     hours?: number;
     direction?: HistoryDirection;
+    limit?: number;
     callsign?: string;
     airline_iata?: string;
   } = {}
-): Promise<HistorySummary> {
-  const history = await getStandaloneHistory(airport, {
-    hours,
-    direction,
-    callsign,
-    airline_iata,
-    limit: 1000
-  });
-  const rows = history.flights;
+): Promise<HistoryResponse> {
+  return enqueueHistory(() => getStandaloneHistoryNow(airport, options));
+}
+
+function summarizeStandaloneHistoryRows(
+  airport: StandaloneAirport,
+  hours: number,
+  rows: HistoryFlightRow[],
+  rawObservationRows: number
+): HistorySummary {
   const departures = rows.filter((row) => row.direction === "dep").length;
   const arrivals = rows.filter((row) => row.direction === "arr").length;
   const delayed = rows.filter((row) => (row.delay_minutes || 0) > 5 || /delay/i.test(row.status || "")).length;
@@ -572,8 +643,8 @@ export async function getStandaloneHistorySummary(
     hours,
     total: rows.length,
     movement_count: rows.length,
-    sample_rows: history.raw_observation_rows || rows.length,
-    raw_observation_rows: history.raw_observation_rows || rows.length,
+    sample_rows: rawObservationRows || rows.length,
+    raw_observation_rows: rawObservationRows || rows.length,
     departures,
     arrivals,
     delayed,
@@ -589,7 +660,45 @@ export async function getStandaloneHistorySummary(
   };
 }
 
+async function getStandaloneHistorySummaryNow(
+  airport: StandaloneAirport,
+  {
+    hours = 24,
+    direction = "both",
+    callsign = "",
+    airline_iata = ""
+  }: {
+    hours?: number;
+    direction?: HistoryDirection;
+    callsign?: string;
+    airline_iata?: string;
+  } = {}
+): Promise<HistorySummary> {
+  const history = await getStandaloneHistoryNow(airport, {
+    hours,
+    direction,
+    callsign,
+    airline_iata,
+    limit: 1000
+  });
+  return summarizeStandaloneHistoryRows(airport, hours, history.flights, history.raw_observation_rows || history.flights.length);
+}
+
+export async function getStandaloneHistorySummary(
+  airport: StandaloneAirport,
+  options: {
+    hours?: number;
+    direction?: HistoryDirection;
+    callsign?: string;
+    airline_iata?: string;
+  } = {}
+): Promise<HistorySummary> {
+  return enqueueHistory(() => getStandaloneHistorySummaryNow(airport, options));
+}
+
 export async function clearStandaloneHistory(): Promise<void> {
-  const database = await db();
-  await database.runAsync("DELETE FROM standalone_fids_history");
+  return enqueueHistory(async () => {
+    const database = await db();
+    await database.runAsync("DELETE FROM standalone_fids_history");
+  });
 }

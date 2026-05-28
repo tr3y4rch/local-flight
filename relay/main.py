@@ -4242,6 +4242,192 @@ def _airport_surface_payload_from_row(
     )
 
 
+def _surface_payload_to_mobile_radar_map(surface: Dict[str, Any], *, radius_nm: float) -> Dict[str, Any]:
+    features = surface.get("features") if isinstance(surface.get("features"), list) else []
+    runways = [
+        dict(feature)
+        for feature in features
+        if isinstance(feature, dict) and str(feature.get("kind") or "").strip().lower() == "runway"
+    ]
+    surface_features = [
+        dict(feature)
+        for feature in features
+        if isinstance(feature, dict) and str(feature.get("kind") or "").strip().lower() != "runway"
+    ]
+    attribution = surface.get("attribution") if isinstance(surface.get("attribution"), dict) else {}
+    meta = surface.get("meta") if isinstance(surface.get("meta"), dict) else {}
+    provider = str(surface.get("provider") or "relay-surface")
+    cache_state = str(surface.get("cache_state") or "unknown")
+    return {
+        "center": surface.get("center") if isinstance(surface.get("center"), dict) else {},
+        "radius_nm": radius_nm,
+        "schema_version": "mobile-standalone-surface-v1",
+        "runways": runways,
+        "surface_features": surface_features,
+        "map_features": [],
+        "attribution": [attribution] if attribution else [],
+        "sources": {
+            "runways": "relay-surface" if runways else "none",
+            "surface": provider,
+            "surface_cache_state": cache_state,
+            "map": "none",
+            "map_cache_state": "standalone-off",
+            "terrain": "none",
+            "terrain_cache_state": "standalone-off",
+        },
+        "confidence": {
+            "runway_count": len(runways),
+            "surface_feature_count": len(surface_features),
+            "standalone": True,
+            "estimated": bool(meta.get("estimated_surface")),
+        },
+    }
+
+
+def _estimated_mobile_radar_map(
+    *,
+    airport_iata: str,
+    airport_icao: str,
+    center_lat: float,
+    center_lon: float,
+    radius_nm: float,
+    error: str,
+) -> Dict[str, Any]:
+    from localflight.sources.web.airport_surface import build_estimated_surface_payload, clamp_surface_radius_nm
+
+    surface = build_estimated_surface_payload(
+        airport_iata=airport_iata,
+        airport_icao=airport_icao,
+        center_lat=center_lat,
+        center_lon=center_lon,
+        radius_nm=clamp_surface_radius_nm(radius_nm),
+        error=error,
+    )
+    return _surface_payload_to_mobile_radar_map(surface, radius_nm=clamp_surface_radius_nm(radius_nm))
+
+
+def _mobile_standalone_radar_map(
+    *,
+    airport_iata: str,
+    airport_icao: str,
+    center_lat: float,
+    center_lon: float,
+    radius_nm: float,
+) -> tuple[Dict[str, Any], str]:
+    from localflight.sources.web.airport_surface import clamp_surface_radius_nm
+
+    surface_radius = clamp_surface_radius_nm(radius_nm)
+    if not _airport_surface_enabled():
+        error = "Relay airport surface overlay is disabled; using estimated mobile ground layer."
+        return (
+            _estimated_mobile_radar_map(
+                airport_iata=airport_iata,
+                airport_icao=airport_icao,
+                center_lat=center_lat,
+                center_lon=center_lon,
+                radius_nm=surface_radius,
+                error=error,
+            ),
+            error,
+        )
+
+    cache_key = _airport_surface_cache_key(airport_iata, airport_icao or "")
+    conn = _connect()
+    snapshot_row = _load_airport_surface_snapshot_conn(conn, cache_key)
+    state = _airport_surface_lifecycle_state(snapshot_row)
+    conn.close()
+
+    if snapshot_row is not None and state in {"fresh", "stale"}:
+        _record_airport_surface_access(
+            cache_key=cache_key,
+            cache_state=state,
+            count_cache_hit=(state == "fresh"),
+            count_stale=(state == "stale"),
+        )
+        return (
+            _surface_payload_to_mobile_radar_map(
+                _airport_surface_payload_from_row(
+                    snapshot_row,
+                    cache_state=state,
+                    requested_radius_nm=surface_radius,
+                ),
+                radius_nm=surface_radius,
+            ),
+            "",
+        )
+
+    lock = _get_airport_surface_lock(cache_key)
+    acquired = lock.acquire(blocking=False)
+    if not acquired:
+        error = "Relay airport surface refresh is already in progress; using estimated mobile ground layer."
+        return (
+            _estimated_mobile_radar_map(
+                airport_iata=airport_iata,
+                airport_icao=airport_icao,
+                center_lat=center_lat,
+                center_lon=center_lon,
+                radius_nm=surface_radius,
+                error=error,
+            ),
+            error,
+        )
+
+    try:
+        try:
+            surface = _fetch_airport_surface_from_osm(
+                airport_iata=airport_iata,
+                airport_icao=airport_icao or "",
+                lat=center_lat,
+                lon=center_lon,
+                radius_nm=surface_radius,
+            )
+            _store_airport_surface_snapshot(cache_key, surface)
+            _record_airport_surface_access(cache_key=cache_key, cache_state="fresh")
+            surface.setdefault("meta", {})
+            if isinstance(surface["meta"], dict):
+                surface["meta"]["served_via"] = "mobile-radar-surface-refresh"
+            return _surface_payload_to_mobile_radar_map(surface, radius_nm=surface_radius), ""
+        except Exception as exc:
+            error = str(getattr(exc, "detail", None) or exc)
+            conn = _connect()
+            stale_row = _load_airport_surface_snapshot_conn(conn, cache_key)
+            stale_state = _airport_surface_lifecycle_state(stale_row)
+            conn.close()
+            if stale_row is not None and stale_state in {"fresh", "stale"}:
+                _record_airport_surface_access(
+                    cache_key=cache_key,
+                    cache_state="stale",
+                    count_stale=True,
+                    error=error,
+                )
+                return (
+                    _surface_payload_to_mobile_radar_map(
+                        _airport_surface_payload_from_row(
+                            stale_row,
+                            cache_state="stale",
+                            requested_radius_nm=surface_radius,
+                            error=error,
+                        ),
+                        radius_nm=surface_radius,
+                    ),
+                    error,
+                )
+            fallback_error = f"Relay airport surface unavailable: {error}"
+            return (
+                _estimated_mobile_radar_map(
+                    airport_iata=airport_iata,
+                    airport_icao=airport_icao,
+                    center_lat=center_lat,
+                    center_lon=center_lon,
+                    radius_nm=surface_radius,
+                    error=fallback_error,
+                ),
+                fallback_error,
+            )
+    finally:
+        lock.release()
+
+
 def _store_airport_surface_snapshot(cache_key: str, payload: Dict[str, Any]) -> None:
     center = payload.get("center") if isinstance(payload.get("center"), dict) else {}
     meta = payload.get("meta") if isinstance(payload.get("meta"), dict) else {}
@@ -8943,6 +9129,17 @@ def relay_mobile_radar(
         cached = dict(cached)
         cached["source"] = str(cached.get("source") or "adsbexchange_relay_cached")
         cached["refresh_after_s"] = _standalone_radar_min_refresh_seconds()
+        if not isinstance(cached.get("radar_map"), dict):
+            radar_map, radar_map_error = _mobile_standalone_radar_map(
+                airport_iata=str(airport.get("iata") or ""),
+                airport_icao=str(airport.get("icao") or ""),
+                center_lat=float(airport["lat"]),
+                center_lon=float(airport["lon"]),
+                radius_nm=float(min(5, int(radius_nm))),
+            )
+            cached["radar_map"] = radar_map
+            if radar_map_error:
+                cached["radar_map_error"] = radar_map_error
         return JSONResponse(cached, headers={"X-LF-Mobile-Standalone-Cache": "hit"})
 
     network_tag = _network_tag(_client_ip(request))
@@ -8979,6 +9176,13 @@ def relay_mobile_radar(
 
     blips = adsbx_aircraft_to_blips(aircraft, center_lat=center_lat, center_lon=center_lon, radius_nm=float(radius_nm))
     blips = annotate_blips(blips, airport_icao=str(airport.get("icao") or ""), runways=[])
+    radar_map, radar_map_error = _mobile_standalone_radar_map(
+        airport_iata=str(airport.get("iata") or ""),
+        airport_icao=str(airport.get("icao") or ""),
+        center_lat=center_lat,
+        center_lon=center_lon,
+        radius_nm=float(min(5, int(radius_nm))),
+    )
     used = _increment_usage(
         subject_key=access["subject_key"],
         service="radar",
@@ -9010,6 +9214,8 @@ def relay_mobile_radar(
         "user_filtered_count": 0,
         "provider_radius_nm": max(5, int(radius_nm)),
         "raw_provider_count": len(aircraft),
+        "radar_map": radar_map,
+        "radar_map_error": radar_map_error,
         "blips": blips,
     }
     _mobile_cache_store(install_id=install_id, service="radar", cache_key=cache_key, payload=payload)

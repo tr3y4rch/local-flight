@@ -18,6 +18,26 @@ export type WidgetSnapshotWriteResult = {
 };
 
 let lastWidgetSnapshotWriteKey = "";
+let widgetSnapshotWriteQueue: Promise<void> = Promise.resolve();
+let widgetSnapshotTempNonce = 0;
+
+function enqueueWidgetSnapshotWrite<T>(task: () => Promise<T>): Promise<T> {
+  const run = widgetSnapshotWriteQueue.then(task, task);
+  widgetSnapshotWriteQueue = run.then(
+    () => undefined,
+    () => undefined
+  );
+  return run;
+}
+
+function errorText(value: unknown): string {
+  return value instanceof Error ? value.message : String(value || "write failed");
+}
+
+function nextTempSnapshotName(): string {
+  widgetSnapshotTempNonce = (widgetSnapshotTempNonce + 1) % 100000;
+  return `${WIDGET_SNAPSHOT_FILENAME}.${Date.now()}.${widgetSnapshotTempNonce}.tmp`;
+}
 
 function resolveSharedContainerFile(): File | null {
   try {
@@ -46,6 +66,8 @@ export function getWidgetSnapshotUri(): string {
 
 export function resetWidgetSnapshotWriteMemo(): void {
   lastWidgetSnapshotWriteKey = "";
+  widgetSnapshotWriteQueue = Promise.resolve();
+  widgetSnapshotTempNonce = 0;
 }
 
 export function shouldWriteWidgetSnapshot(snapshot: LocalFlightWidgetSnapshot): boolean {
@@ -56,38 +78,58 @@ export async function writeWidgetSnapshot(
   snapshot: LocalFlightWidgetSnapshot,
   options: { force?: boolean } = {}
 ): Promise<WidgetSnapshotWriteResult> {
-  const { file, sharedContainer } = getWidgetSnapshotFile();
-  const writeKey = widgetSnapshotSemanticKey(snapshot);
-  if (!options.force && writeKey === lastWidgetSnapshotWriteKey) {
-    return { ok: true, uri: file.uri, sharedContainer, skipped: true };
-  }
-  const json = serializeWidgetExchangeSnapshot(snapshot);
-  const tempFile = new File(file.parentDirectory, `${WIDGET_SNAPSHOT_FILENAME}.tmp`);
-
-  try {
-    tempFile.create({ overwrite: true, intermediates: true });
-    tempFile.write(json);
-    if (file.exists) {
-      file.delete();
-    }
-    tempFile.move(file);
-    lastWidgetSnapshotWriteKey = writeKey;
-    return { ok: true, uri: file.uri, sharedContainer };
-  } catch (exc) {
+  return enqueueWidgetSnapshotWrite(async () => {
+    let file: File | null = null;
+    let sharedContainer = false;
     try {
-      file.create({ overwrite: true, intermediates: true });
-      file.write(json);
+      const target = getWidgetSnapshotFile();
+      file = target.file;
+      sharedContainer = target.sharedContainer;
+      const writeKey = widgetSnapshotSemanticKey(snapshot);
+      if (!options.force && writeKey === lastWidgetSnapshotWriteKey) {
+        return { ok: true, uri: file.uri, sharedContainer, skipped: true };
+      }
+      const json = serializeWidgetExchangeSnapshot(snapshot);
+      const tempFile = new File(file.parentDirectory, nextTempSnapshotName());
+
+      try {
+        tempFile.create({ overwrite: true, intermediates: true });
+        tempFile.write(json);
+        if (file.exists) {
+          file.delete();
+        }
+        tempFile.move(file);
+      } catch (exc) {
+        try {
+          if (tempFile.exists) {
+            tempFile.delete();
+          }
+        } catch {
+          // Temp cleanup is best-effort; the fallback write below is authoritative.
+        }
+        try {
+          file.create({ overwrite: true, intermediates: true });
+          file.write(json);
+        } catch (fallbackExc) {
+          return {
+            ok: false,
+            uri: file.uri,
+            sharedContainer,
+            error: errorText(fallbackExc || exc)
+          };
+        }
+      }
       lastWidgetSnapshotWriteKey = writeKey;
       return { ok: true, uri: file.uri, sharedContainer };
-    } catch (fallbackExc) {
+    } catch (exc) {
       return {
         ok: false,
-        uri: file.uri,
+        uri: file?.uri || "",
         sharedContainer,
-        error: fallbackExc instanceof Error ? fallbackExc.message : String(fallbackExc || exc)
+        error: errorText(exc)
       };
     }
-  }
+  });
 }
 
 export async function readWidgetSnapshot(): Promise<LocalFlightWidgetSnapshot | null> {

@@ -716,6 +716,8 @@ export type RadarResponse = {
   user_filtered_count?: number;
   provider_radius_nm?: number;
   raw_provider_count?: number;
+  radar_map?: RadarMapResponse;
+  radar_map_error?: string;
   blips: RadarBlip[];
 };
 
