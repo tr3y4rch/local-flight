@@ -16,7 +16,7 @@ This file is the working checklist for the current iOS TestFlight / App Store ca
 - Standalone setup needs an airport, a mobile diagnostics choice, and relay activation through `https://relay.beacontools.cc`. It does not open LAN WebSockets, Matrix controls, scheduler controls, or server-control panels.
 - Standalone daily surfaces are **Board**, **Radar**, **History**, and **Settings**.
 - LAN Companion is also included. It pairs with a Local Flight desktop/Pi server over the same local network by QR code or manual URL.
-- LAN Companion daily surfaces are **Board**, **Radar**, **History**, and **Control**. Help, reports, pairing, widgets, and support live inside Control.
+- LAN Companion daily surfaces are **Board**, **Radar**, **History**, and **Control**. Help, reports, pairing, and widgets live inside Control.
 - The first TestFlight build includes a WidgetKit extension. Widgets read only the app-written pinned-flight/board snapshot through the App Group and do not fetch LAN, relay, or third-party data directly.
 
 ## App Store Listing Copy
@@ -79,15 +79,13 @@ App Store Connect privacy answers should be conservative:
 
 The bundled iOS privacy manifest declares required-reason APIs and conservative app-functionality data categories. Keep it aligned with the submitted App Store Connect privacy answers.
 
-## Support / Payments
+## Payments
 
-- The app includes an optional **Support Local Flight** tip sheet. The sheet is informational in this submitted build and keeps Local Flight fully usable without payment.
-- The support tiers use stable App Store product IDs in code: `cc.beacontools.localflight.tip.2`, `cc.beacontools.localflight.tip.5`, `cc.beacontools.localflight.tip.10`, and `cc.beacontools.localflight.tip.20`.
-- This submitted build does **not** enable a native StoreKit purchase adapter and does **not** complete App Store Server API verification on the relay, so it cannot charge. Unavailable tiers show App Store setup wording and return a no-charge message.
-- No features are locked behind support.
+- This submitted build does **not** include tips, purchases, subscriptions, ads, paywalls, or locked features.
+- No native StoreKit purchase adapter is enabled in the mobile app for this build.
 - No external Buy Me a Coffee or other external purchase call-to-action should appear in App Store builds.
 - External project website, source, and release-note links are informational/support links only, not purchase links. The app should route users to `https://beacontools.cc/local-flight/mobile` first; GitHub remains available from that public project page for source/issues.
-- Before enabling real tips, create/approve the App Store in-app purchase products, wire the native StoreKit adapter, configure relay App Store Server API verification, run sandbox/TestFlight purchase tests, and update these notes plus App Store Connect metadata.
+- If optional tips are intentionally resumed later, create/approve App Store in-app purchase products, wire the native StoreKit adapter, configure relay App Store Server API verification, run sandbox/TestFlight purchase tests, and update these notes plus App Store Connect metadata before submission.
 
 ## Safety Copy
 

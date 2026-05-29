@@ -12,6 +12,7 @@ import type { StandaloneAirport } from "./settings";
 type StoredHistoryRow = {
   id: number;
   movement_key: string;
+  airport_key: string | null;
   snapshot_ts: string;
   event_time: string;
   first_seen_ts: string;
@@ -39,6 +40,7 @@ type StoredHistoryRow = {
 
 type StoredInsert = {
   movementKey: string;
+  airportKey: string;
   snapshotTs: string;
   eventTime: string;
   airportIata: string;
@@ -63,6 +65,22 @@ type StoredInsert = {
 
 let dbPromise: Promise<SQLite.SQLiteDatabase> | null = null;
 let historyQueue: Promise<void> = Promise.resolve();
+
+export type StandaloneHistoryDiagnostics = {
+  airport_key: string;
+  last_store_at: string | null;
+  last_store_rows: number;
+  last_store_error: string | null;
+  pending_future_rows: number;
+};
+
+let historyDiagnostics: StandaloneHistoryDiagnostics = {
+  airport_key: "",
+  last_store_at: null,
+  last_store_rows: 0,
+  last_store_error: null,
+  pending_future_rows: 0
+};
 
 const SQLITE_TRANSIENT_RETRIES = 3;
 const SQLITE_TRANSIENT_BASE_DELAY_MS = 80;
@@ -134,6 +152,7 @@ async function db(): Promise<SQLite.SQLiteDatabase> {
         CREATE TABLE IF NOT EXISTS standalone_fids_history (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           movement_key TEXT,
+          airport_key TEXT,
           snapshot_ts TEXT NOT NULL,
           event_time TEXT,
           first_seen_ts TEXT,
@@ -166,6 +185,8 @@ async function db(): Promise<SQLite.SQLiteDatabase> {
           ON standalone_fids_history (movement_key);
         CREATE INDEX IF NOT EXISTS idx_standalone_history_event
           ON standalone_fids_history (airport_iata, event_time DESC);
+        CREATE INDEX IF NOT EXISTS idx_standalone_history_airport_key_event
+          ON standalone_fids_history (airport_key, event_time DESC);
         CREATE INDEX IF NOT EXISTS idx_standalone_history_seen
           ON standalone_fids_history (last_seen_ts DESC);
         CREATE INDEX IF NOT EXISTS idx_standalone_history_callsign
@@ -185,6 +206,7 @@ async function ensureHistoryMigrations(database: SQLite.SQLiteDatabase): Promise
   const existing = new Set(columns.map((column) => column.name));
   const additions: Array<[string, string]> = [
     ["movement_key", "TEXT"],
+    ["airport_key", "TEXT"],
     ["event_time", "TEXT"],
     ["first_seen_ts", "TEXT"],
     ["last_seen_ts", "TEXT"],
@@ -203,6 +225,7 @@ async function ensureHistoryMigrations(database: SQLite.SQLiteDatabase): Promise
   await database.runAsync(`
     UPDATE standalone_fids_history
     SET event_time = COALESCE(event_time, sched_time, snapshot_ts),
+        airport_key = COALESCE(NULLIF(airport_key, ''), NULLIF(airport_iata, ''), 'UNKNOWN'),
         first_seen_ts = COALESCE(first_seen_ts, snapshot_ts),
         last_seen_ts = COALESCE(last_seen_ts, snapshot_ts),
         observation_count = COALESCE(observation_count, 1)
@@ -219,13 +242,14 @@ async function backfillLegacyMovements(database: SQLite.SQLiteDatabase): Promise
   `);
   for (const row of rows) {
     const eventTime = row.event_time || row.sched_time || row.snapshot_ts;
+    const rowAirportKey = cleanAirportKey(row.airport_key || row.airport_iata);
     const identity = cleanIdentity(row.operating_callsign || row.callsign || row.flight_number) || cleanIdentity(String(row.id));
     const route = String(row.route_code || "").toUpperCase().replace(/[^A-Z0-9]+/g, "") || "-";
     const direction = directionForView(row.view).toUpperCase();
     const origin = row.view === "arrivals" ? route : row.airport_iata;
     const destination = row.view === "departures" ? route : row.airport_iata;
     const movementKey = [
-      row.airport_iata,
+      rowAirportKey,
       direction,
       origin || "-",
       destination || "-",
@@ -255,6 +279,7 @@ async function backfillLegacyMovements(database: SQLite.SQLiteDatabase): Promise
         `
         UPDATE standalone_fids_history
         SET movement_key = ?,
+            airport_key = COALESCE(NULLIF(airport_key, ''), NULLIF(airport_iata, ''), ?),
             event_time = COALESCE(event_time, sched_time, snapshot_ts),
             first_seen_ts = COALESCE(first_seen_ts, snapshot_ts),
             last_seen_ts = COALESCE(last_seen_ts, snapshot_ts),
@@ -262,6 +287,7 @@ async function backfillLegacyMovements(database: SQLite.SQLiteDatabase): Promise
         WHERE id = ?
         `,
         movementKey,
+        rowAirportKey,
         row.id
       );
     }
@@ -274,6 +300,18 @@ function directionForView(view: string): "dep" | "arr" {
 
 function nowIso(): string {
   return new Date().toISOString();
+}
+
+function cleanAirportKey(value?: unknown): string {
+  return String(value || "").trim().toUpperCase().replace(/[^A-Z0-9]+/g, "") || "UNKNOWN";
+}
+
+function airportKey(airport: StandaloneAirport): string {
+  return cleanAirportKey(airport.iata || airport.icao || airport.name);
+}
+
+function airportDisplayCode(airport: StandaloneAirport): string {
+  return cleanAirportKey(airport.iata || airport.icao);
 }
 
 function cutoffIso(days = 30): string {
@@ -313,7 +351,73 @@ function field(row: FidsRow, key: string): string | null {
   return text || null;
 }
 
-function isoFromValue(value: string | null | undefined, snapshotTs: string): string | null {
+function timezoneParts(date: Date, timezone = "UTC"): { year: number; month: number; day: number } {
+  try {
+    const formatter = new Intl.DateTimeFormat("en-CA", {
+      timeZone: timezone || "UTC",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit"
+    });
+    const parts = Object.fromEntries(formatter.formatToParts(date).map((part) => [part.type, part.value]));
+    return {
+      year: Number(parts.year || date.getUTCFullYear()),
+      month: Number(parts.month || date.getUTCMonth() + 1),
+      day: Number(parts.day || date.getUTCDate())
+    };
+  } catch {
+    return {
+      year: date.getUTCFullYear(),
+      month: date.getUTCMonth() + 1,
+      day: date.getUTCDate()
+    };
+  }
+}
+
+function timezoneOffsetMs(timezone: string, instant: Date): number {
+  try {
+    const formatter = new Intl.DateTimeFormat("en-CA", {
+      timeZone: timezone || "UTC",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hourCycle: "h23"
+    });
+    const parts = Object.fromEntries(formatter.formatToParts(instant).map((part) => [part.type, part.value]));
+    const asUtc = Date.UTC(
+      Number(parts.year || instant.getUTCFullYear()),
+      Number(parts.month || instant.getUTCMonth() + 1) - 1,
+      Number(parts.day || instant.getUTCDate()),
+      Number(parts.hour || 0),
+      Number(parts.minute || 0),
+      Number(parts.second || 0)
+    );
+    return asUtc - instant.getTime();
+  } catch {
+    return 0;
+  }
+}
+
+function zonedClockToIso(hour: string, minute: string, snapshotTs: string, timezone = "UTC"): string {
+  const snapshot = new Date(snapshotTs);
+  const parts = timezoneParts(Number.isFinite(snapshot.getTime()) ? snapshot : new Date(), timezone);
+  let guessMs = Date.UTC(parts.year, parts.month - 1, parts.day, Number(hour), Number(minute), 0, 0);
+  for (let i = 0; i < 3; i += 1) {
+    guessMs = Date.UTC(parts.year, parts.month - 1, parts.day, Number(hour), Number(minute), 0, 0) - timezoneOffsetMs(timezone, new Date(guessMs));
+  }
+  const snapshotMs = Number.isFinite(snapshot.getTime()) ? snapshot.getTime() : Date.now();
+  if (guessMs < snapshotMs - 18 * 60 * 60 * 1000) {
+    guessMs += 24 * 60 * 60 * 1000;
+  } else if (guessMs > snapshotMs + 18 * 60 * 60 * 1000) {
+    guessMs -= 24 * 60 * 60 * 1000;
+  }
+  return new Date(guessMs).toISOString();
+}
+
+function isoFromValue(value: string | null | undefined, snapshotTs: string, timezone = "UTC"): string | null {
   const text = String(value || "").trim();
   if (!text) return null;
   if (/^\d{4}-\d{2}-\d{2}T/.test(text)) return text;
@@ -321,12 +425,12 @@ function isoFromValue(value: string | null | undefined, snapshotTs: string): str
   if (!match) return null;
   const hour = (match[1] || "0").padStart(2, "0");
   const minute = (match[2] || "0").padStart(2, "0");
-  return `${snapshotTs.slice(0, 10)}T${hour}:${minute}:00.000Z`;
+  return zonedClockToIso(hour, minute, snapshotTs, timezone);
 }
 
-function eventTimeForRow(row: FidsRow, snapshotTs: string): { eventTime: string; schedTime: string | null; actualTime: string | null } {
-  const actualTime = isoFromValue(field(row, "actual_time"), snapshotTs);
-  const schedTime = isoFromValue(field(row, "sched_time") || row.time_primary || row.display_time, snapshotTs);
+function eventTimeForRow(row: FidsRow, snapshotTs: string, timezone?: string): { eventTime: string; schedTime: string | null; actualTime: string | null } {
+  const actualTime = isoFromValue(field(row, "actual_time"), snapshotTs, timezone);
+  const schedTime = isoFromValue(field(row, "sched_time") || row.time_primary || row.display_time, snapshotTs, timezone);
   return {
     eventTime: actualTime || schedTime || snapshotTs,
     schedTime,
@@ -343,8 +447,10 @@ function movementKeyForRow(
 ): string {
   const route = String(row.route_code || "").toUpperCase().replace(/[^A-Z0-9]+/g, "") || "-";
   const direction = directionForView(view).toUpperCase();
-  const origin = view === "arrivals" ? route : airport.iata;
-  const destination = view === "departures" ? route : airport.iata;
+  const key = airportKey(airport);
+  const code = airportDisplayCode(airport);
+  const origin = view === "arrivals" ? route : code;
+  const destination = view === "departures" ? route : code;
   const operating = cleanIdentity(row.operating_callsign);
   const aliases = [
     row.callsign,
@@ -355,7 +461,7 @@ function movementKeyForRow(
   ].map(cleanIdentity).filter(Boolean).sort();
   const identity = operating || aliases[0] || cleanIdentity(row.id) || cleanIdentity(snapshotTs);
   return [
-    airport.iata,
+    key,
     direction,
     origin || "-",
     destination || "-",
@@ -368,12 +474,14 @@ function movementKeyForRow(
 function rowToInsert(airport: StandaloneAirport, row: FidsRow, snapshotTs: string): StoredInsert {
   const view = String(row.view || "departures");
   const callsign = String(row.callsign || row.id || row.flight_display || "UNKNOWN").toUpperCase();
-  const { eventTime, schedTime, actualTime } = eventTimeForRow(row, snapshotTs);
+  const { eventTime, schedTime, actualTime } = eventTimeForRow(row, snapshotTs, airport.timezone);
+  const key = airportKey(airport);
   return {
     movementKey: movementKeyForRow(airport, row, snapshotTs, eventTime, view),
+    airportKey: key,
     snapshotTs,
     eventTime,
-    airportIata: airport.iata,
+    airportIata: airportDisplayCode(airport),
     view,
     callsign,
     flightNumber: row.flight_number || row.flight_display || null,
@@ -411,6 +519,14 @@ async function storeStandaloneFidsRowsNow(
   rows: FidsRow[],
   snapshotTs = nowIso()
 ): Promise<void> {
+  const key = airportKey(airport);
+  historyDiagnostics = {
+    ...historyDiagnostics,
+    airport_key: key,
+    last_store_at: snapshotTs,
+    last_store_rows: rows.length,
+    last_store_error: null
+  };
   if (!rows.length) return;
   const database = await db();
   await database.withExclusiveTransactionAsync(async (txn) => {
@@ -419,12 +535,12 @@ async function storeStandaloneFidsRowsNow(
       await txn.runAsync(
         `
         INSERT INTO standalone_fids_history (
-          movement_key, snapshot_ts, event_time, first_seen_ts, last_seen_ts,
+          movement_key, airport_key, snapshot_ts, event_time, first_seen_ts, last_seen_ts,
           observation_count, airport_iata, view, callsign, flight_number, airline_iata,
           route_code, status, gate, terminal, aircraft_type, sched_time, actual_time,
           delay_minutes, codeshares_json, sold_as_json, operating_callsign,
           identity_source, row_json
-        ) VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(movement_key) DO UPDATE SET
           snapshot_ts = excluded.snapshot_ts,
           event_time = COALESCE(excluded.event_time, standalone_fids_history.event_time),
@@ -448,6 +564,7 @@ async function storeStandaloneFidsRowsNow(
           row_json = excluded.row_json
         `,
         stored.movementKey,
+        stored.airportKey,
         stored.snapshotTs,
         stored.eventTime,
         stored.snapshotTs,
@@ -481,7 +598,16 @@ export async function storeStandaloneFidsRows(
   rows: FidsRow[],
   snapshotTs = nowIso()
 ): Promise<void> {
-  return enqueueHistory(() => storeStandaloneFidsRowsNow(airport, rows, snapshotTs));
+  return enqueueHistory(() => storeStandaloneFidsRowsNow(airport, rows, snapshotTs)).catch((exc) => {
+    historyDiagnostics = {
+      ...historyDiagnostics,
+      airport_key: airportKey(airport),
+      last_store_at: snapshotTs,
+      last_store_rows: rows.length,
+      last_store_error: transientSqliteMessage(exc) || "Standalone history write failed"
+    };
+    throw exc;
+  });
 }
 
 function rowMatchesFilters(row: StoredHistoryRow, callsign: string, airline: string): boolean {
@@ -562,6 +688,7 @@ async function getStandaloneHistoryNow(
   } = {}
 ): Promise<HistoryResponse> {
   const database = await db();
+  const key = airportKey(airport);
   const since = new Date(Date.now() - Math.max(1, hours) * 60 * 60 * 1000).toISOString();
   const upper = upperBoundIso();
   const directionWhere = direction === "dep"
@@ -573,14 +700,14 @@ async function getStandaloneHistoryNow(
     `
     SELECT *
     FROM standalone_fids_history
-    WHERE airport_iata = ?
+    WHERE COALESCE(NULLIF(airport_key, ''), airport_iata) = ?
       AND COALESCE(event_time, snapshot_ts) >= ?
       AND COALESCE(event_time, snapshot_ts) <= ?
       ${directionWhere}
     ORDER BY COALESCE(event_time, snapshot_ts) DESC, COALESCE(last_seen_ts, snapshot_ts) DESC, id DESC
     LIMIT ?
     `,
-    airport.iata,
+    key,
     since,
     upper,
     Math.max(1, Math.min(1000, limit * 2))
@@ -589,14 +716,35 @@ async function getStandaloneHistoryNow(
     .filter((row) => rowMatchesFilters(row, callsign, airline_iata))
     .slice(0, limit)
     .map(storedToHistory);
+  const futureRows = await database.getAllAsync<StoredHistoryRow>(
+    `
+    SELECT *
+    FROM standalone_fids_history
+    WHERE COALESCE(NULLIF(airport_key, ''), airport_iata) = ?
+      AND COALESCE(event_time, snapshot_ts) > ?
+      ${directionWhere}
+    ORDER BY COALESCE(event_time, snapshot_ts) ASC, id ASC
+    LIMIT 1000
+    `,
+    key,
+    upper
+  );
+  const pendingFutureRows = futureRows.filter((row) => rowMatchesFilters(row, callsign, airline_iata)).length;
+  historyDiagnostics = {
+    ...historyDiagnostics,
+    airport_key: key,
+    pending_future_rows: pendingFutureRows
+  };
   return {
-    airport_iata: airport.iata,
+    airport_iata: airportDisplayCode(airport),
     hours,
     count: filtered.length,
     movement_count: filtered.length,
     raw_observation_rows: filtered.reduce((sum, row) => sum + (row.observation_count || 1), 0),
+    pending_future_rows: pendingFutureRows,
+    standalone_storage: { ...historyDiagnostics },
     flights: filtered
-  };
+  } as HistoryResponse;
 }
 
 export async function getStandaloneHistory(
@@ -639,7 +787,7 @@ function summarizeStandaloneHistoryRows(
     daily.set(date, entry);
   }
   return {
-    airport_iata: airport.iata,
+    airport_iata: airportDisplayCode(airport),
     hours,
     total: rows.length,
     movement_count: rows.length,
@@ -656,8 +804,9 @@ function summarizeStandaloneHistoryRows(
     top_airlines: [],
     top_routes: [],
     top_aircraft: [],
-    daily_volume: Array.from(daily.entries()).sort(([a], [b]) => a.localeCompare(b)).map(([date, value]) => ({ date, ...value }))
-  };
+    daily_volume: Array.from(daily.entries()).sort(([a], [b]) => a.localeCompare(b)).map(([date, value]) => ({ date, ...value })),
+    standalone_storage: { ...historyDiagnostics }
+  } as HistorySummary;
 }
 
 async function getStandaloneHistorySummaryNow(
@@ -701,4 +850,8 @@ export async function clearStandaloneHistory(): Promise<void> {
     const database = await db();
     await database.runAsync("DELETE FROM standalone_fids_history");
   });
+}
+
+export function getStandaloneHistoryDiagnostics(): StandaloneHistoryDiagnostics {
+  return { ...historyDiagnostics };
 }

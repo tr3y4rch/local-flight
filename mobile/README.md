@@ -112,7 +112,7 @@ The pairing QR is fingerprint-bound to the server that created it. If a QR resol
 LAN Companion gives you:
 
 - Board, Radar, and History from the paired server
-- Control for pairing, host status, airport/source/refresh settings, Matrix, widgets, diagnostics, help, reports, and support
+- Control for pairing, host status, airport/source/refresh settings, Matrix, widgets, diagnostics, help, and reports
 - WebSocket updates from the local server
 - Matrix live-remote controls when the host has Matrix configured
 - Automatic diagnostics only when both the phone and host allow it
@@ -124,15 +124,15 @@ LAN Companion gives you:
 - Shared first-run setup for Standalone and LAN Companion
 - Branded launch overlay and keyboard-safe setup flow
 - Board with pinned flight, airport-local time, weather, status chips, and flight detail sheets
-- Radar with mobile-owned range controls and reduced-motion-safe blips
+- Radar with mobile-owned range controls and a desktop-like sweep/blip fade
 - Local History for Standalone, host-backed History for LAN Companion
 - Appearance controls shared across both modes
 - Help & Reports folded into Settings/Control instead of a duplicate nav path
 - iOS WidgetKit small and medium widgets through the App Group snapshot
 - In-app Widgets & Glances preview/settings for both modes
-- Optional Support Local Flight tip sheet
+- No payments, tips, ads, or locked features in this beta build
 
-Support tips are visible but non-charging in this build. No feature is locked behind support, there are no external payment links, and real StoreKit / Google Play Billing remains disabled until native purchase adapters plus relay verification are ready.
+Payment/tip UI is intentionally not included in this build. StoreKit / Google Play Billing work stays out of the visible app until the Apple/Google release path is resumed intentionally.
 
 ---
 
@@ -259,11 +259,10 @@ Install-scoped IDs exist so pairing, quotas, reports, and troubleshooting can wo
 - `App.tsx` is the provider entrypoint.
 - `src/app/AppShell.tsx` coordinates setup mode, data refresh, shell chrome, standalone relay flow, and LAN Companion state.
 - `src/api/` contains LAN and standalone relay API clients.
-- `src/domain/` contains pure helpers for flights, formatting, radar, widgets, Matrix, and support.
+- `src/domain/` contains pure helpers for flights, formatting, radar, widgets, and Matrix.
 - `src/screens/AppScreens.tsx` contains screens and sheets.
 - `src/storage/` contains SecureStore settings, standalone SQLite history, and widget snapshot writing.
 - `src/theme/` contains mobile visual tokens and style generation.
-- `src/iap/` contains the support-tip purchase seam. The active provider is intentionally no-charge until StoreKit / Google Play Billing and relay verification are enabled.
 - `native/ios-widget/` contains the tracked WidgetKit source copied into the generated iOS project.
 
 ---
@@ -274,10 +273,9 @@ Install-scoped IDs exist so pairing, quotas, reports, and troubleshooting can wo
 - Public Google Play production release
 - Dynamic Island / Live Activities
 - Android OS widgets
-- Real in-app purchase support tips
+- In-app purchases, payments, or support tips
 - Native crash capture before JavaScript starts
 - Broader LAN admin authorization/revoke controls
-- Full standalone flight-detail parity with LAN Companion
 
 ---
 

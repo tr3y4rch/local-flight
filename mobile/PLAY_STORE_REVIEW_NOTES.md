@@ -14,7 +14,7 @@ This file is the working checklist for the current Android internal / Play relea
 - Standalone setup needs an airport, a mobile diagnostics choice, and relay activation through `https://relay.beacontools.cc`. It does not open LAN WebSockets, Matrix controls, scheduler controls, or server-control panels.
 - Standalone daily surfaces are **Board**, **Radar**, **History**, and **Settings**.
 - LAN Mobile is also included. It pairs with a Local Flight desktop/Pi server on the same local network by QR code or manual URL.
-- LAN Mobile daily surfaces are **Board**, **Radar**, **History**, and **Control**. Help, reports, pairing, widgets, and support live inside Control.
+- LAN Mobile daily surfaces are **Board**, **Radar**, **History**, and **Control**. Help, reports, pairing, and widgets live inside Control.
 
 ## Google Play Store Listing Copy
 
@@ -45,7 +45,7 @@ Important: Local Flight is an informational display aid only. Flight, radar, wea
 
 ### Internal Test Release Notes
 
-Initial Android internal test build for Local Flight Mobile. Includes Standalone mode, LAN Mobile pairing, Board, Radar, History, Settings/Control, manual reports, diagnostics choices, and a non-charging support sheet.
+Initial Android internal test build for Local Flight Mobile. Includes Standalone mode, LAN Mobile pairing, Board, Radar, History, Settings/Control, manual reports, and diagnostics choices. It does not include payments, tips, subscriptions, ads, paywalls, or locked features.
 
 ## Permission And Network Rationale
 
@@ -69,14 +69,12 @@ Play Console Data Safety answers should be conservative:
 - User content: manual report title/description if the user sends a report.
 - Not collected for this build: precise location, contacts, photos/videos, financial information, payment information, advertising ID, or purchase history.
 
-## Support / Payments
+## Payments
 
-- The app includes an optional **Support Local Flight** tip sheet. The sheet is informational in this submitted Android build and keeps Local Flight fully usable without payment.
-- The visible support tiers mirror the stable store product IDs used by the shared mobile code: `cc.beacontools.localflight.tip.2`, `cc.beacontools.localflight.tip.5`, `cc.beacontools.localflight.tip.10`, and `cc.beacontools.localflight.tip.20`.
-- This submitted Android build does **not** include a native Google Play Billing adapter and cannot charge. Unavailable tiers show Google Play setup wording and return a no-charge message.
-- No features are locked behind support.
+- This submitted Android build does **not** include tips, purchases, subscriptions, ads, paywalls, or locked features.
+- No native Google Play Billing adapter is enabled in the mobile app for this build.
 - No external Buy Me a Coffee or other external purchase call-to-action should appear in Play builds.
-- Before enabling real Android tips, create/approve the Play in-app products, wire the native Google Play Billing adapter, configure relay purchase verification, run Play internal/sandbox purchase tests, and update these notes plus Play Console metadata.
+- If optional tips are intentionally resumed later, create/approve Play in-app products, wire the native Google Play Billing adapter, configure relay purchase verification, run Play internal/sandbox purchase tests, and update these notes plus Play Console metadata before submission.
 
 ## Safety Copy
 

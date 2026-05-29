@@ -18,8 +18,8 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import { BottomNav } from "../components/BottomNav";
 import { LaunchOverlay } from "../components/LaunchOverlay";
 import { accessibleButton, tapTargetHitSlop, useReducedMotionPreference } from "../accessibility/mobileA11y";
-import { AirportConfigSheet, CompanionSetupScreen, ConnectPrompt, ControlScreen, FidsScreen, FlightActionSheet, FlightDetailSheet, FullscreenFidsDisplay, Header, HistoryScreen, RadarScreen, ScreenActivity, ScreenError, StandaloneSettingsScreen, SupportSheet, type ActivityStatus, type ConnectionState } from "../screens/AppScreens";
-import { ACTION_ICONS, LocalFlightIcon, SUPPORT_ICONS } from "../theme/icons";
+import { AirportConfigSheet, CompanionSetupScreen, ConnectPrompt, ControlScreen, FidsScreen, FlightActionSheet, FlightDetailSheet, FullscreenFidsDisplay, Header, HistoryScreen, RadarScreen, ScreenActivity, ScreenError, StandaloneAirportSheet, StandaloneSettingsScreen, type ActivityStatus, type ConnectionState } from "../screens/AppScreens";
+import { ACTION_ICONS, LocalFlightIcon } from "../theme/icons";
 import {
   getConnections,
   getConfig,
@@ -54,9 +54,11 @@ import type {
   FidsRow,
   FlightView,
   HistoryDirection,
+  HistoryFlightRow,
   HistoryResponse,
   HistorySummary,
   Metar,
+  RadarBlip,
   RadarMapResponse,
   RadarResponse
 } from "../api/types";
@@ -67,7 +69,7 @@ import {
   EMPTY_SNAPSHOT
 } from "../domain/constants";
 import { mobileClientContext } from "../domain/feedback";
-import { flightPinKey } from "../domain/flights";
+import { fidsRowDetailResponse, flightPinKey, historyRowDetailResponse, radarBlipDetailResponse } from "../domain/flights";
 import {
   companionSyncMs,
   errorMessage,
@@ -283,7 +285,7 @@ export function AppShell() {
   const [configSheetVisible, setConfigSheetVisible] = useState(false);
   const [profiles, setProfiles] = useState<ConfigProfile[]>([]);
   const [applyingProfileId, setApplyingProfileId] = useState<string | null>(null);
-  const [supportVisible, setSupportVisible] = useState(false);
+  const [standaloneAirportSheetVisible, setStandaloneAirportSheetVisible] = useState(false);
   const [companionIdentity, setCompanionIdentity] = useState<CompanionIdentity | null>(null);
   const [mobileDiagnosticsMode, setMobileDiagnosticsMode] = useState<MobileDiagnosticsMode>("unset");
   const [weatherDisplayMode, setWeatherDisplayMode] = useState<MobileWeatherDisplayMode>("passenger");
@@ -626,9 +628,7 @@ export function AppShell() {
     if (standaloneCredentials) {
       const fids = await getStandaloneFids(standaloneCredentials, nextView);
       setRows(fids);
-      void storeStandaloneFidsRows(standaloneCredentials.airport, fids).catch(() => {
-        // Local history is useful, but it must never block the live board on launch.
-      });
+      await storeStandaloneFidsRows(standaloneCredentials.airport, fids);
       return;
     }
     const fids = await getFids(normalized, nextView);
@@ -1169,11 +1169,6 @@ export function AppShell() {
     [pinnedCallsign]
   );
 
-  const openFlightDetailWithHaptic = useCallback((callsign: string) => {
-    hapticLight();
-    openFlightDetail(callsign);
-  }, [openFlightDetail]);
-
   const triggerSnapshotPulse = useCallback(() => {
     if (reduceMotion) return;
     snapshotPulse.stopAnimation();
@@ -1350,6 +1345,37 @@ export function AppShell() {
     ? (screen === "radar" ? 5 * 60 * 1000 : 3 * 60 * 60 * 1000)
     : (screen === "radar" ? radarSyncIntervalMs : companionSyncMs(cfg?.refresh_seconds));
   const widgetSnapshotLabel = `Snapshot ${widgetSnapshotStatus.state} · ${widgetSnapshotStatus.detail}`;
+  const enrichDetailsFromLan = !isStandalone && Boolean(serverUrl);
+  const openFidsDetail = useCallback((callsign: string, row?: FidsRow) => {
+    const normalizedCallsign = callsign || row?.callsign || row?.id || "";
+    if (!normalizedCallsign) return;
+    hapticLight();
+    openFlightDetail(
+      normalizedCallsign,
+      row ? fidsRowDetailResponse(row, airportCode) : null,
+      { fetch: enrichDetailsFromLan }
+    );
+  }, [airportCode, enrichDetailsFromLan, openFlightDetail]);
+  const openRadarDetail = useCallback((callsign: string, blip?: RadarBlip) => {
+    const normalizedCallsign = callsign || blip?.callsign || blip?.flight_number || blip?.display_title || blip?.icao24 || "";
+    if (!normalizedCallsign) return;
+    hapticLight();
+    openFlightDetail(
+      normalizedCallsign,
+      blip ? radarBlipDetailResponse(blip) : null,
+      { fetch: enrichDetailsFromLan }
+    );
+  }, [enrichDetailsFromLan, openFlightDetail]);
+  const openHistoryDetail = useCallback((callsign: string, row?: HistoryFlightRow) => {
+    const normalizedCallsign = callsign || row?.callsign || row?.flight_number || String(row?.id || "");
+    if (!normalizedCallsign) return;
+    hapticLight();
+    openFlightDetail(
+      normalizedCallsign,
+      row ? historyRowDetailResponse(row) : null,
+      { fetch: enrichDetailsFromLan }
+    );
+  }, [enrichDetailsFromLan, openFlightDetail]);
 
   useEffect(() => {
     if (!mobileSetupComplete) {
@@ -1532,6 +1558,15 @@ export function AppShell() {
     );
   }
 
+  if (setupSuccess) {
+    return (
+      <SafeAreaView style={styles.setupSafe} edges={["top", "bottom", "left", "right"]}>
+        <StatusBar barStyle={statusBarStyle} hidden={false} />
+        <SetupCompleteOverlay success={setupSuccess} onDismiss={dismissSetupSuccess} />
+      </SafeAreaView>
+    );
+  }
+
   if (landscapeFidsActive) {
     return (
       <LandscapeFidsMode
@@ -1575,12 +1610,12 @@ export function AppShell() {
           view={view}
           pinnedRow={islandRow}
           islandPinned={Boolean(islandRow && flightPinKey(islandRow) === pinnedCallsign)}
-          onOpenDetail={openFlightDetail}
+          onOpenDetail={openFidsDetail}
           onOpenActions={setActionRow}
           onTogglePin={togglePinnedFlight}
           onOpenConfig={() => {
             if (isStandalone) {
-              void rerunCompanionSetup();
+              setStandaloneAirportSheetVisible(true);
               return;
             }
             setConfigSheetVisible(true);
@@ -1617,7 +1652,7 @@ export function AppShell() {
               onOpenSettings={() => setScreen(isStandalone ? "settings" : "control")}
               onRefresh={() => { hapticLight(); refreshScreen({ target: "fids" }); }}
               onViewChange={setView}
-              onOpenDetail={openFlightDetail}
+              onOpenDetail={openFidsDetail}
               onOpenActions={setActionRow}
               pinnedCallsign={pinnedCallsign}
               contentPaddingBottom={screenContentPadding}
@@ -1645,7 +1680,7 @@ export function AppShell() {
               onCallsignChange={setHistoryCallsign}
               onAirlineChange={setHistoryAirline}
               onApplyFilters={() => refreshScreen({ target: "history" })}
-              onOpenDetail={openFlightDetail}
+              onOpenDetail={openHistoryDetail}
               contentPaddingBottom={screenContentPadding}
             />
           ) : null}
@@ -1670,7 +1705,7 @@ export function AppShell() {
               drawingLayers={effectiveRadarDrawingLayers}
               standalone={isStandalone}
               onDrawingLayersChange={chooseRadarDrawingLayers}
-              onOpenDetail={openFlightDetail}
+              onOpenDetail={openRadarDetail}
               compact={false}
               contentPaddingBottom={screenContentPadding}
             />
@@ -1730,7 +1765,6 @@ export function AppShell() {
                   onWidgetPreferencesChange={(next) => void chooseWidgetPreferences(next)}
                   onMobileDiagnosticsModeChange={chooseMobileDiagnosticsMode}
                   onRerunSetup={rerunCompanionSetup}
-                  onOpenSupport={() => setSupportVisible(true)}
                   onFeedbackTitleChange={setFeedbackTitle}
                   onFeedbackDescriptionChange={setFeedbackDescription}
                   onSubmitFeedback={sendFeedbackReport}
@@ -1817,7 +1851,6 @@ export function AppShell() {
                   onMatrixReset={() => void resetMatrixDraft()}
                   onApplyProfile={(profile) => void applySettingsProfile(profile)}
                   onOpenConfig={() => setConfigSheetVisible(true)}
-                  onOpenSupport={() => setSupportVisible(true)}
                   feedbackTitle={feedbackTitle}
                   feedbackDescription={feedbackDescription}
                   feedbackSending={feedbackSending}
@@ -1848,11 +1881,6 @@ export function AppShell() {
         />
       </View>
 
-      <SupportSheet
-        visible={supportVisible}
-        onClose={() => setSupportVisible(false)}
-      />
-
       <FlightDetailSheet
         visible={detailVisible}
         callsign={detailCallsign}
@@ -1870,7 +1898,7 @@ export function AppShell() {
         onClose={() => setActionRow(null)}
         onOpenDetail={(callsign) => {
           setActionRow(null);
-          openFlightDetail(callsign);
+          openFidsDetail(callsign, actionRow || undefined);
         }}
         onTogglePin={togglePinnedFlight}
       />
@@ -1892,6 +1920,37 @@ export function AppShell() {
         onProfilesChange={setProfiles}
       />
 
+      <StandaloneAirportSheet
+        visible={standaloneAirportSheetVisible}
+        currentAirport={standaloneCredentials?.airport || null}
+        onClose={() => setStandaloneAirportSheetVisible(false)}
+        onApplied={async (airport) => {
+          if (!mobileSetupState.relayInstallId || !mobileSetupState.relayActivationToken) return;
+          const nextSetupState = completeStandaloneMobileSetupState({
+            relayInstallId: mobileSetupState.relayInstallId,
+            relayActivationToken: mobileSetupState.relayActivationToken,
+            airport,
+            diagnosticsMode: mobileDiagnosticsMode
+          });
+          await Promise.all([
+            saveStandaloneAirport(airport),
+            saveMobileSetupState(nextSetupState)
+          ]);
+          setMobileSetupState(nextSetupState);
+          setAirportDetail({ ...airport, type: "large_airport" });
+          setRows([]);
+          setHistoryData(null);
+          setHistorySummary(null);
+          setRadarData(null);
+          setRadarGroundData(null);
+          setRadarGroundError(null);
+          radarGroundCacheRef.current.clear();
+          setStandaloneAirportSheetVisible(false);
+          setScreen("fids");
+          hapticSuccess();
+        }}
+      />
+
       <LaunchOverlay
         visible={launch.visible}
         opacity={launch.opacity}
@@ -1909,9 +1968,6 @@ export function AppShell() {
         status={launch.status}
         styles={styles}
       />
-      {setupSuccess ? (
-        <SetupCompleteOverlay success={setupSuccess} onDismiss={dismissSetupSuccess} />
-      ) : null}
     </SafeAreaView>
   );
 }
@@ -1924,26 +1980,22 @@ function SetupCompleteOverlay({
   onDismiss: () => void;
 }) {
   const reduceMotion = useReducedMotionPreference();
-  const opacity = useRef(new Animated.Value(reduceMotion ? 1 : 0)).current;
-  const scale = useRef(new Animated.Value(reduceMotion ? 1 : 0.96)).current;
+  const opacity = useRef(new Animated.Value(0)).current;
+  const scale = useRef(new Animated.Value(0.96)).current;
   const dismissedRef = useRef(false);
 
   const dismiss = useCallback(() => {
     if (dismissedRef.current) return;
     dismissedRef.current = true;
-    if (reduceMotion) {
-      onDismiss();
-      return;
-    }
     Animated.parallel([
       Animated.timing(opacity, {
         toValue: 0,
-        duration: 180,
+        duration: reduceMotion ? 140 : 180,
         useNativeDriver: true
       }),
       Animated.timing(scale, {
-        toValue: 0.98,
-        duration: 180,
+        toValue: reduceMotion ? 0.995 : 0.98,
+        duration: reduceMotion ? 140 : 180,
         useNativeDriver: true
       })
     ]).start(() => onDismiss());
@@ -1951,27 +2003,22 @@ function SetupCompleteOverlay({
 
   useEffect(() => {
     dismissedRef.current = false;
-    if (reduceMotion) {
-      opacity.setValue(1);
-      scale.setValue(1);
-    } else {
-      opacity.setValue(0);
-      scale.setValue(0.96);
-      Animated.parallel([
-        Animated.timing(opacity, {
-          toValue: 1,
-          duration: 220,
-          useNativeDriver: true
-        }),
-        Animated.spring(scale, {
-          toValue: 1,
-          damping: 17,
-          stiffness: 190,
-          mass: 0.8,
-          useNativeDriver: true
-        })
-      ]).start();
-    }
+    opacity.setValue(0);
+    scale.setValue(reduceMotion ? 0.985 : 0.96);
+    Animated.parallel([
+      Animated.timing(opacity, {
+        toValue: 1,
+        duration: reduceMotion ? 180 : 220,
+        useNativeDriver: true
+      }),
+      Animated.spring(scale, {
+        toValue: 1,
+        damping: reduceMotion ? 24 : 17,
+        stiffness: reduceMotion ? 160 : 190,
+        mass: 0.8,
+        useNativeDriver: true
+      })
+    ]).start();
     const timer = setTimeout(dismiss, 1850);
     return () => clearTimeout(timer);
   }, [dismiss, opacity, reduceMotion, scale, success]);

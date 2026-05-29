@@ -24,7 +24,7 @@ import { CameraView, useCameraPermissions, type BarcodeScanningResult } from "ex
 import { BeaconToolsMark } from "../components/BeaconToolsMark";
 import { BrandWordmark } from "../components/Brand";
 import { getConfig, getDoc, getHealth, getMobileSummary, getRootHealth, normalizeServerUrl, patchConfig, searchAirports } from "../api/client";
-import { activateStandalone, searchStandaloneAirports } from "../api/standalone";
+import { activateStandalone, resolveStandaloneAirport, searchStandaloneAirports } from "../api/standalone";
 import {
   accessibleButton,
   compactTapTargetHitSlop,
@@ -99,15 +99,10 @@ import { MATRIX_LED_PALETTES, matrixPreviewLines } from "../domain/matrix";
 import { pairingFingerprintProblem, pairingServerUrlProblem, parsePairingLink, type PairingLinkResult } from "../domain/pairing";
 import { projectBlip, projectLatLonToScope, type ProjectedRadarPoint } from "../domain/radar";
 import {
-  supportProductPlaceholders,
-  type SupportProduct
-} from "../domain/support";
-import {
   deriveWidgetPreviewSnapshot,
   type WidgetFlightPreview,
   type WidgetPreviewSnapshot
 } from "../domain/widgets";
-import { supportPurchaseProvider } from "../iap/supportProvider";
 import type { FeedbackTone, HistoryWindow, ProjectedBlip, RadarRadius, StatusTone } from "../domain/types";
 import {
   loadMobileRelayInstallId,
@@ -126,7 +121,6 @@ import {
   ACTION_ICONS,
   LocalFlightIcon,
   SETUP_ICONS,
-  SUPPORT_ICONS,
   TOOL_ICONS,
   type LocalFlightIconName,
   weatherIconForMetar
@@ -214,8 +208,6 @@ const RADAR_SWEEP_CLIP_ID = "mobile-radar-sweep-clip";
 const RADAR_SWEEP_WIDTH_DEG = 72;
 const RADAR_SWEEP_INTERVAL_MS = 80;
 const RADAR_SWEEP_STEP_DEG = 1.92;
-const RADAR_REDUCED_SWEEP_INTERVAL_MS = 120;
-const RADAR_REDUCED_SWEEP_STEP_DEG = 0.96;
 const RADAR_BLIP_FADE_DEG = 75;
 const RADAR_BLIP_BASE_OPACITY = 0.42;
 
@@ -720,7 +712,7 @@ export function Header({
   view: FlightView;
   pinnedRow: FidsRow | null;
   islandPinned: boolean;
-  onOpenDetail: (callsign: string) => void;
+  onOpenDetail: (callsign: string, row?: FidsRow) => void;
   onOpenActions: (row: FidsRow) => void;
   onTogglePin: (row: FidsRow) => void;
   onOpenConfig: () => void;
@@ -1171,7 +1163,7 @@ function CompactRailFlightSummary({
   row: FidsRow;
   isPinned: boolean;
   live: boolean;
-  onOpenDetail: (callsign: string) => void;
+  onOpenDetail: (callsign: string, row?: FidsRow) => void;
   onOpenActions: (row: FidsRow) => void;
 }) {
   const tone = statusTone(row.status_display);
@@ -1186,7 +1178,7 @@ function CompactRailFlightSummary({
     <Pressable
       style={[styles.headerCompactFlightChip, isPinned && styles.headerCompactFlightChipPinned]}
       onPress={() => {
-        if (row.callsign) onOpenDetail(row.callsign);
+        if (row.callsign) onOpenDetail(row.callsign, row);
       }}
       onLongPress={() => onOpenActions(row)}
       delayLongPress={360}
@@ -1220,7 +1212,7 @@ function FlightIsland({
   isPinned: boolean;
   live: boolean;
   utcTime: string;
-  onOpenDetail: (callsign: string) => void;
+  onOpenDetail: (callsign: string, row?: FidsRow) => void;
   onOpenActions: (row: FidsRow) => void;
   onTogglePin: (row: FidsRow) => void;
 }) {
@@ -1261,7 +1253,7 @@ function FlightIsland({
         }}
         onPress={() => {
           if (row?.callsign) {
-            onOpenDetail(row.callsign);
+            onOpenDetail(row.callsign, row);
           }
         }}
         hitSlop={tapTargetHitSlop}
@@ -1561,7 +1553,7 @@ export function FidsScreen({
   onOpenSettings: () => void;
   onRefresh: () => void;
   onViewChange: (view: FlightView) => void;
-  onOpenDetail: (callsign: string) => void;
+  onOpenDetail: (callsign: string, row?: FidsRow) => void;
   onOpenActions: (row: FidsRow) => void;
   pinnedCallsign: string;
   standalone?: boolean;
@@ -1743,7 +1735,7 @@ export function HistoryScreen({
   onCallsignChange: (v: string) => void;
   onAirlineChange: (v: string) => void;
   onApplyFilters: () => void;
-  onOpenDetail: (callsign: string) => void;
+  onOpenDetail: (callsign: string, row?: HistoryFlightRow) => void;
   standalone?: boolean;
   contentPaddingBottom: number;
 }) {
@@ -1754,6 +1746,16 @@ export function HistoryScreen({
   const maxAirlineCount = Math.max(...(summary?.top_airlines?.map((a) => a.count) || [1]), 1);
   const maxRouteCount = Math.max(...(summary?.top_routes?.map((r) => r.count) || [1]), 1);
   const maxAircraftCount = Math.max(...(summary?.top_aircraft?.map((a) => a.count) || [1]), 1);
+  const standaloneStorage = data?.standalone_storage || summary?.standalone_storage || null;
+  const pendingFutureRows = data?.pending_future_rows ?? standaloneStorage?.pending_future_rows ?? 0;
+  const lastStoreRows = standaloneStorage?.last_store_rows || 0;
+  const standaloneEmptyBody = standaloneStorage?.last_store_error
+    ? `Local history write failed: ${standaloneStorage.last_store_error}`
+    : pendingFutureRows > 0
+      ? `${pendingFutureRows} stored board row${pendingFutureRows === 1 ? "" : "s"} are waiting for their movement time before they count as history.`
+      : lastStoreRows > 0
+        ? `${lastStoreRows} board row${lastStoreRows === 1 ? "" : "s"} were stored. Adjust filters or wait until the movement time has passed.`
+        : "Standalone history is stored on this device after successful board refreshes.";
 
   return (
     <FlatList<HistoryFlightRow>
@@ -1834,6 +1836,17 @@ export function HistoryScreen({
               <Text style={styles.historyApplyButtonText}>APPLY</Text>
             </Pressable>
           </View>
+
+          {standalone && standaloneStorage ? (
+            <View style={styles.historyPanel}>
+              <Text style={styles.historyPanelTitle}>LOCAL STORAGE</Text>
+              <InfoLine label="Airport key" value={standaloneStorage.airport_key || "---"} />
+              <InfoLine label="Last store" value={standaloneStorage.last_store_at ? formatRelative(standaloneStorage.last_store_at) : "Not yet"} />
+              <InfoLine label="Rows stored" value={String(standaloneStorage.last_store_rows || 0)} />
+              <InfoLine label="Pending movement time" value={String(pendingFutureRows)} />
+              {standaloneStorage.last_store_error ? <InfoLine label="Last error" value={standaloneStorage.last_store_error} /> : null}
+            </View>
+          ) : null}
 
           {summary ? (
             <>
@@ -1956,7 +1969,7 @@ export function HistoryScreen({
         ) : standalone ? (
           <StandaloneEmptyState
             title="No mobile history yet"
-            body="Standalone history is stored on this device after successful board refreshes."
+            body={standaloneEmptyBody}
           />
         ) : (
           <Text style={styles.empty}>No recent movements yet. Once matching flight times pass, movements will appear here.</Text>
@@ -2121,7 +2134,7 @@ export function RadarScreen({
   drawingLayers: MobileRadarDrawingLayers;
   standalone?: boolean;
   onDrawingLayersChange: (value: MobileRadarDrawingLayers) => void;
-  onOpenDetail: (callsign: string) => void;
+  onOpenDetail: (callsign: string, blip?: RadarBlip) => void;
   compact?: boolean;
   radiusOptions?: RadarRadius[];
   contentPaddingBottom: number;
@@ -2790,7 +2803,7 @@ function FidsRowView({
   compact: boolean;
   cycleTick: number;
   isPinned: boolean;
-  onOpenDetail: (callsign: string) => void;
+  onOpenDetail: (callsign: string, row?: FidsRow) => void;
   onOpenActions: (row: FidsRow) => void;
 }) {
   const delayTagStyle =
@@ -2810,7 +2823,7 @@ function FidsRowView({
       style={[styles.fidsRow, isPinned && styles.fidsRowPinned]}
       delayLongPress={360}
       onLongPress={() => onOpenActions(row)}
-      onPress={() => onOpenDetail(row.callsign)}
+      onPress={() => onOpenDetail(row.callsign, row)}
       hitSlop={compactTapTargetHitSlop}
       {...accessibleButton({
         label: flightRowAccessibilityLabel(row),
@@ -3019,11 +3032,11 @@ function FullscreenFidsRow({
   );
 }
 
-function HistoryRow({ row, onOpenDetail }: { row: HistoryFlightRow; onOpenDetail: (callsign: string) => void }) {
+function HistoryRow({ row, onOpenDetail }: { row: HistoryFlightRow; onOpenDetail: (callsign: string, row?: HistoryFlightRow) => void }) {
   return (
     <Pressable
       style={styles.historyRow}
-      onPress={() => onOpenDetail(row.callsign)}
+      onPress={() => onOpenDetail(row.callsign, row)}
       hitSlop={tapTargetHitSlop}
       {...accessibleButton({
         label: [
@@ -3058,7 +3071,7 @@ function HistoryRow({ row, onOpenDetail }: { row: HistoryFlightRow; onOpenDetail
   );
 }
 
-function RadarBlipRow({ blip, onOpenDetail }: { blip: RadarBlip; onOpenDetail: (callsign: string) => void }) {
+function RadarBlipRow({ blip, onOpenDetail }: { blip: RadarBlip; onOpenDetail: (callsign: string, blip?: RadarBlip) => void }) {
   const title = cleanInfoValue(blip.display_title) || cleanInfoValue(blip.flight_number) || cleanInfoValue(blip.callsign) || "TRACK";
   const subtitle = cleanInfoValue(blip.callsign) && cleanInfoValue(blip.callsign) !== title
     ? cleanInfoValue(blip.callsign)
@@ -3075,7 +3088,7 @@ function RadarBlipRow({ blip, onOpenDetail }: { blip: RadarBlip; onOpenDetail: (
   return (
     <Pressable
       style={styles.historyRow}
-      onPress={() => onOpenDetail(blip.callsign)}
+      onPress={() => onOpenDetail(blip.callsign, blip)}
       hitSlop={tapTargetHitSlop}
       {...accessibleButton({
         label: radarBlipAccessibilityLabel(blip),
@@ -3126,7 +3139,7 @@ function RadarScope({
   standalone?: boolean;
   onRadiusChange: (value: RadarRadius) => void;
   compact?: boolean;
-  onOpenDetail: (callsign: string) => void;
+  onOpenDetail: (callsign: string, blip?: RadarBlip) => void;
 }) {
   const [scopeSize, setScopeSize] = useState(280);
   const reduceMotion = useReducedMotionPreference();
@@ -3147,17 +3160,15 @@ function RadarScope({
     .map((blip) => data ? projectBlip(blip, data.center, radiusNm, scopeSize) : null)
     .filter((item): item is ProjectedBlip => Boolean(item));
   const projected = projectedInRange
-    .map((item) => ({ item, opacity: reduceMotion ? 1 : radarSweepOpacity(item.angleDeg, sweepDeg) }))
+    .map((item) => ({ item, opacity: radarSweepOpacity(item.angleDeg, sweepDeg) }))
     .sort((a, b) => a.item.distanceNm - b.item.distanceNm);
 
   useEffect(() => {
-    const intervalMs = reduceMotion ? RADAR_REDUCED_SWEEP_INTERVAL_MS : RADAR_SWEEP_INTERVAL_MS;
-    const stepDeg = reduceMotion ? RADAR_REDUCED_SWEEP_STEP_DEG : RADAR_SWEEP_STEP_DEG;
     const timer = setInterval(() => {
-      setSweepDeg((value) => (value + stepDeg) % 360);
-    }, intervalMs);
+      setSweepDeg((value) => (value + RADAR_SWEEP_STEP_DEG) % 360);
+    }, RADAR_SWEEP_INTERVAL_MS);
     return () => clearInterval(timer);
-  }, [reduceMotion]);
+  }, []);
 
   const setMeasuredSize = useCallback((width: number) => {
     const next = Math.max(220, Math.min(width - 28, compact ? 320 : 440));
@@ -3243,7 +3254,7 @@ function RadarScope({
           <Pressable
             key={`scope-${radarBlipKey(item.blip, index)}`}
             style={[styles.scopeDotWrap, { left: item.left, top: item.top, opacity }]}
-            onPress={() => onOpenDetail(item.blip.callsign)}
+            onPress={() => onOpenDetail(item.blip.callsign, item.blip)}
             hitSlop={compactTapTargetHitSlop}
             {...accessibleButton({
               label: radarBlipAccessibilityLabel(item.blip),
@@ -4218,7 +4229,6 @@ function AdminScreen({
   onSubmitFeedback,
   onSendAutoReportTest,
   onOpenMatrix,
-  onOpenSupport,
   onBackSettings
 }: {
   snapshot: DashboardSnapshot;
@@ -4238,7 +4248,6 @@ function AdminScreen({
   onSubmitFeedback: () => void;
   onSendAutoReportTest: () => void;
   onOpenMatrix: () => void;
-  onOpenSupport: () => void;
   onBackSettings: () => void;
 }) {
   const budget = snapshot.budget?.aviationstack;
@@ -4483,19 +4492,6 @@ function AdminScreen({
             {feedbackMessage}
           </Text>
         ) : null}
-        {feedbackMessage && feedbackTone === "ok" ? (
-          <Pressable
-            style={styles.feedbackSupportHint}
-            onPress={onOpenSupport}
-            {...accessibleButton({
-              label: "Support Local Flight",
-              hint: "Opens the optional support sheet."
-            })}
-          >
-            <Text style={styles.feedbackSupportText}>Thanks for helping Local Flight improve.</Text>
-            <Text style={styles.feedbackSupportAction}>SUPPORT</Text>
-          </Pressable>
-        ) : null}
       </View>
       ) : null}
 
@@ -4598,41 +4594,30 @@ export function CompanionSetupScreen({
   }, [initialDiagnosticsMode]);
 
   useEffect(() => {
-    if (reduceMotion) {
-      stepAnim.setValue(1);
-      return;
-    }
     stepAnim.setValue(0);
     Animated.timing(stepAnim, {
       toValue: 1,
-      duration: 220,
+      duration: reduceMotion ? 150 : 220,
+      easing: Easing.out(Easing.cubic),
       useNativeDriver: true
     }).start();
   }, [step, stepAnim, reduceMotion]);
 
   useEffect(() => {
     const nextValue = step === "welcome" ? 0 : 1;
-    if (reduceMotion) {
-      railAnim.setValue(nextValue);
-      return;
-    }
     Animated.spring(railAnim, {
       toValue: nextValue,
-      stiffness: 170,
-      damping: 22,
+      stiffness: reduceMotion ? 150 : 170,
+      damping: reduceMotion ? 28 : 22,
       mass: 0.75,
       useNativeDriver: true
     }).start();
   }, [railAnim, reduceMotion, step]);
 
   useEffect(() => {
-    if (reduceMotion) {
-      progressAnim.setValue(setupProgressRatio);
-      return;
-    }
     Animated.timing(progressAnim, {
       toValue: setupProgressRatio,
-      duration: 260,
+      duration: reduceMotion ? 170 : 260,
       easing: Easing.out(Easing.cubic),
       useNativeDriver: false
     }).start();
@@ -4857,16 +4842,23 @@ export function CompanionSetupScreen({
       setFinishing(true);
       setSetupError(null);
       try {
+        const airportLookup = selectedStandaloneAirport.iata || selectedStandaloneAirport.icao;
+        setSetupProgress("Resolving airport coordinates for radar drawings...");
+        const resolvedAirport = selectedStandaloneAirport.lat == null || selectedStandaloneAirport.lon == null
+          ? await resolveStandaloneAirport(airportLookup)
+          : selectedStandaloneAirport;
         const relayInstallId = await loadMobileRelayInstallId();
+        setSetupProgress("Activating this phone as a standalone relay client...");
         const activation = await activateStandalone({
           installId: relayInstallId,
-          airport: selectedStandaloneAirport
+          airport: resolvedAirport
         });
+        setSetupProgress("Saving standalone setup on this device...");
         await onComplete({
           mode: "standalone",
           relayInstallId,
           relayActivationToken: activation.activationToken,
-          airport: selectedStandaloneAirport,
+          airport: resolvedAirport,
           diagnosticsMode,
           activationStatus: activation.status
         });
@@ -4874,6 +4866,7 @@ export function CompanionSetupScreen({
         setSetupError(companionSetupErrorMessage(exc));
       } finally {
         setFinishing(false);
+        setSetupProgress(null);
       }
       return;
     }
@@ -4898,13 +4891,13 @@ export function CompanionSetupScreen({
     opacity: stepAnim,
     transform: [
       {
-        translateX: reduceMotion ? 0 : stepAnim.interpolate({
+        translateX: stepAnim.interpolate({
           inputRange: [0, 1],
-          outputRange: [18 * stepDirectionRef.current, 0]
+          outputRange: [(reduceMotion ? 6 : 18) * stepDirectionRef.current, 0]
         })
       },
       {
-        translateY: reduceMotion ? 0 : stepAnim.interpolate({ inputRange: [0, 1], outputRange: [8, 0] })
+        translateY: stepAnim.interpolate({ inputRange: [0, 1], outputRange: [reduceMotion ? 3 : 8, 0] })
       }
     ]
   };
@@ -4912,10 +4905,10 @@ export function CompanionSetupScreen({
     opacity: railAnim,
     transform: [
       {
-        translateY: reduceMotion ? 0 : railAnim.interpolate({ inputRange: [0, 1], outputRange: [-10, 0] })
+        translateY: railAnim.interpolate({ inputRange: [0, 1], outputRange: [reduceMotion ? -4 : -10, 0] })
       },
       {
-        scale: reduceMotion ? 1 : railAnim.interpolate({ inputRange: [0, 1], outputRange: [0.975, 1] })
+        scale: railAnim.interpolate({ inputRange: [0, 1], outputRange: [reduceMotion ? 0.992 : 0.975, 1] })
       }
     ]
   };
@@ -5438,6 +5431,11 @@ export function CompanionSetupScreen({
               <InfoLine label={setupMode === "standalone" ? "Status" : "Host status"} value={setupMode === "standalone" ? "Activation on finish" : (serverSummary?.state.ok === false ? "Needs attention" : "Ready")} />
               <InfoLine label="Reports" value={diagnosticsMode === "manual" ? "Ask me first" : diagnosticsMode === "auto" ? "Crash reports" : "Crash reports + context"} />
             </View>
+            <SetupProgressRail
+              active={finishing}
+              label={setupProgress || (finishing ? "Saving setup..." : "Ready to save and open the board.")}
+              steps={setupMode === "standalone" ? ["Resolve airport", "Activate relay", "Open board"] : ["Save host", "Save reports", "Open board"]}
+            />
             <Pressable
               style={[styles.companionSetupPrimary, finishing && styles.connectButtonDisabled]}
               onPress={() => {
@@ -5491,6 +5489,20 @@ function SetupChecklistItem({ icon, title, body }: { icon: AppIconName; title: s
 }
 
 function SetupProgressRail({ active, label, steps }: { active: boolean; label: string; steps: string[] }) {
+  const [activeIndex, setActiveIndex] = useState(0);
+  const reduceMotion = useReducedMotionPreference();
+
+  useEffect(() => {
+    if (!active) {
+      setActiveIndex(0);
+      return;
+    }
+    const timer = setInterval(() => {
+      setActiveIndex((value) => (value + 1) % Math.max(1, steps.length));
+    }, reduceMotion ? 520 : 420);
+    return () => clearInterval(timer);
+  }, [active, reduceMotion, steps.length]);
+
   return (
     <View style={[styles.companionSetupProgressRail, active && styles.companionSetupProgressRailActive]}>
       <View style={styles.companionSetupProgressHeader}>
@@ -5500,7 +5512,7 @@ function SetupProgressRail({ active, label, steps }: { active: boolean; label: s
       <View style={styles.companionSetupProgressSteps}>
         {steps.map((item, index) => (
           <View key={item} style={styles.companionSetupProgressStep}>
-            <View style={[styles.companionSetupProgressDot, active && index === 0 && styles.companionSetupProgressDotActive]} />
+            <View style={[styles.companionSetupProgressDot, active && index <= activeIndex && styles.companionSetupProgressDotActive]} />
             <Text style={styles.companionSetupProgressStepText}>{item}</Text>
           </View>
         ))}
@@ -5627,7 +5639,6 @@ function SettingsScreen({
   onOpenAdmin,
   onOpenMatrix,
   onOpenDoc,
-  onOpenSupport,
   onRestartScheduler,
   onRerunSetup,
   onChangeUrl,
@@ -5659,7 +5670,6 @@ function SettingsScreen({
   onOpenAdmin: () => void;
   onOpenMatrix: () => void;
   onOpenDoc: (slug: DocSlug) => void;
-  onOpenSupport: () => void;
   onRestartScheduler: () => void;
   onRerunSetup: () => void;
   onChangeUrl: (value: string) => void;
@@ -5953,7 +5963,6 @@ export function ControlScreen({
   onMatrixSave,
   onMatrixReset,
   onOpenConfig,
-  onOpenSupport,
   feedbackTitle,
   feedbackDescription,
   feedbackSending,
@@ -6021,7 +6030,6 @@ export function ControlScreen({
   onMatrixReset: () => void;
   onApplyProfile: (profile: ConfigProfile) => void;
   onOpenConfig: () => void;
-  onOpenSupport: () => void;
   feedbackTitle: string;
   feedbackDescription: string;
   feedbackSending: boolean;
@@ -6192,8 +6200,6 @@ export function ControlScreen({
         onPress={() => openSheet("help")}
       />
 
-      <SupportFooterButton onOpenSupport={onOpenSupport} />
-
       <ConnectionPairingSheet
         visible={activeSheet === "connection"}
         snapshot={snapshot}
@@ -6316,7 +6322,6 @@ export function StandaloneSettingsScreen({
   onWidgetPreferencesChange,
   onMobileDiagnosticsModeChange,
   onRerunSetup,
-  onOpenSupport,
   onFeedbackTitleChange,
   onFeedbackDescriptionChange,
   onSubmitFeedback
@@ -6347,7 +6352,6 @@ export function StandaloneSettingsScreen({
   onWidgetPreferencesChange: (value: MobileWidgetPreferences) => void;
   onMobileDiagnosticsModeChange: (value: MobileDiagnosticsMode) => void;
   onRerunSetup: () => void;
-  onOpenSupport: () => void;
   onFeedbackTitleChange: (value: string) => void;
   onFeedbackDescriptionChange: (value: string) => void;
   onSubmitFeedback: () => void;
@@ -6486,8 +6490,6 @@ export function StandaloneSettingsScreen({
         summary="Troubleshooting, reports, Beacon Tools, source"
         onPress={() => openSheet("help")}
       />
-
-      <SupportFooterButton onOpenSupport={onOpenSupport} />
 
       <AppearanceSheet
         visible={activeSheet === "appearance"}
@@ -6815,22 +6817,6 @@ function widgetGateTerminal(flight: WidgetFlightPreview): string {
     flight.gate ? `G${flight.gate.replace(/^G/i, "")}` : ""
   ].filter(Boolean);
   return parts.join(" ");
-}
-
-function SupportFooterButton({ onOpenSupport }: { onOpenSupport: () => void }) {
-  return (
-    <Pressable
-      style={styles.supportFooter}
-      onPress={onOpenSupport}
-      {...accessibleButton({
-        label: "Support Local Flight",
-        hint: "Opens the optional in-app support sheet."
-      })}
-    >
-      <LocalFlightIcon name={SUPPORT_ICONS.support} size={15} color={palette.amber} />
-      <Text style={styles.supportFooterText}>Support Local Flight</Text>
-    </Pressable>
-  );
 }
 
 function ControlActionCard({
@@ -7223,7 +7209,6 @@ export function HelpScreen({
   onFeedbackTitleChange,
   onFeedbackDescriptionChange,
   onSubmitFeedback,
-  onOpenSupport,
   onBackControl
 }: {
   snapshot: DashboardSnapshot;
@@ -7239,7 +7224,6 @@ export function HelpScreen({
   onFeedbackTitleChange: (value: string) => void;
   onFeedbackDescriptionChange: (value: string) => void;
   onSubmitFeedback: () => void;
-  onOpenSupport: () => void;
   onBackControl?: () => void;
 }) {
   const [helpPanel, setHelpPanel] = useState<"pairing" | "troubleshooting" | "report" | null>(null);
@@ -8170,140 +8154,6 @@ function AppearanceSheet({
   );
 }
 
-export function SupportSheet({
-  visible,
-  onClose
-}: {
-  visible: boolean;
-  onClose: () => void;
-}) {
-  const supportStoreLabel = Platform.OS === "ios" ? "App Store" : Platform.OS === "android" ? "Google Play" : "platform store";
-  const [products, setProducts] = useState<SupportProduct[]>(() => supportProductPlaceholders());
-  const [busyTier, setBusyTier] = useState<string | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!visible) return;
-    let cancelled = false;
-    setMessage(null);
-    supportPurchaseProvider.loadProducts()
-      .then((loaded) => {
-        if (!cancelled) {
-          setProducts(loaded);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setProducts(supportProductPlaceholders().map((item) => ({
-            ...item,
-            availability: "unavailable",
-            statusLabel: `${supportStoreLabel} unavailable`
-          })));
-          setMessage(`${supportStoreLabel} support products could not be loaded. No charge was made.`);
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [supportStoreLabel, visible]);
-
-  const handleTierPress = useCallback(async (tier: SupportProduct) => {
-    if (tier.availability !== "available") {
-      setMessage(`${supportStoreLabel} support tips are being prepared for this build. No charge was made.`);
-      return;
-    }
-    setBusyTier(tier.id);
-    try {
-      const result = await supportPurchaseProvider.purchaseTier(tier);
-      setMessage(result.message);
-    } finally {
-      setBusyTier(null);
-    }
-  }, [supportStoreLabel]);
-
-  return (
-    <Modal visible={visible} transparent presentationStyle="overFullScreen" animationType="slide" onRequestClose={onClose}>
-      <View style={styles.sheetBackdrop}>
-        <Pressable
-          style={styles.sheetBackdropPress}
-          onPress={onClose}
-          {...accessibleButton({ label: "Close support sheet" })}
-        />
-        <View style={styles.sheetCard}>
-          <View style={styles.sheetHandle} />
-          <View style={styles.sheetHeader}>
-            <View style={styles.sheetHeaderText}>
-              <Text style={styles.sheetEyebrow}>TIP JAR</Text>
-              <Text style={styles.sheetTitle}>Support Local Flight</Text>
-            </View>
-            <Pressable
-              style={styles.sheetAction}
-              onPress={onClose}
-              hitSlop={tapTargetHitSlop}
-              {...accessibleButton({ label: "Close support sheet" })}
-            >
-              <Text style={styles.sheetActionText}>DONE</Text>
-            </Pressable>
-          </View>
-
-          <ScrollView style={styles.sheetScroll} contentContainerStyle={styles.sheetContent}>
-            <View style={styles.supportHero}>
-              <View style={styles.supportHeroIcon}>
-                <LocalFlightIcon name={SUPPORT_ICONS.support} size={23} color={palette.amber} />
-              </View>
-              <View style={styles.supportHeroCopy}>
-                <Text style={styles.supportHeroTitle}>Optional tips help keep the boards glowing.</Text>
-                <Text style={styles.supportHeroBody}>
-                  Local Flight stays fully usable either way. Tips use {supportStoreLabel} when enabled; this build shows the prepared tiers without external payment links.
-                </Text>
-              </View>
-            </View>
-
-            <View style={styles.supportTierGrid}>
-              {products.map((tier) => {
-                const busy = busyTier === tier.id;
-                const available = tier.availability === "available";
-                return (
-                  <Pressable
-                    key={tier.productId}
-                    style={styles.supportTierCard}
-                    onPress={() => void handleTierPress(tier)}
-                    disabled={busyTier !== null}
-                    {...accessibleButton({
-                      label: `Support Local Flight with ${tier.priceLabel}, ${tier.label}`,
-                      hint: available ? tier.statusLabel : `${tier.statusLabel}. No charge will be made.`,
-                      disabled: busyTier !== null,
-                      busy
-                    })}
-                  >
-                    <View style={styles.supportTierTop}>
-                      <Text style={styles.supportTierAmount}>{tier.priceLabel}</Text>
-                      {busy ? (
-                        <ActivityIndicator size="small" color={palette.amber} />
-                      ) : (
-                        <Text style={styles.supportTierStatus}>{tier.statusLabel}</Text>
-                      )}
-                    </View>
-                    <Text style={styles.supportTierLabel}>{tier.label}</Text>
-                    <Text style={styles.supportTierTagline}>{tier.tagline}</Text>
-                  </Pressable>
-                );
-              })}
-            </View>
-
-            {message ? <Text style={styles.supportMessage}>{message}</Text> : null}
-
-            <Text style={styles.supportFinePrint}>
-              No features are locked behind support. The app does not open external payment links, and unavailable tiers cannot charge.
-            </Text>
-
-          </ScrollView>
-        </View>
-      </View>
-    </Modal>
-  );
-}
-
 function SettingsQuickAction({
   icon,
   label,
@@ -8501,6 +8351,210 @@ function InfoLine({ label, value }: { label: string; value: string }) {
       <Text style={styles.infoLineLabel}>{label}</Text>
       <Text style={styles.infoLineValue}>{value}</Text>
     </View>
+  );
+}
+
+export function StandaloneAirportSheet({
+  visible,
+  currentAirport,
+  onClose,
+  onApplied
+}: {
+  visible: boolean;
+  currentAirport: StandaloneAirport | null;
+  onClose: () => void;
+  onApplied: (airport: StandaloneAirport) => Promise<void> | void;
+}) {
+  const [query, setQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<AirportResult[]>([]);
+  const [selectedAirport, setSelectedAirport] = useState<AirportResult | null>(null);
+  const [applying, setApplying] = useState(false);
+  const [applyError, setApplyError] = useState<string | null>(null);
+  const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (!visible) return;
+    setQuery("");
+    setSearchResults([]);
+    setSelectedAirport(null);
+    setApplyError(null);
+  }, [visible]);
+
+  const doSearch = useCallback((text: string) => {
+    if (text.trim().length < 2) {
+      setSearchResults([]);
+      return;
+    }
+    void searchStandaloneAirports(text, 8)
+      .then(setSearchResults)
+      .catch(() => setSearchResults([]));
+  }, []);
+
+  const onQueryChange = useCallback((text: string) => {
+    setQuery(text);
+    setSelectedAirport(null);
+    setApplyError(null);
+    if (searchTimer.current) clearTimeout(searchTimer.current);
+    searchTimer.current = setTimeout(() => doSearch(text), 300);
+  }, [doSearch]);
+
+  const selectAirport = useCallback((airport: AirportResult) => {
+    Keyboard.dismiss();
+    setSelectedAirport(airport);
+    setQuery(`${airport.iata || airport.icao} - ${airport.name}`);
+    setSearchResults([]);
+    setApplyError(null);
+  }, []);
+
+  const apply = useCallback(async () => {
+    const lookup = selectedAirport?.iata || selectedAirport?.icao || query.trim();
+    if (!lookup) {
+      setApplyError("Search and select an airport first.");
+      return;
+    }
+    Keyboard.dismiss();
+    setApplying(true);
+    setApplyError(null);
+    try {
+      const resolved = await resolveStandaloneAirport(lookup);
+      await onApplied({
+        iata: resolved.iata,
+        icao: resolved.icao,
+        name: resolved.name,
+        city: resolved.city,
+        country: resolved.country,
+        timezone: resolved.timezone,
+        lat: resolved.lat,
+        lon: resolved.lon
+      });
+    } catch (exc) {
+      setApplyError(companionSetupErrorMessage(exc));
+    } finally {
+      setApplying(false);
+    }
+  }, [onApplied, query, selectedAirport]);
+
+  return (
+    <Modal
+      visible={visible}
+      transparent
+      animationType="slide"
+      presentationStyle="overFullScreen"
+      onRequestClose={() => {
+        Keyboard.dismiss();
+        onClose();
+      }}
+    >
+      <KeyboardAvoidingView
+        style={styles.configSheetKeyboard}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+      >
+        <View style={styles.configSheetBg}>
+          <View style={styles.configSheet}>
+            <View style={styles.configSheetHandle} />
+            <View style={styles.configSheetHeader}>
+              <Text style={styles.configSheetTitle}>CHANGE STANDALONE AIRPORT</Text>
+              <Pressable
+                onPress={() => {
+                  Keyboard.dismiss();
+                  onClose();
+                }}
+                style={styles.configSheetClose}
+                hitSlop={tapTargetHitSlop}
+                {...accessibleButton({ label: "Close standalone airport change" })}
+              >
+                <LocalFlightIcon name={ACTION_ICONS.close} size={20} color={palette.textMuted} />
+              </Pressable>
+            </View>
+
+            <ScrollView
+              style={styles.configSheetScroll}
+              contentContainerStyle={styles.configSheetScrollContent}
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="interactive"
+            >
+              <Text style={styles.moduleIntro}>
+                Change the airport without resetting this phone. Relay token, diagnostics, appearance, and install identity stay untouched.
+              </Text>
+              {currentAirport ? (
+                <View style={styles.configSelectedAirport}>
+                  <LocalFlightIcon name={ACTION_ICONS.configured} size={14} color={palette.green} />
+                  <Text style={styles.configSelectedText}>
+                    Current: {currentAirport.iata || currentAirport.icao}
+                    {currentAirport.name ? ` - ${currentAirport.name}` : ""}
+                  </Text>
+                </View>
+              ) : null}
+
+              <Text style={styles.configSectionLabel}>AIRPORT</Text>
+              <TextInput
+                style={styles.configSearchInput}
+                placeholder="Search by airport code, city, or name"
+                placeholderTextColor={palette.textDim}
+                value={query}
+                onChangeText={onQueryChange}
+                autoCapitalize="characters"
+                returnKeyType="search"
+                onSubmitEditing={() => {
+                  const first = searchResults[0];
+                  if (first) selectAirport(first);
+                }}
+              />
+
+              {searchResults.length > 0 ? (
+                <View style={styles.configSearchResults}>
+                  {searchResults.map((airport, index) => {
+                    const active = selectedAirport?.iata === airport.iata && selectedAirport?.icao === airport.icao;
+                    return (
+                      <Pressable
+                        key={airportResultKey(airport, index)}
+                        style={[styles.configSearchRow, active && styles.configSearchRowSelected]}
+                        onPress={() => selectAirport(airport)}
+                        {...accessibleButton({
+                          label: `Select ${airport.iata || airport.icao}, ${airport.name}`,
+                          hint: [airport.city, airport.country, airport.timezone].filter(Boolean).join(", "),
+                          selected: active
+                        })}
+                      >
+                        <Text style={styles.configSearchIata}>{airport.iata || airport.icao}</Text>
+                        <View style={styles.configSearchInfo}>
+                          <Text style={styles.configSearchName} numberOfLines={1}>{airport.name}</Text>
+                          <Text style={styles.configSearchMeta}>{[airport.city, airport.country, airport.timezone].filter(Boolean).join(" · ")}</Text>
+                        </View>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              ) : null}
+
+              {selectedAirport ? (
+                <View style={styles.configSelectedAirport}>
+                  <LocalFlightIcon name={ACTION_ICONS.configured} size={14} color={palette.green} />
+                  <Text style={styles.configSelectedText}>
+                    New: {selectedAirport.iata || selectedAirport.icao}
+                    {selectedAirport.name ? ` - ${selectedAirport.name}` : ""}
+                  </Text>
+                </View>
+              ) : null}
+
+              <Pressable
+                style={[styles.connectButton, applying && styles.connectButtonDisabled]}
+                onPress={() => void apply()}
+                disabled={applying}
+                {...accessibleButton({
+                  label: applying ? "Saving standalone airport" : "Save standalone airport",
+                  disabled: applying,
+                  busy: applying
+                })}
+              >
+                {applying ? <ActivityIndicator color={solidButtonInk()} /> : <Text style={styles.connectButtonText}>SAVE AIRPORT</Text>}
+              </Pressable>
+              {applyError ? <Text style={styles.errorText}>{applyError}</Text> : null}
+            </ScrollView>
+          </View>
+        </View>
+      </KeyboardAvoidingView>
+    </Modal>
   );
 }
 

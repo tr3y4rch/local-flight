@@ -630,6 +630,14 @@ export type HistoryResponse = {
   count: number;
   movement_count?: number;
   raw_observation_rows?: number;
+  pending_future_rows?: number;
+  standalone_storage?: {
+    airport_key: string;
+    last_store_at: string | null;
+    last_store_rows: number;
+    last_store_error: string | null;
+    pending_future_rows: number;
+  };
   flights: HistoryFlightRow[];
 };
 
@@ -959,6 +967,13 @@ export type HistorySummary = {
   top_routes: HistorySummaryRoute[];
   top_aircraft: HistorySummaryAircraft[];
   daily_volume: HistorySummaryVolume[];
+  standalone_storage?: {
+    airport_key: string;
+    last_store_at: string | null;
+    last_store_rows: number;
+    last_store_error: string | null;
+    pending_future_rows: number;
+  };
 };
 
 export type ConfigPatch = {

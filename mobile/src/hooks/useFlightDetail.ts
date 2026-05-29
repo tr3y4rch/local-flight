@@ -63,12 +63,21 @@ export function useFlightDetail(serverUrl: string, onError: (message: string) =>
   );
 
   const open = useCallback(
-    (nextCallsign: string) => {
+    (
+      nextCallsign: string,
+      seed: FidsDetailResponse | null = null,
+      options: { fetch?: boolean } = {}
+    ) => {
       if (!nextCallsign) return;
+      const shouldFetch = options.fetch ?? true;
       setCallsign(nextCallsign);
-      setData(null);
+      setData(seed);
       setVisible(true);
-      void load(nextCallsign);
+      if (shouldFetch) {
+        void load(nextCallsign);
+      } else {
+        setLoading(false);
+      }
     },
     [load]
   );

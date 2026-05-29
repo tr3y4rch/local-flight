@@ -2,7 +2,8 @@ import type {
   FidsDetailResponse,
   FidsRow,
   FlightDetail,
-  HistoryFlightRow
+  HistoryFlightRow,
+  RadarBlip
 } from "../api/types";
 import type { StatusTone } from "./types";
 
@@ -72,11 +73,180 @@ export function detailOrNull(value: FidsDetailResponse | null): FlightDetail | n
   return value.detail as FlightDetail;
 }
 
+function clean(value?: unknown): string {
+  return String(value || "").trim();
+}
+
+function directionLabel(value?: string | null): string {
+  const text = clean(value).toLowerCase();
+  if (text === "arr" || text === "arrival" || text === "arrivals") return "arrivals";
+  return "departures";
+}
+
+function routeForRow(row: FidsRow): string {
+  return clean(row.route_code) || routeCode(row.route_display) || "";
+}
+
+export function fidsRowDetailResponse(row: FidsRow, airportCode = ""): FidsDetailResponse {
+  const view = directionLabel(row.view);
+  const route = routeForRow(row);
+  const origin = view === "arrivals" ? route : airportCode;
+  const destination = view === "departures" ? route : airportCode;
+  return {
+    detail: {
+      callsign: row.callsign || row.flight_display || row.id,
+      flight_number: row.flight_number || row.flight_display || row.callsign,
+      flight_display: row.flight_display || row.callsign,
+      airline: row.airline_display || row.marketing_airline_name || null,
+      airline_iata: row.airline_iata || row.marketing_airline_iata || null,
+      airline_icao: row.airline_icao || row.marketing_airline_icao || null,
+      codeshares: row.codeshares || [],
+      sold_as: row.sold_as || [],
+      origin_iata: origin || null,
+      dest_iata: destination || null,
+      sched_time: row.time_primary || row.display_time || null,
+      actual_time: null,
+      delay_minutes: row.delay_minutes ?? null,
+      delay_kind: row.delay_kind || null,
+      delay_class: row.delay_class || null,
+      gate: row.gate || null,
+      gate_display: row.gate_display || row.gate || null,
+      terminal_display: row.terminal_display || null,
+      terminal_gate_display: row.terminal_gate_display || row.gate_display || row.gate || null,
+      aircraft_type: row.aircraft_type || null,
+      direction: view,
+      status: row.status_display || row.status_kind || null,
+      source: row.source_hint || "mobile",
+      enriched_by: row.live_hint || null,
+      detail_mode: row.detail_mode || "real",
+      operating_callsign: row.operating_callsign || null,
+      identity_source: row.identity_source || null,
+      provider_codeshare_status: row.provider_codeshare_status || null,
+      provider_movement_key: row.provider_movement_key || null,
+      identity_evidence: row.identity_evidence || []
+    },
+    history: []
+  };
+}
+
+export function radarBlipDetailResponse(blip: RadarBlip): FidsDetailResponse {
+  const callsign = clean(blip.callsign) || clean(blip.flight_number) || clean(blip.display_title) || clean(blip.icao24) || "RADAR TRACK";
+  return {
+    detail: {
+      callsign,
+      flight_number: blip.flight_number || blip.display_title || callsign,
+      flight_display: blip.display_title || blip.flight_number || callsign,
+      airline: blip.airline_name || null,
+      airline_iata: blip.airline_iata || null,
+      airline_icao: blip.airline_icao || null,
+      codeshares: blip.codeshares || [],
+      sold_as: blip.sold_as || [],
+      aircraft_type: blip.aircraft_type || null,
+      aircraft_registration: blip.registration || null,
+      direction: null,
+      status: blip.radar_status_label || blip.status || blip.radar_phase || "Tracked target",
+      source: blip.source || blip.source_quality || "radar",
+      enriched_by: blip.enriched ? "radar" : null,
+      detail_mode: blip.detail_mode || "real",
+      operating_callsign: blip.operating_callsign || null,
+      identity_source: blip.identity_source || null,
+      position: {
+        lat: blip.lat,
+        lon: blip.lon,
+        altitude_m: blip.altitude_m ?? blip.geo_altitude_m ?? null,
+        altitude_baro_m: blip.altitude_m ?? null,
+        altitude_geo_m: blip.geo_altitude_m ?? null,
+        speed_ms: blip.speed_ms ?? null,
+        heading: blip.heading_deg ?? blip.track_deg ?? blip.heading ?? null,
+        vertical_rate: blip.vertical_rate ?? null,
+        on_ground: blip.on_ground ?? null,
+        icao24: blip.icao24 || null,
+        squawk: blip.squawk || null,
+        last_contact: null
+      },
+      intel: {
+        schema_version: "flight-intel-v1",
+        detail_mode: blip.detail_mode || "real",
+        identity: {
+          callsign,
+          flight_display: blip.display_title || blip.flight_number || callsign,
+          operating_callsign: blip.operating_callsign || callsign,
+          airline_name: blip.airline_name || null,
+          airline_iata: blip.airline_iata || null,
+          airline_icao: blip.airline_icao || null,
+          codeshares: blip.codeshares || [],
+          sold_as: blip.sold_as || []
+        },
+        aircraft: {
+          type: blip.aircraft_type || null,
+          registration: blip.registration || null,
+          icao24: blip.icao24 || null,
+          squawk: blip.squawk || null
+        },
+        operations: {},
+        timing: {
+          status: blip.radar_status_label || blip.status || blip.radar_phase || null
+        },
+        motion: {
+          altitude_ft: blip.altitude_ft ?? blip.geo_altitude_ft ?? null,
+          speed_kt: blip.speed_kt ?? null,
+          heading_deg: blip.heading_deg ?? blip.track_deg ?? blip.heading ?? null,
+          vertical_rate_fpm: blip.vertical_rate_fpm ?? null,
+          on_ground: blip.on_ground ?? null
+        },
+        source_evidence: {
+          position_source: blip.source || blip.source_quality || "radar"
+        }
+      }
+    },
+    history: []
+  };
+}
+
+export function historyRowDetailResponse(row: HistoryFlightRow): FidsDetailResponse {
+  const callsign = clean(row.callsign) || clean(row.flight_number) || clean(row.id) || "HISTORY MOVEMENT";
+  return {
+    detail: {
+      callsign,
+      flight_number: row.flight_number || callsign,
+      flight_display: row.flight_number || callsign,
+      airline_iata: row.airline_iata || null,
+      codeshares: row.codeshares || [],
+      sold_as: row.sold_as || [],
+      origin_iata: row.origin_iata || null,
+      dest_iata: row.dest_iata || null,
+      sched_time: row.sched_time || null,
+      actual_time: row.actual_time || null,
+      delay_minutes: row.delay_minutes ?? null,
+      gate: row.gate || null,
+      gate_display: row.gate || null,
+      terminal: row.terminal || null,
+      aircraft_type: row.aircraft_type || null,
+      direction: row.direction,
+      status: row.status || "Tracked",
+      source: row.source || "mobile_history",
+      enriched_by: row.enriched_by || null,
+      detail_mode: "real",
+      operating_callsign: row.operating_callsign || null,
+      identity_source: row.identity_source || null
+    },
+    history: [{
+      date: clean(row.event_time || row.actual_time || row.sched_time || row.snapshot_ts),
+      status: row.status,
+      delay_minutes: row.delay_minutes,
+      gate: row.gate,
+      source: row.source,
+      observations: row.observation_count || row.raw_observation_rows || 1
+    }]
+  };
+}
+
 export function historyRouteLabel(row: HistoryFlightRow): string {
-  if (row.direction === "ARR") {
+  const direction = clean(row.direction).toLowerCase();
+  if (direction === "arr") {
     return `FROM ${row.origin_iata || "---"}`;
   }
-  if (row.direction === "DEP") {
+  if (direction === "dep") {
     return `TO ${row.dest_iata || "---"}`;
   }
   return `${row.origin_iata || "---"} / ${row.dest_iata || "---"}`;
