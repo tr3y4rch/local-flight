@@ -2,7 +2,7 @@
   "expo": {
     "name": "Local Flight",
     "slug": "localflight-mobile",
-    "version": "0.2.7",
+    "version": "0.2.8",
     "scheme": "localflight",
     "orientation": "default",
     "userInterfaceStyle": "automatic",
@@ -80,7 +80,7 @@
     },
     "extra": {
       "localFlightServerHint": "http://192.168.1.10:8000",
-      "localFlightVersion": "0.2.7",
+      "localFlightVersion": "0.2.8",
       "eas": {
         "projectId": "085634ce-4117-4fd6-b2d6-cbb7f90b4fdd",
         "build": {

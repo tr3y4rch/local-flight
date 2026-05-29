@@ -56,17 +56,17 @@ Use it when you want the full Local Flight app on the machine that runs the serv
 
 The browser UI is a supported access and display surface. It is not being removed.
 
-In the current `0.2.7` line, the browser UI mirrors the native Qt shell —
+In the current `0.2.8` line, the browser UI mirrors the native Qt shell —
 same top nav layout (brand mark, UTC/LT clock chips, segmented Display /
-FIDS / Radar / Matrix tabs, operator icon-chip bar, Power button), same
+FIDS / Radar / Matrix tabs, utility icon-chip bar, Power button), same
 colour tokens, same shared components (panels, cards, kicker labels,
 disclosure cards, status pills, buttons). Picking a theme or skin in
 Settings retints both surfaces the same way.
 
-Preliminary `0.2.8` polish continues that parity work in Settings: Outputs/Radar,
-Profiles, Pair Mobile, timing, maintenance, relay details, and diagnostics/docs
-now use the same collapsed folder model in the LAN browser as the Qt shell. The
-LAN Settings page also exposes the same Companion QR/manual pairing path, paired
+The 0.2.8 Settings work continues that parity path: Outputs/Radar, Profiles,
+Pair Mobile, timing, maintenance, relay details, and diagnostics/docs now use
+the same collapsed folder model in the LAN browser as the Qt shell. The LAN
+Settings page also exposes the same Companion QR/manual pairing path, paired
 device refresh, copy-link/copy-URL actions, and reset action.
 
 Use it when:
@@ -108,7 +108,7 @@ to any page URL; `?mobile=0` clears the preview.
 Both common 7" Pi touch panels — the official 800×480 screen and
 1024×600 IPS panels — get a dedicated compact layout that keeps the
 Qt-shell look but tightens every dimension. The top nav drops
-secondary clock chips and low-priority operator icons; FIDS row
+secondary clock chips and low-priority utility icons; FIDS row
 height drops to 40 px and the A/C column hides at 800×480. Net
 effect: **8 flights visible at 800×480** (was 5), **11 at 1024×600**.
 
@@ -165,7 +165,7 @@ This is useful when the browser UI fits your display setup better or native Qt k
 
 ## Mobile App
 
-The mobile app is an iOS-first developer preview for iPhone, iPad, and simulator testing. It has two modes.
+The mobile app is in internal beta for iOS TestFlight and Google Play testing. It has two modes.
 
 ### LAN Companion
 

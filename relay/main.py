@@ -1034,12 +1034,12 @@ def _aerodatabox_request_headers() -> Dict[str, str]:
             "X-RapidAPI-Key": _aerodatabox_key(),
             "X-RapidAPI-Host": "aerodatabox.p.rapidapi.com",
             "Accept": "application/json",
-            "User-Agent": "localflight-relay/0.2.7",
+            "User-Agent": "localflight-relay/0.2.8",
         }
     return {
         "x-magicapi-key": _aerodatabox_key(),
         "Accept": "application/json",
-        "User-Agent": "localflight-relay/0.2.7",
+        "User-Agent": "localflight-relay/0.2.8",
     }
 
 
@@ -8250,7 +8250,7 @@ def _localflight_version_label() -> str:
 
         return version("localflight")
     except Exception:
-        return "0.2.7"
+        return "0.2.8"
 
 
 def _airport_result_payload(rec: Any, *, include_coords: bool = False) -> Dict[str, Any]:

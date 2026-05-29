@@ -2335,6 +2335,7 @@ def test_shared_schedule_invalid_timezones_share_normalized_cache_key(
 
 def test_shared_schedule_upstream_fetch_adds_adaptive_pages_for_busy_departures(tmp_path: Path, monkeypatch) -> None:
     _use_temp_db(tmp_path, monkeypatch)
+    monkeypatch.setenv("RELAY_SCHEDULE_PROVIDER", "aviationstack")
     monkeypatch.setattr(relay_main, "_aviationstack_key", lambda: "relay-key-123")
     start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
     flight_date = start.date().isoformat()
@@ -2384,6 +2385,7 @@ def test_shared_schedule_upstream_fetch_falls_back_to_undated_when_date_scope_is
     monkeypatch,
 ) -> None:
     _use_temp_db(tmp_path, monkeypatch)
+    monkeypatch.setenv("RELAY_SCHEDULE_PROVIDER", "aviationstack")
     monkeypatch.setattr(relay_main, "_aviationstack_key", lambda: "relay-key-123")
     early = _aviationstack_departure("100", datetime(2026, 5, 1, 5, 0, tzinfo=timezone.utc))
     rescue = _aviationstack_departure("200", datetime(2026, 5, 1, 15, 0, tzinfo=timezone.utc))

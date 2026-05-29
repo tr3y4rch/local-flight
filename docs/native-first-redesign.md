@@ -9,17 +9,16 @@ For user-facing install and display-choice guidance, use:
 
 ## Current Checkpoint
 
-As of the `0.2.7` client-polish line on 2026-05-22, with preliminary `0.2.8`
-parity notes added on 2026-05-23:
+As of the `0.2.8` beta/client-polish line on 2026-05-28:
 
 - Native Qt remains the intended primary desktop/display shell; LAN browser UI remains a supported access/display surface.
 - The native main shell now groups brand/primary pages, a centered UTC/LT clock divider, and utility pages/sync/power as separate visual regions.
 - FIDS now uses a passenger-facing city/country title, compact weather hero, readable ARR/DEP/Refresh actions, operating-first flight identity, compact aircraft codes on the board, true Classic/PAX/VATSIM/Nerd visual styles, and richer detail drawers.
 - History, Matrix, Settings, Setup, Radar details, LAN/browser parity, mobile LAN Companion/Standalone, Beacon Tools docs links, and relay defaults are current release-candidate smoke areas.
-- The next parity checkpoint is LAN Settings: browser Settings should keep the same disclosure-folder order as native Settings and include Pair Mobile QR/manual pairing, paired-device status refresh, copy-link/copy-URL, and reset controls.
-- Beacon Tools is the public home: product/docs at `https://beacontools.cc/local-flight`, privacy at `https://beacontools.cc/privacy`, public relay at `https://relay.beacontools.cc`, and operator admin at `https://network.beacontools.cc/admin`. Native and browser docs links should say "Open online" when they point to Beacon Tools, not "Open on GitHub".
+- LAN Settings now follows the same disclosure-folder order as native Settings and includes Pair Mobile QR/manual pairing, paired-device status refresh, copy-link/copy-URL, and reset controls.
+- Beacon Tools is the public home: product/docs at `https://beacontools.cc/local-flight`, privacy at `https://beacontools.cc/privacy`, and public relay at `https://relay.beacontools.cc`. Native and browser docs links should say "Open online" when they point to Beacon Tools, not "Open on GitHub".
 - Current validation history: earlier full Windows release-candidate sweep returned `423 passed`; after the Beacon relay/default work, focused relay/native tests returned `392 passed`, compileall passed, mobile typecheck passed, and `git diff --check` passed; after the public/dev docs refresh, the doc/native regression slice returned `287 passed` and the static HTML parse check passed. After Matrix v4 renderer/live-settings/local-clock/web-preview hardening, focused Matrix checks passed and the full Windows/Codex suite returned `432 passed`.
-- Release packages must be rebuilt from the current `0.2.7` tree; older `0.2.6`, pre-Matrix-integrity `0.2.7`, and pre-Beacon-docs/relay-default artifact hashes are stale after this polish pass.
+- Release packages must be rebuilt from the current `0.2.8` tree; older `0.2.6`, `0.2.7`, pre-Matrix-integrity, and pre-Beacon-docs/relay-default artifact hashes are stale after this polish pass.
 
 ## Goal
 
@@ -29,7 +28,7 @@ Redesign the PySide6 app as the recommended primary desktop GUI while keeping th
 - Use the browser/LAN UI as the parity checklist, not as a layout to copy.
 - Keep browser pages supported for LAN access, headless installs, display kiosks, and recovery.
 - Do not plan to remove human-facing browser routes; keep them aligned with the supported local API contract.
-- Keep Operator Network Admin separate from the public client GUI.
+- Keep private Network Admin tooling separate from the public client GUI.
 
 ## Chosen Direction
 
@@ -74,7 +73,7 @@ Hard rules:
 - No developer-owned API keys, Linear keys, relay admin passwords, provider keys, signing credentials, activation master tokens, private endpoint passwords, or privileged operator values in repo-tracked code, docs, templates, test fixtures, built artifacts, mobile bundles, matrix scripts, or sample config.
 - No hidden "temporary" internal values in the GUI, local defaults, packaged `.env`, compiled assets, comments, screenshots, generated docs, or installer scripts.
 - Public client GUI can call only local owner/client routes and public relay routes intended for clients.
-- Operator Network Admin stays separate from the public client GUI and must use explicit operator-provided credentials. Local helper launchers such as `start_network.bat` stay ignored/private; the packaged client and public docs must not advertise operator admin paths.
+- Private Network Admin tooling stays separate from the public client GUI and must use explicit operator-provided credentials. Local helper launchers such as `start_network.bat` stay ignored/private; the packaged client and public docs must not advertise private admin paths.
 - Local user-owned keys are stored locally, redacted in UI/logs/reports, and never forwarded except to the intended provider/relay endpoint.
 - Diagnostics/reporting payloads must redact secrets, raw tokens, raw install IDs, provider responses that include credentials, and long logs before leaving the machine.
 - Mobile and Matrix clients receive only the minimum public/local configuration required to operate.
@@ -89,14 +88,14 @@ Power boundaries:
 | Browser/LAN UI | Same public/local client capabilities as native for LAN access, headless installs, and browser-mode displays. | Hidden privileged routes or admin-only relay controls. |
 | Mobile companion | LAN client display/settings subset and diagnostics by consent. | Admin mutations beyond explicitly trusted local-owner actions. |
 | Matrix client/script | Read display feed, identify device, ping/check in. | Provider keys, relay secrets, admin actions. |
-| Operator Network Admin | Relay/admin inspection, fleet/dev operations, and actions with supplied operator credentials. | Shipping or deriving credentials from the public app, public docs, or example env files. |
+| Private Network Admin | Relay/admin inspection, fleet/dev operations, and actions with supplied operator credentials. | Shipping or deriving credentials from the public app, public docs, or example env files. |
 | Relay/server infrastructure | Owns shared secrets and privileged upstream/provider access. | Exposing private secrets to client payloads, logs, reports, or generated artifacts. |
 
 Acceptance gate for every page/release:
 
 - Search for secret-like values before packaging.
 - Review new API payloads and report contexts for redaction.
-- Confirm no UI path reveals raw tokens, keys, install IDs, private relay internals, or operator-only action refs unless explicitly on the operator admin surface.
+- Confirm no UI path reveals raw tokens, keys, install IDs, private relay internals, or private admin action refs unless explicitly on the private admin surface.
 - Confirm packaged artifacts work from user-provided config, activation, or local stored settings rather than embedded internal power.
 
 ## Architecture Target
@@ -162,7 +161,7 @@ Browser templates to treat as source specs:
 
 ## Current Status
 
-Current checkpoint as of 2026-05-20 / 0.2.7:
+Current checkpoint as of 2026-05-28 / 0.2.8:
 
 - Native remains the intended primary desktop/display GUI, with browser/LAN kept as a supported parity and recovery surface.
 - The latest polish wave moved beyond the original shell parity goal: History, Matrix, Settings/setup, FIDS details, and Radar details now need to be validated as one shared native/browser product surface.
@@ -170,8 +169,8 @@ Current checkpoint as of 2026-05-20 / 0.2.7:
 - Matrix now has shared panel presets, board-mirror preview truth, v4 renderer/geometry warnings, live preview overrides, friendly save/apply/generate feedback, compact weather header rules, local-time clock fixes, stable Matrix-specific display labels, Matrix-safe weather icons, split-flap/typewriter/cascade motion, full-width wide-board layout, and real-source gate/stand display. VATSIM Matrix presets intentionally hide unreliable gate placeholders.
 - FIDS/Radar/History detail views are converging on the shared current-source intelligence model: schedule, live motion, aircraft, airport operations, weather context, source evidence, and recent history from current sources only.
 - Settings/setup now follow dashboard-card/user-first structure with hidden advanced sections, contrast-safe theme/skin handling, and cleaner brand/icon usage.
-- Latest Windows validation is green through the Matrix v4 sweep: focused Matrix checks passed and `python -m pytest tests -q` -> `432 passed`.
-- Windows and Pi `0.2.7` artifacts built before the Beacon/domain/docs and Matrix v4 changes are stale; rebuild Windows, Pi, and macOS from the current tree before publishing.
+- Latest known green full Windows validation before this version sweep was the Matrix v4/docs/package line; rerun the release validation suite from the current 0.2.8 tree before publishing.
+- Windows, Pi, and macOS artifacts from the `0.2.7` line are stale; rebuild all release artifacts from the current tree before publishing.
 
 Previous native checkpoint as of 2026-05-09:
 
@@ -180,7 +179,7 @@ Previous native checkpoint as of 2026-05-09:
 - Radar has moved through the staged runway/map/blip-state/native-polish plan. It now has a radar domain layer, `/api/radar/map`, runway/surface/map/terrain toggles, local ghost trails, conservative blip states, compact hover/click details, and contrast-safe layer drawing.
 - Settings has been extracted and redesigned around primary user controls, an explicit apply action, collapsed help/diagnostics/advanced drawers, profile controls, and radar-surface feedback.
 - Setup has been extracted and redesigned as a guided six-step first-run flow with Community Relay as the beginner default, BYOK/VATSIM alternatives, provider links, diagnostics choice, and clear relay/key test feedback.
-- Secret hygiene remains a release gate: public GUI pages must not expose raw provider payloads, activation tokens, install IDs, pilot identities, private relay internals, or operator-only action refs.
+- Secret hygiene remains a release gate: public GUI pages must not expose raw provider payloads, activation tokens, install IDs, pilot identities, private relay internals, or private admin action refs.
 
 Foundation slice has been implemented.
 
@@ -353,7 +352,7 @@ Radar inventory checkpoint:
 
 ## What To Do Next
 
-Continue from the current 0.2.7 native/browser state, not from the earlier shell foundation.
+Continue from the current 0.2.8 native/browser state, not from the earlier shell foundation.
 
 Recommended next slice:
 
@@ -362,7 +361,7 @@ Recommended next slice:
    - Run `python -m compileall -q src relay installers scripts tests` and `python -m pytest tests -q`.
    - Smoke native setup/FIDS/Radar/Matrix/Settings/History on macOS.
    - Confirm bundled docs and online links point to Beacon Tools, and Community setup preloads `https://relay.beacontools.cc`.
-   - Build and checksum `dist/LocalFlight-0.2.7-macos.pkg`.
+   - Build and checksum `dist/LocalFlight-0.2.8-macos.pkg`.
 2. Clean install smoke:
    - Windows zip extraction and first-run setup.
    - Pi source install in headless mode.
@@ -373,7 +372,7 @@ Recommended next slice:
    - map on/off, terrain on/off, runways on/off, surface on/off.
    - dark/light theme contrast.
    - no OSM cache, stale cache, and estimated fallback states.
-4. Visual QA the 0.2.7 polish pages at desktop and compact sizes: History dashboard, Matrix configurator/preview, Settings/setup cards, FIDS detail drawer, and LAN radar parity.
+4. Visual QA the 0.2.8 polish pages at desktop and compact sizes: History dashboard, Matrix configurator/preview, Settings/setup cards, FIDS detail drawer, and LAN radar parity.
 5. Mobile QA: LAN Companion setup/Board/Radar/History/Control with Help & Reports inside Control, Standalone setup/Board/Radar/History/Settings, iOS simulator/device validation, and Android local dev smoke when Android Studio is available.
 6. Continue full native extraction/polish for Logs, Requests, Admin, and Feedback until each page has native tests and browser-parity checklists.
 7. Keep browser/LAN parity checks running as native acceptance passes, because both surfaces remain supported.
@@ -393,7 +392,7 @@ Use this when migrating or polishing each page:
 | History | No records yet, filters too narrow, detail unavailable. | `/api/history`, callsign, filter window, DB stats. |
 | Logs | Friendly retained-log browser with clear privacy note. | file name, selected offset/tail time, redacted content only. |
 | Requests | Local traffic summary for troubleshooting, not scary network language. | client type/id prefix only, route, status code, latency. |
-| Admin summary | Health cards and clear actions, no operator-only relay internals. | `/api/admin/*` route, scheduler state, budget status, update check. |
+| Admin summary | Health cards and clear actions, no private relay/admin internals. | `/api/admin/*` route, scheduler state, budget status, update check. |
 | Feedback/crash | Report sent/saved/failed with simple retry guidance. | report route, diagnostics mode, app version, screen, generated report/ref id if returned. |
 
 ## Working Reminder For Future Page Tasks

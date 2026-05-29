@@ -66,9 +66,9 @@ export const SUPPORT_TIP_TIERS: SupportTipTier[] = [
 export function supportProductPlaceholders(): SupportProduct[] {
   return SUPPORT_TIP_TIERS.map((tier) => ({
     ...tier,
-    availability: "coming_soon",
+    availability: "unavailable",
     priceLabel: tier.displayAmount,
-    statusLabel: "Coming soon"
+    statusLabel: "Store setup"
   }));
 }
 
@@ -80,7 +80,7 @@ export const supportStubProvider: SupportPurchaseProvider = {
   async purchaseTier() {
     return {
       ok: false,
-      message: "Support tips are scaffolded, but not active in this build yet."
+      message: "Store support tips are prepared for this build, but purchases are not enabled yet. No charge was made."
     };
   }
 };

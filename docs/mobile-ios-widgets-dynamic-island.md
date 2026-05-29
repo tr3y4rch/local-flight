@@ -1,6 +1,6 @@
 # Mobile iOS Widgets and Dynamic Island Design
 
-This is the design and data-contract handoff for future iOS WidgetKit and ActivityKit work. The Expo app now writes a hardened widget snapshot, and `mobile/native/ios-widget/` contains the tracked native WidgetKit skeleton. The widget target is not wired into Xcode yet because production use still needs Apple Developer signing plus App Groups.
+This is the design and data-contract handoff for iOS WidgetKit plus future ActivityKit work. The Expo app writes a hardened widget snapshot, and the current TestFlight path wires the tracked WidgetKit template from `mobile/native/ios-widget/` into the generated iOS app with the App Group. Dynamic Island and Live Activities remain deferred until the widget path is stable on real devices.
 
 ## Product Intent
 

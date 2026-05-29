@@ -86,12 +86,12 @@ def _request_headers() -> Dict[str, str]:
             "X-RapidAPI-Key": _api_key(),
             "X-RapidAPI-Host": "aerodatabox.p.rapidapi.com",
             "Accept": "application/json",
-            "User-Agent": "local-flight/0.2.7 (+https://beacontools.cc/local-flight)",
+            "User-Agent": "local-flight/0.2.8 (+https://beacontools.cc/local-flight)",
         }
     return {
         "x-magicapi-key": _api_key(),
         "Accept": "application/json",
-        "User-Agent": "local-flight/0.2.7 (+https://beacontools.cc/local-flight)",
+        "User-Agent": "local-flight/0.2.8 (+https://beacontools.cc/local-flight)",
     }
 
 

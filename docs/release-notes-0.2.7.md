@@ -6,10 +6,8 @@ is calmer, FIDS reads more like a passenger board, setup/settings/history/matrix
 are friendlier, the LAN browser UI remains a supported access surface, and the
 mobile app now has a clear LAN Companion vs Standalone shape.
 
-Post-release-candidate polish is tracked separately in
-[0.2.8 Preliminary Notes](release-notes-0.2.8.md). Those notes do not imply a
-package version bump yet; `0.2.7` remains the current artifact target until the
-version is deliberately changed.
+Current release notes continue at [0.2.8 Client Notes](release-notes-0.2.8.md).
+This page is retained as the `0.2.7` client-polish release-candidate archive.
 
 This release does not change the basic setup choices. You can still use
 Local Flight Relay, use your own provider keys, or run VATSIM-only virtual
@@ -166,7 +164,7 @@ and the official hosted relay at `https://relay.beacontools.cc`.
   airport snapshot if a live provider is slow, capped, or suspiciously sparse.
 - Mobile Standalone uses the same relay provider policy as Local Flight Relay, but
   adds stricter mobile-specific cadence and radar-range limits.
-- Public client docs continue to avoid operator-only relay/admin details.
+- Public client docs continue to avoid private relay/admin implementation details.
 - Existing installs that still point at the Fly.io relay root remain accepted,
   but new setup defaults now use `https://relay.beacontools.cc`.
 

@@ -154,7 +154,7 @@ function ensureWidgetTarget(project, config) {
     addResourceToTarget(project, `Fonts/${font}`, targetUuid, groupUuid);
   }
 
-  const version = config.version || "0.2.7";
+  const version = config.version || "0.2.8";
   const buildNumber = config.ios?.buildNumber || "1";
   updateBuildSettings(project, targetUuid, {
     APPLICATION_EXTENSION_API_ONLY: "YES",

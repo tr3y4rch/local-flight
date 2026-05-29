@@ -6,11 +6,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [0.2.8] - Preliminary
+## [0.2.8] - 2026-05-28
 
-> Preliminary next-line notes after the `0.2.7` release candidate. The package
-> version has not been bumped yet; this section tracks post-RC polish so docs,
-> handoff notes, and public copy do not drift while the final scope is decided.
+> Current beta/client-polish release line after `0.2.7`. This release focuses
+> on making the native shell, LAN browser, mobile Companion/Standalone paths,
+> relay-facing behavior, preview assets, and public docs agree with the same
+> product story.
 >
 > For the public-facing summary, see
 > [docs/release-notes-0.2.8.md](docs/release-notes-0.2.8.md).
@@ -61,10 +62,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Refreshed relay/client compatibility notes around standalone mobile endpoints, mobile summaries, FIDS/radar/metar paths, activation/check-in behavior, and report forwarding.
 - Hardened report payload metadata so Linear/mobile reports carry OS family and app mode (`lan_companion` vs `standalone`) without exposing provider secrets or raw local paths.
 - Clarified heartbeat/privacy behavior for BYOK, relay, virtual, and standalone paths so relay presence remains coarse, non-blocking, and eligibility-gated.
-- Continued separating public support/contact/report routes from operator-only Network Admin routes and secrets.
+- Kept public support/contact/report routes separate from private admin tooling and secrets.
 
 ### Documentation and preview planning
-- Added preliminary `0.2.8` release notes without changing the active app/package target from `0.2.7`.
+- Finalized `0.2.8` release notes and aligned the active app/package metadata with the 0.2.8 line.
 - Documented `assets/previews/mobile/iOS/`, `assets/previews/mobile/Android/`, and `assets/previews/shell/` as the source hierarchy for public screenshots and website imagery.
 - Captured the preview priority order for public docs/site imagery: FIDS, Radar, History, Setup, Display, Splash.
 - Updated mobile documentation to point store/review/support/privacy flows at the Beacon Tools public website, including mobile trust, support, network, privacy, and privacy-choice pages.
@@ -290,7 +291,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - History, Settings, Setup, and Matrix are aligned around dashboard-card layouts in native Qt and LAN/browser surfaces.
 - Native and LAN FIDS/Radar/History/Matrix detail surfaces share the current-source flight intelligence model without adding per-click provider calls.
 
-### Network Admin (operator-only)
+### Network Admin
 - Reframed fleet/overview copy as coarse heartbeat presence, not live online status. "Seen <=24h" replaces "Active installs" wherever the count referred to a 24-hour last-seen window. Applies to both the HTML admin SPA and the native Qt console.
 - Added a proper operator sign-out flow for browser-based Network Admin sessions.
 - Idle auto-logoff now works on both Network Admin surfaces. The browser console warns before signing out; the Qt console clears the session silently and shows a status message.

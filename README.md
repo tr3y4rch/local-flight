@@ -16,12 +16,12 @@ The recommended desktop client is now the native Qt app. The LAN browser UI, Pi 
 
 ## Status
 
-`0.2.7` is the current client-polish release-candidate target on top of the `0.2.6` beta baseline. Preliminary `0.2.8` notes are now tracking the next polish line, but packaged artifacts are still considered `0.2.7` until the version is deliberately bumped. It is still beta software, but this pass treats Local Flight as a working multi-client app:
+`0.2.8` is the current beta/client-polish target on top of the `0.2.7` release-candidate baseline. It is still beta software, but this pass treats Local Flight as a working multi-client app:
 
 - Native desktop app for Windows and macOS, with four switchable FIDS board styles (Classic / PAX / VATSIM / Nerd) that each render their own design
 - LAN browser UI that mirrors the native Qt shell — same nav, same tokens, same components — with an automatic mobile view for phones and a compact layout for 7" Raspberry Pi screens
 - Raspberry Pi headless server, native Qt HDMI kiosk, or Chromium HDMI kiosk
-- Mobile developer preview with LAN Companion and Standalone setup modes. iOS is the primary validation path; Android local development builds are supported.
+- Mobile internal beta with LAN Companion and Standalone setup modes. iOS TestFlight and Google Play testing are both active release-readiness paths; local native dev builds remain supported.
 - Interstate 75 W / HUB75 Matrix client and preview tools
 - Beacon Tools public site and privacy page for release/App Store/TestFlight metadata
 
@@ -45,8 +45,8 @@ Read the detailed guides:
 - [Install Guide](docs/install.md)
 - [Display Modes](docs/display-modes.md)
 - [Privacy & Diagnostics](PRIVACY.md)
+- [0.2.8 Client Notes](docs/release-notes-0.2.8.md)
 - [0.2.7 Client Notes](docs/release-notes-0.2.7.md)
-- [0.2.8 Preliminary Notes](docs/release-notes-0.2.8.md)
 - [Full Changelog](CHANGELOG.md)
 
 ---
@@ -73,7 +73,7 @@ Read the detailed guides:
 
 ## Preview
 
-These previews mix current Qt screenshot cards with lightweight mobile illustrations. They are product previews, not operational telemetry. Preliminary `0.2.8` preview work should use the real Android/iOS source screenshots under `assets/mobile-previews/` when refreshing mobile imagery.
+These previews mix current Qt screenshot cards with lightweight mobile illustrations. They are product previews, not operational telemetry. Current preview source screenshots live under `assets/previews/mobile/iOS/`, `assets/previews/mobile/Android/`, and `assets/previews/shell/`; use those folders when refreshing public imagery.
 
 Open [docs/previews/index.html](docs/previews/index.html) locally for the standalone HTML gallery.
 
@@ -107,12 +107,12 @@ Open [docs/previews/index.html](docs/previews/index.html) locally for the standa
 
 ### Windows
 
-Download `LocalFlight-0.2.7-Setup.exe`, run the wizard, then launch Local Flight from the final installer page, Start Menu, or desktop shortcut.
+Download `LocalFlight-0.2.8-Setup.exe`, run the wizard, then launch Local Flight from the final installer page, Start Menu, or desktop shortcut.
 The release app launches as a branded desktop app without a Python or cmd console window. `LocalFlight-windows.zip` remains available as a portable/manual install artifact.
 
 ### macOS
 
-Download `LocalFlight-0.2.7-macos.pkg`, double-click the installer, then launch **Local Flight** from Applications.
+Download `LocalFlight-0.2.8-macos.pkg`, double-click the installer, then launch **Local Flight** from Applications.
 The release installer is designed to feel like a normal Mac app install: no Python, Terminal, source checkout, or manual drag-to-Applications step.
 
 ### Raspberry Pi
@@ -127,23 +127,7 @@ The Pi installer asks how the Pi should run and defaults to headless.
 
 ### Mobile App
 
-```bash
-cd mobile
-npm install
-npx expo install --fix
-npm run verify
-npm run ios
-```
-
-For Android development builds:
-
-```bash
-cd mobile
-npm run verify
-npm run android
-```
-
-For full setup details, see [docs/install.md](docs/install.md).
+The mobile app is in internal beta for TestFlight and Google Play testing. Use the store-test builds for normal device testing. Source/native development builds are documented in [mobile/README.md](mobile/README.md) and [docs/install.md](docs/install.md); Expo Go is not a supported launch path for this app.
 
 ---
 

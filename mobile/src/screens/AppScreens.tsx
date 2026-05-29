@@ -5051,7 +5051,7 @@ export function CompanionSetupScreen({
           <Animated.View style={[styles.companionSetupPanel, panelMotion]}>
             <Text style={styles.companionSetupPanelTitle}>How should this phone connect?</Text>
             <Text style={styles.companionSetupBody}>
-              Choose Companion if Local Flight already runs on a desktop or Pi. Choose Standalone if this phone should use the hosted relay by itself.
+              Choose Companion if Local Flight already runs on a desktop or Pi. Companion keeps this phone as a remote and glance screen for your local host. Choose Standalone if this phone should use the hosted relay by itself.
             </Text>
             <View style={styles.companionSetupOptionStack}>
               {([
@@ -5109,7 +5109,7 @@ export function CompanionSetupScreen({
 
         {step === "pairing" ? (
           <Animated.View style={[styles.companionSetupPanel, panelMotion]}>
-            <Text style={styles.companionSetupPanelTitle}>Pair with your Local Flight host</Text>
+            <Text style={styles.companionSetupPanelTitle}>Connect your Local Flight host</Text>
             <Text style={styles.companionSetupBody}>
               Open Local Flight Settings on the desktop or Pi. Scan its pairing QR, or enter the Wi-Fi address shown there.
             </Text>
@@ -8177,6 +8177,7 @@ export function SupportSheet({
   visible: boolean;
   onClose: () => void;
 }) {
+  const supportStoreLabel = Platform.OS === "ios" ? "App Store" : Platform.OS === "android" ? "Google Play" : "platform store";
   const [products, setProducts] = useState<SupportProduct[]>(() => supportProductPlaceholders());
   const [busyTier, setBusyTier] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -8196,17 +8197,21 @@ export function SupportSheet({
           setProducts(supportProductPlaceholders().map((item) => ({
             ...item,
             availability: "unavailable",
-            statusLabel: "Unavailable"
+            statusLabel: `${supportStoreLabel} unavailable`
           })));
-          setMessage("Support products could not be loaded in this build.");
+          setMessage(`${supportStoreLabel} support products could not be loaded. No charge was made.`);
         }
       });
     return () => {
       cancelled = true;
     };
-  }, [visible]);
+  }, [supportStoreLabel, visible]);
 
   const handleTierPress = useCallback(async (tier: SupportProduct) => {
+    if (tier.availability !== "available") {
+      setMessage(`${supportStoreLabel} support tips are being prepared for this build. No charge was made.`);
+      return;
+    }
     setBusyTier(tier.id);
     try {
       const result = await supportPurchaseProvider.purchaseTier(tier);
@@ -8214,7 +8219,7 @@ export function SupportSheet({
     } finally {
       setBusyTier(null);
     }
-  }, []);
+  }, [supportStoreLabel]);
 
   return (
     <Modal visible={visible} transparent presentationStyle="overFullScreen" animationType="slide" onRequestClose={onClose}>
@@ -8247,14 +8252,17 @@ export function SupportSheet({
                 <LocalFlightIcon name={SUPPORT_ICONS.support} size={23} color={palette.amber} />
               </View>
               <View style={styles.supportHeroCopy}>
-            <Text style={styles.supportHeroTitle}>Optional tips help keep the boards glowing.</Text>
-                <Text style={styles.supportHeroBody}>Local Flight stays fully usable either way. Support tips are scaffolded, but not active in this build yet.</Text>
+                <Text style={styles.supportHeroTitle}>Optional tips help keep the boards glowing.</Text>
+                <Text style={styles.supportHeroBody}>
+                  Local Flight stays fully usable either way. Tips use {supportStoreLabel} when enabled; this build shows the prepared tiers without external payment links.
+                </Text>
               </View>
             </View>
 
             <View style={styles.supportTierGrid}>
               {products.map((tier) => {
                 const busy = busyTier === tier.id;
+                const available = tier.availability === "available";
                 return (
                   <Pressable
                     key={tier.productId}
@@ -8263,7 +8271,7 @@ export function SupportSheet({
                     disabled={busyTier !== null}
                     {...accessibleButton({
                       label: `Support Local Flight with ${tier.priceLabel}, ${tier.label}`,
-                      hint: tier.statusLabel,
+                      hint: available ? tier.statusLabel : `${tier.statusLabel}. No charge will be made.`,
                       disabled: busyTier !== null,
                       busy
                     })}
@@ -8285,7 +8293,9 @@ export function SupportSheet({
 
             {message ? <Text style={styles.supportMessage}>{message}</Text> : null}
 
-            <Text style={styles.supportFinePrint}>No features are locked behind support. This build does not open external payment links.</Text>
+            <Text style={styles.supportFinePrint}>
+              No features are locked behind support. The app does not open external payment links, and unavailable tiers cannot charge.
+            </Text>
 
           </ScrollView>
         </View>

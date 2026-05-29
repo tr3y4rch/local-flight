@@ -1,14 +1,16 @@
 # Local Flight Widget Template
 
-Tracked WidgetKit template for the future iOS widget extension. The generated
-`mobile/ios/` directory is ignored, so keep these files as the source of truth
-until Apple Developer Program signing and App Groups are available.
+Tracked WidgetKit template for the iOS widget extension. The generated
+`mobile/ios/` directory is ignored, so keep these files as the source of truth.
+The current TestFlight path copies this template into the generated iOS project
+and wires the App Group when the Apple account and provisioning profile support
+`group.cc.beacontools.localflight`.
 
-The Expo app already writes `localflight-widget-snapshot.json` using the schema
-in `mobile/src/domain/widgets.ts`. The future native widget must read that file
-only. It must never fetch LAN, relay, or third-party flight data directly.
+The Expo app writes `localflight-widget-snapshot.json` using the schema in
+`mobile/src/domain/widgets.ts`. The native widget reads that file only. It must
+never fetch LAN, relay, or third-party flight data directly.
 
-## Current Pre-Credential State
+## Current Widget State
 
 - `WidgetSnapshot.swift` contains defensive decoding and normalization for the
   app-written snapshot contract.
@@ -22,21 +24,22 @@ only. It must never fetch LAN, relay, or third-party flight data directly.
   and carries the WidgetKit extension point plus bundled font declarations.
 - `SampleSnapshots.swift` contains preview/sample states for pinned, no-pinned,
   stale, and empty-board rendering.
-- `LocalFlightWidget.entitlements` documents the future App Group ID, but it is
-  not wired into the live Expo iOS app target yet.
-- The app writer remains passive: it prefers the shared container only if it
-  already exists and otherwise writes to the app sandbox fallback.
+- `LocalFlightWidget.entitlements` documents the App Group ID used by the
+  generated widget extension.
+- The app writer prefers the shared container when available and otherwise
+  writes to the app sandbox fallback for local/dev builds.
 
-## Once Apple Credentials Are Available
+## Wiring / Refresh Path
 
 1. Confirm the iOS bundle ID that will ship:
    `cc.beacontools.localflight`.
-2. In Apple Developer/App Store Connect, enable App Groups for the app ID.
-3. Create/enable the shared group:
+2. In Apple Developer/App Store Connect, enable App Groups for the app ID and
+   widget extension ID.
+3. Confirm the shared group:
    `group.cc.beacontools.localflight`.
 4. Regenerate or refresh signing assets/provisioning profiles so both the app
    and widget extension can use the group.
-5. Run Expo prebuild from a clean mobile tree. The tracked
+5. Run Expo prebuild or an EAS iOS build from a clean mobile tree. The tracked
    `with-localflight-ios-widget` config plugin copies this template, creates the
    `LocalFlightWidget` extension target, and adds the App Group entitlement:
    `npx expo prebuild --platform ios --clean`.
@@ -121,8 +124,8 @@ xcodebuild \
 
 ## Guardrails
 
-- Do not add the App Group entitlement to the live app target until the Apple
-  account has the group enabled and provisioning profiles are refreshed.
+- Do not ship an iOS build with App Group entitlements unless the Apple account
+  has the group enabled and provisioning profiles are refreshed.
 - Do not point widgets at the LAN server, relay, or provider APIs.
 - Do not let stale or malformed snapshots silently switch to another flight.
 - Keep `schemaVersion: 1` until a real migration plan exists.

@@ -68,12 +68,17 @@ export function createAppleSupportPurchaseProvider(
 export const appleIapPlaceholderProvider: SupportPurchaseProvider = {
   id: "apple-iap-placeholder",
   async loadProducts() {
-    return supportProductPlaceholders();
+    const storeLabel = Platform.OS === "ios" ? "App Store" : Platform.OS === "android" ? "Google Play" : "Store";
+    return supportProductPlaceholders().map((product) => ({
+      ...product,
+      statusLabel: `${storeLabel} setup`
+    }));
   },
   async purchaseTier() {
+    const storeLabel = Platform.OS === "ios" ? "App Store" : Platform.OS === "android" ? "Google Play" : "Store";
     return {
       ok: false,
-      message: "Support tips are scaffolded, but not active in this build yet."
+      message: `${storeLabel} support tips are prepared for this build, but purchases are not enabled yet. No charge was made.`
     };
   }
 };
