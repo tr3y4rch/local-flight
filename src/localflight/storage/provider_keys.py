@@ -70,11 +70,17 @@ def read_env(path: Path | None = None) -> Dict[str, str]:
 
 
 def provider_env_values(path: Path | None = None) -> Dict[str, str]:
-    """Return provider environment with process overrides winning over .env."""
-    values = read_env(path)
-    for key, value in os.environ.items():
-        if isinstance(value, str):
+    """Return effective environment with .env authoritative for provider keys."""
+    target = path or env_path()
+    file_values = read_env(target)
+    values = {key: value for key, value in os.environ.items() if isinstance(value, str)}
+    for key, value in file_values.items():
+        if key in PROVIDER_ENV_KEYS or key not in values:
             values[key] = value
+    if target.exists():
+        for key in PROVIDER_ENV_KEYS:
+            if key not in file_values:
+                values.pop(key, None)
     return values
 
 

@@ -48,6 +48,16 @@ export type MobileWidgetPreferences = {
   showGateTerminal: boolean;
 };
 
+export type RemoteCompanionGrant = {
+  grantRef: string;
+  relayUrl: string;
+  installRef: string;
+  remoteKey: string;
+  createdAt?: string | null;
+  lastSeenRemoteAt?: string | null;
+  revokedAt?: string | null;
+};
+
 const DEFAULT_RADAR_DRAWING_LAYERS: MobileRadarDrawingLayers = {
   runways: true,
   surface: true,
@@ -75,6 +85,7 @@ export type MobileSetupState = {
   serverUrl: string;
   relayInstallId?: string;
   relayActivationToken?: string;
+  remoteCompanion?: RemoteCompanionGrant | null;
   standaloneAirport?: StandaloneAirport | null;
   diagnosticsMode: MobileDiagnosticsMode;
   completedAt: string | null;
@@ -143,7 +154,8 @@ function normalizeCachedConfig(value: unknown): AppConfig | null {
     web_rotation_seconds: raw.web_rotation_seconds,
     display_grace_minutes: raw.display_grace_minutes,
     display_horizon_hours: raw.display_horizon_hours,
-    radar_surface_enabled: raw.radar_surface_enabled
+    radar_surface_enabled: raw.radar_surface_enabled,
+    remote_companion_enabled: raw.remote_companion_enabled
   };
 }
 
@@ -347,6 +359,25 @@ function normalizeWidgetPreferences(value: unknown): MobileWidgetPreferences {
   };
 }
 
+function normalizeRemoteCompanionGrant(value: unknown): RemoteCompanionGrant | null {
+  if (!value || typeof value !== "object") return null;
+  const raw = value as Record<string, unknown>;
+  const grantRef = String(raw.grantRef || raw.grant_ref || "").trim();
+  const relayUrl = String(raw.relayUrl || raw.relay_url || "").trim().replace(/\/+$/, "");
+  const installRef = String(raw.installRef || raw.install_ref || "").trim();
+  const remoteKey = String(raw.remoteKey || raw.remote_key || "").trim();
+  if (!grantRef || !relayUrl || !installRef || !remoteKey) return null;
+  return {
+    grantRef,
+    relayUrl,
+    installRef,
+    remoteKey,
+    createdAt: typeof raw.createdAt === "string" ? raw.createdAt : typeof raw.created_at === "string" ? raw.created_at : null,
+    lastSeenRemoteAt: typeof raw.lastSeenRemoteAt === "string" ? raw.lastSeenRemoteAt : typeof raw.last_seen_remote_at === "string" ? raw.last_seen_remote_at : null,
+    revokedAt: typeof raw.revokedAt === "string" ? raw.revokedAt : typeof raw.revoked_at === "string" ? raw.revoked_at : null
+  };
+}
+
 export function incompleteMobileSetupState(
   serverUrl = "",
   diagnosticsMode: MobileDiagnosticsMode = "unset"
@@ -357,6 +388,7 @@ export function incompleteMobileSetupState(
     serverUrl,
     relayInstallId: "",
     relayActivationToken: "",
+    remoteCompanion: null,
     standaloneAirport: null,
     diagnosticsMode: normalizeDiagnosticsMode(diagnosticsMode),
     completedAt: null
@@ -365,7 +397,8 @@ export function incompleteMobileSetupState(
 
 export function completeMobileSetupState(
   serverUrl: string,
-  diagnosticsMode: MobileDiagnosticsMode
+  diagnosticsMode: MobileDiagnosticsMode,
+  remoteCompanion: RemoteCompanionGrant | null = null
 ): MobileSetupState {
   return {
     complete: true,
@@ -373,6 +406,7 @@ export function completeMobileSetupState(
     serverUrl,
     relayInstallId: "",
     relayActivationToken: "",
+    remoteCompanion: normalizeRemoteCompanionGrant(remoteCompanion),
     standaloneAirport: null,
     diagnosticsMode: normalizeDiagnosticsMode(diagnosticsMode),
     completedAt: new Date().toISOString()
@@ -396,6 +430,7 @@ export function completeStandaloneMobileSetupState({
     serverUrl: "",
     relayInstallId: relayInstallId.trim(),
     relayActivationToken: relayActivationToken.trim(),
+    remoteCompanion: null,
     standaloneAirport: normalizeStandaloneAirport(airport),
     diagnosticsMode: normalizeDiagnosticsMode(diagnosticsMode),
     completedAt: new Date().toISOString()
@@ -413,6 +448,7 @@ function normalizeMobileSetupState(raw: unknown): MobileSetupState {
   const standaloneAirport = normalizeStandaloneAirport(state.standaloneAirport);
   const relayInstallId = typeof state.relayInstallId === "string" ? state.relayInstallId : "";
   const relayActivationToken = typeof state.relayActivationToken === "string" ? state.relayActivationToken : "";
+  const remoteCompanion = normalizeRemoteCompanionGrant(state.remoteCompanion);
   const complete = mode === "standalone"
     ? Boolean(state.complete && relayInstallId && relayActivationToken && standaloneAirport && diagnosticsMode !== "unset")
     : Boolean(state.complete && serverUrl && diagnosticsMode !== "unset");
@@ -422,6 +458,7 @@ function normalizeMobileSetupState(raw: unknown): MobileSetupState {
     serverUrl: mode === "lan_companion" ? serverUrl : "",
     relayInstallId: mode === "standalone" ? relayInstallId : "",
     relayActivationToken: mode === "standalone" ? relayActivationToken : "",
+    remoteCompanion: mode === "lan_companion" ? remoteCompanion : null,
     standaloneAirport: mode === "standalone" ? standaloneAirport : null,
     diagnosticsMode,
     completedAt: complete && typeof state.completedAt === "string" ? state.completedAt : null

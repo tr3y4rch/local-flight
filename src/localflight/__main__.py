@@ -120,7 +120,8 @@ def _splash_url(next_path: str = "/display") -> str:
 def _load_dotenv() -> None:
     """
     Load .env from the project root into os.environ.
-    Safe to call multiple times — never overwrites existing env vars.
+    Safe to call multiple times. Non-provider runtime env stays conservative,
+    while Local Flight-owned provider/relay keys are reloaded authoritatively.
     """
     here = Path(__file__).resolve().parent
     candidates = [

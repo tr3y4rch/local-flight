@@ -85,7 +85,7 @@
             <article class="card"><h3>Choices</h3><p>Diagnostics, local resets, mobile resets, and relay data requests are summarized at <a href="/privacy/choices/">beacontools.cc/privacy/choices</a>.</p></article>
           </div>
           <ul class="console-list" style="margin-top: 14px;">
-            <li>Companion mode and LED matrix displays talk to your own Local Flight server first; phone-only mode talks directly to the hosted relay.</li>
+            <li>Companion mode and LED matrix displays talk to your own Local Flight server first. Remote Companion can route encrypted paired-host messages through the relay when LAN is unavailable; phone-only mode talks directly to the hosted relay.</li>
             <li>Manual reports are always your choice. Automatic crash diagnostics only run if you opt in.</li>
             <li>Local Flight is an informational display aid, not a navigation, dispatch, operational-control, or safety system.</li>
           </ul>
@@ -100,7 +100,7 @@
               <h2>What stays local</h2>
             </div>
           </div>
-          <p>Flight board snapshots, settings, personal API keys, local history, logs, desktop app state, companion pairing state, and LED matrix settings are stored locally. The LAN browser UI, companion mode, and LED matrix board talk to your own Local Flight server first.</p>
+          <p>Flight board snapshots, settings, personal API keys, local history, logs, desktop app state, companion pairing state, Remote Companion grant secrets, and LED matrix settings are stored locally. The LAN browser UI, companion mode, and LED matrix board talk to your own Local Flight server first.</p>
           <p>Phone-only mobile mode stores its setup mode, relay install UUID, activation token, selected airport, appearance, diagnostics choice, pinned flight, and recent movement history on the device. Phone-only history is not stored on the hosted relay.</p>
         </div>
       </section>
@@ -113,10 +113,10 @@
               <h2>Relay-backed features</h2>
             </div>
           </div>
-          <p>If you choose the shared relay or phone-only mobile mode, Local Flight may talk to the hosted Beacon Tools relay at <code>https://relay.beacontools.cc</code> for shared airport boards, relay-backed radar, activation, fair-use limits, reports, and optional cached map data.</p>
+          <p>If you choose the shared relay, Remote Companion, or phone-only mobile mode, Local Flight may talk to the hosted Beacon Tools relay at <code>https://relay.beacontools.cc</code> for shared airport boards, relay-backed radar, encrypted paired-host fallback, activation, fair-use limits, reports, and optional cached map data.</p>
           <p>The relay is cache-first where possible and uses configured aviation data sources for shared airport data. Bring-your-own-key installs keep their personal provider keys locally.</p>
-          <p>The relay stores only the technical metadata needed to run that shared service safely, such as random install UUIDs, hashed install fingerprints, token prefixes, usage counters, last-seen timestamps, short-lived airport interest rows, shared schedule/radar cache entries, and coarse app/platform profile fields.</p>
-          <p>The relay does not store raw IP addresses, personal API keys from your install, readable personal identifiers, local flight history, phone-only history, or local logs unless you explicitly allow diagnostic reports with sanitized logs.</p>
+          <p>The relay stores only the technical metadata needed to run that shared service safely, such as random install UUIDs, hashed install fingerprints, token prefixes, Remote Companion public grant refs, usage counters, last-seen timestamps, short-lived airport interest rows, shared schedule/radar cache entries, and coarse app/platform profile fields.</p>
+          <p>The relay does not store raw IP addresses, personal API keys from your install, readable personal identifiers, Remote Companion AES secrets, decrypted Companion paths/bodies/responses, local flight history, phone-only history, or local logs unless you explicitly allow diagnostic reports with sanitized logs.</p>
         </div>
       </section>
 
@@ -125,7 +125,7 @@
           <div class="grid two">
             <article class="card">
               <h3>Mobile and Matrix</h3>
-              <p>Companion mode stores its paired server URL, companion ID, appearance, pinned flight, local profiles, and diagnostics choice on the device. Phone-only mode stores its separate relay install UUID, activation token, selected airport, appearance, pinned flight, diagnostics choice, and movement history on the device. LED matrix boards receive only display feed/config data from your Local Flight server.</p>
+              <p>Companion mode stores its paired server URL, companion ID, appearance, pinned flight, local profiles, diagnostics choice, and optional Remote Companion grant on the device. Phone-only mode stores its separate relay install UUID, activation token, selected airport, appearance, pinned flight, diagnostics choice, and movement history on the device. LED matrix boards receive only display feed/config data from your Local Flight server.</p>
             </article>
             <article class="card">
               <h3>VATSIM</h3>

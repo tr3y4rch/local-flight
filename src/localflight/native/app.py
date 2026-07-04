@@ -102,7 +102,7 @@ def _app_version() -> str:
     try:
         return version("localflight")
     except PackageNotFoundError:
-        return "0.2.7"
+        return "0.5.1"
 
 
 class _NativeCrashReporter:

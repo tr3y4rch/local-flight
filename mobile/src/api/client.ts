@@ -28,12 +28,26 @@ import type {
   SchedulerStatus
 } from "./types";
 import { getCompanionIdentity } from "../device/identity";
+import { sendRemoteCompanionRequest } from "./remoteCompanion";
+import type { RemoteCompanionGrant } from "../storage/settings";
 
 export class LocalFlightApiError extends Error {
   constructor(message: string, public readonly status?: number) {
     super(message);
     this.name = "LocalFlightApiError";
   }
+}
+
+let configuredRemoteCompanionGrant: RemoteCompanionGrant | null = null;
+export type CompanionTransportState = "lan" | "remote";
+let lastCompanionTransport: CompanionTransportState = "lan";
+
+export function configureRemoteCompanionGrant(grant: RemoteCompanionGrant | null | undefined): void {
+  configuredRemoteCompanionGrant = grant && !grant.revokedAt ? grant : null;
+}
+
+export function getLastCompanionTransport(): CompanionTransportState {
+  return lastCompanionTransport;
 }
 
 export function normalizeServerUrl(input: string): string {
@@ -72,14 +86,23 @@ async function fetchJson<T>(serverUrl: string, path: string): Promise<T> {
   }
 
   const headers = await companionHeaders();
-  const response = await fetch(`${base}${path}`, {
-    headers: { Accept: "application/json", ...headers }
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${base}${path}`, {
+      headers: { Accept: "application/json", ...headers }
+    });
+  } catch (exc) {
+    if (configuredRemoteCompanionGrant) {
+      return remoteJson<T>("GET", path);
+    }
+    throw exc;
+  }
 
   if (!response.ok) {
     throw new LocalFlightApiError(`HTTP ${response.status} for ${path}`, response.status);
   }
 
+  lastCompanionTransport = "lan";
   return response.json() as Promise<T>;
 }
 
@@ -94,15 +117,23 @@ async function sendJson<T>(
   }
 
   const headers = await companionHeaders();
-  const response = await fetch(`${base}${path}`, {
-    method: "POST",
-    headers: {
-      Accept: "application/json",
-      "Content-Type": "application/json",
-      ...headers
-    },
-    body: JSON.stringify(body)
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${base}${path}`, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+        ...headers
+      },
+      body: JSON.stringify(body)
+    });
+  } catch (exc) {
+    if (configuredRemoteCompanionGrant) {
+      return remoteJson<T>("POST", path, body);
+    }
+    throw exc;
+  }
 
   if (!response.ok) {
     let message = `HTTP ${response.status} for ${path}`;
@@ -117,7 +148,68 @@ async function sendJson<T>(
     throw new LocalFlightApiError(message, response.status);
   }
 
+  lastCompanionTransport = "lan";
   return response.json() as Promise<T>;
+}
+
+async function patchJson<T>(
+  serverUrl: string,
+  path: string,
+  body: Record<string, unknown>
+): Promise<T> {
+  const base = normalizeServerUrl(serverUrl);
+  if (!base) {
+    throw new LocalFlightApiError("Set a Local Flight server URL first.");
+  }
+
+  const headers = await companionHeaders();
+  let response: Response;
+  try {
+    response = await fetch(`${base}${path}`, {
+      method: "PATCH",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+        ...headers
+      },
+      body: JSON.stringify(body)
+    });
+  } catch (exc) {
+    if (configuredRemoteCompanionGrant) {
+      return remoteJson<T>("PATCH", path, body);
+    }
+    throw exc;
+  }
+
+  if (!response.ok) {
+    let message = `HTTP ${response.status} for ${path}`;
+    try {
+      const data = (await response.json()) as { detail?: string };
+      if (data.detail) message = data.detail;
+    } catch { /* ignore */ }
+    throw new LocalFlightApiError(message, response.status);
+  }
+  lastCompanionTransport = "lan";
+  return response.json() as Promise<T>;
+}
+
+async function remoteJson<T>(
+  method: "GET" | "POST" | "PATCH",
+  path: string,
+  body?: Record<string, unknown>
+): Promise<T> {
+  if (!configuredRemoteCompanionGrant) {
+    throw new LocalFlightApiError("Remote Companion is not configured.");
+  }
+  const result = await sendRemoteCompanionRequest<T>(configuredRemoteCompanionGrant, method, path, body);
+  if (!result.ok) {
+    const maybeDetail = result.body && typeof result.body === "object"
+      ? String((result.body as { detail?: unknown }).detail || "")
+      : "";
+    throw new LocalFlightApiError(maybeDetail || `Remote Companion HTTP ${result.status} for ${path}`, result.status);
+  }
+  lastCompanionTransport = "remote";
+  return result.body;
 }
 
 export function getHealth(serverUrl: string): Promise<AppState> {
@@ -409,36 +501,11 @@ export async function saveMatrixConfig(
   serverUrl: string,
   body: MatrixRuntimeConfigSave
 ): Promise<MatrixRuntimeConfigSaveResponse> {
-  const base = normalizeServerUrl(serverUrl);
-  if (!base) {
-    throw new LocalFlightApiError("Set a Local Flight server URL first.");
-  }
-
-  const headers = await companionHeaders();
-  const response = await fetch(`${base}/api/matrix/config`, {
-    method: "POST",
-    headers: {
-      Accept: "application/json",
-      "Content-Type": "application/json",
-      ...headers
-    },
-    body: JSON.stringify(body)
-  });
-
-  if (!response.ok) {
-    let message = `HTTP ${response.status} for /api/matrix/config`;
-    try {
-      const data = (await response.json()) as { detail?: string };
-      if (data.detail) {
-        message = data.detail;
-      }
-    } catch {
-      // Ignore non-JSON error responses.
-    }
-    throw new LocalFlightApiError(message, response.status);
-  }
-
-  return response.json() as Promise<MatrixRuntimeConfigSaveResponse>;
+  return sendJson<MatrixRuntimeConfigSaveResponse>(
+    serverUrl,
+    "/api/matrix/config",
+    body as unknown as Record<string, unknown>
+  );
 }
 
 export function searchAirports(serverUrl: string, q: string, limit = 8): Promise<AirportResult[]> {
@@ -456,25 +523,7 @@ export function resolveAirport(serverUrl: string, q: string): Promise<AirportRes
 }
 
 export async function patchConfig(serverUrl: string, patch: ConfigPatch): Promise<AppConfig> {
-  const base = normalizeServerUrl(serverUrl);
-  if (!base) throw new LocalFlightApiError("Set a Local Flight server URL first.");
-
-  const headers = await companionHeaders();
-  const response = await fetch(`${base}/api/config`, {
-    method: "PATCH",
-    headers: { Accept: "application/json", "Content-Type": "application/json", ...headers },
-    body: JSON.stringify(patch)
-  });
-
-  if (!response.ok) {
-    let message = `HTTP ${response.status} for /api/config`;
-    try {
-      const data = (await response.json()) as { detail?: string };
-      if (data.detail) message = data.detail;
-    } catch { /* ignore */ }
-    throw new LocalFlightApiError(message, response.status);
-  }
-  return response.json() as Promise<AppConfig>;
+  return patchJson<AppConfig>(serverUrl, "/api/config", patch as Record<string, unknown>);
 }
 
 export function getRequestLog(

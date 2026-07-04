@@ -272,6 +272,12 @@ async def _lifespan(_app: FastAPI):
     asyncio.create_task(manager.broadcast_loop())
     from localflight.sources.web.relay_beat import _heartbeat_loop
     asyncio.create_task(_heartbeat_loop())
+    try:
+        from localflight.sources.web.remote_companion_agent import ensure_remote_companion_agent_started
+
+        ensure_remote_companion_agent_started()
+    except Exception as exc:
+        logger.info("Remote Companion agent not started: %s", exc)
 
     import localflight.ui.server as _self
     _self._ws_manager = manager
@@ -302,7 +308,7 @@ try:
     from importlib.metadata import version as _pkg_version
     _APP_VERSION = _pkg_version("localflight")
 except Exception:
-    _APP_VERSION = "0.2.7"
+    _APP_VERSION = "0.5.1"
 
 templates.env.globals["app_version"] = _APP_VERSION
 templates.env.globals["airport_timezone"] = resolve_config_timezone
@@ -375,9 +381,9 @@ _DOC_PAGES: Dict[str, Dict[str, str]] = {
         "external_label": "Open online",
     },
     "client-notes": {
-        "title": "0.2.7 Client Notes",
-        "filename": "release-notes-0.2.7.md",
-        "summary": "0.2.7 client polish: native shell, FIDS, History, Matrix, mobile, and relay-facing client changes.",
+        "title": "0.5.1 Public Release Notes",
+        "filename": "release-notes-0.5.1.md",
+        "summary": "0.5.1 public release hardening for desktop, Pi, relay-backed support, Matrix, and private mobile beta prep.",
         "external_url": f"{LOCAL_FLIGHT_WEB_URL}#release-notes",
         "external_label": "Open online",
     },
@@ -1145,7 +1151,7 @@ async def setup_complete(request: Request, background_tasks: BackgroundTasks) ->
     os_id = data.get("opensky_id", "").strip()
     os_sec = data.get("opensky_secret", "").strip()
 
-    if setup_mode in {"managed", "community"} and not activation_token:
+    if setup_mode == "managed" and not activation_token:
         try:
             from localflight.storage.install import get_activation_token
 
@@ -1287,12 +1293,14 @@ def _secret_values_for_redaction() -> list[str]:
     try:
         values = provider_env_values()
     except Exception:
-        values = dict(os.environ)
+        values = {}
+    process_values = dict(os.environ)
     secrets = []
     for key in {*SECRET_KEYS, "LOCALFLIGHT_ACTIVATION_TOKEN"}:
-        value = str(values.get(key, "") or "").strip()
-        if len(value) >= 6:
-            secrets.append(value)
+        for source in (values, process_values):
+            value = str(source.get(key, "") or "").strip()
+            if len(value) >= 6:
+                secrets.append(value)
     return sorted(set(secrets), key=len, reverse=True)
 
 
@@ -1481,6 +1489,7 @@ async def save_settings(
     display_horizon_hours: int = Form(DEFAULT_DISPLAY_HORIZON_HOURS),
     radar_surface_enabled: Optional[str] = Form(None),
     radar_surface_mode: Optional[str] = Form(DEFAULT_RADAR_SURFACE_MODE),
+    remote_companion_enabled: Optional[str] = Form(None),
 ) -> RedirectResponse:
     src = (source or DEFAULT_SOURCE).strip().lower()
     if src not in ALLOWED_SOURCES:
@@ -1503,6 +1512,7 @@ async def save_settings(
     if raw_surface_mode not in ALLOWED_RADAR_SURFACE_MODES:
         raw_surface_mode = "relay" if str(radar_surface_enabled or "").strip().lower() in {"1", "true", "yes", "on"} else DEFAULT_RADAR_SURFACE_MODE
     surface_enabled = raw_surface_mode != "off"
+    remote_enabled = str(remote_companion_enabled or "").strip().lower() in {"1", "true", "yes", "on"}
 
     form_data = await request.form()
     raw_outputs = form_data.getlist("display_outputs")
@@ -1530,6 +1540,7 @@ async def save_settings(
         display_horizon_hours=horizon_hours,
         radar_surface_enabled=surface_enabled,
         radar_surface_mode=raw_surface_mode,
+        remote_companion_enabled=remote_enabled,
     )
     save_config(cfg)
 

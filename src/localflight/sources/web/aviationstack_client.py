@@ -1334,6 +1334,7 @@ def fetch_flights_strategy(
         max_pages_per_scope=_MAX_FAIR_PAGES_PER_DATE if strategy == "fair" else None,
     )
     if strategy == "fair":
+        meta["undated_fallback_used"] = False
         display_start_utc = window.display_start.astimezone(timezone.utc)
         display_end_utc = window.display_end.astimezone(timezone.utc)
         if _rows_within_window(

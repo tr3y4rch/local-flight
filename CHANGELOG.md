@@ -6,11 +6,61 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.5.1] - Public release hardening
+
+> Public desktop/Raspberry Pi release target. Mobile is store-bound after the
+> Remote Companion connectivity/privacy proof pass, with Companion remote
+> fallback treated as a fixed feature rather than a separate app mode.
+>
+> For the public-facing summary, see
+> [docs/release-notes-0.5.1.md](docs/release-notes-0.5.1.md).
+
+### Release hardening
+- Bumped durable app, native, relay, installer, and mobile metadata to `0.5.1`.
+- Cleared the known regression slice around browser airport-local clocks, mobile
+  setup copy, preview gallery/card count, Beacon Tools brand placement, macOS
+  installer portability tests, and AviationStack fair-fetch metadata.
+- Hardened first-run/re-setup provider-mode transitions so BYOK, managed relay,
+  community relay, and virtual modes clear stale Local Flight-owned provider
+  env state consistently.
+- Made `.env` authoritative for provider/relay keys across startup, setup
+  completion, scheduler restarts, and provider status while keeping log
+  redaction conservative about stale process secrets.
+- Added a native Qt lifecycle guard so internal setup-window transitions cannot
+  accidentally shut down the backend host process.
+- Updated Expo SDK 55 patch dependencies to the versions expected by Expo Doctor
+  without forcing a breaking SDK upgrade.
+- Hardened Remote Companion as the store-ready mobile fallback: LAN-first
+  transport, encrypted relay envelopes, explicit grants/revocation, relay
+  envelope/rate/pending limits, host dispatcher allowlist coverage, and
+  privacy-proof tests that keep decrypted payloads and AES secrets out of relay
+  storage/logs.
+
+### Public docs and site
+- Promoted the preliminary `0.2.8` notes into the `0.5.1` public hardening line
+  for desktop/Pi release readiness.
+- Updated README, install guidance, display-mode copy, Beacon Tools homepage,
+  Local Flight product page, and support form placeholders to use `0.5.1`.
+- Kept the versioned `0.2.7` preview PNG filenames as historical screenshot
+  asset names while using the stable public-site preview aliases for Beacon
+  Tools pages.
+
+### Mobile store readiness
+- Kept the permanent Beacon-owned mobile IDs:
+  `cc.beacontools.localflight` for both iOS and Android.
+- Kept first store build counters at iOS build `1` and Android versionCode `1`
+  unless a store upload has already consumed those counters.
+- Preserved the Standalone reviewer path and Companion path while making Remote
+  Companion a normal paired-host fallback. Support tips/IAP remain disabled for
+  this pass.
+
+---
+
 ## [0.2.8] - Preliminary
 
-> Preliminary next-line notes after the `0.2.7` release candidate. The package
-> version has not been bumped yet; this section tracks post-RC polish so docs,
-> handoff notes, and public copy do not drift while the final scope is decided.
+> Historical preliminary notes after the `0.2.7` release candidate. This work
+> has now been promoted into the `0.5.1` public hardening line; this section is
+> kept so the intermediate development trail remains readable.
 >
 > For the public-facing summary, see
 > [docs/release-notes-0.2.8.md](docs/release-notes-0.2.8.md).
@@ -40,7 +90,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Added Android local-dev pathing and commands for Android Studio, `adb`, emulator/device runs, debug install conflicts, and Expo/Gradle build expectations.
 - Added EAS beta release scaffold notes for TestFlight and Play Internal Testing, package-ID permanence, release-manifest review, cleartext LAN HTTP expectations, and Play Data Safety preparation.
 - Updated mobile store/readiness docs around App Store review notes, Play Store review notes, privacy/support URLs, LAN/camera permission explanations, and support-stub copy.
-- Kept real IAP, StoreKit, Google Play Billing, Apple Developer ID credentials, and Play Console credentials explicitly out of this release-candidate slice.
+- Kept real IAP, StoreKit, Google Play Billing, Apple Developer ID credentials, and Play Console credentials explicitly out of this preliminary slice.
 
 ### iOS widgets, Live Activities, and snapshot contract prep
 - Added a design-only iOS widget and Dynamic Island spec covering small pinned-flight widgets, medium FIDS-style board widgets, compact/expanded Live Activities, empty/stale states, and the future data contract.
@@ -64,7 +114,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Continued separating public support/contact/report routes from operator-only Network Admin routes and secrets.
 
 ### Documentation and preview planning
-- Added preliminary `0.2.8` release notes without changing the active app/package target from `0.2.7`.
+- Added preliminary `0.2.8` release notes before this work was promoted into the `0.5.1` hardening line.
 - Documented `assets/previews/mobile/iOS/`, `assets/previews/mobile/Android/`, and `assets/previews/shell/` as the source hierarchy for public screenshots and website imagery.
 - Captured the preview priority order for public docs/site imagery: FIDS, Radar, History, Setup, Display, Splash.
 - Updated mobile documentation to point store/review/support/privacy flows at the Beacon Tools public website, including mobile trust, support, network, privacy, and privacy-choice pages.

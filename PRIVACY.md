@@ -15,13 +15,13 @@ Beacon Tools is the dev studio home for Local Flight. General/support questions 
 - Your config, API keys, snapshots, history, and logs stay on your own machine.
 - The desktop native GUI is a real Qt shell, not a webview. The primary client does not launch Chrome, Edge, Chromium, QWebEngine, or a browser profile.
 - Native mode avoids browser sync, extensions, cookies, browsing history, default-browser behavior, online fonts, and CDN assets for the main Local Flight window.
-- The LAN browser UI, LAN Companion mode, and Matrix board talk to your Local Flight server over your LAN. LAN Companion and Matrix do not call AeroDataBox, AviationStack, ADS-B Exchange, RapidAPI, OpenSky, VATSIM, or the hosted relay directly.
-- Mobile Standalone mode is the exception: it talks directly to the hosted relay as a simplified, rate-limited phone board.
+- The LAN browser UI, Companion mode, and Matrix board talk to your Local Flight server first. Companion prefers LAN. When Remote Companion is paired for a relay-linked host, the phone can fall back to the hosted relay with end-to-end encrypted request/response envelopes while the host stays online.
+- Mobile Standalone mode also talks directly to the hosted relay as a simplified, rate-limited phone board, but it is separate from Companion and does not use host grants.
 - Community mode can use the hosted Local Flight relay for shared schedules and relay-backed radar. Optional radar runway/surface/map/terrain layers use cached public data where available, stay opt-in/visual-only, and do not create Local Flight accounts or user profiles.
 - Richer FIDS/Radar/History detail views reuse data Local Flight already fetched or stored locally. Opening a detail panel should not trigger surprise per-flight paid provider calls.
 - Matrix gate/stand display uses existing real-world schedule fields when available. VATSIM Matrix presets hide gate data instead of inventing placeholders.
 - Manual reports are always your choice. First-run setup asks how diagnostics should work, saves that choice locally, and defaults to manual-only reporting.
-- LAN Companion automatic diagnostics require two yeses: the mobile app's local diagnostics choice and the connected server's diagnostics mode.
+- Companion automatic diagnostics require two yeses: the mobile app's local diagnostics choice and the connected server's diagnostics mode.
 - Mobile Standalone automatic diagnostics require the phone-local diagnostics choice because there is no paired server.
 - Developer reporting credentials are kept on the hosted relay, not in the desktop package, mobile app, installers, or docs.
 - Local Flight does not collect your email address during normal app use. If you email Beacon Tools directly, your email address and message are handled by the email provider so Beacon Tools can reply to you.
@@ -33,7 +33,7 @@ Beacon Tools is the dev studio home for Local Flight. General/support questions 
 
 - Flight snapshots, config, history, and logs stay under `~/.localflight/`.
 - Your airport settings, display preferences, and personal API keys stay in your local config and `.env`.
-- The native GUI, LAN browser UI, LAN Companion, and matrix board all talk to your local Local Flight server first. Native mode does not fetch online fonts, CDN assets, or a webview shell for the main UI.
+- The native GUI, LAN browser UI, Companion, and matrix board all talk to your local Local Flight server first. Remote Companion is only a fallback for paired phones when LAN is unavailable and the relay-linked host is online. Native mode does not fetch online fonts, CDN assets, or a webview shell for the main UI.
 - The optional local traffic log at `~/.localflight/requests.db` is visible only on your own Local Flight instance and is only enabled for explicit local network diagnostics.
 - Optional radar map data is simplified and cached locally for display use. It is not stored as raw provider payloads in reports or ordinary UI surfaces.
 - The Interstate 75 W board talks to your Local Flight server over your LAN. Its runtime settings live in `~/.localflight/matrix_config.json`.
@@ -42,6 +42,7 @@ Beacon Tools is the dev studio home for Local Flight. General/support questions 
 - Flight intelligence shown in FIDS, Radar, History, and Matrix is assembled from the current local snapshot, live radar cache, METAR/weather context, airport/surface context, and local history database. It is a display model, not a new background data-harvesting layer.
 - History displays deduped flight movements. Raw fetched observations remain local diagnostics so repeated snapshots and codeshares do not inflate public/client-facing counts.
 - Mobile Standalone stores its setup mode, relay install UUID, activation token, selected airport, appearance, diagnostics choice, pinned flight, and local deduped movement history on the device. Standalone history is not stored on the hosted relay.
+- Companion stores its paired server URL, companion ID, appearance, diagnostics choice, pinned flight, local profiles, and, when paired, a Remote Companion grant locally on the phone. The remote grant includes a public grant ref, relay URL, install ref, timestamps, revoked state, and a per-device AES-256-GCM secret kept on the phone and host, not on the relay.
 
 When you use the Matrix page to download a ready-to-flash `main.py`, the Wi-Fi details and server host are sent to your own Local Flight instance only long enough to render that file. They are not stored in `matrix_config.json`, the hosted relay, or crash reports.
 
@@ -75,6 +76,7 @@ The relay stores the minimum metadata needed to run that shared service safely:
 - per-install usage counts
 - last-seen timestamps (heartbeat or relay activity, ~30 min coarse cadence — not real-time presence)
 - token prefixes for relay-linked installs
+- Remote Companion public grant refs and coarse grant status for paired phones, when the host enables Remote Companion
 - one-way anonymous network tags for abuse protection
 - short-lived "current interest" rows, such as airport and display window, so shared schedule snapshots can be reused
 - short-lived shared schedule snapshots containing Local Flight canonical schedule records and cache metadata
@@ -89,12 +91,38 @@ The relay does **not** store:
 - your local flight history database
 - your phone's standalone local history database
 - your local app logs, unless you explicitly allow diagnostic reports with sanitized logs
+- Remote Companion AES secrets, decrypted request paths, decrypted request bodies, decrypted responses, provider keys, local LAN URLs, or host logs
 
 Community relay traffic has per-install quotas plus network/global safety caps. Duplicate reports are deduplicated before routing, so one noisy install should not spam every triage area.
 
 For public safety, the community relay also controls how often a shared airport snapshot can trigger a new upstream schedule fetch. Community Relay schedule choices are hourly-or-slower, and the relay can ask clients to back off when shared safety limits are reached. This keeps the public relay usable when many people watch the same busy airport at the same time.
 
 Mobile Standalone uses the same hosted relay but with stricter product limits: FIDS auto-refresh is 3 hours minimum, radar refresh is 5 minutes minimum, and radar ranges are limited to `1`, `3`, `5`, and `10` NM.
+
+Remote Companion uses the same hosted relay only as a routing layer for paired Companion phones. The host opens an outbound relay connection; there is no router port forwarding and no public tunnel to the host. The relay admits only active relay-linked installs and active, non-revoked grant refs. If the host is offline, the phone receives a clean offline state instead of an offline command queue.
+
+### Remote Companion Privacy Proof
+
+Remote Companion encrypts the Companion request path/body and the host response with AES-256-GCM before they pass through the relay. The authenticated metadata binds the install ref, grant ref, request id, and request/response direction so copied or replayed envelopes are rejected.
+
+The relay can see and store routing metadata needed to operate the service safely:
+
+- install ref and grant ref
+- request id
+- grant registration/revocation state
+- status code category, latency, byte sizes, and rate-limit counters
+- coarse relay activity timestamps
+
+The relay cannot read:
+
+- the Companion API path or body
+- Board, Radar, History, Matrix, or config payload contents
+- provider keys or secrets
+- local LAN URLs
+- raw logs or request logs
+- the AES secret shared by the paired phone and host
+
+Remote Companion grants are explicit and revocable. The host can revoke a phone from Settings. The phone can forget its stored remote grant and pair again later while on the LAN.
 
 ### Bring Your Own Keys
 
@@ -133,8 +161,8 @@ When you send a report yourself, Local Flight sends:
 - Python version
 - configured airport and source mode
 - schedule mode, diagnostics mode, and display window settings
-- the reporting surface, such as native GUI, LAN browser UI, server, LAN Companion, or Mobile Standalone
-- optional mobile context if the report came from LAN Companion or Mobile Standalone
+- the reporting surface, such as native GUI, LAN browser UI, server, Companion, or Mobile Standalone
+- optional mobile context if the report came from Companion or Mobile Standalone
 
 Manual reports are sanitized locally, forwarded to the hosted relay reporting gateway, deduplicated/rate-limited there, and then filed into Linear as the developer triage inbox.
 
@@ -180,11 +208,13 @@ Expo JS/React errors in the mobile app are covered by the current crash reporter
 
 The mobile app stores its setup choice locally on the device with Expo storage APIs.
 
-### LAN Companion
+### Companion
 
-LAN Companion stores its server URL, companion ID, appearance choice, pinned flight, local profiles, and mobile diagnostics choice locally on the device.
+Companion stores its server URL, companion ID, appearance choice, pinned flight, local profiles, and mobile diagnostics choice locally on the device.
 
 When it connects to your Local Flight server, it reports a companion-specific ID plus platform/device labels so companion-originated actions can be distinguished from desktop/server actions. That ID is install-scoped. It is not a login, an account, or a person profile.
+
+Companion uses the LAN path whenever the host is reachable. If Remote Companion has been paired, the same Companion surfaces can fall back to the relay when LAN is unreachable. Remote Companion does not create an account, does not open an inbound public tunnel to the host, does not queue commands while the host is offline, and does not expand Companion into arbitrary admin access.
 
 Automatic companion reports only send when:
 
@@ -259,10 +289,11 @@ Your local data is under your control. To wipe local app data, stop Local Flight
 | Config and personal API keys | Your machine | You |
 | Native GUI state and appearance | Your machine | You |
 | Mobile appearance/setup choices | Your phone/tablet | You |
+| Remote Companion phone grant secret | Your phone/tablet and paired Local Flight host | You |
 | Standalone mobile history | Your phone/tablet | You |
 | Local traffic log | Your machine | You, if network tools are enabled |
 | Flight history | Your machine | You |
 | Website contact messages | Hosted relay contact gateway, then support mailbox | Developer |
 | Manual reports, website bug reports, and automatic diagnostics | Hosted relay reporting gateway, then Linear developer triage inbox | Developer |
-| Community/standalone relay usage metadata and short-lived shared schedule/radar cache | Relay server | Relay operator |
+| Community/standalone/remote-companion relay usage metadata and short-lived shared schedule/radar cache | Relay server | Relay operator |
 | Cached radar surface/map/terrain geometry | Your machine and, for relay-backed surface/map data, short-lived hosted relay cache when optional overlays are enabled | You and relay operator |

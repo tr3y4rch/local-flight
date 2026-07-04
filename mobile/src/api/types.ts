@@ -29,6 +29,7 @@ export type AppConfig = {
   display_grace_minutes?: number;
   display_horizon_hours?: number;
   radar_surface_enabled?: boolean;
+  remote_companion_enabled?: boolean;
 };
 
 export type AppState = {
@@ -966,6 +967,7 @@ export type ConfigPatch = {
   refresh_seconds?: number;
   timezone?: string;
   display_name?: string;
+  remote_companion_enabled?: boolean;
 };
 
 export type RequestLogEntry = {

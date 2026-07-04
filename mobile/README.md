@@ -2,16 +2,16 @@
 
 React Native / Expo mobile app for Local Flight.
 
-The mobile app is an iOS-first private beta candidate with a working Android path. It is being prepared for TestFlight and Google Play testing, but public store downloads are not live yet. It supports two first-run paths:
+The mobile app is a store-bound beta candidate for TestFlight and Google Play, with iOS and Android validation paths. Public store downloads are not live yet. It supports two first-run paths:
 
-- **LAN Companion:** pair with the Local Flight desktop or Raspberry Pi server on your Wi-Fi/LAN.
+- **Companion:** pair with the Local Flight desktop or Raspberry Pi server on your Wi-Fi/LAN. Companion uses LAN first and can use encrypted Remote Companion fallback after a relay-linked host grants this phone access.
 - **Standalone:** use the hosted Local Flight relay directly for a simplified phone board. This is intentionally rate-limited to protect shared relay/API tokens.
 
-For most home setups, start with LAN Companion. Use Standalone when you want a light mobile FIDS/Radar/History app without running your own Local Flight server.
+For most home setups, start with Companion. Use Standalone when you want a light mobile FIDS/Radar/History app without running your own Local Flight server.
 
 Local Flight Mobile is a personal display aid. Flight, weather, radar, and airport-surface data can be delayed, incomplete, or unavailable, so it must not be used for navigation, dispatch, operational control, or safety decisions.
 
-The public front door for Mobile users is [beacontools.cc/local-flight/mobile](https://beacontools.cc/local-flight/mobile). Use that page for install guidance, release notes, support links, source links, and store metadata. The public privacy policy is [beacontools.cc/privacy](https://beacontools.cc/privacy). Standalone uses the Beacon Tools relay at `https://relay.beacontools.cc`.
+The public front door for Mobile users is [beacontools.cc/local-flight/mobile](https://beacontools.cc/local-flight/mobile). Use that page for install guidance, release notes, support links, source links, and store metadata. The public privacy policy is [beacontools.cc/privacy](https://beacontools.cc/privacy). Remote Companion and Standalone use the Beacon Tools relay at `https://relay.beacontools.cc` for different jobs: encrypted fallback for a paired host vs phone-only board data.
 
 > **Quick alternative:** if
 > you only need to glance at the board from a phone, you don't have
@@ -32,7 +32,7 @@ The public front door for Mobile users is [beacontools.cc/local-flight/mobile](h
 - Node.js 24 LTS recommended. Node.js 26 Current is also supported for local development. The repo includes a root `.nvmrc`; run `nvm use` from the project root if you use nvm and want the LTS default.
 - iPhone/iPad connected for device builds, or an iOS simulator
 - Android phone with USB debugging enabled, or an Android Studio emulator
-- For LAN Companion: Local Flight already running on the same Wi-Fi/LAN
+- For Companion: Local Flight already running on the same Wi-Fi/LAN. Remote Companion also requires a relay-linked host, an explicit remote QR grant, and the host online.
 - For Standalone: internet access to the hosted relay
 
 Expo SDK 55 targets React Native 0.83 and React 19.2. Run `npm run doctor` after install on the Mac to confirm the active Xcode, CocoaPods, and package versions are compatible.
@@ -144,7 +144,7 @@ Store identity is now locked to Beacon-owned IDs before the first App Store Conn
 
 Do not upload a store build with any old `com.localflight.*` identifier. App Store bundle IDs and Google Play package names are effectively permanent after first upload.
 
-Signed private beta artifacts are produced through EAS:
+Signed beta artifacts are produced through EAS:
 
 ```bash
 cd mobile
@@ -164,7 +164,7 @@ npx eas build -p ios --profile production
 npx eas build -p android --profile production
 ```
 
-The release build must keep LAN Mobile able to reach `http://localflight.local:8000` and private LAN IP addresses, while Standalone relay traffic stays HTTPS-only at `https://relay.beacontools.cc`. The release manifest should include camera, internet, and vibration only where needed; microphone, storage, and overlay permissions should not ship.
+The release build must keep Companion able to reach `http://localflight.local:8000` and private LAN IP addresses, while Remote Companion and Standalone relay traffic stay HTTPS-only at `https://relay.beacontools.cc`. The release manifest should include camera, internet, and vibration only where needed; microphone, storage, and overlay permissions should not ship.
 
 Before leaving Internal Testing, complete the Play Console setup:
 
@@ -176,7 +176,7 @@ Before leaving Internal Testing, complete the Play Console setup:
 
 On first launch, choose how this device should work.
 
-### LAN Companion
+### Companion
 
 Choose **Companion** in the app when you already run Local Flight on Windows, macOS, or Raspberry Pi.
 
@@ -191,6 +191,8 @@ Do not use `localhost` on a physical iPhone or Android phone. `localhost` means 
 
 For the easiest setup, open **Pair Mobile** from the native Qt Settings page or the LAN browser Settings page and scan the QR code. The QR is fingerprint-bound to the server that created it, and the same card shows manual LAN URL fallbacks when scanning is not convenient.
 
+Remote Companion is added from the same Pair Mobile area. Enable **Allow Remote Companion fallback**, save Settings, create a short-lived remote QR, and scan it while the phone is still on the LAN. After pairing, the phone shows a `LAN`, `REMOTE`, or `OFFLINE` state. LAN is always preferred. Remote is used only when LAN is unreachable, the host is online, and the remote grant is still active.
+
 ### Standalone
 
 Choose **Standalone** when this phone should use the hosted relay directly.
@@ -201,7 +203,7 @@ Standalone setup asks for:
 2. Mobile diagnostics choice
 3. Relay activation
 
-Standalone mode is deliberately simpler than the full LAN Companion path:
+Standalone mode is deliberately simpler than the full Companion path:
 
 - FIDS auto-refreshes no faster than every 3 hours.
 - Radar refreshes no faster than every 5 minutes.
@@ -223,20 +225,21 @@ The screenshot script builds a self-contained simulator app and captures portrai
 
 ## What Works Now
 
-- First-run setup choice for LAN Companion or Standalone
+- First-run setup choice for Companion or Standalone
 - Local Android development build path through Expo/Android Studio
-- LAN Companion daily surfaces: Board, Radar, History, and Control. Help & Reports lives inside Control instead of taking a bottom-nav slot.
+- Companion daily surfaces: Board, Radar, History, and Control. Help & Reports lives inside Control instead of taking a bottom-nav slot.
+- Remote Companion fallback for paired relay-linked hosts, including stored grant refs, LAN-first fallback, friendly offline/revoked messages, and a visible `LAN` / `REMOTE` / `OFFLINE` connection state.
 - Standalone daily surfaces: Board, Radar, History, and Settings
 - SecureStore persistence for setup mode, server URL, mobile install ID, standalone relay install ID, standalone activation token, standalone airport, mobile diagnostics mode, pinned flight, profiles, mobile appearance choices, and future widget preferences
-- LAN Companion connection checks against `/api/health`
-- LAN Companion dashboard data from `/api/mobile/summary` plus the existing local APIs
+- Companion connection checks against `/api/health`
+- Companion dashboard data from `/api/mobile/summary` plus the existing local APIs, with encrypted relay request/response envelopes used only after LAN fetch failure when a remote grant exists
 - QR pairing from native Settings prefers the server's LAN IP and carries the server fingerprint, so the app can reject a scan that resolves to another Local Flight host on a multi-server LAN
 - Standalone summary, FIDS, Radar, and METAR data from relay `/v1/mobile/*` endpoints
-- Native FIDS list from local `/api/fids` in LAN Companion mode and relay `/v1/mobile/fids` in Standalone mode
+- Native FIDS list from local `/api/fids` in Companion mode and relay `/v1/mobile/fids` in Standalone mode
 - Flight details from `/api/fids/detail`, including the server's shared current-source detail model for real vs VATSIM schedule, motion, aircraft, weather, source confidence, and history fields when available. VATSIM details use the same pilot/ATC contract as desktop: callsign, filed plan, pilot track, XPDR, and recent sessions, without passenger codeshare/gate/registration fields.
 - Airport, source, and refresh interval editing. The server offers 15, 30, 45, and 60 minute choices plus longer 2, 4, 8, 12, and 24 hour choices where the active schedule mode allows them. Local Flight Relay shows hourly-or-slower choices because shared airport snapshots protect upstream schedule access.
 - Pinned flight island with pin/unpin and tap-for-detail behavior
-- WebSocket listener for `/ws` `snapshot_updated`, `config_updated`, and `scheduler_restarted` events in LAN Companion mode only
+- WebSocket listener for `/ws` `snapshot_updated`, `config_updated`, and `scheduler_restarted` events in Companion mode on LAN. Remote Companion can fall back to polling when relay event forwarding is unavailable.
 - Independent mobile appearance with dark/light theme plus `standard`, `technical`, `neon`, `cyan`, and `crt` skins
 - Branded launch overlay with a continuous radar sweep, status text fade, breathing status dot, blinking board LED, and shared Local Flight wordmark text
 - Native-feeling interaction polish on key taps, chips, pinned-flight actions, and weather icon changes through haptics, press-scale feedback, and small transitions
@@ -244,21 +247,23 @@ The screenshot script builds a self-contained simulator app and captures portrai
 - Widget snapshot contract checks run through `npm run widget:contract` and are included in `npm run verify`
 - Companion Matrix live-remote controls from Control using the host Matrix runtime config APIs, focused on runtime settings such as timing, palette, weather badge visibility, gate display, brightness, row count, animation, and refresh cadence.
 - Fullscreen landscape FIDS from any screen, with normal portrait state restored when rotating back
-- Mobile-owned radar radius controls. LAN Companion uses the paired server for runway and airport-surface drawing; Standalone uses the relay mobile radar response for this pass.
+- Mobile-owned radar radius controls. Companion uses the paired server for runway and airport-surface drawing; Standalone uses the relay mobile radar response for this pass.
 - Local standalone movement history database with Expo SQLite
-- Feedback and crash reporting through the connected Local Flight server in LAN Companion mode, or directly through the Beacon Tools relay in Standalone mode
+- Feedback and crash reporting through the connected Local Flight server in Companion mode, or directly through the Beacon Tools relay in Standalone mode
 
-Standalone deliberately hides Matrix, Admin, scheduler restart, server-control panels, and LAN Companion check-in. The goal is a useful mobile board, not a mini desktop clone.
+Standalone deliberately hides Matrix, Admin, scheduler restart, server-control panels, and Companion check-in. The goal is a useful mobile board, not a mini desktop clone.
 
 ---
 
 ## Privacy Model
 
-### LAN Companion
+### Companion
 
-- It talks to your Local Flight server over your LAN.
+- It talks to your Local Flight server over your LAN first.
 - Prefer the LAN IP shown in Local Flight Settings when pairing. `localflight.local` remains useful for simple one-server networks, but it can resolve to the wrong host if a Pi and a dev machine are both running Local Flight.
-- It does not call AviationStack, ADS-B Exchange, RapidAPI, OpenSky, VATSIM, or the hosted relay directly.
+- Remote Companion can use the hosted relay only as an encrypted fallback for a paired relay-linked host. The relay sees grant/install refs, request ids, status, latency, and byte sizes, not decrypted board data, commands, provider keys, LAN URLs, or host logs.
+- Remote Companion requires the host to stay online. There is no account system, no router port forwarding, no public tunnel, and no offline command queue.
+- The host can revoke a remote grant from Local Flight Settings. The phone can forget its stored remote grant and pair again later.
 - Automatic mobile reports require both the mobile-local diagnostics choice and the connected server diagnostics mode to allow automatic reporting.
 - Manual reports remain available from the app.
 - Expo JS/React errors are covered by the current crash reporter. Native iOS crashes before JavaScript starts are not covered without a native crash-reporting service or Apple crash logs.
@@ -313,7 +318,8 @@ The intended Android support-tip flow is separate and later:
 - Public App Store release
 - Public Google Play production release
 - Wired native iOS WidgetKit / ActivityKit extension targets, App Groups, APNs, and production Live Activity updates
-- Per-device authorization/revoke tokens for broader mutating LAN controls. Current LAN Companion identifies each device with an install-scoped companion ID and check-in, while Standalone uses its relay activation token.
+- Remote Companion production proof on real Android and iOS devices before public store rollout.
+- Per-device authorization/revoke tokens for broader mutating LAN controls. Current Companion identifies each device with an install-scoped companion ID/check-in plus optional Remote Companion grant, while Standalone uses its relay activation token.
 - Production-ready admin permission model
 - Native crash capture before JavaScript starts
 - Full standalone flight-detail endpoint parity; Standalone currently focuses on Board, Radar, History, Settings, and reports
@@ -323,12 +329,12 @@ The intended Android support-tip flow is separate and later:
 
 ## Next
 
-- Per-device authorization/revoke tokens before broader mutating LAN admin controls
-- TestFlight private beta proof pass on a fresh real iPhone and iPad: Standalone setup, LAN QR/manual pairing, denied camera/local-network paths, support stub, and accessibility settings
+- Remote Companion release-gate proof: pair on LAN, confirm LAN-first, block LAN, load Board/Radar/History/Control through relay, restart scheduler, revoke grant, and confirm remote access stops.
+- TestFlight proof pass on a fresh real iPhone and iPad: Companion LAN/Remote pairing, Standalone setup, denied camera/local-network paths, support stub, and accessibility settings
 - App Store Connect privacy/review metadata using `APP_STORE_REVIEW_NOTES.md`
-- Google Play internal-test proof pass on a fresh Android phone: Standalone setup, LAN QR/manual pairing, denied camera path, support stub, permissions, and accessibility settings
+- Google Play internal-test proof pass on a fresh Android phone: Companion LAN/Remote pairing, Standalone setup, denied camera path, support stub, permissions, and accessibility settings
 - Play Console privacy/Data Safety/review metadata using `PLAY_STORE_REVIEW_NOTES.md`
-- Full standalone flight-detail endpoint parity if Standalone should expose the same detail sheet depth as LAN Companion
+- Full standalone flight-detail endpoint parity if Standalone should expose the same detail sheet depth as Companion
 - Real in-app purchase support tips after App Store Connect / Google Play Billing products, native purchase testing, and relay verification are ready
 - Broader Android device matrix pass after the first local Android smoke test
 - Optional React Navigation stack only if future deep links need true back-stack behavior

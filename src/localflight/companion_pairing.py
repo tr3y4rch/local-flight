@@ -11,13 +11,24 @@ DEFAULT_PAIRING_PORT = 8000
 PAIRING_SCHEME = "localflight"
 
 
-def build_pairing_deep_link(server_url: str, *, source: str = "qt", server_fingerprint: str = "") -> str:
+def build_pairing_deep_link(
+    server_url: str,
+    *,
+    source: str = "qt",
+    server_fingerprint: str = "",
+    extra: dict[str, object] | None = None,
+) -> str:
     """Return the reusable companion deep link for one Local Flight server."""
     normalized = _normalize_http_url(server_url)
     payload = {"server": normalized, "source": source}
     fingerprint = _normalize_server_fingerprint(server_fingerprint)
     if fingerprint:
         payload["server_fingerprint"] = fingerprint
+    for key, value in (extra or {}).items():
+        clean_key = str(key or "").strip()
+        clean_value = str(value or "").strip()
+        if clean_key and clean_value:
+            payload[clean_key] = clean_value
     query = urlencode(payload)
     return f"{PAIRING_SCHEME}://pair?{query}"
 
@@ -38,6 +49,37 @@ def pairing_gateway_payload(
         "server_fingerprint": fingerprint,
         "deep_link": build_pairing_deep_link(preferred_url, source="qt", server_fingerprint=fingerprint),
     }
+
+
+def remote_pairing_gateway_payload(
+    *,
+    invite: dict[str, object],
+    base_url: str = "",
+    port: int = DEFAULT_PAIRING_PORT,
+    server_fingerprint: str = "",
+) -> dict[str, object]:
+    """Build a short-lived Remote Companion pairing payload layered over LAN pairing."""
+    payload = pairing_gateway_payload(
+        base_url=base_url,
+        port=port,
+        server_fingerprint=server_fingerprint,
+    )
+    remote_fields = {
+        "remote": "1",
+        "relay": invite.get("relay_url") or "",
+        "install_ref": invite.get("install_ref") or "",
+        "invite_id": invite.get("invite_id") or "",
+        "remote_key": invite.get("remote_key") or "",
+        "expires_at": invite.get("expires_at") or "",
+    }
+    payload["remote_invite"] = remote_fields
+    payload["deep_link"] = build_pairing_deep_link(
+        str(payload.get("preferred_url") or ""),
+        source="qt",
+        server_fingerprint=str(payload.get("server_fingerprint") or ""),
+        extra=remote_fields,
+    )
+    return payload
 
 
 def lan_url_candidates(*, base_url: str = "", port: int = DEFAULT_PAIRING_PORT) -> list[str]:
@@ -163,4 +205,5 @@ __all__ = [
     "lan_url_candidates",
     "pairing_gateway_payload",
     "pairing_qr_png_bytes",
+    "remote_pairing_gateway_payload",
 ]

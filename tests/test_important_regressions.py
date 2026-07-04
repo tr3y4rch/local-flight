@@ -1610,7 +1610,7 @@ def test_provider_key_settings_schedule_key_switches_to_direct_private_path(tmp_
     assert values["LOCALFLIGHT_REAL_SCHEDULE_PROVIDER"] == "auto"
 
 
-def test_provider_status_merges_env_file_and_process_with_privacy_posture(tmp_path: Path, monkeypatch) -> None:
+def test_provider_status_treats_dotenv_provider_keys_as_authoritative(tmp_path: Path, monkeypatch) -> None:
     env_file = tmp_path / ".env"
     env_file.write_text(
         "AERODATABOX_API_KEY=file-adb-secret\n"
@@ -1629,21 +1629,132 @@ def test_provider_status_merges_env_file_and_process_with_privacy_posture(tmp_pa
     monkeypatch.setenv("LOCALFLIGHT_AERODATABOX_ENABLED", "0")
     monkeypatch.setenv("AVIATIONSTACK_API_KEY", "process-aviation-secret")
     monkeypatch.setenv("LOCALFLIGHT_AVIATIONSTACK_ENABLED", "1")
+    monkeypatch.setenv("LOCALFLIGHT_GUI_MODE", "browser")
     monkeypatch.setattr(provider_keys, "env_path", lambda: env_file)
     monkeypatch.setattr(provider_keys, "load_config", lambda: AppConfig(source="real"))
 
     status = provider_keys.provider_status()
     dumped = json.dumps(status)
 
-    assert status["active_path"] == "AviationStack direct"
+    effective = provider_keys.provider_env_values(env_file)
+    assert effective["AERODATABOX_API_KEY"] == "file-adb-secret"
+    assert effective["LOCALFLIGHT_AERODATABOX_ENABLED"] == "1"
+    assert "AVIATIONSTACK_API_KEY" not in effective
+    assert "LOCALFLIGHT_AVIATIONSTACK_ENABLED" not in effective
+    assert effective["LOCALFLIGHT_GUI_MODE"] == "browser"
+    assert status["active_path"] == "AeroDataBox direct"
     assert status["privacy_posture"] == "direct_private"
     assert status["aerodatabox"]["configured"] is True
-    assert status["aerodatabox"]["enabled"] is False
-    assert status["aviationstack"]["configured"] is True
-    assert status["aviationstack"]["enabled"] is True
+    assert status["aerodatabox"]["enabled"] is True
+    assert status["aviationstack"]["configured"] is False
+    assert status["aviationstack"]["enabled"] is False
     assert "file-adb-secret" not in dumped
     assert "process-aviation-secret" not in dumped
     assert "file-relay-token" not in dumped
+
+
+def test_setup_complete_community_clears_stale_direct_provider_env(tmp_path: Path, monkeypatch) -> None:
+    env_file = tmp_path / ".env"
+    config_file = tmp_path / ".localflight" / "config.json"
+    config_file.parent.mkdir(parents=True, exist_ok=True)
+    env_file.write_text(
+        "AERODATABOX_API_KEY=old-adb\n"
+        "AVIATIONSTACK_API_KEY=old-as\n"
+        "RAPIDAPI_KEY=old-rapid\n"
+        "LOCALFLIGHT_AERODATABOX_ENABLED=1\n"
+        "LOCALFLIGHT_AVIATIONSTACK_ENABLED=1\n"
+        "LOCALFLIGHT_ACTIVATION_TOKEN=old-managed-token\n"
+        "LOCALFLIGHT_RELAY_URL=https://old-relay.example\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(storage_config, "config_path", lambda: config_file)
+    monkeypatch.setattr(ui_server, "provider_env_path", lambda: env_file)
+    monkeypatch.setattr(provider_keys, "env_path", lambda: env_file)
+    monkeypatch.setattr("localflight.sources.web.relay_beat.fire_heartbeat", lambda: None)
+    monkeypatch.setattr("localflight.ui.events.notify_config_updated", lambda *args, **kwargs: None)
+    monkeypatch.setattr("localflight.ui.events.restart_scheduler_and_notify", lambda *args, **kwargs: None)
+    monkeypatch.setattr("localflight.storage.install.set_activation_token", lambda token: None)
+    for key, value in {
+        "AERODATABOX_API_KEY": "stale-process-adb",
+        "AVIATIONSTACK_API_KEY": "stale-process-as",
+        "RAPIDAPI_KEY": "stale-process-rapid",
+        "LOCALFLIGHT_AERODATABOX_ENABLED": "1",
+        "LOCALFLIGHT_AVIATIONSTACK_ENABLED": "1",
+        "LOCALFLIGHT_ACTIVATION_TOKEN": "stale-process-token",
+        "LOCALFLIGHT_RELAY_URL": "https://stale-process-relay.example",
+    }.items():
+        monkeypatch.setenv(key, value)
+
+    response = TestClient(app).post(
+        "/api/setup/complete",
+        json={
+            "setup_mode": "community",
+            "source": "real",
+            "airport_iata": "ZRH",
+            "airport_icao": "LSZH",
+            "timezone": "Europe/Zurich",
+            "relay_url": "https://relay.beacontools.cc",
+        },
+    )
+
+    assert response.status_code == 200
+    values = ui_server.read_provider_env(env_file)
+    assert values["LOCALFLIGHT_RELAY_URL"] == "https://relay.beacontools.cc"
+    assert values["LOCALFLIGHT_AERODATABOX_ENABLED"] == "0"
+    assert values["LOCALFLIGHT_AVIATIONSTACK_ENABLED"] == "0"
+    for key in ("AERODATABOX_API_KEY", "AVIATIONSTACK_API_KEY", "RAPIDAPI_KEY", "LOCALFLIGHT_ACTIVATION_TOKEN"):
+        assert key not in values
+        assert os.environ.get(key) is None
+    assert os.environ["LOCALFLIGHT_RELAY_URL"] == "https://relay.beacontools.cc"
+
+
+def test_setup_complete_managed_clears_direct_keys_and_keeps_activation(tmp_path: Path, monkeypatch) -> None:
+    env_file = tmp_path / ".env"
+    config_file = tmp_path / ".localflight" / "config.json"
+    config_file.parent.mkdir(parents=True, exist_ok=True)
+    env_file.write_text(
+        "AERODATABOX_API_KEY=old-adb\n"
+        "AVIATIONSTACK_API_KEY=old-as\n"
+        "LOCALFLIGHT_AERODATABOX_ENABLED=1\n"
+        "LOCALFLIGHT_AVIATIONSTACK_ENABLED=1\n",
+        encoding="utf-8",
+    )
+    saved_tokens: list[str] = []
+    monkeypatch.setattr(storage_config, "config_path", lambda: config_file)
+    monkeypatch.setattr(ui_server, "provider_env_path", lambda: env_file)
+    monkeypatch.setattr(provider_keys, "env_path", lambda: env_file)
+    monkeypatch.setattr("localflight.sources.web.relay_beat.fire_heartbeat", lambda: None)
+    monkeypatch.setattr("localflight.ui.events.notify_config_updated", lambda *args, **kwargs: None)
+    monkeypatch.setattr("localflight.ui.events.restart_scheduler_and_notify", lambda *args, **kwargs: None)
+    monkeypatch.setattr("localflight.storage.install.set_activation_token", lambda token: saved_tokens.append(token))
+    monkeypatch.setenv("AERODATABOX_API_KEY", "stale-process-adb")
+    monkeypatch.setenv("AVIATIONSTACK_API_KEY", "stale-process-as")
+
+    response = TestClient(app).post(
+        "/api/setup/complete",
+        json={
+            "setup_mode": "managed",
+            "source": "real",
+            "airport_iata": "DXB",
+            "airport_icao": "OMDB",
+            "timezone": "Asia/Dubai",
+            "activation_token": "managed-token",
+            "relay_url": "https://relay.beacontools.cc",
+        },
+    )
+
+    assert response.status_code == 200
+    values = ui_server.read_provider_env(env_file)
+    assert values["LOCALFLIGHT_ACTIVATION_TOKEN"] == "managed-token"
+    assert values["LOCALFLIGHT_RELAY_URL"] == "https://relay.beacontools.cc"
+    assert values["LOCALFLIGHT_AERODATABOX_ENABLED"] == "0"
+    assert values["LOCALFLIGHT_AVIATIONSTACK_ENABLED"] == "0"
+    assert "AERODATABOX_API_KEY" not in values
+    assert "AVIATIONSTACK_API_KEY" not in values
+    assert os.environ.get("AERODATABOX_API_KEY") is None
+    assert os.environ.get("AVIATIONSTACK_API_KEY") is None
+    assert os.environ["LOCALFLIGHT_ACTIVATION_TOKEN"] == "managed-token"
+    assert saved_tokens == ["managed-token"]
 
 
 def test_lan_settings_hides_provider_keys_for_relay_and_virtual_modes(tmp_path: Path, monkeypatch) -> None:
@@ -5553,7 +5664,7 @@ def test_feedback_api_routes_mobile_reports_with_ios_origin(monkeypatch) -> None
         json={
             "title": "Mobile button issue",
             "description": "The board detail drawer feels stuck",
-            "client_context": "App mode      LAN Companion\nMobile OS     iOS 18.0\nMobile ID     lfc_ios_test",
+            "client_context": "App mode      Companion\nMobile OS     iOS 18.0\nMobile ID     lfc_ios_test",
         },
     )
 
@@ -5605,13 +5716,13 @@ def test_feedback_api_routes_android_companion_reports_as_mobile(monkeypatch) ->
         json={
             "title": "Android companion button issue",
             "description": "The Control row opened the wrong thing",
-            "client_context": "App mode      LAN Companion\nMobile OS     Android 16 (phone)\nMobile ID     lfc_android_test",
+            "client_context": "App mode      Companion\nMobile OS     Android 16 (phone)\nMobile ID     lfc_android_test",
         },
     )
 
     assert response.status_code == 200
     assert submitted[0]["origin"] == "android"
-    assert "LAN Companion" in submitted[0]["client_context"]
+    assert "Companion" in submitted[0]["client_context"]
     assert "Android 16" in submitted[0]["client_context"]
     assert response.json()["team"] == "ios"
 
@@ -5658,7 +5769,7 @@ def test_feedback_crash_api_routes_mobile_crashes_with_context(monkeypatch) -> N
             "message": "Mobile render crash",
             "traceback": "stack",
             "context": "mobile/manual-auto-test",
-            "client_context": "App mode      LAN Companion\nMobile OS     iOS 18.0\nMobile ID     lfc_ios_test",
+            "client_context": "App mode      Companion\nMobile OS     iOS 18.0\nMobile ID     lfc_ios_test",
         },
     )
 

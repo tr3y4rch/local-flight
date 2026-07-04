@@ -1397,7 +1397,7 @@ def test_relay_reports_route_to_platform_teams(tmp_path: Path, monkeypatch) -> N
         assert f"**Linear team bucket:** {team}" in filed[-1]["description"]
         assert f"**Context:** `{context}`" in filed[-1]["description"]
 
-    assert filed[0]["title"].startswith("[iOS][LAN Companion][Crash]")
+    assert filed[0]["title"].startswith("[iOS][Companion][Crash]")
     assert filed[1]["title"].startswith("[Web][Crash]")
     assert filed[2]["title"].startswith("[Server][Crash]")
     assert filed[3]["title"].startswith("[Relay][Crash]")

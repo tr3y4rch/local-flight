@@ -26,7 +26,9 @@ import {
   getFids,
   getHistory,
   getHistorySummary,
+  getLastCompanionTransport,
   getMobileSummary,
+  configureRemoteCompanionGrant,
   getRadar,
   getRadarGround,
   normalizeServerUrl,
@@ -38,6 +40,7 @@ import {
   testConnection,
   wsUrl
 } from "../api/client";
+import { completeRemoteCompanionPairing } from "../api/remoteCompanion";
 import {
   getStandaloneRadarGround,
   getStandaloneFids,
@@ -79,7 +82,8 @@ import {
   pairingFingerprintProblem,
   pairingServerUrlProblem,
   parsePairingLink,
-  type PairingLinkResult
+  type PairingLinkResult,
+  type RemoteCompanionInvite
 } from "../domain/pairing";
 import type {
   FeedbackTone,
@@ -110,6 +114,7 @@ import {
   type MobileRadarDrawingLayers,
   type MobileDiagnosticsMode,
   type MobileSetupState,
+  type RemoteCompanionGrant,
   type MobileWidgetPreferences,
   type MobileWeatherDisplayMode,
   saveMobileDiagnosticsMode,
@@ -257,6 +262,7 @@ export function AppShell() {
   const [serverUrl, setServerUrl] = useState("");
   const [draftUrl, setDraftUrl] = useState("");
   const [connected, setConnected] = useState(false);
+  const [companionTransport, setCompanionTransport] = useState<"lan" | "remote">("lan");
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [activity, setActivity] = useState<ActivityStatus | null>(null);
@@ -302,6 +308,8 @@ export function AppShell() {
   const [launchHydrated, setLaunchHydrated] = useState(false);
   const [pairingUrl, setPairingUrl] = useState("");
   const [pairingExpectedServerFingerprint, setPairingExpectedServerFingerprint] = useState("");
+  const [pairingRemoteInvite, setPairingRemoteInvite] = useState<RemoteCompanionInvite | null>(null);
+  const [pendingRemoteCompanionGrant, setPendingRemoteCompanionGrant] = useState<RemoteCompanionGrant | null>(null);
   const [pairingNonce, setPairingNonce] = useState(0);
   const [pairingNotice, setPairingNotice] = useState<string | null>(null);
   const [serverPanelRequest, setServerPanelRequest] = useState(0);
@@ -416,6 +424,9 @@ export function AppShell() {
   const mobileSetupComplete = launchHydrated && isMobileSetupComplete(mobileSetupState, serverUrl, mobileDiagnosticsMode);
   const dismissSetupSuccess = useCallback(() => setSetupSuccess(null), []);
   const isStandalone = mobileSetupState.mode === "standalone";
+  useEffect(() => {
+    configureRemoteCompanionGrant(isStandalone ? null : mobileSetupState.remoteCompanion);
+  }, [isStandalone, mobileSetupState.remoteCompanion]);
   const standaloneCredentials: StandaloneCredentials | null = useMemo(() =>
     isStandalone &&
     mobileSetupState.relayInstallId &&
@@ -489,6 +500,7 @@ export function AppShell() {
     setDraftUrl(parsed.serverUrl);
     setPairingUrl(parsed.serverUrl);
     setPairingExpectedServerFingerprint(parsed.expectedServerFingerprint || "");
+    setPairingRemoteInvite(parsed.remoteCompanionInvite || null);
     setPairingNonce((value) => value + 1);
     setActionRow(null);
     setConfigSheetVisible(false);
@@ -498,7 +510,9 @@ export function AppShell() {
       setScreen("control");
       setServerPanelRequest((value) => value + 1);
       setPairingNotice(
-        `Pairing link loaded from ${parsed.source.toUpperCase()}. Tap CONNECT to pair this device with ${parsed.serverUrl}.`
+        parsed.remoteCompanionInvite
+          ? `Remote Companion invite loaded from ${parsed.source.toUpperCase()}. Tap CONNECT while on this LAN to pair relay fallback.`
+          : `Pairing link loaded from ${parsed.source.toUpperCase()}. Tap CONNECT to pair this device with ${parsed.serverUrl}.`
       );
     } else {
       setError(null);
@@ -539,11 +553,15 @@ export function AppShell() {
       return;
     }
     if (serverUrl && mode !== "unset") {
-      const nextSetupState = completeMobileSetupState(serverUrl, mode);
+      const nextSetupState = completeMobileSetupState(
+        serverUrl,
+        mode,
+        mobileSetupState.remoteCompanion || pendingRemoteCompanionGrant
+      );
       await saveMobileSetupState(nextSetupState);
       setMobileSetupState(nextSetupState);
     }
-  }, [isStandalone, mobileSetupState, serverUrl]);
+  }, [isStandalone, mobileSetupState, pendingRemoteCompanionGrant, serverUrl]);
 
   useEffect(() => {
     let alive = true;
@@ -803,6 +821,9 @@ export function AppShell() {
         if (includeDashboard) {
           try {
             await fetchDashboard(normalized);
+            if (!isStandalone) {
+              setCompanionTransport(getLastCompanionTransport());
+            }
           } catch (exc) {
             setConnected(false);
             setError(errorMessage(exc));
@@ -822,6 +843,9 @@ export function AppShell() {
             await fetchRadarData(normalized, nextRadarRadius, forceRadarGround);
           } else if (target === "control") {
             await fetchMatrixRuntime(normalized);
+          }
+          if (!isStandalone) {
+            setCompanionTransport(getLastCompanionTransport());
           }
         } catch (exc) {
           setError(errorMessage(exc));
@@ -857,7 +881,11 @@ export function AppShell() {
     ]
   );
 
-  const connect = useCallback(async (candidateUrl = draftUrl, expectedServerFingerprint = "") => {
+  const connect = useCallback(async (
+    candidateUrl = draftUrl,
+    expectedServerFingerprint = "",
+    remoteInvite: RemoteCompanionInvite | null = pairingRemoteInvite
+  ) => {
     const normalized = normalizeServerUrl(candidateUrl);
     setLoading(true);
     setActivity({
@@ -879,17 +907,26 @@ export function AppShell() {
       } else {
         await testConnection(normalized);
       }
+      const remoteGrant = remoteInvite
+        ? await completeRemoteCompanionPairing(normalized, remoteInvite)
+        : null;
+      if (remoteGrant) {
+        setPendingRemoteCompanionGrant(remoteGrant);
+        configureRemoteCompanionGrant(remoteGrant);
+      }
       await saveServerUrl(normalized);
       if (mobileDiagnosticsMode !== "unset") {
-        const nextSetupState = completeMobileSetupState(normalized, mobileDiagnosticsMode);
+        const nextSetupState = completeMobileSetupState(normalized, mobileDiagnosticsMode, remoteGrant);
         await saveMobileSetupState(nextSetupState);
         setMobileSetupState(nextSetupState);
       }
       setServerUrl(normalized);
       setDraftUrl(normalized);
+      setCompanionTransport("lan");
       setPairingNotice(null);
       setPairingUrl("");
       setPairingExpectedServerFingerprint("");
+      setPairingRemoteInvite(null);
       setScreen("fids");
       hapticSuccess();
     } catch (exc) {
@@ -900,15 +937,20 @@ export function AppShell() {
       setLoading(false);
       setActivity(null);
     }
-  }, [draftUrl, mobileDiagnosticsMode]);
+  }, [draftUrl, mobileDiagnosticsMode, pairingRemoteInvite]);
 
   const connectPairingUrl = useCallback((pairing: PairingLinkResult) => {
     setDraftUrl(pairing.serverUrl);
     setPairingUrl(pairing.serverUrl);
     setPairingExpectedServerFingerprint(pairing.expectedServerFingerprint || "");
+    setPairingRemoteInvite(pairing.remoteCompanionInvite || null);
     setPairingNonce((value) => value + 1);
-    setPairingNotice(`Pairing QR loaded. Connecting this mobile app to ${pairing.serverUrl}.`);
-    void connect(pairing.serverUrl, pairing.expectedServerFingerprint);
+    setPairingNotice(
+      pairing.remoteCompanionInvite
+        ? `Remote Companion QR loaded. Connecting to ${pairing.serverUrl} while this phone is on the LAN.`
+        : `Pairing QR loaded. Connecting this mobile app to ${pairing.serverUrl}.`
+    );
+    void connect(pairing.serverUrl, pairing.expectedServerFingerprint, pairing.remoteCompanionInvite || null);
   }, [connect]);
 
   const chooseRadarDrawingLayers = useCallback(async (next: MobileRadarDrawingLayers) => {
@@ -982,7 +1024,16 @@ export function AppShell() {
       throw new Error("Mobile setup did not return a server URL and config.");
     }
     const normalized = normalizeServerUrl(nextServerUrl);
-    const nextSetupState = completeMobileSetupState(normalized, diagnosticsMode);
+    const remoteGrant = pendingRemoteCompanionGrant || (
+      pairingRemoteInvite
+        ? await completeRemoteCompanionPairing(normalized, pairingRemoteInvite)
+        : null
+    );
+    if (remoteGrant) {
+      configureRemoteCompanionGrant(remoteGrant);
+      setPendingRemoteCompanionGrant(remoteGrant);
+    }
+    const nextSetupState = completeMobileSetupState(normalized, diagnosticsMode, remoteGrant);
     await Promise.all([
       saveServerUrl(normalized),
       saveMobileDiagnosticsMode(diagnosticsMode),
@@ -995,9 +1046,11 @@ export function AppShell() {
     setMobileSetupState(nextSetupState);
     setSnapshot((prev) => ({ ...prev, config }));
     setConnected(true);
+    setCompanionTransport("lan");
     setError(null);
     setPairingNotice(null);
     setPairingUrl("");
+    setPairingRemoteInvite(null);
     setScreen("fids");
     setSetupSuccess({
       mode: "lan_companion",
@@ -1007,7 +1060,7 @@ export function AppShell() {
     });
     hapticSuccess();
     void refreshScreen({ nextUrl: normalized, target: "fids" });
-  }, [refreshScreen]);
+  }, [pairingRemoteInvite, pendingRemoteCompanionGrant, refreshScreen]);
 
   const rerunCompanionSetup = useCallback(async () => {
     const nextSetupState = incompleteMobileSetupState(isStandalone ? "" : serverUrl, mobileDiagnosticsMode);
@@ -1028,7 +1081,27 @@ export function AppShell() {
     closeFlightDetail();
     setError(null);
     setSetupSuccess(null);
+    setPendingRemoteCompanionGrant(null);
+    setPairingRemoteInvite(null);
+    configureRemoteCompanionGrant(null);
+    setCompanionTransport("lan");
   }, [closeFlightDetail, isStandalone, mobileDiagnosticsMode, serverUrl]);
+
+  const forgetRemoteCompanion = useCallback(async () => {
+    if (isStandalone || !mobileSetupState.complete || mobileSetupState.mode !== "lan_companion") {
+      return;
+    }
+    const nextSetupState = {
+      ...mobileSetupState,
+      remoteCompanion: null
+    };
+    await saveMobileSetupState(nextSetupState);
+    setMobileSetupState(nextSetupState);
+    setPendingRemoteCompanionGrant(null);
+    configureRemoteCompanionGrant(null);
+    setCompanionTransport("lan");
+    setPairingNotice("Remote Companion fallback forgotten on this phone. Pair again from Local Flight Settings to restore away-from-LAN access.");
+  }, [isStandalone, mobileSetupState]);
 
   const restartSchedulerNow = useCallback(async () => {
     const normalized = normalizeServerUrl(serverUrl);
@@ -1336,7 +1409,7 @@ export function AppShell() {
   const isLive = connected && state?.ok !== false;
   const connectionState: ConnectionState = error
     ? refreshing ? "retrying" : "offline"
-    : isLive ? "live" : "offline";
+    : isLive ? (isStandalone ? "live" : companionTransport) : "offline";
   const radarSyncIntervalMs = Math.min(
     30 * 60 * 1000,
     Math.max(60 * 1000, (lastRadarRefreshAfterRef.current || 60) * 1000)
@@ -1495,6 +1568,11 @@ export function AppShell() {
             pairingNonce={pairingNonce}
             pairingExpectedServerFingerprint={pairingExpectedServerFingerprint}
             initialDiagnosticsMode={mobileDiagnosticsMode}
+            onPairingLoaded={(pairing) => {
+              setPairingUrl(pairing.serverUrl);
+              setPairingExpectedServerFingerprint(pairing.expectedServerFingerprint || "");
+              setPairingRemoteInvite(pairing.remoteCompanionInvite || null);
+            }}
             onComplete={completeCompanionSetup}
           />
         ) : null}
@@ -1758,6 +1836,8 @@ export function AppShell() {
                   matrixSaveTone={matrixSaveTone}
                   companionIdentity={companionIdentity}
                   connected={isLive}
+                  connectionState={connectionState}
+                  remoteCompanionGrant={mobileSetupState.remoteCompanion || null}
                   onThemeModeChange={setThemeMode}
                   onSkinChange={setSkin}
                   onWeatherDisplayModeChange={chooseWeatherDisplayMode}
@@ -1815,6 +1895,7 @@ export function AppShell() {
                   onSubmitFeedback={sendFeedbackReport}
                   onRestartScheduler={restartSchedulerNow}
                   onRerunSetup={rerunCompanionSetup}
+                  onForgetRemoteCompanion={() => void forgetRemoteCompanion()}
                   onChangeUrl={setDraftUrl}
                   onPairingUrl={connectPairingUrl}
                   onConnect={() => void connect()}

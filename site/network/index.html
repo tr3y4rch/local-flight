@@ -36,7 +36,7 @@
         <div class="hero-content">
           <div class="eyebrow">Beacon Tools Network</div>
           <h1>How the shared relay helps Local Flight.</h1>
-          <p class="lede">The Beacon Tools relay is an optional shared service that helps Local Flight and phone-only mobile mode work without every user managing their own aviation data keys.</p>
+          <p class="lede">The Beacon Tools relay is an optional shared service that helps Local Flight, Remote Companion fallback, and phone-only mobile mode work without every user managing their own aviation data keys or opening inbound router ports.</p>
           <div class="status-strip">
             <span class="status-chip">Public relay: relay.beacontools.cc</span>
             <span class="status-chip">Shared cached boards</span>
@@ -52,7 +52,7 @@
           <div class="grid two">
             <article class="card good-card">
               <h3>Public relay URL</h3>
-              <p><code>https://relay.beacontools.cc</code><br>Local Flight can use this relay for activation, shared airport boards, radar/weather helpers, phone app data, and reports you choose to send.</p>
+              <p><code>https://relay.beacontools.cc</code><br>Local Flight can use this relay for activation, shared airport boards, radar/weather helpers, Remote Companion encrypted routing, phone app data, and reports you choose to send.</p>
             </article>
             <article class="card warning-card">
               <h3>What stays private</h3>
@@ -73,6 +73,7 @@
           <ul class="console-list">
             <li>Reuses cached airport boards so multiple personal installs can watch the same airport without each one making separate upstream requests.</li>
             <li>Keeps refreshes intentionally modest to protect shared limits and keep the community path sustainable.</li>
+            <li>Routes encrypted Remote Companion messages for explicitly paired phones when they cannot reach the host on LAN. The host must be online, and the relay cannot read the Companion request or response.</li>
             <li>Lets phone-only mobile mode work without your desktop app or Raspberry Pi being online.</li>
             <li>Can forward reports only when you choose to send them, while keeping shared data keys and maintenance details out of the app.</li>
           </ul>

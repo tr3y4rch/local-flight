@@ -4,7 +4,7 @@ Local Flight is a local-first Flight Information Display System (FIDS) for Windo
 
 It fetches real or virtual flight data, keeps a local history, and renders airport-style departures, arrivals, radar, weather, and Matrix feeds without accounts or a signup wall.
 
-The recommended desktop client is now the native Qt app. The LAN browser UI, Pi display modes, Matrix board, and LAN Companion mode all use the same local server underneath, so you can pick the display style that fits your setup without splitting the app into different products. The same Expo mobile app can also run in a simplified Standalone mode through the hosted relay when you only want a light phone board.
+The recommended desktop client is now the native Qt app. The LAN browser UI, Pi display modes, Matrix board, and Companion mode all use the same local server underneath, so you can pick the display style that fits your setup without splitting the app into different products. Mobile Companion uses LAN first and can keep working away from Wi-Fi through encrypted Remote Companion when a relay-linked host and paired phone grant are available. The same mobile app can also run in a simplified Standalone mode through the hosted relay when you only want a light phone board.
 
 - **Website:** [beacontools.cc/local-flight](https://beacontools.cc/local-flight)
 - **Privacy:** [beacontools.cc/privacy](https://beacontools.cc/privacy)
@@ -16,12 +16,12 @@ The recommended desktop client is now the native Qt app. The LAN browser UI, Pi 
 
 ## Status
 
-`0.2.7` is the current client-polish release-candidate target on top of the `0.2.6` beta baseline. Preliminary `0.2.8` notes are now tracking the next polish line, but packaged artifacts are still considered `0.2.7` until the version is deliberately bumped. It is still beta software, but this pass treats Local Flight as a working multi-client app:
+`0.5.1` is the public-release hardening target for desktop and Raspberry Pi, with the mobile app moving toward Play Store/TestFlight release after the Remote Companion privacy/connectivity proof pass. It is still beta software, but this line treats Local Flight as a working multi-client ecosystem instead of a prototype:
 
 - Native desktop app for Windows and macOS, with four switchable FIDS board styles (Classic / PAX / VATSIM / Nerd) that each render their own design
 - LAN browser UI that mirrors the native Qt shell — same nav, same tokens, same components — with an automatic mobile view for phones and a compact layout for 7" Raspberry Pi screens
 - Raspberry Pi headless server, native Qt HDMI kiosk, or Chromium HDMI kiosk
-- Mobile developer preview with LAN Companion and Standalone setup modes. iOS is the primary validation path; Android local development builds are supported.
+- Mobile developer preview with Companion, encrypted Remote Companion fallback for paired relay-linked hosts, and Standalone setup modes. iOS and Android are both validation paths for store-bound releases.
 - Interstate 75 W / HUB75 Matrix client and preview tools
 - Beacon Tools public site and privacy page for release/App Store/TestFlight metadata
 
@@ -36,7 +36,7 @@ The recommended desktop client is now the native Qt app. The LAN browser UI, Pi 
 | A Pi plugged into an HDMI display | Native Qt kiosk or Chromium kiosk |
 | A Pi with a 7" touch screen | LAN browser UI — auto-compacts at 800×480 / 1024×600 |
 | Viewing from another device | LAN browser UI at `http://localflight.local:8000` |
-| iPhone/iPad controls for your desktop/Pi server | Mobile LAN Companion from `mobile/` |
+| iPhone/iPad controls for your desktop/Pi server, at home or away | Mobile Companion with Remote Companion fallback from `mobile/` |
 | A simplified phone board without running your own server | Mobile Standalone from `mobile/` |
 | A small LED board | Matrix page + Interstate 75 W client |
 
@@ -45,8 +45,8 @@ Read the detailed guides:
 - [Install Guide](docs/install.md)
 - [Display Modes](docs/display-modes.md)
 - [Privacy & Diagnostics](PRIVACY.md)
+- [0.5.1 Public Release Notes](docs/release-notes-0.5.1.md)
 - [0.2.7 Client Notes](docs/release-notes-0.2.7.md)
-- [0.2.8 Preliminary Notes](docs/release-notes-0.2.8.md)
 - [Full Changelog](CHANGELOG.md)
 
 ---
@@ -62,7 +62,7 @@ Read the detailed guides:
 - Native Qt desktop shell with Display, FIDS, Radar, Matrix, Settings, Admin, History, Logs, Report, and local docs
 - Settings page built from clear disclosure cards instead of opaque checkbox-titled groups; the LAN browser Settings page now follows the same folder rhythm and includes Pair Mobile QR/manual pairing controls.
 - LAN browser UI for headless installs, remote screens, tablets, phones, and browser-mode displays, with compact layouts for 7" Pi touch screens and browser-side access to the same Companion pairing tools as the Qt shell
-- Mobile app with a first-run choice between **LAN Companion** and **Standalone**: Companion focuses on Board, Radar, History, and Control for an existing desktop/Pi host, with Help & Reports tucked into Control and safe Matrix live-remote controls where they make sense. Standalone offers a simpler FIDS/Radar/History/Settings experience through the Beacon Tools relay with slower refreshes and no server-control tools. The mobile shell keeps its own appearance, branded launch overlay, and small native-feeling interactions.
+- Mobile app with a first-run choice between **Companion** and **Standalone**: Companion focuses on Board, Radar, History, and Control for an existing desktop/Pi host, uses LAN first, and can use encrypted Remote Companion fallback when a relay-linked host grants this phone access. Standalone offers a simpler FIDS/Radar/History/Settings experience through the Beacon Tools relay with slower refreshes and no server-control tools. The mobile shell keeps its own appearance, branded launch overlay, and small native-feeling interactions.
 - QR pairing in native and LAN Settings now prefers the actual LAN IP and carries the server fingerprint, so an iPhone or Android phone will not silently connect to a different Local Flight host if `localflight.local` resolves to another Pi/desktop on the same network.
 - History dashboard with filters, delay buckets, airline delay quotas, route/aircraft stats, sortable recent movements, and detail panels. Repeated snapshots and known codeshares are deduped so the count means actual movements, not raw board rows.
 - Matrix tooling for Interstate 75 W / HUB75 boards, including panel presets, board-mirror preview, optional real-world gate/stand display, compact weather headers, runtime settings, split-flap/typewriter/cascade motion, generated MicroPython `main.py`, and renderer-revision warnings when a board needs a refreshed file.
@@ -73,7 +73,7 @@ Read the detailed guides:
 
 ## Preview
 
-These previews mix current Qt screenshot cards with lightweight mobile illustrations. They are product previews, not operational telemetry. Preliminary `0.2.8` preview work should use the real Android/iOS source screenshots under `assets/mobile-previews/` when refreshing mobile imagery.
+These previews mix current Qt screenshot cards with lightweight mobile illustrations. They are product previews, not operational telemetry. Future preview refreshes should use the real Android/iOS/source screenshots under `assets/previews/` when refreshing mobile imagery.
 
 Open [docs/previews/index.html](docs/previews/index.html) locally for the standalone HTML gallery.
 
@@ -107,12 +107,12 @@ Open [docs/previews/index.html](docs/previews/index.html) locally for the standa
 
 ### Windows
 
-Download `LocalFlight-0.2.7-Setup.exe`, run the wizard, then launch Local Flight from the final installer page, Start Menu, or desktop shortcut.
+Download `LocalFlight-0.5.1-Setup.exe`, run the wizard, then launch Local Flight from the final installer page, Start Menu, or desktop shortcut.
 The release app launches as a branded desktop app without a Python or cmd console window. `LocalFlight-windows.zip` remains available as a portable/manual install artifact.
 
 ### macOS
 
-Download `LocalFlight-0.2.7-macos.pkg`, double-click the installer, then launch **Local Flight** from Applications.
+Download `LocalFlight-0.5.1-macos.pkg`, double-click the installer, then launch **Local Flight** from Applications.
 The release installer is designed to feel like a normal Mac app install: no Python, Terminal, source checkout, or manual drag-to-Applications step.
 
 ### Raspberry Pi
@@ -174,7 +174,7 @@ Local Flight stores runtime data under `~/.localflight/`:
 - Logs
 - API usage counters
 
-Manual reports are always user-triggered. Automatic diagnostics require consent and are sanitized before leaving the device. LAN Companion mode requires both the phone-local diagnostics choice and the connected server diagnostics mode to allow automatic reports. Standalone mobile automatic reports require the phone-local diagnostics choice only, because there is no paired local server in that mode.
+Manual reports are always user-triggered. Automatic diagnostics require consent and are sanitized before leaving the device. Companion mode requires both the phone-local diagnostics choice and the connected server diagnostics mode to allow automatic reports. Remote Companion relay messages are end-to-end encrypted between the paired phone and host; the relay routes grant refs, request ids, status, latency, and byte sizes, not readable board data or commands. Standalone mobile automatic reports require the phone-local diagnostics choice only, because there is no paired local server in that mode.
 
 See [PRIVACY.md](PRIVACY.md) or the online policy at [beacontools.cc/privacy](https://beacontools.cc/privacy) for the detailed privacy model.
 
@@ -204,7 +204,7 @@ Windows, macOS, and Pi source installers are documented in [docs/install.md](doc
 - **No accounts:** Local Flight does not require a login or email address.
 - **Native by default on desktop:** the main desktop app does not need a browser profile, webview, online font, CDN, extension, or sync surface.
 - **LAN browser UI stays supported:** useful for headless installs, remote viewing, kiosk displays, and recovery.
-- **Flexible mobile:** the same mobile app can be a LAN Companion for your desktop/Pi server or a simplified Standalone relay client with stricter refresh limits.
+- **Flexible mobile:** the same mobile app can be a Companion for your desktop/Pi server over LAN or encrypted Remote Companion fallback, or a simplified Standalone relay client with stricter refresh limits.
 - **Server-mediated hardware:** Matrix talks through your Local Flight server and never receives provider keys.
 - **Budget-aware:** provider and relay usage is cached, tracked, and guarded before paid calls are made.
 

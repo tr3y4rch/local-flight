@@ -15,7 +15,7 @@ Public project docs live at [beacontools.cc/local-flight](https://beacontools.cc
 - You can choose **Local Flight Relay**, **Use your own keys**, or **VATSIM**.
 - The official hosted relay is `https://relay.beacontools.cc`; older Fly.io relay roots remain compatibility-only for existing installs.
 - Diagnostics are optional. Manual reports stay available even if automatic diagnostics are off.
-- The current client target is `0.2.7`. It is still beta software, but the client paths are now intended to work across the supported display types. Preliminary `0.2.8` notes exist for the next docs/LAN Settings/mobile pairing polish, but release artifacts are still `0.2.7` until the version is deliberately bumped.
+- The current public-release hardening target is `0.5.1`. It is still beta software, but the desktop and Raspberry Pi client paths are intended to work across the supported display types. Mobile is store-bound after the Remote Companion connectivity/privacy proof pass.
 
 ---
 
@@ -23,7 +23,7 @@ Public project docs live at [beacontools.cc/local-flight](https://beacontools.cc
 
 Use this path for the easiest Windows desktop setup.
 
-1. Download `LocalFlight-0.2.7-Setup.exe` from the latest GitHub release.
+1. Download `LocalFlight-0.5.1-Setup.exe` from the latest GitHub release.
 2. Double-click the installer and follow the Local Flight wizard.
 3. Launch Local Flight from the final installer page, Start Menu, or desktop shortcut.
 4. Complete the setup wizard: Welcome, Airport, Flight Data, Optional Keys, Diagnostics, and Review & Open.
@@ -54,7 +54,7 @@ The source installer creates a **Local Flight** desktop shortcut that launches t
 
 Use this path for the easiest macOS desktop setup.
 
-1. Download `LocalFlight-0.2.7-macos.pkg` from the latest GitHub release.
+1. Download `LocalFlight-0.5.1-macos.pkg` from the latest GitHub release.
 2. Double-click the package and follow the standard macOS Installer steps.
 3. Launch **Local Flight** from Applications.
 4. Complete the setup wizard: Welcome, Airport, Flight Data, Optional Keys, Diagnostics, and Review & Open.
@@ -90,7 +90,7 @@ You can clone the repo on the Pi or download the versioned Pi source bundle from
 LocalFlight-pi-source-<version>.zip
 ```
 
-For this target, that package name is expected to look like `LocalFlight-pi-source-0.2.7.zip` once the release bundle is built.
+For this target, that package name is expected to look like `LocalFlight-pi-source-0.5.1.zip` once the release bundle is built.
 
 Unzip or clone on the Pi, then run:
 
@@ -108,7 +108,7 @@ bash installers/pi/install.sh --native-kiosk
 bash installers/pi/install.sh --kiosk
 ```
 
-- `--headless`: local server only. Recommended for SSH installs, mobile LAN Companion, Matrix, and browser access from another device.
+- `--headless`: local server only. Recommended for SSH installs, mobile Companion, Matrix, and browser access from another device.
 - `--native-kiosk`: local server plus a fullscreen native Qt display on the attached HDMI screen.
 - `--kiosk`: local server plus a fullscreen Chromium display using the LAN browser UI on the attached HDMI screen.
 
@@ -142,7 +142,7 @@ lf update
 
 ## Mobile App
 
-The mobile app is in private beta preparation for TestFlight and Google Play testing. Public store downloads are not live yet; iOS and Android local development builds remain available for validation.
+The mobile app is being prepared for TestFlight and Google Play testing after the Remote Companion connectivity/privacy proof pass. Public store downloads are not live yet; iOS and Android local development builds remain available for validation.
 
 Use it when you want a lightweight airport-board view, radar, history, control, and support tools from an iPhone, iPad, or simulator.
 
@@ -171,9 +171,9 @@ npm run ios:device
 
 On first launch, the app blocks normal access until setup is complete and asks how this device should be used.
 
-### LAN Companion
+### Companion
 
-Choose **LAN Companion** if you already run Local Flight on a desktop or Raspberry Pi.
+Choose **Companion** if you already run Local Flight on a desktop or Raspberry Pi.
 
 Enter your Local Flight server's LAN URL, for example:
 
@@ -186,7 +186,9 @@ Do not use `localhost` on a phone. On a phone, `localhost` means the phone itsel
 
 The QR pairing code in native Settings and LAN browser Settings is fingerprint-bound to the server that created it. If your phone scans a QR that resolves to another Local Flight host, the mobile app refuses to save that pairing instead of silently connecting to the wrong server.
 
-LAN Companion keeps the richer paired experience: server WebSocket updates, host status, airport/source/refresh controls, History, support/reporting, safe Matrix live-remote controls, and mobile/server double-consent for automatic diagnostics.
+Companion keeps the richer paired experience: server WebSocket updates when on LAN, host status, airport/source/refresh controls, History, support/reporting, safe Matrix live-remote controls, and mobile/server double-consent for automatic diagnostics.
+
+Remote Companion is part of the same Companion mode. If the desktop/Pi host is relay-linked, enable **Allow Remote Companion fallback** in Pair Mobile, save Settings, create a short-lived remote QR, and scan it while the phone is still on the LAN. After that, the phone uses LAN first and falls back to encrypted relay routing when it cannot reach the host locally. The host must stay online. The host or phone can revoke/forget the remote grant.
 
 ### Standalone
 
@@ -243,7 +245,8 @@ Provider keys live in your local `.env` when you choose the BYOK path.
 
 ## Quick Troubleshooting
 
-- If mobile cannot connect, confirm the phone and server are on the same WiFi and use the server LAN IP shown in Settings. Use `http://localflight.local:8000` only when you have one Local Flight server on that LAN.
+- If Companion cannot connect on LAN, confirm the phone and server are on the same WiFi and use the server LAN IP shown in Settings. Use `http://localflight.local:8000` only when you have one Local Flight server on that LAN.
+- If Remote Companion shows offline away from LAN, confirm the host is running, relay-linked, Remote Companion is enabled, and the phone grant has not been revoked.
 - If Standalone mobile cannot load, check internet access first. It does not need your desktop or Pi to be online.
 - If Standalone FIDS looks stale, remember that it is deliberately limited to a 3-hour auto-refresh cadence. Pull to refresh only when you intentionally need a fresh check.
 - If Standalone Radar refuses a range, use `1`, `3`, `5`, or `10` NM.

@@ -740,6 +740,84 @@ def test_native_setup_internal_close_does_not_shutdown_backend(monkeypatch: pyte
     assert client.posts == []
 
 
+def test_native_launch_disables_qt_quit_when_last_window_closes(monkeypatch: pytest.MonkeyPatch) -> None:
+    import localflight.native._legacy_app as legacy
+
+    class _FakeApp:
+        instance_value = None
+
+        def __init__(self, _args: list[str]) -> None:
+            self.quit_values: list[bool] = []
+            self.exec_called = False
+            _FakeApp.instance_value = self
+
+        @classmethod
+        def instance(cls) -> "_FakeApp | None":
+            return cls.instance_value
+
+        def setQuitOnLastWindowClosed(self, value: bool) -> None:
+            self.quit_values.append(value)
+
+        def setWindowIcon(self, _icon: object) -> None:
+            pass
+
+        def processEvents(self) -> None:
+            pass
+
+        def exec(self) -> int:
+            self.exec_called = True
+            return 0
+
+    class _FakeIcon:
+        def isNull(self) -> bool:
+            return True
+
+    class _FakeSplash:
+        def show(self) -> None:
+            pass
+
+        def close(self) -> None:
+            pass
+
+    class _FakeTimer:
+        @staticmethod
+        def singleShot(_ms: int, callback: object) -> None:
+            return None
+
+    class _FakeQtCore:
+        QTimer = _FakeTimer
+
+    class _FakeQtWidgets:
+        QApplication = _FakeApp
+
+    class _FakeWindow:
+        current_screen_key = "display"
+        screen_keys = {"display"}
+
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            self.service = type("_Service", (), {"clear_cache": lambda self: None})()
+            self._dirty_screens: set[str] = set()
+
+        def setWindowIcon(self, _icon: object) -> None:
+            pass
+
+    _FakeApp.instance_value = None
+    monkeypatch.setattr(legacy, "import_qt", lambda: (_FakeQtCore, object(), _FakeQtWidgets))
+    monkeypatch.setattr(legacy, "configure_qt_app_identity", lambda *_args: None)
+    monkeypatch.setattr(legacy, "apply_app_font_defaults", lambda *_args: None)
+    monkeypatch.setattr(legacy, "localflight_app_icon", lambda *_args: _FakeIcon())
+    monkeypatch.setattr(legacy, "_build_splash", lambda *_args: _FakeSplash())
+    monkeypatch.setattr(legacy, "_finish_splash", lambda *_args: None)
+    monkeypatch.setattr(legacy, "_show_fitted_window", lambda *_args: None)
+    monkeypatch.setattr(legacy, "_NativeCrashReporter", lambda *_args, **_kwargs: type("_Reporter", (), {"install": lambda self: None})())
+    monkeypatch.setattr(legacy, "NativeMainWindow", _FakeWindow)
+
+    assert legacy.launch_native_app(base_url="http://127.0.0.1:9", first_launch=False) == 0
+    assert _FakeApp.instance_value is not None
+    assert _FakeApp.instance_value.quit_values == [False]
+    assert _FakeApp.instance_value.exec_called is True
+
+
 def test_current_native_setup_close_paths_distinguish_internal_and_manual(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
     pytest.importorskip("PySide6")
@@ -2988,6 +3066,61 @@ def test_native_settings_companion_pairing_actions_are_wired(monkeypatch: pytest
     assert "Cleared 2 remembered" in screen.status.text()
 
 
+def test_native_settings_companion_pairing_connection_state(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    monkeypatch.setattr("localflight.companion_pairing._local_ipv4_addresses", lambda: ["192.168.1.77"])
+    pytest.importorskip("PySide6")
+    from PySide6 import QtWidgets
+    from localflight.native.app import SettingsScreen
+    from localflight.native.qt_compat import import_qt
+
+    class _Client:
+        def get_json(self, path: str, *, params: dict[str, object] | None = None) -> dict[str, object]:
+            if path == "/api/admin/connections":
+                return {
+                    "companion_count": 1,
+                    "companions": [
+                        {
+                            "device_type": "phone",
+                            "mobile_os": "iOS",
+                            "app_version": "0.5.1",
+                            "last_seen": "2026-07-01T10:00:00+00:00",
+                        }
+                    ],
+                }
+            if path == "/api/mobile/remote/status":
+                return {
+                    "enabled": True,
+                    "grants": [
+                        {
+                            "grant_ref": "rcg_test",
+                            "client_name": "Test phone",
+                            "created_at": "2026-07-01T09:00:00+00:00",
+                            "revoked_at": None,
+                        }
+                    ],
+                }
+            return {}
+
+    QtCore, QtGui, QtWidgets2 = import_qt()
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    screen = SettingsScreen(QtCore, QtGui, QtWidgets2, client=_Client(), base_url="http://127.0.0.1:9")
+
+    assert app is not None
+    screen._refresh_companion_gateway()
+
+    assert screen.companion_connection_state_label.text() == "LAN"
+    assert "LAN LIVE" in screen.companion_connection_chips_label.text()
+    assert "REMOTE READY" in screen.companion_connection_chips_label.text()
+    assert "OFFLINE NO" in screen.companion_connection_chips_label.text()
+    assert "Phones will use LAN first" in screen.companion_cta_label.text()
+    assert "Remote Companion: 1 active grant" in screen.remote_companion_label.text()
+
+    screen._update_companion_connection_state(companion_error="down", remote_error="down")
+    assert screen.companion_connection_state_label.text() == "OFFLINE"
+    assert "refresh Settings" in screen.companion_cta_label.text()
+
+
 def test_native_settings_is_extracted_from_legacy_module() -> None:
     import localflight.native.pages.settings as settings_page
 
@@ -3047,6 +3180,7 @@ def test_native_settings_config_payload_preserves_fields(monkeypatch: pytest.Mon
         "display_horizon_hours",
         "radar_surface_enabled",
         "radar_surface_mode",
+        "remote_companion_enabled",
         "display_outputs",
     }
     assert payload["airport_iata"] == "SIN"

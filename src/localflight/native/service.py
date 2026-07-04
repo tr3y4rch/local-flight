@@ -456,3 +456,12 @@ class NativeApiService:
 
     def reset_companions(self) -> dict[str, Any]:
         return self.client.delete_json("/api/admin/companion")
+
+    def remote_companion_status(self) -> dict[str, Any]:
+        return self.client.get_json("/api/mobile/remote/status")
+
+    def remote_companion_invite(self) -> dict[str, Any]:
+        return self.client.post_json("/api/mobile/remote/invite", {})
+
+    def remote_companion_revoke(self, grant_ref: str) -> dict[str, Any]:
+        return self.client.post_json("/api/mobile/remote/revoke", {"grant_ref": grant_ref})

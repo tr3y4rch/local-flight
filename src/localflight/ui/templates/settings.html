@@ -645,11 +645,15 @@
       <details class="details-card settings-folder" id="pairMobileCard">
         <summary>
           <span class="folder-icon">📱</span>
-          <span class="folder-copy"><strong>Pair Mobile</strong><span>QR pairing for LAN Companion devices on the same network.</span></span>
+          <span class="folder-copy"><strong>Pair Mobile</strong><span>QR pairing for LAN Companion devices, with optional relay fallback.</span></span>
           <span class="folder-caret">›</span>
         </summary>
         <div class="details-body">
           <p class="intro">Scan this from each Companion device. The same QR can be reused by multiple phones or tablets on your LAN.</p>
+          <label class="choice-tile" style="margin-bottom:12px;">
+            <input type="checkbox" name="remote_companion_enabled" value="1" {% if cfg.remote_companion_enabled %}checked{% endif %} />
+            <span><strong>Allow Remote Companion fallback</strong><span>Opt-in relay path for paired phones when LAN is unavailable. Requires this host to be relay-linked and online.</span></span>
+          </label>
           <div class="pairing-layout">
             <div class="pairing-qr">
               {% if companion_pairing.qr_data_uri %}
@@ -664,6 +668,8 @@
                 <div class="mini-cell"><b>QR target</b><span id="companionQrTarget" class="mono mono-wrap">{{ companion_pairing.preferred_url }}</span></div>
                 <div class="mini-cell"><b>Server fingerprint</b><span id="companionFingerprint" class="mono mono-wrap">{{ companion_pairing.server_fingerprint or "Unavailable" }}</span></div>
                 <div class="mini-cell"><b>Pairing link</b><span id="companionPairingLink" class="mono mono-wrap">{{ companion_pairing.deep_link }}</span></div>
+                <div class="mini-cell"><b>Connection state</b><span id="companionConnectionState">LAN READY</span></div>
+                <div class="mini-cell"><b>Remote Companion</b><span id="remoteCompanionStatus">Checking...</span></div>
                 {% for url in companion_pairing.manual_urls or [] %}
                   <div class="mini-cell"><b>Manual URL {{ loop.index }}</b><span class="mono mono-wrap">{{ url }}</span></div>
                 {% endfor %}
@@ -672,9 +678,13 @@
                 <button type="button" onclick="refreshCompanionStatus()">Refresh paired devices</button>
                 <button type="button" onclick="copyPairingLink()">Copy pairing link</button>
                 <button type="button" onclick="copyLanUrl()">Copy LAN URL</button>
+                <button type="button" onclick="createRemoteCompanionInvite()">Create remote QR</button>
+                <button type="button" onclick="copyRemotePairingLink()">Copy remote link</button>
                 <button type="button" class="danger-link" onclick="resetCompanionConnections()">Reset paired devices</button>
               </div>
               <div class="pairing-status" id="companionEntries">No mobile check-ins yet.</div>
+              <div class="pairing-status" id="companionRemoteCta">Works at home over LAN, and can keep working away from Wi-Fi through encrypted Remote Companion after a remote QR is paired.</div>
+              <div class="pairing-status" id="remoteCompanionEntries">Remote Companion is off unless enabled and saved.</div>
               <div class="pairing-status" id="companionCopyStatus"></div>
             </div>
           </div>
@@ -997,10 +1007,21 @@ async function clearProviderKeys() {
 })();
 
 const companionPairing = {{ companion_pairing|tojson }};
+let remotePairingLink = "";
 
 function setCompanionText(id, value) {
   const target = document.getElementById(id);
   if (target) target.textContent = value;
+}
+
+function escapeHtml(value) {
+  return String(value || "").replace(/[&<>"']/g, char => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;"
+  }[char]));
 }
 
 async function copyTextToClipboard(value, label) {
@@ -1037,6 +1058,101 @@ function copyLanUrl() {
   copyTextToClipboard(companionPairing.preferred_url, "LAN URL");
 }
 
+function copyRemotePairingLink() {
+  copyTextToClipboard(remotePairingLink, "Remote pairing link");
+}
+
+function describeRemoteGrant(entry) {
+  const name = escapeHtml(entry.client_name || "Local Flight Companion");
+  const device = escapeHtml(entry.device_type || entry.mobile_os || "mobile");
+  const seen = entry.last_seen_remote_at ? ` · remote ${escapeHtml(entry.last_seen_remote_at)}` : "";
+  const revoked = entry.revoked_at ? ` · revoked ${escapeHtml(entry.revoked_at)}` : "";
+  const grantRef = escapeHtml(entry.grant_ref || "");
+  const revokeButton = entry.revoked_at
+    ? ""
+    : ` <button type="button" onclick="revokeRemoteCompanionGrant('${grantRef}')">Revoke remote</button>`;
+  return `<div>${name} · ${device}${seen}${revoked}${revokeButton}</div>`;
+}
+
+async function refreshRemoteCompanionStatus() {
+  setCompanionText("remoteCompanionStatus", "Checking...");
+  try {
+    const response = await fetch("/api/mobile/remote/status");
+    const data = await response.json();
+    const grants = Array.isArray(data.grants) ? data.grants : [];
+    const active = grants.filter(entry => !entry.revoked_at);
+    setCompanionText(
+      "remoteCompanionStatus",
+      data.enabled ? `${active.length} active remote grant${active.length === 1 ? "" : "s"}` : "Off"
+    );
+    setCompanionText(
+      "companionConnectionState",
+      active.length ? "REMOTE READY" : "LAN READY"
+    );
+    setCompanionText(
+      "companionRemoteCta",
+      active.length
+        ? "Remote Companion fallback is ready for paired phones when they cannot reach this LAN. The host must stay online."
+        : "Works at home over LAN, and can keep working away from Wi-Fi through encrypted Remote Companion after a remote QR is paired."
+    );
+    const target = document.getElementById("remoteCompanionEntries");
+    if (!target) return;
+    if (!data.enabled) {
+      target.textContent = "Enable Remote Companion, save Settings, then create a short-lived remote pairing QR.";
+      return;
+    }
+    if (!grants.length) {
+      target.textContent = "No remote grants yet. Create a remote QR while the phone is on this LAN.";
+      return;
+    }
+    target.innerHTML = grants.map(describeRemoteGrant).join("");
+  } catch {
+    setCompanionText("remoteCompanionStatus", "Unavailable");
+    setCompanionText("companionConnectionState", "OFFLINE");
+    setCompanionText("remoteCompanionEntries", "Could not load Remote Companion grants.");
+  }
+}
+
+async function createRemoteCompanionInvite() {
+  setCompanionText("companionCopyStatus", "Creating short-lived Remote Companion QR...");
+  try {
+    const response = await fetch("/api/mobile/remote/invite", { method: "POST" });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || "Remote invite failed");
+    const pairing = data.pairing || {};
+    remotePairingLink = pairing.deep_link || "";
+    const qrImg = document.querySelector("#pairMobileCard .pairing-qr img");
+    if (qrImg && pairing.qr_data_uri) {
+      qrImg.setAttribute("src", pairing.qr_data_uri);
+      qrImg.setAttribute("alt", "Remote Companion pairing QR code");
+    }
+    setCompanionText("companionPairingLink", remotePairingLink || companionPairing.deep_link);
+    setCompanionText("companionCopyStatus", `Remote QR ready until ${data.invite?.expires_at || "the invite expires"}. Scan it from the phone on this LAN.`);
+  } catch (exc) {
+    setCompanionText("companionCopyStatus", exc?.message || "Could not create Remote Companion invite.");
+  }
+}
+
+async function revokeRemoteCompanionGrant(grantRef) {
+  if (!grantRef || !confirm("Revoke this phone's Remote Companion access? LAN Companion can still pair again.")) {
+    return;
+  }
+  setCompanionText("remoteCompanionEntries", "Revoking remote access...");
+  try {
+    const response = await fetch("/api/mobile/remote/revoke", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({ grant_ref: grantRef })
+    });
+    if (!response.ok) throw new Error("revoke failed");
+    await refreshRemoteCompanionStatus();
+    setCompanionText("companionCopyStatus", "Remote Companion grant revoked.");
+  } catch {
+    setCompanionText("companionCopyStatus", "Could not revoke Remote Companion grant.");
+    await refreshRemoteCompanionStatus();
+  }
+}
+
 function describeCompanion(entry) {
   const name = entry.client_name || "Local Flight Companion";
   const device = entry.device_type || entry.mobile_os || "mobile";
@@ -1053,6 +1169,7 @@ async function refreshCompanionStatus() {
     const data = await response.json();
     const count = Number(data.companion_count || 0);
     setCompanionText("companionCount", `${count} paired`);
+    setCompanionText("companionConnectionState", count ? "LAN LIVE" : "LAN READY");
     const companions = Array.isArray(data.companions) ? data.companions : [];
     if (!companions.length) {
       setCompanionText("companionEntries", "No mobile check-ins yet. Scan the QR or enter the LAN URL in Companion setup.");
@@ -1061,8 +1178,10 @@ async function refreshCompanionStatus() {
     setCompanionText("companionEntries", companions.map(describeCompanion).join("\n"));
   } catch {
     setCompanionText("companionCount", "Unavailable");
+    setCompanionText("companionConnectionState", "OFFLINE");
     setCompanionText("companionEntries", "Could not load paired devices from this server.");
   }
+  refreshRemoteCompanionStatus();
 }
 
 async function resetCompanionConnections() {
@@ -1081,6 +1200,7 @@ async function resetCompanionConnections() {
 }
 
 refreshCompanionStatus();
+refreshRemoteCompanionStatus();
 
 (function () {
   const searchInput = document.getElementById("airportSearch");

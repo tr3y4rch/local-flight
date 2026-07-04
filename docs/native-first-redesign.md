@@ -9,17 +9,16 @@ For user-facing install and display-choice guidance, use:
 
 ## Current Checkpoint
 
-As of the `0.2.7` client-polish line on 2026-05-22, with preliminary `0.2.8`
-parity notes added on 2026-05-23:
+As of the `0.5.1` public desktop/Raspberry Pi hardening line on 2026-06-30:
 
 - Native Qt remains the intended primary desktop/display shell; LAN browser UI remains a supported access/display surface.
 - The native main shell now groups brand/primary pages, a centered UTC/LT clock divider, and utility pages/sync/power as separate visual regions.
 - FIDS now uses a passenger-facing city/country title, compact weather hero, readable ARR/DEP/Refresh actions, operating-first flight identity, compact aircraft codes on the board, true Classic/PAX/VATSIM/Nerd visual styles, and richer detail drawers.
-- History, Matrix, Settings, Setup, Radar details, LAN/browser parity, mobile LAN Companion/Standalone, Beacon Tools docs links, and relay defaults are current release-candidate smoke areas.
-- The next parity checkpoint is LAN Settings: browser Settings should keep the same disclosure-folder order as native Settings and include Pair Mobile QR/manual pairing, paired-device status refresh, copy-link/copy-URL, and reset controls.
+- History, Matrix, Settings, Setup, Radar details, LAN/browser parity, mobile Companion/Remote Companion/Standalone store proof, Beacon Tools docs links, and relay defaults are current public-release smoke areas.
+- LAN Settings parity is now part of the release baseline: browser Settings should keep the same disclosure-folder order as native Settings and include Pair Mobile QR/manual pairing, paired-device status refresh, copy-link/copy-URL, and reset controls.
 - Beacon Tools is the public home: product/docs at `https://beacontools.cc/local-flight`, privacy at `https://beacontools.cc/privacy`, public relay at `https://relay.beacontools.cc`, and operator admin at `https://network.beacontools.cc/admin`. Native and browser docs links should say "Open online" when they point to Beacon Tools, not "Open on GitHub".
-- Current validation history: earlier full Windows release-candidate sweep returned `423 passed`; after the Beacon relay/default work, focused relay/native tests returned `392 passed`, compileall passed, mobile typecheck passed, and `git diff --check` passed; after the public/dev docs refresh, the doc/native regression slice returned `287 passed` and the static HTML parse check passed. After Matrix v4 renderer/live-settings/local-clock/web-preview hardening, focused Matrix checks passed and the full Windows/Codex suite returned `432 passed`.
-- Release packages must be rebuilt from the current `0.2.7` tree; older `0.2.6`, pre-Matrix-integrity `0.2.7`, and pre-Beacon-docs/relay-default artifact hashes are stale after this polish pass.
+- Current validation target: compileall, full Python tests, mobile `verify`, mobile `a11y`, public-site asset checks, and `git diff --check` must be green before packaging.
+- Release packages must be rebuilt from the current `0.5.1` tree; older `0.2.6`, `0.2.7`, and preliminary `0.2.8` artifact hashes are stale.
 
 ## Goal
 
@@ -353,7 +352,7 @@ Radar inventory checkpoint:
 
 ## What To Do Next
 
-Continue from the current 0.2.7 native/browser state, not from the earlier shell foundation.
+Continue from the current 0.5.1 native/browser state, not from the earlier shell foundation.
 
 Recommended next slice:
 
@@ -362,7 +361,7 @@ Recommended next slice:
    - Run `python -m compileall -q src relay installers scripts tests` and `python -m pytest tests -q`.
    - Smoke native setup/FIDS/Radar/Matrix/Settings/History on macOS.
    - Confirm bundled docs and online links point to Beacon Tools, and Community setup preloads `https://relay.beacontools.cc`.
-   - Build and checksum `dist/LocalFlight-0.2.7-macos.pkg`.
+   - Build and checksum `dist/LocalFlight-0.5.1-macos.pkg`.
 2. Clean install smoke:
    - Windows zip extraction and first-run setup.
    - Pi source install in headless mode.
@@ -373,8 +372,8 @@ Recommended next slice:
    - map on/off, terrain on/off, runways on/off, surface on/off.
    - dark/light theme contrast.
    - no OSM cache, stale cache, and estimated fallback states.
-4. Visual QA the 0.2.7 polish pages at desktop and compact sizes: History dashboard, Matrix configurator/preview, Settings/setup cards, FIDS detail drawer, and LAN radar parity.
-5. Mobile QA: LAN Companion setup/Board/Radar/History/Control with Help & Reports inside Control, Standalone setup/Board/Radar/History/Settings, iOS simulator/device validation, and Android local dev smoke when Android Studio is available.
+4. Visual QA the 0.5.1 polish pages at desktop and compact sizes: History dashboard, Matrix configurator/preview, Settings/setup cards, FIDS detail drawer, and LAN radar parity.
+5. Mobile QA: Companion setup/Board/Radar/History/Control with Help & Reports inside Control, Remote Companion LAN-first/remote fallback/revoke proof, Standalone setup/Board/Radar/History/Settings, iOS simulator/device validation, and Android local dev smoke when Android Studio is available.
 6. Continue full native extraction/polish for Logs, Requests, Admin, and Feedback until each page has native tests and browser-parity checklists.
 7. Keep browser/LAN parity checks running as native acceptance passes, because both surfaces remain supported.
 

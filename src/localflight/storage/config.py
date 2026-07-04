@@ -55,6 +55,7 @@ class AppConfig:
     display_horizon_hours: int = DEFAULT_DISPLAY_HORIZON_HOURS
     radar_surface_enabled: bool = DEFAULT_RADAR_SURFACE_ENABLED
     radar_surface_mode: str = DEFAULT_RADAR_SURFACE_MODE
+    remote_companion_enabled: bool = False
 
     def __post_init__(self) -> None:
         surface_mode = str(self.radar_surface_mode or "").strip().lower()
@@ -176,6 +177,7 @@ def load_config() -> AppConfig:
     if radar_surface_mode not in ALLOWED_RADAR_SURFACE_MODES:
         radar_surface_mode = DEFAULT_RADAR_SURFACE_MODE
     radar_surface_enabled = radar_surface_mode != "off"
+    remote_companion_enabled = _to_bool(raw.get("remote_companion_enabled", False), False)
 
     return AppConfig(
         airport_icao=airport_icao,
@@ -194,6 +196,7 @@ def load_config() -> AppConfig:
         display_horizon_hours=display_horizon_hours,
         radar_surface_enabled=radar_surface_enabled,
         radar_surface_mode=radar_surface_mode,
+        remote_companion_enabled=remote_companion_enabled,
     )
 
 

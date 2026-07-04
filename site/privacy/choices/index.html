@@ -73,7 +73,7 @@
           </div>
           <ol class="timeline">
             <li>Desktop or Raspberry Pi: stop Local Flight, then remove <code>~/.localflight/</code> to wipe local settings, board snapshots, history, logs, setup state, and local request logs.</li>
-            <li>Mobile: use the app's reset flows where available, or remove the app to clear setup, selected airport, appearance, pinned flight, diagnostics choice, and phone-only history.</li>
+            <li>Mobile: use the app's reset flows where available, forget Remote Companion from the connection sheet, or remove the app to clear setup, selected airport, appearance, pinned flight, diagnostics choice, remote grants, and phone-only history.</li>
             <li>Bring-your-own aviation data keys are local to your install. Removing local app data removes Local Flight's stored copy.</li>
           </ol>
         </div>
@@ -84,11 +84,11 @@
           <div class="grid two">
             <article class="card">
               <h3>Relay records</h3>
-              <p>Relay-backed features may create technical records such as random install UUIDs, hashed install fingerprints, token prefixes, usage counters, last-seen timestamps, short-lived airport interest rows, shared cache entries, and coarse app/platform profile fields.</p>
+              <p>Relay-backed features may create technical records such as random install UUIDs, hashed install fingerprints, token prefixes, Remote Companion public grant refs, usage counters, last-seen timestamps, short-lived airport interest rows, shared cache entries, and coarse app/platform profile fields.</p>
             </article>
             <article class="card">
               <h3>What is not intended</h3>
-              <p>The relay is not intended to store raw IP addresses, readable personal identifiers, personal aviation data keys from your install, local flight history, phone-only history, full logs, screenshots, recordings, or account data.</p>
+              <p>The relay is not intended to store raw IP addresses, readable personal identifiers, personal aviation data keys from your install, Remote Companion AES secrets, decrypted Companion requests/responses, local flight history, phone-only history, full logs, screenshots, recordings, or account data.</p>
             </article>
           </div>
         </div>

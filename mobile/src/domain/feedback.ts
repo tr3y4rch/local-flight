@@ -12,7 +12,7 @@ export function mobileClientContext(
   const mobileOs = companion?.mobileOs || "Unknown mobile OS";
   const companionId = companion?.companionId || "unknown";
   const serverPlatform = snapshot?.system?.platform || "unknown";
-  const appModeLabel = appMode === "standalone" ? "Standalone relay" : "LAN Companion";
+  const appModeLabel = appMode === "standalone" ? "Standalone relay" : "Companion";
   return [
     `Reporter       ${companion?.clientName || "Local Flight Mobile"}`,
     `Mobile ID      ${companionId}`,

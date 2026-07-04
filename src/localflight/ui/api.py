@@ -5,6 +5,7 @@ JSON API layer for the FIDS system.
 """
 from __future__ import annotations
 
+import base64
 import json
 import importlib
 import logging
@@ -23,7 +24,7 @@ from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 import requests as _req
-from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, Field
 
@@ -48,6 +49,15 @@ from localflight.storage.config import (
     DEFAULT_WEB_ROW_LIMIT,
     load_config,
     save_config,
+)
+from localflight.storage.remote_companion import (
+    consume_remote_invite,
+    create_remote_grant_from_invite,
+    create_remote_invite,
+    get_remote_invite,
+    list_remote_grants,
+    public_remote_grant,
+    revoke_remote_grant,
 )
 from localflight.storage.flights_store import load_latest_snapshot_path, snapshot_store_root
 from localflight.storage.state import load_state
@@ -668,6 +678,7 @@ class ConfigPatch(BaseModel):
     display_horizon_hours: Optional[int] = Field(None, ge=1, le=24)
     radar_surface_enabled: Optional[bool] = None
     radar_surface_mode: Optional[Literal["off", "estimated", "relay"]] = None
+    remote_companion_enabled: Optional[bool] = None
 
 
 class FIDSRowOut(BaseModel):
@@ -2167,7 +2178,7 @@ def api_admin_system() -> Dict[str, Any]:
         from importlib.metadata import version as _pkg_version
         _ver = _pkg_version("localflight")
     except Exception:
-        _ver = "0.2.7"
+        _ver = "0.5.1"
 
     result: Dict[str, Any] = {
         "version":  _ver,
@@ -2586,6 +2597,44 @@ class CompanionCheckinIn(BaseModel):
     device_type: str = Field("unknown", max_length=20)
 
 
+class RemoteCompanionPairIn(CompanionCheckinIn):
+    invite_id: str = Field(..., min_length=6, max_length=80)
+    install_ref: str = Field(..., min_length=8, max_length=32)
+    relay_url: str = Field(..., min_length=8, max_length=240)
+    remote_key: str = Field(..., min_length=32, max_length=80)
+
+
+class RemoteCompanionRevokeIn(BaseModel):
+    grant_ref: str = Field(..., min_length=8, max_length=80)
+
+
+def _remote_companion_status_payload() -> Dict[str, Any]:
+    from localflight.storage.install import get_install_fingerprint
+
+    cfg = load_config()
+    return {
+        "ok": True,
+        "enabled": bool(cfg.remote_companion_enabled),
+        "install_ref": get_install_fingerprint(),
+        "grants": [
+            public_remote_grant(grant)
+            for grant in list_remote_grants(include_revoked=True)
+        ],
+    }
+
+
+def _register_remote_grant_or_raise(grant: Dict[str, Any], *, revoke: bool = False) -> Dict[str, Any]:
+    try:
+        from localflight.sources.web.remote_companion_agent import register_remote_grant_with_relay
+
+        result = register_remote_grant_with_relay(grant, revoke=revoke)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Remote relay registration failed: {exc}") from exc
+    if not result.get("ok"):
+        raise HTTPException(status_code=502, detail=str(result.get("detail") or "Remote relay registration failed"))
+    return result
+
+
 @router.post("/api/admin/companion/checkin")
 def api_admin_companion_checkin(body: CompanionCheckinIn) -> Dict[str, Any]:
     import platform
@@ -2640,6 +2689,97 @@ def api_admin_companion_reset() -> Dict[str, Any]:
 
 # â”€â”€ Traffic / request log â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
+@router.get("/api/mobile/remote/status")
+def api_mobile_remote_status() -> Dict[str, Any]:
+    return _remote_companion_status_payload()
+
+
+@router.post("/api/mobile/remote/invite")
+def api_mobile_remote_invite(request: Request) -> Dict[str, Any]:
+    cfg = load_config()
+    if not cfg.remote_companion_enabled:
+        raise HTTPException(status_code=403, detail="Remote Companion is disabled on this host")
+    from localflight.companion_pairing import pairing_qr_png_bytes, remote_pairing_gateway_payload
+    from localflight.storage.install import get_activation_token
+
+    if not get_activation_token():
+        raise HTTPException(status_code=403, detail="Remote Companion requires a relay-linked install")
+    invite = create_remote_invite(relay_url=default_public_relay_url())
+    payload = remote_pairing_gateway_payload(
+        invite=invite,
+        base_url=str(request.base_url).rstrip("/"),
+    )
+    qr_bytes = pairing_qr_png_bytes(str(payload.get("deep_link") or ""), size=190)
+    payload["qr_data_uri"] = (
+        f"data:image/png;base64,{base64.b64encode(qr_bytes).decode('ascii')}" if qr_bytes else ""
+    )
+    return {
+        "ok": True,
+        "invite": {
+            "invite_id": invite["invite_id"],
+            "install_ref": invite["install_ref"],
+            "relay_url": invite["relay_url"],
+            "expires_at": invite["expires_at"],
+        },
+        "pairing": payload,
+    }
+
+
+@router.post("/api/mobile/remote/pair")
+def api_mobile_remote_pair(body: RemoteCompanionPairIn) -> Dict[str, Any]:
+    cfg = load_config()
+    if not cfg.remote_companion_enabled:
+        raise HTTPException(status_code=403, detail="Remote Companion is disabled on this host")
+    invite = get_remote_invite(body.invite_id)
+    if not invite:
+        raise HTTPException(status_code=410, detail="Remote Companion invite expired or was already used")
+    if str(invite.get("install_ref") or "") != body.install_ref.strip():
+        raise HTTPException(status_code=403, detail="Remote Companion invite belongs to a different host")
+    if str(invite.get("remote_key") or "") != body.remote_key.strip():
+        raise HTTPException(status_code=403, detail="Remote Companion invite secret did not match")
+    consumed = consume_remote_invite(body.invite_id)
+    if not consumed:
+        raise HTTPException(status_code=410, detail="Remote Companion invite expired or was already used")
+    grant = create_remote_grant_from_invite(
+        consumed,
+        companion_id=body.companion_id,
+        client_name=body.client_name,
+        mobile_os=body.mobile_os,
+        device_type=body.device_type,
+        app_version=body.app_version,
+    )
+    try:
+        relay_status = _register_remote_grant_or_raise(grant)
+    except HTTPException:
+        revoke_remote_grant(str(grant.get("grant_ref") or ""))
+        raise
+    return {
+        "ok": True,
+        "remote_companion": {
+            **public_remote_grant(grant),
+            "remote_key": str(grant.get("remote_key") or ""),
+        },
+        "relay": relay_status,
+    }
+
+
+@router.post("/api/mobile/remote/revoke")
+def api_mobile_remote_revoke(body: RemoteCompanionRevokeIn) -> Dict[str, Any]:
+    grant = revoke_remote_grant(body.grant_ref)
+    if not grant:
+        raise HTTPException(status_code=404, detail="Remote Companion grant not found")
+    relay_status: Dict[str, Any] = {"ok": False, "detail": "Relay revoke not attempted"}
+    try:
+        relay_status = _register_remote_grant_or_raise(grant, revoke=True)
+    except HTTPException as exc:
+        relay_status = {"ok": False, "detail": str(exc.detail)}
+    return {
+        "ok": True,
+        "grant": public_remote_grant(grant),
+        "relay": relay_status,
+    }
+
+
 @router.get("/api/admin/requests")
 def api_admin_requests(
     hours: int = Query(24, ge=1, le=168),
@@ -2670,7 +2810,7 @@ def api_admin_updates() -> Dict[str, Any]:
         from importlib.metadata import version as _pkg_version
         current = _pkg_version("localflight")
     except Exception:
-        current = "0.2.7"
+        current = "0.5.1"
 
     # Simple in-process cache to avoid hammering GitHub API
     cache = getattr(api_admin_updates, "_cache", None)

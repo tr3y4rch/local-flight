@@ -508,7 +508,7 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
     def _build_companion_pairing(self) -> None:
         self.companion_group, self.companion_body, layout = self._collapsible_section(
             "Pair Mobile",
-            subtitle="QR pairing for LAN Companion devices on the same network.",
+            subtitle="QR pairing for LAN Companion devices, with optional relay fallback.",
             emoji="\U0001F4F1",  # 📱
         )
         layout.addWidget(
@@ -519,6 +519,46 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
                 wrap=True,
             )
         )
+        self.remote_companion_enabled = self.QtWidgets.QCheckBox("Allow Remote Companion fallback")
+        self.remote_companion_enabled.setToolTip(
+            "Opt-in relay path for paired phones when LAN is unavailable. Requires this host to be relay-linked and online."
+        )
+        layout.addWidget(self.remote_companion_enabled)
+        self.companion_connection_box = self.QtWidgets.QFrame()
+        self.companion_connection_box.setObjectName("PreviewCard")
+        state_layout = self.QtWidgets.QVBoxLayout(self.companion_connection_box)
+        state_layout.setContentsMargins(12, 10, 12, 10)
+        state_layout.setSpacing(5)
+        state_head = self.QtWidgets.QHBoxLayout()
+        state_text = self.QtWidgets.QVBoxLayout()
+        state_text.setSpacing(1)
+        state_text.addWidget(label(self.QtWidgets, "Connection state", "Kicker"))
+        self.companion_connection_state_label = label(self.QtWidgets, "LAN READY", "Metric")
+        self.companion_connection_detail_label = label(
+            self.QtWidgets,
+            "Mobile Companion can pair on this Wi-Fi. Remote fallback status has not been checked yet.",
+            "Muted",
+            wrap=True,
+        )
+        state_text.addWidget(self.companion_connection_state_label)
+        state_text.addWidget(self.companion_connection_detail_label)
+        state_head.addLayout(state_text, 1)
+        self.companion_connection_chips_label = label(
+            self.QtWidgets,
+            "LAN READY  |  REMOTE CHECKING  |  OFFLINE NO",
+            "Muted",
+            wrap=True,
+        )
+        state_head.addWidget(self.companion_connection_chips_label)
+        state_layout.addLayout(state_head)
+        self.companion_cta_label = label(
+            self.QtWidgets,
+            "Next: scan the QR from the phone on this LAN, or copy the LAN URL for manual setup.",
+            "Muted",
+            wrap=True,
+        )
+        state_layout.addWidget(self.companion_cta_label)
+        layout.addWidget(self.companion_connection_box)
 
         row = self.QtWidgets.QHBoxLayout()
         row.setSpacing(14)
@@ -534,11 +574,13 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
         self.companion_pairing_url_label = label(self.QtWidgets, "Pairing link loading...", "Muted", wrap=True)
         self.companion_fingerprint_label = label(self.QtWidgets, "Server fingerprint loading...", "Muted", wrap=True)
         self.companion_manual_url_label = label(self.QtWidgets, "Manual URL loading...", "Muted", wrap=True)
+        self.remote_companion_label = label(self.QtWidgets, "Remote Companion status loading...", "Muted", wrap=True)
         self.companion_entries_label = label(self.QtWidgets, "No mobile check-ins yet.", "Muted", wrap=True)
         details.addWidget(self.companion_count_label)
         details.addWidget(self.companion_pairing_url_label)
         details.addWidget(self.companion_fingerprint_label)
         details.addWidget(self.companion_manual_url_label)
+        details.addWidget(self.remote_companion_label)
         details.addWidget(self.companion_entries_label, 1)
 
         controls = self.QtWidgets.QHBoxLayout()
@@ -551,12 +593,24 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
         copy_url = self.QtWidgets.QPushButton("Copy LAN URL")
         copy_url.setObjectName("Quiet")
         copy_url.clicked.connect(self._copy_manual_pairing_url)
+        remote_invite = self.QtWidgets.QPushButton("Create remote QR")
+        remote_invite.setObjectName("Quiet")
+        remote_invite.clicked.connect(self._create_remote_companion_invite)
+        copy_remote = self.QtWidgets.QPushButton("Copy remote link")
+        copy_remote.setObjectName("Quiet")
+        copy_remote.clicked.connect(self._copy_remote_pairing_link)
+        revoke_remote = self.QtWidgets.QPushButton("Revoke remote")
+        revoke_remote.setObjectName("Danger")
+        revoke_remote.clicked.connect(self._revoke_remote_companion_grants)
         reset_companions = self.QtWidgets.QPushButton("Reset paired devices")
         reset_companions.setObjectName("Danger")
         reset_companions.clicked.connect(self._reset_companion_connections)
         controls.addWidget(refresh)
         controls.addWidget(copy_pair)
         controls.addWidget(copy_url)
+        controls.addWidget(remote_invite)
+        controls.addWidget(copy_remote)
+        controls.addWidget(revoke_remote)
         controls.addWidget(reset_companions)
         controls.addStretch(1)
         details.addLayout(controls)
@@ -762,6 +816,84 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
         self._refresh_companion_gateway()
         self._set_status("Current local settings loaded.", "StatusGood")
 
+    def _set_companion_label_role(self, widget: Any, role: str) -> None:
+        widget.setObjectName(role)
+        try:
+            widget.style().unpolish(widget)
+            widget.style().polish(widget)
+        except Exception:
+            pass
+
+    def _update_companion_connection_state(
+        self,
+        *,
+        connections: dict[str, Any] | None = None,
+        remote: dict[str, Any] | None = None,
+        companion_error: str = "",
+        remote_error: str = "",
+    ) -> None:
+        companions = connections.get("companions") if isinstance(connections, dict) else []
+        companions = companions if isinstance(companions, list) else []
+        count = 0
+        if isinstance(connections, dict):
+            try:
+                count = int(connections.get("companion_count") or len(companions) or 0)
+            except Exception:
+                count = len(companions)
+        remote_known = isinstance(remote, dict)
+        remote_enabled = bool(remote.get("enabled")) if isinstance(remote, dict) else False
+        grants = remote.get("grants") if isinstance(remote, dict) else []
+        grants = grants if isinstance(grants, list) else []
+        active_grants = [item for item in grants if isinstance(item, dict) and not item.get("revoked_at")]
+        lan_ready = bool(getattr(self, "_current_manual_pairing_url", ""))
+
+        if companion_error and remote_error:
+            state = "OFFLINE"
+            role = "StatusBad"
+            detail = "Native Settings cannot read mobile pairing state from the local server."
+            cta = "Check that the Local Flight backend is running, then refresh Settings."
+        elif count > 0:
+            state = "LAN"
+            role = "StatusGood"
+            detail = f"{count} paired mobile device{' is' if count == 1 else 's are'} checking in on the local network."
+            if remote_enabled and active_grants:
+                detail += f" Remote fallback is also ready for {len(active_grants)} device{'s' if len(active_grants) != 1 else ''}."
+            cta = "Keep this host running. Phones will use LAN first and only fall back to remote when away from Wi-Fi."
+        elif remote_enabled and active_grants:
+            state = "REMOTE"
+            role = "StatusGood"
+            detail = f"Remote fallback is ready for {len(active_grants)} paired device{'s' if len(active_grants) != 1 else ''}."
+            cta = "Remote Companion still needs this host online. Bring the phone back to this LAN to pair another device."
+        elif lan_ready:
+            state = "LAN READY"
+            role = "StatusWarn"
+            detail = "No mobile device has checked in yet, but this host is ready for LAN pairing."
+            cta = "Next: scan the QR from the phone on this LAN, or copy the LAN URL for manual setup."
+        else:
+            state = "OFFLINE"
+            role = "StatusBad"
+            detail = "No usable LAN pairing target is available right now."
+            cta = "Refresh Settings after the local server finishes starting."
+
+        lan_chip = "LAN LIVE" if count else "LAN READY" if lan_ready and not companion_error else "LAN OFFLINE"
+        if remote_error:
+            remote_chip = "REMOTE UNKNOWN"
+        elif not remote_known:
+            remote_chip = "REMOTE CHECKING"
+        elif remote_enabled and active_grants:
+            remote_chip = "REMOTE READY"
+        elif remote_enabled:
+            remote_chip = "REMOTE NEEDS INVITE"
+        else:
+            remote_chip = "REMOTE OFF"
+        offline_chip = "OFFLINE YES" if state == "OFFLINE" else "OFFLINE NO"
+
+        self.companion_connection_state_label.setText(state)
+        self._set_companion_label_role(self.companion_connection_state_label, role)
+        self.companion_connection_detail_label.setText(detail)
+        self.companion_connection_chips_label.setText(f"{lan_chip}  |  {remote_chip}  |  {offline_chip}")
+        self.companion_cta_label.setText(cta)
+
     def _pairing_payload(self) -> dict[str, object]:
         return pairing_gateway_payload(base_url=self.base_url)
 
@@ -783,6 +915,7 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
             "Manual URLs, safest first. localflight.local is a fallback when only one Local Flight server is on this LAN:\n"
             f"{manual_text}"
         )
+        self._update_companion_connection_state()
 
         png = pairing_qr_png_bytes(self._current_pairing_link, size=190)
         if png:
@@ -801,11 +934,13 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
         except Exception as exc:
             self.companion_count_label.setText("Pairing status unavailable")
             self.companion_entries_label.setText(f"Could not read paired mobile devices: {exc}")
+            self._refresh_remote_companion_status(companion_error=str(exc))
             return
 
         companions = payload.get("companions") if isinstance(payload.get("companions"), list) else []
         count = int(payload.get("companion_count") or len(companions) or 0)
         self.companion_count_label.setText("1 paired" if count == 1 else f"{count} paired")
+        self._refresh_remote_companion_status(connections=payload)
         if not companions:
             self.companion_entries_label.setText("No mobile check-ins yet. Scan the QR from each iPhone/iPad to pair.")
             return
@@ -831,6 +966,115 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
         self._render_pairing_payload()
         self.QtWidgets.QApplication.clipboard().setText(getattr(self, "_current_manual_pairing_url", ""))
         self._set_status("Preferred LAN IP copied for mobile setup.", "StatusGood")
+
+    def _refresh_remote_companion_status(
+        self,
+        *,
+        connections: dict[str, Any] | None = None,
+        companion_error: str = "",
+    ) -> None:
+        try:
+            payload = self.service.remote_companion_status()
+        except Exception as exc:
+            self.remote_companion_label.setText(f"Remote Companion status unavailable: {exc}")
+            self._update_companion_connection_state(
+                connections=connections,
+                companion_error=companion_error,
+                remote_error=str(exc),
+            )
+            return
+        enabled = bool(payload.get("enabled"))
+        grants = payload.get("grants") if isinstance(payload.get("grants"), list) else []
+        active = [item for item in grants if isinstance(item, dict) and not item.get("revoked_at")]
+        self._update_companion_connection_state(
+            connections=connections,
+            remote=payload,
+            companion_error=companion_error,
+        )
+        if not enabled:
+            self.remote_companion_label.setText(
+                "Remote Companion is off. Enable it, save Settings, then create a short-lived remote QR."
+            )
+            return
+        if not grants:
+            self.remote_companion_label.setText("Remote Companion is on. No remote grants yet.")
+            return
+        lines = [f"Remote Companion: {len(active)} active grant(s)."]
+        for item in grants[:5]:
+            name = str(item.get("client_name") or item.get("companion_id") or "mobile")
+            state = "revoked" if item.get("revoked_at") else "active"
+            seen = str(item.get("last_seen_remote_at") or item.get("created_at") or "")
+            lines.append(f"{name} - {state} - {seen}")
+        self.remote_companion_label.setText("\n".join(lines))
+
+    def _create_remote_companion_invite(self) -> None:
+        self._set_status("Creating short-lived Remote Companion QR...", "Muted", busy=True)
+        try:
+            payload = self.service.remote_companion_invite()
+        except Exception as exc:
+            self._set_status(f"Remote Companion invite failed: {exc}", "StatusBad")
+            return
+        pairing = payload.get("pairing") if isinstance(payload.get("pairing"), dict) else {}
+        self._current_remote_pairing_link = str(pairing.get("deep_link") or "")
+        if not self._current_remote_pairing_link:
+            self._set_status("Remote Companion invite did not include a pairing link.", "StatusBad")
+            return
+        self._current_pairing_link = self._current_remote_pairing_link
+        self.companion_pairing_url_label.setText(
+            f"Remote pairing link: {self._current_remote_pairing_link}\n"
+            "This invite expires shortly. Scan it while the phone is on this LAN."
+        )
+        png = pairing_qr_png_bytes(self._current_remote_pairing_link, size=190)
+        if png:
+            pixmap = self.QtGui.QPixmap()
+            if pixmap.loadFromData(png, "PNG"):
+                self.companion_qr_label.setPixmap(pixmap)
+                self.companion_qr_label.setText("")
+        self._set_status(
+            f"Remote Companion QR ready until {payload.get('invite', {}).get('expires_at', 'it expires')}.",
+            "StatusGood",
+        )
+        self._refresh_remote_companion_status()
+
+    def _copy_remote_pairing_link(self) -> None:
+        link = getattr(self, "_current_remote_pairing_link", "")
+        if not link:
+            self._set_status("Create a remote QR first, then copy its short-lived link.", "StatusWarn")
+            return
+        self.QtWidgets.QApplication.clipboard().setText(link)
+        self._set_status("Remote pairing link copied. It expires shortly.", "StatusGood")
+
+    def _revoke_remote_companion_grants(self) -> None:
+        try:
+            payload = self.service.remote_companion_status()
+        except Exception as exc:
+            self._set_status(f"Remote Companion grants unavailable: {exc}", "StatusBad")
+            return
+        grants = [item for item in (payload.get("grants") or []) if isinstance(item, dict) and not item.get("revoked_at")]
+        if not grants:
+            self._set_status("No active Remote Companion grants to revoke.", "Muted")
+            return
+        answer = self.QtWidgets.QMessageBox.question(
+            self.widget,
+            "Revoke Remote Companion?",
+            "Revoke all active Remote Companion grants for this host? LAN pairing remains available.",
+            self.QtWidgets.QMessageBox.Yes | self.QtWidgets.QMessageBox.Cancel,
+            self.QtWidgets.QMessageBox.Cancel,
+        )
+        if answer != self.QtWidgets.QMessageBox.Yes:
+            self._set_status("Remote Companion revoke cancelled.", "Muted")
+            return
+        failures = 0
+        for grant in grants:
+            try:
+                self.service.remote_companion_revoke(str(grant.get("grant_ref") or ""))
+            except Exception:
+                failures += 1
+        self._refresh_remote_companion_status()
+        if failures:
+            self._set_status(f"Remote Companion revoke finished with {failures} failure(s).", "StatusWarn")
+        else:
+            self._set_status("Remote Companion grants revoked.", "StatusGood")
 
     def _reset_companion_connections(self) -> None:
         answer = self.QtWidgets.QMessageBox.question(
@@ -912,6 +1156,7 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
         self.output_web.setChecked("web" in outputs)
         self.output_matrix.setChecked("matrix" in outputs)
         self.output_hdmi.setChecked("hdmi" in outputs)
+        self.remote_companion_enabled.setChecked(bool(cfg.get("remote_companion_enabled")))
         refresh_value = int(cfg.get("refresh_seconds") or 3600)
         idx = self.refresh_seconds.findData(refresh_value)
         self.refresh_seconds.setCurrentIndex(idx if idx >= 0 else self.refresh_seconds.findData(3600))
@@ -1125,6 +1370,7 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
             "display_horizon_hours": int(self.horizon.value()),
             "radar_surface_enabled": self._combo_value(self.surface, "off") != "off",
             "radar_surface_mode": self._combo_value(self.surface, "off"),
+            "remote_companion_enabled": bool(self.remote_companion_enabled.isChecked()),
             "display_outputs": outputs or ["web"],
         }
 

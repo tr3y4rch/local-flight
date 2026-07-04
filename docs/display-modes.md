@@ -2,7 +2,7 @@
 
 Local Flight is one local server with several client surfaces. The important idea is simple: choose where the board should be seen, and Local Flight keeps the same data, setup, history, diagnostics, and APIs underneath.
 
-Public project docs live at [beacontools.cc/local-flight](https://beacontools.cc/local-flight). The hosted relay used by Community Relay and Mobile Standalone is `https://relay.beacontools.cc`.
+Public project docs live at [beacontools.cc/local-flight](https://beacontools.cc/local-flight). The hosted relay used by Community Relay, Remote Companion fallback, and Mobile Standalone is `https://relay.beacontools.cc`.
 
 ---
 
@@ -12,7 +12,7 @@ For Windows and macOS, use the **native Qt desktop shell**.
 
 It is the recommended primary desktop client because it opens a real app window without depending on Chrome, Edge, Chromium, browser profiles, browser sync, extensions, cookies, browsing history, webviews, online fonts, or CDN assets.
 
-The native app still starts the same local FastAPI server. That means the LAN browser UI, mobile LAN Companion, Matrix board, and API clients continue to work while the native shell is running.
+The native app still starts the same local FastAPI server. That means the LAN browser UI, mobile Companion, Matrix board, and API clients continue to work while the native shell is running.
 
 ---
 
@@ -27,7 +27,7 @@ The native app still starts the same local FastAPI server. That means the LAN br
 | Pi attached to a 7" touch screen (800×480 or 1024×600) | LAN browser UI — auto compact layout |
 | Pi attached to an HDMI display without a browser process | Native Qt kiosk |
 | Pi attached to an HDMI display using the web board | Chromium kiosk display |
-| iPhone or iPad paired to your Local Flight server | Mobile LAN Companion |
+| iPhone or iPad paired to your Local Flight server | Mobile Companion with Remote Companion fallback |
 | iPhone-only simplified board | Mobile Standalone |
 | LED passenger board | Interstate 75 W Matrix client |
 
@@ -56,18 +56,18 @@ Use it when you want the full Local Flight app on the machine that runs the serv
 
 The browser UI is a supported access and display surface. It is not being removed.
 
-In the current `0.2.7` line, the browser UI mirrors the native Qt shell —
+In the current `0.5.1` line, the browser UI mirrors the native Qt shell —
 same top nav layout (brand mark, UTC/LT clock chips, segmented Display /
 FIDS / Radar / Matrix tabs, operator icon-chip bar, Power button), same
 colour tokens, same shared components (panels, cards, kicker labels,
 disclosure cards, status pills, buttons). Picking a theme or skin in
 Settings retints both surfaces the same way.
 
-Preliminary `0.2.8` polish continues that parity work in Settings: Outputs/Radar,
-Profiles, Pair Mobile, timing, maintenance, relay details, and diagnostics/docs
-now use the same collapsed folder model in the LAN browser as the Qt shell. The
-LAN Settings page also exposes the same Companion QR/manual pairing path, paired
-device refresh, copy-link/copy-URL actions, and reset action.
+The latest parity work also covers Settings: Outputs/Radar, Profiles, Pair
+Mobile, timing, maintenance, relay details, and diagnostics/docs now use the
+same collapsed folder model in the LAN browser as the Qt shell. The LAN Settings
+page also exposes the same Companion QR/manual pairing path, paired-device
+refresh, copy-link/copy-URL actions, and reset action.
 
 Use it when:
 
@@ -128,7 +128,7 @@ It runs:
 - Scheduler
 - WebSocket updates
 - LAN browser UI
-- Mobile LAN Companion API
+- Mobile Companion API
 - Matrix feed/API
 
 It does not open a local window on the Pi.
@@ -167,11 +167,11 @@ This is useful when the browser UI fits your display setup better or native Qt k
 
 The mobile app is an iOS-first developer preview for iPhone, iPad, and simulator testing. It has two modes.
 
-### LAN Companion
+### Companion
 
-LAN Companion talks to your Local Flight server over your Wi-Fi/LAN. It does not call AviationStack, ADS-B Exchange, RapidAPI, OpenSky, VATSIM, or the hosted relay directly.
+Companion talks to your Local Flight server over your Wi-Fi/LAN first. After a phone pairs from the host's Pair Mobile screen, Remote Companion can also be granted for relay-linked installs so the same Companion experience keeps working away from Wi-Fi through encrypted relay envelopes.
 
-Use LAN Companion for:
+Use Companion for:
 
 - Board/FIDS and pinned flight view
 - Radar with mobile-owned range rings
@@ -184,6 +184,8 @@ Use LAN Companion for:
 Pair from the native Qt Settings page or the LAN browser Settings page. Both
 surfaces show a reusable QR code, the preferred LAN URL, manual fallbacks, and a
 server fingerprint. Keep the `:8000` port in manual URLs.
+
+Remote Companion still requires the host to be online. It is not Standalone mode, not a cloud admin panel, and not a public tunnel to the host. The relay can route install/grant refs, request ids, status, latency, and byte sizes, but it cannot read the encrypted Companion path/body or response.
 
 ### Standalone
 
@@ -249,7 +251,7 @@ Local Flight keeps the display shell separate from the aviation data sources you
 
 - Native Qt is recommended for desktop because it avoids extra browser-vendor surfaces for the main app window.
 - LAN browser UI remains supported because it is useful for headless installs, remote viewing, kiosk displays, and recovery.
-- LAN Companion and Matrix stay server-mediated through your Local Flight instance.
+- Companion and Matrix stay server-mediated through your Local Flight instance. Companion uses LAN first and can fall back to encrypted Remote Companion only for paired relay-linked hosts.
 - Mobile Standalone is relay-mediated, simplified, and rate-limited by design.
 - Diagnostics are consent-based and sanitized before leaving the machine.
 

@@ -56,8 +56,8 @@
             <p class="store-note">Store listings will open after review.</p>
           </div>
           <div class="status-strip">
-            <span class="status-chip amber">TestFlight private beta prep</span>
-            <span class="status-chip amber">Play internal testing prep</span>
+            <span class="status-chip amber">TestFlight proof prep</span>
+            <span class="status-chip amber">Play internal proof prep</span>
             <span class="status-chip">Shared relay: relay.beacontools.cc</span>
           </div>
         </div>
@@ -86,7 +86,7 @@
           <div class="grid two">
             <article class="card good-card">
               <h3>Companion mode</h3>
-              <p>Pairs with your Local Flight desktop app or Raspberry Pi over your own Wi-Fi/LAN. Scan the QR code from Settings, or enter the LAN address manually with the <code>:8000</code> port. The paired server provides the board, radar, history, controls, reports, and LED matrix tools.</p>
+              <p>Pairs with your Local Flight desktop app or Raspberry Pi over your own Wi-Fi/LAN. Scan the QR code from Settings, or enter the LAN address manually with the <code>:8000</code> port. The paired server provides the board, radar, history, controls, reports, and LED matrix tools. Remote Companion can keep the same paired experience working away from Wi-Fi through encrypted relay fallback when the host is online.</p>
             </article>
             <article class="card">
               <h3>Phone-only mode</h3>
@@ -165,7 +165,7 @@
             </article>
             <article class="card">
               <h3>Privacy model</h3>
-              <p>No accounts, no ads SDKs, and no cross-app tracking. Companion mode talks to your own server first. Phone-only mode uses the hosted relay and keeps its own history locally on the phone. See <a href="/privacy/">privacy policy</a> and <a href="/privacy/choices/">privacy choices</a>.</p>
+              <p>No accounts, no ads SDKs, and no cross-app tracking. Companion mode talks to your own server first; Remote Companion routes encrypted paired-host messages when LAN is unavailable. Phone-only mode uses the hosted relay and keeps its own history locally on the phone. See <a href="/privacy/">privacy policy</a> and <a href="/privacy/choices/">privacy choices</a>.</p>
             </article>
           </div>
         </div>
@@ -180,8 +180,8 @@
             </div>
           </div>
           <ol class="timeline">
-            <li>Current preview builds are being prepared around companion mode, phone-only relay mode, privacy prompts, diagnostics choices, and store metadata.</li>
-            <li>TestFlight and Google Play testing links will come after the private beta builds and review metadata are ready.</li>
+            <li>Current builds are being prepared around Companion, Remote Companion fallback, phone-only relay mode, privacy prompts, diagnostics choices, and store metadata.</li>
+            <li>TestFlight and Google Play testing links will come after Remote Companion connectivity/privacy proof and review metadata are ready.</li>
             <li>Until then, testing interest and support questions can go through the <a href="/support/#message">support message box</a>.</li>
           </ol>
         </div>

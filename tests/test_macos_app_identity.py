@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import plistlib
 import stat
 from pathlib import Path
@@ -215,7 +216,8 @@ def test_macos_pkg_preinstall_only_cleans_matching_legacy_bundle(tmp_path: Path)
     preinstall = macos_pkg.write_preinstall_script(tmp_path)
     script = preinstall.read_text(encoding="utf-8")
 
-    assert preinstall.stat().st_mode & stat.S_IXUSR
+    if os.name != "nt":
+        assert preinstall.stat().st_mode & stat.S_IXUSR
     assert 'LEGACY_APP="/Applications/LocalFlight.app"' in script
     assert 'EXPECTED_ID="com.localflight.app"' in script
     assert "PlistBuddy -c 'Print :CFBundleIdentifier'" in script

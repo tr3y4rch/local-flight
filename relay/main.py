@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import html
 import hmac
+import asyncio
 import json
 import os
 import re
@@ -13,7 +14,7 @@ import threading
 import time
 import uuid
 from contextlib import asynccontextmanager
-from dataclasses import asdict
+from dataclasses import asdict, dataclass, field
 from datetime import date, datetime, time as dt_time, timedelta, timezone
 from email.message import EmailMessage
 from pathlib import Path
@@ -23,7 +24,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import requests as _req
 import uvicorn
-from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Request, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
@@ -79,6 +80,21 @@ _admin_auth_failures_guard = threading.Lock()
 _heartbeat_last_seen: Dict[str, float] = {}
 _heartbeat_guard = threading.Lock()
 _HEARTBEAT_MIN_INTERVAL_S = 300  # 5 minutes per install
+_REMOTE_COMPANION_TIMEOUT_S = 25
+_REMOTE_COMPANION_MAX_ENVELOPE_BYTES = 64 * 1024
+_REMOTE_COMPANION_MAX_PENDING = 8
+_REMOTE_COMPANION_GRANT_RPM_LIMIT = 120
+_REMOTE_COMPANION_INSTALL_RPM_LIMIT = 240
+_REMOTE_COMPANION_NETWORK_RPM_LIMIT = 300
+_REMOTE_COMPANION_HOSTS: Dict[str, "RemoteCompanionHostSession"] = {}
+
+
+@dataclass
+class RemoteCompanionHostSession:
+    install_ref: str
+    install_id: str
+    websocket: WebSocket
+    pending: dict[str, asyncio.Future] = field(default_factory=dict)
 
 _REPORT_CRASH_DEDUPE_HOURS = 6
 _REPORT_MANUAL_DEDUPE_MINUTES = 30
@@ -341,6 +357,42 @@ def _standalone_radar_limit() -> int:
         return max(1, int(_env("RELAY_STANDALONE_RADAR_LIMIT", str(_STANDALONE_RADAR_LIMIT))))
     except ValueError:
         return _STANDALONE_RADAR_LIMIT
+
+
+def _remote_companion_max_envelope_bytes() -> int:
+    return _int_env(
+        "RELAY_REMOTE_COMPANION_MAX_ENVELOPE_BYTES",
+        _REMOTE_COMPANION_MAX_ENVELOPE_BYTES,
+        minimum=1024,
+    )
+
+
+def _remote_companion_max_pending() -> int:
+    return _int_env("RELAY_REMOTE_COMPANION_MAX_PENDING", _REMOTE_COMPANION_MAX_PENDING, minimum=1)
+
+
+def _remote_companion_grant_rpm_limit() -> int:
+    return _int_env(
+        "RELAY_REMOTE_COMPANION_GRANT_RPM_LIMIT",
+        _REMOTE_COMPANION_GRANT_RPM_LIMIT,
+        minimum=1,
+    )
+
+
+def _remote_companion_install_rpm_limit() -> int:
+    return _int_env(
+        "RELAY_REMOTE_COMPANION_INSTALL_RPM_LIMIT",
+        _REMOTE_COMPANION_INSTALL_RPM_LIMIT,
+        minimum=1,
+    )
+
+
+def _remote_companion_network_rpm_limit() -> int:
+    return _int_env(
+        "RELAY_REMOTE_COMPANION_NETWORK_RPM_LIMIT",
+        _REMOTE_COMPANION_NETWORK_RPM_LIMIT,
+        minimum=1,
+    )
 
 
 def _standalone_schedule_min_refresh_seconds() -> int:
@@ -714,6 +766,23 @@ def _ensure_schema() -> None:
         )
         """
     )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS remote_companion_grants (
+            install_id     TEXT NOT NULL,
+            install_ref    TEXT NOT NULL,
+            grant_ref      TEXT NOT NULL,
+            companion_ref  TEXT,
+            client_name    TEXT,
+            device_type    TEXT,
+            app_version    TEXT,
+            created_at     TEXT NOT NULL,
+            revoked_at     TEXT,
+            last_seen      TEXT,
+            PRIMARY KEY (install_id, grant_ref)
+        )
+        """
+    )
     _ensure_column(conn, "request_log", "service TEXT")
     _ensure_column(conn, "request_log", "plan TEXT")
     _ensure_column(conn, "activation_requests", "display_name TEXT")
@@ -762,6 +831,9 @@ def _ensure_schema() -> None:
     _ensure_column(conn, "install_profiles", "matrix_online_count INTEGER DEFAULT 0")
     _ensure_column(conn, "client_interests", "client_kind TEXT")
     _ensure_column(conn, "client_interests", "airport_icao TEXT")
+    _ensure_column(conn, "remote_companion_grants", "client_name TEXT")
+    _ensure_column(conn, "remote_companion_grants", "device_type TEXT")
+    _ensure_column(conn, "remote_companion_grants", "app_version TEXT")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_usage_month_service ON usage (month, service, calls DESC)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_activation_revoked ON activation_tokens (revoked_at)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_activation_requests_status ON activation_requests (status, created_at DESC)")
@@ -776,6 +848,7 @@ def _ensure_schema() -> None:
     conn.execute("CREATE INDEX IF NOT EXISTS idx_client_interests_last_seen ON client_interests (last_seen DESC)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_install_profiles_last_seen ON install_profiles (last_seen DESC)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_mobile_standalone_cache_seen ON mobile_standalone_cache (service, last_seen DESC)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_remote_companion_install_ref ON remote_companion_grants (install_ref, grant_ref, revoked_at)")
     _backfill_install_profiles(conn)
     conn.commit()
     conn.close()
@@ -1034,12 +1107,12 @@ def _aerodatabox_request_headers() -> Dict[str, str]:
             "X-RapidAPI-Key": _aerodatabox_key(),
             "X-RapidAPI-Host": "aerodatabox.p.rapidapi.com",
             "Accept": "application/json",
-            "User-Agent": "localflight-relay/0.2.7",
+            "User-Agent": "localflight-relay/0.5.1",
         }
     return {
         "x-magicapi-key": _aerodatabox_key(),
         "Accept": "application/json",
-        "User-Agent": "localflight-relay/0.2.7",
+        "User-Agent": "localflight-relay/0.5.1",
     }
 
 
@@ -2302,7 +2375,7 @@ def _report_app_mode_label(body: "ReportIn") -> str:
     if "mobile_standalone" in hint or "standalone relay" in hint:
         return "Standalone"
     if "lan companion" in hint or "lan_companion" in hint or "companion" in hint:
-        return "LAN Companion"
+        return "Companion"
     return ""
 
 
@@ -3368,6 +3441,33 @@ def _merge_schedule_meta(primary: Dict[str, Any], extra: Dict[str, Any]) -> Dict
     return merged
 
 
+def _copy_schedule_source_meta(target: Dict[str, Any], source: Dict[str, Any]) -> Dict[str, Any]:
+    """Expose provider planner details on fused shared-schedule metadata."""
+    for key in (
+        "pages_requested",
+        "pages_fetched",
+        "page_size",
+        "pages_per_date_cap",
+        "max_pages_per_scope",
+        "adaptive_extra_pages",
+        "dates_touched",
+        "raw_rows",
+        "record_count",
+        "pages_by_scope",
+        "rows_by_scope",
+        "undated_fallback_used",
+        "undated_fallback_pages_fetched",
+        "undated_fallback_adaptive_extra_pages",
+    ):
+        if key in source and key not in target:
+            target[key] = source[key]
+    target.setdefault("adaptive_extra_pages", 0)
+    target.setdefault("undated_fallback_used", False)
+    target.setdefault("pages_by_scope", {})
+    target.setdefault("rows_by_scope", {})
+    return target
+
+
 def _provider_circuit_open_exc(provider: str, opened_until: str) -> HTTPException:
     return HTTPException(
         status_code=503,
@@ -3960,6 +4060,7 @@ def _fetch_shared_schedule_from_upstream(
             meta["stale_reason"] = str(meta.get("source_cache_reason") or "")
         meta.setdefault("providers_used", [provider])
         meta.setdefault("provider_record_counts", {provider: len(records), "merged": len(records)})
+        _copy_schedule_source_meta(meta, meta)
         meta["provider_errors"] = provider_errors
         meta["budget_limited_providers"] = sorted(set(budget_limited))
         meta["source_cache_providers"] = sorted(set(source_cache_providers))
@@ -4068,6 +4169,7 @@ def _fetch_shared_schedule_from_upstream(
                 )
                 fill_meta = dict(fill.get("meta") or {})
                 fusion_meta["pages_fetched"] = int(fill_meta.get("pages_fetched", 0) or 0)
+                _copy_schedule_source_meta(fusion_meta, fill_meta)
                 fusion_meta["aviationstack_meta"] = fill_meta
                 fusion_meta["aerodatabox_meta"] = dict(primary.get("meta") or {})
                 fusion_meta["upstream_usage_precounted"] = True
@@ -4097,6 +4199,7 @@ def _fetch_shared_schedule_from_upstream(
                 )
                 fill_meta = dict(fill.get("meta") or {})
                 fusion_meta["pages_fetched"] = int(fill_meta.get("pages_fetched", 0) or 0)
+                _copy_schedule_source_meta(fusion_meta, fill_meta)
                 fusion_meta["aviationstack_meta"] = fill_meta
                 fusion_meta["aerodatabox_meta"] = dict(primary.get("meta") or {})
                 fusion_meta["upstream_usage_precounted"] = True
@@ -7801,6 +7904,45 @@ class ClientStatusIn(BaseModel):
         return _admin_text(value)
 
 
+class RemoteCompanionGrantIn(BaseModel):
+    install_id: str
+    activation_token: str = Field("", max_length=160)
+    install_ref: str = Field("", max_length=32)
+    grant_ref: str = Field(..., min_length=6, max_length=80)
+    companion_ref: str = Field("", max_length=120)
+    action: str = Field("register", max_length=16)
+    client_name: str = Field("", max_length=120)
+    device_type: str = Field("", max_length=40)
+    app_version: str = Field("", max_length=40)
+
+    @field_validator(
+        "activation_token",
+        "install_ref",
+        "grant_ref",
+        "companion_ref",
+        "action",
+        "client_name",
+        "device_type",
+        "app_version",
+        mode="before",
+    )
+    @classmethod
+    def _coerce_remote_text(cls, value: Any) -> str:
+        return _admin_text(value)
+
+
+class RemoteCompanionRequestIn(BaseModel):
+    install_ref: str = Field(..., min_length=8, max_length=32)
+    grant_ref: str = Field(..., min_length=6, max_length=80)
+    request_id: str = Field(..., min_length=8, max_length=80)
+    envelope: Dict[str, Any]
+
+    @field_validator("install_ref", "grant_ref", "request_id", mode="before")
+    @classmethod
+    def _coerce_request_text(cls, value: Any) -> str:
+        return _admin_text(value)
+
+
 class HeartbeatIn(BaseModel):
     install_id: str
     app_version: str = Field("", max_length=40)
@@ -8064,7 +8206,7 @@ def _localflight_version_label() -> str:
 
         return version("localflight")
     except Exception:
-        return "0.2.7"
+        return "0.5.1"
 
 
 def _airport_result_payload(rec: Any, *, include_coords: bool = False) -> Dict[str, Any]:
@@ -8605,6 +8747,308 @@ def relay_client_checkin(body: ClientStatusIn) -> Dict[str, Any]:
             app_version=body.app_version,
         )
     return status
+
+
+def _require_remote_companion_install(install_id: str, activation_token: str, install_ref: str = "") -> str:
+    install_id = _validate_install_id(install_id)
+    token = (activation_token or "").strip()
+    if not token:
+        raise HTTPException(status_code=403, detail="Remote Companion requires a relay activation token")
+    status = _build_client_status(install_id=install_id, activation_token=token)
+    if status.get("plan") != "managed":
+        raise HTTPException(status_code=403, detail="Remote Companion requires a managed relay-linked install")
+    expected_ref = _install_fingerprint(install_id)
+    if install_ref and install_ref != expected_ref:
+        raise HTTPException(status_code=403, detail="install_ref does not match install_id")
+    return expected_ref
+
+
+def _remote_companion_grant_row(*, install_ref: str, grant_ref: str) -> Optional[sqlite3.Row]:
+    conn = _connect()
+    row = conn.execute(
+        """
+        SELECT *
+        FROM remote_companion_grants
+        WHERE install_ref=? AND grant_ref=? AND revoked_at IS NULL
+        """,
+        (install_ref, grant_ref),
+    ).fetchone()
+    conn.close()
+    return row
+
+
+def _remote_companion_envelope_size(envelope: Dict[str, Any]) -> int:
+    try:
+        return len(json.dumps(envelope, separators=(",", ":")).encode("utf-8"))
+    except Exception:
+        return _remote_companion_max_envelope_bytes() + 1
+
+
+def _ensure_remote_companion_envelope_limit(envelope: Dict[str, Any], *, direction: str) -> int:
+    size = _remote_companion_envelope_size(envelope)
+    limit = _remote_companion_max_envelope_bytes()
+    if size > limit:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Remote Companion encrypted {direction} envelope is too large",
+        )
+    return size
+
+
+def _check_and_increment_remote_companion_rate_limits(*, row: sqlite3.Row, network_tag: str) -> None:
+    minute = _minute_key()
+    install_id = str(row["install_id"] or "")
+    install_ref = str(row["install_ref"] or "")
+    grant_ref = str(row["grant_ref"] or "")
+    checks = [
+        (
+            f"remote-grant:{grant_ref}",
+            "remote-companion:grant-minute",
+            _remote_companion_grant_rpm_limit(),
+            "Remote Companion grant rate limit reached; try again shortly.",
+            "remote-grant-minute",
+        ),
+        (
+            f"remote-install:{install_ref or install_id}",
+            "remote-companion:install-minute",
+            _remote_companion_install_rpm_limit(),
+            "Remote Companion install rate limit reached; try again shortly.",
+            "remote-install-minute",
+        ),
+        (
+            f"remote-network:{network_tag or 'unknown'}",
+            "remote-companion:network-minute",
+            _remote_companion_network_rpm_limit(),
+            "Remote Companion network rate limit reached; try again shortly.",
+            "remote-network-minute",
+        ),
+    ]
+    conn = _connect()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        for subject, service, limit, message, _plan in checks:
+            row_count = conn.execute(
+                "SELECT calls FROM usage WHERE subject_key=? AND service=? AND month=?",
+                (subject, service, minute),
+            ).fetchone()
+            current = _usage_calls(row_count)
+            if current >= int(limit):
+                conn.rollback()
+                raise HTTPException(status_code=429, detail=message, headers={"Retry-After": "60"})
+        now = _utc_now()
+        for subject, service, _limit, _message, plan in checks:
+            conn.execute(
+                """
+                INSERT INTO usage (subject_key, service, month, calls, last_seen, plan, install_id)
+                VALUES (?, ?, ?, 1, ?, ?, ?)
+                ON CONFLICT(subject_key, service, month) DO UPDATE SET
+                    calls = calls + 1,
+                    last_seen = excluded.last_seen,
+                    plan = excluded.plan,
+                    install_id = excluded.install_id
+                """,
+                (subject, service, minute, now, plan, install_id),
+            )
+        conn.commit()
+    except Exception:
+        if conn.in_transaction:
+            conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+@app.post("/v1/remote-companion/grants")
+def remote_companion_grants(body: RemoteCompanionGrantIn) -> Dict[str, Any]:
+    install_id = _validate_install_id(body.install_id)
+    install_ref = _require_remote_companion_install(
+        install_id,
+        body.activation_token,
+        install_ref=body.install_ref,
+    )
+    action = (body.action or "register").strip().lower()
+    if action not in {"register", "revoke"}:
+        raise HTTPException(status_code=400, detail="Remote Companion grant action must be register or revoke")
+    now = _utc_now()
+    conn = _connect()
+    if action == "revoke":
+        conn.execute(
+            """
+            UPDATE remote_companion_grants
+            SET revoked_at=?, last_seen=?
+            WHERE install_id=? AND grant_ref=?
+            """,
+            (now, now, install_id, body.grant_ref),
+        )
+    else:
+        conn.execute(
+            """
+            INSERT INTO remote_companion_grants (
+                install_id, install_ref, grant_ref, companion_ref, client_name,
+                device_type, app_version, created_at, revoked_at, last_seen
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)
+            ON CONFLICT(install_id, grant_ref) DO UPDATE SET
+                install_ref=excluded.install_ref,
+                companion_ref=excluded.companion_ref,
+                client_name=excluded.client_name,
+                device_type=excluded.device_type,
+                app_version=excluded.app_version,
+                revoked_at=NULL,
+                last_seen=excluded.last_seen
+            """,
+            (
+                install_id,
+                install_ref,
+                body.grant_ref,
+                body.companion_ref,
+                body.client_name,
+                body.device_type,
+                body.app_version,
+                now,
+                now,
+            ),
+        )
+    conn.commit()
+    conn.close()
+    _record_install_profile(
+        install_id=install_id,
+        presence_event="relay_activity",
+        client_kind="desktop",
+        device_type="desktop",
+        app_version=body.app_version,
+    )
+    return {
+        "ok": True,
+        "install_ref": install_ref,
+        "grant_ref": body.grant_ref,
+        "action": action,
+    }
+
+
+@app.websocket("/v1/remote-companion/host/ws")
+async def remote_companion_host_ws(
+    websocket: WebSocket,
+    install_id: str = Query(...),
+    activation_token: str = Query(...),
+    app_version: str = Query(""),
+) -> None:
+    try:
+        install_ref = _require_remote_companion_install(install_id, activation_token)
+    except HTTPException:
+        await websocket.close(code=1008)
+        return
+    await websocket.accept()
+    session = RemoteCompanionHostSession(
+        install_ref=install_ref,
+        install_id=_validate_install_id(install_id),
+        websocket=websocket,
+    )
+    previous = _REMOTE_COMPANION_HOSTS.get(install_ref)
+    if previous is not None:
+        for future in list(previous.pending.values()):
+            if not future.done():
+                future.set_exception(RuntimeError("remote_host_replaced"))
+    _REMOTE_COMPANION_HOSTS[install_ref] = session
+    _record_install_profile(
+        install_id=session.install_id,
+        presence_event="relay_activity",
+        client_kind="desktop",
+        device_type="desktop",
+        app_version=app_version,
+    )
+    try:
+        while True:
+            message = await websocket.receive_json()
+            if not isinstance(message, dict) or message.get("type") != "response":
+                continue
+            request_id = str(message.get("request_id") or "")
+            future = session.pending.pop(request_id, None)
+            if future is not None and not future.done():
+                future.set_result(message)
+    except WebSocketDisconnect:
+        pass
+    except Exception:
+        pass
+    finally:
+        current = _REMOTE_COMPANION_HOSTS.get(install_ref)
+        if current is session:
+            _REMOTE_COMPANION_HOSTS.pop(install_ref, None)
+        for future in list(session.pending.values()):
+            if not future.done():
+                future.set_exception(RuntimeError("remote_host_offline"))
+
+
+@app.post("/v1/remote-companion/request")
+async def remote_companion_request(request: Request, body: RemoteCompanionRequestIn) -> Dict[str, Any]:
+    request_size = _ensure_remote_companion_envelope_limit(body.envelope, direction="request")
+    row = _remote_companion_grant_row(install_ref=body.install_ref, grant_ref=body.grant_ref)
+    if row is None:
+        raise HTTPException(status_code=403, detail="Remote Companion grant is not active")
+    network_tag = _network_tag(_client_ip(request))
+    _check_and_increment_remote_companion_rate_limits(row=row, network_tag=network_tag)
+    session = _REMOTE_COMPANION_HOSTS.get(body.install_ref)
+    if session is None:
+        raise HTTPException(status_code=503, detail="remote_host_offline")
+    max_pending = _remote_companion_max_pending()
+    if len(session.pending) >= max_pending:
+        raise HTTPException(
+            status_code=429,
+            detail="Remote Companion host has too many pending requests; try again shortly.",
+            headers={"Retry-After": "5"},
+        )
+    loop = asyncio.get_running_loop()
+    future: asyncio.Future = loop.create_future()
+    session.pending[body.request_id] = future
+    try:
+        await session.websocket.send_json(
+            {
+                "type": "request",
+                "install_ref": body.install_ref,
+                "grant_ref": body.grant_ref,
+                "request_id": body.request_id,
+                "envelope": body.envelope,
+            }
+        )
+        response = await asyncio.wait_for(future, timeout=_REMOTE_COMPANION_TIMEOUT_S)
+    except asyncio.TimeoutError as exc:
+        session.pending.pop(body.request_id, None)
+        raise HTTPException(status_code=504, detail="remote_host_timeout") from exc
+    except Exception as exc:
+        session.pending.pop(body.request_id, None)
+        raise HTTPException(status_code=503, detail="remote_host_offline") from exc
+    finally:
+        session.pending.pop(body.request_id, None)
+    response_envelope = response.get("envelope") if isinstance(response, dict) else {}
+    response_size = _ensure_remote_companion_envelope_limit(
+        response_envelope if isinstance(response_envelope, dict) else {},
+        direction="response",
+    )
+    conn = _connect()
+    conn.execute(
+        """
+        UPDATE remote_companion_grants
+        SET last_seen=?
+        WHERE install_ref=? AND grant_ref=?
+        """,
+        (_utc_now(), body.install_ref, body.grant_ref),
+    )
+    conn.commit()
+    conn.close()
+    _record_install_profile(
+        install_id=str(row["install_id"] or session.install_id),
+        presence_event="relay_activity",
+        client_kind="desktop",
+        device_type="desktop",
+    )
+    return {
+        **(response if isinstance(response, dict) else {}),
+        "relay": {
+            "ok": True,
+            "request_id": body.request_id,
+            "request_bytes": request_size,
+            "response_bytes": response_size,
+        },
+    }
 
 
 @app.post("/v1/heartbeat")

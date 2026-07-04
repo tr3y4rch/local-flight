@@ -51,7 +51,7 @@ class LocalApiClient:
         try:
             return version("localflight")
         except PackageNotFoundError:
-            return "0.2.7"
+            return "0.5.1"
 
     def _client_id(self) -> str:
         if self._install_id:

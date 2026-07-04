@@ -4,6 +4,15 @@ export type PairingLinkResult = {
   serverUrl: string;
   source: string;
   expectedServerFingerprint?: string;
+  remoteCompanionInvite?: RemoteCompanionInvite;
+};
+
+export type RemoteCompanionInvite = {
+  relayUrl: string;
+  installRef: string;
+  inviteId: string;
+  remoteKey: string;
+  expiresAt: string;
 };
 
 export function parsePairingLink(rawUrl: string): PairingLinkResult | null {
@@ -34,11 +43,35 @@ export function parsePairingLink(rawUrl: string): PairingLinkResult | null {
     return null;
   }
 
+  const remoteCompanionInvite = parseRemoteCompanionInvite(parsed);
+  if (parsed.searchParams.get("remote") === "1" && !remoteCompanionInvite) {
+    return null;
+  }
+
   return {
     serverUrl: normalized,
     source: parsed.searchParams.get("source") || "qr",
-    expectedServerFingerprint: normalizedPairingFingerprint(parsed.searchParams.get("server_fingerprint") || "")
+    expectedServerFingerprint: normalizedPairingFingerprint(parsed.searchParams.get("server_fingerprint") || ""),
+    remoteCompanionInvite
   };
+}
+
+function parseRemoteCompanionInvite(parsed: URL): RemoteCompanionInvite | undefined {
+  if (parsed.searchParams.get("remote") !== "1") {
+    return undefined;
+  }
+  const relayUrl = normalizeServerUrl(parsed.searchParams.get("relay") || "");
+  const installRef = (parsed.searchParams.get("install_ref") || "").trim();
+  const inviteId = (parsed.searchParams.get("invite_id") || "").trim();
+  const remoteKey = (parsed.searchParams.get("remote_key") || "").trim();
+  const expiresAt = (parsed.searchParams.get("expires_at") || "").trim();
+  if (!relayUrl || !installRef || !inviteId || !remoteKey || !expiresAt) {
+    return undefined;
+  }
+  if (remoteKey.length < 40 || remoteKey.length > 80) {
+    return undefined;
+  }
+  return { relayUrl, installRef, inviteId, remoteKey, expiresAt };
 }
 
 export function pairingServerUrlProblem(serverUrl: string): string | null {

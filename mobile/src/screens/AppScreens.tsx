@@ -117,6 +117,7 @@ import {
   type MobileSetupMode,
   type MobileWidgetPreferences,
   type MobileWeatherDisplayMode,
+  type RemoteCompanionGrant,
   type StandaloneAirport,
   saveProfiles
 } from "../storage/settings";
@@ -147,7 +148,7 @@ export type ActivityStatus = {
   detail?: string;
   tone?: "sync" | "warn" | "ok";
 };
-export type ConnectionState = "live" | "retrying" | "offline";
+export type ConnectionState = "lan" | "remote" | "live" | "retrying" | "offline";
 
 const DOC_SOURCES: Record<DocSlug, { title: string; detail: string; externalUrl: string; externalLabel: string }> = {
   readme: {
@@ -730,17 +731,23 @@ export function Header({
   const hasAirportCode = Boolean(airportCode && airportCode !== "---");
   const effectiveConnectionState = connectionState || (!live ? "offline" : error ? "offline" : "live");
   const connectionAccent =
-    effectiveConnectionState === "live"
+    effectiveConnectionState === "lan" || effectiveConnectionState === "live"
       ? palette.green
-      : effectiveConnectionState === "retrying"
-        ? palette.amber
-        : palette.red;
+      : effectiveConnectionState === "remote"
+        ? palette.blue2
+        : effectiveConnectionState === "retrying"
+          ? palette.amber
+          : palette.red;
   const connectionLabel =
-    effectiveConnectionState === "live"
-      ? "LIVE"
-      : effectiveConnectionState === "retrying"
-        ? "RETRYING"
-        : "OFFLINE";
+    effectiveConnectionState === "lan"
+      ? "LAN"
+      : effectiveConnectionState === "remote"
+        ? "REMOTE"
+        : effectiveConnectionState === "live"
+          ? "LIVE"
+          : effectiveConnectionState === "retrying"
+            ? "RETRYING"
+            : "OFFLINE";
   const railAirportCode = hasAirportCode ? airportCode : airportIcao;
   const dotOpacity = useRef(new Animated.Value(1)).current;
   const reduceMotion = useReducedMotionPreference();
@@ -4537,6 +4544,7 @@ export function CompanionSetupScreen({
   pairingNonce = 0,
   pairingExpectedServerFingerprint = "",
   initialDiagnosticsMode,
+  onPairingLoaded,
   onComplete
 }: {
   initialUrl: string;
@@ -4544,6 +4552,7 @@ export function CompanionSetupScreen({
   pairingNonce?: number;
   pairingExpectedServerFingerprint?: string;
   initialDiagnosticsMode: MobileDiagnosticsMode;
+  onPairingLoaded?: (pairing: PairingLinkResult) => void;
   onComplete: (result: MobileSetupResult) => Promise<void> | void;
 }) {
   const [step, setStep] = useState<CompanionSetupStep>("welcome");
@@ -4790,6 +4799,7 @@ export function CompanionSetupScreen({
   }, [runServerTest, serverInput]);
 
   const handleScannedServer = useCallback((pairing: PairingLinkResult) => {
+    onPairingLoaded?.(pairing);
     setScannerVisible(false);
     setSetupMode("lan_companion");
     setServerInput(pairing.serverUrl);
@@ -4798,7 +4808,7 @@ export function CompanionSetupScreen({
     setUrlCheckState("checking");
     setUrlCheckMessage("Pairing QR loaded. Testing this Local Flight host...");
     void runServerTest(pairing.serverUrl, pairing.expectedServerFingerprint);
-  }, [goToStep, runServerTest]);
+  }, [goToStep, onPairingLoaded, runServerTest]);
 
   useEffect(() => {
     if (!pairingUrl || pairingNonce <= 0) return;
@@ -5051,7 +5061,7 @@ export function CompanionSetupScreen({
             </Text>
             <View style={styles.companionSetupOptionStack}>
               {([
-                ["lan_companion", "Companion", "Best experience. Connects to your desktop or Pi for Board, Radar, History, Control, Help, and Matrix tools."],
+                ["lan_companion", "Companion", "Companion keeps this phone as a remote and glance screen. Connects to your desktop or Pi for Board, Radar, History, Control, Help, and Matrix tools."],
                 ["standalone", "Standalone", "Simpler board. Uses the relay directly with Board, Radar, History, and Settings only."]
               ] as Array<[MobileSetupMode, string, string]>).map(([mode, title, body]) => (
                 <Pressable
@@ -5105,7 +5115,7 @@ export function CompanionSetupScreen({
 
         {step === "pairing" ? (
           <Animated.View style={[styles.companionSetupPanel, panelMotion]}>
-            <Text style={styles.companionSetupPanelTitle}>Pair with your Local Flight host</Text>
+            <Text style={styles.companionSetupPanelTitle}>Connect your Local Flight host</Text>
             <Text style={styles.companionSetupBody}>
               Open Local Flight Settings on the desktop or Pi. Scan its pairing QR, or enter the Wi-Fi address shown there.
             </Text>
@@ -5929,6 +5939,8 @@ export function ControlScreen({
   matrixSaveTone,
   companionIdentity,
   connected,
+  connectionState,
+  remoteCompanionGrant,
   onThemeModeChange,
   onSkinChange,
   onWeatherDisplayModeChange,
@@ -5960,6 +5972,7 @@ export function ControlScreen({
   onSubmitFeedback,
   onRestartScheduler,
   onRerunSetup,
+  onForgetRemoteCompanion,
   onChangeUrl,
   onPairingUrl,
   onConnect
@@ -5996,6 +6009,8 @@ export function ControlScreen({
   matrixSaveTone: FeedbackTone;
   companionIdentity: CompanionIdentity | null;
   connected: boolean;
+  connectionState?: ConnectionState;
+  remoteCompanionGrant?: RemoteCompanionGrant | null;
   onThemeModeChange: (value: MobileThemeMode) => void;
   onSkinChange: (value: MobileSkin) => void;
   onWeatherDisplayModeChange: (value: MobileWeatherDisplayMode) => void;
@@ -6028,6 +6043,7 @@ export function ControlScreen({
   onSubmitFeedback: () => void;
   onRestartScheduler: () => void;
   onRerunSetup: () => void;
+  onForgetRemoteCompanion: () => void;
   onChangeUrl: (value: string) => void;
   onPairingUrl: (value: PairingLinkResult) => void;
   onConnect: () => void;
@@ -6038,6 +6054,14 @@ export function ControlScreen({
   const schedulerRunning = snapshot.scheduler?.running ?? false;
   const hostDiagnostics = snapshot.system?.client?.diagnostics_mode || snapshot.config?.diagnostics_mode || "manual";
   const companionCount = snapshot.connections?.companion_count ?? 0;
+  const remoteReady = Boolean(remoteCompanionGrant && !remoteCompanionGrant.revokedAt);
+  const remoteSummary = connectionState === "remote"
+    ? "Remote Companion active"
+    : remoteReady
+      ? "remote fallback ready"
+      : snapshot.config?.remote_companion_enabled
+        ? "remote invite available"
+        : "LAN first";
   const matrixPaletteOption = MATRIX_PALETTE_OPTIONS.find((item) => item.id === matrixRuntime.palette) || MATRIX_PALETTE_OPTIONS[0]!;
   const matrixShowWeather = Boolean(matrixRuntime.options.show_metar ?? matrixRuntime.options.show_weather);
   const updateValue = snapshot.updates?.update_available
@@ -6093,7 +6117,7 @@ export function ControlScreen({
       <ControlActionCard
         icon={TOOL_ICONS.setup}
         title="Connect to Local Flight"
-        summary={serverUrl ? `${companionCount} mobiles · ${outputValue}` : "Pair this phone with your LAN server"}
+        summary={serverUrl ? `${companionCount} mobiles · ${remoteSummary} · ${outputValue}` : "Pair this phone with your LAN server"}
         onPress={() => openSheet("connection")}
       />
 
@@ -6204,8 +6228,11 @@ export function ControlScreen({
         schedulerRestarting={schedulerRestarting}
         schedulerMessage={schedulerMessage}
         pairingNotice={pairingNotice}
+        connectionState={connectionState}
+        remoteCompanionGrant={remoteCompanionGrant || null}
         onClose={() => setActiveSheet(null)}
         onRestartScheduler={onRestartScheduler}
+        onForgetRemoteCompanion={onForgetRemoteCompanion}
         onChangeUrl={onChangeUrl}
         onPairingUrl={onPairingUrl}
         onConnect={onConnect}
@@ -7065,8 +7092,11 @@ function ConnectionPairingSheet({
   schedulerRestarting,
   schedulerMessage,
   pairingNotice,
+  connectionState,
+  remoteCompanionGrant,
   onClose,
   onRestartScheduler,
+  onForgetRemoteCompanion,
   onChangeUrl,
   onPairingUrl,
   onConnect
@@ -7084,14 +7114,37 @@ function ConnectionPairingSheet({
   schedulerRestarting: boolean;
   schedulerMessage: string | null;
   pairingNotice?: string | null;
+  connectionState?: ConnectionState;
+  remoteCompanionGrant?: RemoteCompanionGrant | null;
   onClose: () => void;
   onRestartScheduler: () => void;
+  onForgetRemoteCompanion: () => void;
   onChangeUrl: (value: string) => void;
   onPairingUrl: (value: PairingLinkResult) => void;
   onConnect: () => void;
 }) {
   const [scannerVisible, setScannerVisible] = useState(false);
   const outputValue = outputs.length ? outputs.join(", ").toUpperCase() : "WEB";
+  const remoteReady = Boolean(remoteCompanionGrant && !remoteCompanionGrant.revokedAt);
+  const pathLabel = connectionState === "remote"
+    ? "REMOTE"
+    : connectionState === "offline"
+      ? "OFFLINE"
+      : connectionState === "retrying"
+        ? "RETRYING"
+        : "LAN";
+  const pathTone = connectionState === "remote"
+    ? "blue"
+    : connectionState === "offline"
+      ? "red"
+      : connectionState === "retrying"
+        ? "amber"
+        : "green";
+  const remoteValue = connectionState === "remote"
+    ? "Using encrypted Remote Companion now."
+    : remoteReady
+      ? "Ready when this phone is away from the LAN."
+      : "Pair a Remote Companion QR from Local Flight Settings to use this phone away from Wi-Fi.";
 
   return (
     <Modal visible={visible} transparent presentationStyle="overFullScreen" animationType="slide" onRequestClose={onClose}>
@@ -7123,12 +7176,14 @@ function ConnectionPairingSheet({
               Scan the fingerprint-bound QR from Local Flight Settings or enter the LAN IP manually. localflight.local is a fallback for one-server LANs.
             </Text>
             <View style={styles.metricRow}>
+              <InfoCard label="PATH" value={pathLabel} tone={pathTone} />
               <InfoCard label="REFRESH" value={refreshSeconds ? formatInterval(refreshSeconds).toUpperCase() : "WAIT"} />
               <InfoCard label="DISPLAYS" value={outputValue} tone="blue" />
               <InfoCard label="LAYOUT" value={isTablet ? (isLandscape ? "IPAD LAND" : "IPAD PORT") : "IPHONE"} />
             </View>
             <InfoLine label="Saved server" value={serverUrl || "Not set"} />
             <InfoLine label="Host install" value={snapshot.system?.install_id || "Unknown"} />
+            <InfoLine label="Remote Companion" value={remoteValue} />
             <InfoLine label="Mobile build" value={APP_VERSION} />
             {pairingNotice ? <Text style={[styles.feedbackMessage, styles.feedbackMessageOk]}>{pairingNotice}</Text> : null}
 
@@ -7160,6 +7215,18 @@ function ConnectionPairingSheet({
                   <Text style={styles.settingsCompactButtonText}>RESTART FETCH</Text>
                 )}
               </Pressable>
+              {remoteReady ? (
+                <Pressable
+                  style={styles.settingsCompactButton}
+                  onPress={onForgetRemoteCompanion}
+                  {...accessibleButton({
+                    label: "Forget Remote Companion fallback",
+                    hint: "Removes this phone's stored remote grant. The host can still revoke the grant from Local Flight Settings."
+                  })}
+                >
+                  <Text style={styles.settingsCompactButtonText}>FORGET REMOTE</Text>
+                </Pressable>
+              ) : null}
             </View>
 
             <TextInput
@@ -7185,7 +7252,7 @@ function ConnectionPairingSheet({
               {loading ? <ActivityIndicator color={solidButtonInk()} /> : <Text style={styles.connectButtonText}>CONNECT</Text>}
             </Pressable>
             <Text style={styles.settingsHelp}>
-              Use the LAN IP of the machine running Local Flight. On a physical phone, localhost points at the phone itself.
+              Use the LAN IP of the machine running Local Flight. Remote Companion keeps working away from Wi-Fi only after this phone pairs locally with a remote QR.
             </Text>
             {schedulerMessage ? <Text style={[styles.feedbackMessage, styles.feedbackMessageOk]}>{schedulerMessage}</Text> : null}
             {error ? <Text style={styles.errorText}>{error}</Text> : null}

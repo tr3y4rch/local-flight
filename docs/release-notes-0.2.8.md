@@ -1,9 +1,8 @@
 # Local Flight 0.2.8 Preliminary Notes
 
-`0.2.8` is the next polish line after the `0.2.7` release candidate. These
-notes are preliminary: packaged Windows, macOS, Raspberry Pi, iOS, and Android
-artifacts still remain on the current `0.2.7` release-candidate line until the
-version is deliberately bumped.
+`0.2.8` was the preliminary polish line after the `0.2.7` release candidate.
+Its work has now been folded into the `0.5.1` public hardening target. This
+page remains as an intermediate development note for handoff/history.
 
 The theme for this pass is release readiness: the native shell, LAN browser,
 mobile Companion, mobile Standalone, relay, and public docs should describe the
@@ -103,8 +102,8 @@ same product, with clearer privacy posture and fewer surprising network hops.
 
 ## Documentation, Preview Assets, And Packaging
 
-- Preliminary `0.2.8` release notes now track post-RC changes without changing
-  the active package target from `0.2.7`.
+- Preliminary `0.2.8` release notes tracked post-RC changes before the active
+  package target moved to `0.5.1`.
 - Preview assets are documented under `assets/previews/mobile/iOS/`,
   `assets/previews/mobile/Android/`, and `assets/previews/shell/`.
 - Preview priority for public docs/site galleries remains: FIDS first, then
@@ -115,10 +114,10 @@ same product, with clearer privacy posture and fewer surprising network hops.
   deploy from the repository; dashboard `.dev` previews do not publish the
   custom domain.
 
-## Still Expected Before 0.2.8 Final
+## Folded Into 0.5.1
 
-- Decide whether `0.2.8` becomes a full app version bump with rebuilt artifacts
-  or remains a provisional docs/client-polish line.
+- `0.2.8` does not become a standalone public artifact line; it is folded into
+  `0.5.1`.
 - Re-run the normal release validation sweep after the final scope is frozen:
   backend tests, compile checks, mobile `verify`/`a11y`, iOS/Android local build
   smoke, and release-manifest review.
