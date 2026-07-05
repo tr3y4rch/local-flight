@@ -2335,6 +2335,7 @@ def test_shared_schedule_invalid_timezones_share_normalized_cache_key(
 
 def test_shared_schedule_upstream_fetch_adds_adaptive_pages_for_busy_departures(tmp_path: Path, monkeypatch) -> None:
     _use_temp_db(tmp_path, monkeypatch)
+    monkeypatch.setenv("RELAY_SCHEDULE_PROVIDER", "aviationstack")
     monkeypatch.setattr(relay_main, "_aviationstack_key", lambda: "relay-key-123")
     start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
     flight_date = start.date().isoformat()
@@ -2384,6 +2385,7 @@ def test_shared_schedule_upstream_fetch_falls_back_to_undated_when_date_scope_is
     monkeypatch,
 ) -> None:
     _use_temp_db(tmp_path, monkeypatch)
+    monkeypatch.setenv("RELAY_SCHEDULE_PROVIDER", "aviationstack")
     monkeypatch.setattr(relay_main, "_aviationstack_key", lambda: "relay-key-123")
     early = _aviationstack_departure("100", datetime(2026, 5, 1, 5, 0, tzinfo=timezone.utc))
     rescue = _aviationstack_departure("200", datetime(2026, 5, 1, 15, 0, tzinfo=timezone.utc))
@@ -3458,6 +3460,7 @@ def test_mobile_iap_verify_is_scaffolded_until_apple_credentials_exist() -> None
 
 def test_mobile_standalone_radar_limits_radii_and_serves_cache(tmp_path: Path, monkeypatch) -> None:
     _use_temp_db(tmp_path, monkeypatch)
+    monkeypatch.delenv("RELAY_AIRPORT_SURFACE_ENABLED", raising=False)
     client = TestClient(relay_main.app)
     install_id = "00000000-0000-0000-0000-000000000903"
     token = _activate_mobile_standalone(client, install_id)
@@ -3500,10 +3503,42 @@ def test_mobile_standalone_radar_limits_radii_and_serves_cache(tmp_path: Path, m
     assert first.json()["radius_nm"] == 3
     assert first.json()["refresh_after_s"] == 300
     assert first.json()["count"] == 1
+    assert first.json()["radar_map"]["sources"]["surface"] == "localflight-estimated"
+    assert first.json()["radar_map"]["runways"]
     assert second.status_code == 200
     assert second.headers["x-lf-mobile-standalone-cache"] == "hit"
+    assert second.json()["radar_map"]["surface_features"]
     assert unauthenticated_cache_probe.status_code == 403
     assert len(upstream_calls) == 1
+
+
+def test_mobile_standalone_radar_embeds_enabled_surface_map(tmp_path: Path, monkeypatch) -> None:
+    _use_temp_db(tmp_path, monkeypatch)
+    monkeypatch.setenv("RELAY_AIRPORT_SURFACE_ENABLED", "1")
+    client = TestClient(relay_main.app)
+    install_id = "00000000-0000-0000-0000-000000000904"
+    token = _activate_mobile_standalone(client, install_id)
+
+    monkeypatch.setattr(relay_main, "_fetch_adsbx_payload", lambda lat, lon, radius_nm: b'{"ac":[]}')
+    monkeypatch.setattr(relay_main, "_fetch_airport_surface_from_osm", lambda **kwargs: _surface_snapshot_payload())
+
+    params = {
+        "install_id": install_id,
+        "activation_token": token,
+        "app_version": "0.2.7",
+        "client_kind": "mobile_standalone",
+        "airport_iata": "ZRH",
+        "radius_nm": 3,
+    }
+
+    response = client.get("/v1/mobile/radar", params=params)
+
+    assert response.status_code == 200
+    radar_map = response.json()["radar_map"]
+    assert radar_map["schema_version"] == "mobile-standalone-surface-v1"
+    assert radar_map["sources"]["surface"] == "openstreetmap"
+    assert radar_map["sources"]["surface_cache_state"] == "fresh"
+    assert radar_map["runways"][0]["label"] == "16/34"
 
 
 def test_admin_fleet_install_refs_support_actions(tmp_path: Path, monkeypatch) -> None:

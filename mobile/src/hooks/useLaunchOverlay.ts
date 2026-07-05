@@ -62,27 +62,20 @@ export function useLaunchOverlay(onHydrated: (value: LaunchHydration) => void) {
       autoEnterTimerRef.current = null;
     }
     setReady(false);
-    if (reduceMotion) {
-      opacity.setValue(0);
-      shift.setValue(0);
-      scale.setValue(1);
-      setVisible(false);
-      return;
-    }
     Animated.parallel([
       Animated.timing(opacity, {
         toValue: 0,
-        duration: 420,
+        duration: reduceMotion ? 260 : 420,
         useNativeDriver: true
       }),
       Animated.timing(shift, {
-        toValue: -12,
-        duration: 420,
+        toValue: reduceMotion ? -4 : -12,
+        duration: reduceMotion ? 260 : 420,
         useNativeDriver: true
       }),
       Animated.timing(scale, {
-        toValue: 0.965,
-        duration: 420,
+        toValue: reduceMotion ? 0.992 : 0.965,
+        duration: reduceMotion ? 260 : 420,
         useNativeDriver: true
       })
     ]).start(({ finished }) => {
@@ -97,11 +90,12 @@ export function useLaunchOverlay(onHydrated: (value: LaunchHydration) => void) {
     const startedAt = Date.now();
     let nativeHideTimer: ReturnType<typeof setTimeout> | null = null;
     let hideTimer: ReturnType<typeof setTimeout> | null = null;
+    const launchDuration = reduceMotion ? Math.max(2200, Math.round(LAUNCH_MIN_MS * 0.45)) : LAUNCH_MIN_MS;
     enteredRef.current = false;
     setReady(false);
     let statusTimer: ReturnType<typeof setInterval> | null = setInterval(() => {
       const elapsed = Date.now() - startedAt;
-      const pct = Math.min(1, elapsed / LAUNCH_MIN_MS);
+      const pct = Math.min(1, elapsed / launchDuration);
       setStatusIndex(Math.min(LAUNCH_STATUS_STEPS.length - 1, Math.floor(pct * LAUNCH_STATUS_STEPS.length)));
     }, 420);
     const pulseAnim = Animated.loop(
@@ -163,26 +157,24 @@ export function useLaunchOverlay(onHydrated: (value: LaunchHydration) => void) {
     );
 
     progress.setValue(0);
-    pulse.setValue(reduceMotion ? 0.5 : 0);
-    beacon.setValue(reduceMotion ? 0.42 : 0);
+    pulse.setValue(0);
+    beacon.setValue(0);
     sweep.setValue(0);
     orbitFast.setValue(0);
     orbitMedium.setValue(0);
     orbitSlow.setValue(0);
     Animated.timing(progress, {
       toValue: 1,
-      duration: reduceMotion ? 180 : LAUNCH_MIN_MS,
+      duration: launchDuration,
       easing: Easing.out(Easing.cubic),
       useNativeDriver: false
     }).start();
-    if (!reduceMotion) {
-      pulseAnim.start();
-      beaconAnim.start();
-      sweepAnim.start();
-      orbitFastAnim.start();
-      orbitMediumAnim.start();
-      orbitSlowAnim.start();
-    }
+    pulseAnim.start();
+    beaconAnim.start();
+    sweepAnim.start();
+    orbitFastAnim.start();
+    orbitMediumAnim.start();
+    orbitSlowAnim.start();
 
     Promise.all([
       loadServerUrl(),
@@ -209,7 +201,7 @@ export function useLaunchOverlay(onHydrated: (value: LaunchHydration) => void) {
           });
         }, nativeRemaining);
 
-        const remaining = Math.max(0, LAUNCH_MIN_MS - (Date.now() - startedAt));
+        const remaining = Math.max(0, launchDuration - (Date.now() - startedAt));
         hideTimer = setTimeout(() => {
           if (!alive) return;
           if (statusTimer) {

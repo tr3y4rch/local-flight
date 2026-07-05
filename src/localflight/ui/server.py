@@ -308,7 +308,11 @@ try:
     from importlib.metadata import version as _pkg_version
     _APP_VERSION = _pkg_version("localflight")
 except Exception:
+<<<<<<< HEAD
     _APP_VERSION = "0.5.1"
+=======
+    _APP_VERSION = "0.2.8"
+>>>>>>> c3fc673e424e1621c0008f2365d2414c4f23e3ae
 
 templates.env.globals["app_version"] = _APP_VERSION
 templates.env.globals["airport_timezone"] = resolve_config_timezone
@@ -381,9 +385,15 @@ _DOC_PAGES: Dict[str, Dict[str, str]] = {
         "external_label": "Open online",
     },
     "client-notes": {
+<<<<<<< HEAD
         "title": "0.5.1 Public Release Notes",
         "filename": "release-notes-0.5.1.md",
         "summary": "0.5.1 public release hardening for desktop, Pi, relay-backed support, Matrix, and private mobile beta prep.",
+=======
+        "title": "0.2.8 Client Notes",
+        "filename": "release-notes-0.2.8.md",
+        "summary": "0.2.8 release readiness: native shell, LAN browser, mobile, relay, docs, and packaging polish.",
+>>>>>>> c3fc673e424e1621c0008f2365d2414c4f23e3ae
         "external_url": f"{LOCAL_FLIGHT_WEB_URL}#release-notes",
         "external_label": "Open online",
     },

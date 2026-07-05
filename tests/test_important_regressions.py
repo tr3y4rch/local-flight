@@ -96,7 +96,8 @@ def test_browser_and_mobile_clocks_do_not_fallback_to_device_local_time() -> Non
     assert "Intl.DateTimeFormat().resolvedOptions().timeZone" not in base_html
     assert "Intl.DateTimeFormat().resolvedOptions().timeZone" not in display_html
     assert "airport_timezone(cfg)" in base_html
-    assert "airport_timezone(cfg)" in display_html
+    assert '{% extends "base.html" %}' in display_html
+    assert "clock-local-val" in base_html
     assert "timeZone: \"UTC\"" in airport_formatter
     assert "toLocaleTimeString([]" not in airport_formatter
 
@@ -6033,7 +6034,9 @@ def test_public_preview_gallery_includes_matrix_artwork() -> None:
         assert header.startswith(b"\x89PNG\r\n\x1a\n")
         assert struct.unpack(">II", header[16:24]) == (1440, 900)
     assert readme.count("<img src=\"docs/previews/") == 9
-    assert gallery.count("<article class=\"card\">") == 9
+    assert gallery.count("<article class=\"card\">") == 10
+    assert "mobile-ios-widget-preview.svg" in gallery
+    assert (preview_dir / "mobile-ios-widget-preview.svg").exists()
     matrix_alias = preview_dir / "matrix-preview.svg"
     assert matrix_alias.exists()
     assert "matrix-preview-0.2.7.png" in matrix_alias.read_text(encoding="utf-8")
@@ -6108,10 +6111,19 @@ def test_beacon_tools_site_uses_current_brand_assets() -> None:
     with Image.open(google_badge) as image:
         assert image.size == (478, 142)
         assert image.mode == "RGBA"
-    for preview in ("history-preview.png", "matrix-preview.png", "settings-preview.png"):
+    for preview in ("shell/history.png", "shell/matrix.png", "shell/settings.png"):
         assert f'src="/assets/{preview}"' in local_flight
     for stale_alias in ("fids-preview.svg", "history-preview.svg", "matrix-preview.svg", "radar-preview.svg"):
         assert not (assets / stale_alias).exists()
+    for stale_preview in (
+        "fids-preview.png",
+        "radar-preview.png",
+        "history-preview.png",
+        "settings-preview.png",
+        "matrix-preview.png",
+        "mobile-fids-preview.svg",
+    ):
+        assert not (assets / stale_preview).exists()
     referenced_assets = set()
     for path in list(site.glob("**/*.html")) + [assets / "site.css"]:
         referenced_assets.update(re.findall(r"/assets/([^\"')]+)", path.read_text(encoding="utf-8")))

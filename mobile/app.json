@@ -2,7 +2,11 @@
   "expo": {
     "name": "Local Flight",
     "slug": "localflight-mobile",
+<<<<<<< HEAD
     "version": "0.5.1",
+=======
+    "version": "0.2.8",
+>>>>>>> c3fc673e424e1621c0008f2365d2414c4f23e3ae
     "scheme": "localflight",
     "orientation": "default",
     "userInterfaceStyle": "automatic",
@@ -27,19 +31,26 @@
       ],
       "expo-font",
       "expo-sqlite",
-      "expo-secure-store",
+      [
+        "expo-secure-store",
+        {
+          "faceIDPermission": false
+        }
+      ],
       [
         "expo-camera",
         {
-          "cameraPermission": "Local Flight scans pairing QR codes shown by your Local Flight desktop or Pi app."
+          "cameraPermission": "Local Flight scans pairing QR codes shown by your Local Flight desktop or Pi app.",
+          "microphonePermission": false
         }
       ],
+      "./plugins/with-localflight-ios-widget",
       "./plugins/with-localflight-android-network",
       "./plugins/with-localflight-privacy-manifest"
     ],
     "ios": {
       "bundleIdentifier": "cc.beacontools.localflight",
-      "buildNumber": "1",
+      "buildNumber": "3",
       "icon": {
         "light": "./assets/localflight-icon-light.png",
         "dark": "./assets/localflight-icon-dark.png"
@@ -59,7 +70,7 @@
     },
     "android": {
       "package": "cc.beacontools.localflight",
-      "versionCode": 1,
+      "versionCode": 2,
       "permissions": [
         "CAMERA",
         "VIBRATE"
@@ -73,9 +84,30 @@
     },
     "extra": {
       "localFlightServerHint": "http://192.168.1.10:8000",
+<<<<<<< HEAD
       "localFlightVersion": "0.5.1",
+=======
+      "localFlightVersion": "0.2.8",
+>>>>>>> c3fc673e424e1621c0008f2365d2414c4f23e3ae
       "eas": {
-        "projectId": "085634ce-4117-4fd6-b2d6-cbb7f90b4fdd"
+        "projectId": "085634ce-4117-4fd6-b2d6-cbb7f90b4fdd",
+        "build": {
+          "experimental": {
+            "ios": {
+              "appExtensions": [
+                {
+                  "targetName": "LocalFlightWidget",
+                  "bundleIdentifier": "cc.beacontools.localflight.widget",
+                  "entitlements": {
+                    "com.apple.security.application-groups": [
+                      "group.cc.beacontools.localflight"
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        }
       }
     },
     "owner": "tr3y4rch"
