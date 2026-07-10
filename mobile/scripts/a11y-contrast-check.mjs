@@ -36,7 +36,7 @@ function contrast(a, b) {
 
 function collectAppearances(text) {
   const appearances = [];
-  const regex = /"([^"]+)": defineAppearance\("[^"]+", "[^"]+", \{([\s\S]*?)\n  \}\),/g;
+  const regex = /"([^"]+)": defineAppearance\("[^"]+", "[^"]+", \{([\s\S]*?)\n  \}\),?/g;
   let match;
   while ((match = regex.exec(text))) {
     const [, key, body] = match;
@@ -63,8 +63,28 @@ const checks = [
   ["red", "bg", 3]
 ];
 
+const expectedAppearanceKeys = new Set(
+  ["dark", "light"].flatMap((theme) =>
+    ["standard", "technical", "neon", "cyan", "crt", "high_contrast"].map((skin) => `${theme}:${skin}`)
+  )
+);
+const appearances = collectAppearances(source);
+assertAppearanceSet(appearances);
+
+function assertAppearanceSet(items) {
+  const actual = new Set(items.map(({ key }) => key));
+  const missing = [...expectedAppearanceKeys].filter((key) => !actual.has(key));
+  const unexpected = [...actual].filter((key) => !expectedAppearanceKeys.has(key));
+  if (missing.length || unexpected.length || items.length !== expectedAppearanceKeys.size) {
+    console.error("Accessibility contrast audit could not find the complete 12-appearance matrix.");
+    if (missing.length) console.error(`- Missing: ${missing.join(", ")}`);
+    if (unexpected.length) console.error(`- Unexpected: ${unexpected.join(", ")}`);
+    process.exit(1);
+  }
+}
+
 const failures = [];
-for (const { key, values } of collectAppearances(source)) {
+for (const { key, values } of appearances) {
   for (const [fg, bg, minimum] of checks) {
     if (!values[fg] || !values[bg]) continue;
     const ratio = contrast(values[fg], values[bg]);
