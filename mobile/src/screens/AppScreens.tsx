@@ -24,6 +24,7 @@ import { CameraView, useCameraPermissions, type BarcodeScanningResult } from "ex
 import { BeaconToolsMark } from "../components/BeaconToolsMark";
 import { BrandWordmark } from "../components/Brand";
 import { getConfig, getDoc, getHealth, getMobileSummary, getRootHealth, normalizeServerUrl, patchConfig, searchAirports } from "../api/client";
+import { testRemoteCompanionProbe, type RemoteCompanionProbeResult } from "../api/remoteCompanion";
 import { activateStandalone, resolveStandaloneAirport, searchStandaloneAirports } from "../api/standalone";
 import {
   accessibleButton,
@@ -1693,13 +1694,20 @@ function HistoryBarRow({
   );
 }
 
-const DELAY_BUCKET_COLORS: Record<string, string> = {
-  early: "#18d66a",
-  on_time: "#4a9eda",
-  delayed_warn: "#f2b84b",
-  delayed_bad: "#ff5d5d",
-  unknown: "rgba(150,160,175,0.45)"
-};
+function delayBucketColor(bucket: string): string {
+  switch (bucket) {
+    case "early":
+      return palette.green;
+    case "on_time":
+      return palette.blue;
+    case "delayed_warn":
+      return palette.amber;
+    case "delayed_bad":
+      return palette.red;
+    default:
+      return hexToRgba(palette.textMuted, 0.45);
+  }
+}
 
 export function HistoryScreen({
   data,
@@ -1899,7 +1907,7 @@ export function HistoryScreen({
                     {summary.delay_buckets.map((b) => (
                       <View
                         key={b.bucket}
-                        style={{ width: `${Math.max(b.pct || 0, b.count ? 1 : 0)}%` as unknown as number, backgroundColor: DELAY_BUCKET_COLORS[b.bucket] || "#888" }}
+                        style={{ width: `${Math.max(b.pct || 0, b.count ? 1 : 0)}%` as unknown as number, backgroundColor: delayBucketColor(b.bucket) }}
                       />
                     ))}
                   </View>
@@ -1910,7 +1918,7 @@ export function HistoryScreen({
                       value={b.count}
                       pct={b.pct || 0}
                       meta={String(b.count)}
-                      color={DELAY_BUCKET_COLORS[b.bucket]}
+                      color={delayBucketColor(b.bucket)}
                     />
                   ))}
                 </View>
@@ -2058,6 +2066,7 @@ function RadarLayerControls({
             <Pressable
               key={item.key}
               style={[styles.radarLayerChip, active && styles.radarLayerChipActive]}
+              hitSlop={tapTargetHitSlop}
               onPress={() => {
                 hapticSelection();
                 onChange({ ...layers, [item.key]: !active });
@@ -7114,6 +7123,8 @@ function ConnectionPairingSheet({
   onConnect: () => void;
 }) {
   const [scannerVisible, setScannerVisible] = useState(false);
+  const [remoteProbeTesting, setRemoteProbeTesting] = useState(false);
+  const [remoteProbeResult, setRemoteProbeResult] = useState<RemoteCompanionProbeResult | null>(null);
   const outputValue = outputs.length ? outputs.join(", ").toUpperCase() : "WEB";
   const remoteReady = Boolean(remoteCompanionGrant && !remoteCompanionGrant.revokedAt);
   const pathLabel = connectionState === "remote"
@@ -7135,6 +7146,18 @@ function ConnectionPairingSheet({
     : remoteReady
       ? "Ready when this phone is away from the LAN."
       : "Pair a Remote Companion QR from Local Flight Settings to use this phone away from Wi-Fi.";
+  const runRemoteProbe = useCallback(async () => {
+    if (remoteProbeTesting) return;
+    setRemoteProbeTesting(true);
+    try {
+      setRemoteProbeResult(await testRemoteCompanionProbe(remoteCompanionGrant));
+    } finally {
+      setRemoteProbeTesting(false);
+    }
+  }, [remoteCompanionGrant, remoteProbeTesting]);
+  const remoteProbeMessage = remoteProbeResult
+    ? `${remoteProbeResult.message} ${remoteProbeResult.nextStep}${remoteProbeResult.attempts > 1 ? ` Tried ${remoteProbeResult.attempts} times.` : ""}`
+    : "";
 
   return (
     <Modal visible={visible} transparent presentationStyle="overFullScreen" animationType="slide" onRequestClose={onClose}>
@@ -7208,6 +7231,25 @@ function ConnectionPairingSheet({
               {remoteReady ? (
                 <Pressable
                   style={styles.settingsCompactButton}
+                  onPress={runRemoteProbe}
+                  disabled={remoteProbeTesting}
+                  {...accessibleButton({
+                    label: remoteProbeTesting ? "Testing Remote Companion" : "Test Remote Companion",
+                    hint: "Sends one encrypted probe through the relay and retries once only for transient failures.",
+                    disabled: remoteProbeTesting,
+                    busy: remoteProbeTesting
+                  })}
+                >
+                  {remoteProbeTesting ? (
+                    <ActivityIndicator size="small" color={palette.blue} />
+                  ) : (
+                    <Text style={styles.settingsCompactButtonText}>TEST REMOTE</Text>
+                  )}
+                </Pressable>
+              ) : null}
+              {remoteReady ? (
+                <Pressable
+                  style={styles.settingsCompactButton}
                   onPress={onForgetRemoteCompanion}
                   {...accessibleButton({
                     label: "Forget Remote Companion fallback",
@@ -7218,6 +7260,16 @@ function ConnectionPairingSheet({
                 </Pressable>
               ) : null}
             </View>
+            {remoteProbeResult ? (
+              <Text
+                style={[
+                  styles.feedbackMessage,
+                  remoteProbeResult.ok ? styles.feedbackMessageOk : styles.feedbackMessageError
+                ]}
+              >
+                {remoteProbeMessage}
+              </Text>
+            ) : null}
 
             <TextInput
               autoCapitalize="none"

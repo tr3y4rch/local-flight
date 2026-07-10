@@ -21,6 +21,63 @@ export type RemoteCompanionHttpResponse<T = unknown> = {
   body: T;
 };
 
+export type RemoteCompanionProbeStatus =
+  | "ok"
+  | "cooldown"
+  | "not_configured"
+  | "relay_unreachable"
+  | "host_offline"
+  | "host_timeout"
+  | "grant_revoked"
+  | "rate_limited"
+  | "crypto_failed"
+  | "host_error"
+  | "unknown";
+
+export type RemoteCompanionProbeResult = {
+  ok: boolean;
+  status: RemoteCompanionProbeStatus;
+  message: string;
+  nextStep: string;
+  attempts: number;
+  retryAfterSeconds?: number;
+  hostTime?: string | null;
+  relayUrl?: string;
+};
+
+type RemoteProbeBody = {
+  ok?: boolean;
+  probe?: string;
+  client_probe?: string;
+  host_time?: string;
+  app_version?: string;
+  install_ref?: string;
+  detail?: string;
+};
+
+export class RemoteCompanionRelayError extends Error {
+  constructor(
+    message: string,
+    public readonly status?: number,
+    public readonly retryAfterSeconds?: number
+  ) {
+    super(message);
+    this.name = "RemoteCompanionRelayError";
+  }
+}
+
+export class RemoteCompanionCryptoError extends Error {
+  constructor(message = "remote_crypto_failed") {
+    super(message);
+    this.name = "RemoteCompanionCryptoError";
+  }
+}
+
+const REMOTE_PROBE_PATH = "/api/mobile/remote/probe";
+const REMOTE_PROBE_RETRY_DELAY_MS = 1600;
+const REMOTE_PROBE_COOLDOWN_MS = 10_000;
+let lastProbeStartedAt = 0;
+
 function normalizeServerUrl(input: string): string {
   const trimmed = input.trim();
   if (!trimmed) return "";
@@ -150,6 +207,98 @@ async function decryptPayload<T>(
   return JSON.parse(text) as T;
 }
 
+async function readJsonObject(response: Response): Promise<Record<string, unknown>> {
+  try {
+    const data = await response.json();
+    return data && typeof data === "object" ? data as Record<string, unknown> : {};
+  } catch {
+    return {};
+  }
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function classifyProbeFailure(error: unknown): Omit<RemoteCompanionProbeResult, "attempts" | "relayUrl"> {
+  const message = error instanceof Error ? error.message : String(error);
+  if (/Remote Companion is not configured/i.test(message)) {
+    return {
+      ok: false,
+      status: "not_configured",
+      message: "Remote Companion is not paired on this phone yet.",
+      nextStep: "Scan a Remote Companion QR from Local Flight Settings while this phone is on the same Wi-Fi."
+    };
+  }
+  if (/remote_host_offline/i.test(message)) {
+    return {
+      ok: false,
+      status: "host_offline",
+      message: "The relay answered, but your Local Flight desktop or Pi is not connected to Remote Companion.",
+      nextStep: "Open Local Flight on the host, keep it online, then try the test again."
+    };
+  }
+  if (/remote_host_timeout/i.test(message)) {
+    return {
+      ok: false,
+      status: "host_timeout",
+      message: "The relay forwarded the signal, but the host did not answer in time.",
+      nextStep: "Check whether the desktop or Pi is asleep, busy, or blocked from reaching the relay."
+    };
+  }
+  if (/remote_grant_revoked|Remote Companion grant is not active/i.test(message)) {
+    return {
+      ok: false,
+      status: "grant_revoked",
+      message: "This phone's Remote Companion grant is no longer active.",
+      nextStep: "Pair this phone again from the same Local Flight host."
+    };
+  }
+  if (error instanceof RemoteCompanionRelayError && error.status === 429) {
+    return {
+      ok: false,
+      status: "rate_limited",
+      message: "Remote Companion asked this phone to slow down.",
+      nextStep: `Wait ${error.retryAfterSeconds || 60} seconds before testing again.`,
+      retryAfterSeconds: error.retryAfterSeconds || 60
+    };
+  }
+  if (error instanceof RemoteCompanionCryptoError || /remote_crypto_failed|decrypt|authentication|A256GCM|AES|key/i.test(message)) {
+    return {
+      ok: false,
+      status: "crypto_failed",
+      message: "The encrypted reply could not be opened with this phone's stored Remote Companion key.",
+      nextStep: "Forget Remote Companion on this phone and pair again from the intended host."
+    };
+  }
+  if (/Network request failed|Failed to fetch|NetworkError|fetch/i.test(message)) {
+    return {
+      ok: false,
+      status: "relay_unreachable",
+      message: "This phone could not reach the Remote Companion relay.",
+      nextStep: "Check internet access, VPN/firewall settings, and try again in a moment."
+    };
+  }
+  if (/Remote Companion HTTP|host did not return|HTTP 5\d\d|HTTP 4\d\d/i.test(message)) {
+    return {
+      ok: false,
+      status: "host_error",
+      message: "Remote Companion reached the route, but the host returned an error.",
+      nextStep: "Open Local Flight on the host and send a report if this repeats."
+    };
+  }
+  return {
+    ok: false,
+    status: "unknown",
+    message: "Remote Companion could not complete the encrypted test signal.",
+    nextStep: "Try once more later, then re-pair this phone if the same message returns."
+  };
+}
+
+function shouldRetryProbe(status: RemoteCompanionProbeStatus): boolean {
+  return status === "relay_unreachable" || status === "host_offline" || status === "host_timeout" || status === "unknown";
+}
+
 export async function completeRemoteCompanionPairing(
   serverUrl: string,
   invite: RemoteCompanionInvite
@@ -183,22 +332,30 @@ export async function completeRemoteCompanionPairing(
       remote_key: invite.remoteKey
     })
   });
-  const data = await response.json();
+  const data = await readJsonObject(response);
   if (!response.ok) {
-    throw new Error(data.detail || `HTTP ${response.status} for /api/mobile/remote/pair`);
+    throw new Error(String(data.detail || `HTTP ${response.status} for /api/mobile/remote/pair`));
   }
   const grant = data.remote_companion || {};
-  if (!grant.grant_ref || !(grant.relay_url || invite.relayUrl) || !(grant.install_ref || invite.installRef) || !(grant.remote_key || invite.remoteKey)) {
+  if (
+    !grant ||
+    typeof grant !== "object" ||
+    !("grant_ref" in grant) ||
+    !(("relay_url" in grant && grant.relay_url) || invite.relayUrl) ||
+    !(("install_ref" in grant && grant.install_ref) || invite.installRef) ||
+    !(("remote_key" in grant && grant.remote_key) || invite.remoteKey)
+  ) {
     throw new Error("Remote Companion grant response was incomplete.");
   }
+  const remoteGrant = grant as Record<string, unknown>;
   return {
-    grantRef: String(grant.grant_ref || ""),
-    relayUrl: String(grant.relay_url || invite.relayUrl).replace(/\/+$/, ""),
-    installRef: String(grant.install_ref || invite.installRef),
-    remoteKey: String(grant.remote_key || invite.remoteKey),
-    createdAt: grant.created_at || null,
-    lastSeenRemoteAt: grant.last_seen_remote_at || null,
-    revokedAt: grant.revoked_at || null
+    grantRef: String(remoteGrant.grant_ref || ""),
+    relayUrl: String(remoteGrant.relay_url || invite.relayUrl).replace(/\/+$/, ""),
+    installRef: String(remoteGrant.install_ref || invite.installRef),
+    remoteKey: String(remoteGrant.remote_key || invite.remoteKey),
+    createdAt: typeof remoteGrant.created_at === "string" ? remoteGrant.created_at : null,
+    lastSeenRemoteAt: typeof remoteGrant.last_seen_remote_at === "string" ? remoteGrant.last_seen_remote_at : null,
+    revokedAt: typeof remoteGrant.revoked_at === "string" ? remoteGrant.revoked_at : null
   };
 }
 
@@ -223,12 +380,106 @@ export async function sendRemoteCompanionRequest<T>(
       envelope
     })
   });
-  const data = await response.json();
+  const data = await readJsonObject(response);
   if (!response.ok) {
-    throw new Error(data.detail || `Remote Companion relay returned HTTP ${response.status}`);
+    const retryAfter = Number.parseInt(response.headers.get("Retry-After") || "", 10);
+    throw new RemoteCompanionRelayError(
+      String(data.detail || `Remote Companion relay returned HTTP ${response.status}`),
+      response.status,
+      Number.isFinite(retryAfter) ? retryAfter : undefined
+    );
   }
   if (!data.envelope) {
-    throw new Error(data.error || "Remote Companion host did not return an encrypted response.");
+    throw new RemoteCompanionRelayError(
+      String(data.error || "Remote Companion host did not return an encrypted response."),
+      response.status
+    );
   }
-  return decryptPayload<RemoteCompanionHttpResponse<T>>(data.envelope, grant, id);
+  try {
+    return await decryptPayload<RemoteCompanionHttpResponse<T>>(data.envelope as RemoteEnvelope, grant, id);
+  } catch {
+    throw new RemoteCompanionCryptoError("remote_crypto_failed");
+  }
+}
+
+export async function testRemoteCompanionProbe(grant: RemoteCompanionGrant | null | undefined): Promise<RemoteCompanionProbeResult> {
+  if (!grant || grant.revokedAt) {
+    return {
+      ok: false,
+      status: "not_configured",
+      message: "Remote Companion is not paired on this phone yet.",
+      nextStep: "Scan a Remote Companion QR from Local Flight Settings while this phone is on the same Wi-Fi.",
+      attempts: 0
+    };
+  }
+
+  const now = Date.now();
+  if (now - lastProbeStartedAt < REMOTE_PROBE_COOLDOWN_MS) {
+    return {
+      ok: false,
+      status: "cooldown",
+      message: "Remote Companion test was just run.",
+      nextStep: "Wait a few seconds before testing again so the relay is not spammed.",
+      attempts: 0,
+      relayUrl: grant.relayUrl
+    };
+  }
+  lastProbeStartedAt = now;
+
+  let attempts = 0;
+  let lastFailure: Omit<RemoteCompanionProbeResult, "attempts" | "relayUrl"> | null = null;
+  const probeRef = `rcp_${Date.now().toString(16)}_${Math.floor(Math.random() * 0xffffffff).toString(16)}`;
+  const path = `${REMOTE_PROBE_PATH}?client_probe=${encodeURIComponent(probeRef)}`;
+
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    attempts = attempt;
+    try {
+      const result = await sendRemoteCompanionRequest<RemoteProbeBody>(grant, "GET", path);
+      if (!result.ok) {
+        const detail = result.body && typeof result.body === "object"
+          ? String((result.body as RemoteProbeBody).detail || "")
+          : "";
+        throw new RemoteCompanionRelayError(detail || `Remote Companion HTTP ${result.status}`, result.status);
+      }
+      if (result.body?.probe !== "remote_companion" || result.body?.client_probe !== probeRef) {
+        return {
+          ok: false,
+          status: "host_error",
+          message: "Remote Companion answered, but the probe response did not match this phone's test signal.",
+          nextStep: "Pair this phone again from the intended host before relying on remote access.",
+          attempts,
+          relayUrl: grant.relayUrl
+        };
+      }
+      return {
+        ok: true,
+        status: "ok",
+        message: attempts > 1
+          ? "Encrypted Remote Companion test passed after one retry."
+          : "Encrypted Remote Companion test passed.",
+        nextStep: "Remote fallback is ready when LAN is unavailable.",
+        attempts,
+        hostTime: result.body.host_time || null,
+        relayUrl: grant.relayUrl
+      };
+    } catch (error) {
+      lastFailure = classifyProbeFailure(error);
+      if (attempt === 1 && shouldRetryProbe(lastFailure.status)) {
+        await delay(REMOTE_PROBE_RETRY_DELAY_MS);
+        continue;
+      }
+      break;
+    }
+  }
+
+  return {
+    ...(lastFailure || {
+      ok: false,
+      status: "unknown" as const,
+      message: "Remote Companion could not complete the encrypted test signal.",
+      nextStep: "Try once more later, then re-pair this phone if the same message returns."
+    }),
+    attempts,
+    relayUrl: grant.relayUrl
+  };
 }

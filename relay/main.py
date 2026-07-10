@@ -154,13 +154,6 @@ _REPORT_TEAM_ENV = {
     "relay": "LINEAR_TEAM_RELAY_ID",
     "default": "LINEAR_TEAM_DEFAULT_ID",
 }
-_APPLE_IAP_SUPPORT_PRODUCT_IDS = {
-    "cc.beacontools.localflight.tip.2",
-    "cc.beacontools.localflight.tip.5",
-    "cc.beacontools.localflight.tip.10",
-    "cc.beacontools.localflight.tip.20",
-}
-
 _SECRET_PATTERNS = (
     (re.compile(r"(AVIATIONSTACK_API_KEY|AERODATABOX_API_KEY|RAPIDAPI_KEY|OPENSKY_CLIENT_SECRET|LINEAR_API_KEY|LINEAR_REPORTER_API_KEY)=\S+", re.I), r"\1=[redacted]"),
     (re.compile(r"(access_key=)[^&\s]+", re.I), r"\1[redacted]"),
@@ -1107,20 +1100,12 @@ def _aerodatabox_request_headers() -> Dict[str, str]:
             "X-RapidAPI-Key": _aerodatabox_key(),
             "X-RapidAPI-Host": "aerodatabox.p.rapidapi.com",
             "Accept": "application/json",
-<<<<<<< HEAD
             "User-Agent": "localflight-relay/0.5.1",
-=======
-            "User-Agent": "localflight-relay/0.2.8",
->>>>>>> c3fc673e424e1621c0008f2365d2414c4f23e3ae
         }
     return {
         "x-magicapi-key": _aerodatabox_key(),
         "Accept": "application/json",
-<<<<<<< HEAD
         "User-Agent": "localflight-relay/0.5.1",
-=======
-        "User-Agent": "localflight-relay/0.2.8",
->>>>>>> c3fc673e424e1621c0008f2365d2414c4f23e3ae
     }
 
 
@@ -8205,34 +8190,6 @@ class SiteContactIn(BaseModel):
         return _admin_text(value)
 
 
-class MobileAppleIapVerifyIn(BaseModel):
-    install_id: str = Field(..., min_length=1, max_length=80)
-    app_account_token: str = Field(..., min_length=1, max_length=80)
-    app_version: str = Field("", max_length=80)
-    product_id: str = Field(..., min_length=1, max_length=160)
-    transaction_id: str = Field(..., min_length=1, max_length=160)
-    original_transaction_id: str = Field("", max_length=160)
-    signed_transaction_info: str = Field("", max_length=20000)
-    signed_renewal_info: str = Field("", max_length=20000)
-    environment: str = Field("unknown", max_length=24)
-
-    @field_validator(
-        "install_id",
-        "app_account_token",
-        "app_version",
-        "product_id",
-        "transaction_id",
-        "original_transaction_id",
-        "signed_transaction_info",
-        "signed_renewal_info",
-        "environment",
-        mode="before",
-    )
-    @classmethod
-    def _coerce_optional_text(cls, value: Any) -> str:
-        return _admin_text(value).strip()
-
-
 def _admin_text(value: Any) -> str:
     return "" if value is None else str(value)
 
@@ -8400,11 +8357,7 @@ def _localflight_version_label() -> str:
 
         return version("localflight")
     except Exception:
-<<<<<<< HEAD
         return "0.5.1"
-=======
-        return "0.2.8"
->>>>>>> c3fc673e424e1621c0008f2365d2414c4f23e3ae
 
 
 def _airport_result_payload(rec: Any, *, include_coords: bool = False) -> Dict[str, Any]:
@@ -9431,24 +9384,6 @@ def relay_mobile_summary(
         "scheduler": None,
         "metar": metar,
     }
-
-
-@app.post("/v1/mobile/iap/apple/verify")
-def relay_mobile_iap_apple_verify(body: MobileAppleIapVerifyIn) -> Dict[str, Any]:
-    if body.product_id not in _APPLE_IAP_SUPPORT_PRODUCT_IDS:
-        raise HTTPException(status_code=400, detail="Unknown Apple in-app purchase product.")
-    _validate_install_id(body.install_id)
-    if body.app_account_token and _UUID_RE.match(body.app_account_token) is None:
-        raise HTTPException(status_code=400, detail="Invalid Apple app account token.")
-    if not body.signed_transaction_info:
-        raise HTTPException(status_code=400, detail="Missing Apple signed transaction information.")
-    raise HTTPException(
-        status_code=503,
-        detail=(
-            "Apple in-app purchase verification is scaffolded but not configured on this relay yet. "
-            "Add App Store Server API credentials before enabling StoreKit purchases."
-        ),
-    )
 
 
 @app.get("/v1/mobile/metar")

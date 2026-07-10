@@ -2178,11 +2178,7 @@ def api_admin_system() -> Dict[str, Any]:
         from importlib.metadata import version as _pkg_version
         _ver = _pkg_version("localflight")
     except Exception:
-<<<<<<< HEAD
         _ver = "0.5.1"
-=======
-        _ver = "0.2.8"
->>>>>>> c3fc673e424e1621c0008f2365d2414c4f23e3ae
 
     result: Dict[str, Any] = {
         "version":  _ver,
@@ -2698,6 +2694,32 @@ def api_mobile_remote_status() -> Dict[str, Any]:
     return _remote_companion_status_payload()
 
 
+@router.get("/api/mobile/remote/probe")
+def api_mobile_remote_probe(client_probe: Optional[str] = Query(None, max_length=96)) -> Dict[str, Any]:
+    """Small encrypted Remote Companion smoke response.
+
+    This route is intentionally harmless: it returns only coarse app/host facts
+    and a client-provided nonce-like reference that travelled inside the
+    encrypted Remote Companion envelope.
+    """
+    from importlib.metadata import version as _pkg_version
+    from localflight.storage.install import get_install_fingerprint
+
+    try:
+        app_version = _pkg_version("localflight")
+    except Exception:
+        app_version = "0.5.1"
+
+    return {
+        "ok": True,
+        "probe": "remote_companion",
+        "client_probe": str(client_probe or "")[:96],
+        "host_time": datetime.now(timezone.utc).isoformat(),
+        "app_version": app_version,
+        "install_ref": get_install_fingerprint(),
+    }
+
+
 @router.post("/api/mobile/remote/invite")
 def api_mobile_remote_invite(request: Request) -> Dict[str, Any]:
     cfg = load_config()
@@ -2814,11 +2836,7 @@ def api_admin_updates() -> Dict[str, Any]:
         from importlib.metadata import version as _pkg_version
         current = _pkg_version("localflight")
     except Exception:
-<<<<<<< HEAD
         current = "0.5.1"
-=======
-        current = "0.2.8"
->>>>>>> c3fc673e424e1621c0008f2365d2414c4f23e3ae
 
     # Simple in-process cache to avoid hammering GitHub API
     cache = getattr(api_admin_updates, "_cache", None)

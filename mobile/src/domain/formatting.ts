@@ -90,6 +90,12 @@ export function errorMessage(value: unknown): string {
   if (/remote_grant_revoked|Remote Companion grant is not active/i.test(message)) {
     return "Remote Companion access was revoked on this host. Pair this phone again on the same Wi-Fi to restore remote access.";
   }
+  if (/remote_crypto_failed/i.test(message)) {
+    return "Remote Companion could not open the encrypted reply. Pair this phone again from the intended Local Flight host.";
+  }
+  if (/Remote Companion .*rate limit|rate limit reached/i.test(message)) {
+    return "Remote Companion is slowing requests down to protect the relay. Wait a moment, then try again.";
+  }
   return message;
 }
 

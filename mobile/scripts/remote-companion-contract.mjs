@@ -75,13 +75,73 @@ assert.match(
   "Connection settings should let the phone forget its Remote Companion grant."
 );
 assert.match(
+  screensSource,
+  /TEST REMOTE/,
+  "Connection settings should expose a user-triggered encrypted Remote Companion probe."
+);
+assert.match(
+  screensSource,
+  /testRemoteCompanionProbe/,
+  "Connection settings should use the typed probe instead of generic fetch errors."
+);
+assert.match(
   remoteSource,
   /\/v1\/remote-companion\/request/,
   "Remote Companion requests must go through the relay request endpoint."
 );
 assert.match(
   remoteSource,
-  /throw new Error\(data\.detail \|\| `Remote Companion relay returned HTTP \$\{response\.status\}`\);/,
+  /class RemoteCompanionRelayError extends Error/,
+  "Relay failures need typed errors for friendly user-facing probe results."
+);
+assert.match(
+  remoteSource,
+  /class RemoteCompanionCryptoError extends Error/,
+  "Crypto failures need typed errors so the app can recommend re-pairing."
+);
+assert.match(
+  remoteSource,
+  /export async function testRemoteCompanionProbe/,
+  "Mobile must expose an encrypted Remote Companion probe for real-world networking smoke tests."
+);
+assert.match(
+  remoteSource,
+  /REMOTE_PROBE_COOLDOWN_MS = 10_000/,
+  "Remote Companion probe must debounce repeat taps instead of spamming the relay."
+);
+assert.match(
+  remoteSource,
+  /REMOTE_PROBE_RETRY_DELAY_MS = 1600/,
+  "Remote Companion probe should retry transient failures gently."
+);
+assert.match(
+  remoteSource,
+  /status: "crypto_failed"/,
+  "Remote Companion probe should display key/decryption mismatches as re-pair guidance."
+);
+assert.match(
+  remoteSource,
+  /status: "rate_limited"/,
+  "Remote Companion probe should display relay rate limits without retrying."
+);
+assert.match(
+  remoteSource,
+  /const REMOTE_PROBE_PATH = "\/api\/mobile\/remote\/probe"/,
+  "Remote Companion probe must use a harmless encrypted host route."
+);
+assert.match(
+  remoteSource,
+  /\$\{REMOTE_PROBE_PATH\}\?client_probe=/,
+  "Remote Companion probe should echo a harmless encrypted client probe reference."
+);
+assert.doesNotMatch(
+  remoteSource,
+  /provider_key/i,
+  "Remote Companion probe code must not send provider credentials."
+);
+assert.match(
+  remoteSource,
+  /String\(data\.detail \|\| `Remote Companion relay returned HTTP \$\{response\.status\}`\)/,
   "Relay HTTP failures should surface relay detail for friendly formatting."
 );
 assert.match(
@@ -98,6 +158,16 @@ assert.match(
   formattingSource,
   /remote_grant_revoked\|Remote Companion grant is not active/,
   "Revoked grant errors need a user-readable message."
+);
+assert.match(
+  formattingSource,
+  /remote_crypto_failed/,
+  "Crypto/key mismatch errors need a user-readable message."
+);
+assert.match(
+  formattingSource,
+  /rate limit reached/,
+  "Relay rate-limit errors need a user-readable message."
 );
 assert.match(
   settingsSource,

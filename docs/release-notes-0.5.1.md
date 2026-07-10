@@ -31,6 +31,10 @@ decisions.
 - Added Remote Companion hardening as the store-bound Companion path: LAN-first
   mobile behavior, encrypted relay fallback for paired relay-linked hosts,
   explicit grants/revocation, relay safety limits, and privacy-proof tests.
+- Added a **Test Remote** action in the mobile Companion connection panel. It
+  sends a tiny encrypted probe through the relay, retries only once for
+  short-lived network/host failures, avoids repeat-tap spam, and explains common
+  failures in plain language.
 - Repaired the public preview gallery contract: five desktop cards plus four
   mobile cards, with Matrix retained and stale deploy-site preview duplicates
   removed.
@@ -69,7 +73,7 @@ decisions.
 - Companion review/smoke should also pair on LAN, confirm LAN-first behavior,
   simulate LAN failure, verify `REMOTE` mode through the relay, revoke the
   phone grant, and confirm remote access stops.
-- Support tips/IAP remain disabled in this pass.
+- Payments, tips, purchase UI, and in-app purchase processing are not included.
 
 ## Validation Gate
 

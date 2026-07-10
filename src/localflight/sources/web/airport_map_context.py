@@ -260,11 +260,7 @@ def fetch_overpass_map_context(
     query = build_overpass_map_context_query(lat, lon, clamp_surface_radius_m(radius_nm))
     urls = (overpass_url,) if overpass_url else OVERPASS_MAP_CONTEXT_URLS
     headers = {
-<<<<<<< HEAD
         "User-Agent": "local-flight/0.5.1 (+https://beacontools.cc/local-flight)",
-=======
-        "User-Agent": "local-flight/0.2.8 (+https://beacontools.cc/local-flight)",
->>>>>>> c3fc673e424e1621c0008f2365d2414c4f23e3ae
     }
     last_error: Exception | None = None
     for url in urls:

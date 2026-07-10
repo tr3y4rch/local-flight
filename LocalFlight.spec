@@ -13,11 +13,7 @@ from PyInstaller.utils.hooks import collect_all, collect_data_files
 # Read version from pyproject.toml so the spec never drifts out of sync
 _pyproject = Path(SPECPATH) / "pyproject.toml"
 _ver_match = re.search(r'^version\s*=\s*"([^"]+)"', _pyproject.read_text(), re.MULTILINE)
-<<<<<<< HEAD
 _VERSION = _ver_match.group(1) if _ver_match else "0.5.1"
-=======
-_VERSION = _ver_match.group(1) if _ver_match else "0.2.8"
->>>>>>> c3fc673e424e1621c0008f2365d2414c4f23e3ae
 _APP_NAME = "Local Flight"
 _BUNDLE_IDENTIFIER = "com.localflight.app"
 
@@ -91,12 +87,8 @@ a = Analysis(
         ("README.md",                       "localflight/ui/docs"),
         ("docs/install.md",                 "localflight/ui/docs"),
         ("docs/display-modes.md",           "localflight/ui/docs"),
-<<<<<<< HEAD
         ("docs/release-notes-0.5.1.md",     "localflight/ui/docs"),
         ("docs/release-notes-0.2.7.md",     "localflight/ui/docs"),
-=======
-        ("docs/release-notes-0.2.8.md",     "localflight/ui/docs"),
->>>>>>> c3fc673e424e1621c0008f2365d2414c4f23e3ae
         ("PRIVACY.md",                     "localflight/ui/docs"),
         ("CHANGELOG.md",                   "localflight/ui/docs"),
         ("THIRD_PARTY_NOTICES.md",         "localflight/ui/docs"),

@@ -283,12 +283,106 @@ def test_remote_dispatcher_allows_companion_route(monkeypatch: pytest.MonkeyPatc
     assert calls[0]["headers"]["X-LocalFlight-Companion-Id"] == "lfc_test_phone"
 
 
+def test_remote_probe_round_trips_through_encrypted_host_handler(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    monkeypatch.setenv("LOCALFLIGHT_HOME", str(tmp_path))
+    from localflight.remote_companion_crypto import decrypt_envelope, encrypt_envelope, remote_aad
+    from localflight.sources.web import remote_companion_agent
+    from localflight.storage.remote_companion import (
+        consume_remote_invite,
+        create_remote_grant_from_invite,
+        create_remote_invite,
+    )
+
+    invite = create_remote_invite(relay_url="https://relay.example.test")
+    consumed = consume_remote_invite(invite["invite_id"])
+    assert consumed is not None
+    grant = create_remote_grant_from_invite(
+        consumed,
+        companion_id="lfc_test_phone",
+        client_name="Test phone",
+        mobile_os="ios",
+        device_type="phone",
+        app_version="0.5.1",
+    )
+
+    class FakeResponse:
+        ok = True
+        status_code = 200
+        text = ""
+
+        def json(self) -> dict[str, object]:
+            return {
+                "ok": True,
+                "probe": "remote_companion",
+                "client_probe": "rcp_test",
+                "host_time": "2026-01-01T00:00:00+00:00",
+            }
+
+    def fake_request(method: str, url: str, **kwargs: object) -> FakeResponse:
+        assert method == "GET"
+        assert url == "http://127.0.0.1:8000/api/mobile/remote/probe?client_probe=rcp_test"
+        return FakeResponse()
+
+    monkeypatch.setattr(remote_companion_agent.requests, "request", fake_request)
+    monkeypatch.setattr(remote_companion_agent, "_REPLAY_CACHE", {})
+
+    request_id = "rcr_probe_001"
+    request_aad = remote_aad(
+        install_ref=str(grant["install_ref"]),
+        grant_ref=str(grant["grant_ref"]),
+        request_id=request_id,
+        direction="request",
+    )
+    envelope = encrypt_envelope(
+        {"method": "GET", "path": "/api/mobile/remote/probe?client_probe=rcp_test"},
+        remote_key=str(grant["remote_key"]),
+        aad=request_aad,
+    )
+
+    response = asyncio.run(
+        remote_companion_agent._handle_remote_request(
+            {
+                "type": "request",
+                "install_ref": str(grant["install_ref"]),
+                "grant_ref": str(grant["grant_ref"]),
+                "request_id": request_id,
+                "envelope": envelope,
+            }
+        )
+    )
+
+    assert response["ok"] is True
+    assert "remote_key" not in json.dumps(response)
+    assert "client_probe" not in json.dumps(response)
+    decrypted = decrypt_envelope(
+        response["envelope"],
+        remote_key=str(grant["remote_key"]),
+        aad=remote_aad(
+            install_ref=str(grant["install_ref"]),
+            grant_ref=str(grant["grant_ref"]),
+            request_id=request_id,
+            direction="response",
+        ),
+    )
+    assert decrypted == {
+        "ok": True,
+        "status": 200,
+        "body": {
+            "ok": True,
+            "probe": "remote_companion",
+            "client_probe": "rcp_test",
+            "host_time": "2026-01-01T00:00:00+00:00",
+        },
+    }
+
+
 @pytest.mark.parametrize(
     ("method", "path"),
     [
         ("GET", "/api/health"),
         ("GET", "/api/config"),
         ("GET", "/api/mobile/summary"),
+        ("GET", "/api/mobile/remote/probe?client_probe=rcp_test"),
         ("GET", "/api/admin/system"),
         ("GET", "/api/admin/connections"),
         ("GET", "/api/admin/updates"),
@@ -345,6 +439,25 @@ def test_remote_dispatcher_blocks_non_companion_routes(method: str, path: str) -
 
     with pytest.raises(ValueError):
         _allowed_remote_path(method, path)
+
+
+def test_mobile_remote_probe_returns_only_coarse_encrypted_test_metadata(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    monkeypatch.setenv("LOCALFLIGHT_HOME", str(tmp_path))
+    from localflight.storage.install import get_install_fingerprint
+    from localflight.ui import api as ui_api
+
+    response = TestClient(ui_api.app).get("/api/mobile/remote/probe?client_probe=rcp_test")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["ok"] is True
+    assert data["probe"] == "remote_companion"
+    assert data["client_probe"] == "rcp_test"
+    assert data["install_ref"] == get_install_fingerprint()
+    assert "host_time" in data
+    assert "remote_key" not in data
+    assert "activation_token" not in data
+    assert "install_id" not in data
 
 
 def test_remote_invite_requires_host_opt_in(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:

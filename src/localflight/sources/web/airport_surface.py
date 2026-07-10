@@ -406,11 +406,7 @@ def fetch_overpass_surface(
         overpass_url or DEFAULT_OVERPASS_URL,
         data={"data": query},
         headers={
-<<<<<<< HEAD
             "User-Agent": "localflight-relay/0.5.1 (+https://beacontools.cc/local-flight)",
-=======
-            "User-Agent": "localflight-relay/0.2.8 (+https://beacontools.cc/local-flight)",
->>>>>>> c3fc673e424e1621c0008f2365d2414c4f23e3ae
             "Accept": "application/json",
         },
         timeout=timeout_s,

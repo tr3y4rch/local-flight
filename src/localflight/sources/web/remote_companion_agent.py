@@ -32,6 +32,7 @@ _ALLOWED_GET_EXACT = {
     "/api/health",
     "/api/config",
     "/api/mobile/summary",
+    "/api/mobile/remote/probe",
     "/api/admin/system",
     "/api/admin/connections",
     "/api/admin/updates",

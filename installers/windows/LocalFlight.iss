@@ -8,11 +8,7 @@
 ; dist\LocalFlight.
 
 #ifndef AppVersion
-<<<<<<< HEAD
 #define AppVersion "0.5.1"
-=======
-#define AppVersion "0.2.8"
->>>>>>> c3fc673e424e1621c0008f2365d2414c4f23e3ae
 #endif
 
 #ifndef SourceDir

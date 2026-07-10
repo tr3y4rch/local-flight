@@ -6137,11 +6137,10 @@ def test_beacon_tools_site_uses_current_brand_assets() -> None:
     assert unused_assets == set()
 
 
-def test_mobile_store_beta_identity_uses_beacon_ids() -> None:
+def test_mobile_store_beta_identity_uses_beacon_ids_without_payment_scaffolding() -> None:
     root = Path(__file__).resolve().parents[1]
     app = json.loads((root / "mobile" / "app.json").read_text(encoding="utf-8"))["expo"]
     eas = json.loads((root / "mobile" / "eas.json").read_text(encoding="utf-8"))
-    support = (root / "mobile" / "src" / "domain" / "support.ts").read_text(encoding="utf-8")
     relay = (root / "relay" / "main.py").read_text(encoding="utf-8")
 
     assert app["ios"]["bundleIdentifier"] == "cc.beacontools.localflight"
@@ -6150,10 +6149,16 @@ def test_mobile_store_beta_identity_uses_beacon_ids() -> None:
     assert app["android"]["versionCode"] == 1
     assert eas["build"]["beta"]["distribution"] == "store"
     assert eas["build"]["beta"]["android"]["buildType"] == "app-bundle"
-    assert "cc.beacontools.localflight.tip.5" in support
-    assert "cc.beacontools.localflight.tip.5" in relay
-    assert "com.localflight.companion.tip" not in support
-    assert "com.localflight.companion.tip" not in relay
+    for payment_path in (
+        root / "mobile" / "src" / "api" / "iap.ts",
+        root / "mobile" / "src" / "domain" / "support.ts",
+        root / "mobile" / "src" / "iap" / "supportProvider.ts",
+        root / "mobile" / "src" / "iap" / "appleSupportProvider.ts",
+        root / "mobile" / "src" / "iap" / "types.ts",
+    ):
+        assert not payment_path.exists()
+    assert "/v1/mobile/iap/" not in relay
+    assert "cc.beacontools.localflight.tip." not in relay
 
 
 def test_privacy_docs_disclose_linear_report_triage() -> None:
