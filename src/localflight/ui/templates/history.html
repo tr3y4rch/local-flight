@@ -14,7 +14,7 @@
     display: grid; grid-template-columns: minmax(240px, 1fr) auto; gap: 18px;
     align-items: start; padding-bottom: 16px; border-bottom: 1px solid var(--panel-border);
   }
-  .history-header h1 { margin: 0; font-size: 1.18rem; letter-spacing: 0.01em; }
+  .history-header h1 { margin: 0; font-size: 1.2rem; letter-spacing: 0.01em; }
   .history-sub { margin-top: 4px; color: var(--muted); font-size: 0.82rem; line-height: 1.45; }
   .filter-panel {
     display: grid; grid-template-columns: minmax(130px, 1fr) 90px 110px 118px 118px auto auto;
@@ -25,7 +25,7 @@
   [data-theme="light"] .filter-panel { background: linear-gradient(180deg, rgba(0,0,0,0.035), rgba(0,0,0,0.015)); }
   .field label { display: block; margin: 0 0 4px; color: var(--muted); font-size: 0.68rem; letter-spacing: 0.09em; text-transform: uppercase; }
   .field input, .field select {
-    width: 100%; min-height: 34px; padding: 7px 9px; border-radius: 8px;
+    width: 100%; box-sizing: border-box; min-height: 34px; padding: 7px 9px; border-radius: 8px;
     border: 1px solid var(--input-border); background: var(--input-bg); color: var(--text);
     font-family: var(--font-board); font-size: 0.78rem;
   }

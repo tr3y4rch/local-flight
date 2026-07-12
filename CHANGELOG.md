@@ -39,6 +39,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   encrypted signal through the relay, retries only once for transient failures,
   debounces repeat taps, and shows friendly user-facing causes such as host
   offline, grant revoked, key mismatch, rate limited, or relay unreachable.
+- Polished compact LAN pages with skin-aware FIDS delay/status accents, a
+  simplified phone nav clock, correctly sized History/Logs/Matrix controls,
+  and a configured Logs shell while preserving scrollable Qt FIDS actions on
+  small displays.
 
 ### Public docs and site
 - Promoted the preliminary `0.2.8` notes into the `0.5.1` public hardening line

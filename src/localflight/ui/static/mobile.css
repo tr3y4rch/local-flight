@@ -91,6 +91,7 @@ html[data-theme="light"].lf-is-mobile .lf-shell-nav {
    header already shows the airport label / clock, so this frees
    ~180px for the destinations + ops to fit a 390px screen. */
 html.lf-is-mobile .lf-shell-left { display: none; }
+html.lf-is-mobile .lf-shell-clock { display: none; }
 
 /* Centre tab group stretches across the bar */
 html.lf-is-mobile .lf-shell-center {

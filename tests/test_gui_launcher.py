@@ -3498,6 +3498,31 @@ def test_lan_display_uses_shared_brand_shell_nav_and_fonts() -> None:
     assert "radar-lt" not in radar_template
 
 
+def test_lan_polish_keeps_skin_tokens_and_compact_controls_wired() -> None:
+    from pathlib import Path
+
+    server = Path("src/localflight/ui/server.py").read_text(encoding="utf-8")
+    mobile_css = Path("src/localflight/ui/static/mobile.css").read_text(encoding="utf-8")
+    fids = Path("src/localflight/ui/templates/fids.html").read_text(encoding="utf-8")
+    history = Path("src/localflight/ui/templates/history.html").read_text(encoding="utf-8")
+    logs = Path("src/localflight/ui/templates/logs.html").read_text(encoding="utf-8")
+    matrix = Path("src/localflight/ui/templates/matrix_preview.html").read_text(encoding="utf-8")
+    settings = Path("src/localflight/ui/templates/settings.html").read_text(encoding="utf-8")
+
+    assert '"cfg": load_config()' in server
+    assert 'topnav(active="logs", cfg=cfg)' in logs
+    assert "width: auto; margin: 0;" in logs
+    assert "{%- for line in lines -%}" in logs
+    assert "html.lf-is-mobile .lf-shell-clock { display: none; }" in mobile_css
+    assert "box-sizing: border-box" in history
+    assert "width: auto;" in matrix
+    assert "color: var(--skin-accent, #7cc4f0)" in settings
+    for token in ("--skin-ok", "--skin-warn", "--skin-bad"):
+        assert f"var({token}" in fids
+    assert "color-mix(in srgb, var(--skin-warn" in fids
+    assert "background: rgba(245,158,11,0.12)" in fids
+
+
 def test_setup_guidance_copy_is_shared_and_user_facing() -> None:
     from localflight.ui.setup_guidance import DIAGNOSTICS_OPTIONS, SOURCE_OPTIONS, STEP_NAMES, STEP_SHORT_LABELS, WELCOME_CARDS
 

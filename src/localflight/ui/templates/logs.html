@@ -15,6 +15,7 @@
   .log-controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
   .file-select { flex: 1; min-width: 200px; }
   .ctrl-btn {
+    width: auto; margin: 0;
     padding: 6px 12px; border-radius: 6px;
     border: 1px solid rgba(255,255,255,0.15);
     background: rgba(255,255,255,0.06); color: inherit;
@@ -88,14 +89,14 @@
   </div>
 
   <div class="logbox" id="logbox">
-    {% for line in lines %}
-    {% set level = "INFO" %}
-    {% if " | ERROR | "    in line %}{% set level = "ERROR"   %}{% endif %}
-    {% if " | WARNING | "  in line %}{% set level = "WARNING" %}{% endif %}
-    {% if " | DEBUG | "    in line %}{% set level = "DEBUG"   %}{% endif %}
-    {% if " | CRITICAL | " in line %}{% set level = "CRITICAL"%}{% endif %}
+    {%- for line in lines -%}
+    {%- set level = "INFO" -%}
+    {%- if " | ERROR | "    in line -%}{% set level = "ERROR"   %}{%- endif -%}
+    {%- if " | WARNING | "  in line -%}{% set level = "WARNING" %}{%- endif -%}
+    {%- if " | DEBUG | "    in line -%}{% set level = "DEBUG"   %}{%- endif -%}
+    {%- if " | CRITICAL | " in line -%}{% set level = "CRITICAL"%}{%- endif -%}
     <span class="log-line {{ level }}">{{ line }}</span>
-    {% endfor %}
+    {%- endfor %}
   </div>
 
 </main>

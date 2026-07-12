@@ -1324,6 +1324,7 @@ def _tail_lines(path: Path, n: int = 500) -> list[str]:
 def logs_page(request: Request, file: Optional[str] = Query(None)) -> HTMLResponse:
     files = _list_log_files()
     base = {
+        "cfg": load_config(),
         "max_files": MAX_LOG_FILES,
         "max_days": MAX_LOG_DAYS,
         "max_mb": MAX_LOG_BYTES // 1_048_576,
