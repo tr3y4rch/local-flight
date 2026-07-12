@@ -369,7 +369,7 @@ _DOC_PAGES: Dict[str, Dict[str, str]] = {
     "install": {
         "title": "Install Guide",
         "filename": "install.md",
-        "summary": "Platform install steps for Windows, macOS, Raspberry Pi, source checkout, and mobile testing.",
+        "summary": "Platform install steps for Windows, macOS, Raspberry Pi, source checkout, and mobile apps.",
         "external_url": f"{LOCAL_FLIGHT_WEB_URL}#install",
         "external_label": "Open online",
     },
@@ -383,7 +383,7 @@ _DOC_PAGES: Dict[str, Dict[str, str]] = {
     "client-notes": {
         "title": "0.5.1 Public Release Notes",
         "filename": "release-notes-0.5.1.md",
-        "summary": "0.5.1 public release hardening for desktop, Pi, relay-backed support, Matrix, and private mobile beta prep.",
+        "summary": "0.5.1 release notes for desktop, Pi, relay-backed support, Matrix, and mobile store testing.",
         "external_url": f"{LOCAL_FLIGHT_WEB_URL}#release-notes",
         "external_label": "Open online",
     },

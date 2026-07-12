@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 from typing import Any, Dict, Iterable, Tuple
 
@@ -46,6 +47,8 @@ PROVIDER_ENV_KEYS = frozenset({*DIRECT_PROVIDER_KEYS, *RELAY_KEYS})
 
 
 def env_path() -> Path:
+    if getattr(sys, "frozen", False):
+        return Path.home() / ".localflight" / ".env"
     here = Path(__file__).resolve()
     return here.parents[3] / ".env"
 
@@ -108,7 +111,13 @@ def write_env(values: Dict[str, str], *, removed: Iterable[str] = (), path: Path
     lines = ["# Local Flight - environment variables\n"]
     for key, value in values.items():
         lines.append(f"{key}={value}\n")
-    target.write_text("".join(lines), encoding="utf-8")
+    pending = target.with_name(f".{target.name}.tmp")
+    pending.write_text("".join(lines), encoding="utf-8")
+    try:
+        pending.chmod(0o600)
+    except OSError:
+        pass
+    os.replace(pending, target)
     for key in set(removed):
         if key not in PROVIDER_ENV_KEYS:
             os.environ.pop(key, None)

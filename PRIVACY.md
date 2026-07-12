@@ -2,11 +2,13 @@
 
 Local Flight is built around a simple rule: **stay local unless a feature genuinely needs a network hop.**
 
-No accounts. No analytics SDKs. No ad tech. No sign-up flow.
+No accounts. No advertising or third-party analytics SDKs. No ad tech. No sign-up flow. Relay-backed features still need limited operational metadata, described below, to provide service, enforce fair-use limits, and troubleshoot failures.
 
-This is a hobbyist/open-source project, not a legal document, but the app is designed to be privacy-minimal and GDPR-friendly: collect as little as possible, keep identifiers technical and install-scoped, and make diagnostics opt-in.
+This policy explains what Local Flight stores, when a network service is involved, and which choices remain under your control. The design follows data-minimization principles: collect as little as possible, keep technical identifiers install-scoped, and make diagnostics consent-based.
 
-Beacon Tools is the dev studio home for Local Flight. General/support questions and public bug reports start at [beacontools.cc/support](https://beacontools.cc/support). Privacy, diagnostics, and data-request questions can go through [beacontools.cc/privacy/choices](https://beacontools.cc/privacy/choices) or [privacy@beacontools.cc](mailto:privacy@beacontools.cc). The public privacy URL is [beacontools.cc/privacy](https://beacontools.cc/privacy).
+Last updated: July 12, 2026.
+
+Beacon Tools is responsible for the hosted Local Flight relay, website forms, and related support processing. General/support questions and public bug reports start at [beacontools.cc/support](https://beacontools.cc/support). Privacy, diagnostics, and data-request questions can go through [beacontools.cc/privacy/choices](https://beacontools.cc/privacy/choices) or [privacy@beacontools.cc](mailto:privacy@beacontools.cc). The public privacy URL is [beacontools.cc/privacy](https://beacontools.cc/privacy).
 
 ---
 
@@ -65,9 +67,9 @@ Native mode does not change the aviation data sources you choose. If you enable 
 
 ## Setup Paths
 
-### Community Relay
+### Local Flight Relay
 
-If you choose **Community**, your install uses the hosted Beacon Tools relay at `https://relay.beacontools.cc` for shared real-world schedule snapshots and, when available, relay-backed ADS-B radar. The relay is there to protect provider keys and make the hobbyist path usable without everybody bringing paid API credentials on day one. The current relay schedule path is cache-first and can use AeroDataBox as the primary schedule provider with AviationStack sparse fill/fallback where configured.
+If you choose **Local Flight Relay**, your install uses the hosted Beacon Tools relay at `https://relay.beacontools.cc` for shared real-world schedule snapshots and, when available, relay-backed ADS-B radar. The relay protects provider keys and lets people begin without supplying paid API credentials. The schedule path is cache-first and can use AeroDataBox as the primary schedule provider with AviationStack sparse fill/fallback where configured.
 
 The relay stores the minimum metadata needed to run that shared service safely:
 
@@ -80,12 +82,12 @@ The relay stores the minimum metadata needed to run that shared service safely:
 - one-way anonymous network tags for abuse protection
 - short-lived "current interest" rows, such as airport and display window, so shared schedule snapshots can be reused
 - short-lived shared schedule snapshots containing Local Flight canonical schedule records and cache metadata
-- a small coarse install profile sent with periodic heartbeats or relay activity: app version, OS family/version/architecture, GUI mode, source mode (real / VATSIM / BYOK), diagnostics mode, companion device count, matrix device count, and for standalone mobile clients the selected airport/timezone plus coarse device type. This profile lets the relay operator see fleet shape (how many installs are on which version/OS or mobile/desktop kind) without identifying individuals.
+- a small coarse install profile sent with eligible periodic heartbeats or relay activity: app version, OS family/version/architecture, requested and effective GUI mode, source mode (`real` or `virtual`), diagnostics mode, companion count, Matrix count, and Matrix-online count. Standalone activity can also include the selected airport/timezone and coarse device type. This profile supports compatibility, reliability, and capacity planning without creating a user account.
 - if the operator explicitly enables the optional surface/map overlay path: short-lived airport-surface and map-geometry cache entries derived from OpenStreetMap/Overpass so many installs looking at the same airport do not repeatedly query public map infrastructure
 
 The relay does **not** store:
 
-- raw IP addresses
+- raw IP addresses in the Local Flight application database. Fly.io, Cloudflare, and other network providers may transiently process connection data in infrastructure/security logs under their own policies.
 - personal API keys from your install
 - readable personal identifiers
 - your local flight history database
@@ -93,15 +95,15 @@ The relay does **not** store:
 - your local app logs, unless you explicitly allow diagnostic reports with sanitized logs
 - Remote Companion AES secrets, decrypted request paths, decrypted request bodies, decrypted responses, provider keys, local LAN URLs, or host logs
 
-Community relay traffic has per-install quotas plus network/global safety caps. Duplicate reports are deduplicated before routing, so one noisy install should not spam every triage area.
+Local Flight Relay traffic has per-install quotas plus network/global safety caps. Duplicate reports are suppressed before routing to keep triage useful and avoid repeated reports of the same event.
 
-For public safety, the community relay also controls how often a shared airport snapshot can trigger a new upstream schedule fetch. Community Relay schedule choices are hourly-or-slower, and the relay can ask clients to back off when shared safety limits are reached. This keeps the public relay usable when many people watch the same busy airport at the same time.
+The relay controls how often a shared airport snapshot can trigger a new upstream schedule fetch. Local Flight Relay schedule choices are hourly-or-slower, and the relay can ask clients to wait when shared limits are reached. This keeps the service fairly available when many people watch the same busy airport.
 
 Mobile Standalone uses the same hosted relay but with stricter product limits: FIDS auto-refresh is 3 hours minimum, radar refresh is 5 minutes minimum, and radar ranges are limited to `1`, `3`, `5`, and `10` NM.
 
 Remote Companion uses the same hosted relay only as a routing layer for paired Companion phones. The host opens an outbound relay connection; there is no router port forwarding and no public tunnel to the host. The relay admits only active relay-linked installs and active, non-revoked grant refs. If the host is offline, the phone receives a clean offline state instead of an offline command queue.
 
-### Remote Companion Privacy Proof
+### How Remote Companion Protects Data
 
 Remote Companion encrypts the Companion request path/body and the host response with AES-256-GCM before they pass through the relay. The authenticated metadata binds the install ref, grant ref, request id, and request/response direction so copied or replayed envelopes are rejected.
 
@@ -241,6 +243,20 @@ Standalone does not send local phone history to the relay. Manual reports go dir
 
 ---
 
+## Why Hosted Data Is Processed
+
+Where data-protection law applies, Beacon Tools uses the following purposes and intended legal bases:
+
+- **Service operation and security:** pseudonymous install identifiers, encrypted-routing metadata, usage counters, and one-way network tags are processed to provide requested relay features, protect shared capacity, prevent abuse, and troubleshoot failures. The intended basis is legitimate interest in operating and securing the optional service, balanced against the app's data-minimizing design.
+- **Diagnostics:** automatic diagnostics and optional log excerpts are processed only under the choice made in the app. You can change that choice or withdraw consent for future automatic reports at any time. Manual reports are processed because you asked Beacon Tools to investigate them.
+- **Support:** contact details and messages are processed to answer the request you chose to send and to take steps you requested.
+
+Hosted operational records do not all have a fixed automatic deletion schedule yet. Shared cache records follow service freshness/stale-fallback needs; support messages, report events, dedupe records, and install profiles may remain until operational cleanup or a valid deletion request. This is a transparency boundary for the current service, not permission to reuse the data for advertising or unrelated profiling.
+
+Depending on applicable law, you may ask to access, correct, erase, restrict, object to, or obtain a portable copy of personal data associated with you. Because Local Flight has no account system, Beacon Tools may need the public install fingerprint, report reference, approximate time, or reply email you supplied to locate a record without collecting more identity data. Contact [privacy@beacontools.cc](mailto:privacy@beacontools.cc) or use [Privacy Choices](https://beacontools.cc/privacy/choices). You may also complain to the data-protection authority responsible for your location.
+
+---
+
 ## Third-Party Data Sources
 
 When Local Flight fetches data, it may communicate with:
@@ -256,14 +272,16 @@ When Local Flight fetches data, it may communicate with:
 | OurAirports | Public airport/runway CSV data may be bundled or refreshed/cached locally for runway IDs, headings, dimensions, and reference geometry. No account or user identifier is required. | [ourairports.com/data](https://ourairports.com/data/) |
 | OpenStreetMap / Overpass | Only when optional radar surface/map layers are enabled or prepared: airport code/coordinates and bounded airport-area geometry requests. Local Flight stores simplified display geometry with attribution, not raw personal data. | [openstreetmap.org/copyright](https://www.openstreetmap.org/copyright) |
 | AWS Terrain Tiles | Optional radar terrain/relief layer requests public terrain tile data for the displayed airport area/range. It is cached locally and used only as a subtle visual layer. | [registry.opendata.aws/terrain-tiles](https://registry.opendata.aws/terrain-tiles/) |
-| Mailbox provider | Public website contact forms are delivered through the Beacon Tools relay to the support mailbox. This can include your optional name/reply email, selected category, subject, and message. | Depends on the configured mailbox provider |
+| Fly.io | Hosts the Beacon Tools relay and may process connection/security logs at the infrastructure layer. | [fly.io/legal/privacy-policy](https://fly.io/legal/privacy-policy/) |
+| Cloudflare | Hosts and protects the Beacon Tools public website and may process connection/security data at the infrastructure layer. | [cloudflare.com/privacypolicy](https://www.cloudflare.com/privacypolicy/) |
+| Mailbox provider | Public website contact forms are delivered through the Beacon Tools relay to the configured support mailbox. This can include your optional name/reply email, selected category, subject, and message. Current provider details are available through the privacy contact. | Provider-specific policy available on request |
 | Linear | Manual reports, public website bug reports, and automatic diagnostics are routed there after sanitization and relay-side dedupe/rate limiting. This can include the report title/description you wrote, optional reply email for website bug reports, sanitized technical metadata, crash context/traceback, and optional sanitized log excerpts. | [linear.app/privacy](https://linear.app/privacy) |
 
 Local Flight does not embed tracking or advertising SDKs from any of these services.
 
 ---
 
-## GDPR-Friendly Stance
+## Data-Minimization Stance
 
 Local Flight is designed to avoid collecting personal data in normal use:
 
@@ -271,13 +289,13 @@ Local Flight is designed to avoid collecting personal data in normal use:
 - no email addresses unless you contact Beacon Tools directly or include a reply email in a support form
 - no analytics profiles
 - no ad tracking
-- no raw IP storage in the hosted relay
+- no raw IP storage in the Local Flight relay application database; hosting/CDN infrastructure may transiently process network logs
 
 Technical identifiers, such as install fingerprints, companion IDs, and standalone mobile relay install IDs, can still be personal data in some contexts. Local Flight keeps them short-lived or install-scoped where practical, uses them for rate limiting and troubleshooting, and avoids turning them into account profiles.
 
 For an App Store/TestFlight mobile build, the matching App Store Connect privacy answers should conservatively disclose install-scoped identifiers, diagnostics/crash data when enabled or manually submitted, coarse relay/app-functionality usage metadata, selected airport/configuration details used for app functionality, and any manual report title/description you choose to send. Local Flight does not use advertising identifiers, data brokers, or cross-app/site tracking.
 
-Your local data is under your control. To wipe local app data, stop Local Flight and remove `~/.localflight/`.
+Your local data is under your control. To wipe desktop/Pi runtime data, stop Local Flight and remove `~/.localflight/`. Local Flight also keeps a reset-safe identity anchor at `~/.localflight_identity.json`; remove that file too only when you intentionally want the next launch to become a new relay install. On mobile, revoke Remote Companion from the host before forgetting it on the phone, and remove the app to erase all app-local SecureStore and SQLite data.
 
 ---
 
@@ -293,7 +311,7 @@ Your local data is under your control. To wipe local app data, stop Local Flight
 | Standalone mobile history | Your phone/tablet | You |
 | Local traffic log | Your machine | You, if network tools are enabled |
 | Flight history | Your machine | You |
-| Website contact messages | Hosted relay contact gateway, then support mailbox | Developer |
-| Manual reports, website bug reports, and automatic diagnostics | Hosted relay reporting gateway, then Linear developer triage inbox | Developer |
-| Community/standalone/remote-companion relay usage metadata and short-lived shared schedule/radar cache | Relay server | Relay operator |
+| Website contact messages | Hosted relay contact gateway, then support mailbox | Beacon Tools and the relay/mailbox providers |
+| Manual reports, website bug reports, and automatic diagnostics | Hosted relay reporting gateway, then Linear developer triage inbox | Beacon Tools, relay hosting, and Linear |
+| Local Flight Relay/Standalone/Remote Companion operational metadata and shared schedule/radar cache | Relay server | Beacon Tools and relay hosting provider |
 | Cached radar surface/map/terrain geometry | Your machine and, for relay-backed surface/map data, short-lived hosted relay cache when optional overlays are enabled | You and relay operator |

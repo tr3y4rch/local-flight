@@ -154,7 +154,7 @@ const DOC_SOURCES: Record<DocSlug, { title: string; detail: string; externalUrl:
   },
   install: {
     title: "Install Guide",
-    detail: "Platform setup, Pi modes, source checkout, and mobile testing",
+    detail: "Platform setup, Pi modes, source checkout, and mobile apps",
     externalUrl: "https://beacontools.cc/local-flight#install",
     externalLabel: "Open online"
   },
@@ -172,7 +172,7 @@ const DOC_SOURCES: Record<DocSlug, { title: string; detail: string; externalUrl:
   },
   changelog: {
     title: "Changelog",
-    detail: "Release history and beta notes",
+    detail: "Release history and earlier development notes",
     externalUrl: "https://beacontools.cc/local-flight#release-notes",
     externalLabel: "Open online"
   }

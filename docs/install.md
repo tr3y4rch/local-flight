@@ -13,9 +13,9 @@ Public project docs live at [beacontools.cc/local-flight](https://beacontools.cc
 - Local Flight is meant for your own trusted LAN, not the open internet.
 - First launch opens a six-step guided setup wizard before the normal app.
 - You can choose **Local Flight Relay**, **Use your own keys**, or **VATSIM**.
-- The official hosted relay is `https://relay.beacontools.cc`; older Fly.io relay roots remain compatibility-only for existing installs.
+- The official hosted relay is `https://relay.beacontools.cc`.
 - Diagnostics are optional. Manual reports stay available even if automatic diagnostics are off.
-- The current public-release hardening target is `0.5.1`. It is still beta software, but the desktop and Raspberry Pi client paths are intended to work across the supported display types. Mobile is store-bound after the Remote Companion connectivity/privacy proof pass.
+- The current release is `0.5.1` across desktop, Raspberry Pi, relay compatibility, and mobile store-testing builds.
 
 ---
 
@@ -23,12 +23,12 @@ Public project docs live at [beacontools.cc/local-flight](https://beacontools.cc
 
 Use this path for the easiest Windows desktop setup.
 
-1. Download `LocalFlight-0.5.1-Setup.exe` from the latest GitHub release.
+1. After the `0.5.1` packages are published, download `LocalFlight-0.5.1-Setup.exe` from the GitHub release. Until then, use the source-checkout path below rather than an older package.
 2. Double-click the installer and follow the Local Flight wizard.
 3. Launch Local Flight from the final installer page, Start Menu, or desktop shortcut.
 4. Complete the setup wizard: Welcome, Airport, Flight Data, Optional Keys, Diagnostics, and Review & Open.
 
-Windows may show a SmartScreen warning because the app is not signed yet. Click **More info**, then **Run anyway** if you trust the download source.
+Only run an installer downloaded from the official GitHub release and verify its published SHA256 checksum. If Windows cannot verify a publisher signature, treat the package as untrusted until its checksum and release source are confirmed.
 
 The installer is self-contained. You do not need Python, Node, or the source installer for normal use. A `LocalFlight-windows.zip` artifact may also be attached for portable/manual installs: unzip it to any folder, then double-click `LocalFlight.exe`.
 The packaged `LocalFlight.exe` is a windowed desktop app, so it should open the branded Local Flight UI without a Python or cmd console in front.
@@ -54,7 +54,7 @@ The source installer creates a **Local Flight** desktop shortcut that launches t
 
 Use this path for the easiest macOS desktop setup.
 
-1. Download `LocalFlight-0.5.1-macos.pkg` from the latest GitHub release.
+1. After the signed/notarized `0.5.1` package is published, download `LocalFlight-0.5.1-macos.pkg` from the GitHub release. Until then, use the source-checkout path below.
 2. Double-click the package and follow the standard macOS Installer steps.
 3. Launch **Local Flight** from Applications.
 4. Complete the setup wizard: Welcome, Airport, Flight Data, Optional Keys, Diagnostics, and Review & Open.
@@ -90,7 +90,7 @@ You can clone the repo on the Pi or download the versioned Pi source bundle from
 LocalFlight-pi-source-<version>.zip
 ```
 
-For this target, that package name is expected to look like `LocalFlight-pi-source-0.5.1.zip` once the release bundle is built.
+The `0.5.1` package name is `LocalFlight-pi-source-0.5.1.zip` with a matching `.sha256` file.
 
 Unzip or clone on the Pi, then run:
 
@@ -142,9 +142,9 @@ lf update
 
 ## Mobile App
 
-The mobile app is being prepared for TestFlight and Google Play testing after the Remote Companion connectivity/privacy proof pass. Public store downloads are not live yet; iOS and Android local development builds remain available for validation.
+The mobile app is aligned to `0.5.1` for TestFlight and Google Play testing. Public store listings are not live yet; availability is published at [beacontools.cc/local-flight/mobile](https://beacontools.cc/local-flight/mobile). The commands below are for source development.
 
-Use it when you want a lightweight airport-board view, radar, history, control, and support tools from an iPhone, iPad, or simulator.
+Use it when you want a lightweight airport-board view, radar, history, control, and support tools from an iPhone, iPad, or Android device.
 
 ```bash
 cd mobile
@@ -238,10 +238,11 @@ Local Flight stores runtime data outside the source tree:
 ~/.localflight/storage/data/<IATA>/snapshots
 ~/.localflight/history.db
 ~/.localflight/logs
-~/.localflight/api_usage.json
+~/.localflight/api_usage.sqlite3
+~/.localflight/api_usage.json  (legacy compatibility only)
 ```
 
-Provider keys live in your local `.env` when you choose the BYOK path.
+Provider keys live in the source checkout `.env` for source installs. Packaged desktop apps store them in `~/.localflight/.env`, outside the signed application bundle.
 
 ---
 

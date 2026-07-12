@@ -159,7 +159,7 @@ Browser templates to treat as source specs:
 - `history.html`: browse/search/stats/detail.
 - `feedback.html`: manual report and attached native context.
 
-## Current Status
+## Archived Implementation Log
 
 Historical checkpoint from 2026-05-28 / 0.2.8:
 
@@ -215,7 +215,7 @@ This is now a required rule for every native page migration:
 
 Service-routing slice has started.
 
-Moved active read/data-shaping paths behind `NativeApiService` while preserving the working beta web-kiosk behavior and visuals:
+Moved active read/data-shaping paths behind `NativeApiService` while preserving the supported LAN browser behavior and visuals:
 
 - Setup install info and airport search.
 - FIDS board fetch, METAR companion fetch, and flight detail fetch.
@@ -266,7 +266,7 @@ FIDS visual polish checkpoint:
 - The extracted page now applies table-specific `QTableView#FidsTable` styling for dark board density, hover affordance, selection, row padding, and header treatment.
 - Weather strip tone is mapped from METAR mood (`good`, `caution`, `bad`) into native frame styling.
 - Refreshes briefly mark rows as fresh and run a timer-driven fade pulse across the visible rows.
-- FIDS loading/empty-state copy is now operator-facing rather than implementation-facing. In-flight refreshes show an indeterminate native progress bar, while quiet windows explain that Local Flight will keep checking automatically without exposing relay internals.
+- FIDS loading/empty-state copy is now user-facing rather than implementation-facing. In-flight refreshes show an indeterminate native progress bar, while quiet windows explain that Local Flight will keep checking automatically without exposing relay internals.
 - Header title now carries lightweight arrival/departure direction symbols while ARR/DEP buttons remain compact.
 - Offscreen render smoke check caught and fixed a bright system alternate-row fallback in `QTableView`.
 
@@ -361,7 +361,7 @@ Recommended next slice:
    - Run `python -m compileall -q src relay installers scripts tests` and `python -m pytest tests -q`.
    - Smoke native setup/FIDS/Radar/Matrix/Settings/History on macOS.
    - Confirm bundled docs and online links point to Beacon Tools, and Community setup preloads `https://relay.beacontools.cc`.
-   - Build and checksum `dist/LocalFlight-0.5.1-macos.pkg`.
+   - Build and checksum `dist/LocalFlight-0.5.1-macos.pkg` only after Developer ID Application/Installer identities and notarization credentials are installed. Until then, build the local `.app`/zip for Mac smoke testing.
 2. Clean install smoke:
    - Windows zip extraction and first-run setup.
    - Pi source install in headless mode.

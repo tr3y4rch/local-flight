@@ -16,12 +16,12 @@ The recommended desktop client is now the native Qt app. The LAN browser UI, Pi 
 
 ## Status
 
-`0.5.1` is the public-release hardening target for desktop and Raspberry Pi, with the mobile app moving toward Play Store/TestFlight release after the Remote Companion privacy/connectivity proof pass. It is still beta software, but this line treats Local Flight as a working multi-client ecosystem instead of a prototype:
+`0.5.1` is the current Local Flight release line for desktop and Raspberry Pi. The same version is in TestFlight and Google Play testing so the mobile clients, relay, and local server stay on one compatibility baseline:
 
 - Native desktop app for Windows and macOS, with four switchable FIDS board styles (Classic / PAX / VATSIM / Nerd) that each render their own design
 - LAN browser UI that mirrors the native Qt shell — same nav, same tokens, same components — with an automatic mobile view for phones and a compact layout for 7" Raspberry Pi screens
 - Raspberry Pi headless server, native Qt HDMI kiosk, or Chromium HDMI kiosk
-- Mobile developer preview with Companion, encrypted Remote Companion fallback for paired relay-linked hosts, and Standalone setup modes. iOS and Android are both validation paths for store-bound releases.
+- Mobile app with Companion, encrypted Remote Companion fallback for paired relay-linked hosts, and Standalone setup modes. iOS and Android use the same `0.5.1` feature contract during store testing.
 - Interstate 75 W / HUB75 Matrix client and preview tools
 - Beacon Tools public site and privacy page for release/App Store/TestFlight metadata
 
@@ -36,8 +36,8 @@ The recommended desktop client is now the native Qt app. The LAN browser UI, Pi 
 | A Pi plugged into an HDMI display | Native Qt kiosk or Chromium kiosk |
 | A Pi with a 7" touch screen | LAN browser UI — auto-compacts at 800×480 / 1024×600 |
 | Viewing from another device | LAN browser UI at `http://localflight.local:8000` |
-| iPhone/iPad controls for your desktop/Pi server, at home or away | Mobile Companion with Remote Companion fallback from `mobile/` |
-| A simplified phone board without running your own server | Mobile Standalone from `mobile/` |
+| iPhone/iPad/Android controls for your desktop/Pi server, at home or away | Mobile Companion with Remote Companion fallback; see the [mobile page](https://beacontools.cc/local-flight/mobile) |
+| A simplified phone board without running your own server | Mobile Standalone; see the [mobile page](https://beacontools.cc/local-flight/mobile) |
 | A small LED board | Matrix page + Interstate 75 W client |
 
 Read the detailed guides:
@@ -45,9 +45,10 @@ Read the detailed guides:
 - [Install Guide](docs/install.md)
 - [Display Modes](docs/display-modes.md)
 - [Privacy & Diagnostics](PRIVACY.md)
-- [0.5.1 Public Release Notes](docs/release-notes-0.5.1.md)
-- [0.2.7 Client Notes](docs/release-notes-0.2.7.md)
+- [0.5.1 Release Overview](docs/release-notes-0.5.1.md)
 - [Full Changelog](CHANGELOG.md)
+
+Historical release notes remain under [`docs/`](docs/), including the archived `0.2.x` development lines.
 
 ---
 
@@ -73,7 +74,7 @@ Read the detailed guides:
 
 ## Preview
 
-These previews mix current Qt screenshot cards with lightweight mobile illustrations. They are product previews, not operational telemetry. Future preview refreshes should use the real Android/iOS/source screenshots under `assets/previews/` when refreshing mobile imagery.
+These product previews show the native shell and mobile design across FIDS, Radar, History, Settings, and Matrix. They are interface examples, not live operational telemetry.
 
 Open [docs/previews/index.html](docs/previews/index.html) locally for the standalone HTML gallery.
 
@@ -105,14 +106,16 @@ Open [docs/previews/index.html](docs/previews/index.html) locally for the standa
 
 ## Quick Install
 
+The `0.5.1` platform packages are being assembled and validated together. Until they appear on the [GitHub releases page](https://github.com/tr3y4rch/local-flight/releases), use the source/Pi instructions in the [Install Guide](docs/install.md) rather than an older package with the same filename pattern.
+
 ### Windows
 
-Download `LocalFlight-0.5.1-Setup.exe`, run the wizard, then launch Local Flight from the final installer page, Start Menu, or desktop shortcut.
+When published, download `LocalFlight-0.5.1-Setup.exe`, run the wizard, then launch Local Flight from the final installer page, Start Menu, or desktop shortcut.
 The release app launches as a branded desktop app without a Python or cmd console window. `LocalFlight-windows.zip` remains available as a portable/manual install artifact.
 
 ### macOS
 
-Download `LocalFlight-0.5.1-macos.pkg`, double-click the installer, then launch **Local Flight** from Applications.
+When published, download `LocalFlight-0.5.1-macos.pkg`, double-click the installer, then launch **Local Flight** from Applications.
 The release installer is designed to feel like a normal Mac app install: no Python, Terminal, source checkout, or manual drag-to-Applications step.
 
 ### Raspberry Pi
@@ -126,6 +129,8 @@ bash installers/pi/install.sh
 The Pi installer asks how the Pi should run and defaults to headless.
 
 ### Mobile App
+
+Version `0.5.1` is in TestFlight and Google Play testing. Public availability and tester access are listed at [beacontools.cc/local-flight/mobile](https://beacontools.cc/local-flight/mobile). The commands below are for source development, not ordinary installation.
 
 ```bash
 cd mobile

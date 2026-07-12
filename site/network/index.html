@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Network | Beacon Tools</title>
-  <meta name="description" content="Plain-language notes for the Beacon Tools shared relay used by Local Flight and phone-only mobile mode.">
+  <meta name="description" content="Plain-language notes for the optional Beacon Tools relay used by Local Flight, Remote Companion, and mobile Standalone mode.">
   <link rel="stylesheet" href="/assets/site.css">
   <link rel="icon" href="/assets/favicon.ico" sizes="any">
   <link rel="icon" type="image/png" sizes="32x32" href="/assets/favicon-32.png">
@@ -36,7 +36,7 @@
         <div class="hero-content">
           <div class="eyebrow">Beacon Tools Network</div>
           <h1>How the shared relay helps Local Flight.</h1>
-          <p class="lede">The Beacon Tools relay is an optional shared service that helps Local Flight, Remote Companion fallback, and phone-only mobile mode work without every user managing their own aviation data keys or opening inbound router ports.</p>
+          <p class="lede">The optional Beacon Tools relay shares cached airport data, supports mobile Standalone, and routes encrypted Remote Companion messages without asking users to manage shared aviation keys or open inbound router ports.</p>
           <div class="status-strip">
             <span class="status-chip">Public relay: relay.beacontools.cc</span>
             <span class="status-chip">Shared cached boards</span>
@@ -74,7 +74,7 @@
             <li>Reuses cached airport boards so multiple personal installs can watch the same airport without each one making separate upstream requests.</li>
             <li>Keeps refreshes intentionally modest to protect shared limits and keep the community path sustainable.</li>
             <li>Routes encrypted Remote Companion messages for explicitly paired phones when they cannot reach the host on LAN. The host must be online, and the relay cannot read the Companion request or response.</li>
-            <li>Lets phone-only mobile mode work without your desktop app or Raspberry Pi being online.</li>
+            <li>Lets mobile Standalone work without your desktop app or Raspberry Pi being online.</li>
             <li>Can forward reports only when you choose to send them, while keeping shared data keys and maintenance details out of the app.</li>
           </ul>
         </div>
@@ -84,15 +84,15 @@
         <div class="wrap">
           <div class="section-head">
             <div>
-              <div class="eyebrow">If phone-only mode is offline</div>
-              <h2>Try these checks first.</h2>
+              <div class="eyebrow">Connection help</div>
+              <h2>Start with the path you are using.</h2>
             </div>
           </div>
           <ol class="timeline">
-            <li>Check that the phone has internet access. Phone-only mode does not use your desktop app or Raspberry Pi server.</li>
-            <li>Try again after a few minutes. Relay-backed data may serve older cached boards during upstream problems.</li>
-            <li>Check whether only radar is affected. Radar refresh and range are intentionally limited on mobile.</li>
-            <li>If it still fails, use <a href="/support/">Support</a> and include the app mode, airport, approximate time, and diagnostics setting.</li>
+            <li><strong>LAN Companion:</strong> keep the phone and host on the same trusted network, confirm Local Flight is running, and pair with the LAN IP/fingerprint-bound QR from Settings.</li>
+            <li><strong>Remote Companion:</strong> the host must remain online and relay-linked, and the phone's remote grant must still be active. Revoke and pair again from LAN if the grant was removed.</li>
+            <li><strong>Standalone:</strong> check the phone's internet access and try again after a few minutes. Cached boards may be served during upstream problems, and mobile radar refresh/range remains intentionally limited.</li>
+            <li>If the problem continues, use <a href="/support/">Support</a> and include the app mode, airport, approximate time, connection state, and diagnostics choice.</li>
           </ol>
         </div>
       </section>

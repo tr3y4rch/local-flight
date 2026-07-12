@@ -18,6 +18,7 @@ venv/
 mobile/credentials/
 mobile/*service-account*.json
 mobile/*ServiceAccount*.json
+mobile/localflightandroid-*.json
 mobile/*app-store-connect*.json
 mobile/*AppStoreConnect*.json
 mobile/*.mobileprovision

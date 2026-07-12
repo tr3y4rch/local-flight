@@ -93,7 +93,7 @@ DIAGNOSTICS_OPTIONS: tuple[dict[str, str], ...] = (
         "short_title": "Auto + logs",
         "icon": "\U0001F4DC",  # 📜
         "body": "Also attach a short local log tail to help with harder issues.",
-        "note": "Automatic crash reports + local logs is helpful during beta testing. Reports stay sanitized and include only a short local log tail.",
+        "note": "Automatic crash reports + local logs can make troubleshooting easier. Reports stay sanitized and include only a short local log tail.",
     },
 )
 

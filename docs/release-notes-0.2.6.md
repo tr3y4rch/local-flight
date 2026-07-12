@@ -1,5 +1,7 @@
 # Local Flight 0.2.6 Temporary Client Notes
 
+> Historical archive. For the current release line, see [0.5.1 Release Overview](release-notes-0.5.1.md).
+
 `0.2.6` is a temporary client-polish target, not a final stable release label yet.
 
 It builds on the `0.2.5` beta baseline and focuses on making the native Qt app, LAN/browser UI, Matrix tools, History, Settings, Radar, and FIDS details feel like one coherent Local Flight client.

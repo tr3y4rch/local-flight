@@ -19,7 +19,7 @@ This file is the working checklist for the `0.5.1` Play internal-testing build. 
 
 - Camera: used only to scan Local Flight pairing QR codes. Manual URL entry remains available if camera access is denied.
 - Internet: used for Standalone relay requests, Remote Companion fallback, and Companion requests to the user's own Local Flight server.
-- Local cleartext HTTP: Companion must support `http://localflight.local:8000` and private LAN IP addresses because self-hosted desktop/Pi installs do not ship public TLS certificates. Remote Companion and Standalone relay traffic use HTTPS.
+- Local cleartext HTTP: the Android manifest permits cleartext transport because Companion must support user-owned hosts at `http://localflight.local:8000` and arbitrary private LAN IP addresses that cannot be enumerated in a domain allowlist. Remote Companion, Standalone, support, and Beacon Tools relay traffic use HTTPS.
 - Vibration: used only for small touch/haptic feedback where supported.
 - The release build should not request microphone, storage, or overlay permissions.
 
@@ -29,14 +29,14 @@ Play Console Data Safety answers should be conservative:
 
 - Privacy Policy URL: `https://beacontools.cc/privacy`.
 - Data collected: yes.
-- Data shared: yes where app-functionality requests/reports are sent to the Beacon Tools relay or, in Companion mode, to the user's own Local Flight server.
+- Data sharing: complete the Play Console answer per data category and Google's current definition. App-functionality requests go to the user's own Local Flight server or the Beacon Tools relay; diagnostic/report data only leaves the app under the consent rules below. Do not use one blanket answer without matching the submitted console questionnaire.
 - Data encrypted in transit: yes for Remote Companion and Standalone relay HTTPS; Companion LAN may use local HTTP on the user's private network by design.
 - Identifiers: install-scoped mobile ID, companion ID, Remote Companion grant/install refs when enabled, and standalone relay install ID for pairing, rate limits, reports, and troubleshooting.
 - Remote Companion privacy: encrypted request/response envelopes are routed through `https://relay.beacontools.cc` only after explicit pairing. The relay cannot read board data or commands and does not receive the AES grant secret.
 - Diagnostics: crash reports and diagnostic context only when the user chooses automatic diagnostics or submits a manual report.
 - App activity / usage: coarse relay quota/policy metadata, selected airport, app version, source mode, and refresh status used for app functionality and support.
 - User content: manual report title/description if the user sends a report.
-- Not collected for this proof-of-concept build: precise location, contacts, photos/videos, financial information, payment information, advertising ID, or purchase history.
+- Not collected by this build: precise location, contacts, photos/videos, financial information, payment information, advertising ID, or purchase history.
 
 ## Support / Payments
 

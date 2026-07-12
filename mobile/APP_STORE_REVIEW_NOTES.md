@@ -21,7 +21,7 @@ This file is the working checklist for the `0.5.1` TestFlight/review build. It i
 
 - Camera: used only to scan Local Flight pairing QR codes. Manual URL entry remains available if camera access is denied.
 - Local Network: used only by Companion to connect to the user's own Local Flight server on Wi-Fi/LAN and to complete trusted pairing before optional Remote Companion.
-- App Transport Security: local HTTP is allowed for LAN pairing with self-hosted desktop/Pi servers. Remote Companion and Standalone relay traffic use HTTPS.
+- App Transport Security: the app enables cleartext transport because a user-owned Local Flight host can be reached by a private IPv4 address or mDNS name that cannot be enumerated in an ATS domain list. This is used for user-entered/self-scanned LAN Companion URLs. Remote Companion, Standalone, support, and Beacon Tools relay traffic use HTTPS.
 
 ## Privacy Summary
 
@@ -37,7 +37,7 @@ App Store Connect privacy answers should be conservative:
 - Diagnostics: crash reports and diagnostic context only when the user chooses automatic diagnostics or submits a manual report.
 - Usage data: coarse relay quota/policy metadata, selected airport, app version, source mode, and refresh status used for app functionality and support.
 - User content: manual report title/description if the user sends a report.
-- Not collected for this proof-of-concept build: device location, contacts, photos/videos, financial information, payment information, advertising ID, or purchase history.
+- Not collected by this build: device location, contacts, photos/videos, financial information, payment information, advertising ID, or purchase history.
 
 The bundled iOS privacy manifest declares required-reason APIs and conservative app-functionality data categories. Keep it aligned with the submitted App Store Connect privacy answers.
 

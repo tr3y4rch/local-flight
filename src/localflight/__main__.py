@@ -124,11 +124,14 @@ def _load_dotenv() -> None:
     while Local Flight-owned provider/relay keys are reloaded authoritatively.
     """
     here = Path(__file__).resolve().parent
-    candidates = [
-        here.parent.parent / ".env",
-        here.parent / ".env",
-        Path.home() / ".localflight" / ".env",
-    ]
+    if getattr(sys, "frozen", False):
+        candidates = [Path.home() / ".localflight" / ".env"]
+    else:
+        candidates = [
+            here.parent.parent / ".env",
+            here.parent / ".env",
+            Path.home() / ".localflight" / ".env",
+        ]
     env_path = None
     for p in candidates:
         if p.exists():

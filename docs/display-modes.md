@@ -28,7 +28,7 @@ The native app still starts the same local FastAPI server. That means the LAN br
 | Pi attached to an HDMI display without a browser process | Native Qt kiosk |
 | Pi attached to an HDMI display using the web board | Chromium kiosk display |
 | iPhone or iPad paired to your Local Flight server | Mobile Companion with Remote Companion fallback |
-| iPhone-only simplified board | Mobile Standalone |
+| iPhone or Android simplified board | Mobile Standalone |
 | LED passenger board | Interstate 75 W Matrix client |
 
 ---
@@ -56,18 +56,11 @@ Use it when you want the full Local Flight app on the machine that runs the serv
 
 The browser UI is a supported access and display surface. It is not being removed.
 
-In the current `0.5.1` line, the browser UI mirrors the native Qt shell —
-same top nav layout (brand mark, UTC/LT clock chips, segmented Display /
-FIDS / Radar / Matrix tabs, operator icon-chip bar, Power button), same
-colour tokens, same shared components (panels, cards, kicker labels,
-disclosure cards, status pills, buttons). Picking a theme or skin in
-Settings retints both surfaces the same way.
-
-The latest parity work also covers Settings: Outputs/Radar, Profiles, Pair
-Mobile, timing, maintenance, relay details, and diagnostics/docs now use the
-same collapsed folder model in the LAN browser as the Qt shell. The LAN Settings
-page also exposes the same Companion QR/manual pairing path, paired-device
-refresh, copy-link/copy-URL actions, and reset action.
+In `0.5.1`, the browser UI follows the same visual and information hierarchy as
+the native Qt shell: airport-local and UTC clocks, Display/FIDS/Radar/Matrix
+navigation, readable cards and status labels, appearance choices, and grouped
+Settings. It also provides the same fingerprint-bound Companion QR/manual
+pairing path and paired-device reset tools.
 
 Use it when:
 
@@ -92,25 +85,15 @@ from another device on your LAN.
 
 ### Phone view
 
-Opening the LAN URL on a phone automatically switches to a mobile
-shell. The top nav docks to the bottom edge as a thumb-reachable bar,
-FIDS rows reflow into per-flight cards (large time on the left,
-flight + airline + route stacked, status pill top-right, gate badge
-on a meta row, status colour rail on the left), Settings / Admin /
-Setup grids stack to a single column, and inputs become iOS-friendly
-sizes. iPhone home-indicator and notch safe-areas are honoured.
-
-You can preview the mobile shell on desktop by appending `?mobile=1`
-to any page URL; `?mobile=0` clears the preview.
+Opening the LAN URL on a phone automatically switches to a touch-friendly
+layout. Navigation moves within thumb reach, flight rows become readable cards,
+multi-column pages stack vertically, and device safe areas are respected.
 
 ### 7-inch Raspberry Pi screens
 
-Both common 7" Pi touch panels — the official 800×480 screen and
-1024×600 IPS panels — get a dedicated compact layout that keeps the
-Qt-shell look but tightens every dimension. The top nav drops
-secondary clock chips and low-priority operator icons; FIDS row
-height drops to 40 px and the A/C column hides at 800×480. Net
-effect: **8 flights visible at 800×480** (was 5), **11 at 1024×600**.
+Common 800×480 and 1024×600 Pi touch panels use a compact layout that keeps the
+board readable without horizontal page overflow. Lower-priority columns and
+secondary controls collapse automatically when space is limited.
 
 These rules trigger automatically based on viewport height. No kiosk
 configuration is required — just point the Pi's browser at the LAN
@@ -165,7 +148,7 @@ This is useful when the browser UI fits your display setup better or native Qt k
 
 ## Mobile App
 
-The mobile app is an iOS-first developer preview for iPhone, iPad, and simulator testing. It has two modes.
+The mobile app runs on iPhone, iPad, and Android and has two modes. TestFlight and Google Play testing use the same `0.5.1` data and privacy contract as the desktop/Pi host.
 
 ### Companion
 
@@ -189,7 +172,7 @@ Remote Companion still requires the host to be online. It is not Standalone mode
 
 ### Standalone
 
-Standalone talks directly to the hosted Beacon Tools relay and does not need your own desktop/Pi server online. It is simplified on purpose so a phone install cannot burn through shared relay/provider tokens.
+Standalone talks directly to the hosted Beacon Tools relay and does not need your own desktop/Pi server online. Its careful refresh limits keep the shared service reliable and fairly available.
 
 Use Standalone for:
 
@@ -239,7 +222,7 @@ You can use any display mode with:
 
 Changing display mode does not change your data source by itself.
 
-Mobile Standalone is the one special case: because there is no paired local server, it always uses the hosted relay's current shared real-data policy and local on-device history. It does not expose BYOK or VATSIM controls in this first pass.
+Mobile Standalone is the one special case: because there is no paired local server, it always uses the hosted relay's current shared real-data policy and local on-device history. It does not expose BYOK or VATSIM controls.
 
 The hosted relay's current real-data path is cache-first and can use AeroDataBox primary schedule data with AviationStack sparse fill/fallback where configured. That provider mix is separate from the display mode you choose.
 

@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Local Flight Mobile | Beacon Tools</title>
-  <meta name="description" content="Local Flight Mobile is preparing for TestFlight and Google Play testing with companion mode and phone-only relay mode.">
+  <meta name="description" content="Local Flight Mobile brings Local Flight boards, radar, and history to iPhone, iPad, and Android through Companion or Standalone mode.">
   <link rel="stylesheet" href="/assets/site.css">
   <link rel="icon" href="/assets/favicon.ico" sizes="any">
   <link rel="icon" type="image/png" sizes="32x32" href="/assets/favicon-32.png">
@@ -35,8 +35,8 @@
       <div class="wrap product-hero-grid">
         <div class="hero-content">
           <div class="eyebrow">Local Flight Mobile</div>
-          <h1>Local Flight Mobile is heading to TestFlight and Google Play testing.</h1>
-          <p class="lede">The mobile app brings the board, radar, history, and report flow to iPhone, iPad, and Android&trade; testing builds. Public store downloads are not live yet.</p>
+          <h1>Your Local Flight board, wherever you keep your phone.</h1>
+          <p class="lede">Use an iPhone, iPad, or Android&trade; device as a Companion to your own server, or choose Standalone for a simpler phone-only board. Version 0.5.1 is in store testing; public listings open after review.</p>
           <div class="actions">
             <a class="button primary" href="/support/#message">Ask about mobile testing</a>
             <a class="button secondary" href="/privacy/choices/">Privacy choices</a>
@@ -56,8 +56,8 @@
             <p class="store-note">Store listings will open after review.</p>
           </div>
           <div class="status-strip">
-            <span class="status-chip amber">TestFlight proof prep</span>
-            <span class="status-chip amber">Play internal proof prep</span>
+            <span class="status-chip amber">TestFlight testing</span>
+            <span class="status-chip amber">Play internal testing</span>
             <span class="status-chip">Shared relay: relay.beacontools.cc</span>
           </div>
         </div>
@@ -80,7 +80,7 @@
           <div class="section-head">
             <div>
               <div class="eyebrow">Two setup paths</div>
-              <h2>Pair with your own server, or use phone-only mode.</h2>
+              <h2>Pair with your own server, or run Standalone.</h2>
             </div>
           </div>
           <div class="grid two">
@@ -89,12 +89,12 @@
               <p>Pairs with your Local Flight desktop app or Raspberry Pi over your own Wi-Fi/LAN. Scan the QR code from Settings, or enter the LAN address manually with the <code>:8000</code> port. The paired server provides the board, radar, history, controls, reports, and LED matrix tools. Remote Companion can keep the same paired experience working away from Wi-Fi through encrypted relay fallback when the host is online.</p>
             </article>
             <article class="card">
-              <h3>Phone-only mode</h3>
+              <h3>Standalone mode</h3>
               <p>Connects directly to the Beacon Tools relay for a simplified board, radar, weather, history, settings, and reports. Your desktop or Raspberry Pi does not need to be online.</p>
             </article>
             <article class="card"><h3>Board</h3><p>Airport header, weather strip, pinned flight, compact rows, local/UTC time, and passenger-friendly status labels.</p></article>
             <article class="card"><h3>Radar</h3><p>Nearby traffic with range rings. Data comes from your paired server or the shared relay, depending on setup mode.</p></article>
-            <article class="card"><h3>History</h3><p>Companion mode reads your server history. Phone-only mode keeps recent movement history locally on the phone.</p></article>
+            <article class="card"><h3>History</h3><p>Companion reads your server history. Standalone keeps recent movement history locally on the phone.</p></article>
             <article class="card"><h3>Reports</h3><p>Manual reports are always user-triggered. Automatic crash diagnostics only run when your mobile diagnostics choice allows them.</p></article>
           </div>
         </div>
@@ -112,7 +112,7 @@
           <div class="mobile-preview-grid" aria-label="Local Flight Mobile screenshots">
             <figure class="mobile-preview-card">
               <img src="/assets/mobile/ios/history.png" alt="Local Flight Mobile history view on iOS">
-              <figcaption><strong>iOS History</strong><span>Recent movement history and phone-only records.</span></figcaption>
+              <figcaption><strong>iOS History</strong><span>Recent movement history and Standalone records.</span></figcaption>
             </figure>
             <figure class="mobile-preview-card">
               <img src="/assets/mobile/android/fids.png" alt="Local Flight Mobile FIDS board on Android">
@@ -132,7 +132,7 @@
             </figure>
             <figure class="mobile-preview-card">
               <img src="/assets/mobile/android/setup.png" alt="Local Flight Mobile setup on Android">
-              <figcaption><strong>Android Setup</strong><span>Standalone and Companion choices for testers.</span></figcaption>
+              <figcaption><strong>Android Setup</strong><span>Standalone and Companion choices on first launch.</span></figcaption>
             </figure>
             <figure class="mobile-preview-card">
               <img src="/assets/mobile/ios/splash.png" alt="Local Flight Mobile splash screen on iOS">
@@ -140,7 +140,7 @@
             </figure>
             <figure class="mobile-preview-card">
               <img src="/assets/mobile/android/splash.png" alt="Local Flight Mobile splash screen on Android">
-              <figcaption><strong>Android Launch</strong><span>Launch state for testing builds.</span></figcaption>
+              <figcaption><strong>Android Launch</strong><span>Branded launch state before the board opens.</span></figcaption>
             </figure>
             <figure class="mobile-preview-card landscape">
               <img src="/assets/mobile/ios/display.png" alt="Local Flight Mobile display mode on iOS">
@@ -158,16 +158,16 @@
         <div class="wrap">
           <div class="section-head">
             <div>
-              <div class="eyebrow">Phone-only limits</div>
-              <h2>Phone-only mode updates more carefully.</h2>
+              <div class="eyebrow">Standalone limits</div>
+              <h2>Standalone updates more carefully.</h2>
             </div>
             <p>The shared relay is intentionally conservative so public testing stays sustainable.</p>
           </div>
           <ul class="console-list">
-            <li>Phone-only board updates are designed around a 3-hour cadence rather than rapid polling.</li>
-            <li>Phone-only radar updates are designed around a 5-minute cadence while visible.</li>
-            <li>Phone-only radar ranges are limited to 1, 3, 5, and 10 nautical miles.</li>
-            <li>Phone-only mode does not include LED matrix controls, server maintenance controls, or LAN control panels.</li>
+            <li>Standalone board updates use a 3-hour cadence rather than rapid polling.</li>
+            <li>Standalone radar updates use a 5-minute cadence while visible.</li>
+            <li>Standalone radar ranges are limited to 1, 3, 5, and 10 nautical miles.</li>
+            <li>Standalone does not include LED matrix controls, server maintenance controls, or LAN control panels.</li>
           </ul>
         </div>
       </section>
@@ -181,7 +181,7 @@
             </article>
             <article class="card">
               <h3>Privacy model</h3>
-              <p>No accounts, no ads SDKs, and no cross-app tracking. Companion mode talks to your own server first; Remote Companion routes encrypted paired-host messages when LAN is unavailable. Phone-only mode uses the hosted relay and keeps its own history locally on the phone. See <a href="/privacy/">privacy policy</a> and <a href="/privacy/choices/">privacy choices</a>.</p>
+              <p>No accounts, no ads SDKs, and no cross-app tracking. Companion talks to your own server first; Remote Companion routes encrypted paired-host messages when LAN is unavailable. Standalone uses the hosted relay and keeps its history locally on the phone. See the <a href="/privacy/">privacy policy</a> and <a href="/privacy/choices/">privacy choices</a>.</p>
             </article>
           </div>
         </div>
@@ -191,14 +191,14 @@
         <div class="wrap">
           <div class="section-head">
             <div>
-              <div class="eyebrow">Testing status</div>
-              <h2>Not publicly downloadable yet.</h2>
+              <div class="eyebrow">Store availability</div>
+              <h2>Version 0.5.1 is in store testing.</h2>
             </div>
           </div>
           <ol class="timeline">
-            <li>Current builds are being prepared around Companion, Remote Companion fallback, phone-only relay mode, privacy prompts, diagnostics choices, and store metadata.</li>
-            <li>TestFlight and Google Play testing links will come after Remote Companion connectivity/privacy proof and review metadata are ready.</li>
-            <li>Until then, testing interest and support questions can go through the <a href="/support/#message">support message box</a>.</li>
+            <li>Companion, encrypted Remote Companion fallback, Standalone, privacy prompts, and diagnostics choices are aligned to Local Flight 0.5.1.</li>
+            <li>TestFlight and Google Play internal testing are the current distribution paths; public store badges remain disabled until review is complete.</li>
+            <li>Mobile questions and testing requests can go through the <a href="/support/#message">support message box</a>.</li>
           </ol>
         </div>
       </section>

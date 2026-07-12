@@ -2,9 +2,9 @@
 
 Tracked WidgetKit template for the iOS widget extension. The generated
 `mobile/ios/` directory is ignored, so keep these files as the source of truth.
-The current TestFlight path copies this template into the generated iOS project
-and wires the App Group when the Apple account and provisioning profile support
-`group.cc.beacontools.localflight`.
+The current `0.5.1 (4)` TestFlight build does not enable this template. The
+steps below are an opt-in wiring procedure for a later build after the Apple
+account and provisioning profile support `group.cc.beacontools.localflight`.
 
 The Expo app writes `localflight-widget-snapshot.json` using the schema in
 `mobile/src/domain/widgets.ts`. The native widget reads that file only. It must

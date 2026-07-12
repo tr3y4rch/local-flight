@@ -1,27 +1,27 @@
-# Local Flight 0.5.1 Public Release Notes
+# Local Flight 0.5.1 Release Overview
 
-`0.5.1` is the public-release hardening line for Local Flight desktop and
-Raspberry Pi installs. The mobile app is now store-bound after the Remote
-Companion connectivity/privacy proof pass, with App Store Connect and Google
-Play Console metadata kept aligned to the same privacy model.
+`0.5.1` is the active Local Flight release line for desktop and Raspberry Pi.
+The platform packages are being rebuilt and validated together before the
+GitHub release is published. Mobile TestFlight and Google Play testing uses the
+same version so Companion, Standalone, relay compatibility, and privacy choices
+remain aligned with the local server.
 
-Local Flight is still informational beta software. Flight, radar, weather,
-surface, Matrix, relay, and mobile data can be delayed, incomplete, cached,
-wrong, or unavailable. Do not use Local Flight for navigation, dispatch,
+Local Flight is an informational display. Flight, radar, weather, surface,
+Matrix, relay, and mobile data can be delayed, incomplete, cached, wrong, or
+unavailable. Do not use Local Flight for navigation, dispatch,
 operational control, flight planning, professional aviation work, or safety
 decisions.
 
-## What This Release Focuses On
+## What This Release Brings Together
 
 - Desktop and Raspberry Pi are the public release path for this milestone.
 - Native Qt, LAN browser, Pi display modes, Matrix/i75W, public support forms,
   Beacon Tools docs, and relay-facing client behavior are treated as one release
   ecosystem.
-- Mobile keeps the permanent Beacon package IDs and first store counters, and
-  treats Remote Companion as a fixed Companion feature once the release-gate
-  proof passes.
+- Mobile keeps the permanent Beacon package IDs and treats Remote Companion as
+  a fixed Companion feature, not a separate account or cloud-control mode.
 
-## Hardening Since 0.2.7
+## User-Facing Improvements
 
 - Restored browser display-shell airport-local clock parity so the LAN display
   shell follows the configured airport timezone instead of relying on device
@@ -35,34 +35,25 @@ decisions.
   sends a tiny encrypted probe through the relay, retries only once for
   short-lived network/host failures, avoids repeat-tap spam, and explains common
   failures in plain language.
-- Repaired the public preview gallery contract: five desktop cards plus four
-  mobile cards, with Matrix retained and stale deploy-site preview duplicates
-  removed.
-- Repaired Beacon Tools homepage brand placement and Local Flight public preview
-  references so the site uses the current stable PNG aliases.
-- Hardened the macOS preinstall-script test for Windows development machines
-  while keeping the executable-bit assertion meaningful on POSIX/macOS.
-- Matched the local AviationStack fair-fetch metadata contract to the relay path
-  by always exposing fallback-use state and adaptive page metadata.
-- Hardened setup/re-setup provider-mode transitions so BYOK, managed relay,
-  community relay, and virtual paths clear stale provider keys and process env
-  state consistently.
-- Made setup-written `.env` provider/relay values authoritative across startup,
-  scheduler restarts, settings/status, and setup completion while keeping log
-  redaction paranoid about stale process secrets.
-- Locked the native Qt setup transition against accidental backend shutdown by
-  keeping Qt from quitting just because the setup window closes internally.
-- Updated Expo SDK 55 patch dependencies to satisfy Expo Doctor without a
-  breaking SDK upgrade.
+- Refreshed Beacon Tools product, mobile, network, support, and privacy pages so
+  each setup path is explained consistently and in plain language.
+- Hardened setup and re-setup transitions between Local Flight Relay, personal
+  provider keys, and VATSIM so old credentials or source choices do not linger.
+- Kept conservative secret redaction across logs, reports, and diagnostics.
+- Stabilized native setup/window transitions and kept the LAN browser, native
+  shell, Pi displays, Matrix tools, and mobile clients on the same API contract.
+- Moved packaged desktop provider-key storage into the user's Local Flight data
+  folder so first-run setup never modifies a signed application bundle.
 
 ## Packaging Targets
 
-- Windows: signed `LocalFlight-0.5.1-Setup.exe` plus portable zip/checksum.
+- Windows: `LocalFlight-0.5.1-Setup.exe` plus checksum. The published release
+  must state its actual publisher-signing status.
 - macOS: Developer ID signed, notarized, stapled `LocalFlight-0.5.1-macos.pkg`
   plus checksum.
 - Raspberry Pi: `LocalFlight-pi-source-0.5.1.zip` plus checksum.
 
-## Mobile Beta Notes
+## Mobile Store-Testing Notes
 
 - App name: `Local Flight`.
 - Publisher/site brand: Beacon Tools.
@@ -77,7 +68,7 @@ decisions.
 
 ## Validation Gate
 
-Before tagging or publishing `v0.5.1`, run:
+Before tagging or publishing `v0.5.1`, maintainers run:
 
 ```powershell
 .venv\Scripts\python.exe -m compileall -q src relay installers scripts tests

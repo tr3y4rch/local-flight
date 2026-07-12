@@ -1,6 +1,6 @@
 # Mobile iOS Widgets and Dynamic Island Design
 
-This is the design and data-contract handoff for iOS WidgetKit plus future ActivityKit work. The Expo app writes a hardened widget snapshot, and the current TestFlight path wires the tracked WidgetKit template from `mobile/native/ios-widget/` into the generated iOS app with the App Group. Dynamic Island and Live Activities remain deferred until the widget path is stable on real devices.
+This is the design and data-contract handoff for future iOS WidgetKit and ActivityKit work. The Expo app can write a hardened widget snapshot and the tracked template lives in `mobile/native/ios-widget/`, but the current `0.5.1 (4)` TestFlight build does not enable the widget config plugin, App Group, or extension target. Dynamic Island and Live Activities remain deferred until WidgetKit is intentionally wired and signed.
 
 ## Product Intent
 
@@ -99,7 +99,7 @@ The app derives this from the existing `FidsRow` data and `pinnedCallsign` / `fl
 Current app-side file:
 
 - Fallback app sandbox: `localflight-widget-snapshot.json` in the Expo document directory.
-- Future App Group location: `group.cc.beacontools.localflight/localflight-widget-snapshot.json`.
+- Planned App Group location: `group.cc.beacontools.localflight/localflight-widget-snapshot.json`.
 - Shared constants and validation: `mobile/src/domain/widgets.ts`.
 - App writer: `mobile/src/storage/widgetSnapshot.ts`.
 - Native skeleton reader: `mobile/native/ios-widget/WidgetSnapshot.swift`.
@@ -120,7 +120,7 @@ Static preview: `docs/previews/mobile-ios-widget-preview.svg`
 Preview scenarios represented:
 
 - Small widget with pinned flight.
-- Medium widget with pinned flight plus three live rows.
+- Medium widget with a pinned flight plus up to two additional rows.
 - Compact Dynamic Island with flight number and status.
 - Expanded/lock-screen Live Activity with status, time, route, gate, and update age.
 

@@ -6,7 +6,7 @@ is calmer, FIDS reads more like a passenger board, setup/settings/history/matrix
 are friendlier, the LAN browser UI remains a supported access surface, and the
 mobile app now has a clear LAN Companion vs Standalone shape.
 
-Current release notes continue at [0.2.8 Client Notes](release-notes-0.2.8.md).
+Current release notes continue at [0.5.1 Release Overview](release-notes-0.5.1.md).
 This page is retained as the `0.2.7` client-polish release-candidate archive.
 
 This release does not change the basic setup choices. You can still use
@@ -170,17 +170,10 @@ and the official hosted relay at `https://relay.beacontools.cc`.
 
 ---
 
-## Operator-Only Network Admin
+## Service Operations
 
-The separate Network Admin console also received polish in this line:
-
-- coarse "seen within 24h" fleet wording instead of live-online wording
-- clearer disconnect/quit behavior
-- idle auto-logoff
-- calmer operator UI styling
-- extracted relay admin SPA assets
-
-This operator console is not part of the normal public client navigation.
+Separate maintenance tooling received reliability and session-safety updates in
+this line. It remains outside normal public client navigation and public setup.
 
 ---
 

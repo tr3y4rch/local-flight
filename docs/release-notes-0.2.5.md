@@ -1,5 +1,7 @@
 # Local Flight 0.2.5 Beta Client Notes
 
+> Historical archive. For the current release line, see [0.5.1 Release Overview](release-notes-0.5.1.md).
+
 `0.2.5` is still a beta. It is not being presented as a polished stable release yet.
 
 It is, however, the first Local Flight build where the base client story is meant to work end to end across the main display paths: native desktop, LAN browser UI, Raspberry Pi server/kiosk, mobile companion, and Matrix.
@@ -217,4 +219,3 @@ The native app, LAN browser UI, Pi modes, mobile companion, and Matrix board now
 - Consistent FIDS/radar contracts
 
 That is the baseline this project can now build on.
-

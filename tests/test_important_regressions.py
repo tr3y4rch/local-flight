@@ -1495,6 +1495,19 @@ def test_provider_env_reload_makes_dotenv_authoritative_for_managed_keys(tmp_pat
     assert os.environ["LOCALFLIGHT_GUI_MODE"] == "browser"
 
 
+def test_frozen_provider_env_uses_user_storage(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(provider_keys.sys, "frozen", True, raising=False)
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    target = provider_keys.env_path()
+    assert target == tmp_path / ".localflight" / ".env"
+
+    provider_keys.write_env({"AVIATIONSTACK_API_KEY": "secret"})
+    assert target.read_text(encoding="utf-8").endswith("AVIATIONSTACK_API_KEY=secret\n")
+    if os.name != "nt":
+        assert target.stat().st_mode & 0o777 == 0o600
+
+
 def test_setup_complete_virtual_clears_process_only_provider_env(tmp_path: Path, monkeypatch) -> None:
     env_file = tmp_path / ".env"
     config_file = tmp_path / ".localflight" / "config.json"
@@ -6102,7 +6115,7 @@ def test_beacon_tools_site_uses_current_brand_assets() -> None:
     assert 'role="link" aria-disabled="true" aria-label="Get it on Google Play"' in mobile
     assert "Future App Store URL requires the App Store app ID" in mobile
     assert "https://play.google.com/store/apps/details?id=cc.beacontools.localflight" in mobile
-    assert "Android&trade; testing builds" in mobile
+    assert "Android&trade; device" in mobile
     assert "Apple, the Apple logo, iPhone, and iPad are trademarks of Apple Inc." in mobile
     assert "Google Play and the Google Play logo are trademarks of Google LLC." in mobile
     assert (assets / "store-badges" / "download-on-app-store.svg").stat().st_size > 1000

@@ -6,7 +6,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [0.5.1] - Public release hardening
+## [Unreleased] - 0.5.1 release line
 
 > Public desktop/Raspberry Pi release target. Mobile is store-bound after the
 > Remote Companion connectivity/privacy proof pass, with Companion remote
@@ -33,7 +33,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Hardened Remote Companion as the store-ready mobile fallback: LAN-first
   transport, encrypted relay envelopes, explicit grants/revocation, relay
   envelope/rate/pending limits, host dispatcher allowlist coverage, and
-  privacy-proof tests that keep decrypted payloads and AES secrets out of relay
+  privacy-focused regression tests that keep decrypted payloads and AES secrets out of relay
   storage/logs.
 - Added a mobile **Test Remote** probe for Remote Companion that sends a tiny
   encrypted signal through the relay, retries only once for transient failures,
@@ -49,9 +49,23 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   for desktop/Pi release readiness.
 - Updated README, install guidance, display-mode copy, Beacon Tools homepage,
   Local Flight product page, and support form placeholders to use `0.5.1`.
+- Reframed active public copy around the mature Local Flight product and concrete
+  store/package availability instead of generic beta/prototype wording, while
+  preserving old `0.2.x` notes as clearly labeled history.
+- Expanded privacy and deletion guidance for reset-safe install identity,
+  Remote Companion revocation, Standalone storage, website abuse-protection
+  tags, infrastructure processors, diagnostics consent, and data requests.
 - Kept the versioned `0.2.7` preview PNG filenames as historical screenshot
   asset names while using the stable public-site preview aliases for Beacon
   Tools pages.
+
+### Packaging safety
+- Packaged desktop builds now store provider/relay keys in
+  `~/.localflight/.env` instead of writing inside the signed application
+  bundle. Writes are atomic and use user-only POSIX permissions where
+  supported; source checkouts continue using the repository `.env`.
+- Added regression coverage for the frozen provider-key path before rebuilding
+  the ARM64 macOS local-testing app and the versioned Raspberry Pi source bundle.
 
 ### Mobile store readiness
 - Kept the permanent Beacon-owned mobile IDs:
@@ -157,7 +171,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Beacon Tools public home
 - Beacon Tools is now the public home for Local Flight at `https://beacontools.cc/local-flight`, with the public privacy policy at `https://beacontools.cc/privacy`.
 - Added a no-build Cloudflare Worker + Assets site under `site/` for the Beacon Tools home, Local Flight product page, privacy page, and `/local-flight/privacy` redirect.
-- Added `relay.beacontools.cc` as the official relay hostname, moved the relay's public/admin host defaults to `relay.beacontools.cc` and `network.beacontools.cc`, and flipped client relay defaults to `https://relay.beacontools.cc` after DNS and Fly TLS were verified. The Fly.io root remains accepted for existing installs.
+- Added `relay.beacontools.cc` as the official relay hostname and aligned client defaults after DNS/TLS verification.
 - Public copy now routes general/support contact through the Beacon Tools support page while keeping the privacy contact discoverable on the privacy/choices pages.
 - Added public Beacon Tools support forms: a relay-backed contact form that delivers to the support mailbox and a sanitized manual bug-report form that files into Linear without exposing Linear credentials.
 - Refreshed the public README, install/display guides, mobile docs, App Store/TestFlight notes, release notes, preview gallery captions, and Cloudflare public-site copy so they describe the current native, LAN browser, mobile Standalone/Companion, Matrix, History, relay, and privacy behavior.
@@ -349,12 +363,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - History, Settings, Setup, and Matrix are aligned around dashboard-card layouts in native Qt and LAN/browser surfaces.
 - Native and LAN FIDS/Radar/History/Matrix detail surfaces share the current-source flight intelligence model without adding per-click provider calls.
 
-### Network Admin (operator-only)
-- Reframed fleet/overview copy as coarse heartbeat presence, not live online status. "Seen <=24h" replaces "Active installs" wherever the count referred to a 24-hour last-seen window. Applies to both the HTML admin SPA and the native Qt console.
-- Added a proper operator sign-out flow for browser-based Network Admin sessions.
-- Idle auto-logoff now works on both Network Admin surfaces. The browser console warns before signing out; the Qt console clears the session silently and shows a status message.
-- Native Qt console gained explicit Disconnect (clear credentials, return to login state) and Quit (`QApplication.quit()`) buttons. Hero split into a connection row and a controls row; removed the decorative `MONITOR / INVESTIGATE / OPERATE` chip.
-- Stripped visual decoration on both surfaces: dropped CRT scanline overlay, glow underlines, shimmer overlays, multi-stop body and panel gradients, tri-color brand mark. Calmer shared palette with accents only on hover / focus / checked states.
+### Service operations
+- Updated separate maintenance tooling and coarse service-health language without adding operator controls to public clients or documentation.
 
 ### Relay
 - Extracted the admin SPA from `relay/main.py` into `relay/admin/{admin.html,admin.css,admin.js}`, loaded once at module import with `__BOOT__` / `__ADMIN_CSS__` / `__ADMIN_JS__` substitution. No new dependency and no extra HTTP requests; render output stays byte-equivalent. The Dockerfile now copies the new asset directory into the Fly image.
@@ -782,7 +792,7 @@ All seven phases are additive visual polish on the existing data contracts. No r
 
 ### Added
 - Fly.io deployment guidance and defaults for the hosted community backend, including a public relay host and a separate operator host.
-- Host-aware relay health and root responses so public clients can hit the hosted backend directly while the operator console stays on its own hostname.
+- Host-aware relay health and root responses so public clients can reach the hosted backend while maintenance tooling remains separate.
 - Regression coverage for public/admin hostname gating, relay privacy writes, hosted relay defaults, and the `0.2.3b2` runtime metadata sweep.
 
 ### Changed

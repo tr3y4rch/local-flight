@@ -2,16 +2,16 @@
 
 React Native / Expo mobile app for Local Flight.
 
-The mobile app is a store-bound beta candidate for TestFlight and Google Play, with iOS and Android validation paths. Public store downloads are not live yet. It supports two first-run paths:
+The mobile app is aligned to Local Flight `0.5.1` for TestFlight and Google Play testing. Public store listings are not live yet. It supports two first-run paths:
 
 - **Companion:** pair with the Local Flight desktop or Raspberry Pi server on your Wi-Fi/LAN. Companion uses LAN first and can use encrypted Remote Companion fallback after a relay-linked host grants this phone access.
-- **Standalone:** use the hosted Local Flight relay directly for a simplified phone board. This is intentionally rate-limited to protect shared relay/API tokens.
+- **Standalone:** use the hosted Local Flight relay directly for a simplified phone board. Careful refresh limits keep the shared service reliable and fairly available.
 
 For most home setups, start with Companion. Use Standalone when you want a light mobile FIDS/Radar/History app without running your own Local Flight server.
 
 Local Flight Mobile is a personal display aid. Flight, weather, radar, and airport-surface data can be delayed, incomplete, or unavailable, so it must not be used for navigation, dispatch, operational control, or safety decisions.
 
-The public front door for Mobile users is [beacontools.cc/local-flight/mobile](https://beacontools.cc/local-flight/mobile). Use that page for install guidance, release notes, support links, source links, and store metadata. The public privacy policy is [beacontools.cc/privacy](https://beacontools.cc/privacy). Remote Companion and Standalone use the Beacon Tools relay at `https://relay.beacontools.cc` for different jobs: encrypted fallback for a paired host vs phone-only board data.
+The public front door for Mobile users is [beacontools.cc/local-flight/mobile](https://beacontools.cc/local-flight/mobile). Use that page for availability, install guidance, release notes, support links, source links, and store metadata. The public privacy policy is [beacontools.cc/privacy](https://beacontools.cc/privacy). Remote Companion and Standalone use the Beacon Tools relay at `https://relay.beacontools.cc` for different jobs: encrypted fallback for a paired host versus direct Standalone board data.
 
 > **Quick alternative:** if
 > you only need to glance at the board from a phone, you don't have
@@ -19,7 +19,7 @@ The public front door for Mobile users is [beacontools.cc/local-flight/mobile](h
 > (`http://localflight.local:8000` or your server's LAN address) in
 > mobile Safari / Chrome — it now auto-switches to a thumb-reachable
 > mobile shell with the FIDS table reflowed into per-flight cards.
-> This companion app is still the right choice for push-style updates,
+> The companion app is the right choice for push-style updates,
 > pinned flights, mobile-owned radar ring controls, and the
 > mobile-side diagnostics consent flow.
 
@@ -37,9 +37,9 @@ The public front door for Mobile users is [beacontools.cc/local-flight/mobile](h
 
 Expo SDK 55 targets React Native 0.83 and React 19.2. Run `npm run doctor` after install on the Mac to confirm the active Xcode, CocoaPods, and package versions are compatible.
 
-For App Store/TestFlight preparation, keep [APP_STORE_REVIEW_NOTES.md](APP_STORE_REVIEW_NOTES.md) aligned with the exact build being submitted. For Google Play preparation, keep [PLAY_STORE_REVIEW_NOTES.md](PLAY_STORE_REVIEW_NOTES.md) aligned with the exact Android App Bundle being submitted. Store-facing website/support links should point to `https://beacontools.cc/local-flight`; privacy links should point to `https://beacontools.cc/privacy`.
+For App Store/TestFlight preparation, keep [APP_STORE_REVIEW_NOTES.md](APP_STORE_REVIEW_NOTES.md) aligned with the exact build being submitted. For Google Play preparation, keep [PLAY_STORE_REVIEW_NOTES.md](PLAY_STORE_REVIEW_NOTES.md) aligned with the exact Android App Bundle being submitted. Store-facing website/support links should point to `https://beacontools.cc/local-flight/mobile`; privacy links should point to `https://beacontools.cc/privacy`.
 
-The design and data-contract handoff for future iOS widgets and Dynamic Island / Live Activity surfaces lives in [`../docs/mobile-ios-widgets-dynamic-island.md`](../docs/mobile-ios-widgets-dynamic-island.md). The app writes a hardened widget snapshot now, and the tracked native skeleton lives in [`native/ios-widget/`](native/ios-widget/), but the WidgetKit target is intentionally not wired into Xcode until App Groups and Apple Developer signing are available.
+The design and data-contract handoff for future iOS widgets and Dynamic Island / Live Activity surfaces lives in [`../docs/mobile-ios-widgets-dynamic-island.md`](../docs/mobile-ios-widgets-dynamic-island.md). The app writes a hardened widget snapshot now and the tracked native template lives in [`native/ios-widget/`](native/ios-widget/), but the current store-testing build does not enable the WidgetKit config plugin or ship a widget target.
 
 If Xcode was freshly installed or upgraded, accept the Apple SDK license first:
 
@@ -133,7 +133,7 @@ sdkmanager "ndk;27.1.12297006"
 npm run android
 ```
 
-### Store Beta / Release Path
+### Store Testing / Release Path
 
 Store identity and the current `0.5.1` testing counters are:
 
@@ -144,7 +144,7 @@ Store identity and the current `0.5.1` testing counters are:
 
 Do not upload a store build with any old `com.localflight.*` identifier. App Store bundle IDs and Google Play package names are effectively permanent after first upload.
 
-Signed beta artifacts are produced through EAS:
+The current signed artifacts are already built as iOS `0.5.1 (4)` and Android `0.5.1 (8)`. Do not rebuild those counters for the same testing upload. For a later version, increment both store counters first, then use EAS:
 
 ```bash
 cd mobile
@@ -245,7 +245,7 @@ The screenshot script builds a self-contained simulator app and captures portrai
 - Independent mobile appearance with dark/light theme plus `standard`, `technical`, `neon`, `cyan`, and `crt` skins
 - Branded launch overlay with a continuous radar sweep, status text fade, breathing status dot, blinking board LED, and shared Local Flight wordmark text
 - Native-feeling interaction polish on key taps, chips, pinned-flight actions, and weather icon changes through haptics, press-scale feedback, and small transitions
-- iOS widget and Dynamic Island design spec, a quiet Mobile settings path for future pinned-flight and airport-board glance preferences, and a hardened `localflight-widget-snapshot.json` app snapshot used by the future native extension skeleton
+- iOS widget and Dynamic Island design spec, a quiet Mobile settings path for future pinned-flight and airport-board glance preferences, and a hardened `localflight-widget-snapshot.json` contract. The current store build does not ship the widget extension.
 - Widget snapshot contract checks run through `npm run widget:contract` and are included in `npm run verify`
 - Companion Matrix live-remote controls from Control using the host Matrix runtime config APIs, focused on runtime settings such as timing, palette, weather badge visibility, gate display, brightness, row count, animation, and refresh cadence.
 - Fullscreen landscape FIDS from any screen, with normal portrait state restored when rotating back
@@ -299,21 +299,21 @@ The mobile install ID and standalone relay install ID are install-scoped. They a
 
 ---
 
-## Not Yet
+## Current Boundaries
 
 - Public App Store release
 - Public Google Play production release
 - Wired native iOS WidgetKit / ActivityKit extension targets, App Groups, APNs, and production Live Activity updates
-- Remote Companion production proof on real Android and iOS devices before public store rollout.
+- Remote Companion physical-device validation on Android and iOS before public store rollout.
 - Per-device authorization/revoke tokens for broader mutating LAN controls. Current Companion identifies each device with an install-scoped companion ID/check-in plus optional Remote Companion grant, while Standalone uses its relay activation token.
-- Production-ready admin permission model
+- Broader mobile admin control is intentionally out of scope; Companion exposes only the current allowlisted control surfaces.
 - Native crash capture before JavaScript starts
 - Full standalone flight-detail endpoint parity; Standalone currently focuses on Board, Radar, History, Settings, and reports
 - Payments, tips, and in-app purchases
 
 ---
 
-## Next
+## Release Validation
 
 - Remote Companion release-gate proof: pair on LAN, run **Test Remote**, confirm LAN-first, block LAN, load Board/Radar/History/Control through relay, restart scheduler, revoke grant, and confirm remote access stops.
 - TestFlight proof pass on a fresh real iPhone and iPad: Companion LAN/Remote pairing, Standalone setup, denied camera/local-network paths, and accessibility settings
