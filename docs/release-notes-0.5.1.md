@@ -47,10 +47,17 @@ decisions.
 
 ## Packaging Targets
 
+The Beacon Tools Downloads section discovers the newest complete packaged
+release from GitHub and links directly to its files. Windows, macOS, or Pi
+buttons become direct downloads only when the expected artifact and matching
+SHA256 file are both attached to that release.
+
 - Windows: `LocalFlight-0.5.1-Setup.exe` plus checksum. The published release
   must state its actual publisher-signing status.
-- macOS: Developer ID signed, notarized, stapled `LocalFlight-0.5.1-macos.pkg`
-  plus checksum.
+- macOS: ad-hoc-signed Apple silicon app archive
+  `LocalFlight-0.5.1-macos.zip` plus checksum. First launch requires Finder's
+  explicit Open confirmation; the documentation never asks users to disable
+  Gatekeeper. A Developer ID signed/notarized package remains a later upgrade.
 - Raspberry Pi: `LocalFlight-pi-source-0.5.1.zip` plus checksum.
 
 ## Mobile Store-Testing Notes
@@ -64,7 +71,11 @@ decisions.
 - Companion review/smoke should also pair on LAN, confirm LAN-first behavior,
   simulate LAN failure, verify `REMOTE` mode through the relay, revoke the
   phone grant, and confirm remote access stops.
-- Payments, tips, purchase UI, and in-app purchase processing are not included.
+- Widget-enabled source targets iOS build `5` and Android versionCode `9`.
+  Both home-screen widgets read only a bounded app-written snapshot; they do
+  not poll LAN, relay, or flight-provider services.
+- Dynamic Island and Live Activities remain deferred.
+- Mobile adds optional one-time App Store/Play support purchases. They unlock nothing, use store-owned localized prices, and are completed only after secure store verification; subscriptions and paywalls are not included.
 
 ## Validation Gate
 

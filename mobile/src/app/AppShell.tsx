@@ -132,6 +132,7 @@ import {
 import { clearStandaloneHistory, getStandaloneHistory, getStandaloneHistorySummary, storeStandaloneFidsRows } from "../storage/standaloneHistory";
 import { writeWidgetSnapshot } from "../storage/widgetSnapshot";
 import { useMobileTheme } from "../theme/runtime";
+import { useSupportPurchases } from "../iap/useSupportPurchases";
 import { setStyleBridge } from "../theme/styleBridge";
 import {
   DEFAULT_MOBILE_APPEARANCE,
@@ -249,6 +250,7 @@ function screenNeedsDashboard(target: Screen, standalone: boolean): boolean {
 
 export function AppShell() {
   const { appearance, themeMode, skin, setThemeMode, setSkin } = useMobileTheme();
+  const supportPurchases = useSupportPurchases();
   const layout = useResponsiveLayout();
   const reduceMotion = useReducedMotionPreference();
   const landscapeFidsActive = layout.isLandscape;
@@ -327,7 +329,7 @@ export function AppShell() {
   const screenOpacity = useRef(new Animated.Value(1)).current;
   const screenLift = useRef(new Animated.Value(0)).current;
   const snapshotPulse = useRef(new Animated.Value(0)).current;
-  const flightDetail = useFlightDetail(serverUrl, setError);
+  const flightDetail = useFlightDetail(serverUrl);
   const matrix = useMatrixCompanion(serverUrl);
   const {
     runtime: matrixRuntime,
@@ -346,6 +348,7 @@ export function AppShell() {
     callsign: detailCallsign,
     detail,
     history: detailHistory,
+    notice: detailNotice,
     open: openFlightDetail,
     close: closeFlightDetail,
     refresh: refreshFlightDetail
@@ -1832,6 +1835,7 @@ export function AppShell() {
                   widgetPreferences={widgetPreferences}
                   widgetSnapshotLabel={widgetSnapshotLabel}
                   mobileDiagnosticsMode={mobileDiagnosticsMode}
+                  supportPurchases={supportPurchases}
                   feedbackTitle={feedbackTitle}
                   feedbackDescription={feedbackDescription}
                   feedbackSending={feedbackSending}
@@ -1867,6 +1871,7 @@ export function AppShell() {
                   widgetPreferences={widgetPreferences}
                   widgetSnapshotLabel={widgetSnapshotLabel}
                   mobileDiagnosticsMode={mobileDiagnosticsMode}
+                  supportPurchases={supportPurchases}
                   profiles={profiles}
                   activeProfileId={activeProfileId}
                   applyingProfileId={applyingProfileId}
@@ -1967,6 +1972,7 @@ export function AppShell() {
         callsign={detailCallsign}
         detail={detail}
         history={detailHistory}
+        notice={detailNotice}
         loading={detailLoading}
         onClose={closeFlightDetail}
         onRefresh={refreshFlightDetail}

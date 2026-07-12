@@ -361,7 +361,7 @@ Recommended next slice:
    - Run `python -m compileall -q src relay installers scripts tests` and `python -m pytest tests -q`.
    - Smoke native setup/FIDS/Radar/Matrix/Settings/History on macOS.
    - Confirm bundled docs and online links point to Beacon Tools, and Community setup preloads `https://relay.beacontools.cc`.
-   - Build and checksum `dist/LocalFlight-0.5.1-macos.pkg` only after Developer ID Application/Installer identities and notarization credentials are installed. Until then, build the local `.app`/zip for Mac smoke testing.
+   - Build and checksum `dist/LocalFlight-0.5.1-macos.zip` as the current direct-download artifact. It is ad-hoc signed and requires Finder Open once. Build `dist/LocalFlight-0.5.1-macos.pkg` only after Developer ID Application/Installer identities and notarization credentials are installed.
 2. Clean install smoke:
    - Windows zip extraction and first-run setup.
    - Pi source install in headless mode.

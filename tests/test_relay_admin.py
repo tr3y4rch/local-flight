@@ -105,6 +105,182 @@ def _aviationstack_departure(number: str, scheduled: datetime) -> dict[str, obje
     }
 
 
+def _iap_payload(*, platform: str = "ios") -> dict[str, str]:
+    payload = {
+        "platform": platform,
+        "install_id": "00000000-0000-0000-0000-000000000777",
+        "product_id": "cc.beacontools.localflight.support.small",
+        "app_version": "0.5.1",
+        "bundle_id": "cc.beacontools.localflight",
+    }
+    if platform == "ios":
+        payload["transaction_id"] = "2000000123456789"
+    else:
+        payload["purchase_token"] = "google-play-test-token-do-not-store"
+    return payload
+
+
+def test_mobile_iap_verification_is_idempotent_and_stores_no_raw_proof(tmp_path: Path, monkeypatch) -> None:
+    _use_temp_db(tmp_path, monkeypatch)
+    calls: list[tuple[str, str]] = []
+
+    def fake_verify(*, transaction_id: str, product_id: str) -> dict[str, str]:
+        calls.append((transaction_id, product_id))
+        return {"environment": "sandbox"}
+
+    monkeypatch.setattr(relay_main, "_verify_apple_iap", fake_verify)
+    client = TestClient(relay_main.app)
+    first = client.post("/v1/mobile/iap/verify", json=_iap_payload())
+    second = client.post("/v1/mobile/iap/verify", json=_iap_payload())
+
+    assert first.status_code == 200
+    assert first.json()["verified"] is True
+    assert first.json()["duplicate"] is False
+    assert first.json()["finish_transaction"] is True
+    assert second.status_code == 200
+    assert second.json()["duplicate"] is True
+    assert len(calls) == 1
+
+    raw_db = (tmp_path / "relay.db").read_bytes()
+    assert b"2000000123456789" not in raw_db
+    conn = relay_main._connect()
+    row = conn.execute("SELECT * FROM iap_transactions").fetchone()
+    conn.close()
+    assert row is not None
+    assert row["status"] == "verified"
+    assert row["environment"] == "sandbox"
+    assert row["transaction_ref"].startswith("iap_")
+    overview = relay_main.admin_api_overview(username="operator")
+    assert overview["iap"]["attempts_24h"] == 1
+    assert overview["iap"]["verified_total"] == 1
+    assert overview["iap"]["failed_24h"] == 0
+    assert overview["iap"]["products"] == [
+        {
+            "platform": "ios",
+            "product_id": "cc.beacontools.localflight.support.small",
+            "status": "verified",
+            "count": 1,
+        }
+    ]
+    assert "transaction_ref" not in overview["iap"]
+
+
+def test_mobile_iap_android_verification_never_persists_purchase_token(tmp_path: Path, monkeypatch) -> None:
+    _use_temp_db(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        relay_main,
+        "_verify_google_iap",
+        lambda *, purchase_token, product_id: {"environment": "test"},
+    )
+    client = TestClient(relay_main.app)
+    response = client.post("/v1/mobile/iap/verify", json=_iap_payload(platform="android"))
+
+    assert response.status_code == 200
+    assert response.json()["environment"] == "test"
+    assert b"google-play-test-token-do-not-store" not in (tmp_path / "relay.db").read_bytes()
+
+
+def test_mobile_iap_rejects_unknown_product_and_bundle(tmp_path: Path, monkeypatch) -> None:
+    _use_temp_db(tmp_path, monkeypatch)
+    client = TestClient(relay_main.app)
+    unknown = _iap_payload()
+    unknown["product_id"] = "cc.example.fake.unlock"
+    wrong_bundle = _iap_payload()
+    wrong_bundle["bundle_id"] = "cc.example.other"
+
+    assert client.post("/v1/mobile/iap/verify", json=unknown).status_code == 422
+    assert client.post("/v1/mobile/iap/verify", json=wrong_bundle).status_code == 422
+
+
+def test_mobile_iap_failed_verification_returns_safe_error_and_coarse_ledger(tmp_path: Path, monkeypatch) -> None:
+    _use_temp_db(tmp_path, monkeypatch)
+
+    def fail_verify(*, transaction_id: str, product_id: str) -> dict[str, str]:
+        raise relay_main.IapVerificationFailure("purchase_invalid", "Apple could not verify this purchase", 403)
+
+    monkeypatch.setattr(relay_main, "_verify_apple_iap", fail_verify)
+    response = TestClient(relay_main.app).post("/v1/mobile/iap/verify", json=_iap_payload())
+
+    assert response.status_code == 403
+    assert response.json() == {"detail": "Apple could not verify this purchase"}
+    conn = relay_main._connect()
+    row = conn.execute("SELECT status, last_error_code FROM iap_transactions").fetchone()
+    conn.close()
+    assert dict(row) == {"status": "failed", "last_error_code": "purchase_invalid"}
+
+
+def test_mobile_iap_rate_limit_counts_attempts_not_result_rows(tmp_path: Path, monkeypatch) -> None:
+    _use_temp_db(tmp_path, monkeypatch)
+    monkeypatch.setattr(relay_main, "_IAP_INSTALL_DAILY_LIMIT", 1)
+    monkeypatch.setattr(relay_main, "_IAP_NETWORK_DAILY_LIMIT", 10)
+
+    def fail_verify(*, transaction_id: str, product_id: str) -> dict[str, str]:
+        raise relay_main.IapVerificationFailure("store_unavailable", "Apple verification is unavailable", 502)
+
+    monkeypatch.setattr(relay_main, "_verify_apple_iap", fail_verify)
+    client = TestClient(relay_main.app)
+    first = client.post("/v1/mobile/iap/verify", json=_iap_payload())
+    second_payload = _iap_payload()
+    second_payload["transaction_id"] = "2000000123456790"
+    second = client.post("/v1/mobile/iap/verify", json=second_payload)
+
+    assert first.status_code == 502
+    assert second.status_code == 429
+    assert second.headers["retry-after"] == "3600"
+    conn = relay_main._connect()
+    attempts = conn.execute(
+        "SELECT COUNT(*) AS count FROM iap_verification_events WHERE status='attempt'"
+    ).fetchone()
+    conn.close()
+    assert attempts["count"] == 1
+
+
+def test_mobile_iap_store_payload_validation_rejects_mismatch_revocation_and_pending() -> None:
+    product_id = "cc.beacontools.localflight.support.small"
+    apple_payload = {
+        "bundleId": "cc.beacontools.localflight",
+        "productId": product_id,
+        "transactionId": "2000000123456789",
+        "type": "Consumable",
+    }
+    assert relay_main._validate_apple_iap_payload(
+        apple_payload,
+        transaction_id="2000000123456789",
+        product_id=product_id,
+    )["product_id"] == product_id
+
+    for changed, code in (
+        ({**apple_payload, "bundleId": "cc.example.other"}, "bundle_mismatch"),
+        ({**apple_payload, "productId": "cc.example.other"}, "product_mismatch"),
+        ({**apple_payload, "transactionId": "wrong"}, "transaction_mismatch"),
+        ({**apple_payload, "revocationDate": 1}, "purchase_revoked"),
+    ):
+        with pytest.raises(relay_main.IapVerificationFailure) as excinfo:
+            relay_main._validate_apple_iap_payload(
+                changed,
+                transaction_id="2000000123456789",
+                product_id=product_id,
+            )
+        assert excinfo.value.code == code
+
+    google_payload = {
+        "packageName": "cc.beacontools.localflight",
+        "purchaseStateContext": {"purchaseState": "PURCHASED"},
+        "productLineItem": [{"productId": product_id}],
+        "testPurchaseContext": {},
+    }
+    assert relay_main._validate_google_iap_payload(
+        google_payload,
+        product_id=product_id,
+    )["environment"] == "test"
+
+    pending = {**google_payload, "purchaseStateContext": {"purchaseState": "PENDING"}}
+    with pytest.raises(relay_main.IapVerificationFailure) as excinfo:
+        relay_main._validate_google_iap_payload(pending, product_id=product_id)
+    assert excinfo.value.code == "purchase_pending"
+    assert excinfo.value.status_code == 409
+
+
 def test_relay_prefers_relay_stored_provider_key_over_env(tmp_path: Path, monkeypatch) -> None:
     _use_temp_db(tmp_path, monkeypatch)
     monkeypatch.setenv("AVIATIONSTACK_API_KEY", "env-key-123")

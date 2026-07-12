@@ -231,8 +231,12 @@ def test_build_script_routes_platform_installers() -> None:
 
     assert "package_windows_installer.py" in build_script
     assert "package_macos_installer.py" in build_script
-    assert "For public macOS releases" in build_script
-    assert "LocalFlight-macos.zip" in build_script
+    assert "Direct-download zip" in build_script
+    assert 'f"LocalFlight-{version}-macos.zip"' in build_script
+    assert "Applied ad-hoc bundle signature" in build_script
+    assert "Never disable Gatekeeper globally" in (
+        ROOT / "docs" / "install.md"
+    ).read_text(encoding="utf-8")
     assert "LocalFlight-{version}-macos.pkg" in (
         ROOT / "scripts" / "package_macos_installer.py"
     ).read_text(encoding="utf-8")

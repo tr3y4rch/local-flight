@@ -430,6 +430,69 @@ p {
   box-shadow: 0 0 14px rgba(255, 139, 139, 0.55);
 }
 
+.download-release-status {
+  margin: -4px 0 18px;
+  color: var(--green);
+  font: 800 0.82rem ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.download-grid {
+  align-items: stretch;
+}
+
+.download-card {
+  display: flex;
+  min-height: 320px;
+  flex-direction: column;
+}
+
+.download-platform {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.download-platform span:not(.icon) {
+  color: var(--subtle);
+  font: 800 0.7rem ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  text-transform: uppercase;
+}
+
+.download-platform h3 {
+  margin: 1px 0 0;
+  font-size: 1.25rem;
+}
+
+.download-status {
+  min-height: 44px;
+  margin: 18px 0 0;
+  color: var(--subtle);
+  overflow-wrap: anywhere;
+  font: 700 0.76rem/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.download-actions {
+  align-items: center;
+  margin-top: auto;
+  margin-bottom: 0;
+  padding-top: 18px;
+}
+
+.download-checksum {
+  color: var(--muted);
+  font: 800 0.76rem ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.download-note {
+  max-width: none;
+  margin-top: 18px;
+}
+
+[hidden] {
+  display: none !important;
+}
+
 .section {
   border-bottom: 1px solid var(--line-soft);
   padding: 58px 0;

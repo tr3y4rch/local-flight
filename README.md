@@ -106,17 +106,17 @@ Open [docs/previews/index.html](docs/previews/index.html) locally for the standa
 
 ## Quick Install
 
-The `0.5.1` platform packages are being assembled and validated together. Until they appear on the [GitHub releases page](https://github.com/tr3y4rch/local-flight/releases), use the source/Pi instructions in the [Install Guide](docs/install.md) rather than an older package with the same filename pattern.
+Use the **Downloads** section at [beacontools.cc/local-flight](https://beacontools.cc/local-flight#downloads) for Windows, macOS, and Raspberry Pi packages. The page links directly to the newest complete files on the official [GitHub Releases page](https://github.com/tr3y4rch/local-flight/releases) and only enables a direct package when its matching SHA256 checksum is present. Until the `0.5.1` packages appear there, use the source/Pi instructions in the [Install Guide](docs/install.md) rather than an older package with the same filename pattern.
 
 ### Windows
 
-When published, download `LocalFlight-0.5.1-Setup.exe`, run the wizard, then launch Local Flight from the final installer page, Start Menu, or desktop shortcut.
+When published, choose Windows on the website Downloads section to fetch `LocalFlight-0.5.1-Setup.exe` from GitHub, run the wizard, then launch Local Flight from the final installer page, Start Menu, or desktop shortcut.
 The release app launches as a branded desktop app without a Python or cmd console window. `LocalFlight-windows.zip` remains available as a portable/manual install artifact.
 
 ### macOS
 
-When published, download `LocalFlight-0.5.1-macos.pkg`, double-click the installer, then launch **Local Flight** from Applications.
-The release installer is designed to feel like a normal Mac app install: no Python, Terminal, source checkout, or manual drag-to-Applications step.
+When published, choose macOS on the website Downloads section to fetch the current Apple silicon `LocalFlight-0.5.1-macos.zip` from GitHub. Extract it, move `LocalFlight.app` to Applications, then Control-click the app and choose **Open** for the first launch.
+The current archive is ad-hoc signed rather than Developer ID notarized, so macOS may show a one-time publisher warning. Do not disable Gatekeeper globally. No Python, Terminal, or source checkout is needed; a signed/notarized package can replace this archive later without changing Local Flight user data.
 
 ### Raspberry Pi
 

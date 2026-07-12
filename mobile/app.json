@@ -42,16 +42,24 @@
         }
       ],
       "./plugins/with-localflight-android-network",
-      "./plugins/with-localflight-privacy-manifest"
+      "./plugins/with-localflight-privacy-manifest",
+      "./plugins/with-localflight-ios-widget",
+      "./plugins/with-localflight-android-widget",
+      "expo-iap"
     ],
     "ios": {
       "bundleIdentifier": "cc.beacontools.localflight",
-      "buildNumber": "4",
+      "buildNumber": "5",
       "icon": {
         "light": "./assets/localflight-icon-light.png",
         "dark": "./assets/localflight-icon-dark.png"
       },
       "supportsTablet": true,
+      "entitlements": {
+        "com.apple.security.application-groups": [
+          "group.cc.beacontools.localflight"
+        ]
+      },
       "infoPlist": {
         "NSCameraUsageDescription": "Local Flight scans pairing QR codes shown by your Local Flight desktop or Pi app.",
         "NSLocalNetworkUsageDescription": "Local Flight connects to your Local Flight server on your local network.",
@@ -66,7 +74,7 @@
     },
     "android": {
       "package": "cc.beacontools.localflight",
-      "versionCode": 8,
+      "versionCode": 9,
       "permissions": [
         "CAMERA",
         "VIBRATE"
@@ -82,7 +90,24 @@
       "localFlightServerHint": "http://192.168.1.10:8000",
       "localFlightVersion": "0.5.1",
       "eas": {
-        "projectId": "085634ce-4117-4fd6-b2d6-cbb7f90b4fdd"
+        "projectId": "085634ce-4117-4fd6-b2d6-cbb7f90b4fdd",
+        "build": {
+          "experimental": {
+            "ios": {
+              "appExtensions": [
+                {
+                  "targetName": "LocalFlightWidget",
+                  "bundleIdentifier": "cc.beacontools.localflight.widget",
+                  "entitlements": {
+                    "com.apple.security.application-groups": [
+                      "group.cc.beacontools.localflight"
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        }
       }
     },
     "owner": "tr3y4rch"

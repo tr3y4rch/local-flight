@@ -39,12 +39,27 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   encrypted signal through the relay, retries only once for transient failures,
   debounces repeat taps, and shows friendly user-facing causes such as host
   offline, grant revoked, key mismatch, rate limited, or relay unreachable.
+- Enabled the existing read-only iOS WidgetKit template and added an Android
+  home-screen widget using the same bounded local snapshot. Both widgets reject
+  malformed/oversized data, mark expired snapshots stale, and never contact
+  LAN, relay, or provider endpoints themselves.
+- Advanced the widget-enabled mobile source to iOS build `5` and Android
+  versionCode `9`; the previous signed `4`/`8` artifacts remain historical
+  testing builds and cannot receive native widget code through an OTA update.
+- Added three optional consumable mobile support products using store-owned
+  localized prices. Purchases unlock nothing, recover unfinished transactions,
+  verify through the relay against Apple/Google, and are consumed only after
+  verification; raw store evidence is not retained by the relay.
 - Polished compact LAN pages with skin-aware FIDS delay/status accents, a
   simplified phone nav clock, correctly sized History/Logs/Matrix controls,
   and a configured Logs shell while preserving scrollable Qt FIDS actions on
   small displays.
 
 ### Public docs and site
+- Added a Windows/macOS/Raspberry Pi Downloads section to the Beacon Tools
+  product page. A cached same-origin Worker manifest reads official GitHub
+  Releases and exposes only release-version-matched packages with matching
+  SHA256 files; installer bytes continue to come directly from GitHub.
 - Promoted the preliminary `0.2.8` notes into the `0.5.1` public hardening line
   for desktop/Pi release readiness.
 - Updated README, install guidance, display-mode copy, Beacon Tools homepage,
@@ -70,12 +85,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Mobile store readiness
 - Kept the permanent Beacon-owned mobile IDs:
   `cc.beacontools.localflight` for both iOS and Android.
-- Aligned the `0.5.1` mobile testing upload to iOS build `4` and Android
-  versionCode `8`, both above the highest completed EAS builds already used by
-  the project.
+- Preserved the completed iOS build `4` / Android versionCode `8` testing
+  artifacts, then advanced widget-enabled source metadata to build `5` / `9`.
 - Preserved the Standalone reviewer path and Companion path while making Remote
-  Companion a normal paired-host fallback. Payments, tips, purchase UI, and IAP
-  processing are not included in this release.
+  Companion a normal paired-host fallback. Optional one-time support is available
+  through native store purchases; subscriptions, paywalls, durable paid
+  entitlements, and external payment links are not included.
 
 ---
 
@@ -143,10 +158,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Updated mobile documentation to point store/review/support/privacy flows at the Beacon Tools public website, including mobile trust, support, network, privacy, and privacy-choice pages.
 - Clarified the Beacon Tools production deploy path: the public site is served by the Cloudflare Worker + Assets deploy, while dashboard `.dev` previews do not automatically update the custom domain.
 
-### macOS installer path
-- Added a signed/notarized macOS `.pkg` release path for DAU-facing installs.
-- The package installs only `Local Flight.app` into Applications and preserves local settings, history, logs, install identity, and activation tokens.
-- Kept source checkout launchers and source-built `~/Applications/LocalFlight.app` documented as developer/testing paths, not public release paths.
+### macOS download path
+- Added a versioned `LocalFlight-0.5.1-macos.zip` direct-download path so the native app can ship before Developer ID credentials are available.
+- Kept the app ad-hoc signed for bundle integrity and documented the one-time Finder Open confirmation without recommending any system-wide security bypass.
+- Retained the signed/notarized `.pkg` builder as a later distribution upgrade; replacing the app preserves local settings, history, logs, install identity, and activation tokens.
+- Kept source checkout launchers and source-built `~/Applications/LocalFlight.app` documented as developer/testing paths.
 
 ---
 

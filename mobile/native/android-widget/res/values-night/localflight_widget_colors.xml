@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <color name="localflight_widget_background">#0A111B</color>
+  <color name="localflight_widget_text">#EAF4FF</color>
+  <color name="localflight_widget_muted">#86A5BE</color>
+  <color name="localflight_widget_blue">#58B9F6</color>
+  <color name="localflight_widget_green">#29E287</color>
+  <color name="localflight_widget_amber">#F4C95D</color>
+  <color name="localflight_widget_separator">#29445B</color>
+</resources>

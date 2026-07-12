@@ -7,7 +7,7 @@ This file is the working checklist for the `0.5.1` TestFlight/review build. It i
 - App name: **Local Flight**
 - Bundle identifier: `cc.beacontools.localflight`
 - Version: `0.5.1`
-- Build number: `4`
+- Build number: `5`
 - Project / support URL: `https://beacontools.cc/local-flight/mobile`
 - Privacy Policy URL: `https://beacontools.cc/privacy`
 - Recommended review path: choose **Standalone** on first launch so the app can be tested without a desktop or Raspberry Pi server.
@@ -37,16 +37,26 @@ App Store Connect privacy answers should be conservative:
 - Diagnostics: crash reports and diagnostic context only when the user chooses automatic diagnostics or submits a manual report.
 - Usage data: coarse relay quota/policy metadata, selected airport, app version, source mode, and refresh status used for app functionality and support.
 - User content: manual report title/description if the user sends a report.
-- Not collected by this build: device location, contacts, photos/videos, financial information, payment information, advertising ID, or purchase history.
+- Purchases: optional product ID and minimal transaction-verification metadata, linked conservatively to an install-scoped identifier, used only for app functionality, duplicate prevention, and store/security compliance; not used for tracking.
+- Not collected by Local Flight: device location, contacts, photos/videos, payment-card information, advertising ID, or financial account details. Apple processes payment details. Local Flight receives only the transaction/product evidence needed to verify an optional support purchase.
 
 The bundled iOS privacy manifest declares required-reason APIs and conservative app-functionality data categories. Keep it aligned with the submitted App Store Connect privacy answers.
 
-## Support / Payments
+## Optional In-App Support
 
-- This build contains no payments, tips, purchase UI, or in-app purchase processing.
-- No features are locked behind payment.
-- No external Buy Me a Coffee or other external purchase call-to-action should appear in App Store builds.
+- Settings/Control includes three optional consumable support products: `cc.beacontools.localflight.support.small`, `.medium`, and `.large`.
+- Every product unlocks nothing and creates no entitlement. The sheet states this before purchase and displays only App Store-owned localized prices.
+- Local Flight sends the transaction ID to the Beacon Tools relay, which verifies it through Apple's App Store Server API. The app finishes the consumable only after verification.
+- The relay stores a keyed transaction hash, short reference, product ID, store environment, status, and timestamps. It does not retain the signed transaction, payment-card data, or Apple account identity.
+- No external Buy Me a Coffee or other external purchase call-to-action appears in App Store builds.
 - External project website, source, and release-note links are informational/support links only, not purchase links. The app should route users to `https://beacontools.cc/local-flight/mobile` first; GitHub remains available from that public project page for source/issues.
+
+## Home-Screen Widget
+
+- Build `5` includes small and medium iOS home-screen widgets through bundle ID `cc.beacontools.localflight.widget` and App Group `group.cc.beacontools.localflight`.
+- The app writes a bounded local board snapshot into the shared App Group. The widget does not make LAN, relay, provider, analytics, or advertising requests.
+- The small widget shows the pinned flight or a clear open-app prompt. The medium widget shows a bounded airport-board glance with stale labeling.
+- Dynamic Island and Live Activities are not enabled in this build.
 
 ## Safety Copy
 
@@ -60,6 +70,7 @@ Local Flight flight, weather, radar, and surface data are informational display 
 - Denied local network: app explains LAN pairing cannot reach the server and Standalone remains usable.
 - Bad QR/fingerprint mismatch: app rejects the wrong LAN server.
 - Offline relay: Standalone shows a useful retry/error state.
-- Payment surface: no support sheet, purchase button, products, or billing flow is present.
+- Purchase surface: open Standalone **Settings** or Companion **Control**, choose **Support Local Flight**, confirm all three localized products load, complete one sandbox purchase, and confirm the thank-you state. Interrupt relay access after store approval to verify the unfinished transaction is retained and safely retried before consumption.
+- Widget: add small and medium Local Flight widgets, confirm empty/stale states, pin a flight in the app, and confirm the widget updates without requesting new permissions.
 - Bottom navigation: Standalone shows Board/Radar/History/Settings; Companion shows Board/Radar/History/Control.
 - Accessibility labels: only claim App Store Accessibility Nutrition Labels after real common-task testing.

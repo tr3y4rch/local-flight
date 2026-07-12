@@ -25,6 +25,7 @@ Beacon Tools is responsible for the hosted Local Flight relay, website forms, an
 - Manual reports are always your choice. First-run setup asks how diagnostics should work, saves that choice locally, and defaults to manual-only reporting.
 - Companion automatic diagnostics require two yeses: the mobile app's local diagnostics choice and the connected server's diagnostics mode.
 - Mobile Standalone automatic diagnostics require the phone-local diagnostics choice because there is no paired server.
+- Optional mobile support purchases are processed by Apple or Google. Local Flight never receives card details; it sends only store transaction evidence for verification and keeps only a keyed transaction hash plus minimal product/status metadata on the relay.
 - Developer reporting credentials are kept on the hosted relay, not in the desktop package, mobile app, installers, or docs.
 - Local Flight does not collect your email address during normal app use. If you email Beacon Tools directly, your email address and message are handled by the email provider so Beacon Tools can reply to you.
 - Local Flight is an informational display aid, not a navigation, dispatch, operational-control, or safety system.
@@ -45,6 +46,8 @@ Beacon Tools is responsible for the hosted Local Flight relay, website forms, an
 - History displays deduped flight movements. Raw fetched observations remain local diagnostics so repeated snapshots and codeshares do not inflate public/client-facing counts.
 - Mobile Standalone stores its setup mode, relay install UUID, activation token, selected airport, appearance, diagnostics choice, pinned flight, and local deduped movement history on the device. Standalone history is not stored on the hosted relay.
 - Companion stores its paired server URL, companion ID, appearance, diagnostics choice, pinned flight, local profiles, and, when paired, a Remote Companion grant locally on the phone. The remote grant includes a public grant ref, relay URL, install ref, timestamps, revoked state, and a per-device AES-256-GCM secret kept on the phone and host, not on the relay.
+- iOS and Android home-screen widgets read a bounded board snapshot written locally by the mobile app. The iOS copy lives in the Local Flight App Group and the Android copy stays in the app's private files directory. Widgets do not contact the LAN server, relay, or aviation providers themselves.
+- Unfinished App Store/Play support transactions remain managed by the platform store until Local Flight can verify and finish/consume them. The mobile app does not keep a separate purchase-history database or paid entitlement because support products unlock nothing.
 
 When you use the Matrix page to download a ready-to-flash `main.py`, the Wi-Fi details and server host are sent to your own Local Flight instance only long enough to render that file. They are not stored in `matrix_config.json`, the hosted relay, or crash reports.
 
@@ -84,6 +87,7 @@ The relay stores the minimum metadata needed to run that shared service safely:
 - short-lived shared schedule snapshots containing Local Flight canonical schedule records and cache metadata
 - a small coarse install profile sent with eligible periodic heartbeats or relay activity: app version, OS family/version/architecture, requested and effective GUI mode, source mode (`real` or `virtual`), diagnostics mode, companion count, Matrix count, and Matrix-online count. Standalone activity can also include the selected airport/timezone and coarse device type. This profile supports compatibility, reliability, and capacity planning without creating a user account.
 - if the operator explicitly enables the optional surface/map overlay path: short-lived airport-surface and map-geometry cache entries derived from OpenStreetMap/Overpass so many installs looking at the same airport do not repeatedly query public map infrastructure
+- for an optional mobile support purchase: keyed transaction hash, short transaction reference, product ID, store platform/environment, verification status, install fingerprint, attempt timestamps, and coarse failure code. Raw Apple transaction payloads and raw Google purchase tokens are not retained.
 
 The relay does **not** store:
 
@@ -94,6 +98,7 @@ The relay does **not** store:
 - your phone's standalone local history database
 - your local app logs, unless you explicitly allow diagnostic reports with sanitized logs
 - Remote Companion AES secrets, decrypted request paths, decrypted request bodies, decrypted responses, provider keys, local LAN URLs, or host logs
+- payment-card details, Apple/Google account identity, raw signed Apple transaction payloads, or raw Google purchase tokens
 
 Local Flight Relay traffic has per-install quotas plus network/global safety caps. Duplicate reports are suppressed before routing to keep triage useful and avoid repeated reports of the same event.
 
@@ -241,6 +246,14 @@ Standalone sends relay requests with:
 
 Standalone does not send local phone history to the relay. Manual reports go directly to the relay reporting gateway. Automatic standalone reports only send when the mobile diagnostics choice is `auto` or `auto_logs`.
 
+### Optional Mobile Support Purchases
+
+The mobile app can offer three optional one-time consumable support products through Apple App Store or Google Play. Support unlocks no feature, creates no account, and creates no durable entitlement. Store-owned localized pricing is shown before the system purchase sheet opens.
+
+Apple or Google processes the payment and payment-card details under its own account and privacy terms. After the store reports success, Local Flight sends the product ID plus Apple transaction ID or Google purchase token over HTTPS to the Beacon Tools relay. The relay checks that evidence through Apple's App Store Server API or the Google Play Developer API. The app finishes/consumes the transaction only after verification succeeds, so an interrupted verification can be recovered without blindly accepting the client.
+
+The relay immediately derives a keyed hash and short reference. Its ledger retains only that hash/reference, product ID, platform/environment, install fingerprint, verification status, timestamps, attempt count, and a coarse error code. It does not retain the raw evidence, price, currency, card details, Apple ID, Google account, or signed Apple transaction body. Purchase evidence is never added to diagnostics, Linear reports, heartbeats, or Network Admin views.
+
 ---
 
 ## Why Hosted Data Is Processed
@@ -250,6 +263,7 @@ Where data-protection law applies, Beacon Tools uses the following purposes and 
 - **Service operation and security:** pseudonymous install identifiers, encrypted-routing metadata, usage counters, and one-way network tags are processed to provide requested relay features, protect shared capacity, prevent abuse, and troubleshoot failures. The intended basis is legitimate interest in operating and securing the optional service, balanced against the app's data-minimizing design.
 - **Diagnostics:** automatic diagnostics and optional log excerpts are processed only under the choice made in the app. You can change that choice or withdraw consent for future automatic reports at any time. Manual reports are processed because you asked Beacon Tools to investigate them.
 - **Support:** contact details and messages are processed to answer the request you chose to send and to take steps you requested.
+- **Optional purchases:** minimal transaction metadata is processed to perform the purchase you requested, prevent duplicate processing, and meet store/accounting/security requirements. Apple or Google separately processes the payment under its store terms.
 
 Hosted operational records do not all have a fixed automatic deletion schedule yet. Shared cache records follow service freshness/stale-fallback needs; support messages, report events, dedupe records, and install profiles may remain until operational cleanup or a valid deletion request. This is a transparency boundary for the current service, not permission to reuse the data for advertising or unrelated profiling.
 
@@ -276,6 +290,8 @@ When Local Flight fetches data, it may communicate with:
 | Cloudflare | Hosts and protects the Beacon Tools public website and may process connection/security data at the infrastructure layer. | [cloudflare.com/privacypolicy](https://www.cloudflare.com/privacypolicy/) |
 | Mailbox provider | Public website contact forms are delivered through the Beacon Tools relay to the configured support mailbox. This can include your optional name/reply email, selected category, subject, and message. Current provider details are available through the privacy contact. | Provider-specific policy available on request |
 | Linear | Manual reports, public website bug reports, and automatic diagnostics are routed there after sanitization and relay-side dedupe/rate limiting. This can include the report title/description you wrote, optional reply email for website bug reports, sanitized technical metadata, crash context/traceback, and optional sanitized log excerpts. | [linear.app/privacy](https://linear.app/privacy) |
+| Apple App Store | On iOS, Apple presents and processes optional consumable support purchases. Local Flight receives store transaction evidence, not card details. | [apple.com/legal/privacy](https://www.apple.com/legal/privacy/) |
+| Google Play | On Android, Google presents and processes optional consumable support purchases. Local Flight receives a purchase token/product result, not card details. | [policies.google.com/privacy](https://policies.google.com/privacy) |
 
 Local Flight does not embed tracking or advertising SDKs from any of these services.
 
@@ -293,7 +309,7 @@ Local Flight is designed to avoid collecting personal data in normal use:
 
 Technical identifiers, such as install fingerprints, companion IDs, and standalone mobile relay install IDs, can still be personal data in some contexts. Local Flight keeps them short-lived or install-scoped where practical, uses them for rate limiting and troubleshooting, and avoids turning them into account profiles.
 
-For an App Store/TestFlight mobile build, the matching App Store Connect privacy answers should conservatively disclose install-scoped identifiers, diagnostics/crash data when enabled or manually submitted, coarse relay/app-functionality usage metadata, selected airport/configuration details used for app functionality, and any manual report title/description you choose to send. Local Flight does not use advertising identifiers, data brokers, or cross-app/site tracking.
+For App Store/TestFlight and Play builds, the matching store privacy answers should conservatively disclose install-scoped identifiers, diagnostics/crash data when enabled or manually submitted, coarse relay/app-functionality usage metadata, selected airport/configuration details used for app functionality, optional purchase history/verification metadata, and any manual report title/description you choose to send. Local Flight does not use advertising identifiers, data brokers, or cross-app/site tracking.
 
 Your local data is under your control. To wipe desktop/Pi runtime data, stop Local Flight and remove `~/.localflight/`. Local Flight also keeps a reset-safe identity anchor at `~/.localflight_identity.json`; remove that file too only when you intentionally want the next launch to become a new relay install. On mobile, revoke Remote Companion from the host before forgetting it on the phone, and remove the app to erase all app-local SecureStore and SQLite data.
 
@@ -315,3 +331,4 @@ Your local data is under your control. To wipe desktop/Pi runtime data, stop Loc
 | Manual reports, website bug reports, and automatic diagnostics | Hosted relay reporting gateway, then Linear developer triage inbox | Beacon Tools, relay hosting, and Linear |
 | Local Flight Relay/Standalone/Remote Companion operational metadata and shared schedule/radar cache | Relay server | Beacon Tools and relay hosting provider |
 | Cached radar surface/map/terrain geometry | Your machine and, for relay-backed surface/map data, short-lived hosted relay cache when optional overlays are enabled | You and relay operator |
+| Optional mobile support verification metadata | Apple App Store or Google Play, then minimal hashed relay ledger | You, the selected store, Beacon Tools, and relay hosting provider |

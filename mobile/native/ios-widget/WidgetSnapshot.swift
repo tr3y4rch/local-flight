@@ -4,6 +4,7 @@ enum LocalFlightWidgetConstants {
   static let appGroupID = "group.cc.beacontools.localflight"
   static let snapshotFilename = "localflight-widget-snapshot.json"
   static let schemaVersion = 1
+  static let maxSnapshotBytes = 64 * 1024
   static let maxMediumRowsWithPinned = 4
   static let statusTones: Set<String> = ["scheduled", "departed", "boarding", "delayed", "cancelled"]
 }
@@ -79,6 +80,13 @@ enum LocalFlightWidgetSnapshotStore {
       return nil
     }
     do {
+      let resourceValues = try url.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey])
+      guard resourceValues.isRegularFile == true,
+            let fileSize = resourceValues.fileSize,
+            fileSize > 0,
+            fileSize <= LocalFlightWidgetConstants.maxSnapshotBytes else {
+        return nil
+      }
       let data = try Data(contentsOf: url)
       let snapshot = try JSONDecoder().decode(LocalFlightWidgetSnapshot.self, from: data)
       guard snapshot.schemaVersion == LocalFlightWidgetConstants.schemaVersion else {
