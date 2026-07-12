@@ -139,9 +139,9 @@
       </g>
     </g>
 
-    <!-- Support footer -->
+    <!-- Widget footer -->
     <g transform="translate(20 424)">
-      <text x="50" y="10" class="mono amber" font-size="8" font-weight="800">♥ Support Local Flight</text>
+      <text x="50" y="10" class="mono cyan" font-size="8" font-weight="800">Widgets &amp; Glances</text>
     </g>
   </g>
 </svg>

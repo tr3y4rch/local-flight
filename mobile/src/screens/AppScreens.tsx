@@ -123,6 +123,7 @@ import {
   ACTION_ICONS,
   LocalFlightIcon,
   SETUP_ICONS,
+  SUPPORT_ICONS,
   TOOL_ICONS,
   type LocalFlightIconName,
   weatherIconForMetar
@@ -135,6 +136,8 @@ import {
 } from "../theme/tokens";
 import { hapticLight, hapticSelection } from "../utils/haptics";
 import { usePressScale } from "../utils/usePressScale";
+import { SUPPORT_PRODUCT_IDS, type SupportProductId } from "../iap/products";
+import type { SupportPurchaseController } from "../iap/types";
 
 type AppIconName = LocalFlightIconName;
 export type DocSlug = "readme" | "install" | "display-modes" | "privacy" | "changelog";
@@ -3822,6 +3825,7 @@ export function FlightDetailSheet({
   callsign,
   detail,
   history,
+  notice,
   loading,
   onClose,
   onRefresh
@@ -3830,6 +3834,7 @@ export function FlightDetailSheet({
   callsign: string;
   detail: FlightDetail | null;
   history: Array<{ date: string; status?: string | null; delay_minutes?: number | null; gate?: string | null; source?: string | null; observations?: number | null }>;
+  notice: string;
   loading: boolean;
   onClose: () => void;
   onRefresh: () => void;
@@ -3901,8 +3906,10 @@ export function FlightDetailSheet({
 
           <ScrollView style={styles.sheetScroll} contentContainerStyle={styles.sheetContent}>
             {loading && !detail ? <DetailSkeleton /> : null}
+            {loading && detail ? <Text style={styles.sheetEmpty}>Refreshing live flight details...</Text> : null}
+            {notice && detail ? <Text style={styles.sheetEmpty}>{notice}</Text> : null}
 
-            {!loading && detail ? (
+            {detail ? (
               <>
                 <View style={styles.sheetSummary}>
                   <StatusBadge
@@ -5949,6 +5956,7 @@ export function ControlScreen({
   widgetPreferences,
   widgetSnapshotLabel,
   mobileDiagnosticsMode,
+  supportPurchases,
   outputs,
   refreshSeconds,
   schedulerRestarting,
@@ -6015,6 +6023,7 @@ export function ControlScreen({
   widgetPreferences: MobileWidgetPreferences;
   widgetSnapshotLabel: string;
   mobileDiagnosticsMode: MobileDiagnosticsMode;
+  supportPurchases: SupportPurchaseController;
   profiles: ConfigProfile[];
   activeProfileId: string | null;
   applyingProfileId: string | null;
@@ -6069,7 +6078,7 @@ export function ControlScreen({
   onPairingUrl: (value: PairingLinkResult) => void;
   onConnect: () => void;
 }) {
-  const [activeSheet, setActiveSheet] = useState<"connection" | "appearance" | "matrix" | "widgets" | "help" | null>(null);
+  const [activeSheet, setActiveSheet] = useState<"connection" | "appearance" | "matrix" | "widgets" | "support" | "help" | null>(null);
   const [activeControlSection, setActiveControlSection] = useState<ControlSection | null>(null);
   const outputValue = outputs.length ? outputs.join(", ").toUpperCase() : "WEB";
   const schedulerRunning = snapshot.scheduler?.running ?? false;
@@ -6110,7 +6119,7 @@ export function ControlScreen({
     `Airport       ${snapshot.config?.airport_iata || "---"}`,
     `Source        ${snapshot.state?.source_name || snapshot.config?.source || "UNKNOWN"}`
   ].join("\n");
-  const openSheet = (sheet: "connection" | "appearance" | "matrix" | "widgets" | "help") => {
+  const openSheet = (sheet: "connection" | "appearance" | "matrix" | "widgets" | "support" | "help") => {
     setActiveControlSection(null);
     setActiveSheet(sheet);
   };
@@ -6233,6 +6242,8 @@ export function ControlScreen({
         onPress={() => openSheet("help")}
       />
 
+      <SupportFooterButton onOpenSupport={() => openSheet("support")} />
+
       <ConnectionPairingSheet
         visible={activeSheet === "connection"}
         snapshot={snapshot}
@@ -6298,6 +6309,11 @@ export function ControlScreen({
         onPreferencesChange={onWidgetPreferencesChange}
         onClose={() => setActiveSheet(null)}
       />
+      <SupportPurchaseSheet
+        visible={activeSheet === "support"}
+        controller={supportPurchases}
+        onClose={() => setActiveSheet(null)}
+      />
       <HelpReportsSheet
         visible={activeSheet === "help"}
         mode="lan"
@@ -6347,6 +6363,7 @@ export function StandaloneSettingsScreen({
   widgetPreferences,
   widgetSnapshotLabel,
   mobileDiagnosticsMode,
+  supportPurchases,
   feedbackTitle,
   feedbackDescription,
   feedbackSending,
@@ -6377,6 +6394,7 @@ export function StandaloneSettingsScreen({
   widgetPreferences: MobileWidgetPreferences;
   widgetSnapshotLabel: string;
   mobileDiagnosticsMode: MobileDiagnosticsMode;
+  supportPurchases: SupportPurchaseController;
   feedbackTitle: string;
   feedbackDescription: string;
   feedbackSending: boolean;
@@ -6393,7 +6411,7 @@ export function StandaloneSettingsScreen({
   onSubmitFeedback: () => void;
 }) {
   const [activeSection, setActiveSection] = useState<ControlSection | null>(null);
-  const [activeSheet, setActiveSheet] = useState<"appearance" | "widgets" | "help" | null>(null);
+  const [activeSheet, setActiveSheet] = useState<"appearance" | "widgets" | "support" | "help" | null>(null);
   const weatherOption = weatherModeOption(weatherDisplayMode);
   const airportLabel = [airportCode, airportName].filter(Boolean).join(" · ") || "Airport not set";
   const tokenRef = relayTokenPrefix || snapshot.system?.client?.activation_token_prefix || "not set";
@@ -6419,7 +6437,7 @@ export function StandaloneSettingsScreen({
     `Airport       ${snapshot.config?.airport_iata || airportCode || "---"}`,
     `Source        ${snapshot.state?.source_name || snapshot.config?.source || "relay"}`
   ].join("\n");
-  const openSheet = (sheet: "appearance" | "widgets" | "help") => {
+  const openSheet = (sheet: "appearance" | "widgets" | "support" | "help") => {
     setActiveSection(null);
     setActiveSheet(sheet);
   };
@@ -6527,6 +6545,8 @@ export function StandaloneSettingsScreen({
         onPress={() => openSheet("help")}
       />
 
+      <SupportFooterButton onOpenSupport={() => openSheet("support")} />
+
       <AppearanceSheet
         visible={activeSheet === "appearance"}
         themeMode={themeMode}
@@ -6543,6 +6563,11 @@ export function StandaloneSettingsScreen({
         preferences={widgetPreferences}
         snapshotLabel={widgetSnapshotLabel}
         onPreferencesChange={onWidgetPreferencesChange}
+        onClose={() => setActiveSheet(null)}
+      />
+      <SupportPurchaseSheet
+        visible={activeSheet === "support"}
+        controller={supportPurchases}
         onClose={() => setActiveSheet(null)}
       />
       <HelpReportsSheet
@@ -6566,6 +6591,106 @@ export function StandaloneSettingsScreen({
   );
 }
 
+function SupportPurchaseSheet({
+  visible,
+  controller,
+  onClose
+}: {
+  visible: boolean;
+  controller: SupportPurchaseController;
+  onClose: () => void;
+}) {
+  const catalogReady = controller.connected && controller.products.length === SUPPORT_PRODUCT_IDS.length;
+  const showStoreStatus = controller.status !== "ready";
+  const canRetry = controller.status === "error" || controller.status === "unavailable";
+  return (
+    <Modal visible={visible} transparent presentationStyle="overFullScreen" animationType="slide" onRequestClose={onClose}>
+      <View style={styles.sheetBackdrop}>
+        <Pressable
+          style={styles.sheetBackdropPress}
+          onPress={onClose}
+          {...accessibleButton({ label: "Close support purchases" })}
+        />
+        <View style={styles.sheetCard}>
+          <View style={styles.sheetHandle} />
+          <View style={styles.sheetHeader}>
+            <View style={styles.sheetHeaderText}>
+              <Text style={styles.sheetEyebrow}>OPTIONAL SUPPORT</Text>
+              <Text style={styles.sheetTitle}>Support Local Flight</Text>
+            </View>
+            <Pressable
+              style={styles.sheetAction}
+              onPress={onClose}
+              hitSlop={tapTargetHitSlop}
+              {...accessibleButton({ label: "Close support purchases" })}
+            >
+              <Text style={styles.sheetActionText}>DONE</Text>
+            </Pressable>
+          </View>
+
+          <ScrollView style={styles.sheetScroll} contentContainerStyle={styles.sheetContent}>
+            <View style={styles.supportHero}>
+              <View style={styles.supportHeroIcon}>
+                <LocalFlightIcon name={SUPPORT_ICONS.coffee} size={22} color={palette.amber} />
+              </View>
+              <View style={styles.supportHeroCopy}>
+                <Text style={styles.supportHeroTitle}>Optional, one-time support.</Text>
+                <Text style={styles.supportHeroBody}>
+                  Choose an amount below. Nothing is locked, and the store handles the payment.
+                </Text>
+              </View>
+            </View>
+
+            {showStoreStatus ? <InfoLine label="Store" value={controller.message} /> : null}
+
+            {catalogReady ? controller.products.map((product) => (
+              <View key={product.id} style={styles.settingsCard}>
+                <InfoLine label={product.label} value={product.displayPrice} />
+                <Pressable
+                  style={[styles.connectButton, controller.busy && styles.connectButtonDisabled]}
+                  disabled={controller.busy}
+                  onPress={() => {
+                    hapticLight();
+                    void controller.purchase(product.id as SupportProductId);
+                  }}
+                  {...accessibleButton({
+                    label: `Purchase ${product.label} for ${product.displayPrice}`,
+                    hint: "Opens the App Store or Play Store confirmation sheet. This unlocks no features."
+                  })}
+                >
+                  {controller.busy ? <ActivityIndicator size="small" color={palette.bg} /> : null}
+                  <Text style={styles.connectButtonText}>SUPPORT ONCE</Text>
+                </Pressable>
+              </View>
+            )) : (
+              <View style={styles.settingsCard}>
+                <InfoLine
+                  label="Purchases unavailable"
+                  value="Support purchases are not available right now. Nothing in the app depends on them."
+                />
+              </View>
+            )}
+
+            {canRetry ? (
+              <Pressable
+                style={[styles.sheetAction, controller.busy && styles.connectButtonDisabled]}
+                disabled={controller.busy}
+                onPress={() => void controller.refresh()}
+                hitSlop={tapTargetHitSlop}
+                {...accessibleButton({ label: "Try loading support purchases again" })}
+              >
+                <Text style={styles.sheetActionText}>TRY AGAIN</Text>
+              </Pressable>
+            ) : null}
+
+            <Text style={styles.sheetEmpty}>Apple or Google handles payment. Local Flight never receives card details.</Text>
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
 function WidgetSettingsSheet({
   visible,
   preview,
@@ -6583,6 +6708,12 @@ function WidgetSettingsSheet({
 }) {
   const pinned = preview.pinnedFlight;
   const sourceCopy = pinned ? "Pinned flight" : "Pin a flight";
+  const platformWidgetTitle = Platform.OS === "android"
+    ? "Ready for Android widgets."
+    : "Ready for iOS widgets.";
+  const platformWidgetBody = Platform.OS === "android"
+    ? "Widgets use the current pinned-flight and board snapshot. Add Local Flight from the Android widget picker, then use its refresh action after opening the app for new board data."
+    : "Widgets use the current pinned-flight and board snapshot. Add Local Flight from the iOS widget gallery if it is not already on your Home Screen.";
 
   return (
     <Modal visible={visible} transparent presentationStyle="overFullScreen" animationType="slide" onRequestClose={onClose}>
@@ -6615,10 +6746,8 @@ function WidgetSettingsSheet({
                 <LocalFlightIcon name={TOOL_ICONS.displayModes} size={22} color={palette.blue2} />
               </View>
               <View style={styles.supportHeroCopy}>
-                <Text style={styles.supportHeroTitle}>Ready for iOS widgets.</Text>
-                <Text style={styles.supportHeroBody}>
-                  Widgets use the current pinned-flight and board snapshot. After installing, add Local Flight from the iOS widget gallery if it is not already on your Home Screen.
-                </Text>
+                <Text style={styles.supportHeroTitle}>{platformWidgetTitle}</Text>
+                <Text style={styles.supportHeroBody}>{platformWidgetBody}</Text>
               </View>
             </View>
 
@@ -6889,6 +7018,27 @@ function ControlActionCard({
         <LocalFlightIcon name={ACTION_ICONS.drillIn} size={18} color={palette.textDim} />
       </Pressable>
     </View>
+  );
+}
+
+function SupportFooterButton({ onOpenSupport }: { onOpenSupport: () => void }) {
+  return (
+    <Pressable
+      style={styles.supportFooter}
+      onPress={() => {
+        hapticSelection();
+        onOpenSupport();
+      }}
+      hitSlop={tapTargetHitSlop}
+      {...accessibleButton({
+        label: "Support Local Flight",
+        hint: "Opens three optional one-time support choices. They unlock nothing."
+      })}
+    >
+      <LocalFlightIcon name={SUPPORT_ICONS.support} size={15} color={palette.amber} />
+      <Text style={styles.supportFooterText}>Support Local Flight</Text>
+      <LocalFlightIcon name={ACTION_ICONS.supportExpand} size={13} color={palette.textDim} />
+    </Pressable>
   );
 }
 

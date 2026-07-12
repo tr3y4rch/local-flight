@@ -1,6 +1,6 @@
-# Mobile iOS Widgets and Dynamic Island Design
+# Mobile Home-Screen Widgets and Future Dynamic Island
 
-This is the design and data-contract handoff for future iOS WidgetKit and ActivityKit work. The Expo app can write a hardened widget snapshot and the tracked template lives in `mobile/native/ios-widget/`, but the current `0.5.1 (4)` TestFlight build does not enable the widget config plugin, App Group, or extension target. Dynamic Island and Live Activities remain deferred until WidgetKit is intentionally wired and signed.
+This is the implementation and data-contract handoff for Local Flight home-screen widgets. The widget-enabled `0.5.1` source targets iOS build `5` and Android versionCode `9`. Expo config plugins generate the iOS WidgetKit extension/App Group and Android `AppWidgetProvider` from the tracked templates under `mobile/native/ios-widget/` and `mobile/native/android-widget/`. Dynamic Island and Live Activities remain deferred until a separate ActivityKit pass is intentionally implemented and signed.
 
 ## Product Intent
 
@@ -28,7 +28,14 @@ The Dynamic Island / Live Activity should be even quieter. It is for a pinned fl
 - If no rows exist, show `Waiting for board data` plus the last updated time.
 - Rows use the same passenger vocabulary as Mobile FIDS: display time, flight, route, and status tone.
 
-## Dynamic Island / Live Activity
+### Android Home-Screen Widget
+
+- Uses one resizable widget rather than separate small/medium definitions.
+- Compact widths show one primary row; wider widths show up to three rows.
+- The refresh action rereads the app's latest private snapshot only. It does not fetch new flight data.
+- Tapping the widget opens Local Flight. Android also performs its normal low-frequency widget refresh, limited to 30 minutes.
+
+## Dynamic Island / Live Activity (Deferred)
 
 ### Minimal / Compact Island
 
@@ -98,12 +105,17 @@ The app derives this from the existing `FidsRow` data and `pinnedCallsign` / `fl
 
 Current app-side file:
 
-- Fallback app sandbox: `localflight-widget-snapshot.json` in the Expo document directory.
-- Planned App Group location: `group.cc.beacontools.localflight/localflight-widget-snapshot.json`.
+- Android/private fallback: `localflight-widget-snapshot.json` in the Expo document directory, which maps to the app's private files directory on Android.
+- iOS shared location: `group.cc.beacontools.localflight/localflight-widget-snapshot.json`.
 - Shared constants and validation: `mobile/src/domain/widgets.ts`.
 - App writer: `mobile/src/storage/widgetSnapshot.ts`.
-- Native skeleton reader: `mobile/native/ios-widget/WidgetSnapshot.swift`.
-- Contract regression check: `cd mobile && npm run widget:contract`.
+- iOS reader: `mobile/native/ios-widget/WidgetSnapshot.swift`.
+- Android reader: `mobile/native/android-widget/LocalFlightWidgetProvider.kt`.
+- Contract regression checks: `cd mobile && npm run widget:contract && npm run native-widget:contract`.
+
+Both native readers enforce schema version `1`, reject files larger than 64 KiB,
+bound row/text output, and mark expired data stale. Neither native widget is
+allowed to open LAN, relay, or provider connections.
 
 ## Visual Rules
 
@@ -124,7 +136,7 @@ Preview scenarios represented:
 - Compact Dynamic Island with flight number and status.
 - Expanded/lock-screen Live Activity with status, time, route, gate, and update age.
 
-Future native implementation smoke tests should cover:
+Native widget smoke tests should cover:
 
 - No pinned flight.
 - No current rows.
@@ -132,3 +144,4 @@ Future native implementation smoke tests should cover:
 - Long route names such as `Hong Kong International Airport`.
 - Delayed, cancelled, boarding, departed, and scheduled statuses.
 - iPhone SE-size, iPhone 16/17 Pro, Pro Max, iPad widget gallery, dark/light appearance.
+- Compact and expanded Android widgets on a Pixel-style launcher and Samsung One UI.

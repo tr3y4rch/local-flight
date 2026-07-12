@@ -119,7 +119,27 @@ function updateBuildSettings(project, targetUuid, updates) {
   }
 }
 
+function ensureTargetDependency(project, targetUuid, dependencyTargetUuid) {
+  const objects = project.hash.project.objects;
+  objects.PBXTargetDependency = objects.PBXTargetDependency || {};
+  objects.PBXContainerItemProxy = objects.PBXContainerItemProxy || {};
+  const dependencySection = objects.PBXTargetDependency;
+  const target = project.pbxNativeTargetSection()[targetUuid];
+  target.dependencies = target.dependencies || [];
+  const alreadyLinked = target.dependencies.some((dependency) => {
+    const entry = dependencySection[dependency.value];
+    return entry?.target === dependencyTargetUuid;
+  });
+  if (!alreadyLinked) {
+    project.addTargetDependency(targetUuid, [dependencyTargetUuid]);
+  }
+}
+
 function ensureWidgetTarget(project, config) {
+  project.hash.project.objects.PBXTargetDependency =
+    project.hash.project.objects.PBXTargetDependency || {};
+  project.hash.project.objects.PBXContainerItemProxy =
+    project.hash.project.objects.PBXContainerItemProxy || {};
   let targetEntry = findTarget(project, WIDGET_TARGET);
 
   if (!targetEntry) {
@@ -155,7 +175,7 @@ function ensureWidgetTarget(project, config) {
   }
 
   const version = config.version || "0.5.1";
-  const buildNumber = config.ios?.buildNumber || "4";
+  const buildNumber = config.ios?.buildNumber || "5";
   updateBuildSettings(project, targetUuid, {
     APPLICATION_EXTENSION_API_ONLY: "YES",
     CODE_SIGN_ENTITLEMENTS: `${WIDGET_TARGET}/${WIDGET_TARGET}.entitlements`,
@@ -171,6 +191,7 @@ function ensureWidgetTarget(project, config) {
   });
 
   const appTarget = project.getFirstTarget();
+  ensureTargetDependency(project, appTarget.uuid, targetUuid);
   updateBuildSettings(project, appTarget.uuid, {
     PRODUCT_BUNDLE_IDENTIFIER: config.ios?.bundleIdentifier || "cc.beacontools.localflight",
   });

@@ -5,7 +5,7 @@ Build Local Flight for the current platform.
 Produces:
   Windows  -> dist/LocalFlight/ + dist/LocalFlight-windows.zip + .sha256
               optional Inno Setup installer with --installer
-  macOS    -> dist/LocalFlight.app + dist/LocalFlight-macos.zip + .sha256
+  macOS    -> dist/LocalFlight.app + dist/LocalFlight-<version>-macos.zip + .sha256
               optional signed/notarized .pkg installer with --installer
 
 Usage:
@@ -196,8 +196,19 @@ def _sign_macos(app: Path) -> None:
     import os
     identity = os.getenv("CODESIGN_IDENTITY", "").strip()
     if not identity:
-        print("  Signing skipped (set CODESIGN_IDENTITY to enable)")
-        print("  Gatekeeper note: users must right-click → Open on first launch")
+        # Keep the bundle internally sealed even when no Developer ID is
+        # available. This does not establish publisher trust or notarization,
+        # but it catches damaged/tampered bundle contents after packaging.
+        subprocess.run(
+            ["codesign", "--deep", "--force", "--sign", "-", str(app)],
+            check=True,
+        )
+        subprocess.run(
+            ["codesign", "--verify", "--deep", "--strict", str(app)],
+            check=True,
+        )
+        print("  Applied ad-hoc bundle signature (no Developer ID trust)")
+        print("  Gatekeeper note: users must use Finder Open on first launch")
         return
     try:
         cmd = [
@@ -242,13 +253,13 @@ def _write_sha256(path: Path) -> Path:
     return checksum_path
 
 
-def _archive_macos_app(app: Path) -> Path:
+def _archive_macos_app(app: Path, version: str) -> Path:
     """
     Zip the .app bundle for GitHub Releases.
     Prefer zip with COPYFILE_DISABLE to avoid AppleDouble ._ sidecars while
     preserving symlinks; fall back to ditto/shutil if zip is unavailable.
     """
-    zip_path = app.parent / "LocalFlight-macos.zip"
+    zip_path = app.parent / f"LocalFlight-{version}-macos.zip"
     zip_path.unlink(missing_ok=True)
     if shutil.which("zip"):
         env = os.environ.copy()
@@ -365,12 +376,13 @@ def main() -> None:
             )
         else:
             _sign_macos(app)
-            zip_path = _archive_macos_app(app)
+            zip_path = _archive_macos_app(app, _project_version())
             checksum_path = _write_sha256(zip_path)
             print(f"\nDone: dist/LocalFlight.app")
-            print(f"Developer zip: {zip_path.relative_to(ROOT)}")
+            print(f"Direct-download zip: {zip_path.relative_to(ROOT)}")
             print(f"Checksum: {checksum_path.relative_to(ROOT)}")
-            print("For public macOS releases, run python build.py --clean --installer to produce the signed .pkg.")
+            print("This build is ad-hoc signed and not notarized; document Finder Open for first launch.")
+            print("A future Developer ID release can still use --installer to produce the signed .pkg.")
     else:
         print(f"\nDone: dist/LocalFlight/")
 

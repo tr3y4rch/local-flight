@@ -6,6 +6,8 @@ If you are unsure, use the packaged Windows or macOS app on a desktop first. It 
 
 Public project docs live at [beacontools.cc/local-flight](https://beacontools.cc/local-flight), support starts at [beacontools.cc/support](https://beacontools.cc/support), and the public privacy policy lives at [beacontools.cc/privacy](https://beacontools.cc/privacy). Privacy and diagnostics requests can use [beacontools.cc/privacy/choices](https://beacontools.cc/privacy/choices).
 
+The website [Downloads section](https://beacontools.cc/local-flight#downloads) reads the official GitHub Releases list and links directly to the newest complete Windows, macOS, and Raspberry Pi packages. A direct package is shown only when the matching SHA256 file is present; GitHub remains the file host and source of record.
+
 ---
 
 ## Before You Start
@@ -23,7 +25,7 @@ Public project docs live at [beacontools.cc/local-flight](https://beacontools.cc
 
 Use this path for the easiest Windows desktop setup.
 
-1. After the `0.5.1` packages are published, download `LocalFlight-0.5.1-Setup.exe` from the GitHub release. Until then, use the source-checkout path below rather than an older package.
+1. After the `0.5.1` packages are published, choose Windows in the website Downloads section, or download `LocalFlight-0.5.1-Setup.exe` from the linked GitHub release. Until then, use the source-checkout path below rather than an older package.
 2. Double-click the installer and follow the Local Flight wizard.
 3. Launch Local Flight from the final installer page, Start Menu, or desktop shortcut.
 4. Complete the setup wizard: Welcome, Airport, Flight Data, Optional Keys, Diagnostics, and Review & Open.
@@ -52,15 +54,15 @@ The source installer creates a **Local Flight** desktop shortcut that launches t
 
 ## macOS
 
-Use this path for the easiest macOS desktop setup.
+Use this path for the current macOS desktop setup.
 
-1. After the signed/notarized `0.5.1` package is published, download `LocalFlight-0.5.1-macos.pkg` from the GitHub release. Until then, use the source-checkout path below.
-2. Double-click the package and follow the standard macOS Installer steps.
-3. Launch **Local Flight** from Applications.
+1. On an Apple silicon Mac, choose macOS in the website Downloads section, or download `LocalFlight-0.5.1-macos.zip` and its checksum from the linked GitHub release. The current archive is ARM64-only; Intel Mac users should use the source checkout until a separate universal build is published.
+2. Extract the zip and move `LocalFlight.app` into Applications.
+3. For the first launch, Control-click `LocalFlight.app`, choose **Open**, and confirm the macOS prompt. Later launches work normally from Applications.
 4. Complete the setup wizard: Welcome, Airport, Flight Data, Optional Keys, Diagnostics, and Review & Open.
 
 The app launches the native Qt desktop shell. The LAN browser UI remains available from the local server while the app is running.
-Finder opens the installed app directly, so normal release use should show the branded app/splash rather than Terminal. The installer only places the app in Applications; your Local Flight settings, history, logs, install ID, and activation token remain in your user folder.
+Finder opens the app directly, so normal use shows the branded app/splash rather than Terminal. The current archive is ad-hoc signed but not Developer ID notarized, which is why macOS may require the one-time confirmation. Never disable Gatekeeper globally or lower system-wide security settings. Local Flight settings, history, logs, install ID, and activation token remain in your user folder and survive replacing the app with a future signed build.
 
 ### macOS Source Checkout
 
@@ -84,7 +86,7 @@ If a quiet app launch fails early, bootstrap output is written locally under `~/
 
 The Pi is best when you want Local Flight to run as a small always-on server or display box.
 
-You can clone the repo on the Pi or download the versioned Pi source bundle from the latest release, for example:
+You can clone the repo on the Pi or choose Raspberry Pi in the website Downloads section to fetch the versioned source bundle from the latest complete GitHub release, for example:
 
 ```text
 LocalFlight-pi-source-<version>.zip

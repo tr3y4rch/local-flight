@@ -7,7 +7,7 @@ This file is the working checklist for the `0.5.1` Play internal-testing build. 
 - App name: **Local Flight**
 - Android package: `cc.beacontools.localflight`
 - Version name: `0.5.1`
-- Version code: `8`
+- Version code: `9`
 - Project / support URL: `https://beacontools.cc/local-flight/mobile`
 - Privacy Policy URL: `https://beacontools.cc/privacy`
 - Recommended review path: choose **Standalone** on first launch so the app can be tested without a desktop or Raspberry Pi server.
@@ -36,13 +36,22 @@ Play Console Data Safety answers should be conservative:
 - Diagnostics: crash reports and diagnostic context only when the user chooses automatic diagnostics or submits a manual report.
 - App activity / usage: coarse relay quota/policy metadata, selected airport, app version, source mode, and refresh status used for app functionality and support.
 - User content: manual report title/description if the user sends a report.
-- Not collected by this build: precise location, contacts, photos/videos, financial information, payment information, advertising ID, or purchase history.
+- Purchase history: optional product ID and minimal transaction-verification metadata, linked conservatively to an install-scoped identifier, used only for app functionality, duplicate prevention, and store/security compliance; not used for advertising or tracking.
+- Not collected by Local Flight: precise location, contacts, photos/videos, payment-card information, advertising ID, or financial account details. Google Play processes payment details. Local Flight receives only the purchase token/product evidence needed to verify an optional support purchase.
 
-## Support / Payments
+## Optional In-App Support
 
-- This build contains no payments, tips, purchase UI, or in-app purchase processing.
-- No features are locked behind payment.
-- No external Buy Me a Coffee or other external purchase call-to-action should appear in Play builds.
+- Settings/Control includes three optional consumable support products: `cc.beacontools.localflight.support.small`, `.medium`, and `.large`.
+- Every product unlocks nothing and creates no entitlement. The sheet states this before purchase and displays only Google Play-owned localized prices.
+- Local Flight sends the purchase token to the Beacon Tools relay, which verifies it through the Google Play Developer API. The app consumes the product only after verification.
+- The relay stores a keyed transaction hash, short reference, product ID, store environment, status, and timestamps. It does not retain the purchase token, payment-card data, or Google account identity.
+- No external Buy Me a Coffee or other external purchase call-to-action appears in Play builds.
+
+## Home-Screen Widget
+
+- Version code `9` includes a resizable Android home-screen widget.
+- The app writes a bounded snapshot to its private files directory. The widget reads that local file only; it does not make LAN, relay, provider, analytics, or advertising requests.
+- The widget refresh action rereads local app data and does not trigger an external data fetch. Android's periodic widget update remains at 30 minutes.
 
 ## Safety Copy
 
@@ -55,6 +64,7 @@ Local Flight flight, weather, radar, and surface data are informational display 
 - Remote Companion: pair on LAN, block LAN, confirm `REMOTE` state loads Board/Radar/History/Control, then revoke and confirm remote access stops.
 - Bad QR/fingerprint mismatch: app rejects the wrong LAN server.
 - Offline relay: Standalone shows a useful retry/error state.
-- Payment surface: no support sheet, purchase button, products, or billing flow is present.
+- Purchase surface: open Standalone **Settings** or Companion **Control**, choose **Support Local Flight**, confirm all three localized products load, complete one license-tester purchase, and confirm the thank-you state. Interrupt relay access after store approval to verify the unfinished transaction is retained and safely retried before consumption.
+- Widget: add and resize the Local Flight widget, confirm compact/medium layouts, empty/stale states, app tap-through, and local refresh behavior.
 - Bottom navigation: Standalone shows Board/Radar/History/Settings; Companion shows Board/Radar/History/Control.
 - Accessibility: only claim Play listing accessibility support after real Android common-task testing with TalkBack, font scaling, contrast, and reduced animation.

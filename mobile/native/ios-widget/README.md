@@ -2,9 +2,10 @@
 
 Tracked WidgetKit template for the iOS widget extension. The generated
 `mobile/ios/` directory is ignored, so keep these files as the source of truth.
-The current `0.5.1 (4)` TestFlight build does not enable this template. The
-steps below are an opt-in wiring procedure for a later build after the Apple
-account and provisioning profile support `group.cc.beacontools.localflight`.
+The widget-enabled `0.5.1 (5)` source enables this template through
+`plugins/with-localflight-ios-widget.js`. The steps below are the required
+generation/signing checks. Apple provisioning must cover the app, widget
+extension, and `group.cc.beacontools.localflight` App Group.
 
 The Expo app writes `localflight-widget-snapshot.json` using the schema in
 `mobile/src/domain/widgets.ts`. The native widget reads that file only. It must
@@ -13,7 +14,7 @@ never fetch LAN, relay, or third-party flight data directly.
 ## Current Widget State
 
 - `WidgetSnapshot.swift` contains defensive decoding and normalization for the
-  app-written snapshot contract.
+  app-written snapshot contract, including a 64 KiB file-size cap.
 - `LocalFlightWidget.swift` is the thin WidgetKit provider/host. The V2 visuals
   live in `DesignTokens.swift`, `SmallWidgetViewV2.swift`,
   `MediumWidgetViewV2.swift`, and `LiveActivityViewV2.swift`.
@@ -39,10 +40,13 @@ never fetch LAN, relay, or third-party flight data directly.
    `group.cc.beacontools.localflight`.
 4. Regenerate or refresh signing assets/provisioning profiles so both the app
    and widget extension can use the group.
-5. Run Expo prebuild or an EAS iOS build from a clean mobile tree. The tracked
+5. Run Expo prebuild or an EAS iOS build from a clean mobile tree. The enabled
    `with-localflight-ios-widget` config plugin copies this template, creates the
    `LocalFlightWidget` extension target, and adds the App Group entitlement:
    `npx expo prebuild --platform ios --clean`.
+   `app.json` also declares the extension under
+   `extra.eas.build.experimental.ios.appExtensions` so EAS can prepare the
+   extension credentials before prebuild creates the Xcode target.
 6. Verify the generated extension target is named `LocalFlightWidget` and uses
    bundle ID `cc.beacontools.localflight.widget`.
 7. Verify the target contains `WidgetSnapshot.swift`, `LocalFlightWidget.swift`,

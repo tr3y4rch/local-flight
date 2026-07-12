@@ -406,6 +406,21 @@ module.exports = { openDatabaseAsync };
 
   assert.equal(widgets.parseWidgetExchangeSnapshot("{ nope"), null);
   assert.equal(widgets.normalizeWidgetExchangeSnapshot({ schemaVersion: 999 }), null);
+  assert.ok(
+    Buffer.byteLength(widgets.serializeWidgetExchangeSnapshot(snapshot), "utf8") <=
+      widgets.WIDGET_SNAPSHOT_MAX_BYTES
+  );
+  const serializedSnapshot = widgets.serializeWidgetExchangeSnapshot(snapshot);
+  for (const privateField of [
+    "activationToken",
+    "installId",
+    "companionId",
+    "serverUrl",
+    "remoteKey",
+    "diagnosticsMode"
+  ]) {
+    assert.ok(!serializedSnapshot.includes(privateField), `private field leaked into widget snapshot: ${privateField}`);
+  }
 
   const sameMeaningLater = widgets.buildWidgetExchangeSnapshot({
     preview,
@@ -582,9 +597,9 @@ module.exports = { openDatabaseAsync };
   const appScreenSource = readFileSync(path.join(mobileRoot, "src/screens/AppScreens.tsx"), "utf8");
   for (const forbidden of [
     "TIP JAR",
-    "Support Local Flight with",
     "support tips are being prepared",
-    "cc.beacontools.localflight.tip."
+    "cc.beacontools.localflight.tip.",
+    "buymeacoffee.com"
   ]) {
     assert.equal(appScreenSource.includes(forbidden), false, `AppScreens.tsx should not expose ${forbidden}`);
   }

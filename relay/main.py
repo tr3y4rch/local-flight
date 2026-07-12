@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import hashlib
 import html
 import hmac
@@ -87,6 +88,7 @@ _REMOTE_COMPANION_GRANT_RPM_LIMIT = 120
 _REMOTE_COMPANION_INSTALL_RPM_LIMIT = 240
 _REMOTE_COMPANION_NETWORK_RPM_LIMIT = 300
 _REMOTE_COMPANION_HOSTS: Dict[str, "RemoteCompanionHostSession"] = {}
+_iap_verification_locks = tuple(threading.Lock() for _ in range(64))
 
 
 @dataclass
@@ -117,6 +119,18 @@ _STANDALONE_RADAR_LIMIT = 3000
 _STANDALONE_SCHEDULE_MIN_REFRESH_SECONDS = 3 * 60 * 60
 _STANDALONE_RADAR_MIN_REFRESH_SECONDS = 5 * 60
 _STANDALONE_RADAR_RADII_NM = (1, 3, 5, 10)
+_IAP_PRODUCTS = {
+    "cc.beacontools.localflight.support.small",
+    "cc.beacontools.localflight.support.medium",
+    "cc.beacontools.localflight.support.large",
+}
+_IAP_BUNDLE_ID = "cc.beacontools.localflight"
+_IAP_INSTALL_DAILY_LIMIT = 20
+_IAP_NETWORK_DAILY_LIMIT = 60
+_IAP_GLOBAL_DAILY_LIMIT = 1000
+_IAP_INSTALL_RPM_LIMIT = 5
+_IAP_NETWORK_RPM_LIMIT = 20
+_IAP_GLOBAL_RPM_LIMIT = 60
 _ADMIN_AUTH_FAILURE_LIMIT = 8
 _ADMIN_AUTH_WINDOW_SECONDS = 5 * 60
 _LINEAR_GRAPHQL_URL = "https://api.linear.app/graphql"
@@ -776,6 +790,38 @@ def _ensure_schema() -> None:
         )
         """
     )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS iap_transactions (
+            transaction_hash    TEXT PRIMARY KEY,
+            transaction_ref     TEXT NOT NULL,
+            platform            TEXT NOT NULL,
+            product_id          TEXT NOT NULL,
+            install_fingerprint TEXT NOT NULL,
+            status              TEXT NOT NULL,
+            environment         TEXT,
+            first_seen          TEXT NOT NULL,
+            last_seen           TEXT NOT NULL,
+            verified_at         TEXT,
+            attempt_count       INTEGER DEFAULT 1,
+            last_error_code     TEXT
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS iap_verification_events (
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            ts                  TEXT NOT NULL,
+            install_fingerprint TEXT NOT NULL,
+            network_tag         TEXT NOT NULL,
+            platform            TEXT NOT NULL,
+            product_id          TEXT NOT NULL,
+            transaction_ref     TEXT NOT NULL,
+            status              TEXT NOT NULL
+        )
+        """
+    )
     _ensure_column(conn, "request_log", "service TEXT")
     _ensure_column(conn, "request_log", "plan TEXT")
     _ensure_column(conn, "activation_requests", "display_name TEXT")
@@ -842,6 +888,9 @@ def _ensure_schema() -> None:
     conn.execute("CREATE INDEX IF NOT EXISTS idx_install_profiles_last_seen ON install_profiles (last_seen DESC)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_mobile_standalone_cache_seen ON mobile_standalone_cache (service, last_seen DESC)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_remote_companion_install_ref ON remote_companion_grants (install_ref, grant_ref, revoked_at)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_iap_transactions_verified ON iap_transactions (verified_at DESC)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_iap_events_install ON iap_verification_events (install_fingerprint, ts DESC)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_iap_events_network ON iap_verification_events (network_tag, ts DESC)")
     _backfill_install_profiles(conn)
     conn.commit()
     conn.close()
@@ -2430,6 +2479,371 @@ def _check_report_rate_limit(
         raise HTTPException(status_code=429, detail="Report rate limit reached for this install")
     if int(network_count["count"] or 0) >= _report_network_limit():
         raise HTTPException(status_code=429, detail="Report rate limit reached for this network")
+
+
+class IapVerificationFailure(Exception):
+    def __init__(self, code: str, detail: str, status_code: int) -> None:
+        super().__init__(detail)
+        self.code = code
+        self.detail = detail
+        self.status_code = status_code
+
+
+def _iap_transaction_hash(platform: str, proof: str) -> str:
+    secret = _network_secret()
+    return hmac.new(
+        secret.encode("utf-8"),
+        f"iap:{platform}:{proof}".encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+
+
+def _iap_transaction_ref(transaction_hash: str) -> str:
+    return f"iap_{transaction_hash[:14]}"
+
+
+def _iap_lock(transaction_hash: str) -> threading.Lock:
+    stripe = int(transaction_hash[:2], 16) % len(_iap_verification_locks)
+    return _iap_verification_locks[stripe]
+
+
+def _iap_verified_row(
+    conn: sqlite3.Connection,
+    *,
+    transaction_hash: str,
+    platform: str,
+    product_id: str,
+) -> Optional[sqlite3.Row]:
+    row = conn.execute(
+        "SELECT * FROM iap_transactions WHERE transaction_hash=? AND status='verified'",
+        (transaction_hash,),
+    ).fetchone()
+    if not row:
+        return None
+    if str(row["platform"] or "") != platform or str(row["product_id"] or "") != product_id:
+        raise HTTPException(status_code=422, detail="Purchase identity does not match the verified transaction")
+    return row
+
+
+def _check_iap_rate_limit(
+    conn: sqlite3.Connection,
+    *,
+    install_fingerprint: str,
+    network_tag: str,
+) -> None:
+    cutoff = _hours_ago(24)
+    install_count = conn.execute(
+        "SELECT COUNT(*) AS count FROM iap_verification_events WHERE install_fingerprint=? AND status='attempt' AND ts>=?",
+        (install_fingerprint, cutoff),
+    ).fetchone()
+    network_count = conn.execute(
+        "SELECT COUNT(*) AS count FROM iap_verification_events WHERE network_tag=? AND status='attempt' AND ts>=?",
+        (network_tag, cutoff),
+    ).fetchone()
+    global_count = conn.execute(
+        "SELECT COUNT(*) AS count FROM iap_verification_events WHERE status='attempt' AND ts>=?",
+        (cutoff,),
+    ).fetchone()
+    if int(install_count["count"] or 0) >= _IAP_INSTALL_DAILY_LIMIT:
+        raise HTTPException(
+            status_code=429,
+            detail="Purchase verification limit reached for this install; try again later",
+            headers={"Retry-After": "3600"},
+        )
+    if int(network_count["count"] or 0) >= _IAP_NETWORK_DAILY_LIMIT:
+        raise HTTPException(
+            status_code=429,
+            detail="Purchase verification limit reached for this network; try again later",
+            headers={"Retry-After": "3600"},
+        )
+    if int(global_count["count"] or 0) >= _IAP_GLOBAL_DAILY_LIMIT:
+        raise HTTPException(
+            status_code=429,
+            detail="Purchase verification safety limit reached; try again later",
+            headers={"Retry-After": "3600"},
+        )
+
+
+def _check_and_increment_iap_rpm_limits(*, install_id: str, network_tag: str) -> None:
+    minute = _minute_key()
+    checks = [
+        (f"iap-install:{install_id}", "iap:install-minute", _IAP_INSTALL_RPM_LIMIT, "Purchase verification is cooling down for this install"),
+        (f"iap-network:{network_tag or 'unknown'}", "iap:network-minute", _IAP_NETWORK_RPM_LIMIT, "Purchase verification is cooling down for this network"),
+        ("iap-global", "iap:global-minute", _IAP_GLOBAL_RPM_LIMIT, "Purchase verification is temporarily busy"),
+    ]
+    conn = _connect()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        for subject, service, limit, message in checks:
+            row = conn.execute(
+                "SELECT calls FROM usage WHERE subject_key=? AND service=? AND month=?",
+                (subject, service, minute),
+            ).fetchone()
+            current = int(row["calls"] or 0) if row else 0
+            if current >= limit:
+                conn.rollback()
+                raise HTTPException(status_code=429, detail=message, headers={"Retry-After": "60"})
+        now = _utc_now()
+        for subject, service, _limit, _message in checks:
+            conn.execute(
+                """
+                INSERT INTO usage (subject_key, service, month, calls, last_seen, plan, install_id)
+                VALUES (?, ?, ?, 1, ?, 'iap-verification', ?)
+                ON CONFLICT(subject_key, service, month) DO UPDATE SET
+                    calls=calls + 1,
+                    last_seen=excluded.last_seen,
+                    install_id=excluded.install_id
+                """,
+                (subject, service, minute, now, install_id),
+            )
+        conn.commit()
+    except Exception:
+        if conn.in_transaction:
+            conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def _record_iap_attempt(
+    conn: sqlite3.Connection,
+    *,
+    transaction_hash: str,
+    transaction_ref: str,
+    platform: str,
+    product_id: str,
+    install_fingerprint: str,
+    network_tag: str,
+) -> None:
+    now = _utc_now()
+    conn.execute(
+        """
+        INSERT INTO iap_transactions (
+            transaction_hash, transaction_ref, platform, product_id, install_fingerprint,
+            status, environment, first_seen, last_seen, verified_at, attempt_count, last_error_code
+        ) VALUES (?, ?, ?, ?, ?, 'verifying', '', ?, ?, NULL, 1, '')
+        ON CONFLICT(transaction_hash) DO UPDATE SET
+            last_seen=excluded.last_seen,
+            attempt_count=iap_transactions.attempt_count + 1,
+            status='verifying',
+            last_error_code=''
+        """,
+        (
+            transaction_hash,
+            transaction_ref,
+            platform,
+            product_id,
+            install_fingerprint,
+            now,
+            now,
+        ),
+    )
+    conn.execute(
+        """
+        INSERT INTO iap_verification_events (
+            ts, install_fingerprint, network_tag, platform, product_id, transaction_ref, status
+        ) VALUES (?, ?, ?, ?, ?, ?, 'attempt')
+        """,
+        (now, install_fingerprint, network_tag, platform, product_id, transaction_ref),
+    )
+    conn.commit()
+
+
+def _mark_iap_result(
+    conn: sqlite3.Connection,
+    *,
+    transaction_hash: str,
+    transaction_ref: str,
+    install_fingerprint: str,
+    network_tag: str,
+    platform: str,
+    product_id: str,
+    status: str,
+    environment: str = "",
+    error_code: str = "",
+) -> None:
+    now = _utc_now()
+    verified_at = now if status == "verified" else None
+    conn.execute(
+        """
+        UPDATE iap_transactions
+        SET status=?, environment=?, last_seen=?, verified_at=?, last_error_code=?
+        WHERE transaction_hash=?
+        """,
+        (status, environment[:24], now, verified_at, error_code[:60], transaction_hash),
+    )
+    conn.execute(
+        """
+        INSERT INTO iap_verification_events (
+            ts, install_fingerprint, network_tag, platform, product_id, transaction_ref, status
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        (now, install_fingerprint, network_tag, platform, product_id, transaction_ref, status[:32]),
+    )
+    conn.commit()
+
+
+def _decode_jws_payload(jws: str) -> Dict[str, Any]:
+    parts = (jws or "").split(".")
+    if len(parts) != 3:
+        raise IapVerificationFailure("store_response_invalid", "Apple returned an unreadable transaction", 502)
+    try:
+        encoded = parts[1] + "=" * (-len(parts[1]) % 4)
+        payload = json.loads(base64.urlsafe_b64decode(encoded.encode("ascii")).decode("utf-8"))
+    except (ValueError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise IapVerificationFailure("store_response_invalid", "Apple returned an unreadable transaction", 502) from exc
+    if not isinstance(payload, dict):
+        raise IapVerificationFailure("store_response_invalid", "Apple returned an unreadable transaction", 502)
+    return payload
+
+
+def _apple_private_key() -> bytes:
+    raw_b64 = _env("APPLE_IAP_PRIVATE_KEY_B64")
+    raw = _env("APPLE_IAP_PRIVATE_KEY")
+    if raw_b64:
+        try:
+            return base64.b64decode(raw_b64)
+        except ValueError as exc:
+            raise IapVerificationFailure("store_not_configured", "Apple purchase verification is not configured", 503) from exc
+    if raw:
+        return raw.replace("\\n", "\n").encode("utf-8")
+    raise IapVerificationFailure("store_not_configured", "Apple purchase verification is not configured", 503)
+
+
+def _validate_apple_iap_payload(
+    payload: Dict[str, Any],
+    *,
+    transaction_id: str,
+    product_id: str,
+) -> Dict[str, str]:
+    if str(payload.get("bundleId") or "") != _IAP_BUNDLE_ID:
+        raise IapVerificationFailure("bundle_mismatch", "Purchase belongs to a different app", 403)
+    if str(payload.get("productId") or "") != product_id:
+        raise IapVerificationFailure("product_mismatch", "Purchase product does not match the selected support item", 403)
+    if str(payload.get("transactionId") or "") != transaction_id:
+        raise IapVerificationFailure("transaction_mismatch", "Apple transaction identity did not match", 403)
+    transaction_type = str(payload.get("type") or "").lower()
+    if transaction_type and transaction_type != "consumable":
+        raise IapVerificationFailure("product_type_invalid", "Support items must be consumable purchases", 403)
+    if payload.get("revocationDate"):
+        raise IapVerificationFailure("purchase_revoked", "This purchase has been revoked", 403)
+    return {"product_id": product_id, "transaction_id": transaction_id}
+
+
+def _verify_apple_iap(*, transaction_id: str, product_id: str) -> Dict[str, str]:
+    key_id = _env("APPLE_IAP_KEY_ID")
+    issuer_id = _env("APPLE_IAP_ISSUER_ID")
+    bundle_id = _env("APPLE_IAP_BUNDLE_ID", _IAP_BUNDLE_ID)
+    if not key_id or not issuer_id or bundle_id != _IAP_BUNDLE_ID:
+        raise IapVerificationFailure("store_not_configured", "Apple purchase verification is not configured", 503)
+
+    try:
+        from appstoreserverlibrary.api_client import APIException, AppStoreServerAPIClient
+        from appstoreserverlibrary.models.Environment import Environment
+    except ImportError as exc:
+        raise IapVerificationFailure("store_not_configured", "Apple purchase verification is unavailable", 503) from exc
+
+    signing_key = _apple_private_key()
+    response = None
+    environment_name = "production"
+    for environment in (Environment.PRODUCTION, Environment.SANDBOX):
+        try:
+            client = AppStoreServerAPIClient(signing_key, key_id, issuer_id, bundle_id, environment)
+            response = client.get_transaction_info(transaction_id)
+            environment_name = "sandbox" if environment == Environment.SANDBOX else "production"
+            break
+        except APIException as exc:
+            status = int(getattr(exc, "http_status_code", 0) or 0)
+            if environment == Environment.PRODUCTION and status in {400, 404}:
+                continue
+            if status in {401, 403}:
+                raise IapVerificationFailure("store_not_configured", "Apple purchase verification credentials were rejected", 503) from exc
+            if status == 429 or status >= 500:
+                raise IapVerificationFailure("store_unavailable", "Apple purchase verification is temporarily unavailable", 502) from exc
+            raise IapVerificationFailure("purchase_invalid", "Apple could not verify this purchase", 403) from exc
+        except Exception as exc:
+            raise IapVerificationFailure("store_unavailable", "Apple purchase verification is temporarily unavailable", 502) from exc
+
+    signed_info = str(getattr(response, "signedTransactionInfo", "") or "")
+    payload = _decode_jws_payload(signed_info)
+    _validate_apple_iap_payload(payload, transaction_id=transaction_id, product_id=product_id)
+    return {"environment": environment_name}
+
+
+def _google_service_account_info() -> Dict[str, Any]:
+    raw = _env("GOOGLE_PLAY_SERVICE_ACCOUNT_JSON")
+    raw_b64 = _env("GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_B64")
+    try:
+        if raw_b64:
+            raw = base64.b64decode(raw_b64).decode("utf-8")
+        parsed = json.loads(raw or "")
+    except (ValueError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise IapVerificationFailure("store_not_configured", "Google Play purchase verification is not configured", 503) from exc
+    if not isinstance(parsed, dict):
+        raise IapVerificationFailure("store_not_configured", "Google Play purchase verification is not configured", 503)
+    return parsed
+
+
+def _validate_google_iap_payload(payload: Dict[str, Any], *, product_id: str) -> Dict[str, str]:
+    if payload.get("packageName") and str(payload.get("packageName")) != _IAP_BUNDLE_ID:
+        raise IapVerificationFailure("bundle_mismatch", "Purchase belongs to a different app", 403)
+    state = str((payload.get("purchaseStateContext") or {}).get("purchaseState") or "").upper()
+    if state == "PENDING":
+        raise IapVerificationFailure("purchase_pending", "This purchase is still pending in Google Play", 409)
+    if state != "PURCHASED":
+        raise IapVerificationFailure("purchase_invalid", "Google Play has not completed this purchase", 403)
+    product_ids = {
+        str(item.get("productId") or "")
+        for item in (payload.get("productLineItem") or [])
+        if isinstance(item, dict)
+    }
+    if product_id not in product_ids:
+        raise IapVerificationFailure("product_mismatch", "Purchase product does not match the selected support item", 403)
+    return {"environment": "test" if "testPurchaseContext" in payload else "production"}
+
+
+def _verify_google_iap(*, purchase_token: str, product_id: str) -> Dict[str, str]:
+    package_name = _env("GOOGLE_PLAY_PACKAGE_NAME", _IAP_BUNDLE_ID)
+    if package_name != _IAP_BUNDLE_ID:
+        raise IapVerificationFailure("store_not_configured", "Google Play purchase verification is not configured", 503)
+    try:
+        from google.auth.transport.requests import Request as GoogleAuthRequest
+        from google.oauth2 import service_account
+    except ImportError as exc:
+        raise IapVerificationFailure("store_not_configured", "Google Play purchase verification is unavailable", 503) from exc
+
+    try:
+        credentials = service_account.Credentials.from_service_account_info(
+            _google_service_account_info(),
+            scopes=["https://www.googleapis.com/auth/androidpublisher"],
+        )
+        credentials.refresh(GoogleAuthRequest())
+        response = _req.get(
+            "https://androidpublisher.googleapis.com/androidpublisher/v3/"
+            f"applications/{package_name}/purchases/productsv2/tokens/{purchase_token}",
+            headers={"Authorization": f"Bearer {credentials.token}", "Accept": "application/json"},
+            timeout=20,
+        )
+    except IapVerificationFailure:
+        raise
+    except Exception as exc:
+        raise IapVerificationFailure("store_unavailable", "Google Play purchase verification is temporarily unavailable", 502) from exc
+
+    if response.status_code in {401, 403}:
+        raise IapVerificationFailure("store_not_configured", "Google Play verification credentials were rejected", 503)
+    if response.status_code == 404:
+        raise IapVerificationFailure("purchase_invalid", "Google Play could not find this purchase", 403)
+    if response.status_code == 429 or response.status_code >= 500:
+        raise IapVerificationFailure("store_unavailable", "Google Play purchase verification is temporarily unavailable", 502)
+    if response.status_code >= 400:
+        raise IapVerificationFailure("purchase_invalid", "Google Play could not verify this purchase", 403)
+    try:
+        payload = response.json()
+    except ValueError as exc:
+        raise IapVerificationFailure("store_response_invalid", "Google Play returned an unreadable purchase", 502) from exc
+    if not isinstance(payload, dict):
+        raise IapVerificationFailure("store_response_invalid", "Google Play returned an unreadable purchase", 502)
+    return _validate_google_iap_payload(payload, product_id=product_id)
 
 
 def _check_heartbeat_rate_limit(install_id: str) -> bool:
@@ -8175,6 +8589,24 @@ class ReportIn(BaseModel):
     diagnostics_mode: str = Field("", max_length=40)
 
 
+class MobileIapVerifyIn(BaseModel):
+    platform: str = Field(..., min_length=3, max_length=12)
+    install_id: str = Field(..., min_length=36, max_length=36)
+    product_id: str = Field(..., min_length=1, max_length=160)
+    transaction_id: str = Field("", max_length=256)
+    purchase_token: str = Field("", max_length=8192)
+    app_version: str = Field("", max_length=40)
+    bundle_id: str = Field(_IAP_BUNDLE_ID, max_length=160)
+
+    @field_validator(
+        "platform", "install_id", "product_id", "transaction_id", "purchase_token", "app_version", "bundle_id",
+        mode="before",
+    )
+    @classmethod
+    def _coerce_iap_text(cls, value: Any) -> str:
+        return _admin_text(value)
+
+
 class SiteContactIn(BaseModel):
     category: str = Field("general", max_length=32)
     name: str = Field("", max_length=120)
@@ -9613,6 +10045,127 @@ def relay_mobile_radar(
     return JSONResponse(payload, headers=_quota_headers("radar", used, access["limit"], access["plan"]))
 
 
+@app.post("/v1/mobile/iap/verify")
+def verify_mobile_iap(body: MobileIapVerifyIn, request: Request) -> Dict[str, Any]:
+    platform_raw = body.platform.strip().lower()
+    platform = "ios" if platform_raw in {"ios", "apple"} else "android" if platform_raw in {"android", "google"} else ""
+    if not platform:
+        raise HTTPException(status_code=422, detail="platform must be ios or android")
+    product_id = body.product_id.strip()
+    if product_id not in _IAP_PRODUCTS:
+        raise HTTPException(status_code=422, detail="Unknown support product")
+    if body.bundle_id.strip() != _IAP_BUNDLE_ID:
+        raise HTTPException(status_code=422, detail="Bundle or package identifier does not match Local Flight")
+
+    install_id = _validate_install_id(body.install_id.strip())
+    _ensure_install_allowed(install_id)
+    install_fingerprint = _install_fingerprint(install_id)
+    transaction_id = body.transaction_id.strip()
+    purchase_token = body.purchase_token.strip()
+    if platform == "ios" and not transaction_id:
+        raise HTTPException(status_code=422, detail="Apple transaction ID is required")
+    if platform == "android" and not purchase_token:
+        raise HTTPException(status_code=422, detail="Google Play purchase token is required")
+
+    proof = transaction_id if platform == "ios" else purchase_token
+    transaction_hash = _iap_transaction_hash(platform, proof)
+    transaction_ref = _iap_transaction_ref(transaction_hash)
+    network_tag = _network_tag(_client_ip(request))
+
+    with _iap_lock(transaction_hash):
+        conn = _connect()
+        try:
+            existing = _iap_verified_row(
+                conn,
+                transaction_hash=transaction_hash,
+                platform=platform,
+                product_id=product_id,
+            )
+            if existing:
+                return {
+                    "ok": True,
+                    "verified": True,
+                    "duplicate": True,
+                    "platform": platform,
+                    "product_id": product_id,
+                    "transaction_ref": str(existing["transaction_ref"] or transaction_ref),
+                    "environment": str(existing["environment"] or "unknown"),
+                    "finish_transaction": True,
+                }
+            _check_iap_rate_limit(
+                conn,
+                install_fingerprint=install_fingerprint,
+                network_tag=network_tag,
+            )
+            _check_and_increment_iap_rpm_limits(install_id=install_id, network_tag=network_tag)
+            _record_iap_attempt(
+                conn,
+                transaction_hash=transaction_hash,
+                transaction_ref=transaction_ref,
+                platform=platform,
+                product_id=product_id,
+                install_fingerprint=install_fingerprint,
+                network_tag=network_tag,
+            )
+            try:
+                result = (
+                    _verify_apple_iap(transaction_id=transaction_id, product_id=product_id)
+                    if platform == "ios"
+                    else _verify_google_iap(purchase_token=purchase_token, product_id=product_id)
+                )
+            except IapVerificationFailure as exc:
+                _mark_iap_result(
+                    conn,
+                    transaction_hash=transaction_hash,
+                    transaction_ref=transaction_ref,
+                    install_fingerprint=install_fingerprint,
+                    network_tag=network_tag,
+                    platform=platform,
+                    product_id=product_id,
+                    status="failed",
+                    error_code=exc.code,
+                )
+                raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+            except Exception as exc:
+                _mark_iap_result(
+                    conn,
+                    transaction_hash=transaction_hash,
+                    transaction_ref=transaction_ref,
+                    install_fingerprint=install_fingerprint,
+                    network_tag=network_tag,
+                    platform=platform,
+                    product_id=product_id,
+                    status="failed",
+                    error_code="verification_failed",
+                )
+                raise HTTPException(status_code=502, detail="Purchase verification is temporarily unavailable") from exc
+
+            environment = str(result.get("environment") or "unknown")
+            _mark_iap_result(
+                conn,
+                transaction_hash=transaction_hash,
+                transaction_ref=transaction_ref,
+                install_fingerprint=install_fingerprint,
+                network_tag=network_tag,
+                platform=platform,
+                product_id=product_id,
+                status="verified",
+                environment=environment,
+            )
+            return {
+                "ok": True,
+                "verified": True,
+                "duplicate": False,
+                "platform": platform,
+                "product_id": product_id,
+                "transaction_ref": transaction_ref,
+                "environment": environment,
+                "finish_transaction": True,
+            }
+        finally:
+            conn.close()
+
+
 @app.post("/v1/reports")
 def relay_reports(body: ReportIn, request: Request) -> Dict[str, Any]:
     report_type = (body.report_type or "").strip().lower()
@@ -10625,6 +11178,14 @@ def admin_api_overview(username: str = Depends(_require_admin)) -> Dict[str, Any
             FROM airport_surface_snapshots
             """
         ).fetchone()
+        iap_product_rows = conn.execute(
+            """
+            SELECT platform, product_id, status, COUNT(*) AS count
+            FROM iap_transactions
+            GROUP BY platform, product_id, status
+            ORDER BY platform, product_id, status
+            """
+        ).fetchall()
         return {
             "generated_at": _utc_now(),
             "operator": username,
@@ -10673,6 +11234,20 @@ def admin_api_overview(username: str = Depends(_require_admin)) -> Dict[str, Any
                 "companion_installs": int(fleet_metrics.get("companion_installs") or 0),
                 "matrix_installs": int(fleet_metrics.get("matrix_installs") or 0),
                 "reports_24h": _admin_count(conn, "SELECT COUNT(*) FROM report_events WHERE ts>=?", (_hours_ago(24),)),
+                "iap_attempts_24h": _admin_count(
+                    conn,
+                    "SELECT COUNT(*) FROM iap_verification_events WHERE status='attempt' AND ts>=?",
+                    (_hours_ago(24),),
+                ),
+                "iap_verified_total": _admin_count(
+                    conn,
+                    "SELECT COUNT(*) FROM iap_transactions WHERE status='verified'",
+                ),
+                "iap_failed_24h": _admin_count(
+                    conn,
+                    "SELECT COUNT(*) FROM iap_verification_events WHERE status='failed' AND ts>=?",
+                    (_hours_ago(24),),
+                ),
             },
             "fleet": fleet_metrics,
             "heartbeat": heartbeat_summary,
@@ -10688,6 +11263,31 @@ def admin_api_overview(username: str = Depends(_require_admin)) -> Dict[str, Any
                 "refresh_count": int(surface_totals["refresh_count"] or 0),
                 "cache_hits": int(surface_totals["cache_hits"] or 0),
                 "stale_serves": int(surface_totals["stale_serves"] or 0),
+            },
+            "iap": {
+                "attempts_24h": _admin_count(
+                    conn,
+                    "SELECT COUNT(*) FROM iap_verification_events WHERE status='attempt' AND ts>=?",
+                    (_hours_ago(24),),
+                ),
+                "verified_total": _admin_count(
+                    conn,
+                    "SELECT COUNT(*) FROM iap_transactions WHERE status='verified'",
+                ),
+                "failed_24h": _admin_count(
+                    conn,
+                    "SELECT COUNT(*) FROM iap_verification_events WHERE status='failed' AND ts>=?",
+                    (_hours_ago(24),),
+                ),
+                "products": [
+                    {
+                        "platform": str(row["platform"] or "unknown"),
+                        "product_id": str(row["product_id"] or ""),
+                        "status": str(row["status"] or "unknown"),
+                        "count": int(row["count"] or 0),
+                    }
+                    for row in iap_product_rows
+                ],
             },
         }
     finally:

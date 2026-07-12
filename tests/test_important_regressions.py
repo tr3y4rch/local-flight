@@ -6150,16 +6150,57 @@ def test_beacon_tools_site_uses_current_brand_assets() -> None:
     assert unused_assets == set()
 
 
-def test_mobile_store_beta_identity_uses_beacon_ids_without_payment_scaffolding() -> None:
+def test_public_downloads_use_checksum_gated_github_release_assets() -> None:
+    root = Path(__file__).resolve().parents[1]
+    product_page = (root / "site" / "local-flight" / "index.html").read_text(encoding="utf-8")
+    downloads_client = (root / "site" / "assets" / "downloads.js").read_text(encoding="utf-8")
+    worker = (root / "workers" / "beacontools.js").read_text(encoding="utf-8")
+
+    assert product_page.count('data-download-platform="') == 3
+    for platform in ("windows", "macos", "pi"):
+        assert f'data-download-platform="{platform}"' in product_page
+    assert 'src="/assets/downloads.js"' in product_page
+    assert "official GitHub Releases" in product_page
+    assert "matching SHA256 checksum" in product_page
+
+    assert 'fetch("/api/releases/latest"' in downloads_client
+    assert "api.github.com" not in downloads_client
+    assert "download.checksum_url" in downloads_client
+
+    assert 'GITHUB_REPOSITORY = "tr3y4rch/local-flight"' in worker
+    assert 'MINIMUM_PUBLIC_VERSION = "0.5.1"' in worker
+    assert 'pathname === "/api/releases/latest"' in worker
+    assert "LocalFlight-${version}-Setup.exe" in worker
+    assert "LocalFlight-${version}-macos.zip" in worker
+    assert "LocalFlight-pi-source-${version}.zip" in worker
+    assert "${filename}.sha256" in worker
+    assert "releases/download/" in worker
+
+
+def test_mobile_store_identity_and_verified_consumable_support_contract() -> None:
     root = Path(__file__).resolve().parents[1]
     app = json.loads((root / "mobile" / "app.json").read_text(encoding="utf-8"))["expo"]
     eas = json.loads((root / "mobile" / "eas.json").read_text(encoding="utf-8"))
     relay = (root / "relay" / "main.py").read_text(encoding="utf-8")
 
     assert app["ios"]["bundleIdentifier"] == "cc.beacontools.localflight"
-    assert app["ios"]["buildNumber"] == "4"
+    assert app["ios"]["buildNumber"] == "5"
     assert app["android"]["package"] == "cc.beacontools.localflight"
-    assert app["android"]["versionCode"] == 8
+    assert app["android"]["versionCode"] == 9
+    assert "./plugins/with-localflight-ios-widget" in app["plugins"]
+    assert "./plugins/with-localflight-android-widget" in app["plugins"]
+    assert app["ios"]["entitlements"]["com.apple.security.application-groups"] == [
+        "group.cc.beacontools.localflight"
+    ]
+    assert app["extra"]["eas"]["build"]["experimental"]["ios"]["appExtensions"] == [
+        {
+            "targetName": "LocalFlightWidget",
+            "bundleIdentifier": "cc.beacontools.localflight.widget",
+            "entitlements": {
+                "com.apple.security.application-groups": ["group.cc.beacontools.localflight"]
+            },
+        }
+    ]
     camera_plugin = next(
         plugin for plugin in app["plugins"] if isinstance(plugin, list) and plugin[0] == "expo-camera"
     )
@@ -6170,13 +6211,16 @@ def test_mobile_store_beta_identity_uses_beacon_ids_without_payment_scaffolding(
     assert eas["build"]["beta"]["android"]["buildType"] == "app-bundle"
     for payment_path in (
         root / "mobile" / "src" / "api" / "iap.ts",
-        root / "mobile" / "src" / "domain" / "support.ts",
-        root / "mobile" / "src" / "iap" / "supportProvider.ts",
-        root / "mobile" / "src" / "iap" / "appleSupportProvider.ts",
+        root / "mobile" / "src" / "iap" / "products.ts",
         root / "mobile" / "src" / "iap" / "types.ts",
+        root / "mobile" / "src" / "iap" / "useSupportPurchases.ts",
     ):
-        assert not payment_path.exists()
-    assert "/v1/mobile/iap/" not in relay
+        assert payment_path.exists()
+    assert '"expo-iap"' in (root / "mobile" / "package.json").read_text(encoding="utf-8")
+    assert "/v1/mobile/iap/verify" in relay
+    assert "cc.beacontools.localflight.support.small" in relay
+    assert "cc.beacontools.localflight.support.medium" in relay
+    assert "cc.beacontools.localflight.support.large" in relay
     assert "cc.beacontools.localflight.tip." not in relay
 
 

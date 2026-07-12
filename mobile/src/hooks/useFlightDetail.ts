@@ -6,11 +6,24 @@ import { reportMobileCrash } from "../crash/reporter";
 import { detailOrNull } from "../domain/flights";
 import { errorMessage } from "../domain/formatting";
 
-export function useFlightDetail(serverUrl: string, onError: (message: string) => void) {
+function preserveAvailableDetail(
+  response: FidsDetailResponse,
+  current: FidsDetailResponse | null
+): FidsDetailResponse {
+  if (detailOrNull(response) || !detailOrNull(current)) return response;
+  return {
+    ...response,
+    detail: current?.detail || {},
+    history: response.history.length ? response.history : current?.history || []
+  };
+}
+
+export function useFlightDetail(serverUrl: string) {
   const [visible, setVisible] = useState(false);
   const [loading, setLoading] = useState(false);
   const [callsign, setCallsign] = useState("");
   const [data, setData] = useState<FidsDetailResponse | null>(null);
+  const [notice, setNotice] = useState("");
   const requestRef = useRef(0);
 
   const reportDetailFailure = useCallback((exc: unknown, nextCallsign: string, normalized: string) => {
@@ -41,16 +54,19 @@ export function useFlightDetail(serverUrl: string, onError: (message: string) =>
       const requestId = requestRef.current + 1;
       requestRef.current = requestId;
       setLoading(true);
+      setNotice("");
 
       try {
         const detailData = await getFidsDetail(normalized, nextCallsign);
         if (requestRef.current === requestId) {
-          setData(detailData);
+          setData((current) => preserveAvailableDetail(detailData, current));
+          if (!detailOrNull(detailData)) {
+            setNotice("No matching live enrichment was returned. Showing the available board details.");
+          }
         }
       } catch (exc) {
         if (requestRef.current === requestId) {
-          setData(null);
-          onError(errorMessage(exc));
+          setNotice("Live enrichment is temporarily unavailable. Showing the available board details.");
           reportDetailFailure(exc, nextCallsign, normalized);
         }
       } finally {
@@ -59,7 +75,7 @@ export function useFlightDetail(serverUrl: string, onError: (message: string) =>
         }
       }
     },
-    [onError, reportDetailFailure, serverUrl]
+    [reportDetailFailure, serverUrl]
   );
 
   const open = useCallback(
@@ -72,10 +88,12 @@ export function useFlightDetail(serverUrl: string, onError: (message: string) =>
       const shouldFetch = options.fetch ?? true;
       setCallsign(nextCallsign);
       setData(seed);
+      setNotice("");
       setVisible(true);
       if (shouldFetch) {
         void load(nextCallsign);
       } else {
+        requestRef.current += 1;
         setLoading(false);
       }
     },
@@ -83,7 +101,9 @@ export function useFlightDetail(serverUrl: string, onError: (message: string) =>
   );
 
   const close = useCallback(() => {
+    requestRef.current += 1;
     setVisible(false);
+    setLoading(false);
   }, []);
 
   const refresh = useCallback(() => {
@@ -97,6 +117,7 @@ export function useFlightDetail(serverUrl: string, onError: (message: string) =>
     data,
     detail: detailOrNull(data),
     history: data?.history || [],
+    notice,
     open,
     close,
     refresh

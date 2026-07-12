@@ -39,7 +39,7 @@ Expo SDK 55 targets React Native 0.83 and React 19.2. Run `npm run doctor` after
 
 For App Store/TestFlight preparation, keep [APP_STORE_REVIEW_NOTES.md](APP_STORE_REVIEW_NOTES.md) aligned with the exact build being submitted. For Google Play preparation, keep [PLAY_STORE_REVIEW_NOTES.md](PLAY_STORE_REVIEW_NOTES.md) aligned with the exact Android App Bundle being submitted. Store-facing website/support links should point to `https://beacontools.cc/local-flight/mobile`; privacy links should point to `https://beacontools.cc/privacy`.
 
-The design and data-contract handoff for future iOS widgets and Dynamic Island / Live Activity surfaces lives in [`../docs/mobile-ios-widgets-dynamic-island.md`](../docs/mobile-ios-widgets-dynamic-island.md). The app writes a hardened widget snapshot now and the tracked native template lives in [`native/ios-widget/`](native/ios-widget/), but the current store-testing build does not enable the WidgetKit config plugin or ship a widget target.
+The home-screen widget contract and Dynamic Island / Live Activity boundary live in [`../docs/mobile-ios-widgets-dynamic-island.md`](../docs/mobile-ios-widgets-dynamic-island.md). The current source enables a WidgetKit extension for iOS and a local `AppWidgetProvider` for Android. Both read the same bounded app-written snapshot and never fetch LAN, relay, or provider data themselves. Dynamic Island and Live Activities remain deferred.
 
 If Xcode was freshly installed or upgraded, accept the Apple SDK license first:
 
@@ -138,13 +138,13 @@ npm run android
 Store identity and the current `0.5.1` testing counters are:
 
 - iOS bundle ID: `cc.beacontools.localflight`
-- iOS `buildNumber`: `4`
+- iOS `buildNumber`: `5`
 - Android package ID: `cc.beacontools.localflight`
-- Android `versionCode`: `8`
+- Android `versionCode`: `9`
 
 Do not upload a store build with any old `com.localflight.*` identifier. App Store bundle IDs and Google Play package names are effectively permanent after first upload.
 
-The current signed artifacts are already built as iOS `0.5.1 (4)` and Android `0.5.1 (8)`. Do not rebuild those counters for the same testing upload. For a later version, increment both store counters first, then use EAS:
+The previous signed testing artifacts remain iOS `0.5.1 (4)` and Android `0.5.1 (8)`. The widget-enabled source now targets iOS `0.5.1 (5)` and Android `0.5.1 (9)`; these counters need fresh store builds because native widget code cannot be delivered through an over-the-air JavaScript update.
 
 ```bash
 cd mobile
@@ -232,7 +232,7 @@ The screenshot script builds a self-contained simulator app and captures portrai
 - Companion daily surfaces: Board, Radar, History, and Control. Help & Reports lives inside Control instead of taking a bottom-nav slot.
 - Remote Companion fallback for paired relay-linked hosts, including stored grant refs, LAN-first fallback, friendly offline/revoked messages, and a visible `LAN` / `REMOTE` / `OFFLINE` connection state.
 - Standalone daily surfaces: Board, Radar, History, and Settings
-- SecureStore persistence for setup mode, server URL, mobile install ID, standalone relay install ID, standalone activation token, standalone airport, mobile diagnostics mode, pinned flight, profiles, mobile appearance choices, and future widget preferences
+- SecureStore persistence for setup mode, server URL, mobile install ID, standalone relay install ID, standalone activation token, standalone airport, mobile diagnostics mode, pinned flight, profiles, mobile appearance choices, and widget preferences
 - Companion connection checks against `/api/health`
 - Companion dashboard data from `/api/mobile/summary` plus the existing local APIs, with encrypted relay request/response envelopes used only after LAN fetch failure when a remote grant exists
 - QR pairing from native Settings prefers the server's LAN IP and carries the server fingerprint, so the app can reject a scan that resolves to another Local Flight host on a multi-server LAN
@@ -245,8 +245,8 @@ The screenshot script builds a self-contained simulator app and captures portrai
 - Independent mobile appearance with dark/light theme plus `standard`, `technical`, `neon`, `cyan`, and `crt` skins
 - Branded launch overlay with a continuous radar sweep, status text fade, breathing status dot, blinking board LED, and shared Local Flight wordmark text
 - Native-feeling interaction polish on key taps, chips, pinned-flight actions, and weather icon changes through haptics, press-scale feedback, and small transitions
-- iOS widget and Dynamic Island design spec, a quiet Mobile settings path for future pinned-flight and airport-board glance preferences, and a hardened `localflight-widget-snapshot.json` contract. The current store build does not ship the widget extension.
-- Widget snapshot contract checks run through `npm run widget:contract` and are included in `npm run verify`
+- iOS small/medium WidgetKit and Android resizable home-screen widgets backed by the hardened `localflight-widget-snapshot.json` contract. The widgets are read-only, stale-aware, size-bounded, and network-free.
+- Widget snapshot and native-platform contract checks run through `npm run widget:contract` and `npm run native-widget:contract`; both are included in `npm run verify`.
 - Companion Matrix live-remote controls from Control using the host Matrix runtime config APIs, focused on runtime settings such as timing, palette, weather badge visibility, gate display, brightness, row count, animation, and refresh cadence.
 - Fullscreen landscape FIDS from any screen, with normal portrait state restored when rotating back
 - Mobile-owned radar radius controls. Companion uses the paired server for runway and airport-surface drawing; Standalone uses the relay mobile radar response for this pass.
@@ -290,12 +290,13 @@ The mobile install ID and standalone relay install ID are install-scoped. They a
 - `App.tsx` is only the provider entrypoint.
 - `src/app/AppShell.tsx` coordinates setup mode, connection state, refresh flow, WebSocket handling, standalone relay flow, and shared app chrome.
 - `src/api/standalone.ts` is the relay-backed mobile data/report client for Standalone mode.
+- `src/api/iap.ts` and `src/iap/` own the native-store product catalog, purchase lifecycle, unfinished-transaction recovery, and relay verification client.
 - `src/domain/` contains pure helpers and constants for flights, formatting, radar, matrix, and feedback context.
 - `src/hooks/` contains stateful behavior such as launch/bootstrap, dashboard refresh, flight detail loading, and Matrix draft/save/reset.
 - `src/screens/AppScreens.tsx` contains the main screens and sheets.
 - `src/storage/standaloneHistory.ts` stores successful standalone FIDS rows locally with Expo SQLite.
 - `src/theme/` contains mobile appearance tokens, runtime appearance storage, and the style bridge used by extracted screens.
-- This build contains no payment UI, purchase products, billing adapter, or purchase-verification endpoint. Monetization is outside the `0.5.1` release baseline.
+- Optional one-time support uses three store-owned consumable products. It unlocks nothing, shows only App Store/Play localized prices, and is consumed only after secure relay verification.
 
 ---
 
@@ -303,13 +304,13 @@ The mobile install ID and standalone relay install ID are install-scoped. They a
 
 - Public App Store release
 - Public Google Play production release
-- Wired native iOS WidgetKit / ActivityKit extension targets, App Groups, APNs, and production Live Activity updates
+- Dynamic Island / ActivityKit, APNs, and production Live Activity updates
 - Remote Companion physical-device validation on Android and iOS before public store rollout.
 - Per-device authorization/revoke tokens for broader mutating LAN controls. Current Companion identifies each device with an install-scoped companion ID/check-in plus optional Remote Companion grant, while Standalone uses its relay activation token.
 - Broader mobile admin control is intentionally out of scope; Companion exposes only the current allowlisted control surfaces.
 - Native crash capture before JavaScript starts
 - Full standalone flight-detail endpoint parity; Standalone currently focuses on Board, Radar, History, Settings, and reports
-- Payments, tips, and in-app purchases
+- Subscriptions, paywalls, durable paid entitlements, and external payment links
 
 ---
 
@@ -320,6 +321,7 @@ The mobile install ID and standalone relay install ID are install-scoped. They a
 - App Store Connect privacy/review metadata using `APP_STORE_REVIEW_NOTES.md`
 - Google Play internal-test proof pass on a fresh Android phone: Companion LAN/Remote pairing, Standalone setup, denied camera path, permissions, and accessibility settings
 - Play Console privacy/Data Safety/review metadata using `PLAY_STORE_REVIEW_NOTES.md`
+- App Store sandbox and Play license-tester proof: all three localized consumables load, cancellation and pending states stay friendly, relay interruption leaves the purchase unfinished, reconnect verifies once, and verified purchases can be bought again after consumption.
 - Full standalone flight-detail endpoint parity if Standalone should expose the same detail sheet depth as Companion
 - Broader Android device matrix pass after the first local Android smoke test
 - Optional React Navigation stack only if future deep links need true back-stack behavior

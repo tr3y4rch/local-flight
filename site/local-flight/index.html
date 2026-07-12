@@ -10,6 +10,7 @@
   <link rel="icon" type="image/png" sizes="32x32" href="/assets/favicon-32.png">
   <link rel="icon" type="image/png" sizes="512x512" href="/assets/beacon-tools-icon-512.png">
   <link rel="apple-touch-icon" sizes="180x180" href="/assets/apple-touch-icon.png">
+  <script src="/assets/downloads.js" defer></script>
 </head>
 <body>
   <div class="site-shell">
@@ -22,6 +23,7 @@
         <div class="nav-links">
           <a class="home-button" href="/">Home</a>
           <a href="/local-flight/">Local Flight</a>
+          <a href="#downloads">Downloads</a>
           <a href="/local-flight/mobile/">Mobile</a>
           <a href="/network/">Network</a>
           <a href="/privacy/">Privacy</a>
@@ -38,7 +40,7 @@
           <h1>Your flight board. Your screen. Your server.</h1>
           <p class="lede">Run an airport-style departures and arrivals board on a computer or Raspberry Pi, then extend it to LAN screens, phones, radar, history, and LED matrix panels without signing into a display platform.</p>
           <div class="actions">
-            <a class="button primary" href="https://github.com/tr3y4rch/local-flight/releases">View available releases</a>
+            <a class="button primary" href="#downloads">Download Local Flight</a>
             <a class="button secondary" href="/local-flight/mobile/">Mobile apps</a>
             <a class="button" href="https://github.com/tr3y4rch/local-flight">Source on GitHub</a>
             <a class="button secondary" href="/support/">Support</a>
@@ -53,6 +55,68 @@
     </header>
 
     <main>
+      <section class="section" id="downloads" data-downloads>
+        <div class="wrap">
+          <div class="section-head">
+            <div>
+              <div class="eyebrow">Direct downloads</div>
+              <h2>Choose your Local Flight host.</h2>
+            </div>
+            <p>Installers stay on the official GitHub Releases page. Beacon Tools checks that release and links the newest complete package for each platform.</p>
+          </div>
+
+          <div class="download-release-status" data-release-status aria-live="polite">Checking the latest packaged GitHub release...</div>
+          <div class="grid download-grid">
+            <article class="card download-card" data-download-platform="windows">
+              <div class="download-platform">
+                <span class="icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24"><path d="M3 5l8-1v8H3z"/><path d="M13 4l8-1v9h-8z"/><path d="M3 14h8v8l-8-1z"/><path d="M13 14h8v9l-8-1z"/></svg>
+                </span>
+                <div><span>Desktop</span><h3>Windows</h3></div>
+              </div>
+              <p>Guided installer for the native app, local server, LAN access, phone pairing, and Matrix tools.</p>
+              <p class="download-status" data-download-status>Checking package...</p>
+              <div class="actions download-actions">
+                <a class="button primary" data-download-button href="https://github.com/tr3y4rch/local-flight/releases">View release files</a>
+                <a class="download-checksum" data-download-checksum href="https://github.com/tr3y4rch/local-flight/releases" hidden>SHA256 checksum</a>
+              </div>
+            </article>
+
+            <article class="card download-card" data-download-platform="macos">
+              <div class="download-platform">
+                <span class="icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24"><path d="M8 18c-3-2-4-7-2-10 2-3 5-2 6-1 2-1 5-2 7 1-4 2-3 7 1 8-1 3-3 6-5 6-2 0-3-1-3-1s-1 1-3 1z"/><path d="M14 5c0-2 2-4 4-4 0 2-1 4-4 4z"/></svg>
+                </span>
+                <div><span>Desktop</span><h3>macOS</h3></div>
+              </div>
+              <p>Native app archive for Apple silicon Macs. Extract it, move the app to Applications, then use Finder Open once.</p>
+              <p class="download-status" data-download-status>Checking package...</p>
+              <div class="actions download-actions">
+                <a class="button primary" data-download-button href="https://github.com/tr3y4rch/local-flight/releases">View release files</a>
+                <a class="download-checksum" data-download-checksum href="https://github.com/tr3y4rch/local-flight/releases" hidden>SHA256 checksum</a>
+              </div>
+            </article>
+
+            <article class="card download-card" data-download-platform="pi">
+              <div class="download-platform">
+                <span class="icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14" rx="2"/><path d="M9 9h6v6H9z"/><path d="M8 2v3M12 2v3M16 2v3M8 19v3M12 19v3M16 19v3M2 8h3M2 12h3M2 16h3M19 8h3M19 12h3M19 16h3"/></svg>
+                </span>
+                <div><span>Server or kiosk</span><h3>Raspberry Pi</h3></div>
+              </div>
+              <p>Versioned source bundle for headless, native kiosk, or browser kiosk installation on Raspberry Pi OS.</p>
+              <p class="download-status" data-download-status>Checking package...</p>
+              <div class="actions download-actions">
+                <a class="button primary" data-download-button href="https://github.com/tr3y4rch/local-flight/releases">View release files</a>
+                <a class="download-checksum" data-download-checksum href="https://github.com/tr3y4rch/local-flight/releases" hidden>SHA256 checksum</a>
+              </div>
+            </article>
+          </div>
+
+          <p class="note download-note">Downloads come directly from <a href="https://github.com/tr3y4rch/local-flight/releases">the official Local Flight GitHub Releases page</a>. A direct button appears only when the package and its matching SHA256 checksum are both present. The current Mac archive is not Developer ID notarized, so macOS may ask you to confirm the first launch through Finder. Never disable Gatekeeper globally.</p>
+        </div>
+      </section>
+
       <section class="section" id="install">
         <div class="wrap">
           <div class="section-head">

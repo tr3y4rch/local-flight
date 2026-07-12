@@ -8,6 +8,7 @@ const mobileRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".
 const screensSource = fs.readFileSync(path.join(mobileRoot, "src/screens/AppScreens.tsx"), "utf8");
 const appShellSource = fs.readFileSync(path.join(mobileRoot, "src/app/AppShell.tsx"), "utf8");
 const styleBridgeSource = fs.readFileSync(path.join(mobileRoot, "src/theme/styleBridge.ts"), "utf8");
+const flightDetailHookSource = fs.readFileSync(path.join(mobileRoot, "src/hooks/useFlightDetail.ts"), "utf8");
 
 function sourceSection(source, startMarker, endMarker, label) {
   const start = source.indexOf(startMarker);
@@ -80,6 +81,39 @@ assert.match(
   styleBridgeSource,
   /export let palette: MobileAppearance/,
   "Extracted screens need the live runtime palette binding."
+);
+
+const flightDetailSheet = sourceSection(
+  screensSource,
+  "export function FlightDetailSheet(",
+  "export function FlightActionSheet(",
+  "Flight detail sheet"
+);
+assert.match(
+  flightDetailSheet,
+  /\{detail \? \(/,
+  "Seeded flight details must remain visible while live enrichment loads."
+);
+assert.doesNotMatch(
+  flightDetailSheet,
+  /!loading && detail \? \(/,
+  "Loading enrichment must not blank an already available flight detail."
+);
+const detailFailure = sourceSection(
+  flightDetailHookSource,
+  "} catch (exc) {",
+  "} finally {",
+  "Flight detail failure fallback"
+);
+assert.doesNotMatch(
+  detailFailure,
+  /setData\(null\)/,
+  "A failed enrichment request must not erase seeded board details."
+);
+assert.match(
+  flightDetailHookSource,
+  /preserveAvailableDetail/,
+  "Empty enrichment responses must preserve usable seeded flight details."
 );
 
 console.log("Mobile visual contract checks passed.");

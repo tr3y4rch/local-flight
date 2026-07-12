@@ -30,6 +30,7 @@ export const WIDGET_SNAPSHOT_SCHEMA_VERSION = 1;
 export const WIDGET_APP_GROUP_ID = "group.cc.beacontools.localflight";
 export const WIDGET_SNAPSHOT_FILENAME = "localflight-widget-snapshot.json";
 export const WIDGET_SNAPSHOT_STALE_AFTER_MS = 15 * 60 * 1000;
+export const WIDGET_SNAPSHOT_MAX_BYTES = 64 * 1024;
 const WIDGET_MAX_MEDIUM_ROWS_WITH_PIN = 4;
 
 export type WidgetSnapshotMode = "lan_companion" | "standalone";
@@ -304,7 +305,16 @@ export function normalizeWidgetExchangeSnapshot(value: unknown): LocalFlightWidg
 }
 
 export function serializeWidgetExchangeSnapshot(snapshot: LocalFlightWidgetSnapshot): string {
-  return JSON.stringify(normalizeWidgetExchangeSnapshot(snapshot) || snapshot);
+  const json = JSON.stringify(normalizeWidgetExchangeSnapshot(snapshot) || snapshot);
+  let bytes = 0;
+  for (const character of json) {
+    const codePoint = character.codePointAt(0) || 0;
+    bytes += codePoint <= 0x7f ? 1 : codePoint <= 0x7ff ? 2 : codePoint <= 0xffff ? 3 : 4;
+  }
+  if (bytes > WIDGET_SNAPSHOT_MAX_BYTES) {
+    throw new Error("Widget snapshot exceeds the 64 KiB safety limit.");
+  }
+  return json;
 }
 
 export function parseWidgetExchangeSnapshot(json: string): LocalFlightWidgetSnapshot | null {

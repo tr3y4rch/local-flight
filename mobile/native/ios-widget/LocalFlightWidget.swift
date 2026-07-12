@@ -7,6 +7,14 @@ struct LocalFlightTimelineEntry: TimelineEntry {
 }
 
 struct LocalFlightWidgetProvider: TimelineProvider {
+  private func nextRefresh(for snapshot: LocalFlightWidgetSnapshot) -> Date {
+    let fallback = Date().addingTimeInterval(15 * 60)
+    guard let expiry = ISO8601DateFormatter().date(from: snapshot.expiresAt) else {
+      return fallback
+    }
+    return min(max(expiry, Date().addingTimeInterval(5 * 60)), Date().addingTimeInterval(30 * 60))
+  }
+
   func placeholder(in context: Context) -> LocalFlightTimelineEntry {
     LocalFlightTimelineEntry(date: Date(), snapshot: LocalFlightWidgetSnapshotStore.placeholder)
   }
@@ -23,7 +31,7 @@ struct LocalFlightWidgetProvider: TimelineProvider {
       date: Date(),
       snapshot: LocalFlightWidgetSnapshotStore.load() ?? LocalFlightWidgetSnapshotStore.placeholder
     )
-    completion(Timeline(entries: [entry], policy: .after(Date().addingTimeInterval(5 * 60))))
+    completion(Timeline(entries: [entry], policy: .after(nextRefresh(for: entry.snapshot))))
   }
 }
 
@@ -48,6 +56,7 @@ struct LocalFlightWidget: Widget {
   var body: some WidgetConfiguration {
     StaticConfiguration(kind: kind, provider: LocalFlightWidgetProvider()) { entry in
       LocalFlightWidgetView(entry: entry)
+        .widgetURL(URL(string: "localflight://widgets"))
     }
     .configurationDisplayName("Local Flight")
     .description("Pinned flight and airport board glance.")
