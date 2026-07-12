@@ -1,13 +1,13 @@
 # Local Flight Mobile Google Play Review Notes
 
-This file is the working checklist for the first Android proof-of-concept release. It is not legal advice; keep the final Play Console answers aligned with the exact submitted AAB.
+This file is the working checklist for the `0.5.1` Play internal-testing build. It is not legal advice; keep the final Play Console answers aligned with the exact submitted AAB.
 
 ## Reviewer Test Path
 
 - App name: **Local Flight**
 - Android package: `cc.beacontools.localflight`
 - Version name: `0.5.1`
-- Version code: `1`
+- Version code: `8`
 - Project / support URL: `https://beacontools.cc/local-flight/mobile`
 - Privacy Policy URL: `https://beacontools.cc/privacy`
 - Recommended review path: choose **Standalone** on first launch so the app can be tested without a desktop or Raspberry Pi server.
@@ -55,6 +55,6 @@ Local Flight flight, weather, radar, and surface data are informational display 
 - Remote Companion: pair on LAN, block LAN, confirm `REMOTE` state loads Board/Radar/History/Control, then revoke and confirm remote access stops.
 - Bad QR/fingerprint mismatch: app rejects the wrong LAN server.
 - Offline relay: Standalone shows a useful retry/error state.
-- Support sheet: shows coming soon / not active and cannot charge.
-- Bottom navigation: Standalone shows Board/Radar/History/Settings; Companion shows Board/Radar/History/Control/Help.
+- Payment surface: no support sheet, purchase button, products, or billing flow is present.
+- Bottom navigation: Standalone shows Board/Radar/History/Settings; Companion shows Board/Radar/History/Control.
 - Accessibility: only claim Play listing accessibility support after real Android common-task testing with TalkBack, font scaling, contrast, and reduced animation.

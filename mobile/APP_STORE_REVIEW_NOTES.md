@@ -1,13 +1,13 @@
 # Local Flight Mobile App Store / TestFlight Review Notes
 
-This file is the working checklist for the first iOS proof-of-concept review. It is not legal advice; keep the final App Store Connect answers aligned with the exact submitted build.
+This file is the working checklist for the `0.5.1` TestFlight/review build. It is not legal advice; keep the final App Store Connect answers aligned with the exact submitted build.
 
 ## Reviewer Test Path
 
 - App name: **Local Flight**
 - Bundle identifier: `cc.beacontools.localflight`
 - Version: `0.5.1`
-- Build number: `1`
+- Build number: `4`
 - Project / support URL: `https://beacontools.cc/local-flight/mobile`
 - Privacy Policy URL: `https://beacontools.cc/privacy`
 - Recommended review path: choose **Standalone** on first launch so the app can be tested without a desktop or Raspberry Pi server.
@@ -15,7 +15,7 @@ This file is the working checklist for the first iOS proof-of-concept review. It
 - Standalone daily surfaces are **Board**, **Radar**, **History**, and **Settings**.
 - Companion is also included. It pairs with a Local Flight desktop/Pi server over the same local network by QR code or manual URL.
 - Remote Companion is part of Companion mode. After explicit host-side grant pairing, Companion uses LAN first and can fall back to encrypted relay routing when the phone is away from Wi-Fi and the host is online.
-- Companion daily surfaces are **Board**, **Radar**, **History**, **Control**, and **Help**.
+- Companion daily surfaces are **Board**, **Radar**, **History**, and **Control**. Help & Reports is inside Control.
 
 ## Permission Rationale
 
@@ -60,6 +60,6 @@ Local Flight flight, weather, radar, and surface data are informational display 
 - Denied local network: app explains LAN pairing cannot reach the server and Standalone remains usable.
 - Bad QR/fingerprint mismatch: app rejects the wrong LAN server.
 - Offline relay: Standalone shows a useful retry/error state.
-- Support sheet: shows coming soon / not active and cannot charge.
-- Bottom navigation: Standalone shows Board/Radar/History/Settings; Companion shows Board/Radar/History/Control/Help.
+- Payment surface: no support sheet, purchase button, products, or billing flow is present.
+- Bottom navigation: Standalone shows Board/Radar/History/Settings; Companion shows Board/Radar/History/Control.
 - Accessibility labels: only claim App Store Accessibility Nutrition Labels after real common-task testing.

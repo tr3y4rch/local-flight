@@ -135,12 +135,12 @@ npm run android
 
 ### Store Beta / Release Path
 
-Store identity is now locked to Beacon-owned IDs before the first App Store Connect or Play Console upload:
+Store identity and the current `0.5.1` testing counters are:
 
 - iOS bundle ID: `cc.beacontools.localflight`
-- iOS `buildNumber`: `1`
+- iOS `buildNumber`: `4`
 - Android package ID: `cc.beacontools.localflight`
-- Android `versionCode`: `1`
+- Android `versionCode`: `8`
 
 Do not upload a store build with any old `com.localflight.*` identifier. App Store bundle IDs and Google Play package names are effectively permanent after first upload.
 

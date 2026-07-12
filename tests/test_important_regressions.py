@@ -6144,9 +6144,15 @@ def test_mobile_store_beta_identity_uses_beacon_ids_without_payment_scaffolding(
     relay = (root / "relay" / "main.py").read_text(encoding="utf-8")
 
     assert app["ios"]["bundleIdentifier"] == "cc.beacontools.localflight"
-    assert app["ios"]["buildNumber"] == "1"
+    assert app["ios"]["buildNumber"] == "4"
     assert app["android"]["package"] == "cc.beacontools.localflight"
-    assert app["android"]["versionCode"] == 1
+    assert app["android"]["versionCode"] == 8
+    camera_plugin = next(
+        plugin for plugin in app["plugins"] if isinstance(plugin, list) and plugin[0] == "expo-camera"
+    )
+    assert camera_plugin[1]["microphonePermission"] is False
+    assert camera_plugin[1]["recordAudioAndroid"] is False
+    assert "android.permission.RECORD_AUDIO" in app["android"]["blockedPermissions"]
     assert eas["build"]["beta"]["distribution"] == "store"
     assert eas["build"]["beta"]["android"]["buildType"] == "app-bundle"
     for payment_path in (

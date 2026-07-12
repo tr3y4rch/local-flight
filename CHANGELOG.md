@@ -56,8 +56,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Mobile store readiness
 - Kept the permanent Beacon-owned mobile IDs:
   `cc.beacontools.localflight` for both iOS and Android.
-- Kept first store build counters at iOS build `1` and Android versionCode `1`
-  unless a store upload has already consumed those counters.
+- Aligned the `0.5.1` mobile testing upload to iOS build `4` and Android
+  versionCode `8`, both above the highest completed EAS builds already used by
+  the project.
 - Preserved the Standalone reviewer path and Companion path while making Remote
   Companion a normal paired-host fallback. Payments, tips, purchase UI, and IAP
   processing are not included in this release.
