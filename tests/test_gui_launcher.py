@@ -2097,7 +2097,7 @@ def test_native_radar_screen_toggles_optional_intelligence_layers(monkeypatch: p
     assert "OSM surface checked" in screen.source_info.text()
     assert screen.canvas.map_features[0]["kind"] == "road"
     assert "map" in screen.source_info.text()
-    assert "map 1 features" in screen.source_info.text()
+    assert "airport map ready" in screen.source_info.text()
     assert "status labels" not in screen.source_info.text()
     screen.layer_toggles["traffic_status"].setChecked(True)
     assert "status labels" in screen.source_info.text()
@@ -2107,7 +2107,7 @@ def test_native_radar_screen_toggles_optional_intelligence_layers(monkeypatch: p
     assert screen.canvas.layers["terrain"] is True
     assert screen.canvas.procedure_paths[0]["kind"] == "approach"
     assert screen.canvas.terrain_features
-    assert "terrain 1 features" in screen.source_info.text()
+    assert "terrain ready" in screen.source_info.text()
     assert "labels" in screen.filter_summary.text()
 
 
@@ -2145,7 +2145,8 @@ def test_native_radar_defaults_to_airborne_range_and_uses_current_hidden_counts(
     assert app is not None
     assert screen.radius_nm == 20
     assert "3 ground targets hidden" in screen.status.text()
-    assert "Details: /api/radar 20nm, VATSIM" in screen.status.text()
+    assert "Updated" in screen.status.text()
+    assert "/api/" not in screen.status.text()
 
 
 def test_native_radar_exports_standalone_page_and_canvas() -> None:
@@ -2991,7 +2992,11 @@ def test_native_settings_has_airport_search_picker(monkeypatch: pytest.MonkeyPat
     assert screen.companion_group.isChecked() is False
     assert screen.companion_body.isVisible() is False
     assert "localflight://pair" in screen.companion_pairing_url_label.text()
-    assert "Scan this from each iPhone/iPad" in screen.companion_body.findChild(QtWidgets.QLabel).text()
+    assert "scan once" in screen.companion_body.findChild(QtWidgets.QLabel).text()
+    companion_buttons = [button.text() for button in screen.companion_body.findChildren(QtWidgets.QPushButton)]
+    assert "Copy LAN-only link" in companion_buttons
+    assert "Create LAN + Remote QR" in companion_buttons
+    assert "Copy LAN + Remote link" in companion_buttons
     assert screen.help_docs_group.isChecked() is False
     assert screen.help_docs_body.isVisible() is False
     assert screen.maintenance_group.isChecked() is False
@@ -3470,10 +3475,10 @@ def test_lan_display_uses_shared_brand_shell_nav_and_fonts() -> None:
 
     assert '{% extends "base.html" %}' in display_template
     assert 'topnav(active="display", cfg=cfg)' in display_template
-    assert "/static/fonts.css" in base_template
-    assert "/static/lf-shell.css" in base_template
+    assert "/static/fonts.css?v={{ static_version }}" in base_template
+    assert "/static/lf-shell.css?v={{ static_version }}" in base_template
     assert "/static/localflight-logo.svg" in nav_template
-    assert "/static/localflight-app-icon.png" in base_template
+    assert "/static/localflight-app-icon.png?v={{ static_version }}" in base_template
     assert "topbar" not in display_template
     assert "site-name" not in display_template
     assert "settings-link" not in display_template
@@ -3496,6 +3501,51 @@ def test_lan_display_uses_shared_brand_shell_nav_and_fonts() -> None:
     assert "lf-segmented" in radar_template
     assert "fids-lt" not in fids_template
     assert "radar-lt" not in radar_template
+
+
+def test_browser_static_asset_version_tracks_bundled_content(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import localflight.ui.server as ui_server
+
+    static_dir = tmp_path / "static"
+    static_dir.mkdir()
+    stylesheet = static_dir / "lf-shell.css"
+    stylesheet.write_text(".lf-display-shell { display: flex; }", encoding="utf-8")
+    monkeypatch.setattr(ui_server, "_static_dir", lambda: static_dir)
+
+    first = ui_server._static_asset_version()
+    stylesheet.write_text(".lf-display-shell { display: grid; }", encoding="utf-8")
+    second = ui_server._static_asset_version()
+
+    assert len(first) == 12
+    assert first != second
+
+
+def test_lan_browser_declares_responsive_layout_contract() -> None:
+    from pathlib import Path
+
+    base_template = Path("src/localflight/ui/templates/base.html").read_text(encoding="utf-8")
+    shell_css = Path("src/localflight/ui/static/lf-shell.css").read_text(encoding="utf-8")
+    mobile_css = Path("src/localflight/ui/static/mobile.css").read_text(encoding="utf-8")
+    matrix_template = Path("src/localflight/ui/templates/matrix_preview.html").read_text(encoding="utf-8")
+    display_template = Path("src/localflight/ui/templates/display.html").read_text(encoding="utf-8")
+
+    for band in ('"phone"', '"mobile"', '"compact"', '"desktop"', '"wide"'):
+        assert band in base_template
+    assert "root.dataset.layout = layoutBand()" in base_template
+    assert 'window.addEventListener("resize", sync' in base_template
+    assert "*::before" in shell_css and "box-sizing: border-box" in shell_css
+    assert "--lf-page-gutter: clamp(" in shell_css
+    assert "--lf-control-min: 32px" in shell_css
+    assert "min-height: var(--lf-control-min)" in shell_css
+    assert "min-height: 44px" in mobile_css
+    assert "html.lf-is-mobile .lf-display-shell" in mobile_css
+    assert "html.lf-is-mobile .lf-display-fullscreen" in mobile_css
+    assert "min-height: 32px" in matrix_template
+    assert "lf_split_ratio_vertical" in display_template
+    assert "isVerticalSplit()" in display_template
+    assert "cursor: row-resize" in display_template
+    assert "function readStorage(key)" in display_template
+    assert "memoryStorage" in display_template
 
 
 def test_lan_polish_keeps_skin_tokens_and_compact_controls_wired() -> None:
@@ -4155,7 +4205,7 @@ def test_native_table_models_expose_common_rows(monkeypatch: pytest.MonkeyPatch)
                 "delay_minutes": 7,
                 "gate": "A42",
                 "terminal_display": "1",
-                "terminal_gate_display": "1 A42",
+                "terminal_gate_display": "A42",
                 "aircraft_type": "A320",
                 "callsign": "SWR100",
                 "source_hint": "aerodatabox+aviationstack",
@@ -4177,7 +4227,7 @@ def test_native_table_models_expose_common_rows(monkeypatch: pytest.MonkeyPatch)
     assert fused.data(fused.index(0, 1), QtCore.Qt.DisplayRole).startswith("LX 100\nSwiss")
     assert "BA 7100 / UA 9000" in fused.data(fused.index(0, 1), QtCore.Qt.DisplayRole)
     assert fused.data(fused.index(0, 3), QtCore.Qt.DisplayRole) == "DELAYED +7M"
-    assert fused.data(fused.index(0, 4), QtCore.Qt.DisplayRole) == "1 A42"
+    assert fused.data(fused.index(0, 4), QtCore.Qt.DisplayRole) == "A42"
     assert fused.row_at(0)["source_hint"] == "aerodatabox+aviationstack"
     assert history.headerData(3, QtCore.Qt.Horizontal, QtCore.Qt.DisplayRole) == "Callsign"
     assert requests.data(requests.index(0, 1), QtCore.Qt.DisplayRole) == "GET"

@@ -4,8 +4,8 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Local Flight - Setup</title>
-  <link rel="stylesheet" href="/static/fonts.css" />
-  <link rel="stylesheet" href="/static/app.css" />
+  <link rel="stylesheet" href="/static/fonts.css?v={{ static_version }}" />
+  <link rel="stylesheet" href="/static/app.css?v={{ static_version }}" />
   <style>
     :root {
       --setup-bg: #080c12;
@@ -552,7 +552,7 @@
 <body>
 <main class="setup-shell">
   <header class="setup-top">
-    <img class="setup-mark" src="/static/localflight-logo.svg" alt="" />
+    <img class="setup-mark" src="/static/localflight-logo.svg?v={{ static_version }}" alt="" />
     <div>
       <p class="setup-eyebrow">First launch wizard</p>
       <h1>Welcome to <span class="setup-brand-wordmark">Local Flight</span></h1>
@@ -781,7 +781,7 @@
         {% endfor %}
       </div>
       <div class="test-result ok" id="diagnosticsNote" style="display:block;">Manual mode is privacy-first: reports are sent only when you press Submit in the Report screen.</div>
-      <div class="hint">Privacy rule: no provider keys, activation tokens, raw install IDs, pilot identities, or internal secrets are shown here or sent from the client UI.</div>
+      <div class="hint">Sensitive connection details stay protected. Automatic diagnostics remain off unless you choose them.</div>
       <input type="hidden" id="diagnosticsModeInput" value="manual" />
     </div>
 

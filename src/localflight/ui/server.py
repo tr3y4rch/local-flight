@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import hashlib
 import json
 import logging
 import os
@@ -24,6 +25,7 @@ from localflight.companion_pairing import pairing_gateway_payload, pairing_qr_pn
 from localflight.ui.api import router as api_router
 from localflight.ui.matrix_guidance import matrix_guidance_payload
 from localflight.core.airports import best_label, city_country_label
+from localflight.core.notices import attach_notices, make_notice
 from localflight.core.settings_options import settings_options_context
 from localflight.core.timezones import resolve_airport_timezone, resolve_config_timezone
 from localflight.sources.web.relay_defaults import default_public_relay_url, relay_endpoint_url, validate_public_relay_url
@@ -264,6 +266,16 @@ def _static_dir() -> Path:
     return Path(__file__).resolve().parent / "static"
 
 
+def _static_asset_version() -> str:
+    """Fingerprint bundled assets so updated clients never reuse stale CSS."""
+    digest = hashlib.sha256()
+    static_dir = _static_dir()
+    for asset in sorted(path for path in static_dir.rglob("*") if path.is_file()):
+        digest.update(asset.relative_to(static_dir).as_posix().encode("utf-8"))
+        digest.update(asset.read_bytes())
+    return digest.hexdigest()[:12]
+
+
 @asynccontextmanager
 async def _lifespan(_app: FastAPI):
     logger.info("Session started | component=ui")
@@ -312,6 +324,7 @@ except Exception:
 
 templates.env.globals["app_version"] = _APP_VERSION
 templates.env.globals["airport_timezone"] = resolve_config_timezone
+templates.env.globals["static_version"] = _static_asset_version()
 
 
 def _safe_local_path(path: str, *, fallback: str = "/display") -> str:
@@ -559,12 +572,15 @@ def setup_page(request: Request) -> HTMLResponse:
 
 @app.get("/api/setup/client-info")
 def setup_client_info() -> Dict[str, Any]:
-    from localflight.storage.install import get_activation_token, get_install_fingerprint, get_install_id
+    from localflight.storage.install import get_activation_token, get_install_fingerprint
 
     token = get_activation_token().strip()
+    fingerprint = get_install_fingerprint()
     return {
-        "install_id": get_install_id(),
-        "install_fingerprint": get_install_fingerprint(),
+        # Compatibility alias: client-facing install_id has always been used as
+        # a display/support value. Keep the field while returning no raw UUID.
+        "install_id": fingerprint,
+        "install_fingerprint": fingerprint,
         "relay_url": _relay_url_default(),
         "activation_token_present": bool(token),
         "activation_token_prefix": token[:10] if token else "",
@@ -655,7 +671,7 @@ def _friendly_relay_error(detail: str, code: str, fallback: str) -> str:
         return "The relay is cooling down activation/status checks. Try again shortly."
     if code == "relay_unreachable":
         return "The relay could not be reached right now. Your local setup is unchanged."
-    return detail or fallback
+    return fallback
 
 
 def _retry_after_seconds(response: Any) -> int | None:
@@ -687,7 +703,19 @@ def _relay_failure_payload(payload: Any, *, http_status: int = 0, fallback: str 
         for key in ("request_id", "install_fingerprint", "known_install", "can_reissue", "token_prefix"):
             if key in payload:
                 result[key] = payload[key]
-    return result
+    tone = "warning" if code in {"manual_review", "rate_limited"} else "error"
+    return attach_notices(
+        result,
+        [make_notice(
+            f"relay.{code}",
+            tone,
+            result["error"],
+            next_step="Your local setup is unchanged. Try again shortly or continue with a local setup option.",
+            action={"kind": "settings", "label": "Open Settings", "target": "/settings"},
+        )],
+        route_family="setup",
+        source_category="relay",
+    )
 
 
 def _relay_json_response(response: Any) -> Dict[str, Any]:
@@ -706,14 +734,30 @@ def _provider_error_text(payload: Any, fallback: str) -> str:
         return fallback
     code = str(error.get("code") or "").strip()
     message = str(error.get("message") or error.get("info") or "").strip()
-    context = error.get("context")
-    if isinstance(context, dict) and context:
-        context_text = ", ".join(f"{key}: {value}" for key, value in sorted(context.items()))
-        if context_text:
-            message = f"{message} ({context_text})" if message else context_text
-    if code and message:
-        return f"{code}: {message}"
-    return message or code or fallback
+    combined = f"{code} {message}".casefold()
+    if any(word in combined for word in ("quota", "rate limit", "too many")):
+        return "This connection has reached its current usage allowance."
+    if any(word in combined for word in ("invalid", "unauthorized", "forbidden", "access key")):
+        return "This connection key was rejected. Check it and try again."
+    return fallback
+
+
+def _provider_test_payload(result: Dict[str, Any]) -> Dict[str, Any]:
+    notices = []
+    if not result.get("ok"):
+        message = str(result.get("error") or "This connection key could not be verified.")
+        notices.append(make_notice(
+            "provider.connection_check_failed",
+            "warning",
+            message,
+            next_step="Check the connection details and try again. Nothing has been saved.",
+        ))
+    return attach_notices(
+        result,
+        notices,
+        route_family="setup",
+        source_category="provider",
+    )
 
 
 async def _test_aviationstack_key(key: str) -> Dict[str, Any]:
@@ -728,15 +772,15 @@ async def _test_aviationstack_key(key: str) -> Dict[str, Any]:
         if r.status_code == 200:
             data = r.json()
             if "error" in data:
-                return {"ok": False, "error": _provider_error_text(data, "Invalid key")}
+                return {"ok": False, "error": _provider_error_text(data, "This connection key could not be verified.")}
             return {"ok": True}
         try:
             data = r.json()
         except Exception:
             data = {}
-        return {"ok": False, "error": _provider_error_text(data, f"HTTP {r.status_code}")}
-    except Exception as exc:
-        return {"ok": False, "error": str(exc)}
+        return {"ok": False, "error": _provider_error_text(data, "This connection key could not be verified.")}
+    except Exception:
+        return {"ok": False, "error": "This connection could not be checked right now. Try again shortly."}
 
 
 async def _test_aerodatabox_key(
@@ -791,7 +835,7 @@ async def _test_aerodatabox_key(
         )
     except Exception as exc:
         if exc.__class__.__name__ == "LocalBudgetExceeded":
-            return {"ok": False, "error": str(exc)}
+            return {"ok": False, "error": "This connection has reached its current usage allowance."}
         logger.debug("AeroDataBox test budget guard unavailable; continuing with provider probe: %s", exc)
     try:
         r = _req.get(
@@ -816,19 +860,19 @@ async def _test_aerodatabox_key(
             return {"ok": False, "error": "AeroDataBox key invalid or not subscribed for this marketplace"}
         if r.status_code == 429:
             return {"ok": False, "error": "AeroDataBox provider quota or rate limit reached"}
-        return {"ok": False, "error": f"AeroDataBox HTTP {r.status_code}"}
-    except Exception as exc:
-        return {"ok": False, "error": str(exc)}
+        return {"ok": False, "error": "This connection key could not be verified."}
+    except Exception:
+        return {"ok": False, "error": "This connection could not be checked right now. Try again shortly."}
 
 
 @app.post("/api/setup/test-aerodatabox")
 async def setup_test_aerodatabox_post(body: AeroDataBoxKeyTestIn) -> Dict[str, Any]:
-    return await _test_aerodatabox_key(
+    return _provider_test_payload(await _test_aerodatabox_key(
         body.key,
         marketplace=body.marketplace,
         airport_iata=body.airport_iata,
         monthly_units_limit=body.monthly_units_limit,
-    )
+    ))
 
 
 @app.get("/api/setup/test-aerodatabox")
@@ -838,22 +882,22 @@ async def setup_test_aerodatabox_get(
     airport_iata: str = Query("ZRH"),
     monthly_units_limit: int = Query(AERODATABOX_DEFAULT_MONTHLY_UNITS),
 ) -> Dict[str, Any]:
-    return await _test_aerodatabox_key(
+    return _provider_test_payload(await _test_aerodatabox_key(
         key,
         marketplace=marketplace,
         airport_iata=airport_iata,
         monthly_units_limit=monthly_units_limit,
-    )
+    ))
 
 
 @app.post("/api/setup/test-aviationstack")
 async def setup_test_aviationstack_post(body: ApiKeyTestIn) -> Dict[str, Any]:
-    return await _test_aviationstack_key(body.key)
+    return _provider_test_payload(await _test_aviationstack_key(body.key))
 
 
 @app.get("/api/setup/test-aviationstack")
 async def setup_test_aviationstack_get(key: str = Query(...)) -> Dict[str, Any]:
-    return await _test_aviationstack_key(key)
+    return _provider_test_payload(await _test_aviationstack_key(key))
 
 
 async def _test_rapidapi_key(key: str) -> Dict[str, Any]:
@@ -873,10 +917,10 @@ async def _test_rapidapi_key(key: str) -> Dict[str, Any]:
         if r.status_code == 429:
             return {"ok": False, "error": "Rate limit hit â€” try again shortly"}
         if r.status_code >= 400:
-            return {"ok": False, "error": f"HTTP {r.status_code}"}
+            return {"ok": False, "error": "This connection key could not be verified."}
         return {"ok": True}
-    except Exception as exc:
-        return {"ok": False, "error": str(exc)}
+    except Exception:
+        return {"ok": False, "error": "This connection could not be checked right now. Try again shortly."}
 
 
 async def _test_opensky_key(opensky_id: str, opensky_secret: str) -> Dict[str, Any]:
@@ -908,7 +952,7 @@ async def _test_opensky_key(opensky_id: str, opensky_secret: str) -> Dict[str, A
         if r.status_code == 429:
             return {"ok": False, "error": "OpenSky rate limit reached"}
         if r.status_code >= 400:
-            return {"ok": False, "error": f"OpenSky HTTP {r.status_code}"}
+            return {"ok": False, "error": "This connection key could not be verified."}
         try:
             payload = r.json()
         except Exception:
@@ -916,23 +960,23 @@ async def _test_opensky_key(opensky_id: str, opensky_secret: str) -> Dict[str, A
         if not isinstance(payload, dict):
             return {"ok": False, "error": "OpenSky response shape was unexpected"}
         return {"ok": True}
-    except Exception as exc:
-        return {"ok": False, "error": str(exc)}
+    except Exception:
+        return {"ok": False, "error": "This connection could not be checked right now. Try again shortly."}
 
 
 @app.post("/api/setup/test-rapidapi")
 async def setup_test_rapidapi_post(body: ApiKeyTestIn) -> Dict[str, Any]:
-    return await _test_rapidapi_key(body.key)
+    return _provider_test_payload(await _test_rapidapi_key(body.key))
 
 
 @app.get("/api/setup/test-rapidapi")
 async def setup_test_rapidapi_get(key: str = Query(...)) -> Dict[str, Any]:
-    return await _test_rapidapi_key(key)
+    return _provider_test_payload(await _test_rapidapi_key(key))
 
 
 @app.post("/api/setup/test-opensky")
 async def setup_test_opensky_post(body: OpenSkyKeyTestIn) -> Dict[str, Any]:
-    return await _test_opensky_key(body.opensky_id, body.opensky_secret)
+    return _provider_test_payload(await _test_opensky_key(body.opensky_id, body.opensky_secret))
 
 
 @app.get("/api/setup/test-opensky")
@@ -940,7 +984,7 @@ async def setup_test_opensky_get(
     opensky_id: str = Query(...),
     opensky_secret: str = Query(...),
 ) -> Dict[str, Any]:
-    return await _test_opensky_key(opensky_id, opensky_secret)
+    return _provider_test_payload(await _test_opensky_key(opensky_id, opensky_secret))
 
 
 @app.post("/api/setup/activate")
@@ -951,8 +995,8 @@ async def setup_activate(body: ActivationSetupIn) -> Dict[str, Any]:
 
     try:
         relay_url = _validated_setup_relay_url(body.relay_url)
-    except ValueError as exc:
-        return {"ok": False, "status": "relay_unreachable", "error": str(exc)}
+    except ValueError:
+        return _relay_failure_payload({"detail": "connection failed"}, fallback="The relay address could not be used.")
     install_id = get_install_id()
     install_fingerprint = get_install_fingerprint()
     existing_token = get_activation_token().strip()
@@ -1023,8 +1067,8 @@ async def setup_client_status(body: ClientStatusSetupIn) -> Dict[str, Any]:
 
     try:
         relay_url = _validated_setup_relay_url(body.relay_url)
-    except ValueError as exc:
-        return {"ok": False, "status": "relay_unreachable", "error": str(exc)}
+    except ValueError:
+        return _relay_failure_payload({"detail": "connection failed"}, fallback="The relay address could not be used.")
     activation_token = (body.activation_token or "").strip() or get_activation_token().strip()
     metadata = relay_client_metadata()
     try:
@@ -1082,8 +1126,8 @@ async def setup_test_activation(body: ActivationTokenTestIn) -> Dict[str, Any]:
 
     try:
         relay_url = _validated_setup_relay_url(body.relay_url)
-    except ValueError as exc:
-        return {"ok": False, "status": "relay_unreachable", "error": str(exc)}
+    except ValueError:
+        return _relay_failure_payload({"detail": "connection failed"}, fallback="The relay address could not be used.")
     token = body.activation_token.strip() or get_activation_token().strip()
     if not token:
         return {"ok": False, "status": "token_invalid", "error": "Managed activation token is not loaded on this machine yet."}

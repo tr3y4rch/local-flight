@@ -2,10 +2,10 @@
   "version": 1,
   "renderer": "playwright-chromium",
   "masters": {
-    "beacon_lockup": "C:\\Users\\phsch\\Beacon Tools Branding\\Beacon\\brand-v2\\source\\lockup_horizontal_dark.svg",
-    "beacon_mark": "C:\\Users\\phsch\\Beacon Tools Branding\\Beacon\\brand-v2\\source\\icon_mark.svg",
-    "local_flight_dark": "C:\\Users\\phsch\\Beacon Tools Branding\\Local-Flight\\brand-v2\\source\\icon_dark.svg",
-    "local_flight_light": "C:\\Users\\phsch\\Beacon Tools Branding\\Local-Flight\\brand-v2\\source\\icon_light.svg"
+    "beacon_lockup": "beacon-lockup-master",
+    "beacon_mark": "beacon-mark-master",
+    "local_flight_dark": "local-flight-dark-master",
+    "local_flight_light": "local-flight-light-master"
   },
   "renditions": [
     {
@@ -14,7 +14,7 @@
       "file": "images/beacon-lockup-master-1620x420.png",
       "width": 1620,
       "height": 420,
-      "source": "C:\\Users\\phsch\\Beacon Tools Branding\\Beacon\\brand-v2\\source\\lockup_horizontal_dark.svg",
+      "source": "beacon-lockup-master",
       "renderer": "playwright-chromium",
       "sha256": "3f82f0a92a7030e8b305a22e4b84f70412d85d9663fee4d9bf5e3df7244e27e8",
       "notes": ""
@@ -25,7 +25,7 @@
       "file": "images/beacon-lockup-1200x311.png",
       "width": 1200,
       "height": 311,
-      "source": "C:\\Users\\phsch\\Beacon Tools Branding\\Beacon\\brand-v2\\source\\lockup_horizontal_dark.svg",
+      "source": "beacon-lockup-master",
       "renderer": "playwright-chromium",
       "sha256": "699594873fa71f4e6e6863151e3c0834428ee360f0e35efa9d0f18739b62df65",
       "notes": ""
@@ -36,7 +36,7 @@
       "file": "images/beacon-lockup-on-dark-1280x420.png",
       "width": 1280,
       "height": 420,
-      "source": "C:\\Users\\phsch\\Beacon Tools Branding\\Beacon\\brand-v2\\source\\lockup_horizontal_dark.svg",
+      "source": "beacon-lockup-master",
       "renderer": "playwright-chromium",
       "sha256": "0f8a1f659676328cf8fd1c76ce6a86bb849a92df7d9a67aeddda0e1b12cd80d5",
       "notes": "Context preview; master artwork is unchanged."
@@ -47,7 +47,7 @@
       "file": "images/beacon-lockup-on-light-1280x420.png",
       "width": 1280,
       "height": 420,
-      "source": "C:\\Users\\phsch\\Beacon Tools Branding\\Beacon\\brand-v2\\source\\lockup_horizontal_dark.svg",
+      "source": "beacon-lockup-master",
       "renderer": "playwright-chromium",
       "sha256": "70ab0d421057cc85bfbdb5b9b026ae539ca83e3ab5771c2168b021bf35418f89",
       "notes": "Context preview; master artwork is unchanged."
@@ -58,7 +58,7 @@
       "file": "images/beacon-lockup-on-checker-1280x420.png",
       "width": 1280,
       "height": 420,
-      "source": "C:\\Users\\phsch\\Beacon Tools Branding\\Beacon\\brand-v2\\source\\lockup_horizontal_dark.svg",
+      "source": "beacon-lockup-master",
       "renderer": "playwright-chromium",
       "sha256": "73621c93b29a7ce798fdf9f938b55f24430a008444209cd7fcb1d3f81da9f11d",
       "notes": "Context preview; master artwork is unchanged."
@@ -69,7 +69,7 @@
       "file": "images/beacon-lockup-header-fit-1200x180.png",
       "width": 1200,
       "height": 180,
-      "source": "C:\\Users\\phsch\\Beacon Tools Branding\\Beacon\\brand-v2\\source\\lockup_horizontal_dark.svg",
+      "source": "beacon-lockup-master",
       "renderer": "playwright-chromium",
       "sha256": "d91019a2af662df1b15deae3427d65c307368c01721e3fa14a7e6ec2b7daf040",
       "notes": ""
@@ -80,7 +80,7 @@
       "file": "images/beacon-lockup-header-crop-1200x180.png",
       "width": 1200,
       "height": 180,
-      "source": "C:\\Users\\phsch\\Beacon Tools Branding\\Beacon\\brand-v2\\source\\lockup_horizontal_dark.svg",
+      "source": "beacon-lockup-master",
       "renderer": "playwright-chromium",
       "sha256": "066f5e8702bcdfa74c4adc283b40642e2fcc50912843e53e2e99413e6b87af48",
       "notes": ""
@@ -91,7 +91,7 @@
       "file": "images/beacon-mark-16.png",
       "width": 16,
       "height": 16,
-      "source": "C:\\Users\\phsch\\Beacon Tools Branding\\Beacon\\brand-v2\\source\\icon_mark.svg",
+      "source": "beacon-mark-master",
       "renderer": "playwright-chromium",
       "sha256": "8abf22d66bfb2a9dc25b294c28f7a3172d7cb38e0830953a3df6468e7dfb88e6",
       "notes": ""
@@ -102,7 +102,7 @@
       "file": "images/beacon-mark-32.png",
       "width": 32,
       "height": 32,
-      "source": "C:\\Users\\phsch\\Beacon Tools Branding\\Beacon\\brand-v2\\source\\icon_mark.svg",
+      "source": "beacon-mark-master",
       "renderer": "playwright-chromium",
       "sha256": "7d27a84b5d6007897d1bd43edbfc3d03b7bb0115d24f77d131bca25268e5b6c2",
       "notes": ""
@@ -113,7 +113,7 @@
       "file": "images/beacon-mark-64.png",
       "width": 64,
       "height": 64,
-      "source": "C:\\Users\\phsch\\Beacon Tools Branding\\Beacon\\brand-v2\\source\\icon_mark.svg",
+      "source": "beacon-mark-master",
       "renderer": "playwright-chromium",
       "sha256": "bdd433eef32e1f5168645efa814d574495b43713d227f88f933bc18f2e3a6c13",
       "notes": ""
@@ -124,7 +124,7 @@
       "file": "images/beacon-mark-96.png",
       "width": 96,
       "height": 96,
-      "source": "C:\\Users\\phsch\\Beacon Tools Branding\\Beacon\\brand-v2\\source\\icon_mark.svg",
+      "source": "beacon-mark-master",
       "renderer": "playwright-chromium",
       "sha256": "4bf3c211961ebf09a4a2991950ff283a1efc46e4f475a313baf6915508c7d960",
       "notes": ""
@@ -135,7 +135,7 @@
       "file": "images/beacon-mark-180.png",
       "width": 180,
       "height": 180,
-      "source": "C:\\Users\\phsch\\Beacon Tools Branding\\Beacon\\brand-v2\\source\\icon_mark.svg",
+      "source": "beacon-mark-master",
       "renderer": "playwright-chromium",
       "sha256": "24795998acea4580ff82b92faf52576c192ded0732e5a8ad1ed62e98ada1e637",
       "notes": ""
@@ -146,7 +146,7 @@
       "file": "images/beacon-mark-512.png",
       "width": 512,
       "height": 512,
-      "source": "C:\\Users\\phsch\\Beacon Tools Branding\\Beacon\\brand-v2\\source\\icon_mark.svg",
+      "source": "beacon-mark-master",
       "renderer": "playwright-chromium",
       "sha256": "8c3858d0ee8f877763f573ab37b17ef41e4d77caa2ccb38860ce8306b4f0db0c",
       "notes": ""
@@ -157,7 +157,7 @@
       "file": "images/beacon-mark-on-dark-512.png",
       "width": 512,
       "height": 512,
-      "source": "C:\\Users\\phsch\\Beacon Tools Branding\\Beacon\\brand-v2\\source\\icon_mark.svg",
+      "source": "beacon-mark-master",
       "renderer": "playwright-chromium",
       "sha256": "d78fa6ac90bbea3de7d3db5bb69a73bf47265e6fbee0fb521f62b55bf31cd77c",
       "notes": ""
@@ -168,7 +168,7 @@
       "file": "images/beacon-mark-on-light-512.png",
       "width": 512,
       "height": 512,
-      "source": "C:\\Users\\phsch\\Beacon Tools Branding\\Beacon\\brand-v2\\source\\icon_mark.svg",
+      "source": "beacon-mark-master",
       "renderer": "playwright-chromium",
       "sha256": "b8bbf585b0313b75e084f4f08493349b752af0a464ad9780e7961ba315288d1b",
       "notes": ""
@@ -179,7 +179,7 @@
       "file": "images/beacon-mark-on-checker-512.png",
       "width": 512,
       "height": 512,
-      "source": "C:\\Users\\phsch\\Beacon Tools Branding\\Beacon\\brand-v2\\source\\icon_mark.svg",
+      "source": "beacon-mark-master",
       "renderer": "playwright-chromium",
       "sha256": "2ca0ed2e9d9df7baabd8ae8ede298d9fe6737c5f24db22492b4576dc4e178dba",
       "notes": ""
@@ -190,7 +190,7 @@
       "file": "images/local-flight-dark-icon-1024.png",
       "width": 1024,
       "height": 1024,
-      "source": "C:\\Users\\phsch\\Beacon Tools Branding\\Local-Flight\\brand-v2\\source\\icon_dark.svg",
+      "source": "local-flight-dark-master",
       "renderer": "playwright-chromium",
       "sha256": "4bd99a19f76ea16bf6940762fe679c93f3d75e6e902570f9e2b7e1144bd07db7",
       "notes": ""
@@ -201,7 +201,7 @@
       "file": "images/local-flight-dark-icon-512.png",
       "width": 512,
       "height": 512,
-      "source": "C:\\Users\\phsch\\Beacon Tools Branding\\Local-Flight\\brand-v2\\source\\icon_dark.svg",
+      "source": "local-flight-dark-master",
       "renderer": "playwright-chromium",
       "sha256": "a3cedd0519c98d656f645fabad6fcd30b3250a3b6889a90e0dbb1774c16af5ad",
       "notes": ""
@@ -212,7 +212,7 @@
       "file": "images/local-flight-dark-icon-256.png",
       "width": 256,
       "height": 256,
-      "source": "C:\\Users\\phsch\\Beacon Tools Branding\\Local-Flight\\brand-v2\\source\\icon_dark.svg",
+      "source": "local-flight-dark-master",
       "renderer": "playwright-chromium",
       "sha256": "857c7699bb7ce478a657e15911666e45ffa7c0b29a5cd2138bc3b27b8488cdea",
       "notes": ""
@@ -223,7 +223,7 @@
       "file": "images/local-flight-dark-icon-128.png",
       "width": 128,
       "height": 128,
-      "source": "C:\\Users\\phsch\\Beacon Tools Branding\\Local-Flight\\brand-v2\\source\\icon_dark.svg",
+      "source": "local-flight-dark-master",
       "renderer": "playwright-chromium",
       "sha256": "e90da03d1c7165a6353ffaa8b4543959e574104cd5e2b9f70c0f0843a1487b24",
       "notes": ""
@@ -234,7 +234,7 @@
       "file": "images/local-flight-dark-icon-64.png",
       "width": 64,
       "height": 64,
-      "source": "C:\\Users\\phsch\\Beacon Tools Branding\\Local-Flight\\brand-v2\\source\\icon_dark.svg",
+      "source": "local-flight-dark-master",
       "renderer": "playwright-chromium",
       "sha256": "cc155aac9a102a5736ee406ac3692a16a2dd89cf62dc0285c2c5b7f5a0f70139",
       "notes": ""
@@ -245,7 +245,7 @@
       "file": "images/local-flight-dark-icon-32.png",
       "width": 32,
       "height": 32,
-      "source": "C:\\Users\\phsch\\Beacon Tools Branding\\Local-Flight\\brand-v2\\source\\icon_dark.svg",
+      "source": "local-flight-dark-master",
       "renderer": "playwright-chromium",
       "sha256": "ed45929918c60299d34f2a6144ff81274eb910a2ff5a84ad7fe333cbcfd1a937",
       "notes": ""
@@ -256,7 +256,7 @@
       "file": "images/local-flight-dark-icon-16.png",
       "width": 16,
       "height": 16,
-      "source": "C:\\Users\\phsch\\Beacon Tools Branding\\Local-Flight\\brand-v2\\source\\icon_dark.svg",
+      "source": "local-flight-dark-master",
       "renderer": "playwright-chromium",
       "sha256": "e87761ab4dd88701cb56ad364c28150fc9b40a85badcb7320393bb3f86d80c32",
       "notes": ""
@@ -267,7 +267,7 @@
       "file": "images/local-flight-light-icon-1024.png",
       "width": 1024,
       "height": 1024,
-      "source": "C:\\Users\\phsch\\Beacon Tools Branding\\Local-Flight\\brand-v2\\source\\icon_light.svg",
+      "source": "local-flight-light-master",
       "renderer": "playwright-chromium",
       "sha256": "5680faa542d0ebaa0127a481e700f8c0fa37005b8cb298f6e6b94d0b4b372ffc",
       "notes": ""
@@ -278,7 +278,7 @@
       "file": "images/local-flight-light-icon-512.png",
       "width": 512,
       "height": 512,
-      "source": "C:\\Users\\phsch\\Beacon Tools Branding\\Local-Flight\\brand-v2\\source\\icon_light.svg",
+      "source": "local-flight-light-master",
       "renderer": "playwright-chromium",
       "sha256": "1081fa3cf7cf7f6a61c5e39a4d3d26e39aba488f159a2a412ce929f92481773e",
       "notes": ""
@@ -289,7 +289,7 @@
       "file": "images/local-flight-light-icon-256.png",
       "width": 256,
       "height": 256,
-      "source": "C:\\Users\\phsch\\Beacon Tools Branding\\Local-Flight\\brand-v2\\source\\icon_light.svg",
+      "source": "local-flight-light-master",
       "renderer": "playwright-chromium",
       "sha256": "f7a3857171664a31c2f1af89b01975ce8cee2166d298275e67b3ec5cd9193877",
       "notes": ""
@@ -300,7 +300,7 @@
       "file": "images/local-flight-light-icon-128.png",
       "width": 128,
       "height": 128,
-      "source": "C:\\Users\\phsch\\Beacon Tools Branding\\Local-Flight\\brand-v2\\source\\icon_light.svg",
+      "source": "local-flight-light-master",
       "renderer": "playwright-chromium",
       "sha256": "e4019727d459c75a201b051bb6a1986d0397fa55aac058e288df60664e31f428",
       "notes": ""
@@ -311,7 +311,7 @@
       "file": "images/local-flight-light-icon-64.png",
       "width": 64,
       "height": 64,
-      "source": "C:\\Users\\phsch\\Beacon Tools Branding\\Local-Flight\\brand-v2\\source\\icon_light.svg",
+      "source": "local-flight-light-master",
       "renderer": "playwright-chromium",
       "sha256": "d86a2791185d837be63246143a3eaddf64edc922469b30ffd51721ed9b7448a2",
       "notes": ""
@@ -322,7 +322,7 @@
       "file": "images/local-flight-light-icon-32.png",
       "width": 32,
       "height": 32,
-      "source": "C:\\Users\\phsch\\Beacon Tools Branding\\Local-Flight\\brand-v2\\source\\icon_light.svg",
+      "source": "local-flight-light-master",
       "renderer": "playwright-chromium",
       "sha256": "e69b158d3cf27b2f9753b6a8da9928c277931eb290e7bb284d53ed17e48cae35",
       "notes": ""
@@ -333,7 +333,7 @@
       "file": "images/local-flight-light-icon-16.png",
       "width": 16,
       "height": 16,
-      "source": "C:\\Users\\phsch\\Beacon Tools Branding\\Local-Flight\\brand-v2\\source\\icon_light.svg",
+      "source": "local-flight-light-master",
       "renderer": "playwright-chromium",
       "sha256": "efe90fb57950f6923e88b3e3157d06361e393952f500d94b3f4aaf2ab86da2ee",
       "notes": ""

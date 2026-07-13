@@ -58,6 +58,11 @@
   --lf-radius-md: 12px;
   --lf-radius-lg: 14px;
   --lf-radius-xl: 18px;
+
+  /* Shared viewport contract for LAN browser and kiosk layouts. */
+  --lf-page-max: 1320px;
+  --lf-page-gutter: clamp(12px, 2vw, 22px);
+  --lf-control-min: 32px;
 }
 
 html[data-theme="light"] {
@@ -87,6 +92,19 @@ html[data-skin] {
 /* ============================================================
    Base body / page surface
    ============================================================ */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  width: 100%;
+  min-width: 0;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
 html, body {
   background: var(--lf-bg);
   color: var(--lf-text);
@@ -105,6 +123,26 @@ body {
   display: block;
   place-items: initial;
   min-height: 100vh;
+  width: 100%;
+  max-width: 100%;
+}
+
+img,
+svg,
+canvas,
+video {
+  max-width: 100%;
+}
+
+.page-body,
+.lf-page,
+main,
+section {
+  min-width: 0;
+}
+
+.page-body {
+  width: 100%;
 }
 
 /* ============================================================
@@ -539,9 +577,10 @@ html[data-theme="light"] .lf-display-controls {
    Page layout
    ============================================================ */
 .lf-page {
-  max-width: 1320px;
+  width: 100%;
+  max-width: var(--lf-page-max);
   margin: 0 auto;
-  padding: 22px 22px 28px;
+  padding: 22px var(--lf-page-gutter) 28px;
   box-sizing: border-box;
 }
 .lf-page-hero {
@@ -844,6 +883,7 @@ html[data-theme="light"] .lf-display-controls {
   }
   .lf-brand-mark,
   .lf-brand-mark img { width: 22px; height: 22px; }
+  .lf-brand { min-height: var(--lf-control-min); }
   .lf-brand-name { font-size: 0.8rem; }
   .lf-brand-ver  { font-size: 0.54rem; }
   .lf-clock-chip {
@@ -860,13 +900,14 @@ html[data-theme="light"] .lf-display-controls {
     padding: 5px 10px;
     font-size: 0.78rem;
     gap: 6px;
+    min-height: var(--lf-control-min);
   }
   .lf-tab .lf-tab-glyph { font-size: 0.9rem; }
 
   .lf-iconbar { padding: 3px; }
-  .lf-iconbtn { width: 30px; height: 30px; font-size: 0.96rem; }
+  .lf-iconbtn { width: var(--lf-control-min); height: var(--lf-control-min); font-size: 0.96rem; }
 
-  .lf-power { padding: 5px 10px; font-size: 0.74rem; }
+  .lf-power { min-height: var(--lf-control-min); padding: 5px 10px; font-size: 0.74rem; }
   .lf-power svg { width: 12px; height: 12px; }
 
   .lf-display-controls {
@@ -875,7 +916,7 @@ html[data-theme="light"] .lf-display-controls {
   }
   .lf-display-mode-btn,
   .lf-display-fullscreen {
-    min-height: 28px;
+    min-height: var(--lf-control-min);
     padding: 4px 8px;
     font-size: 0.72rem;
   }
@@ -904,14 +945,14 @@ html[data-theme="light"] .lf-display-controls {
   .lf-brand-text { display: none; }     /* keep just the logo mark */
   .lf-tab { padding: 5px 8px; font-size: 0.74rem; }
   .lf-iconbar { gap: 2px; }
-  .lf-iconbtn { width: 28px; height: 28px; font-size: 0.92rem; }
+  .lf-iconbtn { width: var(--lf-control-min); height: var(--lf-control-min); font-size: 0.92rem; }
   /* History/Logs/Report stay on Settings — operator panel still
      reachable from the gear, but hidden here so the bar fits. */
   .lf-iconbar .lf-iconbtn[href="/history"],
   .lf-iconbar .lf-iconbtn[href="/logs"],
   .lf-iconbar .lf-iconbtn[href="/feedback"] { display: none; }
   .lf-power .lf-power-label { display: none; }
-  .lf-power { padding: 4px 8px; }
+  .lf-power { min-width: var(--lf-control-min); padding: 4px 8px; }
   .lf-display-status { display: none; }
 }
 

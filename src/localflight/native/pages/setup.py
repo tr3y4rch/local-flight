@@ -956,8 +956,8 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
         self._set_status("Checking setup...", busy=True)
         try:
             info = self.service.setup_client_info()
-        except Exception as exc:
-            self._set_status(f"Setup info unavailable: {exc}", "StatusBad")
+        except Exception:
+            self._set_status("Setup information is temporarily unavailable.", "StatusBad")
             self._set_mode("community")
             return
         if info.get("relay_url"):
@@ -1263,8 +1263,8 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
                     "monthly_units_limit": int(self.aerodatabox_monthly_limit.value()),
                 },
             )
-        except Exception as exc:
-            self._set_provider_action_status(f"Could not check that AeroDataBox key: {exc}", "StatusBad")
+        except Exception:
+            self._set_provider_action_status("That AeroDataBox key could not be checked. Try again shortly.", "StatusBad")
             self._set_provider_buttons_enabled(True)
             return
         self._set_provider_buttons_enabled(True)
@@ -1285,8 +1285,8 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
         self._set_provider_buttons_enabled(False)
         try:
             result = self.service.setup_test_provider_key(path, key)
-        except Exception as exc:
-            self._set_provider_action_status(f"Could not check that {label_text} key: {exc}", "StatusBad")
+        except Exception:
+            self._set_provider_action_status(f"That {label_text} key could not be checked. Try again shortly.", "StatusBad")
             self._set_provider_buttons_enabled(True)
             return
         self._set_provider_buttons_enabled(True)

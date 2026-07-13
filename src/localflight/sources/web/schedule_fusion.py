@@ -4,9 +4,13 @@ from collections.abc import Iterable
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
+from localflight.core.ops_location import (
+    confidence_rank,
+    merge_notes,
+    normalize_ops_location_record,
+)
+
 _FILL_FIELDS = (
-    "gate",
-    "terminal",
     "stand",
     "aircraft_type",
     "aircraft_type_full",
@@ -111,6 +115,50 @@ def _record_sort_key(record: Dict[str, Any]) -> tuple[str, str, str]:
     )
 
 
+def _append_note(record: Dict[str, Any], note: str) -> None:
+    record["ops_location_notes"] = merge_notes(record.get("ops_location_notes"), (note,))
+
+
+def _fill_ops_locations(target: Dict[str, Any], source: Dict[str, Any]) -> int:
+    filled = 0
+    target_gate_rank = confidence_rank(target.get("gate_confidence"))
+    source_gate_rank = confidence_rank(source.get("gate_confidence"))
+
+    if _present(source.get("gate")):
+        if not _present(target.get("gate")):
+            for field in ("gate", "gate_source", "gate_confidence"):
+                target[field] = source.get(field)
+            filled += 1
+            if _present(target.get("terminal")):
+                _append_note(target, "ops_location.gate_filled_from_secondary_source")
+        elif source_gate_rank > target_gate_rank:
+            old_gate = _text(target.get("gate"))
+            for field in ("gate", "gate_source", "gate_confidence"):
+                target[field] = source.get(field)
+            filled += 1
+            _append_note(target, "ops_location.gate_replaced_by_higher_confidence_source")
+            if old_gate and not _same_value(old_gate, target.get("gate")):
+                _append_note(target, "ops_location.gate_conflict_suppressed")
+        elif not _same_value(target.get("gate"), source.get("gate")):
+            _append_note(target, "ops_location.gate_conflict_suppressed")
+
+    if _present(source.get("terminal")):
+        if not _present(target.get("terminal")):
+            for field in ("terminal", "terminal_source", "terminal_confidence"):
+                target[field] = source.get(field)
+            filled += 1
+            if _present(target.get("gate")):
+                _append_note(target, "ops_location.terminal_filled_from_secondary_source")
+        elif not _same_value(target.get("terminal"), source.get("terminal")):
+            _append_note(target, "ops_location.terminal_conflict_suppressed")
+
+    target["ops_location_notes"] = merge_notes(
+        target.get("ops_location_notes"),
+        source.get("ops_location_notes"),
+    )
+    return filled
+
+
 def schedule_records_need_fill(records: list[Dict[str, Any]]) -> bool:
     if not records:
         return True
@@ -142,7 +190,7 @@ def merge_schedule_records(
     primary_provider: str = "aerodatabox",
     fill_provider: str = "aviationstack",
 ) -> tuple[list[Dict[str, Any]], Dict[str, Any]]:
-    merged = [dict(row) for row in primary_records]
+    merged = [normalize_ops_location_record(dict(row), provider=primary_provider) for row in primary_records]
     index: dict[tuple[str, str, str, str, str], int] = {}
     for idx, row in enumerate(merged):
         for key in _identity_keys(row):
@@ -154,7 +202,7 @@ def merge_schedule_records(
     conflict_fields: dict[str, int] = {}
 
     for source in fill_records:
-        source_copy = dict(source)
+        source_copy = normalize_ops_location_record(dict(source), provider=fill_provider)
         match_idx: Optional[int] = None
         for key in _identity_keys(source_copy):
             if key in index:
@@ -169,6 +217,7 @@ def merge_schedule_records(
             continue
 
         target = merged[match_idx]
+        filled_fields += _fill_ops_locations(target, source_copy)
         for field in _FILL_FIELDS:
             if not _present(target.get(field)) and _present(source_copy.get(field)):
                 target[field] = source_copy.get(field)

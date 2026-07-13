@@ -19,7 +19,7 @@ export function mobileClientContext(
     `App version    ${companion?.appVersion || APP_VERSION}`,
     `App mode       ${appModeLabel}`,
     `Mobile OS      ${mobileOs}`,
-    `Server install ${snapshot?.system?.install_id || "unknown"}`,
+    `Support ID ${snapshot?.system?.install_id || "unknown"}`,
     `Platform pair  ${platformPairLabel(serverPlatform, mobileOs)}`,
     `Server URL     ${normalizeServerUrl(serverUrl) || "not set"}`,
     `Airport        ${snapshot?.config?.airport_iata || "---"}`,

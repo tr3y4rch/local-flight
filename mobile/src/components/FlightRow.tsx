@@ -40,7 +40,8 @@ function rowAccessibilityLabel(row: FidsRow): string {
   const flight = row.flight_display || row.callsign || "Unknown flight";
   const route = row.route_display || "unknown route";
   const time = row.display_time || "time unavailable";
-  const gate = row.gate ? `gate ${row.gate}` : "gate unassigned";
+  const gateLabel = row.terminal_gate_display || row.gate_display || "";
+  const gate = gateLabel ? `gate ${gateLabel}` : "gate unassigned";
   const status = row.status_display || "Scheduled";
   return `${flight}, ${route}, ${time}, ${gate}, ${status}`;
 }
@@ -59,7 +60,7 @@ export function FlightRow({ row, onPress }: Props) {
     >
       <View style={styles.timeBox}>
         <Text style={styles.time}>{row.display_time || "--:--"}</Text>
-        <Text style={styles.gate}>Gate {row.gate || "-"}</Text>
+        <Text style={styles.gate}>Gate {row.terminal_gate_display || row.gate_display || "-"}</Text>
       </View>
 
       <View style={styles.main}>

@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo
 
 from localflight.core.aircraft import short_aircraft_type
 from localflight.decode.mappings.airports import format_airport
+from localflight.core.ops_location import display_location_fields
 
 FidsView = Literal["arrivals", "departures"]
 _ZRH_TZ = ZoneInfo("Europe/Zurich")
@@ -53,6 +54,11 @@ class FIDSRow:
     gate_display: str = ""
     terminal_display: str = ""
     terminal_gate_display: str = ""
+    gate_source: str = ""
+    terminal_source: str = ""
+    gate_confidence: str = ""
+    terminal_confidence: str = ""
+    ops_location_notes: tuple[str, ...] = ()
     route_primary: str = ""
     route_code: str = ""
     route_caption: str = ""
@@ -159,18 +165,20 @@ def split_route_display(value: Any) -> tuple[str, str, str]:
     return text, code, code
 
 
-def gate_fields(gate: Any, terminal: Any = "") -> tuple[str, str, str]:
-    gate_text = str(gate or "").strip()
-    if gate_text in {"", "-", "None", "none"}:
-        gate_text = ""
-    terminal_text = str(terminal or "").strip()
-    if terminal_text in {"", "-", "None", "none"}:
-        terminal_text = ""
-    if gate_text and terminal_text:
-        terminal_gate = f"{terminal_text} {gate_text}"
-    else:
-        terminal_gate = gate_text or terminal_text
-    return gate_text, terminal_text, terminal_gate
+def gate_fields(
+    gate: Any,
+    terminal: Any = "",
+    gate_confidence: Any = "",
+    terminal_confidence: Any = "",
+    ops_location_notes: Any = (),
+) -> tuple[str, str, str]:
+    return display_location_fields(
+        gate,
+        terminal,
+        gate_confidence_value=gate_confidence,
+        terminal_confidence_value=terminal_confidence,
+        notes=ops_location_notes,
+    )
 
 
 def normalize_status_kind(status_class: Any = "", status_display: Any = "", delay_kind: str = "none") -> str:
@@ -223,7 +231,13 @@ def enrich_presentation_fields(row: dict[str, Any]) -> dict[str, Any]:
         delay_kind = {"early": "early", "warn": "warn", "bad": "bad"}.get(str(shaped.get("delay_class")).lower(), "none")
     time_primary, delta_label, delta_text = split_display_time(shaped.get("display_time"), delay_i)
     route_primary, route_code, route_caption = split_route_display(shaped.get("route_display"))
-    gate_display, terminal_display, terminal_gate_display = gate_fields(shaped.get("gate"), shaped.get("terminal"))
+    gate_display, terminal_display, terminal_gate_display = gate_fields(
+        shaped.get("gate_display") or shaped.get("gate"),
+        shaped.get("terminal_display") or shaped.get("terminal"),
+        shaped.get("gate_confidence"),
+        shaped.get("terminal_confidence"),
+        shaped.get("ops_location_notes"),
+    )
     status_kind = normalize_status_kind(shaped.get("status_class"), shaped.get("status_display"), delay_kind)
     tone = tone_for_status(status_kind, delay_kind)
     shaped.update(
@@ -234,9 +248,9 @@ def enrich_presentation_fields(row: dict[str, Any]) -> dict[str, Any]:
             "delay_kind": delay_kind,
             "status_kind": shaped.get("status_kind") or status_kind,
             "tone": shaped.get("tone") or tone,
-            "gate_display": shaped.get("gate_display") or gate_display,
-            "terminal_display": shaped.get("terminal_display") or terminal_display,
-            "terminal_gate_display": shaped.get("terminal_gate_display") or terminal_gate_display,
+            "gate_display": gate_display,
+            "terminal_display": terminal_display,
+            "terminal_gate_display": terminal_gate_display,
             "route_primary": shaped.get("route_primary") or route_primary,
             "route_code": shaped.get("route_code") or route_code,
             "route_caption": shaped.get("route_caption") or route_caption,
@@ -366,7 +380,7 @@ def decoded_to_fids_row(decoded: dict[str, Any], *, view: FidsView) -> FIDSRow:
         route_display=route_display,
         status_display=status_display,
         status_class=status_class,
-        gate=gate or "-",
+        gate=gate_display or "-",
         aircraft_type=aircraft_type,
         delay_minutes=mins,
         delay_class=_delay_class(mins),

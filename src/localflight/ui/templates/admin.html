@@ -175,6 +175,18 @@
     opacity: 0.65;
     line-height: 1.4;
   }
+  .notice-diag-row {
+    display: grid;
+    grid-template-columns: minmax(150px, .7fr) minmax(180px, 1.4fr) auto;
+    gap: 10px;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--panel-border);
+    font-size: .76rem;
+    align-items: baseline;
+  }
+  .notice-diag-row:last-child { border-bottom: 0; }
+  .notice-diag-code { font-family: var(--font-board); font-weight: 700; }
+  .notice-diag-meta { opacity: .62; }
 {% endblock %}
 
 {% block body %}
@@ -277,6 +289,14 @@
       <div class="stat-row"><span class="stat-label">Raw report</span><span class="stat-val mono" id="metarRaw" style="font-size:0.68rem;max-width:200px;text-align:right;word-break:break-all;">—</span></div>
     </div>
 
+  </div>
+
+  <div class="hub-card" style="margin-bottom:14px;">
+    <h2><span class="icon">ℹ</span> Safe Notice Diagnostics</h2>
+    <div class="weather-hero-sub" style="margin-bottom:8px;">
+      Current and recent user notices from this app session. This list contains safe codes and context only; detailed sanitized logs remain on the Logs page.
+    </div>
+    <div id="noticeDiagnostics"><span class="weather-hero-sub">No notices recorded this session.</span></div>
   </div>
 
   <div class="hub-card">
@@ -477,7 +497,7 @@
       el("schStatus").className   = `stat-val ${s.ok ? "ok" : "bad"}`;
       el("schSource").textContent  = humanSourceName(s.source_name || "");
       el("schLast").textContent    = fmtRel(s.last_success_utc);
-      el("schError").textContent   = s.last_error || "No issues";
+      el("schError").textContent   = s.last_error ? "Update interrupted; see safe notice diagnostics or Logs." : "No issues";
       el("schError").className     = `stat-val ${s.last_error ? "bad" : ""}`;
       const cfg = await fetch("/api/config").then(r=>r.json());
       setHeaderCopy(cfg.display_name || "", `${cfg.airport_iata || ""}/${cfg.airport_icao || ""}`);
@@ -624,6 +644,26 @@
     } catch(e) {}
   }
 
+  async function loadNoticeDiagnostics() {
+    try {
+      const r = await fetch("/api/admin/notices?limit=20"); if (!r.ok) return;
+      const payload = await r.json();
+      const rows = Array.isArray(payload.rows) ? payload.rows : [];
+      const root = el("noticeDiagnostics");
+      if (!root) return;
+      if (!rows.length) {
+        root.innerHTML = '<span class="weather-hero-sub">No notices recorded this session.</span>';
+        return;
+      }
+      root.innerHTML = rows.map(row => `
+        <div class="notice-diag-row">
+          <span class="notice-diag-code">${escapeHtml(row.code)}</span>
+          <span>${escapeHtml(row.message)}</span>
+          <span class="notice-diag-meta">${escapeHtml(row.route_family || "local")} · ${Number(row.occurrence_count || 1)}× · ${escapeHtml(fmtRel(row.last_seen))}</span>
+        </div>`).join("");
+    } catch {}
+  }
+
   async function loadMETAR() {
     try {
       const r = await fetch("/api/metar"); if (!r.ok) return;
@@ -707,6 +747,7 @@
         loadHistoryStats(),
         loadSystem(),
         loadMETAR(),
+        loadNoticeDiagnostics(),
       ]);
       el("refreshChip").textContent = `Last refreshed ${new Date().toUTCString().slice(17,25)} UTC | event-first fallback`;
     } finally {

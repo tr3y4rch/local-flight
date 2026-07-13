@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from localflight.core.aircraft import aircraft_full_label, short_aircraft_type
+from localflight.core.ops_location import gate_confidence, terminal_confidence
 
 
 def _s(value: Any) -> str:
@@ -254,6 +255,7 @@ def aerodatabox_to_raw_records(
             aircraft = _dict(row.get("aircraft") or row.get("Aircraft"))
             dep, arr = _movement_blocks(row, direction)
             time_block = dep if direction == "DEP" else arr
+            location_prefix = "aerodatabox.departure" if direction == "DEP" else "aerodatabox.arrival"
             aircraft_short = short_aircraft_type(
                 aircraft.get("icaoCode"),
                 aircraft.get("icao"),
@@ -298,6 +300,9 @@ def aerodatabox_to_raw_records(
             )
             identity_evidence = [f"aerodatabox.codeshareStatus:{provider_codeshare_status}"]
 
+            gate = _pick(time_block.get("gate"), time_block.get("Gate"))
+            terminal = _pick(time_block.get("terminal"), time_block.get("Terminal"))
+
             out.append(
                 {
                     "callsign": callsign,
@@ -329,9 +334,14 @@ def aerodatabox_to_raw_records(
                     "aircraft_type": aircraft_short or None,
                     "aircraft_type_full": aircraft_full or None,
                     "aircraft_registration": _pick(aircraft.get("reg"), aircraft.get("registration")),
-                    "gate": _pick(time_block.get("gate"), time_block.get("Gate")),
+                    "gate": gate,
                     "stand": _pick(time_block.get("stand"), time_block.get("parkingPosition")),
-                    "terminal": _pick(time_block.get("terminal"), time_block.get("Terminal")),
+                    "terminal": terminal,
+                    "gate_source": f"{location_prefix}.gate" if gate else "",
+                    "terminal_source": f"{location_prefix}.terminal" if terminal else "",
+                    "gate_confidence": gate_confidence(gate),
+                    "terminal_confidence": terminal_confidence(terminal),
+                    "ops_location_notes": (),
                     "delay_minutes": _delay_minutes(scheduled, estimated, actual),
                 }
             )

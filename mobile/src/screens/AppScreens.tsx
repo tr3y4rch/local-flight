@@ -194,7 +194,7 @@ function flightRowAccessibilityLabel(row: FidsRow): string {
   const route = cleanInfoValue(row.route_display) || cleanInfoValue(row.route_primary) || "unknown route";
   const time = cleanInfoValue(row.display_time) || cleanInfoValue(row.time_primary) || "time unavailable";
   const status = cleanInfoValue(row.status_display) || "status unavailable";
-  const gate = cleanInfoValue(row.terminal_gate_display) || cleanInfoValue(row.gate_display) || cleanInfoValue(row.gate);
+  const gate = cleanInfoValue(row.terminal_gate_display) || cleanInfoValue(row.gate_display);
   const aircraft = cleanInfoValue(row.aircraft_type);
   return [flight, route, time, status, gate ? `gate ${gate}` : null, aircraft ? `aircraft ${aircraft}` : null]
     .filter(Boolean)
@@ -2830,7 +2830,7 @@ function FidsRowView({
     : row.delay_kind === "warn" ? styles.fidsDelayTagWarn
     : row.delay_kind === "bad" ? styles.fidsDelayTagBad
     : null;
-  const gateLabel = cleanInfoValue(row.terminal_gate_display) || cleanInfoValue(row.gate_display) || cleanInfoValue(row.gate);
+  const gateLabel = cleanInfoValue(row.terminal_gate_display) || cleanInfoValue(row.gate_display);
   const airlineFrames = airlineInfoFrames(row);
   const detailFrames = rowDetailFrames(row, gateLabel);
   const routePrimary = cleanInfoValue(row.route_primary) || routeName(row.route_display);
@@ -2978,7 +2978,7 @@ function FullscreenFidsRow({
   rowHeight: number;
   isPinned: boolean;
 }) {
-  const gateLabel = cleanInfoValue(row.terminal_gate_display) || cleanInfoValue(row.gate_display) || cleanInfoValue(row.gate);
+  const gateLabel = cleanInfoValue(row.terminal_gate_display) || cleanInfoValue(row.gate_display);
   const airlineFrames = airlineInfoFrames(row);
   const detailFrames = rowDetailFrames(row, gateLabel);
   const routePrimary = cleanInfoValue(row.route_primary) || routeName(row.route_display);
@@ -3062,7 +3062,7 @@ function HistoryRow({ row, onOpenDetail }: { row: HistoryFlightRow; onOpenDetail
           row.flight_number || row.callsign || "Unknown flight",
           historyRouteLabel(row),
           row.status || "status unavailable",
-          row.gate ? `gate ${row.gate}` : null
+          row.terminal_gate_display || row.gate_display || row.gate ? `gate ${row.terminal_gate_display || row.gate_display || row.gate}` : null
         ].filter(Boolean).join(", "),
         hint: "Opens flight details."
       })}
@@ -3076,7 +3076,7 @@ function HistoryRow({ row, onOpenDetail }: { row: HistoryFlightRow; onOpenDetail
         <Text style={styles.historyFlight}>{row.flight_number || row.callsign || "-"}</Text>
         <Text style={styles.historyRoute} numberOfLines={1}>{historyRouteLabel(row)}</Text>
         <Text style={styles.historyMeta} numberOfLines={1}>
-          {row.aircraft_type || "Aircraft pending"} {row.gate ? `- Gate ${row.gate}` : ""}
+          {row.aircraft_type || "Aircraft pending"} {row.terminal_gate_display || row.gate_display || row.gate ? `- Gate ${row.terminal_gate_display || row.gate_display || row.gate}` : ""}
           {row.delay_minutes ? ` - ${row.delay_minutes}m delay` : ""}
           {row.observation_count && row.observation_count > 1 ? ` - ${row.observation_count} obs` : ""}
         </Text>
@@ -3851,7 +3851,7 @@ export function FlightDetailSheet({
   const aircraftLabel = detail?.aircraft_type_full || aircraftIntel.full_type || aircraftIntel.model || detail?.aircraft_type || aircraftIntel.type || "";
   const operatingLabel = detail?.operating_callsign || identity.operating_callsign || detail?.callsign || callsign;
   const soldAsLabel = joinedIdentityList(detail?.sold_as || identity.sold_as);
-  const terminalGate = detail?.terminal_gate_display || [opsIntel.terminal || detail?.terminal, opsIntel.gate || detail?.gate].filter(Boolean).join(" · ");
+  const terminalGate = detail?.terminal_gate_display || opsIntel.terminal_gate_display || detail?.gate_display || opsIntel.gate_display || detail?.gate || opsIntel.gate || "";
   const sourceFreshness = sources.snapshot_age_seconds != null
     ? formatAgeSeconds(sources.snapshot_age_seconds)
     : formatRelative(sources.snapshot_generated_at || intel?.source_evidence?.snapshot_generated_at);
@@ -4007,7 +4007,7 @@ export function FlightDetailSheet({
                 )}
                 {!virtualDetail ? (
                   <View style={styles.sheetMetricRow}>
-                    <SheetMetric label="GATE" value={detail.gate_display || opsIntel.gate || detail.gate || "-"} />
+                    <SheetMetric label="GATE" value={detail.gate_display || opsIntel.gate_display || detail.gate || opsIntel.gate || "-"} />
                     <SheetMetric label="TERMINAL" value={detail.terminal_display || opsIntel.terminal || detail.terminal || "-"} />
                   </View>
                 ) : null}
@@ -4308,7 +4308,7 @@ function AdminScreen({
     `Mobile ID     ${companionIdentity?.companionId || "UNKNOWN"}`,
     `Mobile OS     ${companionIdentity?.mobileOs || "UNKNOWN"}`,
     `Build         ${companionIdentity?.appVersion || APP_VERSION}`,
-    `Server ID     ${snapshot.system?.install_id || "UNKNOWN"}`,
+    `Support ID    ${snapshot.system?.install_id || "UNKNOWN"}`,
     `Platform pair ${platformPair}`,
     `Airport       ${snapshot.config?.airport_iata || "---"}`,
     `Source        ${snapshot.state?.source_name || snapshot.config?.source || "UNKNOWN"}`
@@ -4359,7 +4359,7 @@ function AdminScreen({
           />
           <InfoCard label="MEMORY" value={snapshot.system?.memory_mb != null ? `${snapshot.system.memory_mb} MB` : "-"} />
         </View>
-        <InfoLine label="Server install" value={snapshot.system?.install_id || "Unknown"} />
+        <InfoLine label="Support ID" value={snapshot.system?.install_id || "Unknown"} />
         <InfoLine label="Airport" value={snapshot.config?.airport_iata || "---"} />
         <InfoLine label="Source" value={snapshot.state?.source_name || snapshot.config?.source || "Unknown"} />
 
@@ -6114,7 +6114,7 @@ export function ControlScreen({
     `Mobile ID     ${companionIdentity?.companionId || "UNKNOWN"}`,
     `Mobile OS     ${companionIdentity?.mobileOs || "UNKNOWN"}`,
     `Build         ${companionIdentity?.appVersion || APP_VERSION}`,
-    `Server ID     ${snapshot.system?.install_id || "UNKNOWN"}`,
+    `Support ID    ${snapshot.system?.install_id || "UNKNOWN"}`,
     `Server        ${snapshot.system?.platform || "UNKNOWN"}`,
     `Airport       ${snapshot.config?.airport_iata || "---"}`,
     `Source        ${snapshot.state?.source_name || snapshot.config?.source || "UNKNOWN"}`
@@ -6167,7 +6167,7 @@ export function ControlScreen({
         <InfoLine label="Airport" value={snapshot.config?.airport_iata || "---"} />
         <InfoLine label="Source" value={snapshot.state?.source_name || snapshot.config?.source || "Unknown"} />
         <InfoLine label="Last successful fetch" value={formatRelative(snapshot.state?.last_success_utc)} />
-        <InfoLine label="Host install" value={snapshot.system?.install_id || "Unknown host"} />
+        <InfoLine label="Support ID" value={snapshot.system?.install_id || "Unknown host"} />
       </ControlAccordionCard>
 
       <ControlActionCard
@@ -7292,10 +7292,10 @@ function ConnectionPairingSheet({
         ? "amber"
         : "green";
   const remoteValue = connectionState === "remote"
-    ? "Using encrypted Remote Companion now."
+    ? "Using the encrypted remote backup now."
     : remoteReady
-      ? "Ready when this phone is away from the LAN."
-      : "Pair a Remote Companion QR from Local Flight Settings to use this phone away from Wi-Fi.";
+      ? "Verified. LAN is preferred; remote backup takes over when you are away."
+      : "LAN only. Scan a LAN + Remote QR from the host if you want away-from-home access.";
   const runRemoteProbe = useCallback(async () => {
     if (remoteProbeTesting) return;
     setRemoteProbeTesting(true);
@@ -7322,7 +7322,7 @@ function ConnectionPairingSheet({
           <View style={styles.sheetHeader}>
             <View style={styles.sheetHeaderText}>
               <Text style={styles.sheetEyebrow}>CONNECTION</Text>
-              <Text style={styles.sheetTitle}>Pair Server & Refresh</Text>
+              <Text style={styles.sheetTitle}>Connection</Text>
             </View>
             <Pressable
               style={styles.sheetAction}
@@ -7336,7 +7336,7 @@ function ConnectionPairingSheet({
 
           <ScrollView style={styles.sheetScroll} contentContainerStyle={styles.sheetContent}>
             <Text style={styles.moduleIntro}>
-              Scan the fingerprint-bound QR from Local Flight Settings or enter the LAN IP manually. localflight.local is a fallback for one-server LANs.
+              On the host, choose LAN only or create a LAN + Remote QR. Scan that QR once while this phone is on the same Wi-Fi; Local Flight verifies the remote backup before saving it.
             </Text>
             <View style={styles.metricRow}>
               <InfoCard label="PATH" value={pathLabel} tone={pathTone} />
@@ -7345,7 +7345,7 @@ function ConnectionPairingSheet({
               <InfoCard label="LAYOUT" value={isTablet ? (isLandscape ? "IPAD LAND" : "IPAD PORT") : "IPHONE"} />
             </View>
             <InfoLine label="Saved server" value={serverUrl || "Not set"} />
-            <InfoLine label="Host install" value={snapshot.system?.install_id || "Unknown"} />
+            <InfoLine label="Support ID" value={snapshot.system?.install_id || "Unknown"} />
             <InfoLine label="Remote Companion" value={remoteValue} />
             <InfoLine label="Mobile build" value={APP_VERSION} />
             {pairingNotice ? <Text style={[styles.feedbackMessage, styles.feedbackMessageOk]}>{pairingNotice}</Text> : null}
@@ -7355,12 +7355,12 @@ function ConnectionPairingSheet({
                 style={styles.settingsCompactButton}
                 onPress={() => setScannerVisible(true)}
                 {...accessibleButton({
-                  label: "Scan pairing QR code",
-                  hint: "Opens the camera to scan the Local Flight pairing QR."
+                  label: "Scan host pairing QR code",
+                  hint: "Scans either the LAN-only QR or the one-step LAN plus Remote QR from the intended host."
                 })}
               >
                 <LocalFlightIcon name={SETUP_ICONS.scan} size={14} color={palette.blue2} />
-                <Text style={styles.settingsCompactButtonText}>SCAN QR</Text>
+                <Text style={styles.settingsCompactButtonText}>SCAN HOST QR</Text>
               </Pressable>
               <Pressable
                 style={[styles.settingsCompactButton, schedulerRestarting && styles.connectButtonDisabled]}
@@ -7393,7 +7393,7 @@ function ConnectionPairingSheet({
                   {remoteProbeTesting ? (
                     <ActivityIndicator size="small" color={palette.blue} />
                   ) : (
-                    <Text style={styles.settingsCompactButtonText}>TEST REMOTE</Text>
+                    <Text style={styles.settingsCompactButtonText}>TEST REMOTE BACKUP</Text>
                   )}
                 </Pressable>
               ) : null}
@@ -7406,7 +7406,7 @@ function ConnectionPairingSheet({
                     hint: "Removes this phone's stored remote grant. The host can still revoke the grant from Local Flight Settings."
                   })}
                 >
-                  <Text style={styles.settingsCompactButtonText}>FORGET REMOTE</Text>
+                  <Text style={styles.settingsCompactButtonText}>REMOVE REMOTE</Text>
                 </Pressable>
               ) : null}
             </View>
@@ -7518,7 +7518,7 @@ export function HelpScreen({
         `Mobile ID     ${companionIdentity?.companionId || "UNKNOWN"}`,
         `Mobile OS     ${companionIdentity?.mobileOs || "UNKNOWN"}`,
         `Build         ${companionIdentity?.appVersion || APP_VERSION}`,
-        `Server ID     ${snapshot.system?.install_id || "UNKNOWN"}`,
+        `Support ID    ${snapshot.system?.install_id || "UNKNOWN"}`,
         `Server        ${snapshot.system?.platform || "UNKNOWN"}`,
         `Airport       ${snapshot.config?.airport_iata || "---"}`,
         `Source        ${snapshot.state?.source_name || snapshot.config?.source || "UNKNOWN"}`
@@ -7592,7 +7592,7 @@ export function HelpScreen({
             </>
           ) : (
             <>
-              <InfoLine label="Host install" value={snapshot.system?.install_id || "Unknown host"} />
+              <InfoLine label="Support ID" value={snapshot.system?.install_id || "Unknown host"} />
               <InfoLine label="Host platform" value={snapshot.system?.platform || "Unknown"} />
             </>
           )}

@@ -3,25 +3,75 @@
 from __future__ import annotations
 
 import base64
+import argparse
 import hashlib
 import html
 import json
+import os
 import shutil
 from dataclasses import dataclass, asdict
 from pathlib import Path
 from typing import Iterable
 
 from PIL import Image, ImageChops, ImageDraw, ImageFont
-from playwright.sync_api import sync_playwright
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT_DIR = ROOT / "docs" / "brand-renditions" / "v2"
 IMG_DIR = OUT_DIR / "images"
 
-BEACON_LOCKUP = Path(r"C:\Users\phsch\Beacon Tools Branding\Beacon\brand-v2\source\lockup_horizontal_dark.svg")
-BEACON_MARK = Path(r"C:\Users\phsch\Beacon Tools Branding\Beacon\brand-v2\source\icon_mark.svg")
-LOCAL_FLIGHT_DARK = Path(r"C:\Users\phsch\Beacon Tools Branding\Local-Flight\brand-v2\source\icon_dark.svg")
-LOCAL_FLIGHT_LIGHT = Path(r"C:\Users\phsch\Beacon Tools Branding\Local-Flight\brand-v2\source\icon_light.svg")
+BEACON_LOCKUP = Path()
+BEACON_MARK = Path()
+LOCAL_FLIGHT_DARK = Path()
+LOCAL_FLIGHT_LIGHT = Path()
+
+BRAND_ENV = {
+    "beacon_lockup": "LOCALFLIGHT_BRAND_BEACON_LOCKUP",
+    "beacon_mark": "LOCALFLIGHT_BRAND_BEACON_MARK",
+    "local_flight_dark": "LOCALFLIGHT_BRAND_LOCAL_FLIGHT_DARK",
+    "local_flight_light": "LOCALFLIGHT_BRAND_LOCAL_FLIGHT_LIGHT",
+}
+
+
+def configure_masters(argv: list[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(description="Render Local Flight brand review examples.")
+    parser.add_argument("--beacon-lockup")
+    parser.add_argument("--beacon-mark")
+    parser.add_argument("--local-flight-dark")
+    parser.add_argument("--local-flight-light")
+    args = parser.parse_args(argv)
+    values = {
+        "beacon_lockup": args.beacon_lockup or os.getenv(BRAND_ENV["beacon_lockup"], ""),
+        "beacon_mark": args.beacon_mark or os.getenv(BRAND_ENV["beacon_mark"], ""),
+        "local_flight_dark": args.local_flight_dark or os.getenv(BRAND_ENV["local_flight_dark"], ""),
+        "local_flight_light": args.local_flight_light or os.getenv(BRAND_ENV["local_flight_light"], ""),
+    }
+    missing = [f"--{name.replace('_', '-')} / {BRAND_ENV[name]}" for name, value in values.items() if not value]
+    if missing:
+        parser.error("missing brand master paths: " + ", ".join(missing))
+    global BEACON_LOCKUP, BEACON_MARK, LOCAL_FLIGHT_DARK, LOCAL_FLIGHT_LIGHT
+    BEACON_LOCKUP = Path(values["beacon_lockup"]).expanduser()
+    BEACON_MARK = Path(values["beacon_mark"]).expanduser()
+    LOCAL_FLIGHT_DARK = Path(values["local_flight_dark"]).expanduser()
+    LOCAL_FLIGHT_LIGHT = Path(values["local_flight_light"]).expanduser()
+    configured = {
+        "beacon-lockup": BEACON_LOCKUP,
+        "beacon-mark": BEACON_MARK,
+        "local-flight-dark": LOCAL_FLIGHT_DARK,
+        "local-flight-light": LOCAL_FLIGHT_LIGHT,
+    }
+    absent = [f"--{name}={path}" for name, path in configured.items() if not path.is_file()]
+    if absent:
+        parser.error("brand master file not found: " + ", ".join(absent))
+
+
+def source_label(source: Path) -> str:
+    labels = {
+        BEACON_LOCKUP: "beacon-lockup-master",
+        BEACON_MARK: "beacon-mark-master",
+        LOCAL_FLIGHT_DARK: "local-flight-dark-master",
+        LOCAL_FLIGHT_LIGHT: "local-flight-light-master",
+    }
+    return labels.get(source, "derived")
 
 RENDERER = "playwright-chromium"
 
@@ -41,6 +91,13 @@ class Rendition:
 
 class Renderer:
     def __enter__(self) -> "Renderer":
+        try:
+            from playwright.sync_api import sync_playwright
+        except ImportError as exc:
+            raise RuntimeError(
+                "Brand rendering requires Playwright and its Chromium runtime. "
+                "Install the project brand-render dependencies before regenerating renditions."
+            ) from exc
         self._pw = sync_playwright().start()
         self._browser = self._pw.chromium.launch()
         return self
@@ -180,7 +237,7 @@ def make_record(path: Path, title: str, source: Path, notes: str = "") -> Rendit
         file=f"images/{path.name}",
         width=width,
         height=height,
-        source=str(source),
+        source=source_label(source),
         renderer=RENDERER,
         sha256=sha256(path),
         notes=notes,
@@ -307,10 +364,10 @@ def write_manifest(records: list[Rendition]) -> None:
         "version": 1,
         "renderer": RENDERER,
         "masters": {
-            "beacon_lockup": str(BEACON_LOCKUP),
-            "beacon_mark": str(BEACON_MARK),
-            "local_flight_dark": str(LOCAL_FLIGHT_DARK),
-            "local_flight_light": str(LOCAL_FLIGHT_LIGHT),
+            "beacon_lockup": "beacon-lockup-master",
+            "beacon_mark": "beacon-mark-master",
+            "local_flight_dark": "local-flight-dark-master",
+            "local_flight_light": "local-flight-light-master",
         },
         "renditions": [asdict(record) for record in records],
     }
@@ -331,8 +388,8 @@ def write_gallery(records: list[Rendition]) -> None:
             "</article>"
         )
     master_list = "".join(
-        f"<li><code>{html.escape(str(path))}</code></li>"
-        for path in (BEACON_LOCKUP, BEACON_MARK, LOCAL_FLIGHT_DARK, LOCAL_FLIGHT_LIGHT)
+        f"<li><code>{label}</code></li>"
+        for label in ("beacon-lockup-master", "beacon-mark-master", "local-flight-dark-master", "local-flight-light-master")
     )
     html_text = (
         "<!doctype html><html lang='en'><head><meta charset='utf-8'>"
@@ -383,6 +440,7 @@ def verify_gallery() -> None:
 
 
 def main() -> None:
+    configure_masters()
     records = render_examples()
     write_manifest(records)
     write_gallery(records)

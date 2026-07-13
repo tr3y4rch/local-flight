@@ -200,3 +200,45 @@ html[data-theme="light"] .card {
   white-space: pre-wrap;
 }
 
+.lf-notice-rail {
+  position: fixed;
+  z-index: 1200;
+  top: 68px;
+  left: 50%;
+  width: min(720px, calc(100vw - 24px));
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.lf-notice {
+  display: grid;
+  gap: 3px;
+  margin-bottom: 8px;
+  padding: 11px 14px;
+  border: 1px solid var(--panel-border);
+  border-left: 4px solid #72b7ff;
+  border-radius: 10px;
+  background: var(--panel-bg);
+  color: var(--text);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, .24);
+  pointer-events: auto;
+}
+
+.lf-notice span { opacity: .82; }
+.lf-notice-success { border-left-color: #63d69d; }
+.lf-notice-warning { border-left-color: #f6c453; }
+.lf-notice-error { border-left-color: #ff6b6b; }
+.lf-notice-action {
+  justify-self: start;
+  min-height: 36px;
+  margin-top: 5px;
+  padding: 7px 10px;
+  border: 1px solid currentColor;
+  border-radius: 7px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: 800;
+  text-decoration: none;
+  cursor: pointer;
+}

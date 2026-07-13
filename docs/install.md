@@ -62,7 +62,7 @@ Use this path for the current macOS desktop setup.
 4. Complete the setup wizard: Welcome, Airport, Flight Data, Optional Keys, Diagnostics, and Review & Open.
 
 The app launches the native Qt desktop shell. The LAN browser UI remains available from the local server while the app is running.
-Finder opens the app directly, so normal use shows the branded app/splash rather than Terminal. The current archive is ad-hoc signed but not Developer ID notarized, which is why macOS may require the one-time confirmation. Never disable Gatekeeper globally or lower system-wide security settings. Local Flight settings, history, logs, install ID, and activation token remain in your user folder and survive replacing the app with a future signed build.
+Finder opens the app directly, so normal use shows the branded app/splash rather than Terminal. The current archive is ad-hoc signed but not Developer ID notarized, which is why macOS may require the one-time confirmation. Never disable Gatekeeper globally or lower system-wide security settings. Local Flight settings, history, logs, install identity, and activation token remain in your user folder and survive replacing the app with a future signed build.
 
 ### macOS Source Checkout
 
@@ -190,9 +190,9 @@ The QR pairing code in native Settings and LAN browser Settings is fingerprint-b
 
 Companion keeps the richer paired experience: server WebSocket updates when on LAN, host status, airport/source/refresh controls, History, support/reporting, safe Matrix live-remote controls, and mobile/server double-consent for automatic diagnostics.
 
-Remote Companion is part of the same Companion mode. If the desktop/Pi host is relay-linked, enable **Allow Remote Companion fallback** in Pair Mobile, save Settings, create a short-lived remote QR, and scan it while the phone is still on the LAN. After that, the phone uses LAN first and falls back to encrypted relay routing when it cannot reach the host locally. The host must stay online. The host or phone can revoke/forget the remote grant.
+Remote Companion is part of the same Companion mode. In **Pair Mobile**, choose the QR that matches what you want: the QR shown by default is **LAN only**; **Create LAN + Remote QR** makes one short-lived QR that connects LAN and adds encrypted away-from-home backup in one scan. Scan it while the phone is still on the LAN. The phone verifies the encrypted round trip before saving it, then uses LAN first and Remote only when the local host cannot be reached. The host must stay online. A fresh QR for the same phone replaces its previous remote grant.
 
-After pairing Remote Companion, use **Test Remote** in the mobile connection panel for a safe smoke test. It sends a tiny encrypted probe through the relay, retries only once for short-lived network/host failures, and then explains the likely cause instead of showing raw HTTP text.
+After pairing, the mobile connection panel shows whether Remote backup is verified. **Test Remote Backup** can repeat the safe smoke test later. It sends a tiny encrypted probe through the relay, retries only once for short-lived network/host failures, and then explains the likely cause instead of showing raw HTTP text.
 
 ### Standalone
 
@@ -245,6 +245,24 @@ Local Flight stores runtime data outside the source tree:
 ```
 
 Provider keys live in the source checkout `.env` for source installs. Packaged desktop apps store them in `~/.localflight/.env`, outside the signed application bundle.
+
+On macOS, Linux, or Raspberry Pi, contributors can run the security preflight
+after upgrading an older checkout. It reports credential-like local files whose
+permissions are too broad without reading or printing their contents:
+
+```bash
+python scripts/security_preflight.py
+```
+
+To apply the one-time owner-only permission repair explicitly:
+
+```bash
+python scripts/security_preflight.py --fix-permissions
+```
+
+This uses POSIX owner-only modes (`0600` for credential files); Windows keeps
+its normal account ACL behavior. Local Flight also repairs app-written identity,
+activation, provider-key, and Remote Companion files on best-effort load/write.
 
 ---
 

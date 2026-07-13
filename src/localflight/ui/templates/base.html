@@ -37,14 +37,35 @@
           }
         } catch (e) { /* storage blocked — ignore */ }
         var mql = window.matchMedia("(max-width: 720px)");
+        var layoutMqls = [
+          window.matchMedia("(max-width: 520px)"),
+          window.matchMedia("(max-width: 1024px)"),
+          window.matchMedia("(max-height: 600px)"),
+          window.matchMedia("(min-width: 1920px)"),
+        ];
+        function layoutBand() {
+          var width = root.clientWidth || window.innerWidth || 0;
+          var height = root.clientHeight || window.innerHeight || 0;
+          if (width <= 520) return "phone";
+          if (width <= 720) return "mobile";
+          if (width <= 1024 || height <= 600) return "compact";
+          if (width >= 1920) return "wide";
+          return "desktop";
+        }
         function sync() {
           var on = manual || mql.matches;
           root.classList.toggle("lf-is-mobile", on);
+          root.dataset.layout = layoutBand();
         }
         sync();
         // matchMedia change handler in both old + new event styles
         if (mql.addEventListener) mql.addEventListener("change", sync);
         else if (mql.addListener) mql.addListener(sync);
+        layoutMqls.forEach(function (query) {
+          if (query.addEventListener) query.addEventListener("change", sync);
+          else if (query.addListener) query.addListener(sync);
+        });
+        window.addEventListener("resize", sync, { passive: true });
         window.lfMobileSet = function (on) {
           manual = !!on;
           try {
@@ -56,20 +77,20 @@
       })();
     </script>
     <title>{% block title %}Local Flight{% endblock %}</title>
-    <link rel="icon" href="/static/localflight-logo.svg" type="image/svg+xml" />
-    <link rel="apple-touch-icon" href="/static/localflight-app-icon.png" />
+    <link rel="icon" href="/static/localflight-logo.svg?v={{ static_version }}" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/static/localflight-app-icon.png?v={{ static_version }}" />
     {% if refresh_seconds is defined and refresh_seconds %}
       <meta http-equiv="refresh" content="{{ refresh_seconds }}" />
     {% endif %}
-    <link rel="stylesheet" href="/static/fonts.css" />
-    <link rel="stylesheet" href="/static/app.css" />
-    <link rel="stylesheet" href="/static/skins.css" />
+    <link rel="stylesheet" href="/static/fonts.css?v={{ static_version }}" />
+    <link rel="stylesheet" href="/static/app.css?v={{ static_version }}" />
+    <link rel="stylesheet" href="/static/skins.css?v={{ static_version }}" />
     {# Browser shell that mirrors the Qt desktop look (nav, panels,    #}
     {# kickers, disclosure, status pills, buttons).                    #}
-    <link rel="stylesheet" href="/static/lf-shell.css" />
+    <link rel="stylesheet" href="/static/lf-shell.css?v={{ static_version }}" />
     {# Mobile / compact view — listed last so its rules win.           #}
     {# Honour ?mobile=1 to force the compact view on any viewport.     #}
-    <link rel="stylesheet" href="/static/mobile.css" />
+    <link rel="stylesheet" href="/static/mobile.css?v={{ static_version }}" />
     <style>
       /* ── Clock bar (used outside nav too) ── */
       .clock-bar {
@@ -211,6 +232,7 @@
     </style>
   </head>
   <body>
+    <div class="lf-notice-rail" id="lfNoticeRail" aria-live="polite" aria-atomic="false"></div>
     {% block body %}{% endblock %}
 
     {% if cfg is defined and cfg.diagnostics_mode == "unset" %}
@@ -294,6 +316,46 @@
         }
       }
     }
+
+    window.LocalFlightNotices = {
+      render(notices) {
+        const rail = document.getElementById("lfNoticeRail");
+        if (!rail) return;
+        const safe = Array.isArray(notices) ? notices.slice(0, 3) : [];
+        rail.replaceChildren(...safe.map((notice) => {
+          const card = document.createElement("div");
+          const tone = ["info", "success", "warning", "error"].includes(notice?.tone) ? notice.tone : "info";
+          card.className = `lf-notice lf-notice-${tone}`;
+          card.setAttribute("role", tone === "error" ? "alert" : "status");
+          const message = document.createElement("strong");
+          message.textContent = String(notice?.message || "Local Flight status update");
+          card.appendChild(message);
+          if (notice?.next_step) {
+            const next = document.createElement("span");
+            next.textContent = String(notice.next_step);
+            card.appendChild(next);
+          }
+          const action = notice?.action;
+          if (action?.label) {
+            let control;
+            if (action.kind === "refresh") {
+              control = document.createElement("button");
+              control.type = "button";
+              control.addEventListener("click", () => window.location.reload());
+            } else if (typeof action.target === "string" && action.target.startsWith("/") && !action.target.startsWith("//")) {
+              control = document.createElement("a");
+              control.href = action.target;
+            }
+            if (control) {
+              control.className = "lf-notice-action";
+              control.textContent = String(action.label);
+              card.appendChild(control);
+            }
+          }
+          return card;
+        }));
+      }
+    };
 
     (function () {
       const diagnosticsMode = "{{ cfg.diagnostics_mode if cfg is defined and cfg.diagnostics_mode is defined else 'unset' }}";

@@ -31,6 +31,8 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Resp
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from pydantic import BaseModel, Field, field_validator
 
+from localflight.core.notices import attach_notices, make_notice, sanitize_client_payload
+
 AVIATIONSTACK_URL = "https://api.aviationstack.com/v1/flights"
 AERODATABOX_RAPIDAPI_URL = "https://aerodatabox.p.rapidapi.com"
 AERODATABOX_APIMARKET_URL = "https://prod.api.market/api/v1/aedbx/aerodatabox"
@@ -8867,7 +8869,7 @@ def _lookup_relay_airport(query: str) -> Any:
     try:
         from localflight.core.airports import lookup_airport
     except Exception as exc:
-        raise HTTPException(status_code=503, detail=f"Airport index unavailable: {exc}") from exc
+        raise HTTPException(status_code=503, detail="Airport search is temporarily unavailable") from exc
     rec = lookup_airport(iata=clean if clean and len(clean) == 3 else None, icao=clean if clean and len(clean) == 4 else None)
     if rec is None:
         raise HTTPException(status_code=404, detail=f"Airport not found: {query}")
@@ -9772,7 +9774,17 @@ def relay_mobile_summary(
             metar = fetch_metar(str(airport.get("icao") or ""))
         except Exception:
             metar = None
-    return {
+    notices = []
+    if airport.get("icao") and metar is None:
+        notices.append(
+            make_notice(
+                "weather.temporarily_unavailable",
+                "info",
+                "Weather is temporarily unavailable.",
+                next_step="Flight information will continue updating.",
+            )
+        )
+    return sanitize_client_payload(attach_notices({
         "config": _standalone_config_payload(airport, diagnostics_mode=diagnostics_mode),
         "state": {
             "ok": True,
@@ -9815,7 +9827,7 @@ def relay_mobile_summary(
         },
         "scheduler": None,
         "metar": metar,
-    }
+    }, notices, route_family="mobile-summary", source_category="weather"))
 
 
 @app.get("/v1/mobile/metar")
@@ -9849,9 +9861,9 @@ def relay_mobile_metar(
 
         metar = fetch_metar(str(airport.get("icao") or ""))
     except Exception as exc:
-        raise HTTPException(status_code=503, detail=f"METAR unavailable for {airport.get('icao')}: {exc}") from exc
+        raise HTTPException(status_code=503, detail="Weather is temporarily unavailable") from exc
     if not metar:
-        raise HTTPException(status_code=503, detail=f"METAR unavailable for {airport.get('icao')}")
+        raise HTTPException(status_code=503, detail="Weather is temporarily unavailable")
     return metar
 
 
@@ -9906,7 +9918,7 @@ def relay_mobile_fids(
     try:
         return _mobile_fids_rows_from_schedule_payload(payload, airport=airport, view=view, limit=limit)
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"Unable to build mobile FIDS rows: {exc}") from exc
+        raise HTTPException(status_code=502, detail="The flight board is temporarily unavailable") from exc
 
 
 @app.get("/v1/mobile/radar")
@@ -9927,7 +9939,7 @@ def relay_mobile_radar(
         raise HTTPException(status_code=422, detail="Standalone radar radius must be one of 1, 3, 5, or 10 NM")
     airport = _airport_result_payload(_lookup_relay_airport(airport_iata or airport_icao), include_coords=True)
     if airport.get("lat") is None or airport.get("lon") is None:
-        raise HTTPException(status_code=404, detail=f"No coordinates for {airport.get('iata') or airport_iata}")
+        raise HTTPException(status_code=404, detail="Radar is unavailable for this airport")
     install_id = _validate_install_id(install_id)
     access = _require_mobile_standalone_access(
         install_id=install_id,
@@ -9963,7 +9975,29 @@ def relay_mobile_radar(
             cached["radar_map"] = radar_map
             if radar_map_error:
                 cached["radar_map_error"] = radar_map_error
-        return JSONResponse(cached, headers={"X-LF-Mobile-Standalone-Cache": "hit"})
+        notices = []
+        if cached.get("radar_map_error"):
+            notices.append(
+                make_notice(
+                    "radar.map_unavailable",
+                    "info",
+                    "The airport map is temporarily unavailable.",
+                    next_step="Live traffic can still be displayed.",
+                )
+            )
+        if not cached.get("blips"):
+            notices.append(
+                make_notice(
+                    "radar.no_visible_traffic",
+                    "info",
+                    "No aircraft are visible in the selected area right now.",
+                    next_step="Try a larger range or refresh in a few minutes.",
+                )
+            )
+        return JSONResponse(
+            attach_notices(cached, notices, route_family="mobile-radar", source_category="traffic"),
+            headers={"X-LF-Mobile-Standalone-Cache": "hit"},
+        )
 
     network_tag = _network_tag(_client_ip(request))
     if access["plan"] == "community":
@@ -9974,12 +10008,17 @@ def relay_mobile_radar(
         headers = _quota_headers("radar", current, access["limit"], access["plan"])
         headers["Retry-After"] = str(_standalone_radar_min_refresh_seconds())
         return JSONResponse(
-            {
+            attach_notices({
                 "error": {
                     "code": "quota_exceeded",
-                    "info": f"Standalone radar quota exceeded: {current}/{access['limit']} calls used this month.",
+                    "info": "Radar has reached its current usage allowance.",
                 }
-            },
+            }, [make_notice(
+                "radar.allowance_reached",
+                "warning",
+                "Radar has reached its current usage allowance.",
+                next_step="Try again after the allowance refreshes.",
+            )], route_family="mobile-radar", source_category="allowance"),
             status_code=429,
             headers=headers,
         )
@@ -10042,7 +10081,29 @@ def relay_mobile_radar(
         "blips": blips,
     }
     _mobile_cache_store(install_id=install_id, service="radar", cache_key=cache_key, payload=payload)
-    return JSONResponse(payload, headers=_quota_headers("radar", used, access["limit"], access["plan"]))
+    notices = []
+    if radar_map_error:
+        notices.append(
+            make_notice(
+                "radar.map_unavailable",
+                "info",
+                "The airport map is temporarily unavailable.",
+                next_step="Live traffic can still be displayed.",
+            )
+        )
+    if not blips:
+        notices.append(
+            make_notice(
+                "radar.no_visible_traffic",
+                "info",
+                "No aircraft are visible in the selected area right now.",
+                next_step="Try a larger range or refresh in a few minutes.",
+            )
+        )
+    return JSONResponse(
+        attach_notices(payload, notices, route_family="mobile-radar", source_category="traffic"),
+        headers=_quota_headers("radar", used, access["limit"], access["plan"]),
+    )
 
 
 @app.post("/v1/mobile/iap/verify")

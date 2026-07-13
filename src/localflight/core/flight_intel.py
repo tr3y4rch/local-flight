@@ -5,6 +5,7 @@ from statistics import mean
 from typing import Any
 
 from localflight.core.models import Flight, FlightDirection, FlightPosition
+from localflight.core.ops_location import display_location_fields
 
 
 SCHEMA_VERSION = "flight-intel-v1"
@@ -182,6 +183,15 @@ def build_flight_intel(
     confidence = _source_confidence(flight, pos)
     weather = weather or {}
     squawk = (pos.squawk if pos else None) or (flight.assigned_transponder if flight else None)
+    gate_display, terminal_display, terminal_gate_display = ("", "", "")
+    if flight and not virtual:
+        gate_display, terminal_display, terminal_gate_display = display_location_fields(
+            flight.gate,
+            flight.terminal,
+            gate_confidence_value=flight.gate_confidence,
+            terminal_confidence_value=flight.terminal_confidence,
+            notes=flight.ops_location_notes,
+        )
 
     return {
         "schema_version": SCHEMA_VERSION,
@@ -221,10 +231,18 @@ def build_flight_intel(
             "status": flight.status.value if flight else None,
         },
         "operations": {
-            "terminal": None if virtual else (flight.terminal if flight else None),
-            "gate": None if virtual else (flight.gate if flight else None),
+            "terminal": None if virtual else (terminal_display or None),
+            "gate": None if virtual else (gate_display or None),
+            "gate_display": None if virtual else (gate_display or None),
+            "terminal_display": None if virtual else (terminal_display or None),
+            "terminal_gate_display": None if virtual else (terminal_gate_display or None),
             "stand": None if virtual else (flight.stand if flight else None),
             "direction": flight.direction.value if flight else None,
+            "gate_source": None if virtual else (flight.gate_source if flight else None),
+            "terminal_source": None if virtual else (flight.terminal_source if flight else None),
+            "gate_confidence": None if virtual else (flight.gate_confidence if flight else None),
+            "terminal_confidence": None if virtual else (flight.terminal_confidence if flight else None),
+            "notes": [] if virtual else (list(flight.ops_location_notes) if flight else []),
         },
         "aircraft": {
             "type": flight.aircraft_type if flight else None,

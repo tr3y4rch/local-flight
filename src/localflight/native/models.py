@@ -202,7 +202,7 @@ class FlightBoardModel:
                     if _is_virtual_payload(row):
                         xpdr = format_value(row.get("squawk") or row.get("transponder"))
                         return f"XPDR {xpdr}" if xpdr else "-"
-                    return format_value(row.get("terminal_gate_display") or row.get("gate_display") or row.get("gate")) or "-"
+                    return format_value(row.get("terminal_gate_display") or row.get("gate_display")) or "-"
                 # Extended fields for PAX / VATSIM / NERD styles
                 if key == "callsign":
                     return format_value(row.get("callsign") or row.get("flight_display")) or "-"

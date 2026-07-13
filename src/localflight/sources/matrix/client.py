@@ -48,13 +48,14 @@ MATRIX_CONFIG_REV = 0
 CONFIG_REFRESH_S = 60    # re-read server config every minute
 PING_S           = 600   # ping server every 10 min
 CLIENT_VER       = "2.0"
-CLIENT_RENDERER_REV = "matrix-display-contract-v4"
+CLIENT_RENDERER_REV = "matrix-display-contract-v5"
 SUPPORTED_RENDERERS = ["modern_fids", "vatsim_pilot", "vatsim_atc"]
 SUPPORTED_ANIMATIONS = ["split_flap", "typewriter", "cascade", "slide_left", "slide_right", "static"]
 # ──────────────────────────────────────────────────────────────────────────────
 
 # Airport is read from the server — no hardcoding needed
 _airport_iata = "---"
+_airport_icao = "----"
 _airport_label = "LOCAL"
 _device_id = None
 _clock_utc_epoch = None
@@ -516,12 +517,21 @@ def _flight_cycle_display(row):
         return "-"
     # Matrix boards need a stable operating-first identity. Codeshares stay in
     # the payload/details, but never rotate through the primary flight column.
-    primary = _clean_flight_number(
-        row.get("matrix_flight_label")
-        or row.get("flight_display")
-        or row.get("flight")
-        or row.get("flight_number")
-    )
+    if _is_technical_preset():
+        primary = _clean_flight_number(
+            row.get("matrix_callsign_label")
+            or row.get("operating_callsign")
+            or row.get("callsign")
+            or row.get("matrix_flight_label")
+        )
+    else:
+        primary = _clean_flight_number(
+            row.get("matrix_flight_number_label")
+            or row.get("matrix_flight_label")
+            or row.get("flight_display")
+            or row.get("flight")
+            or row.get("flight_number")
+        )
     if primary:
         return primary
     return _clean_flight_number(row.get("operating_callsign") or row.get("callsign")) or "-"
@@ -539,34 +549,48 @@ def _page_has_codeshares(rows):
     return False
 
 def _route_code(row):
-    return _upper_text(row.get("route_code") or "")
+    if _is_technical_preset():
+        return _upper_text(row.get("matrix_route_code_label") or row.get("route_iata") or row.get("route_code") or "")
+    return ""
 
 def _route_label(row):
-    return _upper_text(row.get("matrix_route_label") or row.get("route_matrix_label") or row.get("route_display") or row.get("route") or "-")
+    if _is_technical_preset():
+        value = row.get("matrix_route_technical_label") or row.get("matrix_route_label")
+    else:
+        value = row.get("matrix_route_name_label") or row.get("matrix_route_label")
+    return _upper_text(value or row.get("route_matrix_label") or row.get("route_display") or row.get("route") or "-")
 
 def _route_chunk(row, chars):
     return cycle_chunks(_route_label(row), chars, _route_code(row)).rstrip()
 
 def _status_chunk(row, chars):
     delta = row.get("time_delta_label") or ""
-    status = row.get("matrix_status_label") or row.get("status_display") or row.get("status") or "-"
+    status = row.get("matrix_status_base_label") or row.get("matrix_status_label") or row.get("status_display") or row.get("status") or "-"
     if delta and "delay" not in str(status).lower() and "early" not in str(status).lower():
         status = "{} {}".format(status, delta)
+    upper = _upper_text(status)
+    upper = upper.replace("SCHEDULED", "SCHED")
+    upper = upper.replace("DELAYED", "DELAY")
+    upper = upper.replace("CANCELLED", "CANCEL")
+    if _is_technical_preset():
+        aircraft = _upper_text(row.get("matrix_aircraft_label") or row.get("aircraft_type") or row.get("aircraft") or "")[:5]
+        if aircraft:
+            status_chars = max(1, chars - len(aircraft) - 1)
+            return "{} {}".format(upper[:status_chars].rstrip(), aircraft).strip()
     if chars <= 8:
-        upper = _upper_text(status)
-        upper = upper.replace("SCHEDULED", "SCHED")
-        upper = upper.replace("DELAYED", "DELAY")
-        upper = upper.replace("CANCELLED", "CANCEL")
         status = upper
     return cycle_chunks(status, chars).rstrip()
 
 def _is_vatsim_preset():
     return str(PRESET or "").lower().startswith("vatsim_") or RENDERER in ("vatsim_pilot", "vatsim_atc")
 
+def _is_technical_preset():
+    return str(PRESET or "").lower() == "nerd" or _is_vatsim_preset()
+
 def _gate_label(row):
     if _is_vatsim_preset() or not SHOW_GATE_INFO or not isinstance(row, dict):
         return ""
-    for key in ("matrix_gate_label", "gate_label", "terminal_gate_display", "gate_display", "gate"):
+    for key in ("matrix_gate_label", "gate_label", "terminal_gate_display", "gate_display"):
         value = _upper_text(row.get(key) or "").strip()
         if value and value != "-":
             return value
@@ -588,15 +612,72 @@ def _status_or_gate_chunk(row, chars):
             pass
     return _status_chunk(row, chars)
 
+def _cycle_slot(count, seconds=None):
+    count = max(1, int(count or 1))
+    try:
+        period = max(2, int(seconds or CODE_SHARE_ROTATION_S or 3))
+        return int(time.time() // period) % count
+    except Exception:
+        return 0
+
+def _compact_clock_text(chars):
+    clock = _clock_label(compact=True)
+    if len(clock) <= chars:
+        return clock
+    parts = [part for part in clock.split() if part]
+    if parts:
+        return parts[_cycle_slot(len(parts))][:chars]
+    return clock[-chars:]
+
+def _primary_row_text(row, chars):
+    time_label = fit_text(_text_field(row.get("matrix_time_label") or row.get("display_time") or row.get("time"), "--:--"), 5).strip()
+    flight_label = _flight_cycle_display(row).strip()
+    combined = "{} {}".format(time_label, flight_label).strip()
+    if len(combined) <= chars:
+        return combined
+    parts = [part for part in (time_label, flight_label) if part]
+    if not parts:
+        return combined[:chars]
+    return parts[_cycle_slot(len(parts), 2)][:chars]
+
+def _compact_row_line_items(row, chars, line_count):
+    row = row or {}
+    chars = max(4, int(chars or 8))
+    line_count = max(1, int(line_count or 1))
+    primary = _primary_row_text(row, chars)
+    route = _route_chunk(row, chars)
+    status = _status_or_gate_chunk(row, chars)
+    detail = _detail_chunk(row, chars)
+    if line_count <= 1:
+        items = [("primary", primary), ("route", route), ("status", status)]
+        if detail:
+            items.append(("detail", detail))
+        return [items[_cycle_slot(len(items))]]
+    if line_count == 2:
+        second = [("route", route), ("status", status)]
+        if detail:
+            second.append(("detail", detail))
+        return [("primary", primary), second[_cycle_slot(len(second))]]
+    items = [("primary", primary), ("route", route), ("status", status)]
+    if detail:
+        if line_count >= 4:
+            items.append(("detail", detail))
+        elif _cycle_slot(2) == 1:
+            items[2] = ("detail", detail)
+    return items[:line_count]
+
 def _detail_items(row):
-    if not isinstance(row, dict) or _is_vatsim_preset():
+    if not isinstance(row, dict):
         return []
+    preferred = row.get("matrix_technical_subline_label") if _is_technical_preset() else row.get("matrix_fids_subline_label")
+    if preferred:
+        return [_upper_text(preferred)]
     raw = row.get("matrix_detail_cycle")
     if isinstance(raw, list):
         items = [_upper_text(item) for item in raw if _upper_text(item)]
     else:
         items = []
-    if not items:
+    if not items and not _is_technical_preset():
         operator = _upper_text(row.get("matrix_operator_label") or "")
         if not operator:
             op = row.get("operating_airline") or row.get("operator") or row.get("airline_display") or ""
@@ -627,8 +708,12 @@ def _detail_chunk(row, chars):
     text = items[slot % len(items)]
     return cycle_chunks(text, chars).rstrip()
 
-def _font_profile(row_h=9, *, wide=False):
+def _font_profile(row_h=9, *, wide=False, compact=False):
     row_h = int(row_h or 9)
+    if compact and (WIDTH < 96 or row_h < 14):
+        return ("tiny", 4, 6, True)
+    if compact and row_h < 24:
+        return ("bitmap6", 6, 7, False)
     if wide and WIDTH >= 240 and HEIGHT <= 64:
         return ("bitmap6", 6, 7, False)
     if row_h >= 9:
@@ -873,6 +958,13 @@ def _normalize_airport_iata(value):
     return "---"
 
 
+def _normalize_airport_icao(value):
+    code = (value or "").strip().upper()
+    if len(code) == 4 and all("A" <= ch <= "Z" for ch in code):
+        return code
+    return "----"
+
+
 def _normalize_airport_label(data):
     if not isinstance(data, dict):
         return _airport_iata
@@ -998,11 +1090,12 @@ def _post_json(path, payload, timeout=8):
 
 # ── API helpers ────────────────────────────────────────────────────────────────
 def fetch_config():
-    global _airport_iata, _airport_label
+    global _airport_iata, _airport_icao, _airport_label
     data = _get_json("/api/config", timeout=8)
     if not isinstance(data, dict):
         return False
     _airport_iata = _normalize_airport_iata(data.get("airport_iata"))
+    _airport_icao = _normalize_airport_icao(data.get("airport_icao"))
     _airport_label = _normalize_airport_label(data)
     _sync_clock_from_config(data)
     return True
@@ -1035,13 +1128,14 @@ def checkin_matrix_device():
 def fetch_matrix_config():
     global MAX_ROWS, REFRESH_S, PAGE_ROTATION_S, BRIGHTNESS, DEFAULT_VIEW
     global ANIMATION_ENABLED, ANIMATION_MODE, ANIMATION_SPEED, STATUS_ANIMATION_ENABLED
-    global SHOW_WEATHER, SHOW_GATE_INFO, PRESET, PALETTE, RENDERER, MATRIX_CONFIG_REV, _airport_iata, _airport_label
+    global SHOW_WEATHER, SHOW_GATE_INFO, PRESET, PALETTE, RENDERER, MATRIX_CONFIG_REV, _airport_iata, _airport_icao, _airport_label
     data = _get_json(f"/api/matrix/v2/devices/{device_id()}/config", timeout=8)
     if not isinstance(data, dict):
         data = _get_json("/api/matrix/config", timeout=8)
     if not isinstance(data, dict):
         return False
     _airport_iata = _normalize_airport_iata(data.get("airport_iata", _airport_iata))
+    _airport_icao = _normalize_airport_icao(data.get("airport_icao", _airport_icao))
     _airport_label = _normalize_airport_label(data)
     _sync_clock_from_config(data)
     MAX_ROWS     = _clamp_int(data.get("max_rows", MAX_ROWS), 1, 8, MAX_ROWS)
@@ -1078,13 +1172,14 @@ def fetch_matrix_config():
 
 
 def fetch_fids(view="departures", limit=4):
-    global DEFAULT_VIEW, _matrix_metar, _matrix_pages, _matrix_weather_page, _matrix_message, _airport_iata, _airport_label
+    global DEFAULT_VIEW, _matrix_metar, _matrix_pages, _matrix_weather_page, _matrix_message, _airport_iata, _airport_icao, _airport_label
     view = _normalize_view(view, "departures")
     limit = _clamp_int(limit, 1, 32, max(MAX_ROWS, limit))
     data = _get_json(f"/api/matrix/v2/devices/{device_id()}/feed?view={view}&limit={limit}", timeout=10)
     if isinstance(data, dict) and isinstance(data.get("rows"), list):
         DEFAULT_VIEW = _normalize_view(data.get("view", DEFAULT_VIEW), DEFAULT_VIEW)
         _airport_iata = _normalize_airport_iata(data.get("airport_iata", _airport_iata))
+        _airport_icao = _normalize_airport_icao(data.get("airport_icao", _airport_icao))
         _airport_label = _normalize_airport_label(data)
         _matrix_metar = data.get("metar") if isinstance(data.get("metar"), dict) else None
         _matrix_pages = data.get("pages") if isinstance(data.get("pages"), dict) else None
@@ -1261,64 +1356,94 @@ def draw_weather_compact(x, y, max_width):
     return cursor - x
 
 def draw_smart_header(view):
-    # Header placement math is based on bitmap8 glyph width. Rows may switch to
-    # bitmap6/tiny profiles, so reset the font before drawing the hero strip.
+    # Keep four fixed header zones. Header text never marquees: flight-row
+    # animation must not move the airport, direction, weather, or clock.
     graphics.set_font("bitmap8")
-    header_name = _airport_label or _airport_iata
-    lane = "DEP" if view == "departures" else "ARR"
+    technical = _is_technical_preset()
+    header_name = ((_airport_icao if _airport_icao != "----" else _airport_iata) if technical else (_airport_label or _airport_iata))
+    lane_short = "DEP" if view == "departures" else "ARR"
+    lane = lane_short if technical or WIDTH < 240 else ("DEPARTURES" if view == "departures" else "ARRIVALS")
     weather_temp = _weather_temp_text()
     clock = _clock_label(compact=WIDTH < 320)
+    header_h = _header_height()
 
-    if WIDTH < 200:
-        compact_name = _airport_iata if weather_temp else header_name
-        label = "{} {}".format(marquee(compact_name, max(6, WIDTH // 8 - 4)).rstrip(), lane)
-        graphics.set_pen(GREEN)
-        graphics.set_font("bitmap8")
-        graphics.text(label[:max(8, WIDTH // 8)], 0, 0, WIDTH, 1)
-        top_weather_drawn = False
-        if weather_temp:
-            weather_width = 7 + len(weather_temp) * 8
-            weather_x = WIDTH - weather_width - 1
-            if weather_x > len(label) * 8 + 4:
-                top_weather_drawn = bool(draw_weather_mini(weather_x, 0, weather_width + 1))
-        second = clock
-        second_pen = DIM
-        if weather_temp and not top_weather_drawn and int(time.time() // 8) % 2 == 1:
-            second = weather_temp
-            second_pen = AMBER
-        graphics.set_pen(second_pen)
-        graphics.text(second[:max(8, WIDTH // 8)], 0, 10, WIDTH, 1)
+    if WIDTH < 200 and header_h <= 12:
+        chars = max(4, WIDTH // 8)
+        weather_width = 7 + len(weather_temp) * 8 if SHOW_WEATHER and weather_temp else 0
+        phases = ["airport"]
+        if weather_width:
+            phases.append("weather")
+        phases.append("clock")
+        phase = phases[_cycle_slot(len(phases))]
+        if phase == "clock":
+            clock_text = _compact_clock_text(chars)
+            clock_x = max(0, WIDTH - len(clock_text) * 8)
+            graphics.set_pen(DIM)
+            graphics.text(clock_text, clock_x, 0, WIDTH - clock_x, 1)
+        elif phase == "weather":
+            drawn = draw_weather_mini(0, 0, min(weather_width, WIDTH))
+            if not drawn and weather_temp:
+                graphics.set_pen(AMBER)
+                graphics.text(weather_temp[:chars], 0, 0, WIDTH, 1)
+        else:
+            lane_x = max(0, WIDTH - len(lane_short) * 8)
+            name_chars = max(1, (lane_x - 3) // 8)
+            graphics.set_pen(GREEN)
+            graphics.text(_upper_text(header_name)[:name_chars], 0, 0, max(1, lane_x - 3), 1)
+            graphics.set_pen(WHITE)
+            graphics.text(lane_short, lane_x, 0, WIDTH - lane_x, 1)
         return
 
-    clock_x = max(0, WIDTH - len(clock) * 8 - 1)
+    if WIDTH < 200:
+        chars = max(8, WIDTH // 8)
+        lane = lane_short
+        lane_x = max(0, WIDTH - len(lane) * 8)
+        name_chars = max(1, (lane_x - 3) // 8)
+        graphics.set_pen(GREEN)
+        graphics.text(_upper_text(header_name)[:name_chars], 0, 0, max(1, lane_x - 3), 1)
+        graphics.set_pen(DIM)
+        graphics.text(lane, lane_x, 0, WIDTH - lane_x, 1)
+        weather_width = 7 + len(weather_temp) * 8 if SHOW_WEATHER and weather_temp else 0
+        clock_x = max(0, WIDTH - len(clock) * 8)
+        if weather_width and clock_x >= weather_width + 2:
+            draw_weather_mini(0, 10, min(weather_width, WIDTH))
+        elif weather_width and _cycle_slot(2) == 1:
+            drawn = draw_weather_mini(0, 10, min(weather_width, WIDTH))
+            if not drawn and weather_temp:
+                graphics.set_pen(AMBER)
+                graphics.text(weather_temp[:chars], 0, 10, WIDTH, 1)
+            return
+        graphics.set_pen(DIM)
+        clock_text = _compact_clock_text(chars)
+        clock_x = max(0, WIDTH - len(clock_text) * 8)
+        graphics.text(clock_text, clock_x, 10, WIDTH - clock_x, 1)
+        return
+
+    clock_w = len(clock) * 8
+    clock_x = max(0, WIDTH - clock_w)
     graphics.set_pen(DIM)
-    graphics.text(clock, clock_x, 0, WIDTH, 1)
+    graphics.text(clock, clock_x, 0, WIDTH - clock_x, 1)
 
-    label = "{} {}".format(header_name, lane).upper()
-    label_limit = max(6, min(len(label), 12 if WIDTH < 300 else 18))
-    weather = _weather_line(max(8, WIDTH // 8 - 1))
-    if weather or weather_temp:
-        # Wide boards use a stable three-zone hero: title left, weather center,
-        # clock right. Shrink weather before stealing the flight-row header.
-        center_left = label_limit * 8 + 6
-        center_right = max(center_left + 16, clock_x - 5)
-        center_w = center_right - center_left
-        desired = max(3, min(18 if WIDTH >= 384 else 10, (center_w - 12) // 8))
-        weather_text = (weather or weather_temp)[:desired].strip()
-        if not weather_text and weather_temp:
-            weather_text = weather_temp[:max(1, desired)]
-        if weather_temp and len(weather_text) < len(weather_temp):
-            weather_text = weather_temp
-        weather_w = 8 + len(weather_text) * 8
-        weather_x = center_left + max(0, (center_w - weather_w) // 2)
-        if weather_text and weather_w <= center_w and weather_x > label_limit * 8:
-            draw_weather_compact(weather_x, 0, center_w)
-
-    label_chars = max(6, min(label_limit, (clock_x - 4) // 8))
-    if len(label) > label_chars:
-        label = marquee(label, label_chars).rstrip()
+    weather_w = (7 + len(weather_temp) * 8) if SHOW_WEATHER and weather_temp else 0
+    weather_x = max(0, clock_x - weather_w - 3)
+    if not technical and lane != lane_short and (weather_x - len(lane) * 8 - 3) < 32:
+        lane = lane_short
+    lane_w = len(lane) * 8
+    lane_x = max(0, weather_x - lane_w - 3)
+    name_chars = max(1, (lane_x - 3) // 8)
     graphics.set_pen(GREEN)
-    graphics.text(label, 0, 0, max(1, label_chars * 8), 1)
+    graphics.text(_upper_text(header_name)[:name_chars], 0, 0, max(1, lane_x - 3), 1)
+    graphics.set_pen(WHITE)
+    graphics.text(lane, lane_x, 0, max(1, weather_x - lane_x - 3), 1)
+    if weather_w:
+        draw_weather_mini(weather_x, 0, weather_w)
+
+    # One-pixel dividers make the four zones visually independent without
+    # spending a full bitmap character on separators.
+    graphics.set_pen(DIMBG)
+    for divider_x in (lane_x - 2, weather_x - 2, clock_x - 2):
+        if divider_x > 0:
+            graphics.line(divider_x, 0, divider_x, 7)
 
 def _weather_page_lines(chars):
     page = _matrix_weather_page if isinstance(_matrix_weather_page, dict) else None
@@ -1340,19 +1465,33 @@ def _clock_label(compact=False):
         local_ts = _clock_hhmm(_clock_local_epoch, 0)
     else:
         local_ts = _clock_hhmm(_clock_utc_epoch, _clock_offset_minutes)
+    if not _is_technical_preset():
+        return "LT{}".format(local_ts)
     if compact:
         return "U{} L{}".format(utc_ts, local_ts)
     return "UTC{} LT{}".format(utc_ts, local_ts)
 
 def _header_height():
+    if HEIGHT <= 24:
+        return 9
+    if HEIGHT <= 32:
+        return 10
     if WIDTH < 200:
         return 20
     return 20 if HEIGHT >= 96 else 11
 
 def _visible_rows():
     data_height = max(1, HEIGHT - _header_height())
+    if HEIGHT <= 32:
+        return 1
     if WIDTH < 180:
         return max(1, min(MAX_ROWS, data_height // 18))
+    if WIDTH < 240 and HEIGHT <= 64:
+        return max(1, min(MAX_ROWS, data_height // 20))
+    if WIDTH >= 240 and HEIGHT <= 64:
+        # A compact-board row needs two text lines: primary flight/status and
+        # the mode-specific codeshare/aircraft or codeshare/route subline.
+        return max(1, min(MAX_ROWS, data_height // 17))
     if data_height // max(1, MAX_ROWS) < 6:
         return max(1, min(MAX_ROWS, data_height // 6))
     return max(1, MAX_ROWS)
@@ -1500,11 +1639,11 @@ def draw_modern_fids(flap_rows, page_data, view):
     data_start = _header_height()
     rows = _visible_rows()
     row_h = max(6, (HEIGHT - data_start) // rows)
-    profile = _resolve_font(_font_profile(row_h, wide=WIDTH >= 240))
-    char_w = profile[1]
-    line_h = profile[2]
     compact = WIDTH < 180
     medium = 180 <= WIDTH < 240
+    profile = _resolve_font(_font_profile(row_h, wide=WIDTH >= 240, compact=compact))
+    char_w = profile[1]
+    line_h = profile[2]
     for i in range(rows):
         y = data_start + i * row_h
         if y + max(5, line_h - 1) > HEIGHT:
@@ -1526,24 +1665,37 @@ def draw_modern_fids(flap_rows, page_data, view):
         draw_glyph("arr" if view == "arrivals" else "dep", 0, y + 1, DIM)
         time_x = 8
         flight_x = time_x + 5 * char_w + 5
-        draw_text(time_label, time_x, y, GREEN if not cancelled else WHITE, 5 * char_w + 2, profile)
-        draw_text(flight_label, flight_x, y, WHITE, 8 * char_w + 2, profile)
+        if not compact:
+            draw_text(time_label, time_x, y, GREEN if not cancelled else WHITE, 5 * char_w + 2, profile)
+            draw_text(flight_label, flight_x, y, WHITE, 8 * char_w + 2, profile)
         if compact:
-            chars = max(8, WIDTH // char_w)
-            route_y = y + line_h
-            status_y = y + line_h * 2
-            if route_y + 5 <= y + row_h:
-                draw_text(_route_chunk(row, chars)[:chars], 0, route_y, WHITE, WIDTH, profile)
-            if status_y + 5 <= y + row_h:
-                status = _status_or_gate_chunk(row, chars)
-                draw_text(status, 0, status_y, status_color(row), WIDTH, profile)
+            chars = max(4, (WIDTH - 1) // char_w)
+            line_count = max(1, min(4, row_h // max(1, line_h)))
+            items = _compact_row_line_items(row, chars, line_count)
+            for line_idx, (role, label) in enumerate(items):
+                line_y = y + line_idx * line_h
+                if line_y + 5 > min(HEIGHT, y + row_h):
+                    break
+                x = 8 if line_idx == 0 and WIDTH >= 56 else 0
+                max_w = WIDTH - x
+                color = status_color(row) if role == "status" else DIM if role == "detail" else WHITE
+                if role == "primary":
+                    color = GREEN if not cancelled else WHITE
+                draw_text(label[:max(1, max_w // char_w)], x, line_y, color, max_w, profile)
         elif medium:
             route_x = flight_x + 8 * char_w + 6
             status_x = max(route_x + 6 * char_w, WIDTH - 10 * char_w)
             route_chars = max(5, (status_x - route_x - 2) // char_w)
             status_chars = max(5, (WIDTH - status_x - 1) // char_w)
             draw_text(_route_chunk(row, route_chars)[:route_chars], route_x, y, WHITE, max(20, status_x - route_x - 2), profile)
-            draw_text(_status_or_gate_chunk(row, status_chars)[:status_chars], status_x, y, status_color(row), max(8, WIDTH - status_x), profile)
+            medium_status = _status_or_gate_chunk(row, status_chars)
+            medium_pen = status_color(row)
+            if row_h < line_h * 2:
+                detail = _detail_chunk(row, status_chars)
+                if detail and _cycle_slot(2) == 1:
+                    medium_status = detail
+                    medium_pen = DIM
+            draw_text(medium_status[:status_chars], status_x, y, medium_pen, max(8, WIDTH - status_x), profile)
             if row_h >= line_h * 2:
                 detail = _detail_chunk(row, max(8, (WIDTH - 8) // char_w))
                 if detail:
@@ -1559,11 +1711,7 @@ def draw_modern_fids(flap_rows, page_data, view):
             if row_h >= line_h:
                 status_chars = cols["status_chars"]
                 status = _status_or_gate_chunk(row, status_chars) or text[28:38].strip()
-                if RENDERER in ("vatsim_pilot", "vatsim_atc"):
-                    ac = _upper_text(row.get("aircraft_type") or row.get("aircraft") or "")
-                    cs = _upper_text(row.get("callsign") or "")
-                    status = " ".join(part for part in (status, ac or cs) if part)
-                else:
+                if not _is_technical_preset():
                     gate = _gate_label(row)
                     aircraft = _upper_text(row.get("aircraft_type") or row.get("aircraft") or "")
                     if gate and WIDTH >= 300:
@@ -1571,18 +1719,13 @@ def draw_modern_fids(flap_rows, page_data, view):
                     if aircraft and WIDTH >= 420:
                         draw_text(aircraft[:5], aircraft_x, y, DIM, max(8, WIDTH - aircraft_x), profile)
                 status_color_pen = status_color(row)
-                if WIDTH < 300 and row_h < line_h * 2:
-                    detail = _detail_chunk(row, max(5, (WIDTH - status_x - 1) // char_w))
-                    if detail:
-                        try:
-                            show_detail = int(time.time() // max(3, CODE_SHARE_ROTATION_S)) % 2 == 1
-                        except Exception:
-                            show_detail = False
-                        if show_detail:
-                            status = detail
-                            status_color_pen = DIM
+                if row_h < line_h * 2:
+                    detail = _detail_chunk(row, status_chars)
+                    if detail and _cycle_slot(2) == 1:
+                        status = detail
+                        status_color_pen = DIM
                 draw_text(status[:status_chars], status_x, y, status_color_pen, max(8, (gate_x if WIDTH >= 300 else WIDTH) - status_x - 2), profile)
-                if row_h >= line_h * 2 and (MAX_ROWS <= 3 or row_h >= line_h * 2 + 2):
+                if row_h >= line_h * 2 and (rows <= 3 or row_h >= line_h * 2 + 2):
                     detail = _detail_chunk(row, cols["detail_chars"])
                     if detail:
                         detail_y = y + line_h

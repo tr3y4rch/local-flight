@@ -2249,7 +2249,7 @@ class RadarScreen(_AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
         started = self._run_async(
             lambda: self._fetch_radar(radius),
             self._apply_radar,
-            lambda exc: self.status.setText(f"Radar fetch failed: {exc}"),
+            lambda _exc: self.status.setText("Radar is temporarily unavailable. Try again shortly."),
             label=f"radar.{radius}nm",
         )
         if started:
@@ -2291,7 +2291,7 @@ class RadarScreen(_AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
         hidden = f" | {hidden_airborne} airborne hidden" if hidden_airborne else (f" | {hidden_ground} ground hidden" if hidden_ground else "")
         raw_provider_count = int(payload.get("raw_provider_count") or payload.get("count") or 0)
         provider_radius = float(payload.get("provider_radius_nm") or payload.get("radius_nm") or self.radius_nm)
-        crop_note = f" | cropped from {raw_provider_count} @ {provider_radius:g}nm" if provider_radius > float(payload.get("radius_nm") or self.radius_nm) else ""
+        crop_note = ""
         surface_note = f" | surface unavailable: {result['surface_error']}" if result.get("surface_error") else ""
         self.status.setText(
             f"{payload.get('count', 0)} visible | mode {payload.get('radar_mode', 'airborne')} | "
@@ -2560,6 +2560,7 @@ class MatrixCanvas:  # pragma: no cover - optional Qt runtime
                 self.weather_page: dict[str, Any] | None = None
                 self.message = ""
                 self.airport_iata = "LOCAL"
+                self.airport_icao = "----"
                 self.airport_label = "LOCAL"
                 self.view = "departures"
                 self.clock_utc_epoch: int | None = None
@@ -2598,6 +2599,7 @@ class MatrixCanvas:  # pragma: no cover - optional Qt runtime
                 self.weather_page = payload.get("weather_page") if isinstance(payload.get("weather_page"), dict) else None
                 self.message = str(payload.get("message") or "").upper()
                 self.airport_iata = str(payload.get("airport_iata") or self.airport_iata or "LOCAL").upper()
+                self.airport_icao = str(payload.get("airport_icao") or self.airport_icao or "----").upper()
                 self.airport_label = str(payload.get("airport_label") or payload.get("airport_iata") or self.airport_label or "LOCAL").upper()
                 payload_view = str(payload.get("view") or self.view or "departures").lower()
                 self.view = payload_view if payload_view in {"departures", "arrivals"} else "departures"
@@ -2774,17 +2776,28 @@ class MatrixCanvas:  # pragma: no cover - optional Qt runtime
                 data_height = max(1, self.panel_h - self._header_height())
                 if self.panel_w < 180:
                     return max(1, min(self.max_rows, data_height // 18))
+                if self.panel_h <= 64 and self.max_rows > 3:
+                    return 3
                 if data_height // max(1, self.max_rows) < 6:
                     return max(1, min(self.max_rows, data_height // 6))
                 return max(1, self.max_rows)
 
             def _flight_cycle_display(self, row: dict[str, Any]) -> str:
-                primary = self._clean_flight_number(
-                    row.get("matrix_flight_label")
-                    or row.get("flight_display")
-                    or row.get("flight")
-                    or row.get("flight_number")
-                )
+                if self._is_technical_preset():
+                    primary = self._clean_flight_number(
+                        row.get("matrix_callsign_label")
+                        or row.get("operating_callsign")
+                        or row.get("callsign")
+                        or row.get("matrix_flight_label")
+                    )
+                else:
+                    primary = self._clean_flight_number(
+                        row.get("matrix_flight_number_label")
+                        or row.get("matrix_flight_label")
+                        or row.get("flight_display")
+                        or row.get("flight")
+                        or row.get("flight_number")
+                    )
                 if primary:
                     return primary
                 return self._clean_flight_number(row.get("operating_callsign") or row.get("callsign")) or "-"
@@ -2835,7 +2848,8 @@ class MatrixCanvas:  # pragma: no cover - optional Qt runtime
                 return self.code_preserve(chunks[slot], code_text if slot == len(chunks) - 1 else "", width)
 
             def _route_fields(self, row: dict[str, Any]) -> tuple[str, str]:
-                label = self._ascii(row.get("matrix_route_label") or row.get("route_matrix_label") or row.get("route_display") or row.get("route") or "-")
+                mode_label = row.get("matrix_route_technical_label") if self._is_technical_preset() else row.get("matrix_route_name_label")
+                label = self._ascii(mode_label or row.get("matrix_route_label") or row.get("route_matrix_label") or row.get("route_display") or row.get("route") or "-")
                 code = self._ascii(row.get("route_code") or "")
                 if not code:
                     match = re.search(r"\(([A-Z0-9]{3,4})\)\s*$", label.upper())
@@ -2860,6 +2874,8 @@ class MatrixCanvas:  # pragma: no cover - optional Qt runtime
                     elapsed = max(0, time.monotonic() - self.clock_sync_monotonic)
                     now_utc = datetime.fromtimestamp(self.clock_utc_epoch + elapsed, timezone.utc)
                 local = datetime.fromtimestamp(now_utc.timestamp() + self.clock_offset_minutes * 60, timezone.utc)
+                if not self._is_technical_preset():
+                    return f"LT{local:%H:%M}"
                 if compact:
                     return f"U{now_utc:%H:%M} L{local:%H:%M}"
                 return f"UTC{now_utc:%H:%M} LT{local:%H:%M}"
@@ -2957,64 +2973,55 @@ class MatrixCanvas:  # pragma: no cover - optional Qt runtime
                 return self._weather_line(max_chars)
 
             def _draw_smart_header(self, painter: Any, QtGui: Any, left: float, top: float, board_w: float, scale: float, dim_color: Any) -> None:
-                lane = "ARR" if self.view == "arrivals" else "DEP"
-                compact_weather = self._weather_compact_token(8)
-                airport = (self.airport_iata if self.panel_w < 200 and compact_weather else self.airport_label or "LOCAL").upper()
+                technical = self._is_technical_preset()
+                lane_short = "ARR" if self.view == "arrivals" else "DEP"
+                lane = lane_short if technical or self.panel_w < 240 else ("ARRIVALS" if self.view == "arrivals" else "DEPARTURES")
+                weather_temp = self._weather_temp_text()
+                airport = ((self.airport_icao or self.airport_iata) if technical else (self.airport_label or self.airport_iata or "LOCAL")).upper()
                 clock = self._clock_text(self.panel_w < 320)
+                char_px = max(1.0, 6 * scale)
+                baseline = top + 8 * scale
                 painter.setPen(QtGui.QColor(self.colors["green"]))
 
                 if self.panel_w < 200:
-                    chars = max(8, int(self.panel_w / 6))
-                    header = f"{self.marquee(airport, max(6, chars - 4)).strip()} {lane}".upper()[:chars]
-                    painter.drawText(int(left + 10), int(top + 8 * scale), header)
-                    second_line = clock[:chars]
-                    second_color = dim_color
-                    if compact_weather:
-                        approx_w = len(compact_weather) * 6 * scale
-                        wx_x = left + board_w - approx_w - 10 * scale
-                        header_right = left + 10 + len(header) * 6 * scale + 6 * scale
-                        if wx_x > header_right:
-                            second_color = dim_color
-                            painter.setPen(QtGui.QColor(self.colors["amber"]))
-                            painter.drawText(int(wx_x), int(top + 8 * scale), compact_weather)
-                        elif int(time.monotonic() // 8) % 2 == 1:
-                            second_line = compact_weather[:chars]
-                            second_color = QtGui.QColor(self.colors["amber"])
-                    painter.setPen(second_color)
-                    painter.drawText(int(left + 10), int(top + 18 * scale), second_line)
+                    lane = lane_short
+                    lane_x = left + board_w - len(lane) * char_px - 2 * scale
+                    name_chars = max(1, int((lane_x - left - 4 * scale) / char_px))
+                    painter.drawText(int(left + 2 * scale), int(baseline), airport[:name_chars])
+                    painter.setPen(QtGui.QColor(self.colors["cyan"]))
+                    painter.drawText(int(lane_x), int(baseline), lane)
+                    if self.show_weather:
+                        glyph_color = QtGui.QColor(self.colors["amber"])
+                        self._draw_board_glyph(painter, QtGui, self._weather_glyph_name(), left + 2 * scale, top + 11 * scale, max(1.0, scale * 0.8), glyph_color)
+                        painter.setPen(glyph_color)
+                        painter.drawText(int(left + 10 * scale), int(top + 18 * scale), weather_temp)
+                    clock_x = left + board_w - len(clock) * char_px - 2 * scale
+                    painter.setPen(dim_color)
+                    painter.drawText(int(clock_x), int(top + 18 * scale), clock)
                     return
 
-                clock_w = len(clock) * 6 * scale
-                clock_x = left + max(0, board_w - clock_w - 8 * scale)
+                clock_w = len(clock) * char_px
+                clock_x = left + max(0, board_w - clock_w - 2 * scale)
                 painter.setPen(dim_color)
-                painter.drawText(int(clock_x), int(top + 8 * scale), clock)
-
-                label = f"{airport} {lane}".upper()
-                label_limit = max(6, min(len(label), 12 if self.panel_w < 300 else 18))
-                weather_line = self._weather_line(max(8, int(self.panel_w / 6)))
-                if weather_line or compact_weather:
-                    center_left = label_limit * 6 * scale + 8 * scale
-                    center_right = max(center_left + 16 * scale, clock_x - left - 5 * scale)
-                    center_w = center_right - center_left
-                    desired = max(3, min(18 if self.panel_w >= 384 else 10, int((center_w - 12 * scale) / max(1.0, 6 * scale))))
-                    weather_text = (weather_line or compact_weather)[:desired].strip()
-                    if not weather_text and compact_weather:
-                        weather_text = compact_weather[:desired]
-                    if compact_weather and len(weather_text) < len(compact_weather):
-                        weather_text = compact_weather
-                    weather_w = 8 * scale + len(weather_text) * 6 * scale
-                    weather_x = center_left + max(0, (center_w - weather_w) / 2)
-                    if weather_text and weather_w <= center_w and weather_x > label_limit * 6 * scale:
-                        painter.setPen(QtGui.QColor(self.colors["amber"]))
-                        self._draw_board_glyph(painter, QtGui, self._weather_glyph_name(), left + weather_x, top + 3 * scale, max(1.0, scale * 0.8), QtGui.QColor(self.colors["amber"]))
-                        painter.setPen(dim_color)
-                        painter.drawText(int(left + weather_x + 9 * scale), int(top + 8 * scale), weather_text)
-
-                label_chars = max(6, min(label_limit, int((clock_x - left - 4 * scale) / max(1.0, 6 * scale))))
-                if len(label) > label_chars:
-                    label = self.marquee(label, label_chars).strip()
+                painter.drawText(int(clock_x), int(baseline), clock)
+                weather_w = (8 * scale + len(weather_temp) * char_px) if self.show_weather else 0
+                weather_x = clock_x - weather_w - 3 * scale
+                lane_w = len(lane) * char_px
+                lane_x = weather_x - lane_w - 3 * scale
+                name_chars = max(1, int((lane_x - left - 4 * scale) / char_px))
                 painter.setPen(QtGui.QColor(self.colors["green"]))
-                painter.drawText(int(left + 10), int(top + 8 * scale), label)
+                painter.drawText(int(left + 2 * scale), int(baseline), airport[:name_chars])
+                painter.setPen(QtGui.QColor(self.colors["cyan"]))
+                painter.drawText(int(lane_x), int(baseline), lane)
+                if self.show_weather:
+                    glyph_color = QtGui.QColor(self.colors["amber"])
+                    self._draw_board_glyph(painter, QtGui, self._weather_glyph_name(), weather_x, top + 3 * scale, max(1.0, scale * 0.8), glyph_color)
+                    painter.setPen(glyph_color)
+                    painter.drawText(int(weather_x + 8 * scale), int(baseline), weather_temp)
+                painter.setPen(QtGui.QPen(dim_color, max(1, int(scale * 0.5))))
+                for divider_x in (lane_x - 2 * scale, weather_x - 2 * scale, clock_x - 2 * scale):
+                    if divider_x > left:
+                        painter.drawLine(int(divider_x), int(top + scale), int(divider_x), int(top + 8 * scale))
 
             def _header_height(self) -> int:
                 if self.panel_w < 200:
@@ -3026,18 +3033,27 @@ class MatrixCanvas:  # pragma: no cover - optional Qt runtime
                 return self.cycle_chunks(label_text, chars, code_text).strip()
 
             def _status_chunk(self, row: dict[str, Any], chars: int) -> str:
-                status = row.get("matrix_status_label") or row.get("status_display") or row.get("status") or "-"
+                status = row.get("matrix_status_base_label") or row.get("matrix_status_label") or row.get("status_display") or row.get("status") or "-"
+                upper = str(status).upper().replace("SCHEDULED", "SCHED").replace("DELAYED", "DELAY").replace("CANCELLED", "CANCEL")
+                if self._is_technical_preset():
+                    aircraft = (format_value(row.get("matrix_aircraft_label")) or format_value(row.get("aircraft_type")) or format_value(row.get("aircraft")) or "").upper()[:5]
+                    if aircraft:
+                        status_chars = max(1, chars - len(aircraft) - 1)
+                        return f"{upper[:status_chars].strip()} {aircraft}".strip()
                 if chars <= 8:
-                    status = str(status).upper().replace("SCHEDULED", "SCHED").replace("DELAYED", "DELAY").replace("CANCELLED", "CANCEL")
+                    status = upper
                 return self.cycle_chunks(status, chars).strip()
 
             def _is_vatsim_preset(self) -> bool:
                 return str(self.preset or "").lower().startswith("vatsim_")
 
+            def _is_technical_preset(self) -> bool:
+                return str(self.preset or "").lower() == "nerd" or self._is_vatsim_preset()
+
             def _gate_label(self, row: dict[str, Any]) -> str:
                 if self._is_vatsim_preset() or not self.show_gate_info:
                     return ""
-                for key in ("matrix_gate_label", "gate_label", "terminal_gate_display", "gate_display", "gate"):
+                for key in ("matrix_gate_label", "gate_label", "terminal_gate_display", "gate_display"):
                     value = (format_value(row.get(key)) or "").strip().upper()
                     if value and value != "-":
                         return value
@@ -3056,11 +3072,12 @@ class MatrixCanvas:  # pragma: no cover - optional Qt runtime
                 return self._status_chunk(row, chars)
 
             def _detail_items(self, row: dict[str, Any]) -> list[str]:
-                if self._is_vatsim_preset():
-                    return []
+                preferred = row.get("matrix_technical_subline_label") if self._is_technical_preset() else row.get("matrix_fids_subline_label")
+                if preferred:
+                    return [self._ascii(preferred).upper().strip()]
                 raw = row.get("matrix_detail_cycle")
                 items = [self._ascii(item).upper().strip() for item in raw if self._ascii(item).strip()] if isinstance(raw, list) else []
-                if not items:
+                if not items and not self._is_technical_preset():
                     operator = (format_value(row.get("matrix_operator_label")) or "").upper()
                     if not operator:
                         op = format_value(row.get("operating_airline")) or format_value(row.get("operator")) or format_value(row.get("airline_display"))
@@ -3292,7 +3309,7 @@ class MatrixCanvas:  # pragma: no cover - optional Qt runtime
                             status_text = self._status_or_gate_chunk(row_data, chars)
                             gate = self._gate_label(row_data)
                             aircraft = (format_value(row_data.get("aircraft_type")) or format_value(row_data.get("aircraft")) or "").upper()
-                            if row_h >= 27 * scale and (aircraft and not gate):
+                            if not self._is_technical_preset() and row_h >= 27 * scale and (aircraft and not gate):
                                 extra = aircraft
                                 status_text = f"{status_text[: max(1, chars - 5)].strip()} {extra[:4]}".strip()
                             painter.drawText(int(left + 4), int(status_y), status_text)
@@ -3349,13 +3366,13 @@ class MatrixCanvas:  # pragma: no cover - optional Qt runtime
                         aircraft = (format_value(row_data.get("aircraft_type")) or format_value(row_data.get("aircraft")) or "").upper()
                         if gate:
                             draw_cell(cols["gate_x"], max(8, self.panel_w - cols["gate_x"] - 1), gate[:5], dim_color)
-                        if aircraft and self.panel_w >= 420:
+                        if not self._is_technical_preset() and aircraft and self.panel_w >= 420:
                             draw_cell(cols["aircraft_x"], max(8, self.panel_w - cols["aircraft_x"] - 1), aircraft[:5], dim_color)
-                    if row_data and row_h >= 17 * scale and (self.max_rows <= 3 or row_h >= 20 * scale):
+                    if row_data and row_h >= 17 * scale and (rows_to_draw <= 3 or row_h >= 20 * scale):
                         detail = self._detail_chunk(row_data, cols["detail_chars"])
                     else:
                         detail = self.row_details[idx] if idx < len(self.row_details) else ""
-                    if detail and row_h >= 17 * scale and (self.max_rows <= 3 or row_h > 22):
+                    if detail and row_h >= 17 * scale and (rows_to_draw <= 3 or row_h > 22):
                         detail_font = QtGui.QFont("Space Mono", max(5, int(4.5 * scale)))
                         painter.setFont(detail_font)
                         painter.setPen(dim_color)
@@ -3530,7 +3547,7 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
         settings_layout.addWidget(self._settings_group("Configuration", [
             ("Config", self.config_select, "Switch between saved board configs. Each config can target a different physical panel."),
             ("Name", self.config_name, "Human-readable name for this Matrix config."),
-            ("Board mode", self.preset_select, "Real FIDS shows live airport data. VATSIM modes use virtual-network display rules."),
+            ("Board mode", self.preset_select, "Real FIDS uses passenger labels and local time. Nerd and VATSIM use technical labels, callsigns, and UTC plus local time."),
         ]))
         settings_layout.addWidget(self._settings_group("Display", [
             ("Panel combo", self.panel_preset, "Choose a standard physical panel combination. Match the hardware wired to the i75W."),
@@ -4020,10 +4037,10 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
             })
         try:
             payload, rows = self.service.matrix_feed(device_id=mirror_device, params=params)
-        except NativeApiError as exc:
+        except NativeApiError:
             payload = {}
             rows = []
-            self.action_status.setText(f"Preview feed unavailable: {exc}")
+            self.action_status.setText("The live Matrix preview is temporarily unavailable.")
         if mirror_device and isinstance(payload, dict) and payload.get("effective_panel_w") and payload.get("effective_panel_h"):
             self._set_panel_size(int(payload.get("effective_panel_w") or 256), int(payload.get("effective_panel_h") or 64), sync=False)
         self.canvas.set_rows(rows[: max(1, int(self.max_rows.value()))])
@@ -4527,7 +4544,7 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
         self.search_poll_timer.setInterval(50)
         self.search_poll_timer.timeout.connect(self._poll_airport_search)
         self.layout.addWidget(label(QtWidgets, "Settings", "Title"))
-        self.layout.addWidget(label(QtWidgets, "User-facing client controls. Operator-only relay controls stay in Network Admin.", "Muted", wrap=True))
+        self.layout.addWidget(label(QtWidgets, "Controls for the local board, connected displays, and mobile companions.", "Muted", wrap=True))
         self.status = label(QtWidgets, "Loading current settings...", "Muted", wrap=True)
         self._build_current_section()
         self._build_install_section()
@@ -4877,7 +4894,7 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
             self.install_layout.addWidget(label(self.QtWidgets, f"Install info unavailable: {exc}", "Muted", wrap=True))
             return
         rows = [
-            {"item": "Machine ID", "value": info.get("install_id") or info.get("install_fingerprint")},
+            {"item": "Support ID", "value": info.get("install_fingerprint") or info.get("install_id")},
             {"item": "Relay URL", "value": info.get("relay_url")},
             {"item": "Managed token", "value": "present" if (info.get("activation_token_present") or info.get("has_activation_token")) else "not set"},
             {"item": "Access path", "value": info.get("mode") or info.get("status")},
@@ -6038,7 +6055,7 @@ class FeedbackScreen:  # pragma: no cover - optional Qt runtime
             f"Version: {sysinfo.get('version')}\n"
             f"Platform: {sysinfo.get('platform')}\n"
             f"Diagnostics: {cfg.get('diagnostics_mode')}\n"
-            f"Install ID: {client_info.get('install_id') or 'local'}\n"
+            f"Support ID: {client_info.get('install_fingerprint') or client_info.get('install_id') or 'local'}\n"
             f"Relay: {client_info.get('relay_url') or 'not configured'}\n"
             f"Activation: {'present' if (client_info.get('activation_token_present') or client_info.get('has_activation_token')) else 'not stored'}"
         )

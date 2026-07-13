@@ -3,6 +3,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
+from localflight.core.ops_location import gate_confidence, terminal_confidence
+
 
 def _pick(*values: Optional[str]) -> Optional[str]:
     """Return the first non-empty string."""
@@ -196,6 +198,7 @@ def aviationstack_to_raw_records(
 
         # Pick the “relevant” time set depending on direction
         time_block = dep if direction == "DEP" else arr
+        location_prefix = "aviationstack.departure" if direction == "DEP" else "aviationstack.arrival"
 
         scheduled = time_block.get("scheduled")
         estimated = time_block.get("estimated")
@@ -243,6 +246,11 @@ def aviationstack_to_raw_records(
             "gate": gate,
             "stand": stand,
             "terminal": terminal,
+            "gate_source": f"{location_prefix}.gate" if gate else "",
+            "terminal_source": f"{location_prefix}.terminal" if terminal else "",
+            "gate_confidence": gate_confidence(gate),
+            "terminal_confidence": terminal_confidence(terminal),
+            "ops_location_notes": (),
             "delay_minutes": delay_minutes,
         }
 

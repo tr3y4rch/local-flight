@@ -316,6 +316,48 @@ html.lf-is-mobile .fids-empty-row td { padding: 40px 12px; }
 
 /* ---------- 4. Radar / Matrix / Display panes ---------- */
 
+html.lf-is-mobile .lf-display-shell {
+  height: calc(100vh - 64px - env(safe-area-inset-bottom));
+  height: calc(100dvh - 64px - env(safe-area-inset-bottom));
+}
+html.lf-is-mobile .lf-display-controls {
+  min-height: 52px;
+  gap: 4px;
+  padding: 4px 6px;
+}
+html.lf-is-mobile .lf-display-controls .lf-toolbar-kicker,
+html.lf-is-mobile .lf-display-status {
+  display: none;
+}
+html.lf-is-mobile .lf-display-controls-left {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+html.lf-is-mobile .lf-display-mode-switcher {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+html.lf-is-mobile .lf-display-mode-btn {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 44px;
+  padding: 5px 6px;
+  font-size: 0.72rem;
+}
+html.lf-is-mobile .lf-display-controls-right {
+  flex: 0 0 auto;
+}
+html.lf-is-mobile .lf-display-fullscreen {
+  width: 44px;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 5px;
+}
+html.lf-is-mobile .lf-display-fullscreen span:last-child {
+  display: none;
+}
+
 html.lf-is-mobile .radar-shell,
 html.lf-is-mobile .matrix-shell,
 html.lf-is-mobile .display-shell {

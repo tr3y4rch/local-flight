@@ -34,6 +34,50 @@ class WeatherStrip:
         return frame
 
 
+class NoticeBanner:
+    """Accessible, reusable renderer for the shared client notice contract."""
+
+    def __new__(cls, QtWidgets: Any):
+        frame = QtWidgets.QFrame()
+        frame.setObjectName("NoticeBanner")
+        layout = QtWidgets.QVBoxLayout(frame)
+        layout.setContentsMargins(12, 9, 12, 9)
+        layout.setSpacing(3)
+        message = label(QtWidgets, "", "Metric", wrap=True)
+        next_step = label(QtWidgets, "", "Muted", wrap=True)
+        layout.addWidget(message)
+        layout.addWidget(next_step)
+        frame.message_label = message
+        frame.next_step_label = next_step
+
+        def set_notices(notices: Any) -> None:
+            rows = notices if isinstance(notices, list) else []
+            notice = next((item for item in rows if isinstance(item, dict) and item.get("message")), None)
+            if notice is None:
+                frame.hide()
+                return
+            tone = str(notice.get("tone") or "info")
+            if tone not in {"info", "success", "warning", "error"}:
+                tone = "info"
+            message.setText(str(notice.get("message") or "Local Flight status update"))
+            next_text = str(notice.get("next_step") or "")
+            next_step.setText(next_text)
+            next_step.setVisible(bool(next_text))
+            frame.setProperty("tone", tone)
+            frame.setAccessibleName("Local Flight notice")
+            frame.setAccessibleDescription(" ".join(part for part in (message.text(), next_text) if part))
+            try:
+                frame.style().unpolish(frame)
+                frame.style().polish(frame)
+            except Exception:
+                pass
+            frame.show()
+
+        frame.set_notices = set_notices
+        frame.hide()
+        return frame
+
+
 class DetailDrawer:
     def __new__(cls, QtWidgets: Any, title: str = "Detail"):
         drawer = QtWidgets.QFrame()

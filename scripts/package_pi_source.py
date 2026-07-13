@@ -24,6 +24,7 @@ EXCLUDED_RELEASE_FILES = {
     "DEV_NOTES.md",
     "DEV_README.md",
     "HANDOFF.md",
+    "docs/engineering-changelog.md",
     "docs/native-first-redesign.md",
     "start_network.bat",
 }
@@ -33,12 +34,14 @@ EXCLUDED_RELEASE_DIRS = (
     "dev/private/",
     "docs/handoff/",
     "docs/internal/",
+    "docs/brand-renditions/",
     "mobile/.expo/",
     "mobile/.layout-smoke/",
     "mobile/.metro-cache/",
     "mobile/android/",
     "mobile/ios/",
     "mobile/node_modules/",
+    "operator/",
     "tmp/",
 )
 EXCLUDED_RELEASE_PATTERNS = (
@@ -56,6 +59,57 @@ EXCLUDED_RELEASE_PATTERNS = (
     "handoff*.md",
     "simulator_screenshot_*.png",
 )
+
+SENSITIVE_RELEASE_SUFFIXES = {
+    ".cer",
+    ".crt",
+    ".jks",
+    ".key",
+    ".keystore",
+    ".mobileprovision",
+    ".p12",
+    ".p8",
+    ".pem",
+    ".pfx",
+}
+SENSITIVE_RELEASE_NAMES = {
+    ".netrc",
+    ".npmrc",
+    ".pypirc",
+    ".secrets",
+    "GoogleService-Info.plist",
+    "credentials.json",
+    "google-services.json",
+    "secrets.json",
+    "service-account.json",
+}
+
+
+def _is_explicit_example(path: Path) -> bool:
+    name = path.name.lower()
+    return name == ".env.example" or ".example." in name or name.endswith(".example")
+
+
+def _is_sensitive_release_path(path: Path) -> bool:
+    if _is_explicit_example(path):
+        return False
+    name = path.name
+    lower = name.lower()
+    if name in SENSITIVE_RELEASE_NAMES or lower in {item.lower() for item in SENSITIVE_RELEASE_NAMES}:
+        return True
+    if path.suffix.lower() in SENSITIVE_RELEASE_SUFFIXES:
+        return True
+    if lower.startswith(".env") or lower.startswith(".secrets"):
+        return True
+    return any(
+        marker in lower
+        for marker in (
+            "app-store-connect",
+            "credentials",
+            "service-account",
+            "service_account",
+        )
+    )
 
 
 def _is_release_file(path: Path) -> bool:
@@ -96,6 +150,14 @@ def _release_files() -> list[Path]:
 
     paths = sorted({Path(item) for item in raw.decode("utf-8").split("\0") if item})
     paths = [path for path in paths if (ROOT / path).exists()]
+    sensitive = [path.as_posix() for path in paths if _is_sensitive_release_path(path)]
+    if sensitive:
+        formatted = "\n  - ".join(sensitive)
+        raise SystemExit(
+            "Refusing to build a source package with credential-like paths:\n"
+            f"  - {formatted}\n"
+            "Rename the file as an explicit .example template or keep it outside the release tree."
+        )
     return [path for path in paths if _is_release_file(path)]
 
 

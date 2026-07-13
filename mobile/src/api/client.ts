@@ -41,6 +41,9 @@ export class LocalFlightApiError extends Error {
 let configuredRemoteCompanionGrant: RemoteCompanionGrant | null = null;
 export type CompanionTransportState = "lan" | "remote";
 let lastCompanionTransport: CompanionTransportState = "lan";
+const COMPANION_LAN_TIMEOUT_MS = 4_500;
+const COMPANION_LAN_RETRY_DELAY_MS = 30_000;
+const lanRetryAfterByBase = new Map<string, number>();
 
 export function configureRemoteCompanionGrant(grant: RemoteCompanionGrant | null | undefined): void {
   configuredRemoteCompanionGrant = grant && !grant.revokedAt ? grant : null;
@@ -48,6 +51,41 @@ export function configureRemoteCompanionGrant(grant: RemoteCompanionGrant | null
 
 export function getLastCompanionTransport(): CompanionTransportState {
   return lastCompanionTransport;
+}
+
+async function fetchWithTimeout(
+  input: string,
+  init: RequestInit,
+  timeoutMs: number,
+  timeoutMessage: string
+): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(input, { ...init, signal: controller.signal });
+  } catch (error) {
+    if (controller.signal.aborted) {
+      throw new LocalFlightApiError(timeoutMessage);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function shouldSkipLan(base: string): boolean {
+  return Boolean(
+    configuredRemoteCompanionGrant &&
+    (lanRetryAfterByBase.get(base) || 0) > Date.now()
+  );
+}
+
+function markLanUnavailable(base: string): void {
+  lanRetryAfterByBase.set(base, Date.now() + COMPANION_LAN_RETRY_DELAY_MS);
+}
+
+function markLanAvailable(base: string): void {
+  lanRetryAfterByBase.delete(base);
 }
 
 export function normalizeServerUrl(input: string): string {
@@ -85,14 +123,22 @@ async function fetchJson<T>(serverUrl: string, path: string): Promise<T> {
     throw new LocalFlightApiError("Set a Local Flight server URL first.");
   }
 
+  if (shouldSkipLan(base)) {
+    return remoteJson<T>("GET", path);
+  }
+
   const headers = await companionHeaders();
   let response: Response;
   try {
-    response = await fetch(`${base}${path}`, {
-      headers: { Accept: "application/json", ...headers }
-    });
+    response = await fetchWithTimeout(
+      `${base}${path}`,
+      { headers: { Accept: "application/json", ...headers } },
+      COMPANION_LAN_TIMEOUT_MS,
+      "companion_lan_timeout"
+    );
   } catch (exc) {
     if (configuredRemoteCompanionGrant) {
+      markLanUnavailable(base);
       return remoteJson<T>("GET", path);
     }
     throw exc;
@@ -102,6 +148,7 @@ async function fetchJson<T>(serverUrl: string, path: string): Promise<T> {
     throw new LocalFlightApiError(`HTTP ${response.status} for ${path}`, response.status);
   }
 
+  markLanAvailable(base);
   lastCompanionTransport = "lan";
   return response.json() as Promise<T>;
 }
@@ -116,20 +163,30 @@ async function sendJson<T>(
     throw new LocalFlightApiError("Set a Local Flight server URL first.");
   }
 
+  if (shouldSkipLan(base)) {
+    return remoteJson<T>("POST", path, body);
+  }
+
   const headers = await companionHeaders();
   let response: Response;
   try {
-    response = await fetch(`${base}${path}`, {
-      method: "POST",
-      headers: {
-        Accept: "application/json",
-        "Content-Type": "application/json",
-        ...headers
+    response = await fetchWithTimeout(
+      `${base}${path}`,
+      {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+          ...headers
+        },
+        body: JSON.stringify(body)
       },
-      body: JSON.stringify(body)
-    });
+      COMPANION_LAN_TIMEOUT_MS,
+      "companion_lan_timeout"
+    );
   } catch (exc) {
     if (configuredRemoteCompanionGrant) {
+      markLanUnavailable(base);
       return remoteJson<T>("POST", path, body);
     }
     throw exc;
@@ -148,6 +205,7 @@ async function sendJson<T>(
     throw new LocalFlightApiError(message, response.status);
   }
 
+  markLanAvailable(base);
   lastCompanionTransport = "lan";
   return response.json() as Promise<T>;
 }
@@ -162,20 +220,30 @@ async function patchJson<T>(
     throw new LocalFlightApiError("Set a Local Flight server URL first.");
   }
 
+  if (shouldSkipLan(base)) {
+    return remoteJson<T>("PATCH", path, body);
+  }
+
   const headers = await companionHeaders();
   let response: Response;
   try {
-    response = await fetch(`${base}${path}`, {
-      method: "PATCH",
-      headers: {
-        Accept: "application/json",
-        "Content-Type": "application/json",
-        ...headers
+    response = await fetchWithTimeout(
+      `${base}${path}`,
+      {
+        method: "PATCH",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+          ...headers
+        },
+        body: JSON.stringify(body)
       },
-      body: JSON.stringify(body)
-    });
+      COMPANION_LAN_TIMEOUT_MS,
+      "companion_lan_timeout"
+    );
   } catch (exc) {
     if (configuredRemoteCompanionGrant) {
+      markLanUnavailable(base);
       return remoteJson<T>("PATCH", path, body);
     }
     throw exc;
@@ -189,6 +257,7 @@ async function patchJson<T>(
     } catch { /* ignore */ }
     throw new LocalFlightApiError(message, response.status);
   }
+  markLanAvailable(base);
   lastCompanionTransport = "lan";
   return response.json() as Promise<T>;
 }
@@ -226,9 +295,12 @@ export async function getRootHealth(serverUrl: string): Promise<{ ok: boolean }>
     throw new LocalFlightApiError("Set a Local Flight server URL first.");
   }
 
-  const response = await fetch(`${base}/health`, {
-    headers: { Accept: "application/json" }
-  });
+  const response = await fetchWithTimeout(
+    `${base}/health`,
+    { headers: { Accept: "application/json" } },
+    COMPANION_LAN_TIMEOUT_MS,
+    "companion_lan_timeout"
+  );
   if (!response.ok) {
     throw new LocalFlightApiError(`HTTP ${response.status} for /health`, response.status);
   }

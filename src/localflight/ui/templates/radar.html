@@ -554,20 +554,16 @@
       const hiddenGround = Number(data.ground_filtered || 0);
       const hiddenAirborne = Number(data.airborne_filtered || 0);
       const radarMode = data.radar_mode || (RADIUS_NM <= 5 ? "surface" : "airborne");
-      const providerRadius = Number(data.provider_radius_nm || RADIUS_NM);
-      const rawProviderCount = Number(data.raw_provider_count || blips.length);
       const countLabel = radarMode === "surface"
         ? (hiddenAirborne > 0 ? `${blips.length} surface (${hiddenAirborne} airborne hidden)` : `${blips.length} surface`)
         : hiddenGround > 0
         ? `${blips.length} airborne (${hiddenGround} ground hidden)`
         : `${blips.length} aircraft`;
-      const croppedLabel = providerRadius > RADIUS_NM
-        ? ` · cropped from ${rawProviderCount} @ ${formatNm(providerRadius)}`
-        : "";
-      status.innerHTML=`<span class="live-dot${ws&&ws.readyState===1?'':' offline'}" id="liveDot"></span> ${countLabel} · ${data.source||""}${croppedLabel} · ${upd} UTC`;
+      window.LocalFlightNotices?.render(data.notices || []);
+      status.innerHTML=`<span class="live-dot${ws&&ws.readyState===1?'':' offline'}" id="liveDot"></span> ${countLabel} · updated ${upd} UTC`;
       scheduleBlipFetch(nextPollDelayMs(data));
     } catch(e){
-      status.innerHTML=`<span class="live-dot offline" id="liveDot"></span> Radar fetch failed: ${e.message}`;
+      status.innerHTML=`<span class="live-dot offline" id="liveDot"></span> Radar is temporarily unavailable. Retrying shortly.`;
       scheduleBlipFetch(document.hidden ? 120000 : 60000);
     }
   }
@@ -600,13 +596,13 @@
         }
         osmAttribution.classList.add("visible");
         osmAttribution.title = data.error
-          ? `Airport surface overlay (${surfaceCacheState}): ${data.error}`
-          : `Airport surface overlay (${surfaceCacheState})`;
+          ? "Airport map detail is temporarily unavailable"
+          : "Airport map attribution";
       } else if (osmAttribution && SURFACE_ENABLED && data.error) {
         osmAttribution.textContent = "Surface unavailable";
         osmAttribution.removeAttribute("href");
         osmAttribution.removeAttribute("target");
-        osmAttribution.title = data.error;
+        osmAttribution.title = "Airport map detail is temporarily unavailable";
         osmAttribution.classList.add("visible");
       } else if (osmAttribution) {
         osmAttribution.classList.remove("visible");
@@ -675,13 +671,14 @@
       const params = radarQueryParams();
       const r=await fetch(`/api/radar?${params.toString()}`); if(!r.ok) throw new Error(`HTTP ${r.status}`);
       const data=await r.json(); blips=data.blips||[];
+      window.LocalFlightNotices?.render(data.notices || []);
       lastRadarPayload = data;
       updateTrackHistory(blips);
       updateProcedurePaths();
       updateRadarStatus(data);
       scheduleBlipFetch(nextPollDelayMs(data));
     } catch(e){
-      status.innerHTML=`<span class="live-dot offline" id="liveDot"></span> Radar fetch failed: ${escapeHtml(e.message)}`;
+      status.innerHTML=`<span class="live-dot offline" id="liveDot"></span> Radar is temporarily unavailable. Retrying shortly.`;
       scheduleBlipFetch(document.hidden ? RADAR_HIDDEN_MIN_MS : RADAR_VISIBLE_MIN_MS);
     } finally {
       radarFetching = false;
@@ -697,8 +694,6 @@
     const hiddenAirborne = Number(data.airborne_filtered || 0);
     const userFiltered = Number(data.user_filtered || 0);
     const radarMode = data.radar_mode || (RADIUS_NM <= 5 ? "surface" : "airborne");
-    const providerRadius = Number(data.provider_radius_nm || RADIUS_NM);
-    const rawProviderCount = Number(data.raw_provider_count || blips.length);
     const countLabel = blips.length === 0
       ? "No aircraft visible in this range"
       : radarMode === "surface"
@@ -708,12 +703,8 @@
     if (hiddenAirborne > 0) hiddenParts.push(`${hiddenAirborne} airborne hidden`);
     if (hiddenGround > 0) hiddenParts.push(`${hiddenGround} ground hidden`);
     if (userFiltered > 0) hiddenParts.push(`${userFiltered} filtered`);
-    const croppedLabel = providerRadius > RADIUS_NM
-      ? ` | cropped from ${rawProviderCount} @ ${formatNm(providerRadius)}`
-      : "";
     const hiddenLabel = hiddenParts.length ? ` | ${hiddenParts.join(", ")}` : "";
-    const source = data.source ? ` | ${escapeHtml(data.source)}` : "";
-    status.innerHTML=`<span class="live-dot${ws&&ws.readyState===1?'':' offline'}" id="liveDot"></span> ${escapeHtml(countLabel)}${hiddenLabel}${source}${croppedLabel} | ${upd} UTC`;
+    status.innerHTML=`<span class="live-dot${ws&&ws.readyState===1?'':' offline'}" id="liveDot"></span> ${escapeHtml(countLabel)}${hiddenLabel} | updated ${upd} UTC`;
     syncFilterLabels();
   }
 
@@ -781,13 +772,13 @@
       }
       osmAttribution.classList.add("visible");
       osmAttribution.title = data?.error
-        ? `Radar map layers (${surfaceCacheState}): ${data.error}`
-        : `Radar map layers (${surfaceCacheState})`;
+        ? "Airport map detail is temporarily unavailable"
+        : "Airport map attribution";
     } else if (data?.error) {
       osmAttribution.textContent = "Map layer unavailable";
       osmAttribution.removeAttribute("href");
       osmAttribution.removeAttribute("target");
-      osmAttribution.title = data.error;
+      osmAttribution.title = "Airport map detail is temporarily unavailable";
       osmAttribution.classList.add("visible");
     } else {
       osmAttribution.classList.remove("visible");
@@ -797,15 +788,14 @@
   function updateRadarLayerSummary(error) {
     if (!sourceLine) return;
     const active = [];
-    if (layers.map) active.push(`map ${mapFeatures.length}`);
-    if (layers.surface) active.push(`surface ${surfaceFeatures.filter(f => f.kind !== "runway").length}`);
-    if (layers.runways) active.push(`runways ${surfaceFeatures.filter(f => f.kind === "runway").length}`);
-    if (layers.terrain) active.push(`terrain ${terrainFeatures.length}`);
-    if (layers.procedures) active.push(`routes ${procedurePaths.length}`);
+    if (layers.map) active.push("map");
+    if (layers.surface) active.push("airport surface");
+    if (layers.runways) active.push("runways");
+    if (layers.terrain) active.push("terrain");
+    if (layers.procedures) active.push("route hints");
     if (layers.traffic_status) active.push("status labels");
-    const provider = radarMapPayload?.provider || radarMapPayload?.surface_provider || (SURFACE_ENABLED ? "local map" : "map-only");
-    const suffix = error ? ` | ${error.message || error}` : "";
-    sourceLine.textContent = `${provider} | ${active.join(" | ") || "base radar"}${suffix}`;
+    const suffix = error ? " | some map detail is temporarily unavailable" : "";
+    sourceLine.textContent = `View: ${active.join(" | ") || "traffic only"}${suffix}`;
   }
 
   async function fetchMETAR() {

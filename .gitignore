@@ -12,9 +12,45 @@ venv/
 .env
 .env.*
 !.env.example
+*.pem
+*.key
+*.pfx
+*.p12
+*.cer
+*.crt
 *.p8
 *.jks
 *.keystore
+*.mobileprovision
+credentials.json
+credentials-*.json
+credentials_*.json
+secrets.json
+secrets-*.json
+secrets_*.json
+*service-account*.json
+*ServiceAccount*.json
+google-services.json
+GoogleService-Info.plist
+.npmrc
+.pypirc
+.netrc
+.secrets
+.secrets.*
+!credentials.example.json
+!secrets.example.json
+!service-account.example.json
+!.npmrc.example
+!.pypirc.example
+!*.example.pem
+!*.example.key
+!*.example.pfx
+!*.example.p12
+!*.example.cer
+!*.example.crt
+!*.example.p8
+!*.example.jks
+!*.example.keystore
 mobile/credentials/
 mobile/*service-account*.json
 mobile/*ServiceAccount*.json
@@ -26,9 +62,9 @@ mobile/*.cer
 mobile/*.p12
 
 # ── Local config / runtime ─────────────────────────────
-config/
-data/
-.localflight/
+/config/
+/data/
+/.localflight/
 .pytest_cache/
 .smoke-home/
 .coverage
@@ -128,8 +164,8 @@ start_network.command
 start_network.local.command
 operator/
 
-# AI assistant context files and local handoff notes
-AGENTS.md
+# AI assistant context files and local handoff notes.
+# AGENTS.md is intentionally committed as public-safe cross-platform context.
 AGENTS.local.md
 AGENTS.*.md
 Claude.md

@@ -485,3 +485,54 @@ def test_remote_invite_requires_relay_linked_host(monkeypatch: pytest.MonkeyPatc
 
     assert response.status_code == 403
     assert response.json()["detail"] == "Remote Companion requires a relay-linked install"
+
+
+def test_pairing_same_phone_replaces_previous_remote_grant(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    monkeypatch.setenv("LOCALFLIGHT_HOME", str(tmp_path))
+    from localflight.storage.config import AppConfig, save_config
+    from localflight.storage.remote_companion import create_remote_invite, list_remote_grants
+    from localflight.ui import api as ui_api
+
+    save_config(AppConfig(remote_companion_enabled=True))
+    relay_actions: list[tuple[str, str]] = []
+
+    def fake_register(grant: dict[str, object], *, revoke: bool = False) -> dict[str, object]:
+        relay_actions.append(("revoke" if revoke else "register", str(grant.get("grant_ref") or "")))
+        return {"ok": True}
+
+    monkeypatch.setattr(ui_api, "_register_remote_grant_or_raise", fake_register)
+    client = TestClient(ui_api.app)
+
+    def pair(invite: dict[str, object]) -> str:
+        response = client.post(
+            "/api/mobile/remote/pair",
+            json={
+                "companion_id": "lfc_same_phone_0001",
+                "client_name": "Test phone",
+                "app_version": "0.5.1",
+                "mobile_os": "iOS test",
+                "device_type": "phone",
+                "invite_id": invite["invite_id"],
+                "install_ref": invite["install_ref"],
+                "relay_url": invite["relay_url"],
+                "remote_key": invite["remote_key"],
+            },
+        )
+        assert response.status_code == 200
+        return str(response.json()["remote_companion"]["grant_ref"])
+
+    first_ref = pair(create_remote_invite(relay_url="https://relay.example.test"))
+    second_ref = pair(create_remote_invite(relay_url="https://relay.example.test"))
+
+    grants = list_remote_grants(include_revoked=True)
+    active = [grant for grant in grants if not grant.get("revoked_at")]
+    assert [grant["grant_ref"] for grant in active] == [second_ref]
+    assert any(grant["grant_ref"] == first_ref and grant.get("revoked_at") for grant in grants)
+    assert relay_actions == [
+        ("register", first_ref),
+        ("register", second_ref),
+        ("revoke", first_ref),
+    ]

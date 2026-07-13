@@ -24,6 +24,8 @@ from localflight.storage.remote_companion import (
 log = logging.getLogger(__name__)
 
 _AGENT_TASK: asyncio.Task[None] | None = None
+_AGENT_LOOP: asyncio.AbstractEventLoop | None = None
+_AGENT_WAKE: asyncio.Event | None = None
 _REPLAY_CACHE: dict[str, dict[str, float]] = {}
 _REPLAY_TTL_SECONDS = 10 * 60
 _LOCAL_BASE_URL = "http://127.0.0.1:8000"
@@ -132,14 +134,35 @@ def register_remote_grant_with_relay(grant: dict[str, Any], *, revoke: bool = Fa
 
 
 def ensure_remote_companion_agent_started() -> None:
-    global _AGENT_TASK
+    global _AGENT_LOOP, _AGENT_TASK, _AGENT_WAKE
     try:
         loop = asyncio.get_running_loop()
     except RuntimeError:
         return
     if _AGENT_TASK and not _AGENT_TASK.done():
         return
+    _AGENT_LOOP = loop
+    _AGENT_WAKE = asyncio.Event()
     _AGENT_TASK = loop.create_task(_agent_loop(), name="remote-companion-agent")
+
+
+def wake_remote_companion_agent() -> None:
+    """Wake the host relay loop after a phone grant is created."""
+    if _AGENT_LOOP is None or _AGENT_WAKE is None or _AGENT_LOOP.is_closed():
+        return
+    _AGENT_LOOP.call_soon_threadsafe(_AGENT_WAKE.set)
+
+
+async def _agent_sleep(seconds: float) -> None:
+    if _AGENT_WAKE is None:
+        await asyncio.sleep(seconds)
+        return
+    try:
+        await asyncio.wait_for(_AGENT_WAKE.wait(), timeout=seconds)
+    except asyncio.TimeoutError:
+        pass
+    finally:
+        _AGENT_WAKE.clear()
 
 
 async def _agent_loop() -> None:
@@ -149,7 +172,7 @@ async def _agent_loop() -> None:
             grants = _active_remote_grants()
             token = get_activation_token()
             if not cfg.remote_companion_enabled or not _setup_complete() or not token or not grants:
-                await asyncio.sleep(30)
+                await _agent_sleep(30)
                 continue
             relay_url = str(grants[0].get("relay_url") or default_public_relay_url())
             await asyncio.to_thread(_sync_active_grants, grants)
@@ -158,7 +181,7 @@ async def _agent_loop() -> None:
             raise
         except Exception as exc:
             log.info("Remote Companion agent idle after relay error: %s", exc)
-            await asyncio.sleep(15)
+            await _agent_sleep(15)
 
 
 async def _agent_session(*, relay_url: str, activation_token: str) -> None:
@@ -304,4 +327,8 @@ async def _dispatch_remote_payload(payload: dict[str, Any], *, grant: dict[str, 
     return await asyncio.to_thread(_call)
 
 
-__all__ = ["ensure_remote_companion_agent_started", "register_remote_grant_with_relay"]
+__all__ = [
+    "ensure_remote_companion_agent_started",
+    "register_remote_grant_with_relay",
+    "wake_remote_companion_agent",
+]

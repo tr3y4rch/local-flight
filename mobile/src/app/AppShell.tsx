@@ -40,7 +40,7 @@ import {
   testConnection,
   wsUrl
 } from "../api/client";
-import { completeRemoteCompanionPairing } from "../api/remoteCompanion";
+import { completeRemoteCompanionPairing, testRemoteCompanionProbe } from "../api/remoteCompanion";
 import {
   getStandaloneRadarGround,
   getStandaloneFids,
@@ -52,6 +52,7 @@ import {
 import type {
   AppConfig,
   AirportResolved,
+  ClientNotice,
   ConfigPatch,
   DashboardSnapshot,
   FidsRow,
@@ -161,6 +162,48 @@ type WidgetPendingAirport = {
   key: string;
   baselineLastSuccess: string;
 };
+
+function NoticeCard({ notice, onAction }: { notice: ClientNotice; onAction: () => void }) {
+  const accent = notice.tone === "error"
+    ? "#ff6b6b"
+    : notice.tone === "warning"
+      ? "#f6c453"
+      : notice.tone === "success"
+        ? "#63d69d"
+        : "#72b7ff";
+  return (
+    <View
+      accessible
+      accessibilityRole="alert"
+      accessibilityLiveRegion="polite"
+      accessibilityLabel={[notice.message, notice.next_step].filter(Boolean).join(" ")}
+      style={{
+        marginHorizontal: 12,
+        marginTop: 8,
+        paddingHorizontal: 14,
+        paddingVertical: 11,
+        borderLeftWidth: 4,
+        borderLeftColor: accent,
+        borderRadius: 10,
+        backgroundColor: "rgba(13, 25, 38, 0.96)"
+      }}
+    >
+      <Text style={{ color: "#f7fbff", fontSize: 14, fontWeight: "700" }}>{notice.message}</Text>
+      {notice.next_step ? (
+        <Text style={{ color: "#c9d7e5", fontSize: 13, lineHeight: 18, marginTop: 3 }}>{notice.next_step}</Text>
+      ) : null}
+      {notice.action?.label ? (
+        <Pressable
+          {...accessibleButton({ label: notice.action.label })}
+          onPress={onAction}
+          style={{ alignSelf: "flex-start", marginTop: 8, minHeight: 44, justifyContent: "center" }}
+        >
+          <Text style={{ color: accent, fontSize: 13, fontWeight: "800" }}>{notice.action.label}</Text>
+        </Pressable>
+      ) : null}
+    </View>
+  );
+}
 
 void SplashScreen.preventAutoHideAsync().catch(() => {
   // Ignore duplicate registration during fast refresh.
@@ -826,37 +869,39 @@ export function AppShell() {
         } : refreshActivityForTarget(target, landscapeFidsActive));
         setError(null);
 
-        if (includeDashboard) {
+        try {
+          if (includeDashboard) {
+            try {
+              await fetchDashboard(normalized);
+              if (!isStandalone) {
+                setCompanionTransport(getLastCompanionTransport());
+              }
+            } catch (exc) {
+              setConnected(false);
+              setError(errorMessage(exc));
+              return;
+            }
+          }
+
           try {
-            await fetchDashboard(normalized);
+            setActivity(refreshActivityForTarget(target, landscapeFidsActive));
+            if (landscapeFidsActive) {
+              await fetchFidsData(normalized, nextView);
+            } else if (target === "fids") {
+              await fetchFidsData(normalized, nextView);
+            } else if (target === "history") {
+              await fetchHistoryData(normalized, nextHistoryDirection, nextHistoryHours, historyCallsign, historyAirline);
+            } else if (target === "radar") {
+              await fetchRadarData(normalized, nextRadarRadius, forceRadarGround);
+            } else if (target === "control") {
+              await fetchMatrixRuntime(normalized);
+            }
             if (!isStandalone) {
               setCompanionTransport(getLastCompanionTransport());
             }
           } catch (exc) {
-            setConnected(false);
             setError(errorMessage(exc));
-            return;
           }
-        }
-
-        try {
-          setActivity(refreshActivityForTarget(target, landscapeFidsActive));
-          if (landscapeFidsActive) {
-            await fetchFidsData(normalized, nextView);
-          } else if (target === "fids") {
-            await fetchFidsData(normalized, nextView);
-          } else if (target === "history") {
-            await fetchHistoryData(normalized, nextHistoryDirection, nextHistoryHours, historyCallsign, historyAirline);
-          } else if (target === "radar") {
-            await fetchRadarData(normalized, nextRadarRadius, forceRadarGround);
-          } else if (target === "control") {
-            await fetchMatrixRuntime(normalized);
-          }
-          if (!isStandalone) {
-            setCompanionTransport(getLastCompanionTransport());
-          }
-        } catch (exc) {
-          setError(errorMessage(exc));
         } finally {
           setRefreshing(false);
           setActivity(null);
@@ -919,6 +964,17 @@ export function AppShell() {
         ? await completeRemoteCompanionPairing(normalized, remoteInvite)
         : null;
       if (remoteGrant) {
+        setActivity({
+          label: "Verifying Remote Companion",
+          detail: "Sending one encrypted test through the relay before saving this pairing."
+        });
+        const verification = await testRemoteCompanionProbe(remoteGrant, { bypassCooldown: true });
+        if (!verification.ok) {
+          const failureCode = verification.status === "crypto_failed"
+            ? "remote_crypto_failed"
+            : `remote_pairing_${verification.status}`;
+          throw new Error(`${failureCode}: ${verification.message}`);
+        }
         setPendingRemoteCompanionGrant(remoteGrant);
         configureRemoteCompanionGrant(remoteGrant);
       }
@@ -931,11 +987,15 @@ export function AppShell() {
       setServerUrl(normalized);
       setDraftUrl(normalized);
       setCompanionTransport("lan");
-      setPairingNotice(null);
+      setPairingNotice(
+        remoteGrant
+          ? "Connected on this LAN. Encrypted Remote Companion backup is verified and ready."
+          : "Connected on this LAN. Scan the host's LAN + Remote QR later if you also want away-from-home access."
+      );
       setPairingUrl("");
       setPairingExpectedServerFingerprint("");
       setPairingRemoteInvite(null);
-      setScreen("fids");
+      setScreen(mobileSetupComplete ? "control" : "fids");
       hapticSuccess();
     } catch (exc) {
       setConnected(false);
@@ -945,7 +1005,7 @@ export function AppShell() {
       setLoading(false);
       setActivity(null);
     }
-  }, [draftUrl, mobileDiagnosticsMode, pairingRemoteInvite]);
+  }, [draftUrl, mobileDiagnosticsMode, mobileSetupComplete, pairingRemoteInvite]);
 
   const connectPairingUrl = useCallback((pairing: PairingLinkResult) => {
     setDraftUrl(pairing.serverUrl);
@@ -1032,14 +1092,24 @@ export function AppShell() {
       throw new Error("Mobile setup did not return a server URL and config.");
     }
     const normalized = normalizeServerUrl(nextServerUrl);
+    const remoteGrantAlreadyVerified = Boolean(pendingRemoteCompanionGrant);
     const remoteGrant = pendingRemoteCompanionGrant || (
       pairingRemoteInvite
         ? await completeRemoteCompanionPairing(normalized, pairingRemoteInvite)
         : null
     );
-    if (remoteGrant) {
+    if (remoteGrant && !remoteGrantAlreadyVerified) {
+      const verification = await testRemoteCompanionProbe(remoteGrant, { bypassCooldown: true });
+      if (!verification.ok) {
+        const failureCode = verification.status === "crypto_failed"
+          ? "remote_crypto_failed"
+          : `remote_pairing_${verification.status}`;
+        throw new Error(`${failureCode}: ${verification.message}`);
+      }
       configureRemoteCompanionGrant(remoteGrant);
       setPendingRemoteCompanionGrant(remoteGrant);
+    } else if (remoteGrant) {
+      configureRemoteCompanionGrant(remoteGrant);
     }
     const nextSetupState = completeMobileSetupState(normalized, diagnosticsMode, remoteGrant);
     await Promise.all([
@@ -1056,7 +1126,11 @@ export function AppShell() {
     setConnected(true);
     setCompanionTransport("lan");
     setError(null);
-    setPairingNotice(null);
+    setPairingNotice(
+      remoteGrant
+        ? "LAN connection and encrypted Remote Companion backup verified."
+        : "LAN connection ready. Remote Companion was not added."
+    );
     setPairingUrl("");
     setPairingRemoteInvite(null);
     setScreen("fids");
@@ -1598,6 +1672,27 @@ export function AppShell() {
     ? { runways: radarDrawingLayers.runways, surface: radarDrawingLayers.surface, terrain: false }
     : radarDrawingLayers;
   const statusBarStyle = themeMode === "light" ? "dark-content" : "light-content";
+  const visibleNotices = [
+    ...(snapshot.notices || []),
+    ...(screen === "radar" ? (radarData?.notices || []) : [])
+  ].filter((notice, index, all) => all.findIndex((item) => item.code === notice.code) === index).slice(0, 2);
+  const handleNoticeAction = (notice: ClientNotice) => {
+    const action = notice.action;
+    if (!action) return;
+    if (action.kind === "refresh") {
+      void refreshScreen({ target: screen, includeDashboard: screenNeedsDashboard(screen, isStandalone) });
+      return;
+    }
+    if (action.kind === "settings" || action.kind === "logs" || action.kind === "report") {
+      setScreen(isStandalone ? "settings" : "control");
+      return;
+    }
+    const target = action.target || "";
+    if (target === "/radar") setScreen("radar");
+    else if (target === "/fids" || target === "/display") setScreen("fids");
+    else if (target === "/history") setScreen("history");
+    else setScreen(isStandalone ? "settings" : "control");
+  };
 
   if (!mobileSetupComplete) {
     return (
@@ -1710,6 +1805,10 @@ export function AppShell() {
           }}
           onOpenBoard={() => setScreen("fids")}
         />
+
+        {visibleNotices.map((notice) => (
+          <NoticeCard key={notice.code} notice={notice} onAction={() => handleNoticeAction(notice)} />
+        ))}
 
         <Animated.View
           style={[

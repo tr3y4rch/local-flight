@@ -9,6 +9,7 @@ file, validates it, then copies the approved outputs into active module paths.
 from __future__ import annotations
 
 import hashlib
+import argparse
 import json
 import os
 import shutil
@@ -27,10 +28,49 @@ STATIC = ROOT / "src" / "localflight" / "ui" / "static"
 MOBILE_ASSETS = ROOT / "mobile" / "assets"
 SITE_ASSETS = ROOT / "site" / "assets"
 
-BEACON_LOCKUP = Path(r"C:\Users\phsch\Beacon Tools Branding\Beacon\brand-v2\source\lockup_horizontal_dark.svg")
-BEACON_MARK = Path(r"C:\Users\phsch\Beacon Tools Branding\Beacon\brand-v2\source\icon_mark.svg")
-LOCAL_FLIGHT_DARK = Path(r"C:\Users\phsch\Beacon Tools Branding\Local-Flight\brand-v2\source\icon_dark.svg")
-LOCAL_FLIGHT_LIGHT = Path(r"C:\Users\phsch\Beacon Tools Branding\Local-Flight\brand-v2\source\icon_light.svg")
+BEACON_LOCKUP = Path()
+BEACON_MARK = Path()
+LOCAL_FLIGHT_DARK = Path()
+LOCAL_FLIGHT_LIGHT = Path()
+
+BRAND_ENV = {
+    "beacon_lockup": "LOCALFLIGHT_BRAND_BEACON_LOCKUP",
+    "beacon_mark": "LOCALFLIGHT_BRAND_BEACON_MARK",
+    "local_flight_dark": "LOCALFLIGHT_BRAND_LOCAL_FLIGHT_DARK",
+    "local_flight_light": "LOCALFLIGHT_BRAND_LOCAL_FLIGHT_LIGHT",
+}
+
+
+def configure_masters(argv: list[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(description="Synchronize Local Flight brand assets from local SVG masters.")
+    parser.add_argument("--beacon-lockup")
+    parser.add_argument("--beacon-mark")
+    parser.add_argument("--local-flight-dark")
+    parser.add_argument("--local-flight-light")
+    args = parser.parse_args(argv)
+    values = {
+        "beacon_lockup": args.beacon_lockup or os.getenv(BRAND_ENV["beacon_lockup"], ""),
+        "beacon_mark": args.beacon_mark or os.getenv(BRAND_ENV["beacon_mark"], ""),
+        "local_flight_dark": args.local_flight_dark or os.getenv(BRAND_ENV["local_flight_dark"], ""),
+        "local_flight_light": args.local_flight_light or os.getenv(BRAND_ENV["local_flight_light"], ""),
+    }
+    missing = [f"--{name.replace('_', '-')} / {BRAND_ENV[name]}" for name, value in values.items() if not value]
+    if missing:
+        parser.error("missing brand master paths: " + ", ".join(missing))
+    global BEACON_LOCKUP, BEACON_MARK, LOCAL_FLIGHT_DARK, LOCAL_FLIGHT_LIGHT
+    BEACON_LOCKUP = Path(values["beacon_lockup"]).expanduser()
+    BEACON_MARK = Path(values["beacon_mark"]).expanduser()
+    LOCAL_FLIGHT_DARK = Path(values["local_flight_dark"]).expanduser()
+    LOCAL_FLIGHT_LIGHT = Path(values["local_flight_light"]).expanduser()
+    configured = {
+        "beacon-lockup": BEACON_LOCKUP,
+        "beacon-mark": BEACON_MARK,
+        "local-flight-dark": LOCAL_FLIGHT_DARK,
+        "local-flight-light": LOCAL_FLIGHT_LIGHT,
+    }
+    absent = [f"--{name}={path}" for name, path in configured.items() if not path.is_file()]
+    if absent:
+        parser.error("brand master file not found: " + ", ".join(absent))
 
 WINDOWS_ICO_SIZES = (16, 24, 32, 48, 64, 128, 256)
 MACOS_ICONSET_SIZES = (
@@ -557,10 +597,10 @@ def write_manifest(renderer_name: str) -> None:
         "phase": "package-qt-lan-mobile-site",
         "renderer": renderer_name,
         "masters": {
-            "beacon_lockup": str(BEACON_LOCKUP),
-            "beacon_mark": str(BEACON_MARK),
-            "local_flight_dark": str(LOCAL_FLIGHT_DARK),
-            "local_flight_light": str(LOCAL_FLIGHT_LIGHT),
+            "beacon_lockup": "beacon-lockup-master",
+            "beacon_mark": "beacon-mark-master",
+            "local_flight_dark": "local-flight-dark-master",
+            "local_flight_light": "local-flight-light-master",
         },
         "active_outputs": [asdict(record) for record in outputs],
         "excluded_until_later_phases": [],
@@ -604,6 +644,7 @@ def validate_active_outputs() -> None:
 
 
 def main() -> None:
+    configure_masters()
     validate_masters()
     with SvgRenderer() as renderer:
         stage_package_icons(renderer)

@@ -41,6 +41,7 @@ from localflight.decode.metar import decorate_metar
 from localflight.decode.dedupe import dedupe_codeshares
 from localflight.decode.mappings.aerodatabox import aerodatabox_to_raw_records
 from localflight.decode.normalize import normalize_flights
+from localflight.display.fids import gate_fields
 from localflight.display.fids_from_flights import flight_to_fids_row
 from localflight.native.api_client import _normalize_relay_base_url
 from localflight.platform.detect import Platform
@@ -578,6 +579,12 @@ def test_omdb_flydubai_codeshare_becomes_primary_when_provider_markets_ek() -> N
     assert row.codeshare_display == "Sold as EK 2426"
 
 
+def test_gate_fields_use_gate_first_display_and_hide_terminal_like_gate_values() -> None:
+    assert gate_fields("E43", "2") == ("E43", "2", "E43")
+    assert gate_fields("2", "2", "ambiguous", "high") == ("", "2", "")
+    assert gate_fields("A12", "1", "high", "high") == ("A12", "1", "A12")
+
+
 def test_vatsim_fids_row_uses_pilot_contract_and_suppresses_passenger_fields() -> None:
     from localflight.core.models import AirlineRef, FlightStatus
 
@@ -777,7 +784,7 @@ def test_matrix_payload_exposes_stable_display_contract_for_compact_boards() -> 
             "codeshares": ["LH 9876", "AC 1234"],
             "route_display": "Paris (CDG)",
             "status_display": "Arrived",
-            "gate": "F4",
+            "gate_display": "F4",
             "aircraft_type": "B738",
         },
         preset="real_fids",
@@ -786,12 +793,15 @@ def test_matrix_payload_exposes_stable_display_contract_for_compact_boards() -> 
 
     assert payload["matrix_time_label"] == "16:31"
     assert payload["matrix_flight_label"] == "UA 841"
-    assert payload["matrix_route_label"] == "PARIS CDG"
+    assert payload["matrix_route_label"] == "PARIS"
+    assert payload["matrix_route_name_label"] == "PARIS"
+    assert payload["matrix_route_technical_label"] == "PARIS CDG"
     assert payload["matrix_status_label"] == "ARRIVED +8"
     assert payload["matrix_gate_label"] == "F4"
     assert payload["matrix_aircraft_label"] == "B738"
     assert payload["matrix_codeshare_label"] == "ALSO LH 9876 / AC 1234"
-    assert payload["matrix_detail_cycle"] == ["GATE F4", "B738"] or "B738" in payload["matrix_detail_cycle"]
+    assert payload["matrix_fids_subline_label"] == "ALSO LH 9876 / AC 1234 | A/C B738"
+    assert payload["matrix_detail_cycle"] == ["ALSO LH 9876 / AC 1234 | A/C B738"]
     assert payload["codeshares"] == ["LH 9876", "AC 1234"]
 
 
@@ -809,6 +819,88 @@ def test_matrix_payload_uses_callsign_only_when_no_flight_number_exists() -> Non
 
     assert payload["matrix_flight_label"] == "BGA4726A"
     assert payload["matrix_time_label"] == "09:05"
+
+
+def test_matrix_nerd_payload_uses_technical_identity_route_status_and_subline() -> None:
+    payload = ui_api._matrix_row_payload(
+        {
+            "view": "arrivals",
+            "display_time": "16:31",
+            "flight_display": "UA 841",
+            "flight_number": "UA841",
+            "callsign": "UAL841",
+            "codeshares": ["LH 9876", "AC 1234"],
+            "route_display": "London (EGLL)",
+            "route_primary": "London",
+            "route_code": "EGLL",
+            "status_display": "Arrived",
+            "aircraft_type": "B738",
+        },
+        preset="nerd",
+        show_gate_info=True,
+    )
+
+    assert payload["matrix_flight_label"] == "UAL841"
+    assert payload["matrix_callsign_label"] == "UAL841"
+    assert payload["route_code"] == "EGLL"
+    assert payload["route_iata"] == "LHR"
+    assert payload["matrix_route_code_label"] == "LHR"
+    assert payload["matrix_route_label"] == "LONDON LHR"
+    assert payload["matrix_status_label"] == "ARRIVED A/C B738"
+    assert payload["matrix_technical_subline_label"] == "CS LH 9876 / AC 1234 | ORG LHR"
+    assert payload["matrix_detail_cycle"] == ["CS LH 9876 / AC 1234 | ORG LHR"]
+
+
+def test_matrix_vatsim_payload_uses_callsign_iata_route_and_aircraft_status() -> None:
+    payload = ui_api._matrix_row_payload(
+        {
+            "view": "departures",
+            "display_time": "10:20",
+            "flight_display": "BAW123",
+            "callsign": "BAW123",
+            "source": "vatsim",
+            "route_display": "London (EGLL)",
+            "route_primary": "London",
+            "route_code": "EGLL",
+            "status_display": "Filed",
+            "aircraft_type": "A20N",
+            "codeshares": ["BA 123"],
+        },
+        preset="vatsim_pilot",
+        show_gate_info=True,
+    )
+
+    assert payload["matrix_flight_label"] == "BAW123"
+    assert payload["matrix_route_label"] == "LONDON LHR"
+    assert payload["matrix_status_label"] == "FILED A/C A20N"
+    assert payload["matrix_technical_subline_label"] == "DST LHR"
+    assert payload["codeshares"] == []
+
+
+@pytest.mark.parametrize(
+    ("panel_w", "panel_h", "expected"),
+    [
+        (64, 16, {"header_mode": "cycle_one_line", "visible_rows": 1, "row_line_count": 1, "row_mode": "cycle_fields_one_line", "row_font": "tiny"}),
+        (64, 32, {"header_mode": "cycle_one_line", "visible_rows": 1, "row_line_count": 3, "row_mode": "stacked_cycle_detail", "row_font": "tiny"}),
+        (128, 64, {"header_mode": "two_line", "visible_rows": 2, "row_line_count": 3, "row_mode": "stacked_cycle_detail", "row_font": "bitmap6"}),
+        (200, 32, {"header_mode": "fixed_slots", "visible_rows": 1, "row_line_count": 2, "row_mode": "medium_columns", "row_font": "bitmap8"}),
+        (256, 64, {"header_mode": "fixed_slots", "visible_rows": 3, "row_line_count": 2, "row_mode": "wide_columns", "row_font": "bitmap6"}),
+        (512, 128, {"header_mode": "fixed_slots", "visible_rows": 4, "row_line_count": 3, "row_mode": "wide_columns", "row_font": "bitmap8"}),
+    ],
+)
+def test_matrix_layout_plan_adapts_custom_panel_sizes(panel_w: int, panel_h: int, expected: dict[str, object]) -> None:
+    plan = ui_api._matrix_layout_plan(panel_w, panel_h, max_rows=4)
+
+    for key, value in expected.items():
+        assert plan[key] == value
+    assert plan["header_height"] < panel_h
+    assert plan["data_height"] >= plan["visible_rows"]
+    assert plan["row_height"] >= 1
+    assert plan["rotates_overflow_fields"] is (
+        plan["header_mode"] == "cycle_one_line"
+        or plan["row_line_count"] <= 2
+        or (plan["compact"] and plan["row_line_count"] <= 3)
+    )
 
 
 def test_identity_aware_dedupe_collapses_marketed_rows_for_same_operating_flight() -> None:
@@ -3515,7 +3607,7 @@ def test_matrix_device_checkin_exposes_actual_geometry_mismatch(monkeypatch, tmp
             "actual_panel_h": 64,
             "display_panels": 1,
             "firmware": "2.0",
-            "renderer_revision": "matrix-display-contract-v4",
+            "renderer_revision": "matrix-display-contract-v5",
             "renderers": ["modern_fids"],
         },
     )
@@ -3531,7 +3623,7 @@ def test_matrix_device_checkin_exposes_actual_geometry_mismatch(monkeypatch, tmp
     assert device["display_panels"] == 1
     assert device["geometry_mismatch"] is True
     assert "Configured 256x64; actual 128x64" in device["geometry_warning"]
-    assert device["renderer_revision"] == "matrix-display-contract-v4"
+    assert device["renderer_revision"] == "matrix-display-contract-v5"
     assert device["renderer_status"] == "current"
 
     devices = client.get("/api/matrix/v2/devices").json()["devices"]
@@ -4539,9 +4631,10 @@ def test_matrix_v2_migrates_flat_config_and_registers_device(tmp_path: Path, mon
     preset_payload = client.get("/api/matrix/v2/presets").json()
     presets = preset_payload["presets"]
     preset_ids = {item["id"] for item in presets}
-    assert preset_ids == {"real_fids", "vatsim_pilot", "vatsim_atc"}
+    assert preset_ids == {"real_fids", "nerd", "vatsim_pilot", "vatsim_atc"}
     preset_options = {item["id"]: item["options"] for item in presets}
     assert preset_options["real_fids"]["show_gate_info"] is True
+    assert preset_options["nerd"]["technical_labels"] is True
     assert preset_options["vatsim_pilot"]["show_gate_info"] is False
     assert preset_options["vatsim_atc"]["show_gate_info"] is False
     palette_ids = {item["id"] for item in preset_payload["palettes"]}
@@ -4677,7 +4770,7 @@ def test_matrix_device_feed_uses_assigned_config_and_exposes_board_contract(tmp_
     assert payload["effective_panel_w"] == 128
     assert payload["effective_panel_h"] == 128
     assert payload["renderer_status"] == "unknown"
-    assert payload["rows"][0]["gate_label"] == "T1 / A42"
+    assert payload["rows"][0]["gate_label"] == "A42"
     assert payload["rows"][0]["flight_number"] == "LX42"
 
 
@@ -4841,7 +4934,7 @@ def test_matrix_v2_real_feed_exposes_gate_label_and_preview_toggle(tmp_path: Pat
 
     assert enabled.status_code == 200
     assert enabled.json()["show_gate_info"] is True
-    assert enabled.json()["rows"][0]["gate_label"] == "T1 / A64"
+    assert enabled.json()["rows"][0]["gate_label"] == "A64"
     assert disabled.status_code == 200
     assert disabled.json()["show_gate_info"] is False
     assert disabled.json()["rows"][0]["gate_label"] == ""
@@ -5158,7 +5251,7 @@ def test_matrix_script_endpoint_uses_current_i75w_client_template() -> None:
     script = response.text
     compile(script, "generated-main.py", "exec")
     assert 'CLIENT_VER       = "2.0"' in script
-    assert 'CLIENT_RENDERER_REV = "matrix-display-contract-v4"' in script
+    assert 'CLIENT_RENDERER_REV = "matrix-display-contract-v5"' in script
     assert "import interstate75 as interstate75_module" in script
     assert "def update_display():" in script
     assert "def fit_text(value, length):" in script
@@ -5169,8 +5262,8 @@ def test_matrix_script_endpoint_uses_current_i75w_client_template() -> None:
     assert "def _clock_label(compact=False):" in script
     assert '"U{} L{}"' in script
     assert "clock = _clock_label(compact=WIDTH < 320)" in script
-    assert "label_limit = max(6, min(len(label), 12 if WIDTH < 300 else 18))" in script
-    assert "center_left = label_limit * 8 + 6" in script
+    assert "weather_x = max(0, clock_x - weather_w - 3)" in script
+    assert "lane_x = max(0, weather_x - lane_w - 3)" in script
     assert "clock_utc_epoch" in script
     assert "clock_local_epoch" in script
     assert "ACTIVE_BREATH" in script
@@ -5186,7 +5279,9 @@ def test_matrix_script_endpoint_uses_current_i75w_client_template() -> None:
     assert "matrix_detail_cycle" in script
     assert "matrix_weather_icon" in script
     assert "def _option_bool(data, options, top_key, option_keys, fallback):" in script
-    assert "def _font_profile(row_h=9, *, wide=False):" in script
+    assert "def _font_profile(row_h=9, *, wide=False, compact=False):" in script
+    assert "def _compact_row_line_items(row, chars, line_count):" in script
+    assert "def _compact_clock_text(chars):" in script
     assert "def draw_text(text, x, y, color, max_width, profile=None):" in script
     assert "def _wide_columns(char_w=8):" in script
     assert "def _detail_chunk(row, chars):" in script
@@ -5202,8 +5297,9 @@ def test_matrix_script_endpoint_uses_current_i75w_client_template() -> None:
     assert "def _weather_temp_text():" in script
     assert "def draw_weather_mini(x, y, max_width):" in script
     assert "def draw_weather_compact(x, y, max_width):" in script
-    assert 'def draw_smart_header(view):\n    # Header placement math is based on bitmap8 glyph width.' in script
-    assert 'graphics.set_font("bitmap8")\n    header_name = _airport_label or _airport_iata' in script
+    assert 'def draw_smart_header(view):\n    # Keep four fixed header zones.' in script
+    assert 'technical = _is_technical_preset()' in script
+    assert 'clock_x = max(0, WIDTH - clock_w)' in script
     assert "return 30 if HEIGHT >= 96 and _weather_line(8) else 20" not in script
     assert "def draw_vatsim_weather_page():" in script
     assert "def draw_vatsim_atc(flap_rows, fallback_rows, fallback_view):" in script
@@ -5212,6 +5308,7 @@ def test_matrix_script_endpoint_uses_current_i75w_client_template() -> None:
     assert "SHOW_WEATHER = _option_bool(data, options, \"show_weather\", (\"show_weather\", \"show_metar\"), SHOW_WEATHER)" in script
     assert "SHOW_GATE_INFO = _option_bool(data, options, \"show_gate_info\", (\"show_gate_info\",), SHOW_GATE_INFO)" in script
     assert "\"real_fids\"" in script
+    assert 'str(PRESET or "").lower() == "nerd"' in script
     assert "\"vatsim_pilot\"" in script
     assert "\"vatsim_atc\"" in script
     assert 'PALETTE       = "pax_blue"' in script
@@ -5334,7 +5431,8 @@ def test_matrix_preview_download_payload_uses_defined_animation_state() -> None:
     assert template.index("const CODE_SHARE_ROTATION_S = 4") < template.index("function detailChunk(row, chars)")
     assert "const timeLabel = String(row?.matrix_time_label" in template
     assert "const flightLabel = String(flightCycleDisplay(row || {}))" in template
-    assert "let statusText = row ? statusOrGateChunk(row, chars) : \"\"" in template
+    assert "function compactRowLineItems(row, chars, lineCount)" in template
+    assert "function compactClockText(chars)" in template
     assert "MATRIX_METAR?.matrix_weather_icon" in template
     assert "const choices = [primary" not in template
     assert "palette: MATRIX_PALETTE" in template
@@ -6491,11 +6589,13 @@ def test_operator_power_stays_out_of_public_docs_and_examples() -> None:
         "start_network.bat",
         "start_network.local.bat",
         "operator/",
-        "AGENTS.md",
+        "AGENTS.local.md",
         "DEV_README.md",
         "docs/native-first-redesign.md",
     ):
         assert private_name in gitignore
+
+    assert "\nAGENTS.md\n" not in gitignore
 
     for secret_name in (
         "RELAY_ADMIN_PASSWORD",

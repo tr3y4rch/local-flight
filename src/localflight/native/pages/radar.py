@@ -15,7 +15,7 @@ from localflight.native.async_tools import AsyncFetchMixin
 from localflight.native.canvas.radar import RadarCanvas
 from localflight.native.design import WEATHER_EMOJI, install_combo_popup_sizing, label
 from localflight.native.service import NativeApiService
-from localflight.native.widgets import WeatherStrip
+from localflight.native.widgets import NoticeBanner, WeatherStrip
 
 
 class RadarScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
@@ -131,6 +131,7 @@ class RadarScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
         self.advanced_panel.hide()
         self.advanced_scroll.hide()
         self.weather = WeatherStrip(QtWidgets, "Weather loading...")
+        self.notice_banner = NoticeBanner(QtWidgets)
         self.canvas = RadarCanvas(QtCore, QtGui, QtWidgets)
         if embedded:
             self.canvas.setMinimumSize(240, 240)
@@ -175,6 +176,7 @@ class RadarScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
         top_scroll.setWidget(top_widget)
         layout.addWidget(top_scroll)
         layout.addWidget(self.weather)
+        layout.addWidget(self.notice_banner)
         layout.addLayout(source_row)
         layout.addWidget(self.advanced_scroll)
         layout.addWidget(self.canvas, 1)
@@ -315,6 +317,7 @@ class RadarScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
         self.config = dict(cfg)
         self._apply_config(cfg)
         self._last_payload = dict(payload)
+        self.notice_banner.set_notices(payload.get("notices") or [])
         if isinstance(result.get("radar_map"), dict):
             self._last_surface = _surface_from_map(result["radar_map"], payload)
             self.canvas.set_map({"features": result["radar_map"].get("map_features") or []})
@@ -365,19 +368,12 @@ class RadarScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
             details.append(f"{hidden_airborne} airborne hidden in surface view")
         if hidden_ground:
             details.append(f"{hidden_ground} ground targets hidden")
-        raw_provider_count = int(payload.get("raw_provider_count") or payload.get("count") or 0)
-        provider_radius = float(payload.get("provider_radius_nm") or payload.get("radius_nm") or self.radius_nm)
-        if provider_radius > float(payload.get("radius_nm") or self.radius_nm):
-            details.append(f"cropped from {raw_provider_count} at {provider_radius:g}nm")
         if surface_error:
-            details.append("surface overlay unavailable")
-        source = _source_label(payload.get("source"))
+            details.append("airport map unavailable")
         timestamp = datetime.now(timezone.utc).strftime("%H:%M:%S")
-        trace = f"Details: /api/radar {self.radius_nm}nm, {source}, {timestamp} UTC"
-        return " ".join(part for part in (base, " | ".join(details), trace) if part)
+        return " ".join(part for part in (base, " | ".join(details), f"Updated {timestamp} UTC") if part)
 
     def _source_line(self, payload: dict[str, Any], surface: dict[str, Any], *, surface_error: str = "") -> str:
-        source = _source_label(payload.get("source"))
         mode = str(payload.get("radar_mode") or ("surface" if self.radius_nm <= 5 else "airborne"))
         layers = []
         if self.layer_toggles["map"].isChecked():
@@ -393,25 +389,31 @@ class RadarScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
         if self.layer_toggles["terrain"].isChecked():
             layers.append("terrain")
         layer_text = ", ".join(layers) if layers else "simple view"
-        parts = [f"{source} {mode} view"]
+        parts = [f"{mode.title()} view"]
         radar_map = payload.get("radar_map") if isinstance(payload.get("radar_map"), dict) else {}
         if self.layer_toggles["map"].isChecked() and isinstance(radar_map, dict):
             map_count = len(radar_map.get("map_features") or [])
             map_state = str((radar_map.get("sources") or {}).get("map_cache_state") or "").strip()
-            parts.append(f"map {map_count} features" + (f" ({map_state})" if map_state else ""))
+            parts.append("airport map ready" if map_count else "airport map unavailable")
         if self.layer_toggles["terrain"].isChecked() and isinstance(radar_map, dict):
             terrain = radar_map.get("terrain") if isinstance(radar_map.get("terrain"), dict) else {}
             terrain_count = len(terrain.get("features") or [])
             terrain_state = str((radar_map.get("sources") or {}).get("terrain_cache_state") or "").strip()
-            parts.append(f"terrain {terrain_count} features" + (f" ({terrain_state})" if terrain_state else ""))
+            parts.append("terrain ready" if terrain_count else "terrain unavailable")
         if self.layer_toggles["runways"].isChecked() or self.layer_toggles["surface"].isChecked():
             parts.append(_surface_source_label(surface, surface_error=surface_error))
         parts.append(f"overlays: {layer_text}")
         return " | ".join(part for part in parts if part)
 
     def _radar_error(self, exc: Exception) -> None:
+        self.notice_banner.set_notices([{
+            "code": "radar.temporarily_unavailable",
+            "tone": "error",
+            "message": "Radar is temporarily unavailable.",
+            "next_step": "The app will keep trying; you can also refresh in a moment.",
+        }])
         self._set_status(
-            f"Radar is temporarily unavailable. Keeping the screen ready and trying again soon. Details: /api/radar {self.radius_nm}nm",
+            "Radar is temporarily unavailable. Keeping the screen ready and trying again soon.",
             role="StatusBad",
             busy=False,
         )
@@ -484,7 +486,7 @@ class RadarScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
                 deduped.append(chip)
         self.blip_route.setText(route)
         self.blip_detail.setText(" | ".join(deduped + ([summary["detail"]] if summary["detail"] else [])))
-        self.status.setText(f"Selected {summary['title']}. Details: /api/fids/detail")
+        self.status.setText(f"Selected {summary['title']}. Flight details are ready.")
 
     def _apply_selected_detail_error(self, summary: dict[str, str], _exc: Exception) -> None:
         self.status.setText(f"Selected {summary['title']}. Flight details are temporarily unavailable.")

@@ -25,7 +25,7 @@ export function routeName(route: string): string {
 
 export function routeMeta(row: FidsRow): string {
   const code = routeCode(row.route_display);
-  const gate = row.gate && row.gate !== "-" ? `G${row.gate}` : "";
+  const gate = row.terminal_gate_display || row.gate_display || "";
   if (code && gate) return `${code} · ${gate}`;
   if (code) return code;
   if (gate) return gate;
@@ -109,10 +109,15 @@ export function fidsRowDetailResponse(row: FidsRow, airportCode = ""): FidsDetai
       delay_minutes: row.delay_minutes ?? null,
       delay_kind: row.delay_kind || null,
       delay_class: row.delay_class || null,
-      gate: row.gate || null,
-      gate_display: row.gate_display || row.gate || null,
+      gate: row.gate_display || row.terminal_gate_display || null,
+      gate_display: row.gate_display || row.terminal_gate_display || null,
       terminal_display: row.terminal_display || null,
-      terminal_gate_display: row.terminal_gate_display || row.gate_display || row.gate || null,
+      terminal_gate_display: row.terminal_gate_display || row.gate_display || null,
+      gate_source: row.gate_source || null,
+      terminal_source: row.terminal_source || null,
+      gate_confidence: row.gate_confidence || null,
+      terminal_confidence: row.terminal_confidence || null,
+      ops_location_notes: row.ops_location_notes || [],
       aircraft_type: row.aircraft_type || null,
       direction: view,
       status: row.status_display || row.status_kind || null,
@@ -218,8 +223,8 @@ export function historyRowDetailResponse(row: HistoryFlightRow): FidsDetailRespo
       sched_time: row.sched_time || null,
       actual_time: row.actual_time || null,
       delay_minutes: row.delay_minutes ?? null,
-      gate: row.gate || null,
-      gate_display: row.gate || null,
+      gate: row.gate_display || row.terminal_gate_display || null,
+      gate_display: row.gate_display || row.terminal_gate_display || null,
       terminal: row.terminal || null,
       aircraft_type: row.aircraft_type || null,
       direction: row.direction,

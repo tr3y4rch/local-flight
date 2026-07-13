@@ -81,6 +81,9 @@ export function formatClock(value?: string | null): string {
 
 export function errorMessage(value: unknown): string {
   const message = value instanceof Error ? value.message : String(value);
+  if (/remote_relay_timeout/i.test(message)) {
+    return "Remote Companion could not get a timely answer from the relay. Check this phone's internet connection, then try again.";
+  }
   if (/remote_host_offline/i.test(message)) {
     return "Remote Companion cannot reach your Local Flight host right now. Open Local Flight on the desktop or Pi, or reconnect this phone to the same Wi-Fi.";
   }
@@ -91,12 +94,24 @@ export function errorMessage(value: unknown): string {
     return "Remote Companion access was revoked on this host. Pair this phone again on the same Wi-Fi to restore remote access.";
   }
   if (/remote_crypto_failed/i.test(message)) {
-    return "Remote Companion could not open the encrypted reply. Pair this phone again from the intended Local Flight host.";
+    return "Remote Companion pairing could not be verified. Create one fresh LAN + Remote QR on the intended host and scan it while this phone is on the same Wi-Fi.";
   }
   if (/Remote Companion .*rate limit|rate limit reached/i.test(message)) {
     return "Remote Companion is slowing requests down to protect the relay. Wait a moment, then try again.";
   }
-  return message;
+  if (/network request failed|failed to fetch|connection|offline|ECONN|ENOTFOUND/i.test(message)) {
+    return "Local Flight could not be reached. Check the connection and try again.";
+  }
+  if (/timed? out|timeout/i.test(message)) {
+    return "Local Flight did not answer in time. Try again shortly.";
+  }
+  if (/\b401\b|\b403\b|unauthorized|forbidden/i.test(message)) {
+    return "This connection is no longer authorized. Pair or sign in again.";
+  }
+  if (/\b429\b|too many requests/i.test(message)) {
+    return "Local Flight is slowing requests down. Wait a moment, then try again.";
+  }
+  return "That action could not be completed. Try again shortly.";
 }
 
 export function parseMetarChips(metar: string): Array<{ label: string; value: string }> {

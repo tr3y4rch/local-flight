@@ -228,7 +228,6 @@ def flight_to_fids_row(
     other = f.destination if view == "departures" else f.origin
     route_display = _route_display_from_code(other.code() if other else "")
 
-    gate          = "-" if is_virtual else (f.gate or "-")
     aircraft_type = short_aircraft_type(f.aircraft_type) or "-"
     fid = f"{f.source or 'src'}:{f.callsign}:{t.isoformat() if t else 'notime'}"
 
@@ -236,7 +235,14 @@ def flight_to_fids_row(
     time_primary, time_delta_label, time_delta_text = split_display_time(display_time, dly if isinstance(dly, int) else None)
     delay_kind = delay_kind_from_minutes(dly if isinstance(dly, int) else None)
     route_primary, route_code, route_caption = split_route_display(route_display)
-    gate_display, terminal_display, terminal_gate_display = ("", "", "") if is_virtual else gate_fields(gate, f.terminal)
+    gate_display, terminal_display, terminal_gate_display = ("", "", "") if is_virtual else gate_fields(
+        f.gate,
+        f.terminal,
+        f.gate_confidence,
+        f.terminal_confidence,
+        f.ops_location_notes,
+    )
+    gate = "-" if is_virtual else (gate_display or "-")
     status_kind = normalize_status_kind(status_class, status_display, delay_kind)
     tone = tone_for_status(status_kind, delay_kind)
     live_hint = ""
@@ -286,6 +292,11 @@ def flight_to_fids_row(
         gate_display=gate_display,
         terminal_display=terminal_display,
         terminal_gate_display=terminal_gate_display,
+        gate_source="" if is_virtual else (f.gate_source or ""),
+        terminal_source="" if is_virtual else (f.terminal_source or ""),
+        gate_confidence="" if is_virtual else (f.gate_confidence or ""),
+        terminal_confidence="" if is_virtual else (f.terminal_confidence or ""),
+        ops_location_notes=() if is_virtual else tuple(f.ops_location_notes or ()),
         route_primary=route_primary,
         route_code=route_code,
         route_caption=route_caption,

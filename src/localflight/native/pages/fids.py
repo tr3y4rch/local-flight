@@ -28,6 +28,7 @@ from localflight.native.design import (
     paint_emoji,
     value_at,
 )
+from localflight.native.widgets import NoticeBanner
 from localflight.native.models import FlightBoardModel
 from localflight.native.service import NativeApiService
 from localflight.native.widgets import DetailDrawer, WeatherStrip
@@ -1055,7 +1056,7 @@ class FidsBoardView:  # pragma: no cover - optional Qt runtime
                 painter.drawText(pill.adjusted(32, 0, -10, 0), QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter, rendered)
 
             def _draw_gate(self, painter: Any, QtCore: Any, QtGui: Any, rect: Any, row: dict[str, Any], colors: dict[str, str]) -> None:
-                gate = str(row.get("terminal_gate_display") or row.get("gate_display") or row.get("gate") or "").strip()
+                gate = str(row.get("terminal_gate_display") or row.get("gate_display") or "").strip()
                 if not gate:
                     self._draw_center_text(painter, QtCore, QtGui, rect, "-", colors, muted=True)
                     return
@@ -1334,6 +1335,7 @@ class FidsScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
         header.addLayout(title_row)
 
         self.error_banner = _banner(QtWidgets, "Data fetch error", "ErrorBanner")
+        self.notice_banner = NoticeBanner(QtWidgets)
         self.info_banner = _banner(
             QtWidgets,
             "Updating the board with the latest airport data...",
@@ -1372,6 +1374,7 @@ class FidsScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
 
         board_layout.addWidget(header_widget)
         board_layout.addWidget(self.error_banner)
+        board_layout.addWidget(self.notice_banner)
         board_layout.addWidget(self.info_banner)
         board_layout.addWidget(self.status)
         board_layout.addWidget(self.board, 1)
@@ -1562,6 +1565,8 @@ class FidsScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
         view = str(result["view"])
         self.error_banner.hide()
         self._apply_scheduler_health(result.get("health"), str(result.get("health_error") or ""))
+        health = result.get("health") if isinstance(result.get("health"), dict) else {}
+        self.notice_banner.set_notices(health.get("notices") or [])
         weather = result.get("weather")
         if isinstance(weather, dict):
             self.weather.set_weather(_weather_line(weather, raw=False), _weather_icon_glyph(weather.get("weather_icon")))
@@ -1569,7 +1574,7 @@ class FidsScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
             self.weather.style().unpolish(self.weather)
             self.weather.style().polish(self.weather)
         else:
-            self.weather.set_weather(f"Weather unavailable: {result.get('weather_error') or 'offline'}", "")
+            self.weather.set_weather("Weather is temporarily unavailable.", "")
             self.weather.setProperty("tone", "bad")
             self.weather.style().unpolish(self.weather)
             self.weather.style().polish(self.weather)
@@ -1597,7 +1602,7 @@ class FidsScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
             )
         self.last_updated.setText("")
         page_count = max(1, math.ceil(len(self.rows) / max(1, self.row_limit)))
-        self.status.setText(f"{len(self.rows)} {view} loaded | {source} source | page 1/{page_count} | updated now")
+        self.status.setText(f"{len(self.rows)} {view} loaded | page 1/{page_count} | updated now")
         if len(self.rows) > self.row_limit and self._active:
             self.page_timer.start(self.rotation_seconds * 1000)
         else:
@@ -1611,27 +1616,27 @@ class FidsScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
         if not isinstance(health, dict):
             if health_error:
                 self.error_banner.show()
-                self._set_banner_text(self.error_banner, f"Scheduler health unavailable: {health_error}")
+                self._set_banner_text(self.error_banner, "Flight update status is temporarily unavailable.")
             return
         last_error = str(health.get("last_error") or "").strip()
         if health.get("ok") is False and last_error:
-            key_error = any(part in last_error.lower() for part in ("401", "invalid_access_key", "access_key"))
-            message = (
-                "AviationStack API key is invalid - update it in Settings"
-                if key_error
-                else f"Fetch error: {last_error}"
-            )
             self.error_banner.show()
-            self._set_banner_text(self.error_banner, message)
+            self._set_banner_text(self.error_banner, "Flight updates are temporarily interrupted. Check Settings or try again shortly.")
         else:
             self.error_banner.hide()
 
     def _board_error(self, exc: Exception, *, had_rows: bool = False) -> None:
         self.error_banner.show()
-        self._set_banner_text(self.error_banner, f"Data fetch error: {exc}")
+        self.notice_banner.set_notices([{
+            "code": "fids.temporarily_unavailable",
+            "tone": "error",
+            "message": "The flight board is temporarily unavailable.",
+            "next_step": "Local Flight will keep trying; you can also refresh in a moment.",
+        }])
+        self._set_banner_text(self.error_banner, "The flight board is temporarily unavailable.")
         if not had_rows:
             self._set_info_banner("Connection interrupted. Keeping the board ready and trying again shortly.", True, busy=True)
-        self.status.setText(f"Board offline: {exc}")
+        self.status.setText("Board connection interrupted. Retrying shortly.")
 
     def _set_info_banner(self, text: str, visible: bool, *, busy: bool = False) -> None:
         if text:
@@ -1858,7 +1863,7 @@ class FidsScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
         started = self._run_async(
             lambda: self.service.fids_detail(callsign),
             self._apply_detail,
-            lambda exc: self.detail_route.setText(f"Detail unavailable: {exc}"),
+            lambda _exc: self.detail_route.setText("Flight details are temporarily unavailable."),
             label="fids.detail",
             debounce_ms=0,
         )
@@ -2126,7 +2131,7 @@ class FidsScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
 
     def _terminal_gate_line(self, detail: dict[str, Any]) -> str:
         terminal = format_value(detail.get("terminal"))
-        gate = format_value(detail.get("gate"))
+        gate = format_value(detail.get("terminal_gate_display") or detail.get("gate_display") or detail.get("gate"))
         if terminal and gate:
             return f"Terminal {terminal} Gate {gate}"
         if gate:

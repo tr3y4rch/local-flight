@@ -131,7 +131,7 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
         title_col.addWidget(
             label(
                 self.QtWidgets,
-                "Client controls for the local board. Relay operator tools stay in Network Admin.",
+                "Controls for the local board, connected displays, and mobile companions.",
                 "Muted",
                 wrap=True,
             )
@@ -508,13 +508,13 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
     def _build_companion_pairing(self) -> None:
         self.companion_group, self.companion_body, layout = self._collapsible_section(
             "Pair Mobile",
-            subtitle="QR pairing for LAN Companion devices, with optional relay fallback.",
+            subtitle="One scan for LAN-only use, or one scan for LAN plus encrypted remote backup.",
             emoji="\U0001F4F1",  # 📱
         )
         layout.addWidget(
             label(
                 self.QtWidgets,
-                "Scan this from each iPhone/iPad you want to pair. The same QR can be reused by multiple mobile devices on the same LAN.",
+                "Choose the connection you want, then scan once from the phone while it is on this Wi-Fi. The QR currently shown is LAN only.",
                 "Muted",
                 wrap=True,
             )
@@ -587,19 +587,19 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
         refresh = self.QtWidgets.QPushButton("Refresh paired devices")
         refresh.setObjectName("Quiet")
         refresh.clicked.connect(self._refresh_companion_gateway)
-        copy_pair = self.QtWidgets.QPushButton("Copy pairing link")
+        copy_pair = self.QtWidgets.QPushButton("Copy LAN-only link")
         copy_pair.setObjectName("Quiet")
         copy_pair.clicked.connect(self._copy_pairing_link)
         copy_url = self.QtWidgets.QPushButton("Copy LAN URL")
         copy_url.setObjectName("Quiet")
         copy_url.clicked.connect(self._copy_manual_pairing_url)
-        remote_invite = self.QtWidgets.QPushButton("Create remote QR")
-        remote_invite.setObjectName("Quiet")
+        remote_invite = self.QtWidgets.QPushButton("Create LAN + Remote QR")
+        remote_invite.setObjectName("PrimaryCTA")
         remote_invite.clicked.connect(self._create_remote_companion_invite)
-        copy_remote = self.QtWidgets.QPushButton("Copy remote link")
+        copy_remote = self.QtWidgets.QPushButton("Copy LAN + Remote link")
         copy_remote.setObjectName("Quiet")
         copy_remote.clicked.connect(self._copy_remote_pairing_link)
-        revoke_remote = self.QtWidgets.QPushButton("Revoke remote")
+        revoke_remote = self.QtWidgets.QPushButton("Revoke Remote access")
         revoke_remote.setObjectName("Danger")
         revoke_remote.clicked.connect(self._revoke_remote_companion_grants)
         reset_companions = self.QtWidgets.QPushButton("Reset paired devices")
@@ -868,7 +868,12 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
             state = "LAN READY"
             role = "StatusWarn"
             detail = "No mobile device has checked in yet, but this host is ready for LAN pairing."
-            cta = "Next: scan the QR from the phone on this LAN, or copy the LAN URL for manual setup."
+            cta = (
+                "For LAN plus away-from-home access, create a LAN + Remote QR and scan it once. "
+                "Use the QR already shown only when you want LAN-only access."
+                if remote_enabled
+                else "Scan the LAN-only QR from the phone, or copy the LAN URL for manual setup."
+            )
         else:
             state = "OFFLINE"
             role = "StatusBad"
@@ -903,8 +908,8 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
         self._current_manual_pairing_url = str(payload.get("preferred_url") or "")
         self._current_pairing_fingerprint = str(payload.get("server_fingerprint") or "")
         self.companion_pairing_url_label.setText(
-            f"QR target: {self._current_manual_pairing_url}\n"
-            f"Pairing link: {self._current_pairing_link}"
+            f"LAN-only QR target: {self._current_manual_pairing_url}\n"
+            f"LAN-only pairing link: {self._current_pairing_link}"
         )
         self.companion_fingerprint_label.setText(
             f"Server fingerprint: {self._current_pairing_fingerprint or 'unavailable'}"
@@ -931,10 +936,10 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
         self._render_pairing_payload()
         try:
             payload = self.service.connections()
-        except Exception as exc:
+        except Exception:
             self.companion_count_label.setText("Pairing status unavailable")
-            self.companion_entries_label.setText(f"Could not read paired mobile devices: {exc}")
-            self._refresh_remote_companion_status(companion_error=str(exc))
+            self.companion_entries_label.setText("Paired mobile devices are temporarily unavailable.")
+            self._refresh_remote_companion_status(companion_error="temporarily unavailable")
             return
 
         companions = payload.get("companions") if isinstance(payload.get("companions"), list) else []
@@ -975,12 +980,12 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
     ) -> None:
         try:
             payload = self.service.remote_companion_status()
-        except Exception as exc:
-            self.remote_companion_label.setText(f"Remote Companion status unavailable: {exc}")
+        except Exception:
+            self.remote_companion_label.setText("Remote Companion status is temporarily unavailable.")
             self._update_companion_connection_state(
                 connections=connections,
                 companion_error=companion_error,
-                remote_error=str(exc),
+                remote_error="temporarily unavailable",
             )
             return
         enabled = bool(payload.get("enabled"))
@@ -997,7 +1002,10 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
             )
             return
         if not grants:
-            self.remote_companion_label.setText("Remote Companion is on. No remote grants yet.")
+            self.remote_companion_label.setText(
+                "Remote Companion is on but no phone has verified it yet. "
+                "Create a LAN + Remote QR and scan that one QR from the phone."
+            )
             return
         lines = [f"Remote Companion: {len(active)} active grant(s)."]
         for item in grants[:5]:
@@ -1021,8 +1029,8 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
             return
         self._current_pairing_link = self._current_remote_pairing_link
         self.companion_pairing_url_label.setText(
-            f"Remote pairing link: {self._current_remote_pairing_link}\n"
-            "This invite expires shortly. Scan it while the phone is on this LAN."
+            f"LAN + Remote pairing link: {self._current_remote_pairing_link}\n"
+            "This one-time invite connects the LAN host and verifies encrypted remote backup in one scan."
         )
         png = pairing_qr_png_bytes(self._current_remote_pairing_link, size=190)
         if png:
@@ -1031,7 +1039,7 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
                 self.companion_qr_label.setPixmap(pixmap)
                 self.companion_qr_label.setText("")
         self._set_status(
-            f"Remote Companion QR ready until {payload.get('invite', {}).get('expires_at', 'it expires')}.",
+            f"LAN + Remote QR ready until {payload.get('invite', {}).get('expires_at', 'it expires')}. Scan it once from the phone.",
             "StatusGood",
         )
         self._refresh_remote_companion_status()
@@ -1039,16 +1047,16 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
     def _copy_remote_pairing_link(self) -> None:
         link = getattr(self, "_current_remote_pairing_link", "")
         if not link:
-            self._set_status("Create a remote QR first, then copy its short-lived link.", "StatusWarn")
+            self._set_status("Create a LAN + Remote QR first, then copy its short-lived link.", "StatusWarn")
             return
         self.QtWidgets.QApplication.clipboard().setText(link)
-        self._set_status("Remote pairing link copied. It expires shortly.", "StatusGood")
+        self._set_status("LAN + Remote pairing link copied. It expires shortly.", "StatusGood")
 
     def _revoke_remote_companion_grants(self) -> None:
         try:
             payload = self.service.remote_companion_status()
-        except Exception as exc:
-            self._set_status(f"Remote Companion grants unavailable: {exc}", "StatusBad")
+        except Exception:
+            self._set_status("Remote Companion access is temporarily unavailable.", "StatusBad")
             return
         grants = [item for item in (payload.get("grants") or []) if isinstance(item, dict) and not item.get("revoked_at")]
         if not grants:
@@ -1090,8 +1098,8 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
         self._set_status("Resetting paired mobile devices...", busy=True)
         try:
             payload = self.service.reset_companions()
-        except Exception as exc:
-            self._set_status(f"Could not reset paired mobile devices: {exc}", "StatusBad")
+        except Exception:
+            self._set_status("Paired mobile devices could not be reset. Try again shortly.", "StatusBad")
             return
         removed = int(payload.get("removed") or 0)
         self._refresh_companion_gateway()
@@ -1183,9 +1191,9 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
     def _refresh_install(self) -> None:
         try:
             info = self.service.setup_client_info()
-        except Exception as exc:
+        except Exception:
             self.current_relay_value.value_label.setText("Unavailable")
-            self.current_relay_value.detail_label.setText(f"Relay status could not be read: {exc}")
+            self.current_relay_value.detail_label.setText("Connection status could not be read. Try again shortly.")
             return
         has_token = bool(info.get("has_activation_token") or info.get("activation_token_present") or info.get("managed"))
         relay_url = str(info.get("relay_url") or "local relay")
@@ -1204,9 +1212,9 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
     def _refresh_provider_keys(self) -> None:
         try:
             status = self.service.provider_keys_status()
-        except Exception as exc:
+        except Exception:
             self._set_provider_key_controls_visible(False)
-            self.provider_path.setText(f"Provider key status unavailable: {exc}")
+            self.provider_path.setText("Connection-key status is temporarily unavailable.")
             return
         self._apply_provider_key_status(status)
 
@@ -1250,8 +1258,8 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
         self.provider_status.setText("Saving provider keys locally...")
         try:
             status = self.service.provider_keys_save(payload)
-        except Exception as exc:
-            self.provider_status.setText(f"Provider keys could not be saved: {exc}")
+        except Exception:
+            self.provider_status.setText("Connection keys could not be saved. Check the fields and try again.")
             return
         self._apply_provider_key_status(status)
         for field in (
@@ -1268,8 +1276,8 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
         self.provider_status.setText("Clearing direct provider keys...")
         try:
             status = self.service.provider_keys_clear()
-        except Exception as exc:
-            self.provider_status.setText(f"Provider keys could not be cleared: {exc}")
+        except Exception:
+            self.provider_status.setText("Connection keys could not be cleared. Try again shortly.")
             return
         self._apply_provider_key_status(status)
         self.provider_status.setText("Direct provider keys cleared. Relay and virtual settings stay separate.")

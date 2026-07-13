@@ -134,7 +134,7 @@ function rowToWidgetFlight(row: FidsRow): WidgetFlightPreview {
     displayTime: cleanWidgetValue(row.display_time) || "--:--",
     statusDisplay: statusShort(row.status_display),
     statusTone: statusTone(row.status_display),
-    gate: cleanWidgetValue(row.gate_display) || cleanWidgetValue(row.gate),
+    gate: cleanWidgetValue(row.terminal_gate_display) || cleanWidgetValue(row.gate_display),
     terminal: cleanWidgetValue(row.terminal_display)
   };
 }

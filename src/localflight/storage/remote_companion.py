@@ -10,6 +10,7 @@ from typing import Any
 
 from localflight.storage.config import config_path
 from localflight.storage.install import get_install_fingerprint
+from localflight.storage.private_files import ensure_private_file, write_private_text
 
 REMOTE_INVITE_TTL_SECONDS = 10 * 60
 
@@ -30,6 +31,7 @@ def _read_state() -> dict[str, Any]:
     path = _state_path()
     if not path.exists():
         return {"version": 1, "invites": {}, "grants": {}}
+    ensure_private_file(path)
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
     except Exception:
@@ -47,8 +49,7 @@ def _read_state() -> dict[str, Any]:
 
 def _write_state(state: dict[str, Any]) -> None:
     path = _state_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(state, indent=2, sort_keys=True), encoding="utf-8")
+    write_private_text(path, json.dumps(state, indent=2, sort_keys=True))
 
 
 def _b64url(data: bytes) -> str:

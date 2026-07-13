@@ -590,7 +590,7 @@
   <div class="fids-info-banner{% if rows|length == 0 %} visible{% endif %}" id="fidsInfoBanner">
     <span class="fids-info-dot"></span>
     <span class="fids-info-msg" id="fidsInfoMsg">
-      Fetching schedule data. If Community Relay is warming this airport, it can take a moment.
+      Preparing the latest available board. First updates can take a moment.
     </span>
   </div>
 
@@ -636,7 +636,7 @@
           <td class="fids-route">{{ r.route_primary or r.route_display }}{% if r.route_caption and r.route_caption not in (r.route_primary or r.route_display) %} <span class="fids-route-code">{{ r.route_caption }}</span>{% endif %}</td>
 	          <td>
 	            {% if is_virtual_row and (r.squawk or r.transponder) %}<span class="fids-gate-val">XPDR {{ r.squawk or r.transponder }}</span>
-	            {% elif r.gate_display or (r.gate and r.gate != '-') %}<span class="fids-gate-val">{{ r.terminal_gate_display or r.gate_display or r.gate }}</span>
+	            {% elif r.gate_display or r.terminal_gate_display %}<span class="fids-gate-val">{{ r.terminal_gate_display or r.gate_display }}</span>
 	            {% else %}<span class="fids-gate-empty">—</span>{% endif %}
 	          </td>
           <td>
@@ -826,7 +826,7 @@ function renderTime(s, tone="") {
 	      ? `<span class="fids-gate-val">XPDR ${esc(xpdr)}</span>`
 	      : `<span class="fids-gate-empty">—</span>`;
 	  }
-	  const g = r?.terminal_gate_display || r?.gate_display || r?.gate || "";
+	  const g = r?.terminal_gate_display || r?.gate_display || "";
 	  return (g && g !== "-")
 	    ? `<span class="fids-gate-val">${esc(g)}</span>`
 	    : `<span class="fids-gate-empty">—</span>`;
@@ -930,12 +930,9 @@ async function checkSchedulerHealth() {
     const r = await fetch("/api/health");
     if (!r.ok) return;
     const s = await r.json();
+    window.LocalFlightNotices?.render(s.notices || []);
     if (!s.ok && s.last_error) {
-      const err = s.last_error;
-      const isKeyErr = /401|invalid_access_key|access_key/i.test(err);
-      msg.textContent = isKeyErr
-        ? "AviationStack API key is invalid — update it in Settings"
-        : `Fetch error: ${err}`;
+      msg.textContent = "Flight updates are temporarily interrupted. Check Settings or try again shortly.";
       banner.classList.add("visible");
     } else {
       banner.classList.remove("visible");
@@ -974,7 +971,7 @@ async function refreshFIDS() {
   }
   const hadRows = latestRows.length > 0 || INITIAL_ROW_COUNT > 0;
   if (!hadRows) {
-    setFidsInfo("Fetching schedule data. If Community Relay is warming this airport, it can take a moment.", true);
+    setFidsInfo("Fetching the latest flight board. This can take a moment for a newly selected airport.", true);
   }
   try {
     const fetchLimit = Math.min(WEB_ROW_LIMIT * 4, 100);
@@ -988,7 +985,7 @@ async function refreshFIDS() {
     if (latestRows.length) {
       setFidsInfo("", false);
     } else {
-      setFidsInfo("No rows yet. The relay may still be warming this airport, or the current window is quiet.", true);
+      setFidsInfo("No flights are visible in the current time window. Try again shortly or adjust the board window in Settings.", true);
     }
     renderActiveRows();
     scheduleRotation();
@@ -1142,7 +1139,7 @@ async function refreshFIDS() {
 	    const soldCompact = new Set((d.sold_as || []).map(v => String(v).replace(/[^A-Z0-9]/gi, "").toUpperCase()));
 	    const extraCodeshares = (d.codeshares || []).filter(v => !soldCompact.has(String(v).replace(/[^A-Z0-9]/gi, "").toUpperCase()));
 	    const alsoLine = joinedFlightIds(extraCodeshares.slice(0, 5));
-	    const compactGate = [opsIntel.terminal || d.terminal, opsIntel.gate || d.gate].filter(cleanValue).join(" ");
+	    const compactGate = d.terminal_gate_display || opsIntel.terminal_gate_display || d.gate_display || opsIntel.gate_display || opsIntel.gate || d.gate || "";
 	    const compactAircraft = aircraftIntel.type || d.aircraft_type || aircraftIntel.model || d.aircraft_type_full;
 	    const cleanIdentityShareLine = soldAsLine
 	      ? ` | Sold as ${soldAsLine}${alsoLine ? ` | Also ${alsoLine}` : ""}`
@@ -1254,7 +1251,7 @@ async function refreshFIDS() {
           ["Status", d.status || "—"],
         ]
       : [
-          ["Gate",     opsIntel.gate || d.gate || "—"],
+          ["Gate",     d.gate_display || opsIntel.gate_display || opsIntel.gate || d.gate || "—"],
           ["Terminal", opsIntel.terminal || d.terminal || "—"],
           ["A/C code", aircraftIntel.type || d.aircraft_type || "—"],
           ["Aircraft type", aircraftIntel.model || aircraftIntel.full_type || d.aircraft_type_full || "—"],

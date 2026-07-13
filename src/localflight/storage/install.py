@@ -8,6 +8,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from localflight.storage.private_files import ensure_private_dir, ensure_private_file, write_private_text
+
 
 IDENTITY_BUNDLE_VERSION = 1
 
@@ -49,6 +51,7 @@ def _valid_uuid(value: Any) -> str:
 
 
 def _read_json(path: Path) -> dict[str, Any]:
+    ensure_private_file(path)
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
     except Exception:
@@ -78,14 +81,12 @@ def _write_identity_bundle(bundle: dict[str, Any]) -> None:
     bundle = _bundle_from_install_id(install_id, existing=bundle)
     for path in (_identity_bundle_path(), _identity_anchor_path()):
         try:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(json.dumps(bundle, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+            write_private_text(path, json.dumps(bundle, indent=2, sort_keys=True) + "\n")
         except Exception:
             pass
     try:
         legacy = _id_path()
-        legacy.parent.mkdir(parents=True, exist_ok=True)
-        legacy.write_text(install_id, encoding="utf-8")
+        write_private_text(legacy, install_id)
     except Exception:
         pass
 
@@ -97,6 +98,7 @@ def _identity_candidates() -> list[tuple[str, dict[str, Any]]]:
         if install_id:
             candidates.append((install_id, bundle))
     try:
+        ensure_private_file(_id_path())
         legacy_id = _valid_uuid(_id_path().read_text(encoding="utf-8").strip())
     except Exception:
         legacy_id = ""
@@ -130,6 +132,7 @@ def get_activation_token() -> str:
     if not path.exists():
         return ""
     try:
+        ensure_private_file(path)
         return path.read_text(encoding="utf-8").strip()
     except Exception:
         return ""
@@ -138,9 +141,9 @@ def get_activation_token() -> str:
 def set_activation_token(token: str) -> None:
     token = (token or "").strip()
     path = _activation_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
+    ensure_private_dir(path.parent)
     if token:
-        path.write_text(token, encoding="utf-8")
+        write_private_text(path, token)
         os.environ["LOCALFLIGHT_ACTIVATION_TOKEN"] = token
     else:
         try:

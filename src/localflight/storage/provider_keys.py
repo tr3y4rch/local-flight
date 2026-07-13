@@ -7,6 +7,7 @@ from typing import Any, Dict, Iterable, Tuple
 
 from localflight.sources.web.relay_defaults import default_public_relay_url
 from localflight.storage.config import load_config
+from localflight.storage.private_files import ensure_private_dir, ensure_private_file, write_private_text
 
 AERODATABOX_DEFAULT_MONTHLY_UNITS = 24_000
 AERODATABOX_DEFAULT_FIDS_UNITS = 2
@@ -58,6 +59,7 @@ def read_env(path: Path | None = None) -> Dict[str, str]:
     values: Dict[str, str] = {}
     if not target.exists():
         return values
+    ensure_private_file(target)
     try:
         for raw_line in target.read_text(encoding="utf-8").splitlines():
             line = raw_line.strip()
@@ -107,17 +109,11 @@ def reload_provider_env(path: Path | None = None) -> Path | None:
 
 def write_env(values: Dict[str, str], *, removed: Iterable[str] = (), path: Path | None = None) -> None:
     target = path or env_path()
-    target.parent.mkdir(parents=True, exist_ok=True)
+    ensure_private_dir(target.parent)
     lines = ["# Local Flight - environment variables\n"]
     for key, value in values.items():
         lines.append(f"{key}={value}\n")
-    pending = target.with_name(f".{target.name}.tmp")
-    pending.write_text("".join(lines), encoding="utf-8")
-    try:
-        pending.chmod(0o600)
-    except OSError:
-        pass
-    os.replace(pending, target)
+    write_private_text(target, "".join(lines))
     for key in set(removed):
         if key not in PROVIDER_ENV_KEYS:
             os.environ.pop(key, None)

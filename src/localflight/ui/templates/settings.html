@@ -406,10 +406,10 @@
 <main class="settings-page">
   <section class="settings-hero">
     <div class="settings-title">
-      <img src="/static/localflight-logo.svg" alt="" />
+      <img src="/static/localflight-logo.svg?v={{ static_version }}" alt="" />
       <div>
         <h1>Settings</h1>
-        <p>Friendly controls for the local board. Operator relay tools stay separate in Network Admin.</p>
+        <p>Friendly controls for your local board, displays, and connected devices.</p>
       </div>
     </div>
     <div class="settings-actions">
@@ -645,11 +645,11 @@
       <details class="details-card settings-folder" id="pairMobileCard">
         <summary>
           <span class="folder-icon">📱</span>
-          <span class="folder-copy"><strong>Pair Mobile</strong><span>QR pairing for LAN Companion devices, with optional relay fallback.</span></span>
+          <span class="folder-copy"><strong>Pair Mobile</strong><span>One scan for LAN-only use, or one scan for LAN plus encrypted remote backup.</span></span>
           <span class="folder-caret">›</span>
         </summary>
         <div class="details-body">
-          <p class="intro">Scan this from each Companion device. The same QR can be reused by multiple phones or tablets on your LAN.</p>
+          <p class="intro">Choose the connection you want, then scan once while the phone is on this Wi-Fi. The QR currently shown is LAN only.</p>
           <label class="choice-tile" style="margin-bottom:12px;">
             <input type="checkbox" name="remote_companion_enabled" value="1" {% if cfg.remote_companion_enabled %}checked{% endif %} />
             <span><strong>Allow Remote Companion fallback</strong><span>Opt-in relay path for paired phones when LAN is unavailable. Requires this host to be relay-linked and online.</span></span>
@@ -665,9 +665,9 @@
             <div>
               <div class="mini-grid">
                 <div class="mini-cell"><b>Paired devices</b><span id="companionCount">Checking...</span></div>
-                <div class="mini-cell"><b>QR target</b><span id="companionQrTarget" class="mono mono-wrap">{{ companion_pairing.preferred_url }}</span></div>
+                <div class="mini-cell"><b>LAN-only QR target</b><span id="companionQrTarget" class="mono mono-wrap">{{ companion_pairing.preferred_url }}</span></div>
                 <div class="mini-cell"><b>Server fingerprint</b><span id="companionFingerprint" class="mono mono-wrap">{{ companion_pairing.server_fingerprint or "Unavailable" }}</span></div>
-                <div class="mini-cell"><b>Pairing link</b><span id="companionPairingLink" class="mono mono-wrap">{{ companion_pairing.deep_link }}</span></div>
+                <div class="mini-cell"><b>Active QR link</b><span id="companionPairingLink" class="mono mono-wrap">{{ companion_pairing.deep_link }}</span></div>
                 <div class="mini-cell"><b>Connection state</b><span id="companionConnectionState">LAN READY</span></div>
                 <div class="mini-cell"><b>Remote Companion</b><span id="remoteCompanionStatus">Checking...</span></div>
                 {% for url in companion_pairing.manual_urls or [] %}
@@ -676,14 +676,14 @@
               </div>
               <div class="card-actions" style="margin-top:12px;">
                 <button type="button" onclick="refreshCompanionStatus()">Refresh paired devices</button>
-                <button type="button" onclick="copyPairingLink()">Copy pairing link</button>
+                <button type="button" onclick="copyPairingLink()">Copy LAN-only link</button>
                 <button type="button" onclick="copyLanUrl()">Copy LAN URL</button>
-                <button type="button" onclick="createRemoteCompanionInvite()">Create remote QR</button>
-                <button type="button" onclick="copyRemotePairingLink()">Copy remote link</button>
+                <button type="button" onclick="createRemoteCompanionInvite()">Create LAN + Remote QR</button>
+                <button type="button" onclick="copyRemotePairingLink()">Copy LAN + Remote link</button>
                 <button type="button" class="danger-link" onclick="resetCompanionConnections()">Reset paired devices</button>
               </div>
               <div class="pairing-status" id="companionEntries">No mobile check-ins yet.</div>
-              <div class="pairing-status" id="companionRemoteCta">Works at home over LAN, and can keep working away from Wi-Fi through encrypted Remote Companion after a remote QR is paired.</div>
+              <div class="pairing-status" id="companionRemoteCta">For away-from-home access, create a LAN + Remote QR and scan that one-time QR once. LAN stays preferred.</div>
               <div class="pairing-status" id="remoteCompanionEntries">Remote Companion is off unless enabled and saved.</div>
               <div class="pairing-status" id="companionCopyStatus"></div>
             </div>
@@ -813,7 +813,7 @@
 
   <div id="resetModal" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.55);backdrop-filter:blur(4px);align-items:center;justify-content:center;">
     <div style="background:var(--panel-bg);border:1px solid var(--panel-border);border-radius:16px;padding:28px 32px;min-width:280px;max-width:380px;text-align:center;box-shadow:0 24px 64px rgba(0,0,0,0.5);">
-      <img src="/static/localflight-logo.svg" alt="" style="width:48px;height:48px;margin-bottom:12px;" />
+      <img src="/static/localflight-logo.svg?v={{ static_version }}" alt="" style="width:48px;height:48px;margin-bottom:12px;" />
       <div style="font-weight:800;font-size:1rem;margin-bottom:6px;">Re-run setup wizard?</div>
       <div style="opacity:.66;font-size:.84rem;line-height:1.5;margin-bottom:22px;">Your config stays on disk. This closes the settings view and opens the guided setup now.</div>
       <div style="display:flex;gap:10px;justify-content:center;">
@@ -984,7 +984,7 @@ async function clearProviderKeys() {
             : mode === "virtual"
               ? "No schedule relay in use"
               : "Unavailable";
-    setText("clientInstallId", safeId(data.install_id));
+    setText("clientInstallId", safeId(data.install_fingerprint || data.install_id));
     setText("clientMode", modeLabel);
     setText("clientCommunityKey", client.community_key_present ? "Set locally" : "Not set");
     setText("clientToken", client.activation_token_present ? (client.activation_token_prefix || "Present") : "Not set");
@@ -1127,7 +1127,7 @@ async function createRemoteCompanionInvite() {
       qrImg.setAttribute("alt", "Remote Companion pairing QR code");
     }
     setCompanionText("companionPairingLink", remotePairingLink || companionPairing.deep_link);
-    setCompanionText("companionCopyStatus", `Remote QR ready until ${data.invite?.expires_at || "the invite expires"}. Scan it from the phone on this LAN.`);
+    setCompanionText("companionCopyStatus", `LAN + Remote QR ready until ${data.invite?.expires_at || "the invite expires"}. Scan it once from the phone on this LAN; the phone will verify the encrypted backup before saving it.`);
   } catch (exc) {
     setCompanionText("companionCopyStatus", exc?.message || "Could not create Remote Companion invite.");
   }

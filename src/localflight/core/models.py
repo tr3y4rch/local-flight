@@ -100,6 +100,11 @@ class Flight:
     gate:         Optional[str]  = None
     terminal:     Optional[str]  = None
     stand:        Optional[str]  = None
+    gate_source: Optional[str] = None
+    terminal_source: Optional[str] = None
+    gate_confidence: Optional[str] = None
+    terminal_confidence: Optional[str] = None
+    ops_location_notes: tuple[str, ...] = field(default_factory=tuple)
     status:       FlightStatus   = FlightStatus.UNKNOWN
     times:        FlightTime     = field(default_factory=FlightTime)
     delay_minutes: Optional[int] = None

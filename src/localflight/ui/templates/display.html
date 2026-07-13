@@ -75,10 +75,26 @@
 
   .display-area.mode-fids .pane-radar,
   .display-area.mode-fids .divider { display: none; }
-  .display-area.mode-fids .pane-fids { width: 100% !important; }
+  .display-area.mode-fids .pane-fids { width: 100% !important; height: 100% !important; }
   .display-area.mode-radar .pane-fids,
   .display-area.mode-radar .divider { display: none; }
-  .display-area.mode-radar .pane-radar { width: 100% !important; }
+  .display-area.mode-radar .pane-radar { width: 100% !important; height: 100% !important; }
+
+  /* Phones and short Pi-class screens need useful pane width more than
+     side-by-side density. Match the native shell with a stacked split. */
+  @media (max-width: 720px), (max-width: 1024px) and (max-height: 600px) {
+    .display-area.mode-split { flex-direction: column; }
+    .display-area.mode-split .pane { width: 100% !important; min-height: 0; }
+    .display-area.mode-split .divider {
+      width: 100%;
+      height: 6px;
+      cursor: row-resize;
+    }
+    .display-area.mode-split .divider-handle {
+      width: 48px;
+      height: 3px;
+    }
+  }
 {% endblock %}
 
 {% block body %}
@@ -135,36 +151,97 @@
   const divider  = document.getElementById("divider");
   const dot      = document.getElementById("liveDot");
 
-  const DIVIDER_W     = 6;
-  const STORAGE_MODE  = "lf_display_mode";
-  const STORAGE_RATIO = "lf_split_ratio";
-  const DEFAULT_RATIO = 0.5;
-  const MIN_RATIO     = 0.15;
-  const MAX_RATIO     = 0.85;
+  const DIVIDER_SIZE    = 6;
+  const STORAGE_MODE    = "lf_display_mode";
+  const STORAGE_RATIO_H = "lf_split_ratio";
+  const STORAGE_RATIO_V = "lf_split_ratio_vertical";
+  const DEFAULT_RATIO_H = 0.5;
+  const DEFAULT_RATIO_V = 0.4;
+  const MIN_RATIO_H     = 0.15;
+  const MIN_RATIO_V     = 0.25;
+  const MAX_RATIO_H     = 0.85;
+  const MAX_RATIO_V     = 0.75;
+  const stackedSplit    = window.matchMedia("(max-width: 720px), (max-width: 1024px) and (max-height: 600px)");
+  const memoryStorage   = new Map();
 
-  let currentMode = localStorage.getItem(STORAGE_MODE) || "split";
+  function readStorage(key) {
+    try {
+      return window.localStorage ? window.localStorage.getItem(key) : memoryStorage.get(key) || null;
+    } catch {
+      return memoryStorage.get(key) || null;
+    }
+  }
+
+  function writeStorage(key, value) {
+    memoryStorage.set(key, value);
+    try {
+      if (window.localStorage) window.localStorage.setItem(key, value);
+    } catch {}
+  }
+
+  let currentMode = readStorage(STORAGE_MODE) || "split";
   let dragging    = false;
   window.lfAirportTimezone = airportTz;
 
+  function isVerticalSplit() {
+    return stackedSplit.matches;
+  }
+
+  function ratioStorageKey() {
+    return isVerticalSplit() ? STORAGE_RATIO_V : STORAGE_RATIO_H;
+  }
+
+  function clampRatio(value) {
+    const min = isVerticalSplit() ? MIN_RATIO_V : MIN_RATIO_H;
+    const max = isVerticalSplit() ? MAX_RATIO_V : MAX_RATIO_H;
+    return Math.min(max, Math.max(min, value));
+  }
+
   function getSavedRatio() {
-    const v = parseFloat(localStorage.getItem(STORAGE_RATIO));
-    return isNaN(v) ? DEFAULT_RATIO : Math.min(MAX_RATIO, Math.max(MIN_RATIO, v));
+    const v = parseFloat(readStorage(ratioStorageKey()));
+    const fallback = isVerticalSplit() ? DEFAULT_RATIO_V : DEFAULT_RATIO_H;
+    return isNaN(v) ? fallback : clampRatio(v);
   }
 
   function applyRatio(ratio) {
-    const totalW = area.getBoundingClientRect().width;
-    if (!totalW) return;
-    const fidsW  = Math.floor((totalW - DIVIDER_W) * ratio);
-    const radarW = Math.floor(totalW - DIVIDER_W - fidsW);
-    paneFids.style.width = fidsW  + "px";
-    paneRdr.style.width  = radarW + "px";
+    const rect = area.getBoundingClientRect();
+    ratio = clampRatio(ratio);
+    if (isVerticalSplit()) {
+      if (!rect.height) return;
+      const fidsH = Math.floor((rect.height - DIVIDER_SIZE) * ratio);
+      const radarH = Math.floor(rect.height - DIVIDER_SIZE - fidsH);
+      paneFids.style.width = "100%";
+      paneRdr.style.width = "100%";
+      paneFids.style.height = fidsH + "px";
+      paneRdr.style.height = radarH + "px";
+      return;
+    }
+    if (!rect.width) return;
+    const fidsW = Math.floor((rect.width - DIVIDER_SIZE) * ratio);
+    const radarW = Math.floor(rect.width - DIVIDER_SIZE - fidsW);
+    paneFids.style.height = "100%";
+    paneRdr.style.height = "100%";
+    paneFids.style.width = fidsW + "px";
+    paneRdr.style.width = radarW + "px";
+  }
+
+  function ratioFromPoint(clientX, clientY) {
+    const rect = area.getBoundingClientRect();
+    if (isVerticalSplit()) return clampRatio((clientY - rect.top) / rect.height);
+    return clampRatio((clientX - rect.left) / rect.width);
+  }
+
+  function saveRatio(ratio) {
+    writeStorage(ratioStorageKey(), clampRatio(ratio).toString());
   }
 
   function setMode(mode) {
     currentMode = mode;
-    localStorage.setItem(STORAGE_MODE, mode);
+    writeStorage(STORAGE_MODE, mode);
     paneFids.style.width = "";
     paneRdr.style.width  = "";
+    paneFids.style.height = "";
+    paneRdr.style.height = "";
     area.className = "display-area mode-" + mode;
     document.querySelectorAll(".mode-btn").forEach(btn => {
       btn.classList.toggle("active", btn.dataset.mode === mode);
@@ -177,7 +254,7 @@
     e.preventDefault();
     dragging = true;
     divider.classList.add("dragging");
-    document.body.style.cursor = "col-resize";
+    document.body.style.cursor = isVerticalSplit() ? "row-resize" : "col-resize";
     document.body.style.userSelect = "none";
     paneFids.style.pointerEvents = "none";
     paneRdr.style.pointerEvents = "none";
@@ -185,10 +262,9 @@
 
   document.addEventListener("mousemove", e => {
     if (!dragging) return;
-    const rect  = area.getBoundingClientRect();
-    const ratio = Math.min(MAX_RATIO, Math.max(MIN_RATIO, (e.clientX - rect.left) / rect.width));
+    const ratio = ratioFromPoint(e.clientX, e.clientY);
     applyRatio(ratio);
-    localStorage.setItem(STORAGE_RATIO, ratio.toString());
+    saveRatio(ratio);
   });
 
   document.addEventListener("mouseup", () => {
@@ -211,10 +287,9 @@
   document.addEventListener("touchmove", e => {
     if (!dragging) return;
     const touch = e.touches[0];
-    const rect = area.getBoundingClientRect();
-    const ratio = Math.min(MAX_RATIO, Math.max(MIN_RATIO, (touch.clientX - rect.left) / rect.width));
+    const ratio = ratioFromPoint(touch.clientX, touch.clientY);
     applyRatio(ratio);
-    localStorage.setItem(STORAGE_RATIO, ratio.toString());
+    saveRatio(ratio);
   }, { passive: true });
 
   document.addEventListener("touchend", () => {
@@ -267,6 +342,11 @@
   window.addEventListener("resize", () => {
     if (currentMode === "split") applyRatio(getSavedRatio());
   });
+  if (stackedSplit.addEventListener) {
+    stackedSplit.addEventListener("change", () => {
+      if (currentMode === "split") setMode("split");
+    });
+  }
   window.setMode = setMode;
   setMode(currentMode);
 })();

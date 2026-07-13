@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 import localflight.scheduler.jobs as jobs
 import localflight.sources.web.aviationstack_client as aviationstack_client
@@ -16,6 +17,7 @@ from localflight.core.models import (
 )
 from localflight.decode.mappings.aviationstack import aviationstack_to_raw_records
 from localflight.decode.normalize import normalize_flights
+from localflight.display.fids_from_flights import flight_to_fids_row
 from localflight.render.fids import build_fids_context
 from localflight.sources.web.aviationstack_plan import build_fetch_plan
 from localflight.storage.config import AppConfig
@@ -450,10 +452,63 @@ def test_api_fids_compiles_fused_aerodatabox_rows_for_web(monkeypatch) -> None:
     assert row.route_display == "London (LHR)"
     assert row.gate_display == "A42"
     assert row.terminal_display == "1"
-    assert row.terminal_gate_display == "1 A42"
+    assert row.terminal_gate_display == "A42"
     assert row.aircraft_type == "A320"
     assert row.status_display == "DELAYED +7M"
     assert row.source_hint == "aerodatabox+aviationstack"
+
+
+def test_gate_first_fusion_prefers_confident_fallback_gate_over_terminal_like_primary() -> None:
+    scheduled = datetime(2026, 5, 1, 13, 0, tzinfo=timezone.utc).isoformat()
+    primary = [
+        {
+            "callsign": "SWR100",
+            "direction": "DEP",
+            "status": "scheduled",
+            "scheduled": scheduled,
+            "airline_iata": "LX",
+            "airline_icao": "SWR",
+            "flight_number": "LX100",
+            "origin_iata": "ZRH",
+            "origin_icao": "LSZH",
+            "destination_iata": "JFK",
+            "destination_icao": "KJFK",
+            "gate": "2",
+            "terminal": "2",
+        }
+    ]
+    fill = [
+        {
+            "callsign": "SWR100",
+            "direction": "DEP",
+            "status": "scheduled",
+            "scheduled": scheduled,
+            "airline_iata": "LX",
+            "airline_icao": "SWR",
+            "flight_number": "LX100",
+            "origin_iata": "ZRH",
+            "origin_icao": "LSZH",
+            "destination_iata": "JFK",
+            "destination_icao": "KJFK",
+            "gate": "E43",
+        }
+    ]
+
+    from localflight.sources.web.schedule_fusion import merge_schedule_records
+
+    merged, meta = merge_schedule_records(primary, fill)
+    flights = normalize_flights(merged, airport_iata="ZRH", airport_icao="LSZH", source_name="aerodatabox+aviationstack")
+    row = flight_to_fids_row(flights[0], view="departures", display_tz=ZoneInfo("Europe/Zurich"))
+
+    assert meta["filled_fields"] >= 1
+    assert flights[0].gate == "E43"
+    assert flights[0].terminal == "2"
+    assert flights[0].gate_confidence == "high"
+    assert "ops_location.gate_replaced_by_higher_confidence_source" in flights[0].ops_location_notes
+    assert row.gate == "E43"
+    assert row.gate_display == "E43"
+    assert row.terminal_display == "2"
+    assert row.terminal_gate_display == "E43"
 
 
 def test_byok_and_relay_fair_fetch_normalize_equivalently(monkeypatch) -> None:

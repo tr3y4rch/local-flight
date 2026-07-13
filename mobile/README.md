@@ -189,11 +189,11 @@ http://localflight.local:8000
 
 Do not use `localhost` on a physical iPhone or Android phone. `localhost` means the phone itself, not your Mac, Windows PC, or Raspberry Pi. Keep the `:8000` port in manual URLs.
 
-For the easiest setup, open **Pair Mobile** from the native Qt Settings page or the LAN browser Settings page and scan the QR code. The QR is fingerprint-bound to the server that created it, and the same card shows manual LAN URL fallbacks when scanning is not convenient.
+For the easiest setup, open **Pair Mobile** from the native Qt Settings page or the LAN browser Settings page. Use the QR already shown for LAN-only access, or choose **Create LAN + Remote QR** for one scan that adds LAN plus encrypted away-from-home backup. Both are fingerprint-bound to the server that created them, and the same card shows manual LAN URL fallbacks when scanning is not convenient.
 
-Remote Companion is added from the same Pair Mobile area. Enable **Allow Remote Companion fallback**, save Settings, create a short-lived remote QR, and scan it while the phone is still on the LAN. After pairing, the phone shows a `LAN`, `REMOTE`, or `OFFLINE` state. LAN is always preferred. Remote is used only when LAN is unreachable, the host is online, and the remote grant is still active.
+Remote Companion is added from the same Pair Mobile area. Enable **Allow Remote Companion fallback**, save Settings, create the short-lived **LAN + Remote QR**, and scan it once while the phone is still on the LAN. The app tests the encrypted round trip before it says Remote is ready. After pairing, the phone shows a `LAN`, `REMOTE`, or `OFFLINE` state. LAN is always preferred. Remote is used only when LAN is unreachable, the host is online, and the remote grant is still active. Re-pairing the same phone replaces its previous remote grant.
 
-The Companion connection panel also has **Test Remote** after a remote grant is paired. It sends one tiny encrypted probe through the relay and retries once only for short-lived network/host failures. If it fails, the message should say what to check next: host offline, grant revoked, key mismatch/re-pair needed, relay rate limit, or relay unreachable.
+The Companion connection panel also has **Test Remote Backup** after a remote grant is paired. It sends one tiny encrypted probe through the relay and retries once only for short-lived network/host failures. If it fails, the message says what to check next: host offline, grant removed, pairing verification, relay rate limit, or relay unreachable.
 
 ### Standalone
 

@@ -13,31 +13,20 @@ const remoteSource = readSource("src", "api", "remoteCompanion.ts");
 const formattingSource = readSource("src", "domain", "formatting.ts");
 const settingsSource = readSource("src", "storage", "settings.ts");
 
-function assertOrder(source, first, second, label) {
-  const firstIndex = source.indexOf(first);
-  const secondIndex = source.indexOf(second);
-  assert.notEqual(firstIndex, -1, `${label}: missing ${first}`);
-  assert.notEqual(secondIndex, -1, `${label}: missing ${second}`);
-  assert.ok(firstIndex < secondIndex, `${label}: expected ${first} before ${second}`);
-}
-
-assertOrder(
+assert.match(
   clientSource,
-  "response = await fetch(`${base}${path}`",
-  'return remoteJson<T>("GET", path);',
-  "GET LAN-first fallback"
+  /response = await fetchWithTimeout\([\s\S]*?COMPANION_LAN_TIMEOUT_MS,[\s\S]*?return remoteJson<T>\("GET", path\);/,
+  "GET requests must attempt bounded LAN access before remote fallback."
 );
-assertOrder(
+assert.match(
   clientSource,
-  'method: "POST"',
-  'return remoteJson<T>("POST", path, body);',
-  "POST LAN-first fallback"
+  /method: "POST"[\s\S]*?COMPANION_LAN_TIMEOUT_MS,[\s\S]*?return remoteJson<T>\("POST", path, body\);/,
+  "POST requests must attempt bounded LAN access before remote fallback."
 );
-assertOrder(
+assert.match(
   clientSource,
-  'method: "PATCH"',
-  'return remoteJson<T>("PATCH", path, body);',
-  "PATCH LAN-first fallback"
+  /method: "PATCH"[\s\S]*?COMPANION_LAN_TIMEOUT_MS,[\s\S]*?return remoteJson<T>\("PATCH", path, body\);/,
+  "PATCH requests must attempt bounded LAN access before remote fallback."
 );
 assert.match(
   clientSource,
@@ -48,6 +37,21 @@ assert.match(
   clientSource,
   /export function getLastCompanionTransport\(\): CompanionTransportState/,
   "Mobile UI needs a stable LAN/Remote transport status signal."
+);
+assert.match(
+  clientSource,
+  /COMPANION_LAN_TIMEOUT_MS = 4_500/,
+  "LAN-first requests need a short bound so unreachable private addresses can fall back remotely."
+);
+assert.match(
+  clientSource,
+  /COMPANION_LAN_RETRY_DELAY_MS = 30_000/,
+  "An unreachable LAN path should be cooled down instead of probed for every remote request."
+);
+assert.match(
+  clientSource,
+  /if \(shouldSkipLan\(base\)\) \{\s+return remoteJson<T>\("GET", path\);/,
+  "Remote refreshes should reuse the short LAN failure circuit."
 );
 assert.match(
   appShellSource,
@@ -71,7 +75,7 @@ assert.match(
 );
 assert.match(
   screensSource,
-  /FORGET REMOTE/,
+  /REMOVE REMOTE/,
   "Connection settings should let the phone forget its Remote Companion grant."
 );
 assert.match(
@@ -88,6 +92,56 @@ assert.match(
   remoteSource,
   /\/v1\/remote-companion\/request/,
   "Remote Companion requests must go through the relay request endpoint."
+);
+assert.match(
+  remoteSource,
+  /sealed\.ciphertext\(\)/,
+  "Remote Companion must read native ciphertext bytes before encoding the envelope."
+);
+assert.match(
+  remoteSource,
+  /ciphertext: bytesToBase64\(ciphertext\)/,
+  "Remote Companion must encode ciphertext bytes as real Base64."
+);
+assert.doesNotMatch(
+  remoteSource,
+  /ciphertext\(\{\s*encoding:\s*["']base64["']/,
+  "Expo native ignores the old ciphertext encoding option and returns raw bytes."
+);
+assert.match(
+  remoteSource,
+  /AESSealedData\.fromParts\(nonce, ciphertextWithTag, tag\.length\)/,
+  "Remote replies should avoid native tag-overload ambiguity by joining ciphertext and tag bytes."
+);
+assert.match(
+  remoteSource,
+  /options: \{ bypassCooldown\?: boolean \} = \{\}/,
+  "A newly created grant needs one immediate verification even after a recent manual probe."
+);
+assert.match(
+  appShellSource,
+  /testRemoteCompanionProbe\(remoteGrant, \{ bypassCooldown: true \}\)/,
+  "The app must verify encrypted fallback before saving a newly scanned remote grant."
+);
+assert.match(
+  remoteSource,
+  /REMOTE_REQUEST_TIMEOUT_MS = 32_000/,
+  "Relay requests need a client-side bound beyond the relay host timeout."
+);
+assert.match(
+  remoteSource,
+  /signal: controller\.signal/,
+  "Relay requests must be abortable when the network never settles."
+);
+assert.match(
+  appShellSource,
+  /finally \{\s+setRefreshing\(false\);\s+setActivity\(null\);/,
+  "Every refresh outcome must release the pull-to-refresh indicator."
+);
+assert.match(
+  appShellSource,
+  /try \{\s+if \(includeDashboard\) \{[\s\S]*?return;[\s\S]*?finally \{\s+setRefreshing\(false\);/,
+  "Dashboard failure must return through the refresh cleanup block."
 );
 assert.match(
   remoteSource,
@@ -111,7 +165,7 @@ assert.match(
 );
 assert.match(
   remoteSource,
-  /REMOTE_PROBE_RETRY_DELAY_MS = 1600/,
+  /REMOTE_PROBE_RETRY_DELAY_MS = 2500/,
   "Remote Companion probe should retry transient failures gently."
 );
 assert.match(
@@ -143,6 +197,11 @@ assert.match(
   remoteSource,
   /String\(data\.detail \|\| `Remote Companion relay returned HTTP \$\{response\.status\}`\)/,
   "Relay HTTP failures should surface relay detail for friendly formatting."
+);
+assert.match(
+  formattingSource,
+  /remote_relay_timeout/,
+  "Relay safety timeouts need a user-readable message."
 );
 assert.match(
   formattingSource,

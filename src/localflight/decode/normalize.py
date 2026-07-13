@@ -10,6 +10,7 @@ from localflight.core.models import (
     FlightTime,
 )
 from localflight.core.aircraft import aircraft_full_label, short_aircraft_type
+from localflight.core.ops_location import normalize_ops_location_record
 from localflight.decode.identity import resolve_flight_identity
 
 
@@ -89,6 +90,7 @@ def normalize_flights(
     flights: List[Flight] = []
 
     for record in raw_flights:
+        record = normalize_ops_location_record(record, provider=source_name)
         identity = resolve_flight_identity(
             record,
             airport_iata=airport_iata,
@@ -159,6 +161,11 @@ def normalize_flights(
             gate=record.get("gate"),
             terminal=record.get("terminal"),
             stand=record.get("stand"),
+            gate_source=record.get("gate_source"),
+            terminal_source=record.get("terminal_source"),
+            gate_confidence=record.get("gate_confidence"),
+            terminal_confidence=record.get("terminal_confidence"),
+            ops_location_notes=_parse_text_tuple(record.get("ops_location_notes")),
             status=status,
             times=times,
             delay_minutes=delay_minutes,

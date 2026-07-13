@@ -32,10 +32,16 @@ from localflight.core.aircraft import aircraft_full_label, short_aircraft_type
 from localflight.core.airports import _load_index, best_label, lookup_airport
 from localflight.core.flight_intel import build_flight_intel
 from localflight.core.models import Flight, FlightDirection, FlightPosition
+from localflight.core.notices import (
+    attach_notices,
+    make_notice,
+    registry as notice_registry,
+    sanitize_client_payload,
+)
 from localflight.core.timezones import resolve_config_timezone
 from localflight.decode.identity import resolve_flight_identity
 from localflight.decode.dedupe import dedupe_codeshares
-from localflight.display.fids import enrich_presentation_fields
+from localflight.display.fids import enrich_presentation_fields, gate_fields
 from localflight.render.fids import build_fids_context
 from localflight.storage.config import (
     ALLOWED_REFRESH_SECONDS,
@@ -578,6 +584,20 @@ def _dict_to_flight(d: dict) -> Flight:
         d.get("aircraft_type"),
         short_code=aircraft_short,
     )
+    from localflight.core.ops_location import normalize_ops_location_record
+
+    ops_location = normalize_ops_location_record(
+        {
+            "gate": d.get("gate"),
+            "terminal": d.get("terminal"),
+            "gate_source": d.get("gate_source"),
+            "terminal_source": d.get("terminal_source"),
+            "gate_confidence": d.get("gate_confidence"),
+            "terminal_confidence": d.get("terminal_confidence"),
+            "ops_location_notes": d.get("ops_location_notes"),
+        },
+        provider=d.get("source") or "snapshot",
+    )
 
     return Flight(
         direction=direction,
@@ -608,9 +628,14 @@ def _dict_to_flight(d: dict) -> Flight:
         aircraft_type=aircraft_short or None,
         aircraft_type_full=aircraft_full or None,
         aircraft_registration=d.get("aircraft_registration"),
-        gate=d.get("gate"),
-        terminal=d.get("terminal"),
+        gate=ops_location.get("gate"),
+        terminal=ops_location.get("terminal"),
         stand=d.get("stand"),
+        gate_source=ops_location.get("gate_source"),
+        terminal_source=ops_location.get("terminal_source"),
+        gate_confidence=ops_location.get("gate_confidence"),
+        terminal_confidence=ops_location.get("terminal_confidence"),
+        ops_location_notes=_text_tuple(ops_location.get("ops_location_notes")),
         status=status,
         times=FlightTime(
             scheduled=_dt(times_d.get("scheduled")),
@@ -719,6 +744,11 @@ class FIDSRowOut(BaseModel):
     gate_display: str = ""
     terminal_display: str = ""
     terminal_gate_display: str = ""
+    gate_source: str = ""
+    terminal_source: str = ""
+    gate_confidence: str = ""
+    terminal_confidence: str = ""
+    ops_location_notes: List[str] = Field(default_factory=list)
     route_primary: str = ""
     route_code: str = ""
     route_caption: str = ""
@@ -788,6 +818,11 @@ def _fids_rows_from_flights(
             gate_display=r.gate_display,
             terminal_display=r.terminal_display,
             terminal_gate_display=r.terminal_gate_display,
+            gate_source=r.gate_source,
+            terminal_source=r.terminal_source,
+            gate_confidence=r.gate_confidence,
+            terminal_confidence=r.terminal_confidence,
+            ops_location_notes=list(r.ops_location_notes),
             route_primary=r.route_primary,
             route_code=r.route_code,
             route_caption=r.route_caption,
@@ -810,7 +845,24 @@ def _fids_rows_from_flights(
 
 @router.get("/api/health")
 def api_health() -> Dict[str, Any]:
-    return asdict(load_state())
+    payload = asdict(load_state())
+    notices = []
+    if str(payload.get("last_error") or "").strip():
+        notices.append(
+            make_notice(
+                "scheduler.update_interrupted",
+                "warning",
+                "The latest board update was interrupted. Local Flight is keeping the last available board and will try again.",
+                next_step="Open Admin if the board does not recover after the next scheduled update.",
+                action={"kind": "route", "label": "Open Admin", "target": "/admin"},
+            )
+        )
+        # Preserve the compatibility field without returning an exception,
+        # provider response, local path, or credential-bearing message.
+        payload["last_error"] = "The latest board update was interrupted."
+    return sanitize_client_payload(
+        attach_notices(payload, notices, route_family="health", source_category="scheduler")
+    )
 
 
 @router.get("/api/config")
@@ -942,6 +994,13 @@ def api_fids_detail(callsign: str = Query(..., min_length=1, max_length=20)) -> 
                 airline_icao=flight.airline.icao if flight.airline else None,
             )
         )
+        gate_display, terminal_display, terminal_gate_display = ("", "", "") if is_virtual else gate_fields(
+            flight.gate,
+            flight.terminal,
+            flight.gate_confidence,
+            flight.terminal_confidence,
+            flight.ops_location_notes,
+        )
         detail = {
             "callsign":      flight.callsign,
             "flight_number": flight.flight_number,
@@ -970,9 +1029,17 @@ def api_fids_detail(callsign: str = Query(..., min_length=1, max_length=20)) -> 
             "est_time":      flight.times.estimated.isoformat() if flight.times.estimated else None,
             "actual_time":   flight.times.actual.isoformat()    if flight.times.actual    else None,
             "delay_minutes": None if is_virtual else flight.delay_minutes,
-            "gate":          None if is_virtual else flight.gate,
-            "terminal":      None if is_virtual else flight.terminal,
+            "gate":          None if is_virtual else (gate_display or None),
+            "terminal":      None if is_virtual else (terminal_display or None),
+            "gate_display":  None if is_virtual else (gate_display or None),
+            "terminal_display": None if is_virtual else (terminal_display or None),
+            "terminal_gate_display": None if is_virtual else (terminal_gate_display or None),
             "stand":         None if is_virtual else flight.stand,
+            "gate_source":   None if is_virtual else flight.gate_source,
+            "terminal_source": None if is_virtual else flight.terminal_source,
+            "gate_confidence": None if is_virtual else flight.gate_confidence,
+            "terminal_confidence": None if is_virtual else flight.terminal_confidence,
+            "ops_location_notes": [] if is_virtual else list(flight.ops_location_notes or ()),
             "aircraft_type": flight.aircraft_type,
             "aircraft_type_full": flight.aircraft_type_full,
             "aircraft_registration": None if is_virtual else flight.aircraft_registration,
@@ -1975,7 +2042,7 @@ def api_radar(
 
     adsb_source = source_used.startswith("adsbexchange")
 
-    return {
+    payload = {
         "center":    {"lat": center_lat, "lon": center_lon},
         "radius_nm": radius_nm,
         "source":    source_used,
@@ -1993,9 +2060,30 @@ def api_radar(
         "raw_provider_count": adsbx_raw_count if cfg.source != "virtual" and adsb_source else len(blips),
         "blips":     blips,
     }
+    notices = []
+    if not blips:
+        notices.append(
+            make_notice(
+                "radar.no_visible_traffic",
+                "info",
+                "No aircraft are visible in this range right now.",
+                next_step="Try a wider range or refresh again shortly.",
+                action={"kind": "refresh", "label": "Refresh radar", "target": "/radar"},
+            )
+        )
+    elif source_used in {"snapshot_positions", "opensky_live", "opensky_live_cached"}:
+        notices.append(
+            make_notice(
+                "radar.fallback_source",
+                "info",
+                "Radar is using an available fallback source for this view.",
+                next_step="No action is needed; Local Flight will keep checking for the preferred source.",
+            )
+        )
+    return attach_notices(payload, notices, route_family="radar", source_category="traffic")
 
 # â”€â”€ History endpoints â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
- 
+
 @router.get("/api/history")
 def api_history(
     hours:     int = Query(24,  ge=1,   le=2160),
@@ -2200,21 +2288,21 @@ def api_admin_system() -> Dict[str, Any]:
         result["uptime"]    = "install psutil for uptime"
         result["memory_mb"] = None
         result["cpu_pct"]   = None
-    except Exception as exc:
-        result["uptime"]    = str(exc)
- 
-    # Snapshot directory
-    try:
-        result["snapshot_dir"] = str(snapshot_store_root())
     except Exception:
-        result["snapshot_dir"] = "~/.localflight/storage/data"
+        result["uptime"]    = "temporarily unavailable"
+
+    # Compatibility field: never expand a client-visible local home path.
+    result["snapshot_dir"] = "~/.localflight/storage/data"
 
     # Install fingerprint. The raw relay token is not exposed through Admin/mobile APIs.
     try:
         from localflight.storage.install import get_install_fingerprint
-        result["install_id"] = get_install_fingerprint()
+        fingerprint = get_install_fingerprint()
+        result["install_id"] = fingerprint
+        result["install_fingerprint"] = fingerprint
     except Exception:
         result["install_id"] = None
+        result["install_fingerprint"] = None
 
     try:
         from localflight.sources.web.aviationstack_client import get_usage_stats
@@ -2260,7 +2348,7 @@ def api_admin_system() -> Dict[str, Any]:
             "shared_snapshot": {},
         }
 
-    return result
+    return sanitize_client_payload(result)
  
  
 @router.get("/api/admin/budget")
@@ -2278,8 +2366,8 @@ def api_admin_budget() -> Dict[str, Any]:
         result["schedule_policy"] = schedule_policy(cfg.source)
         result["shared_schedule_budget"] = usage_stats.get("shared_schedule_budget") if isinstance(usage_stats, dict) else {}
         result["schedule_access_budget"] = usage_stats.get("schedule_access_budget") if isinstance(usage_stats, dict) else {}
-    except Exception as exc:
-        result["aviationstack"] = {"error": str(exc)}
+    except Exception:
+        result["aviationstack"] = {"error": "Schedule access status is temporarily unavailable."}
         result["schedule_policy"] = _schedule_policy_for_config(cfg.source)
         result["shared_schedule_budget"] = {"available": False, "error": "Shared budget unavailable"}
         result["schedule_access_budget"] = {}
@@ -2470,7 +2558,7 @@ def _mobile_summary_payload() -> Dict[str, Any]:
         state = {}
 
     try:
-        config = api_config()
+        config = api_get_config()
     except Exception:
         config = {}
 
@@ -2505,7 +2593,8 @@ def _mobile_summary_payload() -> Dict[str, Any]:
     except Exception:
         metar = None
 
-    return {
+    notices = list(state.get("notices") or []) if isinstance(state, dict) else []
+    return sanitize_client_payload({
         "state": state,
         "config": config,
         "system": system,
@@ -2514,7 +2603,8 @@ def _mobile_summary_payload() -> Dict[str, Any]:
         "budget": budget,
         "scheduler": scheduler,
         "metar": metar,
-    }
+        "notices": notices,
+    })
 
 
 @router.get("/api/mobile/summary")
@@ -2528,6 +2618,13 @@ def api_admin_scheduler_status() -> Dict[str, Any]:
     """Scheduler thread status for desktop/mobile controls."""
     from localflight.scheduler.control import scheduler_status
     return scheduler_status()
+
+
+@router.get("/api/admin/notices")
+def api_admin_notices(limit: int = Query(50, ge=1, le=100)) -> Dict[str, Any]:
+    """Safe process-local notice diagnostics; raw exceptions remain in Logs."""
+    rows = notice_registry.recent(limit)
+    return {"rows": rows, "count": len(rows)}
 
 
 _RESTART_COOLDOWN_S = 60  # prevent rapid-fire thread restarts from multiple clients
@@ -2766,6 +2863,11 @@ def api_mobile_remote_pair(body: RemoteCompanionPairIn) -> Dict[str, Any]:
     consumed = consume_remote_invite(body.invite_id)
     if not consumed:
         raise HTTPException(status_code=410, detail="Remote Companion invite expired or was already used")
+    previous_grants = [
+        item
+        for item in list_remote_grants(include_revoked=False)
+        if str(item.get("companion_id") or "") == body.companion_id.strip()
+    ]
     grant = create_remote_grant_from_invite(
         consumed,
         companion_id=body.companion_id,
@@ -2779,6 +2881,23 @@ def api_mobile_remote_pair(body: RemoteCompanionPairIn) -> Dict[str, Any]:
     except HTTPException:
         revoke_remote_grant(str(grant.get("grant_ref") or ""))
         raise
+    for previous in previous_grants:
+        revoked = revoke_remote_grant(str(previous.get("grant_ref") or ""))
+        if not revoked:
+            continue
+        try:
+            _register_remote_grant_or_raise(revoked, revoke=True)
+        except HTTPException as exc:
+            log.warning(
+                "Previous Remote Companion grant could not be removed from relay: %s",
+                exc.detail,
+            )
+    try:
+        from localflight.sources.web.remote_companion_agent import wake_remote_companion_agent
+
+        wake_remote_companion_agent()
+    except Exception:
+        pass
     return {
         "ok": True,
         "remote_companion": {
@@ -3059,6 +3178,23 @@ _MATRIX_PRESETS: Dict[str, Dict[str, Any]] = {
             "code_preserve": True,
         },
     },
+    "nerd": {
+        "id": "nerd",
+        "label": "Nerd",
+        "renderer": "modern_fids",
+        "description": "Dense technical board with ICAO headers, callsigns, route codes, aircraft types, and UTC plus airport-local time.",
+        "options": {
+            "palette": ["technical", "night_ops", "tower_scope", "phosphor"],
+            "animation_mode": ["slide_left", "static"],
+            "animation_speed": {"min": 1, "max": 5, "default": 2},
+            "show_clock": True,
+            "show_metar": True,
+            "show_gate_info": True,
+            "show_glyphs": True,
+            "technical_labels": True,
+            "code_preserve": True,
+        },
+    },
     "vatsim_pilot": {
         "id": "vatsim_pilot",
         "label": "VATSIM Pilot",
@@ -3139,7 +3275,7 @@ _MATRIX_V1_FIELDS = {
 }
 
 _MATRIX_ANIMATION_MODES = {"split_flap", "typewriter", "cascade", "slide_left", "slide_right", "static"}
-_MATRIX_EXPECTED_RENDERER_REV = "matrix-display-contract-v4"
+_MATRIX_EXPECTED_RENDERER_REV = "matrix-display-contract-v5"
 
 _MATRIX_PANEL_PRESETS: List[Dict[str, Any]] = [
     {"id": "64x32", "label": "64 x 32", "group": "Other common HUB75 sizes", "panel_w": 64, "panel_h": 32},
@@ -3274,6 +3410,89 @@ def _normalize_matrix_config(raw: Dict[str, Any], *, fallback_id: str) -> Dict[s
             "show_weather": show_weather,
             "show_gate_info": show_gate_info,
         },
+    }
+
+
+def _matrix_layout_plan(panel_w: Any, panel_h: Any, max_rows: Any = 4) -> Dict[str, Any]:
+    width = max(32, min(4096, int(panel_w or 256)))
+    height = max(16, min(512, int(panel_h or 64)))
+    rows_requested = max(1, min(8, int(max_rows or 4)))
+    if height <= 24:
+        header_h = 9
+    elif height <= 32:
+        header_h = 10
+    elif width < 200:
+        header_h = 20
+    else:
+        header_h = 20 if height >= 96 else 11
+    data_h = max(1, height - header_h)
+    if height <= 32:
+        visible_rows = 1
+    elif width < 180:
+        visible_rows = max(1, min(rows_requested, data_h // 18))
+    elif width < 240 and height <= 64:
+        visible_rows = max(1, min(rows_requested, data_h // 20))
+    elif width >= 240 and height <= 64:
+        visible_rows = max(1, min(rows_requested, data_h // 17))
+    elif data_h // max(1, rows_requested) < 6:
+        visible_rows = max(1, min(rows_requested, data_h // 6))
+    else:
+        visible_rows = rows_requested
+    row_h = max(1, data_h // max(1, visible_rows))
+    compact = width < 180
+    medium = 180 <= width < 240
+    if compact and (width < 96 or row_h < 14):
+        row_font = "tiny"
+        char_w = 4
+        line_h = 6
+    elif compact and row_h < 24:
+        row_font = "bitmap6"
+        char_w = 6
+        line_h = 7
+    elif width >= 240 and height <= 64:
+        row_font = "bitmap6"
+        char_w = 6
+        line_h = 7
+    else:
+        row_font = "bitmap8"
+        char_w = 8
+        line_h = 9
+    row_line_count = max(1, min(4, row_h // max(1, line_h)))
+    if width < 200 and header_h <= 12:
+        header_mode = "cycle_one_line"
+    elif width < 200:
+        header_mode = "two_line"
+    else:
+        header_mode = "fixed_slots"
+    if row_line_count <= 1:
+        row_mode = "cycle_fields_one_line"
+    elif compact:
+        row_mode = "stacked_cycle_detail"
+    elif medium:
+        row_mode = "medium_columns"
+    else:
+        row_mode = "wide_columns"
+    rotates_overflow = bool(
+        header_mode == "cycle_one_line"
+        or row_line_count <= 2
+        or (compact and row_line_count <= 3)
+    )
+    return {
+        "panel_w": width,
+        "panel_h": height,
+        "header_height": header_h,
+        "header_mode": header_mode,
+        "data_height": data_h,
+        "visible_rows": visible_rows,
+        "row_height": row_h,
+        "row_line_count": row_line_count,
+        "row_mode": row_mode,
+        "row_font": row_font,
+        "char_w": char_w,
+        "line_h": line_h,
+        "rotates_overflow_fields": rotates_overflow,
+        "compact": compact,
+        "medium": medium,
     }
 
 
@@ -3522,7 +3741,12 @@ def api_matrix_config_get() -> Dict[str, Any]:
         skin = load_config().skin
     except Exception:
         skin = "standard"
-    return {**_load_matrix_config(), "skin": skin, **_matrix_clock_payload()}
+    return attach_notices(
+        {**_load_matrix_config(), "skin": skin, **_matrix_clock_payload()},
+        [],
+        route_family="matrix-config",
+        source_category="matrix",
+    )
 
 
 @router.post("/api/matrix/config")
@@ -3732,6 +3956,7 @@ def _matrix_resolved_config(
     meta = _matrix_device_meta(device)
     effective_w = meta.get("effective_panel_w") or cfg.get("panel_w")
     effective_h = meta.get("effective_panel_h") or cfg.get("panel_h")
+    layout_plan = _matrix_layout_plan(effective_w, effective_h, cfg.get("max_rows"))
     return {
         **cfg,
         **_matrix_clock_payload(),
@@ -3742,6 +3967,7 @@ def _matrix_resolved_config(
         "device_meta": meta,
         "effective_panel_w": effective_w,
         "effective_panel_h": effective_h,
+        "layout_plan": layout_plan,
         "geometry_mismatch": bool(meta.get("geometry_mismatch")),
         "geometry_warning": str(meta.get("geometry_warning") or ""),
         "renderer_revision": str(meta.get("renderer_revision") or ""),
@@ -3802,7 +4028,7 @@ def _matrix_gate_label(
 ) -> str:
     if _matrix_is_vatsim_preset(preset) or not show_gate_info:
         return ""
-    for key in ("terminal_gate_display", "gate_display", "gate"):
+    for key in ("terminal_gate_display", "gate_display"):
         value = str(data.get(key) or "").strip()
         if value and value != "-":
             return value
@@ -3943,6 +4169,30 @@ def _matrix_clean_display_label(value: Any, *, fallback: str = "-") -> str:
     return text if text and text != "-" else fallback
 
 
+def _matrix_route_codes(data: Dict[str, Any], route_fields: Dict[str, str], *, view: str = "") -> Dict[str, str]:
+    endpoint = "origin" if view == "arrivals" else "destination" if view == "departures" else ""
+    iata = _matrix_ascii(data.get(f"{endpoint}_iata") if endpoint else data.get("route_iata")).upper()
+    icao = _matrix_ascii(data.get(f"{endpoint}_icao") if endpoint else data.get("route_icao")).upper()
+    parsed = _matrix_ascii(route_fields.get("route_code")).upper()
+    if not iata and re.fullmatch(r"[A-Z0-9]{3}", parsed):
+        iata = parsed
+    if not icao and re.fullmatch(r"[A-Z0-9]{4}", parsed):
+        icao = parsed
+    try:
+        rec = lookup_airport(iata=iata or None, icao=icao or None)
+    except Exception:
+        rec = None
+    if rec:
+        iata = iata or _matrix_ascii(rec.iata).upper()
+        icao = icao or _matrix_ascii(rec.icao).upper()
+    display_code = iata or parsed or icao
+    return {
+        "route_iata": iata,
+        "route_icao": icao,
+        "route_display_code": display_code,
+    }
+
+
 def _matrix_status_label(data: Dict[str, Any]) -> str:
     status = _matrix_clean_display_label(data.get("status_display") or data.get("status"), fallback="-")
     delta = _matrix_clean_display_label(data.get("time_delta_label"), fallback="")
@@ -4027,10 +4277,30 @@ def _matrix_row_payload(row: Any, *, preset: Any = "real_fids", show_gate_info: 
     codeshare = str(data.get("codeshare_display") or "").strip() or _matrix_secondary_label(sold_as, codeshares)
     if is_virtual:
         codeshare = ""
+    technical_mode = _matrix_is_technical_preset(preset)
     route_display = data.get("route_display") or "-"
     route_fields = _matrix_route_fields(route_display)
+    view = str(data.get("view") or "").strip().lower()
+    route_codes = _matrix_route_codes(data, route_fields, view=view)
+    route_name = _matrix_clean_display_label(
+        data.get("route_primary") or route_fields["route_city"],
+        fallback="",
+    )
+    route_code = _matrix_clean_display_label(
+        data.get("route_code") or route_fields["route_code"],
+        fallback="",
+    )
+    route_display_code = route_codes["route_display_code"] or route_code
+    if not route_name:
+        route_name = route_display_code or route_code or "-"
+    route_technical = " ".join(
+        part for part in (
+            route_name,
+            route_display_code if route_display_code and route_display_code not in route_name.split() else "",
+        ) if part
+    ).strip() or "-"
     hide_gate_fields = is_virtual or _matrix_is_vatsim_preset(preset)
-    gate_value = "" if hide_gate_fields else data.get("gate_display") or data.get("gate") or ""
+    gate_value = "" if hide_gate_fields else data.get("terminal_gate_display") or data.get("gate_display") or ""
     if str(gate_value).strip() == "-":
         gate_value = ""
     gate_display = "" if hide_gate_fields else data.get("gate_display") or ""
@@ -4048,18 +4318,41 @@ def _matrix_row_payload(row: Any, *, preset: Any = "real_fids", show_gate_info: 
         show_gate_info=show_gate_info,
     )
     matrix_time_label = _matrix_compact_time_label(data)
-    matrix_flight = _matrix_flight_label(data)
-    matrix_route = route_fields["route_matrix_label"]
-    matrix_status = _matrix_status_label(data)
+    matrix_flight_number = _matrix_flight_label(data)
+    matrix_callsign = _matrix_format_flight_label(
+        data.get("operating_callsign") or data.get("callsign"),
+        callsign=True,
+    ) or matrix_flight_number
+    matrix_flight = matrix_callsign if technical_mode else matrix_flight_number
+    matrix_route = route_technical if technical_mode else route_name
+    matrix_status_base = _matrix_status_label(data)
     matrix_gate = _matrix_clean_display_label(gate_label, fallback="") if gate_label else ""
     matrix_aircraft = _matrix_clean_display_label(data.get("aircraft_type") or data.get("aircraft"), fallback="")
     matrix_operator = _matrix_operator_label({**data, "operating_airline": operator}, is_virtual=is_virtual)
     matrix_codeshare = "" if is_virtual else _matrix_codeshare_label(sold_as, codeshares)
-    matrix_details = [] if is_virtual else _matrix_detail_cycle(
-        operator_label=matrix_operator,
-        codeshare_label=matrix_codeshare,
-        gate_label=matrix_gate,
-        aircraft_label=matrix_aircraft,
+    matrix_status = matrix_status_base
+    if technical_mode and matrix_aircraft:
+        matrix_status = f"{matrix_status_base} A/C {matrix_aircraft}".strip()
+
+    fids_subline = " | ".join(
+        part for part in (matrix_codeshare, f"A/C {matrix_aircraft}" if matrix_aircraft else "") if part
+    )
+    route_code_label = ""
+    if route_display_code:
+        route_code_label = f"{'ORG' if view == 'arrivals' else 'DST' if view == 'departures' else 'ROUTE'} {route_display_code}"
+    technical_codeshares = [
+        _matrix_format_flight_label(value)
+        for value in [*sold_as, *codeshares]
+    ]
+    technical_codeshares = list(dict.fromkeys(value for value in technical_codeshares if value))
+    technical_subline = " | ".join(
+        part for part in (
+            f"CS {' / '.join(technical_codeshares[:3])}" if technical_codeshares else "",
+            route_code_label,
+        ) if part
+    )
+    matrix_details = [technical_subline] if technical_mode and technical_subline else (
+        [fids_subline] if fids_subline else []
     )
     return {
         "id": data.get("id"),
@@ -4071,6 +4364,9 @@ def _matrix_row_payload(row: Any, *, preset: Any = "real_fids", show_gate_info: 
         "route": route_display,
         "route_display": route_display,
         **route_fields,
+        "route_iata": route_codes["route_iata"],
+        "route_icao": route_codes["route_icao"],
+        "matrix_route_code_label": route_display_code,
         "status": status or "-",
         "status_display": status or "-",
         "time_primary": data.get("time_primary") or "",
@@ -4087,12 +4383,20 @@ def _matrix_row_payload(row: Any, *, preset: Any = "real_fids", show_gate_info: 
         "aircraft_type": data.get("aircraft_type") or "",
         "matrix_time_label": matrix_time_label,
         "matrix_flight_label": matrix_flight,
+        "matrix_flight_number_label": matrix_flight_number,
+        "matrix_callsign_label": matrix_callsign,
         "matrix_route_label": matrix_route,
+        "matrix_route_name_label": route_name,
+        "matrix_route_technical_label": route_technical,
         "matrix_status_label": matrix_status,
+        "matrix_status_base_label": matrix_status_base,
+        "matrix_status_aircraft_label": matrix_status,
         "matrix_gate_label": matrix_gate,
         "matrix_aircraft_label": matrix_aircraft,
         "matrix_operator_label": matrix_operator,
         "matrix_codeshare_label": matrix_codeshare,
+        "matrix_fids_subline_label": fids_subline,
+        "matrix_technical_subline_label": technical_subline,
         "matrix_detail_cycle": matrix_details,
         "callsign": data.get("callsign") or "",
         "operator": operator,
@@ -4119,6 +4423,11 @@ def _matrix_row_payload(row: Any, *, preset: Any = "real_fids", show_gate_info: 
 
 def _matrix_is_vatsim_preset(preset: Any) -> bool:
     return str(preset or "").strip().lower().startswith("vatsim_")
+
+
+def _matrix_is_technical_preset(preset: Any) -> bool:
+    value = str(preset or "").strip().lower()
+    return value == "nerd" or value.startswith("vatsim_")
 
 
 def _matrix_option_enabled(resolved: Dict[str, Any], key: str, default: bool = True) -> bool:
@@ -4318,6 +4627,11 @@ def api_matrix_v2_device_feed(
         "panel_h": resolved.get("panel_h"),
         "effective_panel_w": resolved.get("effective_panel_w") or resolved.get("panel_w"),
         "effective_panel_h": resolved.get("effective_panel_h") or resolved.get("panel_h"),
+        "layout_plan": resolved.get("layout_plan") or _matrix_layout_plan(
+            resolved.get("effective_panel_w") or resolved.get("panel_w"),
+            resolved.get("effective_panel_h") or resolved.get("panel_h"),
+            resolved.get("max_rows"),
+        ),
         "device_meta": resolved.get("device_meta"),
         "geometry_mismatch": bool(resolved.get("geometry_mismatch")),
         "geometry_warning": str(resolved.get("geometry_warning") or ""),
@@ -4338,7 +4652,7 @@ def api_matrix_v2_device_feed(
     payload["show_weather"] = show_metar
     if _matrix_is_vatsim_preset(resolved["preset"]) and (cfg.source or "").strip().lower() != "virtual":
         message = "SET SOURCE TO VATSIM"
-        return {
+        return attach_notices({
             **payload,
             "source_required": "virtual",
             "message": message,
@@ -4352,7 +4666,13 @@ def api_matrix_v2_device_feed(
                 "lines": [message, "SETTINGS SOURCE VIRTUAL"],
                 "icons": ["unknown"],
             },
-        }
+        }, [make_notice(
+            "matrix.source_mismatch",
+            "warning",
+            "This Matrix preset needs VATSIM mode.",
+            next_step="Open Settings and change the flight source to VATSIM, or choose a real-flight Matrix preset.",
+            action={"kind": "settings", "label": "Open Settings", "target": "/settings"},
+        )], route_family="matrix-feed", source_category="matrix")
 
     if _matrix_is_vatsim_preset(resolved["preset"]):
         dep_rows = [
@@ -4396,7 +4716,13 @@ def api_matrix_v2_device_feed(
             if show_metar and weather_page:
                 pages["weather"] = weather_page
             payload["pages"] = pages
-        return payload
+        notices = [] if rows else [make_notice(
+            "matrix.no_rows",
+            "info",
+            "The Matrix board is waiting for matching flights.",
+            next_step="Local Flight will refresh the board automatically.",
+        )]
+        return attach_notices(payload, notices, route_family="matrix-feed", source_category="matrix")
 
     rows = api_fids(view=effective_view, limit=limit)
     if not rows:
@@ -4419,7 +4745,21 @@ def api_matrix_v2_device_feed(
             payload["metar"] = None
     else:
         payload["metar"] = None
-    return payload
+    notices = [] if payload["rows"] else [make_notice(
+        "matrix.no_rows",
+        "info",
+        "The Matrix board is waiting for matching flights.",
+        next_step="Local Flight will refresh the board automatically.",
+    )]
+    if payload.get("geometry_mismatch"):
+        notices.append(make_notice(
+            "matrix.geometry_mismatch",
+            "warning",
+            "The connected board size does not match the assigned Matrix layout.",
+            next_step="Confirm the panel preset, then apply the layout again.",
+            action={"kind": "route", "label": "Open Matrix", "target": "/matrix-preview"},
+        ))
+    return attach_notices(payload, notices, route_family="matrix-feed", source_category="matrix")
 
 
 class MatrixScriptIn(BaseModel):

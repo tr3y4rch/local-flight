@@ -1,6 +1,18 @@
 export type FlightView = "departures" | "arrivals";
 export type HistoryDirection = "both" | "dep" | "arr";
 
+export type ClientNotice = {
+  code: string;
+  tone: "info" | "success" | "warning" | "error";
+  message: string;
+  next_step?: string;
+  action?: {
+    kind: "route" | "refresh" | "settings" | "logs" | "report";
+    label: string;
+    target?: string;
+  };
+};
+
 export type DocDocument = {
   slug: "readme" | "install" | "display-modes" | "privacy" | "changelog" | string;
   title: string;
@@ -46,6 +58,7 @@ export type AdminSystem = {
   python: string;
   platform: string;
   install_id?: string | null;
+  install_fingerprint?: string | null;
   uptime?: string | null;
   memory_mb?: number | null;
   cpu_pct?: number | null;
@@ -399,8 +412,16 @@ export type FlightIntel = {
   operations?: {
     terminal?: string | null;
     gate?: string | null;
+    gate_display?: string | null;
+    terminal_display?: string | null;
+    terminal_gate_display?: string | null;
     stand?: string | null;
     direction?: string | null;
+    gate_source?: string | null;
+    terminal_source?: string | null;
+    gate_confidence?: string | null;
+    terminal_confidence?: string | null;
+    notes?: string[];
   };
   aircraft?: {
     type?: string | null;
@@ -511,6 +532,11 @@ export type FidsRow = {
   terminal_gate_display?: string;
   gate_display?: string;
   terminal_display?: string;
+  gate_source?: string;
+  terminal_source?: string;
+  gate_confidence?: string;
+  terminal_confidence?: string;
+  ops_location_notes?: string[];
   source_hint?: string;
   live_hint?: string;
   aircraft_type: string;
@@ -550,6 +576,11 @@ export type FlightDetail = {
   terminal?: string | null;
   terminal_display?: string | null;
   terminal_gate_display?: string | null;
+  gate_source?: string | null;
+  terminal_source?: string | null;
+  gate_confidence?: string | null;
+  terminal_confidence?: string | null;
+  ops_location_notes?: string[];
   aircraft_type?: string | null;
   aircraft_type_full?: string | null;
   aircraft_registration?: string | null;
@@ -601,7 +632,10 @@ export type HistoryFlightRow = {
   direction: string;
   status: string;
   gate?: string | null;
+  gate_display?: string | null;
+  terminal_gate_display?: string | null;
   terminal?: string | null;
+  terminal_display?: string | null;
   aircraft_type?: string | null;
   sched_time?: string | null;
   actual_time?: string | null;
@@ -728,6 +762,7 @@ export type RadarResponse = {
   radar_map?: RadarMapResponse;
   radar_map_error?: string;
   blips: RadarBlip[];
+  notices?: ClientNotice[];
 };
 
 export type RadarMapAttribution = {
@@ -1024,4 +1059,5 @@ export type DashboardSnapshot = {
   budget: Budget | null;
   scheduler: SchedulerStatus | null;
   metar: Metar | null;
+  notices?: ClientNotice[];
 };

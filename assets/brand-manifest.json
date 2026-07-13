@@ -3,10 +3,10 @@
   "phase": "package-qt-lan-mobile-site",
   "renderer": "playwright-chromium",
   "masters": {
-    "beacon_lockup": "C:\\Users\\phsch\\Beacon Tools Branding\\Beacon\\brand-v2\\source\\lockup_horizontal_dark.svg",
-    "beacon_mark": "C:\\Users\\phsch\\Beacon Tools Branding\\Beacon\\brand-v2\\source\\icon_mark.svg",
-    "local_flight_dark": "C:\\Users\\phsch\\Beacon Tools Branding\\Local-Flight\\brand-v2\\source\\icon_dark.svg",
-    "local_flight_light": "C:\\Users\\phsch\\Beacon Tools Branding\\Local-Flight\\brand-v2\\source\\icon_light.svg"
+    "beacon_lockup": "beacon-lockup-master",
+    "beacon_mark": "beacon-mark-master",
+    "local_flight_dark": "local-flight-dark-master",
+    "local_flight_light": "local-flight-light-master"
   },
   "active_outputs": [
     {
