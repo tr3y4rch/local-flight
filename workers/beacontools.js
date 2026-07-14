@@ -6,7 +6,7 @@ const MINIMUM_PUBLIC_VERSION = "0.5.1";
 
 const DOWNLOAD_FILENAMES = {
   windows: (version) => `LocalFlight-${version}-Setup.exe`,
-  macos: (version) => `LocalFlight-${version}-macos.zip`,
+  macos: (version) => `LocalFlight-${version}-macos.pkg`,
   pi: (version) => `LocalFlight-pi-source-${version}.zip`,
 };
 

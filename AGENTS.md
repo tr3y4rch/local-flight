@@ -45,6 +45,8 @@ Public links:
 - `src/localflight/__main__.py`: platform-aware startup and crash hooks.
 - `src/localflight/platform/`: platform detection, GUI decision, browser, tray.
 - `src/localflight/native/`: Qt bootstrap, shell, pages, canvases, services.
+- `src/localflight/native/status_tray.py`: Qt-native Windows status-area and
+  macOS menu-bar/Dock actions; keep callbacks on the Qt event loop.
 - `src/localflight/core/`: shared models/config and user-notice contracts.
 - `src/localflight/sources/`: schedule, radar, weather, relay, Matrix clients.
 - `src/localflight/storage/`: config, identity, snapshots, history, logs, usage.
@@ -156,6 +158,12 @@ Native Qt is the primary desktop shell; LAN browser UI is permanent supported
 functionality, not a deprecated fallback. Preserve equivalent user actions,
 data, privacy expectations, live updates, and error/empty/loading states while
 using platform-appropriate controls.
+
+Qt appearance uses both the shared stylesheet and QApplication palette. Dark
+and light themes must keep text and semantic colors contrast-safe across every
+skin, including custom-painted FIDS/Radar surfaces, setup, detached menus, and
+native control glyphs. Keep the primary app tile consistently branded; the
+small status icon may simplify/adapt for platform legibility.
 
 FIDS priority: operating flight identity, airport-local time, city/country
 title, readable weather, status/gate when real data supplies it, and safe detail

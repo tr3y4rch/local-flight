@@ -34,6 +34,7 @@ Only run an installer downloaded from the official GitHub release and verify its
 
 The installer is self-contained. You do not need Python, Node, or the source installer for normal use. A `LocalFlight-windows.zip` artifact may also be attached for portable/manual installs: unzip it to any folder, then double-click `LocalFlight.exe`.
 The packaged `LocalFlight.exe` is a windowed desktop app, so it should open the branded Local Flight UI without a Python or cmd console in front.
+While Local Flight is running, its notification-area menu can reopen the app, jump to Display, FIDS, Radar, History, or Settings, open the LAN browser, restart flight updates, or quit cleanly.
 
 ### Windows Source Checkout
 
@@ -56,13 +57,13 @@ The source installer creates a **Local Flight** desktop shortcut that launches t
 
 Use this path for the current macOS desktop setup.
 
-1. On an Apple silicon Mac, choose macOS in the website Downloads section, or download `LocalFlight-0.5.1-macos.zip` and its checksum from the linked GitHub release. The current archive is ARM64-only; Intel Mac users should use the source checkout until a separate universal build is published.
-2. Extract the zip and move `LocalFlight.app` into Applications.
-3. For the first launch, Control-click `LocalFlight.app`, choose **Open**, and confirm the macOS prompt. Later launches work normally from Applications.
-4. Complete the setup wizard: Welcome, Airport, Flight Data, Optional Keys, Diagnostics, and Review & Open.
+1. On an Apple silicon Mac, choose macOS in the website Downloads section, or download `LocalFlight-0.5.1-macos.pkg` and its checksum from the linked GitHub release. The current package is ARM64-only; Intel Mac users should use the source checkout until a separate universal build is published.
+2. Open the package, complete the macOS installer flow, then launch `Local Flight.app` from Applications.
+3. Complete the setup wizard: Welcome, Airport, Flight Data, Optional Keys, Diagnostics, and Review & Open.
 
 The app launches the native Qt desktop shell. The LAN browser UI remains available from the local server while the app is running.
-Finder opens the app directly, so normal use shows the branded app/splash rather than Terminal. The current archive is ad-hoc signed but not Developer ID notarized, which is why macOS may require the one-time confirmation. Never disable Gatekeeper globally or lower system-wide security settings. Local Flight settings, history, logs, install identity, and activation token remain in your user folder and survive replacing the app with a future signed build.
+The Dock and menu-bar status menu can reopen Local Flight, jump to its main views, open the LAN browser, restart flight updates, or quit cleanly.
+Finder opens the app directly, so normal use shows the branded app/splash rather than Terminal. The current package is Developer ID signed and notarized by Apple. Never disable Gatekeeper globally or lower system-wide security settings. Local Flight settings, history, logs, install identity, and activation token remain in your user folder and survive replacing the app.
 
 ### macOS Source Checkout
 

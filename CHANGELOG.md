@@ -35,6 +35,12 @@ in `docs/engineering-changelog.md`; the current release overview is
   suppressing passenger-only fields and person-identifying network data.
 - Radar, History, Matrix, Settings, setup, and detail views are aligned across
   native Qt and the LAN browser UI.
+- Native Qt now provides complete dark and light appearances across pages,
+  dialogs, menus, control icons, and FIDS styles, with contrast-checked text
+  and semantic colors for every skin.
+- Windows and macOS native sessions expose a branded status menu with shortcuts
+  to core pages, the LAN browser, flight-update restart, and clean shutdown;
+  macOS also attaches the menu to the Dock icon.
 - History counts deduplicated movements instead of repeated snapshot rows.
 - Matrix preview and generated board clients share the current display contract,
   weather/gate rules, animations, and renderer-version warnings.

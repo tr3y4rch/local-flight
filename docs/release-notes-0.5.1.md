@@ -42,6 +42,11 @@ decisions.
 - Kept conservative secret redaction across logs, reports, and diagnostics.
 - Stabilized native setup/window transitions and kept the LAN browser, native
   shell, Pi displays, Matrix tools, and mobile clients on the same API contract.
+- Completed the Qt light/high-visibility appearance across native palettes,
+  custom FIDS styles, dialogs, menus, controls, setup, and splash surfaces,
+  with contrast checks across every skin.
+- Restored native Windows/macOS status controls with a compact branded icon,
+  direct page shortcuts, LAN-browser access, update restart, and clean quit.
 - Moved packaged desktop provider-key storage into the user's Local Flight data
   folder so first-run setup never modifies a signed application bundle.
 
@@ -54,10 +59,10 @@ SHA256 file are both attached to that release.
 
 - Windows: `LocalFlight-0.5.1-Setup.exe` plus checksum. The published release
   must state its actual publisher-signing status.
-- macOS: ad-hoc-signed Apple silicon app archive
-  `LocalFlight-0.5.1-macos.zip` plus checksum. First launch requires Finder's
-  explicit Open confirmation; the documentation never asks users to disable
-  Gatekeeper. A Developer ID signed/notarized package remains a later upgrade.
+- macOS: Developer ID signed and notarized Apple silicon installer package
+  `LocalFlight-0.5.1-macos.pkg` plus checksum. Users install through the normal
+  macOS installer flow; the documentation never asks users to disable
+  Gatekeeper.
 - Raspberry Pi: `LocalFlight-pi-source-0.5.1.zip` plus checksum.
 
 ## Mobile Store-Testing Notes
@@ -92,5 +97,5 @@ npx expo config --type public
 
 Also smoke fresh install and upgrade paths on Windows, macOS, and Raspberry Pi,
 plus Beacon Tools public pages and support forms after the Cloudflare deploy.
-Physical Matrix/i75W, Pi service/kiosk, signed installer, and notarized macOS
+Physical Matrix/i75W, Pi service/kiosk, Windows installer, and notarized macOS
 package smoke remain release-artifact gates.

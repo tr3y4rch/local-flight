@@ -31,6 +31,18 @@ from typing import Any
 Column = tuple[str, str, float, int, int]
 
 
+def _light_surface_palette(colors: dict[str, str]) -> bool:
+    """Return whether the base palette is intended for a light surface."""
+    value = str(colors.get("bg") or "").strip().lstrip("#")
+    if len(value) != 6:
+        return False
+    try:
+        red, green, blue = int(value[0:2], 16), int(value[2:4], 16), int(value[4:6], 16)
+    except ValueError:
+        return False
+    return (0.2126 * red) + (0.7152 * green) + (0.0722 * blue) >= 150
+
+
 @dataclass(frozen=True)
 class FidsStyle:
     key: str
@@ -58,10 +70,23 @@ class FidsStyle:
     extra: dict[str, Any] = field(default_factory=dict)
 
     def with_palette_over(self, base: dict[str, str]) -> dict[str, str]:
-        """Return ``base`` with this skin's palette overlay applied."""
+        """Return ``base`` with this board style's safe palette accents.
+
+        PAX, VATSIM, and Nerd carry dark presentation surfaces for dark mode.
+        Those must not overwrite a light application palette: doing so leaves
+        native controls and text using light-mode assumptions on dark cards.
+        Accent colors remain so each board style keeps its visual identity.
+        """
         merged = dict(base or {})
+        preserve_light_surfaces = _light_surface_palette(merged)
         for key, value in self.palette.items():
-            if value:
+            if not value or (preserve_light_surfaces and key in {"bg", "panel", "panel_2", "card", "input_bg"}):
+                continue
+            if preserve_light_surfaces and key in {"blue", "cyan", "green", "amber", "red"}:
+                from localflight.native.design import accessible_semantic_color
+
+                merged[key] = accessible_semantic_color(value, merged)
+            else:
                 merged[key] = value
         return merged
 

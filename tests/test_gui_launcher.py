@@ -806,7 +806,7 @@ def test_native_launch_disables_qt_quit_when_last_window_closes(monkeypatch: pyt
     monkeypatch.setattr(legacy, "configure_qt_app_identity", lambda *_args: None)
     monkeypatch.setattr(legacy, "apply_app_font_defaults", lambda *_args: None)
     monkeypatch.setattr(legacy, "localflight_app_icon", lambda *_args: _FakeIcon())
-    monkeypatch.setattr(legacy, "_build_splash", lambda *_args: _FakeSplash())
+    monkeypatch.setattr(legacy, "_build_splash", lambda *_args, **_kwargs: _FakeSplash())
     monkeypatch.setattr(legacy, "_finish_splash", lambda *_args: None)
     monkeypatch.setattr(legacy, "_show_fitted_window", lambda *_args: None)
     monkeypatch.setattr(legacy, "_NativeCrashReporter", lambda *_args, **_kwargs: type("_Reporter", (), {"install": lambda self: None})())
@@ -3385,6 +3385,10 @@ def test_native_theme_and_skin_tokens_cover_web_choices() -> None:
             assert contrast_ratio(colors["text"], colors["bg"]) >= 4.5
             assert contrast_ratio(colors["text"], colors["panel"]) >= 4.5
             assert contrast_ratio(colors["muted"], colors["panel"]) >= 3.0
+            for semantic in ("blue", "cyan", "green", "amber", "red"):
+                assert contrast_ratio(colors[semantic], colors["bg"]) >= 4.5
+                assert contrast_ratio(colors[semantic], colors["panel"]) >= 4.5
+                assert contrast_ratio(colors[semantic], colors["panel_2"]) >= 4.5
             if skin != "standard":
                 assert (colors["bg"], colors["panel"], colors["line"]) != (
                     standard["bg"],
@@ -3603,6 +3607,100 @@ def test_native_light_theme_keeps_nav_and_core_text_readable() -> None:
     assert "border-bottom: 1px solid rgba(255,255,255,0.07)" not in sheet
     assert "QPushButton#NavButton:checked" in sheet
     assert f"color: {colors['text']};" in sheet
+
+
+def test_native_qt_palette_tracks_light_and_dark_appearance(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    pytest.importorskip("PySide6")
+    from PySide6 import QtWidgets
+    from localflight.native.design import apply_qt_appearance, colors_for, contrast_ratio
+    from localflight.native.qt_compat import import_qt
+
+    QtCore, QtGui, _QtWidgets = import_qt()
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+
+    for theme in ("dark", "light"):
+        expected = colors_for(theme, "standard")
+        apply_qt_appearance(QtCore, QtGui, app, theme=theme, skin="standard")
+        palette = app.palette()
+        window = palette.color(QtGui.QPalette.Window).name()
+        window_text = palette.color(QtGui.QPalette.WindowText).name()
+        base = palette.color(QtGui.QPalette.Base).name()
+        text = palette.color(QtGui.QPalette.Text).name()
+
+        assert window == expected["bg"]
+        assert base == expected["input_bg"]
+        assert contrast_ratio(window_text, window) >= 4.5
+        assert contrast_ratio(text, base) >= 4.5
+
+
+def test_fids_styles_keep_light_surfaces_and_accessible_text() -> None:
+    from localflight.native.design import colors_for, contrast_ratio
+    from localflight.native.pages.fids_styles import STYLES
+
+    light = colors_for("light", "standard")
+    dark = colors_for("dark", "standard")
+    for style in STYLES:
+        light_style = style.with_palette_over(light)
+        assert light_style["panel"] == light["panel"]
+        assert light_style["panel_2"] == light["panel_2"]
+        assert contrast_ratio(light_style["text"], light_style["panel"]) >= 4.5
+        for semantic in ("blue", "cyan", "green", "amber", "red"):
+            assert contrast_ratio(light_style[semantic], light_style["panel"]) >= 4.5
+
+    assert next(style for style in STYLES if style.key == "vatsim").with_palette_over(dark)["panel"] == "#06120c"
+
+
+def test_native_status_menu_has_branded_shortcuts(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    pytest.importorskip("PySide6")
+    from PySide6 import QtWidgets
+    from localflight.native.qt_compat import import_qt
+    from localflight.native.status_tray import NativeStatusTray, STATUS_PAGE_ACTIONS
+
+    QtCore, QtGui, QtWidgets2 = import_qt()
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    opened: list[str] = []
+    tray = NativeStatusTray(
+        QtCore,
+        QtGui,
+        QtWidgets2,
+        app,
+        app_icon=QtGui.QIcon(),
+        on_show=lambda: opened.append("show"),
+        on_page=opened.append,
+        on_open_browser=lambda: opened.append("browser"),
+        on_restart=lambda: opened.append("restart"),
+        on_quit=lambda: opened.append("quit"),
+    )
+    try:
+        labels = [action.text() for action in tray.menu.actions() if not action.isSeparator()]
+        assert labels == [
+            "Local Flight",
+            "Show Local Flight",
+            *(label for label, _key in STATUS_PAGE_ACTIONS),
+            "Open LAN browser",
+            "Restart flight updates",
+            "Quit Local Flight",
+        ]
+        assert not tray.tray.icon().isNull()
+        tray.page_actions["radar"].trigger()
+        assert opened == ["radar"]
+        tray.update_appearance("light", "ice_white")
+        assert not tray.tray.icon().isNull()
+    finally:
+        tray.close()
+
+
+def test_native_launch_wires_status_menu_and_live_state() -> None:
+    from pathlib import Path
+
+    source = Path("src/localflight/native/_legacy_app.py").read_text(encoding="utf-8")
+    assert "NativeStatusTray(" in source
+    assert "ensure_status_tray(window)" in source
+    assert "tray.update_appearance(theme, skin)" in source
+    assert "tray.update_connection(connected_value, display_text)" in source
+    assert "on_open_browser=lambda: webbrowser.open(base_url)" in source
 
 
 def test_native_window_applies_config_skin(monkeypatch: pytest.MonkeyPatch) -> None:

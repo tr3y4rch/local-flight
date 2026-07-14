@@ -41,6 +41,7 @@ from localflight.native.design import (
     label,
     list_payload,
     apply_app_font_defaults,
+    apply_qt_appearance,
     native_stylesheet,
     panel,
     pill,
@@ -153,12 +154,19 @@ def _as_widget(screen: Any) -> Any:
     return getattr(screen, "widget", screen)
 
 
-def _build_splash(QtCore: Any, QtGui: Any, QtWidgets: Any) -> Any:
+def _build_splash(
+    QtCore: Any,
+    QtGui: Any,
+    QtWidgets: Any,
+    *,
+    theme: str = "dark",
+    skin: str = "standard",
+) -> Any:
     splash = QtWidgets.QFrame()
     splash.setObjectName("NativeSplash")
     splash.setWindowFlag(QtCore.Qt.FramelessWindowHint, True)
     splash.setWindowFlag(QtCore.Qt.SplashScreen, True)
-    splash.setStyleSheet(native_stylesheet())
+    splash.setStyleSheet(native_stylesheet(theme=theme, skin=skin))
     layout = QtWidgets.QVBoxLayout(splash)
     layout.setContentsMargins(26, 22, 26, 22)
     layout.setSpacing(10)
@@ -430,10 +438,17 @@ def launch_native_app(
         pass
     configure_qt_app_identity(QtCore, QtGui, app)
     apply_app_font_defaults(QtGui, app)
+    try:
+        startup_cfg = NativeApiService(LocalApiClient(base_url=base_url)).config()
+    except Exception:
+        startup_cfg = {}
+    startup_theme = str(startup_cfg.get("theme") or "dark")
+    startup_skin = str(startup_cfg.get("skin") or "standard")
+    apply_qt_appearance(QtCore, QtGui, app, theme=startup_theme, skin=startup_skin)
     app_icon = localflight_app_icon(QtGui)
     if not app_icon.isNull():
         app.setWindowIcon(app_icon)
-    splash = _build_splash(QtCore, QtGui, QtWidgets)
+    splash = _build_splash(QtCore, QtGui, QtWidgets, theme=startup_theme, skin=startup_skin)
     splash.show()
     app.processEvents()
 
@@ -477,6 +492,7 @@ def launch_native_app(
             window.showFullScreen()
         else:
             _show_fitted_window(QtCore, QtWidgets, window, 1680, 980)
+        ensure_status_tray(window)
         _finish_splash(splash, window)
 
     def open_setup_window() -> None:
@@ -516,6 +532,77 @@ def launch_native_app(
             windows.pop("setup", None)
         show_main_window()
 
+    def bring_main_to_front() -> None:
+        window = windows.get("main")
+        if window is None:
+            show_main_window()
+            window = windows.get("main")
+        if window is None:
+            return
+        try:
+            if window.isMinimized():
+                window.showNormal()
+            else:
+                window.show()
+            window.raise_()
+            window.activateWindow()
+        except Exception:
+            pass
+
+    def show_native_page(page_key: str) -> None:
+        bring_main_to_front()
+        window = windows.get("main")
+        if window is not None:
+            window._show_page(page_key, force_refresh=page_key in {"display", "fids", "radar"})
+
+    def restart_flight_updates() -> None:
+        window = windows.get("main")
+        tray = windows.get("status_tray")
+        if window is None:
+            bring_main_to_front()
+            window = windows.get("main")
+        try:
+            if window is None:
+                raise NativeApiError("Native window unavailable")
+            window.service.restart_scheduler()
+            window.service.clear_cache()
+            if tray is not None:
+                tray.notify("Local Flight", "Flight updates restarted.")
+        except Exception:
+            if tray is not None:
+                tray.notify("Local Flight", "Flight updates could not be restarted. Open Settings for details.")
+
+    def quit_from_status_menu() -> None:
+        bring_main_to_front()
+        window = windows.get("main")
+        if window is not None:
+            window._quit_app()
+
+    def ensure_status_tray(window: Any) -> None:
+        tray = windows.get("status_tray")
+        if tray is None:
+            try:
+                from localflight.native.status_tray import NativeStatusTray
+
+                tray = NativeStatusTray(
+                    QtCore,
+                    QtGui,
+                    QtWidgets,
+                    app,
+                    app_icon=app_icon,
+                    on_show=bring_main_to_front,
+                    on_page=show_native_page,
+                    on_open_browser=lambda: webbrowser.open(base_url),
+                    on_restart=restart_flight_updates,
+                    on_quit=quit_from_status_menu,
+                )
+                windows["status_tray"] = tray
+            except Exception:
+                tray = None
+        if tray is not None:
+            window._status_tray = tray
+            tray.update_appearance(window.theme, window.skin)
+
     if first_launch:
         open_setup_window()
     else:
@@ -543,7 +630,20 @@ class NativeSetupWindow:  # pragma: no cover - exercised with optional Qt
                 self._shutdown_started = False
                 self._ui_only = _env_truthy("LOCALFLIGHT_NATIVE_UI_ONLY")
                 self.setWindowTitle("Local Flight Setup")
-                self.setStyleSheet(native_stylesheet())
+                try:
+                    cfg = self.service.config()
+                except Exception:
+                    cfg = {}
+                self.theme = str(cfg.get("theme") or "dark")
+                self.skin = str(cfg.get("skin") or "standard")
+                apply_qt_appearance(
+                    QtCore,
+                    QtGui,
+                    QtWidgets.QApplication.instance(),
+                    theme=self.theme,
+                    skin=self.skin,
+                )
+                self.setStyleSheet(native_stylesheet(theme=self.theme, skin=self.skin))
                 setup_cls = lazy_symbol("localflight.native.pages.setup", "SetupScreen")
                 self.setup_screen = setup_cls(
                     QtCore,
@@ -552,6 +652,8 @@ class NativeSetupWindow:  # pragma: no cover - exercised with optional Qt
                     base_url,
                     on_setup_complete=on_setup_complete,
                     QtGui=QtGui,
+                    theme=self.theme,
+                    skin=self.skin,
                 )
                 self.setCentralWidget(_as_widget(self.setup_screen))
 
@@ -1003,7 +1105,17 @@ class NativeMainWindow:  # pragma: no cover - exercised with optional Qt
                 self.theme = theme
                 self.skin = skin
                 self.colors = colors_for(theme, skin)
+                apply_qt_appearance(
+                    QtCore,
+                    QtGui,
+                    QtWidgets.QApplication.instance(),
+                    theme=theme,
+                    skin=skin,
+                )
                 self.setStyleSheet(native_stylesheet(theme=theme, skin=skin))
+                tray = getattr(self, "_status_tray", None)
+                if tray is not None:
+                    tray.update_appearance(theme, skin)
                 # Theme-aware GitHub mark: white on dark, black on light.
                 if hasattr(self, "footer_github_button"):
                     try:
@@ -1116,6 +1228,9 @@ class NativeMainWindow:  # pragma: no cover - exercised with optional Qt
                 for widget in (self.sync_chip, self.live_dot, self.live_status):
                     widget.style().unpolish(widget)
                     widget.style().polish(widget)
+                tray = getattr(self, "_status_tray", None)
+                if tray is not None:
+                    tray.update_connection(connected_value, display_text)
 
             def _friendly_live_status(self, text: str, connected: bool) -> str:
                 normalized = str(text or "").replace("live push", "").strip().lower()

@@ -8,6 +8,7 @@ from typing import Any, Callable
 from localflight.native.api_client import LocalApiClient
 from localflight.native.async_tools import API_EXECUTOR
 from localflight.native.design import (
+    apply_qt_appearance,
     colors_for,
     format_value,
     label,
@@ -60,7 +61,14 @@ class NativeSetupWindow:  # pragma: no cover - exercised with optional Qt
                 self._allow_close_without_backend_shutdown = False
                 self._shutdown_started = False
                 self.setWindowTitle("Local Flight Setup")
-                self.setStyleSheet(native_stylesheet())
+                try:
+                    cfg = self.service.config()
+                except Exception:
+                    cfg = {}
+                self.theme = str(cfg.get("theme") or "dark")
+                self.skin = str(cfg.get("skin") or "standard")
+                apply_qt_appearance(QtCore, QtGui, QtWidgets.QApplication.instance(), theme=self.theme, skin=self.skin)
+                self.setStyleSheet(native_stylesheet(theme=self.theme, skin=self.skin))
                 app_icon = localflight_app_icon(QtGui)
                 if not app_icon.isNull():
                     self.setWindowIcon(app_icon)
@@ -71,6 +79,8 @@ class NativeSetupWindow:  # pragma: no cover - exercised with optional Qt
                     base_url,
                     on_setup_complete=on_setup_complete,
                     QtGui=QtGui,
+                    theme=self.theme,
+                    skin=self.skin,
                 )
                 self.setCentralWidget(self.setup_screen.widget)
 
@@ -102,6 +112,8 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
         *,
         on_setup_complete: Callable[[], None] | None = None,
         QtGui: Any | None = None,
+        theme: str = "dark",
+        skin: str = "standard",
     ) -> None:
         self.QtCore = QtCore
         self.QtGui = QtGui
@@ -110,6 +122,8 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
         self.service = NativeApiService(client)
         self.base_url = base_url.rstrip("/")
         self.on_setup_complete = on_setup_complete
+        self.theme = theme if theme in {"dark", "light"} else "dark"
+        self.skin = skin or "standard"
         self._airport_search_future: Future[Any] | None = None
         self._last_airport_query = ""
         self._stored_activation = False
@@ -167,7 +181,7 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
         layout.addWidget(self.tabs, 0, QtCore.Qt.AlignHCenter)
         # Replace the thin marquee with a rotating-glyph spinner. The widget
         # exposes show()/hide()/setVisible() so existing callers keep working.
-        colors = colors_for()
+        colors = colors_for(self.theme, self.skin)
         if QtGui is not None:
             self.loading_indicator = build_spinner(
                 QtCore,
@@ -206,7 +220,7 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
         wrap = self.QtWidgets.QHBoxLayout()
         wrap.setContentsMargins(0, 0, 0, 0)
         wrap.addStretch(1)
-        colors = colors_for()
+        colors = colors_for(self.theme, self.skin)
         accent = colors.get("blue", "#4a9eda")
         text_hex = colors.get("text", "#e8f0fe")
         muted_hex = colors.get("muted", "#9aa3b2")
@@ -399,7 +413,7 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
                 width=logo_size,
                 height=logo_size,
             )
-            colors = colors_for()
+            colors = colors_for(self.theme, self.skin)
             hero = build_hero(
                 self.QtCore,
                 self.QtGui,
@@ -1332,7 +1346,7 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
             # Play the celebration overlay before handing off to the main app.
             if self.QtGui is not None:
                 try:
-                    colors = colors_for()
+                    colors = colors_for(self.theme, self.skin)
                     fire = build_celebration(
                         self.QtCore,
                         self.QtGui,

@@ -183,6 +183,39 @@ def _ensure_contrast(foreground: str, background: str, *, minimum: float = 4.5) 
     return dark if _contrast_ratio(dark, background) >= _contrast_ratio(light, background) else light
 
 
+def _ensure_hue_contrast(
+    foreground: str,
+    backgrounds: tuple[str, ...],
+    *,
+    minimum: float = 4.5,
+) -> str:
+    """Move a semantic color toward black/white until every surface is readable."""
+    if all(_contrast_ratio(foreground, background) >= minimum for background in backgrounds):
+        return foreground
+    average_luminance = sum(_relative_luminance(background) for background in backgrounds) / max(1, len(backgrounds))
+    target = "#101923" if average_luminance >= 0.45 else "#f8fbff"
+    for step in range(1, 51):
+        candidate = _mix_hex(foreground, target, step / 50)
+        if all(_contrast_ratio(candidate, background) >= minimum for background in backgrounds):
+            return candidate
+    return _ensure_contrast(foreground, backgrounds[0], minimum=minimum)
+
+
+def accessible_semantic_color(
+    foreground: str,
+    palette: dict[str, str],
+    *,
+    minimum: float = 4.5,
+) -> str:
+    """Return a hue-preserving semantic color readable on palette surfaces."""
+    backgrounds = tuple(
+        str(palette.get(key) or "")
+        for key in ("bg", "panel", "panel_2", "input_bg")
+        if palette.get(key)
+    )
+    return _ensure_hue_contrast(foreground, backgrounds or ("#ffffff",), minimum=minimum)
+
+
 def _skin_aware_theme_tokens(theme: str, skin: str, theme_tokens: ThemeTokens, skin_tokens: SkinTokens) -> ThemeTokens:
     if skin == "standard":
         return theme_tokens
@@ -235,6 +268,13 @@ def colors_for(theme: str | None = "dark", skin: str | None = "standard") -> dic
     base_theme_tokens = THEME_TOKENS[normalized_theme]
     skin_tokens = SKIN_TOKENS[normalized_skin]
     theme_tokens = _skin_aware_theme_tokens(normalized_theme, normalized_skin, base_theme_tokens, skin_tokens)
+    semantic_surfaces = (theme_tokens.bg, theme_tokens.panel, theme_tokens.panel_2, theme_tokens.input_bg)
+    accent = _ensure_hue_contrast(skin_tokens.accent, semantic_surfaces)
+    accent_2 = _ensure_hue_contrast(skin_tokens.accent_2, semantic_surfaces)
+    good = _ensure_hue_contrast(skin_tokens.good, semantic_surfaces)
+    warn = _ensure_hue_contrast(skin_tokens.warn, semantic_surfaces)
+    bad = _ensure_hue_contrast(skin_tokens.bad, semantic_surfaces)
+    sweep = _ensure_hue_contrast(skin_tokens.sweep, semantic_surfaces, minimum=3.0)
     return {
         "bg": theme_tokens.bg,
         "panel": theme_tokens.panel,
@@ -246,13 +286,93 @@ def colors_for(theme: str | None = "dark", skin: str | None = "standard") -> dic
         "text": theme_tokens.text,
         "muted": theme_tokens.muted,
         "dim": theme_tokens.dim,
-        "blue": skin_tokens.accent,
-        "cyan": skin_tokens.accent_2,
-        "green": skin_tokens.good,
-        "amber": skin_tokens.warn,
-        "red": skin_tokens.bad,
-        "sweep": skin_tokens.sweep,
+        "blue": accent,
+        "cyan": accent_2,
+        "green": good,
+        "amber": warn,
+        "red": bad,
+        "sweep": sweep,
     }
+
+
+def apply_qt_appearance(
+    QtCore: Any,
+    QtGui: Any,
+    app: Any,
+    *,
+    theme: str | None = "dark",
+    skin: str | None = "standard",
+) -> dict[str, str]:
+    """Apply the active appearance to native Qt surfaces outside the QSS tree.
+
+    Window stylesheets cover Local Flight widgets, but detached menus, native
+    dialogs, selection colors, and platform-provided control glyphs also read
+    QApplication's palette and color-scheme hint. Keeping both layers aligned
+    prevents dark popup text or invisible arrows from leaking into light mode.
+    """
+    normalized_theme = _normalized_theme(theme)
+    colors = colors_for(normalized_theme, skin)
+    palette_class = getattr(QtGui, "QPalette", None)
+    color_class = getattr(QtGui, "QColor", None)
+    if palette_class is None or color_class is None:
+        return colors
+    palette = palette_class()
+
+    role_colors = {
+        "Window": colors["bg"],
+        "WindowText": colors["text"],
+        "Base": colors["input_bg"],
+        "AlternateBase": colors["panel_2"],
+        "ToolTipBase": colors["panel"],
+        "ToolTipText": colors["text"],
+        "Text": colors["text"],
+        "Button": colors["panel"],
+        "ButtonText": colors["text"],
+        "BrightText": colors["red"],
+        "Highlight": colors["blue"],
+        "HighlightedText": _ensure_contrast(colors["text"], colors["blue"]),
+        "Link": colors["blue"],
+        "LinkVisited": colors["cyan"],
+        "PlaceholderText": colors["dim"],
+    }
+    color_role = getattr(QtGui.QPalette, "ColorRole", None)
+    for role_name, color in role_colors.items():
+        role = getattr(palette_class, role_name, None)
+        if role is None and color_role is not None:
+            role = getattr(color_role, role_name, None)
+        if role is not None:
+            palette.setColor(role, color_class(color))
+
+    color_group = getattr(QtGui.QPalette, "ColorGroup", None)
+    disabled = getattr(palette_class, "Disabled", None)
+    if disabled is None and color_group is not None:
+        disabled = getattr(color_group, "Disabled", None)
+    text_role = getattr(palette_class, "Text", None)
+    button_text_role = getattr(palette_class, "ButtonText", None)
+    window_text_role = getattr(palette_class, "WindowText", None)
+    if color_role is not None:
+        text_role = text_role or getattr(color_role, "Text", None)
+        button_text_role = button_text_role or getattr(color_role, "ButtonText", None)
+        window_text_role = window_text_role or getattr(color_role, "WindowText", None)
+    if disabled is not None:
+        for role in (text_role, button_text_role, window_text_role):
+            if role is not None:
+                palette.setColor(disabled, role, color_class(colors["dim"]))
+
+    try:
+        app.setPalette(palette)
+    except Exception:
+        pass
+
+    try:
+        style_hints = app.styleHints()
+        set_scheme = getattr(style_hints, "setColorScheme", None)
+        scheme_type = getattr(QtCore.Qt, "ColorScheme", None)
+        if callable(set_scheme) and scheme_type is not None:
+            set_scheme(scheme_type.Light if normalized_theme == "light" else scheme_type.Dark)
+    except Exception:
+        pass
+    return colors
 
 
 COLORS = colors_for()

@@ -59,6 +59,7 @@ Historical release notes remain under [`docs/`](docs/), including the archived `
 - Passenger-style FIDS boards for real-world data with city/country airport headers, arrivals/departures, airport-local time, status/gate chips, codeshare grouping, pinned flights, live refresh, and native Classic/PAX/VATSIM/Nerd board styles
 - VATSIM mode uses a pilot/ATC display contract instead of passenger/codeshare fields: callsign-first rows, filed route/flight rules, aircraft, altitude/speed, XPDR, VATSIM freshness, and strict suppression of pilot/controller personal identifiers
 - Four switchable FIDS board styles in the native shell — **Classic**, **PAX**, **VATSIM**, **Nerd** — each with its own chrome, palette, column set, status styling, and viewport-aware scaling
+- Native Qt dark/reduced-glare and light/high-visibility themes cover pages, dialogs, menus, controls, and all board skins with contrast-checked text and status colors. Windows and macOS also provide a small Local Flight status menu for opening core views, the LAN browser, and app controls.
 - Radar with real/VATSIM traffic, METAR weather, range controls, optional runway/surface/map/terrain context, mobile-specific range policies, and richer aircraft/status detail
 - Native Qt desktop shell with Display, FIDS, Radar, Matrix, Settings, Admin, History, Logs, Report, and local docs
 - Settings page built from clear disclosure cards instead of opaque checkbox-titled groups; the LAN browser Settings page now follows the same folder rhythm and includes Pair Mobile QR/manual pairing controls.
@@ -115,8 +116,8 @@ The release app launches as a branded desktop app without a Python or cmd consol
 
 ### macOS
 
-When published, choose macOS on the website Downloads section to fetch the current Apple silicon `LocalFlight-0.5.1-macos.zip` from GitHub. Extract it, move `LocalFlight.app` to Applications, then Control-click the app and choose **Open** for the first launch.
-The current archive is ad-hoc signed rather than Developer ID notarized, so macOS may show a one-time publisher warning. Do not disable Gatekeeper globally. No Python, Terminal, or source checkout is needed; a signed/notarized package can replace this archive later without changing Local Flight user data.
+When published, choose macOS on the website Downloads section to fetch the current Apple silicon `LocalFlight-0.5.1-macos.pkg` from GitHub. Open the installer package, complete the macOS installer flow, then launch Local Flight from Applications.
+The current package is Developer ID signed and notarized by Apple, so ordinary installs should not require the one-time Finder Open confirmation used by the earlier ad-hoc archive. No Python, Terminal, or source checkout is needed, and Local Flight user data remains in the user folder across upgrades.
 
 ### Raspberry Pi
 

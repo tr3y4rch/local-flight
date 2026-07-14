@@ -43,8 +43,8 @@ class SkinOption:
 
 
 THEME_OPTIONS: tuple[Option, ...] = (
-    Option("dark", "Dark board", "Low-glare airport-board styling."),
-    Option("light", "Light room", "Higher ambient-light contrast."),
+    Option("dark", "Dark / reduced glare", "Low-glare airport-board styling for dim rooms."),
+    Option("light", "Light / high visibility", "Bright surfaces, dark text, and higher ambient-light contrast."),
 )
 
 SOURCE_OPTIONS: tuple[Option, ...] = (
@@ -156,4 +156,3 @@ def settings_options_context() -> dict[str, list[dict[str, Any]]]:
         "grace": [option.as_dict() for option in GRACE_OPTIONS],
         "horizon": [option.as_dict() for option in HORIZON_OPTIONS],
     }
-

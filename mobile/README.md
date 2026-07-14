@@ -138,7 +138,7 @@ npm run android
 Store identity and the current `0.5.1` testing counters are:
 
 - iOS bundle ID: `cc.beacontools.localflight`
-- iOS `buildNumber`: `5`
+- iOS `buildNumber`: `6`
 - Android package ID: `cc.beacontools.localflight`
 - Android `versionCode`: `9`
 

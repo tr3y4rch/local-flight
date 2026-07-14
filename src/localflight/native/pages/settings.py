@@ -25,6 +25,7 @@ from localflight.native.api_client import LocalApiClient
 from localflight.native.async_tools import API_EXECUTOR
 from localflight.native.design import (
     SECTION_EMOJI,
+    apply_qt_appearance,
     bundled_doc,
     colors_for,
     label,
@@ -289,15 +290,24 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
         self.display_name = self.QtWidgets.QLineEdit()
         self.display_name.setPlaceholderText("Local Flight")
         self.theme = self.QtWidgets.QComboBox()
+        self.theme.setAccessibleName("Application color theme")
         for option in THEME_OPTIONS:
             self.theme.addItem(option.label, option.value)
         self.skin = self.QtWidgets.QComboBox()
+        self.skin.setAccessibleName("Application color skin")
         for option in SKIN_OPTIONS:
             self.skin.addItem(option.label, option.value)
         form.addRow("Display name", self.display_name)
         form.addRow("Theme", self.theme)
         form.addRow("Skin", self.skin)
         layout.addLayout(form)
+        self.theme_help = label(
+            self.QtWidgets,
+            THEME_OPTIONS[0].description,
+            "Muted",
+            wrap=True,
+        )
+        layout.addWidget(self.theme_help)
 
         swatches = self.QtWidgets.QGridLayout()
         swatches.setHorizontalSpacing(8)
@@ -311,6 +321,7 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
             button.setProperty("skin_accent", option.accent)
             button.setObjectName("Quiet")
             button.setToolTip(option.description)
+            button.setAccessibleName(f"Use {option.label} skin")
             button.setStyleSheet(
                 f"QPushButton {{ background: {option.bg}; color: {option.fg}; border: 1px solid {option.accent}; }}"
             )
@@ -319,7 +330,14 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
             swatches.addWidget(button, index // 4, index % 4)
         self.theme.currentIndexChanged.connect(lambda _idx: self._preview_design())
         self.skin.currentIndexChanged.connect(lambda _idx: self._preview_design())
-        layout.addWidget(label(self.QtWidgets, "Skins affect native, LAN browser, and board surfaces without changing flight data.", "Muted", wrap=True))
+        layout.addWidget(
+            label(
+                self.QtWidgets,
+                "Theme controls light or dark contrast across the native shell, menus, dialogs, and controls. Skin changes the visual character without changing flight data.",
+                "Muted",
+                wrap=True,
+            )
+        )
         layout.addLayout(swatches)
         self._sync_skin_buttons("standard")
         return box
@@ -782,9 +800,22 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
         self._current_theme = self._combo_value(self.theme, "dark")
         self._current_skin = self._combo_value(self.skin, "standard")
         self._sync_skin_buttons(self._current_skin)
+        selected_theme = next(
+            (option for option in THEME_OPTIONS if option.value == self._current_theme),
+            THEME_OPTIONS[0],
+        )
+        if hasattr(self, "theme_help"):
+            self.theme_help.setText(selected_theme.description)
         try:
             window = self.widget.window()
             if window is not None:
+                apply_qt_appearance(
+                    self.QtCore,
+                    self.QtGui,
+                    self.QtWidgets.QApplication.instance(),
+                    theme=self._current_theme,
+                    skin=self._current_skin,
+                )
                 window.setStyleSheet(native_stylesheet(theme=self._current_theme, skin=self._current_skin))
         except Exception:
             pass

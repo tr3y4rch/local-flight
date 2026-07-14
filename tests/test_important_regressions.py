@@ -6269,7 +6269,7 @@ def test_public_downloads_use_checksum_gated_github_release_assets() -> None:
     assert 'MINIMUM_PUBLIC_VERSION = "0.5.1"' in worker
     assert 'pathname === "/api/releases/latest"' in worker
     assert "LocalFlight-${version}-Setup.exe" in worker
-    assert "LocalFlight-${version}-macos.zip" in worker
+    assert "LocalFlight-${version}-macos.pkg" in worker
     assert "LocalFlight-pi-source-${version}.zip" in worker
     assert "${filename}.sha256" in worker
     assert "releases/download/" in worker
@@ -6282,7 +6282,7 @@ def test_mobile_store_identity_and_verified_consumable_support_contract() -> Non
     relay = (root / "relay" / "main.py").read_text(encoding="utf-8")
 
     assert app["ios"]["bundleIdentifier"] == "cc.beacontools.localflight"
-    assert app["ios"]["buildNumber"] == "5"
+    assert app["ios"]["buildNumber"] == "6"
     assert app["android"]["package"] == "cc.beacontools.localflight"
     assert app["android"]["versionCode"] == 9
     assert "./plugins/with-localflight-ios-widget" in app["plugins"]

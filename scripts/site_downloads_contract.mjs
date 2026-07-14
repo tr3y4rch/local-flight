@@ -16,7 +16,7 @@ const asset = (name, host = "github.com") => ({
 
 const filenames = [
   "LocalFlight-0.5.1-Setup.exe",
-  "LocalFlight-0.5.1-macos.zip",
+  "LocalFlight-0.5.1-macos.pkg",
   "LocalFlight-pi-source-0.5.1.zip",
 ];
 const release = {
