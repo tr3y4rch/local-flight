@@ -1,4 +1,5 @@
 import { File, Paths } from "expo-file-system";
+import { reloadLocalFlightWidgets } from "localflight-widget-bridge";
 
 import {
   parseWidgetExchangeSnapshot,
@@ -120,6 +121,7 @@ export async function writeWidgetSnapshot(
         }
       }
       lastWidgetSnapshotWriteKey = writeKey;
+      await reloadLocalFlightWidgets();
       return { ok: true, uri: file.uri, sharedContainer };
     } catch (exc) {
       return {

@@ -166,7 +166,7 @@ Setup guides you through:
 5. Diagnostics choice
 6. Review and open
 
-Local Flight Relay is the recommended first path. It uses the Beacon Tools relay at `https://relay.beacontools.cc` with cached shared schedule snapshots so many installs can watch the same airport without each one calling a paid provider. Local Flight Relay schedule refresh choices are hourly-or-slower in the client UI; BYOK and VATSIM can still use the standard local refresh choices. BYOK is for users who already have provider keys such as AeroDataBox through API.Market or RapidAPI, AviationStack, RapidAPI ADS-B Exchange, or OpenSky. VATSIM is the no-key virtual traffic path.
+Local Flight Relay is the recommended first path. It uses the Beacon Tools relay at `https://relay.beacontools.cc` with cached shared schedule snapshots so many installs can watch the same airport without each one calling a paid provider. Local Flight Relay schedule refresh choices are 30 minutes or slower in the client UI; BYOK and VATSIM can still use the standard local refresh choices. A failed first update retries with a bounded backoff instead of leaving a new board empty for the full schedule interval. BYOK is for users who already have provider keys such as AeroDataBox through API.Market or RapidAPI, AviationStack, RapidAPI ADS-B Exchange, or OpenSky. VATSIM is the no-key virtual traffic path.
 
 ---
 

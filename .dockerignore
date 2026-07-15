@@ -1,0 +1,19 @@
+# Keep Fly relay builds narrow and independent from local development state.
+**
+!.dockerignore
+!relay/
+!relay/**
+!src/
+!src/localflight/
+!src/localflight/**
+
+**/__pycache__/
+**/*.py[cod]
+**/.DS_Store
+**/*.db
+**/*.sqlite*
+**/.env
+**/*.pem
+**/*.key
+**/*.p12
+**/*.mobileprovision

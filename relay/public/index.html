@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Local Flight Community Relay | Beacon Tools</title>
+  <meta name="description" content="The public Beacon Tools relay endpoint used by Local Flight desktop, Raspberry Pi, and mobile clients.">
+  <meta name="robots" content="noindex, nofollow">
+  <link rel="canonical" href="https://beacontools.cc/network/">
+  <style>
+    :root {
+      color-scheme: dark;
+      --background: #071019;
+      --panel: #0f1d29;
+      --panel-soft: #132638;
+      --line: #254054;
+      --text: #eef7ff;
+      --muted: #9ebbd0;
+      --accent: #63d6ff;
+      --green: #70f0aa;
+      --amber: #ffd56a;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      min-width: 320px;
+      background: var(--background);
+    }
+
+    body {
+      min-height: 100vh;
+      margin: 0;
+      display: grid;
+      place-items: center;
+      padding: 28px 18px;
+      color: var(--text);
+      background:
+        linear-gradient(rgba(99, 214, 255, 0.045) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(112, 240, 170, 0.035) 1px, transparent 1px),
+        radial-gradient(circle at 78% 16%, rgba(99, 214, 255, 0.16), transparent 30rem),
+        linear-gradient(135deg, #071019 0%, #0b151f 55%, #10160e 100%);
+      background-size: 48px 48px, 48px 48px, auto, auto;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.55;
+    }
+
+    main {
+      width: min(760px, 100%);
+    }
+
+    .brand {
+      margin: 0 0 14px;
+      color: var(--accent);
+      font: 800 0.78rem/1.2 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    .card {
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: linear-gradient(180deg, rgba(19, 38, 56, 0.93), rgba(10, 24, 35, 0.96));
+      box-shadow: 0 24px 80px rgba(0, 0, 0, 0.34);
+    }
+
+    .content {
+      padding: clamp(26px, 7vw, 52px);
+    }
+
+    .state {
+      width: fit-content;
+      margin-bottom: 22px;
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      padding: 7px 12px;
+      border: 1px solid rgba(112, 240, 170, 0.34);
+      border-radius: 999px;
+      color: var(--green);
+      background: rgba(112, 240, 170, 0.07);
+      font-weight: 800;
+      font-size: 0.88rem;
+    }
+
+    .state::before {
+      content: "";
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      background: currentColor;
+      box-shadow: 0 0 16px rgba(112, 240, 170, 0.82);
+    }
+
+    h1 {
+      max-width: 680px;
+      margin: 0;
+      font-size: clamp(2rem, 7vw, 4.3rem);
+      line-height: 0.98;
+      letter-spacing: -0.045em;
+    }
+
+    .lede {
+      max-width: 650px;
+      margin: 24px 0 0;
+      color: var(--muted);
+      font-size: clamp(1rem, 2.5vw, 1.14rem);
+    }
+
+    .actions {
+      margin-top: 30px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .button {
+      min-height: 42px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 9px 14px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      color: var(--text);
+      background: rgba(19, 38, 56, 0.72);
+      font-weight: 800;
+      text-decoration: none;
+    }
+
+    .button.primary {
+      border-color: rgba(99, 214, 255, 0.58);
+      color: #071019;
+      background: var(--accent);
+    }
+
+    .button:hover,
+    .button:focus-visible {
+      border-color: var(--accent);
+      outline: 3px solid rgba(99, 214, 255, 0.2);
+      outline-offset: 2px;
+    }
+
+    .details {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      border-top: 1px solid var(--line);
+      background: rgba(7, 16, 25, 0.46);
+    }
+
+    .details section {
+      padding: 22px clamp(26px, 7vw, 52px);
+    }
+
+    .details section + section {
+      border-left: 1px solid var(--line);
+    }
+
+    h2 {
+      margin: 0 0 7px;
+      font-size: 0.84rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .details p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 0.91rem;
+    }
+
+    code,
+    .json-link {
+      color: var(--green);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+
+    .json-link {
+      text-underline-offset: 3px;
+    }
+
+    .notice {
+      margin: 18px 4px 0;
+      color: var(--muted);
+      font-size: 0.82rem;
+      text-align: center;
+    }
+
+    .notice strong {
+      color: var(--amber);
+    }
+
+    @media (max-width: 620px) {
+      .details {
+        grid-template-columns: 1fr;
+      }
+
+      .details section + section {
+        border-top: 1px solid var(--line);
+        border-left: 0;
+      }
+
+      .button {
+        flex: 1 1 140px;
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *,
+      *::before,
+      *::after {
+        scroll-behavior: auto !important;
+        transition: none !important;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <p class="brand">Beacon Tools Network</p>
+    <article class="card" aria-labelledby="page-title">
+      <div class="content">
+        <div class="state" role="status">Relay endpoint reached</div>
+        <h1 id="page-title">Local Flight Community Relay</h1>
+        <p class="lede">This is the public service used by Local Flight for shared cached airport data, mobile Standalone, and end-to-end encrypted Remote Companion routing. It is an application endpoint, not a flight-tracking website.</p>
+        <nav class="actions" aria-label="Relay information">
+          <a class="button primary" href="https://beacontools.cc/network/">How the relay works</a>
+          <a class="button" href="https://beacontools.cc/local-flight/">Local Flight</a>
+          <a class="button" href="https://beacontools.cc/privacy/">Privacy</a>
+          <a class="button" href="https://beacontools.cc/support/">Support</a>
+          <a class="button" href="https://github.com/tr3y4rch/local-flight">GitHub</a>
+        </nav>
+      </div>
+      <div class="details">
+        <section aria-labelledby="reached-heading">
+          <h2 id="reached-heading">What this confirms</h2>
+          <p>The relay web application answered this request. Upstream aviation data can still be delayed, cached, limited, or unavailable.</p>
+        </section>
+        <section aria-labelledby="health-heading">
+          <h2 id="health-heading">Machine-readable check</h2>
+          <p>Clients and monitors can read <a class="json-link" href="/health"><code>/health</code> (JSON)</a>.</p>
+        </section>
+      </div>
+    </article>
+    <p class="notice"><strong>Informational display only.</strong> Do not use Local Flight or relay data for navigation, dispatch, operational control, flight planning, professional aviation work, or safety decisions.</p>
+  </main>
+</body>
+</html>

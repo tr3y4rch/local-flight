@@ -276,7 +276,7 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
         layout.addWidget(
             label(
                 self.QtWidgets,
-                "Community Relay shows hourly-or-slower refresh choices when it is the active schedule mode.",
+                "Community Relay shows 30-minute-or-slower refresh choices when it is the active schedule mode.",
                 "Muted",
                 wrap=True,
             )
@@ -774,8 +774,8 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
             self.refresh_seconds.addItem(option.label, option.value)
         if current is not None and self.refresh_seconds.findData(current) >= 0:
             self._set_combo_value(self.refresh_seconds, current)
-        elif self.refresh_seconds.findData(3600) >= 0:
-            self._set_combo_value(self.refresh_seconds, 3600)
+        elif options:
+            self._set_combo_value(self.refresh_seconds, options[0].value)
         self.refresh_seconds.blockSignals(False)
 
     def _select_skin(self, skin: str) -> None:
@@ -839,6 +839,7 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
         except Exception as exc:
             self._set_status(f"Settings offline: {exc}", "StatusBad")
             return
+        self._loaded_config = dict(cfg)
         self._populate_config(cfg)
         self._refresh_current(cfg)
         self._refresh_install()
@@ -1198,7 +1199,7 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
         self.remote_companion_enabled.setChecked(bool(cfg.get("remote_companion_enabled")))
         refresh_value = int(cfg.get("refresh_seconds") or 3600)
         idx = self.refresh_seconds.findData(refresh_value)
-        self.refresh_seconds.setCurrentIndex(idx if idx >= 0 else self.refresh_seconds.findData(3600))
+        self.refresh_seconds.setCurrentIndex(idx if idx >= 0 else 0)
         self._preview_design()
 
     def _refresh_current(self, cfg: dict[str, Any]) -> None:
@@ -1414,7 +1415,16 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
         }
 
     def save(self, *_args: Any, check_surface: bool = True) -> None:
-        payload = self._config_payload()
+        full_payload = self._config_payload()
+        loaded = getattr(self, "_loaded_config", {})
+        payload = {key: value for key, value in full_payload.items() if value != loaded.get(key)}
+        if not payload:
+            self._set_status("Settings are already up to date.", "StatusGood")
+            return
+        surface_changed = any(
+            key in payload
+            for key in {"radar_surface_enabled", "radar_surface_mode", "airport_iata", "airport_icao"}
+        )
         self.save_button.setEnabled(False)
         self._set_status("Saving settings to the local server...", busy=True)
         try:
@@ -1424,10 +1434,11 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
             self.save_button.setEnabled(True)
             return
         self.save_button.setEnabled(True)
-        self._refresh_current(payload)
+        self._loaded_config = {**loaded, **payload}
+        self._refresh_current(self._loaded_config)
         self._set_status("Settings saved. Scheduler restarts automatically when needed.", "StatusGood")
-        if check_surface:
-            self._start_surface_check() if payload.get("radar_surface_mode") == "relay" else self._surface_off()
+        if check_surface and surface_changed:
+            self._start_surface_check() if full_payload.get("radar_surface_mode") == "relay" else self._surface_off()
 
     def apply_surface_overlay(self, *_args: Any) -> None:
         self.save(check_surface=True)

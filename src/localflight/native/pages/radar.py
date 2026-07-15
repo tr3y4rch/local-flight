@@ -145,17 +145,70 @@ class RadarScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
         source_row.addWidget(self.source_info, 1)
         self.filter_summary = label(QtWidgets, "", "Dim")
         source_row.addWidget(self.filter_summary)
+        self._selection_serial = 0
+        self._selected_blip_key = ""
         self.blip_info = QtWidgets.QFrame()
-        self.blip_info.setObjectName("PreviewCard")
+        self.blip_info.setObjectName("RadarSelectionCard")
         info_layout = QtWidgets.QVBoxLayout(self.blip_info)
-        info_layout.setContentsMargins(12, 9, 12, 9)
-        info_layout.setSpacing(3)
-        self.blip_title = label(QtWidgets, "Hover an aircraft", "Metric")
-        self.blip_route = label(QtWidgets, "Move the mouse over a radar target to see basic flight information.", "Muted", wrap=True)
+        info_layout.setContentsMargins(14, 11, 14, 11)
+        info_layout.setSpacing(7)
+        info_head = QtWidgets.QHBoxLayout()
+        info_head.setSpacing(8)
+        info_identity = QtWidgets.QVBoxLayout()
+        info_identity.setSpacing(1)
+        self.blip_kicker = label(QtWidgets, "SELECTED RADAR TARGET", "Kicker")
+        self.blip_title = label(QtWidgets, "Aircraft", "Metric")
+        self.blip_title.setObjectName("RadarSelectionTitle")
+        info_identity.addWidget(self.blip_kicker)
+        info_identity.addWidget(self.blip_title)
+        self.blip_close = QtWidgets.QPushButton("Close")
+        self.blip_close.setObjectName("RadarClose")
+        self.blip_close.setToolTip("Clear the selected radar target")
+        self.blip_close.setAccessibleName("Close radar target details")
+        self.blip_close.clicked.connect(self._clear_selected_blip)
+        info_head.addLayout(info_identity, 1)
+        info_head.addWidget(self.blip_close, 0, QtCore.Qt.AlignTop)
+        self.blip_route = label(QtWidgets, "Route not available", "Muted", wrap=True)
+        self.blip_route.setObjectName("RadarSelectionRoute")
+
+        metric_grid = QtWidgets.QGridLayout()
+        metric_grid.setContentsMargins(0, 0, 0, 0)
+        metric_grid.setHorizontalSpacing(6)
+        metric_grid.setVerticalSpacing(6)
+
+        def _metric(title_text: str) -> tuple[Any, Any]:
+            card = QtWidgets.QFrame()
+            card.setObjectName("RadarMetric")
+            card_layout = QtWidgets.QVBoxLayout(card)
+            card_layout.setContentsMargins(8, 6, 8, 6)
+            card_layout.setSpacing(1)
+            metric_title = label(QtWidgets, title_text, "Kicker")
+            metric_value = label(QtWidgets, "--", "Metric", wrap=True)
+            metric_value.setObjectName("RadarMetricValue")
+            card_layout.addWidget(metric_title)
+            card_layout.addWidget(metric_value)
+            return card, metric_value
+
+        metric_columns = 2 if embedded else 4
+        metric_specs = (
+            ("PHASE", "blip_phase"),
+            ("AIRCRAFT / MOTION", "blip_motion"),
+            ("POSITION", "blip_position"),
+            ("SOURCE", "blip_source"),
+        )
+        for metric_index, (metric_title, metric_attr) in enumerate(metric_specs):
+            metric_card, metric_value = _metric(metric_title)
+            setattr(self, metric_attr, metric_value)
+            metric_grid.addWidget(metric_card, metric_index // metric_columns, metric_index % metric_columns)
+
         self.blip_detail = label(QtWidgets, "", "Muted", wrap=True)
-        info_layout.addWidget(self.blip_title)
+        self.blip_detail.setObjectName("RadarSelectionDetail")
+        self.blip_hint = label(QtWidgets, "Close, press Esc, click the target again, or click empty scope to dismiss.", "Dim", wrap=True)
+        info_layout.addLayout(info_head)
         info_layout.addWidget(self.blip_route)
+        info_layout.addLayout(metric_grid)
         info_layout.addWidget(self.blip_detail)
+        info_layout.addWidget(self.blip_hint)
         self.blip_info.hide()
         self.status = label(QtWidgets, "Preparing radar...", "Muted")
         self._last_status_text = "Preparing radar..."
@@ -278,6 +331,10 @@ class RadarScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
             self.refresh()
 
     def set_active(self, active: bool) -> None:
+        set_animation_active = getattr(self.canvas, "set_animation_active", None)
+        if callable(set_animation_active):
+            set_animation_active(active)
+            return
         timer = getattr(self.canvas, "_sweep_timer", None)
         if timer is None:
             return
@@ -441,7 +498,11 @@ class RadarScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
 
     def _show_selected_blip_info(self, blip: Any) -> None:
         if not isinstance(blip, dict) or not blip:
+            self._clear_selected_blip()
             return
+        self._selection_serial += 1
+        selection_serial = self._selection_serial
+        self._selected_blip_key = str(blip.get("callsign") or blip.get("icao24") or blip.get("flight_number") or "").strip().upper()
         summary = _blip_summary(blip)
         self._apply_selected_summary(summary)
         callsign = str(blip.get("callsign") or blip.get("flight_number") or "").strip().upper()
@@ -449,20 +510,34 @@ class RadarScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
             return
         self._run_async(
             lambda: self.service.fids_detail(callsign),
-            lambda payload: self._apply_selected_detail(summary, payload),
-            lambda exc: self._apply_selected_detail_error(summary, exc),
+            lambda payload: self._apply_selected_detail(summary, payload, selection_serial=selection_serial),
+            lambda exc: self._apply_selected_detail_error(summary, exc, selection_serial=selection_serial),
             label=f"radar.detail.{callsign}",
             debounce_ms=0,
         )
 
+    def _clear_selected_blip(self) -> None:
+        self._selection_serial += 1
+        self._selected_blip_key = ""
+        if hasattr(self.canvas, "set_selected_blip"):
+            self.canvas.set_selected_blip(None)
+        self.blip_info.hide()
+        self.status.setText(self._last_status_text)
+
     def _apply_selected_summary(self, summary: dict[str, str]) -> None:
         self.blip_title.setText(summary["title"])
         self.blip_route.setText(summary["route"])
-        self.blip_detail.setText(summary["detail"])
+        self.blip_phase.setText(summary.get("phase") or "TRACKED")
+        self.blip_motion.setText(summary.get("motion") or summary.get("aircraft") or "Position only")
+        self.blip_position.setText(summary.get("position") or "Position unavailable")
+        self.blip_source.setText(summary.get("source") or "Local radar")
+        self.blip_detail.setText(summary.get("reason") or "Live radar track selected. Linked schedule detail is loading when available.")
         self.blip_info.show()
         self.status.setText(f"Selected {summary['title']}. Fetching linked FIDS detail...")
 
-    def _apply_selected_detail(self, summary: dict[str, str], payload: Any) -> None:
+    def _apply_selected_detail(self, summary: dict[str, str], payload: Any, *, selection_serial: int | None = None) -> None:
+        if selection_serial is not None and selection_serial != self._selection_serial:
+            return
         detail = _extract_detail_payload(payload)
         if not detail:
             self.status.setText(f"Selected {summary['title']}. No matching FIDS detail is available yet.")
@@ -485,10 +560,19 @@ class RadarScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
             if chip not in deduped:
                 deduped.append(chip)
         self.blip_route.setText(route)
-        self.blip_detail.setText(" | ".join(deduped + ([summary["detail"]] if summary["detail"] else [])))
+        self.blip_detail.setText("Schedule match · " + " · ".join(deduped))
         self.status.setText(f"Selected {summary['title']}. Flight details are ready.")
 
-    def _apply_selected_detail_error(self, summary: dict[str, str], _exc: Exception) -> None:
+    def _apply_selected_detail_error(
+        self,
+        summary: dict[str, str],
+        _exc: Exception,
+        *,
+        selection_serial: int | None = None,
+    ) -> None:
+        if selection_serial is not None and selection_serial != self._selection_serial:
+            return
+        self.blip_detail.setText("Live radar details remain available. A linked board record could not be loaded right now.")
         self.status.setText(f"Selected {summary['title']}. Flight details are temporarily unavailable.")
 
     def _refresh_optional_layers(self) -> None:
@@ -503,7 +587,7 @@ class RadarScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
             radar_map = payload.get("radar_map") if isinstance(payload.get("radar_map"), dict) else {}
             terrain = radar_map.get("terrain") if isinstance(radar_map.get("terrain"), dict) else {}
             features = terrain.get("features") if isinstance(terrain.get("features"), list) else []
-            self.canvas.set_terrain({"features": features or _estimated_relief_features(center, self.radius_nm)})
+            self.canvas.set_terrain({"features": features})
         else:
             self.canvas.set_terrain([])
         self.source_info.setText(self._source_line(payload, surface))
@@ -564,23 +648,33 @@ def _blip_summary(blip: dict[str, Any]) -> dict[str, str]:
     heading = _heading_text(blip.get("track_deg") if blip.get("track_deg") is not None else blip.get("heading"))
     distance = _distance_text(blip.get("distance_nm"))
     source = _source_label(blip.get("source"))
-    status = str(blip.get("radar_status_label") or "").strip()
+    status = str(blip.get("radar_status_label") or blip.get("radar_phase") or "").strip().replace("_", " ")
     vertical = _vertical_rate_fpm_text(blip.get("vertical_rate_fpm")) if blip.get("vertical_rate_fpm") is not None else _vertical_rate_text(blip.get("vertical_rate"))
-    chips = [part for part in (status, aircraft, altitude, vertical, speed, heading, distance, source) if part]
-    if blip.get("matched_runway") or blip.get("nearest_runway"):
-        chips.append(f"RWY {blip.get('matched_runway') or blip.get('nearest_runway')}")
-    if blip.get("phase_confidence"):
-        chips.append(f"{str(blip.get('phase_confidence')).title()} confidence")
+    runway = str(blip.get("matched_runway") or blip.get("nearest_runway") or "").strip().upper()
+    confidence = str(blip.get("phase_confidence") or "").strip().replace("_", " ")
+    motion = " · ".join(part for part in (aircraft, altitude, vertical, speed) if part)
+    position = " · ".join(part for part in (heading, distance, f"RWY {runway}" if runway else "") if part)
+    source_line = " · ".join(part for part in (source, f"{confidence.title()} confidence" if confidence else "") if part)
+    chips = [part for part in (status, motion, position, source_line) if part]
+    context = [str(blip.get("phase_reason") or "").strip()]
     if str(blip.get("source") or "").lower() == "vatsim":
         rules = str(blip.get("flight_rules") or "").strip()
         planned = str(blip.get("planned_altitude") or "").strip()
         if rules:
             chips.append(f"Rules {rules}")
+            context.append(f"Flight rules {rules}")
         if planned:
             chips.append(f"Planned {planned}")
+            context.append(f"Planned altitude {planned}")
     return {
         "title": callsign,
         "route": route or "Route not available",
+        "phase": status.upper() or "TRACKED",
+        "aircraft": aircraft,
+        "motion": motion,
+        "position": position,
+        "source": source_line,
+        "reason": " · ".join(part for part in context if part),
         "detail": " | ".join(chips + ([str(blip.get("phase_reason"))] if blip.get("phase_reason") else [])) or "Basic position only",
     }
 
@@ -798,7 +892,7 @@ def _route_hint_paths(payload: dict[str, Any], cfg: dict[str, Any]) -> list[dict
             kind = "departure"
         elif phase in {"approach", "final", "descending"}:
             kind = "approach"
-        elif phase in {"departure", "climbing"}:
+        elif phase in {"departing"}:
             kind = "departure"
         else:
             continue
@@ -809,28 +903,6 @@ def _route_hint_paths(payload: dict[str, Any], cfg: dict[str, Any]) -> list[dict
             points = [[center_lat, center_lon], [lat, lon]]
         paths.append({"kind": kind, "label": callsign or kind.title(), "points": points})
     return paths[:30]
-
-
-def _estimated_relief_features(center: Any, radius_nm: int | float) -> list[dict[str, Any]]:
-    if not isinstance(center, dict):
-        return []
-    lat = _safe_float(center.get("lat"))
-    lon = _safe_float(center.get("lon"))
-    if lat is None or lon is None:
-        return []
-    radius = max(1.0, min(40.0, float(radius_nm or 5)))
-    features: list[dict[str, Any]] = []
-    for idx, scale in enumerate((0.32, 0.52, 0.72), start=1):
-        north = radius * scale
-        east = radius * (0.18 + idx * 0.04)
-        points = [
-            _offset_point(lat, lon, north_nm=north * 0.45, east_nm=-east),
-            _offset_point(lat, lon, north_nm=north * 0.10, east_nm=-east * 0.45),
-            _offset_point(lat, lon, north_nm=-north * 0.20, east_nm=east * 0.10),
-            _offset_point(lat, lon, north_nm=-north * 0.45, east_nm=east),
-        ]
-        features.append({"kind": "relief", "label": f"estimated relief {idx}", "points": points})
-    return features
 
 
 def _offset_point(lat: float, lon: float, *, north_nm: float = 0.0, east_nm: float = 0.0) -> list[float]:

@@ -38,6 +38,10 @@ def _activation_path() -> Path:
     return _config_dir() / "activation_token"
 
 
+def _relay_access_mode_path() -> Path:
+    return _config_dir() / "relay_access_mode"
+
+
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -153,9 +157,37 @@ def set_activation_token(token: str) -> None:
         os.environ.pop("LOCALFLIGHT_ACTIVATION_TOKEN", None)
 
 
+def get_relay_access_mode() -> str:
+    """Return the non-secret relay product lane associated with this install."""
+    env_mode = os.getenv("LOCALFLIGHT_RELAY_ACCESS_MODE", "").strip().lower()
+    if env_mode in {"community", "managed", "mobile_standalone"}:
+        return env_mode
+    path = _relay_access_mode_path()
+    try:
+        ensure_private_file(path)
+        mode = path.read_text(encoding="utf-8").strip().lower()
+    except Exception:
+        return ""
+    return mode if mode in {"community", "managed", "mobile_standalone"} else ""
+
+
+def set_relay_access_mode(mode: str) -> None:
+    clean = str(mode or "").strip().lower()
+    path = _relay_access_mode_path()
+    if clean in {"community", "managed", "mobile_standalone"}:
+        ensure_private_dir(path.parent)
+        write_private_text(path, clean)
+        return
+    try:
+        path.unlink(missing_ok=True)
+    except Exception:
+        pass
+
+
 def clear_activation_token() -> None:
     """Explicitly remove the local relay token while keeping the install identity."""
     set_activation_token("")
+    set_relay_access_mode("")
 
 
 def new_install_identity() -> str:

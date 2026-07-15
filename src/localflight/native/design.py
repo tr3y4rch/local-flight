@@ -713,6 +713,52 @@ QFrame#PreviewCard {{
   border: 1px solid {_rgba(accent, 0.18)};
   border-radius: 12px;
 }}
+QFrame#RadarSelectionCard {{
+  background: {_mix_hex(colors["panel"], accent, 0.08 if is_light else 0.12)};
+  border: 1px solid {_rgba(accent, 0.46)};
+  border-radius: 14px;
+}}
+QLabel#RadarSelectionTitle {{
+  color: {colors["text"]};
+  font-family: {BOARD_FONT_STACK};
+  font-size: 16px;
+  font-weight: 900;
+}}
+QLabel#RadarSelectionRoute {{
+  color: {colors["muted"]};
+  font-family: {BOARD_FONT_STACK};
+  font-size: 11px;
+  font-weight: 700;
+}}
+QLabel#RadarSelectionDetail {{
+  color: {muted_panel_text};
+  font-size: 11px;
+}}
+QFrame#RadarMetric {{
+  background: {_rgba(colors["panel_2"], 0.76)};
+  border: 1px solid {_rgba(accent, 0.18)};
+  border-radius: 9px;
+}}
+QLabel#RadarMetricValue {{
+  color: {colors["text"]};
+  font-family: {BOARD_FONT_STACK};
+  font-size: 10px;
+  font-weight: 800;
+}}
+QPushButton#RadarClose {{
+  background: {_rgba(colors["panel_2"], 0.68)};
+  border: 1px solid {_rgba(accent, 0.34)};
+  border-radius: 8px;
+  color: {colors["muted"]};
+  padding: 5px 9px;
+  font-size: 11px;
+  font-weight: 800;
+}}
+QPushButton#RadarClose:hover, QPushButton#RadarClose:focus {{
+  background: {_rgba(accent, 0.16)};
+  border-color: {accent};
+  color: {colors["text"]};
+}}
 QFrame#Pill {{
   background: {accent_soft};
   border: 1px solid {accent_border};
@@ -1158,6 +1204,22 @@ QLabel#FooterStatus {{
 QLabel#FooterTagline {{
   color: {colors["dim"]};
   font-size: 11px;
+}}
+QPushButton#FooterBrand {{
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: {colors["blue"]};
+  padding: 4px 9px;
+  font-family: {BOARD_FONT_STACK};
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+}}
+QPushButton#FooterBrand:hover, QPushButton#FooterBrand:focus {{
+  background: {_rgba(colors["blue"], 0.10)};
+  border-color: {_rgba(colors["blue"], 0.34)};
+  color: {_ensure_contrast(colors["blue"], colors["bg"], minimum=4.5)};
 }}
 QLabel#Kicker, QLabel#Section {{
   color: {colors["dim"]};

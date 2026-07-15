@@ -32,11 +32,13 @@ struct LocalFlightWidgetAirport: Codable {
 struct LocalFlightWidgetSource: Codable {
   let label: String
   let lastUpdatedLabel: String
+  let updatedAt: String?
 }
 
 struct LocalFlightWidgetPreferences: Codable {
   let mediumRowCount: Int
   let showGateTerminal: Bool
+  let automaticRefresh: Bool?
 }
 
 struct LocalFlightSmallWidgetSnapshot: Codable {
@@ -100,8 +102,16 @@ enum LocalFlightWidgetSnapshotStore {
 
   static var placeholder: LocalFlightWidgetSnapshot {
     let airport = LocalFlightWidgetAirport(code: "---", name: "Local Flight Airport", view: "departures")
-    let source = LocalFlightWidgetSource(label: "mobile", lastUpdatedLabel: "Waiting")
-    let preferences = LocalFlightWidgetPreferences(mediumRowCount: 3, showGateTerminal: true)
+    let source = LocalFlightWidgetSource(
+      label: "mobile",
+      lastUpdatedLabel: "Waiting",
+      updatedAt: ISO8601DateFormatter().string(from: Date())
+    )
+    let preferences = LocalFlightWidgetPreferences(
+      mediumRowCount: 3,
+      showGateTerminal: true,
+      automaticRefresh: true
+    )
     return LocalFlightWidgetSnapshot(
       schemaVersion: 1,
       generatedAt: ISO8601DateFormatter().string(from: Date()),
@@ -172,7 +182,8 @@ private extension LocalFlightWidgetSnapshot {
     let staleSnapshot = stale || isExpired
     let sanitizedPreferences = LocalFlightWidgetPreferences(
       mediumRowCount: rowCount,
-      showGateTerminal: preferences.showGateTerminal
+      showGateTerminal: preferences.showGateTerminal,
+      automaticRefresh: preferences.automaticRefresh ?? true
     )
     return LocalFlightWidgetSnapshot(
       schemaVersion: LocalFlightWidgetConstants.schemaVersion,
@@ -189,7 +200,8 @@ private extension LocalFlightWidgetSnapshot {
       ),
       source: LocalFlightWidgetSource(
         label: source.label.lfClean(max: 32, fallback: "mobile"),
-        lastUpdatedLabel: source.lastUpdatedLabel.lfClean(max: 32, fallback: "Waiting")
+        lastUpdatedLabel: source.lastUpdatedLabel.lfClean(max: 32, fallback: "Waiting"),
+        updatedAt: source.updatedAt
       ),
       preferences: sanitizedPreferences,
       small: LocalFlightSmallWidgetSnapshot(

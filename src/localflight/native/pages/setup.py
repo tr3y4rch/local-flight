@@ -1337,8 +1337,15 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
             self._set_status(f"Setup failed: {exc}", "StatusBad")
             self._set_setup_buttons_enabled(True)
             return
-        self._set_status("Setup complete." if result.get("ok", True) else format_value(result), "StatusGood" if result.get("ok", True) else "StatusWarn")
-        if result.get("ok", True):
+        setup_ok = bool(result.get("ok"))
+        if setup_ok:
+            self._set_status(str(result.get("message") or "Setup saved. Preparing your first board..."), "StatusGood")
+        else:
+            self._set_status(
+                self._friendly_relay_text(result, default="Setup could not finish. Retry the relay connection, choose VATSIM, or use your own provider keys."),
+                "StatusWarn" if result.get("status") in {"rate_limited", "manual_review"} else "StatusBad",
+            )
+        if setup_ok:
             try:
                 self.service.clear_cache()
             except Exception:

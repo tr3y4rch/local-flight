@@ -56,7 +56,7 @@ struct LocalFlightWidget: Widget {
   var body: some WidgetConfiguration {
     StaticConfiguration(kind: kind, provider: LocalFlightWidgetProvider()) { entry in
       LocalFlightWidgetView(entry: entry)
-        .widgetURL(URL(string: "localflight://widgets"))
+        .widgetURL(URL(string: "localflight://widgets?refresh=1"))
     }
     .configurationDisplayName("Local Flight")
     .description("Pinned flight and airport board glance.")

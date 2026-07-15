@@ -989,73 +989,16 @@ async def setup_test_opensky_get(
 
 @app.post("/api/setup/activate")
 async def setup_activate(body: ActivationSetupIn) -> Dict[str, Any]:
-    import requests as _req
-    from localflight.sources.web.relay_heartbeat import relay_client_metadata
-    from localflight.storage.install import get_activation_token, get_install_fingerprint, get_install_id, set_activation_token
+    from localflight.sources.web.relay_activation import ensure_relay_link
 
-    try:
-        relay_url = _validated_setup_relay_url(body.relay_url)
-    except ValueError:
-        return _relay_failure_payload({"detail": "connection failed"}, fallback="The relay address could not be used.")
-    install_id = get_install_id()
-    install_fingerprint = get_install_fingerprint()
-    existing_token = get_activation_token().strip()
-    if existing_token:
-        try:
-            status_response = _req.get(
-                _client_status_url(relay_url),
-                params={"install_id": install_id, "activation_token": existing_token, **relay_client_metadata()},
-                headers={"Accept": "application/json"},
-                timeout=12,
-            )
-            status_payload = _relay_json_response(status_response)
-            if status_response.status_code < 400 and status_payload.get("ok"):
-                status_payload["activation_token_present"] = True
-                status_payload["activation_token_prefix"] = status_payload.get("token_prefix") or existing_token[:10]
-                status_payload.setdefault("status", "ok")
-                status_payload.setdefault("known_install", True)
-                status_payload.setdefault("can_reissue", True)
-                return status_payload
-        except Exception:
-            # A direct activation request is an explicit repair action; if the
-            # verification probe cannot complete, let the relay decide below.
-            pass
-    try:
-        response = _req.post(
-            _activate_url(relay_url),
-            json={
-                "install_id": install_id,
-                "install_fingerprint": install_fingerprint,
-                "display_name": (body.display_name or "").strip(),
-                "requested_mode": (body.requested_mode or "community").strip().lower(),
-                "app_version": _APP_VERSION,
-            },
-            headers={"Accept": "application/json"},
-            timeout=12,
-        )
-    except Exception as exc:
-        return _relay_failure_payload(
-            {"detail": f"Relay activation failed: {exc}"},
-            fallback="Relay activation failed.",
-        )
-
-    payload = _relay_json_response(response)
-    if response.status_code >= 400:
-        return _relay_failure_payload(payload, http_status=response.status_code, fallback="Relay activation failed.", response=response)
-    if not isinstance(payload, dict):
-        return {"ok": False, "status": "relay_error", "error": "Relay activation response was invalid"}
-    token = str(payload.get("activation_token") or "").strip()
-    if token:
-        try:
-            set_activation_token(token)
-        except Exception:
-            pass
-        payload["activation_token_present"] = True
-        payload["activation_token_prefix"] = payload.get("token_prefix") or token[:10]
-        payload.pop("activation_token", None)
-    payload.setdefault("ok", True)
-    payload.setdefault("status", "ok" if payload.get("ok") else "relay_error")
-    return payload
+    return ensure_relay_link(
+        relay_url=body.relay_url,
+        display_name=body.display_name,
+        airport_iata=body.airport_iata,
+        airport_icao=body.airport_icao,
+        requested_mode=body.requested_mode,
+        force=True,
+    )
 
 
 @app.post("/api/setup/client-status")
@@ -1195,13 +1138,48 @@ async def setup_complete(request: Request, background_tasks: BackgroundTasks) ->
     os_id = data.get("opensky_id", "").strip()
     os_sec = data.get("opensky_secret", "").strip()
 
-    if setup_mode == "managed" and not activation_token:
+    if setup_mode in {"managed", "community"} and not activation_token:
         try:
             from localflight.storage.install import get_activation_token
 
             activation_token = get_activation_token().strip()
         except Exception:
             activation_token = ""
+
+    if setup_mode in {"managed", "community"}:
+        from localflight.sources.web.relay_activation import ensure_relay_link
+
+        relay_link = ensure_relay_link(
+            relay_url=relay_url,
+            display_name=str(data.get("display_name") or "Local Flight device"),
+            airport_iata=airport_iata,
+            airport_icao=airport_icao,
+            requested_mode="community" if setup_mode == "community" else "managed",
+            activation_token=activation_token,
+            force=False,
+        )
+        if not relay_link.get("linked"):
+            return {
+                **relay_link,
+                "choices": [
+                    {"mode": "retry", "label": "Retry relay connection"},
+                    {"mode": "virtual", "label": "Use VATSIM"},
+                    {"mode": "byok", "label": "Bring Your Own Keys"},
+                ],
+            }
+        try:
+            from localflight.storage.install import get_activation_token
+
+            activation_token = get_activation_token().strip()
+        except Exception:
+            activation_token = ""
+        if not activation_token:
+            return {
+                "ok": False,
+                "linked": False,
+                "status": "relay_link_required",
+                "error": "Community Relay setup needs a verified relay link before it can finish.",
+            }
 
     removed_keys: set[str] = set()
     if setup_mode == "managed":
@@ -1242,13 +1220,14 @@ async def setup_complete(request: Request, background_tasks: BackgroundTasks) ->
         logger.error("Setup: could not write .env: %s", exc)
         return JSONResponse({"ok": False, "error": f"Could not save config: {exc}"}, status_code=500)
 
+    initial_refresh_seconds = 1800 if setup_mode == "community" else (28800 if source == "real" else 900)
     cfg = AppConfig(
         airport_iata=airport_iata,
         airport_icao=airport_icao,
         timezone=timezone_str,
         source=source,
         display_name=str(data.get("display_name") or "Local Flight").strip()[:40] or "Local Flight",
-        refresh_seconds=_coerce_refresh_for_policy(28800 if source == "real" else 900, source),
+        refresh_seconds=_coerce_refresh_for_policy(initial_refresh_seconds, source),
         diagnostics_mode=diagnostics_mode,
     )
     save_config(cfg)
@@ -1265,7 +1244,7 @@ async def setup_complete(request: Request, background_tasks: BackgroundTasks) ->
     except Exception:
         pass
 
-    return {"ok": True}
+    return {"ok": True, "status": "preparing", "message": "Setup saved. Preparing your first board."}
 
 
 # â”€â”€ Pages â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -1587,7 +1566,9 @@ async def save_settings(
         radar_surface_mode=raw_surface_mode,
         remote_companion_enabled=remote_enabled,
     )
-    save_config(cfg)
+    config_changed = asdict(old_cfg) != asdict(cfg)
+    if config_changed:
+        save_config(cfg)
 
     logger.info(
         "UI save: %s/%s refresh=%ss source=%s skin=%s outputs=%s diagnostics=%s web_rows=%s web_rotate=%ss grace=%sm horizon=%sh surface=%s",
@@ -1607,15 +1588,17 @@ async def save_settings(
 
     from localflight.ui.events import notify_config_updated, restart_scheduler_and_notify
 
-    notify_config_updated(cfg, reason="desktop_settings")
-    if _scheduler_config_changed(old_cfg, cfg):
+    if config_changed:
+        notify_config_updated(cfg, reason="desktop_settings")
+    if config_changed and _scheduler_config_changed(old_cfg, cfg):
         logger.info("Triggering scheduler restart after settings save")
         background_tasks.add_task(restart_scheduler_and_notify, "desktop_settings")
     else:
         logger.info("Settings save did not change scheduler fields")
     try:
         from localflight.sources.web.relay_beat import fire_heartbeat
-        fire_heartbeat()
+        if config_changed:
+            fire_heartbeat()
     except Exception:
         pass
 

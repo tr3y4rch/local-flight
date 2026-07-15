@@ -17,6 +17,31 @@ class NativeApiError(RuntimeError):
     """Raised when a local or relay API request fails."""
 
 
+def _safe_local_error(response: Any) -> str:
+    try:
+        payload = response.json()
+    except Exception:
+        payload = {}
+    detail = payload.get("detail") if isinstance(payload, dict) else None
+    if isinstance(detail, dict):
+        message = detail.get("message") or detail.get("error")
+    else:
+        message = detail
+    if not message and isinstance(payload, dict):
+        message = payload.get("message") or payload.get("error")
+    clean = " ".join(str(message or "").split())
+    if clean and "{" not in clean and "}" not in clean:
+        return clean[:240]
+    status = int(getattr(response, "status_code", 0) or 0)
+    if status == 429:
+        return "This action is cooling down. Wait a moment, then try again."
+    if status in {401, 403}:
+        return "This action is not available for the current Local Flight connection."
+    if status >= 500:
+        return "The Local Flight server could not complete this action right now."
+    return "The Local Flight server could not use this request."
+
+
 @dataclass
 class LocalApiClient:
     base_url: str = "http://127.0.0.1:8000"
@@ -76,8 +101,12 @@ class LocalApiClient:
             return 2.0
         if path.startswith("/api/matrix/v2/"):
             return 2.0
-        if path in {"/api/fids", "/api/radar", "/api/fids/detail"}:
-            return 2.0
+        if path == "/api/fids":
+            return 30.0
+        if path == "/api/radar":
+            return 15.0
+        if path == "/api/fids/detail":
+            return 30.0
         if path == "/api/metar":
             return 30.0
         if path == "/api/airports/search":
@@ -118,9 +147,9 @@ class LocalApiClient:
         try:
             response = self._session().get(self._url(path), params=params, timeout=self.timeout_s)
         except requests.RequestException as exc:
-            raise NativeApiError(str(exc)) from exc
+            raise NativeApiError("The Local Flight server could not be reached.") from exc
         if response.status_code >= 400:
-            raise NativeApiError(f"HTTP {response.status_code}: {response.text[:180]}")
+            raise NativeApiError(_safe_local_error(response))
         try:
             payload = response.json()
         except json.JSONDecodeError as exc:
@@ -135,9 +164,9 @@ class LocalApiClient:
         try:
             response = self._session().post(self._url(path), json=payload, timeout=self.timeout_s)
         except requests.RequestException as exc:
-            raise NativeApiError(str(exc)) from exc
+            raise NativeApiError("The Local Flight server could not be reached.") from exc
         if response.status_code >= 400:
-            raise NativeApiError(f"HTTP {response.status_code}: {response.text[:180]}")
+            raise NativeApiError(_safe_local_error(response))
         try:
             data = response.json()
         except json.JSONDecodeError:
@@ -149,9 +178,9 @@ class LocalApiClient:
         try:
             response = self._session().patch(self._url(path), json=payload, timeout=self.timeout_s)
         except requests.RequestException as exc:
-            raise NativeApiError(str(exc)) from exc
+            raise NativeApiError("The Local Flight server could not be reached.") from exc
         if response.status_code >= 400:
-            raise NativeApiError(f"HTTP {response.status_code}: {response.text[:180]}")
+            raise NativeApiError(_safe_local_error(response))
         try:
             data = response.json()
         except json.JSONDecodeError:
@@ -163,9 +192,9 @@ class LocalApiClient:
         try:
             response = self._session().delete(self._url(path), timeout=self.timeout_s)
         except requests.RequestException as exc:
-            raise NativeApiError(str(exc)) from exc
+            raise NativeApiError("The Local Flight server could not be reached.") from exc
         if response.status_code >= 400:
-            raise NativeApiError(f"HTTP {response.status_code}: {response.text[:180]}")
+            raise NativeApiError(_safe_local_error(response))
         try:
             data = response.json()
         except json.JSONDecodeError:
@@ -177,9 +206,9 @@ class LocalApiClient:
         try:
             response = self._session().post(self._url(path), data=payload, timeout=self.timeout_s)
         except requests.RequestException as exc:
-            raise NativeApiError(str(exc)) from exc
+            raise NativeApiError("The Local Flight server could not be reached.") from exc
         if response.status_code >= 400:
-            raise NativeApiError(f"HTTP {response.status_code}: {response.text[:180]}")
+            raise NativeApiError(_safe_local_error(response))
         try:
             data = response.json()
         except json.JSONDecodeError:
@@ -191,9 +220,9 @@ class LocalApiClient:
         try:
             response = self._session().post(self._url(path), json=payload, timeout=self.timeout_s)
         except requests.RequestException as exc:
-            raise NativeApiError(str(exc)) from exc
+            raise NativeApiError("The Local Flight server could not be reached.") from exc
         if response.status_code >= 400:
-            raise NativeApiError(f"HTTP {response.status_code}: {response.text[:180]}")
+            raise NativeApiError(_safe_local_error(response))
         return response.text
 
 

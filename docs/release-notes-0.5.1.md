@@ -39,6 +39,17 @@ decisions.
   each setup path is explained consistently and in plain language.
 - Hardened setup and re-setup transitions between Local Flight Relay, personal
   provider keys, and VATSIM so old credentials or source choices do not linger.
+- Community Relay setup now verifies the install link before opening the first
+  board. Older installs can repair the link once without repeated activation
+  requests, and first-load failures retry safely instead of waiting for the
+  full schedule interval.
+- Community schedule refresh choices now start at 30 minutes. Navigation reads
+  server-held state and no-op settings saves no longer restart data services.
+- Radar movement phases now use live track evidence independently from the
+  passenger-board status, including elevation-aware taxi/final rules and short
+  hysteresis against noisy positions.
+- Terrain uses radius-aware elevation mosaics, relief bands, and true contours,
+  with OpenStreetMap water and land context kept as a separate calm layer.
 - Kept conservative secret redaction across logs, reports, and diagnostics.
 - Stabilized native setup/window transitions and kept the LAN browser, native
   shell, Pi displays, Matrix tools, and mobile clients on the same API contract.
@@ -76,7 +87,7 @@ SHA256 file are both attached to that release.
 - Companion review/smoke should also pair on LAN, confirm LAN-first behavior,
   simulate LAN failure, verify `REMOTE` mode through the relay, revoke the
   phone grant, and confirm remote access stops.
-- Widget-enabled source targets iOS build `5` and Android versionCode `9`.
+- Widget-enabled source targets iOS build `6` and Android versionCode `9`.
   Both home-screen widgets read only a bounded app-written snapshot; they do
   not poll LAN, relay, or flight-provider services.
 - Dynamic Island and Live Activities remain deferred.

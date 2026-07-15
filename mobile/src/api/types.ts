@@ -733,7 +733,14 @@ export type RadarBlip = {
   radar_phase?: string | null;
   radar_status?: string | null;
   radar_status_label?: string | null;
+  board_status?: string | null;
+  phase_confidence?: string | null;
   phase_reason?: string | null;
+  motion_trend?: string | null;
+  matched_runway?: string | null;
+  nearest_runway?: string | null;
+  altitude_agl_ft?: number | null;
+  position_stale?: boolean;
   selected_altitude_ft?: number | null;
   nav_modes?: string[] | null;
   status?: string | null;
@@ -779,6 +786,8 @@ export type RadarMapFeature = {
   confidence?: string;
   geometry_precision?: string;
   data_source?: string;
+  band_index?: number;
+  elevation_ft?: number;
   validation?: Record<string, unknown>;
 };
 
@@ -798,7 +807,14 @@ export type RadarMapResponse = {
     provider?: string;
     label?: string;
     features?: RadarMapFeature[];
+    bands?: RadarMapFeature[];
+    contours?: RadarMapFeature[];
     cache_state?: string;
+    schema_version?: string;
+    coverage_radius_nm?: number;
+    min_elevation_ft?: number;
+    max_elevation_ft?: number;
+    contour_interval_ft?: number;
     note?: string;
   };
   attribution?: RadarMapAttribution[];

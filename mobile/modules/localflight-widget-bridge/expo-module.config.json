@@ -1,0 +1,9 @@
+{
+  "platforms": ["apple", "android"],
+  "apple": {
+    "modules": ["LocalFlightWidgetBridgeModule"]
+  },
+  "android": {
+    "modules": ["cc.beacontools.localflight.widgetbridge.LocalFlightWidgetBridgeModule"]
+  }
+}

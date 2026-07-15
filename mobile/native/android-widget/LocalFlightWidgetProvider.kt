@@ -5,6 +5,7 @@ import android.appwidget.AppWidgetManager
 import android.appwidget.AppWidgetProvider
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import android.view.View
 import android.widget.RemoteViews
@@ -18,7 +19,6 @@ import org.json.JSONObject
 private const val SNAPSHOT_FILENAME = "localflight-widget-snapshot.json"
 private const val SNAPSHOT_SCHEMA_VERSION = 1
 private const val MAX_SNAPSHOT_BYTES = 64 * 1024
-private const val ACTION_REFRESH = "__PACKAGE_NAME__.widget.REFRESH"
 
 private data class WidgetRow(
   val flight: String,
@@ -52,17 +52,6 @@ class LocalFlightWidgetProvider : AppWidgetProvider() {
     newOptions: Bundle
   ) {
     render(context, appWidgetManager, appWidgetId)
-  }
-
-  override fun onReceive(context: Context, intent: Intent) {
-    super.onReceive(context, intent)
-    if (intent.action != ACTION_REFRESH) return
-
-    val manager = AppWidgetManager.getInstance(context)
-    val requestedId = intent.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, AppWidgetManager.INVALID_APPWIDGET_ID)
-    if (requestedId != AppWidgetManager.INVALID_APPWIDGET_ID) {
-      render(context, manager, requestedId)
-    }
   }
 
   private fun render(context: Context, manager: AppWidgetManager, appWidgetId: Int) {
@@ -119,12 +108,12 @@ class LocalFlightWidgetProvider : AppWidgetProvider() {
       )
     }
 
-    val refreshIntent = Intent(context, LocalFlightWidgetProvider::class.java)
-      .setAction(ACTION_REFRESH)
-      .putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId)
+    val refreshIntent = Intent(Intent.ACTION_VIEW, Uri.parse("localflight://widgets?refresh=1"))
+      .setPackage(context.packageName)
+      .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
     views.setOnClickPendingIntent(
       R.id.widget_refresh,
-      PendingIntent.getBroadcast(
+      PendingIntent.getActivity(
         context,
         appWidgetId,
         refreshIntent,

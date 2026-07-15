@@ -45,7 +45,8 @@
       "./plugins/with-localflight-privacy-manifest",
       "./plugins/with-localflight-ios-widget",
       "./plugins/with-localflight-android-widget",
-      "expo-iap"
+      "expo-iap",
+      "expo-background-task"
     ],
     "ios": {
       "bundleIdentifier": "cc.beacontools.localflight",

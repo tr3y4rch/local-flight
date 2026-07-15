@@ -1,0 +1,1 @@
+airport,FIDS,arrivals,departures,radar,aviation,virtual traffic,timetable,self-hosted,planespotting

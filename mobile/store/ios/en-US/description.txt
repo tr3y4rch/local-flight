@@ -1,0 +1,50 @@
+Your airport board, wherever you are.
+
+Local Flight turns your iPhone or iPad into a focused flight information display (FIDS) companion for your Mac, Windows PC, or Raspberry Pi. Pair on your own Wi-Fi to bring arrivals, departures, nearby traffic, movement history, and host controls to a purpose-built mobile interface.
+
+At home, Companion connects directly to your Local Flight host over the LAN. If you explicitly enable Remote Companion, the same paired phone can continue through end-to-end encrypted relay routing when you leave Wi-Fi, as long as your host remains online. LAN is always preferred, and remote access can be revoked from the host.
+
+NO SERVER? USE STANDALONE.
+
+Standalone provides a simpler phone-only airport board through the Beacon Tools relay. Choose an airport and start browsing without a desktop or Raspberry Pi. Standalone uses careful refresh limits to keep shared aviation-data access reliable and fairly available.
+
+BUILT FOR DAILY GLANCES
+
+• Arrivals and departures with airport-local times
+• Status, delay, terminal, and gate details when supplied by the selected data source
+• A responsive radar-style view of nearby aircraft
+• Deduplicated movement history that avoids counting repeated snapshots and known codeshares as separate flights
+• Flight detail sheets using the data available for each movement
+• Pinned-flight and airport-board Home Screen widgets using the latest snapshot prepared by the app
+• Light and dark appearances with multiple display skins
+• Portrait and landscape layouts for iPhone and iPad
+
+FOR AVIATION ENTHUSIASTS
+
+Local Flight keeps the technical depth close without forcing it into every screen. Companion can reflect real-flight sources configured on your host, or a VATSIM-focused virtual view with callsigns, aircraft, filed routes, altitude, speed, and network freshness when available.
+
+LOCAL-FIRST BY DESIGN
+
+• No Local Flight account required
+• No advertising SDKs or cross-app tracking
+• Companion talks to your own server first
+• Remote Companion traffic is end-to-end encrypted
+• Standalone movement history stays on your device
+• Automatic diagnostics are an explicit choice
+• Camera access is used only for optional pairing QR codes; manual entry remains available
+
+OPTIONAL SUPPORT
+
+Three one-time App Store support choices are available in Settings. They unlock nothing, add no subscription, and do not change app features. Apple handles payment details; Local Flight receives only the minimal transaction evidence needed for verification.
+
+WHAT YOU NEED
+
+Companion requires a Local Flight desktop or Raspberry Pi host. Remote Companion additionally requires explicit pairing, relay access, and an online host.
+
+Standalone requires internet access and intentionally refreshes less frequently than Companion.
+
+IMPORTANT
+
+Local Flight is an informational display aid. Flight, weather, radar, airport-surface, and relay data may be delayed, incomplete, cached, incorrect, or unavailable.
+
+Do not use Local Flight for navigation, dispatch, operational control, flight planning, professional aviation work, or safety decisions.

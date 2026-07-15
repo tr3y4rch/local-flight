@@ -59,6 +59,22 @@ EXCLUDED_RELEASE_PATTERNS = (
     "handoff*.md",
     "simulator_screenshot_*.png",
 )
+PI_RELEASE_ROOT_FILES = {
+    ".env.example",
+    "CHANGELOG.md",
+    "LICENSE",
+    "README.md",
+    "pyproject.toml",
+}
+PI_RELEASE_ASSET_FILES = {
+    "assets/icon.png",
+    "assets/localflight-logo.svg",
+}
+PI_RELEASE_PREFIXES = (
+    "docs/",
+    "installers/pi/",
+    "src/",
+)
 
 SENSITIVE_RELEASE_SUFFIXES = {
     ".cer",
@@ -123,7 +139,9 @@ def _is_release_file(path: Path) -> bool:
         return False
     if name == ".env" or (name.startswith(".env.") and name != ".env.example"):
         return False
-    return True
+    if posix in PI_RELEASE_ROOT_FILES or posix in PI_RELEASE_ASSET_FILES:
+        return True
+    return any(posix.startswith(prefix) for prefix in PI_RELEASE_PREFIXES)
 
 
 def _version() -> str:

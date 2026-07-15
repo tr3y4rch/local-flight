@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import time
 import threading
+import random
 from dataclasses import asdict
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, List, Optional
 
 from localflight.storage.logging_setup import setup_logging
@@ -19,6 +20,43 @@ def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
+def _retry_delay_seconds(exc: Exception, failure_count: int, *, jitter: bool = True) -> int:
+    status_code = getattr(exc, "status_code", None)
+    retry_after = getattr(exc, "retry_after_s", None)
+    if status_code == 429 and retry_after:
+        return max(1, int(retry_after))
+    if status_code in {401, 403}:
+        return 60
+    if retry_after and status_code == 503:
+        return max(10, int(retry_after))
+    steps = (10, 60, 300, 900)
+    base = steps[min(max(1, failure_count), len(steps)) - 1]
+    return max(1, int(round(base * random.uniform(0.9, 1.1)))) if jitter else base
+
+
+def _notice_code_for_exception(exc: Exception) -> str:
+    status_code = getattr(exc, "status_code", None)
+    if status_code == 429:
+        return "scheduler.rate_limited"
+    if status_code in {401, 403}:
+        return "scheduler.relay_link_required"
+    return "scheduler.update_interrupted"
+
+
+def _repair_relay_link_if_needed(exc: Exception) -> bool:
+    status_code = getattr(exc, "status_code", None)
+    message = str(exc).casefold()
+    if status_code not in {401, 403} and "activation token" not in message and "relay link" not in message:
+        return False
+    try:
+        from localflight.sources.web.relay_activation import ensure_relay_link
+
+        result = ensure_relay_link(force=False)
+        return bool(result.get("linked"))
+    except Exception:
+        return False
+
+
 def run_loop(
     fetch: FetchFn,
     process: Optional[ProcessFn] = None,
@@ -31,6 +69,7 @@ def run_loop(
     logger = setup_logging()
     logger.info("Session started | component=runtime | source=%s", source_name)
     last_cfg: Optional[dict] = None
+    failure_count = 0
 
     while True:
         if stop_event and stop_event.is_set():
@@ -57,6 +96,7 @@ def run_loop(
         t0         = time.time()
         previous_state = load_state()
 
+        sleep_override_s: Optional[int] = None
         try:
             data = fetch(cfg)
 
@@ -70,6 +110,9 @@ def run_loop(
 
             latency_ms = int((time.time() - t0) * 1000)
 
+            failure_count = 0
+            cache_state = "cached" if isinstance(data, list) and not data else "live"
+            next_refresh = datetime.now(timezone.utc) + timedelta(seconds=max(1, int(cfg.refresh_seconds)))
             save_state(AppState(
                 ok=True,
                 last_attempt_utc=attempt_ts,
@@ -77,11 +120,22 @@ def run_loop(
                 last_error=None,
                 source_name=source_name,
                 last_latency_ms=latency_ms,
+                next_refresh_utc=next_refresh.isoformat().replace("+00:00", "Z"),
+                next_retry_utc=None,
+                retry_after_s=None,
+                retry_count=0,
+                cache_state=cache_state,
+                notice_code=None,
             ))
 
         except Exception as e:
+            failure_count += 1
             latency_ms = int((time.time() - t0) * 1000)
             error_msg  = f"{type(e).__name__}: {e}"
+            repaired = _repair_relay_link_if_needed(e)
+            retry_after_s = 10 if repaired else _retry_delay_seconds(e, failure_count)
+            next_retry = datetime.now(timezone.utc) + timedelta(seconds=retry_after_s)
+            sleep_override_s = retry_after_s
 
             save_state(AppState(
                 ok=False,
@@ -90,6 +144,12 @@ def run_loop(
                 last_error=error_msg,
                 source_name=source_name,
                 last_latency_ms=latency_ms,
+                next_refresh_utc=next_retry.isoformat().replace("+00:00", "Z"),
+                next_retry_utc=next_retry.isoformat().replace("+00:00", "Z"),
+                retry_after_s=retry_after_s,
+                retry_count=failure_count,
+                cache_state="stale" if previous_state.last_success_utc else "empty",
+                notice_code=_notice_code_for_exception(e),
             ))
             logger.exception("Cycle error | source=%s", source_name)
 
@@ -121,7 +181,7 @@ def run_loop(
             return
 
         elapsed = time.time() - t0
-        sleep_s = max(1, cfg.refresh_seconds - int(elapsed))
+        sleep_s = sleep_override_s if sleep_override_s is not None else max(1, cfg.refresh_seconds - int(elapsed))
         if stop_event:
             if stop_event.wait(sleep_s):
                 logger.info("Scheduler stop requested during sleep | source=%s", source_name)

@@ -18,7 +18,7 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import { BottomNav } from "../components/BottomNav";
 import { LaunchOverlay } from "../components/LaunchOverlay";
 import { accessibleButton, tapTargetHitSlop, useReducedMotionPreference } from "../accessibility/mobileA11y";
-import { AirportConfigSheet, CompanionSetupScreen, ConnectPrompt, ControlScreen, FidsScreen, FlightActionSheet, FlightDetailSheet, FullscreenFidsDisplay, Header, HistoryScreen, RadarScreen, ScreenActivity, ScreenError, StandaloneAirportSheet, StandaloneSettingsScreen, type ActivityStatus, type ConnectionState } from "../screens/AppScreens";
+import { AirportConfigSheet, CompanionSetupScreen, ConnectPrompt, ControlScreen, FidsScreen, FlightActionSheet, FlightDetailSheet, FullscreenFidsDisplay, Header, HistoryScreen, RadarScreen, ScreenActivity, ScreenError, StandaloneAirportSheet, StandaloneSettingsScreen, WeatherDetailsSheet, type ActivityStatus, type ConnectionState } from "../screens/AppScreens";
 import { ACTION_ICONS, LocalFlightIcon } from "../theme/icons";
 import {
   getConnections,
@@ -97,8 +97,10 @@ import type {
 } from "../domain/types";
 import {
   buildWidgetExchangeSnapshot,
-  deriveWidgetPreviewSnapshot
+  deriveWidgetPreviewSnapshot,
+  widgetSnapshotStaleAfterMs
 } from "../domain/widgets";
+import { configureWidgetBackgroundRefresh } from "../background/widgetRefresh";
 import { useFlightDetail } from "../hooks/useFlightDetail";
 import { type LaunchHydration, useLaunchOverlay } from "../hooks/useLaunchOverlay";
 import { useMatrixCompanion } from "../hooks/useMatrixCompanion";
@@ -334,6 +336,7 @@ export function AppShell() {
   const [pinnedCallsign, setPinnedCallsign] = useState("");
   const [actionRow, setActionRow] = useState<FidsRow | null>(null);
   const [configSheetVisible, setConfigSheetVisible] = useState(false);
+  const [weatherSheetVisible, setWeatherSheetVisible] = useState(false);
   const [profiles, setProfiles] = useState<ConfigProfile[]>([]);
   const [applyingProfileId, setApplyingProfileId] = useState<string | null>(null);
   const [standaloneAirportSheetVisible, setStandaloneAirportSheetVisible] = useState(false);
@@ -345,6 +348,8 @@ export function AppShell() {
     state: "waiting",
     detail: "setup"
   });
+  const [widgetBackgroundState, setWidgetBackgroundState] = useState<"checking" | "active" | "restricted" | "off">("checking");
+  const [widgetRefreshRequest, setWidgetRefreshRequest] = useState(0);
   const [widgetPendingAirport, setWidgetPendingAirport] = useState<WidgetPendingAirport | null>(null);
   const [radarDrawingLayers, setRadarDrawingLayers] = useState<MobileRadarDrawingLayers>({
     runways: true,
@@ -371,7 +376,6 @@ export function AppShell() {
   const previousWidgetAirportKeyRef = useRef("");
   const screenOpacity = useRef(new Animated.Value(1)).current;
   const screenLift = useRef(new Animated.Value(0)).current;
-  const snapshotPulse = useRef(new Animated.Value(0)).current;
   const flightDetail = useFlightDetail(serverUrl);
   const matrix = useMatrixCompanion(serverUrl);
   const {
@@ -533,6 +537,13 @@ export function AppShell() {
   }, [airportTimeZone]);
 
   const handlePairingUrl = useCallback((incomingUrl: string) => {
+    if (/^localflight:\/\/widgets(?:[/?#]|$)/i.test(incomingUrl)) {
+      setScreen(isStandalone ? "settings" : "control");
+      if (/[?&]refresh=1(?:&|$)/i.test(incomingUrl)) {
+        setWidgetRefreshRequest((value) => value + 1);
+      }
+      return;
+    }
     const parsed = parsePairingLink(incomingUrl);
     if (!parsed) {
       return;
@@ -567,7 +578,7 @@ export function AppShell() {
       setPairingNotice(null);
     }
     hapticLight();
-  }, [closeFlightDetail, mobileSetupComplete]);
+  }, [closeFlightDetail, isStandalone, mobileSetupComplete]);
 
   useEffect(() => {
     let alive = true;
@@ -634,6 +645,18 @@ export function AppShell() {
     const normalized = await saveWidgetPreferences(next);
     setWidgetPreferences(normalized);
   }, []);
+
+  useEffect(() => {
+    if (!launchHydrated) return;
+    let alive = true;
+    void configureWidgetBackgroundRefresh(mobileSetupComplete && widgetPreferences.automaticRefresh)
+      .then((next) => {
+        if (alive) setWidgetBackgroundState(next);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [launchHydrated, mobileSetupComplete, widgetPreferences.automaticRefresh]);
 
   const fetchDashboard = useCallback(async (normalized: string) => {
     if (standaloneCredentials) {
@@ -933,6 +956,16 @@ export function AppShell() {
       view
     ]
   );
+
+  const refreshWidgetSnapshotNow = useCallback(async () => {
+    setWidgetSnapshotStatus({ state: "waiting", detail: "refreshing board" });
+    await refreshScreen({ target: "fids", includeDashboard: true });
+  }, [refreshScreen]);
+
+  useEffect(() => {
+    if (!widgetRefreshRequest || !mobileSetupComplete) return;
+    void refreshWidgetSnapshotNow();
+  }, [mobileSetupComplete, refreshWidgetSnapshotNow, widgetRefreshRequest]);
 
   const connect = useCallback(async (
     candidateUrl = draftUrl,
@@ -1319,16 +1352,6 @@ export function AppShell() {
     [pinnedCallsign]
   );
 
-  const triggerSnapshotPulse = useCallback(() => {
-    if (reduceMotion) return;
-    snapshotPulse.stopAnimation();
-    snapshotPulse.setValue(0);
-    Animated.sequence([
-      Animated.timing(snapshotPulse, { toValue: 1, duration: 120, useNativeDriver: true }),
-      Animated.timing(snapshotPulse, { toValue: 0, duration: 260, useNativeDriver: true })
-    ]).start();
-  }, [snapshotPulse, reduceMotion]);
-
   useEffect(() => {
     if (!landscapeFidsActive) return;
 
@@ -1385,7 +1408,6 @@ export function AppShell() {
           ok?: boolean;
         };
         if (message.type === "snapshot_updated") {
-          triggerSnapshotPulse();
           void refreshScreen({ target: screen, includeDashboard: screenNeedsDashboard(screen, isStandalone) });
           if (detailVisible && detailCallsign) {
             refreshFlightDetail();
@@ -1415,7 +1437,7 @@ export function AppShell() {
         socketRef.current = null;
       }
     };
-  }, [connected, detailCallsign, detailVisible, isStandalone, refreshFlightDetail, refreshScreen, screen, serverUrl, triggerSnapshotPulse]);
+  }, [connected, detailCallsign, detailVisible, isStandalone, refreshFlightDetail, refreshScreen, screen, serverUrl]);
 
   const cfg: AppConfig | null = snapshot.config || (standaloneCredentials
     ? {
@@ -1494,7 +1516,14 @@ export function AppShell() {
   const syncIntervalMs = isStandalone
     ? (screen === "radar" ? 5 * 60 * 1000 : 3 * 60 * 60 * 1000)
     : (screen === "radar" ? radarSyncIntervalMs : companionSyncMs(cfg?.refresh_seconds));
-  const widgetSnapshotLabel = `Snapshot ${widgetSnapshotStatus.state} · ${widgetSnapshotStatus.detail}`;
+  const widgetAutomaticLabel = widgetBackgroundState === "active"
+    ? "automatic refresh on"
+    : widgetBackgroundState === "restricted"
+      ? "automatic refresh limited by device"
+      : widgetBackgroundState === "off"
+        ? "automatic refresh off"
+        : "checking automatic refresh";
+  const widgetSnapshotLabel = `Snapshot ${widgetSnapshotStatus.state} · ${widgetSnapshotStatus.detail} · ${widgetAutomaticLabel}`;
   const enrichDetailsFromLan = !isStandalone && Boolean(serverUrl);
   const openFidsDetail = useCallback((callsign: string, row?: FidsRow) => {
     const normalizedCallsign = callsign || row?.callsign || row?.id || "";
@@ -1575,7 +1604,12 @@ export function AppShell() {
       preferences: widgetPreferences,
       mode: isStandalone ? "standalone" : "lan_companion",
       stale: !mobileSetupComplete || !connected || Boolean(error) || widgetRowsPendingAirport,
-      sourceLabel
+      sourceLabel,
+      sourceUpdatedAt: widgetLastSuccess || null,
+      staleAfterMs: widgetSnapshotStaleAfterMs(
+        isStandalone ? "standalone" : "lan_companion",
+        cfg?.refresh_seconds
+      )
     });
     let alive = true;
     void writeWidgetSnapshot(payload, { force: !mobileSetupComplete })
@@ -1773,17 +1807,13 @@ export function AppShell() {
           airportIcao={airportIcao}
           airportName={airportName}
           airportLocation={airportLocation}
+          connectionState={connectionState}
           live={isLive}
           error={error}
-          connectionState={connectionState}
-          sourceLabel={sourceLabel}
           utcTime={utcTime}
           localTime={localTime}
           metar={snapshot.metar}
           weatherDisplayMode={weatherDisplayMode}
-          snapshotPulse={snapshotPulse}
-          rowCount={rows.length}
-          view={view}
           pinnedRow={islandRow}
           islandPinned={Boolean(islandRow && flightPinKey(islandRow) === pinnedCallsign)}
           onOpenDetail={openFidsDetail}
@@ -1796,13 +1826,7 @@ export function AppShell() {
             }
             setConfigSheetVisible(true);
           }}
-          onOpenWeather={() => {
-            if (isStandalone) {
-              setScreen("settings");
-              return;
-            }
-            setScreen("control");
-          }}
+          onOpenWeather={() => setWeatherSheetVisible(true)}
           onOpenBoard={() => setScreen("fids")}
         />
 
@@ -1835,6 +1859,8 @@ export function AppShell() {
               onOpenDetail={openFidsDetail}
               onOpenActions={setActionRow}
               pinnedCallsign={pinnedCallsign}
+              sourceLabel={sourceLabel}
+              snapshotPulse={state?.last_success_utc || (rows.length ? `rows:${rows.length}` : "waiting")}
               contentPaddingBottom={screenContentPadding}
             />
           ) : null}
@@ -1933,6 +1959,7 @@ export function AppShell() {
                   weatherDisplayMode={weatherDisplayMode}
                   widgetPreferences={widgetPreferences}
                   widgetSnapshotLabel={widgetSnapshotLabel}
+                  widgetRefreshing={refreshing}
                   mobileDiagnosticsMode={mobileDiagnosticsMode}
                   supportPurchases={supportPurchases}
                   feedbackTitle={feedbackTitle}
@@ -1944,6 +1971,7 @@ export function AppShell() {
                   onSkinChange={setSkin}
                   onWeatherDisplayModeChange={chooseWeatherDisplayMode}
                   onWidgetPreferencesChange={(next) => void chooseWidgetPreferences(next)}
+                  onRefreshWidget={() => void refreshWidgetSnapshotNow()}
                   onMobileDiagnosticsModeChange={chooseMobileDiagnosticsMode}
                   onRerunSetup={rerunCompanionSetup}
                   onFeedbackTitleChange={setFeedbackTitle}
@@ -1969,6 +1997,7 @@ export function AppShell() {
                   weatherDisplayMode={weatherDisplayMode}
                   widgetPreferences={widgetPreferences}
                   widgetSnapshotLabel={widgetSnapshotLabel}
+                  widgetRefreshing={refreshing}
                   mobileDiagnosticsMode={mobileDiagnosticsMode}
                   supportPurchases={supportPurchases}
                   profiles={profiles}
@@ -1993,6 +2022,7 @@ export function AppShell() {
                   onSkinChange={setSkin}
                   onWeatherDisplayModeChange={chooseWeatherDisplayMode}
                   onWidgetPreferencesChange={(next) => void chooseWidgetPreferences(next)}
+                  onRefreshWidget={() => void refreshWidgetSnapshotNow()}
                   onMobileDiagnosticsModeChange={chooseMobileDiagnosticsMode}
                   onMatrixPresetChange={(preset) => updateMatrixDraft({ preset })}
                   onMatrixViewChange={(nextView) => updateMatrixDraft({ default_view: nextView })}
@@ -2075,6 +2105,16 @@ export function AppShell() {
         loading={detailLoading}
         onClose={closeFlightDetail}
         onRefresh={refreshFlightDetail}
+      />
+
+      <WeatherDetailsSheet
+        visible={weatherSheetVisible}
+        airportCode={airportCode}
+        airportName={airportName}
+        metar={snapshot.metar}
+        mode={weatherDisplayMode}
+        onModeChange={(next) => void chooseWeatherDisplayMode(next)}
+        onClose={() => setWeatherSheetVisible(false)}
       />
 
       <FlightActionSheet
@@ -3810,16 +3850,6 @@ function createStyles() {
   liveTextIssue: {
     color: palette.amber
   },
-  snapshotPulseDot: {
-    width: 7,
-    height: 7,
-    borderRadius: 999,
-    backgroundColor: palette.green,
-    shadowColor: palette.green,
-    shadowOpacity: 0.65,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 0 }
-  },
   sourcePill: {
     paddingHorizontal: 9,
     paddingVertical: 5,
@@ -3880,64 +3910,50 @@ function createStyles() {
     borderTopRightRadius: 2,
     borderBottomRightRadius: 2
   },
-  airportHeroRow: {
+  airportIdentityBand: {
+    marginTop: 4,
+    minHeight: 78,
     flexDirection: "row",
     alignItems: "flex-start",
     justifyContent: "space-between",
     gap: 12
   },
-  airportHeroRowUnified: {
-    marginTop: 4
-  },
-  airportHeroRowStacked: {
-    flexDirection: "column",
-    alignItems: "stretch",
-    gap: 10
-  },
   airportHeroPressable: {
     flex: 1,
     minWidth: 0
   },
-  airportHeroPressableStacked: {
-    flex: 0,
-    width: "100%",
-    minWidth: 0
-  },
-  airportHeroTopline: {
+  identityConnectionBadge: {
+    flexShrink: 0,
+    minHeight: 30,
+    marginTop: 2,
+    paddingHorizontal: 9,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: 1,
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-    gap: 8
+    gap: 6
   },
-  airportHeroToplineUnified: {
-    justifyContent: "flex-start"
+  identityConnectionDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4
   },
-  airportHeroToplineStacked: {
-    alignItems: "flex-start"
-  },
-  airportHeroKicker: {
+  identityConnectionText: {
     fontFamily: mono,
-    color: palette.textDim,
-    fontSize: 9,
-    fontWeight: "800",
-    letterSpacing: 1.3,
+    fontSize: 8,
+    lineHeight: 10,
+    fontWeight: "900",
+    letterSpacing: 0.8,
     includeFontPadding: false
   },
   boardHeroWeatherCard: {
-    width: 148,
-    alignSelf: "flex-end",
-    marginTop: 26,
-    flexShrink: 0
-  },
-  boardHeroWeatherCardStacked: {
-    width: "72%",
-    minWidth: 220,
-    maxWidth: 320,
-    alignSelf: "center",
-    marginTop: 0
+    width: "100%",
+    alignSelf: "stretch",
+    marginTop: 2
   },
   boardHeroWeatherInner: {
-    minHeight: 78,
+    minHeight: 92,
     justifyContent: "center",
     gap: 6,
     paddingHorizontal: 12,
@@ -3977,6 +3993,46 @@ function createStyles() {
     alignItems: "center",
     justifyContent: "center",
     gap: 6
+  },
+  boardHeroWeatherAction: {
+    marginTop: 2,
+    paddingTop: 7,
+    borderTopWidth: 1,
+    borderTopColor: hairlineSoft,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 5
+  },
+  boardHeroWeatherActionLabel: {
+    fontFamily: mono,
+    color: palette.textDim,
+    fontSize: 7,
+    lineHeight: 9,
+    fontWeight: "900",
+    letterSpacing: 1.1,
+    includeFontPadding: false
+  },
+  boardHeroWeatherActionTrail: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5
+  },
+  boardHeroWeatherActionText: {
+    fontFamily: mono,
+    color: palette.blue2,
+    fontSize: 7,
+    lineHeight: 9,
+    fontWeight: "900",
+    letterSpacing: 1.1,
+    includeFontPadding: false
+  },
+  boardHeroWeatherActionChevron: {
+    color: palette.blue2,
+    fontSize: 14,
+    lineHeight: 14,
+    fontWeight: "800",
+    includeFontPadding: false
   },
   boardHeroWeatherPill: {
     maxWidth: 64,
@@ -4036,16 +4092,6 @@ function createStyles() {
     fontSize: 12,
     lineHeight: 17
   },
-  identityBand: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "flex-start",
-    marginBottom: 10
-  },
-  identityLeft: {
-    flex: 1,
-    minWidth: 0
-  },
   airportIcao: {
     color: palette.textDim,
     fontSize: 11
@@ -4059,21 +4105,6 @@ function createStyles() {
   configHintText: {
     color: palette.textDim,
     fontSize: 10
-  },
-  identityRight: {
-    alignItems: "flex-end",
-    gap: 6,
-    paddingLeft: 10
-  },
-  headerWeatherRail: {
-    width: 136,
-    alignItems: "flex-end",
-    gap: 6
-  },
-  headerWeatherRailStacked: {
-    width: "100%",
-    alignItems: "stretch",
-    gap: 8
   },
   headerClockStackInline: {
     flexDirection: "row",
@@ -4243,6 +4274,84 @@ function createStyles() {
     fontSize: 12,
     fontWeight: "700",
     color: palette.text
+  },
+  weatherSheetHero: {
+    minHeight: 112,
+    padding: 15,
+    borderRadius: 20,
+    borderWidth: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12
+  },
+  weatherSheetIcon: {
+    width: 54,
+    height: 54,
+    borderRadius: 18,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center"
+  },
+  weatherSheetHeroCopy: {
+    flex: 1,
+    minWidth: 0
+  },
+  weatherSheetAirport: {
+    fontFamily: mono,
+    color: palette.text,
+    fontSize: 13,
+    lineHeight: 17,
+    fontWeight: "900",
+    includeFontPadding: false
+  },
+  weatherSheetCondition: {
+    marginTop: 5,
+    color: palette.textMuted,
+    fontSize: 12,
+    lineHeight: 17
+  },
+  weatherSheetReading: {
+    alignItems: "flex-end",
+    gap: 5
+  },
+  weatherSheetTemperature: {
+    fontFamily: mono,
+    color: palette.text,
+    fontSize: 19,
+    lineHeight: 23,
+    fontWeight: "900",
+    includeFontPadding: false
+  },
+  weatherSheetCategory: {
+    fontFamily: mono,
+    fontSize: 10,
+    lineHeight: 13,
+    fontWeight: "900",
+    letterSpacing: 1,
+    includeFontPadding: false
+  },
+  weatherSheetRawCard: {
+    padding: 14,
+    borderRadius: 15,
+    borderWidth: 1,
+    borderColor: hairlineSoft,
+    backgroundColor: fieldPanel,
+    gap: 8
+  },
+  weatherSheetRawLabel: {
+    fontFamily: mono,
+    color: palette.blue2,
+    fontSize: 9,
+    lineHeight: 12,
+    fontWeight: "900",
+    letterSpacing: 1.3,
+    includeFontPadding: false
+  },
+  weatherSheetRawText: {
+    fontFamily: mono,
+    color: palette.text,
+    fontSize: 11,
+    lineHeight: 17
   },
   radarWeatherCard: {
     marginHorizontal: 12,
@@ -4611,6 +4720,62 @@ function createStyles() {
     padding: 3,
     borderRadius: 8,
     backgroundColor: softPanelStrong
+  },
+  fidsBoardToolbar: {
+    minHeight: 32,
+    marginHorizontal: 22,
+    marginBottom: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: hairlineSoft,
+    backgroundColor: palette.rowAlt,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8
+  },
+  fidsBoardControls: {
+    marginBottom: 10
+  },
+  fidsBoardDirectionToggle: {
+    marginBottom: 6
+  },
+  fidsBoardMetaText: {
+    flexShrink: 1,
+    fontFamily: mono,
+    color: palette.textDim,
+    fontSize: 8,
+    lineHeight: 10,
+    fontWeight: "800",
+    letterSpacing: 0.7,
+    includeFontPadding: false
+  },
+  fidsBoardMetaDivider: {
+    color: palette.textDim,
+    fontSize: 8,
+    includeFontPadding: false
+  },
+  snapshotArrivalCue: {
+    width: 16,
+    height: 16,
+    marginLeft: "auto",
+    alignItems: "center",
+    justifyContent: "center"
+  },
+  snapshotArrivalRing: {
+    position: "absolute",
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    borderWidth: 1,
+    borderColor: palette.blue2
+  },
+  snapshotArrivalCore: {
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: palette.blue2
   },
   dirButton: {
     flex: 1,
@@ -5670,14 +5835,43 @@ function createStyles() {
     height: 10,
     borderRadius: 999
   },
-  scopeLabel: {
+  scopeDotFlash: {
+    width: 14,
+    height: 14,
+    marginLeft: -2,
+    marginTop: -2
+  },
+  scopeDotDiamond: {
+    borderRadius: 2,
+    transform: [{ rotate: "45deg" }]
+  },
+  scopeDotHollow: {
+    borderWidth: 1.5
+  },
+  scopeDotFocused: {
+    width: 14,
+    height: 14,
+    marginLeft: -2,
+    marginTop: -2,
+    borderWidth: 2
+  },
+  scopeLabelStack: {
     position: "absolute",
     left: 12,
     top: -4,
-    width: 72,
+    width: 82
+  },
+  scopeLabel: {
     fontFamily: mono,
     color: palette.text,
     fontSize: 9
+  },
+  scopePhaseLabel: {
+    marginTop: 1,
+    fontFamily: mono,
+    fontSize: 7,
+    fontWeight: "800",
+    letterSpacing: 0.4
   },
   scopeEmpty: {
     position: "absolute",

@@ -67,7 +67,7 @@ _SHARED_SCHEDULE_PLANNER_VERSION = "fair-v5"
 _SHARED_SCHEDULE_SCHEMA_VERSION = "canonical-raw-v1"
 _SHARED_SCHEDULE_LOCK_WAIT_S = 4.0
 _SHARED_SCHEDULE_MIN_FRESH_TTL_S = 900
-_COMMUNITY_SCHEDULE_MIN_FRESH_TTL_S = 3600
+_COMMUNITY_SCHEDULE_MIN_FRESH_TTL_S = 1800
 _SCHEDULE_GRACE_BUCKETS = (0, 30, 60, 120, 180)
 _SCHEDULE_HORIZON_BUCKETS = (6, 12, 18, 24)
 _AERODATABOX_MAX_FIDS_DURATION_MINUTES = 720
@@ -826,6 +826,7 @@ def _ensure_schema() -> None:
     )
     _ensure_column(conn, "request_log", "service TEXT")
     _ensure_column(conn, "request_log", "plan TEXT")
+    _ensure_column(conn, "activation_tokens", "access_plan TEXT DEFAULT 'managed'")
     _ensure_column(conn, "activation_requests", "display_name TEXT")
     _ensure_column(conn, "activation_requests", "requested_mode TEXT")
     _ensure_column(conn, "activation_requests", "network_tag TEXT")
@@ -838,6 +839,17 @@ def _ensure_schema() -> None:
     _ensure_column(conn, "activation_requests", "issued_token TEXT")
     _ensure_column(conn, "activation_requests", "approved_at TEXT")
     _ensure_column(conn, "activation_requests", "delivered_at TEXT")
+    conn.execute(
+        """
+        UPDATE activation_tokens
+        SET access_plan='community'
+        WHERE token_hash IN (
+            SELECT token_hash
+            FROM activation_requests
+            WHERE requested_mode='community' AND token_hash IS NOT NULL
+        )
+        """
+    )
     _ensure_column(conn, "schedule_snapshots", "client_accesses INTEGER DEFAULT 0")
     _ensure_column(conn, "schedule_snapshots", "upstream_pulls INTEGER DEFAULT 0")
     _ensure_column(conn, "schedule_snapshots", "refresh_count INTEGER DEFAULT 0")
@@ -1620,11 +1632,13 @@ def _issue_token_for_install(
     created_by: str,
     schedule_limit: Optional[int] = None,
     radar_limit: Optional[int] = None,
+    access_plan: str = "managed",
 ) -> tuple[str, str, str]:
     existing = _activation_row_for_install(conn, install_id)
     token = _new_activation_token()
     resolved_schedule_limit = schedule_limit if schedule_limit is not None else _managed_schedule_limit()
     resolved_radar_limit = radar_limit if radar_limit is not None else _managed_radar_limit()
+    resolved_access_plan = "community" if str(access_plan).strip().lower() == "community" else "managed"
     if existing:
         old_hash = str(existing["token_hash"] or "")
         new_hash = _token_hash(token)
@@ -1636,6 +1650,7 @@ def _issue_token_for_install(
                 label=?,
                 schedule_limit=?,
                 radar_limit=?,
+                access_plan=?,
                 last_seen=?,
                 revoked_at=NULL,
                 created_by=?
@@ -1647,6 +1662,7 @@ def _issue_token_for_install(
                 label.strip() or str(existing["label"] or "") or None,
                 resolved_schedule_limit,
                 resolved_radar_limit,
+                resolved_access_plan,
                 _utc_now(),
                 created_by,
                 old_hash,
@@ -1666,6 +1682,7 @@ def _issue_token_for_install(
         radar_limit=resolved_radar_limit,
         created_by=created_by,
         bound_install_id=install_id,
+        access_plan=resolved_access_plan,
     )
     return token, token[:10], "issued"
 
@@ -1673,6 +1690,8 @@ def _issue_token_for_install(
 def _activation_limits_for_requested_mode(requested_mode: str) -> tuple[Optional[int], Optional[int]]:
     if _is_mobile_standalone(requested_mode):
         return _standalone_schedule_limit(), _standalone_radar_limit()
+    if str(requested_mode or "").strip().lower() == "community":
+        return _community_schedule_limit(), _community_radar_limit()
     return None, None
 
 
@@ -1780,7 +1799,7 @@ def _resolve_access(
             limit = int(activation_row["schedule_limit"] or _managed_schedule_limit())
         else:
             limit = int(activation_row["radar_limit"] or _managed_radar_limit())
-        plan = "managed"
+        plan = "community" if str(activation_row["access_plan"] or "managed").strip().lower() == "community" else "managed"
     else:
         limit = _community_schedule_limit() if service == "aviationstack" else _community_radar_limit()
         plan = "community"
@@ -6068,13 +6087,14 @@ def _store_activation_token(
     radar_limit: int,
     created_by: str,
     bound_install_id: Optional[str] = None,
+    access_plan: str = "managed",
 ) -> None:
     conn.execute(
         """
         INSERT INTO activation_tokens (
             token_hash, token_prefix, label, schedule_limit, radar_limit,
-            created_at, created_by, bound_install_id, last_seen, revoked_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)
+            created_at, created_by, bound_install_id, last_seen, revoked_at, access_plan
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?)
         """,
         (
             _token_hash(token),
@@ -6085,6 +6105,7 @@ def _store_activation_token(
             _utc_now(),
             created_by,
             bound_install_id,
+            "community" if str(access_plan).strip().lower() == "community" else "managed",
         ),
     )
 
@@ -6675,6 +6696,9 @@ _ADMIN_HTML_TEMPLATE = (_ADMIN_ASSET_DIR / "admin.html").read_text(encoding="utf
 _ADMIN_CSS = (_ADMIN_ASSET_DIR / "admin.css").read_text(encoding="utf-8")
 _ADMIN_JS = (_ADMIN_ASSET_DIR / "admin.js").read_text(encoding="utf-8")
 _ADMIN_SHELL = _ADMIN_HTML_TEMPLATE.replace("__ADMIN_CSS__", _ADMIN_CSS).replace("__ADMIN_JS__", _ADMIN_JS)
+_PUBLIC_LANDING_HTML = (
+    (Path(__file__).resolve().parent / "public" / "index.html").read_text(encoding="utf-8")
+)
 
 
 def _render_admin_shell(username: str, *, created_token: str = "", message: str = "") -> str:
@@ -8418,17 +8442,40 @@ async def _surface_gate(request: Request, call_next):
         return JSONResponse({"detail": "Not found"}, status_code=404)
     return await call_next(request)
 
+
 @app.get("/")
 def root(request: Request):
     if _request_surface(request) == "public":
-        return {
-            "ok": True,
-            "service": "Local Flight Community Relay",
-            "public_host": _public_host(),
-            "admin_host": _admin_host(),
-            "health": "/health",
-            "provider_revision": _provider_revision(),
+        negotiation_headers = {
+            "Cache-Control": "no-store",
+            "Vary": "Accept",
         }
+        if "text/html" in request.headers.get("accept", "").lower():
+            return HTMLResponse(
+                _PUBLIC_LANDING_HTML,
+                headers={
+                    **negotiation_headers,
+                    "Content-Security-Policy": (
+                        "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; "
+                        "form-action 'none'; frame-ancestors 'none'"
+                    ),
+                    "Permissions-Policy": "camera=(), geolocation=(), microphone=()",
+                    "Referrer-Policy": "no-referrer",
+                    "X-Content-Type-Options": "nosniff",
+                    "X-Frame-Options": "DENY",
+                },
+            )
+        return JSONResponse(
+            {
+                "ok": True,
+                "service": "Local Flight Community Relay",
+                "public_host": _public_host(),
+                "admin_host": _admin_host(),
+                "health": "/health",
+                "provider_revision": _provider_revision(),
+            },
+            headers=negotiation_headers,
+        )
     return RedirectResponse(url="/admin", status_code=307)
 
 
@@ -8727,7 +8774,7 @@ def _build_client_status(
         if bound_install_id and bound_install_id != install_id:
             raise HTTPException(status_code=403, detail="Activation token already bound to another install")
         _bind_activation_install(str(activation_row["token_hash"]), install_id)
-        plan = "managed"
+        plan = "community" if str(activation_row["access_plan"] or "managed").strip().lower() == "community" else "managed"
         schedule_limit = int(activation_row["schedule_limit"] or _managed_schedule_limit())
         radar_limit = int(activation_row["radar_limit"] or _managed_radar_limit())
         token_prefix = str(activation_row["token_prefix"] or "")
@@ -9126,6 +9173,7 @@ def relay_activate(body: ActivationRequestIn, request: Request) -> Dict[str, Any
         created_by="auto-issue",
         schedule_limit=schedule_limit,
         radar_limit=radar_limit,
+        access_plan="community" if requested_mode == "community" else "managed",
     )
     response_note = (
         "Relay access reissued for this existing installation after setup reset."
@@ -10618,7 +10666,7 @@ def relay_schedule(
         if budget_limited_providers:
             payload["meta"]["budget_limited_providers"] = sorted(set(budget_limited_providers))
         if plan == "community":
-            payload["meta"]["relay_policy"] = "community schedule snapshots refresh at most once per hour"
+            payload["meta"]["relay_policy"] = "community schedule snapshots refresh at most once every 30 minutes"
         if client_kind == "mobile_standalone":
             payload["meta"]["relay_policy"] = "mobile standalone schedule snapshots refresh at most once every 3 hours"
             payload["meta"]["client_kind"] = "mobile_standalone"
@@ -11891,6 +11939,7 @@ def admin_api_activation_request_action(
                 created_by=username,
                 schedule_limit=schedule_limit,
                 radar_limit=radar_limit,
+                access_plan="community" if str(row["requested_mode"] or "").strip().lower() == "community" else "managed",
             )
             now = _utc_now()
             conn.execute(
@@ -12234,6 +12283,7 @@ def admin_activation_request_approve(
         created_by=username,
         schedule_limit=schedule_limit,
         radar_limit=radar_limit,
+        access_plan="community" if str(row["requested_mode"] or "").strip().lower() == "community" else "managed",
     )
     now = _utc_now()
     conn.execute(

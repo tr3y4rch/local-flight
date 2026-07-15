@@ -29,7 +29,8 @@ export type WidgetPreviewSnapshot = {
 export const WIDGET_SNAPSHOT_SCHEMA_VERSION = 1;
 export const WIDGET_APP_GROUP_ID = "group.cc.beacontools.localflight";
 export const WIDGET_SNAPSHOT_FILENAME = "localflight-widget-snapshot.json";
-export const WIDGET_SNAPSHOT_STALE_AFTER_MS = 15 * 60 * 1000;
+export const WIDGET_SNAPSHOT_STALE_AFTER_MS = 60 * 60 * 1000;
+export const WIDGET_STANDALONE_STALE_AFTER_MS = 4 * 60 * 60 * 1000;
 export const WIDGET_SNAPSHOT_MAX_BYTES = 64 * 1024;
 const WIDGET_MAX_MEDIUM_ROWS_WITH_PIN = 4;
 
@@ -49,6 +50,7 @@ export type LocalFlightWidgetSnapshot = {
   source: {
     label: string;
     lastUpdatedLabel: string;
+    updatedAt: string;
   };
   preferences: MobileWidgetPreferences;
   small: {
@@ -97,13 +99,23 @@ function normalizeView(value: unknown): FlightView {
 
 function normalizeWidgetPreferences(value: unknown): MobileWidgetPreferences {
   if (!value || typeof value !== "object") {
-    return { mediumRowCount: 3, showGateTerminal: true };
+    return { mediumRowCount: 3, showGateTerminal: true, automaticRefresh: true };
   }
   const raw = value as Partial<MobileWidgetPreferences>;
   return {
     mediumRowCount: raw.mediumRowCount === 2 ? 2 : 3,
-    showGateTerminal: raw.showGateTerminal !== false
+    showGateTerminal: raw.showGateTerminal !== false,
+    automaticRefresh: raw.automaticRefresh !== false
   };
+}
+
+export function widgetSnapshotStaleAfterMs(
+  mode: WidgetSnapshotMode,
+  refreshSeconds?: number | null
+): number {
+  if (mode === "standalone") return WIDGET_STANDALONE_STALE_AFTER_MS;
+  const configuredMs = Math.max(0, Number(refreshSeconds || 0)) * 1000;
+  return Math.min(24 * 60 * 60 * 1000, Math.max(WIDGET_SNAPSHOT_STALE_AFTER_MS, configuredMs * 2));
 }
 
 function parseWidgetDate(value: unknown): number | null {
@@ -201,7 +213,9 @@ export function buildWidgetExchangeSnapshot({
   mode,
   generatedAt = new Date(),
   stale = false,
-  sourceLabel = "mobile"
+  sourceLabel = "mobile",
+  sourceUpdatedAt,
+  staleAfterMs
 }: {
   preview: WidgetPreviewSnapshot;
   preferences: MobileWidgetPreferences;
@@ -209,6 +223,8 @@ export function buildWidgetExchangeSnapshot({
   generatedAt?: Date;
   stale?: boolean;
   sourceLabel?: string;
+  sourceUpdatedAt?: string | null;
+  staleAfterMs?: number;
 }): LocalFlightWidgetSnapshot {
   const normalizedPreferences = normalizeWidgetPreferences(preferences);
   const pinned = preview.pinnedFlight ? normalizeWidgetFlight(preview.pinnedFlight) : null;
@@ -222,10 +238,17 @@ export function buildWidgetExchangeSnapshot({
       .map((flight) => ({ ...flight, pinned: false }))
   ].slice(0, Math.min(WIDGET_MAX_MEDIUM_ROWS_WITH_PIN, mediumRowLimit));
 
+  const parsedSourceUpdatedAt = parseWidgetDate(sourceUpdatedAt);
+  const effectiveSourceUpdatedAt = parsedSourceUpdatedAt == null ? generatedAt.getTime() : parsedSourceUpdatedAt;
+  const effectiveStaleAfterMs = Math.max(
+    15 * 60 * 1000,
+    Number(staleAfterMs || widgetSnapshotStaleAfterMs(mode))
+  );
+
   return {
     schemaVersion: WIDGET_SNAPSHOT_SCHEMA_VERSION,
     generatedAt: generatedAt.toISOString(),
-    expiresAt: new Date(generatedAt.getTime() + WIDGET_SNAPSHOT_STALE_AFTER_MS).toISOString(),
+    expiresAt: new Date(effectiveSourceUpdatedAt + effectiveStaleAfterMs).toISOString(),
     mode,
     stale,
     airport: {
@@ -235,7 +258,8 @@ export function buildWidgetExchangeSnapshot({
     },
     source: {
       label: clampWidgetText(sourceLabel, 32) || "mobile",
-      lastUpdatedLabel: clampWidgetText(preview.updatedLabel, 32) || "Waiting"
+      lastUpdatedLabel: clampWidgetText(preview.updatedLabel, 32) || "Waiting",
+      updatedAt: new Date(effectiveSourceUpdatedAt).toISOString()
     },
     preferences: normalizedPreferences,
     small: {
@@ -286,7 +310,8 @@ export function normalizeWidgetExchangeSnapshot(value: unknown): LocalFlightWidg
     },
     source: {
       label: clampWidgetText(String(raw.source?.label || ""), 32) || "mobile",
-      lastUpdatedLabel: clampWidgetText(String(raw.source?.lastUpdatedLabel || ""), 32) || "Waiting"
+      lastUpdatedLabel: clampWidgetText(String(raw.source?.lastUpdatedLabel || ""), 32) || "Waiting",
+      updatedAt: new Date(parseWidgetDate(raw.source?.updatedAt) ?? generatedAt).toISOString()
     },
     preferences,
     small: {

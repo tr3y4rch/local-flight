@@ -326,6 +326,7 @@ def test_native_client_window_footer_links(monkeypatch: pytest.MonkeyPatch) -> N
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     window = NativeMainWindow(*import_qt(), base_url="http://127.0.0.1:9", first_launch=False)
     window.footer_github_button.click()
+    window.footer_brand_button.click()
     window.footer_coffee_button.click()
 
     assert app is not None
@@ -333,13 +334,16 @@ def test_native_client_window_footer_links(monkeypatch: pytest.MonkeyPatch) -> N
     assert not window.footer_coffee_button.icon().isNull() or window.footer_coffee_button.text()
     assert window.footer_github_button.text() != "GitHub"
     assert window.footer_coffee_button.text() != "Buy Me a Coffee"
-    assert window.footer_github_button.toolTip() == "Beacon Tools"
+    assert window.footer_github_button.toolTip() == "View Local Flight source on GitHub"
     assert window.footer_coffee_button.toolTip() == "Buy Me a Coffee"
-    assert window.footer_github_button.accessibleName() == "Beacon Tools"
+    assert window.footer_github_button.accessibleName() == "Local Flight GitHub repository"
     assert window.footer_coffee_button.accessibleName() == "Buy Me a Coffee"
+    assert window.footer_brand_button.text() == "BEACON TOOLS"
+    assert window.footer_brand_button.toolTip() == "Visit Beacon Tools"
+    assert window.footer_brand_button.accessibleName() == "Visit Beacon Tools website"
     assert window.footer_status_label.text().endswith("Local-first \u00b7 private by design")
     assert window.footer_status_label.text().startswith("v")
-    assert opened == [legacy_app.WEBSITE_URL, legacy_app.COFFEE_URL]
+    assert opened == [legacy_app.GITHUB_URL, legacy_app.WEBSITE_URL, legacy_app.COFFEE_URL]
 
 
 def test_native_footer_support_assets_resolve() -> None:
@@ -944,7 +948,8 @@ def test_native_main_window_uses_page_aware_fallback_intervals(monkeypatch: pyte
     assert app is not None
     assert window.refresh_timer.isSingleShot()
     assert window.current_screen_key == "display"
-    assert window._fallback_interval_ms() == 300_000
+    monkeypatch.setattr(window.service, "config", lambda: {"refresh_seconds": 1800})
+    assert window._fallback_interval_ms() == 1_800_000
 
     window.current_screen_key = "settings"
     assert window._fallback_interval_ms() is None
@@ -1616,6 +1621,47 @@ def test_native_radar_projects_lat_lon_blips(monkeypatch: pytest.MonkeyPatch) ->
     assert canvas._blip_angle(canvas.blips[0]) == pytest.approx(0.0)
 
 
+def test_native_radar_activation_before_show_starts_and_pauses_monotonic_sweep(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    pytest.importorskip("PySide6")
+    from PySide6 import QtTest, QtWidgets
+    from localflight.native.app import RadarScreen
+    from localflight.native.qt_compat import import_qt
+
+    QtCore, QtGui, QtWidgets2 = import_qt()
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    screen = RadarScreen(QtCore, QtGui, QtWidgets2, object())
+
+    # The shell activates lazy pages before their first showEvent.
+    screen.set_active(True)
+    assert not screen.canvas._sweep_timer.isActive()
+    assert not screen.canvas._sweep_clock.isValid()
+
+    screen.widget.resize(800, 600)
+    screen.widget.show()
+    app.processEvents()
+    start_angle = screen.canvas.sweep_angle
+    QtTest.QTest.qWait(200)
+    app.processEvents()
+
+    assert screen.canvas._sweep_timer.isActive()
+    assert screen.canvas._sweep_clock.isValid()
+    assert screen.canvas.sweep_angle > start_angle
+
+    screen.widget.hide()
+    app.processEvents()
+    paused_angle = screen.canvas.sweep_angle
+    QtTest.QTest.qWait(160)
+    app.processEvents()
+
+    assert not screen.canvas._sweep_timer.isActive()
+    assert not screen.canvas._sweep_clock.isValid()
+    assert screen.canvas.sweep_angle == pytest.approx(paused_angle)
+    screen.widget.close()
+
+
 def test_native_radar_projects_surface_points_from_lon_lat_or_lat_lon(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
     pytest.importorskip("PySide6")
@@ -1717,6 +1763,62 @@ def test_native_radar_blips_light_on_sweep_bar_then_fade(monkeypatch: pytest.Mon
     assert bright == 255
     assert 0 < fading < bright
     assert gone == 0
+
+
+def test_native_radar_blip_waits_for_leading_line_and_focus_remains_interactive(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    pytest.importorskip("PySide6")
+    from PySide6 import QtWidgets
+    from localflight.native.app import RadarCanvas
+    from localflight.native.qt_compat import import_qt
+
+    QtCore, QtGui, QtWidgets2 = import_qt()
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    canvas = RadarCanvas(QtCore, QtGui, QtWidgets2)
+    canvas.resize(480, 480)
+    blip = {"callsign": "WAIT1", "bearing_deg": 1, "distance_nm": 1, "radar_phase": "approach"}
+    canvas.set_payload({"center": {"lat": 47.0, "lon": 8.0}, "radius_nm": 5, "blips": [blip]})
+    viewport = canvas._viewport(canvas.rect())
+    x_pos, y_pos = canvas._blip_pos(blip, viewport)
+
+    canvas.sweep_angle = 0
+    assert canvas._blip_alpha(blip) == 0
+    assert canvas._hit_blip(x_pos, y_pos, viewport) is None
+
+    canvas.sweep_angle = 1
+    assert canvas._blip_alpha(blip) == 255
+    assert canvas._hit_blip(x_pos, y_pos, viewport) == blip
+
+    canvas.set_selected_blip(blip)
+    canvas.sweep_angle = 180
+    assert canvas._blip_alpha(blip) >= 219
+    assert canvas._hit_blip(x_pos, y_pos, viewport) == blip
+    assert app is not None
+
+
+@pytest.mark.parametrize("width,height", [(800, 480), (1024, 600), (1366, 768), (1920, 1080)])
+def test_native_radar_contract_fits_supported_viewports(
+    monkeypatch: pytest.MonkeyPatch,
+    width: int,
+    height: int,
+) -> None:
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    pytest.importorskip("PySide6")
+    from PySide6 import QtWidgets
+    from localflight.native.app import RadarCanvas
+    from localflight.native.qt_compat import import_qt
+
+    QtCore, QtGui, QtWidgets2 = import_qt()
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    canvas = RadarCanvas(QtCore, QtGui, QtWidgets2)
+    canvas.resize(width, height)
+    viewport = canvas._viewport(canvas.rect())
+
+    assert viewport.radius > 0
+    assert viewport.width == width
+    assert viewport.height == height
+    assert canvas.minimumSizeHint().width() <= width
+    assert app is not None
 
 
 def test_native_radar_embedded_layout_stays_narrow(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -2297,6 +2399,7 @@ def test_native_radar_selected_panel_shows_safe_fids_detail(monkeypatch: pytest.
         "detail": "On final | A320 | 9843 ft | -591 fpm | 233 kt",
     }
     screen._apply_selected_summary(summary)
+    screen.canvas.set_selected_blip({"callsign": "SWR123"})
     screen._apply_selected_detail(
         summary,
         {
@@ -2327,6 +2430,36 @@ def test_native_radar_selected_panel_shows_safe_fids_detail(monkeypatch: pytest.
     assert "live position matched" in screen.blip_detail.text()
     assert "Do Not Show" not in screen.blip_detail.text()
     assert "123456" not in screen.blip_detail.text()
+    assert screen.blip_info.objectName() == "RadarSelectionCard"
+    assert screen.blip_close.accessibleName() == "Close radar target details"
+    screen.blip_close.click()
+    assert screen.blip_info.isHidden()
+    assert screen.canvas._selected_key == ""
+
+
+def test_native_radar_ignores_detail_result_after_selection_is_closed(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    pytest.importorskip("PySide6")
+    from PySide6 import QtWidgets
+    from localflight.native.app import RadarScreen
+    from localflight.native.qt_compat import import_qt
+
+    QtCore, QtGui, QtWidgets2 = import_qt()
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    screen = RadarScreen(QtCore, QtGui, QtWidgets2, object())
+    summary = {"title": "SWR123", "route": "ZRH -> LHR", "detail": "On final"}
+    screen._apply_selected_summary(summary)
+    selection_serial = screen._selection_serial
+    screen._clear_selected_blip()
+    screen._apply_selected_detail(
+        summary,
+        {"detail": {"status": "landed", "origin_iata": "ZRH", "dest_iata": "LHR"}},
+        selection_serial=selection_serial,
+    )
+
+    assert app is not None
+    assert screen.blip_info.isHidden()
+    assert screen.blip_detail.text() != "Schedule match · LANDED"
 
 
 def test_native_weather_line_translates_icons_and_keeps_keys_hidden() -> None:
@@ -3228,9 +3361,9 @@ def test_native_settings_filters_community_relay_refresh_options(monkeypatch: py
     ]
 
     assert app is not None
-    assert values[0] == 3600
+    assert values[0] == 1800
     assert 900 not in values
-    assert int(screen.refresh_seconds.currentData()) == 3600
+    assert int(screen.refresh_seconds.currentData()) == 1800
 
 
 def test_native_settings_actions_use_native_service(monkeypatch: pytest.MonkeyPatch) -> None:

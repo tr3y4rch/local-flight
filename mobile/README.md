@@ -37,7 +37,7 @@ The public front door for Mobile users is [beacontools.cc/local-flight/mobile](h
 
 Expo SDK 55 targets React Native 0.83 and React 19.2. Run `npm run doctor` after install on the Mac to confirm the active Xcode, CocoaPods, and package versions are compatible.
 
-For App Store/TestFlight preparation, keep [APP_STORE_REVIEW_NOTES.md](APP_STORE_REVIEW_NOTES.md) aligned with the exact build being submitted. For Google Play preparation, keep [PLAY_STORE_REVIEW_NOTES.md](PLAY_STORE_REVIEW_NOTES.md) aligned with the exact Android App Bundle being submitted. Store-facing website/support links should point to `https://beacontools.cc/local-flight/mobile`; privacy links should point to `https://beacontools.cc/privacy`.
+For App Store/TestFlight preparation, keep [APP_STORE_REVIEW_NOTES.md](APP_STORE_REVIEW_NOTES.md) aligned with the exact build being submitted. Copy the checked English (U.S.) customer listing from [`store/ios/en-US/`](store/ios/en-US/) and run `npm run appstore:contract` before submission. For Google Play preparation, keep [PLAY_STORE_REVIEW_NOTES.md](PLAY_STORE_REVIEW_NOTES.md) aligned with the exact Android App Bundle being submitted. Store marketing links should point to `https://beacontools.cc/local-flight/mobile`, support links to `https://beacontools.cc/support`, and privacy links to `https://beacontools.cc/privacy`.
 
 The home-screen widget contract and Dynamic Island / Live Activity boundary live in [`../docs/mobile-ios-widgets-dynamic-island.md`](../docs/mobile-ios-widgets-dynamic-island.md). The current source enables a WidgetKit extension for iOS and a local `AppWidgetProvider` for Android. Both read the same bounded app-written snapshot and never fetch LAN, relay, or provider data themselves. Dynamic Island and Live Activities remain deferred.
 
@@ -144,7 +144,7 @@ Store identity and the current `0.5.1` testing counters are:
 
 Do not upload a store build with any old `com.localflight.*` identifier. App Store bundle IDs and Google Play package names are effectively permanent after first upload.
 
-The previous signed testing artifacts remain iOS `0.5.1 (4)` and Android `0.5.1 (8)`. The widget-enabled source now targets iOS `0.5.1 (5)` and Android `0.5.1 (9)`; these counters need fresh store builds because native widget code cannot be delivered through an over-the-air JavaScript update.
+The current widget-enabled source targets iOS `0.5.1 (6)` and Android `0.5.1 (9)`; these counters need fresh store builds because native widget code cannot be delivered through an over-the-air JavaScript update.
 
 ```bash
 cd mobile
@@ -239,7 +239,7 @@ The screenshot script builds a self-contained simulator app and captures portrai
 - Standalone summary, FIDS, Radar, and METAR data from relay `/v1/mobile/*` endpoints
 - Native FIDS list from local `/api/fids` in Companion mode and relay `/v1/mobile/fids` in Standalone mode
 - Flight details from `/api/fids/detail`, including the server's shared current-source detail model for real vs VATSIM schedule, motion, aircraft, weather, source confidence, and history fields when available. VATSIM details use the same pilot/ATC contract as desktop: callsign, filed plan, pilot track, XPDR, and recent sessions, without passenger codeshare/gate/registration fields.
-- Airport, source, and refresh interval editing. The server offers 15, 30, 45, and 60 minute choices plus longer 2, 4, 8, 12, and 24 hour choices where the active schedule mode allows them. Local Flight Relay shows hourly-or-slower choices because shared airport snapshots protect upstream schedule access.
+- Airport, source, and refresh interval editing. The server offers 15, 30, 45, and 60 minute choices plus longer 2, 4, 8, 12, and 24 hour choices where the active schedule mode allows them. Local Flight Relay shows 30-minute-or-slower choices because shared airport snapshots protect upstream schedule access.
 - Pinned flight island with pin/unpin and tap-for-detail behavior
 - WebSocket listener for `/ws` `snapshot_updated`, `config_updated`, and `scheduler_restarted` events in Companion mode on LAN. Remote Companion can fall back to polling when relay event forwarding is unavailable.
 - Independent mobile appearance with dark/light theme plus `standard`, `technical`, `neon`, `cyan`, and `crt` skins

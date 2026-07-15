@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import {
   ActivityIndicator,
   Animated,
+  AppState as NativeAppState,
   Easing,
   FlatList,
   Image,
@@ -75,6 +76,21 @@ import {
   RADAR_RADII,
   REFRESH_OPTIONS
 } from "../domain/constants";
+import {
+  RADAR_FLASH_DEGREES,
+  RADAR_FRAME_INTERVAL_MS,
+  RADAR_INTERACTIVE_MIN_OPACITY,
+  RADAR_TRAIL_DEGREES,
+  compareRadarPriority,
+  normalizeRadarPhase,
+  radarAngularAge,
+  radarLabelPriority,
+  radarPhaseLabel,
+  radarSweepAngleAfter,
+  radarSweepOpacity,
+  radarTargetShape,
+  radarTargetTone
+} from "../domain/radarPresentation";
 import {
   detailRouteLabel,
   flightPinKey,
@@ -203,18 +219,14 @@ function flightRowAccessibilityLabel(row: FidsRow): string {
 
 function radarBlipAccessibilityLabel(blip: RadarBlip): string {
   const title = cleanInfoValue(blip.display_title) || cleanInfoValue(blip.flight_number) || cleanInfoValue(blip.callsign) || "Tracked aircraft";
-  const status = cleanInfoValue(blip.radar_status_label) || cleanInfoValue(blip.status) || cleanInfoValue(blip.radar_phase);
+  const status = cleanInfoValue(blip.radar_status_label) || cleanInfoValue(blip.radar_phase);
   const distance = blip.distance_nm != null ? `${blip.distance_nm.toFixed(1)} nautical miles` : null;
   const altitude = cleanInfoValue(blip.altitude_display) || (blip.altitude_ft != null ? formatFeetValue(blip.altitude_ft) : formatAltitudeFeet(blip.altitude_m));
   return [title, status, distance, altitude].filter(Boolean).join(", ");
 }
 const RADAR_GROUND_CLIP_ID = "mobile-radar-ground-clip";
 const RADAR_SWEEP_CLIP_ID = "mobile-radar-sweep-clip";
-const RADAR_SWEEP_WIDTH_DEG = 72;
-const RADAR_SWEEP_INTERVAL_MS = 80;
-const RADAR_SWEEP_STEP_DEG = 1.92;
-const RADAR_BLIP_FADE_DEG = 75;
-const RADAR_BLIP_BASE_OPACITY = 0.42;
+const RADAR_SWEEP_WIDTH_DEG = RADAR_TRAIL_DEGREES;
 
 export function ScreenActivity({
   activity,
@@ -458,6 +470,11 @@ function radarBlipKey(row: RadarBlip, index: number): string {
   ].join(":");
 }
 
+function radarTargetKey(row: RadarBlip, index: number): string {
+  const identity = row.callsign || row.icao24 || row.flight_number;
+  return identity ? `radar-target:${keyedPart(identity)}` : radarBlipKey(row, index);
+}
+
 function detailHistoryKey(
   item: { date: string; status?: string | null; delay_minutes?: number | null; gate?: string | null },
   index: number
@@ -534,7 +551,6 @@ function airlineInfoFrames(row: FidsRow): RowInfoFrame[] {
       row.altitude_ft != null ? { label: "ALT", value: formatFeetValue(row.altitude_ft), tone: "muted" } : null,
       row.ground_speed_kt != null ? { label: "GS", value: `${Math.round(row.ground_speed_kt)} kt`, tone: "muted" } : null,
       row.squawk || row.transponder ? { label: "XPDR", value: row.squawk || row.transponder || "", tone: "muted" } : null,
-      row.source_hint ? { label: "DATA", value: row.source_hint, tone: "muted" } : null
     ]);
   }
   const soldAs = (row.sold_as || []).slice(0, 3).join(" / ");
@@ -569,7 +585,6 @@ function rowDetailFrames(row: FidsRow, gateLabel: string): RowInfoFrame[] {
     row.time_delta_text ? { label: "TIME", value: row.time_delta_text, tone: row.delay_kind === "bad" ? "warn" : "muted" } : null,
     row.status_kind ? { label: "STATE", value: row.status_kind.replace(/_/g, " "), tone: row.delay_kind === "bad" ? "warn" : "muted" } : null,
     row.live_hint ? { label: "LIVE", value: row.live_hint, tone: "muted" } : null,
-    row.source_hint ? { label: "DATA", value: row.source_hint, tone: "muted" } : null,
     row.codeshare_display ? { label: "CODESHARE", value: row.codeshare_display.replace(/^also\s+/i, ""), tone: "muted" } : null
   ]);
 }
@@ -596,7 +611,7 @@ const PASSENGER_WEATHER_DISPLAY_OPTION: WeatherDisplayOption = {
 const WEATHER_DISPLAY_OPTIONS: WeatherDisplayOption[] = [
   PASSENGER_WEATHER_DISPLAY_OPTION,
   { id: "pilot", label: "PILOT", meta: "Brief", detail: "Wind, visibility, cloud, temp, and QNH chips." },
-  { id: "vatsim", label: "VATSIM", meta: "Raw", detail: "Controller-style METAR text where space allows." }
+  { id: "vatsim", label: "METAR", meta: "Raw", detail: "Raw METAR text where space allows." }
 ];
 
 function weatherModeOption(mode: MobileWeatherDisplayMode): WeatherDisplayOption {
@@ -622,6 +637,65 @@ function metarTemperature(metar: Metar | null | undefined): string {
   const match = raw.match(/\b(M?\d{1,2})\/(M?\d{1,2})\b/);
   if (!match) return "--";
   return `${(match[1] || "").replace("M", "-")}°C`;
+}
+
+function metarDewpoint(metar: Metar | null | undefined): string {
+  if (typeof metar?.dewpoint_c === "number") return `${Math.round(metar.dewpoint_c)}°C`;
+  const match = metarRawText(metar).match(/\b(M?\d{1,2})\/(M?\d{1,2})\b/);
+  if (!match) return "--";
+  return `${(match[2] || "").replace("M", "-")}°C`;
+}
+
+function metarWind(metar: Metar | null | undefined): string {
+  if (metar?.wind_display || metar?.wind) return metar.wind_display || metar.wind || "--";
+  if (typeof metar?.wind_speed_kt !== "number") return "--";
+  const direction = typeof metar.wind_dir_deg === "number" ? `${Math.round(metar.wind_dir_deg)}°` : "VRB";
+  const gust = typeof metar.wind_gust_kt === "number" ? ` G${Math.round(metar.wind_gust_kt)}` : "";
+  return `${direction} ${Math.round(metar.wind_speed_kt)}${gust} kt`;
+}
+
+function metarVisibility(metar: Metar | null | undefined): string {
+  if (typeof metar?.visibility_m === "number") {
+    return metar.visibility_m >= 10_000 ? "10+ km" : `${(metar.visibility_m / 1000).toFixed(metar.visibility_m < 1000 ? 1 : 0)} km`;
+  }
+  if (typeof metar?.visibility_sm === "number") return `${metar.visibility_sm} sm`;
+  return weatherChips(metar).find((chip) => chip.label === "VIS")?.value || "--";
+}
+
+function metarClouds(metar: Metar | null | undefined): string {
+  if (typeof metar?.ceiling_ft === "number") return `Ceiling ${Math.round(metar.ceiling_ft)} ft`;
+  const layers = (metar?.clouds || []).slice(0, 3).map((layer) => {
+    const rawCover = layer.cover ?? layer.amount ?? layer.sky_cover;
+    const cover = typeof rawCover === "string" || typeof rawCover === "number"
+      ? cleanInfoValue(rawCover).toUpperCase()
+      : "";
+    const rawBase = layer.base_ft_agl ?? layer.base_ft ?? layer.altitude_ft;
+    const base = typeof rawBase === "number"
+      ? `${Math.round(rawBase)} ft`
+      : typeof rawBase === "string"
+        ? cleanInfoValue(rawBase)
+        : "";
+    return [cover, base].filter(Boolean).join(" ");
+  }).filter(Boolean);
+  if (layers.length) return layers.join(" · ");
+  return weatherChips(metar).find((chip) => chip.label === "CLD")?.value || "--";
+}
+
+function metarQnh(metar: Metar | null | undefined): string {
+  const qnh = metar?.qnh_hpa ?? metar?.altimeter_hpa;
+  if (typeof qnh === "number") return `${Math.round(qnh)} hPa`;
+  return weatherChips(metar).find((chip) => chip.label === "QNH")?.value || "--";
+}
+
+function metarHazards(metar: Metar | null | undefined): string {
+  const hazards = metar?.weather_hazards || metar?.weather?.hazards || [];
+  if (hazards.length) return hazards.join(" · ");
+  return cleanInfoValue(metar?.wx_string) || "None reported";
+}
+
+function metarSource(metar: Metar | null | undefined): string {
+  const source = cleanInfoValue(metar?.weather?.source || metar?.source);
+  return source ? sourceMetric(source) : "Local Flight weather feed";
 }
 
 function weatherCondition(metar: Metar | null | undefined): string {
@@ -679,17 +753,13 @@ export function Header({
   airportIcao,
   airportName,
   airportLocation,
+  connectionState,
   live,
   error,
-  connectionState,
-  sourceLabel,
   utcTime,
   localTime,
   metar,
   weatherDisplayMode,
-  snapshotPulse,
-  rowCount,
-  view,
   pinnedRow,
   islandPinned,
   onOpenDetail,
@@ -704,17 +774,13 @@ export function Header({
   airportIcao: string;
   airportName: string;
   airportLocation: string;
+  connectionState: ConnectionState;
   live: boolean;
   error?: string | null;
-  connectionState?: ConnectionState;
-  sourceLabel: string;
   utcTime: string;
   localTime: string;
   metar: Metar | null;
   weatherDisplayMode: MobileWeatherDisplayMode;
-  snapshotPulse?: Animated.Value;
-  rowCount: number;
-  view: FlightView;
   pinnedRow: FidsRow | null;
   islandPinned: boolean;
   onOpenDetail: (callsign: string, row?: FidsRow) => void;
@@ -728,44 +794,7 @@ export function Header({
   const accent = metarAccentColor(category);
   const longAirportName = airportName.length > 24;
   const hasAirportCode = Boolean(airportCode && airportCode !== "---");
-  const effectiveConnectionState = connectionState || (!live ? "offline" : error ? "offline" : "live");
-  const connectionAccent =
-    effectiveConnectionState === "lan" || effectiveConnectionState === "live"
-      ? palette.green
-      : effectiveConnectionState === "remote"
-        ? palette.blue2
-        : effectiveConnectionState === "retrying"
-          ? palette.amber
-          : palette.red;
-  const connectionLabel =
-    effectiveConnectionState === "lan"
-      ? "LAN"
-      : effectiveConnectionState === "remote"
-        ? "REMOTE"
-        : effectiveConnectionState === "live"
-          ? "LIVE"
-          : effectiveConnectionState === "retrying"
-            ? "RETRYING"
-            : "OFFLINE";
   const railAirportCode = hasAirportCode ? airportCode : airportIcao;
-  const dotOpacity = useRef(new Animated.Value(1)).current;
-  const reduceMotion = useReducedMotionPreference();
-
-  useEffect(() => {
-    if (reduceMotion) {
-      dotOpacity.setValue(1);
-      return;
-    }
-    if (effectiveConnectionState === "offline") { dotOpacity.setValue(1); return; }
-    const anim = Animated.loop(
-      Animated.sequence([
-        Animated.timing(dotOpacity, { toValue: 0.2, duration: 850, useNativeDriver: true }),
-        Animated.timing(dotOpacity, { toValue: 1, duration: 850, useNativeDriver: true })
-      ])
-    );
-    anim.start();
-    return () => anim.stop();
-  }, [dotOpacity, effectiveConnectionState, reduceMotion]);
 
   const renderTopRail = (isCompactHeader: boolean) => {
     if (!isCompactHeader) {
@@ -899,9 +928,9 @@ export function Header({
       <View style={[styles.headerAccentBar, { backgroundColor: accent }]} />
       {renderTopRail(false)}
 
-      <View style={[styles.airportHeroRow, styles.airportHeroRowUnified, longAirportName && styles.airportHeroRowStacked]}>
+      <View style={styles.airportIdentityBand}>
         <Pressable
-          style={[styles.airportHeroPressable, longAirportName && styles.airportHeroPressableStacked]}
+          style={styles.airportHeroPressable}
           onPress={() => {
             hapticSelection();
             onOpenConfig();
@@ -926,60 +955,24 @@ export function Header({
             <LocalFlightIcon name={TOOL_ICONS.control} size={10} color={palette.textDim} />
             <Text style={styles.configHintText}>tap to change airport</Text>
           </View>
-          <View style={styles.telemetryStrip}>
-            <View
-              style={[
-                styles.livePill,
-                {
-                  borderColor: hexToRgba(connectionAccent, 0.28),
-                  backgroundColor: hexToRgba(connectionAccent, 0.10)
-                }
-              ]}
-            >
-              <Animated.View style={[styles.liveDot, { backgroundColor: connectionAccent, opacity: dotOpacity }]} />
-              <Text style={[styles.liveText, { color: connectionAccent }]}>{connectionLabel}</Text>
-            </View>
-            {snapshotPulse ? (
-              <Animated.View
-                style={[
-                  styles.snapshotPulseDot,
-                  {
-                    opacity: snapshotPulse,
-                    transform: [{
-                      scale: snapshotPulse.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: [0.65, 1.85]
-                      })
-                    }]
-                  }
-                ]}
-              />
-            ) : null}
-            <View style={styles.sourcePill}>
-              <Text style={styles.sourceText}>{sourceLabel.toUpperCase()}</Text>
-            </View>
-            <View style={styles.countPill}>
-              <Text style={styles.countText}>
-                {view === "departures" ? "↑" : "↓"}{rowCount}
-              </Text>
-            </View>
-          </View>
         </Pressable>
-        <Pressable
-          style={[styles.boardHeroWeatherCard, longAirportName && styles.boardHeroWeatherCardStacked]}
-          onPress={() => {
-            hapticLight();
-            onOpenWeather();
-          }}
-          hitSlop={tapTargetHitSlop}
-          {...accessibleButton({
-            label: `Weather ${category}, ${metarTemperature(metar)}, ${weatherCondition(metar)}.`,
-            hint: "Opens weather and control information."
-          })}
-        >
-          <BoardHeroWeatherCard metar={metar} accent={accent} airportCode={railAirportCode} mode={weatherDisplayMode} />
-        </Pressable>
+        <ConnectionStateBadge state={connectionState} />
       </View>
+
+      <Pressable
+        style={styles.boardHeroWeatherCard}
+        onPress={() => {
+          hapticLight();
+          onOpenWeather();
+        }}
+        hitSlop={tapTargetHitSlop}
+        {...accessibleButton({
+          label: `Weather ${category}, ${metarTemperature(metar)}, ${weatherCondition(metar)}.`,
+          hint: "Opens current airport weather details."
+        })}
+      >
+        <BoardHeroWeatherCard metar={metar} accent={accent} airportCode={railAirportCode} mode={weatherDisplayMode} />
+      </Pressable>
 
       <FlightIsland
         row={pinnedRow}
@@ -990,6 +983,56 @@ export function Header({
         onOpenActions={onOpenActions}
         onTogglePin={onTogglePin}
       />
+    </View>
+  );
+}
+
+function connectionPresentation(state: ConnectionState): { label: string; color: string } {
+  if (state === "remote") return { label: "REMOTE", color: palette.blue2 };
+  if (state === "retrying") return { label: "RETRYING", color: palette.amber };
+  if (state === "offline") return { label: "OFFLINE", color: palette.red };
+  if (state === "lan") return { label: "LAN", color: palette.green };
+  return { label: "LIVE", color: palette.green };
+}
+
+function ConnectionStateBadge({ state }: { state: ConnectionState }) {
+  const presentation = connectionPresentation(state);
+  const pulse = useRef(new Animated.Value(0)).current;
+  const reduceMotion = useReducedMotionPreference();
+
+  useEffect(() => {
+    pulse.stopAnimation();
+    if (reduceMotion || state === "offline") {
+      pulse.setValue(0);
+      return;
+    }
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, { toValue: 1, duration: 1200, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+        Animated.timing(pulse, { toValue: 0, duration: 1200, easing: Easing.inOut(Easing.quad), useNativeDriver: true })
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [pulse, reduceMotion, state]);
+
+  const opacity = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.58, 1] });
+  const scale = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.9, 1.18] });
+
+  return (
+    <View
+      style={[styles.identityConnectionBadge, { borderColor: `${presentation.color}45`, backgroundColor: `${presentation.color}12` }]}
+      accessible
+      accessibilityLabel={`Connection ${presentation.label.toLowerCase()}`}
+    >
+      <Animated.View
+        style={[
+          styles.identityConnectionDot,
+          { backgroundColor: presentation.color },
+          reduceMotion ? null : { opacity, transform: [{ scale }] }
+        ]}
+      />
+      <Text style={[styles.identityConnectionText, { color: presentation.color }]}>{presentation.label}</Text>
     </View>
   );
 }
@@ -1133,6 +1176,13 @@ function BoardHeroWeatherCard({
           {airportCode || "---"}
         </Text>
       </View>
+      <View style={styles.boardHeroWeatherAction}>
+        <Text style={styles.boardHeroWeatherActionLabel}>WEATHER</Text>
+        <View style={styles.boardHeroWeatherActionTrail}>
+          <Text style={styles.boardHeroWeatherActionText}>DETAILS</Text>
+          <Text style={styles.boardHeroWeatherActionChevron}>›</Text>
+        </View>
+      </View>
     </Animated.View>
   );
 }
@@ -1151,6 +1201,104 @@ function boardWeatherSummaryForMode(metar: Metar | null, mode: MobileWeatherDisp
     return weatherSummaryForMode(metar, mode);
   }
   return weatherCondition(metar);
+}
+
+export function WeatherDetailsSheet({
+  visible,
+  airportCode,
+  airportName,
+  metar,
+  mode,
+  onModeChange,
+  onClose
+}: {
+  visible: boolean;
+  airportCode: string;
+  airportName: string;
+  metar: Metar | null;
+  mode: MobileWeatherDisplayMode;
+  onModeChange: (value: MobileWeatherDisplayMode) => void;
+  onClose: () => void;
+}) {
+  const category = metarCategory(metar);
+  const accent = metarAccentColor(category);
+  const raw = metarRawText(metar);
+
+  return (
+    <Modal visible={visible} transparent presentationStyle="overFullScreen" animationType="slide" onRequestClose={onClose}>
+      <View style={styles.sheetBackdrop}>
+        <Pressable
+          style={styles.sheetBackdropPress}
+          onPress={onClose}
+          {...accessibleButton({ label: "Close airport weather" })}
+        />
+        <View style={styles.sheetCard}>
+          <View style={styles.sheetHandle} />
+          <View style={styles.sheetHeader}>
+            <View style={styles.sheetHeaderText}>
+              <Text style={styles.sheetEyebrow}>AIRPORT WEATHER</Text>
+              <Text style={styles.sheetTitle}>Current Conditions</Text>
+            </View>
+            <Pressable
+              style={styles.sheetAction}
+              onPress={onClose}
+              hitSlop={tapTargetHitSlop}
+              {...accessibleButton({ label: "Close airport weather" })}
+            >
+              <Text style={styles.sheetActionText}>DONE</Text>
+            </Pressable>
+          </View>
+
+          <ScrollView style={styles.sheetScroll} contentContainerStyle={styles.sheetContent}>
+            <View style={[styles.weatherSheetHero, { borderColor: `${accent}55`, backgroundColor: `${accent}12` }]}>
+              <View style={[styles.weatherSheetIcon, { borderColor: `${accent}55`, backgroundColor: `${accent}18` }]}>
+                <LocalFlightIcon name={weatherIconForMetar(metar)} size={28} color={accent} />
+              </View>
+              <View style={styles.weatherSheetHeroCopy}>
+                <Text style={styles.weatherSheetAirport} numberOfLines={1}>{airportName || airportCode || "Airport"}</Text>
+                <Text style={styles.weatherSheetCondition}>{weatherCondition(metar)}</Text>
+              </View>
+              <View style={styles.weatherSheetReading}>
+                <Text style={styles.weatherSheetTemperature}>{metarTemperature(metar)}</Text>
+                <Text style={[styles.weatherSheetCategory, { color: accent }]}>{category}</Text>
+              </View>
+            </View>
+
+            <FilterSection title="BOARD WEATHER STYLE">
+              <View style={styles.filterRow}>
+                {WEATHER_DISPLAY_OPTIONS.map((option) => (
+                  <DirectionButton
+                    key={option.id}
+                    active={mode === option.id}
+                    label={option.id === "vatsim" ? "METAR" : option.label.toUpperCase()}
+                    onPress={() => onModeChange(option.id)}
+                  />
+                ))}
+              </View>
+              <Text style={styles.sheetEmpty}>{weatherModeOption(mode).detail}</Text>
+            </FilterSection>
+
+            <InfoLine label="Condition" value={weatherCondition(metar)} />
+            <InfoLine label="Temperature / dewpoint" value={`${metarTemperature(metar)} / ${metarDewpoint(metar)}`} />
+            <InfoLine label="Wind" value={metarWind(metar)} />
+            <InfoLine label="Visibility" value={metarVisibility(metar)} />
+            <InfoLine label="Ceiling / clouds" value={metarClouds(metar)} />
+            <InfoLine label="QNH" value={metarQnh(metar)} />
+            <InfoLine label="Hazards" value={metarHazards(metar)} />
+            <InfoLine label="Board wording" value={weatherSummaryForMode(metar, mode)} />
+            <InfoLine label="Source" value={metarSource(metar)} />
+            <InfoLine label="Airport" value={[airportCode, airportName].filter(Boolean).join(" · ") || "Not configured"} />
+
+            <View style={styles.weatherSheetRawCard}>
+              <Text style={styles.weatherSheetRawLabel}>RAW METAR</Text>
+              <Text style={styles.weatherSheetRawText}>{raw || "No METAR report is available yet."}</Text>
+            </View>
+            <Text style={styles.sheetEmpty}>Weather is informational only and must not be used for navigation or safety decisions.</Text>
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
+  );
 }
 
 function railStatusShort(status: string): string {
@@ -1283,10 +1431,10 @@ function FlightIsland({
             />
             <View style={styles.islandTextWrap}>
               <Text style={styles.islandFlight} numberOfLines={1}>
-                {row?.flight_display || (live ? "LOCAL FLIGHT" : "OFFLINE")}
+                {row?.flight_display || (live ? "PIN A FLIGHT" : "OFFLINE")}
               </Text>
               <Text style={styles.islandMeta} numberOfLines={1}>
-                {row ? `${routeName(row.route_display)} · ${row.display_time}` : `UTC ${utcTime}`}
+                {row ? `${routeName(row.route_display)} · ${row.display_time}` : live ? "Keep it in view on the board" : `UTC ${utcTime}`}
               </Text>
             </View>
           </View>
@@ -1551,6 +1699,8 @@ export function FidsScreen({
   onOpenDetail,
   onOpenActions,
   pinnedCallsign,
+  sourceLabel,
+  snapshotPulse,
   standalone = false,
   contentPaddingBottom
 }: {
@@ -1567,6 +1717,8 @@ export function FidsScreen({
   onOpenDetail: (callsign: string, row?: FidsRow) => void;
   onOpenActions: (row: FidsRow) => void;
   pinnedCallsign: string;
+  sourceLabel: string;
+  snapshotPulse: string;
   standalone?: boolean;
   contentPaddingBottom: number;
 }) {
@@ -1582,7 +1734,6 @@ export function FidsScreen({
   const hasRows = displayRows.length > 0;
   const showInlineActivity = Boolean(activity && !refreshing && (hasRows || !error));
   const showInlineError = Boolean(error && !refreshing);
-
   useEffect(() => {
     const timer = setInterval(() => {
       setInfoCycleTick((value) => value + 1);
@@ -1622,17 +1773,25 @@ export function FidsScreen({
           {showInlineActivity ? <ScreenActivity activity={activity} compact={hasRows} /> : null}
           {showInlineError ? <ScreenError message={error ?? ""} onRetry={onRefresh} retrying={false} /> : null}
 
-          <View style={styles.dirToggle}>
-            <DirectionButton
-              active={view === "departures"}
-              label="DEPARTURES"
-              onPress={() => onViewChange("departures")}
-            />
-            <DirectionButton
-              active={view === "arrivals"}
-              label="ARRIVALS"
-              onPress={() => onViewChange("arrivals")}
-            />
+          <View style={styles.fidsBoardControls}>
+            <View style={[styles.dirToggle, styles.fidsBoardDirectionToggle]}>
+              <DirectionButton
+                active={view === "departures"}
+                label="DEPARTURES"
+                onPress={() => onViewChange("departures")}
+              />
+              <DirectionButton
+                active={view === "arrivals"}
+                label="ARRIVALS"
+                onPress={() => onViewChange("arrivals")}
+              />
+            </View>
+            <View style={styles.fidsBoardToolbar}>
+              <Text style={styles.fidsBoardMetaText} numberOfLines={1}>{sourceLabel.toUpperCase()}</Text>
+              <Text style={styles.fidsBoardMetaDivider}>·</Text>
+              <Text style={styles.fidsBoardMetaText}>{displayRows.length} FLIGHTS</Text>
+              <SnapshotArrivalCue pulse={snapshotPulse} />
+            </View>
           </View>
 
           <View style={styles.fidsHeader}>
@@ -1658,11 +1817,44 @@ export function FidsScreen({
             body="Pull to refresh when you want a relay check. Auto-refresh stays slow to protect shared schedule tokens."
           />
         ) : (
-          <Text style={styles.empty}>No rows yet. Complete setup or run a snapshot fetch on the server.</Text>
+          <Text style={styles.empty}>Board waiting. Local Flight will show the next available snapshot here.</Text>
         )
       }
       showsVerticalScrollIndicator={false}
     />
+  );
+}
+
+function SnapshotArrivalCue({ pulse }: { pulse: string }) {
+  const animation = useRef(new Animated.Value(0)).current;
+  const reduceMotion = useReducedMotionPreference();
+
+  useEffect(() => {
+    animation.stopAnimation();
+    if (!pulse || pulse === "waiting" || reduceMotion) {
+      animation.setValue(0);
+      return;
+    }
+    animation.setValue(0);
+    Animated.sequence([
+      Animated.timing(animation, { toValue: 1, duration: 180, easing: Easing.out(Easing.quad), useNativeDriver: true }),
+      Animated.timing(animation, { toValue: 0, duration: 620, easing: Easing.inOut(Easing.quad), useNativeDriver: true })
+    ]).start();
+  }, [animation, pulse, reduceMotion]);
+
+  const opacity = animation.interpolate({ inputRange: [0, 1], outputRange: [0.3, 1] });
+  const scale = animation.interpolate({ inputRange: [0, 1], outputRange: [0.82, 1.45] });
+
+  return (
+    <View style={styles.snapshotArrivalCue} accessible accessibilityLabel="Board snapshot indicator">
+      <Animated.View
+        style={[
+          styles.snapshotArrivalRing,
+          reduceMotion ? null : { opacity, transform: [{ scale }] }
+        ]}
+      />
+      <View style={styles.snapshotArrivalCore} />
+    </View>
   );
 }
 
@@ -2024,11 +2216,15 @@ function RadarLegendOverlay({ source, ageSeconds }: { source?: string | null; ag
       <View style={styles.radarLegendChips}>
         <View style={styles.radarLegendChip}>
           <View style={[styles.radarLegendDot, { backgroundColor: palette.green }]} />
-          <Text style={styles.radarLegendLabel}>ENRICHED</Text>
+          <Text style={styles.radarLegendLabel}>APP / FINAL</Text>
+        </View>
+        <View style={styles.radarLegendChip}>
+          <View style={[styles.radarLegendDot, { backgroundColor: palette.blue }]} />
+          <Text style={styles.radarLegendLabel}>DEPARTURE</Text>
         </View>
         <View style={styles.radarLegendChip}>
           <View style={[styles.radarLegendDot, { backgroundColor: palette.blue2 }]} />
-          <Text style={styles.radarLegendLabel}>AIRBORNE</Text>
+          <Text style={styles.radarLegendLabel}>EN ROUTE</Text>
         </View>
         <View style={styles.radarLegendChip}>
           <View style={[styles.radarLegendDot, { backgroundColor: palette.amber }]} />
@@ -2094,8 +2290,7 @@ function RadarLayerControls({
 }
 
 function radarBlipIsGround(blip: RadarBlip): boolean {
-  const phase = `${blip.radar_phase || ""} ${blip.radar_status || ""} ${blip.radar_status_label || ""} ${blip.status || ""}`.toLowerCase();
-  return blip.on_ground === true || /\b(ground|surface|taxi|parked|gate)\b/.test(phase);
+  return ["on_ground", "taxi"].includes(normalizeRadarPhase(blip));
 }
 
 function radarBlipVisibleForRadius(blip: RadarBlip, radiusNm: RadarRadius): boolean {
@@ -3095,7 +3290,7 @@ function RadarBlipRow({ blip, onOpenDetail }: { blip: RadarBlip; onOpenDetail: (
   const subtitle = cleanInfoValue(blip.callsign) && cleanInfoValue(blip.callsign) !== title
     ? cleanInfoValue(blip.callsign)
     : cleanInfoValue(blip.operating_callsign) || cleanInfoValue(blip.source_quality) || "LIVE";
-  const status = cleanInfoValue(blip.radar_status_label) || cleanInfoValue(blip.status) || cleanInfoValue(blip.radar_phase) || "Tracked target";
+  const status = cleanInfoValue(blip.radar_status_label) || cleanInfoValue(blip.radar_phase) || "Tracked target";
   const altitude = cleanInfoValue(blip.altitude_display) || (blip.altitude_ft != null ? formatFeetValue(blip.altitude_ft) : formatAltitudeFeet(blip.altitude_m));
   const speed = cleanInfoValue(blip.speed_display) || (blip.speed_kt != null ? formatKnotsValue(blip.speed_kt) : formatSpeedKnots(blip.speed_ms));
   const motion = cleanInfoValue(blip.motion_display) || [altitude, speed, cleanInfoValue(blip.vertical_rate_display)].filter((item) => item && item !== "-").join(" · ") || "-";
@@ -3103,6 +3298,8 @@ function RadarBlipRow({ blip, onOpenDetail }: { blip: RadarBlip; onOpenDetail: (
   const distance = blip.distance_nm != null ? `${blip.distance_nm.toFixed(1)} NM` : "";
   const meta = [route, distance, sourceMetric(blip.source_quality || blip.source)].filter((item) => item && item !== "-").join(" · ");
   const trail = cleanInfoValue(blip.radar_phase) || (blip.enriched ? "LIVE" : "RAW");
+  const targetShape = radarTargetShape(blip);
+  const targetTone = radarTargetTone(blip, palette);
 
   return (
     <Pressable
@@ -3131,7 +3328,14 @@ function RadarBlipRow({ blip, onOpenDetail }: { blip: RadarBlip; onOpenDetail: (
 
       <View style={styles.historyTrail}>
         <Text style={styles.historyDir}>{trail.toUpperCase()}</Text>
-        <View style={[styles.radarDotLarge, { backgroundColor: radarTone(blip) }]} />
+        <View
+          style={[
+            styles.radarDotLarge,
+            { backgroundColor: targetShape === "hollow" ? "transparent" : targetTone, borderColor: targetTone },
+            targetShape === "diamond" && styles.scopeDotDiamond,
+            targetShape === "hollow" && styles.scopeDotHollow
+          ]}
+        />
       </View>
     </Pressable>
   );
@@ -3163,6 +3367,7 @@ function RadarScope({
   const [scopeSize, setScopeSize] = useState(280);
   const reduceMotion = useReducedMotionPreference();
   const pinchRef = useRef<{ distance: number; index: number } | null>(null);
+  const [selectedTargetKey, setSelectedTargetKey] = useState("");
   const effectiveLayers = standalone
     ? { runways: drawingLayers.runways, surface: drawingLayers.surface, terrain: false }
     : drawingLayers;
@@ -3179,14 +3384,41 @@ function RadarScope({
     .map((blip) => data ? projectBlip(blip, data.center, radiusNm, scopeSize) : null)
     .filter((item): item is ProjectedBlip => Boolean(item));
   const projected = projectedInRange
-    .map((item) => ({ item, opacity: radarSweepOpacity(item.angleDeg, sweepDeg) }))
+    .map((item, index) => {
+      const key = radarTargetKey(item.blip, index);
+      const focused = key === selectedTargetKey;
+      const opacity = radarSweepOpacity(item.angleDeg, sweepDeg, focused);
+      const flash = radarAngularAge(sweepDeg, item.angleDeg) <= RADAR_FLASH_DEGREES && opacity > 0;
+      return { item, key, focused, flash, opacity };
+    })
     .sort((a, b) => a.item.distanceNm - b.item.distanceNm);
+  const visibleLabelKeys = radarVisibleLabelKeys(projected, scopeSize);
+  const selectedTargetPresent = !selectedTargetKey || projected.some((candidate) => candidate.key === selectedTargetKey);
 
   useEffect(() => {
+    if (!selectedTargetPresent) {
+      setSelectedTargetKey("");
+    }
+  }, [selectedTargetPresent]);
+
+  useEffect(() => {
+    let active = NativeAppState.currentState === "active";
+    let previous = radarPresentationNow();
     const timer = setInterval(() => {
-      setSweepDeg((value) => (value + RADAR_SWEEP_STEP_DEG) % 360);
-    }, RADAR_SWEEP_INTERVAL_MS);
-    return () => clearInterval(timer);
+      const now = radarPresentationNow();
+      if (active) {
+        setSweepDeg((value) => radarSweepAngleAfter(value, now - previous));
+      }
+      previous = now;
+    }, RADAR_FRAME_INTERVAL_MS);
+    const appStateSubscription = NativeAppState.addEventListener("change", (state) => {
+      active = state === "active";
+      previous = radarPresentationNow();
+    });
+    return () => {
+      clearInterval(timer);
+      appStateSubscription.remove();
+    };
   }, []);
 
   const setMeasuredSize = useCallback((width: number) => {
@@ -3269,25 +3501,45 @@ function RadarScope({
         <View style={styles.scopeCrossHorizontal} />
         <View style={styles.scopeCenterDot} />
 
-        {projected.map(({ item, opacity }, index) => (
-          <Pressable
-            key={`scope-${radarBlipKey(item.blip, index)}`}
-            style={[styles.scopeDotWrap, { left: item.left, top: item.top, opacity }]}
-            onPress={() => onOpenDetail(item.blip.callsign, item.blip)}
-            hitSlop={compactTapTargetHitSlop}
-            {...accessibleButton({
-              label: radarBlipAccessibilityLabel(item.blip),
-              hint: "Opens aircraft details."
-            })}
-          >
-            <View style={[styles.scopeDot, { backgroundColor: radarTone(item.blip) }]} />
-            {index < 10 ? (
-              <Text style={styles.scopeLabel} numberOfLines={1}>
-                {item.blip.callsign}
-              </Text>
-            ) : null}
-          </Pressable>
-        ))}
+        {projected.map(({ item, key, focused, flash, opacity }) => {
+          const interactive = opacity >= RADAR_INTERACTIVE_MIN_OPACITY;
+          const shape = radarTargetShape(item.blip);
+          const tone = radarTargetTone(item.blip, palette);
+          const phase = radarPhaseLabel(item.blip);
+          return (
+            <Pressable
+              key={`scope-${key}`}
+              style={[styles.scopeDotWrap, { left: item.left, top: item.top, opacity }]}
+              pointerEvents={interactive ? "auto" : "none"}
+              onPress={() => {
+                setSelectedTargetKey(key);
+                onOpenDetail(item.blip.callsign, item.blip);
+              }}
+              hitSlop={compactTapTargetHitSlop}
+              {...(interactive ? accessibleButton({
+                label: radarBlipAccessibilityLabel(item.blip),
+                hint: "Opens aircraft details."
+              }) : hideFromAccessibility())}
+            >
+              <View
+                style={[
+                  styles.scopeDot,
+                  { backgroundColor: shape === "hollow" ? "transparent" : tone, borderColor: tone },
+                  flash && styles.scopeDotFlash,
+                  shape === "diamond" && styles.scopeDotDiamond,
+                  shape === "hollow" && styles.scopeDotHollow,
+                  focused && styles.scopeDotFocused
+                ]}
+              />
+              {visibleLabelKeys.has(key) ? (
+                <View style={styles.scopeLabelStack}>
+                  <Text style={styles.scopeLabel} numberOfLines={1}>{item.blip.callsign}</Text>
+                  {phase ? <Text style={[styles.scopePhaseLabel, { color: tone }]} numberOfLines={1}>{phase}</Text> : null}
+                </View>
+              ) : null}
+            </Pressable>
+          );
+        })}
 
         {!data || projectedInRange.length === 0 ? (
           <View style={styles.scopeEmpty}>
@@ -3326,11 +3578,10 @@ function RadarScope({
 function RadarSweepLayer({ scopeSize, sweepDeg, reducedMotion }: { scopeSize: number; sweepDeg: number; reducedMotion: boolean }) {
   const center = scopeSize / 2;
   const radius = scopeSize * 0.44;
-  const closing = radarSweepPoint(scopeSize, RADAR_SWEEP_WIDTH_DEG);
-  const sweepFillOpacity = reducedMotion ? 0.07 : 0.16;
+  const sweepFillOpacity = reducedMotion ? 0.07 : 0.15;
   const sweepSheenOpacity = reducedMotion ? 0.018 : 0.035;
   const sweepLineOpacity = reducedMotion ? 0.34 : 0.58;
-  const sweepEdgeOpacity = reducedMotion ? 0.16 : 0.28;
+  const sliceCount = 18;
 
   return (
     <Animated.View
@@ -3352,8 +3603,23 @@ function RadarSweepLayer({ scopeSize, sweepDeg, reducedMotion }: { scopeSize: nu
           </ClipPath>
         </Defs>
         <G clipPath={`url(#${RADAR_SWEEP_CLIP_ID})`}>
-          <Path d={radarSweepSectorPath(scopeSize)} fill={hexToRgba(palette.blue2, sweepFillOpacity)} />
-          <Path d={radarSweepSectorPath(scopeSize)} fill={hexToRgba(palette.text, sweepSheenOpacity)} />
+          {Array.from({ length: sliceCount }, (_, index) => {
+            const nearAge = index * RADAR_SWEEP_WIDTH_DEG / sliceCount;
+            const farAge = (index + 1) * RADAR_SWEEP_WIDTH_DEG / sliceCount;
+            const strength = 1 - index / sliceCount;
+            return (
+              <G key={`sweep-slice-${index}`}>
+                <Path
+                  d={radarSweepSectorPath(scopeSize, -farAge, -nearAge)}
+                  fill={hexToRgba(palette.blue2, sweepFillOpacity * strength)}
+                />
+                <Path
+                  d={radarSweepSectorPath(scopeSize, -farAge, -nearAge)}
+                  fill={hexToRgba(palette.text, sweepSheenOpacity * strength)}
+                />
+              </G>
+            );
+          })}
           <Line
             x1={center}
             y1={center}
@@ -3363,19 +3629,51 @@ function RadarSweepLayer({ scopeSize, sweepDeg, reducedMotion }: { scopeSize: nu
             strokeWidth={1.4}
             strokeLinecap="round"
           />
-          <Line
-            x1={center}
-            y1={center}
-            x2={closing.x}
-            y2={closing.y}
-            stroke={hexToRgba(palette.blue2, sweepEdgeOpacity)}
-            strokeWidth={1}
-            strokeLinecap="round"
-          />
         </G>
       </Svg>
     </Animated.View>
   );
+}
+
+function radarPresentationNow(): number {
+  return typeof performance !== "undefined" && typeof performance.now === "function" ? performance.now() : Date.now();
+}
+
+function radarVisibleLabelKeys(
+  projected: Array<{ item: ProjectedBlip; key: string; focused: boolean; opacity: number }>,
+  scopeSize: number
+): Set<string> {
+  const occupied: Array<{ x: number; y: number; width: number; height: number }> = [];
+  const visible = new Set<string>();
+  const candidates = projected
+    .filter((candidate) => candidate.focused || candidate.opacity >= RADAR_INTERACTIVE_MIN_OPACITY)
+    .sort((left, right) => compareRadarPriority(
+      radarLabelPriority(right.item.blip, right.focused),
+      radarLabelPriority(left.item.blip, left.focused)
+    ));
+
+  for (const candidate of candidates) {
+    const callsign = String(candidate.item.blip.callsign || candidate.item.blip.flight_number || "").trim();
+    if (!callsign) continue;
+    const phase = radarPhaseLabel(candidate.item.blip);
+    const rect = {
+      x: candidate.item.left + 12,
+      y: candidate.item.top - 5,
+      width: Math.min(82, Math.max(38, callsign.length * 6 + 6)),
+      height: phase ? 24 : 13
+    };
+    const outOfBounds = rect.x + rect.width > scopeSize - 3 || rect.y < 2 || rect.y + rect.height > scopeSize - 3;
+    const collides = occupied.some((other) => (
+      rect.x < other.x + other.width
+      && rect.x + rect.width > other.x
+      && rect.y < other.y + other.height
+      && rect.y + rect.height > other.y
+    ));
+    if ((outOfBounds || collides) && !candidate.focused) continue;
+    occupied.push(rect);
+    visible.add(candidate.key);
+  }
+  return visible;
 }
 
 function RadarGroundLayer({
@@ -3544,12 +3842,13 @@ function RadarRunwayLabel({
   );
 }
 
-function radarSweepSectorPath(scopeSize: number): string {
+function radarSweepSectorPath(scopeSize: number, startDegrees = -RADAR_SWEEP_WIDTH_DEG, endDegrees = 0): string {
   const center = scopeSize / 2;
   const radius = scopeSize * 0.44;
-  const start = radarSweepPoint(scopeSize, 0);
-  const end = radarSweepPoint(scopeSize, RADAR_SWEEP_WIDTH_DEG);
-  const largeArc = RADAR_SWEEP_WIDTH_DEG > 180 ? 1 : 0;
+  const start = radarSweepPoint(scopeSize, startDegrees);
+  const end = radarSweepPoint(scopeSize, endDegrees);
+  const span = ((endDegrees - startDegrees) % 360 + 360) % 360;
+  const largeArc = span > 180 ? 1 : 0;
   return [
     `M ${center.toFixed(1)} ${center.toFixed(1)}`,
     `L ${start.x.toFixed(1)} ${start.y.toFixed(1)}`,
@@ -3566,17 +3865,6 @@ function radarSweepPoint(scopeSize: number, clockwiseDegreesFromNorth: number): 
     x: center + Math.cos(radians) * radius,
     y: center + Math.sin(radians) * radius
   };
-}
-
-function radarSweepOpacity(angleDeg: number, sweepDeg: number): number {
-  const age = (sweepDeg - angleDeg + 360) % 360;
-  if (age >= 356 || age <= 5) {
-    return 1;
-  }
-  if (age <= RADAR_BLIP_FADE_DEG) {
-    return Math.max(RADAR_BLIP_BASE_OPACITY, 1 - ((age - 5) / (RADAR_BLIP_FADE_DEG - 5)) * (1 - RADAR_BLIP_BASE_OPACITY));
-  }
-  return RADAR_BLIP_BASE_OPACITY;
 }
 
 function radarDrawableFeatures(features: RadarMapFeature[] | undefined): RadarMapFeature[] {
@@ -3649,9 +3937,11 @@ function radarGroundPaint(
 ): { fill: string; stroke: string; strokeWidth: number } {
   const kind = String(feature.kind || "").toLowerCase();
   if (layer === "terrain") {
+    const band = Math.max(0, Math.min(4, Number(feature.band_index || 0)));
+    const isBand = kind === "terrain_band";
     return {
-      fill: hexToRgba(palette.green, 0.055),
-      stroke: hexToRgba(palette.green, radiusNm <= 5 ? 0.18 : 0.12),
+      fill: isBand ? hexToRgba(palette.green, 0.035 + band * 0.025) : "none",
+      stroke: hexToRgba(palette.green, isBand ? 0.04 : radiusNm <= 5 ? 0.22 : 0.14),
       strokeWidth: radiusNm <= 5 ? 1 : 0.7
     };
   }
@@ -3695,18 +3985,6 @@ function radarGroundPaint(
     stroke: hexToRgba(palette.blue2, 0.26),
     strokeWidth: 1
   };
-}
-
-function radarTone(blip: RadarBlip): string {
-  const phase = `${blip.radar_phase || ""} ${blip.radar_status || ""} ${blip.radar_status_label || ""}`.toLowerCase();
-  const quality = `${blip.source_quality || ""}`.toLowerCase();
-  if (/lost|stale|missing|unknown/.test(quality)) return palette.red;
-  if (blip.on_ground) return palette.amber;
-  if (/arrival|approach|land/.test(phase)) return palette.green;
-  if (/depart|climb/.test(phase)) return palette.blue2;
-  if (/taxi|ground/.test(phase)) return palette.amber;
-  if (blip.enriched || /live|matched|adsb|vatsim/.test(quality)) return palette.green;
-  return palette.blue2;
 }
 
 function airportMetric(code?: string | null, name?: string | null): string {
@@ -5955,6 +6233,7 @@ export function ControlScreen({
   weatherDisplayMode,
   widgetPreferences,
   widgetSnapshotLabel,
+  widgetRefreshing,
   mobileDiagnosticsMode,
   supportPurchases,
   outputs,
@@ -5976,6 +6255,7 @@ export function ControlScreen({
   onSkinChange,
   onWeatherDisplayModeChange,
   onWidgetPreferencesChange,
+  onRefreshWidget,
   onMobileDiagnosticsModeChange,
   onMatrixPresetChange,
   onMatrixViewChange,
@@ -6022,6 +6302,7 @@ export function ControlScreen({
   weatherDisplayMode: MobileWeatherDisplayMode;
   widgetPreferences: MobileWidgetPreferences;
   widgetSnapshotLabel: string;
+  widgetRefreshing: boolean;
   mobileDiagnosticsMode: MobileDiagnosticsMode;
   supportPurchases: SupportPurchaseController;
   profiles: ConfigProfile[];
@@ -6046,6 +6327,7 @@ export function ControlScreen({
   onSkinChange: (value: MobileSkin) => void;
   onWeatherDisplayModeChange: (value: MobileWeatherDisplayMode) => void;
   onWidgetPreferencesChange: (value: MobileWidgetPreferences) => void;
+  onRefreshWidget: () => void;
   onMobileDiagnosticsModeChange: (value: MobileDiagnosticsMode) => void;
   onMatrixPresetChange: (value: MatrixPresetId) => void;
   onMatrixViewChange: (value: FlightView) => void;
@@ -6237,8 +6519,8 @@ export function ControlScreen({
 
       <ControlActionCard
         icon={TOOL_ICONS.help}
-        title="Help & Reports"
-        summary="Troubleshooting, reports, Beacon Tools, source"
+        title="Local Flight Help"
+        summary="Connection help, privacy, reports, and project"
         onPress={() => openSheet("help")}
       />
 
@@ -6306,7 +6588,9 @@ export function ControlScreen({
         preview={widgetPreview}
         preferences={widgetPreferences}
         snapshotLabel={widgetSnapshotLabel}
+        refreshing={widgetRefreshing}
         onPreferencesChange={onWidgetPreferencesChange}
+        onRefresh={onRefreshWidget}
         onClose={() => setActiveSheet(null)}
       />
       <SupportPurchaseSheet
@@ -6362,6 +6646,7 @@ export function StandaloneSettingsScreen({
   weatherDisplayMode,
   widgetPreferences,
   widgetSnapshotLabel,
+  widgetRefreshing,
   mobileDiagnosticsMode,
   supportPurchases,
   feedbackTitle,
@@ -6373,6 +6658,7 @@ export function StandaloneSettingsScreen({
   onSkinChange,
   onWeatherDisplayModeChange,
   onWidgetPreferencesChange,
+  onRefreshWidget,
   onMobileDiagnosticsModeChange,
   onRerunSetup,
   onFeedbackTitleChange,
@@ -6393,6 +6679,7 @@ export function StandaloneSettingsScreen({
   weatherDisplayMode: MobileWeatherDisplayMode;
   widgetPreferences: MobileWidgetPreferences;
   widgetSnapshotLabel: string;
+  widgetRefreshing: boolean;
   mobileDiagnosticsMode: MobileDiagnosticsMode;
   supportPurchases: SupportPurchaseController;
   feedbackTitle: string;
@@ -6404,6 +6691,7 @@ export function StandaloneSettingsScreen({
   onSkinChange: (value: MobileSkin) => void;
   onWeatherDisplayModeChange: (value: MobileWeatherDisplayMode) => void;
   onWidgetPreferencesChange: (value: MobileWidgetPreferences) => void;
+  onRefreshWidget: () => void;
   onMobileDiagnosticsModeChange: (value: MobileDiagnosticsMode) => void;
   onRerunSetup: () => void;
   onFeedbackTitleChange: (value: string) => void;
@@ -6540,8 +6828,8 @@ export function StandaloneSettingsScreen({
 
       <ControlActionCard
         icon={TOOL_ICONS.help}
-        title="Help & Reports"
-        summary="Troubleshooting, reports, Beacon Tools, source"
+        title="Local Flight Help"
+        summary="Connection help, privacy, reports, and project"
         onPress={() => openSheet("help")}
       />
 
@@ -6562,7 +6850,9 @@ export function StandaloneSettingsScreen({
         preview={widgetPreview}
         preferences={widgetPreferences}
         snapshotLabel={widgetSnapshotLabel}
+        refreshing={widgetRefreshing}
         onPreferencesChange={onWidgetPreferencesChange}
+        onRefresh={onRefreshWidget}
         onClose={() => setActiveSheet(null)}
       />
       <SupportPurchaseSheet
@@ -6696,14 +6986,18 @@ function WidgetSettingsSheet({
   preview,
   preferences,
   snapshotLabel,
+  refreshing,
   onPreferencesChange,
+  onRefresh,
   onClose
 }: {
   visible: boolean;
   preview: WidgetPreviewSnapshot;
   preferences: MobileWidgetPreferences;
   snapshotLabel: string;
+  refreshing: boolean;
   onPreferencesChange: (value: MobileWidgetPreferences) => void;
+  onRefresh: () => void;
   onClose: () => void;
 }) {
   const pinned = preview.pinnedFlight;
@@ -6712,8 +7006,8 @@ function WidgetSettingsSheet({
     ? "Ready for Android widgets."
     : "Ready for iOS widgets.";
   const platformWidgetBody = Platform.OS === "android"
-    ? "Widgets use the current pinned-flight and board snapshot. Add Local Flight from the Android widget picker, then use its refresh action after opening the app for new board data."
-    : "Widgets use the current pinned-flight and board snapshot. Add Local Flight from the iOS widget gallery if it is not already on your Home Screen.";
+    ? "Add Local Flight from the Android widget picker. The app keeps its bounded board snapshot current when Android grants background time."
+    : "Add Local Flight from the iOS widget gallery. The app refreshes its bounded snapshot when iOS grants background time.";
 
   return (
     <Modal visible={visible} transparent presentationStyle="overFullScreen" animationType="slide" onRequestClose={onClose}>
@@ -6754,7 +7048,7 @@ function WidgetSettingsSheet({
             <View style={styles.metricRow}>
               <InfoCard label="SMALL" value={sourceCopy.toUpperCase()} tone={pinned ? "green" : "amber"} />
               <InfoCard label="MEDIUM" value={`${preferences.mediumRowCount} ROWS`} tone="blue" />
-              <InfoCard label="ISLAND" value={pinned ? "PINNED" : "WAITING"} tone={pinned ? "blue" : "amber"} />
+              <InfoCard label="REFRESH" value={preferences.automaticRefresh ? "AUTO" : "IN APP"} tone={preferences.automaticRefresh ? "green" : "amber"} />
             </View>
 
             <WidgetSmallPinnedPreview
@@ -6794,6 +7088,36 @@ function WidgetSettingsSheet({
                 />
               </View>
             </FilterSection>
+
+            <FilterSection title="AUTOMATIC REFRESH">
+              <View style={styles.filterRow}>
+                <DirectionButton
+                  active={preferences.automaticRefresh}
+                  label="ON"
+                  onPress={() => onPreferencesChange({ ...preferences, automaticRefresh: true })}
+                />
+                <DirectionButton
+                  active={!preferences.automaticRefresh}
+                  label="OFF"
+                  onPress={() => onPreferencesChange({ ...preferences, automaticRefresh: false })}
+                />
+              </View>
+              <Text style={styles.sheetEmpty}>
+                Refresh timing is battery-aware and controlled by iOS or Android. Local Flight never lets the widget contact LAN, relay, or aviation providers itself.
+              </Text>
+            </FilterSection>
+
+            <Pressable
+              style={[styles.connectButton, refreshing && styles.connectButtonDisabled]}
+              onPress={onRefresh}
+              disabled={refreshing}
+              {...accessibleButton({
+                label: refreshing ? "Refreshing widget board data" : "Refresh widget board data now",
+                hint: "Refreshes the board in the app and writes a new widget snapshot."
+              })}
+            >
+              <Text style={styles.connectButtonText}>{refreshing ? "REFRESHING BOARD" : "REFRESH WIDGET NOW"}</Text>
+            </Pressable>
 
             <InfoLine label="Dynamic Island" value="Future iOS Live Activity stays pinned-flight-only: flight number and short status first, no mini FIDS board." />
             <InfoLine label="Snapshot" value={snapshotLabel} />
@@ -7156,8 +7480,8 @@ function HelpReportsSheet({
           <View style={styles.sheetHandle} />
           <View style={styles.sheetHeader}>
             <View style={styles.sheetHeaderText}>
-              <Text style={styles.sheetEyebrow}>HELP & REPORTS</Text>
-              <Text style={styles.sheetTitle}>Mobile Help</Text>
+              <Text style={styles.sheetEyebrow}>LOCAL FLIGHT HELP</Text>
+              <Text style={styles.sheetTitle}>Connection & Reports</Text>
             </View>
             <Pressable
               style={styles.sheetAction}
@@ -7176,6 +7500,12 @@ function HelpReportsSheet({
             <InfoLine
               label="Display data"
               value="Flight, weather, and radar information are for personal display only, not for navigation or safety decisions."
+            />
+            <InfoLine
+              label="Privacy"
+              value={isLan
+                ? "Companion uses your paired Local Flight host. Reports are sent only when you choose to submit one."
+                : "Standalone uses the public relay. Reports are sent only when you choose to submit one."}
             />
             <SettingsToolPill
               icon={TOOL_ICONS.github}
@@ -9113,7 +9443,7 @@ export function AirportConfigSheet({
             </View>
             <Text style={styles.configPolicyText}>
               {schedulePolicy?.community_shared && source === "real"
-                ? schedulePolicy.reason || "Community Relay uses hourly-or-slower shared schedule snapshots to protect upstream providers."
+                ? schedulePolicy.reason || "Community Relay uses 30-minute-or-slower shared schedule snapshots to protect upstream providers."
                 : "Refresh choices are 15, 30, 45, and 60 minutes, then longer options. Shorter values keep local displays fresh; longer values are kinder to schedule providers."}
             </Text>
 

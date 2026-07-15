@@ -26,6 +26,12 @@ in `docs/engineering-changelog.md`; the current release overview is
 
 - First-run and re-setup transitions between Local Flight Relay, personal
   provider keys, and VATSIM now clear stale mode-specific state safely.
+- Community Relay setup now verifies the install link before opening the app,
+  self-repairs older unlinked installs without activation spam, and offers
+  clear retry, VATSIM, or own-key choices when linking is unavailable.
+- Community schedule snapshots now allow a 30-minute minimum cadence. Failed
+  first updates use bounded retries, while loaded boards retain safe cached
+  data during temporary relay or provider failures.
 - Packaged desktop provider keys live in the user's Local Flight data directory
   rather than inside the application bundle.
 - FIDS uses airport-local time, passenger-friendly weather, clearer
@@ -35,6 +41,12 @@ in `docs/engineering-changelog.md`; the current release overview is
   suppressing passenger-only fields and person-identifying network data.
 - Radar, History, Matrix, Settings, setup, and detail views are aligned across
   native Qt and the LAN browser UI.
+- Radar now separates provider board status from live movement phase, uses
+  strong flight identity matches, and applies elevation-aware ground, taxi,
+  departure, en-route, descent, approach, and final rules with hysteresis.
+- Terrain now combines radius-aware AWS elevation mosaics and real contour
+  geometry with separately cached OpenStreetMap water, vegetation, coastline,
+  and limited road context.
 - Native Qt now provides complete dark and light appearances across pages,
   dialogs, menus, control icons, and FIDS styles, with contrast-checked text
   and semantic colors for every skin.
@@ -69,9 +81,9 @@ in `docs/engineering-changelog.md`; the current release overview is
 
 - Windows and Raspberry Pi packages are built from the same `0.5.1` source
   line.
-- The current macOS direct-download archive is ad-hoc signed for Apple silicon
-  and may require Finder's explicit Open confirmation once. It is not Developer
-  ID notarized; disabling Gatekeeper globally is never required.
+- The current macOS direct-download `.pkg` is Developer ID signed, notarized,
+  stapled, and built for Apple silicon. Disabling Gatekeeper globally is never
+  required.
 - Mobile `0.5.1` remains in TestFlight and Google Play testing until the public
   store review gates are complete.
 

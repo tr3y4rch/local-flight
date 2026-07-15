@@ -892,14 +892,18 @@ class NativeMainWindow:  # pragma: no cover - exercised with optional Qt
                 layout.setSpacing(10)
                 status = QtWidgets.QLabel(f"v{_app_version()} \u00b7 Local-first \u00b7 private by design")
                 status.setObjectName("FooterStatus")
-                tagline = QtWidgets.QLabel("")
-                tagline.setObjectName("FooterTagline")
-                tagline.setMinimumWidth(0)
-                tagline.setSizePolicy(QtWidgets.QSizePolicy.Ignored, QtWidgets.QSizePolicy.Preferred)
+                tagline = QtWidgets.QPushButton("BEACON TOOLS")
+                tagline.setObjectName("FooterBrand")
+                tagline.setToolTip("Visit Beacon Tools")
+                tagline.setAccessibleName("Visit Beacon Tools website")
+                tagline.setCursor(QtCore.Qt.PointingHandCursor)
+                tagline.setMinimumWidth(118)
+                tagline.setMaximumWidth(150)
+                tagline.clicked.connect(lambda: webbrowser.open(WEBSITE_URL))
                 github = QtWidgets.QPushButton("")
                 github.setObjectName("FooterLink")
-                github.setToolTip("Beacon Tools")
-                github.setAccessibleName("Beacon Tools")
+                github.setToolTip("View Local Flight source on GitHub")
+                github.setAccessibleName("Local Flight GitHub repository")
                 github.setMinimumSize(36, 30)
                 github.setMaximumWidth(38)
                 # Theme-aware: white invertocat on dark theme, black on light.
@@ -914,7 +918,7 @@ class NativeMainWindow:  # pragma: no cover - exercised with optional Qt
                 else:
                     github.setIcon(github_icon)
                     github.setIconSize(QtCore.QSize(20, 20))
-                github.clicked.connect(lambda: webbrowser.open(WEBSITE_URL))
+                github.clicked.connect(lambda: webbrowser.open(GITHUB_URL))
                 coffee = QtWidgets.QPushButton("")
                 coffee.setObjectName("FooterLink")
                 coffee.setToolTip("Buy Me a Coffee")
@@ -930,10 +934,12 @@ class NativeMainWindow:  # pragma: no cover - exercised with optional Qt
                 coffee.clicked.connect(lambda: webbrowser.open(COFFEE_URL))
                 self.footer_status_label = status
                 self.footer_tagline_label = tagline
+                self.footer_brand_button = tagline
                 self.footer_github_button = github
                 self.footer_coffee_button = coffee
                 layout.addWidget(status)
-                layout.addWidget(tagline, 1)
+                layout.addStretch(1)
+                layout.addWidget(tagline)
                 layout.addWidget(github)
                 layout.addWidget(coffee)
                 return footer
@@ -1079,7 +1085,7 @@ class NativeMainWindow:  # pragma: no cover - exercised with optional Qt
                     button.setChecked(page_key == key)
                 if hasattr(screen, "set_active"):
                     screen.set_active(True)
-                should_refresh = force_refresh or first_open or key in self._dirty_screens or key in self._fallback_refresh_keys
+                should_refresh = force_refresh or first_open or key in self._dirty_screens
                 self._dirty_screens.discard(key)
                 if should_refresh:
                     self._refresh_active(force=True)
@@ -1162,7 +1168,12 @@ class NativeMainWindow:  # pragma: no cover - exercised with optional Qt
                 if key not in self._fallback_refresh_keys:
                     return None
                 if key in {"display", "fids"}:
-                    return 300_000
+                    try:
+                        cfg = self.service.config()
+                        refresh_seconds = int(cfg.get("refresh_seconds") or 1800)
+                    except Exception:
+                        refresh_seconds = 1800
+                    return max(60_000, refresh_seconds * 1000)
                 if key == "radar":
                     screen = self._ensure_screen(key)
                     payload = getattr(screen, "_last_payload", {}) if screen is not None else {}
@@ -1987,7 +1998,7 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
                 self.on_setup_complete()
 
 
-class RadarCanvas:  # pragma: no cover - optional Qt runtime
+class _RetiredRadarCanvas:  # pragma: no cover - retained only for source-history compatibility
     def __new__(cls, QtCore: Any, QtGui: Any, QtWidgets: Any):
         class _Canvas(QtWidgets.QWidget):
             def __init__(self) -> None:
@@ -2306,6 +2317,11 @@ class RadarCanvas:  # pragma: no cover - optional Qt runtime
         return _Canvas()
 
 
+# Keep old imports working while ensuring there is only one active radar
+# renderer and one sweep contract.
+RadarCanvas = lazy_symbol("localflight.native.canvas.radar", "RadarCanvas")
+
+
 class RadarScreen(_AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
     def __init__(self, QtCore: Any, QtGui: Any, QtWidgets: Any, client: LocalApiClient, *, embedded: bool = False) -> None:
         self.QtWidgets = QtWidgets
@@ -2376,6 +2392,10 @@ class RadarScreen(_AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
             self.refresh()
 
     def set_active(self, active: bool) -> None:
+        set_animation_active = getattr(self.canvas, "set_animation_active", None)
+        if callable(set_animation_active):
+            set_animation_active(active)
+            return
         timer = getattr(self.canvas, "_sweep_timer", None)
         if timer is None:
             return

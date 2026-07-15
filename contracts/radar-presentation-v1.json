@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "revolution_ms": 15000,
+  "frame_interval_ms": 80,
+  "trail_degrees": 72,
+  "flash_degrees": 6,
+  "focused_min_opacity": 0.86,
+  "bearing_vectors": [
+    { "name": "north", "x_nm": 0, "y_nm": 1, "bearing": 0 },
+    { "name": "east", "x_nm": 1, "y_nm": 0, "bearing": 90 },
+    { "name": "south", "x_nm": 0, "y_nm": -1, "bearing": 180 },
+    { "name": "west", "x_nm": -1, "y_nm": 0, "bearing": 270 }
+  ],
+  "opacity_vectors": [
+    { "name": "before crossing", "target": 1, "sweep": 0, "opacity": 0 },
+    { "name": "on leading line", "target": 0, "sweep": 0, "opacity": 1 },
+    { "name": "flash tail", "target": 0, "sweep": 6, "opacity": 1 },
+    { "name": "mid trail", "target": 0, "sweep": 39, "opacity": 0.5 },
+    { "name": "trail edge", "target": 0, "sweep": 72, "opacity": 0 },
+    { "name": "wrap crossing", "target": 359, "sweep": 1, "opacity": 1 }
+  ]
+}

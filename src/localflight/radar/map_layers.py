@@ -170,6 +170,8 @@ def build_radar_map(
             attribution.append(attr)
 
     terrain_features = _features_from_payload(terrain_payload)
+    terrain_bands = [dict(item) for item in (terrain_payload or {}).get("bands", []) if isinstance(item, dict)]
+    terrain_contours = [dict(item) for item in (terrain_payload or {}).get("contours", []) if isinstance(item, dict)]
     terrain_attr = terrain_payload.get("attribution") if isinstance(terrain_payload, dict) and isinstance(terrain_payload.get("attribution"), dict) else {}
     if terrain_attr.get("text") and terrain_attr not in attribution:
         attribution.append(terrain_attr)
@@ -179,9 +181,16 @@ def build_radar_map(
         "available": bool(terrain_enabled),
         "enabled": bool(terrain_enabled),
         "provider": terrain_provider or ("aws-terrain-tiles" if terrain_enabled else ""),
-        "label": "Minimal cached relief" if terrain_enabled else "Terrain off",
+        "label": "Cached elevation bands and contours" if terrain_enabled else "Terrain off",
         "features": terrain_features if terrain_enabled else [],
+        "bands": terrain_bands if terrain_enabled else [],
+        "contours": terrain_contours if terrain_enabled else [],
         "cache_state": terrain_cache_state or ("none" if terrain_enabled else "off"),
+        "schema_version": str((terrain_payload or {}).get("schema_version") or ""),
+        "coverage_radius_nm": (terrain_payload or {}).get("coverage_radius_nm"),
+        "min_elevation_ft": (terrain_payload or {}).get("min_elevation_ft"),
+        "max_elevation_ft": (terrain_payload or {}).get("max_elevation_ft"),
+        "contour_interval_ft": (terrain_payload or {}).get("contour_interval_ft"),
         "note": "Terrain is visual context only and is not for navigation.",
     }
 

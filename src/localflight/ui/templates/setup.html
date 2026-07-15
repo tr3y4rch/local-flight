@@ -1293,8 +1293,15 @@
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      setResult("finishStatus", "ok", "Setup saved. Opening your board...");
+      const data = await response.json();
+      if (!response.ok || !data.ok) {
+        const message = data.error || "Community Relay is not linked yet. Retry the relay connection, choose VATSIM, or use your own provider keys.";
+        setResult("finishStatus", data.status === "rate_limited" ? "warn" : "err", message);
+        if (selectedMode === "community") showPanel(2);
+        setButtons(["backBtn", "nextBtn", "finishBtn", "skipKeysBtn"], true);
+        return;
+      }
+      setResult("finishStatus", "ok", data.message || "Setup saved. Preparing your first board...");
       window.location.href = "/display";
     } catch (error) {
       setResult("finishStatus", "err", error.message || "Setup failed.");

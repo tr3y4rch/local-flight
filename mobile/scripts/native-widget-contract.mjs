@@ -12,6 +12,7 @@ assert.equal(app.ios.buildNumber, "6");
 assert.equal(app.android.versionCode, 9);
 assert.ok(plugins.includes("./plugins/with-localflight-ios-widget"));
 assert.ok(plugins.includes("./plugins/with-localflight-android-widget"));
+assert.ok(plugins.includes("expo-background-task"));
 assert.deepEqual(app.ios.entitlements["com.apple.security.application-groups"], [
   "group.cc.beacontools.localflight"
 ]);
@@ -50,7 +51,8 @@ assert.match(androidProvider, /MAX_SNAPSHOT_BYTES = 64 \* 1024/);
 assert.match(androidProvider, /File\(context\.filesDir, SNAPSHOT_FILENAME\)/);
 assert.match(androidProvider, /SNAPSHOT_SCHEMA_VERSION/);
 assert.match(androidProvider, /PendingIntent\.FLAG_IMMUTABLE/);
-assert.match(androidProvider, /ACTION_REFRESH/);
+assert.match(androidProvider, /localflight:\/\/widgets\?refresh=1/);
+assert.match(androidProvider, /PendingIntent\.getActivity/);
 assert.match(androidProvider, /setContentDescription/);
 assert.doesNotMatch(androidProvider, /https?:\/\//i);
 assert.doesNotMatch(androidProvider, /OkHttp|HttpURLConnection|Socket|URL\(/);
@@ -58,6 +60,13 @@ assert.match(androidPlugin, /android:exported.*false/);
 assert.match(androidPlugin, /android\.appwidget\.action\.APPWIDGET_UPDATE/);
 assert.match(androidInfo, /android:updatePeriodMillis="1800000"/);
 assert.match(androidNightColors, /#0A111B/);
+
+const widgetBridge = read("modules/localflight-widget-bridge/src/index.ts");
+const widgetBridgeApple = read("modules/localflight-widget-bridge/ios/LocalFlightWidgetBridgeModule.swift");
+const widgetBridgeAndroid = read("modules/localflight-widget-bridge/android/src/main/java/cc/beacontools/localflight/widgetbridge/LocalFlightWidgetBridgeModule.kt");
+assert.match(widgetBridge, /reloadLocalFlightWidgets/);
+assert.match(widgetBridgeApple, /WidgetCenter\.shared\.reloadTimelines/);
+assert.match(widgetBridgeAndroid, /ACTION_APPWIDGET_UPDATE/);
 
 const screens = read("src/screens/AppScreens.tsx");
 assert.match(screens, /Ready for Android widgets\./);

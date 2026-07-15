@@ -356,10 +356,15 @@
 {% endblock %}
 
 {% block extra_script %}
+<script src="/static/radar-presentation.js?v={{ static_version }}"></script>
 <script>
 (function () {
   const canvas = document.getElementById("radarCanvas");
   const ctx    = canvas.getContext("2d");
+  const staticLayerCanvas = document.createElement("canvas");
+  const staticLayerCtx = staticLayerCanvas.getContext("2d");
+  let staticLayerDirty = true;
+  function invalidateStaticLayer() { staticLayerDirty = true; }
   const status = document.getElementById("radarStatus");
   const osmAttribution = document.getElementById("osmAttribution");
   const blipInfo = document.getElementById("blipInfo");
@@ -380,38 +385,55 @@
   const AIRPORT_IATA = "{{ cfg.airport_iata|upper }}";
   const AIRPORT_ICAO = "{{ cfg.airport_icao|upper }}";
 
-  const skin  = document.documentElement.dataset.skin  || "standard";
-  const theme = document.documentElement.dataset.theme || "dark";
-
-  const SKIN_COLORS = {
-    standard:  { bg: theme==="light"?"#f0f0f0":"#0a0a0f", ring:"rgba(255,255,255,0.12)", text:theme==="light"?"#333":"#ccc", blip:"#ffffff", center:"rgba(255,255,255,0.5)", sweepLine:"rgba(255,255,255,0.5)" },
-    technical: { bg:"#0a0e14", ring:"rgba(74,158,218,0.2)",  text:"#4a9eda", blip:"#4a9eda", center:"#4a9eda", sweepLine:"rgba(74,158,218,0.7)"  },
-    neon:      { bg:"#000d00", ring:"rgba(0,255,80,0.18)",   text:"#00ff50", blip:"#00ff50", center:"#00ff50", sweepLine:"rgba(0,255,80,0.8)"    },
-    cyan:      { bg:"#00080f", ring:"rgba(0,204,255,0.18)",  text:"#00ccff", blip:"#00ccff", center:"#00ccff", sweepLine:"rgba(0,204,255,0.8)"   },
-    crt:       { bg:"#0a0600", ring:"rgba(255,170,0,0.18)",  text:"#ffaa00", blip:"#ffaa00", center:"#ffaa00", sweepLine:"rgba(255,170,0,0.8)"   },
+  const RadarPresentation = window.LocalFlightRadarPresentation;
+  const rootStyle = getComputedStyle(document.documentElement);
+  const cssColor = (name, fallback) => rootStyle.getPropertyValue(name).trim() || fallback;
+  function withAlpha(color, alpha) {
+    const raw = String(color || "").trim();
+    const shortHex = raw.match(/^#([0-9a-f]{3})$/i);
+    const longHex = raw.match(/^#([0-9a-f]{6})$/i);
+    if (shortHex) {
+      const digits = shortHex[1].split("").map(part => part + part);
+      return `rgba(${parseInt(digits[0], 16)},${parseInt(digits[1], 16)},${parseInt(digits[2], 16)},${alpha})`;
+    }
+    if (longHex) {
+      const value = longHex[1];
+      return `rgba(${parseInt(value.slice(0, 2), 16)},${parseInt(value.slice(2, 4), 16)},${parseInt(value.slice(4, 6), 16)},${alpha})`;
+    }
+    return raw;
+  }
+  const PALETTE = {
+    bg: cssColor("--skin-bg", "#0a1118"),
+    panel: cssColor("--skin-surface", "#101927"),
+    text: cssColor("--skin-text", "#ecf4ff"),
+    muted: cssColor("--skin-text-dim", "#6c94c0"),
+    accent: cssColor("--skin-accent", "#4a9eda"),
+    departure: cssColor("--lf-accent-2", "#7ce7ff"),
+    good: cssColor("--skin-ok", "#29e287"),
+    warn: cssColor("--skin-warn", "#f0b429"),
   };
-  const C = SKIN_COLORS[skin] || SKIN_COLORS.standard;
-  const SURFACE_BY_SKIN = {
-    standard: theme === "light"
-      ? { boundary:"rgba(18,76,126,0.28)", runway:"rgba(18,76,126,0.46)", runwayFill:"rgba(18,76,126,0.08)", taxiway:"rgba(18,76,126,0.20)", apron:"rgba(18,76,126,0.06)", terminal:"rgba(18,76,126,0.09)", building:"rgba(18,76,126,0.13)", label:"rgba(18,76,126,0.62)" }
-      : { boundary:"rgba(124,196,240,0.30)", runway:"rgba(124,196,240,0.52)", runwayFill:"rgba(124,196,240,0.10)", taxiway:"rgba(124,196,240,0.24)", apron:"rgba(124,196,240,0.07)", terminal:"rgba(124,196,240,0.10)", building:"rgba(124,196,240,0.15)", label:"rgba(170,220,255,0.66)" },
-    technical: { boundary:"rgba(74,158,218,0.30)", runway:"rgba(122,190,240,0.56)", runwayFill:"rgba(74,158,218,0.10)", taxiway:"rgba(74,158,218,0.25)", apron:"rgba(74,158,218,0.08)", terminal:"rgba(74,158,218,0.11)", building:"rgba(122,190,240,0.17)", label:"rgba(164,216,255,0.66)" },
-    neon:      { boundary:"rgba(0,255,80,0.28)", runway:"rgba(0,255,128,0.56)", runwayFill:"rgba(0,255,80,0.09)", taxiway:"rgba(0,255,80,0.22)", apron:"rgba(0,255,80,0.06)", terminal:"rgba(0,255,80,0.09)", building:"rgba(0,255,128,0.14)", label:"rgba(128,255,172,0.66)" },
-    cyan:      { boundary:"rgba(0,204,255,0.28)", runway:"rgba(70,225,255,0.56)", runwayFill:"rgba(0,204,255,0.09)", taxiway:"rgba(0,204,255,0.22)", apron:"rgba(0,204,255,0.06)", terminal:"rgba(0,204,255,0.09)", building:"rgba(70,225,255,0.14)", label:"rgba(150,238,255,0.66)" },
-    crt:       { boundary:"rgba(255,170,0,0.28)", runway:"rgba(255,196,66,0.56)", runwayFill:"rgba(255,170,0,0.09)", taxiway:"rgba(255,170,0,0.22)", apron:"rgba(255,170,0,0.06)", terminal:"rgba(255,170,0,0.09)", building:"rgba(255,196,66,0.14)", label:"rgba(255,213,128,0.66)" },
+  const C = {
+    bg: PALETTE.bg,
+    ring: withAlpha(PALETTE.accent, 0.2),
+    text: PALETTE.text,
+    blip: PALETTE.accent,
+    center: withAlpha(PALETTE.accent, 0.62),
+    sweepLine: withAlpha(PALETTE.accent, 0.78),
   };
-  const SURFACE = SURFACE_BY_SKIN[skin] || SURFACE_BY_SKIN.standard;
-  const MAP_COLORS_BY_SKIN = {
-    standard: theme === "light"
-      ? { water:"rgba(46,132,206,0.12)", park:"rgba(46,150,92,0.12)", landuse:"rgba(178,140,64,0.08)", road:"rgba(18,76,126,0.20)", rail:"rgba(18,76,126,0.16)", boundary:"rgba(18,76,126,0.18)", coastline:"rgba(46,132,206,0.28)", label:"rgba(18,76,126,0.58)", terrain:"rgba(178,140,64,0.22)", route:"rgba(74,158,218,0.48)" }
-      : { water:"rgba(48,148,220,0.10)", park:"rgba(60,180,112,0.09)", landuse:"rgba(210,164,82,0.06)", road:"rgba(122,190,240,0.16)", rail:"rgba(122,190,240,0.12)", boundary:"rgba(122,190,240,0.14)", coastline:"rgba(48,148,220,0.24)", label:"rgba(170,220,255,0.54)", terrain:"rgba(210,164,82,0.20)", route:"rgba(74,158,218,0.48)" },
-    technical: { water:"rgba(48,148,220,0.09)", park:"rgba(74,158,218,0.06)", landuse:"rgba(74,158,218,0.04)", road:"rgba(74,158,218,0.17)", rail:"rgba(74,158,218,0.12)", boundary:"rgba(74,158,218,0.15)", coastline:"rgba(74,158,218,0.24)", label:"rgba(164,216,255,0.54)", terrain:"rgba(240,180,41,0.20)", route:"rgba(74,158,218,0.52)" },
-    neon:      { water:"rgba(0,255,128,0.07)", park:"rgba(0,255,80,0.08)", landuse:"rgba(0,255,80,0.04)", road:"rgba(0,255,80,0.15)", rail:"rgba(0,255,80,0.11)", boundary:"rgba(0,255,80,0.12)", coastline:"rgba(0,255,128,0.20)", label:"rgba(128,255,172,0.54)", terrain:"rgba(255,170,0,0.18)", route:"rgba(0,255,80,0.48)" },
-    cyan:      { water:"rgba(0,204,255,0.10)", park:"rgba(0,204,255,0.06)", landuse:"rgba(0,204,255,0.04)", road:"rgba(0,204,255,0.16)", rail:"rgba(0,204,255,0.12)", boundary:"rgba(0,204,255,0.14)", coastline:"rgba(0,204,255,0.24)", label:"rgba(150,238,255,0.54)", terrain:"rgba(240,180,41,0.18)", route:"rgba(0,204,255,0.50)" },
-    crt:       { water:"rgba(255,170,0,0.06)", park:"rgba(255,170,0,0.05)", landuse:"rgba(255,170,0,0.04)", road:"rgba(255,170,0,0.15)", rail:"rgba(255,170,0,0.11)", boundary:"rgba(255,170,0,0.13)", coastline:"rgba(255,170,0,0.20)", label:"rgba(255,213,128,0.54)", terrain:"rgba(255,196,66,0.22)", route:"rgba(255,170,0,0.48)" },
+  const SURFACE = {
+    boundary: withAlpha(PALETTE.accent, 0.28), runway: withAlpha(PALETTE.text, 0.52),
+    runwayFill: withAlpha(PALETTE.accent, 0.09), taxiway: withAlpha(PALETTE.accent, 0.23),
+    apron: withAlpha(PALETTE.accent, 0.07), terminal: withAlpha(PALETTE.warn, 0.12),
+    building: withAlpha(PALETTE.warn, 0.16), label: withAlpha(PALETTE.text, 0.66),
   };
-  const MAP = MAP_COLORS_BY_SKIN[skin] || MAP_COLORS_BY_SKIN.standard;
-  const BOARD_FONT = getComputedStyle(document.documentElement).getPropertyValue("--font-board-canvas").trim()
+  const MAP = {
+    water: withAlpha(PALETTE.accent, 0.1), park: withAlpha(PALETTE.good, 0.09),
+    landuse: withAlpha(PALETTE.warn, 0.06), road: withAlpha(PALETTE.text, 0.16),
+    rail: withAlpha(PALETTE.muted, 0.14), boundary: withAlpha(PALETTE.accent, 0.14),
+    coastline: withAlpha(PALETTE.accent, 0.24), label: withAlpha(PALETTE.text, 0.54),
+    terrain: withAlpha(PALETTE.warn, 0.2), route: withAlpha(PALETTE.accent, 0.5),
+  };
+  const BOARD_FONT = rootStyle.getPropertyValue("--font-board-canvas").trim()
     || '"Space Mono", ui-monospace, monospace';
 
   const NM_PER_DEG_LAT = 60.0;
@@ -419,17 +441,12 @@
     return { x:(lon-CENTER_LON)*NM_PER_DEG_LAT*Math.cos(CENTER_LAT*Math.PI/180), y:-(lat-CENTER_LAT)*NM_PER_DEG_LAT };
   }
   function nmToCanvas(nx,ny,R){ return {x:canvas.width/2+(nx/RADIUS_NM)*R, y:canvas.height/2+(ny/RADIUS_NM)*R}; }
-  function blipAngle(nx,ny){ return (Math.atan2(nx,-ny)*180/Math.PI+360)%360; }
-  function angleSinceSweep(b,s){ return (s-b+360)%360; }
-  function blipAlpha(b,s,g){
-    if(g) return 0.35;
-    const age=angleSinceSweep(b,s);
-    if(age>350||age<30) return 1.0;
-    return Math.max(0.1,1.0-(age-30)/310*0.9);
-  }
+  function blipAngle(nx,ny){ return RadarPresentation.bearingFromOffset(nx,-ny); }
+  function angleSinceSweep(b,s){ return RadarPresentation.angularAge(s,b); }
 
   function setRadius(nm) {
     RADIUS_NM = nm;
+    invalidateStaticLayer();
     hoveredBlip = null;
     selectedBlip = null;
     hideBlipInfo();
@@ -471,6 +488,7 @@
       el.checked = Boolean(layers[key]);
       el.addEventListener("change", () => {
         layers[key] = Boolean(el.checked);
+        if (key !== "traffic_status") invalidateStaticLayer();
         if (key === "terrain" || key === "map" || key === "surface" || key === "runways") {
           fetchRadarMap();
         }
@@ -492,12 +510,20 @@
     const w = canvas.parentElement;
     const available = Math.min(w.clientWidth, w.clientHeight);
     const s = Math.max(80, Math.floor(available - 4));
+    if (canvas.width === s && canvas.height === s) return;
     canvas.width = s;
     canvas.height = s;
+    staticLayerCanvas.width = s;
+    staticLayerCanvas.height = s;
+    invalidateStaticLayer();
   }
 
-  let sweepAngle=0, lastSweepTime=performance.now();
-  function updateSweep(now){ const e=(now-lastSweepTime)/1000; lastSweepTime=now; sweepAngle=(sweepAngle+e*30)%360; }
+  let sweepAngle=0, lastSweepTime=performance.now(), sweepPaused=false;
+  function updateSweep(now){
+    if (sweepPaused) { lastSweepTime=now; return; }
+    sweepAngle=RadarPresentation.sweepAngleAfter(sweepAngle, now-lastSweepTime);
+    lastSweepTime=now;
+  }
 
   let blips=[], hoveredBlip=null, selectedBlip=null;
   const trackHistory = new Map();
@@ -572,6 +598,7 @@
     if (!SURFACE_ENABLED) {
       surfaceFeatures = [];
       surfaceCacheState = "disabled";
+      invalidateStaticLayer();
       if (osmAttribution) osmAttribution.classList.remove("visible");
       return;
     }
@@ -581,6 +608,7 @@
       const data = await r.json();
       surfaceFeatures = Array.isArray(data.features) ? data.features : [];
       surfaceCacheState = data.cache_state || "miss";
+      invalidateStaticLayer();
       const provider = String(data.provider || "");
       const meta = data.meta || {};
       const isEstimated = Boolean(meta.estimated_surface) || provider === "localflight-estimated";
@@ -610,6 +638,7 @@
     } catch {
       surfaceFeatures = [];
       surfaceCacheState = "miss";
+      invalidateStaticLayer();
       if (osmAttribution) {
         osmAttribution.textContent = "Surface unavailable";
         osmAttribution.removeAttribute("href");
@@ -721,12 +750,14 @@
       const runways = SURFACE_ENABLED && Array.isArray(data.runways) ? data.runways : [];
       surfaceFeatures = [...surface, ...runways];
       surfaceCacheState = data.surface_cache_state || data.cache_state || "miss";
+      invalidateStaticLayer();
       updateAttribution(data);
       updateRadarLayerSummary();
     } catch (error) {
       radarMapPayload = null;
       mapFeatures = [];
       terrainFeatures = [];
+      invalidateStaticLayer();
       await fetchSurfaceFallback(error);
       updateRadarLayerSummary(error);
     }
@@ -736,6 +767,7 @@
     if (!SURFACE_ENABLED) {
       surfaceFeatures = [];
       surfaceCacheState = "disabled";
+      invalidateStaticLayer();
       updateAttribution({ error: "Airport surface overlay is disabled." });
       return;
     }
@@ -745,10 +777,12 @@
       const data = await r.json();
       surfaceFeatures = Array.isArray(data.features) ? data.features : [];
       surfaceCacheState = data.cache_state || "miss";
+      invalidateStaticLayer();
       updateAttribution(data);
     } catch {
       surfaceFeatures = [];
       surfaceCacheState = "miss";
+      invalidateStaticLayer();
       updateAttribution({ error: error ? error.message : "Airport surface overlay request failed" });
     }
   }
@@ -829,8 +863,7 @@
     }
   }
 
-  function draw() {
-    const W=canvas.width,H=canvas.height,cx=W/2,cy=H/2,R=W/2-2;
+  function renderStaticRadarLayer(W,H,cx,cy,R) {
     ctx.clearRect(0,0,W,H);
     ctx.beginPath(); ctx.arc(cx,cy,R,0,Math.PI*2); ctx.fillStyle=C.bg; ctx.fill();
     ctx.save(); ctx.beginPath(); ctx.arc(cx,cy,R,0,Math.PI*2); ctx.clip();
@@ -854,64 +887,103 @@
     ctx.textAlign="right"; ctx.fillText("W",cx-R+18,cy+4);
     ctx.textAlign="left"; ctx.globalAlpha=1;
 
-    const sweepRad=(sweepAngle-90)*Math.PI/180;
-    ctx.save(); ctx.translate(cx,cy); ctx.rotate(sweepRad);
-    for(let i=0;i<20;i++){
-      ctx.beginPath(); ctx.moveTo(0,0); ctx.arc(0,0,R,-(i+1)*(Math.PI*0.5/20),-i*(Math.PI*0.5/20)); ctx.closePath();
-      ctx.fillStyle=C.blip; ctx.globalAlpha=(1-i/20)*0.12; ctx.fill();
-    }
-    ctx.globalAlpha=1; ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(0,-R);
-    ctx.strokeStyle=C.sweepLine; ctx.lineWidth=1.5; ctx.globalAlpha=0.8; ctx.stroke(); ctx.globalAlpha=1;
-    ctx.restore();
-
     ctx.beginPath(); ctx.arc(cx,cy,4,0,Math.PI*2); ctx.fillStyle=C.center; ctx.fill();
     ctx.beginPath(); ctx.arc(cx,cy,8,0,Math.PI*2); ctx.strokeStyle=C.center; ctx.globalAlpha=0.4; ctx.lineWidth=1; ctx.stroke(); ctx.globalAlpha=1;
 
     drawSurface(R, { includeSurface: false });
     drawProcedures(R);
+    ctx.restore();
+
+    staticLayerCtx.clearRect(0,0,W,H);
+    staticLayerCtx.drawImage(canvas,0,0);
+    staticLayerDirty=false;
+  }
+
+  function draw() {
+    const W=canvas.width,H=canvas.height,cx=W/2,cy=H/2,R=W/2-2;
+    if(staticLayerDirty || staticLayerCanvas.width!==W || staticLayerCanvas.height!==H){
+      staticLayerCanvas.width=W;
+      staticLayerCanvas.height=H;
+      renderStaticRadarLayer(W,H,cx,cy,R);
+    }else{
+      ctx.clearRect(0,0,W,H);
+      ctx.drawImage(staticLayerCanvas,0,0);
+    }
+
+    ctx.save(); ctx.beginPath(); ctx.arc(cx,cy,R,0,Math.PI*2); ctx.clip();
+
+    const sweepRad=sweepAngle*Math.PI/180;
+    ctx.save(); ctx.translate(cx,cy); ctx.rotate(sweepRad);
+    for(let i=0;i<20;i++){
+      const nearAge=i*(RadarPresentation.TRAIL_DEGREES/20)*Math.PI/180;
+      const farAge=(i+1)*(RadarPresentation.TRAIL_DEGREES/20)*Math.PI/180;
+      ctx.beginPath(); ctx.moveTo(0,0); ctx.arc(0,0,R,-Math.PI/2-farAge,-Math.PI/2-nearAge); ctx.closePath();
+      ctx.fillStyle=C.blip; ctx.globalAlpha=(1-i/20)*0.12; ctx.fill();
+    }
+    ctx.globalAlpha=1; ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(0,-R);
+    ctx.strokeStyle=C.sweepLine; ctx.lineWidth=1.5; ctx.globalAlpha=0.8; ctx.stroke(); ctx.globalAlpha=1;
+    ctx.restore();
     drawGhostTracks(R);
 
-    const blipR=Math.max(3,W*0.006), fs=Math.max(9,W*0.02);
+    const blipR=Math.max(3,W*0.006), fs=Math.max(9,W*0.02), labelCandidates=[];
     blips.forEach(b=>{
       const nm=latLonToNm(b.lat,b.lon);
       if(Math.hypot(nm.x,nm.y)>RADIUS_NM) return;
       const pos=nmToCanvas(nm.x,nm.y,R);
       if(pos.x<0||pos.x>W||pos.y<0||pos.y>H) return;
-      const bDeg=blipAngle(nm.x,nm.y), alpha=blipAlpha(bDeg,sweepAngle,b.on_ground);
-      const age=angleSinceSweep(bDeg,sweepAngle), flash=age<15||age>350, dotR=flash?blipR*1.6:blipR;
+      const key=blipIdentity(b), focused=(hoveredBlip&&blipIdentity(hoveredBlip)===key)||(selectedBlip&&blipIdentity(selectedBlip)===key);
+      const bDeg=blipAngle(nm.x,nm.y), alpha=RadarPresentation.blipOpacity(bDeg,sweepAngle,focused);
+      if(alpha<=0) return;
+      const age=angleSinceSweep(bDeg,sweepAngle), flash=age<=RadarPresentation.FLASH_DEGREES, dotR=flash?blipR*1.55:blipR;
+      const targetColor=blipStatusColor(b), shape=RadarPresentation.targetShape(b);
       const heading = Number.isFinite(Number(b.track_deg)) ? Number(b.track_deg)
         : Number.isFinite(Number(b.heading)) ? Number(b.heading)
         : headingFromTrackHistory(b);
       if(heading!=null&&((b.speed_ms||0)>5 || (b.speed_kt||0)>8)){
         const hr=(heading-90)*Math.PI/180;
         ctx.beginPath(); ctx.moveTo(pos.x,pos.y); ctx.lineTo(pos.x+Math.cos(hr)*blipR*5,pos.y+Math.sin(hr)*blipR*5);
-        ctx.strokeStyle=C.blip; ctx.globalAlpha=alpha*0.5; ctx.lineWidth=1; ctx.stroke();
+        ctx.strokeStyle=targetColor; ctx.globalAlpha=alpha*0.5; ctx.lineWidth=1; ctx.stroke();
       }
-      ctx.beginPath(); ctx.arc(pos.x,pos.y,dotR,0,Math.PI*2); ctx.fillStyle=C.blip; ctx.globalAlpha=alpha; ctx.fill();
-      if(flash&&!b.on_ground){ ctx.beginPath(); ctx.arc(pos.x,pos.y,dotR*2.5,0,Math.PI*2); ctx.fillStyle=C.blip; ctx.globalAlpha=0.15; ctx.fill(); }
+      ctx.beginPath();
+      if(shape==="diamond"){
+        ctx.moveTo(pos.x,pos.y-dotR); ctx.lineTo(pos.x+dotR,pos.y); ctx.lineTo(pos.x,pos.y+dotR); ctx.lineTo(pos.x-dotR,pos.y); ctx.closePath();
+      }else{
+        ctx.arc(pos.x,pos.y,dotR,0,Math.PI*2);
+      }
+      ctx.fillStyle=targetColor; ctx.strokeStyle=targetColor; ctx.globalAlpha=alpha;
+      if(shape==="hollow"){ctx.lineWidth=1.5;ctx.stroke();}else{ctx.fill();}
+      if(flash&&shape!=="diamond"){ ctx.beginPath(); ctx.arc(pos.x,pos.y,dotR*2.5,0,Math.PI*2); ctx.fillStyle=targetColor; ctx.globalAlpha=0.15; ctx.fill(); }
+      if(focused){ctx.beginPath();ctx.arc(pos.x,pos.y,dotR+5,0,Math.PI*2);ctx.strokeStyle=PALETTE.warn;ctx.globalAlpha=0.9;ctx.lineWidth=1.5;ctx.stroke();}
       ctx.globalAlpha=1;
-      if (shouldDrawLabel(b)) {
-        ctx.fillStyle=C.text; ctx.font=`${fs}px ${BOARD_FONT}`;
-        ctx.globalAlpha=alpha*0.9; ctx.fillText(b.callsign,pos.x+blipR+3,pos.y-2); ctx.globalAlpha=1;
-      }
-      if (layers.traffic_status && RADIUS_NM <= 20) {
-        const label = blipStatusLabel(b);
-        if (label) {
-          ctx.fillStyle = blipStatusColor(b);
-          ctx.font = `${Math.max(8, fs * 0.82)}px ${BOARD_FONT}`;
-          ctx.globalAlpha = alpha * 0.86;
-          ctx.fillText(label, pos.x + blipR + 3, pos.y + fs + 2);
-          ctx.globalAlpha = 1;
-        }
-      }
+      if (shouldDrawLabel(b)) labelCandidates.push({b,pos,alpha,focused,priority:RadarPresentation.labelPriority(b,focused)});
+    });
+
+    const occupied=[];
+    labelCandidates.sort((a,b)=>comparePriority(b.priority,a.priority)).forEach(candidate=>{
+      const callsign=String(candidate.b.callsign||candidate.b.flight_number||"").trim().toUpperCase();
+      if(!callsign) return;
+      const phase=layers.traffic_status&&RADIUS_NM<=20?blipStatusLabel(candidate.b):"";
+      ctx.font=`${fs}px ${BOARD_FONT}`;
+      const width=Math.max(ctx.measureText(callsign).width,phase?ctx.measureText(phase).width:0)+6;
+      const height=phase?fs*2.05:fs*1.15;
+      const rect={x:candidate.pos.x+blipR+3,y:candidate.pos.y-fs,width,height};
+      const collides=occupied.some(other=>rect.x<other.x+other.width&&rect.x+rect.width>other.x&&rect.y<other.y+other.height&&rect.y+rect.height>other.y);
+      if(collides&&!candidate.focused) return;
+      occupied.push(rect);
+      ctx.fillStyle=C.text;ctx.globalAlpha=candidate.alpha*0.92;ctx.fillText(callsign,rect.x,candidate.pos.y-2);
+      if(phase){ctx.fillStyle=blipStatusColor(candidate.b);ctx.font=`${Math.max(8,fs*0.82)}px ${BOARD_FONT}`;ctx.fillText(phase,rect.x,candidate.pos.y+fs+2);}
+      ctx.globalAlpha=1;
     });
 
     if(hoveredBlip){
       const nm=latLonToNm(hoveredBlip.lat,hoveredBlip.lon), pos=nmToCanvas(nm.x,nm.y,R);
       const alt=hoveredBlip.altitude_m?`${Math.round(hoveredBlip.altitude_m*3.28084/100)*100}ft`:"—";
       const spd=hoveredBlip.speed_ms?`${Math.round(hoveredBlip.speed_ms*1.94384)}kt`:"—";
-      const lines=[hoveredBlip.callsign,hoveredBlip.aircraft_type?`Type: ${hoveredBlip.aircraft_type}`:null,`Alt:  ${alt}`,`Spd:  ${spd}`].filter(Boolean);
-      const pad=8,lh=fs+4,bw=120,bh=lines.length*lh+pad*2;
+      const phase=blipStatusLabel(hoveredBlip),confidence=hoveredBlip.phase_confidence?String(hoveredBlip.phase_confidence).toUpperCase():"";
+      const vertical=Number.isFinite(Number(hoveredBlip.vertical_rate_fpm))?`${Number(hoveredBlip.vertical_rate_fpm)>=0?"+":""}${Math.round(Number(hoveredBlip.vertical_rate_fpm))}fpm`:null;
+      const distance=Number.isFinite(Number(hoveredBlip.distance_nm))?`${Number(hoveredBlip.distance_nm).toFixed(1)}nm`:null;
+      const lines=[hoveredBlip.callsign,hoveredBlip.aircraft_type?`TYPE ${hoveredBlip.aircraft_type}`:null,[phase,confidence].filter(Boolean).join(" · "),[alt,spd,vertical].filter(Boolean).join(" · "),distance].filter(Boolean);
+      const pad=8,lh=fs+4,bw=Math.min(230,Math.max(136,...lines.map(line=>ctx.measureText(line).width+pad*2))),bh=lines.length*lh+pad*2;
       let tx=pos.x+14,ty=pos.y-bh/2;
       if(tx+bw>W) tx=pos.x-bw-6; if(ty<0) ty=4; if(ty+bh>H) ty=H-bh-4;
       ctx.fillStyle=C.bg; ctx.strokeStyle=C.blip; ctx.lineWidth=1; ctx.globalAlpha=0.93;
@@ -957,30 +1029,32 @@
   }
 
   function shouldDrawLabel(b) {
-    if (hoveredBlip && blipIdentity(hoveredBlip) === blipIdentity(b)) return true;
-    const phase = String(b.radar_phase || b.radar_status || "").toLowerCase();
+    if ((hoveredBlip && blipIdentity(hoveredBlip) === blipIdentity(b)) || (selectedBlip && blipIdentity(selectedBlip) === blipIdentity(b))) return true;
+    const phase = RadarPresentation.normalizePhase(b);
     if (RADIUS_NM <= 10) return true;
     if (RADIUS_NM <= 20) return blips.length <= 30 || ["approach", "final", "departing"].includes(phase);
     return blips.length <= 8 && ["approach", "final", "departing"].includes(phase) && !b.on_ground;
   }
 
   function blipStatusLabel(b) {
-    const raw = String(b.radar_status || b.radar_phase || "").toLowerCase();
-    if (b.on_ground) return "GROUND";
-    if (raw.includes("final")) return "FINAL";
-    if (raw.includes("approach") || raw.includes("arrival")) return "ARR";
-    if (raw.includes("depart") || raw.includes("climb")) return "DEP";
-    if (Number(b.vertical_rate_fpm || 0) < -250) return "DESC";
-    if (Number(b.vertical_rate_fpm || 0) > 250) return "CLIMB";
-    return "";
+    return RadarPresentation.phaseLabel(b);
   }
 
   function blipStatusColor(b) {
-    const label = blipStatusLabel(b);
-    if (label === "FINAL" || label === "ARR" || label === "DESC") return "#f0b429";
-    if (label === "DEP" || label === "CLIMB") return "#4a9eda";
-    if (label === "GROUND") return "rgba(170,220,255,0.72)";
-    return C.text;
+    const role=RadarPresentation.toneRole(b);
+    if(role==="stale") return PALETTE.muted;
+    if(role==="ground") return PALETTE.warn;
+    if(role==="departure") return PALETTE.departure;
+    if(role==="approach") return PALETTE.good;
+    return PALETTE.accent;
+  }
+
+  function comparePriority(left,right){
+    for(let i=0;i<Math.max(left.length,right.length);i++){
+      const delta=Number(left[i]||0)-Number(right[i]||0);
+      if(delta) return delta;
+    }
+    return 0;
   }
 
   function altitudeText(b) {
@@ -1018,6 +1092,7 @@
   function updateProcedurePaths() {
     procedurePaths = [];
     if (!layers.procedures) {
+      invalidateStaticLayer();
       updateRadarLayerSummary();
       return;
     }
@@ -1035,6 +1110,7 @@
         points: isArrival ? [[lat, lon], [CENTER_LAT, CENTER_LON]] : [[CENTER_LAT, CENTER_LON], [lat, lon]],
       });
     });
+    invalidateStaticLayer();
     updateRadarLayerSummary();
   }
 
@@ -1132,15 +1208,24 @@
     if (!layers.terrain || !terrainFeatures.length) return;
     const W = canvas.width;
     ctx.save();
-    ctx.strokeStyle = MAP.terrain;
-    ctx.lineWidth = Math.max(0.5, W * 0.0009);
-    ctx.setLineDash([6, 9]);
-    ctx.globalAlpha = RADIUS_NM <= 20 ? 0.72 : 0.42;
     terrainFeatures.forEach(feature => {
+      const kind = String(feature?.kind || "").toLowerCase();
       ctx.beginPath();
-      if (pathForFeature(feature, R)) ctx.stroke();
+      if (!pathForFeature(feature, R)) return;
+      if (kind === "terrain_band") {
+        const band = Math.max(0, Math.min(4, Number(feature.band_index || 0)));
+        ctx.globalAlpha = 0.05 + band * 0.035;
+        ctx.fillStyle = MAP.terrain;
+        ctx.fill();
+        return;
+      }
+      if (kind === "contour") {
+        ctx.globalAlpha = RADIUS_NM <= 20 ? 0.48 : 0.32;
+        ctx.strokeStyle = MAP.terrain;
+        ctx.lineWidth = Math.max(0.45, W * 0.00075);
+        ctx.stroke();
+      }
     });
-    ctx.setLineDash([]);
     ctx.globalAlpha = 1;
     ctx.restore();
   }
@@ -1276,7 +1361,8 @@
     const ops = intel.operations || {};
     const evidence = intel.source_evidence || {};
     rows.push(["Route", intel.route?.route_display || b.route_display || summary.route || "Not linked"]);
-    rows.push(["Status", intel.timing?.status || blipStatusLabel(b) || String(b.radar_status || b.radar_phase || "Tracking")]);
+    rows.push(["Track phase", b.radar_status_label || blipStatusLabel(b) || String(b.radar_phase || "Tracking")]);
+    if (b.board_status || intel.timing?.status) rows.push(["Board status", b.board_status || intel.timing.status]);
     rows.push(["Altitude", motion.altitude_ft != null ? `${Number(motion.altitude_ft).toLocaleString()} ft` : (b.altitude_display || altitudeText(b))]);
     rows.push(["Speed", motion.speed_kt != null ? `${Number(motion.speed_kt).toLocaleString()} kt` : (b.speed_display || speedText(b))]);
     if (motion.vertical_rate_fpm != null) rows.push(["Vertical", `${Number(motion.vertical_rate_fpm) >= 0 ? "+" : ""}${Number(motion.vertical_rate_fpm).toLocaleString()} fpm`]);
@@ -1323,19 +1409,32 @@
     document.getElementById("closeBlipInfo")?.addEventListener("click", hideBlipInfo);
   }
 
-  canvas.addEventListener("mousemove", e=>{
+  function hitTestBlip(e){
     const rect=canvas.getBoundingClientRect();
     const mx=(e.clientX-rect.left)*(canvas.width/rect.width);
     const my=(e.clientY-rect.top)*(canvas.height/rect.height);
     const R=canvas.width/2-2, hitR=Math.max(3,canvas.width*0.006)+8;
-    hoveredBlip=null;
-    for(const b of blips){ const nm=latLonToNm(b.lat,b.lon),pos=nmToCanvas(nm.x,nm.y,R); if(Math.hypot(mx-pos.x,my-pos.y)<hitR){hoveredBlip=b;break;} }
+    for(const b of blips){
+      const nm=latLonToNm(b.lat,b.lon),pos=nmToCanvas(nm.x,nm.y,R),bearing=blipAngle(nm.x,nm.y);
+      const focused=selectedBlip&&blipIdentity(selectedBlip)===blipIdentity(b);
+      if(!RadarPresentation.isInteractive(bearing,sweepAngle,focused)) continue;
+      if(Math.hypot(mx-pos.x,my-pos.y)<hitR) return b;
+    }
+    return null;
+  }
+  canvas.addEventListener("mousemove", e=>{
+    hoveredBlip=hitTestBlip(e);
     canvas.style.cursor=hoveredBlip?"pointer":"default";
   });
   canvas.addEventListener("mouseleave",()=>{hoveredBlip=null;});
-  canvas.addEventListener("click",()=>{ if (hoveredBlip) selectBlip(hoveredBlip); });
+  canvas.addEventListener("click",e=>{ const hit=hitTestBlip(e); if(hit) selectBlip(hit); });
 
-  function loop(now){ updateSweep(now); draw(); requestAnimationFrame(loop); }
+  let lastDrawTime=0;
+  function loop(now){
+    updateSweep(now);
+    if(now-lastDrawTime>=RadarPresentation.FRAME_INTERVAL_MS){draw();lastDrawTime=now;}
+    requestAnimationFrame(loop);
+  }
 
   let ws=null, retryMs=1000;
   function handleSyncMessage(raw){
@@ -1369,10 +1468,13 @@
   }
   document.addEventListener("visibilitychange", () => {
     if (!document.hidden) {
+      sweepPaused=false;
+      lastSweepTime=performance.now();
       fetchBlips();
       fetchRadarMap();
       return;
     }
+    sweepPaused=true;
     scheduleBlipFetch(120000);
   });
   fetchRadarMap();

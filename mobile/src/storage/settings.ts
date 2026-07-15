@@ -46,6 +46,7 @@ export type MobileRadarDrawingLayers = {
 export type MobileWidgetPreferences = {
   mediumRowCount: 2 | 3;
   showGateTerminal: boolean;
+  automaticRefresh: boolean;
 };
 
 export type RemoteCompanionGrant = {
@@ -65,7 +66,8 @@ const DEFAULT_RADAR_DRAWING_LAYERS: MobileRadarDrawingLayers = {
 };
 export const DEFAULT_WIDGET_PREFERENCES: MobileWidgetPreferences = {
   mediumRowCount: 3,
-  showGateTerminal: true
+  showGateTerminal: true,
+  automaticRefresh: true
 };
 
 export type StandaloneAirport = {
@@ -355,7 +357,8 @@ function normalizeWidgetPreferences(value: unknown): MobileWidgetPreferences {
   const raw = value as Partial<MobileWidgetPreferences>;
   return {
     mediumRowCount: raw.mediumRowCount === 2 ? 2 : 3,
-    showGateTerminal: raw.showGateTerminal !== false
+    showGateTerminal: raw.showGateTerminal !== false,
+    automaticRefresh: raw.automaticRefresh !== false
   };
 }
 

@@ -6,10 +6,14 @@ prebuild copies it into the generated `mobile/android/` project through
 
 The widget reads only `localflight-widget-snapshot.json` from the app's private
 files directory. It never opens a LAN, relay, or provider connection. Opening
-the app refreshes that snapshot; the widget's refresh action only rereads the
-latest local file. Android's periodic widget refresh is intentionally limited
-to 30 minutes. Day/night color resources follow the launcher/system appearance
-without changing the independent appearance selected inside Local Flight.
+the app refreshes that snapshot, and a meaningful write asks Android to redraw
+installed widget instances immediately through the tracked local Expo bridge.
+The widget refresh icon opens Local Flight's foreground refresh path rather than
+pretending to fetch from a stale local file. Android also gets an OS-managed
+background task and a 30-minute passive widget redraw, but both are inexact and
+subject to battery policy. Day/night color resources follow the launcher/system
+appearance without changing the independent appearance selected inside Local
+Flight.
 
 Safety rules:
 

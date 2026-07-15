@@ -121,6 +121,17 @@ Object.defineProperty(Paths, "appleSharedContainers", {
 module.exports = { File, Paths };
 `);
 
+  const fakeWidgetBridgeDir = path.join(outDir, "node_modules/localflight-widget-bridge");
+  mkdirSync(fakeWidgetBridgeDir, { recursive: true });
+  writeFileSync(path.join(fakeWidgetBridgeDir, "index.js"), `
+const state = globalThis.__localFlightWidgetBridgeMock || (globalThis.__localFlightWidgetBridgeMock = { reloadCount: 0 });
+async function reloadLocalFlightWidgets() {
+  state.reloadCount += 1;
+  return { available: true, widgetCount: 1 };
+}
+module.exports = { reloadLocalFlightWidgets };
+`);
+
   const fakeSqliteDir = path.join(outDir, "node_modules/expo-sqlite");
   mkdirSync(fakeSqliteDir, { recursive: true });
   writeFileSync(path.join(fakeSqliteDir, "index.js"), `
@@ -260,8 +271,8 @@ module.exports = { openDatabaseAsync };
   const future = new Date("2030-01-01T00:00:00.000Z");
   const laterFuture = new Date("2030-01-01T00:01:00.000Z");
   const past = new Date("2020-01-01T00:00:00.000Z");
-  const prefs3 = { mediumRowCount: 3, showGateTerminal: true };
-  const prefs2 = { mediumRowCount: 2, showGateTerminal: false };
+  const prefs3 = { mediumRowCount: 3, showGateTerminal: true, automaticRefresh: true };
+  const prefs2 = { mediumRowCount: 2, showGateTerminal: false, automaticRefresh: false };
 
   const row = (index, overrides = {}) => ({
     id: `row-${index}`,
@@ -304,7 +315,8 @@ module.exports = { openDatabaseAsync };
     mode: "lan_companion",
     generatedAt: future,
     stale: false,
-    sourceLabel: "relay"
+    sourceLabel: "relay",
+    sourceUpdatedAt: future.toISOString()
   });
   assert.equal(snapshot.schemaVersion, 1);
   assert.equal(snapshot.small.flight.flightDisplay, "LX 2800");
@@ -428,12 +440,27 @@ module.exports = { openDatabaseAsync };
     mode: "lan_companion",
     generatedAt: laterFuture,
     stale: false,
-    sourceLabel: "relay"
+    sourceLabel: "relay",
+    sourceUpdatedAt: future.toISOString()
   });
   assert.equal(
     widgets.widgetSnapshotSemanticKey(snapshot),
     widgets.widgetSnapshotSemanticKey(sameMeaningLater)
   );
+  const refreshedSource = widgets.buildWidgetExchangeSnapshot({
+    preview,
+    preferences: prefs3,
+    mode: "lan_companion",
+    generatedAt: laterFuture,
+    sourceLabel: "relay",
+    sourceUpdatedAt: laterFuture.toISOString()
+  });
+  assert.notEqual(
+    widgets.widgetSnapshotSemanticKey(snapshot),
+    widgets.widgetSnapshotSemanticKey(refreshedSource)
+  );
+  assert.equal(widgets.widgetSnapshotStaleAfterMs("standalone"), 4 * 60 * 60 * 1000);
+  assert.equal(widgets.widgetSnapshotStaleAfterMs("lan_companion", 8 * 60 * 60), 16 * 60 * 60 * 1000);
 
   const fsMock = globalThis.__localFlightExpoFileSystemMock;
   const resetFsMock = ({ sharedContainer = false } = {}) => {
@@ -454,17 +481,20 @@ module.exports = { openDatabaseAsync };
   };
 
   resetFsMock();
+  globalThis.__localFlightWidgetBridgeMock.reloadCount = 0;
   assert.equal(storage.shouldWriteWidgetSnapshot(snapshot), true);
   const firstWrite = await storage.writeWidgetSnapshot(snapshot);
   assert.equal(firstWrite.ok, true);
   assert.equal(firstWrite.sharedContainer, false);
   assert.equal(firstWrite.skipped, undefined);
+  assert.equal(globalThis.__localFlightWidgetBridgeMock.reloadCount, 1);
   assert.equal(storage.shouldWriteWidgetSnapshot(snapshot), false);
   const writeCountAfterFirst = fsMock.writeCount;
   const skippedWrite = await storage.writeWidgetSnapshot(sameMeaningLater);
   assert.equal(skippedWrite.ok, true);
   assert.equal(skippedWrite.skipped, true);
   assert.equal(fsMock.writeCount, writeCountAfterFirst);
+  assert.equal(globalThis.__localFlightWidgetBridgeMock.reloadCount, 1);
   const readBack = await storage.readWidgetSnapshot();
   assert.equal(readBack.small.flight.flightDisplay, "LX 2800");
 
@@ -595,6 +625,11 @@ module.exports = { openDatabaseAsync };
   assert.equal(afterClear.flights.length, 0);
 
   const appScreenSource = readFileSync(path.join(mobileRoot, "src/screens/AppScreens.tsx"), "utf8");
+  const backgroundRefreshSource = readFileSync(path.join(mobileRoot, "src/background/widgetRefresh.ts"), "utf8");
+  assert.match(backgroundRefreshSource, /STANDALONE_FIDS_MINIMUM_REFRESH_MS/);
+  assert.match(backgroundRefreshSource, /configureWidgetBackgroundRefresh/);
+  assert.match(backgroundRefreshSource, /getStandaloneFids/);
+  assert.match(backgroundRefreshSource, /getFids/);
   for (const forbidden of [
     "TIP JAR",
     "support tips are being prepared",

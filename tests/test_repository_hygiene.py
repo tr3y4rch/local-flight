@@ -83,6 +83,32 @@ def test_pi_package_sensitive_classifier_and_internal_exclusions() -> None:
         assert not package_pi_source._is_release_file(path)
 
 
+def test_pi_source_release_is_runtime_scoped() -> None:
+    from scripts import package_pi_source
+
+    for path in (
+        Path("pyproject.toml"),
+        Path("README.md"),
+        Path("docs/install.md"),
+        Path("installers/pi/install.sh"),
+        Path("src/localflight/ui/server.py"),
+        Path("assets/icon.png"),
+    ):
+        assert package_pi_source._is_release_file(path)
+
+    for path in (
+        Path("AGENTS.md"),
+        Path("mobile/App.tsx"),
+        Path("relay/main.py"),
+        Path("site/index.html"),
+        Path("workers/beacontools.js"),
+        Path("tests/test_repository_hygiene.py"),
+        Path("scripts/package_pi_source.py"),
+        Path("assets/previews/mobile/iOS/fids.png"),
+    ):
+        assert not package_pi_source._is_release_file(path)
+
+
 def test_client_info_uses_support_fingerprint_not_raw_uuid(monkeypatch: pytest.MonkeyPatch) -> None:
     from localflight.storage import install
     from localflight.ui import server

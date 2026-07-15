@@ -2,13 +2,19 @@
 
 This file is the working checklist for the `0.5.1` TestFlight/review build. It is not legal advice; keep the final App Store Connect answers aligned with the exact submitted build.
 
+Customer-facing English (U.S.) listing copy is maintained in
+[`store/ios/en-US/`](store/ios/en-US/). The checked metadata pack contains the
+name, subtitle, promotional text, keywords, full description, and public URLs.
+Run `npm run appstore:contract` before copying it into App Store Connect.
+
 ## Reviewer Test Path
 
 - App name: **Local Flight**
 - Bundle identifier: `cc.beacontools.localflight`
 - Version: `0.5.1`
-- Build number: `5`
-- Project / support URL: `https://beacontools.cc/local-flight/mobile`
+- Build number: `6`
+- Marketing URL: `https://beacontools.cc/local-flight/mobile`
+- Support URL: `https://beacontools.cc/support`
 - Privacy Policy URL: `https://beacontools.cc/privacy`
 - Recommended review path: choose **Standalone** on first launch so the app can be tested without a desktop or Raspberry Pi server.
 - Standalone setup needs an airport, a mobile diagnostics choice, and relay activation through `https://relay.beacontools.cc`. It does not open LAN WebSockets, Matrix controls, scheduler controls, or server-control panels.
@@ -53,7 +59,7 @@ The bundled iOS privacy manifest declares required-reason APIs and conservative 
 
 ## Home-Screen Widget
 
-- Build `5` includes small and medium iOS home-screen widgets through bundle ID `cc.beacontools.localflight.widget` and App Group `group.cc.beacontools.localflight`.
+- Build `6` includes small and medium iOS home-screen widgets through bundle ID `cc.beacontools.localflight.widget` and App Group `group.cc.beacontools.localflight`.
 - The app writes a bounded local board snapshot into the shared App Group. The widget does not make LAN, relay, provider, analytics, or advertising requests.
 - The small widget shows the pinned flight or a clear open-app prompt. The medium widget shows a bounded airport-board glance with stale labeling.
 - Dynamic Island and Live Activities are not enabled in this build.

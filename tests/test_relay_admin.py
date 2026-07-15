@@ -339,7 +339,8 @@ def test_activate_auto_issues_and_client_status_verifies(tmp_path: Path, monkeyp
     assert activate_data["status"] == "issued"
     assert activate_data["activation_token"].startswith("lfm_")
     assert activate_data["token_prefix"] == activate_data["activation_token"][:10]
-    assert activate_data["plan"] == "managed"
+    assert activate_data["plan"] == "community"
+    assert activate_data["limits"]["schedule"] == relay_main._community_schedule_limit()
 
     status_resp = client.get(
         "/v1/client/status",
@@ -351,7 +352,7 @@ def test_activate_auto_issues_and_client_status_verifies(tmp_path: Path, monkeyp
     )
     assert status_resp.status_code == 200
     status_data = status_resp.json()
-    assert status_data["plan"] == "managed"
+    assert status_data["plan"] == "community"
     assert status_data["token_prefix"] == activate_data["token_prefix"]
     assert status_data["known_install"] is True
     assert status_data["can_reissue"] is True
@@ -369,8 +370,13 @@ def test_activate_auto_issues_and_client_status_verifies(tmp_path: Path, monkeyp
         "SELECT status, network_tag FROM activation_requests WHERE request_id=?",
         (activate_data["request_id"],),
     ).fetchone()
+    token_row = conn.execute(
+        "SELECT access_plan FROM activation_tokens WHERE bound_install_id=?",
+        (install_id,),
+    ).fetchone()
     conn.close()
     assert request_row is not None
+    assert token_row is not None and token_row["access_plan"] == "community"
     assert request_row["status"] == "issued"
     assert str(request_row["network_tag"]).startswith("net_")
     assert "203.0.113.42" not in str(request_row["network_tag"])
@@ -1226,7 +1232,7 @@ def test_admin_api_activation_request_action_issues_token(tmp_path: Path, monkey
         headers={"host": "relay.beacontools.cc"},
     )
     assert status.status_code == 200
-    assert status.json()["plan"] == "managed"
+    assert status.json()["plan"] == "community"
 
 
 def test_admin_api_activation_request_action_uses_standalone_limits(tmp_path: Path, monkeypatch) -> None:
@@ -1413,13 +1419,65 @@ def test_relay_root_switches_by_hostname(tmp_path: Path, monkeypatch) -> None:
 
     public_response = client.get("/", headers={"host": "relay.beacontools.cc"})
     assert public_response.status_code == 200
+    assert public_response.headers["content-type"] == "application/json"
+    assert public_response.headers["cache-control"] == "no-store"
+    assert public_response.headers["vary"] == "Accept"
     public_payload = public_response.json()
     assert public_payload["public_host"] == "relay.beacontools.cc"
     assert public_payload["admin_host"] == "network.beacontools.cc"
 
+    explicit_json_response = client.get(
+        "/",
+        headers={"host": "relay.beacontools.cc", "accept": "application/json"},
+    )
+    assert explicit_json_response.status_code == 200
+    assert explicit_json_response.json() == public_payload
+
     admin_response = client.get("/", headers={"host": "network.beacontools.cc"}, follow_redirects=False)
     assert admin_response.status_code == 307
     assert admin_response.headers["location"] == "/admin"
+
+
+def test_relay_root_serves_safe_browser_landing_page(tmp_path: Path, monkeypatch) -> None:
+    _use_temp_db(tmp_path, monkeypatch)
+    client = TestClient(relay_main.app)
+
+    response = client.get(
+        "/",
+        headers={"host": "relay.beacontools.cc", "accept": "text/html"},
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/html;")
+    assert response.headers["cache-control"] == "no-store"
+    assert response.headers["vary"] == "Accept"
+    assert response.headers["content-security-policy"].startswith("default-src 'none'")
+    assert response.headers["permissions-policy"] == "camera=(), geolocation=(), microphone=()"
+    assert response.headers["referrer-policy"] == "no-referrer"
+    assert response.headers["x-content-type-options"] == "nosniff"
+    assert response.headers["x-frame-options"] == "DENY"
+    assert '<meta name="robots" content="noindex, nofollow">' in response.text
+    assert '<link rel="canonical" href="https://beacontools.cc/network/">' in response.text
+    assert "Local Flight Community Relay" in response.text
+    assert "Relay endpoint reached" in response.text
+    assert "What this confirms" in response.text
+    assert 'href="/health"' in response.text
+    assert "https://beacontools.cc/network/" in response.text
+    assert "https://beacontools.cc/local-flight/" in response.text
+    assert "https://beacontools.cc/privacy/" in response.text
+    assert "https://beacontools.cc/support/" in response.text
+    assert "https://github.com/tr3y4rch/local-flight" in response.text
+    assert "network.beacontools.cc" not in response.text
+    assert "provider_revision" not in response.text
+    assert "<script" not in response.text
+
+    health_response = client.get(
+        "/health",
+        headers={"host": "relay.beacontools.cc", "accept": "text/html"},
+    )
+    assert health_response.status_code == 200
+    assert health_response.headers["content-type"] == "application/json"
+    assert health_response.json()["ok"] is True
 
 
 def test_admin_auth_throttles_repeated_bad_passwords(tmp_path: Path, monkeypatch) -> None:
@@ -2289,7 +2347,7 @@ def test_shared_schedule_ttls_have_public_relay_floor(monkeypatch) -> None:
     assert relay_main._schedule_ttls(60)[0] == 900
 
 
-def test_community_shared_schedule_enforces_hourly_upstream_cadence(
+def test_community_shared_schedule_enforces_thirty_minute_upstream_cadence(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -2331,15 +2389,15 @@ def test_community_shared_schedule_enforces_hourly_upstream_cadence(
     assert payload["cache_state"] == "fresh"
     assert payload["meta"]["served_via"] == "cache-hit"
     assert payload["meta"]["requested_refresh_seconds"] == 900
-    assert payload["meta"]["effective_min_fresh_ttl_seconds"] == 3600
-    assert "once per hour" in payload["meta"]["relay_policy"]
+    assert payload["meta"]["effective_min_fresh_ttl_seconds"] == 1800
+    assert "once every 30 minutes" in payload["meta"]["relay_policy"]
     assert len(upstream_calls) == 1
 
     conn = relay_main._connect()
     row = conn.execute("SELECT refresh_seconds FROM client_interests WHERE install_id=?", (params["install_id"],)).fetchone()
     conn.close()
     assert row is not None
-    assert int(row["refresh_seconds"] or 0) == 3600
+    assert int(row["refresh_seconds"] or 0) == 1800
 
 
 def test_shared_schedule_rechecks_cache_after_winning_refresh_lock(

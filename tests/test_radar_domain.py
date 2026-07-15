@@ -187,6 +187,107 @@ def test_classifier_marks_final_only_with_runway_alignment() -> None:
     assert blip["phase_confidence"] in {"high", "medium"}
 
 
+def test_classifier_uses_airport_elevation_for_taxi_state() -> None:
+    blip = classify_blip(
+        {
+            "callsign": "TAXI1",
+            "altitude_ft": 5480,
+            "speed_kt": 18,
+            "distance_nm": 1.0,
+        },
+        airport_icao="KDEN",
+        runways=[
+            {
+                "label": "16R",
+                "endpoints": [
+                    {"ident": "16R", "lat": 39.87, "lon": -104.67, "heading_deg": 160, "elevation_ft": 5434},
+                    {"ident": "34L", "lat": 39.82, "lon": -104.65, "heading_deg": 340, "elevation_ft": 5430},
+                ],
+            }
+        ],
+    )
+
+    assert blip["radar_phase"] == "taxi"
+    assert blip["altitude_agl_ft"] < 100
+
+
+def test_classifier_marks_confirmed_takeoff_roll_as_departing() -> None:
+    blip = classify_blip(
+        {
+            "callsign": "SWR200",
+            "on_ground": True,
+            "speed_kt": 112,
+            "distance_nm": 1.5,
+            "departure_icao": "LSZH",
+            "arrival_icao": "EGLL",
+        },
+        airport_icao="LSZH",
+        runways=[],
+    )
+
+    assert blip["radar_phase"] == "departing"
+    assert "takeoff-roll" in blip["phase_reason"]
+
+
+def test_departed_board_status_never_overrides_live_final_phase() -> None:
+    blip = classify_blip(
+        {
+            "callsign": "SWR100",
+            "lat": 47.50,
+            "lon": 8.50,
+            "track_deg": 140,
+            "altitude_ft": 2200,
+            "speed_kt": 150,
+            "vertical_rate_fpm": -650,
+            "distance_nm": 5.0,
+            "departure_icao": "EGLL",
+            "arrival_icao": "LSZH",
+            "board_status": "departed",
+        },
+        airport_icao="LSZH",
+        runways=[
+            {
+                "label": "14",
+                "endpoints": [{"ident": "14", "lat": 47.45, "lon": 8.55, "heading_deg": 140}],
+                "points": [[47.45, 8.55], [47.55, 8.45]],
+            }
+        ],
+    )
+
+    assert blip["board_status"] == "departed"
+    assert blip["radar_phase"] == "final"
+
+
+def test_stale_arrival_target_cannot_advance_to_final() -> None:
+    blip = classify_blip(
+        {
+            "callsign": "OLD100",
+            "lat": 47.50,
+            "lon": 8.50,
+            "track_deg": 140,
+            "altitude_ft": 2200,
+            "speed_kt": 150,
+            "vertical_rate_fpm": -650,
+            "distance_nm": 5.0,
+            "departure_icao": "EGLL",
+            "arrival_icao": "LSZH",
+            "position_age_s": 90,
+        },
+        airport_icao="LSZH",
+        runways=[
+            {
+                "label": "14",
+                "endpoints": [{"ident": "14", "lat": 47.45, "lon": 8.55, "heading_deg": 140}],
+                "points": [[47.45, 8.55], [47.55, 8.45]],
+            }
+        ],
+    )
+
+    assert blip["position_stale"] is True
+    assert blip["radar_phase"] == "approach"
+    assert blip["phase_confidence"] == "low"
+
+
 def test_classifier_keeps_real_unknown_intent_as_low_confidence_approach_not_final() -> None:
     blip = classify_blip(
         {
@@ -217,7 +318,7 @@ def test_classifier_keeps_real_unknown_intent_as_low_confidence_approach_not_fin
     assert blip["motion_trend"] == "descending"
 
 
-def test_classifier_reports_cruise_and_level_motion_without_extra_detail() -> None:
+def test_classifier_reports_enroute_and_level_motion_without_extra_detail() -> None:
     blip = classify_blip(
         {
             "callsign": "ENR123",
@@ -232,7 +333,7 @@ def test_classifier_reports_cruise_and_level_motion_without_extra_detail() -> No
         runways=[],
     )
 
-    assert blip["radar_phase"] == "cruise"
+    assert blip["radar_phase"] == "enroute"
     assert blip["motion_trend"] == "level"
 
 
@@ -415,7 +516,7 @@ def test_osm_map_context_fetch_tries_fallback_endpoint(monkeypatch) -> None:
     ]
 
 
-def test_terrain_context_decodes_terrarium_and_builds_quiet_relief() -> None:
+def test_terrain_context_decodes_terrarium_and_builds_bands_and_contours() -> None:
     image = Image.new("RGB", (256, 256))
     for y in range(256):
         for x in range(256):
@@ -439,7 +540,13 @@ def test_terrain_context_decodes_terrarium_and_builds_quiet_relief() -> None:
 
     assert round(decode_terrarium_rgb((128, 0, 0))) == 0
     assert features
-    assert {feature["kind"] for feature in features} == {"relief"}
+    assert {feature["kind"] for feature in features} == {"terrain_band", "contour"}
+    contour_segments = [feature for feature in features if feature["kind"] == "contour"]
+    assert contour_segments
+    assert any(
+        abs(segment["points"][0][0] - segment["points"][1][0]) > 0.000001
+        for segment in contour_segments
+    )
     assert all(not feature["label"] for feature in features)
 
 
@@ -452,7 +559,7 @@ def test_radar_map_includes_terrain_only_when_enabled(monkeypatch) -> None:
         center_lon=8.55,
         radius_nm=5,
         cache_state="fresh",
-        features=[{"kind": "relief", "label": "", "elevation_ft": 1800, "points": [[47.44, 8.54], [47.45, 8.55]]}],
+        features=[{"kind": "contour", "label": "", "elevation_ft": 1800, "points": [[47.44, 8.54], [47.45, 8.55]]}],
     )
 
     off = build_radar_map(
@@ -477,7 +584,7 @@ def test_radar_map_includes_terrain_only_when_enabled(monkeypatch) -> None:
     )
 
     assert off["terrain"]["features"] == []
-    assert on["terrain"]["features"][0]["kind"] == "relief"
+    assert on["terrain"]["features"][0]["kind"] == "contour"
     assert on["sources"]["terrain"] == "aws-terrain-tiles"
     assert on["confidence"]["terrain_feature_count"] == 1
 

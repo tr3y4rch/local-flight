@@ -479,12 +479,21 @@ def test_remote_invite_requires_relay_linked_host(monkeypatch: pytest.MonkeyPatc
     from localflight.ui import api as ui_api
 
     save_config(AppConfig(remote_companion_enabled=True))
-    monkeypatch.setattr("localflight.storage.install.get_activation_token", lambda: "")
+    monkeypatch.setattr(
+        "localflight.sources.web.relay_activation.ensure_relay_link",
+        lambda **kwargs: {
+            "ok": False,
+            "linked": False,
+            "status": "relay_link_required",
+            "error": "This install still needs a verified relay link.",
+        },
+    )
 
     response = TestClient(ui_api.app).post("/api/mobile/remote/invite")
 
     assert response.status_code == 403
-    assert response.json()["detail"] == "Remote Companion requires a relay-linked install"
+    assert response.json()["detail"]["code"] == "relay_link_required"
+    assert "verified relay link" in response.json()["detail"]["message"]
 
 
 def test_pairing_same_phone_replaces_previous_remote_grant(

@@ -36,7 +36,7 @@ _BYOK_PLAN_MAX = 100
 _DEFAULT_RELAY_LIMIT = 50
 _MANAGED_STATUS_CACHE_TTL_S = 60
 _COMMUNITY_WINDOW_DAYS = 30
-_COMMUNITY_RELAY_MIN_REFRESH_SECONDS = 3600
+_COMMUNITY_RELAY_MIN_REFRESH_SECONDS = 1800
 _RELAY_COOLDOWN_DEFAULT_S = 15 * 60
 _RELAY_COOLDOWN_MAX_S = 24 * 60 * 60
 _FETCH_STATS_MAX_SAMPLES = 24
@@ -207,9 +207,19 @@ def _parse_retry_after(value: Any, default_s: int = _RELAY_COOLDOWN_DEFAULT_S) -
     return max(60, min(_RELAY_COOLDOWN_MAX_S, seconds))
 
 
-def _relay_cooldown_until() -> Optional[datetime]:
+def _relay_access_lane() -> str:
+    return "managed" if _has_activation_token() else "community"
+
+
+def _relay_cooldown_until(lane: Optional[str] = None) -> Optional[datetime]:
+    lane_name = (lane or _relay_access_lane()).strip().lower() or "community"
     usage = _load_usage()
-    cooldown = usage.get("relay_cooldown")
+    cooldowns = usage.get("relay_cooldowns")
+    cooldown = cooldowns.get(lane_name) if isinstance(cooldowns, dict) else None
+    # Older clients stored one anonymous Community cooldown. Treat that as a
+    # Community-lane cooldown only so it cannot block a newly linked install.
+    if not isinstance(cooldown, dict) and lane_name == "community":
+        cooldown = usage.get("relay_cooldown")
     if not isinstance(cooldown, dict):
         return None
     until = _parse_utc(cooldown.get("until"))
@@ -217,37 +227,68 @@ def _relay_cooldown_until() -> Optional[datetime]:
         return None
     now = _utc_now()
     if until <= now:
-        usage.pop("relay_cooldown", None)
+        if isinstance(cooldowns, dict):
+            cooldowns.pop(lane_name, None)
+            if cooldowns:
+                usage["relay_cooldowns"] = cooldowns
+            else:
+                usage.pop("relay_cooldowns", None)
+        if lane_name == "community":
+            usage.pop("relay_cooldown", None)
         _save_usage(usage)
         return None
     return until
 
 
-def _relay_cooldown_remaining_s() -> int:
-    until = _relay_cooldown_until()
+def _relay_cooldown_remaining_s(lane: Optional[str] = None) -> int:
+    until = _relay_cooldown_until(lane)
     if until is None:
         return 0
     return max(1, int((until - _utc_now()).total_seconds()))
 
 
-def _record_relay_cooldown(*, retry_after_s: int, reason: str) -> None:
+def _record_relay_cooldown(*, retry_after_s: int, reason: str, lane: Optional[str] = None) -> None:
+    lane_name = (lane or _relay_access_lane()).strip().lower() or "community"
     usage = _load_usage()
     now = _utc_now()
     retry_after_s = _parse_retry_after(retry_after_s)
-    usage["relay_cooldown"] = {
+    entry = {
         "until": (now + timedelta(seconds=retry_after_s)).isoformat(),
         "reason": str(reason or "relay_throttled")[:160],
         "retry_after_s": retry_after_s,
         "recorded_at": now.isoformat(),
     }
+    cooldowns = usage.get("relay_cooldowns")
+    if not isinstance(cooldowns, dict):
+        cooldowns = {}
+    cooldowns[lane_name] = entry
+    usage["relay_cooldowns"] = cooldowns
+    if lane_name == "community":
+        usage["relay_cooldown"] = entry
     _save_usage(usage)
 
 
-def _raise_if_relay_cooling_down() -> None:
-    remaining = _relay_cooldown_remaining_s()
+def clear_relay_cooldown(lane: str = "managed") -> None:
+    lane_name = (lane or "managed").strip().lower()
+    usage = _load_usage()
+    cooldowns = usage.get("relay_cooldowns")
+    if isinstance(cooldowns, dict):
+        cooldowns.pop(lane_name, None)
+        if cooldowns:
+            usage["relay_cooldowns"] = cooldowns
+        else:
+            usage.pop("relay_cooldowns", None)
+    if lane_name == "community":
+        usage.pop("relay_cooldown", None)
+    _save_usage(usage)
+
+
+def _raise_if_relay_cooling_down(lane: Optional[str] = None) -> None:
+    lane_name = lane or _relay_access_lane()
+    remaining = _relay_cooldown_remaining_s(lane_name)
     if remaining > 0:
         raise AviationstackRelayCooldown(
-            f"Community relay cooling down for {remaining}s after throttling.",
+            f"Relay access cooling down for {remaining}s after throttling.",
             retry_after_s=remaining,
             status_code=429,
         )
@@ -561,7 +602,7 @@ def schedule_policy(source: Optional[str] = None) -> Dict[str, Any]:
         "min_refresh_seconds": _COMMUNITY_RELAY_MIN_REFRESH_SECONDS if community_shared else 900,
         "allowed_refresh_seconds": allowed,
         "reason": (
-            "Community Relay shares hourly-or-slower schedule snapshots to protect upstream providers."
+            "Community Relay shares schedule snapshots every 30 minutes or slower to protect upstream providers."
             if community_shared
             else "Current schedule mode can use the standard local refresh choices."
         ),
@@ -671,6 +712,13 @@ def _active_mode(source: Optional[str]) -> str:
     if _has_enabled_byok_key() or _has_enabled_aerodatabox_byok_key():
         return "byok"
     if _has_activation_token():
+        try:
+            from localflight.storage.install import get_relay_access_mode
+
+            if get_relay_access_mode() == "community":
+                return "community"
+        except Exception:
+            pass
         return "managed"
     return "community"
 
@@ -705,7 +753,10 @@ def _request_json(
             status_code=response.status_code,
         )
     if relay_response and response.status_code == 503:
-        retry_after = _parse_retry_after(response.headers.get("Retry-After") if response.headers else None)
+        retry_after = _parse_retry_after(
+            response.headers.get("Retry-After") if response.headers else None,
+            default_s=60,
+        )
         raise AviationstackBudgetExceeded(
             "Community relay temporarily unavailable.",
             retry_after_s=retry_after,
@@ -871,11 +922,12 @@ def _fetch_relay(
     params["install_id"] = get_install_id()
     params.update(relay_client_metadata())
     activation_token = _get_activation_token()
+    lane = "managed" if activation_token else "community"
     if activation_token:
         params["activation_token"] = activation_token
-        _raise_if_relay_cooling_down()
+        _raise_if_relay_cooling_down(lane)
     else:
-        _raise_if_relay_cooling_down()
+        _raise_if_relay_cooling_down(lane)
         _increment_community_budget(_get_relay_limit())
 
     try:
@@ -885,6 +937,7 @@ def _fetch_relay(
             _record_relay_cooldown(
                 retry_after_s=exc.retry_after_s or _RELAY_COOLDOWN_DEFAULT_S,
                 reason=str(exc),
+                lane=lane,
             )
         raise
     _sync_relay_quota_from_headers(result["headers"])
@@ -917,11 +970,12 @@ def fetch_relay_schedule_records(
     }
     params.update(relay_client_metadata())
     activation_token = _get_activation_token()
+    lane = "managed" if activation_token else "community"
     if activation_token:
         params["activation_token"] = activation_token
-        _raise_if_relay_cooling_down()
+        _raise_if_relay_cooling_down(lane)
     else:
-        _raise_if_relay_cooling_down()
+        _raise_if_relay_cooling_down(lane)
         _increment_community_budget(_get_relay_limit())
 
     try:
@@ -931,6 +985,7 @@ def fetch_relay_schedule_records(
             _record_relay_cooldown(
                 retry_after_s=exc.retry_after_s or _RELAY_COOLDOWN_DEFAULT_S,
                 reason=str(exc),
+                lane=lane,
             )
         raise
     _sync_relay_quota_from_headers(result["headers"])

@@ -16,6 +16,12 @@ class AppState:
     last_error: Optional[str] = None
     source_name: str = "unknown"
     last_latency_ms: Optional[int] = None
+    next_refresh_utc: Optional[str] = None
+    next_retry_utc: Optional[str] = None
+    retry_after_s: Optional[int] = None
+    retry_count: int = 0
+    cache_state: str = "unknown"
+    notice_code: Optional[str] = None
 
 
 def state_path() -> Path:
@@ -40,6 +46,12 @@ def load_state() -> AppState:
         last_error=raw.get("last_error"),
         source_name=str(raw.get("source_name", "unknown") or "unknown"),
         last_latency_ms=raw.get("last_latency_ms"),
+        next_refresh_utc=raw.get("next_refresh_utc"),
+        next_retry_utc=raw.get("next_retry_utc"),
+        retry_after_s=raw.get("retry_after_s"),
+        retry_count=int(raw.get("retry_count", 0) or 0),
+        cache_state=str(raw.get("cache_state", "unknown") or "unknown"),
+        notice_code=raw.get("notice_code"),
     )
 
 

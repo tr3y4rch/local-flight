@@ -228,7 +228,7 @@ Setup asks for:
 - **Use your own keys**: use your own AeroDataBox schedule key (API.Market by default, RapidAPI if selected by env), AviationStack schedule key, plus optional RapidAPI ADS-B Exchange and OpenSky credentials.
 - **VATSIM**: no real-world schedule key. Uses virtual network data.
 
-Local Flight Relay protects shared provider usage, so real schedule refresh choices are hourly-or-slower when the app is using the hosted shared relay. If a live provider is unavailable or the relay asks clients to back off, Local Flight can keep serving the latest safe cached board instead of replacing it with a bad empty refresh.
+Local Flight Relay protects shared provider usage, so real schedule refresh choices are 30 minutes or slower when the app is using the hosted shared relay. Setup verifies the install's relay link before it finishes, which also prepares Remote Companion pairing. If the first board update is interrupted, Local Flight retries with a bounded delay; after a board has loaded, provider or relay failures keep the latest safe cached board instead of replacing it with an empty refresh.
 
 ---
 

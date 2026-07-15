@@ -82,6 +82,7 @@ from localflight.sources.web.airport_map_context import (
 )
 from localflight.sources.web.terrain_context import (
     build_terrain_payload,
+    clamp_terrain_radius_nm,
     fetch_terrain_context,
     validate_terrain_payload,
 )
@@ -310,6 +311,68 @@ def _annotate_radar_blips(
     runways: list[dict[str, Any]] | None = None,
 ) -> List[Dict[str, Any]]:
     return annotate_blips(blips, airport_icao=airport_icao, runways=runways or [])
+
+
+def _radar_identity_key(value: Any) -> str:
+    return re.sub(r"[^A-Z0-9]", "", str(value or "").strip().upper())
+
+
+def _flight_radar_aliases(flight: Flight) -> set[str]:
+    values: list[Any] = [
+        flight.callsign,
+        flight.flight_number,
+        flight.operating_callsign,
+        flight.marketing_flight_number,
+        *list(flight.codeshares or []),
+        *list(flight.sold_as or []),
+    ]
+    return {key for value in values if (key := _radar_identity_key(value))}
+
+
+def _enrich_radar_blips_from_snapshot(
+    blips: list[dict[str, Any]],
+    flights: list[Flight],
+) -> list[dict[str, Any]]:
+    """Attach route intent only when a live target has one unambiguous identity match."""
+    aliases: dict[str, list[Flight]] = {}
+    for flight in flights:
+        for alias in _flight_radar_aliases(flight):
+            aliases.setdefault(alias, []).append(flight)
+
+    enriched: list[dict[str, Any]] = []
+    for blip in blips:
+        keys = {
+            key
+            for value in (blip.get("callsign"), blip.get("flight_number"), blip.get("operating_callsign"))
+            if (key := _radar_identity_key(value))
+        }
+        matches = {id(flight): flight for key in keys for flight in aliases.get(key, [])}
+        if len(matches) != 1:
+            enriched.append(blip)
+            continue
+        flight = next(iter(matches.values()))
+        item = dict(blip)
+        origin = flight.origin
+        destination = flight.destination
+        if flight.direction == FlightDirection.DEPARTURE:
+            origin = origin or flight.airport
+        else:
+            destination = destination or flight.airport
+        item.update(
+            {
+                "flight_number": item.get("flight_number") or flight.flight_number,
+                "operating_callsign": item.get("operating_callsign") or flight.operating_callsign,
+                "departure_icao": origin.icao if origin else None,
+                "arrival_icao": destination.icao if destination else None,
+                "departure_iata": origin.iata if origin else None,
+                "arrival_iata": destination.iata if destination else None,
+                "board_status": flight.status.value,
+                "identity_source": flight.identity_source,
+                "schedule_identity_matched": True,
+            }
+        )
+        enriched.append(item)
+    return enriched
 
 
 def _filter_radar_blips_for_view(
@@ -847,13 +910,31 @@ def _fids_rows_from_flights(
 def api_health() -> Dict[str, Any]:
     payload = asdict(load_state())
     notices = []
+    if not payload.get("last_success_utc"):
+        retry_after = payload.get("retry_after_s")
+        notices.append(
+            make_notice(
+                "scheduler.preparing_first_board",
+                "info",
+                "Local Flight is preparing the first board for this airport.",
+                next_step=(
+                    f"The next safe retry is planned in about {int(retry_after)} seconds."
+                    if retry_after
+                    else "The first update starts automatically."
+                ),
+            )
+        )
     if str(payload.get("last_error") or "").strip():
         notices.append(
             make_notice(
                 "scheduler.update_interrupted",
                 "warning",
                 "The latest board update was interrupted. Local Flight is keeping the last available board and will try again.",
-                next_step="Open Admin if the board does not recover after the next scheduled update.",
+                next_step=(
+                    f"Local Flight will retry safely in about {int(payload['retry_after_s'])} seconds."
+                    if payload.get("retry_after_s")
+                    else "Open Admin if the board does not recover after the next scheduled update."
+                ),
                 action={"kind": "route", "label": "Open Admin", "target": "/admin"},
             )
         )
@@ -903,11 +984,15 @@ def api_patch_config(patch: ConfigPatch, background_tasks: BackgroundTasks) -> D
         "display_grace_minutes",
         "display_horizon_hours",
     }
-    restart_needed = any(key in data and data[key] != current.get(key) for key in scheduler_fields)
-    current.update(data)
+    changed = {key: value for key, value in data.items() if value != current.get(key)}
+    if not changed:
+        log.info("Config PATCH contained no effective changes")
+        return current
+    restart_needed = any(key in changed for key in scheduler_fields)
+    current.update(changed)
     new_cfg = AppConfig(**current)
     save_config(new_cfg)
-    log.info("Config updated via API: %s", data)
+    log.info("Config updated via API: %s", changed)
     from localflight.ui.events import notify_config_updated, restart_scheduler_and_notify
 
     notify_config_updated(new_cfg, reason="api_config")
@@ -1140,6 +1225,20 @@ def _radar_terrain_cache_path(cfg: AppConfig) -> Path:
     return config_path().parent / "storage" / "radar_terrain" / f"{safe}.json"
 
 
+def _terrain_radius_bucket(radius_nm: float) -> int:
+    requested = clamp_terrain_radius_nm(radius_nm)
+    for bucket in (1, 3, 5, 10, 20):
+        if requested <= bucket:
+            return bucket
+    return 20
+
+
+def _radar_terrain_bucket_cache_path(cfg: AppConfig, radius_nm: float) -> Path:
+    base = _radar_terrain_cache_path(cfg)
+    bucket = _terrain_radius_bucket(radius_nm)
+    return base.with_name(f"{base.stem}-r{bucket}-v2{base.suffix}")
+
+
 def _load_local_surface_cache(cfg: AppConfig) -> Optional[Dict[str, Any]]:
     path = _radar_surface_cache_path(cfg)
     if not path.exists():
@@ -1166,8 +1265,8 @@ def _load_local_map_context_cache(cfg: AppConfig) -> Optional[Dict[str, Any]]:
     return None
 
 
-def _load_local_terrain_cache(cfg: AppConfig) -> Optional[Dict[str, Any]]:
-    path = _radar_terrain_cache_path(cfg)
+def _load_local_terrain_cache(cfg: AppConfig, radius_nm: float = 5.0) -> Optional[Dict[str, Any]]:
+    path = _radar_terrain_bucket_cache_path(cfg, radius_nm)
     if not path.exists():
         return None
     try:
@@ -1203,11 +1302,12 @@ def _save_local_map_context_cache(cfg: AppConfig, payload: Dict[str, Any]) -> No
         log.debug("Could not persist radar map context cache: %s", exc)
 
 
-def _save_local_terrain_cache(cfg: AppConfig, payload: Dict[str, Any]) -> None:
+def _save_local_terrain_cache(cfg: AppConfig, payload: Dict[str, Any], radius_nm: float | None = None) -> None:
     if not validate_terrain_payload(payload):
         return
     try:
-        path = _radar_terrain_cache_path(cfg)
+        cache_radius = float(radius_nm if radius_nm is not None else payload.get("coverage_radius_nm") or payload.get("radius_nm") or 5.0)
+        path = _radar_terrain_bucket_cache_path(cfg, cache_radius)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
     except Exception as exc:
@@ -1277,7 +1377,7 @@ def _terrain_miss_payload(
         airport_icao=cfg.airport_icao,
         center_lat=float(airport.lat),
         center_lon=float(airport.lon),
-        radius_nm=clamp_surface_radius_nm(min(5.0, radius_nm)),
+        radius_nm=clamp_terrain_radius_nm(radius_nm),
         features=[],
         cache_state="miss",
         error=error,
@@ -1309,14 +1409,15 @@ def _fetch_and_save_map_context(cfg: AppConfig, airport: Any, *, radius_nm: floa
 
 
 def _fetch_and_save_terrain_context(cfg: AppConfig, airport: Any, *, radius_nm: float) -> Dict[str, Any]:
+    coverage_radius = float(_terrain_radius_bucket(radius_nm))
     payload = fetch_terrain_context(
         airport_iata=cfg.airport_iata,
         airport_icao=cfg.airport_icao,
         center_lat=float(airport.lat),
         center_lon=float(airport.lon),
-        radius_nm=radius_nm,
+        radius_nm=coverage_radius,
     )
-    _save_local_terrain_cache(cfg, payload)
+    _save_local_terrain_cache(cfg, payload, coverage_radius)
     return payload
 
 
@@ -1343,7 +1444,7 @@ def _schedule_map_context_refresh(cfg: AppConfig, airport: Any, *, radius_nm: fl
                             cfg,
                             airport,
                             radius_nm=radius_nm,
-                            error=f"OSM map context unavailable: {exc}",
+                            error="OSM map context is temporarily unavailable",
                         ),
                     )
             except Exception:
@@ -1356,7 +1457,8 @@ def _schedule_map_context_refresh(cfg: AppConfig, airport: Any, *, radius_nm: fl
 
 
 def _schedule_terrain_refresh(cfg: AppConfig, airport: Any, *, radius_nm: float) -> None:
-    cache_key = str(_radar_terrain_cache_path(cfg))
+    coverage_radius = float(_terrain_radius_bucket(radius_nm))
+    cache_key = str(_radar_terrain_bucket_cache_path(cfg, coverage_radius))
     with _terrain_refresh_lock:
         if cache_key in _terrain_refreshing:
             return
@@ -1364,18 +1466,23 @@ def _schedule_terrain_refresh(cfg: AppConfig, airport: Any, *, radius_nm: float)
 
     def _task() -> None:
         try:
-            _fetch_and_save_terrain_context(cfg, airport, radius_nm=radius_nm)
+            _fetch_and_save_terrain_context(cfg, airport, radius_nm=coverage_radius)
         except Exception as exc:
             log.debug("Terrain relief refresh failed: %s", exc)
             try:
+                cached = _load_local_terrain_cache(cfg, coverage_radius)
+                if cached and (cached.get("bands") or cached.get("contours") or cached.get("features")):
+                    log.debug("Keeping existing terrain cache after refresh failure")
+                    return
                 _save_local_terrain_cache(
                     cfg,
                     _terrain_miss_payload(
                         cfg,
                         airport,
-                        radius_nm=radius_nm,
-                        error=f"Terrain relief unavailable: {exc}",
+                        radius_nm=coverage_radius,
+                        error="Terrain relief is temporarily unavailable",
                     ),
+                    coverage_radius,
                 )
             except Exception:
                 pass
@@ -1666,17 +1773,21 @@ def _radar_map_context_payload_for_map(cfg: AppConfig, airport: Any, *, radius_n
 
 
 def _radar_terrain_payload_for_map(cfg: AppConfig, airport: Any, *, radius_nm: float) -> Dict[str, Any]:
-    cached = _load_local_terrain_cache(cfg)
-    if cached and _timed_cache_fresh(cached, ttl_s=_TERRAIN_CACHE_TTL_S, miss_ttl_s=_TERRAIN_MISS_TTL_S):
+    requested_radius = clamp_terrain_radius_nm(radius_nm)
+    coverage_radius = float(_terrain_radius_bucket(requested_radius))
+    cached = _load_local_terrain_cache(cfg, coverage_radius)
+    cached_coverage = float((cached or {}).get("coverage_radius_nm") or (cached or {}).get("radius_nm") or 0.0)
+    covers_request = cached_coverage + 0.01 >= requested_radius
+    if cached and covers_request and _timed_cache_fresh(cached, ttl_s=_TERRAIN_CACHE_TTL_S, miss_ttl_s=_TERRAIN_MISS_TTL_S):
         return dict(cached)
-    _schedule_terrain_refresh(cfg, airport, radius_nm=radius_nm)
-    if cached:
+    _schedule_terrain_refresh(cfg, airport, radius_nm=coverage_radius)
+    if cached and covers_request:
         stale = dict(cached)
         stale["cache_state"] = "stale"
         stale["error"] = "Terrain relief is refreshing in the background"
         return stale
-    miss = _terrain_miss_payload(cfg, airport, radius_nm=radius_nm)
-    _save_local_terrain_cache(cfg, miss)
+    miss = _terrain_miss_payload(cfg, airport, radius_nm=coverage_radius)
+    _save_local_terrain_cache(cfg, miss, coverage_radius)
     return miss
 
 
@@ -1871,7 +1982,7 @@ def api_radar(
 
         except Exception as exc:
             log.warning("VATSIM radar fetch failed: %s", exc)
-            raise HTTPException(status_code=503, detail=f"VATSIM radar unavailable: {exc}")
+            raise HTTPException(status_code=503, detail="VATSIM radar is temporarily unavailable")
 
     else:
         # Real source: ADS-B Exchange first, then local snapshot/OpenSky fallback.
@@ -1944,13 +2055,12 @@ def api_radar(
         except Exception as exc:
             log.warning("ADS-B Exchange live radar unavailable, trying fallback: %s", exc)
 
-        flights: List[Flight] = []
+        flights, _ = _load_latest_flights(cfg.airport_iata)
         if not blips:
-            flights, _ = _load_latest_flights(cfg.airport_iata)
             source_used = "snapshot_positions"
-
-        for f in flights:
-            if f.position and f.position.lat is not None:
+            for f in flights:
+                if not f.position or f.position.lat is None:
+                    continue
                 blips.append(enrich_blip_display_fields({
                     "callsign":      f.callsign,
                     "lat":           f.position.lat,
@@ -2018,7 +2128,9 @@ def api_radar(
                             _opensky_radar_cache[cache_key] = (now_ts, blips)
                         except Exception as exc:
                             log.warning("OpenSky live radar fallback failed: %s", exc)
-                            raise HTTPException(status_code=503, detail=f"Radar data unavailable: {exc}")
+                            raise HTTPException(status_code=503, detail="Radar data is temporarily unavailable")
+
+        blips = _enrich_radar_blips_from_snapshot(blips, flights)
 
     ground_filtered = 0
     airborne_filtered = 0
@@ -2823,10 +2935,27 @@ def api_mobile_remote_invite(request: Request) -> Dict[str, Any]:
     if not cfg.remote_companion_enabled:
         raise HTTPException(status_code=403, detail="Remote Companion is disabled on this host")
     from localflight.companion_pairing import pairing_qr_png_bytes, remote_pairing_gateway_payload
-    from localflight.storage.install import get_activation_token
+    from localflight.sources.web.relay_activation import ensure_relay_link
 
-    if not get_activation_token():
-        raise HTTPException(status_code=403, detail="Remote Companion requires a relay-linked install")
+    relay_link = ensure_relay_link(
+        relay_url=default_public_relay_url(),
+        display_name="Local Flight Remote Companion host",
+        airport_iata=cfg.airport_iata,
+        airport_icao=cfg.airport_icao,
+        requested_mode="community",
+        force=False,
+    )
+    if not relay_link.get("linked"):
+        status = str(relay_link.get("status") or "relay_link_required")
+        code = 429 if status == "rate_limited" else 503 if status == "relay_unreachable" else 403
+        raise HTTPException(
+            status_code=code,
+            detail={
+                "code": status,
+                "message": str(relay_link.get("error") or "Remote Companion needs a verified relay link."),
+                "retry_after_s": relay_link.get("retry_after_s"),
+            },
+        )
     invite = create_remote_invite(relay_url=default_public_relay_url())
     payload = remote_pairing_gateway_payload(
         invite=invite,

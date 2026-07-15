@@ -149,7 +149,7 @@ export function radarBlipDetailResponse(blip: RadarBlip): FidsDetailResponse {
       aircraft_type: blip.aircraft_type || null,
       aircraft_registration: blip.registration || null,
       direction: null,
-      status: blip.radar_status_label || blip.status || blip.radar_phase || "Tracked target",
+      status: blip.radar_status_label || blip.radar_phase || "Tracked target",
       source: blip.source || blip.source_quality || "radar",
       enriched_by: blip.enriched ? "radar" : null,
       detail_mode: blip.detail_mode || "real",
@@ -190,7 +190,7 @@ export function radarBlipDetailResponse(blip: RadarBlip): FidsDetailResponse {
         },
         operations: {},
         timing: {
-          status: blip.radar_status_label || blip.status || blip.radar_phase || null
+          status: blip.board_status || blip.status || null
         },
         motion: {
           altitude_ft: blip.altitude_ft ?? blip.geo_altitude_ft ?? null,

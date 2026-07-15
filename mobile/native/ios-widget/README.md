@@ -2,7 +2,7 @@
 
 Tracked WidgetKit template for the iOS widget extension. The generated
 `mobile/ios/` directory is ignored, so keep these files as the source of truth.
-The widget-enabled `0.5.1 (5)` source enables this template through
+The widget-enabled `0.5.1 (6)` source enables this template through
 `plugins/with-localflight-ios-widget.js`. The steps below are the required
 generation/signing checks. Apple provisioning must cover the app, widget
 extension, and `group.cc.beacontools.localflight` App Group.
@@ -10,6 +10,14 @@ extension, and `group.cc.beacontools.localflight` App Group.
 The Expo app writes `localflight-widget-snapshot.json` using the schema in
 `mobile/src/domain/widgets.ts`. The native widget reads that file only. It must
 never fetch LAN, relay, or third-party flight data directly.
+
+Refresh is deliberately layered rather than timer-only. A meaningful app-side
+snapshot write asks WidgetKit to reload immediately through the tracked local
+Expo bridge. An OS-managed background task may refresh the app snapshot when
+iOS grants execution time, and the timeline provider periodically rereads the
+latest file so stale/empty states remain accurate. iOS timing is opportunistic;
+the UI must never promise an exact minute. The in-app `Refresh widget now`
+action is the deterministic foreground path.
 
 ## Current Widget State
 
@@ -68,10 +76,12 @@ never fetch LAN, relay, or third-party flight data directly.
     exposes the group container before expecting widget data sharing to work.
 14. Build the app, pin a flight, open Widgets & Glances, and confirm the writer
     reports `Snapshot ready · app group`.
-15. Add the widget in the simulator/device widget gallery and verify the small
+15. Use `Refresh widget now` and confirm the installed widget reloads without
+    removing or re-adding it.
+16. Add the widget in the simulator/device widget gallery and verify the small
     widget stays pinned-flight-only while the medium widget shows pinned plus
     bounded board rows.
-16. Archive with the final signing team and verify the embedded extension is
+17. Archive with the final signing team and verify the embedded extension is
     present in the `.ipa`.
 
 ## ActivityKit / Dynamic Island Later

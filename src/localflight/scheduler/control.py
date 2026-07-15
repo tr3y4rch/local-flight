@@ -62,6 +62,7 @@ def _run_scheduler(stop_event: threading.Event, generation: int) -> None:
 
         _load_dotenv_for_scheduler()
         cfg = load_config()
+        _ensure_community_relay_link(cfg)
         log.info(
             "Scheduler thread starting | generation=%s source=%s airport=%s",
             generation,
@@ -81,6 +82,32 @@ def _run_scheduler(stop_event: threading.Event, generation: int) -> None:
                 _thread = None
                 _stop_event = None
         log.info("Scheduler thread stopped | generation=%s", generation)
+
+
+def _ensure_community_relay_link(cfg: Any) -> None:
+    """Repair legacy Community installs once without blocking board fallback."""
+    if str(getattr(cfg, "source", "") or "").strip().lower() != "real":
+        return
+    try:
+        from localflight.sources.web.aviationstack_client import schedule_policy
+
+        policy = schedule_policy("real")
+        if not bool(policy.get("community_shared")):
+            return
+        from localflight.sources.web.relay_activation import ensure_relay_link
+
+        result = ensure_relay_link(
+            airport_iata=str(getattr(cfg, "airport_iata", "") or ""),
+            airport_icao=str(getattr(cfg, "airport_icao", "") or ""),
+            requested_mode="community",
+            force=False,
+        )
+        if result.get("linked"):
+            log.info("Community Relay link verified at scheduler startup")
+        else:
+            log.info("Community Relay link needs attention | status=%s", result.get("status") or "relay_link_required")
+    except Exception as exc:
+        log.debug("Community Relay startup link check deferred: %s", type(exc).__name__)
 
 
 def start_scheduler_thread() -> threading.Thread:
@@ -106,12 +133,29 @@ def start_scheduler_thread() -> threading.Thread:
 def scheduler_status() -> Dict[str, Any]:
     with _lock:
         running = bool(_thread and _thread.is_alive())
-        return {
+        status: Dict[str, Any] = {
             "running": running,
             "generation": _generation,
             "started_at": _started_at,
             "thread_name": _thread.name if _thread else None,
         }
+    try:
+        from localflight.storage.state import load_state
+
+        state = load_state()
+        status.update(
+            {
+                "last_success_at": state.last_success_utc,
+                "next_refresh_at": state.next_refresh_utc or state.next_retry_utc,
+                "retry_after_s": state.retry_after_s,
+                "retry_count": state.retry_count,
+                "cache_state": state.cache_state,
+                "notice_code": state.notice_code,
+            }
+        )
+    except Exception:
+        pass
+    return status
 
 
 def restart_scheduler(timeout: float = 5.0, *, coalesce_seconds: float = _RESTART_COALESCE_S) -> Dict[str, Any]:

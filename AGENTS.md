@@ -34,9 +34,9 @@ Public links:
 - Current public release copy lives in `docs/release-notes-0.5.1.md` and the
   public `CHANGELOG.md`. Detailed implementation history belongs in
   `docs/engineering-changelog.md` and is not bundled as end-user help.
-- The macOS direct-download build is currently an ad-hoc-signed Apple silicon
-  app archive. Describe the one-time Finder Open flow accurately; never call it
-  notarized and never recommend disabling Gatekeeper.
+- The macOS direct-download build is a Developer ID signed and notarized Apple
+  silicon `.pkg`. Keep the signing, notarization, stapling, and checksum gates
+  intact; never recommend disabling Gatekeeper.
 - Rebuild every affected release artifact after included source, public docs, or
   assets change.
 
@@ -82,6 +82,13 @@ Real schedule flow:
 5. Codeshares are deduplicated, snapshots are saved, movement history is
    written, and WebSocket clients are notified.
 6. Cache and provider caps fail safely so a known-good stale board can remain.
+
+Community Relay setup verifies an activation link before completion and uses a
+30-minute minimum schedule cadence. Existing unlinked installs may attempt one
+cooldown-protected repair; first-board network failures use bounded retry timing
+instead of sleeping for the full schedule interval. The server owns upstream
+freshness, so page navigation reads cached state and never bypasses provider
+timers.
 
 Virtual mode uses VATSIM public traffic. Keep it callsign/flight-plan focused and
 drop pilot/controller names, CIDs, server names, and other person-identifying
@@ -167,8 +174,11 @@ small status icon may simplify/adapt for platform legibility.
 
 FIDS priority: operating flight identity, airport-local time, city/country
 title, readable weather, status/gate when real data supplies it, and safe detail
-drawers. Radar prioritizes calm traffic/map display and conservative derived
-states. History counts movements rather than raw observations. Matrix preview,
+drawers. Radar keeps passenger `board_status` separate from the live
+`radar_phase`, joins schedule intent only through strong identities, and uses
+elevation-aware conservative phase rules with bounded hysteresis. AWS elevation
+bands/contours and OSM ground context are separate, radius-aware cached layers.
+History counts movements rather than raw observations. Matrix preview,
 Qt, LAN, and generated MicroPython share the Matrix display contract; VATSIM
 presets suppress gate placeholders.
 
