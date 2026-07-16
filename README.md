@@ -60,7 +60,7 @@ Historical release notes remain under [`docs/`](docs/), including the archived `
 - VATSIM mode uses a pilot/ATC display contract instead of passenger/codeshare fields: callsign-first rows, filed route/flight rules, aircraft, altitude/speed, XPDR, VATSIM freshness, and strict suppression of pilot/controller personal identifiers
 - Four switchable FIDS board styles in the native shell — **Classic**, **PAX**, **VATSIM**, **Nerd** — each with its own chrome, palette, column set, status styling, and viewport-aware scaling
 - Native Qt dark/reduced-glare and light/high-visibility themes cover pages, dialogs, menus, controls, and all board skins with contrast-checked text and status colors. Windows and macOS also provide a small Local Flight status menu for opening core views, the LAN browser, and app controls.
-- Radar with real/VATSIM traffic, METAR weather, range controls, optional runway/surface/map/terrain context, mobile-specific range policies, and richer aircraft/status detail
+- Radar with real/VATSIM traffic, METAR weather, range controls, optional runway/surface/map/terrain context, a synchronized 15-second sweep-and-fade presentation, and dismissible aircraft details that do not trigger extra provider calls
 - Native Qt desktop shell with Display, FIDS, Radar, Matrix, Settings, Admin, History, Logs, Report, and local docs
 - Settings page built from clear disclosure cards instead of opaque checkbox-titled groups; the LAN browser Settings page now follows the same folder rhythm and includes Pair Mobile QR/manual pairing controls.
 - LAN browser UI for headless installs, remote screens, tablets, phones, and browser-mode displays, with compact layouts for 7" Pi touch screens and browser-side access to the same Companion pairing tools as the Qt shell
@@ -107,21 +107,21 @@ Open [docs/previews/index.html](docs/previews/index.html) locally for the standa
 
 ## Quick Install
 
-Use the **Downloads** section at [beacontools.cc/local-flight](https://beacontools.cc/local-flight#downloads) for Windows, macOS, and Raspberry Pi packages. The page links directly to the newest complete files on the official [GitHub Releases page](https://github.com/tr3y4rch/local-flight/releases) and only enables a direct package when its matching SHA256 checksum is present. Until the `0.5.1` packages appear there, use the source/Pi instructions in the [Install Guide](docs/install.md) rather than an older package with the same filename pattern.
+Use the **Downloads** section at [beacontools.cc/local-flight](https://beacontools.cc/local-flight#downloads) for the `0.5.1` Windows, macOS, and Raspberry Pi packages. The page links directly to the newest complete files on the official [GitHub Releases page](https://github.com/tr3y4rch/local-flight/releases) and only enables a direct package when its matching SHA256 checksum is present.
 
 ### Windows
 
-When published, choose Windows on the website Downloads section to fetch `LocalFlight-0.5.1-Setup.exe` from GitHub, run the wizard, then launch Local Flight from the final installer page, Start Menu, or desktop shortcut.
+Choose Windows in the website Downloads section to fetch `LocalFlight-0.5.1-Setup.exe`, run the wizard, then launch Local Flight from the final installer page, Start Menu, or desktop shortcut. The installer is built and validated on Windows before it is attached with its matching checksum.
 The release app launches as a branded desktop app without a Python or cmd console window. `LocalFlight-windows.zip` remains available as a portable/manual install artifact.
 
 ### macOS
 
-When published, choose macOS on the website Downloads section to fetch the current Apple silicon `LocalFlight-0.5.1-macos.pkg` from GitHub. Open the installer package, complete the macOS installer flow, then launch Local Flight from Applications.
+Choose macOS in the website Downloads section to fetch the current Apple silicon `LocalFlight-0.5.1-macos.pkg` from GitHub. Open the installer package, complete the macOS installer flow, then launch Local Flight from Applications.
 The current package is Developer ID signed and notarized by Apple, so ordinary installs should not require the one-time Finder Open confirmation used by the earlier ad-hoc archive. No Python, Terminal, or source checkout is needed, and Local Flight user data remains in the user folder across upgrades.
 
 ### Raspberry Pi
 
-Download the Pi source bundle or clone the repo, then run:
+Download `LocalFlight-pi-source-0.5.1.zip` from the website Downloads section or clone the repo, then run:
 
 ```bash
 bash installers/pi/install.sh

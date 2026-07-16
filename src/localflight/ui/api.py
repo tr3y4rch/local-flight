@@ -76,6 +76,8 @@ from localflight.sources.web.airport_surface import (
 )
 from localflight.sources.web.airport_map_context import (
     build_map_context_payload,
+    clamp_map_context_radius_nm,
+    clip_map_features,
     fetch_overpass_map_context,
     normalize_overpass_map_context,
     validate_map_context_payload,
@@ -87,7 +89,11 @@ from localflight.sources.web.terrain_context import (
     validate_terrain_payload,
 )
 from localflight.radar import annotate_blips, build_radar_map, enrich_blip_display_fields
-from localflight.sources.web.relay_defaults import default_public_relay_url, relay_airport_surface_url
+from localflight.sources.web.relay_defaults import (
+    default_public_relay_url,
+    relay_airport_ground_url,
+    relay_airport_surface_url,
+)
 
 log = logging.getLogger(__name__)
 
@@ -1358,7 +1364,7 @@ def _map_context_miss_payload(
         airport_icao=cfg.airport_icao,
         center_lat=float(airport.lat),
         center_lon=float(airport.lon),
-        radius_nm=clamp_surface_radius_nm(min(5.0, radius_nm)),
+        radius_nm=clamp_map_context_radius_nm(radius_nm),
         features=[],
         cache_state="miss",
         error=error,
@@ -1387,14 +1393,19 @@ def _terrain_miss_payload(
 def _fetch_and_save_map_context(cfg: AppConfig, airport: Any, *, radius_nm: float) -> Dict[str, Any]:
     center_lat = float(airport.lat)
     center_lon = float(airport.lon)
-    context_radius = clamp_surface_radius_nm(min(5.0, radius_nm))
+    context_radius = clamp_map_context_radius_nm(radius_nm)
     raw = fetch_overpass_map_context(
         lat=center_lat,
         lon=center_lon,
         radius_nm=context_radius,
         timeout_s=_MAP_CONTEXT_TIMEOUT_S,
     )
-    features = normalize_overpass_map_context(raw)
+    features = clip_map_features(
+        normalize_overpass_map_context(raw),
+        center_lat=center_lat,
+        center_lon=center_lon,
+        radius_nm=context_radius,
+    )
     payload = build_map_context_payload(
         airport_iata=cfg.airport_iata,
         airport_icao=cfg.airport_icao,
@@ -1758,16 +1769,19 @@ def _radar_surface_payload_for_map(cfg: AppConfig, airport: Any, *, radius_nm: f
 
 
 def _radar_map_context_payload_for_map(cfg: AppConfig, airport: Any, *, radius_nm: float) -> Dict[str, Any]:
+    requested_radius = clamp_map_context_radius_nm(radius_nm)
     cached = _load_local_map_context_cache(cfg)
-    if cached and _map_context_cache_fresh(cached):
+    coverage = float((cached or {}).get("coverage_radius_nm") or (cached or {}).get("radius_nm") or 0.0)
+    covers_request = coverage + 0.01 >= requested_radius
+    if cached and covers_request and _map_context_cache_fresh(cached):
         return dict(cached)
-    _schedule_map_context_refresh(cfg, airport, radius_nm=radius_nm)
-    if cached:
+    _schedule_map_context_refresh(cfg, airport, radius_nm=requested_radius)
+    if cached and covers_request:
         stale = dict(cached)
         stale["cache_state"] = "stale"
         stale["error"] = "OSM map context is refreshing in the background"
         return stale
-    miss = _map_context_miss_payload(cfg, airport, radius_nm=radius_nm)
+    miss = _map_context_miss_payload(cfg, airport, radius_nm=requested_radius)
     _save_local_map_context_cache(cfg, miss)
     return miss
 
@@ -1812,6 +1826,88 @@ def _radar_map_cache_key(cfg: AppConfig, airport: Any, *, radius_nm: float, terr
     )
 
 
+def _relay_ground_payload_for_map(
+    cfg: AppConfig,
+    airport: Any,
+    *,
+    radius_nm: float,
+    terrain: bool,
+) -> Optional[Dict[str, Any]]:
+    try:
+        from localflight.sources.web.relay_heartbeat import relay_client_metadata
+        from localflight.storage.install import get_activation_token, get_install_id
+
+        token = get_activation_token().strip()
+        if not token:
+            return None
+        metadata = relay_client_metadata()
+        response = _req.get(
+            relay_airport_ground_url(default_public_relay_url()),
+            params={
+                "airport_iata": cfg.airport_iata,
+                "airport_icao": cfg.airport_icao,
+                "radius_nm": min(20.0, max(1.0, float(radius_nm))),
+                "install_id": get_install_id(),
+                "activation_token": token,
+                "app_version": metadata.get("app_version") or "0.5.1",
+                "client_kind": "desktop",
+                "device_type": "desktop",
+            },
+            headers={"Accept": "application/json"},
+            timeout=8,
+        )
+        if response.status_code >= 400:
+            return None
+        payload = response.json()
+        if not isinstance(payload, dict) or not str(payload.get("schema_version") or "").startswith("airport-ground-"):
+            return None
+        runways = payload.get("runways") if isinstance(payload.get("runways"), list) else []
+        surface_features = payload.get("surface_features") if isinstance(payload.get("surface_features"), list) else []
+        sources = payload.get("sources") if isinstance(payload.get("sources"), dict) else {}
+        center = payload.get("center") if isinstance(payload.get("center"), dict) else {}
+        surface_payload = build_surface_payload(
+            airport_iata=cfg.airport_iata,
+            airport_icao=cfg.airport_icao,
+            center_lat=float(center.get("lat") or airport.lat),
+            center_lon=float(center.get("lon") or airport.lon),
+            radius_nm=5,
+            features=[*surface_features, *runways],
+            cache_state=str(sources.get("surface_cache_state") or "fresh"),
+            provider=str(sources.get("surface") or AIRPORT_SURFACE_PROVIDER),
+        )
+        _save_local_surface_cache(cfg, surface_payload)
+        map_payload = build_map_context_payload(
+            airport_iata=cfg.airport_iata,
+            airport_icao=cfg.airport_icao,
+            center_lat=float(center.get("lat") or airport.lat),
+            center_lon=float(center.get("lon") or airport.lon),
+            radius_nm=float(payload.get("coverage_radius_nm") or radius_nm),
+            features=payload.get("map_features") if isinstance(payload.get("map_features"), list) else [],
+            cache_state=str(sources.get("map_cache_state") or "fresh"),
+        )
+        _save_local_map_context_cache(cfg, map_payload)
+        terrain_payload = payload.get("terrain") if isinstance(payload.get("terrain"), dict) else {}
+        if terrain_payload and validate_terrain_payload(terrain_payload):
+            _save_local_terrain_cache(
+                cfg,
+                terrain_payload,
+                float(terrain_payload.get("coverage_radius_nm") or payload.get("coverage_radius_nm") or radius_nm),
+            )
+        if not terrain:
+            payload = dict(payload)
+            payload["terrain"] = {
+                **terrain_payload,
+                "enabled": False,
+                "features": [],
+                "bands": [],
+                "contours": [],
+            }
+        return payload
+    except Exception as exc:
+        log.debug("Relay airport ground cache unavailable, using local layers: %s", exc)
+        return None
+
+
 def _radar_map_payload_for_request(
     cfg: AppConfig,
     airport: Any,
@@ -1827,6 +1923,12 @@ def _radar_map_payload_for_request(
         cached = _radar_map_cache.get(cache_key)
         if cached and (now_ts - cached[0]) < _RADAR_MAP_CACHE_TTL_S:
             return dict(cached[1])
+    surface_mode = str(getattr(cfg, "radar_surface_mode", "relay" if cfg.radar_surface_enabled else "off") or "off").lower()
+    if surface_mode == "relay" and include_map_context:
+        relay_ground = _relay_ground_payload_for_map(cfg, airport, radius_nm=radius_nm, terrain=terrain)
+        if relay_ground is not None:
+            _radar_map_cache[cache_key] = (now_ts, dict(relay_ground))
+            return relay_ground
     surface = _radar_surface_payload_for_map(cfg, airport, radius_nm=radius_nm)
     map_context = _radar_map_context_payload_for_map(cfg, airport, radius_nm=radius_nm) if include_map_context else None
     terrain_context = _radar_terrain_payload_for_map(cfg, airport, radius_nm=radius_nm) if terrain else None

@@ -7,3 +7,4 @@ pydantic==2.10.4
 sqlalchemy==2.0.19
 app-store-server-library==3.1.2
 google-auth==2.55.2
+pillow==12.2.0

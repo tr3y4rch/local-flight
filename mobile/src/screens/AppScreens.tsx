@@ -2246,8 +2246,8 @@ function RadarLayerControls({
 }) {
   const options: Array<{ key: keyof MobileRadarDrawingLayers; label: string; detail: string }> = [
     { key: "runways", label: "Runways", detail: "Airport runway geometry" },
-    { key: "surface", label: "Surface", detail: "Aprons, stands and taxiway hints" },
-    { key: "terrain", label: "Terrain", detail: "Relief/context, Mobile only" }
+    { key: "surface", label: "Surface", detail: "Aprons, taxiways and surrounding map context" },
+    { key: "terrain", label: "Terrain", detail: "Cached elevation bands and contours" }
   ];
 
   return (
@@ -2255,11 +2255,11 @@ function RadarLayerControls({
       <View style={styles.radarLayerHeader}>
         <Text style={styles.radarLayerTitle}>RADAR DRAWINGS</Text>
         <Text style={styles.radarLayerHint}>
-          {standalone ? "Standalone uses runway and surface snapshots only." : "Choose which map layers Mobile draws."}
+          {standalone ? "Standalone uses shared cached ground layers." : "Choose which map layers Mobile draws."}
         </Text>
       </View>
       <View style={styles.radarLayerChips}>
-        {options.filter((item) => !standalone || item.key !== "terrain").map((item) => {
+        {options.map((item) => {
           const active = Boolean(layers[item.key]);
           return (
             <Pressable
@@ -2357,9 +2357,7 @@ export function RadarScreen({
   const hasRows = blips.length > 0;
   const showInlineActivity = Boolean(activity && !refreshing && (hasRows || !error));
   const showInlineError = Boolean(error && !refreshing);
-  const effectiveLayerCount = standalone
-    ? { runways: drawingLayers.runways, surface: drawingLayers.surface, terrain: false }
-    : drawingLayers;
+  const effectiveLayerCount = drawingLayers;
   const groundFeatureCount = radarGroundFeatureCount(groundData, effectiveLayerCount);
   const groundUnavailable = radarGroundUnavailable(groundData, groundError);
 
@@ -3368,9 +3366,7 @@ function RadarScope({
   const reduceMotion = useReducedMotionPreference();
   const pinchRef = useRef<{ distance: number; index: number } | null>(null);
   const [selectedTargetKey, setSelectedTargetKey] = useState("");
-  const effectiveLayers = standalone
-    ? { runways: drawingLayers.runways, surface: drawingLayers.surface, terrain: false }
-    : drawingLayers;
+  const effectiveLayers = drawingLayers;
   const groundFeatureCount = radarGroundFeatureCount(groundData, effectiveLayers);
   const groundUnavailable = radarGroundUnavailable(groundData, groundError);
   const groundStatus = groundFeatureCount
@@ -3694,9 +3690,10 @@ function RadarGroundLayer({
   }
 
   const surfaceFeatures = drawingLayers.surface ? radarDrawableFeatures(groundData.surface_features) : [];
+  const mapFeatures = drawingLayers.surface ? radarDrawableFeatures(groundData.map_features) : [];
   const runwayFeatures = drawingLayers.runways ? radarDrawableFeatures(groundData.runways) : [];
   const terrainFeatures = drawingLayers.terrain ? radarDrawableFeatures(groundData.terrain?.features) : [];
-  if (!surfaceFeatures.length && !runwayFeatures.length && !terrainFeatures.length) {
+  if (!surfaceFeatures.length && !mapFeatures.length && !runwayFeatures.length && !terrainFeatures.length) {
     return null;
   }
 
@@ -3722,6 +3719,16 @@ function RadarGroundLayer({
             radiusNm={radiusNm}
             scopeSize={scopeSize}
             layer="terrain"
+          />
+        ))}
+        {mapFeatures.map((feature, index) => (
+          <RadarGroundFeature
+            key={radarGroundFeatureKey(feature, index, "map")}
+            feature={feature}
+            center={center}
+            radiusNm={radiusNm}
+            scopeSize={scopeSize}
+            layer="map"
           />
         ))}
         {surfaceFeatures.map((feature, index) => (
@@ -3769,7 +3776,7 @@ function RadarGroundFeature({
   center: RadarResponse["center"];
   radiusNm: RadarRadius;
   scopeSize: number;
-  layer: "surface" | "runway" | "terrain";
+  layer: "surface" | "runway" | "terrain" | "map";
 }) {
   const projected = projectRadarFeature(feature, center, radiusNm, scopeSize);
   if (projected.length < 2) {
@@ -3881,6 +3888,7 @@ function radarGroundFeatureCount(groundData: RadarMapResponse | null, layers: Mo
   return (
     (layers.runways ? radarDrawableFeatures(groundData.runways).length : 0) +
     (layers.surface ? radarDrawableFeatures(groundData.surface_features).length : 0) +
+    (layers.surface ? radarDrawableFeatures(groundData.map_features).length : 0) +
     (layers.terrain ? radarDrawableFeatures(groundData.terrain?.features).length : 0)
   );
 }
@@ -3932,7 +3940,7 @@ function radarProjectedMidpoint(points: ProjectedRadarPoint[]): ProjectedRadarPo
 
 function radarGroundPaint(
   feature: RadarMapFeature,
-  layer: "surface" | "runway" | "terrain",
+  layer: "surface" | "runway" | "terrain" | "map",
   radiusNm: RadarRadius
 ): { fill: string; stroke: string; strokeWidth: number } {
   const kind = String(feature.kind || "").toLowerCase();
@@ -3943,6 +3951,32 @@ function radarGroundPaint(
       fill: isBand ? hexToRgba(palette.green, 0.035 + band * 0.025) : "none",
       stroke: hexToRgba(palette.green, isBand ? 0.04 : radiusNm <= 5 ? 0.22 : 0.14),
       strokeWidth: radiusNm <= 5 ? 1 : 0.7
+    };
+  }
+  if (layer === "map") {
+    if (kind === "road") {
+      const roadClass = String(feature.road_class || "").toLowerCase();
+      const primary = roadClass === "motorway" || roadClass === "trunk" || roadClass === "primary";
+      return {
+        fill: "none",
+        stroke: hexToRgba(palette.textDim, primary ? 0.24 : 0.13),
+        strokeWidth: radiusNm <= 5 ? (primary ? 1.25 : 0.8) : (primary ? 0.9 : 0.55)
+      };
+    }
+    if (kind === "rail") {
+      return { fill: "none", stroke: hexToRgba(palette.textDim, 0.16), strokeWidth: 0.65 };
+    }
+    if (kind === "water" || kind === "coastline") {
+      return {
+        fill: kind === "water" ? hexToRgba(palette.blue, 0.055) : "none",
+        stroke: hexToRgba(palette.blue2, 0.18),
+        strokeWidth: 0.75
+      };
+    }
+    return {
+      fill: feature.closed ? hexToRgba(palette.green, 0.035) : "none",
+      stroke: hexToRgba(palette.green, 0.1),
+      strokeWidth: 0.65
     };
   }
   if (layer === "runway") {

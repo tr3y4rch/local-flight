@@ -2,7 +2,7 @@
 
 Local Flight can run as a desktop app, a Raspberry Pi server, a kiosk display, a LAN browser board, the mobile app, and an LED matrix feed. Pick the path that matches where you want the board to live.
 
-If you are unsure, use the packaged Windows or macOS app on a desktop first. It gives you the native GUI, the local server, browser access, mobile access, and Matrix support from one install.
+If you are unsure, use the packaged Windows or Apple silicon macOS app first. Either desktop path gives you the native GUI, local server, browser access, mobile access, and Matrix support from one install. Source-checkout paths remain available for development and custom deployments.
 
 Public project docs live at [beacontools.cc/local-flight](https://beacontools.cc/local-flight), support starts at [beacontools.cc/support](https://beacontools.cc/support), and the public privacy policy lives at [beacontools.cc/privacy](https://beacontools.cc/privacy). Privacy and diagnostics requests can use [beacontools.cc/privacy/choices](https://beacontools.cc/privacy/choices).
 
@@ -25,7 +25,7 @@ The website [Downloads section](https://beacontools.cc/local-flight#downloads) r
 
 Use this path for the easiest Windows desktop setup.
 
-1. After the `0.5.1` packages are published, choose Windows in the website Downloads section, or download `LocalFlight-0.5.1-Setup.exe` from the linked GitHub release. Until then, use the source-checkout path below rather than an older package.
+1. Choose Windows in the website Downloads section, or download `LocalFlight-0.5.1-Setup.exe` and its checksum from the linked GitHub release. Windows packages are rebuilt and validated on Windows before upload.
 2. Double-click the installer and follow the Local Flight wizard.
 3. Launch Local Flight from the final installer page, Start Menu, or desktop shortcut.
 4. Complete the setup wizard: Welcome, Airport, Flight Data, Optional Keys, Diagnostics, and Review & Open.

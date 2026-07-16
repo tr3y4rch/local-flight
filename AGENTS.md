@@ -31,6 +31,10 @@ Public links:
 - Desktop and Raspberry Pi are the current public package targets. Mobile is in
   TestFlight/Google Play testing and uses the permanent application identifier
   `cc.beacontools.localflight`.
+- `0.5.1` is the platform-wide Windows, macOS, Raspberry Pi, LAN, relay, and
+  mobile-testing release line. Each desktop/Pi artifact is built on its proper
+  platform and uploaded with its matching checksum; the Windows installer is
+  rebuilt on Windows while macOS and Pi packages are produced on macOS.
 - Current public release copy lives in `docs/release-notes-0.5.1.md` and the
   public `CHANGELOG.md`. Detailed implementation history belongs in
   `docs/engineering-changelog.md` and is not bundled as end-user help.
@@ -178,6 +182,15 @@ drawers. Radar keeps passenger `board_status` separate from the live
 `radar_phase`, joins schedule intent only through strong identities, and uses
 elevation-aware conservative phase rules with bounded hysteresis. AWS elevation
 bands/contours and OSM ground context are separate, radius-aware cached layers.
+The relay can share authenticated 5/10/20 NM ground snapshots and prewarm a
+hybrid 20-airport set no more than once every 30 days. Automatic warming stays
+feature-flagged until a manual cache inspection succeeds, and it never includes
+live aircraft, schedules, weather, or per-install history.
+Radar presentation is also shared: north-zero clockwise geometry, a monotonic
+15-second revolution, one leading line, a 72-degree fading trail, and no blip
+before the sweep crosses its bearing. Focus/selection may keep a target visible,
+but every selected-detail surface must have an explicit dismissal path and stale
+detail responses must not restore a cleared selection.
 History counts movements rather than raw observations. Matrix preview,
 Qt, LAN, and generated MicroPython share the Matrix display contract; VATSIM
 presets suppress gate placeholders.

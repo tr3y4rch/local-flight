@@ -991,11 +991,16 @@ class RadarCanvas:  # pragma: no cover - optional Qt runtime
                     "coastline": 2.8 if viewport.radius_nm <= 20 else 1.8,
                 }
                 painter.save()
-                for kind, _label, poly, closed, _feature in self._projected_map(QtCore, viewport):
+                for kind, _label, poly, closed, feature in self._projected_map(QtCore, viewport):
                     if len(poly) < 2:
                         continue
                     color = colors.get(kind, colors["landuse"])
-                    pen = QtGui.QPen(color, widths.get(kind, 1.0))
+                    width = widths.get(kind, 1.0)
+                    if kind == "road":
+                        road_class = str(feature.get("road_class") or "").lower()
+                        width = 1.45 if road_class in {"motorway", "trunk", "primary"} else 0.8
+                        color.setAlpha(min(color.alpha(), 125 if road_class in {"motorway", "trunk", "primary"} else 75))
+                    pen = QtGui.QPen(color, width)
                     if kind == "rail":
                         pen.setDashPattern([4, 5])
                     painter.setPen(pen)

@@ -786,6 +786,7 @@ export type RadarMapFeature = {
   confidence?: string;
   geometry_precision?: string;
   data_source?: string;
+  road_class?: "motorway" | "trunk" | "primary" | "secondary" | string;
   band_index?: number;
   elevation_ft?: number;
   validation?: Record<string, unknown>;
@@ -797,6 +798,7 @@ export type RadarMapResponse = {
     airport_icao?: string;
   };
   radius_nm: number;
+  coverage_radius_nm?: number;
   schema_version?: string;
   runways?: RadarMapFeature[];
   surface_features?: RadarMapFeature[];

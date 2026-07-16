@@ -14,6 +14,7 @@ import sqlite3
 import threading
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from dataclasses import asdict, dataclass, field
 from datetime import date, datetime, time as dt_time, timedelta, timezone
@@ -27,6 +28,7 @@ import requests as _req
 import uvicorn
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from pydantic import BaseModel, Field, field_validator
@@ -73,11 +75,21 @@ _SCHEDULE_HORIZON_BUCKETS = (6, 12, 18, 24)
 _AERODATABOX_MAX_FIDS_DURATION_MINUTES = 720
 _AIRPORT_SURFACE_SCHEMA_VERSION = "osm-surface-v1"
 _AIRPORT_SURFACE_LOCK_WAIT_S = 4.0
+_GROUND_LAYER_LOCK_WAIT_S = 1.5
+_GROUND_WARM_INTERVAL_DAYS = 30
+_GROUND_WARM_LEASE_SECONDS = 3 * 60 * 60
+_GROUND_WARM_CHECK_SECONDS = 60 * 60
 
 _schedule_refresh_locks: Dict[str, threading.Lock] = {}
 _schedule_refresh_locks_guard = threading.Lock()
 _airport_surface_locks: Dict[str, threading.Lock] = {}
 _airport_surface_locks_guard = threading.Lock()
+_ground_layer_locks: Dict[str, threading.Lock] = {}
+_ground_layer_locks_guard = threading.Lock()
+_ground_refresh_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="lf-ground")
+_ground_warm_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="lf-ground-warm")
+_ground_refreshing: set[str] = set()
+_ground_refreshing_guard = threading.Lock()
 _admin_auth_failures: Dict[str, list[float]] = {}
 _admin_auth_failures_guard = threading.Lock()
 _heartbeat_last_seen: Dict[str, float] = {}
@@ -705,6 +717,98 @@ def _ensure_schema() -> None:
     )
     conn.execute(
         """
+        CREATE TABLE IF NOT EXISTS airport_ground_snapshots (
+            cache_key        TEXT PRIMARY KEY,
+            layer            TEXT NOT NULL,
+            airport_iata     TEXT NOT NULL,
+            airport_icao     TEXT,
+            schema_version   TEXT NOT NULL,
+            provider         TEXT NOT NULL,
+            center_lat       REAL NOT NULL,
+            center_lon       REAL NOT NULL,
+            radius_bucket_nm INTEGER NOT NULL,
+            generated_at     TEXT NOT NULL,
+            updated_at       TEXT NOT NULL,
+            payload_json     TEXT NOT NULL,
+            request_count    INTEGER DEFAULT 0,
+            cache_hits       INTEGER DEFAULT 0,
+            refresh_count    INTEGER DEFAULT 0,
+            stale_serves     INTEGER DEFAULT 0,
+            last_cache_state TEXT,
+            last_error       TEXT
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS ground_airport_overrides (
+            airport_code  TEXT PRIMARY KEY,
+            enabled       INTEGER NOT NULL DEFAULT 1,
+            pinned        INTEGER NOT NULL DEFAULT 0,
+            max_radius_nm INTEGER NOT NULL DEFAULT 20,
+            updated_at    TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS ground_warm_jobs (
+            job_id           TEXT PRIMARY KEY,
+            mode             TEXT NOT NULL,
+            status           TEXT NOT NULL,
+            requested_json   TEXT NOT NULL,
+            full_manifest    INTEGER NOT NULL DEFAULT 0,
+            requested_count  INTEGER NOT NULL DEFAULT 0,
+            fresh_count      INTEGER NOT NULL DEFAULT 0,
+            refreshed_count  INTEGER NOT NULL DEFAULT 0,
+            stale_count      INTEGER NOT NULL DEFAULT 0,
+            failed_count     INTEGER NOT NULL DEFAULT 0,
+            bytes_stored     INTEGER NOT NULL DEFAULT 0,
+            created_at       TEXT NOT NULL,
+            started_at       TEXT,
+            finished_at      TEXT,
+            next_due_at      TEXT,
+            error            TEXT
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS ground_warm_results (
+            job_id         TEXT NOT NULL,
+            airport_code   TEXT NOT NULL,
+            max_radius_nm  INTEGER NOT NULL,
+            status         TEXT NOT NULL,
+            bytes_stored   INTEGER NOT NULL DEFAULT 0,
+            started_at     TEXT NOT NULL,
+            finished_at    TEXT,
+            detail         TEXT,
+            PRIMARY KEY (job_id, airport_code)
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS ground_cache_leases (
+            lease_name   TEXT PRIMARY KEY,
+            holder       TEXT NOT NULL,
+            acquired_at  TEXT NOT NULL,
+            expires_at   TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS ground_access_events (
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            ts                  TEXT NOT NULL,
+            install_fingerprint TEXT NOT NULL,
+            network_tag         TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute(
+        """
         CREATE TABLE IF NOT EXISTS report_events (
             id                  INTEGER PRIMARY KEY AUTOINCREMENT,
             ts                  TEXT NOT NULL,
@@ -898,6 +1002,11 @@ def _ensure_schema() -> None:
     conn.execute("CREATE INDEX IF NOT EXISTS idx_provider_schedule_snapshots_airport ON provider_schedule_snapshots (provider, airport_iata, updated_at DESC)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_provider_circuit_breakers_open ON provider_circuit_breakers (opened_until)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_airport_surface_updated ON airport_surface_snapshots (airport_iata, updated_at DESC)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_airport_ground_lookup ON airport_ground_snapshots (airport_iata, layer, radius_bucket_nm, updated_at DESC)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_ground_warm_jobs_status ON ground_warm_jobs (status, created_at DESC)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_ground_warm_results_job ON ground_warm_results (job_id, airport_code)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_ground_access_install ON ground_access_events (install_fingerprint, ts DESC)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_ground_access_network ON ground_access_events (network_tag, ts DESC)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_client_interests_last_seen ON client_interests (last_seen DESC)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_install_profiles_last_seen ON install_profiles (last_seen DESC)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_mobile_standalone_cache_seen ON mobile_standalone_cache (service, last_seen DESC)")
@@ -905,6 +1014,16 @@ def _ensure_schema() -> None:
     conn.execute("CREATE INDEX IF NOT EXISTS idx_iap_transactions_verified ON iap_transactions (verified_at DESC)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_iap_events_install ON iap_verification_events (install_fingerprint, ts DESC)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_iap_events_network ON iap_verification_events (network_tag, ts DESC)")
+    interrupted_at = datetime.now(timezone.utc).isoformat()
+    conn.execute(
+        """
+        UPDATE ground_warm_jobs
+        SET status='failed', finished_at=?, error=?
+        WHERE status IN ('queued', 'running')
+        """,
+        (interrupted_at, "Ground-layer warming was interrupted by a relay restart; it can be started safely again."),
+    )
+    conn.execute("DELETE FROM ground_cache_leases")
     _backfill_install_profiles(conn)
     conn.commit()
     conn.close()
@@ -4716,8 +4835,10 @@ def _load_airport_surface_snapshot_conn(conn: sqlite3.Connection, cache_key: str
     ).fetchone()
 
 
-def _airport_surface_lifecycle_state(row: Optional[sqlite3.Row]) -> str:
+def _airport_surface_lifecycle_state(row: Optional[sqlite3.Row], *, requested_radius_nm: float = 1.0) -> str:
     if row is None:
+        return "miss"
+    if float(row["radius_nm"] or 0.0) + 0.01 < float(requested_radius_nm):
         return "miss"
     updated_at = _parse_utc_dt(row["updated_at"])
     if updated_at is None:
@@ -4757,6 +4878,7 @@ def _airport_surface_payload_from_row(
             "cache_hits": int(row["cache_hits"] or 0),
             "refresh_count": int(row["refresh_count"] or 0),
             "stale_serves": int(row["stale_serves"] or 0),
+            "coverage_radius_nm": float(row["radius_nm"] or 0.0),
         }
     )
     return build_surface_payload(
@@ -4847,6 +4969,19 @@ def _mobile_standalone_radar_map(
 ) -> tuple[Dict[str, Any], str]:
     from localflight.sources.web.airport_surface import clamp_surface_radius_nm
 
+    if _airport_ground_enabled():
+        payload = _airport_ground_payload(
+            {
+                "iata": airport_iata,
+                "icao": airport_icao,
+                "lat": center_lat,
+                "lon": center_lon,
+            },
+            requested_radius_nm=radius_nm,
+        )
+        notice = "" if payload.get("cache_state") == "fresh" else "Airport ground layers are still being prepared."
+        return payload, notice
+
     surface_radius = clamp_surface_radius_nm(radius_nm)
     if not _airport_surface_enabled():
         error = "Relay airport surface overlay is disabled; using estimated mobile ground layer."
@@ -4865,7 +5000,7 @@ def _mobile_standalone_radar_map(
     cache_key = _airport_surface_cache_key(airport_iata, airport_icao or "")
     conn = _connect()
     snapshot_row = _load_airport_surface_snapshot_conn(conn, cache_key)
-    state = _airport_surface_lifecycle_state(snapshot_row)
+    state = _airport_surface_lifecycle_state(snapshot_row, requested_radius_nm=5.0)
     conn.close()
 
     if snapshot_row is not None and state in {"fresh", "stale"}:
@@ -4882,7 +5017,7 @@ def _mobile_standalone_radar_map(
                     cache_state=state,
                     requested_radius_nm=surface_radius,
                 ),
-                radius_nm=surface_radius,
+                radius_nm=5.0,
             ),
             "",
         )
@@ -4922,7 +5057,7 @@ def _mobile_standalone_radar_map(
             error = str(getattr(exc, "detail", None) or exc)
             conn = _connect()
             stale_row = _load_airport_surface_snapshot_conn(conn, cache_key)
-            stale_state = _airport_surface_lifecycle_state(stale_row)
+            stale_state = _airport_surface_lifecycle_state(stale_row, requested_radius_nm=5.0)
             conn.close()
             if stale_row is not None and stale_state in {"fresh", "stale"}:
                 _record_airport_surface_access(
@@ -5082,6 +5217,702 @@ def _fetch_airport_surface_from_osm(
             "raw_elements": len(raw.get("elements") or []) if isinstance(raw, dict) else 0,
         },
     )
+
+
+def _airport_ground_enabled() -> bool:
+    return _env("RELAY_AIRPORT_GROUND_ENABLED", "").lower() in {"1", "true", "yes", "on"}
+
+
+def _ground_prewarm_enabled() -> bool:
+    return _env("RELAY_GROUND_PREWARM_ENABLED", "").lower() in {"1", "true", "yes", "on"}
+
+
+def _check_ground_access_rate(request: Request, install_id: str) -> None:
+    install_fp = _install_fingerprint(install_id)
+    network_tag = _network_tag(_client_ip(request))
+    now = datetime.now(timezone.utc)
+    minute_cutoff = (now - timedelta(minutes=1)).isoformat()
+    day_cutoff = (now - timedelta(hours=24)).isoformat()
+    limits = {
+        "install_minute": _int_env("RELAY_GROUND_INSTALL_RPM_LIMIT", 30, minimum=1),
+        "network_minute": _int_env("RELAY_GROUND_NETWORK_RPM_LIMIT", 120, minimum=1),
+        "install_day": _int_env("RELAY_GROUND_INSTALL_DAILY_LIMIT", 240, minimum=1),
+        "network_day": _int_env("RELAY_GROUND_NETWORK_DAILY_LIMIT", 1200, minimum=1),
+    }
+    conn = _connect()
+    try:
+        install_minute = conn.execute(
+            "SELECT COUNT(*) FROM ground_access_events WHERE install_fingerprint=? AND ts>=?",
+            (install_fp, minute_cutoff),
+        ).fetchone()[0]
+        network_minute = conn.execute(
+            "SELECT COUNT(*) FROM ground_access_events WHERE network_tag=? AND ts>=?",
+            (network_tag, minute_cutoff),
+        ).fetchone()[0]
+        install_day = conn.execute(
+            "SELECT COUNT(*) FROM ground_access_events WHERE install_fingerprint=? AND ts>=?",
+            (install_fp, day_cutoff),
+        ).fetchone()[0]
+        network_day = conn.execute(
+            "SELECT COUNT(*) FROM ground_access_events WHERE network_tag=? AND ts>=?",
+            (network_tag, day_cutoff),
+        ).fetchone()[0]
+        if install_minute >= limits["install_minute"] or network_minute >= limits["network_minute"]:
+            raise HTTPException(
+                status_code=429,
+                detail="Airport ground-layer requests are arriving too quickly; use the cached copy and retry shortly.",
+                headers={"Retry-After": "60"},
+            )
+        if install_day >= limits["install_day"] or network_day >= limits["network_day"]:
+            raise HTTPException(
+                status_code=429,
+                detail="Airport ground-layer daily limit reached; cached layers remain available on the device.",
+                headers={"Retry-After": "3600"},
+            )
+        conn.execute(
+            "INSERT INTO ground_access_events (ts, install_fingerprint, network_tag) VALUES (?, ?, ?)",
+            (now.isoformat(), install_fp, network_tag),
+        )
+        conn.execute("DELETE FROM ground_access_events WHERE ts < ?", (_hours_ago(24 * 30),))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _ground_layer_ttl_s(layer: str, *, stale: bool = False) -> int:
+    defaults = {
+        "surface": (7 * 86400, 90 * 86400),
+        "map": (14 * 86400, 90 * 86400),
+        "terrain": (90 * 86400, 365 * 86400),
+    }
+    fresh_default, stale_default = defaults.get(layer, defaults["map"])
+    suffix = "STALE_DAYS" if stale else "FRESH_DAYS"
+    default = stale_default if stale else fresh_default
+    try:
+        days = float(_env(f"RELAY_GROUND_{layer.upper()}_{suffix}", str(default / 86400)))
+        return max(3600, int(days * 86400))
+    except ValueError:
+        return default
+
+
+def _ground_layer_state(row: Optional[sqlite3.Row], *, requested_radius_nm: int) -> str:
+    if row is None or int(row["radius_bucket_nm"] or 0) < int(requested_radius_nm):
+        return "miss"
+    updated_at = _parse_utc_dt(str(row["updated_at"] or ""))
+    if updated_at is None:
+        return "miss"
+    age_s = (datetime.now(timezone.utc) - updated_at).total_seconds()
+    layer = str(row["layer"] or "map")
+    if age_s <= _ground_layer_ttl_s(layer):
+        return "fresh"
+    if age_s <= _ground_layer_ttl_s(layer, stale=True):
+        return "stale"
+    return "miss"
+
+
+def _get_ground_layer_lock(cache_key: str) -> threading.Lock:
+    with _ground_layer_locks_guard:
+        lock = _ground_layer_locks.get(cache_key)
+        if lock is None:
+            lock = threading.Lock()
+            _ground_layer_locks[cache_key] = lock
+        return lock
+
+
+def _load_ground_snapshot(layer: str, airport_iata: str, airport_icao: str, radius_bucket_nm: int) -> Optional[sqlite3.Row]:
+    from relay.ground_cache import layer_cache_key
+
+    key = layer_cache_key(layer, airport_iata, airport_icao, radius_bucket_nm)
+    conn = _connect()
+    try:
+        return conn.execute("SELECT * FROM airport_ground_snapshots WHERE cache_key=?", (key,)).fetchone()
+    finally:
+        conn.close()
+
+
+def _ground_payload_from_row(row: sqlite3.Row, *, cache_state: str) -> Dict[str, Any]:
+    try:
+        payload = json.loads(str(row["payload_json"] or "{}"))
+    except Exception:
+        payload = {}
+    if not isinstance(payload, dict):
+        payload = {}
+    payload["cache_state"] = cache_state
+    payload["coverage_radius_nm"] = int(row["radius_bucket_nm"] or 0)
+    if row["last_error"]:
+        payload["error"] = "A cached ground layer could not be refreshed yet; Local Flight is using the last safe copy."
+    return payload
+
+
+def _store_ground_snapshot(layer: str, radius_bucket_nm: int, payload: Dict[str, Any]) -> int:
+    from relay.ground_cache import GROUND_SCHEMA_VERSION, layer_cache_key
+
+    center = payload.get("center") if isinstance(payload.get("center"), dict) else {}
+    airport_iata = str(center.get("airport_iata") or "").upper()
+    airport_icao = str(center.get("airport_icao") or "").upper()
+    key = layer_cache_key(layer, airport_iata, airport_icao, radius_bucket_nm)
+    now = _utc_now()
+    serialized = json.dumps(payload, separators=(",", ":"), ensure_ascii=False)
+    conn = _connect()
+    try:
+        conn.execute(
+            """
+            INSERT INTO airport_ground_snapshots (
+                cache_key, layer, airport_iata, airport_icao, schema_version, provider,
+                center_lat, center_lon, radius_bucket_nm, generated_at, updated_at,
+                payload_json, request_count, cache_hits, refresh_count, stale_serves,
+                last_cache_state, last_error
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 1, 0, 'fresh', '')
+            ON CONFLICT(cache_key) DO UPDATE SET
+                schema_version=excluded.schema_version,
+                provider=excluded.provider,
+                center_lat=excluded.center_lat,
+                center_lon=excluded.center_lon,
+                generated_at=excluded.generated_at,
+                updated_at=excluded.updated_at,
+                payload_json=excluded.payload_json,
+                refresh_count=airport_ground_snapshots.refresh_count + 1,
+                last_cache_state='fresh',
+                last_error=''
+            """,
+            (
+                key,
+                layer,
+                airport_iata,
+                airport_icao,
+                str(payload.get("schema_version") or GROUND_SCHEMA_VERSION),
+                str(payload.get("provider") or "unknown"),
+                float(center.get("lat") or 0.0),
+                float(center.get("lon") or 0.0),
+                int(radius_bucket_nm),
+                str(payload.get("generated_at") or now),
+                now,
+                serialized,
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return len(serialized.encode("utf-8"))
+
+
+def _record_ground_access(row: sqlite3.Row, state: str) -> None:
+    conn = _connect()
+    try:
+        conn.execute(
+            """
+            UPDATE airport_ground_snapshots
+            SET request_count=COALESCE(request_count, 0)+1,
+                cache_hits=COALESCE(cache_hits, 0)+?,
+                stale_serves=COALESCE(stale_serves, 0)+?,
+                last_cache_state=?
+            WHERE cache_key=?
+            """,
+            (1 if state == "fresh" else 0, 1 if state == "stale" else 0, state, row["cache_key"]),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _ground_airport_record(code: str) -> Dict[str, Any]:
+    payload = _airport_result_payload(_lookup_relay_airport(code), include_coords=True)
+    if payload.get("lat") is None or payload.get("lon") is None:
+        raise HTTPException(status_code=404, detail=f"Airport coordinates unavailable: {code}")
+    return payload
+
+
+def _ground_override(code: str) -> Dict[str, Any]:
+    from relay.ground_cache import normalize_max_radius
+
+    conn = _connect()
+    try:
+        row = conn.execute("SELECT * FROM ground_airport_overrides WHERE airport_code=?", (code.upper(),)).fetchone()
+    finally:
+        conn.close()
+    if row is None:
+        return {"enabled": True, "pinned": False, "max_radius_nm": 20}
+    return {
+        "enabled": bool(row["enabled"]),
+        "pinned": bool(row["pinned"]),
+        "max_radius_nm": normalize_max_radius(row["max_radius_nm"]),
+    }
+
+
+def _empty_ground_layer(layer: str, airport: Dict[str, Any], radius_bucket_nm: int, *, state: str = "miss") -> Dict[str, Any]:
+    if layer == "surface":
+        from localflight.sources.web.airport_surface import build_estimated_surface_payload
+
+        return build_estimated_surface_payload(
+            airport_iata=str(airport.get("iata") or ""),
+            airport_icao=str(airport.get("icao") or ""),
+            center_lat=float(airport["lat"]),
+            center_lon=float(airport["lon"]),
+            radius_nm=5,
+            error="Airport surface cache is being prepared.",
+        )
+    if layer == "map":
+        from localflight.sources.web.airport_map_context import build_map_context_payload
+
+        return build_map_context_payload(
+            airport_iata=str(airport.get("iata") or ""),
+            airport_icao=str(airport.get("icao") or ""),
+            center_lat=float(airport["lat"]),
+            center_lon=float(airport["lon"]),
+            radius_nm=radius_bucket_nm,
+            features=[],
+            cache_state=state,
+            error="Airport map context is being prepared.",
+        )
+    from localflight.sources.web.terrain_context import build_terrain_payload
+
+    return build_terrain_payload(
+        airport_iata=str(airport.get("iata") or ""),
+        airport_icao=str(airport.get("icao") or ""),
+        center_lat=float(airport["lat"]),
+        center_lon=float(airport["lon"]),
+        radius_nm=radius_bucket_nm,
+        features=[],
+        cache_state=state,
+        error="Airport terrain context is being prepared.",
+    )
+
+
+def _fetch_ground_layer(layer: str, airport: Dict[str, Any], radius_bucket_nm: int) -> Dict[str, Any]:
+    iata = str(airport.get("iata") or "")
+    icao = str(airport.get("icao") or "")
+    lat = float(airport["lat"])
+    lon = float(airport["lon"])
+    if layer == "surface":
+        return _fetch_airport_surface_from_osm(
+            airport_iata=iata,
+            airport_icao=icao,
+            lat=lat,
+            lon=lon,
+            radius_nm=5,
+        )
+    if layer == "map":
+        from localflight.sources.web.airport_map_context import (
+            build_map_context_payload,
+            clip_map_features,
+            fetch_overpass_map_context,
+            normalize_overpass_map_context,
+        )
+
+        raw = fetch_overpass_map_context(
+            lat=lat,
+            lon=lon,
+            radius_nm=radius_bucket_nm,
+            timeout_s=50.0,
+            overpass_url=_env("RELAY_OVERPASS_URL", "") or None,
+        )
+        features = clip_map_features(
+            normalize_overpass_map_context(raw),
+            center_lat=lat,
+            center_lon=lon,
+            radius_nm=radius_bucket_nm,
+        )
+        return build_map_context_payload(
+            airport_iata=iata,
+            airport_icao=icao,
+            center_lat=lat,
+            center_lon=lon,
+            radius_nm=radius_bucket_nm,
+            features=features,
+            cache_state="fresh",
+        )
+    from localflight.sources.web.terrain_context import fetch_terrain_context
+
+    return fetch_terrain_context(
+        airport_iata=iata,
+        airport_icao=icao,
+        center_lat=lat,
+        center_lon=lon,
+        radius_nm=radius_bucket_nm,
+    )
+
+
+def _refresh_ground_layer(layer: str, airport: Dict[str, Any], radius_bucket_nm: int, *, force: bool = False) -> Dict[str, Any]:
+    from relay.ground_cache import layer_cache_key
+
+    iata = str(airport.get("iata") or "")
+    icao = str(airport.get("icao") or "")
+    bucket = 5 if layer == "surface" else int(radius_bucket_nm)
+    row = _load_ground_snapshot(layer, iata, icao, bucket)
+    if not force and _ground_layer_state(row, requested_radius_nm=bucket) == "fresh":
+        return {"status": "fresh", "bytes": 0}
+    key = layer_cache_key(layer, iata, icao, bucket)
+    lock = _get_ground_layer_lock(key)
+    if not lock.acquire(timeout=_GROUND_LAYER_LOCK_WAIT_S):
+        return {"status": "busy", "bytes": 0}
+    try:
+        row = _load_ground_snapshot(layer, iata, icao, bucket)
+        if not force and _ground_layer_state(row, requested_radius_nm=bucket) == "fresh":
+            return {"status": "fresh", "bytes": 0}
+        try:
+            payload = _fetch_ground_layer(layer, airport, bucket)
+            size = _store_ground_snapshot(layer, bucket, payload)
+            if layer == "surface":
+                _store_airport_surface_snapshot(_airport_surface_cache_key(iata, icao), payload)
+            return {"status": "refreshed", "bytes": size}
+        except Exception as exc:
+            error = str(getattr(exc, "detail", None) or exc)[:300]
+            conn = _connect()
+            try:
+                conn.execute(
+                    "UPDATE airport_ground_snapshots SET last_error=?, last_cache_state='stale' WHERE cache_key=?",
+                    (error, key),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+            if row is not None and _ground_layer_state(row, requested_radius_nm=bucket) in {"fresh", "stale"}:
+                return {"status": "stale", "bytes": 0, "error": error}
+            return {"status": "failed", "bytes": 0, "error": error}
+    finally:
+        lock.release()
+
+
+def _refresh_ground_airport(
+    airport: Dict[str, Any],
+    radius_bucket_nm: int,
+    *,
+    force: bool = False,
+    pace_overpass: bool = False,
+) -> Dict[str, Any]:
+    results: Dict[str, Dict[str, Any]] = {}
+    for layer in ("surface", "map", "terrain"):
+        if pace_overpass and layer == "map":
+            time.sleep(_ground_warm_gap_s())
+        results[layer] = _refresh_ground_layer(layer, airport, radius_bucket_nm, force=force)
+    statuses = {str(item.get("status") or "failed") for item in results.values()}
+    if "failed" in statuses:
+        status = "partial" if statuses - {"failed"} else "failed"
+    elif "stale" in statuses:
+        status = "stale"
+    elif "refreshed" in statuses:
+        status = "refreshed"
+    else:
+        status = "fresh"
+    return {
+        "status": status,
+        "bytes": sum(int(item.get("bytes") or 0) for item in results.values()),
+        "layers": results,
+    }
+
+
+def _queue_ground_refresh(airport: Dict[str, Any], radius_bucket_nm: int) -> bool:
+    code = str(airport.get("icao") or airport.get("iata") or "").upper()
+    marker = f"{code}:{int(radius_bucket_nm)}"
+    with _ground_refreshing_guard:
+        if marker in _ground_refreshing:
+            return False
+        _ground_refreshing.add(marker)
+
+    def _task() -> None:
+        try:
+            _refresh_ground_airport(airport, radius_bucket_nm)
+        finally:
+            with _ground_refreshing_guard:
+                _ground_refreshing.discard(marker)
+
+    _ground_refresh_executor.submit(_task)
+    return True
+
+
+def _airport_ground_payload(airport: Dict[str, Any], *, requested_radius_nm: float, queue_refresh: bool = True) -> Dict[str, Any]:
+    from relay.ground_cache import combine_ground_payload, radius_bucket
+
+    code = str(airport.get("iata") or airport.get("icao") or "").upper()
+    override = _ground_override(code)
+    if not override["enabled"]:
+        raise HTTPException(status_code=503, detail="Ground layers are disabled for this airport")
+    bucket = radius_bucket(requested_radius_nm, max_radius_nm=override["max_radius_nm"])
+    payloads: Dict[str, Dict[str, Any]] = {}
+    needs_refresh = False
+    for layer in ("surface", "map", "terrain"):
+        layer_bucket = 5 if layer == "surface" else bucket
+        row = _load_ground_snapshot(
+            layer,
+            str(airport.get("iata") or ""),
+            str(airport.get("icao") or ""),
+            layer_bucket,
+        )
+        state = _ground_layer_state(row, requested_radius_nm=layer_bucket)
+        if row is not None and state in {"fresh", "stale"}:
+            payloads[layer] = _ground_payload_from_row(row, cache_state=state)
+            _record_ground_access(row, state)
+        else:
+            payloads[layer] = _empty_ground_layer(layer, airport, layer_bucket)
+        needs_refresh = needs_refresh or state != "fresh"
+    queued = _queue_ground_refresh(airport, bucket) if queue_refresh and needs_refresh else False
+    combined = combine_ground_payload(
+        airport_iata=str(airport.get("iata") or ""),
+        airport_icao=str(airport.get("icao") or ""),
+        center_lat=float(airport["lat"]),
+        center_lon=float(airport["lon"]),
+        requested_radius_nm=float(requested_radius_nm),
+        coverage_radius_nm=bucket,
+        surface=payloads["surface"],
+        map_context=payloads["map"],
+        terrain=payloads["terrain"],
+    )
+    combined["refresh_queued"] = queued
+    combined["max_radius_nm"] = int(override["max_radius_nm"])
+    return combined
+
+
+def _ground_overrides() -> Dict[str, Dict[str, Any]]:
+    from relay.ground_cache import normalize_max_radius
+
+    conn = _connect()
+    try:
+        rows = conn.execute("SELECT * FROM ground_airport_overrides ORDER BY airport_code").fetchall()
+    finally:
+        conn.close()
+    return {
+        str(row["airport_code"] or "").upper(): {
+            "enabled": bool(row["enabled"]),
+            "pinned": bool(row["pinned"]),
+            "max_radius_nm": normalize_max_radius(row["max_radius_nm"]),
+        }
+        for row in rows
+    }
+
+
+def _ground_interest_rows() -> list[tuple[str, int]]:
+    conn = _connect()
+    try:
+        rows = conn.execute(
+            """
+            SELECT UPPER(COALESCE(NULLIF(airport_iata, ''), airport_icao)) AS airport_code,
+                   COUNT(DISTINCT install_id) AS installs
+            FROM client_interests
+            WHERE last_seen >= ? AND COALESCE(NULLIF(airport_iata, ''), airport_icao) IS NOT NULL
+            GROUP BY airport_code
+            ORDER BY installs DESC, airport_code ASC
+            """,
+            (_hours_ago(24 * 30),),
+        ).fetchall()
+    finally:
+        conn.close()
+    return [(str(row["airport_code"] or ""), int(row["installs"] or 0)) for row in rows]
+
+
+def _selected_ground_airports() -> list[Dict[str, Any]]:
+    from relay.ground_cache import select_hybrid_airports
+
+    return select_hybrid_airports(_ground_interest_rows(), _ground_overrides())
+
+
+def _ground_warm_gap_s() -> float:
+    try:
+        return max(20.0, float(_env("RELAY_GROUND_WARM_OVERPASS_GAP_SECONDS", "20")))
+    except ValueError:
+        return 20.0
+
+
+def _acquire_ground_lease(holder: str) -> bool:
+    now = datetime.now(timezone.utc)
+    expires = now + timedelta(seconds=_GROUND_WARM_LEASE_SECONDS)
+    conn = _connect()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        conn.execute("DELETE FROM ground_cache_leases WHERE expires_at <= ?", (now.isoformat(),))
+        current = conn.execute("SELECT holder FROM ground_cache_leases WHERE lease_name='prewarm'").fetchone()
+        if current is not None:
+            conn.rollback()
+            return False
+        conn.execute(
+            "INSERT INTO ground_cache_leases (lease_name, holder, acquired_at, expires_at) VALUES ('prewarm', ?, ?, ?)",
+            (holder, now.isoformat(), expires.isoformat()),
+        )
+        conn.commit()
+        return True
+    finally:
+        conn.close()
+
+
+def _release_ground_lease(holder: str) -> None:
+    conn = _connect()
+    try:
+        conn.execute("DELETE FROM ground_cache_leases WHERE lease_name='prewarm' AND holder=?", (holder,))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _ground_next_due(finished_at: datetime, job_id: str) -> datetime:
+    jitter_s = int(hashlib.sha256(job_id.encode("utf-8")).hexdigest()[:6], 16) % (6 * 60 * 60)
+    return finished_at + timedelta(days=_GROUND_WARM_INTERVAL_DAYS, seconds=jitter_s)
+
+
+def _create_ground_warm_job(
+    *, airports: list[Dict[str, Any]], mode: str, force: bool, full_manifest: bool
+) -> str:
+    job_id = f"gw_{uuid.uuid4().hex[:20]}"
+    requested = {
+        "airports": [
+            {"airport": str(item["airport"]), "max_radius_nm": int(item["max_radius_nm"])} for item in airports
+        ],
+        "force": bool(force),
+    }
+    conn = _connect()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        active = conn.execute(
+            "SELECT job_id FROM ground_warm_jobs WHERE status IN ('queued', 'running') ORDER BY created_at DESC LIMIT 1"
+        ).fetchone()
+        if active is not None:
+            conn.rollback()
+            raise HTTPException(status_code=409, detail="A ground-layer warm job is already queued or running")
+        conn.execute(
+            """
+            INSERT INTO ground_warm_jobs (
+                job_id, mode, status, requested_json, full_manifest, requested_count, created_at
+            ) VALUES (?, ?, 'queued', ?, ?, ?, ?)
+            """,
+            (job_id, mode, json.dumps(requested), 1 if full_manifest else 0, len(airports), _utc_now()),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    _ground_warm_executor.submit(_run_ground_warm_job, job_id, airports, force)
+    return job_id
+
+
+def _run_ground_warm_job(job_id: str, airports: list[Dict[str, Any]], force: bool) -> None:
+    if not _acquire_ground_lease(job_id):
+        conn = _connect()
+        try:
+            conn.execute(
+                "UPDATE ground_warm_jobs SET status='blocked', finished_at=?, error=? WHERE job_id=?",
+                (_utc_now(), "Another ground-layer warm job is already running.", job_id),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+        return
+    counters = {"fresh": 0, "refreshed": 0, "stale": 0, "failed": 0, "bytes": 0}
+    conn = _connect()
+    try:
+        conn.execute("UPDATE ground_warm_jobs SET status='running', started_at=? WHERE job_id=?", (_utc_now(), job_id))
+        conn.commit()
+    finally:
+        conn.close()
+    try:
+        for index, requested in enumerate(airports):
+            code = str(requested.get("airport") or "").upper()
+            radius = int(requested.get("max_radius_nm") or 20)
+            started = _utc_now()
+            try:
+                airport = _ground_airport_record(code)
+                result = _refresh_ground_airport(airport, radius, force=force, pace_overpass=True)
+                status = str(result.get("status") or "failed")
+                stored = int(result.get("bytes") or 0)
+                detail = json.dumps(result.get("layers") or {}, ensure_ascii=False)[:2000]
+            except Exception as exc:
+                status = "failed"
+                stored = 0
+                detail = str(getattr(exc, "detail", None) or exc)[:300]
+            if status == "partial":
+                counters["stale"] += 1
+            elif status in counters:
+                counters[status] += 1
+            else:
+                counters["failed"] += 1
+            counters["bytes"] += stored
+            conn = _connect()
+            try:
+                conn.execute(
+                    """
+                    INSERT OR REPLACE INTO ground_warm_results (
+                        job_id, airport_code, max_radius_nm, status, bytes_stored,
+                        started_at, finished_at, detail
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (job_id, code, radius, status, stored, started, _utc_now(), detail),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+            if index < len(airports) - 1:
+                time.sleep(_ground_warm_gap_s())
+        finished = datetime.now(timezone.utc)
+        next_due = _ground_next_due(finished, job_id)
+        final_status = "completed" if counters["failed"] == 0 else "partial"
+        conn = _connect()
+        try:
+            conn.execute(
+                """
+                UPDATE ground_warm_jobs
+                SET status=?, fresh_count=?, refreshed_count=?, stale_count=?, failed_count=?,
+                    bytes_stored=?, finished_at=?, next_due_at=?, error=''
+                WHERE job_id=?
+                """,
+                (
+                    final_status,
+                    counters["fresh"],
+                    counters["refreshed"],
+                    counters["stale"],
+                    counters["failed"],
+                    counters["bytes"],
+                    finished.isoformat(),
+                    next_due.isoformat(),
+                    job_id,
+                ),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception as exc:
+        conn = _connect()
+        try:
+            conn.execute(
+                "UPDATE ground_warm_jobs SET status='failed', finished_at=?, error=? WHERE job_id=?",
+                (_utc_now(), str(exc)[:300], job_id),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+    finally:
+        _release_ground_lease(job_id)
+
+
+def _ground_full_warm_due() -> bool:
+    conn = _connect()
+    try:
+        row = conn.execute(
+            """
+            SELECT next_due_at FROM ground_warm_jobs
+            WHERE full_manifest=1 AND status IN ('completed', 'partial')
+            ORDER BY finished_at DESC LIMIT 1
+            """
+        ).fetchone()
+        active = conn.execute("SELECT 1 FROM ground_warm_jobs WHERE status IN ('queued', 'running') LIMIT 1").fetchone()
+    finally:
+        conn.close()
+    if active is not None:
+        return False
+    if row is None:
+        return True
+    due = _parse_utc_dt(str(row["next_due_at"] or ""))
+    return due is None or due <= datetime.now(timezone.utc)
+
+
+async def _automatic_ground_warm_loop() -> None:
+    while True:
+        try:
+            if _ground_prewarm_enabled() and _airport_ground_enabled() and _ground_full_warm_due():
+                _create_ground_warm_job(
+                    airports=_selected_ground_airports(),
+                    mode="automatic",
+                    force=False,
+                    full_manifest=True,
+                )
+        except Exception:
+            pass
+        await asyncio.sleep(_GROUND_WARM_CHECK_SECONDS)
 
 
 _radar_cache: Dict[str, tuple[float, bytes]] = {}
@@ -8423,10 +9254,19 @@ def _render_admin(username: str, *, created_token: str = "", message: str = "") 
 async def _lifespan(_app: FastAPI):
     _db_path().parent.mkdir(parents=True, exist_ok=True)
     _ensure_schema()
-    yield
+    warm_task = asyncio.create_task(_automatic_ground_warm_loop())
+    try:
+        yield
+    finally:
+        warm_task.cancel()
+        try:
+            await warm_task
+        except asyncio.CancelledError:
+            pass
 
 
 app = FastAPI(title="Local Flight Network Admin", lifespan=_lifespan, docs_url=None, redoc_url=None)
+app.add_middleware(GZipMiddleware, minimum_size=1024)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["https://beacontools.cc", "https://www.beacontools.cc"],
@@ -8757,6 +9597,30 @@ class AdminInstallAccessIn(BaseModel):
     @classmethod
     def _coerce_text(cls, value: Any) -> str:
         return _admin_text(value)
+
+
+class AdminGroundWarmIn(BaseModel):
+    airports: list[str] = Field(default_factory=list, max_length=20)
+    force: bool = False
+
+    @field_validator("airports", mode="before")
+    @classmethod
+    def _coerce_airports(cls, value: Any) -> list[str]:
+        if not isinstance(value, list):
+            return []
+        return [str(item or "").strip().upper() for item in value]
+
+
+class AdminGroundAirportOverrideIn(BaseModel):
+    airport: str = Field(..., min_length=3, max_length=4)
+    enabled: bool = True
+    pinned: bool = False
+    max_radius_nm: int = Field(20, ge=5, le=20)
+
+    @field_validator("airport", mode="before")
+    @classmethod
+    def _coerce_airport(cls, value: Any) -> str:
+        return str(value or "").strip().upper()
 
 
 def _build_client_status(
@@ -11021,6 +11885,52 @@ def relay_flights(
     )
 
 
+@app.get("/v1/airport-ground")
+def relay_airport_ground(
+    request: Request,
+    airport_iata: str = Query(""),
+    airport_icao: str = Query(""),
+    radius_nm: float = Query(5.0, ge=1.0, le=20.0),
+    install_id: str = Query(...),
+    activation_token: str = Query(...),
+    app_version: str = Query(...),
+    client_kind: str = Query("desktop"),
+    device_type: str = Query("unknown"),
+) -> Response:
+    from relay.ground_cache import payload_etag
+
+    if not _airport_ground_enabled():
+        raise HTTPException(status_code=503, detail="Airport ground-layer cache is disabled on this relay")
+    install_id = _validate_install_id(install_id)
+    token = str(activation_token or "").strip()
+    if not token:
+        raise HTTPException(status_code=403, detail="Activation token required for airport ground layers")
+    access = _resolve_access(install_id=install_id, activation_token=token, service="radar")
+    if access.get("activation_row") is None:
+        raise HTTPException(status_code=403, detail="Linked relay access is required for airport ground layers")
+    if not str(app_version or "").strip():
+        raise HTTPException(status_code=422, detail="app_version is required")
+    kind = _clean_client_kind(client_kind)
+    if kind not in _CLIENT_KINDS:
+        kind = "unknown"
+    code = _clean_airport(airport_iata) or _clean_airport(airport_icao)
+    if not code:
+        raise HTTPException(status_code=422, detail="airport_iata or airport_icao is required")
+    _check_ground_access_rate(request, install_id)
+    airport = _ground_airport_record(code)
+    payload = _airport_ground_payload(airport, requested_radius_nm=radius_nm)
+    etag = payload_etag(payload)
+    headers = {
+        "ETag": etag,
+        "Cache-Control": "private, max-age=300, stale-while-revalidate=86400",
+        "Vary": "Accept-Encoding",
+        "X-LF-Ground-Cache": str(payload.get("cache_state") or "partial"),
+    }
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=304, headers=headers)
+    return JSONResponse(payload, headers=headers)
+
+
 @app.get("/v1/airport-surface")
 def relay_airport_surface(
     request: Request,
@@ -11077,7 +11987,7 @@ def relay_airport_surface(
 
     conn = _connect()
     snapshot_row = _load_airport_surface_snapshot_conn(conn, cache_key)
-    state = _airport_surface_lifecycle_state(snapshot_row)
+    state = _airport_surface_lifecycle_state(snapshot_row, requested_radius_nm=5.0)
     conn.close()
 
     if snapshot_row is not None and state == "fresh":
@@ -11095,7 +12005,7 @@ def relay_airport_surface(
             time.sleep(0.1)
             conn = _connect()
             waited_row = _load_airport_surface_snapshot_conn(conn, cache_key)
-            waited_state = _airport_surface_lifecycle_state(waited_row)
+            waited_state = _airport_surface_lifecycle_state(waited_row, requested_radius_nm=5.0)
             conn.close()
             if waited_row is not None and waited_state in {"fresh", "stale"}:
                 _log(200)
@@ -11119,7 +12029,7 @@ def relay_airport_surface(
                 airport_icao=airport_icao_clean or "",
                 lat=lat,
                 lon=lon,
-                radius_nm=radius_nm,
+                radius_nm=5.0,
             )
             _store_airport_surface_snapshot(cache_key, payload)
             _record_airport_surface_access(cache_key=cache_key, cache_state="fresh")
@@ -11132,7 +12042,7 @@ def relay_airport_surface(
             error = str(exc.detail)
             conn = _connect()
             stale_row = _load_airport_surface_snapshot_conn(conn, cache_key)
-            stale_state = _airport_surface_lifecycle_state(stale_row)
+            stale_state = _airport_surface_lifecycle_state(stale_row, requested_radius_nm=5.0)
             conn.close()
             if stale_row is not None and stale_state in {"fresh", "stale"}:
                 _log(200)
@@ -11143,7 +12053,7 @@ def relay_airport_surface(
             error = f"Airport surface refresh failed: {exc}"
             conn = _connect()
             stale_row = _load_airport_surface_snapshot_conn(conn, cache_key)
-            stale_state = _airport_surface_lifecycle_state(stale_row)
+            stale_state = _airport_surface_lifecycle_state(stale_row, requested_radius_nm=5.0)
             conn.close()
             if stale_row is not None and stale_state in {"fresh", "stale"}:
                 _log(200)
@@ -11676,6 +12586,111 @@ def admin_api_surfaces(
         }
     finally:
         conn.close()
+
+
+@app.post("/admin/api/cache-warm", status_code=202)
+def admin_api_cache_warm(
+    body: AdminGroundWarmIn,
+    username: str = Depends(_require_admin),
+) -> Dict[str, Any]:
+    from relay.ground_cache import clean_airport_code, normalize_max_radius
+
+    if not _airport_ground_enabled():
+        raise HTTPException(status_code=503, detail="RELAY_AIRPORT_GROUND_ENABLED is not enabled")
+    if body.airports:
+        airports: list[Dict[str, Any]] = []
+        seen: set[str] = set()
+        for raw in body.airports:
+            code = clean_airport_code(raw)
+            if not code or code in seen:
+                continue
+            _ground_airport_record(code)
+            override = _ground_override(code)
+            if override["enabled"]:
+                airports.append({"airport": code, "max_radius_nm": normalize_max_radius(override["max_radius_nm"])})
+                seen.add(code)
+        full_manifest = False
+    else:
+        airports = _selected_ground_airports()
+        full_manifest = True
+    if not airports:
+        raise HTTPException(status_code=422, detail="No enabled airports were selected for warming")
+    job_id = _create_ground_warm_job(
+        airports=airports,
+        mode="manual",
+        force=body.force,
+        full_manifest=full_manifest,
+    )
+    return {
+        "ok": True,
+        "job_id": job_id,
+        "status": "queued",
+        "requested": len(airports),
+        "operator": username,
+    }
+
+
+@app.get("/admin/api/cache-warm/{job_id}")
+def admin_api_cache_warm_status(
+    job_id: str,
+    username: str = Depends(_require_admin),
+) -> Dict[str, Any]:
+    conn = _connect()
+    try:
+        job = conn.execute("SELECT * FROM ground_warm_jobs WHERE job_id=?", (job_id,)).fetchone()
+        if job is None:
+            raise HTTPException(status_code=404, detail="Ground-layer warm job not found")
+        results = conn.execute(
+            """
+            SELECT airport_code, max_radius_nm, status, bytes_stored, started_at, finished_at, detail
+            FROM ground_warm_results WHERE job_id=? ORDER BY airport_code
+            """,
+            (job_id,),
+        ).fetchall()
+        payload = dict(job)
+        payload["operator"] = username
+        payload["results"] = [dict(row) for row in results]
+        payload["requested"] = _admin_json_value(str(payload.pop("requested_json", "") or ""), {})
+        return payload
+    finally:
+        conn.close()
+
+
+@app.post("/admin/api/cache-warm/airport-override")
+def admin_api_cache_warm_override(
+    body: AdminGroundAirportOverrideIn,
+    username: str = Depends(_require_admin),
+) -> Dict[str, Any]:
+    from relay.ground_cache import clean_airport_code, normalize_max_radius
+
+    code = clean_airport_code(body.airport)
+    _ground_airport_record(code)
+    radius = normalize_max_radius(body.max_radius_nm)
+    conn = _connect()
+    try:
+        conn.execute(
+            """
+            INSERT INTO ground_airport_overrides (airport_code, enabled, pinned, max_radius_nm, updated_at)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(airport_code) DO UPDATE SET
+                enabled=excluded.enabled,
+                pinned=excluded.pinned,
+                max_radius_nm=excluded.max_radius_nm,
+                updated_at=excluded.updated_at
+            """,
+            (code, 1 if body.enabled else 0, 1 if body.pinned else 0, radius, _utc_now()),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return {
+        "ok": True,
+        "airport": code,
+        "enabled": body.enabled,
+        "pinned": body.pinned,
+        "max_radius_nm": radius,
+        "operator": username,
+    }
 
 
 @app.get("/admin/api/activations")

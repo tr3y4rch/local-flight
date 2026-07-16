@@ -114,6 +114,7 @@ import {
   saveCachedLanConfig,
   DEFAULT_WIDGET_PREFERENCES,
   loadRadarDrawingLayers,
+  migrateStandaloneGroundLayers,
   loadWeatherDisplayMode,
   loadWidgetPreferences,
   type MobileRadarDrawingLayers,
@@ -354,7 +355,7 @@ export function AppShell() {
   const [radarDrawingLayers, setRadarDrawingLayers] = useState<MobileRadarDrawingLayers>({
     runways: true,
     surface: true,
-    terrain: false
+    terrain: true
   });
   const [mobileSetupState, setMobileSetupState] = useState<MobileSetupState>(() => incompleteMobileSetupState());
   const [launchHydrated, setLaunchHydrated] = useState(false);
@@ -479,6 +480,10 @@ export function AppShell() {
   useEffect(() => {
     configureRemoteCompanionGrant(isStandalone ? null : mobileSetupState.remoteCompanion);
   }, [isStandalone, mobileSetupState.remoteCompanion]);
+  useEffect(() => {
+    if (!launchHydrated || !isStandalone) return;
+    void migrateStandaloneGroundLayers().then(setRadarDrawingLayers);
+  }, [isStandalone, launchHydrated]);
   const standaloneCredentials: StandaloneCredentials | null = useMemo(() =>
     isStandalone &&
     mobileSetupState.relayInstallId &&
@@ -807,7 +812,7 @@ export function AppShell() {
           label: "Loading runway and surface layer",
           detail: "Fetching the relay's shared airport surface snapshot."
         });
-        const ground = await getStandaloneRadarGround(standaloneCredentials, Math.min(5, nextRadius));
+        const ground = await getStandaloneRadarGround(standaloneCredentials, Math.min(10, nextRadius));
         radarGroundCacheRef.current.set(cacheKey, ground);
         setRadarGroundData(ground);
         setRadarGroundError(null);
@@ -1055,11 +1060,7 @@ export function AppShell() {
   }, [connect]);
 
   const chooseRadarDrawingLayers = useCallback(async (next: MobileRadarDrawingLayers) => {
-    const normalized = {
-      runways: next.runways,
-      surface: next.surface,
-      terrain: isStandalone ? false : next.terrain
-    };
+    const normalized = { ...next };
     await saveRadarDrawingLayers(normalized);
     const terrainChanged = normalized.terrain !== radarDrawingLayers.terrain;
     setRadarDrawingLayers(normalized);
@@ -1067,7 +1068,7 @@ export function AppShell() {
       radarGroundCacheRef.current.clear();
       void refreshScreen({ target: "radar", forceRadarGround: true, includeDashboard: false });
     }
-  }, [dataReady, isStandalone, radarDrawingLayers.terrain, refreshScreen, screen]);
+  }, [dataReady, radarDrawingLayers.terrain, refreshScreen, screen]);
 
   const completeCompanionSetup = useCallback(async ({
     mode,
@@ -1702,9 +1703,7 @@ export function AppShell() {
   const islandRow =
     pinnedRow || rows.find((row) => /board|gate|approach/i.test(row.status_display)) || rows[0] || null;
   const screenContentPadding = Math.max(20, insets.bottom + 14);
-  const effectiveRadarDrawingLayers = isStandalone
-    ? { runways: radarDrawingLayers.runways, surface: radarDrawingLayers.surface, terrain: false }
-    : radarDrawingLayers;
+  const effectiveRadarDrawingLayers = radarDrawingLayers;
   const statusBarStyle = themeMode === "light" ? "dark-content" : "light-content";
   const visibleNotices = [
     ...(snapshot.notices || []),

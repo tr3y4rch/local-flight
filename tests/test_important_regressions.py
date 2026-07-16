@@ -2073,6 +2073,7 @@ def test_provider_key_opensky_test_routes_do_not_echo_credentials(monkeypatch) -
         return FakeResponse()
 
     monkeypatch.setattr("requests.get", fake_get)
+    monkeypatch.setattr("localflight.ui.server._setup_complete", lambda: True)
     client = TestClient(app)
     payload = {"opensky_id": "opensky-user-secret", "opensky_secret": "opensky-password-secret"}
 
@@ -3409,7 +3410,7 @@ def test_radar_map_context_returns_stale_cache_while_refreshing(tmp_path: Path, 
                 "generated_at": old,
                 "cache_state": "fresh",
                 "provider": "openstreetmap",
-                "schema_version": "osm-map-context-v1",
+                "schema_version": "osm-map-context-v2",
                 "attribution": {"text": "OSM", "url": ""},
                 "center": {"lat": 47.45, "lon": 8.55, "airport_iata": "ZRH", "airport_icao": "LSZH"},
                 "radius_nm": 5,
@@ -3437,7 +3438,7 @@ def test_radar_map_context_refresh_failure_preserves_existing_cache(tmp_path: Pa
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "cache_state": "fresh",
         "provider": "openstreetmap",
-        "schema_version": "osm-map-context-v1",
+        "schema_version": "osm-map-context-v2",
         "attribution": {"text": "OSM", "url": ""},
         "center": {"lat": 47.45, "lon": 8.55, "airport_iata": "ZRH", "airport_icao": "LSZH"},
         "radius_nm": 5,
@@ -6482,9 +6483,9 @@ def test_mobile_store_identity_and_verified_consumable_support_contract() -> Non
     relay = (root / "relay" / "main.py").read_text(encoding="utf-8")
 
     assert app["ios"]["bundleIdentifier"] == "cc.beacontools.localflight"
-    assert app["ios"]["buildNumber"] == "6"
+    assert app["ios"]["buildNumber"] == "7"
     assert app["android"]["package"] == "cc.beacontools.localflight"
-    assert app["android"]["versionCode"] == 9
+    assert app["android"]["versionCode"] == 10
     assert "./plugins/with-localflight-ios-widget" in app["plugins"]
     assert "./plugins/with-localflight-android-widget" in app["plugins"]
     assert app["ios"]["entitlements"]["com.apple.security.application-groups"] == [

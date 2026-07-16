@@ -44,6 +44,10 @@ in `docs/engineering-changelog.md`; the current release overview is
 - Radar now separates provider board status from live movement phase, uses
   strong flight identity matches, and applies elevation-aware ground, taxi,
   departure, en-route, descent, approach, and final rules with hysteresis.
+- Qt, LAN browser, and mobile radar views now share the same clockwise
+  15-second sweep contract: one leading line, a fading trail, and blips that
+  appear only after the sweep reaches them. Selected targets stay readable and
+  can be dismissed without choosing another aircraft.
 - Terrain now combines radius-aware AWS elevation mosaics and real contour
   geometry with separately cached OpenStreetMap water, vegetation, coastline,
   and limited road context.
@@ -86,6 +90,9 @@ in `docs/engineering-changelog.md`; the current release overview is
   required.
 - Mobile `0.5.1` remains in TestFlight and Google Play testing until the public
   store review gates are complete.
+- `0.5.1` is the shared Windows, macOS, Raspberry Pi, LAN, relay, and mobile
+  testing line. Platform installers are built on their native toolchains and
+  published with matching checksums.
 
 ## 0.2.8 — preliminary hardening work
 

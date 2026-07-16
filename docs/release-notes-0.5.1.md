@@ -1,10 +1,11 @@
 # Local Flight 0.5.1 Release Overview
 
-`0.5.1` is the active Local Flight release line for desktop and Raspberry Pi.
-The platform packages are being rebuilt and validated together before the
-GitHub release is published. Mobile TestFlight and Google Play testing uses the
-same version so Companion, Standalone, relay compatibility, and privacy choices
-remain aligned with the local server.
+`0.5.1` is the active Local Flight release line across Windows, macOS,
+Raspberry Pi, LAN browsers, the shared relay, and mobile testing. Desktop and
+Pi packages are built on their appropriate platform and published with matching
+checksums. Mobile TestFlight and Google Play testing use the same version so
+Companion, Standalone, relay compatibility, and privacy choices remain aligned
+with the local server.
 
 Local Flight is an informational display. Flight, radar, weather, surface,
 Matrix, relay, and mobile data can be delayed, incomplete, cached, wrong, or
@@ -48,6 +49,10 @@ decisions.
 - Radar movement phases now use live track evidence independently from the
   passenger-board status, including elevation-aware taxi/final rules and short
   hysteresis against noisy positions.
+- Radar presentation is aligned across Qt, LAN browser, and mobile: a
+  clockwise 15-second leading sweep reveals each target, then leaves a calm
+  fading trail. Hovered, focused, or selected targets remain readable, and a
+  selection can be closed without selecting another aircraft.
 - Terrain uses radius-aware elevation mosaics, relief bands, and true contours,
   with OpenStreetMap water and land context kept as a separate calm layer.
 - Kept conservative secret redaction across logs, reports, and diagnostics.
@@ -68,8 +73,8 @@ release from GitHub and links directly to its files. Windows, macOS, or Pi
 buttons become direct downloads only when the expected artifact and matching
 SHA256 file are both attached to that release.
 
-- Windows: `LocalFlight-0.5.1-Setup.exe` plus checksum. The published release
-  must state its actual publisher-signing status.
+- Windows: `LocalFlight-0.5.1-Setup.exe` plus checksum, built and validated on
+  Windows with its actual publisher-signing status stated on the release.
 - macOS: Developer ID signed and notarized Apple silicon installer package
   `LocalFlight-0.5.1-macos.pkg` plus checksum. Users install through the normal
   macOS installer flow; the documentation never asks users to disable
@@ -87,7 +92,7 @@ SHA256 file are both attached to that release.
 - Companion review/smoke should also pair on LAN, confirm LAN-first behavior,
   simulate LAN failure, verify `REMOTE` mode through the relay, revoke the
   phone grant, and confirm remote access stops.
-- Widget-enabled source targets iOS build `6` and Android versionCode `9`.
+- Widget-enabled source targets iOS build `7` and Android versionCode `10`.
   Both home-screen widgets read only a bounded app-written snapshot; they do
   not poll LAN, relay, or flight-provider services.
 - Dynamic Island and Live Activities remain deferred.
@@ -95,7 +100,7 @@ SHA256 file are both attached to that release.
 
 ## Validation Gate
 
-Before tagging or publishing `v0.5.1`, maintainers run:
+Before replacing or adding any `v0.5.1` artifact, maintainers run:
 
 ```powershell
 .venv\Scripts\python.exe -m compileall -q src relay installers scripts tests

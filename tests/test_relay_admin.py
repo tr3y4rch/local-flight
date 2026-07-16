@@ -1450,7 +1450,7 @@ def test_relay_root_serves_safe_browser_landing_page(tmp_path: Path, monkeypatch
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/html;")
     assert response.headers["cache-control"] == "no-store"
-    assert response.headers["vary"] == "Accept"
+    assert {item.strip() for item in response.headers["vary"].split(",")} == {"Accept", "Accept-Encoding"}
     assert response.headers["content-security-policy"].startswith("default-src 'none'")
     assert response.headers["permissions-policy"] == "camera=(), geolocation=(), microphone=()"
     assert response.headers["referrer-policy"] == "no-referrer"

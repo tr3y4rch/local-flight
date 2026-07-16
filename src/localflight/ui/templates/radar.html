@@ -1194,7 +1194,10 @@
       }
       const strokeKey = MAP[kind] ? kind : "boundary";
       ctx.strokeStyle = MAP[strokeKey] || MAP.boundary;
-      ctx.lineWidth = Math.max(0.35, W * (kind === "road" ? 0.001 : 0.00075));
+      const roadClass = String(feature.road_class || "").toLowerCase();
+      const mainRoad = roadClass === "motorway" || roadClass === "trunk" || roadClass === "primary";
+      ctx.lineWidth = Math.max(0.35, W * (kind === "road" ? (mainRoad ? 0.00072 : 0.00042) : 0.00075));
+      if (kind === "road") ctx.globalAlpha = alpha * (mainRoad ? 0.48 : 0.25);
       if (kind === "rail") ctx.setLineDash([4, 5]);
       if (kind === "boundary") ctx.setLineDash([7, 7]);
       ctx.stroke();

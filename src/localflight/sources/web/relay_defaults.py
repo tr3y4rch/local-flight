@@ -86,5 +86,9 @@ def relay_airport_surface_url(relay_url: str) -> str:
     return relay_endpoint_url(relay_url, "/v1/airport-surface")
 
 
+def relay_airport_ground_url(relay_url: str) -> str:
+    return relay_endpoint_url(relay_url, "/v1/airport-ground")
+
+
 def relay_heartbeat_url(relay_url: str) -> str:
     return relay_endpoint_url(relay_url, "/v1/heartbeat")

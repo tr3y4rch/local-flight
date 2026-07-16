@@ -43,10 +43,18 @@ What it gives you:
 - Native first-run setup
 - Native FIDS with city/country airport headers, passenger-friendly weather, four switchable board styles (Classic / PAX / VATSIM / Nerd), and the same current-source detail model as the LAN browser UI
 - Settings page built from disclosure cards (clickable header bars with emoji, title, summary, and chevron) instead of opaque checkbox-titled groups
-- Native radar drawing with the same layered blip/status/surface behavior as the LAN browser UI
+- Native radar drawing with the same layered blip/status/surface behavior and sweep timing as the LAN browser UI and mobile app
 - History dashboard analytics, Matrix board configuration, and user-facing Settings cards
 - Local docs and diagnostics
 - Same local API and WebSocket events as the browser UI
+
+Radar presentation follows one cross-platform contract. North is `0°`, the
+leading line moves clockwise once every 15 seconds, and the 72-degree phosphor
+trail fades behind it. A blip appears only after the leading line reaches its
+bearing. Hovered, keyboard-focused, or selected traffic remains visible for
+inspection; clicking the same target, empty scope, Close, or Escape clears the
+native selection. These animations use already-loaded traffic and never cause
+provider or terrain requests.
 
 Use it when you want the full Local Flight app on the machine that runs the server.
 

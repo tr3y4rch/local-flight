@@ -486,8 +486,9 @@ def test_radar_map_keeps_balanced_context_at_twenty_nm(monkeypatch) -> None:
     assert sum(1 for feature in payload["map_features"] if feature["kind"] == "water") == 14
 
 
-def test_osm_map_context_fetch_tries_fallback_endpoint(monkeypatch) -> None:
+def test_osm_map_context_fetch_retries_configured_endpoint_once(monkeypatch) -> None:
     calls: list[str] = []
+    sleeps: list[float] = []
 
     class Response:
         def __init__(self, payload: dict[str, object]) -> None:
@@ -506,14 +507,16 @@ def test_osm_map_context_fetch_tries_fallback_endpoint(monkeypatch) -> None:
         return Response({"elements": []})
 
     monkeypatch.setattr("localflight.sources.web.airport_map_context.requests.post", post)
+    monkeypatch.setattr("localflight.sources.web.airport_map_context.time.sleep", lambda value: sleeps.append(value))
 
     payload = fetch_overpass_map_context(lat=47.45, lon=8.55, radius_nm=5.0, timeout_s=0.1)
 
     assert payload == {"elements": []}
-    assert calls[:2] == [
+    assert calls == [
         "https://overpass-api.de/api/interpreter",
-        "https://overpass.private.coffee/api/interpreter",
+        "https://overpass-api.de/api/interpreter",
     ]
+    assert sleeps == [20.0]
 
 
 def test_terrain_context_decodes_terrarium_and_builds_bands_and_contours() -> None:

@@ -49,6 +49,15 @@ hashes, and personal build identifiers belong outside Git.
 - Radar uses shared normalization/classification, range-aware surface/airborne
   filtering, optional surface/map/terrain context, and conservative derived
   motion labels.
+- Relay ground context now uses authenticated, radius-aware surface/map/terrain
+  snapshots, 5/10/20 NM coverage buckets, bounded major-road geometry, hybrid
+  airport selection, and a disabled-by-default 30-day prewarm scheduler.
+- A versioned radar-presentation contract now keeps Qt, LAN JavaScript, and
+  mobile on north-zero clockwise geometry, a monotonic 15-second revolution,
+  one leading line, a 72-degree fading trail, post-crossing blip visibility,
+  semantic phase colors/shapes, and deterministic label priority. Selection
+  is explicitly dismissible and stale asynchronous detail responses cannot
+  reopen a cleared native card.
 - History stores raw observations but reports deduplicated movements and shared
   analytics across native, browser, and mobile.
 - Matrix V4 aligns local time, display labels, weather icons, wide-board layout,
@@ -84,6 +93,8 @@ hashes, and personal build identifiers belong outside Git.
   separately from private operator tooling.
 - The Cloudflare Worker exposes a sanitized GitHub release manifest; download
   cards require version-matched artifacts and checksum companions.
+- The native footer gives GitHub and Beacon Tools separate, correctly routed
+  actions rather than sharing one destination.
 
 ## Historical engineering milestones
 

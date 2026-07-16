@@ -35,7 +35,8 @@ durable entitlement; unfinished transactions are recovered automatically.
    submitted store version/review material.
 5. Create an App Store Server API key and a Google Play service account with the
    minimum purchase-verification access, then install those credentials only as
-   relay/Fly secrets documented in `AGENTS.md`.
+   private relay deployment secrets. Never put their values or private service
+   runbooks in `AGENTS.md`, tracked docs, mobile builds, or release packages.
 6. Redeploy the relay before testing. Verify cancellation, pending approval,
    offline relay, duplicate delivery, app restart, successful consumption, and
    repeat purchase with TestFlight sandbox and Play license-tester accounts.

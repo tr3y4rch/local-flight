@@ -7,7 +7,7 @@ This file is the working checklist for the `0.5.1` Play internal-testing build. 
 - App name: **Local Flight**
 - Android package: `cc.beacontools.localflight`
 - Version name: `0.5.1`
-- Version code: `9`
+- Version code: `10`
 - Project / support URL: `https://beacontools.cc/local-flight/mobile`
 - Privacy Policy URL: `https://beacontools.cc/privacy`
 - Recommended review path: choose **Standalone** on first launch so the app can be tested without a desktop or Raspberry Pi server.
@@ -49,7 +49,7 @@ Play Console Data Safety answers should be conservative:
 
 ## Home-Screen Widget
 
-- Version code `9` includes a resizable Android home-screen widget.
+- Version code `10` includes a resizable Android home-screen widget.
 - The app writes a bounded snapshot to its private files directory. The widget reads that local file only; it does not make LAN, relay, provider, analytics, or advertising requests.
 - The widget refresh action rereads local app data and does not trigger an external data fetch. Android's periodic widget update remains at 30 minutes.
 

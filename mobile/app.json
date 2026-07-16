@@ -50,7 +50,7 @@
     ],
     "ios": {
       "bundleIdentifier": "cc.beacontools.localflight",
-      "buildNumber": "6",
+      "buildNumber": "7",
       "icon": {
         "light": "./assets/localflight-icon-light.png",
         "dark": "./assets/localflight-icon-dark.png"
@@ -75,7 +75,7 @@
     },
     "android": {
       "package": "cc.beacontools.localflight",
-      "versionCode": 9,
+      "versionCode": 10,
       "permissions": [
         "CAMERA",
         "VIBRATE"

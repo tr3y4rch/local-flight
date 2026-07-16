@@ -12,7 +12,7 @@ Run `npm run appstore:contract` before copying it into App Store Connect.
 - App name: **Local Flight**
 - Bundle identifier: `cc.beacontools.localflight`
 - Version: `0.5.1`
-- Build number: `6`
+- Build number: `7`
 - Marketing URL: `https://beacontools.cc/local-flight/mobile`
 - Support URL: `https://beacontools.cc/support`
 - Privacy Policy URL: `https://beacontools.cc/privacy`
@@ -59,7 +59,7 @@ The bundled iOS privacy manifest declares required-reason APIs and conservative 
 
 ## Home-Screen Widget
 
-- Build `6` includes small and medium iOS home-screen widgets through bundle ID `cc.beacontools.localflight.widget` and App Group `group.cc.beacontools.localflight`.
+- Build `7` includes small and medium iOS home-screen widgets through bundle ID `cc.beacontools.localflight.widget` and App Group `group.cc.beacontools.localflight`.
 - The app writes a bounded local board snapshot into the shared App Group. The widget does not make LAN, relay, provider, analytics, or advertising requests.
 - The small widget shows the pinned flight or a clear open-app prompt. The medium widget shows a bounded airport-board glance with stale labeling.
 - Dynamic Island and Live Activities are not enabled in this build.

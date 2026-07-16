@@ -138,13 +138,13 @@ npm run android
 Store identity and the current `0.5.1` testing counters are:
 
 - iOS bundle ID: `cc.beacontools.localflight`
-- iOS `buildNumber`: `6`
+- iOS `buildNumber`: `7`
 - Android package ID: `cc.beacontools.localflight`
-- Android `versionCode`: `9`
+- Android `versionCode`: `10`
 
 Do not upload a store build with any old `com.localflight.*` identifier. App Store bundle IDs and Google Play package names are effectively permanent after first upload.
 
-The current widget-enabled source targets iOS `0.5.1 (6)` and Android `0.5.1 (9)`; these counters need fresh store builds because native widget code cannot be delivered through an over-the-air JavaScript update.
+The current widget-enabled source targets iOS `0.5.1 (7)` and Android `0.5.1 (10)`; these counters need fresh store builds because native widget code cannot be delivered through an over-the-air JavaScript update.
 
 ```bash
 cd mobile
@@ -163,6 +163,18 @@ cd mobile
 npx eas build -p ios --profile production
 npx eas build -p android --profile production
 ```
+
+For one validated store-binary build that automatically uploads iOS to
+TestFlight and Android to the Google Play internal-testing track, use:
+
+```bash
+cd mobile
+npx eas build --platform all --profile production --auto-submit --non-interactive
+```
+
+The `production` build profile means store-signed binaries; it does not publish
+the app publicly. The checked submit profile pins Android to `internal`, while
+Apple receives the build in TestFlight for review/testing.
 
 The release build must keep Companion able to reach `http://localflight.local:8000` and private LAN IP addresses, while Remote Companion and Standalone relay traffic stay HTTPS-only at `https://relay.beacontools.cc`. The release manifest should include camera, internet, and vibration only where needed; microphone, storage, and overlay permissions should not ship.
 
@@ -242,7 +254,7 @@ The screenshot script builds a self-contained simulator app and captures portrai
 - Airport, source, and refresh interval editing. The server offers 15, 30, 45, and 60 minute choices plus longer 2, 4, 8, 12, and 24 hour choices where the active schedule mode allows them. Local Flight Relay shows 30-minute-or-slower choices because shared airport snapshots protect upstream schedule access.
 - Pinned flight island with pin/unpin and tap-for-detail behavior
 - WebSocket listener for `/ws` `snapshot_updated`, `config_updated`, and `scheduler_restarted` events in Companion mode on LAN. Remote Companion can fall back to polling when relay event forwarding is unavailable.
-- Independent mobile appearance with dark/light theme plus `standard`, `technical`, `neon`, `cyan`, and `crt` skins
+- Independent mobile appearance with dark/light theme plus `standard`, `technical`, `neon`, `cyan`, `crt`, and `high_contrast` skins
 - Branded launch overlay with a continuous radar sweep, status text fade, breathing status dot, blinking board LED, and shared Local Flight wordmark text
 - Native-feeling interaction polish on key taps, chips, pinned-flight actions, and weather icon changes through haptics, press-scale feedback, and small transitions
 - iOS small/medium WidgetKit and Android resizable home-screen widgets backed by the hardened `localflight-widget-snapshot.json` contract. The widgets are read-only, stale-aware, size-bounded, and network-free.

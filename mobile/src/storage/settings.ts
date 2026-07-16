@@ -10,6 +10,7 @@ const APPEARANCE_THEME_KEY = "localflight.mobileTheme";
 const APPEARANCE_SKIN_KEY = "localflight.mobileSkin";
 const WEATHER_DISPLAY_KEY = "localflight.weatherDisplayMode";
 const RADAR_DRAWING_LAYERS_KEY = "localflight.radarDrawingLayers";
+const STANDALONE_GROUND_LAYERS_VERSION_KEY = "localflight.standaloneGroundLayersVersion";
 const MOBILE_DIAGNOSTICS_KEY = "localflight.mobileDiagnosticsMode";
 const MOBILE_SETUP_STATE_KEY = "localflight.mobileSetupState";
 const WIDGET_PREFERENCES_KEY = "localflight.widgetPreferences";
@@ -62,7 +63,7 @@ export type RemoteCompanionGrant = {
 const DEFAULT_RADAR_DRAWING_LAYERS: MobileRadarDrawingLayers = {
   runways: true,
   surface: true,
-  terrain: false
+  terrain: true
 };
 export const DEFAULT_WIDGET_PREFERENCES: MobileWidgetPreferences = {
   mediumRowCount: 3,
@@ -536,6 +537,20 @@ export async function loadRadarDrawingLayers(): Promise<MobileRadarDrawingLayers
 
 export async function saveRadarDrawingLayers(value: MobileRadarDrawingLayers): Promise<void> {
   await SecureStore.setItemAsync(RADAR_DRAWING_LAYERS_KEY, JSON.stringify(normalizeRadarDrawingLayers(value)));
+}
+
+export async function migrateStandaloneGroundLayers(): Promise<MobileRadarDrawingLayers> {
+  const current = await loadRadarDrawingLayers();
+  const version = await SecureStore.getItemAsync(STANDALONE_GROUND_LAYERS_VERSION_KEY);
+  if (version === "2") {
+    return current;
+  }
+  const migrated = { ...current, runways: true, surface: true, terrain: true };
+  await Promise.all([
+    saveRadarDrawingLayers(migrated),
+    SecureStore.setItemAsync(STANDALONE_GROUND_LAYERS_VERSION_KEY, "2")
+  ]);
+  return migrated;
 }
 
 export async function loadWidgetPreferences(): Promise<MobileWidgetPreferences> {

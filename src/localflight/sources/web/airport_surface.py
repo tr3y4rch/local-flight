@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 import math
+import time
 from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List
 
@@ -13,6 +15,36 @@ AIRPORT_SURFACE_LICENSE_URL = "https://www.openstreetmap.org/copyright"
 AIRPORT_SURFACE_ESTIMATED_PROVIDER = "localflight-estimated"
 AIRPORT_SURFACE_ESTIMATED_ATTRIBUTION = "Estimated airport surface"
 DEFAULT_OVERPASS_URL = "https://overpass-api.de/api/interpreter"
+MAX_OVERPASS_RESPONSE_BYTES = 16 * 1024 * 1024
+
+
+class OverpassPayloadTooLarge(ValueError):
+    pass
+
+
+def decode_overpass_json_response(response: Any, *, max_bytes: int = MAX_OVERPASS_RESPONSE_BYTES) -> dict[str, Any]:
+    content_length = str(getattr(response, "headers", {}).get("Content-Length") or "").strip()
+    if content_length.isdigit() and int(content_length) > max_bytes:
+        raise OverpassPayloadTooLarge("Overpass response exceeds the safe relay size limit")
+    if not hasattr(response, "iter_content"):
+        payload = response.json()
+    else:
+        body = bytearray()
+        try:
+            for chunk in response.iter_content(chunk_size=64 * 1024):
+                if not chunk:
+                    continue
+                body.extend(chunk)
+                if len(body) > max_bytes:
+                    raise OverpassPayloadTooLarge("Overpass response exceeds the safe relay size limit")
+            payload = json.loads(bytes(body))
+        finally:
+            close = getattr(response, "close", None)
+            if callable(close):
+                close()
+    if not isinstance(payload, dict):
+        raise ValueError("Overpass response shape invalid")
+    return payload
 DEFAULT_SURFACE_RADIUS_NM = 5.0
 MIN_SURFACE_RADIUS_NM = 1.0
 MAX_SURFACE_RADIUS_NM = 5.0
@@ -59,15 +91,18 @@ def clamp_surface_radius_m(radius_nm: float | int | str | None = None) -> int:
 
 def build_overpass_query(lat: float, lon: float, radius_m: int) -> str:
     radius = max(MIN_SURFACE_LOOKUP_RADIUS_M, min(MAX_SURFACE_LOOKUP_RADIUS_M, int(radius_m)))
+    lat_delta = radius / 111320.0
+    lon_delta = radius / (111320.0 * max(0.2, math.cos(math.radians(float(lat)))))
+    bbox = (
+        f"{float(lat) - lat_delta:.7f},{float(lon) - lon_delta:.7f},"
+        f"{float(lat) + lat_delta:.7f},{float(lon) + lon_delta:.7f}"
+    )
     return f"""
-[out:json][timeout:25];
+[out:json][timeout:45][maxsize:16777216];
 (
-  way["aeroway"~"^(aerodrome|runway|taxiway|apron|terminal)$"](around:{radius},{lat:.7f},{lon:.7f});
-  relation["aeroway"~"^(aerodrome|runway|taxiway|apron|terminal)$"](around:{radius},{lat:.7f},{lon:.7f});
-  way["aeroway"="hangar"](around:{radius},{lat:.7f},{lon:.7f});
-  relation["aeroway"="hangar"](around:{radius},{lat:.7f},{lon:.7f});
-  way["building"~"^(terminal|hangar|transportation|airport)$"](around:{radius},{lat:.7f},{lon:.7f});
-  relation["building"~"^(terminal|hangar|transportation|airport)$"](around:{radius},{lat:.7f},{lon:.7f});
+  way["aeroway"~"^(aerodrome|runway|taxiway|apron|terminal)$"]({bbox});
+  way["aeroway"="hangar"]({bbox});
+  way["building"~"^(terminal|hangar|transportation|airport)$"]({bbox});
 );
 out body geom;
 """.strip()
@@ -398,21 +433,37 @@ def fetch_overpass_surface(
     lat: float,
     lon: float,
     radius_m: int,
-    timeout_s: int = 25,
+    timeout_s: int = 50,
     overpass_url: str | None = None,
 ) -> dict[str, Any]:
     query = build_overpass_query(lat, lon, radius_m)
-    response = requests.post(
-        overpass_url or DEFAULT_OVERPASS_URL,
-        data={"data": query},
-        headers={
+    request_kwargs = {
+        "data": {"data": query},
+        "headers": {
             "User-Agent": "localflight-relay/0.5.1 (+https://beacontools.cc/local-flight)",
             "Accept": "application/json",
         },
-        timeout=timeout_s,
-    )
-    response.raise_for_status()
-    payload = response.json()
-    if not isinstance(payload, dict):
-        raise ValueError("Overpass response shape invalid")
-    return payload
+        "timeout": timeout_s,
+    }
+    last_error: Exception | None = None
+    for attempt in range(2):
+        try:
+            response = requests.post(overpass_url or DEFAULT_OVERPASS_URL, stream=True, **request_kwargs)
+            if getattr(response, "status_code", 200) == 429 and attempt == 0:
+                try:
+                    retry_after = min(120.0, max(1.0, float(response.headers.get("Retry-After") or 20)))
+                except (TypeError, ValueError):
+                    retry_after = 20.0
+                time.sleep(retry_after)
+                continue
+            response.raise_for_status()
+            return decode_overpass_json_response(response)
+        except OverpassPayloadTooLarge:
+            raise
+        except Exception as exc:
+            last_error = exc
+            if attempt == 0:
+                time.sleep(20.0)
+    if last_error:
+        raise last_error
+    raise ValueError("Overpass response unavailable")
