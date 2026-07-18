@@ -505,13 +505,10 @@ jobs:
           mapfile -t files < <(find release-files -maxdepth 1 -type f -print | sort)
           test "${#files[@]}" -eq 20
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            is_draft="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${tag}" --jq .draft)"
+            is_draft="$(gh release view "$tag" --json isDraft --jq .isDraft --repo "$GITHUB_REPOSITORY")"
             test "$is_draft" = "true"
-            tag_sha="$(git ls-remote --tags origin "refs/tags/${tag}^{}" | awk '{print $1}')"
-            if [ -z "$tag_sha" ]; then
-              tag_sha="$(git ls-remote --tags origin "refs/tags/${tag}" | awk '{print $1}')"
-            fi
-            test "$tag_sha" = "$SOURCE_SHA"
+            target_commitish="$(gh release view "$tag" --json targetCommitish --jq .targetCommitish --repo "$GITHUB_REPOSITORY")"
+            test "$target_commitish" = "$SOURCE_SHA"
             gh release upload "$tag" "${files[@]}" --clobber --repo "$GITHUB_REPOSITORY"
             gh release edit "$tag" --title "Local Flight ${VERSION}" --notes-file "$notes" --draft --repo "$GITHUB_REPOSITORY"
           else
@@ -523,9 +520,11 @@ jobs:
               --title "Local Flight ${VERSION}" --notes-file "$notes" --draft --repo "$GITHUB_REPOSITORY"
           fi
 
+          release_id="$(gh release view "$tag" --json databaseId --jq .databaseId --repo "$GITHUB_REPOSITORY")"
+          test -n "$release_id"
           mapfile -t expected_names < <(printf '%s\n' "${files[@]##*/}" | sort)
           mapfile -t uploaded_names < <(
-            gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${tag}" --jq '.assets[].name' | sort
+            gh api "repos/${GITHUB_REPOSITORY}/releases/${release_id}" --jq '.assets[].name' | sort
           )
           if ! diff -u \
             <(printf '%s\n' "${expected_names[@]}") \

@@ -792,7 +792,10 @@ def test_release_workflow_limits_write_permission_to_draft_job() -> None:
     assert "--attestations release-attestations" in workflow
     assert 'test "${#files[@]}" -eq 20' in workflow
     assert "Draft release asset inventory does not match the verified 20-file matrix." in workflow
-    assert "gh api \"repos/${GITHUB_REPOSITORY}/releases/tags/${tag}\"" in workflow
+    assert '--json isDraft --jq .isDraft' in workflow
+    assert '--json targetCommitish --jq .targetCommitish' in workflow
+    assert 'test "$target_commitish" = "$SOURCE_SHA"' in workflow
+    assert 'gh api "repos/${GITHUB_REPOSITORY}/releases/${release_id}"' in workflow
     assert workflow.count("keychain=\"$RUNNER_TEMP/localflight-release.keychain-db\"") == 1
     assert workflow.count("deb=\"$(find dist -maxdepth 1 -name 'localflight-desktop_*.deb'") == 1
     macos_job = workflow.split("  macos:", 1)[1].split("  linux-desktop:", 1)[0]
