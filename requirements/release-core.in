@@ -12,4 +12,8 @@ pillow==12.3.0
 qrcode==8.2
 python-dotenv==1.2.2
 python-multipart==0.0.32
-cryptography==49.0.0
+# cryptography 49 dropped Intel macOS wheels. Keep the audited universal2
+# security release on that target so release builds never link host Homebrew
+# OpenSSL; every other platform remains on 49.0.0.
+cryptography==48.0.1 ; sys_platform == "darwin" and platform_machine == "x86_64"
+cryptography==49.0.0 ; sys_platform != "darwin" or platform_machine != "x86_64"

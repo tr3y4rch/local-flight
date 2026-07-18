@@ -26,6 +26,9 @@ hashes, and personal build identifiers belong outside Git.
   scheduling, upgrade-safe state, and no Pi-specific hostname/kiosk behavior.
 - Added exact release dependency inputs and package-stage rejection for secret,
   operator, agent-context, internal-note, cache, and workstation-path material.
+- Kept cryptography 49 on supported wheel targets while selecting the audited
+  48.0.1 universal Intel Mac wheel after upstream removed x86-64 builds, and
+  made macOS releases reject source-built dependencies before packaging.
 
 ### Runtime and compatibility
 

@@ -28,7 +28,8 @@ dependencies = [
   "qrcode",
   "python-dotenv>=1.2.2",
   "python-multipart>=0.0.32",
-  "cryptography",
+  "cryptography>=48.0.1,<49; sys_platform == 'darwin' and platform_machine == 'x86_64'",
+  "cryptography>=49.0.0; sys_platform != 'darwin' or platform_machine != 'x86_64'",
 ]
 
 [project.optional-dependencies]

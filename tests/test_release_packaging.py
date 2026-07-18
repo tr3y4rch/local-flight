@@ -5,6 +5,7 @@ import importlib.util
 import json
 import os
 import sys
+import tomllib
 import zipfile
 from pathlib import Path
 
@@ -726,6 +727,28 @@ def test_macos_bundle_rejects_legacy_deployment_target_above_release_floor(
 
 
 def test_release_locks_are_hash_pinned_from_python_311() -> None:
+    project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    project_dependencies = set(project["project"]["dependencies"])
+    assert (
+        "cryptography>=48.0.1,<49; sys_platform == 'darwin' and platform_machine == 'x86_64'"
+        in project_dependencies
+    )
+    assert (
+        "cryptography>=49.0.0; sys_platform != 'darwin' or platform_machine != 'x86_64'"
+        in project_dependencies
+    )
+
+    core_input = (ROOT / "requirements" / "release-core.in").read_text(encoding="utf-8")
+    assert (
+        'cryptography==48.0.1 ; sys_platform == "darwin" and platform_machine == "x86_64"'
+        in core_input
+    )
+    assert (
+        'cryptography==49.0.0 ; sys_platform != "darwin" or platform_machine != "x86_64"'
+        in core_input
+    )
+
+    locks: dict[str, str] = {}
     for name in (
         "release-core.txt",
         "release-server.txt",
@@ -734,11 +757,21 @@ def test_release_locks_are_hash_pinned_from_python_311() -> None:
         "release-pi-trixie.txt",
     ):
         text = (ROOT / "requirements" / name).read_text(encoding="utf-8")
+        locks[name] = text
         assert "uv pip compile --universal --python-version 3.11" in text
         assert "--hash=sha256:" in text
-    native = (ROOT / "requirements" / "release-native.txt").read_text(encoding="utf-8")
-    bookworm = (ROOT / "requirements" / "release-pi-bookworm.txt").read_text(encoding="utf-8")
-    trixie = (ROOT / "requirements" / "release-pi-trixie.txt").read_text(encoding="utf-8")
+        assert (
+            "cryptography==48.0.1 ; platform_machine == 'x86_64' and sys_platform == 'darwin'"
+            in text
+        )
+        assert (
+            "cryptography==49.0.0 ; platform_machine != 'x86_64' or sys_platform != 'darwin'"
+            in text
+        )
+        assert "3e4a1a3232eef2e6c732827d5722db29a0cc8b27af2a4d865b094cf954be9ca1" in text
+    native = locks["release-native.txt"]
+    bookworm = locks["release-pi-bookworm.txt"]
+    trixie = locks["release-pi-trixie.txt"]
     assert "pyside6==6.8.3" in native
     assert "pystray==0.19.5" in native
     assert "pyside6==6.7.3" in bookworm
@@ -762,6 +795,11 @@ def test_release_workflow_limits_write_permission_to_draft_job() -> None:
     assert "gh api \"repos/${GITHUB_REPOSITORY}/releases/tags/${tag}\"" in workflow
     assert workflow.count("keychain=\"$RUNNER_TEMP/localflight-release.keychain-db\"") == 1
     assert workflow.count("deb=\"$(find dist -maxdepth 1 -name 'localflight-desktop_*.deb'") == 1
+    macos_job = workflow.split("  macos:", 1)[1].split("  linux-desktop:", 1)[0]
+    assert macos_job.count("--only-binary=:all:") == 1
+    assert "Verify the native cryptography wheel" in macos_job
+    assert "cryptography.__version__ == expected" in macos_job
+    assert "unexpectedly depends on host OpenSSL libraries" in macos_job
     fly_workflow = (ROOT / ".github" / "workflows" / "fly-deploy.yml").read_text(encoding="utf-8")
     assert "Smoke-test oversized public bug-report rejection" in fly_workflow
     assert 'b"x" * (512 * 1024)' in fly_workflow
