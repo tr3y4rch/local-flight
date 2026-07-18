@@ -217,8 +217,6 @@ def build_bundle(target: BuildTarget, *, clean: bool) -> Path:
         "--workpath",
         str(work_root),
     ]
-    if target.platform == "macos":
-        command.extend(["--target-architecture", spec_architecture])
     subprocess.run(command, check=True, cwd=ROOT, env=env)
 
     bundle = bundle_root / ("LocalFlight.app" if target.platform == "macos" else target.bundle_name)

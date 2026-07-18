@@ -43,6 +43,37 @@ MAC_WORKSTATION_PATH_PATTERN = re.compile(r"/Users/[^/\s]+/")
 LINUX_HOME_PATH_PATTERN = re.compile(r"/home/([^/\s]+)/")
 WINDOWS_WORKSTATION_PATH_PATTERN = re.compile(r"[A-Za-z]:\\Users\\[^\\\s]+\\")
 PUBLIC_RUNTIME_HOME_USERS = {"$SERVICE_USER", "localflight", "pi"}
+CERTIFI_CA_BUNDLES = {
+    "_internal/certifi/cacert.pem",
+    "Contents/Resources/certifi/cacert.pem",
+}
+
+
+def is_private_install_metadata_path(relative: Path) -> bool:
+    """Return whether packaging metadata can disclose its build location.
+
+    ``direct_url.json`` is created by pip for direct/local installs and can
+    retain the absolute checkout path. It is not needed by the frozen runtime,
+    so release bundles must omit it even when a particular file happens not to
+    contain a workstation path.
+    """
+    return (
+        relative.name.lower() == "direct_url.json"
+        and relative.parent.name.lower().endswith(".dist-info")
+    )
+
+
+def is_excluded_frozen_data_path(relative: Path) -> bool:
+    """Return whether a PyInstaller data entry is unsafe and unnecessary."""
+    lower_parts = tuple(part.lower() for part in relative.parts)
+    if "__pycache__" in lower_parts or relative.suffix.lower() == ".pyc":
+        return True
+    if is_private_install_metadata_path(relative):
+        return True
+    return (
+        "sboms" in lower_parts
+        and any(part.endswith(".dist-info") for part in lower_parts)
+    )
 
 
 def normalize_architecture(value: str) -> str:
@@ -78,6 +109,12 @@ def validate_elf_architecture(executable: Path, architecture: str) -> None:
 
 
 def is_sensitive_release_path(relative: Path) -> bool:
+    # Certifi's bundled public CA trust store is runtime data rather than a
+    # credential. Keep this exception exact so every other PEM remains blocked.
+    if relative.as_posix() in CERTIFI_CA_BUNDLES:
+        return False
+    if is_excluded_frozen_data_path(relative):
+        return True
     lower_parts = {part.lower() for part in relative.parts}
     name = relative.name
     lower_name = name.lower()

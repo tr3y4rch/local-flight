@@ -20,7 +20,12 @@ from scripts import (
     package_windows_installer,
 )
 from scripts.attest_release_artifact import create_attestation
-from scripts.release_safety import is_sensitive_release_path, validate_public_bundle
+from scripts.release_safety import (
+    is_excluded_frozen_data_path,
+    is_private_install_metadata_path,
+    is_sensitive_release_path,
+    validate_public_bundle,
+)
 from scripts.verify_release_artifacts import (
     artifact_contracts,
     artifact_names,
@@ -62,6 +67,40 @@ def test_release_build_matrix_rejects_cross_compilation_and_invalid_flavors() ->
             release_build.BuildTarget("linux", "x86_64", "server", "appimage"),
             actual_arch="x86_64",
         )
+
+
+def test_macos_bundle_architecture_is_passed_through_spec_environment(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    release_build = _load_build_module()
+    monkeypatch.setattr(release_build, "DIST", tmp_path / "dist")
+    monkeypatch.setattr(release_build, "BUILD", tmp_path / "build")
+    calls: list[tuple[list[str], dict[str, str]]] = []
+
+    def fake_run(
+        command: list[str],
+        *,
+        check: bool,
+        cwd: Path,
+        env: dict[str, str],
+    ) -> None:
+        assert check is True
+        assert cwd == release_build.ROOT
+        calls.append((command, env))
+        dist = Path(command[command.index("--distpath") + 1])
+        (dist / "LocalFlight.app").mkdir(parents=True)
+
+    monkeypatch.setattr(release_build.subprocess, "run", fake_run)
+    target = release_build.BuildTarget("macos", "aarch64", "desktop", "bundle")
+
+    bundle = release_build.build_bundle(target, clean=True)
+
+    assert bundle == tmp_path / "dist" / "bundles" / target.build_key / "LocalFlight.app"
+    assert len(calls) == 1
+    command, env = calls[0]
+    assert "--target-architecture" not in command
+    assert env["LOCALFLIGHT_TARGET_ARCH"] == "arm64"
 
 
 def test_public_artifact_names_match_release_matrix() -> None:
@@ -237,6 +276,73 @@ def test_final_release_verifier_requires_exact_attestation_set(tmp_path: Path) -
 )
 def test_release_safety_rejects_internal_and_sensitive_names(path: Path) -> None:
     assert is_sensitive_release_path(path)
+
+
+def test_release_safety_allows_only_certifi_public_ca_bundle(tmp_path: Path) -> None:
+    bundle = tmp_path / "bundle"
+    for relative in (
+        Path("_internal/certifi/cacert.pem"),
+        Path("Contents/Resources/certifi/cacert.pem"),
+    ):
+        certifi = bundle / relative
+        certifi.parent.mkdir(parents=True, exist_ok=True)
+        certifi.write_text(
+            "-----BEGIN CERTIFICATE-----\nFAKE-PUBLIC-CA-FOR-TESTS\n"
+            "-----END CERTIFICATE-----\n",
+            encoding="ascii",
+        )
+
+    validate_public_bundle(bundle)
+
+    for relative in (
+        Path("cacert.pem"),
+        Path("certifi/cacert.pem"),
+        Path("_internal/other/cacert.pem"),
+        Path("_internal/certifi/client.pem"),
+        Path("_internal/certifi/CACERT.pem"),
+        Path("Contents/Frameworks/certifi/cacert.pem"),
+        Path("Contents/Resources/other/cacert.pem"),
+        Path("Contents/Resources/certifi/client.pem"),
+    ):
+        assert is_sensitive_release_path(relative)
+
+
+def test_release_safety_rejects_direct_url_metadata_even_without_private_path(
+    tmp_path: Path,
+) -> None:
+    relative = Path("_internal/localflight-0.5.2.dist-info/direct_url.json")
+    assert is_private_install_metadata_path(relative)
+    assert is_sensitive_release_path(relative)
+
+    bundle = tmp_path / "bundle"
+    metadata = bundle / relative
+    metadata.parent.mkdir(parents=True)
+    metadata.write_text('{"url":"https://example.invalid/localflight.whl"}\n', encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="direct_url.json"):
+        validate_public_bundle(bundle)
+
+
+@pytest.mark.parametrize(
+    "relative",
+    (
+        Path("_internal/localflight-0.5.2.dist-info/direct_url.json"),
+        Path("cryptography-49.0.0.dist-info/sboms/cryptography-rust.cyclonedx.json"),
+        Path("localflight/decode/mappings/__pycache__/airports.cpython-311.pyc"),
+    ),
+)
+def test_release_safety_excludes_runtime_irrelevant_frozen_data(relative: Path) -> None:
+    assert is_excluded_frozen_data_path(relative)
+    assert is_sensitive_release_path(relative)
+
+
+def test_pyinstaller_spec_excludes_unsafe_frozen_data_before_collect() -> None:
+    spec = (ROOT / "LocalFlight.spec").read_text(encoding="utf-8")
+    analysis = spec.index("a = Analysis(")
+    exclusion = spec.index("is_excluded_frozen_data_path(Path(entry[0]))", analysis)
+    collect = spec.index("coll = COLLECT(", exclusion)
+
+    assert analysis < exclusion < collect
 
 
 @pytest.mark.parametrize(

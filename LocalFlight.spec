@@ -11,6 +11,7 @@ import tomllib
 from pathlib import Path
 
 from PyInstaller.utils.hooks import collect_all, collect_data_files
+from scripts.release_safety import is_excluded_frozen_data_path
 
 
 ROOT = Path(SPECPATH)
@@ -179,6 +180,15 @@ a = Analysis(
     runtime_hooks=[],
     noarchive=False,
 )
+
+# Remove runtime-irrelevant caches and package metadata that can retain build
+# paths before COLLECT. The final release scan remains fail-closed if one is
+# reintroduced by another PyInstaller input.
+a.datas = [
+    entry
+    for entry in a.datas
+    if not is_excluded_frozen_data_path(Path(entry[0]))
+]
 
 pyz = PYZ(a.pure)
 exe = EXE(
