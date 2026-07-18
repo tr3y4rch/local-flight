@@ -92,6 +92,35 @@ def _version_tuple(value: str) -> tuple[int, ...]:
     return tuple(int(part) for part in value.split("."))
 
 
+def _deployment_targets(build_info: str) -> list[str]:
+    """Read modern and legacy macOS deployment targets from ``vtool`` output."""
+    targets: list[str] = []
+    load_command: str | None = None
+    version_pattern = re.compile(r"[0-9]+(?:\.[0-9]+){1,2}")
+
+    for raw_line in build_info.splitlines():
+        line = raw_line.strip()
+        if re.fullmatch(r"Load command\s+\d+", line):
+            load_command = None
+            continue
+        if line.startswith("cmd "):
+            load_command = line.removeprefix("cmd ").strip()
+            continue
+
+        field, _, value = line.partition(" ")
+        value = value.strip()
+        if not version_pattern.fullmatch(value):
+            continue
+        if load_command == "LC_BUILD_VERSION" and field == "minos":
+            targets.append(value)
+        elif load_command == "LC_VERSION_MIN_MACOSX" and field == "version":
+            # Older Intel Mach-O slices encode the deployment floor here rather
+            # than in LC_BUILD_VERSION's ``minos`` field.
+            targets.append(value)
+
+    return targets
+
+
 def validate_macos_bundle(
     app: Path,
     architecture: str,
@@ -121,7 +150,7 @@ def validate_macos_bundle(
                 f"expected only {architecture}."
             )
         build_info = run_output(["xcrun", "vtool", "-show-build", str(binary)])
-        targets = re.findall(r"^\s*minos\s+([0-9]+(?:\.[0-9]+){1,2})\s*$", build_info, re.MULTILINE)
+        targets = _deployment_targets(build_info)
         if not targets:
             relative = binary.relative_to(app)
             raise RuntimeError(f"Could not read a deployment target from {relative}.")

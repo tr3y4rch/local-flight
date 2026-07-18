@@ -717,6 +717,7 @@ class NativeMainWindow:  # pragma: no cover - exercised with optional Qt
                 self.setCentralWidget(root)
 
                 self.first_launch = first_launch
+                self._initial_refresh_pending = True
                 for spec in PAGE_SPECS:
                     self._add_screen(
                         spec.key,
@@ -727,7 +728,14 @@ class NativeMainWindow:  # pragma: no cover - exercised with optional Qt
                     )
 
                 self._load_design_from_config()
-                self._show_page("display", force_refresh=True)
+                # Constructing a window is not the same as presenting it.  In
+                # particular, native UI tests and setup hand-offs can create a
+                # shell that is never shown.  Starting its background HTTP
+                # refresh here leaves a worker holding Qt-backed page objects
+                # after the invisible window becomes unreachable.  Begin the
+                # first refresh from showEvent, while the window has an active
+                # GUI-thread lifecycle.
+                self._show_page("display")
                 self._log_runtime_diagnostics("startup")
 
                 self.clock_timer = QtCore.QTimer(self)
@@ -1336,6 +1344,13 @@ class NativeMainWindow:  # pragma: no cover - exercised with optional Qt
                 event.accept()
                 if self._ui_only:
                     QtCore.QTimer.singleShot(0, QtWidgets.QApplication.quit)
+
+            def showEvent(self, event: Any) -> None:
+                super().showEvent(event)
+                if not self._initial_refresh_pending:
+                    return
+                self._initial_refresh_pending = False
+                self._refresh_active(force=True)
 
             def resizeEvent(self, event: Any) -> None:
                 super().resizeEvent(event)

@@ -536,6 +536,39 @@ def test_native_first_launch_main_window_does_not_embed_setup(monkeypatch: pytes
     assert main_window.screen_keys[0] == "display"
 
 
+def test_native_main_window_starts_initial_refresh_only_when_shown(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    pytest.importorskip("PySide6")
+    from PySide6 import QtWidgets
+    from localflight.native.app import NativeMainWindow
+    from localflight.native.qt_compat import import_qt
+
+    QtCore, QtGui, QtWidgets2 = import_qt()
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    window = NativeMainWindow(QtCore, QtGui, QtWidgets2, base_url="http://127.0.0.1:9", first_launch=False)
+    display = window.screens[0]
+    refreshes: list[str] = []
+    display.refresh = lambda: refreshes.append("display")
+
+    assert window._initial_refresh_pending is True
+    assert refreshes == []
+
+    window.show()
+    app.processEvents()
+
+    assert window._initial_refresh_pending is False
+    assert refreshes == ["display"]
+
+    window.hide()
+    window.show()
+    app.processEvents()
+    assert refreshes == ["display"]
+
+    window.hide()
+    window.deleteLater()
+    app.sendPostedEvents(None, QtCore.QEvent.DeferredDelete)
+
+
 def test_native_custom_splash_can_close_without_qsplash_finish(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
     pytest.importorskip("PySide6")

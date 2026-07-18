@@ -628,7 +628,13 @@ def test_macos_bundle_architecture_and_deployment_target_are_fail_closed(
             return "Mach-O 64-bit executable arm64\n"
         if command[0] == "lipo":
             return "arm64\n"
-        return "platform MACOS\nminos 12.0\nsdk 15.0\n"
+        return """Load command 8
+      cmd LC_BUILD_VERSION
+  cmdsize 32
+ platform MACOS
+    minos 12.0
+      sdk 15.0
+"""
 
     monkeypatch.setattr(package_macos_installer, "run_output", valid_output)
     assert package_macos_installer.validate_macos_bundle(executable.parents[2], "arm64") == [executable]
@@ -642,6 +648,81 @@ def test_macos_bundle_architecture_and_deployment_target_are_fail_closed(
     )
     with pytest.raises(RuntimeError, match="Unexpected Mach-O slices"):
         package_macos_installer.validate_macos_bundle(executable.parents[2], "arm64")
+
+
+def test_macos_bundle_accepts_legacy_intel_deployment_target(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    executable = tmp_path / "LocalFlight.app" / "Contents" / "MacOS" / "LocalFlight"
+    executable.parent.mkdir(parents=True)
+    executable.write_bytes(b"mach-o")
+
+    def legacy_output(command: list[str]) -> str:
+        if command[0] == "file":
+            return "Mach-O 64-bit executable x86_64\n"
+        if command[0] == "lipo":
+            return "x86_64\n"
+        return """Load command 7
+      cmd LC_VERSION_MIN_MACOSX
+  cmdsize 16
+  version 10.9
+      sdk 26.5
+"""
+
+    monkeypatch.setattr(package_macos_installer, "run_output", legacy_output)
+
+    assert package_macos_installer.validate_macos_bundle(executable.parents[2], "x86_64") == [executable]
+
+
+@pytest.mark.parametrize(
+    "build_info",
+    (
+        "Load command 7\n      cmd LC_VERSION_MIN_MACOSX\n  cmdsize 16\n      sdk 26.5\n",
+        "Load command 7\n      cmd LC_SOURCE_VERSION\n  cmdsize 16\n  version 10.9\n",
+    ),
+)
+def test_macos_bundle_rejects_missing_or_unrelated_deployment_target(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    build_info: str,
+) -> None:
+    executable = tmp_path / "LocalFlight.app" / "Contents" / "MacOS" / "LocalFlight"
+    executable.parent.mkdir(parents=True)
+    executable.write_bytes(b"mach-o")
+
+    def output(command: list[str]) -> str:
+        if command[0] == "file":
+            return "Mach-O 64-bit executable x86_64\n"
+        if command[0] == "lipo":
+            return "x86_64\n"
+        return build_info
+
+    monkeypatch.setattr(package_macos_installer, "run_output", output)
+
+    with pytest.raises(RuntimeError, match="Could not read a deployment target"):
+        package_macos_installer.validate_macos_bundle(executable.parents[2], "x86_64")
+
+
+def test_macos_bundle_rejects_legacy_deployment_target_above_release_floor(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    executable = tmp_path / "LocalFlight.app" / "Contents" / "MacOS" / "LocalFlight"
+    executable.parent.mkdir(parents=True)
+    executable.write_bytes(b"mach-o")
+
+    def output(command: list[str]) -> str:
+        if command[0] == "file":
+            return "Mach-O 64-bit executable x86_64\n"
+        if command[0] == "lipo":
+            return "x86_64\n"
+        return "Load command 7\n      cmd LC_VERSION_MIN_MACOSX\n  version 13.0\n"
+
+    monkeypatch.setattr(package_macos_installer, "run_output", output)
+
+    with pytest.raises(RuntimeError, match=r"requires macOS 13\.0"):
+        package_macos_installer.validate_macos_bundle(executable.parents[2], "x86_64")
 
 
 def test_release_locks_are_hash_pinned_from_python_311() -> None:
