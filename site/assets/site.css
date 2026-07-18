@@ -442,7 +442,7 @@ p {
 
 .download-card {
   display: flex;
-  min-height: 320px;
+  min-height: 360px;
   flex-direction: column;
 }
 
@@ -465,18 +465,50 @@ p {
 }
 
 .download-status {
-  min-height: 44px;
-  margin: 18px 0 0;
+  min-height: 42px;
+  margin: 10px 0 0;
   color: var(--subtle);
   overflow-wrap: anywhere;
   font: 700 0.76rem/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
+.download-variants {
+  margin-top: auto;
+  padding-top: 14px;
+}
+
+.download-variant {
+  border-top: 1px solid var(--line-soft);
+  padding-top: 14px;
+}
+
+.download-variant + .download-variant {
+  margin-top: 16px;
+}
+
+.download-variant-title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 0;
+}
+
+.download-variant-title strong {
+  color: var(--text);
+}
+
+.download-variant-title span {
+  color: var(--subtle);
+  font-size: 0.78rem;
+  text-align: right;
+}
+
 .download-actions {
   align-items: center;
-  margin-top: auto;
+  margin-top: 0;
   margin-bottom: 0;
-  padding-top: 18px;
+  padding-top: 10px;
 }
 
 .download-checksum {
@@ -1141,6 +1173,16 @@ p {
   .button {
     width: 100%;
     justify-content: space-between;
+  }
+
+  .download-variant-title {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 3px;
+  }
+
+  .download-variant-title span {
+    text-align: left;
   }
 
   .store-badge {

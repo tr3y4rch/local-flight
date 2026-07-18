@@ -8,6 +8,8 @@ from typing import Any, Dict, Iterable, List
 
 import requests
 
+from localflight.version import user_agent
+
 AIRPORT_SURFACE_SCHEMA_VERSION = "osm-surface-v1"
 AIRPORT_SURFACE_PROVIDER = "openstreetmap"
 AIRPORT_SURFACE_ATTRIBUTION = "© OpenStreetMap contributors"
@@ -440,7 +442,7 @@ def fetch_overpass_surface(
     request_kwargs = {
         "data": {"data": query},
         "headers": {
-            "User-Agent": "localflight-relay/0.5.1 (+https://beacontools.cc/local-flight)",
+            "User-Agent": user_agent("localflight-relay"),
             "Accept": "application/json",
         },
         "timeout": timeout_s,

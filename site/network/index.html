@@ -35,28 +35,42 @@
       <div class="wrap">
         <div class="hero-content">
           <div class="eyebrow">Beacon Tools Network</div>
-          <h1>How the shared relay helps Local Flight.</h1>
-          <p class="lede">The optional Beacon Tools relay shares cached airport data, supports mobile Standalone, and routes encrypted Remote Companion messages without asking users to manage shared aviation keys or open inbound router ports.</p>
+          <h1>When Local Flight connects to the internet.</h1>
+          <p class="lede">Your Local Flight host runs the board on your own device. An internet connection is used only for the aviation data and optional features you choose. The Beacon Tools shared service can make setup easier, power mobile Standalone, and keep an explicitly paired phone connected while you are away.</p>
           <div class="status-strip">
-            <span class="status-chip">Public relay: relay.beacontools.cc</span>
-            <span class="status-chip">Shared cached boards</span>
-            <span class="status-chip amber">Safety-first refresh limits</span>
+            <span class="status-chip">Your LAN stays local</span>
+            <span class="status-chip">Shared service is optional</span>
+            <span class="status-chip amber">Updates are deliberately spaced out</span>
           </div>
         </div>
       </div>
     </header>
 
     <main>
-      <section class="section">
+      <section class="section tight">
         <div class="wrap">
-          <div class="grid two">
+          <div class="section-head">
+            <div>
+              <div class="eyebrow">30-second answer</div>
+              <h2>Local first, with clear online choices.</h2>
+            </div>
+          </div>
+          <div class="grid four">
             <article class="card good-card">
-              <h3>Public relay URL</h3>
-              <p><code>https://relay.beacontools.cc</code><br>Local Flight can use this relay for activation, shared airport boards, radar/weather helpers, Remote Companion encrypted routing, phone app data, and reports you choose to send.</p>
+              <h3>At home</h3>
+              <p>The desktop app, LAN screens, Companion phones, and LED matrix displays talk to your own Local Flight host first.</p>
+            </article>
+            <article class="card">
+              <h3>For flight data</h3>
+              <p>Your host connects to the aviation providers you configured, or asks the Beacon Tools shared service for a recently prepared airport board.</p>
+            </article>
+            <article class="card">
+              <h3>Away from home</h3>
+              <p>Remote Companion can carry encrypted messages between a paired phone and an online host. The service cannot read those messages.</p>
             </article>
             <article class="card warning-card">
-              <h3>What stays private</h3>
-              <p>The public relay only exposes the paths normal apps need. Credentials, maintenance tools, monitoring, and control panels are not part of the public website or end-user app flow.</p>
+              <h3>You choose</h3>
+              <p>Use your own provider keys, VATSIM-only mode, the shared service, or mobile Standalone. Reports leave your device only when you send them or enable automatic diagnostics.</p>
             </article>
           </div>
         </div>
@@ -66,17 +80,41 @@
         <div class="wrap">
           <div class="section-head">
             <div>
-              <div class="eyebrow">What the relay does</div>
-              <h2>Shared data with careful limits.</h2>
+              <div class="eyebrow">Ways to connect</div>
+              <h2>Pick the path that fits your setup.</h2>
             </div>
           </div>
-          <ul class="console-list">
-            <li>Reuses cached airport boards so multiple personal installs can watch the same airport without each one making separate upstream requests.</li>
-            <li>Keeps refreshes intentionally modest to protect shared limits and keep the community path sustainable.</li>
-            <li>Routes encrypted Remote Companion messages for explicitly paired phones when they cannot reach the host on LAN. The host must be online, and the relay cannot read the Companion request or response.</li>
-            <li>Lets mobile Standalone work without your desktop app or Raspberry Pi being online.</li>
-            <li>Can forward reports only when you choose to send them, while keeping shared data keys and maintenance details out of the app.</li>
-          </ul>
+          <div class="grid two">
+            <article class="card good-card">
+              <h3>Local and Companion</h3>
+              <p>The native app and browser board are served by your Windows, macOS, Linux, or Raspberry Pi host. Companion connects over your trusted Wi-Fi or LAN, so the normal phone-to-host path does not pass through Beacon Tools.</p>
+            </article>
+            <article class="card">
+              <h3>Shared airport data</h3>
+              <p>Choose the Community Relay during setup when you do not want to manage aviation provider keys. It reuses recent airport results and spaces requests out fairly instead of asking the provider again for every screen.</p>
+            </article>
+            <article class="card">
+              <h3>Remote Companion</h3>
+              <p>After you pair on LAN and explicitly allow remote access, encrypted messages can pass through the shared service when the phone cannot reach the host directly. The host must stay online. The encryption secret stays on the paired devices, not on the service.</p>
+            </article>
+            <article class="card">
+              <h3>Mobile Standalone</h3>
+              <p>The phone asks the shared service directly, so no desktop, Linux server, or Raspberry Pi needs to be online. Standalone keeps its movement history on the phone and uses more conservative board and radar updates.</p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="wrap">
+          <div class="section-head">
+            <div>
+              <div class="eyebrow">Update spacing</div>
+              <h2>Why a board may not change immediately.</h2>
+            </div>
+          </div>
+          <p>The shared service protects limited aviation data allowances by reusing a known board and waiting before it refreshes again. Community Relay schedules update no more often than every 30 minutes. Mobile Standalone boards use a three-hour schedule, and its visible radar asks for an update no more often than every five minutes.</p>
+          <p>If an aviation provider has a temporary problem, Local Flight may keep showing the last known board instead of clearing the screen. Check the freshness time shown in the app before relying on what you see.</p>
         </div>
       </section>
 
@@ -89,11 +127,12 @@
             </div>
           </div>
           <ol class="timeline">
-            <li><strong>LAN Companion:</strong> keep the phone and host on the same trusted network, confirm Local Flight is running, and pair with the LAN IP/fingerprint-bound QR from Settings.</li>
-            <li><strong>Remote Companion:</strong> the host must remain online and relay-linked, and the phone's remote grant must still be active. Revoke and pair again from LAN if the grant was removed.</li>
-            <li><strong>Standalone:</strong> check the phone's internet access and try again after a few minutes. Cached boards may be served during upstream problems, and mobile radar refresh/range remains intentionally limited.</li>
-            <li>If the problem continues, use <a href="/support/">Support</a> and include the app mode, airport, approximate time, connection state, and diagnostics choice.</li>
+            <li><strong>Companion on Wi-Fi:</strong> keep the phone and host on the same trusted network, confirm Local Flight is running, and scan the pairing code shown in Settings.</li>
+            <li><strong>Remote Companion:</strong> leave the host online and connected to the shared service. If remote access was removed, return to the same LAN and pair again.</li>
+            <li><strong>Standalone:</strong> check the phone's internet connection and try again after a few minutes. A recent board may stay visible while a data provider is unavailable.</li>
+            <li><strong>Still stuck:</strong> use <a href="/support/">Support</a> and tell us the mode, airport, approximate time, and whether the phone and host were online. Only include diagnostics or logs if you choose to.</li>
           </ol>
+          <p class="note">Technical address for firewall allow-lists: <code>https://relay.beacontools.cc</code>. You do not need to open an incoming router port for the shared service or Remote Companion.</p>
         </div>
       </section>
 

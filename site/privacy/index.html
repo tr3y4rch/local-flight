@@ -36,9 +36,9 @@
         <div class="hero-content">
           <div class="eyebrow">Beacon Tools</div>
           <h1>Privacy Policy</h1>
-          <p class="lede">This policy covers Local Flight by Beacon Tools. The basic rule is simple: app data stays on your device unless you choose a feature that needs the network.</p>
+          <p class="lede">Local Flight does not require an account. Your settings and history stay on your device. Personal provider keys are stored only there and sent directly to the provider you chose when Local Flight requests data.</p>
           <div class="status-strip">
-            <span class="status-chip">Last updated: July 12, 2026</span>
+            <span class="status-chip">Last updated: July 18, 2026</span>
             <span class="status-chip">No accounts</span>
             <span class="status-chip">Diagnostics require consent</span>
             <span class="status-chip amber">Choices and deletion guidance available</span>
@@ -54,38 +54,20 @@
     <main>
       <section class="section tight">
         <div class="wrap">
-          <div class="grid two">
-            <article class="card contact-card">
-              <h3>General and support</h3>
-              <p><a href="/support/#message">Use the support message box</a></p>
-            </article>
-            <article class="card contact-card">
-              <h3>Privacy and diagnostics</h3>
-              <p><a href="/privacy/choices/">Open privacy choices</a><br><a href="mailto:privacy@beacontools.cc">privacy@beacontools.cc</a></p>
-            </article>
-            <article class="card contact-card">
-              <h3>Choices and deletion</h3>
-              <p><a href="/privacy/choices/">Open privacy choices</a></p>
-            </article>
-          </div>
-        </div>
-      </section>
-
-      <section class="section">
-        <div class="wrap">
           <div class="section-head">
             <div>
               <div class="eyebrow">Quick summary</div>
               <h2>The short version.</h2>
             </div>
           </div>
-          <div class="grid three">
-            <article class="card"><h3>No accounts</h3><p>No advertising SDKs, no data brokers, and no cross-app or cross-site tracking.</p></article>
-            <article class="card"><h3>Local by default</h3><p>Your settings, API keys, board snapshots, history, and logs stay on your own machine or device unless you use relay-backed features or send a report.</p></article>
-            <article class="card"><h3>Choices</h3><p>Diagnostics, local resets, mobile resets, and relay data requests are summarized at <a href="/privacy/choices/">beacontools.cc/privacy/choices</a>.</p></article>
+          <div class="grid four">
+            <article class="card"><h3>No account</h3><p>No advertising SDKs, no data brokers, and no cross-app or cross-site tracking.</p></article>
+            <article class="card good-card"><h3>Kept on your device</h3><p>Settings, board snapshots, history, and logs normally remain on your own machine or phone. Personal provider keys are stored there and sent only to the provider you selected when they are used.</p></article>
+            <article class="card"><h3>Sent only for a feature</h3><p>The shared service receives the minimum needed for shared boards, Remote Companion, Standalone, support, or diagnostics you enabled.</p></article>
+            <article class="card"><h3>Your controls</h3><p>Use <a href="/privacy/choices/">Privacy choices</a> for diagnostics, resets, remote-access revocation, local erasure, and privacy requests.</p></article>
           </div>
           <ul class="console-list" style="margin-top: 14px;">
-            <li>Companion and LED matrix displays talk to your own Local Flight server first. Remote Companion can route encrypted paired-host messages through the relay when LAN is unavailable; Standalone talks directly to the hosted relay.</li>
+            <li>Companion and LED matrix displays talk to your own Local Flight host first. Remote Companion can carry encrypted paired-host messages through the shared service when your LAN is unavailable; Standalone talks directly to that service.</li>
             <li>Manual reports are always your choice. Automatic crash diagnostics only run if you opt in.</li>
             <li>Optional mobile support purchases are handled by Apple or Google. Local Flight receives verification evidence, never payment-card details.</li>
             <li>Local Flight is an informational display aid, not a navigation, dispatch, operational-control, or safety system.</li>
@@ -101,9 +83,9 @@
               <h2>What stays local</h2>
             </div>
           </div>
-          <p>Flight board snapshots, settings, personal API keys, local history, logs, desktop app state, companion pairing state, Remote Companion grant secrets, and LED matrix settings are stored locally. The LAN browser UI, companion mode, and LED matrix board talk to your own Local Flight server first.</p>
-          <p>Mobile Standalone stores its setup mode, relay install UUID, activation token, selected airport, appearance, diagnostics choice, pinned flight, and recent movement history on the device. Standalone history is not stored on the hosted relay.</p>
-          <p>Mobile home-screen widgets read a small board snapshot written locally by the app. The iOS copy uses the Local Flight App Group and the Android copy stays in the app's private files directory. The widgets do not contact the LAN server, relay, or aviation providers themselves.</p>
+          <p>Your host keeps flight-board snapshots, settings, personal provider keys, movement history, logs, desktop state, paired-phone details, Remote Companion secrets, and LED matrix settings. Provider keys are stored on that host and sent directly to the provider you chose when Local Flight requests data. LAN browsers, Companion phones, and matrix boards ask your own host for their information.</p>
+          <p>Mobile Standalone keeps its connection details, selected airport, appearance, diagnostics choice, pinned flight, and recent movement history on the phone. Its movement history is not stored by Beacon Tools.</p>
+          <p>Home-screen widgets read a small snapshot that the mobile app already saved on the phone. Widgets do not contact your host, the shared service, or aviation providers by themselves.</p>
         </div>
       </section>
 
@@ -111,15 +93,15 @@
         <div class="wrap">
           <div class="section-head">
             <div>
-              <div class="eyebrow">Hosted relay</div>
-              <h2>Relay-backed features</h2>
+              <div class="eyebrow">Optional shared service</div>
+              <h2>What leaves your device when you choose an online feature.</h2>
             </div>
           </div>
-          <p>If you choose the shared relay, Remote Companion, or mobile Standalone, Local Flight may talk to the hosted Beacon Tools relay at <code>https://relay.beacontools.cc</code> for shared airport boards, relay-backed radar, encrypted paired-host fallback, activation, fair-use limits, reports, and optional cached map data.</p>
-          <p>The relay is cache-first where possible and uses configured aviation data sources for shared airport data. Bring-your-own-key installs keep their personal provider keys locally.</p>
-          <p>The relay stores the pseudonymous technical records needed to operate the selected feature safely: install identifiers, service usage counters, coarse app/device details, encrypted-routing metadata, last-seen times, and short-lived shared cache records.</p>
-          <p>For an optional mobile support purchase, the relay stores only a keyed transaction hash, short reference, product ID, store platform/environment, verification status, install fingerprint, timestamps, and a coarse error code.</p>
-          <p>The relay does not store raw IP addresses, personal API keys from your install, readable personal identifiers, readable Remote Companion traffic, local flight history, Standalone history, raw Apple transaction payloads, raw Google purchase tokens, payment-card details, or local logs unless you explicitly allow diagnostic reports with sanitized logs.</p>
+          <p>If you choose Community Relay data, Remote Companion, or mobile Standalone, Local Flight connects to <code>https://relay.beacontools.cc</code>. The service can provide shared airport boards, radar and map helpers, activate a connection, apply fair-use limits, route encrypted paired-phone messages, and deliver reports you choose to send.</p>
+          <p>The service reuses recent shared results where possible. If you use your own aviation provider keys, those keys stay on your host and are sent only to the provider you selected.</p>
+          <p>Beacon Tools keeps only the service records needed to make the selected feature work and protect it from abuse: a random installation identifier, usage counts, broad app/device details, encrypted-message routing details, last-connected times, and short-lived shared data.</p>
+          <p>The Local Flight application database does not store raw IP addresses. Fly.io, Cloudflare, and other network providers may briefly process connection data in infrastructure or security logs under their own policies. The service does not store personal aviation keys from your installation, names or email addresses from normal app use, readable Remote Companion messages, your local movement history, Standalone movement history, payment-card details, or local logs unless you explicitly include sanitized logs in a report.</p>
+          <p class="note"><strong>Detailed purchase record:</strong> for optional mobile support, the service stores only a keyed transaction hash, short reference, product ID, store platform and environment, verification status, public install fingerprint, timestamps, and a broad error code. Raw Apple transaction payloads and Google purchase tokens are not retained.</p>
         </div>
       </section>
 
@@ -128,7 +110,7 @@
           <div class="grid two">
             <article class="card">
               <h3>Mobile and Matrix</h3>
-              <p>Companion stores its paired server URL, companion ID, appearance, pinned flight, local profiles, diagnostics choice, and optional Remote Companion grant on the device. Standalone stores its separate relay install UUID, activation token, selected airport, appearance, pinned flight, diagnostics choice, and movement history on the device. LED matrix boards receive only display feed/config data from your Local Flight server.</p>
+              <p>Companion keeps its host address, pairing identity, appearance, pinned flight, profiles, diagnostics choice, and optional Remote Companion access on the phone. Standalone keeps its separate service identity and access token, airport, appearance, pinned flight, diagnostics choice, and movement history on the phone. LED matrix boards receive only display and configuration data from your Local Flight host.</p>
             </article>
             <article class="card">
               <h3>VATSIM</h3>
@@ -146,9 +128,9 @@
               <h2>Hosted data is used to provide, protect, and support the service.</h2>
             </div>
           </div>
-          <p>Where data-protection law applies, Beacon Tools relies on legitimate interests for minimal service-operation and security records, consent for enabled automatic diagnostics, and your request when processing support messages or manual reports. You can change diagnostics choices at any time.</p>
+          <p>Where data-protection law applies, Beacon Tools relies on legitimate interests for the small service-operation and security records described here, consent for automatic diagnostics you enable, and your request when processing support messages or manual reports. You can change diagnostics choices at any time.</p>
           <p>Optional mobile purchases process minimal transaction metadata to perform the purchase you requested, prevent duplicate processing, and satisfy store/security requirements. Apple or Google separately processes the payment under its store terms.</p>
-          <p>You may have rights to access, correct, erase, restrict, object to, or obtain a portable copy of personal data. Because Local Flight has no accounts, include a public install fingerprint, report reference, approximate time, or the reply email you supplied when asking Beacon Tools to locate a record. Contact <a href="mailto:privacy@beacontools.cc">privacy@beacontools.cc</a> or use <a href="/privacy/choices/">Privacy choices</a>. You may also contact your local data-protection authority.</p>
+          <p>You may have rights to access, correct, erase, restrict, object to, or obtain a portable copy of personal data. Local Flight has no accounts, so include the Support ID shown by the app, a report reference, an approximate time, or the reply email you supplied when asking Beacon Tools to locate a record. Contact <a href="mailto:privacy@beacontools.cc">privacy@beacontools.cc</a> or use <a href="/privacy/choices/">Privacy choices</a>. You may also contact your local data-protection authority.</p>
         </div>
       </section>
 
@@ -161,7 +143,7 @@
             </div>
           </div>
           <p>The mobile app can offer three optional one-time consumable support products. They unlock nothing and create no durable paid entitlement. Store-owned localized pricing is shown before the Apple App Store or Google Play confirmation sheet opens.</p>
-          <p>After store approval, Local Flight sends the product ID plus Apple transaction ID or Google purchase token over HTTPS to the Beacon Tools relay. The relay verifies it through the official store API before the app finishes or consumes the purchase. Interrupted verification remains recoverable.</p>
+          <p>After store approval, Local Flight sends the product ID and the store's purchase proof securely to Beacon Tools. The service checks it with Apple or Google before the app finishes the purchase. If that check is interrupted, the app can try again.</p>
           <p>Local Flight never receives card details or your Apple/Google account identity. Raw store evidence is not retained and is never added to diagnostics, reports, heartbeats, or operator dashboards.</p>
         </div>
       </section>
@@ -174,10 +156,10 @@
               <h2>Reports are opt-in.</h2>
             </div>
           </div>
-          <p>Manual reports can include the title and description you write, Local Flight version, install fingerprint, operating system, Python version, configured airport/source mode, diagnostics mode, display settings, and the app area that sent the report.</p>
+          <p>Manual reports can include the title and description you write, Local Flight version, public Support ID, operating system, Python version, configured airport and data mode, diagnostics choice, display settings, and the app area that sent the report.</p>
           <p>Public website contact and bug-report forms can include the fields you submit, such as an optional name/reply email, message, product/area/version/platform fields, and optional text/log files. Uploaded logs are capped, sanitized, and embedded as excerpts rather than stored as raw attachments.</p>
-          <p>The relay derives a one-way pseudonymous network tag for form rate limiting and duplicate protection. That tag can accompany the support email or developer triage record; the raw IP address is not stored. Support messages, report events, and duplicate-protection records may remain in the relay database, support mailbox, or developer triage system until operational cleanup or a valid deletion request.</p>
-          <p>Automatic crash reports, if enabled, can include crash context, traceback, desktop/mobile screen context, and optionally a sanitized recent log excerpt. Reports are sanitized locally, forwarded through the hosted relay reporting gateway, deduplicated/rate-limited, and sent to the developer's Linear triage inbox.</p>
+          <p>To slow spam and recognize duplicate forms, the service turns the connection address into a one-way tag and discards the raw address. The tag can accompany a support email or developer report. Support messages, report events, and duplicate-protection records may remain in the service database, support mailbox, or developer report system until routine cleanup or a valid deletion request.</p>
+          <p>Automatic crash reports, if enabled, can include crash details, an error trace, the desktop or mobile area involved, and—only for the stronger diagnostics option—a cleaned recent log excerpt. Reports are cleaned on your device, checked for duplicates and rate limits by Beacon Tools, and sent to the developer's Linear report inbox.</p>
           <p>Diagnostics do not intentionally include API keys, activation tokens, raw install IDs, raw IP addresses, screenshots, recordings, stored flight history, full local logs, or account data.</p>
         </div>
       </section>
@@ -191,7 +173,7 @@
             </article>
             <article class="card">
               <h3>Your control</h3>
-              <p>Your local app data is under your control. Desktop/Pi runtime data and its reset-safe identity anchor are separate. Mobile setup reset, Remote Companion revocation, and full app-data removal are also separate actions. See <a href="/privacy/choices/">privacy choices</a> for the exact steps.</p>
+              <p>Your local app data is under your control. Restarting setup is different from erasing all desktop, Linux, or Pi data. Mobile setup reset, Remote Companion revocation, and full app removal are also separate actions. See <a href="/privacy/choices/">privacy choices</a> for the exact steps.</p>
             </article>
           </div>
         </div>

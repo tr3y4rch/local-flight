@@ -1,0 +1,506 @@
+name: Build 0.5.2 Release Artifacts
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Exact main-branch commit to package
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: localflight-release-artifacts
+  cancel-in-progress: false
+
+env:
+  PYTHON_VERSION: "3.11"
+  SOURCE_SHA: ${{ inputs.source_sha }}
+
+jobs:
+  source:
+    name: Verify source and package Pi
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.version.outputs.value }}
+    steps:
+      - name: Check out exact source
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ inputs.source_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Require the current main commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          git fetch --no-tags origin main
+          test "$SOURCE_SHA" = "$(git rev-parse origin/main)"
+          test -z "$(git status --porcelain)"
+
+      - name: Read release version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(python -c 'import pathlib,tomllib; print(tomllib.loads(pathlib.Path("pyproject.toml").read_text())["project"]["version"])')"
+          test -f "docs/release-notes-${version}.md"
+          echo "value=${version}" >> "$GITHUB_OUTPUT"
+
+      - name: Build Raspberry Pi source package
+        run: python scripts/package_pi_source.py
+
+      - name: Attest Raspberry Pi source package
+        run: >-
+          python scripts/attest_release_artifact.py
+          "dist/LocalFlight-pi-source-${{ steps.version.outputs.value }}.zip"
+          --output-dir build/release-attestations
+          --source-sha "$SOURCE_SHA"
+
+      - name: Upload Raspberry Pi package
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: package-raspberry-pi
+          path: |
+            dist/LocalFlight-pi-source-*.zip
+            dist/LocalFlight-pi-source-*.zip.sha256
+          if-no-files-found: error
+
+      - name: Upload Raspberry Pi inspection attestation
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: attestation-raspberry-pi
+          path: build/release-attestations/*.json
+          if-no-files-found: error
+
+  windows:
+    name: Windows x86-64
+    needs: source
+    runs-on: windows-2025
+    steps:
+      - name: Check out exact source
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ inputs.source_sha }}
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: requirements/release-native.txt
+
+      - name: Install locked release dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --require-hashes -r requirements/release-native.txt
+          python -m pip install --no-deps .
+          python -m pip check
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup --yes --no-progress
+
+      - name: Build unsigned Windows installer
+        shell: pwsh
+        run: python build.py --artifact installer --flavor desktop --target-arch x86_64 --clean
+
+      - name: Verify frozen Windows architecture
+        shell: pwsh
+        run: >-
+          python -c "import pefile;
+          image=pefile.PE(r'dist/bundles/windows-x86_64-desktop/LocalFlight/LocalFlight.exe');
+          assert image.FILE_HEADER.Machine == 0x8664"
+
+      - name: Attest Windows installer identity
+        shell: pwsh
+        run: >-
+          python scripts/attest_release_artifact.py
+          "dist/LocalFlight-${{ needs.source.outputs.version }}-Setup.exe"
+          --payload-executable "dist/bundles/windows-x86_64-desktop/LocalFlight/LocalFlight.exe"
+          --output-dir build/release-attestations
+          --source-sha "$env:SOURCE_SHA"
+
+      - name: Upload Windows installer
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: package-windows-x86-64
+          path: |
+            dist/LocalFlight-*-Setup.exe
+            dist/LocalFlight-*-Setup.exe.sha256
+          if-no-files-found: error
+
+      - name: Upload Windows inspection attestation
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: attestation-windows-x86-64
+          path: build/release-attestations/*.json
+          if-no-files-found: error
+
+  macos:
+    name: macOS ${{ matrix.public_arch }}
+    needs: source
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            build_arch: arm64
+            public_arch: arm64
+          - runner: macos-15-intel
+            build_arch: x86_64
+            public_arch: x86_64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Check out exact source
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ inputs.source_sha }}
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: requirements/release-native.txt
+
+      - name: Install locked release dependencies
+        run: |
+          python -m pip install --require-hashes -r requirements/release-native.txt
+          python -m pip install --no-deps .
+          python -m pip check
+
+      - name: Import Developer ID certificates
+        env:
+          CERTIFICATES_P12_BASE64: ${{ secrets.MACOS_CERTIFICATES_P12_BASE64 }}
+          CERTIFICATES_PASSWORD: ${{ secrets.MACOS_CERTIFICATES_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.MACOS_KEYCHAIN_PASSWORD }}
+        run: |
+          set -euo pipefail
+          test -n "$CERTIFICATES_P12_BASE64"
+          test -n "$CERTIFICATES_PASSWORD"
+          test -n "$KEYCHAIN_PASSWORD"
+          certificate="$RUNNER_TEMP/localflight-release.p12"
+          keychain="$RUNNER_TEMP/localflight-release.keychain-db"
+          printf '%s' "$CERTIFICATES_P12_BASE64" | base64 --decode > "$certificate"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$keychain"
+          security import "$certificate" -P "$CERTIFICATES_PASSWORD" -A -t cert -f pkcs12 -k "$keychain"
+          security list-keychains -d user -s "$keychain"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$keychain"
+          rm -f "$certificate"
+          echo "LOCALFLIGHT_RELEASE_KEYCHAIN=$keychain" >> "$GITHUB_ENV"
+
+      - name: Configure notarization profile
+        env:
+          NOTARY_KEY_P8_BASE64: ${{ secrets.MACOS_NOTARY_KEY_P8_BASE64 }}
+          NOTARY_KEY_ID: ${{ secrets.MACOS_NOTARY_KEY_ID }}
+          NOTARY_ISSUER_ID: ${{ secrets.MACOS_NOTARY_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          test -n "$NOTARY_KEY_P8_BASE64"
+          test -n "$NOTARY_KEY_ID"
+          test -n "$NOTARY_ISSUER_ID"
+          key="$RUNNER_TEMP/localflight-notary.p8"
+          printf '%s' "$NOTARY_KEY_P8_BASE64" | base64 --decode > "$key"
+          chmod 600 "$key"
+          xcrun notarytool store-credentials localflight-ci \
+            --key "$key" --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUER_ID"
+          rm -f "$key"
+
+      - name: Build signed and notarized package
+        env:
+          CODESIGN_IDENTITY: ${{ secrets.MACOS_CODESIGN_IDENTITY }}
+          PKG_SIGN_IDENTITY: ${{ secrets.MACOS_PKG_SIGN_IDENTITY }}
+          NOTARIZE_PROFILE: localflight-ci
+        run: python build.py --artifact installer --flavor desktop --target-arch "${{ matrix.build_arch }}" --clean
+
+      - name: Attest macOS package identity
+        run: >-
+          python scripts/attest_release_artifact.py
+          "dist/LocalFlight-${{ needs.source.outputs.version }}-macos-${{ matrix.public_arch }}.pkg"
+          --output-dir build/release-attestations
+          --source-sha "$SOURCE_SHA"
+
+      - name: Upload macOS package
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: package-macos-${{ matrix.public_arch }}
+          path: |
+            dist/LocalFlight-*-macos-${{ matrix.public_arch }}.pkg
+            dist/LocalFlight-*-macos-${{ matrix.public_arch }}.pkg.sha256
+          if-no-files-found: error
+
+      - name: Upload macOS inspection attestation
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: attestation-macos-${{ matrix.public_arch }}
+          path: build/release-attestations/*.json
+          if-no-files-found: error
+
+      - name: Remove temporary keychain
+        if: always()
+        run: |
+          if [ -n "${LOCALFLIGHT_RELEASE_KEYCHAIN:-}" ]; then
+            security delete-keychain "$LOCALFLIGHT_RELEASE_KEYCHAIN" || true
+          fi
+
+  linux-desktop:
+    name: Linux desktop ${{ matrix.public_arch }}
+    needs: source
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-22.04
+            build_arch: x86_64
+            public_arch: x86_64
+            deb_arch: amd64
+            tool_arch: x86_64
+            tool_sha256: d918b4df547b388ef253f3c9e7f6529ca81a885395c31f619d9aaf7030499a13
+          - runner: ubuntu-24.04-arm
+            build_arch: arm64
+            public_arch: aarch64
+            deb_arch: arm64
+            tool_arch: aarch64
+            tool_sha256: c9d058310a4e04b9fbbd81340fff2b5fb44943a630b31881e321719f271bd41a
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Check out exact source
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ inputs.source_sha }}
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: requirements/release-native.txt
+
+      - name: Install locked release dependencies
+        run: |
+          python -m pip install --require-hashes -r requirements/release-native.txt
+          python -m pip install --no-deps .
+          python -m pip check
+
+      - name: Install and run Linux metadata validators
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq appstream desktop-file-utils
+          desktop-file-validate installers/linux/cc.beacontools.localflight.desktop
+          appstreamcli validate --no-net installers/linux/cc.beacontools.localflight.metainfo.xml
+
+      - name: Download and verify appimagetool
+        env:
+          TOOL_ARCH: ${{ matrix.tool_arch }}
+          TOOL_SHA256: ${{ matrix.tool_sha256 }}
+        run: |
+          set -euo pipefail
+          asset="appimagetool-${TOOL_ARCH}.AppImage"
+          tool="$RUNNER_TEMP/$asset"
+          url="https://github.com/AppImage/AppImageKit/releases/download/12/$asset"
+          curl --fail --silent --show-error --location "$url" --output "$tool"
+          echo "$TOOL_SHA256  $tool" | sha256sum --check --strict
+          chmod 755 "$tool"
+          echo "APPIMAGETOOL=$tool" >> "$GITHUB_ENV"
+
+      - name: Build AppImage and desktop Debian package
+        run: python build.py --artifact linux-release --flavor desktop --target-arch "${{ matrix.build_arch }}" --clean
+
+      - name: Verify Linux desktop package metadata
+        env:
+          DEB_ARCH: ${{ matrix.deb_arch }}
+        run: |
+          set -euo pipefail
+          deb="$(find dist -maxdepth 1 -name 'localflight-desktop_*.deb' -print -quit)"
+          test -n "$deb"
+          test "$(dpkg-deb --field "$deb" Architecture)" = "$DEB_ARCH"
+          dpkg-deb --info "$deb" >/dev/null
+
+      - name: Attest Linux desktop package identities
+        run: |
+          set -euo pipefail
+          python scripts/attest_release_artifact.py \
+            "dist/LocalFlight-${{ needs.source.outputs.version }}-linux-${{ matrix.public_arch }}.AppImage" \
+            --output-dir build/release-attestations --source-sha "$SOURCE_SHA"
+          python scripts/attest_release_artifact.py \
+            "dist/localflight-desktop_${{ needs.source.outputs.version }}_${{ matrix.deb_arch }}.deb" \
+            --output-dir build/release-attestations --source-sha "$SOURCE_SHA"
+
+      - name: Upload Linux desktop packages
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: package-linux-desktop-${{ matrix.public_arch }}
+          path: |
+            dist/LocalFlight-*-linux-${{ matrix.public_arch }}.AppImage
+            dist/LocalFlight-*-linux-${{ matrix.public_arch }}.AppImage.sha256
+            dist/localflight-desktop_*.deb
+            dist/localflight-desktop_*.deb.sha256
+          if-no-files-found: error
+
+      - name: Upload Linux desktop inspection attestations
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: attestation-linux-desktop-${{ matrix.public_arch }}
+          path: build/release-attestations/*.json
+          if-no-files-found: error
+
+  linux-server:
+    name: Linux server ${{ matrix.public_arch }}
+    needs: source
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-22.04
+            build_arch: x86_64
+            public_arch: x86_64
+            deb_arch: amd64
+          - runner: ubuntu-22.04-arm
+            build_arch: arm64
+            public_arch: aarch64
+            deb_arch: arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Check out exact source
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ inputs.source_sha }}
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: requirements/release-server.txt
+
+      - name: Install locked release dependencies
+        run: |
+          python -m pip install --require-hashes -r requirements/release-server.txt
+          python -m pip install --no-deps .
+          python -m pip check
+
+      - name: Build headless Debian package
+        run: python build.py --artifact deb --flavor server --target-arch "${{ matrix.build_arch }}" --clean
+
+      - name: Verify Linux server package metadata
+        env:
+          DEB_ARCH: ${{ matrix.deb_arch }}
+        run: |
+          set -euo pipefail
+          deb="$(find dist -maxdepth 1 -name 'localflight-server_*.deb' -print -quit)"
+          test -n "$deb"
+          test "$(dpkg-deb --field "$deb" Architecture)" = "$DEB_ARCH"
+          dpkg-deb --info "$deb" >/dev/null
+
+      - name: Attest Linux server package identity
+        run: >-
+          python scripts/attest_release_artifact.py
+          "dist/localflight-server_${{ needs.source.outputs.version }}_${{ matrix.deb_arch }}.deb"
+          --output-dir build/release-attestations
+          --source-sha "$SOURCE_SHA"
+
+      - name: Upload Linux server package
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: package-linux-server-${{ matrix.public_arch }}
+          path: |
+            dist/localflight-server_*.deb
+            dist/localflight-server_*.deb.sha256
+          if-no-files-found: error
+
+      - name: Upload Linux server inspection attestation
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: attestation-linux-server-${{ matrix.public_arch }}
+          path: build/release-attestations/*.json
+          if-no-files-found: error
+
+  draft-release:
+    name: Verify matrix and create draft release
+    permissions:
+      contents: write
+    needs:
+      - source
+      - windows
+      - macos
+      - linux-desktop
+      - linux-server
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out exact source
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ inputs.source_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Download public package artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: package-*
+          path: release-files
+          merge-multiple: true
+
+      - name: Download CI-only inspection attestations
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: attestation-*
+          path: release-attestations
+          merge-multiple: true
+
+      - name: Verify all package checksums and identities
+        run: >-
+          python scripts/verify_release_artifacts.py release-files
+          --attestations release-attestations
+          --source-sha "$SOURCE_SHA"
+
+      - name: Create or refresh the draft GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.source.outputs.version }}
+        run: |
+          set -euo pipefail
+          tag="v${VERSION}"
+          notes="docs/release-notes-${VERSION}.md"
+          mapfile -t files < <(find release-files -maxdepth 1 -type f -print | sort)
+          test "${#files[@]}" -eq 20
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            is_draft="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${tag}" --jq .draft)"
+            test "$is_draft" = "true"
+            tag_sha="$(git ls-remote --tags origin "refs/tags/${tag}^{}" | awk '{print $1}')"
+            if [ -z "$tag_sha" ]; then
+              tag_sha="$(git ls-remote --tags origin "refs/tags/${tag}" | awk '{print $1}')"
+            fi
+            test "$tag_sha" = "$SOURCE_SHA"
+            gh release upload "$tag" "${files[@]}" --clobber --repo "$GITHUB_REPOSITORY"
+            gh release edit "$tag" --title "Local Flight ${VERSION}" --notes-file "$notes" --draft --repo "$GITHUB_REPOSITORY"
+          else
+            if git ls-remote --exit-code --tags origin "refs/tags/${tag}" >/dev/null 2>&1; then
+              echo "Tag ${tag} already exists without a GitHub release. Refusing to retag."
+              exit 1
+            fi
+            gh release create "$tag" "${files[@]}" --target "$SOURCE_SHA" \
+              --title "Local Flight ${VERSION}" --notes-file "$notes" --draft --repo "$GITHUB_REPOSITORY"
+          fi
+
+          mapfile -t expected_names < <(printf '%s\n' "${files[@]##*/}" | sort)
+          mapfile -t uploaded_names < <(
+            gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${tag}" --jq '.assets[].name' | sort
+          )
+          if ! diff -u \
+            <(printf '%s\n' "${expected_names[@]}") \
+            <(printf '%s\n' "${uploaded_names[@]}"); then
+            echo "Draft release asset inventory does not match the verified 20-file matrix."
+            exit 1
+          fi

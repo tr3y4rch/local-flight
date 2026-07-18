@@ -8,45 +8,78 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const workerSource = fs.readFileSync(path.join(root, "workers/beacontools.js"), "utf8");
 const workerModule = await import(`data:text/javascript;base64,${Buffer.from(workerSource).toString("base64")}`);
 
+const version = "0.5.2";
 const asset = (name, host = "github.com") => ({
   name,
   size: 12_345_678,
-  browser_download_url: `https://${host}/tr3y4rch/local-flight/releases/download/v0.5.1/${name}`,
+  browser_download_url: `https://${host}/tr3y4rch/local-flight/releases/download/v${version}/${name}`,
 });
 
-const filenames = [
-  "LocalFlight-0.5.1-Setup.exe",
-  "LocalFlight-0.5.1-macos.pkg",
-  "LocalFlight-pi-source-0.5.1.zip",
-];
+const filenames = {
+  windows: `LocalFlight-${version}-Setup.exe`,
+  macos_arm64: `LocalFlight-${version}-macos-arm64.pkg`,
+  macos_x86_64: `LocalFlight-${version}-macos-x86_64.pkg`,
+  linux_appimage_x86_64: `LocalFlight-${version}-linux-x86_64.AppImage`,
+  linux_appimage_aarch64: `LocalFlight-${version}-linux-aarch64.AppImage`,
+  linux_deb_desktop_amd64: `localflight-desktop_${version}_amd64.deb`,
+  linux_deb_desktop_arm64: `localflight-desktop_${version}_arm64.deb`,
+  linux_deb_server_amd64: `localflight-server_${version}_amd64.deb`,
+  linux_deb_server_arm64: `localflight-server_${version}_arm64.deb`,
+  pi: `LocalFlight-pi-source-${version}.zip`,
+};
 const release = {
-  tag_name: "v0.5.1",
-  name: "Local Flight 0.5.1",
-  html_url: "https://github.com/tr3y4rch/local-flight/releases/tag/v0.5.1",
-  published_at: "2026-07-13T12:00:00Z",
+  tag_name: `v${version}`,
+  name: `Local Flight ${version}`,
+  html_url: `https://github.com/tr3y4rch/local-flight/releases/tag/v${version}`,
+  published_at: "2026-07-18T12:00:00Z",
   prerelease: false,
   draft: false,
-  assets: filenames.flatMap((name) => [asset(name), asset(`${name}.sha256`)]),
+  assets: Object.values(filenames).flatMap((name) => [asset(name), asset(`${name}.sha256`)]),
 };
 
 const manifest = workerModule.buildReleaseManifest(release);
-assert.equal(manifest.version, "0.5.1");
-assert.equal(manifest.downloads.windows.filename, filenames[0]);
-assert.equal(manifest.downloads.macos.filename, filenames[1]);
-assert.equal(manifest.downloads.pi.filename, filenames[2]);
-assert.equal(workerModule.selectLatestPackagedRelease([{ ...release, draft: true }, release]).version, "0.5.1");
+assert.equal(manifest.version, version);
+for (const [platform, filename] of Object.entries(filenames)) {
+  assert.equal(manifest.downloads[platform].filename, filename);
+  const missingChecksum = workerModule.buildReleaseManifest({
+    ...release,
+    assets: release.assets.filter((item) => item.name !== `${filename}.sha256`),
+  });
+  assert.equal(
+    missingChecksum.downloads[platform],
+    null,
+    `${platform} must not become a direct download without its checksum.`,
+  );
+}
+assert.strictEqual(
+  manifest.downloads.macos,
+  manifest.downloads.macos_arm64,
+  "The deprecated macos key must remain an Apple silicon alias.",
+);
+assert.equal(workerModule.selectLatestPackagedRelease([{ ...release, draft: true }, release]).version, version);
+assert.equal(workerModule.buildReleaseManifest({ ...release, prerelease: true }), null);
 
-const missingChecksum = workerModule.buildReleaseManifest({
+const partialRelease = {
   ...release,
-  assets: release.assets.filter((item) => item.name !== `${filenames[0]}.sha256`),
-});
-assert.equal(missingChecksum.downloads.windows, null, "Packages without checksums must not become direct downloads.");
+  assets: release.assets.filter((item) => item.name !== `${filenames.linux_deb_server_arm64}.sha256`),
+};
+assert.equal(
+  workerModule.selectLatestPackagedRelease([partialRelease]),
+  null,
+  "A release must not be promoted until all ten package/checksum pairs exist.",
+);
+assert.equal(
+  workerModule.selectLatestPackagedRelease([partialRelease, release]).version,
+  version,
+  "An incomplete release must be skipped in favor of the next complete release.",
+);
 
 const foreignHost = workerModule.buildReleaseManifest({
   ...release,
-  assets: release.assets.map((item) => item.name === filenames[1] ? asset(item.name, "example.com") : item),
+  assets: release.assets.map((item) => item.name === filenames.macos_arm64 ? asset(item.name, "example.com") : item),
 });
-assert.equal(foreignHost.downloads.macos, null, "Only this repository's GitHub download URLs are allowed.");
+assert.equal(foreignHost.downloads.macos_arm64, null, "Only this repository's GitHub download URLs are allowed.");
+assert.equal(foreignHost.downloads.macos, null, "The legacy alias must preserve checksum and host gating.");
 
 const staleAsset = workerModule.buildReleaseManifest({
   ...release,
@@ -62,9 +95,11 @@ assert.equal(workerModule.buildReleaseManifest({
 
 const page = fs.readFileSync(path.join(root, "site/local-flight/index.html"), "utf8");
 const client = fs.readFileSync(path.join(root, "site/assets/downloads.js"), "utf8");
-for (const platform of ["windows", "macos", "pi"]) {
+assert.equal((page.match(/class="card download-card"/g) || []).length, 6);
+for (const platform of Object.keys(filenames)) {
   assert.match(page, new RegExp(`data-download-platform="${platform}"`));
 }
+assert.equal((page.match(/data-download-platform="/g) || []).length, Object.keys(filenames).length);
 assert.match(page, /data-release-status/);
 assert.match(client, /\/api\/releases\/latest/);
 assert.match(client, /SHA256 checksum/);

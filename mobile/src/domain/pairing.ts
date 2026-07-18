@@ -105,7 +105,7 @@ export function pairingFingerprintProblem(expected: string | null | undefined, a
   }
   const actualNormalized = normalizedPairingFingerprint(actual);
   if (!actualNormalized) {
-    return "Pairing QR is tied to a Local Flight server, but the server did not report its fingerprint. Update the desktop/Pi app or enter the LAN IP manually.";
+    return "Pairing QR is tied to a Local Flight server, but the server did not report its fingerprint. Update the Local Flight host or enter its LAN IP manually.";
   }
   if (expectedNormalized !== actualNormalized) {
     return `Pairing QR belongs to server ${expectedNormalized}, but ${actualNormalized} answered. Use the QR/IP from the Local Flight server you want to control.`;

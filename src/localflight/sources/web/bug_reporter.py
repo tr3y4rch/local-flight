@@ -24,6 +24,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict
 
+from localflight.version import app_version as _app_version
+
 log = logging.getLogger(__name__)
 
 _SECRET_PATTERNS = (
@@ -38,15 +40,6 @@ _SECRET_PATTERNS = (
     (re.compile(r"\b192\.168\.(\d{1,3})\.(\d{1,3})\b"), r"192.168.\1.x"),
     (re.compile(r"\b172\.(1[6-9]|2\d|3[01])\.(\d{1,3})\.(\d{1,3})\b"), r"172.\1.\2.x"),
 )
-
-
-def _app_version() -> str:
-    try:
-        from importlib.metadata import version
-
-        return version("localflight")
-    except Exception:
-        return "unknown"
 
 
 def _redact_sensitive(text: str) -> str:

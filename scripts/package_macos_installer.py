@@ -8,12 +8,20 @@ SHA256 file beside the final artifact.
 """
 from __future__ import annotations
 
+import argparse
 import hashlib
 import os
+import platform
+import re
 import shutil
 import subprocess
 import sys
 from pathlib import Path
+
+try:
+    from scripts.release_safety import validate_public_bundle
+except ModuleNotFoundError:  # direct ``python scripts/...`` execution
+    from release_safety import validate_public_bundle
 
 ROOT = Path(__file__).resolve().parents[1]
 DIST = ROOT / "dist"
@@ -37,8 +45,8 @@ def project_version() -> str:
     return str(data["project"]["version"])
 
 
-def package_output_path(dist: Path, version: str) -> Path:
-    return dist / f"LocalFlight-{version}-macos.pkg"
+def package_output_path(dist: Path, version: str, architecture: str) -> Path:
+    return dist / f"LocalFlight-{version}-macos-{architecture}.pkg"
 
 
 def staged_app_path(pkg_root: Path) -> Path:
@@ -55,12 +63,76 @@ def require_release_credentials(env: dict[str, str] | None = None) -> dict[str, 
             + ", ".join(missing)
             + ". Set Developer ID Application, Developer ID Installer, and notarytool profile values before building a public .pkg."
         )
+    if not values["CODESIGN_IDENTITY"].startswith("Developer ID Application:"):
+        raise RuntimeError("CODESIGN_IDENTITY must be a Developer ID Application identity.")
+    if not values["PKG_SIGN_IDENTITY"].startswith("Developer ID Installer:"):
+        raise RuntimeError("PKG_SIGN_IDENTITY must be a Developer ID Installer identity.")
     return values
 
 
 def run(cmd: list[str], *, cwd: Path = ROOT) -> None:
     print("  " + " ".join(cmd))
     subprocess.run(cmd, cwd=cwd, check=True)
+
+
+def run_output(cmd: list[str]) -> str:
+    return subprocess.check_output(cmd, cwd=ROOT, text=True, stderr=subprocess.STDOUT)
+
+
+def native_architecture() -> str:
+    machine = platform.machine().strip().lower()
+    aliases = {"arm64": "arm64", "aarch64": "arm64", "x86_64": "x86_64", "amd64": "x86_64"}
+    try:
+        return aliases[machine]
+    except KeyError as exc:
+        raise RuntimeError(f"Unsupported macOS build architecture: {machine}") from exc
+
+
+def _version_tuple(value: str) -> tuple[int, ...]:
+    return tuple(int(part) for part in value.split("."))
+
+
+def validate_macos_bundle(
+    app: Path,
+    architecture: str,
+    *,
+    maximum_deployment_target: str = "12.0",
+) -> list[Path]:
+    """Require every bundled Mach-O to be single-architecture and macOS 12 compatible."""
+    executable = app / "Contents" / "MacOS" / "LocalFlight"
+    if not executable.is_file():
+        raise RuntimeError(f"Missing app executable: {executable}")
+
+    mach_o_files: list[Path] = []
+    for candidate in sorted(path for path in app.rglob("*") if path.is_file() and not path.is_symlink()):
+        description = run_output(["file", "-b", str(candidate)])
+        if "Mach-O" in description:
+            mach_o_files.append(candidate)
+    if executable not in mach_o_files:
+        raise RuntimeError("The app executable is not a Mach-O binary.")
+
+    max_target = _version_tuple(maximum_deployment_target)
+    for binary in mach_o_files:
+        architectures = set(run_output(["lipo", "-archs", str(binary)]).split())
+        if architectures != {architecture}:
+            relative = binary.relative_to(app)
+            raise RuntimeError(
+                f"Unexpected Mach-O slices in {relative}: {sorted(architectures)}; "
+                f"expected only {architecture}."
+            )
+        build_info = run_output(["xcrun", "vtool", "-show-build", str(binary)])
+        targets = re.findall(r"^\s*minos\s+([0-9]+(?:\.[0-9]+){1,2})\s*$", build_info, re.MULTILINE)
+        if not targets:
+            relative = binary.relative_to(app)
+            raise RuntimeError(f"Could not read a deployment target from {relative}.")
+        too_new = [target for target in targets if _version_tuple(target) > max_target]
+        if too_new:
+            relative = binary.relative_to(app)
+            raise RuntimeError(
+                f"{relative} requires macOS {max(too_new, key=_version_tuple)}, "
+                f"which exceeds the {maximum_deployment_target} release promise."
+            )
+    return mach_o_files
 
 
 def write_preinstall_script(scripts_dir: Path) -> Path:
@@ -157,25 +229,52 @@ def write_sha256(path: Path) -> Path:
     return checksum_path
 
 
-def main() -> None:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--app", type=Path, default=PYINSTALLER_APP)
+    parser.add_argument("--target-arch", choices=("arm64", "x86_64"), required=True)
+    return parser.parse_args(argv)
+
+
+def main(argv: list[str] | None = None) -> None:
+    args = parse_args(argv)
+    app = args.app.resolve()
     if sys.platform != "darwin":
         raise SystemExit("The macOS installer can only be built on macOS.")
-    if not PYINSTALLER_APP.exists():
-        raise SystemExit(f"Missing PyInstaller app bundle: {PYINSTALLER_APP}")
+    if not app.exists():
+        raise SystemExit(f"Missing PyInstaller app bundle: {app}")
+    try:
+        actual_arch = native_architecture()
+    except RuntimeError as exc:
+        raise SystemExit(str(exc)) from exc
+    if actual_arch != args.target_arch:
+        raise SystemExit(
+            f"Refusing cross-architecture package: requested {args.target_arch}, running on {actual_arch}."
+        )
 
     try:
         env = require_release_credentials()
     except RuntimeError as exc:
         raise SystemExit(str(exc)) from exc
+    try:
+        validate_public_bundle(app)
+    except RuntimeError as exc:
+        raise SystemExit(str(exc)) from exc
 
     version = project_version()
-    pkg_root = BUILD / "macos-pkg-root"
-    scripts_dir = BUILD / "macos-pkg-scripts"
-    output_pkg = package_output_path(DIST, version)
+    pkg_root = BUILD / f"macos-pkg-root-{args.target_arch}"
+    scripts_dir = BUILD / f"macos-pkg-scripts-{args.target_arch}"
+    output_pkg = package_output_path(DIST, version, args.target_arch)
 
-    print(f"Building signed macOS installer package v{version}")
-    sign_app(PYINSTALLER_APP, env["CODESIGN_IDENTITY"])
-    stage_app(PYINSTALLER_APP, pkg_root)
+    print(f"Building signed macOS {args.target_arch} installer package v{version}")
+    try:
+        validated = validate_macos_bundle(app, args.target_arch)
+    except RuntimeError as exc:
+        raise SystemExit(str(exc)) from exc
+    print(f"  Validated {len(validated)} Mach-O files for {args.target_arch} / macOS 12")
+    sign_app(app, env["CODESIGN_IDENTITY"])
+    staged_app = stage_app(app, pkg_root)
+    validate_macos_bundle(staged_app, args.target_arch)
     write_preinstall_script(scripts_dir)
     component_pkg = build_component_pkg(pkg_root, scripts_dir, version)
     build_signed_product_pkg(component_pkg, output_pkg, env["PKG_SIGN_IDENTITY"])

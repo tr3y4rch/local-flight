@@ -367,7 +367,7 @@ function PairingScannerSheet({
                 <LocalFlightIcon name={SETUP_ICONS.scan} size={28} color={palette.blue2} />
                 <Text style={styles.pairingPermissionTitle}>Camera permission</Text>
                 <Text style={styles.pairingPermissionBody}>
-                  Scan the QR shown by the desktop or Pi app, or close this sheet and enter the LAN URL manually.
+                  Scan the QR shown by your Local Flight host, or close this sheet and enter the LAN URL manually.
                 </Text>
                 <Pressable
                   style={styles.connectButton}
@@ -4897,7 +4897,7 @@ export function CompanionSetupScreen({
   const [setupError, setSetupError] = useState<string | null>(null);
   const [setupProgress, setSetupProgress] = useState<string | null>(null);
   const [urlCheckState, setUrlCheckState] = useState<SetupUrlCheckState>("idle");
-  const [urlCheckMessage, setUrlCheckMessage] = useState("Enter the LAN address shown by the desktop or Pi app.");
+  const [urlCheckMessage, setUrlCheckMessage] = useState("Enter the LAN address shown by your Local Flight host.");
   const [serverSummary, setServerSummary] = useState<CompanionSetupResult | null>(null);
   const [scannerVisible, setScannerVisible] = useState(false);
   const [keyboardInset, setKeyboardInset] = useState(0);
@@ -4979,7 +4979,7 @@ export function CompanionSetupScreen({
     const input = serverInput.trim();
     if (!input) {
       setUrlCheckState("idle");
-      setUrlCheckMessage("Enter the LAN address shown by the desktop or Pi app.");
+      setUrlCheckMessage("Enter the LAN address shown by your Local Flight host.");
       return;
     }
 
@@ -5096,7 +5096,7 @@ export function CompanionSetupScreen({
       const detail = companionSetupErrorMessage(exc);
       const isPairingGuard = /Pairing QR|belongs to server|server fingerprint/i.test(detail);
       const message = rootHealthOk && !isPairingGuard
-        ? "Local Flight is running, but first-time setup is not finished on the desktop or Pi yet. Finish setup there, then return here."
+        ? "Local Flight is running, but first-time setup is not finished on the host yet. Finish setup there, then return here."
         : detail;
       setSetupError(
         message
@@ -5382,11 +5382,11 @@ export function CompanionSetupScreen({
           <Animated.View style={[styles.companionSetupPanel, panelMotion]}>
             <Text style={styles.companionSetupPanelTitle}>How should this phone connect?</Text>
             <Text style={styles.companionSetupBody}>
-              Choose Companion if Local Flight already runs on a desktop or Pi. Companion keeps this phone as a remote and glance screen for your local host. Choose Standalone if this phone should use the hosted relay by itself.
+              Choose Companion if you already run a Local Flight desktop app, Linux server, or Pi. Companion keeps this phone as a remote and glance screen for your local host. Choose Standalone if this phone should use the hosted relay by itself.
             </Text>
             <View style={styles.companionSetupOptionStack}>
               {([
-                ["lan_companion", "Companion", "Companion keeps this phone as a remote and glance screen. Connects to your desktop or Pi for Board, Radar, History, Control, Help, and Matrix tools."],
+                ["lan_companion", "Companion", "Companion keeps this phone as a remote and glance screen. Connects to your Local Flight host for Board, Radar, History, Control, Help, and Matrix tools."],
                 ["standalone", "Standalone", "Simpler board. Uses the relay directly with Board, Radar, History, and Settings only."]
               ] as Array<[MobileSetupMode, string, string]>).map(([mode, title, body]) => (
                 <Pressable
@@ -5442,7 +5442,7 @@ export function CompanionSetupScreen({
           <Animated.View style={[styles.companionSetupPanel, panelMotion]}>
             <Text style={styles.companionSetupPanelTitle}>Connect your Local Flight host</Text>
             <Text style={styles.companionSetupBody}>
-              Open Local Flight Settings on the desktop or Pi. Scan its pairing QR, or enter the Wi-Fi address shown there.
+              Open Settings on your Local Flight host. Scan its pairing QR, or enter the Wi-Fi address shown there.
             </Text>
             <View style={styles.pairingChoiceRow}>
               <Pressable
@@ -5513,7 +5513,7 @@ export function CompanionSetupScreen({
           <Animated.View style={[styles.companionSetupPanel, panelMotion]}>
             <Text style={styles.companionSetupPanelTitle}>Test the host address</Text>
             <Text style={styles.companionSetupBody}>
-              Enter the address shown by the desktop or Pi app. We will check that the host is reachable and ready for mobile.
+              Enter the address shown by your Local Flight host. We will check that it is reachable and ready for mobile.
             </Text>
             <View style={styles.companionSetupExampleBox}>
               <Text style={styles.companionSetupExampleLabel}>GOOD EXAMPLES</Text>
@@ -6778,7 +6778,7 @@ export function StandaloneSettingsScreen({
         activeSection={activeSection}
         icon={SETUP_ICONS.lan}
         title="Standalone Relay"
-        summary={`${airportCode || "---"} · no desktop or Pi needed`}
+        summary={`${airportCode || "---"} · no Local Flight host needed`}
         onSelect={setActiveSection}
       >
         <View style={styles.metricRow}>
@@ -6788,7 +6788,7 @@ export function StandaloneSettingsScreen({
         </View>
         <InfoLine label="Airport" value={airportLabel} />
         <InfoLine label="Relay token" value={tokenRef} />
-        <InfoLine label="How it works" value="This phone asks the Local Flight relay directly. It does not need your desktop or Pi on the LAN." />
+        <InfoLine label="How it works" value="This phone asks the Local Flight relay directly. It does not need your own Local Flight host on the LAN." />
       </ControlAccordionCard>
 
       <ControlAccordionCard
@@ -7490,8 +7490,8 @@ function HelpReportsSheet({
     : `${connected ? "Relay reachable" : "Check internet"} · ${updateValue}`;
   const connectionLabel = isLan ? "Cannot connect" : "Relay check";
   const connectionValue = isLan
-    ? "Confirm Local Flight is running on the same Wi-Fi and use the desktop or Pi LAN address, not phone localhost."
-    : "If standalone requests fail, check internet access first. Standalone does not need your desktop or Pi.";
+    ? "Confirm Local Flight is running on the same Wi-Fi and use the host's LAN address, not phone localhost."
+    : "If standalone requests fail, check internet access first. Standalone does not need your own Local Flight host.";
   const staleValue = isLan
     ? "Use Restart Fetch from the pairing sheet, then wait for the next snapshot push or open the board again."
     : "Standalone refreshes intentionally slowly; pull to refresh when you want to request the latest allowed board.";
@@ -7979,8 +7979,8 @@ export function HelpScreen({
         <InfoLine
           label={standalone ? "Relay check" : "Cannot connect"}
           value={standalone
-            ? "If relay requests fail, check internet access first. Standalone does not need your desktop or Pi on the LAN."
-            : "Confirm Local Flight is running on the same Wi-Fi and use the desktop or Pi LAN address, not phone localhost."}
+            ? "If relay requests fail, check internet access first. Standalone does not need your own Local Flight host on the LAN."
+            : "Confirm Local Flight is running on the same Wi-Fi and use the host's LAN address, not phone localhost."}
         />
         <InfoLine
           label="Board looks stale"

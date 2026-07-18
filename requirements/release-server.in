@@ -1,0 +1,2 @@
+-r release-core.in
+pyinstaller==6.20.0

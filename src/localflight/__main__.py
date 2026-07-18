@@ -219,7 +219,7 @@ def _start_uvicorn() -> threading.Thread:
     return t
 
 
-# ── Setup watcher (desktop only) ──────────────────────────────────────────────
+# ── Setup watcher ────────────────────────────────────────────────────────────
 
 def _start_setup_watcher(
     scheduler_ref: list,
@@ -260,7 +260,7 @@ def _start_setup_watcher(
 def _run_headless() -> None:
     """
     Pi/Linux runtime:
-    - Start scheduler
+    - Start scheduler after setup completes
     - Start uvicorn
     - Block forever (systemd handles lifecycle)
     - No tray, no kiosk window (Chromium is a separate systemd service)
@@ -268,8 +268,14 @@ def _run_headless() -> None:
     from localflight.platform.detect import platform_name
     print(f"Local Flight starting in headless mode ({platform_name()})")
 
-    _start_scheduler()
-    print("Scheduler started")
+    first_launch = _is_first_launch()
+    scheduler_ref: list[threading.Thread | None] = [None]
+    browser_proc_ref: list[None] = [None]
+    if first_launch:
+        print("First launch - finish setup from a LAN browser before data refresh starts")
+    else:
+        scheduler_ref[0] = _start_scheduler()
+        print("Scheduler started")
 
     _start_uvicorn()
     print("Web server starting...")
@@ -279,6 +285,8 @@ def _run_headless() -> None:
         sys.exit(1)
 
     print(f"Server ready at {BASE_URL}")
+    if first_launch:
+        _start_setup_watcher(scheduler_ref, browser_proc_ref, open_display=False)
     print("Running headless — manage via web UI or systemctl")
     print("Press Ctrl+C to stop.")
 

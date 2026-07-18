@@ -8,6 +8,8 @@ from typing import Any
 import requests
 from PIL import Image
 
+from localflight.version import user_agent
+
 
 TERRAIN_SCHEMA_VERSION = "terrain-context-v2"
 TERRAIN_PROVIDER = "aws-terrain-tiles"
@@ -62,7 +64,7 @@ def fetch_terrain_tile(*, z: int, x: int, y: int, timeout_s: float = DEFAULT_TER
     response = requests.get(
         _tile_url(z, x, y),
         timeout=timeout_s,
-        headers={"User-Agent": "local-flight/0.5.1 (+https://beacontools.cc/local-flight)"},
+        headers={"User-Agent": user_agent()},
     )
     response.raise_for_status()
     return Image.open(BytesIO(response.content)).convert("RGB")

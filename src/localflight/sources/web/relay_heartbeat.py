@@ -3,9 +3,10 @@ from __future__ import annotations
 
 import json
 import platform
-from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Any, Dict
+
+from localflight.version import app_version as _app_version
 
 
 def relay_client_metadata() -> Dict[str, Any]:
@@ -43,13 +44,6 @@ def relay_client_metadata() -> Dict[str, Any]:
     except Exception:
         pass
     return metadata
-
-
-def _app_version() -> str:
-    try:
-        return version("localflight")
-    except PackageNotFoundError:
-        return "0.5.1"
 
 
 def _device_counts(base: Path) -> Dict[str, int]:

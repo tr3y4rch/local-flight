@@ -7,6 +7,8 @@ from typing import Any, Iterable
 
 import requests
 
+from localflight.version import user_agent
+
 from localflight.sources.web.airport_surface import (
     DEFAULT_OVERPASS_URL,
     OverpassPayloadTooLarge,
@@ -341,7 +343,7 @@ def fetch_overpass_map_context(
     query = build_overpass_map_context_query(lat, lon, clamp_map_context_radius_m(radius_nm))
     url = overpass_url or OVERPASS_MAP_CONTEXT_URLS[0]
     headers = {
-        "User-Agent": "local-flight/0.5.1 (+https://beacontools.cc/local-flight)",
+        "User-Agent": user_agent(),
     }
     last_error: Exception | None = None
     for attempt in range(2):

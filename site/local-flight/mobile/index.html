@@ -36,7 +36,7 @@
         <div class="hero-content">
           <div class="eyebrow">Local Flight Mobile</div>
           <h1>Your Local Flight board, wherever you keep your phone.</h1>
-          <p class="lede">Use an iPhone, iPad, or Android&trade; device as a Companion to your own server, or choose Standalone for a simpler phone-only board. Version 0.5.1 is in store testing; public listings open after review.</p>
+          <p class="lede">Use an iPhone, iPad, or Android&trade; device as a Companion to your own server, or choose Standalone for a simpler phone-only board. Version 0.5.2 is in store testing; public listings open after review.</p>
           <div class="actions">
             <a class="button primary" href="/support/#message">Ask about mobile testing</a>
             <a class="button secondary" href="/privacy/choices/">Privacy choices</a>
@@ -58,7 +58,7 @@
           <div class="status-strip">
             <span class="status-chip amber">TestFlight testing</span>
             <span class="status-chip amber">Play internal testing</span>
-            <span class="status-chip">Shared relay: relay.beacontools.cc</span>
+            <span class="status-chip">Optional shared service</span>
           </div>
         </div>
         <aside class="mobile-device-pair" aria-label="Local Flight Mobile platform previews">
@@ -68,7 +68,7 @@
           </figure>
           <figure class="phone-shot">
             <img src="/assets/mobile/android/radar.png" alt="Local Flight Mobile radar on Android">
-            <figcaption><strong>Android radar</strong><span>Range rings, selected traffic, weather context, and phone-only relay limits.</span></figcaption>
+            <figcaption><strong>Android radar</strong><span>Range rings, selected traffic, weather context, and phone-only update limits.</span></figcaption>
           </figure>
         </aside>
       </div>
@@ -86,16 +86,16 @@
           <div class="grid two">
             <article class="card good-card">
               <h3>Companion mode</h3>
-              <p>Pairs with your Local Flight desktop app or Raspberry Pi over your own Wi-Fi/LAN. Scan the QR code from Settings, or enter the LAN address manually with the <code>:8000</code> port. The paired server provides the board, radar, history, controls, reports, and LED matrix tools. Remote Companion can keep the same paired experience working away from Wi-Fi through encrypted relay fallback when the host is online.</p>
+              <p>Pairs with your Local Flight desktop app, Linux server, or Raspberry Pi over your own Wi-Fi/LAN. Scan the QR code from Settings, or enter the LAN address manually with the <code>:8000</code> port. The paired server provides the board, radar, history, controls, reports, and LED matrix tools. Remote Companion can keep the same paired experience working away from Wi-Fi through encrypted relay fallback when the host is online.</p>
             </article>
             <article class="card">
               <h3>Standalone mode</h3>
-              <p>Connects directly to the Beacon Tools relay for a simplified board, radar, weather, history, settings, and reports. Your desktop or Raspberry Pi does not need to be online.</p>
+              <p>Connects directly to the optional Beacon Tools shared service for a simplified board, radar, weather, history, settings, and reports. Your desktop, Linux server, or Raspberry Pi does not need to be online.</p>
             </article>
             <article class="card"><h3>Board</h3><p>Airport header, weather strip, pinned flight, compact rows, local/UTC time, and passenger-friendly status labels.</p></article>
-            <article class="card"><h3>Radar</h3><p>Nearby traffic uses the same 15-second sweep-and-fade behavior as desktop and LAN views. Tap a target for its loaded track details, then close it without selecting another aircraft. Data comes from your paired server or the shared relay, depending on setup mode.</p></article>
+            <article class="card"><h3>Radar</h3><p>Nearby traffic uses the same 15-second sweep-and-fade behavior as desktop and LAN views. Tap a target for its loaded track details, then close it without selecting another aircraft. Data comes from your paired host or the shared service, depending on setup mode.</p></article>
             <article class="card"><h3>History</h3><p>Companion reads your server history. Standalone keeps recent movement history locally on the phone.</p></article>
-            <article class="card"><h3>Home-screen widget</h3><p>iOS and Android can show a bounded pinned-flight or airport-board glance from the app's latest local snapshot. The widget does not contact the relay or flight providers on its own.</p></article>
+            <article class="card"><h3>Home-screen widget</h3><p>iOS and Android can show a small pinned-flight or airport-board glance from the app's latest saved snapshot. The widget does not contact the shared service or flight providers on its own.</p></article>
             <article class="card"><h3>Reports</h3><p>Manual reports are always user-triggered. Automatic crash diagnostics only run when your mobile diagnostics choice allows them.</p></article>
             <article class="card"><h3>Optional support</h3><p>Three one-time App Store/Play support choices can help fund the shared project. They unlock nothing, use store-localized prices, and never add ads or tracking.</p></article>
           </div>
@@ -163,7 +163,7 @@
               <div class="eyebrow">Standalone limits</div>
               <h2>Standalone updates more carefully.</h2>
             </div>
-            <p>The shared relay is intentionally conservative so public testing stays sustainable.</p>
+            <p>The shared service spaces requests out so it remains sustainable for everyone.</p>
           </div>
           <ul class="console-list">
             <li>Standalone board updates use a 3-hour cadence rather than rapid polling.</li>
@@ -183,7 +183,7 @@
             </article>
             <article class="card">
               <h3>Privacy model</h3>
-              <p>No accounts, no ads SDKs, and no cross-app tracking. Companion talks to your own server first; Remote Companion routes encrypted paired-host messages when LAN is unavailable. Standalone uses the hosted relay and keeps its history locally on the phone. See the <a href="/privacy/">privacy policy</a> and <a href="/privacy/choices/">privacy choices</a>.</p>
+              <p>No accounts, no advertising software, and no cross-app tracking. Companion talks to your own host first; Remote Companion carries encrypted paired-host messages when LAN is unavailable. Standalone uses the shared service and keeps its history on the phone. See the <a href="/privacy/">privacy policy</a> and <a href="/privacy/choices/">privacy choices</a>.</p>
             </article>
           </div>
         </div>
@@ -194,12 +194,13 @@
           <div class="section-head">
             <div>
               <div class="eyebrow">Store availability</div>
-              <h2>Version 0.5.1 is in store testing.</h2>
+              <h2>Version 0.5.2 is in store testing.</h2>
             </div>
           </div>
           <ol class="timeline">
-            <li>Companion, encrypted Remote Companion fallback, Standalone, privacy prompts, and diagnostics choices are aligned to Local Flight 0.5.1.</li>
+            <li>Companion, encrypted Remote Companion fallback, Standalone, privacy prompts, and diagnostics choices are aligned to Local Flight 0.5.2.</li>
             <li>TestFlight and Google Play internal testing are the current distribution paths; public store badges remain disabled until review is complete.</li>
+            <li>See the <a href="https://github.com/tr3y4rch/local-flight/releases/tag/v0.5.2">0.5.2 release notes</a> for the complete desktop and mobile feature list.</li>
             <li>Mobile questions and testing requests can go through the <a href="/support/#message">support message box</a>.</li>
           </ol>
         </div>

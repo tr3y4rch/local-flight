@@ -1,32 +1,33 @@
 # Privacy
 
-Local Flight is built around a simple rule: **stay local unless a feature genuinely needs a network hop.**
+Local Flight follows one simple rule: **keep your data on your device unless a feature needs an online connection.**
 
-No accounts. No advertising or third-party analytics SDKs. No ad tech. No sign-up flow. Relay-backed features still need limited operational metadata, described below, to provide service, enforce fair-use limits, and troubleshoot failures.
+There is no Local Flight account, advertising profile, analytics tracker, or sign-up flow. Optional online features need a small amount of service information to connect the right devices, share provider capacity fairly, and diagnose failures. The exact details remain documented below.
 
-This policy explains what Local Flight stores, when a network service is involved, and which choices remain under your control. The design follows data-minimization principles: collect as little as possible, keep technical identifiers install-scoped, and make diagnostics consent-based.
+This policy explains what stays on your device, when Local Flight connects online, what limited information the service handles, and what you can reset or delete. Technical identifiers are tied to an installation rather than a person, and automatic diagnostics stay off unless the saved diagnostics choice allows them.
 
-Last updated: July 12, 2026.
+Last updated: July 18, 2026.
 
 Beacon Tools is responsible for the hosted Local Flight relay, website forms, and related support processing. General/support questions and public bug reports start at [beacontools.cc/support](https://beacontools.cc/support). Privacy, diagnostics, and data-request questions can go through [beacontools.cc/privacy/choices](https://beacontools.cc/privacy/choices) or [privacy@beacontools.cc](mailto:privacy@beacontools.cc). The public privacy URL is [beacontools.cc/privacy](https://beacontools.cc/privacy).
 
 ---
 
-## Quick Summary
+## The Short Version
 
-- Your config, API keys, snapshots, history, and logs stay on your own machine.
-- The desktop native GUI is a real Qt shell, not a webview. The primary client does not launch Chrome, Edge, Chromium, QWebEngine, or a browser profile.
-- Native mode avoids browser sync, extensions, cookies, browsing history, default-browser behavior, online fonts, and CDN assets for the main Local Flight window.
-- The LAN browser UI, Companion mode, and Matrix board talk to your Local Flight server first. Companion prefers LAN. When Remote Companion is paired for a relay-linked host, the phone can fall back to the hosted relay with end-to-end encrypted request/response envelopes while the host stays online.
-- Mobile Standalone mode also talks directly to the hosted relay as a simplified, rate-limited phone board, but it is separate from Companion and does not use host grants.
-- Community mode can use the hosted Local Flight relay for shared schedules and relay-backed radar. Optional radar runway/surface/map/terrain layers use cached public data where available, stay opt-in/visual-only, and do not create Local Flight accounts or user profiles.
+- Settings, provider keys, snapshots, history, and logs normally stay on the device running Local Flight.
+- The native desktop window is a real app, not an embedded browser. The LAN browser remains available when you deliberately open it from another device.
+- LAN displays, Companion phones, and Matrix boards connect to your own Local Flight host first.
+- A paired Companion phone can use encrypted away-from-home access while its host is online. The connection service routes the encrypted message but cannot read the board data or command inside it.
+- Standalone mobile connects directly to the shared service for a simpler phone-only board. It has slower refresh limits and is separate from a paired Companion.
+- The optional shared-data service can provide recent schedule and radar information without putting provider keys on every device.
+- Optional map and terrain layers request only the displayed airport area and are kept as bounded visual caches.
 - Richer FIDS/Radar/History detail views reuse data Local Flight already fetched or stored locally. Opening a detail panel should not trigger surprise per-flight paid provider calls.
 - Matrix gate/stand display uses existing real-world schedule fields when available. VATSIM Matrix presets hide gate data instead of inventing placeholders.
-- Manual reports are always your choice. First-run setup asks how diagnostics should work, saves that choice locally, and defaults to manual-only reporting.
+- Manual reports are sent only when you choose to send them. First-run setup asks how automatic diagnostics should work and defaults to manual-only reporting.
 - Companion automatic diagnostics require two yeses: the mobile app's local diagnostics choice and the connected server's diagnostics mode.
 - Mobile Standalone automatic diagnostics require the phone-local diagnostics choice because there is no paired server.
-- Optional mobile support purchases are processed by Apple or Google. Local Flight never receives card details; it sends only store transaction evidence for verification and keeps only a keyed transaction hash plus minimal product/status metadata on the relay.
-- Developer reporting credentials are kept on the hosted relay, not in the desktop package, mobile app, installers, or docs.
+- Optional mobile support purchases are processed by Apple or Google. Local Flight never receives card details and does not keep the raw store proof after checking it.
+- Private reporting credentials stay on the hosted service, not in the app, installer, or documentation.
 - Local Flight does not collect your email address during normal app use. If you email Beacon Tools directly, your email address and message are handled by the email provider so Beacon Tools can reply to you.
 - Local Flight is an informational display aid, not a navigation, dispatch, operational-control, or safety system.
 
@@ -35,6 +36,7 @@ Beacon Tools is responsible for the hosted Local Flight relay, website forms, an
 ## What Stays Local
 
 - Flight snapshots, config, history, and logs stay under `~/.localflight/`.
+- The packaged Linux server uses its dedicated service home instead: `/var/lib/localflight/.localflight`.
 - Your airport settings, display preferences, and personal API keys stay in your local config and `.env`.
 - The native GUI, LAN browser UI, Companion, and matrix board all talk to your local Local Flight server first. Remote Companion is only a fallback for paired phones when LAN is unavailable and the relay-linked host is online. Native mode does not fetch online fonts, CDN assets, or a webview shell for the main UI.
 - The optional local traffic log at `~/.localflight/requests.db` is visible only on your own Local Flight instance and is only enabled for explicit local network diagnostics.
@@ -68,23 +70,23 @@ Native mode does not change the aviation data sources you choose. If you enable 
 
 ---
 
-## Setup Paths
+## When Local Flight Connects Online
 
-### Local Flight Relay
+### Shared Data And Connection Service
 
-If you choose **Local Flight Relay**, your install uses the hosted Beacon Tools relay at `https://relay.beacontools.cc` for shared real-world schedule snapshots and, when available, relay-backed ADS-B radar. The relay protects provider keys and lets people begin without supplying paid API credentials. The schedule path is cache-first and can use AeroDataBox as the primary schedule provider with AviationStack sparse fill/fallback where configured.
+If you choose **Local Flight Relay**, the Beacon Tools connection service can provide a recent shared copy of real-world schedules and, when available, radar data. This protects provider keys and lets several Local Flight installs reuse one safe result instead of making the same paid request repeatedly. AeroDataBox is the preferred schedule source when configured; AviationStack can fill missing fields or act as a fallback.
 
-The relay stores the minimum metadata needed to run that shared service safely:
+The service keeps only the information needed to connect an installation, share capacity fairly, and recover from failures. In technical terms, that can include:
 
-- random local install UUID
-- hashed install fingerprint
+- a random app-installation identifier
+- a one-way form of the public Support ID
 - per-install usage counts
 - last-seen timestamps (heartbeat or relay activity, ~30 min coarse cadence — not real-time presence)
-- token prefixes for relay-linked installs
-- Remote Companion public grant refs and coarse grant status for paired phones, when the host enables Remote Companion
-- one-way anonymous network tags for abuse protection
-- short-lived "current interest" rows, such as airport and display window, so shared schedule snapshots can be reused
-- short-lived shared schedule snapshots containing Local Flight canonical schedule records and cache metadata
+- a short non-secret part of the installation link
+- references and coarse status for approved paired phones, when Remote Companion is enabled
+- one-way network tags used to prevent abuse without storing raw addresses in the application database
+- short-lived records of the requested airport and board window so a recent shared result can be reused
+- short-lived shared schedule records and freshness information
 - a small coarse install profile sent with eligible periodic heartbeats or relay activity: app version, OS family/version/architecture, requested and effective GUI mode, source mode (`real` or `virtual`), diagnostics mode, companion count, Matrix count, and Matrix-online count. Standalone activity can also include the selected airport/timezone and coarse device type. This profile supports compatibility, reliability, and capacity planning without creating a user account.
 - if the operator explicitly enables the optional surface/map overlay path: short-lived airport-surface and map-geometry cache entries derived from OpenStreetMap/Overpass so many installs looking at the same airport do not repeatedly query public map infrastructure
 - for an optional mobile support purchase: keyed transaction hash, short transaction reference, product ID, store platform/environment, verification status, install fingerprint, attempt timestamps, and coarse failure code. Raw Apple transaction payloads and raw Google purchase tokens are not retained.
@@ -108,11 +110,11 @@ Mobile Standalone uses the same hosted relay but with stricter product limits: F
 
 Remote Companion uses the same hosted relay only as a routing layer for paired Companion phones. The host opens an outbound relay connection; there is no router port forwarding and no public tunnel to the host. The relay admits only active relay-linked installs and active, non-revoked grant refs. If the host is offline, the phone receives a clean offline state instead of an offline command queue.
 
-### How Remote Companion Protects Data
+### Away From Home: Remote Companion
 
-Remote Companion encrypts the Companion request path/body and the host response with AES-256-GCM before they pass through the relay. The authenticated metadata binds the install ref, grant ref, request id, and request/response direction so copied or replayed envelopes are rejected.
+Remote Companion encrypts each phone request and host response before it reaches the connection service. Only the paired phone and host have the shared secret. Each message is also tied to the approved installation, phone, request, and direction so copied or replayed messages are rejected.
 
-The relay can see and store routing metadata needed to operate the service safely:
+The service can see limited delivery information needed to route and protect the connection:
 
 - install ref and grant ref
 - request id
@@ -120,7 +122,7 @@ The relay can see and store routing metadata needed to operate the service safel
 - status code category, latency, byte sizes, and rate-limit counters
 - coarse relay activity timestamps
 
-The relay cannot read:
+The service cannot read:
 
 - the Companion API path or body
 - Board, Radar, History, Matrix, or config payload contents
@@ -256,11 +258,16 @@ The relay immediately derives a keyed hash and short reference. Its ledger retai
 
 ---
 
-## Why Hosted Data Is Processed
+## Why The Service Keeps Limited Information
+
+The service information described above is used only to deliver requested
+features, keep shared capacity available, protect the service, answer support
+requests, and verify optional purchases. It is not used for advertising or to
+build a profile of where you travel.
 
 Where data-protection law applies, Beacon Tools uses the following purposes and intended legal bases:
 
-- **Service operation and security:** pseudonymous install identifiers, encrypted-routing metadata, usage counters, and one-way network tags are processed to provide requested relay features, protect shared capacity, prevent abuse, and troubleshoot failures. The intended basis is legitimate interest in operating and securing the optional service, balanced against the app's data-minimizing design.
+- **Service operation and security:** installation references, encrypted-delivery information, usage counters, and one-way network tags are processed to provide requested features, protect shared capacity, prevent abuse, and troubleshoot failures. The intended basis is legitimate interest in operating and securing the optional service, balanced against the app's data-minimizing design.
 - **Diagnostics:** automatic diagnostics and optional log excerpts are processed only under the choice made in the app. You can change that choice or withdraw consent for future automatic reports at any time. Manual reports are processed because you asked Beacon Tools to investigate them.
 - **Support:** contact details and messages are processed to answer the request you chose to send and to take steps you requested.
 - **Optional purchases:** minimal transaction metadata is processed to perform the purchase you requested, prevent duplicate processing, and meet store/accounting/security requirements. Apple or Google separately processes the payment under its store terms.
@@ -268,6 +275,27 @@ Where data-protection law applies, Beacon Tools uses the following purposes and 
 Hosted operational records do not all have a fixed automatic deletion schedule yet. Shared cache records follow service freshness/stale-fallback needs; support messages, report events, dedupe records, and install profiles may remain until operational cleanup or a valid deletion request. This is a transparency boundary for the current service, not permission to reuse the data for advertising or unrelated profiling.
 
 Depending on applicable law, you may ask to access, correct, erase, restrict, object to, or obtain a portable copy of personal data associated with you. Because Local Flight has no account system, Beacon Tools may need the public install fingerprint, report reference, approximate time, or reply email you supplied to locate a record without collecting more identity data. Contact [privacy@beacontools.cc](mailto:privacy@beacontools.cc) or use [Privacy Choices](https://beacontools.cc/privacy/choices). You may also complain to the data-protection authority responsible for your location.
+
+---
+
+## Your Choices And Deletion
+
+- Change automatic diagnostics from **Settings** at any time. Manual-only is
+  always available.
+- Revoke a Remote Companion phone from the host before forgetting it on the
+  phone.
+- Use the in-app reset controls when you want to clear normal Local Flight
+  configuration and pairing state.
+- Remove the mobile app to erase its app-local secure storage and database
+  under the normal iOS or Android removal process.
+- Use [Privacy Choices](https://beacontools.cc/privacy/choices) or email
+  [privacy@beacontools.cc](mailto:privacy@beacontools.cc) for hosted-data
+  questions or requests.
+
+For an intentional manual desktop/Pi wipe, stop Local Flight and remove
+`~/.localflight/`. Remove `~/.localflight_identity.json` as well only if you want
+the next launch to become a new service installation. On a packaged Linux
+server, the equivalent state directory is `/var/lib/localflight`.
 
 ---
 

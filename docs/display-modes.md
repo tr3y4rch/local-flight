@@ -8,7 +8,7 @@ Public project docs live at [beacontools.cc/local-flight](https://beacontools.cc
 
 ## Recommended Default
 
-For Windows and macOS, use the **native Qt desktop shell**.
+For Windows, macOS, and supported Linux desktops, use the **native Qt desktop shell**.
 
 It is the recommended primary desktop client because it opens a real app window without depending on Chrome, Edge, Chromium, browser profiles, browser sync, extensions, cookies, browsing history, webviews, online fonts, or CDN assets.
 
@@ -20,7 +20,10 @@ The native app still starts the same local FastAPI server. That means the LAN br
 
 | Need | Recommended path |
 |---|---|
-| Normal Windows/macOS desktop use | Native Qt desktop shell |
+| Normal Windows/macOS/Linux desktop use | Native Qt desktop shell |
+| Portable Linux desktop use | AppImage |
+| Integrated Ubuntu/Debian desktop use | Desktop `.deb` |
+| Always-on Ubuntu/Debian server with no screen | Headless server `.deb` |
 | View/control from another device on the same network | LAN browser UI |
 | View on a phone | LAN browser UI — auto mobile shell |
 | Always-on Pi server with no screen | Pi headless |
@@ -35,7 +38,7 @@ The native app still starts the same local FastAPI server. That means the LAN br
 
 ## Native Qt Desktop Shell
 
-Use this for everyday desktop use on Windows and macOS.
+Use this for everyday desktop use on Windows, macOS, and supported 64-bit Linux systems. Normal Linux desktop launches are resizable; fullscreen is reserved for Pi or an explicit kiosk setting.
 
 What it gives you:
 
@@ -64,7 +67,7 @@ Use it when you want the full Local Flight app on the machine that runs the serv
 
 The browser UI is a supported access and display surface. It is not being removed.
 
-In `0.5.1`, the browser UI follows the same visual and information hierarchy as
+In `0.5.2`, the browser UI follows the same visual and information hierarchy as
 the native Qt shell: airport-local and UTC clocks, Display/FIDS/Radar/Matrix
 navigation, readable cards and status labels, appearance choices, and grouped
 Settings. It also provides the same fingerprint-bound Companion QR/manual
@@ -73,6 +76,7 @@ pairing path and paired-device reset tools.
 Use it when:
 
 - You run Local Flight headless on a Pi.
+- You run the Ubuntu/Debian headless server package.
 - You want to view the board from another computer, tablet, or phone browser.
 - You intentionally prefer the browser board on an attached display.
 - You need a recovery path if a native desktop dependency is unavailable.
@@ -124,6 +128,26 @@ It runs:
 
 It does not open a local window on the Pi.
 
+On first launch, the server and setup pages are available immediately, but the
+scheduler waits until setup is complete before contacting a flight-data source.
+
+---
+
+## Ubuntu/Debian Headless Server
+
+The `localflight-server` package is the regular Linux equivalent of a headless
+Pi installation. It is useful for a small home server, virtual machine, or
+always-on ARM64 board that should serve other displays without running a local
+desktop session.
+
+It provides the same LAN UI, setup, APIs, WebSocket updates, mobile Companion,
+Matrix feed, history, and reports as the desktop host. The service uses a locked
+`localflight` account, keeps state under `/var/lib/localflight`, and listens on
+port 8000. It does not rename the machine or install a kiosk browser.
+
+The server package and desktop `.deb` cannot be installed together because each
+represents one Local Flight host and both would use the same local port.
+
 ---
 
 ## Native Qt HDMI Kiosk
@@ -156,7 +180,7 @@ This is useful when the browser UI fits your display setup better or native Qt k
 
 ## Mobile App
 
-The mobile app runs on iPhone, iPad, and Android and has two modes. TestFlight and Google Play testing use the same `0.5.1` data and privacy contract as the desktop/Pi host.
+The mobile app runs on iPhone, iPad, and Android and has two modes. TestFlight iOS build 8 and Google Play Android versionCode 11 use the same `0.5.2` data and privacy contract as desktop, Linux server, and Pi hosts.
 
 ### Companion
 
@@ -180,7 +204,7 @@ Remote Companion still requires the host to be online. It is not Standalone mode
 
 ### Standalone
 
-Standalone talks directly to the hosted Beacon Tools relay and does not need your own desktop/Pi server online. Its careful refresh limits keep the shared service reliable and fairly available.
+Standalone talks directly to the hosted Beacon Tools relay and does not need your own Local Flight host online. Its careful refresh limits keep the shared service reliable and fairly available.
 
 Use Standalone for:
 

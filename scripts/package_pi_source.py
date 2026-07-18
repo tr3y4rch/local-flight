@@ -2,10 +2,16 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import shutil
 import subprocess
 from fnmatch import fnmatch
 from pathlib import Path
+
+try:
+    from scripts.release_safety import validate_public_bundle
+except ModuleNotFoundError:  # direct ``python scripts/...`` execution
+    from release_safety import validate_public_bundle
 
 try:
     import tomllib
@@ -69,6 +75,11 @@ PI_RELEASE_ROOT_FILES = {
 PI_RELEASE_ASSET_FILES = {
     "assets/icon.png",
     "assets/localflight-logo.svg",
+}
+PI_RELEASE_REQUIREMENT_FILES = {
+    "requirements/release-core.txt",
+    "requirements/release-pi-bookworm.txt",
+    "requirements/release-pi-trixie.txt",
 }
 PI_RELEASE_PREFIXES = (
     "docs/",
@@ -139,7 +150,11 @@ def _is_release_file(path: Path) -> bool:
         return False
     if name == ".env" or (name.startswith(".env.") and name != ".env.example"):
         return False
-    if posix in PI_RELEASE_ROOT_FILES or posix in PI_RELEASE_ASSET_FILES:
+    if (
+        posix in PI_RELEASE_ROOT_FILES
+        or posix in PI_RELEASE_ASSET_FILES
+        or posix in PI_RELEASE_REQUIREMENT_FILES
+    ):
         return True
     return any(posix.startswith(prefix) for prefix in PI_RELEASE_PREFIXES)
 
@@ -200,6 +215,27 @@ def main() -> None:
         target = stage_dir / rel_path
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source, target)
+
+    (stage_dir / "release-metadata.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "version": version,
+                "platform": "raspberry-pi",
+                "architecture": "source",
+                "flavor": "source",
+                "kind": "zip",
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    try:
+        validate_public_bundle(stage_dir)
+    except RuntimeError as exc:
+        raise SystemExit(str(exc)) from exc
 
     zip_path.unlink(missing_ok=True)
     checksum_path = zip_path.with_suffix(zip_path.suffix + ".sha256")

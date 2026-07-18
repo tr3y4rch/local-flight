@@ -94,6 +94,7 @@ from localflight.sources.web.relay_defaults import (
     relay_airport_ground_url,
     relay_airport_surface_url,
 )
+from localflight.version import app_version
 
 log = logging.getLogger(__name__)
 
@@ -1849,7 +1850,7 @@ def _relay_ground_payload_for_map(
                 "radius_nm": min(20.0, max(1.0, float(radius_nm))),
                 "install_id": get_install_id(),
                 "activation_token": token,
-                "app_version": metadata.get("app_version") or "0.5.1",
+                "app_version": metadata.get("app_version") or app_version(),
                 "client_kind": "desktop",
                 "device_type": "desktop",
             },
@@ -2476,11 +2477,7 @@ def api_admin_system() -> Dict[str, Any]:
     import time
     from pathlib import Path
 
-    try:
-        from importlib.metadata import version as _pkg_version
-        _ver = _pkg_version("localflight")
-    except Exception:
-        _ver = "0.5.1"
+    _ver = app_version()
 
     result: Dict[str, Any] = {
         "version":  _ver,
@@ -3013,20 +3010,16 @@ def api_mobile_remote_probe(client_probe: Optional[str] = Query(None, max_length
     and a client-provided nonce-like reference that travelled inside the
     encrypted Remote Companion envelope.
     """
-    from importlib.metadata import version as _pkg_version
     from localflight.storage.install import get_install_fingerprint
 
-    try:
-        app_version = _pkg_version("localflight")
-    except Exception:
-        app_version = "0.5.1"
+    version_label = app_version()
 
     return {
         "ok": True,
         "probe": "remote_companion",
         "client_probe": str(client_probe or "")[:96],
         "host_time": datetime.now(timezone.utc).isoformat(),
-        "app_version": app_version,
+        "app_version": version_label,
         "install_ref": get_install_fingerprint(),
     }
 
@@ -3182,11 +3175,7 @@ def api_admin_updates() -> Dict[str, Any]:
     REPO = "tr3y4rch/local-flight"
     CACHE_TTL = 3600
 
-    try:
-        from importlib.metadata import version as _pkg_version
-        current = _pkg_version("localflight")
-    except Exception:
-        current = "0.5.1"
+    current = app_version()
 
     # Simple in-process cache to avoid hammering GitHub API
     cache = getattr(api_admin_updates, "_cache", None)

@@ -1,0 +1,10 @@
+#!/bin/sh
+set -e
+
+if command -v systemctl >/dev/null 2>&1; then
+    systemctl daemon-reload || true
+fi
+
+# Deliberately retain /var/lib/localflight, /etc/localflight, and the service
+# account. Removing user data is a separate, explicit administrator action.
+exit 0

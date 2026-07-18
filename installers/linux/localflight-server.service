@@ -1,0 +1,39 @@
+[Unit]
+Description=Local Flight headless server
+Documentation=https://beacontools.cc/local-flight
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=localflight
+Group=localflight
+WorkingDirectory=/var/lib/localflight
+Environment=HOME=/var/lib/localflight
+Environment=LOCALFLIGHT_GUI_MODE=headless
+Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=-/etc/localflight/localflight.env
+ExecStart=/opt/localflight-server/localflight-server
+Restart=on-failure
+RestartSec=5s
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+MemoryDenyWriteExecute=false
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+ReadWritePaths=/var/lib/localflight
+ReadOnlyPaths=/etc/localflight /opt/localflight-server
+
+[Install]
+WantedBy=multi-user.target

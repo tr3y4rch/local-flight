@@ -2,7 +2,59 @@
 
 This is the public, user-facing changelog. Implementation-level history lives
 in `docs/engineering-changelog.md`; the current release overview is
-`docs/release-notes-0.5.1.md`.
+`docs/release-notes-0.5.2.md`.
+
+## 0.5.2 — full desktop and Linux coverage
+
+### Added
+
+- Separate Developer ID signed and notarized macOS packages for Apple silicon
+  and Intel Macs.
+- Portable AppImages for x86-64 and ARM64 Linux desktops.
+- Integrated Ubuntu/Debian desktop packages and separate headless server
+  packages for x86-64 and ARM64.
+- A reproducible native release matrix with architecture checks, package safety
+  scans, exact checksums, and a draft-release inventory gate.
+- A complete, user-oriented 0.5.2 feature guide for desktop, LAN, server,
+  Raspberry Pi, Matrix, and mobile testing.
+
+### Improved
+
+- Ordinary Linux desktop sessions now open in a normal resizable window, while
+  fullscreen stays limited to Raspberry Pi and explicit kiosk use.
+- Fresh headless installs serve setup immediately but defer scheduled provider
+  work until setup is complete.
+- The public download page explains every operating-system and CPU choice and
+  enables each file only when its matching SHA-256 checksum is available.
+- Network, privacy, support, install, and mobile wording now leads with plain
+  answers and user choices before technical detail.
+- iOS build 8 and Android versionCode 11 align mobile testing with the 0.5.2
+  desktop/server/relay contract.
+
+### Privacy, security, and reliability
+
+- Updated the desktop and relay web, request, form-upload, image, and
+  environment dependency baseline.
+- Bounded public bug-report request bodies before multipart parsing while
+  retaining file, deduplication, and network-rate limits.
+- Added relay health monitoring and gated production deployment behind full
+  Python, mobile, dependency-audit, package-safety, and container smoke checks.
+- Preserved the local-first storage model, public Support ID boundary, optional
+  diagnostics, encrypted Remote Companion envelopes, and minimal purchase
+  verification records.
+
+### Distribution notes
+
+- macOS supports Apple silicon and Intel on macOS 12 or newer through separate
+  packages; no Universal 2 package is published in this release.
+- x86-64 Linux desktop testing covers Ubuntu 22.04/24.04 and Debian 12/13.
+  ARM64 desktop packages require Ubuntu 24.04 or Debian 13; ARM64 headless and
+  Raspberry Pi paths retain the older tested operating-system line.
+- The Windows installer remains intentionally unsigned for 0.5.2 and is
+  published with an explicit unknown-publisher notice and checksum. A checksum
+  verifies release-file integrity but is not a publisher signature.
+- Mobile 0.5.2 remains a TestFlight and Google Play internal-testing line until
+  the public store gates are completed.
 
 ## 0.5.1 — release hardening
 

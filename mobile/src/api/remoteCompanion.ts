@@ -291,7 +291,7 @@ function classifyProbeFailure(error: unknown): Omit<RemoteCompanionProbeResult, 
     return {
       ok: false,
       status: "host_offline",
-      message: "The relay answered, but your Local Flight desktop or Pi is not connected to Remote Companion.",
+      message: "The relay answered, but your Local Flight host is not connected to Remote Companion.",
       nextStep: "Open Local Flight on the host, keep it online, then try the test again."
     };
   }
@@ -300,7 +300,7 @@ function classifyProbeFailure(error: unknown): Omit<RemoteCompanionProbeResult, 
       ok: false,
       status: "host_timeout",
       message: "The relay forwarded the signal, but the host did not answer in time.",
-      nextStep: "Check whether the desktop or Pi is asleep, busy, or blocked from reaching the relay."
+      nextStep: "Check whether the host is asleep, busy, or blocked from reaching the relay."
     };
   }
   if (/remote_grant_revoked|Remote Companion grant is not active/i.test(message)) {

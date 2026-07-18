@@ -4,7 +4,10 @@
   if (!root) return;
 
   const releaseStatus = root.querySelector("[data-release-status]");
-  const cards = [...root.querySelectorAll("[data-download-platform]")];
+  // Each target is one exact operating-system/CPU package. Several targets can
+  // live in the same visual card, so availability is never inferred from a
+  // neighbouring architecture.
+  const targets = [...root.querySelectorAll("[data-download-platform]")];
 
   function sizeLabel(bytes) {
     if (!Number.isFinite(bytes) || bytes <= 0) return "";
@@ -20,10 +23,10 @@
 
   function setFallback(message) {
     if (releaseStatus) releaseStatus.textContent = message;
-    for (const card of cards) {
-      const status = card.querySelector("[data-download-status]");
-      const button = card.querySelector("[data-download-button]");
-      const checksum = card.querySelector("[data-download-checksum]");
+    for (const target of targets) {
+      const status = target.querySelector("[data-download-status]");
+      const button = target.querySelector("[data-download-button]");
+      const checksum = target.querySelector("[data-download-checksum]");
       if (status) status.textContent = "Open GitHub to see currently published files.";
       if (button) {
         button.href = releasesUrl;
@@ -47,17 +50,17 @@
 
       const release = payload.release;
       if (releaseStatus) {
-        releaseStatus.textContent = `Latest packaged release: ${release.version}`;
+        releaseStatus.textContent = `Packaged release ${release.version}: choose your system and processor.`;
       }
 
-      for (const card of cards) {
-        const platform = card.dataset.downloadPlatform;
+      for (const target of targets) {
+        const platform = target.dataset.downloadPlatform;
         const download = release.downloads?.[platform];
-        const status = card.querySelector("[data-download-status]");
-        const button = card.querySelector("[data-download-button]");
-        const checksum = card.querySelector("[data-download-checksum]");
+        const status = target.querySelector("[data-download-status]");
+        const button = target.querySelector("[data-download-button]");
+        const checksum = target.querySelector("[data-download-checksum]");
         if (!download) {
-          if (status) status.textContent = `Not included in packaged release ${release.version}.`;
+          if (status) status.textContent = `Not yet published for release ${release.version}.`;
           if (button) {
             button.href = release.release_url || releasesUrl;
             button.textContent = "View release files";

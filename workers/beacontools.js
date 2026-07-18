@@ -2,11 +2,18 @@ const GITHUB_REPOSITORY = "tr3y4rch/local-flight";
 const GITHUB_RELEASES_API = `https://api.github.com/repos/${GITHUB_REPOSITORY}/releases?per_page=20`;
 const GITHUB_RELEASES_PAGE = `https://github.com/${GITHUB_REPOSITORY}/releases`;
 const RELEASE_CACHE_SECONDS = 1800;
-const MINIMUM_PUBLIC_VERSION = "0.5.1";
+const MINIMUM_PUBLIC_VERSION = "0.5.2";
 
 const DOWNLOAD_FILENAMES = {
   windows: (version) => `LocalFlight-${version}-Setup.exe`,
-  macos: (version) => `LocalFlight-${version}-macos.pkg`,
+  macos_arm64: (version) => `LocalFlight-${version}-macos-arm64.pkg`,
+  macos_x86_64: (version) => `LocalFlight-${version}-macos-x86_64.pkg`,
+  linux_appimage_x86_64: (version) => `LocalFlight-${version}-linux-x86_64.AppImage`,
+  linux_appimage_aarch64: (version) => `LocalFlight-${version}-linux-aarch64.AppImage`,
+  linux_deb_desktop_amd64: (version) => `localflight-desktop_${version}_amd64.deb`,
+  linux_deb_desktop_arm64: (version) => `localflight-desktop_${version}_arm64.deb`,
+  linux_deb_server_amd64: (version) => `localflight-server_${version}_amd64.deb`,
+  linux_deb_server_arm64: (version) => `localflight-server_${version}_arm64.deb`,
   pi: (version) => `LocalFlight-pi-source-${version}.zip`,
 };
 
@@ -72,7 +79,7 @@ function releaseDownload(release, version, platform) {
 }
 
 export function buildReleaseManifest(release) {
-  if (!release || release.draft) return null;
+  if (!release || release.draft || release.prerelease) return null;
   const version = normalizedVersion(release.tag_name);
   if (!version || !versionAtLeast(version, MINIMUM_PUBLIC_VERSION)) return null;
   const releaseUrl = safeGitHubUrl(
@@ -81,18 +88,26 @@ export function buildReleaseManifest(release) {
   );
   if (!releaseUrl) return null;
 
+  const downloads = Object.fromEntries(
+    Object.keys(DOWNLOAD_FILENAMES).map((platform) => [
+      platform,
+      releaseDownload(release, version, platform),
+    ]),
+  );
+
+  // Keep the original public key for older download clients. Starting with
+  // 0.5.2 it points to the Apple silicon package; new clients should use the
+  // architecture-specific keys above.
+  downloads.macos = downloads.macos_arm64;
+
   return {
     version,
     tag: String(release.tag_name),
     name: String(release.name || `Local Flight ${version}`).slice(0, 120),
     published_at: String(release.published_at || ""),
-    prerelease: Boolean(release.prerelease),
+    prerelease: false,
     release_url: releaseUrl,
-    downloads: {
-      windows: releaseDownload(release, version, "windows"),
-      macos: releaseDownload(release, version, "macos"),
-      pi: releaseDownload(release, version, "pi"),
-    },
+    downloads,
   };
 }
 
@@ -100,7 +115,10 @@ export function selectLatestPackagedRelease(releases) {
   if (!Array.isArray(releases)) return null;
   for (const release of releases.slice(0, 20)) {
     const manifest = buildReleaseManifest(release);
-    if (manifest && Object.values(manifest.downloads).some(Boolean)) return manifest;
+    const complete = manifest && Object.keys(DOWNLOAD_FILENAMES).every(
+      (platform) => Boolean(manifest.downloads[platform]),
+    );
+    if (complete) return manifest;
   }
   return null;
 }

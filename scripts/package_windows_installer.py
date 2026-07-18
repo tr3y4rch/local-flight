@@ -2,6 +2,7 @@
 """Build the Windows Inno Setup installer from dist/LocalFlight."""
 from __future__ import annotations
 
+import argparse
 import hashlib
 import os
 import shutil
@@ -10,9 +11,14 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+try:
+    from scripts.release_safety import validate_public_bundle
+except ModuleNotFoundError:  # direct ``python scripts/...`` execution
+    from release_safety import validate_public_bundle
+
 ROOT = Path(__file__).resolve().parents[1]
 DIST_DIR = ROOT / "dist"
-APP_DIR = DIST_DIR / "LocalFlight"
+DEFAULT_APP_DIR = DIST_DIR / "LocalFlight"
 ISS_PATH = ROOT / "installers" / "windows" / "LocalFlight.iss"
 BRANDING_DIR = ROOT / "build" / "windows-installer-branding"
 BEACON_LOGO = ROOT / "site" / "assets" / "beacon-tools-logo.png"
@@ -221,13 +227,25 @@ def _sign_windows(path: Path) -> None:
         print(f"Signing failed (non-fatal): {exc}")
 
 
-def main() -> None:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--app-dir", type=Path, default=DEFAULT_APP_DIR)
+    return parser.parse_args(argv)
+
+
+def main(argv: list[str] | None = None) -> None:
+    args = parse_args(argv)
+    app_dir = args.app_dir.resolve()
     if sys.platform != "win32":
         raise SystemExit("The Inno Setup installer can only be built on Windows.")
-    if not (APP_DIR / "LocalFlight.exe").exists():
-        raise SystemExit("Missing dist/LocalFlight/LocalFlight.exe. Run python build.py first.")
+    if not (app_dir / "LocalFlight.exe").exists():
+        raise SystemExit(f"Missing frozen application: {app_dir / 'LocalFlight.exe'}")
     if not ISS_PATH.exists():
         raise SystemExit(f"Missing installer definition: {ISS_PATH}")
+    try:
+        validate_public_bundle(app_dir)
+    except RuntimeError as exc:
+        raise SystemExit(str(exc)) from exc
 
     version = _project_version()
     output = DIST_DIR / f"LocalFlight-{version}-Setup.exe"
@@ -240,7 +258,7 @@ def main() -> None:
         [
             iscc,
             f"/DAppVersion={version}",
-            f"/DSourceDir={APP_DIR}",
+            f"/DSourceDir={app_dir}",
             f"/DOutputDir={DIST_DIR}",
             f"/DWizardImageFile={wizard_image}",
             f"/DWizardSmallImageFile={wizard_small_image}",

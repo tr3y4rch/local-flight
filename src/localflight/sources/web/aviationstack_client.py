@@ -28,6 +28,7 @@ from localflight.sources.web.relay_defaults import (
     relay_root_url,
     relay_schedule_url,
 )
+from localflight.version import user_agent
 
 AVIATIONSTACK_BASE_URL = "https://api.aviationstack.com/v1/flights"
 
@@ -673,7 +674,7 @@ def _fetch_relay_status(timeout_s: int = 8, *, require_token: bool = False) -> D
         response = requests.get(
             _client_status_url(),
             params=params,
-            headers={"Accept": "application/json", "User-Agent": "local-flight/1.0 (+https://beacontools.cc/local-flight)"},
+            headers={"Accept": "application/json", "User-Agent": user_agent()},
             timeout=timeout_s,
         )
     except requests.RequestException as exc:
@@ -737,7 +738,7 @@ def _request_json(
             params=params,
             headers=headers
             or {
-                "User-Agent": "local-flight/1.0 (+https://beacontools.cc/local-flight)",
+                "User-Agent": user_agent(),
                 "Accept": "application/json",
             },
             timeout=timeout_s,

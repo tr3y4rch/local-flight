@@ -1,6 +1,6 @@
 # Local Flight Mobile App Store / TestFlight Review Notes
 
-This file is the working checklist for the `0.5.1` TestFlight/review build. It is not legal advice; keep the final App Store Connect answers aligned with the exact submitted build.
+This file is the working checklist for the `0.5.2` TestFlight/review build. It is not legal advice; keep the final App Store Connect answers aligned with the exact submitted build.
 
 Customer-facing English (U.S.) listing copy is maintained in
 [`store/ios/en-US/`](store/ios/en-US/). The checked metadata pack contains the
@@ -11,15 +11,15 @@ Run `npm run appstore:contract` before copying it into App Store Connect.
 
 - App name: **Local Flight**
 - Bundle identifier: `cc.beacontools.localflight`
-- Version: `0.5.1`
-- Build number: `7`
+- Version: `0.5.2`
+- Build number: `8`
 - Marketing URL: `https://beacontools.cc/local-flight/mobile`
 - Support URL: `https://beacontools.cc/support`
 - Privacy Policy URL: `https://beacontools.cc/privacy`
-- Recommended review path: choose **Standalone** on first launch so the app can be tested without a desktop or Raspberry Pi server.
+- Recommended review path: choose **Standalone** on first launch so the app can be tested without a desktop, Linux server, or Raspberry Pi host.
 - Standalone setup needs an airport, a mobile diagnostics choice, and relay activation through `https://relay.beacontools.cc`. It does not open LAN WebSockets, Matrix controls, scheduler controls, or server-control panels.
 - Standalone daily surfaces are **Board**, **Radar**, **History**, and **Settings**.
-- Companion is also included. It pairs with a Local Flight desktop/Pi server over the same local network by QR code or manual URL.
+- Companion is also included. It pairs with a Local Flight desktop, Linux server, or Pi host over the same local network by QR code or manual URL.
 - Remote Companion is part of Companion mode. After explicit host-side grant pairing, Companion uses LAN first and can fall back to encrypted relay routing when the phone is away from Wi-Fi and the host is online.
 - Companion daily surfaces are **Board**, **Radar**, **History**, and **Control**. Help & Reports is inside Control.
 

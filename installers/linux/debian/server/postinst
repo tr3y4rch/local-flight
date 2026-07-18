@@ -1,0 +1,44 @@
+#!/bin/sh
+set -e
+
+install -d -m 0750 -o localflight -g localflight /var/lib/localflight
+install -d -m 0700 -o localflight -g localflight /var/lib/localflight/.localflight
+install -d -m 0750 -o root -g localflight /etc/localflight
+
+if [ ! -e /etc/localflight/localflight.env ]; then
+    umask 0027
+    : > /etc/localflight/localflight.env
+    chown root:localflight /etc/localflight/localflight.env
+    chmod 0640 /etc/localflight/localflight.env
+fi
+
+if command -v deb-systemd-helper >/dev/null 2>&1; then
+    deb-systemd-helper unmask localflight-server.service >/dev/null || true
+    deb-systemd-helper enable localflight-server.service >/dev/null || true
+elif command -v systemctl >/dev/null 2>&1; then
+    systemctl enable localflight-server.service >/dev/null || true
+fi
+
+if command -v deb-systemd-invoke >/dev/null 2>&1; then
+    if [ -n "${2:-}" ]; then
+        deb-systemd-invoke restart localflight-server.service >/dev/null
+    else
+        deb-systemd-invoke start localflight-server.service >/dev/null
+    fi
+elif command -v systemctl >/dev/null 2>&1; then
+    action="start"
+    [ -n "${2:-}" ] && action="restart"
+    if [ -x /usr/sbin/policy-rc.d ]; then
+        set +e
+        /usr/sbin/policy-rc.d localflight-server.service "$action"
+        policy_status=$?
+        set -e
+        if [ "$policy_status" -eq 101 ]; then
+            exit 0
+        fi
+        [ "$policy_status" -eq 0 ] || exit "$policy_status"
+    fi
+    systemctl "$action" localflight-server.service
+fi
+
+exit 0

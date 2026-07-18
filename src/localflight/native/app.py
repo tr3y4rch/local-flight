@@ -9,7 +9,6 @@ import sys
 import traceback as traceback_module
 import webbrowser
 from importlib import import_module
-from importlib.metadata import PackageNotFoundError, version
 from typing import Any
 
 from localflight.native.api_client import LocalApiClient
@@ -25,6 +24,7 @@ from localflight.native.qt_compat import import_qt
 from localflight.native.registry import PAGE_SPECS, SETUP_PAGE_SPEC, NativePageSpec
 from localflight.native.service import NativeApiService
 from localflight.native.widgets import AirportSearchBox, DetailDrawer, StatusCard, WeatherStrip
+from localflight.version import app_version as _app_version
 
 _LEGACY_EXPORTS = {
     "AdminSummaryScreen",
@@ -96,13 +96,6 @@ def main() -> None:
     from localflight.native.bootstrap import main as _main
 
     _main()
-
-
-def _app_version() -> str:
-    try:
-        return version("localflight")
-    except PackageNotFoundError:
-        return "0.5.1"
 
 
 class _NativeCrashReporter:

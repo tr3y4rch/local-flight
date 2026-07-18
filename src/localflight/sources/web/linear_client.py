@@ -23,6 +23,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
+from localflight.version import app_version
+
 log = logging.getLogger(__name__)
 
 _GRAPHQL_URL = "https://api.linear.app/graphql"
@@ -229,12 +231,6 @@ def file_error(
         title = f"{label}Scheduler error — {safe_error[:80]}"
 
         try:
-            from importlib.metadata import version as _pkg_version
-            app_version = _pkg_version("localflight")
-        except Exception:
-            app_version = "unknown"
-
-        try:
             from localflight.storage.install import get_install_fingerprint
             install_id = get_install_fingerprint()
         except Exception:
@@ -249,7 +245,7 @@ def file_error(
         description = (
             f"**Local Flight operator scheduler error**\n\n"
             f"- **Time:** {ts}\n"
-            f"- **Version:** {app_version}\n"
+            f"- **Version:** {app_version()}\n"
             f"- **Install fingerprint:** `{install_id}`\n"
             f"- **OS:** {platform.platform()}\n"
             f"- **Arch:** {platform.machine()}\n"

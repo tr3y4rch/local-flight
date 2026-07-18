@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>cc.beacontools.localflight</id>
+  <name>Local Flight</name>
+  <summary>Run a private flight information display on your own device</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <developer_name>Beacon Tools</developer_name>
+  <description>
+    <p>Local Flight provides native, browser, mobile, kiosk, and LED-matrix views from a local host.</p>
+  </description>
+  <launchable type="desktop-id">cc.beacontools.localflight.desktop</launchable>
+  <url type="homepage">https://beacontools.cc/local-flight</url>
+  <url type="bugtracker">https://github.com/tr3y4rch/local-flight/issues</url>
+  <content_rating type="oars-1.1" />
+</component>

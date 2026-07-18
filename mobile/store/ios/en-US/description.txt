@@ -1,12 +1,12 @@
 Your airport board, wherever you are.
 
-Local Flight turns your iPhone or iPad into a focused flight information display (FIDS) companion for your Mac, Windows PC, or Raspberry Pi. Pair on your own Wi-Fi to bring arrivals, departures, nearby traffic, movement history, and host controls to a purpose-built mobile interface.
+Local Flight turns your iPhone or iPad into a focused flight information display (FIDS) companion for your Mac, Windows PC, Linux host, or Raspberry Pi. Pair on your own Wi-Fi to bring arrivals, departures, nearby traffic, movement history, and host controls to a purpose-built mobile interface.
 
 At home, Companion connects directly to your Local Flight host over the LAN. If you explicitly enable Remote Companion, the same paired phone can continue through end-to-end encrypted relay routing when you leave Wi-Fi, as long as your host remains online. LAN is always preferred, and remote access can be revoked from the host.
 
 NO SERVER? USE STANDALONE.
 
-Standalone provides a simpler phone-only airport board through the Beacon Tools relay. Choose an airport and start browsing without a desktop or Raspberry Pi. Standalone uses careful refresh limits to keep shared aviation-data access reliable and fairly available.
+Standalone provides a simpler phone-only airport board through the Beacon Tools service. Choose an airport and start browsing without a desktop, Linux server, or Raspberry Pi. Standalone uses careful refresh limits to keep shared aviation-data access reliable and fairly available.
 
 BUILT FOR DAILY GLANCES
 
@@ -39,7 +39,7 @@ Three one-time App Store support choices are available in Settings. They unlock 
 
 WHAT YOU NEED
 
-Companion requires a Local Flight desktop or Raspberry Pi host. Remote Companion additionally requires explicit pairing, relay access, and an online host.
+Companion requires a Local Flight desktop, Linux server, or Raspberry Pi host. Remote Companion additionally requires explicit pairing, relay access, and an online host.
 
 Standalone requires internet access and intentionally refreshes less frequently than Companion.
 

@@ -10,6 +10,8 @@ from typing import Any
 
 import requests
 
+from localflight.version import user_agent
+
 from .geo import bearing_deg, distance_nm, float_or_none, heading_delta_deg, point_on_heading
 
 OURAIRPORTS_RUNWAYS_URL = "https://davidmegginson.github.io/ourairports-data/runways.csv"
@@ -134,7 +136,7 @@ def refresh_ourairports_runway_cache(*, force: bool = False, timeout_s: float = 
     response = requests.get(
         OURAIRPORTS_RUNWAYS_URL,
         timeout=timeout_s,
-        headers={"Accept": "text/csv", "User-Agent": "local-flight/1.0 (+https://beacontools.cc/local-flight)"},
+        headers={"Accept": "text/csv", "User-Agent": user_agent()},
     )
     response.raise_for_status()
     text = response.text

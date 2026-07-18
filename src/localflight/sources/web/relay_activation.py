@@ -3,10 +3,11 @@ from __future__ import annotations
 import hashlib
 import threading
 import time
-from importlib.metadata import PackageNotFoundError, version
 from typing import Any
 
 import requests
+
+from localflight.version import app_version as _app_version
 
 from localflight.sources.web.relay_defaults import (
     default_public_relay_url,
@@ -27,13 +28,6 @@ _lock = threading.RLock()
 _last_auto_attempt = 0.0
 _last_auto_result: dict[str, Any] | None = None
 _last_auto_key: tuple[str, str, str, str] | None = None
-
-
-def _app_version() -> str:
-    try:
-        return version("localflight")
-    except PackageNotFoundError:
-        return "0.5.1"
 
 
 def _metadata() -> dict[str, Any]:

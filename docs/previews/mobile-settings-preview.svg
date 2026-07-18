@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="960" height="540" viewBox="0 0 960 540" role="img" aria-labelledby="title desc">
   <title id="title">Local Flight mobile settings preview</title>
-  <desc id="desc">Local Flight mobile 0.5.1 — Control and Settings screen with sectioned tool pills and a radio-style diagnostics picker.</desc>
+  <desc id="desc">Local Flight mobile 0.5.2 — Control and Settings screen with sectioned tool pills and a radio-style diagnostics picker.</desc>
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0" stop-color="#09111a"/>

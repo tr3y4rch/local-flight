@@ -20,7 +20,8 @@ def test_pyinstaller_macos_bundle_is_foreground_app() -> None:
     spec = (ROOT / "LocalFlight.spec").read_text(encoding="utf-8")
 
     assert '"LSUIElement"' not in spec
-    assert "console=False" in spec
+    assert "console=is_server" in spec
+    assert 'is_server = _BUILD_FLAVOR == "server"' in spec
     assert 'bundle_identifier=_BUNDLE_IDENTIFIER' in spec
     assert '"CFBundleExecutable": "LocalFlight"' in spec
     assert '"CFBundlePackageType": "APPL"' in spec
@@ -205,7 +206,8 @@ def test_macos_pkg_requires_all_release_credentials() -> None:
 
 
 def test_macos_pkg_paths_are_dau_installer_paths(tmp_path: Path) -> None:
-    assert macos_pkg.package_output_path(tmp_path, "0.2.7").name == "LocalFlight-0.2.7-macos.pkg"
+    assert macos_pkg.package_output_path(tmp_path, "0.5.2", "arm64").name == "LocalFlight-0.5.2-macos-arm64.pkg"
+    assert macos_pkg.package_output_path(tmp_path, "0.5.2", "x86_64").name == "LocalFlight-0.5.2-macos-x86_64.pkg"
     assert macos_pkg.staged_app_path(tmp_path).as_posix().endswith("/Applications/Local Flight.app")
     assert macos_pkg.APP_BUNDLE_NAME == "Local Flight.app"
     assert macos_pkg.LEGACY_APP_BUNDLE_NAME == "LocalFlight.app"
@@ -231,12 +233,13 @@ def test_build_script_routes_platform_installers() -> None:
 
     assert "package_windows_installer.py" in build_script
     assert "package_macos_installer.py" in build_script
-    assert "Direct-download zip" in build_script
-    assert 'f"LocalFlight-{version}-macos.zip"' in build_script
-    assert "Applied ad-hoc bundle signature" in build_script
+    assert "package_linux_appimage.py" in build_script
+    assert "package_linux_deb.py" in build_script
+    assert "Cross-compilation is not supported" in build_script
+    assert "--target-arch" in build_script
     assert "Never disable Gatekeeper globally" in (
         ROOT / "docs" / "install.md"
     ).read_text(encoding="utf-8")
-    assert "LocalFlight-{version}-macos.pkg" in (
+    assert "LocalFlight-{version}-macos-{architecture}.pkg" in (
         ROOT / "scripts" / "package_macos_installer.py"
     ).read_text(encoding="utf-8")

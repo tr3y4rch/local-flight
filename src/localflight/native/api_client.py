@@ -5,12 +5,13 @@ import json
 import platform
 import time
 from dataclasses import dataclass, field
-from importlib.metadata import PackageNotFoundError, version
 from threading import RLock, local
 from typing import Any, Optional
 from urllib.parse import urljoin
 
 import requests
+
+from localflight.version import app_version
 
 
 class NativeApiError(RuntimeError):
@@ -73,10 +74,7 @@ class LocalApiClient:
         }
 
     def _app_version(self) -> str:
-        try:
-            return version("localflight")
-        except PackageNotFoundError:
-            return "0.5.1"
+        return app_version()
 
     def _client_id(self) -> str:
         if self._install_id:

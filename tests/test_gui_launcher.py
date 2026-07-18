@@ -10,6 +10,7 @@ import pytest
 
 from localflight.platform.detect import Platform
 from localflight.platform.gui_launcher import decide_gui_launch
+from route_inventory import effective_route_inventory
 
 
 def test_auto_desktop_uses_native_when_qt_available() -> None:
@@ -4061,8 +4062,8 @@ def test_native_declared_routes_exist() -> None:
     import relay.main as relay_main
     from localflight.native.routes import CLIENT_ROUTES, NETWORK_ADMIN_ROUTES
 
-    local_paths = {getattr(route, "path", "") for route in ui_server.app.routes}
-    relay_paths = {getattr(route, "path", "") for route in relay_main.app.routes}
+    local_paths = {route.path for route in effective_route_inventory(ui_server.app)}
+    relay_paths = {route.path for route in effective_route_inventory(relay_main.app)}
 
     client_paths = {route.path for route in CLIENT_ROUTES}
     relay_admin_paths = {route.path for route in NETWORK_ADMIN_ROUTES}

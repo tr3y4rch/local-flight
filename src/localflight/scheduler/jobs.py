@@ -34,6 +34,7 @@ from localflight.decode.mappings.aviationstack import aviationstack_to_raw_recor
 from localflight.decode.normalize import normalize_flights
 from localflight.storage.config import AppConfig
 from localflight.storage.flights_store import prune_snapshots, save_snapshot, snapshot_age_seconds
+from localflight.version import user_agent
 
 log = logging.getLogger(__name__)
 
@@ -406,7 +407,7 @@ def _enrich_with_opensky(
             },
             auth=_get_auth(),
             timeout=20,
-            headers={"User-Agent": "local-flight/1.0 (+https://beacontools.cc/local-flight)"},
+            headers={"User-Agent": user_agent()},
         )
 
         if r.status_code == 429:

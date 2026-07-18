@@ -13,6 +13,7 @@ from localflight.sources.web.aviationstack_plan import (
     DEFAULT_DISPLAY_GRACE_MINUTES,
     DEFAULT_DISPLAY_HORIZON_HOURS,
 )
+from localflight.version import user_agent
 
 AERODATABOX_RAPIDAPI_BASE_URL = "https://aerodatabox.p.rapidapi.com"
 AERODATABOX_APIMARKET_BASE_URL = "https://prod.api.market/api/v1/aedbx/aerodatabox"
@@ -86,12 +87,12 @@ def _request_headers() -> Dict[str, str]:
             "X-RapidAPI-Key": _api_key(),
             "X-RapidAPI-Host": "aerodatabox.p.rapidapi.com",
             "Accept": "application/json",
-            "User-Agent": "local-flight/0.5.1 (+https://beacontools.cc/local-flight)",
+            "User-Agent": user_agent(),
         }
     return {
         "x-magicapi-key": _api_key(),
         "Accept": "application/json",
-        "User-Agent": "local-flight/0.5.1 (+https://beacontools.cc/local-flight)",
+        "User-Agent": user_agent(),
     }
 
 

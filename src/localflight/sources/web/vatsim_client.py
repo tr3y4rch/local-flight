@@ -47,6 +47,8 @@ from typing import Any, Dict, List, Optional
 
 import requests
 
+from localflight.version import user_agent
+
 log = logging.getLogger(__name__)
 
 VATSIM_DATA_URL = "https://data.vatsim.net/v3/vatsim-data.json"
@@ -78,7 +80,7 @@ def fetch_vatsim_data(*, timeout_s: int = _TIMEOUT_S) -> Dict[str, Any]:
         r = requests.get(
             VATSIM_DATA_URL,
             timeout=timeout_s,
-            headers={"User-Agent": "local-flight/1.0 (+https://beacontools.cc/local-flight)"},
+            headers={"User-Agent": user_agent()},
         )
     except requests.RequestException as exc:
         raise VatsimError(f"VATSIM request failed: {exc}") from exc

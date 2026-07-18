@@ -85,10 +85,10 @@ export function errorMessage(value: unknown): string {
     return "Remote Companion could not get a timely answer from the relay. Check this phone's internet connection, then try again.";
   }
   if (/remote_host_offline/i.test(message)) {
-    return "Remote Companion cannot reach your Local Flight host right now. Open Local Flight on the desktop or Pi, or reconnect this phone to the same Wi-Fi.";
+    return "Remote Companion cannot reach your Local Flight host right now. Open Local Flight on the host, or reconnect this phone to the same Wi-Fi.";
   }
   if (/remote_host_timeout/i.test(message)) {
-    return "Remote Companion reached the relay, but your Local Flight host did not answer in time. Try again once the desktop or Pi is awake.";
+    return "Remote Companion reached the relay, but your Local Flight host did not answer in time. Try again once the host is awake.";
   }
   if (/remote_grant_revoked|Remote Companion grant is not active/i.test(message)) {
     return "Remote Companion access was revoked on this host. Pair this phone again on the same Wi-Fi to restore remote access.";

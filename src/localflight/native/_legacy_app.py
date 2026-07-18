@@ -20,7 +20,6 @@ import webbrowser
 from concurrent.futures import Future
 from datetime import datetime, timezone
 from html import escape as html_escape
-from importlib.metadata import PackageNotFoundError, version
 from typing import Any, Callable
 from zoneinfo import ZoneInfo
 
@@ -75,6 +74,7 @@ from localflight.ui.matrix_guidance import (
     MATRIX_REFLASH_SETTINGS,
     MATRIX_SAFE_NOTES,
 )
+from localflight.version import app_version as _app_version
 
 COFFEE_URL = "https://buymeacoffee.com/localflight"
 WEBSITE_URL = "https://beacontools.cc/local-flight"
@@ -141,13 +141,6 @@ def is_native_available() -> bool:
         return True
     except Exception:
         return False
-
-
-def _app_version() -> str:
-    try:
-        return version("localflight")
-    except PackageNotFoundError:
-        return "0.5.1"
 
 
 def _as_widget(screen: Any) -> Any:

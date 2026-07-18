@@ -10,7 +10,7 @@ in ignored `AGENTS.local.md`; private service operations belong in the ignored
 ## Product
 
 Local Flight is a local-first, self-hosted Flight Information Display System
-(FIDS) for Windows, macOS, Raspberry Pi, LAN browsers, iOS/Android, HDMI kiosk
+(FIDS) for Windows, macOS, Linux, Raspberry Pi, LAN browsers, iOS/Android, HDMI kiosk
 screens, and HUB75 LED matrices. It uses Python 3.11+, FastAPI, SQLite,
 WebSocket, Jinja2, PIL, and PySide6/Qt. Mobile uses React Native and Expo.
 
@@ -27,20 +27,25 @@ Public links:
 ## Current release line
 
 - `pyproject.toml` is the version source of truth. The active desktop,
-  Raspberry Pi, relay-compatibility, and mobile testing line is `0.5.1`.
-- Desktop and Raspberry Pi are the current public package targets. Mobile is in
-  TestFlight/Google Play testing and uses the permanent application identifier
-  `cc.beacontools.localflight`.
-- `0.5.1` is the platform-wide Windows, macOS, Raspberry Pi, LAN, relay, and
-  mobile-testing release line. Each desktop/Pi artifact is built on its proper
-  platform and uploaded with its matching checksum; the Windows installer is
-  rebuilt on Windows while macOS and Pi packages are produced on macOS.
-- Current public release copy lives in `docs/release-notes-0.5.1.md` and the
+  Linux server, Raspberry Pi, relay-compatibility, and mobile testing line is
+  `0.5.2`.
+- Windows, separate Apple silicon/Intel macOS packages, x86-64/ARM64 Linux
+  AppImages, Ubuntu/Debian desktop and headless packages, and Raspberry Pi are
+  public package targets. Mobile is in TestFlight/Google Play testing and uses
+  the permanent application identifier `cc.beacontools.localflight`.
+- `0.5.2` is the platform-wide Windows, macOS, Linux, Raspberry Pi, LAN, relay,
+  and mobile-testing release line. Native artifacts are built on matching
+  architecture runners and uploaded with matching checksums. macOS artifacts
+  additionally require Developer ID signing, notarization, and stapling.
+- Current public release copy lives in `docs/release-notes-0.5.2.md` and the
   public `CHANGELOG.md`. Detailed implementation history belongs in
   `docs/engineering-changelog.md` and is not bundled as end-user help.
-- The macOS direct-download build is a Developer ID signed and notarized Apple
-  silicon `.pkg`. Keep the signing, notarization, stapling, and checksum gates
-  intact; never recommend disabling Gatekeeper.
+- Public-safe build, validation, and publication gates live in
+  `docs/release-process.md`; credentials and private recovery steps do not.
+- Both macOS direct-download builds are Developer ID signed and notarized
+  architecture-specific `.pkg` files. Keep the signing, notarization, stapling,
+  architecture, deployment-target, and checksum gates intact; never recommend
+  disabling Gatekeeper.
 - Rebuild every affected release artifact after included source, public docs, or
   assets change.
 
@@ -58,16 +63,18 @@ Public links:
 - `relay/`: hosted public relay and separately authenticated operator surface.
 - `mobile/`: Expo app, native widget templates, mobile contracts.
 - `site/` and `workers/`: Beacon Tools public site and release manifest Worker.
-- `installers/`: Windows, macOS, and Raspberry Pi source installers/services.
+- `installers/`: Windows, macOS, Linux desktop/server, and Raspberry Pi
+  installers/services.
 - `scripts/`: packaging, checks, brand synchronization, and developer helpers.
 - `tests/`: desktop, relay, privacy, Matrix, radar, and compatibility coverage.
 
 ## Platform model
 
 `LOCALFLIGHT_GUI_MODE=auto|native|browser|headless` is parsed centrally.
-Blank/invalid desktop values resolve to native. Windows/macOS prefer the Qt
-shell and fall back to browser only when Qt is unavailable. Display-less
-Pi/Linux stays headless. Pi native kiosk uses separate backend and user-session
+Blank/invalid desktop values resolve to native. Windows/macOS/Linux desktop
+sessions prefer the Qt shell and fall back to browser only when Qt is
+unavailable. Display-less Pi/Linux stays headless. Pi native kiosk uses
+separate backend and user-session
 display services; Chromium kiosk remains supported. The LAN UI remains
 available at the local server while native mode is running.
 
@@ -101,7 +108,7 @@ analytics for virtual traffic.
 
 Mobile has two modes:
 
-- Companion uses a desktop/Pi host over LAN first and can use explicitly paired,
+- Companion uses a Local Flight host over LAN first and can use explicitly paired,
   encrypted Remote Companion fallback while the host is online.
 - Standalone uses the public relay directly with conservative board/radar
   refresh limits and keeps deduplicated movement history on the device.

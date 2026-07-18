@@ -2,7 +2,7 @@
   "expo": {
     "name": "Local Flight",
     "slug": "localflight-mobile",
-    "version": "0.5.1",
+    "version": "0.5.2",
     "scheme": "localflight",
     "orientation": "default",
     "userInterfaceStyle": "automatic",
@@ -36,7 +36,7 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "Local Flight scans pairing QR codes shown by your Local Flight desktop or Pi app.",
+          "cameraPermission": "Local Flight scans pairing QR codes shown by your Local Flight host.",
           "microphonePermission": false,
           "recordAudioAndroid": false
         }
@@ -50,7 +50,7 @@
     ],
     "ios": {
       "bundleIdentifier": "cc.beacontools.localflight",
-      "buildNumber": "7",
+      "buildNumber": "8",
       "icon": {
         "light": "./assets/localflight-icon-light.png",
         "dark": "./assets/localflight-icon-dark.png"
@@ -62,7 +62,7 @@
         ]
       },
       "infoPlist": {
-        "NSCameraUsageDescription": "Local Flight scans pairing QR codes shown by your Local Flight desktop or Pi app.",
+        "NSCameraUsageDescription": "Local Flight scans pairing QR codes shown by your Local Flight host.",
         "NSLocalNetworkUsageDescription": "Local Flight connects to your Local Flight server on your local network.",
         "NSBonjourServices": [
           "_http._tcp"
@@ -75,7 +75,7 @@
     },
     "android": {
       "package": "cc.beacontools.localflight",
-      "versionCode": 10,
+      "versionCode": 11,
       "permissions": [
         "CAMERA",
         "VIBRATE"
@@ -89,7 +89,7 @@
     },
     "extra": {
       "localFlightServerHint": "http://192.168.1.10:8000",
-      "localFlightVersion": "0.5.1",
+      "localFlightVersion": "0.5.2",
       "eas": {
         "projectId": "085634ce-4117-4fd6-b2d6-cbb7f90b4fdd",
         "build": {

@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Local Flight
+Comment=Local-first flight information display
+Exec=localflight
+Icon=cc.beacontools.localflight
+Terminal=false
+Categories=Utility;Network;
+StartupNotify=true
+StartupWMClass=com.localflight.app

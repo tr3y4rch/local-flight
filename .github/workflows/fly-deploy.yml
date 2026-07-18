@@ -1,18 +1,247 @@
-# See https://fly.io/docs/app-guides/continuous-deployment-with-github-actions/
+name: Quality and Relay Deploy
 
-name: Fly Deploy
 on:
+  pull_request:
   push:
     branches:
       - main
+
+permissions:
+  contents: read
+
 jobs:
-  deploy:
-    name: Deploy app
-    runs-on: ubuntu-latest
-    concurrency: deploy-group    # optional: ensure only one action runs at a time
+  python:
+    name: Python 3.11
+    runs-on: ubuntu-24.04
+    env:
+      QT_QPA_PLATFORM: offscreen
     steps:
-      - uses: actions/checkout@v4
-      - uses: superfly/flyctl-actions/setup-flyctl@master
-      - run: flyctl deploy --remote-only --config relay/fly.toml --dockerfile relay/Dockerfile
+      - name: Check out source
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: |
+            pyproject.toml
+            relay/requirements.txt
+
+      - name: Set up Node.js for the site contract
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+
+      - name: Install Python dependencies
+        run: >-
+          python -m pip install
+          -e ".[dev]"
+          -r relay/requirements.txt
+          "pip-audit==2.10.1"
+
+      - name: Check installed dependency compatibility
+        run: python -m pip check
+
+      - name: Compile Python sources
+        run: python -m compileall -q src relay installers scripts tests
+
+      - name: Run the full Python test suite
+        run: python -m pytest tests -q
+
+      - name: Run the credential security preflight
+        run: python scripts/security_preflight.py
+
+      - name: Verify the public-site download contract
+        run: node scripts/site_downloads_contract.mjs
+
+      - name: Audit desktop production dependencies
+        run: python -m pip_audit --strict .
+
+      - name: Audit the exact relay dependency set
+        run: python -m pip_audit --strict -r relay/requirements.txt
+
+      - name: Check the working tree
+        run: |
+          git diff --check
+          git diff --exit-code
+
+  mobile:
+    name: Mobile Node 24
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - name: Check out source
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+
+      - name: Install mobile dependencies
+        run: npm ci
+
+      - name: Verify mobile contracts
+        run: npm run verify
+
+      - name: Verify mobile accessibility
+        run: npm run a11y
+
+      - name: Validate the public Expo configuration
+        run: npx expo config --type public
+
+      - name: Audit production mobile dependencies
+        run: npm audit --omit=dev --audit-level=high
+
+  relay-image:
+    name: Relay image
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out source
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Build the relay image
+        run: docker build --file relay/Dockerfile --tag localflight-relay:ci .
+
+      - name: Start the relay with temporary storage
+        run: |
+          docker run --detach \
+            --name localflight-relay-ci \
+            --publish 127.0.0.1:18080:8080 \
+            --tmpfs /data:rw,noexec,nosuid,size=64m \
+            --env DB_PATH=/data/relay.db \
+            --env RELAY_ADMIN_PASSWORD=ci-only-fake-password \
+            --env RELAY_GROUND_PREWARM_ENABLED=0 \
+            --env RELAY_PUBLIC_HOST=localhost \
+            --env RELAY_ADMIN_HOST=localhost \
+            localflight-relay:ci
+
+      - name: Smoke-test the relay health endpoint
+        run: |
+          for attempt in $(seq 1 30); do
+            response="$(curl --fail --silent --show-error http://127.0.0.1:18080/health 2>/dev/null || true)"
+            if python -c 'import json, sys; assert json.load(sys.stdin).get("ok") is True' <<<"$response" 2>/dev/null; then
+              echo "Relay image is healthy."
+              exit 0
+            fi
+            if [ "$(docker inspect --format='{{.State.Running}}' localflight-relay-ci 2>/dev/null || true)" = "false" ]; then
+              break
+            fi
+            sleep 2
+          done
+          echo "Relay image did not become healthy."
+          exit 1
+
+      - name: Smoke-test oversized public bug-report rejection
+        run: |
+          set -euo pipefail
+          description_file="$(mktemp)"
+          response_file="$(mktemp)"
+          trap 'rm -f "$description_file" "$response_file"' EXIT
+          python3 - "$description_file" <<'PY'
+          from pathlib import Path
+          import sys
+
+          Path(sys.argv[1]).write_bytes(b"x" * (512 * 1024))
+          PY
+          status="$(curl --silent --show-error \
+            --output "$response_file" \
+            --write-out "%{http_code}" \
+            --header "Origin: https://beacontools.cc" \
+            --form-string "title=CI request-size smoke" \
+            --form "description=<${description_file};type=text/plain" \
+            --form-string "surface=relay" \
+            http://127.0.0.1:18080/v1/site/bug-report)"
+          if [ "$status" != "413" ]; then
+            echo "Expected oversized bug report to return 413, got $status."
+            cat "$response_file"
+            exit 1
+          fi
+          python3 - "$response_file" <<'PY'
+          import json
+          import sys
+
+          with open(sys.argv[1], encoding="utf-8") as response:
+              payload = json.load(response)
+          expected = {"detail": "Bug report request exceeds the 512 KiB limit."}
+          if payload != expected:
+              raise SystemExit(f"Unexpected oversized bug-report response: {payload!r}")
+          PY
+
+      - name: Show relay logs after failure
+        if: failure()
+        run: docker logs localflight-relay-ci 2>&1 || true
+
+      - name: Remove the relay smoke-test container
+        if: always()
+        run: docker rm --force localflight-relay-ci 2>/dev/null || true
+
+  deploy:
+    name: Deploy relay
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs:
+      - python
+      - mobile
+      - relay-image
+    runs-on: ubuntu-24.04
+    concurrency:
+      group: relay-production
+      cancel-in-progress: false
+    steps:
+      - name: Check out source
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Confirm this is still the latest main commit
+        id: main_head
+        env:
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          latest_main="$(git ls-remote "https://github.com/${REPOSITORY}.git" refs/heads/main | awk '{print $1}')"
+          if [ -z "$latest_main" ]; then
+            echo "Could not resolve the current main branch head."
+            exit 1
+          fi
+          if [ "$latest_main" = "$GITHUB_SHA" ]; then
+            echo "current=true" >> "$GITHUB_OUTPUT"
+            echo "This workflow still represents the latest main commit."
+          else
+            echo "current=false" >> "$GITHUB_OUTPUT"
+            echo "Skipping superseded commit $GITHUB_SHA; current main is $latest_main."
+          fi
+
+      - name: Set up Fly CLI
+        if: steps.main_head.outputs.current == 'true'
+        uses: superfly/flyctl-actions/setup-flyctl@ed8efb33836e8b2096c7fd3ba1c8afe303ebbff1 # v1.6
+
+      - name: Deploy the relay
+        if: steps.main_head.outputs.current == 'true'
+        run: flyctl deploy --remote-only --config relay/fly.toml --dockerfile relay/Dockerfile
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+
+      - name: Smoke-test the deployed relay
+        if: steps.main_head.outputs.current == 'true'
+        run: |
+          for attempt in $(seq 1 30); do
+            response="$(curl --fail --silent --show-error https://relay.beacontools.cc/health 2>/dev/null || true)"
+            if python -c 'import json, sys; assert json.load(sys.stdin).get("ok") is True' <<<"$response" 2>/dev/null; then
+              echo "Deployed relay is healthy."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "The deployed relay did not report healthy."
+          exit 1

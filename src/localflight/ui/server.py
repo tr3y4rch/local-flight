@@ -62,6 +62,7 @@ from localflight.storage.logging_setup import (
 )
 from localflight.storage.profiles import delete_profile, list_profiles, load_profile, save_profile
 from localflight.storage.state import load_state
+from localflight.version import app_version, user_agent
 
 logger = setup_logging()
 
@@ -316,11 +317,7 @@ app.mount("/static", StaticFiles(directory=str(_static_dir())), name="static")
 app.include_router(api_router)
 templates = Jinja2Templates(directory=str(_templates_dir()))
 
-try:
-    from importlib.metadata import version as _pkg_version
-    _APP_VERSION = _pkg_version("localflight")
-except Exception:
-    _APP_VERSION = "0.5.1"
+_APP_VERSION = app_version()
 
 templates.env.globals["app_version"] = _APP_VERSION
 templates.env.globals["airport_timezone"] = resolve_config_timezone
@@ -394,9 +391,9 @@ _DOC_PAGES: Dict[str, Dict[str, str]] = {
         "external_label": "Open online",
     },
     "client-notes": {
-        "title": "0.5.1 Public Release Notes",
-        "filename": "release-notes-0.5.1.md",
-        "summary": "0.5.1 release notes for desktop, Pi, relay-backed support, Matrix, and mobile store testing.",
+        "title": "0.5.2 Public Release Notes",
+        "filename": "release-notes-0.5.2.md",
+        "summary": "0.5.2 release notes for desktop, Linux server, Pi, relay-backed support, Matrix, and mobile testing.",
         "external_url": f"{LOCAL_FLIGHT_WEB_URL}#release-notes",
         "external_label": "Open online",
     },
@@ -945,7 +942,7 @@ async def _test_opensky_key(opensky_id: str, opensky_secret: str) -> Dict[str, A
             },
             auth=(user, secret),
             timeout=10,
-            headers={"User-Agent": "local-flight/1.0 (+https://beacontools.cc/local-flight)"},
+            headers={"User-Agent": user_agent()},
         )
         if r.status_code in {401, 403}:
             return {"ok": False, "error": "OpenSky credentials were rejected"}

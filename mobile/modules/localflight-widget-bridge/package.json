@@ -1,6 +1,6 @@
 {
   "name": "localflight-widget-bridge",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "description": "Local Flight native widget timeline reload bridge.",
   "main": "src/index.ts",
   "types": "src/index.ts",

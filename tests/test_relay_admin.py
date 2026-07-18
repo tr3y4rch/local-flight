@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import threading
 from datetime import datetime, timedelta, timezone
@@ -2027,6 +2028,145 @@ def test_site_contact_rate_limits_by_network(tmp_path: Path, monkeypatch) -> Non
     assert second.status_code == 429
 
 
+def _run_site_bug_body_limit(
+    *,
+    headers: list[tuple[bytes, bytes]],
+    messages: list[dict[str, object]],
+) -> tuple[list[dict[str, object]], list[bytes], int]:
+    sent: list[dict[str, object]] = []
+    downstream_bodies: list[bytes] = []
+    receive_calls = 0
+    pending = iter(messages)
+
+    async def downstream(_scope, receive, send) -> None:
+        message = await receive()
+        downstream_bodies.append(bytes(message.get("body", b"")))
+        await send({"type": "http.response.start", "status": 204, "headers": []})
+        await send({"type": "http.response.body", "body": b""})
+
+    async def receive() -> dict[str, object]:
+        nonlocal receive_calls
+        receive_calls += 1
+        try:
+            return next(pending)
+        except StopIteration:
+            return {"type": "http.disconnect"}
+
+    async def send(message: dict[str, object]) -> None:
+        sent.append(message)
+
+    scope = {
+        "type": "http",
+        "asgi": {"version": "3.0", "spec_version": "2.3"},
+        "http_version": "1.1",
+        "method": "POST",
+        "scheme": "https",
+        "path": "/v1/site/bug-report",
+        "raw_path": b"/v1/site/bug-report",
+        "query_string": b"",
+        "root_path": "",
+        "headers": headers,
+        "client": ("198.51.100.20", 12345),
+        "server": ("relay.beacontools.cc", 443),
+    }
+    middleware = relay_main._SiteBugReportBodyLimitMiddleware(downstream)
+    asyncio.run(middleware(scope, receive, send))
+    return sent, downstream_bodies, receive_calls
+
+
+def _asgi_response(sent: list[dict[str, object]]) -> tuple[int, dict[str, object]]:
+    start = next(message for message in sent if message.get("type") == "http.response.start")
+    raw_body = b"".join(
+        bytes(message.get("body", b""))
+        for message in sent
+        if message.get("type") == "http.response.body"
+    )
+    return int(start["status"]), json.loads(raw_body) if raw_body else {}
+
+
+def test_site_bug_report_rejects_declared_oversize_before_receive() -> None:
+    limit = relay_main._SITE_BUG_REPORT_MAX_REQUEST_BYTES
+
+    sent, downstream_bodies, receive_calls = _run_site_bug_body_limit(
+        headers=[(b"content-length", str(limit + 1).encode("ascii"))],
+        messages=[],
+    )
+
+    assert _asgi_response(sent) == (413, {"detail": "Bug report request exceeds the 512 KiB limit."})
+    assert downstream_bodies == []
+    assert receive_calls == 0
+
+
+@pytest.mark.parametrize(
+    "headers",
+    [
+        [(b"content-length", b"-1")],
+        [(b"content-length", b"not-a-number")],
+        [(b"content-length", b"10"), (b"content-length", b"11")],
+        [(b"content-length", b"10, 11")],
+    ],
+)
+def test_site_bug_report_rejects_ambiguous_content_length(headers: list[tuple[bytes, bytes]]) -> None:
+    sent, downstream_bodies, receive_calls = _run_site_bug_body_limit(headers=headers, messages=[])
+
+    assert _asgi_response(sent) == (400, {"detail": "Invalid Content-Length header."})
+    assert downstream_bodies == []
+    assert receive_calls == 0
+
+
+def test_site_bug_report_accepts_exact_raw_limit_and_identical_lengths() -> None:
+    limit = relay_main._SITE_BUG_REPORT_MAX_REQUEST_BYTES
+    first = b"a" * (300 * 1024)
+    second = b"b" * (limit - len(first))
+
+    sent, downstream_bodies, receive_calls = _run_site_bug_body_limit(
+        headers=[
+            (b"content-length", str(limit).encode("ascii")),
+            (b"content-length", str(limit).encode("ascii")),
+        ],
+        messages=[
+            {"type": "http.request", "body": first, "more_body": True},
+            {"type": "http.request", "body": second, "more_body": False},
+        ],
+    )
+
+    assert _asgi_response(sent) == (204, {})
+    assert downstream_bodies == [first + second]
+    assert receive_calls == 2
+
+
+@pytest.mark.parametrize("declared_length", [None, 1])
+def test_site_bug_report_rejects_stream_when_actual_body_crosses_cap(declared_length: int | None) -> None:
+    limit = relay_main._SITE_BUG_REPORT_MAX_REQUEST_BYTES
+    headers = [] if declared_length is None else [(b"content-length", str(declared_length).encode("ascii"))]
+
+    sent, downstream_bodies, receive_calls = _run_site_bug_body_limit(
+        headers=headers,
+        messages=[
+            {"type": "http.request", "body": b"a" * limit, "more_body": True},
+            {"type": "http.request", "body": b"b", "more_body": False},
+        ],
+    )
+
+    assert _asgi_response(sent) == (413, {"detail": "Bug report request exceeds the 512 KiB limit."})
+    assert downstream_bodies == []
+    assert receive_calls == 2
+
+
+def test_site_bug_report_oversize_response_keeps_cors_headers() -> None:
+    client = TestClient(relay_main.app)
+
+    response = client.post(
+        "/v1/site/bug-report",
+        content=b"x" * (relay_main._SITE_BUG_REPORT_MAX_REQUEST_BYTES + 1),
+        headers={"origin": "https://beacontools.cc", "content-type": "multipart/form-data; boundary=test"},
+    )
+
+    assert response.status_code == 413
+    assert response.json() == {"detail": "Bug report request exceeds the 512 KiB limit."}
+    assert response.headers["access-control-allow-origin"] == "https://beacontools.cc"
+
+
 def test_site_bug_report_files_sanitized_linear_issue_without_install(tmp_path: Path, monkeypatch) -> None:
     _use_temp_db(tmp_path, monkeypatch)
     _enable_reporter_env(monkeypatch)
@@ -2078,6 +2218,38 @@ def test_site_bug_report_files_sanitized_linear_issue_without_install(tmp_path: 
     assert "team" not in response.json()
 
 
+@pytest.mark.parametrize("surface", ["linux-desktop", "linux-server"])
+def test_site_bug_report_preserves_linux_surface_choice(
+    surface: str,
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    _use_temp_db(tmp_path, monkeypatch)
+    _enable_reporter_env(monkeypatch)
+    filed: list[dict[str, str]] = []
+    monkeypatch.setattr(
+        relay_main,
+        "_post_linear_issue",
+        lambda **kwargs: filed.append(kwargs) or "https://linear.test/linux",
+    )
+    client = TestClient(relay_main.app)
+
+    response = client.post(
+        "/v1/site/bug-report",
+        data={
+            "title": "Linux package report",
+            "description": "The selected Linux package needs attention.",
+            "surface": surface,
+            "platform": "Ubuntu 24.04",
+        },
+        headers={"origin": "https://beacontools.cc", "fly-client-ip": "198.51.100.165"},
+    )
+
+    assert response.status_code == 200
+    assert filed[0]["team_id"] == "team-desktop"
+    assert f"Surface: {surface}" in filed[0]["description"]
+
+
 def test_site_bug_report_rejects_non_text_upload(tmp_path: Path, monkeypatch) -> None:
     _use_temp_db(tmp_path, monkeypatch)
     _enable_reporter_env(monkeypatch)
@@ -2095,6 +2267,115 @@ def test_site_bug_report_rejects_non_text_upload(tmp_path: Path, monkeypatch) ->
     )
 
     assert response.status_code == 415
+
+
+def test_site_bug_report_preserves_file_count_and_file_size_limits(tmp_path: Path, monkeypatch) -> None:
+    _use_temp_db(tmp_path, monkeypatch)
+    _enable_reporter_env(monkeypatch)
+    client = TestClient(relay_main.app)
+    data = {"title": "Upload limits", "description": "Validate bounded logs", "surface": "relay"}
+    headers = {"origin": "https://beacontools.cc", "fly-client-ip": "198.51.100.67"}
+
+    too_many = client.post(
+        "/v1/site/bug-report",
+        data=data,
+        files=[
+            ("logs", (f"localflight-{index}.log", b"test log", "text/plain"))
+            for index in range(relay_main._SITE_LOG_MAX_FILES + 1)
+        ],
+        headers=headers,
+    )
+    too_large = client.post(
+        "/v1/site/bug-report",
+        data=data,
+        files={
+            "logs": (
+                "localflight.log",
+                b"x" * (relay_main._SITE_LOG_MAX_FILE_BYTES + 1),
+                "text/plain",
+            )
+        },
+        headers=headers,
+    )
+
+    assert too_many.status_code == 413
+    assert too_many.json() == {"detail": "Upload at most 3 log files"}
+    assert too_large.status_code == 413
+    assert too_large.json() == {"detail": "One uploaded log file is too large"}
+
+
+def test_site_bug_report_accepts_existing_combined_file_limit(tmp_path: Path, monkeypatch) -> None:
+    _use_temp_db(tmp_path, monkeypatch)
+    _enable_reporter_env(monkeypatch)
+    filed: list[dict[str, str]] = []
+    monkeypatch.setattr(
+        relay_main,
+        "_post_linear_issue",
+        lambda **kwargs: filed.append(kwargs) or "https://linear.test/combined-limit",
+    )
+    client = TestClient(relay_main.app)
+
+    response = client.post(
+        "/v1/site/bug-report",
+        data={"title": "Combined logs", "description": "Exact existing total", "surface": "relay"},
+        files=[
+            (
+                "logs",
+                (f"localflight-{index}.log", b"x" * relay_main._SITE_LOG_MAX_FILE_BYTES, "text/plain"),
+            )
+            for index in range(relay_main._SITE_LOG_MAX_FILES)
+        ],
+        headers={"origin": "https://beacontools.cc", "fly-client-ip": "198.51.100.68"},
+    )
+
+    assert response.status_code == 200
+    assert filed
+
+
+def test_site_bug_report_preserves_deduplication(tmp_path: Path, monkeypatch) -> None:
+    _use_temp_db(tmp_path, monkeypatch)
+    _enable_reporter_env(monkeypatch)
+    filed: list[dict[str, str]] = []
+    monkeypatch.setattr(
+        relay_main,
+        "_post_linear_issue",
+        lambda **kwargs: filed.append(kwargs) or "https://linear.test/deduped-site-bug",
+    )
+    client = TestClient(relay_main.app)
+    payload = {"title": "Repeated bug", "description": "Same safe report", "surface": "website"}
+    headers = {"origin": "https://beacontools.cc", "fly-client-ip": "198.51.100.69"}
+
+    first = client.post("/v1/site/bug-report", data=payload, headers=headers)
+    second = client.post("/v1/site/bug-report", data=payload, headers=headers)
+
+    assert first.status_code == 200
+    assert first.json()["deduped"] is False
+    assert second.status_code == 200
+    assert second.json()["deduped"] is True
+    assert len(filed) == 1
+
+
+def test_site_bug_report_preserves_network_rate_limit(tmp_path: Path, monkeypatch) -> None:
+    _use_temp_db(tmp_path, monkeypatch)
+    _enable_reporter_env(monkeypatch)
+    monkeypatch.setenv("RELAY_SITE_BUG_NETWORK_DAILY_LIMIT", "1")
+    monkeypatch.setattr(relay_main, "_post_linear_issue", lambda **_kwargs: "https://linear.test/rate-limit")
+    client = TestClient(relay_main.app)
+    headers = {"origin": "https://beacontools.cc", "fly-client-ip": "198.51.100.70"}
+
+    first = client.post(
+        "/v1/site/bug-report",
+        data={"title": "First bug", "description": "First body", "surface": "website"},
+        headers=headers,
+    )
+    second = client.post(
+        "/v1/site/bug-report",
+        data={"title": "Second bug", "description": "Second body", "surface": "website"},
+        headers=headers,
+    )
+
+    assert first.status_code == 200
+    assert second.status_code == 429
 
 
 def test_admin_dashboard_surfaces_report_gateway_events(tmp_path: Path, monkeypatch) -> None:

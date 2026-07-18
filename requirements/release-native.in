@@ -1,0 +1,4 @@
+-r release-core.in
+pyinstaller==6.20.0
+PySide6==6.8.3
+pystray==0.19.5

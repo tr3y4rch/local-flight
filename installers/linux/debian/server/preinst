@@ -1,0 +1,12 @@
+#!/bin/sh
+set -e
+
+if ! getent group localflight >/dev/null 2>&1; then
+    addgroup --system localflight >/dev/null
+fi
+if ! getent passwd localflight >/dev/null 2>&1; then
+    adduser --system --ingroup localflight --home /var/lib/localflight \
+        --shell /usr/sbin/nologin --disabled-password --gecos "Local Flight" localflight >/dev/null
+fi
+
+exit 0

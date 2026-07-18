@@ -2,9 +2,8 @@
 #
 # This script is for running Local Flight from a source checkout.
 # End users should prefer the LocalFlight-<version>-Setup.exe release wizard.
-# LocalFlight-windows.zip remains available as a portable/manual artifact:
-# unzip the release and double-click LocalFlight.exe. The release app is
-# native Qt first; the local browser UI remains available at localhost.
+# The release app is native Qt first; the local browser UI remains available
+# at localhost.
 #
 # Usage:
 #   powershell -ExecutionPolicy Bypass -File installers\windows\install.ps1
@@ -225,7 +224,6 @@ Write-Section "LOCAL FLIGHT - Source Installer"
 
 Write-Host " Source root: $ROOT" -ForegroundColor Gray
 Write-Host " Release wizard: run LocalFlight-<version>-Setup.exe for the normal Windows install." -ForegroundColor Gray
-Write-Host " Portable zip: unzip LocalFlight-windows.zip and run LocalFlight.exe." -ForegroundColor Gray
 Write-Host " GUI default: native Qt shell; LAN browser UI stays at http://localhost:8000." -ForegroundColor Gray
 Write-Host ""
 

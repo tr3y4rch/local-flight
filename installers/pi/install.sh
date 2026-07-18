@@ -194,11 +194,21 @@ fi
 
 step "Installing Local Flight..."
 "$VENV/bin/python" -m pip install --upgrade pip -q > /dev/null 2>&1
-INSTALL_TARGET="$ROOT"
+RELEASE_LOCK="$ROOT/requirements/release-core.txt"
 if [ "$NATIVE_KIOSK" -eq 1 ]; then
-    INSTALL_TARGET="${ROOT}[native]"
+    OS_CODENAME=""
+    if [ -r /etc/os-release ]; then
+        OS_CODENAME="$(. /etc/os-release && printf '%s' "${VERSION_CODENAME:-}")"
+    fi
+    case "$OS_CODENAME" in
+        bookworm) RELEASE_LOCK="$ROOT/requirements/release-pi-bookworm.txt" ;;
+        trixie) RELEASE_LOCK="$ROOT/requirements/release-pi-trixie.txt" ;;
+        *) fail "Native kiosk needs Raspberry Pi OS Bookworm or Trixie 64-bit." ;;
+    esac
 fi
-"$VENV/bin/python" -m pip install -e "$INSTALL_TARGET" -q > /dev/null 2>&1
+[ -f "$RELEASE_LOCK" ] || fail "Missing release dependency lock: $RELEASE_LOCK"
+"$VENV/bin/python" -m pip install --require-hashes -r "$RELEASE_LOCK" -q > /dev/null 2>&1
+"$VENV/bin/python" -m pip install --no-deps -e "$ROOT" -q > /dev/null 2>&1
 ok "Local Flight installed"
 
 if [ "$NATIVE_KIOSK" -eq 1 ]; then

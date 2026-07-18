@@ -35,8 +35,8 @@
       <div class="wrap">
         <div class="hero-content">
           <div class="eyebrow">Privacy choices</div>
-          <h1>Control what leaves your device.</h1>
-          <p class="lede">This page is the practical guide for diagnostics settings, local data removal, mobile resets, and relay data questions. The full policy remains at <a href="/privacy/">beacontools.cc/privacy</a>.</p>
+          <h1>Choose what Local Flight sends and keeps.</h1>
+          <p class="lede">Start here to change diagnostics, restart setup, remove local data, revoke a paired phone, or ask what Beacon Tools holds. The full legal detail remains in the <a href="/privacy/">privacy policy</a>.</p>
           <div class="actions">
             <a class="button primary" href="/support/#message">Open contact form</a>
             <a class="button secondary" href="/privacy/">Full privacy policy</a>
@@ -51,15 +51,15 @@
           <div class="section-head">
             <div>
               <div class="eyebrow">Diagnostics</div>
-              <h2>Reports are consent-based.</h2>
+              <h2>You decide whether automatic reports are sent.</h2>
             </div>
           </div>
           <div class="grid three">
             <article class="card good-card"><h3>Off</h3><p>No automatic crash diagnostics. Manual reports still only send if you submit them.</p></article>
-            <article class="card"><h3>Auto</h3><p>Automatic crash reports can send sanitized technical context when the app's diagnostics setting allows it.</p></article>
-            <article class="card"><h3>Auto with logs</h3><p>Automatic reports can include a sanitized recent log excerpt when that stronger diagnostics option is enabled.</p></article>
+            <article class="card"><h3>Automatic reports</h3><p>If the app crashes, it can send cleaned app and device context when this setting is enabled.</p></article>
+            <article class="card"><h3>Automatic reports with logs</h3><p>The stronger option can also include a cleaned excerpt from the most recent text log.</p></article>
           </div>
-          <p class="note">Manual reports, website bug reports, and enabled automatic diagnostics are sanitized, forwarded through the Beacon Tools relay, and sent to the developer's Linear triage inbox. Website log uploads are accepted only as capped text excerpts. See <a href="https://linear.app/privacy">Linear's privacy policy</a>.</p>
+          <p class="note">Manual app reports send only when you press Send. Manual app reports and enabled automatic diagnostics are cleaned on your device. Website bug reports pass through Beacon Tools, which limits uploads and cleans text before all three report types reach the developer's Linear report inbox. See <a href="https://linear.app/privacy">Linear's privacy policy</a>.</p>
         </div>
       </section>
 
@@ -68,15 +68,16 @@
           <div class="section-head">
             <div>
               <div class="eyebrow">Local data</div>
-              <h2>Remove local data on your own devices.</h2>
+              <h2>Use the app first; use file removal only for a full erase.</h2>
             </div>
           </div>
           <ol class="timeline">
-            <li>Desktop or Raspberry Pi setup reset: use the in-app reset when you only want to run setup again. This deliberately preserves the install identity and relay link.</li>
-            <li>Desktop or Raspberry Pi full local erase: stop Local Flight, then remove <code>~/.localflight/</code> and <code>~/.localflight_identity.json</code>. The second file is the reset-safe identity anchor; deleting both makes the next launch a new relay install.</li>
-            <li>Remote Companion: revoke the phone from the host's Local Flight Settings before forgetting it on the phone. Forgetting only on the phone removes its local copy but does not itself revoke the host-side grant.</li>
-            <li>Mobile setup reset: use the in-app reset to choose Companion or Standalone again. To erase all app-local SecureStore and SQLite data, remove the app from the device after revoking any Remote Companion grant.</li>
-            <li>Bring-your-own aviation data keys are local to your install. Removing local app data removes Local Flight's stored copy.</li>
+            <li><strong>Run setup again:</strong> use Reset Setup in Local Flight Settings. This keeps the installation identity and shared-service link so you can change setup without appearing as a new installation.</li>
+            <li><strong>Remove a remote phone:</strong> revoke it in the host's Settings before choosing Forget on the phone. Forgetting it only on the phone does not cancel the host's remote-access permission.</li>
+            <li><strong>Reset the mobile app:</strong> use the in-app reset to choose Companion or Standalone again. For a complete mobile erase, revoke Remote Companion first and then remove the app from the phone.</li>
+            <li><strong>Completely erase desktop or Raspberry Pi data:</strong> stop Local Flight, then remove <code>~/.localflight/</code> and <code>~/.localflight_identity.json</code>. This advanced step removes both normal app data and its reset-safe identity anchor, so the next launch is treated as a new installation.</li>
+            <li><strong>Completely erase Linux server data:</strong> remove the server package first, then explicitly delete <code>/var/lib/localflight</code> and <code>/etc/localflight</code>. Normal package removal preserves these folders so an upgrade or reinstall does not erase your setup.</li>
+            <li><strong>Personal aviation keys:</strong> these stay in your Local Flight installation. A complete local erase removes Local Flight's saved copy.</li>
           </ol>
         </div>
       </section>
@@ -85,12 +86,12 @@
         <div class="wrap">
           <div class="grid two">
             <article class="card">
-              <h3>Relay records</h3>
-              <p>Relay-backed features may create pseudonymous install identifiers, service usage counters, coarse app/device details, encrypted-routing metadata, last-seen times, and short-lived shared cache records. These records operate the service, apply fair-use limits, and support troubleshooting without creating a Local Flight account.</p>
+              <h3>Shared-service records</h3>
+              <p>Online features may create a random installation identifier, usage counts, broad app/device details, encrypted-message routing details, last-connected times, and short-lived shared data. These records run and protect the service without creating a Local Flight account.</p>
             </article>
             <article class="card">
               <h3>What is not intended</h3>
-              <p>The relay is not intended to store raw IP addresses, readable personal identifiers, personal aviation data keys from your install, readable Remote Companion traffic, local flight history, Standalone history, full logs, screenshots, recordings, or account profiles.</p>
+              <p>Beacon Tools does not intend to store raw IP addresses, names or emails from normal app use, personal aviation keys, readable Remote Companion messages, local movement history, Standalone history, full logs, screenshots, recordings, or account profiles.</p>
             </article>
           </div>
         </div>
@@ -103,7 +104,7 @@
               <div class="eyebrow">Requests</div>
               <h2>Send privacy requests here.</h2>
             </div>
-            <p>Local Flight does not require an account or email address. If you use a Beacon Tools website contact form, your optional reply email and message pass through the relay to the support mailbox so Beacon Tools can reply.</p>
+            <p>Local Flight does not require an account or email address. If you use a website contact form, the reply email and message you choose to provide are sent securely to the support mailbox so Beacon Tools can answer.</p>
           </div>
           <div class="grid two">
             <article class="card contact-card">

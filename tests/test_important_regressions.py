@@ -51,6 +51,7 @@ from localflight.storage.config import AppConfig
 from localflight.storage.state import AppState
 from localflight.core.timezones import airport_local_now, resolve_airport_timezone, resolve_config_timezone
 from localflight.ui.server import app
+from route_inventory import effective_route_inventory
 
 
 def _flight(callsign: str = "SWR184") -> Flight:
@@ -1509,13 +1510,12 @@ def test_scheduler_retry_sequence_is_bounded_and_respects_retry_after() -> None:
 def test_api_config_get_route_is_registered_once() -> None:
     routes = [
         route
-        for route in app.router.routes
-        if getattr(route, "path", None) == "/api/config"
-        and "GET" in (getattr(route, "methods", set()) or set())
+        for route in effective_route_inventory(app)
+        if route.path == "/api/config" and "GET" in route.methods
     ]
 
     assert len(routes) == 1
-    assert routes[0].endpoint.__name__ == "api_get_config"
+    assert routes[0].endpoint == "localflight.ui.api.api_get_config"
 
 
 def test_api_config_exposes_matrix_safe_clock_payload(tmp_path: Path, monkeypatch) -> None:
@@ -6455,8 +6455,21 @@ def test_public_downloads_use_checksum_gated_github_release_assets() -> None:
     downloads_client = (root / "site" / "assets" / "downloads.js").read_text(encoding="utf-8")
     worker = (root / "workers" / "beacontools.js").read_text(encoding="utf-8")
 
-    assert product_page.count('data-download-platform="') == 3
-    for platform in ("windows", "macos", "pi"):
+    platforms = (
+        "windows",
+        "macos_arm64",
+        "macos_x86_64",
+        "linux_appimage_x86_64",
+        "linux_appimage_aarch64",
+        "linux_deb_desktop_amd64",
+        "linux_deb_desktop_arm64",
+        "linux_deb_server_amd64",
+        "linux_deb_server_arm64",
+        "pi",
+    )
+    assert product_page.count('class="card download-card"') == 6
+    assert product_page.count('data-download-platform="') == len(platforms)
+    for platform in platforms:
         assert f'data-download-platform="{platform}"' in product_page
     assert 'src="/assets/downloads.js"' in product_page
     assert "official GitHub Releases" in product_page
@@ -6467,10 +6480,17 @@ def test_public_downloads_use_checksum_gated_github_release_assets() -> None:
     assert "download.checksum_url" in downloads_client
 
     assert 'GITHUB_REPOSITORY = "tr3y4rch/local-flight"' in worker
-    assert 'MINIMUM_PUBLIC_VERSION = "0.5.1"' in worker
+    assert 'MINIMUM_PUBLIC_VERSION = "0.5.2"' in worker
     assert 'pathname === "/api/releases/latest"' in worker
     assert "LocalFlight-${version}-Setup.exe" in worker
-    assert "LocalFlight-${version}-macos.pkg" in worker
+    assert "LocalFlight-${version}-macos-arm64.pkg" in worker
+    assert "LocalFlight-${version}-macos-x86_64.pkg" in worker
+    assert "LocalFlight-${version}-linux-x86_64.AppImage" in worker
+    assert "LocalFlight-${version}-linux-aarch64.AppImage" in worker
+    assert "localflight-desktop_${version}_amd64.deb" in worker
+    assert "localflight-desktop_${version}_arm64.deb" in worker
+    assert "localflight-server_${version}_amd64.deb" in worker
+    assert "localflight-server_${version}_arm64.deb" in worker
     assert "LocalFlight-pi-source-${version}.zip" in worker
     assert "${filename}.sha256" in worker
     assert "releases/download/" in worker
@@ -6483,9 +6503,9 @@ def test_mobile_store_identity_and_verified_consumable_support_contract() -> Non
     relay = (root / "relay" / "main.py").read_text(encoding="utf-8")
 
     assert app["ios"]["bundleIdentifier"] == "cc.beacontools.localflight"
-    assert app["ios"]["buildNumber"] == "7"
+    assert app["ios"]["buildNumber"] == "8"
     assert app["android"]["package"] == "cc.beacontools.localflight"
-    assert app["android"]["versionCode"] == 10
+    assert app["android"]["versionCode"] == 11
     assert "./plugins/with-localflight-ios-widget" in app["plugins"]
     assert "./plugins/with-localflight-android-widget" in app["plugins"]
     assert app["ios"]["entitlements"]["com.apple.security.application-groups"] == [
@@ -6538,7 +6558,8 @@ def test_privacy_docs_disclose_linear_report_triage() -> None:
     assert "Linear for consent-based report triage" in site_privacy
     assert "configured mailbox provider for website contact messages" in site_privacy
     assert "https://linear.app/privacy" in site_privacy
-    assert "website bug reports, and enabled automatic diagnostics" in choices
+    assert "Manual app reports and enabled automatic diagnostics are cleaned on your device" in choices
+    assert "Website bug reports pass through Beacon Tools" in choices
     assert "https://linear.app/privacy" in choices
     assert "network.beacontools.cc/admin" not in site_privacy
 
@@ -6598,7 +6619,7 @@ def test_setup_relay_url_validation_blocks_untrusted_roots(monkeypatch) -> None:
 
 
 def test_ui_route_contracts_cover_core_pages_and_api_surfaces() -> None:
-    paths = {getattr(route, "path", None) for route in ui_server.app.router.routes}
+    paths = {route.path for route in effective_route_inventory(ui_server.app)}
 
     expected = {
         "/",
@@ -6746,7 +6767,7 @@ def test_api_docs_returns_fallback_when_bundled_file_missing(monkeypatch) -> Non
 
 
 def test_relay_route_contracts_cover_public_and_admin_surfaces() -> None:
-    paths = {getattr(route, "path", None) for route in relay_main.app.router.routes}
+    paths = {route.path for route in effective_route_inventory(relay_main.app)}
 
     expected = {
         "/",
@@ -6770,6 +6791,7 @@ def test_relay_route_contracts_cover_public_and_admin_surfaces() -> None:
         "/admin/api/maintenance/clean-trial",
         "/v1/flights",
         "/v1/radar",
+        "/v1/airport-ground",
         "/v1/airport-surface",
         "/v1/reports",
         "/v1/activate",
@@ -6779,6 +6801,56 @@ def test_relay_route_contracts_cover_public_and_admin_surfaces() -> None:
     }
 
     assert expected.issubset(paths)
+
+
+def test_effective_route_inventory_flattens_nested_routes_and_preserves_duplicates() -> None:
+    from fastapi import APIRouter, FastAPI
+    from starlette.applications import Starlette
+    from starlette.routing import Route, WebSocketRoute
+
+    async def raw_endpoint(request):
+        return None
+
+    async def websocket_endpoint(websocket):
+        return None
+
+    def first_duplicate() -> dict[str, bool]:
+        return {"first": True}
+
+    def second_duplicate() -> dict[str, bool]:
+        return {"second": True}
+
+    nested = APIRouter(prefix="/nested")
+    nested.add_api_route("/api", lambda: {"ok": True}, methods=["GET"])
+    nested.routes.append(Route("/raw", raw_endpoint, methods=["POST"]))
+    nested.routes.append(WebSocketRoute("/ws", websocket_endpoint))
+    nested.add_api_route("/duplicate", first_duplicate, methods=["GET"])
+    nested.add_api_route("/duplicate", second_duplicate, methods=["GET"])
+
+    outer = APIRouter()
+    outer.include_router(nested, prefix="/included")
+    nested_app = FastAPI()
+    nested_app.include_router(outer, prefix="/root")
+    nested_app.mount(
+        "/root/mounted",
+        Starlette(routes=[Route("/child", raw_endpoint, methods=["GET"])]),
+    )
+
+    inventory = effective_route_inventory(nested_app)
+    by_path = {record.path: record for record in inventory}
+
+    assert by_path["/root/included/nested/api"].protocol == "http"
+    assert by_path["/root/included/raw"].methods == ("POST",)
+    assert by_path["/root/included/ws"].protocol == "websocket"
+    assert by_path["/root/mounted"].protocol == "mount"
+    assert by_path["/root/mounted/child"].protocol == "http"
+
+    duplicates = [
+        record for record in inventory if record.path == "/root/included/nested/duplicate"
+    ]
+    assert len(duplicates) == 2
+    assert duplicates[0].endpoint.endswith("first_duplicate")
+    assert duplicates[1].endpoint.endswith("second_duplicate")
 
 
 def test_operator_power_stays_out_of_public_docs_and_examples() -> None:

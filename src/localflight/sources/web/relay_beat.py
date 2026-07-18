@@ -8,6 +8,8 @@ import random
 import threading
 import time
 
+from localflight.version import user_agent
+
 logger = logging.getLogger(__name__)
 
 _HEARTBEAT_INTERVAL_S = 30 * 60  # 30 minutes nominal
@@ -80,7 +82,7 @@ def _send_now() -> None:
             url,
             json=payload,
             headers={
-                "User-Agent": "local-flight/1.0 (+https://beacontools.cc/local-flight)",
+                "User-Agent": user_agent(),
                 "Accept": "application/json",
             },
             timeout=_HTTP_TIMEOUT_S,

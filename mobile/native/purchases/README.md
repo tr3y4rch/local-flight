@@ -1,6 +1,6 @@
 # Purchases: Native Store Support
 
-Local Flight `0.5.1` implements three optional consumable support products through
+Local Flight `0.5.2` implements three optional consumable support products through
 StoreKit 2 / Google Play Billing via `expo-iap`. Support unlocks nothing, creates
 no durable entitlement, and uses store-owned localized prices.
 

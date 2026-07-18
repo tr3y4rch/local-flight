@@ -5,6 +5,55 @@ contributors. It is intentionally not bundled or linked as end-user help.
 Private deployment records, service credentials, admin topology, artifact
 hashes, and personal build identifiers belong outside Git.
 
+## 0.5.2 engineering line
+
+### Release and platform packaging
+
+- Promoted `pyproject.toml` to `0.5.2` across runtime metadata, HTTP identity,
+  installers, Worker contracts, mobile build metadata, and bundled help, with a
+  consistency test preventing current-version drift.
+- Added architecture-native release jobs for Windows x64, macOS arm64/x86_64,
+  Linux x86_64/aarch64, and the Raspberry Pi source bundle. Final assembly
+  requires the exact artifact/checksum inventory before creating a draft
+  release.
+- Split macOS output into Developer ID signed, notarized, stapled packages with
+  Mach-O architecture and macOS 12 deployment-target validation.
+- Added portable AppImage and integrated Debian desktop packaging, including
+  desktop metadata, icons, AppStream data, architecture checks, and user-home
+  state retention.
+- Added a Qt-free `localflight-server` freeze and Debian service package with a
+  locked service account, protected environment, systemd hardening, setup-gated
+  scheduling, upgrade-safe state, and no Pi-specific hostname/kiosk behavior.
+- Added exact release dependency inputs and package-stage rejection for secret,
+  operator, agent-context, internal-note, cache, and workstation-path material.
+
+### Runtime and compatibility
+
+- Generic Linux native mode now opens a normal resizable window; Pi and explicit
+  kiosk modes retain fullscreen behavior.
+- Headless startup exposes setup and health immediately while deferring the
+  scheduler until setup completion.
+- A shared runtime version/User-Agent helper replaces scattered current-version
+  fallbacks while retaining an explicit source-bundle fallback verified against
+  `pyproject.toml`.
+- Mobile moved to version 0.5.2, iOS build 8, and Android versionCode 11 without
+  changing permanent application or widget identifiers.
+
+### Security, relay, and publication
+
+- Raised vulnerable web/request/form/image/environment dependency floors and
+  pinned the relay's production set; removed an unused relay dependency.
+- Added an ASGI boundary that rejects oversized or ambiguous public bug-report
+  requests before multipart parsing, preserving existing upload, sanitization,
+  deduplication, CORS, and network-rate protections.
+- Added Fly health monitoring and gated relay deployment behind full Python,
+  mobile, audit, site-contract, and container-smoke jobs.
+- Expanded the public release manifest with independent architecture keys while
+  preserving the legacy `macos` alias during rollout.
+- Reworked public network/privacy/download wording so user choices come first
+  while precise technical and legal behavior remains in contributor/policy
+  detail.
+
 ## 0.5.1 engineering line
 
 ### Repository, privacy, and notices

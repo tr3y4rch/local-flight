@@ -33,6 +33,7 @@ from typing import Any, Dict, List, Optional
 import requests
 
 from localflight.decode.metar import decorate_metar
+from localflight.version import user_agent
 
 log = logging.getLogger(__name__)
 
@@ -71,7 +72,7 @@ def fetch_metar(icao: str, timeout_s: int = _TIMEOUT_S) -> Optional[Dict[str, An
             METAR_URL,
             params={"ids": icao, "format": "json"},
             timeout=timeout_s,
-            headers={"User-Agent": "local-flight/1.0 (+https://beacontools.cc/local-flight)"},
+            headers={"User-Agent": user_agent()},
         )
     except requests.RequestException as exc:
         log.warning("METAR fetch failed for %s: %s", icao, exc)

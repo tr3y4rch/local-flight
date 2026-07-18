@@ -4,7 +4,6 @@ import asyncio
 import json
 import logging
 import time
-from importlib.metadata import version as package_version
 from typing import Any
 from urllib.parse import urlencode, urlsplit
 
@@ -20,6 +19,7 @@ from localflight.storage.remote_companion import (
     mark_remote_grant_used,
     public_remote_grant,
 )
+from localflight.version import app_version as _app_version
 
 log = logging.getLogger(__name__)
 
@@ -91,13 +91,6 @@ def _relay_ws_url(relay_url: str, *, install_id: str, activation_token: str) -> 
         }
     )
     return f"{base}/v1/remote-companion/host/ws?{query}"
-
-
-def _app_version() -> str:
-    try:
-        return package_version("localflight")
-    except Exception:
-        return "0.5.1"
 
 
 def register_remote_grant_with_relay(grant: dict[str, Any], *, revoke: bool = False) -> dict[str, Any]:

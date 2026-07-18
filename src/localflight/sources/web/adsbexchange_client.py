@@ -11,6 +11,7 @@ from typing import Any, Dict, List
 import requests
 from localflight.core.aircraft import short_aircraft_type
 from localflight.sources.web.relay_defaults import default_public_relay_url, relay_radar_url
+from localflight.version import user_agent
 
 log = logging.getLogger(__name__)
 
@@ -197,7 +198,7 @@ def _fetch_managed_relay(lat: float, lon: float, dist_nm: int, timeout_s: int) -
         r = requests.get(
             _get_relay_url(),
             params=params,
-            headers={"Accept": "application/json", "User-Agent": "local-flight/1.0 (+https://beacontools.cc/local-flight)"},
+            headers={"Accept": "application/json", "User-Agent": user_agent()},
             timeout=timeout_s,
         )
     except requests.RequestException as exc:

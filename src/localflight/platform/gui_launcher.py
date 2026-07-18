@@ -61,28 +61,84 @@ def decide_gui_launch(
     native_ok = bool((native_probe or qt_available)())
 
     if requested == "headless":
-        return _decision(requested, "headless", plat, native_ok, has_display, "headless requested")
+        return _decision(requested, "headless", plat, native_ok, has_display, "headless requested", values)
 
     if requested == "browser":
         if has_display:
-            return _decision(requested, "browser", plat, native_ok, has_display, "browser requested")
-        return _decision(requested, "headless", plat, native_ok, has_display, "browser requested without display")
+            return _decision(requested, "browser", plat, native_ok, has_display, "browser requested", values)
+        return _decision(
+            requested,
+            "headless",
+            plat,
+            native_ok,
+            has_display,
+            "browser requested without display",
+            values,
+        )
 
     if requested == "native":
         if native_ok and has_display:
-            return _decision(requested, "native", plat, native_ok, has_display, "native requested and Qt available")
+            return _decision(
+                requested,
+                "native",
+                plat,
+                native_ok,
+                has_display,
+                "native requested and Qt available",
+                values,
+            )
         if native_ok and _desktop_without_display_ok(plat):
-            return _decision(requested, "native", plat, native_ok, has_display, "native requested on desktop")
+            return _decision(
+                requested,
+                "native",
+                plat,
+                native_ok,
+                has_display,
+                "native requested on desktop",
+                values,
+            )
         if has_display:
-            return _decision(requested, "browser", plat, native_ok, has_display, "native requested but Qt unavailable")
-        return _decision(requested, "headless", plat, native_ok, has_display, "native requested without display")
+            return _decision(
+                requested,
+                "browser",
+                plat,
+                native_ok,
+                has_display,
+                "native requested but Qt unavailable",
+                values,
+            )
+        return _decision(
+            requested,
+            "headless",
+            plat,
+            native_ok,
+            has_display,
+            "native requested without display",
+            values,
+        )
 
     # auto
     if native_ok and (has_display or _desktop_without_display_ok(plat)):
-        return _decision(requested, "native", plat, native_ok, has_display, "auto selected native Qt")
+        return _decision(
+            requested,
+            "native",
+            plat,
+            native_ok,
+            has_display,
+            "auto selected native Qt",
+            values,
+        )
     if has_display or plat in {Platform.WINDOWS, Platform.MACOS}:
-        return _decision(requested, "browser", plat, native_ok, has_display, "auto selected browser UI")
-    return _decision(requested, "headless", plat, native_ok, has_display, "auto selected headless")
+        return _decision(
+            requested,
+            "browser",
+            plat,
+            native_ok,
+            has_display,
+            "auto selected browser UI",
+            values,
+        )
+    return _decision(requested, "headless", plat, native_ok, has_display, "auto selected headless", values)
 
 
 def _decision(
@@ -92,14 +148,23 @@ def _decision(
     native_available: bool,
     has_display: bool,
     reason: str,
+    env: Mapping[str, str] | None = None,
 ) -> GuiLaunchDecision:
+    values = env or {}
+    explicit_fullscreen = str(values.get("LOCALFLIGHT_NATIVE_FULLSCREEN", "")).strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
     return GuiLaunchDecision(
         requested_mode=requested,
         effective_mode=effective,
         platform=platform,
         native_available=native_available,
         display_available=has_display,
-        fullscreen=effective == "native" and platform in {Platform.RASPBERRY_PI, Platform.LINUX},
+        fullscreen=effective == "native"
+        and (platform is Platform.RASPBERRY_PI or explicit_fullscreen),
         reason=reason,
     )
 

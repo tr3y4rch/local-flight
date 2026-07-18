@@ -2,9 +2,9 @@
 
 React Native / Expo mobile app for Local Flight.
 
-The mobile app is aligned to Local Flight `0.5.1` for TestFlight and Google Play testing. Public store listings are not live yet. It supports two first-run paths:
+The mobile app is aligned to Local Flight `0.5.2` for TestFlight and Google Play internal testing. It supports two first-run paths:
 
-- **Companion:** pair with the Local Flight desktop or Raspberry Pi server on your Wi-Fi/LAN. Companion uses LAN first and can use encrypted Remote Companion fallback after a relay-linked host grants this phone access.
+- **Companion:** pair with a Local Flight desktop, Linux server, or Raspberry Pi host on your Wi-Fi/LAN. Companion uses LAN first and can use encrypted Remote Companion fallback after a relay-linked host grants this phone access.
 - **Standalone:** use the hosted Local Flight relay directly for a simplified phone board. Careful refresh limits keep the shared service reliable and fairly available.
 
 For most home setups, start with Companion. Use Standalone when you want a light mobile FIDS/Radar/History app without running your own Local Flight server.
@@ -135,16 +135,16 @@ npm run android
 
 ### Store Testing / Release Path
 
-Store identity and the current `0.5.1` testing counters are:
+Store identity and the current `0.5.2` testing counters are:
 
 - iOS bundle ID: `cc.beacontools.localflight`
-- iOS `buildNumber`: `7`
+- iOS `buildNumber`: `8`
 - Android package ID: `cc.beacontools.localflight`
-- Android `versionCode`: `10`
+- Android `versionCode`: `11`
 
 Do not upload a store build with any old `com.localflight.*` identifier. App Store bundle IDs and Google Play package names are effectively permanent after first upload.
 
-The current widget-enabled source targets iOS `0.5.1 (7)` and Android `0.5.1 (10)`; these counters need fresh store builds because native widget code cannot be delivered through an over-the-air JavaScript update.
+The current widget-enabled source targets iOS `0.5.2 (8)` and Android `0.5.2 (11)`; these counters need fresh store builds because native widget code cannot be delivered through an over-the-air JavaScript update.
 
 ```bash
 cd mobile

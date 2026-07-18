@@ -39,14 +39,30 @@ user_journalctl() {
 }
 
 install_localflight_package() {
-    INSTALL_TARGET="$ROOT"
+    RELEASE_LOCK="$ROOT/requirements/release-core.txt"
     if uses_native_gui; then
-        INSTALL_TARGET="${ROOT}[native]"
         echo "Installing updated package with native Qt support..."
+        OS_CODENAME=""
+        if [ -r /etc/os-release ]; then
+            OS_CODENAME="$(. /etc/os-release && printf '%s' "${VERSION_CODENAME:-}")"
+        fi
+        case "$OS_CODENAME" in
+            bookworm) RELEASE_LOCK="$ROOT/requirements/release-pi-bookworm.txt" ;;
+            trixie) RELEASE_LOCK="$ROOT/requirements/release-pi-trixie.txt" ;;
+            *)
+                echo "ERROR: Native kiosk updates need Raspberry Pi OS Bookworm or Trixie 64-bit."
+                exit 1
+                ;;
+        esac
     else
         echo "Installing updated package..."
     fi
-    "$VENV/bin/python" -m pip install -e "$INSTALL_TARGET" -q > /dev/null 2>&1
+    [ -f "$RELEASE_LOCK" ] || {
+        echo "ERROR: Missing release dependency lock: $RELEASE_LOCK"
+        exit 1
+    }
+    "$VENV/bin/python" -m pip install --require-hashes -r "$RELEASE_LOCK" -q > /dev/null 2>&1
+    "$VENV/bin/python" -m pip install --no-deps -e "$ROOT" -q > /dev/null 2>&1
 }
 
 case "$CMD" in

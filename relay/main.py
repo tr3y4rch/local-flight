@@ -32,8 +32,10 @@ from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from pydantic import BaseModel, Field, field_validator
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from localflight.core.notices import attach_notices, make_notice, sanitize_client_payload
+from localflight.version import app_version as runtime_app_version, user_agent as runtime_user_agent
 
 AVIATIONSTACK_URL = "https://api.aviationstack.com/v1/flights"
 AERODATABOX_RAPIDAPI_URL = "https://aerodatabox.p.rapidapi.com"
@@ -124,6 +126,8 @@ _SITE_LOG_MAX_FILES = 3
 _SITE_LOG_MAX_FILE_BYTES = 128 * 1024
 _SITE_LOG_MAX_TOTAL_BYTES = 384 * 1024
 _SITE_LOG_EXCERPT_CHARS = 5000
+_SITE_BUG_REPORT_PATH = "/v1/site/bug-report"
+_SITE_BUG_REPORT_MAX_REQUEST_BYTES = 512 * 1024
 _COMMUNITY_SCHEDULE_NETWORK_DAILY_LIMIT = 240
 _COMMUNITY_SCHEDULE_GLOBAL_DAILY_LIMIT = 1000
 _COMMUNITY_RADAR_NETWORK_DAILY_LIMIT = 600
@@ -152,7 +156,18 @@ _LINEAR_GRAPHQL_URL = "https://api.linear.app/graphql"
 _REPORT_ALLOWED_TYPES = {"manual", "crash"}
 _REPORT_ALLOWED_ORIGINS = {"desktop", "web", "server", "scheduler", "mobile", "ios", "android", "relay"}
 _SITE_CONTACT_CATEGORIES = {"general", "mobile_testing", "relay", "privacy"}
-_SITE_BUG_SURFACES = {"windows", "macos", "raspberry-pi", "mobile", "matrix", "relay", "website", "unknown"}
+_SITE_BUG_SURFACES = {
+    "windows",
+    "macos",
+    "linux-desktop",
+    "linux-server",
+    "raspberry-pi",
+    "mobile",
+    "matrix",
+    "relay",
+    "website",
+    "unknown",
+}
 _SITE_ALLOWED_ORIGIN_HOSTS = {"beacontools.cc", "www.beacontools.cc"}
 _SITE_TEXT_EXTENSIONS = {
     ".txt",
@@ -175,6 +190,116 @@ _SITE_TEXT_CONTENT_TYPES = {
     "application/x-ndjson",
     "application/octet-stream",
 }
+
+
+class _SiteBugReportBodyLimitMiddleware:
+    """Bound the public multipart request before Starlette parses it."""
+
+    def __init__(
+        self,
+        app: ASGIApp,
+        *,
+        max_request_bytes: int = _SITE_BUG_REPORT_MAX_REQUEST_BYTES,
+    ) -> None:
+        self.app = app
+        self.max_request_bytes = int(max_request_bytes)
+
+    @staticmethod
+    def _content_length(scope: Scope) -> Optional[int]:
+        raw_values: list[bytes] = []
+        for name, value in scope.get("headers", []):
+            if name.lower() != b"content-length":
+                continue
+            raw_values.extend(part.strip() for part in value.split(b","))
+        if not raw_values:
+            return None
+
+        parsed: list[int] = []
+        for raw_value in raw_values:
+            if not raw_value or any(not 48 <= byte <= 57 for byte in raw_value):
+                raise ValueError("invalid Content-Length")
+            parsed.append(int(raw_value))
+        if len(set(parsed)) != 1:
+            raise ValueError("conflicting Content-Length values")
+        return parsed[0]
+
+    @staticmethod
+    async def _reject(
+        scope: Scope,
+        receive: Receive,
+        send: Send,
+        *,
+        status_code: int,
+        detail: str,
+    ) -> None:
+        response = JSONResponse({"detail": detail}, status_code=status_code)
+        await response(scope, receive, send)
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if (
+            scope.get("type") != "http"
+            or str(scope.get("method") or "").upper() != "POST"
+            or scope.get("path") != _SITE_BUG_REPORT_PATH
+        ):
+            await self.app(scope, receive, send)
+            return
+
+        try:
+            declared_length = self._content_length(scope)
+        except ValueError:
+            await self._reject(
+                scope,
+                receive,
+                send,
+                status_code=400,
+                detail="Invalid Content-Length header.",
+            )
+            return
+
+        if declared_length is not None and declared_length > self.max_request_bytes:
+            await self._reject(
+                scope,
+                receive,
+                send,
+                status_code=413,
+                detail="Bug report request exceeds the 512 KiB limit.",
+            )
+            return
+
+        body = bytearray()
+        while True:
+            message = await receive()
+            message_type = message.get("type")
+            if message_type == "http.disconnect":
+                return
+            if message_type != "http.request":
+                continue
+            chunk = message.get("body", b"")
+            if len(body) + len(chunk) > self.max_request_bytes:
+                await self._reject(
+                    scope,
+                    receive,
+                    send,
+                    status_code=413,
+                    detail="Bug report request exceeds the 512 KiB limit.",
+                )
+                return
+            body.extend(chunk)
+            if not message.get("more_body", False):
+                break
+
+        replayed = False
+
+        async def replay_receive() -> Message:
+            nonlocal replayed
+            if not replayed:
+                replayed = True
+                return {"type": "http.request", "body": bytes(body), "more_body": False}
+            return await receive()
+
+        await self.app(scope, replay_receive, send)
+
+
 _REPORT_TEAM_ENV = {
     "ios": "LINEAR_TEAM_IOS_ID",
     "desktop": "LINEAR_TEAM_DESKTOP_ID",
@@ -1282,12 +1407,12 @@ def _aerodatabox_request_headers() -> Dict[str, str]:
             "X-RapidAPI-Key": _aerodatabox_key(),
             "X-RapidAPI-Host": "aerodatabox.p.rapidapi.com",
             "Accept": "application/json",
-            "User-Agent": "localflight-relay/0.5.1",
+            "User-Agent": runtime_user_agent("localflight-relay"),
         }
     return {
         "x-magicapi-key": _aerodatabox_key(),
         "Accept": "application/json",
-        "User-Agent": "localflight-relay/0.5.1",
+        "User-Agent": runtime_user_agent("localflight-relay"),
     }
 
 
@@ -4103,7 +4228,7 @@ def _aviationstack_upstream_payload(params: Dict[str, Any]) -> Dict[str, Any]:
         response = _req.get(
             AVIATIONSTACK_URL,
             params=params,
-            headers={"User-Agent": "localflight-relay/1.0"},
+            headers={"User-Agent": runtime_user_agent("localflight-relay")},
             timeout=25,
         )
     except Exception as exc:
@@ -9267,6 +9392,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(title="Local Flight Network Admin", lifespan=_lifespan, docs_url=None, redoc_url=None)
 app.add_middleware(GZipMiddleware, minimum_size=1024)
+app.add_middleware(_SiteBugReportBodyLimitMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["https://beacontools.cc", "https://www.beacontools.cc"],
@@ -9697,12 +9823,7 @@ def _build_client_status(
 
 
 def _localflight_version_label() -> str:
-    try:
-        from importlib.metadata import version
-
-        return version("localflight")
-    except Exception:
-        return "0.5.1"
+    return runtime_app_version()
 
 
 def _airport_result_payload(rec: Any, *, include_coords: bool = False) -> Dict[str, Any]:
@@ -11846,7 +11967,7 @@ def relay_flights(
         upstream = _req.get(
             AVIATIONSTACK_URL,
             params=params,
-            headers={"User-Agent": "localflight-relay/1.0"},
+            headers={"User-Agent": runtime_user_agent("localflight-relay")},
             timeout=25,
         )
         latency_ms = int((time.monotonic() - t0) * 1000)

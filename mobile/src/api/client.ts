@@ -328,7 +328,7 @@ export async function testCompanionSetupServer(serverUrl: string): Promise<{
     return { normalizedUrl, state, config };
   } catch {
     throw new LocalFlightApiError(
-      "Local Flight answered /health, but setup APIs are not ready. Finish Local Flight setup on the desktop/Pi first, then return here."
+      "Local Flight answered /health, but setup APIs are not ready. Finish setup on the Local Flight host first, then return here."
     );
   }
 }
