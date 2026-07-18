@@ -225,6 +225,10 @@ def _pe_strings(path: Path) -> tuple[int, dict[str, str]]:
 
 
 def _version_matches(actual: str, expected: str) -> bool:
+    # PE string resources can be padded with NULs or spaces by installer
+    # toolchains. Ignore only surrounding padding; malformed/internal spacing
+    # must still fail the numeric version contract.
+    actual = actual.strip(" \t\r\n\0")
     if not re.fullmatch(r"[0-9]+(?:\.[0-9]+)*", actual):
         return False
     actual_parts = tuple(int(part) for part in actual.split("."))

@@ -19,7 +19,7 @@ from scripts import (
     package_pi_source,
     package_windows_installer,
 )
-from scripts.attest_release_artifact import create_attestation
+from scripts.attest_release_artifact import _version_matches, create_attestation
 from scripts.release_safety import (
     is_excluded_frozen_data_path,
     is_private_install_metadata_path,
@@ -116,6 +116,13 @@ def test_public_artifact_names_match_release_matrix() -> None:
         "localflight-server_0.5.2_arm64.deb",
         "LocalFlight-pi-source-0.5.2.zip",
     )
+
+
+def test_windows_attestation_accepts_only_surrounding_pe_version_padding() -> None:
+    assert _version_matches("0.5.2                                             ", "0.5.2")
+    assert _version_matches("\0\t0.5.2.0 \r\n", "0.5.2")
+    assert not _version_matches("0.5. 2", "0.5.2")
+    assert not _version_matches("0.5.3", "0.5.2")
 
 
 def _write_release_files(directory: Path) -> None:
